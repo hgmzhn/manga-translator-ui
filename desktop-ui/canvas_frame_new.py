@@ -131,6 +131,16 @@ class CanvasFrame(ctk.CTkFrame):
         self.renderer.set_refined_mask(mask)
         self.redraw_canvas()
 
+    def set_removed_mask(self, mask):
+        """设置被优化掉的蒙版区域"""
+        self.renderer.set_removed_mask(mask)
+        self.redraw_canvas()
+
+    def set_removed_mask_visibility(self, visible: bool):
+        """设置被优化掉区域的可见性"""
+        self.renderer.set_removed_mask_visibility(visible)
+        self.redraw_canvas()
+
     def set_mask_visibility(self, visible: bool):
         self.renderer.set_mask_visibility(visible)
         self.redraw_canvas()
@@ -204,11 +214,18 @@ class CanvasFrame(ctk.CTkFrame):
             self.renderer.draw_preview(None)
 
     def _on_drag_preview(self, polygons):
-        if polygons and not self.is_previewing:
-            self.is_previewing = True
-            self.renderer.redraw_all(self.regions, self.selected_indices)
-        
-        self.renderer.draw_preview(polygons)
+        if polygons:
+            # On the first frame of the drag, tell the main renderer to hide the region we are editing.
+            if not self.is_previewing:
+                self.is_previewing = True
+                # Get the index of the selected region from the mouse_handler
+                hide_indices = self.mouse_handler.selected_indices
+                # Redraw everything BUT the region we are currently dragging.
+                self.renderer.redraw_all(self.regions, self.selected_indices, hide_indices=hide_indices)
+            
+            # Now, draw the preview shape. This will be drawn on a canvas where the original shape is hidden.
+            self.renderer.draw_preview(polygons)
+        # When the drag stops, this preview will be cleared and a full redraw with the updated data will occur.
 
     def _on_geometry_added(self, region_index, new_polygon):
         if self.on_geometry_added:

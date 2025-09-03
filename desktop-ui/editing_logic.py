@@ -12,16 +12,22 @@ def rotate_point(x, y, angle_deg, cx, cy):
     return x_new, y_new
 
 def get_polygon_center(vertices: List[Tuple[float, float]]) -> Tuple[float, float]:
-    """计算能包裹所有顶点的最大外接矩形的中心点，与后端算法保持一致。"""
+    """计算多边形的旋转中心点，使用cv2.minAreaRect确保与后端渲染一致。"""
     if not vertices:
         return 0, 0
-    x_coords = [v[0] for v in vertices]
-    y_coords = [v[1] for v in vertices]
-    if not x_coords or not y_coords:
-        return 0, 0
-    min_x, max_x = min(x_coords), max(x_coords)
-    min_y, max_y = min(y_coords), max(y_coords)
-    return (min_x + max_x) / 2, (min_y + max_y) / 2
+    if len(vertices) < 3:
+        # 如果点数不足，回退到简单的几何中心
+        x_coords = [v[0] for v in vertices]
+        y_coords = [v[1] for v in vertices]
+        if not x_coords or not y_coords:
+            return 0, 0
+        return sum(x_coords) / len(x_coords), sum(y_coords) / len(y_coords)
+    
+    # 使用cv2.minAreaRect计算最小外接矩形的中心点
+    points_np = np.array(vertices, dtype=np.float32)
+    min_area_rect = cv2.minAreaRect(points_np)
+    center = min_area_rect[0]
+    return float(center[0]), float(center[1])
 
 def _project_vector(v_to_project: Tuple[float, float], v_target: Tuple[float, float]) -> Tuple[float, float]:
     """将一个向量投影到另一个向量上"""

@@ -109,7 +109,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         poly = Polygon(region.unrotated_min_rect[0]); minx, miny, _, _ = poly.bounds
                         poly = affinity.scale(poly, xfact=scale_x, yfact=1.0, origin=(minx, miny))
                         pts = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2).astype(np.int64)
+                        dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                         single_axis_expanded = True
                     except: pass
             if region.vertical:
@@ -122,7 +122,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         poly = Polygon(region.unrotated_min_rect[0]); minx, miny, _, _ = poly.bounds
                         poly = affinity.scale(poly, xfact=1.0, yfact=scale_x, origin=(minx, miny))
                         pts = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2).astype(np.int64)
+                        dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                         single_axis_expanded = True
                     except: pass
             if not single_axis_expanded:
@@ -138,7 +138,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     try:
                         poly = Polygon(region.unrotated_min_rect[0]); poly = affinity.scale(poly, xfact=final_scale, yfact=final_scale, origin='center')
                         scaled_unrotated_points = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2).astype(np.int64).reshape((-1, 4, 2))
+                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                     except: dst_points = region.min_rect
                 else: dst_points = region.min_rect
             dst_points_list.append(dst_points)
@@ -189,7 +189,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         origin_point = 'center' if len(region.lines) == 1 else (minx, miny)
                         poly = affinity.scale(poly, xfact=scale_factor_x, yfact=scale_factor_y, origin=origin_point)
                         scaled_unrotated_points = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2).astype(np.int64)
+                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
 
                 except Exception as e:
                     logger.warning(f"Failed to scale region with custom logic: {e}")
@@ -208,7 +208,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     try:
                         poly = Polygon(region.unrotated_min_rect[0]); poly = affinity.scale(poly, xfact=final_scale, yfact=final_scale, origin='center')
                         scaled_unrotated_points = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2).astype(np.int64).reshape((-1, 4, 2))
+                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                     except: dst_points = region.min_rect
             
             dst_points_list.append(dst_points)
@@ -340,7 +340,7 @@ def render(
 
     M, _ = cv2.findHomography(src_points, dst_points, cv2.RANSAC, 5.0)
     rgba_region = cv2.warpPerspective(box, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-    x, y, w, h = cv2.boundingRect(dst_points.astype(np.int32))
+    x, y, w, h = cv2.boundingRect(np.round(dst_points).astype(np.int32))
     canvas_region = rgba_region[y:y+h, x:x+w, :3]
     mask_region = rgba_region[y:y+h, x:x+w, 3:4].astype(np.float32) / 255.0
     img[y:y+h, x:x+w] = np.clip((img[y:y+h, x:x+w].astype(np.float32) * (1 - mask_region) + canvas_region.astype(np.float32) * mask_region), 0, 255).astype(np.uint8)

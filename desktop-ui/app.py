@@ -879,6 +879,16 @@ class AppController:
         inpainter_frame = CollapsibleFrame(advanced_left, title=self.translate("inpainter"))
         inpainter_frame.pack(fill="x", pady=5)
         self.create_param_widgets(config.get("inpainter"), inpainter_frame.content_frame, "inpainter")
+
+        # === 新增：修复参数 ===
+        repair_frame = CollapsibleFrame(advanced_left, title="修复参数")
+        repair_frame.pack(fill="x", pady=5)
+        repair_params = {
+            "filter_text": config.get("filter_text"),
+            "kernel_size": config.get("kernel_size"),
+            "mask_dilation_offset": config.get("mask_dilation_offset")
+        }
+        self.create_param_widgets(repair_params, repair_frame.content_frame, "") # Pass empty prefix for top-level keys
         
         # 右侧：渲染、超分、上色器
         render_frame = CollapsibleFrame(advanced_right, title=self.translate("render"))
@@ -1478,6 +1488,7 @@ class MainView(ctk.CTkFrame):
         self.source_frame = ctk.CTkFrame(self.left_frame)
         self.source_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
         self.source_frame.grid_columnconfigure(0, weight=1)
+        self.source_frame.grid_rowconfigure(3, weight=1)  # 让文件列表行可以扩展
         self.source_label = ctk.CTkLabel(self.source_frame, text=self.controller.translate("source"), font=ctk.CTkFont(weight="bold"))
         self.source_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
         
@@ -1486,8 +1497,19 @@ class MainView(ctk.CTkFrame):
         self.add_folder_button = ctk.CTkButton(self.source_frame, text=self.controller.translate("add_folder"), command=self.controller.add_folder)
         self.add_folder_button.grid(row=2, column=0, padx=10, pady=5, sticky="ew")
         
-        self.file_listbox = Listbox(self.source_frame, selectmode="extended", bg="#2B2B2B", fg="white", borderwidth=0, highlightthickness=0)
-        self.file_listbox.grid(row=3, column=0, padx=10, pady=5, sticky="nsew")
+        # 创建文件列表容器，包含滚动条
+        self.file_list_container = ctk.CTkFrame(self.source_frame, fg_color="transparent")
+        self.file_list_container.grid(row=3, column=0, padx=10, pady=5, sticky="nsew")
+        self.file_list_container.grid_columnconfigure(0, weight=1)
+        self.file_list_container.grid_rowconfigure(0, weight=1)
+        
+        self.file_listbox = Listbox(self.file_list_container, selectmode="extended", bg="#2B2B2B", fg="white", borderwidth=0, highlightthickness=0)
+        self.file_listbox.grid(row=0, column=0, sticky="nsew")
+        
+        # 添加垂直滚动条
+        self.file_list_scrollbar = ctk.CTkScrollbar(self.file_list_container, orientation="vertical", command=self.file_listbox.yview)
+        self.file_list_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.file_listbox.configure(yscrollcommand=self.file_list_scrollbar.set)
         
         self.file_list_buttons = ctk.CTkFrame(self.source_frame)
         self.file_list_buttons.grid(row=4, column=0, padx=10, pady=5, sticky="ew")

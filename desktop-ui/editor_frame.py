@@ -51,6 +51,7 @@ class EditorFrame(ctk.CTkFrame):
         self.inpainted_image: Optional[Image.Image] = None
         self.inpainting_in_progress: bool = False
         self.refined_mask: Optional[np.ndarray] = None
+        self.removed_mask: Optional[np.ndarray] = None  # 存储被优化掉的原始蒙版区域
         self.mask_edit_mode: str = "不选择"
         self.mask_brush_size: int = 20
         self.mask_edit_start_state: Optional[np.ndarray] = None
@@ -101,6 +102,21 @@ class EditorFrame(ctk.CTkFrame):
         self.show_mask_checkbox = ctk.CTkCheckBox(content_frame, text="显示蒙版", command=lambda: self._on_toggle_mask_visibility(self.show_mask_checkbox.get()))
         self.show_mask_checkbox.select()
         self.show_mask_checkbox.grid(row=3, column=0, pady=5, padx=5, sticky="w")
+        
+        # 添加蒙版更新按钮
+        self.update_mask_button = ctk.CTkButton(
+            content_frame, 
+            text="更新蒙版", 
+            command=self._update_mask_with_config,
+            height=28
+        )
+        self.update_mask_button.grid(row=4, column=0, pady=5, padx=5, sticky="ew")
+        
+        # 添加显示被优化掉区域的选项
+        self.show_removed_checkbox = ctk.CTkCheckBox(content_frame, text="显示被优化掉的区域", command=lambda: self._on_toggle_removed_mask_visibility(self.show_removed_checkbox.get()))
+        # 默认不显示被优化掉的区域
+        self.show_removed_checkbox.deselect()
+        self.show_removed_checkbox.grid(row=5, column=0, pady=5, padx=5, sticky="w")
 
         self.canvas_frame = CanvasFrame(self, self.transform_service, 
                                         on_region_selected=self._on_region_selected, 
@@ -171,6 +187,8 @@ class EditorFrame(ctk.CTkFrame):
         self.property_panel.register_callback('set_edit_mode', self._on_mask_tool_changed)
         self.property_panel.register_callback('brush_size_changed', self._on_brush_size_changed)
         self.property_panel.register_callback('toggle_mask_visibility', self._on_toggle_mask_visibility)
+        self.property_panel.register_callback('update_mask', self._update_mask_with_config)
+        self.property_panel.register_callback('toggle_removed_mask_visibility', self._on_toggle_removed_mask_visibility)
 
     def _setup_shortcuts(self):
         canvas = self.canvas_frame.canvas
@@ -550,71 +568,65 @@ class EditorFrame(ctk.CTkFrame):
             show_toast(self, "Please select exactly one region to edit its shape.", level="info")
 
     def _on_geometry_added(self, region_index, new_polygon_world):
-        print(f"--- DEBUG: Geometry added to region {region_index}")
-        if region_index < len(self.regions_data):
-            region_data = self.regions_data[region_index]
-            old_data = copy.deepcopy(region_data)
+        print("\n\n--- DEBUGGING _on_geometry_added ---")
+        if region_index >= len(self.regions_data):
+            print(f"--- DEBUG: Invalid region_index {region_index}. Aborting. ---")
+            return
 
-            angle = region_data.get('angle', 0)
-            
-            center = region_data.get('center')
-            if not center:
-                all_points = [tuple(p) for poly in region_data.get('lines', []) for p in poly]
-                if not all_points:
-                    center = editing_logic.get_polygon_center(new_polygon_world)
-                else:
-                    center = editing_logic.get_polygon_center(all_points)
-                region_data['center'] = list(center)
+        region_data = self.regions_data[region_index]
+        old_data_for_history = copy.deepcopy(region_data)
+        
+        angle = region_data.get('angle', 0)
+        old_lines_model = region_data.get('lines', [])
+        print(f"--- DEBUG [0] ANGLE: {angle}")
+        print(f"--- DEBUG [1] OLD MODEL LINES: {old_lines_model}")
+        
+        old_center = region_data.get('center')
+        if not old_center:
+            all_old_model_points = [tuple(p) for poly in old_lines_model for p in poly]
+            old_center = editing_logic.get_polygon_center(all_old_model_points) if all_old_model_points else (0,0)
+        print(f"--- DEBUG [2] OLD CENTER: {old_center}")
 
+        print(f"--- DEBUG [3] NEW POLYGON (WORLD): {new_polygon_world}")
 
-            new_polygon_model = [
-                list(editing_logic.rotate_point(p[0], p[1], -angle, center[0], center[1]))
-                for p in new_polygon_world
-            ]
+        # 1. Convert all existing polygons from model space to world space
+        old_polygons_world = [
+            [editing_logic.rotate_point(p[0], p[1], angle, old_center[0], old_center[1]) for p in poly]
+            for poly in old_lines_model
+        ]
 
-            # --- BEGIN DEBUG CODE ---
-            print("\n--- POLYGON DEBUG START ---")
-            print(f"Region Index: {region_index}, Angle: {angle}")
-            print(f"World Coords (User Drawn): {new_polygon_world}")
-            print(f"Model Coords (Float): {new_polygon_model}")
-            
-            new_polygon_model_int = [[int(p[0]), int(p[1])] for p in new_polygon_model]
-            print(f"Model Coords (Int): {new_polygon_model_int}")
+        # 2. Combine old and new world polygons
+        all_polygons_world = old_polygons_world + [new_polygon_world]
+        all_vertices_world = [vertex for poly in all_polygons_world for vertex in poly]
+        print(f"--- DEBUG [4] ALL VERTICES (WORLD): {all_vertices_world}")
 
-            try:
-                # Create a blank image for visualization
-                debug_img_size = self.original_size if self.original_size else (1000, 1000)
-                debug_image = np.zeros((debug_img_size[1], debug_img_size[0], 3), dtype=np.uint8)
+        if not all_vertices_world:
+            print("--- DEBUG: No vertices to process. Aborting. ---")
+            return
 
-                # Draw existing polygons in blue
-                existing_polys_np = [np.array(p, dtype=np.int32) for p in region_data.get('lines', [])]
-                cv2.polylines(debug_image, existing_polys_np, isClosed=True, color=(255, 0, 0), thickness=2)
+        # 3. Calculate the new center from the complete set of world vertices using minAreaRect
+        points_np = np.array(all_vertices_world, dtype=np.float32)
+        min_area_rect = cv2.minAreaRect(points_np)
+        new_center = min_area_rect[0]
+        print(f"--- DEBUG [5] NEW CENTER (from World): {new_center}")
 
-                # Draw the new float polygon in red (note: cv2 requires int32, so we cast it)
-                new_poly_np_float_for_draw = np.array(new_polygon_model, dtype=np.int32)
-                cv2.polylines(debug_image, [new_poly_np_float_for_draw], isClosed=True, color=(0, 0, 255), thickness=4)
+        # 4. Convert all world polygons back to the new model space
+        new_lines_model = [
+            [editing_logic.rotate_point(p[0], p[1], -angle, new_center[0], new_center[1]) for p in poly]
+            for poly in all_polygons_world
+        ]
+        print(f"--- DEBUG [6] NEW MODEL LINES: {new_lines_model}")
 
-                # Draw the new int polygon in green
-                new_poly_np_int = np.array(new_polygon_model_int, dtype=np.int32)
-                cv2.polylines(debug_image, [new_poly_np_int], isClosed=True, color=(0, 255, 0), thickness=2)
-                
-                debug_filename = "debug_polygon_transform.png"
-                cv2.imwrite(debug_filename, debug_image)
-                print(f"Debug image saved to: {os.path.abspath(debug_filename)}")
+        # 5. Update the region data with the new model data
+        region_data['lines'] = new_lines_model
+        region_data['center'] = list(new_center)
+        print(f"--- DEBUG [7] FINAL REGION DATA: {region_data}")
 
-            except Exception as e:
-                print(f"Failed to generate debug image: {e}")
-            print("--- POLYGON DEBUG END ---")
-            # --- END DEBUG CODE ---
-
-            region_data['lines'].append(new_polygon_model)
-            
-            all_points_updated = [tuple(p) for poly in region_data.get('lines', []) for p in poly]
-            region_data['center'] = list(editing_logic.get_polygon_center(all_points_updated))
-
-            self.history_manager.save_state(ActionType.RESIZE, region_index, old_data, self.regions_data[region_index])
-            self._update_canvas_regions()
-            self._update_history_buttons()
+        # Save history and update UI
+        self.history_manager.save_state(ActionType.RESIZE, region_index, old_data_for_history, self.regions_data[region_index])
+        self._update_canvas_regions()
+        self._update_history_buttons()
+        print("--- DEBUGGING END ---\n\n")
 
     def _on_mask_tool_changed(self, tool: str):
         self.mask_edit_mode = tool
@@ -629,6 +641,132 @@ class EditorFrame(ctk.CTkFrame):
 
     def _on_toggle_mask_visibility(self, value):
         self.canvas_frame.set_mask_visibility(value)
+
+    def _on_toggle_removed_mask_visibility(self, value):
+        """切换被优化掉区域的显示"""
+        self.canvas_frame.set_removed_mask_visibility(value)
+
+    def _update_mask_with_config(self):
+        """根据最新配置参数更新蒙版，保留用户的手动编辑"""
+        if self.refined_mask is None:
+            show_toast(self, "请先生成初始蒙版", level="warning")
+            return
+        
+        # 保存当前用户编辑的蒙版状态
+        current_edited_mask = self.refined_mask.copy()
+        
+        # 异步更新蒙版
+        self.async_service.submit_task(self._update_refined_mask_with_config(current_edited_mask))
+    
+    async def _update_refined_mask_with_config(self, edited_mask: np.ndarray):
+        """异步更新蒙版的实现"""
+        try:
+            if self.image is None or self.raw_mask is None:
+                show_toast(self, "图片或原始蒙版不存在", level="error")
+                return
+                
+            show_toast(self, "正在更新蒙版...", level="info")
+            
+            # 重新生成基础精细蒙版
+            image_np = np.array(self.image.convert("RGB"))
+            text_blocks = [TextBlock(**region_data) for region_data in self.regions_data]
+            
+            if len(self.raw_mask.shape) == 3:
+                raw_mask_2d = cv2.cvtColor(self.raw_mask, cv2.COLOR_BGR2GRAY)
+            else:
+                raw_mask_2d = self.raw_mask
+            raw_mask_contiguous = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
+            
+            # 获取最新的配置参数
+            config = self.config_service.get_config()
+            ocr_config = config.get('ocr', {})
+            kernel_size = ocr_config.get('kernel_size', 3)
+            ignore_bubble = ocr_config.get('ignore_bubble', 0)
+            mask_dilation_offset = ocr_config.get('mask_dilation_offset', 0)
+            
+            print(f"更新蒙版使用配置: kernel_size={kernel_size}, ignore_bubble={ignore_bubble}, dilation_offset={mask_dilation_offset}")
+            
+            # 生成新的基础蒙版
+            new_base_mask = await refine_mask_dispatch(
+                text_blocks, 
+                image_np, 
+                raw_mask_contiguous,
+                method='fit_text', 
+                dilation_offset=mask_dilation_offset, 
+                ignore_bubble=ignore_bubble,
+                kernel_size=kernel_size
+            )
+            
+            if new_base_mask is not None:
+                # 计算被优化掉的区域（原始蒙版有但新蒙版没有的区域）
+                if self.raw_mask is not None:
+                    if len(self.raw_mask.shape) == 3:
+                        raw_mask_2d = cv2.cvtColor(self.raw_mask, cv2.COLOR_BGR2GRAY)
+                    else:
+                        raw_mask_2d = self.raw_mask
+                    
+                    # 确保两个蒙版尺寸一致
+                    if raw_mask_2d.shape != new_base_mask.shape:
+                        print(f"警告: 原始蒙版尺寸 {raw_mask_2d.shape} 与新蒙版尺寸 {new_base_mask.shape} 不匹配，调整尺寸...")
+                        raw_mask_2d = cv2.resize(raw_mask_2d, (new_base_mask.shape[1], new_base_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
+                    
+                    # 计算被移除的区域：原始蒙版中的白色区域减去新蒙版中的白色区域
+                    raw_mask_binary = (raw_mask_2d > 127).astype(np.uint8)
+                    new_mask_binary = (new_base_mask > 127).astype(np.uint8)
+                    self.removed_mask = np.maximum(0, raw_mask_binary - new_mask_binary) * 255
+                
+                # 简化逻辑：直接使用新的基础蒙版，但尝试保留明显的用户编辑
+                if edited_mask.shape == new_base_mask.shape:
+                    # 生成一个参考蒙版用于比较用户编辑
+                    ref_mask = await refine_mask_dispatch(
+                        text_blocks, 
+                        image_np, 
+                        raw_mask_contiguous,
+                        method='fit_text', 
+                        dilation_offset=0,  # 使用默认参数作为参考
+                        ignore_bubble=0,
+                        kernel_size=3
+                    )
+                    
+                    if ref_mask is not None:
+                        # 检测用户手动编辑的区域（与参考蒙版差异较大的地方）
+                        diff = np.abs(edited_mask.astype(np.int16) - ref_mask.astype(np.int16))
+                        user_edit_regions = (diff > 50).astype(np.uint8)  # 阈值可调整
+                        
+                        # 在用户编辑区域保留原编辑，其他区域使用新蒙版
+                        final_mask = new_base_mask.copy()
+                        final_mask[user_edit_regions > 0] = edited_mask[user_edit_regions > 0]
+                        
+                        self.refined_mask = final_mask
+                    else:
+                        self.refined_mask = new_base_mask
+                else:
+                    self.refined_mask = new_base_mask
+                
+                # 保存到历史记录
+                self.history_manager.save_state(
+                    ActionType.EDIT_MASK, 
+                    0, 
+                    edited_mask, 
+                    self.refined_mask.copy(), 
+                    description="Update Mask Config"
+                )
+                
+                # 更新显示
+                self.canvas_frame.set_refined_mask(self.refined_mask)
+                if hasattr(self.canvas_frame, 'set_removed_mask'):
+                    self.canvas_frame.set_removed_mask(self.removed_mask)
+                self._update_history_buttons()
+                
+                show_toast(self, "蒙版已根据最新配置更新！", level="success")
+            else:
+                show_toast(self, "蒙版更新失败", level="error")
+                
+        except Exception as e:
+            print(f"更新蒙版失败: {e}")
+            import traceback
+            traceback.print_exc()
+            show_toast(self, f"更新蒙版失败: {e}", level="error")
 
     def _on_mask_edit_start(self):
         if self.refined_mask is not None:
@@ -771,6 +909,27 @@ class EditorFrame(ctk.CTkFrame):
 
             if self.refined_mask is not None:
                 print(f"DEBUG: Mask generated. ID: {id(self.refined_mask)}, Sum: {np.sum(self.refined_mask)}")
+                
+                # 计算被优化掉的区域（原始蒙版有但新蒙版没有的区域）
+                if self.raw_mask is not None:
+                    if len(self.raw_mask.shape) == 3:
+                        raw_mask_2d_for_removed = cv2.cvtColor(self.raw_mask, cv2.COLOR_BGR2GRAY)
+                    else:
+                        raw_mask_2d_for_removed = self.raw_mask
+                    
+                    # 确保两个蒙版尺寸一致
+                    if raw_mask_2d_for_removed.shape != self.refined_mask.shape:
+                        print(f"警告: 原始蒙版尺寸 {raw_mask_2d_for_removed.shape} 与精细蒙版尺寸 {self.refined_mask.shape} 不匹配，调整尺寸...")
+                        raw_mask_2d_for_removed = cv2.resize(raw_mask_2d_for_removed, (self.refined_mask.shape[1], self.refined_mask.shape[0]), interpolation=cv2.INTER_NEAREST)
+                    
+                    # 计算被移除的区域：原始蒙版中的白色区域减去新蒙版中的白色区域
+                    raw_mask_binary = (raw_mask_2d_for_removed > 127).astype(np.uint8)
+                    new_mask_binary = (self.refined_mask > 127).astype(np.uint8)
+                    self.removed_mask = np.maximum(0, raw_mask_binary - new_mask_binary) * 255
+                    
+                    # 设置到canvas
+                    self.canvas_frame.set_removed_mask(self.removed_mask)
+                
                 self.canvas_frame.set_refined_mask(self.refined_mask)
                 show_toast(self, "蒙版生成完毕！", level="success")
             else:

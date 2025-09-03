@@ -1,10 +1,11 @@
 import customtkinter as ctk
+import numpy as np
+import cv2
 import copy
 import math
 import editing_logic
 from services.transform_service import TransformService
-from typing import Callable, List, Dict, Any, Set, Tuple
-from .text_renderer_backend import get_bounding_box_center
+from typing import Callable, List, Dict, Any, Set, Tuple, Optional
 
 class MouseEventHandler:
     def __init__(self, canvas, regions, transform_service: TransformService, 
@@ -63,6 +64,75 @@ class MouseEventHandler:
     def set_brush_size(self, size):
         self.brush_size = size
 
+    def _get_rotation_handle_world_pos(self, region: Dict[str, Any]) -> Optional[Tuple[float, float]]:
+        """计算旋转手柄的世界坐标位置，确保与渲染一致"""
+        if not region or 'lines' not in region or not region['lines']:
+            return None
+        
+        angle = region.get('angle', 0)
+        center = region.get('center') 
+        if not center:
+            all_model_points = [p for poly in region['lines'] for p in poly]
+            center = editing_logic.get_polygon_center(all_model_points) if all_model_points else (0, 0)
+        
+        # 计算模型坐标中所有点的边界
+        all_model_points = [p for poly in region['lines'] for p in poly]
+        if not all_model_points: 
+            return None
+            
+        min_y = min(p[1] for p in all_model_points)
+        max_y = max(p[1] for p in all_model_points)
+        unrotated_height = max_y - min_y
+        
+        # 手柄偏移量：在模型坐标中向上偏移
+        handle_y_offset = -(unrotated_height / 2.0 + 30.0)
+        
+        # 将偏移向量旋转，然后加到中心点上得到世界坐标
+        offset_x_rot, offset_y_rot = editing_logic.rotate_point(0, handle_y_offset, angle, 0, 0)
+        handle_x = center[0] + offset_x_rot
+        handle_y = center[1] + offset_y_rot
+        
+        return float(handle_x), float(handle_y)
+
+    def _get_hit_target(self, event: Any) -> Optional[Dict[str, Any]]:
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        img_x, img_y = self.transform_service.screen_to_image(x, y)
+
+        if len(self.selected_indices) == 1:
+            region_index = list(self.selected_indices)[0]
+            region = self.regions[region_index]
+            if not isinstance(region, dict): return None
+
+            handle_world_pos = self._get_rotation_handle_world_pos(region)
+            if handle_world_pos:
+                handle_screen_x, handle_screen_y = self.transform_service.image_to_screen(*handle_world_pos)
+                if math.hypot(x - handle_screen_x, y - handle_screen_y) < 10:
+                    return {'type': 'rotate', 'region_index': region_index}
+
+            angle = region.get('angle', 0)
+            center = region.get('center') or editing_logic.get_polygon_center([p for poly in region.get('lines', []) for p in poly])
+            world_coords_polygons = [[editing_logic.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly] for poly in region.get('lines', [])]
+
+            for poly_idx, poly in enumerate(world_coords_polygons):
+                for vertex_idx, (vx, vy) in enumerate(poly):
+                    if math.hypot(img_x - vx, img_y - vy) * self.transform_service.zoom_level < 10:
+                        return {'type': 'vertex_edit', 'region_index': region_index, 'poly_index': poly_idx, 'vertex_index': vertex_idx}
+
+            for poly_idx, poly in enumerate(world_coords_polygons):
+                for edge_idx in range(len(poly)):
+                    if self.is_on_segment(img_x, img_y, poly[edge_idx], poly[(edge_idx + 1) % len(poly)]):
+                        return {'type': 'edge_edit', 'region_index': region_index, 'poly_index': poly_idx, 'edge_index': edge_idx}
+
+        for i in self.selected_indices:
+            if self.is_point_in_region(img_x, img_y, self.regions[i]):
+                return {'type': 'move'}
+
+        for i, region in reversed(list(enumerate(self.regions))):
+            if i not in self.selected_indices and self.is_point_in_region(img_x, img_y, region):
+                return {'type': 'select_new', 'region_index': i}
+
+        return None
+
     def _update_cursor(self, event):
         if self.action_info.get('type'): return
 
@@ -77,47 +147,20 @@ class MouseEventHandler:
             self.canvas.config(cursor="crosshair")
             return
 
-        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
-        img_x, img_y = self.transform_service.screen_to_image(x, y)
+        hit_target = self._get_hit_target(event)
         new_cursor = ""
 
-        if len(self.selected_indices) == 1:
-            region_index = list(self.selected_indices)[0]
-            region = self.regions[region_index]
-
-            if not isinstance(region, dict):
-                return
-
-            angle = region.get('angle', 0)
-            center = region.get('center') or get_bounding_box_center(region.get('lines', []))
-            rotated_lines = region.get('lines', [])
-            if angle != 0:
-                rotated_lines = [[self.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly] for poly in region.get('lines', [])]
-
-            rotation_handle_items = self.canvas.find_withtag("rotation_handle")
-            overlapping_items = self.canvas.find_overlapping(x, y, x, y)
-            if overlapping_items and overlapping_items[-1] in rotation_handle_items and f"region_{region_index}" in self.canvas.gettags(overlapping_items[-1]):
+        if hit_target:
+            hit_type = hit_target.get('type')
+            if hit_type == 'rotate':
                 new_cursor = "exchange"
-
-            if not new_cursor:
-                for poly_idx, poly in enumerate(rotated_lines):
-                    for vertex_idx, (vx, vy) in enumerate(poly):
-                        if math.hypot(img_x - vx, img_y - vy) * self.transform_service.zoom_level < 10:
-                            new_cursor = "cross"
-                            break
-                    if not new_cursor:
-                        for edge_idx in range(len(poly)):
-                            if self.is_on_segment(img_x, img_y, poly[edge_idx], poly[(edge_idx + 1) % len(poly)]):
-                                edge_vector = (poly[(edge_idx + 1) % len(poly)][0] - poly[edge_idx][0], 
-                                              poly[(edge_idx + 1) % len(poly)][1] - poly[edge_idx][1])
-                                edge_angle = math.degrees(math.atan2(edge_vector[1], edge_vector[0]))
-                                new_cursor = self._get_edge_cursor(edge_angle)
-                                break
-                    if new_cursor: break
+            elif hit_type == 'vertex_edit':
+                new_cursor = "cross"
+            elif hit_type == 'edge_edit':
+                new_cursor = "sb_h_double_arrow"  # Placeholder, can be improved
+            elif hit_type in ['move', 'select_new']:
+                new_cursor = "fleur"
         
-        if not new_cursor and any(self.is_point_in_region(img_x, img_y, self.regions[i]) for i in self.selected_indices):
-            new_cursor = "fleur"
-
         if self.canvas["cursor"] != new_cursor:
             self.canvas.config(cursor=new_cursor)
 
@@ -134,7 +177,6 @@ class MouseEventHandler:
         self.canvas.delete("brush_cursor")
         x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         radius = self.brush_size / 2
-        # Draw a black circle with a white outline for better visibility
         self.canvas.create_oval(x - radius, y - radius, x + radius, y + radius,
                                 outline="white", fill="black", width=1, tags="brush_cursor")
 
@@ -154,66 +196,51 @@ class MouseEventHandler:
             self.action_info = {'type': self.mode, 'start_x': img_x, 'start_y': img_y}
             return
 
-        if len(self.selected_indices) == 1:
-            region_index = list(self.selected_indices)[0]
-            region = self.regions[region_index]
-
-            if not isinstance(region, dict):
-                return
-
-            angle = region.get('angle', 0)
-            center = region.get('center') or get_bounding_box_center(region.get('lines', []))
-
-            rotated_lines = region.get('lines', [])
-            if angle != 0:
-                rotated_lines = [[self.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly] for poly in region.get('lines', [])]
-
-            rotation_handle_items = self.canvas.find_withtag("rotation_handle")
-            overlapping_items = self.canvas.find_overlapping(x, y, x, y)
-            if overlapping_items and overlapping_items[-1] in rotation_handle_items and f"region_{region_index}" in self.canvas.gettags(overlapping_items[-1]):
-                center_screen_x, center_screen_y = self.transform_service.image_to_screen(center[0], center[1])
-                self.action_info = {
-                    'type': 'rotate', 
-                    'original_data': copy.deepcopy(region), 
-                    'center_x': center[0], 
-                    'center_y': center[1], 
-                    'start_angle_rad': math.atan2(y - center_screen_y, x - center_screen_x), 
-                    'original_angle': angle
-                }
-                return
-
-            for poly_idx, poly in enumerate(rotated_lines):
-                for vertex_idx, (vx, vy) in enumerate(poly):
-                    if math.hypot(img_x - vx, img_y - vy) * self.transform_service.zoom_level < 10:
-                        self.action_info = {'type': 'vertex_edit', 'poly_index': poly_idx, 'vertex_index': vertex_idx, 'original_data': copy.deepcopy(region), 'start_x_img': img_x, 'start_y_img': img_y}
-                        return
-                for edge_idx in range(len(poly)):
-                    if self.is_on_segment(img_x, img_y, poly[edge_idx], poly[(edge_idx + 1) % len(poly)]):
-                        self.action_info = {'type': 'edge_edit', 'poly_index': poly_idx, 'edge_index': edge_idx, 'original_data': copy.deepcopy(region), 'start_x_img': img_x, 'start_y_img': img_y}
-                        return
-
-        clicked_region_index = -1
-        for i, region in reversed(list(enumerate(self.regions))):
-            if self.is_point_in_region(img_x, img_y, self.regions[i]):
-                clicked_region_index = i
-                break
-
+        hit_target = self._get_hit_target(event)
         ctrl_pressed = (event.state & 0x4) != 0
-        if ctrl_pressed:
-            if clicked_region_index != -1:
-                self.selected_indices.symmetric_difference_update({clicked_region_index})
-        else:
-            if clicked_region_index != -1:
-                if clicked_region_index not in self.selected_indices:
-                    self.selected_indices = {clicked_region_index}
-                self.action_info = {'type': 'move', 'start_x_img': img_x, 'start_y_img': img_y, 'original_data': [copy.deepcopy(self.regions[i]) for i in self.selected_indices]}
-            else:
-                if self.selected_indices:
-                    self.selected_indices = set()
-                self.action_info = {'type': 'pan_prepare'}
 
-        if self.on_region_selected:
-            self.on_region_selected(list(self.selected_indices))
+        if not hit_target:
+            if not ctrl_pressed:
+                if self.selected_indices:
+                    self.selected_indices.clear()
+                    if self.on_region_selected:
+                        self.on_region_selected([])
+            self.action_info = {'type': 'pan_prepare'}
+            return
+
+        hit_type = hit_target.get('type')
+
+        if hit_type == 'select_new':
+            clicked_region_index = hit_target['region_index']
+            if ctrl_pressed:
+                self.selected_indices.symmetric_difference_update({clicked_region_index})
+            else:
+                self.selected_indices = {clicked_region_index}
+            
+            if self.on_region_selected:
+                self.on_region_selected(list(self.selected_indices))
+            self.action_info = {'type': 'move', 'start_x_img': img_x, 'start_y_img': img_y, 'original_data': [copy.deepcopy(self.regions[i]) for i in self.selected_indices]}
+
+        elif hit_type in ['rotate', 'vertex_edit', 'edge_edit']:
+            region_index = hit_target['region_index']
+            region = self.regions[region_index]
+            self.action_info = {
+                'type': hit_type,
+                'original_data': copy.deepcopy(region),
+                'start_x_img': img_x,
+                'start_y_img': img_y,
+                **hit_target
+            }
+            if hit_type == 'rotate':
+                center = region.get('center') or editing_logic.get_polygon_center([p for poly in region.get('lines', []) for p in poly])
+                center_screen_x, center_screen_y = self.transform_service.image_to_screen(center[0], center[1])
+                self.action_info['center_x'] = center[0]
+                self.action_info['center_y'] = center[1]
+                self.action_info['start_angle_rad'] = math.atan2(y - center_screen_y, x - center_screen_x)
+                self.action_info['original_angle'] = region.get('angle', 0)
+
+        elif hit_type == 'move':
+             self.action_info = {'type': 'move', 'start_x_img': img_x, 'start_y_img': img_y, 'original_data': [copy.deepcopy(self.regions[i]) for i in self.selected_indices]}
 
     def on_drag(self, event):
         if not self.is_dragging:
@@ -232,7 +259,6 @@ class MouseEventHandler:
                 self.on_mask_draw_preview(self.action_info['points'])
             return
 
-        # --- Preview for Draw ---
         if action_type == 'draw':
             if self.on_draw_new_region_preview:
                 x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
@@ -242,46 +268,22 @@ class MouseEventHandler:
                 self.on_draw_new_region_preview(rect)
             return
 
-        # --- Preview for Geometry Edit (add parallel shape) ---
         if action_type == 'geometry_edit':
             if len(self.selected_indices) == 1:
                 x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
                 img_x, img_y = self.transform_service.screen_to_image(x, y)
                 start_x, start_y = self.action_info['start_x'], self.action_info['start_y']
-
                 region_index = list(self.selected_indices)[0]
                 region_data = self.regions[region_index]
                 angle = region_data.get('angle', 0)
-
-                # Use the new logic to calculate the preview shape based on diagonal
                 new_poly_world = editing_logic.calculate_rectangle_from_diagonal(
                     start_point=(start_x, start_y),
                     end_point=(img_x, img_y),
                     angle_deg=angle
                 )
-
-                # We want to preview the existing shapes plus the new one
-                center = region_data.get('center')
-                if not center: # Fallback if center not available
-                    self.on_drag_preview([new_poly_world])
-                    return
-
-                # Convert new shape to model space to add it to the list
-                new_poly_model = [
-                    list(editing_logic.rotate_point(p[0], p[1], -angle, center[0], center[1]))
-                    for p in new_poly_world
-                ]
-                all_model_polygons = region_data.get('lines', []) + [new_poly_model]
-
-                # Rotate all polygons for the final preview
-                preview_polygons = [
-                    [self.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly]
-                    for poly in all_model_polygons
-                ]
-                self.on_drag_preview(preview_polygons)
+                self.on_drag_preview([new_poly_world])
             return
 
-        # --- Pan ---
         if action_type == 'pan':
             self.on_pan_drag(event)
             return
@@ -289,32 +291,23 @@ class MouseEventHandler:
         if 'original_data' not in self.action_info:
             return
 
-        # --- Preview for Move, Resize, Rotate ---
         new_data = self._get_drag_preview_data(event)
         if new_data and self.on_drag_preview:
-            regions_to_preview = new_data if isinstance(new_data, list) else [new_data]
-            all_rotated_polygons = []
+            preview_polygons = []
+            angle = new_data.get('angle', 0)
+            lines = new_data.get('lines', [])
+            center = new_data.get('center')
+            if not center:
+                all_points = [tuple(p) for poly in lines for p in poly]
+                center = editing_logic.get_polygon_center(all_points)
 
-            for i, region in enumerate(regions_to_preview):
-                angle = region.get('angle', 0)
-                lines = region.get('lines', [])
-                
-                if angle != 0:
-                    center_data_source = self.action_info['original_data']
-                    if isinstance(center_data_source, list):
-                        center_data_source = center_data_source[i]
-
-                    center = center_data_source.get('center')
-                    if not center:
-                        all_points = [tuple(p) for poly in lines for p in poly]
-                        center = editing_logic.get_polygon_center(all_points)
-
-                    rotated_polygons = [[self.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly] for poly in lines]
-                    all_rotated_polygons.extend(rotated_polygons)
-                else:
-                    all_rotated_polygons.extend(lines)
+            if angle != 0:
+                rotated_polygons = [[editing_logic.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly] for poly in lines]
+                preview_polygons.extend(rotated_polygons)
+            else:
+                preview_polygons.extend(lines)
             
-            self.on_drag_preview(all_rotated_polygons)
+            self.on_drag_preview(preview_polygons)
 
     def on_drag_stop(self, event):
         if not self.is_dragging and self.action_info.get('type') != 'pan_prepare':
@@ -354,13 +347,13 @@ class MouseEventHandler:
             if abs(img_x - start_x) > 5 and abs(img_y - start_y) > 5:
                 if action_type == 'draw' and self.on_region_created:
                     x0, y0, x1, y1 = min(start_x, img_x), min(start_y, img_y), max(start_x, img_x), max(start_y, img_y)
-                    new_poly = [[int(x0), int(y0)], [int(x1), int(y0)], [int(x1), int(y1)], [int(x0), int(y1)]]
+                    new_poly = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
                     center_x, center_y = editing_logic.get_polygon_center(new_poly)
                     
                     new_region_data = {
                         'lines': [new_poly],
                         'texts': [''],
-                        'text': '', # Keep for potential compatibility
+                        'text': '',
                         'translation': '',
                         'font_size': 40,
                         'angle': 0,
@@ -383,14 +376,12 @@ class MouseEventHandler:
                     region_data = self.regions[region_index]
                     angle = region_data.get('angle', 0)
                     
-                    # Calculate the new polygon in world coordinates based on the drag
                     new_poly_world = editing_logic.calculate_rectangle_from_diagonal(
                         start_point=(start_x, start_y),
                         end_point=(img_x, img_y),
                         angle_deg=angle
                     )
                     
-                    # Pass the raw world-coordinate polygon to the higher-level handler
                     self.on_geometry_added(region_index, new_poly_world)
             if self.on_draw_new_region_preview: self.on_draw_new_region_preview(None)
             self.set_mode('select')
@@ -434,42 +425,111 @@ class MouseEventHandler:
             new_data['angle'] = new_angle
 
         elif action_type in ['vertex_edit', 'edge_edit']:
-            region_center = original_data.get('center') or get_bounding_box_center(original_data.get('lines', []))
+            center = original_data.get('center')
+            if not center:
+                all_points = [p for poly in original_data.get('lines', []) for p in poly]
+                center = editing_logic.get_polygon_center(all_points)
 
-            if action_type == 'vertex_edit':
-                poly_idx = self.action_info['poly_index']
-                vertex_idx = self.action_info['vertex_index']
-                new_lines = editing_logic.calculate_new_vertices_on_drag(
-                    original_vertices=[tuple(p) for p in original_data['lines'][poly_idx]],
-                    dragged_vertex_index=vertex_idx,
-                    new_mouse_position=(img_x, img_y),
-                    angle=original_data.get('angle', 0),
-                    center=region_center
-                )
-                new_data['lines'][poly_idx] = [list(p) for p in new_lines]
+            angle = original_data.get('angle', 0)
+            poly_idx = self.action_info['poly_index']
             
-            elif action_type == 'edge_edit':
-                poly_idx = self.action_info['poly_index']
+            # 第一步：将所有现有矩形转换为世界坐标（这是它们在屏幕上的真实位置）
+            all_world_polygons = []
+            for poly_model in original_data['lines']:
+                poly_world = [editing_logic.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly_model]
+                all_world_polygons.append(poly_world)
+            
+            # 第二步：只修改被编辑的矩形的世界坐标
+            original_poly_model = original_data['lines'][poly_idx]
+            if action_type == 'vertex_edit':
+                vertex_idx = self.action_info['vertex_index']
+                anchor_vertex_model = original_poly_model[(vertex_idx + 2) % 4]
+                anchor_point_world = editing_logic.rotate_point(anchor_vertex_model[0], anchor_vertex_model[1], angle, center[0], center[1])
+                end_point_world = (img_x, img_y)
+            else: # edge_edit
+                # 边编辑：保持被拖拽边长度不变，改变垂直方向的距离
                 edge_idx = self.action_info['edge_index']
-                new_lines = editing_logic.calculate_new_edge_on_drag(
-                    original_vertices=[tuple(p) for p in original_data['lines'][poly_idx]],
-                    dragged_edge_index=edge_idx,
-                    new_mouse_position=(img_x, img_y),
-                    angle=original_data.get('angle', 0),
-                    center=region_center
+                
+                # 将原始矩形转换为世界坐标
+                original_poly_world = [editing_logic.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in original_poly_model]
+                
+                # 获取被拖拽边的两个顶点
+                edge_p1 = original_poly_world[edge_idx]
+                edge_p2 = original_poly_world[(edge_idx + 1) % 4]
+                
+                # 获取对边的两个顶点
+                opposite_edge_idx = (edge_idx + 2) % 4
+                opposite_p1 = original_poly_world[opposite_edge_idx]
+                opposite_p2 = original_poly_world[(opposite_edge_idx + 1) % 4]
+                
+                # 计算边的方向向量和长度
+                edge_vec = (edge_p2[0] - edge_p1[0], edge_p2[1] - edge_p1[1])
+                edge_length = math.hypot(edge_vec[0], edge_vec[1])
+                if edge_length > 0:
+                    edge_unit = (edge_vec[0] / edge_length, edge_vec[1] / edge_length)
+                else:
+                    edge_unit = (1, 0)
+                
+                # 计算垂直于边的法向量
+                edge_normal = (-edge_unit[1], edge_unit[0])
+                
+                # 计算鼠标到被拖拽边的投影距离
+                edge_center = ((edge_p1[0] + edge_p2[0]) / 2, (edge_p1[1] + edge_p2[1]) / 2)
+                to_mouse = (img_x - edge_center[0], img_y - edge_center[1])
+                projection_distance = to_mouse[0] * edge_normal[0] + to_mouse[1] * edge_normal[1]
+                
+                # 构建新的矩形：对边保持不变，被拖拽边移动到新位置
+                new_edge_p1 = (
+                    edge_p1[0] + projection_distance * edge_normal[0],
+                    edge_p1[1] + projection_distance * edge_normal[1]
                 )
-                new_data['lines'][poly_idx] = [list(p) for p in new_lines]
-
-            new_data['center'] = list(get_bounding_box_center(new_data['lines']))
+                new_edge_p2 = (
+                    edge_p2[0] + projection_distance * edge_normal[0],
+                    edge_p2[1] + projection_distance * edge_normal[1]
+                )
+                
+                # 构建完整的新矩形顶点
+                new_poly_world = [None] * 4
+                new_poly_world[edge_idx] = new_edge_p1
+                new_poly_world[(edge_idx + 1) % 4] = new_edge_p2
+                new_poly_world[opposite_edge_idx] = opposite_p1
+                new_poly_world[(opposite_edge_idx + 1) % 4] = opposite_p2
+                
+            # 对于顶点编辑，使用对角线方法；对于边编辑，直接使用计算的结果
+            if action_type == 'vertex_edit':
+                new_poly_world = editing_logic.calculate_rectangle_from_diagonal(
+                    start_point=anchor_point_world,
+                    end_point=end_point_world,
+                    angle_deg=angle
+                )
+            
+            # 用新编辑的矩形替换对应的世界坐标矩形
+            all_world_polygons[poly_idx] = new_poly_world
+            
+            # 第三步：基于所有世界坐标重新计算新的中心点
+            # 使用 cv2.minAreaRect 来确保与后端渲染一致
+            all_vertices_world = [vertex for poly in all_world_polygons for vertex in poly]
+            points_np = np.array(all_vertices_world, dtype=np.float32)
+            min_area_rect = cv2.minAreaRect(points_np)
+            new_center = min_area_rect[0]  # 返回 (center_x, center_y, width, height, angle)
+            
+            # 第四步：将所有世界坐标转换回新的模型坐标系
+            # 这样可以确保世界坐标（屏幕位置）保持不变，只是改变了模型坐标和中心点
+            new_lines_model = []
+            for poly_world in all_world_polygons:
+                poly_model = [
+                    editing_logic.rotate_point(p[0], p[1], -angle, new_center[0], new_center[1])
+                    for p in poly_world
+                ]
+                # 确保数据类型一致性，避免np.float64混用
+                poly_model = [[float(p[0]), float(p[1])] for p in poly_model]
+                new_lines_model.append(poly_model)
+            
+            new_data['lines'] = new_lines_model
+            new_data['center'] = [float(new_center[0]), float(new_center[1])]
         
         else:
             return None
-
-        # Universal fix: Ensure all line coordinates are integers before returning.
-        if new_data and 'lines' in new_data:
-            for poly in new_data['lines']:
-                for i, point in enumerate(poly):
-                    poly[i] = [int(point[0]), int(point[1])]
         
         return new_data
 
@@ -491,16 +551,13 @@ class MouseEventHandler:
             self.canvas.config(cursor="")
 
     def on_mouse_wheel(self, event):
-        # On first wheel event, trigger the fast redraw
         if self._zoom_end_timer is None and self.on_zoom_start:
             self.on_zoom_start()
 
-        # Debounce the zoom action
         if self._zoom_debounce_timer:
             self.canvas.after_cancel(self._zoom_debounce_timer)
         self._zoom_debounce_timer = self.canvas.after(50, lambda: self._perform_zoom(event))
 
-        # Use a separate timer to detect the end of the zoom sequence
         if self._zoom_end_timer:
             self.canvas.after_cancel(self._zoom_end_timer)
         
@@ -527,14 +584,21 @@ class MouseEventHandler:
         return math.hypot(px - closest_x, py - closest_y) * self.transform_service.zoom_level < threshold
 
     def is_point_in_region(self, x, y, region):
+        """检查点是否在区域内，使用世界坐标系以确保与渲染一致"""
         if not isinstance(region, dict):
             return False
         angle = region.get('angle', 0)
-        center = region.get('center') or get_bounding_box_center(region.get('lines', []))
-        if angle != 0:
-            x, y = self.rotate_point(x, y, -angle, center[0], center[1])
+        center = region.get('center') or editing_logic.get_polygon_center([p for poly in region.get('lines', []) for p in poly])
+        
+        # 将模型坐标转换为世界坐标
+        world_coords_polygons = []
         for poly in region.get('lines', []):
-            if self.is_point_in_polygon(x, y, poly):
+            world_poly = [editing_logic.rotate_point(p[0], p[1], angle, center[0], center[1]) for p in poly]
+            world_coords_polygons.append(world_poly)
+        
+        # 在世界坐标系中检查点是否在多边形内
+        for world_poly in world_coords_polygons:
+            if self.is_point_in_polygon(x, y, world_poly):
                 return True
         return False
 

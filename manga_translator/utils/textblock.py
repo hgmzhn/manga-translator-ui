@@ -71,7 +71,7 @@ class TextBlock(object):
                  shadow_offset: List = [0, 0],
                  prob: float = 1,
                  **kwargs) -> None:
-        self.lines = np.array(lines, dtype=np.int32)
+        self.lines = np.array(lines, dtype=np.float64)
         # self.lines.sort()
         self.language = language
         self.font_size = round(font_size)
@@ -125,12 +125,12 @@ class TextBlock(object):
         y1 = self.lines[..., 1].min()
         x2 = self.lines[..., 0].max()
         y2 = self.lines[..., 1].max()
-        return np.array([x1, y1, x2, y2]).astype(np.int32)
+        return np.array([x1, y1, x2, y2])
 
     @cached_property
     def xywh(self):
         x1, y1, x2, y2 = self.xyxy
-        return np.array([x1, y1, x2-x1, y2-y1]).astype(np.int32)
+        return np.array([x1, y1, x2-x1, y2-y1])
 
     @cached_property
     def center(self) -> np.ndarray:
@@ -371,8 +371,8 @@ class TextBlock(object):
 
     def get_font_colors(self, bgr=False):
 
-        frgb = np.array(self.fg_colors).astype(np.int32)
-        brgb = np.array(self.bg_colors).astype(np.int32)
+        frgb = np.array(self.fg_colors)
+        brgb = np.array(self.bg_colors)
 
         if bgr:
             frgb = frgb[::-1]

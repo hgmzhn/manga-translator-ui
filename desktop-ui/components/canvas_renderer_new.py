@@ -21,6 +21,8 @@ class CanvasRenderer:
         self.inpainted_alpha = 0.0
         self.tk_inpainted_image = None
         self.refined_mask = None
+        self.removed_mask = None
+        self.show_removed_mask = False
         
         # 性能优化缓存
         self._resized_image_cache = {}
@@ -72,6 +74,13 @@ class CanvasRenderer:
         self.refined_mask = mask
         self.redraw_mask_overlay()
 
+    def set_removed_mask(self, mask):
+        self.removed_mask = mask
+
+    def set_removed_mask_visibility(self, visible: bool):
+        self.show_removed_mask = visible
+        self.redraw_mask_overlay()
+
     def set_mask_visibility(self, visible: bool):
         self.show_mask = visible
 
@@ -94,6 +103,9 @@ class CanvasRenderer:
 
     def redraw_mask_overlay(self):
         self.canvas.delete("mask_overlay")
+        self.canvas.delete("removed_mask_overlay")
+        
+        # Draw refined mask in blue
         if self.refined_mask is not None and self.show_mask:
             zoom_level = self.transform_service.zoom_level
             x_offset = self.transform_service.x_offset
@@ -108,6 +120,22 @@ class CanvasRenderer:
                 resized_mask = mask_pil.resize((new_width, new_height), Image.NEAREST)
                 self.tk_mask_image = ImageTk.PhotoImage(resized_mask)
                 self.canvas.create_image(x_offset, y_offset, anchor="nw", image=self.tk_mask_image, tags="mask_overlay")
+
+        # Draw removed mask in red
+        if self.removed_mask is not None and self.show_removed_mask:
+            zoom_level = self.transform_service.zoom_level
+            x_offset = self.transform_service.x_offset
+            y_offset = self.transform_service.y_offset
+            new_width = int(self.image.width * zoom_level)
+            new_height = int(self.image.height * zoom_level)
+
+            if new_width > 0 and new_height > 0:
+                removed_overlay = np.zeros((self.removed_mask.shape[0], self.removed_mask.shape[1], 4), dtype=np.uint8)
+                removed_overlay[self.removed_mask > 0] = [255, 0, 0, 150]  # Red with transparency
+                removed_pil = Image.fromarray(removed_overlay)
+                resized_removed = removed_pil.resize((new_width, new_height), Image.NEAREST)
+                self.tk_removed_mask_image = ImageTk.PhotoImage(resized_removed)
+                self.canvas.create_image(x_offset, y_offset, anchor="nw", image=self.tk_removed_mask_image, tags="removed_mask_overlay")
 
     def redraw_all(self, regions=None, selected_indices=None, hide_indices=None, fast_mode=False, view_mode='normal', raw_mask=None, original_size=None, hyphenate: bool = True, line_spacing: float = None, disable_font_border: bool = False):
         self.canvas.delete("all")
@@ -172,11 +200,7 @@ class CanvasRenderer:
         if view_mode == 'mask':
             # Only redraw the full mask overlay when the zoom action is finished (not in fast_mode)
             if not fast_mode:
-                if self.show_mask:
-                    self.redraw_mask_overlay()
-                else:
-                    self.canvas.delete("mask_overlay")
-
+                self.redraw_mask_overlay()
         else:
             # NORMAL VIEW MODE
             if regions:
@@ -210,6 +234,21 @@ class CanvasRenderer:
             if 'lines' in constructor_args and isinstance(constructor_args['lines'], list):
                 constructor_args['lines'] = np.array(constructor_args['lines'])
 
+            # Convert UI color format to TextBlock format
+            if 'font_color' in constructor_args:
+                # Convert hex color string to RGB tuple
+                hex_color = constructor_args.pop('font_color', '#FFFFFF')
+                if hex_color.startswith('#') and len(hex_color) == 7:
+                    try:
+                        r = int(hex_color[1:3], 16)
+                        g = int(hex_color[3:5], 16) 
+                        b = int(hex_color[5:7], 16)
+                        constructor_args['fg_color'] = (r, g, b)
+                    except ValueError:
+                        constructor_args['fg_color'] = (255, 255, 255)  # 默认白色
+                else:
+                    constructor_args['fg_color'] = (255, 255, 255)  # 默认白色
+                    
             if 'fg_colors' in constructor_args: constructor_args['fg_color'] = constructor_args.pop('fg_colors')
             if 'bg_colors' in constructor_args: constructor_args['bg_color'] = constructor_args.pop('bg_colors')
             try:
@@ -232,6 +271,7 @@ class CanvasRenderer:
 
             config = Config(render=RenderConfig(**render_config))
 
+            # Re-enabled with precision fixes to prevent visual displacement
             self.dst_points_cache = resize_regions_to_font_size(image_np, text_blocks, config)
             self.text_blocks_cache = text_blocks # Cache the text blocks as they are modified by the function
         except Exception as e:

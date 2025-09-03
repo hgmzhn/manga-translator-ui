@@ -123,8 +123,10 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         self.widgets['translation_text'].bind("<Double-Button-1>", self._on_text_double_click)
         
         # 为文本框添加描述性属性
-        self.widgets['translation_text']._textbox.configure(insertbackground="#FFFFFF")  # 设置光标颜色为白色
-        self.widgets['translation_text']._textbox.configure(insertwidth=2)  # 设置光标宽度
+        self.widgets['translation_text']._textbox.configure(insertbackground="#000000")  # 设置光标颜色为黑色，与原文框一致
+        self.widgets['translation_text']._textbox.configure(insertwidth=3)  # 设置光标宽度更宽
+        self.widgets['translation_text']._textbox.configure(insertofftime=300)  # 光标闪烁关闭时间
+        self.widgets['translation_text']._textbox.configure(insertontime=600)   # 光标闪烁打开时间
         self.widgets['translation_text']._textbox.configure(selectbackground="#0078d4")  # 设置选中背景色
         
         # 文本统计
@@ -217,6 +219,23 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         self.widgets['show_mask_checkbox'] = ctk.CTkCheckBox(content_frame, text="显示蒙版", command=lambda: self._execute_callback('toggle_mask_visibility', self.widgets['show_mask_checkbox'].get()))
         self.widgets['show_mask_checkbox'].select()
         self.widgets['show_mask_checkbox'].grid(row=3, column=0, pady=5, padx=5, sticky="w")
+
+        # 添加蒙版更新按钮
+        self.widgets['update_mask_button'] = ctk.CTkButton(
+            content_frame, 
+            text="更新蒙版", 
+            command=lambda: self._execute_callback('update_mask'),
+            height=28
+        )
+        self.widgets['update_mask_button'].grid(row=4, column=0, pady=5, padx=5, sticky="ew")
+        
+        # 添加显示被优化掉区域的选项
+        self.widgets['show_removed_checkbox'] = ctk.CTkCheckBox(
+            content_frame, 
+            text="显示被优化掉的区域", 
+            command=lambda: self._execute_callback('toggle_removed_mask_visibility', self.widgets['show_removed_checkbox'].get())
+        )
+        self.widgets['show_removed_checkbox'].grid(row=5, column=0, pady=5, padx=5, sticky="w")
 
         self.mask_edit_collapsible_frame.grid_remove() # Hide by default
     
