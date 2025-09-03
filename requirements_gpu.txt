@@ -1,0 +1,66 @@
+aiofiles
+aiohttp
+aioshutil
+albumentations
+arabic_reshaper
+backports.statistics
+colorama
+ctranslate2
+customtkinter
+einops
+fastapi
+freetype-py
+googletrans==4.0.0-rc1
+httpcore
+httpx
+huggingface-hub
+ijson
+kornia
+langcodes
+loguru
+manga-ocr
+networkx
+numpy==1.26.4
+omegaconf
+onnxruntime
+openai
+opencv-python==4.12.0.88
+packaging
+pandas==1.5.3
+Pillow
+psutil
+py3langid
+pyclipper
+pydantic
+pydensecrf
+PyHyphen
+PySide6
+pytest
+python-dotenv
+pytorch-lightning
+regex
+requests
+rich
+rusty_manga_image_translator
+safetensors
+scipy
+sentencepiece
+setuptools
+Shapely
+scikit-image
+starlette
+tiktoken
+timm
+transformers
+# 对于 torch, torchvision, 和 torchaudio，请在构建一键包时，
+# 根据您希望支持的 NVIDIA CUDA 版本手动安装它们。
+# 例如，要支持 CUDA 12.1, 请先运行:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# 然后再打包您的应用。
+torch
+torchvision
+torchaudio
+tqdm
+uvicorn
+websockets
+xformers

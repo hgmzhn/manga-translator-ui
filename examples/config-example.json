@@ -1,4 +1,7 @@
 {
+    "filter_text": null,
+    "kernel_size": 3,
+    "mask_dilation_offset": null,
     "translator": {
         "translator": "chatgpt",
         "target_lang": "CHS",
@@ -29,7 +32,7 @@
         "inpainting_precision": "bf16"
     },
     "render": {
-        "renderer": "manga2eng",
+        "renderer": "default",
         "alignment": "auto",
         "disable_font_border": true,
         "font_size_offset": 0,
@@ -41,7 +44,7 @@
         "no_hyphenation": false,
         "font_color": ":FFFFFF",
         "rtl": true,
-        "layout_mode": "strict"
+        "layout_mode": "smart_scaling"
     },
     "upscale": {
         "upscaler": "esrgan",
@@ -63,7 +66,7 @@
         "overwrite": true,
         "skip_no_text": true,
         "use_mtpe": false,
-        "save_text": true,
+        "save_text": false,
         "load_text": false,
         "template": false,
         "prep_manual": false,
@@ -71,5 +74,5 @@
         "batch_size": 1,
         "batch_concurrent": false
     },
-    "last_output_path": "D:/xiazai/图片助手(ImageAssistant)_批量图片下载器/output"
+    "last_output_path": "result"
 }
