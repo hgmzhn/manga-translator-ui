@@ -1,12 +1,26 @@
-@echo OFF
+@echo off
+setlocal
+
 echo =======================================
 echo Building CPU Version...
 echo =======================================
 
-echo Step 1: Setting up Python environment...
+echo Step 1: Checking for Python virtual environment...
+if not exist "venv" (
+    echo Creating virtual environment...
+    python -m venv venv
+    if %errorlevel% neq 0 (
+        echo Failed to create virtual environment. Please ensure Python 3.10 is in your PATH.
+        pause
+        exit /b 1
+    )
+)
+
+echo Step 2: Activating virtual environment and installing CPU dependencies...
+call venv\Scripts\activate.bat
 pip install -r requirements_cpu.txt
 
-echo Step 2: Running PyInstaller...
+echo Step 3: Running PyInstaller...
 pyinstaller build.spec
 
 echo =======================================
