@@ -5,5 +5,9 @@ __pycache__/
 # Virtual environment
 venv/
 
+# Environment files (contain sensitive information)
+.env
+.env.*
+
 # Claude settings
 .claude/
