@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 aiofiles
 aiohttp
 aioshutil
@@ -20,7 +21,7 @@ langcodes
 loguru
 manga-ocr
 networkx
-numpy==1.26.4
+numpy
 omegaconf
 onnxruntime
 openai
@@ -32,7 +33,7 @@ psutil
 py3langid
 pyclipper
 pydantic
-pydensecrf
+
 PyHyphen
 PySide6
 pytest
@@ -52,9 +53,6 @@ starlette
 tiktoken
 timm
 transformers
-torch==2.1.2+cpu
-torchvision==0.16.2+cpu
-torchaudio==2.1.2+cpu
 tqdm
 uvicorn
 websockets

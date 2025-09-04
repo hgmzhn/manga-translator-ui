@@ -1,30 +1,50 @@
 @echo off
-setlocal
+echo Building CPU version...
 
-echo =======================================
-echo Building CPU Version...
-echo =======================================
+REM Create virtual environment for CPU build
+echo Creating virtual environment for CPU build...
+python -m venv .venv_cpu
 
-echo Step 1: Checking for Python virtual environment...
-if not exist "venv" (
-    echo Creating virtual environment...
-    python -m venv venv
-    if %errorlevel% neq 0 (
-        echo Failed to create virtual environment. Please ensure Python 3.10 is in your PATH.
-        pause
-        exit /b 1
-    )
-)
+REM Activate virtual environment
+call .venv_cpu\Scripts\activate.bat
 
-echo Step 2: Activating virtual environment and installing CPU dependencies...
-call venv\Scripts\activate.bat
+REM Upgrade pip
+python -m pip install --upgrade pip
+
+REM Install dependencies for CPU version
+echo Installing CPU dependencies...
 pip install -r requirements_cpu.txt
 
-echo Step 3: Running PyInstaller...
-pyinstaller build.spec
+REM Install PyInstaller
+pip install pyinstaller
 
-echo =======================================
-echo CPU Version Build Finished.
-echo Find the executable in the 'dist' folder.
-echo =======================================
+REM Clean previous build
+if exist dist\manga-translator-cpu (
+    echo Cleaning previous CPU build...
+    rmdir /s /q dist\manga-translator-cpu
+)
+if exist dist\manga-translator-cpu-final (
+    echo Cleaning previous CPU final build...
+    rmdir /s /q dist\manga-translator-cpu-final
+)
+
+REM Check dependencies
+echo Checking dependencies...
+python -m pip check
+
+REM Build the application
+echo Building application...
+pyinstaller manga-translator-cpu.spec
+
+REM Rename output folder
+if exist dist\manga-translator-cpu (
+    ren dist\manga-translator-cpu manga-translator-cpu-final
+    echo CPU build completed! Output in dist\manga-translator-cpu-final\
+) else (
+    echo Build failed!
+)
+
+REM Deactivate virtual environment
+deactivate
+
 pause

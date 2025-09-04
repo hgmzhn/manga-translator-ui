@@ -70,16 +70,24 @@ class ServiceContainer:
         try:
             import time
             
+            self.logger.info("H_SERVICE_INIT: Initializing Progress Manager...")
             self.services['progress'] = get_progress_manager()
+            self.logger.info("H_SERVICE_INIT: Progress Manager OK.")
             time.sleep(0.01)
             
+            self.logger.info("H_SERVICE_INIT: Initializing File Service...")
             self.services['file'] = FileService()
+            self.logger.info("H_SERVICE_INIT: File Service OK.")
             time.sleep(0.01)
             
+            self.logger.info("H_SERVICE_INIT: Initializing Translation Service...")
             self.services['translation'] = TranslationService()
+            self.logger.info("H_SERVICE_INIT: Translation Service OK.")
             time.sleep(0.01)
             
+            self.logger.info("H_SERVICE_INIT: Initializing OCR Service...")
             self.services['ocr'] = OcrService()
+            self.logger.info("H_SERVICE_INIT: OCR Service OK.")
             time.sleep(0.01)
             
             self.logger.info("后台重量级服务初始化完成")
