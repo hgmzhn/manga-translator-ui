@@ -1,3 +1,78 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:bd6b97e17e8472974294f5cc6b78d7e012316dabf859f3c5586020de478ebf3c
-size 2024
+{
+    "filter_text": null,
+    "kernel_size": 3,
+    "mask_dilation_offset": null,
+    "translator": {
+        "translator": "chatgpt",
+        "target_lang": "CHS",
+        "no_text_lang_skip": false,
+        "gpt_config": "./examples/gpt_config-example.yaml"
+    },
+    "ocr": {
+        "use_mocr_merge": false,
+        "ocr": "48px",
+        "min_text_length": 0,
+        "ignore_bubble": 0,
+        "prob": 0.001
+    },
+    "detector": {
+        "detector": "default",
+        "detection_size": 2048,
+        "text_threshold": 0.5,
+        "det_rotate": false,
+        "det_auto_rotate": false,
+        "det_invert": false,
+        "det_gamma_correct": false,
+        "box_threshold": 0.7,
+        "unclip_ratio": 2.5
+    },
+    "inpainter": {
+        "inpainter": "lama_large",
+        "inpainting_size": 5128,
+        "inpainting_precision": "bf16"
+    },
+    "render": {
+        "renderer": "default",
+        "alignment": "auto",
+        "disable_font_border": true,
+        "font_size_offset": 0,
+        "font_size_minimum": 0,
+        "direction": "auto",
+        "uppercase": false,
+        "lowercase": false,
+        "gimp_font": "Sans-serif",
+        "no_hyphenation": false,
+        "font_color": ":FFFFFF",
+        "rtl": true,
+        "layout_mode": "smart_scaling"
+    },
+    "upscale": {
+        "upscaler": "esrgan",
+        "revert_upscaling": false
+    },
+    "colorizer": {
+        "colorization_size": 576,
+        "denoise_sigma": 30,
+        "colorizer": "none"
+    },
+    "cli": {
+        "verbose": true,
+        "attempts": -1,
+        "ignore_errors": false,
+        "use_gpu": true,
+        "use_gpu_limited": false,
+        "context_size": 3,
+        "format": "",
+        "overwrite": true,
+        "skip_no_text": true,
+        "use_mtpe": false,
+        "save_text": false,
+        "load_text": false,
+        "template": false,
+        "prep_manual": false,
+        "save_quality": 100,
+        "batch_size": 1,
+        "batch_concurrent": false
+    },
+    "last_output_path": "result"
+}

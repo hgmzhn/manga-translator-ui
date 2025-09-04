@@ -1,3 +1,71 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2b5c208727f365294a61c3bff5004bbf44b623e2c69512e17f4f7d2f376c7abd
-size 972
+aiofiles
+aiohttp
+aioshutil
+albumentations
+arabic_reshaper
+backports.statistics
+colorama
+ctranslate2
+customtkinter
+einops
+fastapi
+freetype-py
+googletrans==4.0.0-rc1
+httpcore
+httpx
+huggingface-hub
+kornia
+langcodes
+loguru
+manga-ocr
+networkx
+numpy
+omegaconf
+onnxruntime
+openai
+opencv-python==4.12.0.88
+packaging
+pandas
+Pillow
+psutil
+py3langid
+pyclipper
+pydantic
+pydensecrf
+PyHyphen
+PySide6
+pytest
+python-dotenv
+pytorch-lightning
+regex
+requests
+rich
+rusty_manga_image_translator
+safetensors
+scipy
+sentencepiece
+setuptools
+Shapely
+scikit-image
+starlette
+tiktoken
+timm
+transformers
+# 对于 torch, torchvision, 和 torchaudio，请在构建一键包时，
+# 根据您希望支持的 NVIDIA CUDA 版本手动安装它们。
+# 例如，要支持 CUDA 12.1, 请先运行:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# 然后再打包您的应用。
+torch
+torchvision
+torchaudio
+tqdm
+uvicorn
+websockets
+xformers
+deepl
+groq
+torchsummary
+open_clip_torch
+google-generativeai
+python-bidi
