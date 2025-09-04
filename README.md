@@ -154,9 +154,6 @@ build_cpu.bat
 # GPU版本
 build_gpu.bat
 
-# CUDA 11.8版本
-build_gpu_cuda118.bat
-
 # 一键构建所有版本
 build_all.bat
 ```
@@ -167,8 +164,7 @@ build_all.bat
 
 #### Windows 一键包
 - **CPU版本**: 包含所有依赖的独立可执行文件，无需安装CUDA
-- **GPU版本**: 支持NVIDIA GPU加速，需要安装CUDA运行时
-- **CUDA 11.8版本**: 针对特定CUDA版本的优化构建
+- **GPU版本**: 支持NVIDIA GPU加速，需要安装CUDA 12.x运行时
 
 #### 使用方法
 1. 下载对应版本的一键包
