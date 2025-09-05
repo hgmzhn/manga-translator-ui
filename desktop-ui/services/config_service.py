@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from dotenv import dotenv_values, set_key
 import re
+import sys
 
 @dataclass
 class TranslatorConfig:
@@ -276,6 +277,8 @@ class ConfigService:
     
     def get_default_config_path(self) -> str:
         """获取默认配置文件路径"""
+        if hasattr(sys, '_MEIPASS'):
+            return os.path.join(sys._MEIPASS, 'examples', 'config-example.json')
         return os.path.join(self.root_dir, "..", "examples", "config-example.json")
     
     def load_default_config(self) -> bool:

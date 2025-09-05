@@ -706,9 +706,9 @@ def visualize_textblocks(canvas: np.ndarray, blk_list: List[TextBlock], show_pan
             
             # Draw panel boxes and order
             for panel_idx, (x1, y1, x2, y2) in enumerate(panels):
-                cv2.rectangle(canvas, (x1, y1), (x2, y2), (255, 0, 255), lw)  # Magenta color for panels
+                cv2.rectangle(canvas, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 255), lw)  # Magenta color for panels
                 # Put panel number inside the box with deep blue color for better visibility and aesthetics
-                cv2.putText(canvas, str(panel_idx), (x1+5, y1+60), cv2.FONT_HERSHEY_SIMPLEX, 
+                cv2.putText(canvas, str(panel_idx), (int(x1)+5, int(y1)+60), cv2.FONT_HERSHEY_SIMPLEX, 
                            lw/2, (200, 100, 0), max(lw-1, 1), cv2.LINE_AA)
         except Exception as e:
             from ..utils import get_logger
@@ -717,12 +717,12 @@ def visualize_textblocks(canvas: np.ndarray, blk_list: List[TextBlock], show_pan
     
     for i, blk in enumerate(blk_list):
         bx1, by1, bx2, by2 = blk.xyxy
-        cv2.rectangle(canvas, (bx1, by1), (bx2, by2), (127, 255, 127), lw)
+        cv2.rectangle(canvas, (int(bx1), int(by1)), (int(bx2), int(by2)), (127, 255, 127), lw)
         for j, line in enumerate(blk.lines):
-            cv2.putText(canvas, str(j), line[0], cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,127,0), 1)
-            cv2.polylines(canvas, [line], True, (0,127,255), 2)
+            cv2.putText(canvas, str(j), tuple(line[0].astype(int)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,127,0), 1)
+            cv2.polylines(canvas, [line.astype(np.int64)], True, (0,127,255), 2)
         cv2.polylines(canvas, [blk.min_rect], True, (127,127,0), 2)
-        cv2.putText(canvas, str(i), (bx1, by1 + lw), 0, lw / 3, (255,127,127), max(lw-1, 1), cv2.LINE_AA)
+        cv2.putText(canvas, str(i), (int(bx1), int(by1) + lw), 0, lw / 3, (255,127,127), max(lw-1, 1), cv2.LINE_AA)
         center = [int((bx1 + bx2)/2), int((by1 + by2)/2)]
         
         angle_text = 'a: %.2f' % blk.angle

@@ -1,6 +1,9 @@
 import os
 import sys
 
+# Force disable Triton for xformers to avoid PyInstaller issues
+os.environ['XFORMERS_FORCE_DISABLE_TRITON'] = '1'
+
 # 设置编码以解决中文显示问题
 if sys.platform == "win32":
     import locale

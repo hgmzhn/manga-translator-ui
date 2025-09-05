@@ -25,6 +25,16 @@ if sys.platform == "win32":
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    return os.path.join(base_path, relative_path)
+
+
 # 核心UI导入（保持功能完整性）
 from ui_components import CollapsibleFrame
 from services import init_services, get_config_service
@@ -105,7 +115,7 @@ class AppController:
         
         # 快速初始化基本属性
         self.root_dir = os.path.dirname(os.path.abspath(__file__))
-        self.user_config_path = os.path.join(self.root_dir, "..", "examples", "config-example.json")
+        self.user_config_path = resource_path(os.path.join("examples", "config-example.json"))
         self.env_path = os.path.join(self.root_dir, "..", ".env")
         
         # 初始化容器和状态
@@ -829,7 +839,7 @@ class AppController:
     def create_main_view_settings_tabbed(self):
         """创建标签页布局的设置界面"""
         try:
-            config_path = os.path.join(self.root_dir, "..", "examples", "config-example.json")
+            config_path = resource_path(os.path.join("examples", "config-example.json"))
             self.current_config_path = config_path
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
@@ -1219,6 +1229,27 @@ class AppController:
                     image.name = file_path
                     
                     ctx = await self.service.translate(image, config, image_name=image.name)
+
+                    # --- Begin custom export logic for save_text + template mode ---
+                    try:
+                        cli_config = config_dict.get('cli', {})
+                        if cli_config.get('save_text') and cli_config.get('template'):
+                            json_path = os.path.splitext(file_path)[0] + "_translations.json"
+                            if os.path.exists(json_path):
+                                self.update_log(f"执行模板导出: {os.path.basename(json_path)}...\n")
+                                
+                                # Lazily import the required functions
+                                generate_text_from_template, _, _, get_default_template_path = get_workflow_service()
+                                template_path = get_default_template_path()
+                                
+                                # Run the export function
+                                export_result = generate_text_from_template(json_path, template_path)
+                                self.update_log(f"模板导出结果: {export_result}\n")
+                            else:
+                                self.update_log(f"跳过模板导出，因为未找到 {os.path.basename(json_path)}。\n")
+                    except Exception as e:
+                        self.update_log(f"执行模板导出时出错: {e}\n")
+                    # --- End custom export logic ---
 
                     if ctx and ctx.result:
                         final_output_dir = base_output_dir

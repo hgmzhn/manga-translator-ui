@@ -795,13 +795,27 @@ class MangaTranslator:
         # 判断是否需要跳过翻译步骤
         should_skip_translation = False
         
-        # 1. 保存文本+模板配置：只执行检测器和OCR步骤，不进行翻译
+        # 1. 保存文本+模板配置：只执行检测器和OCR步骤，不进行翻译，然后为当前文件快速退出
         if self.save_text and self.template:
-            logger.info("Save text + Template mode: Only running detection and OCR, skipping translation.")
+            logger.info("Save text + Template mode: Running up to OCR, then saving and stopping for this file.")
             should_skip_translation = True
-            # 设置原文作为翻译结果
+            # 设置原文作为翻译结果, 并设置目标语言以防万一
             for region in ctx.text_regions:
                 region.translation = region.text
+                # Set target_lang to avoid downstream errors if the pipeline were to continue (belt and braces)
+                if not hasattr(region, 'target_lang') or not region.target_lang:
+                    region.target_lang = config.translator.target_lang
+
+            # 保存文件
+            if hasattr(ctx, 'image_name') and ctx.image_name:
+                self._save_text_to_file(ctx.image_name, ctx)
+                logger.info(f"JSON template saved for {os.path.basename(ctx.image_name)}.")
+            else:
+                logger.warning("Could not save translation file, image_name not in context.")
+
+            # 设置占位符结果并为当前文件提前返回，以便主循环可以处理下一个文件
+            ctx.result = ctx.upscaled 
+            return ctx
         # 2. 模板配置+加载文本：TXT文件内容就是翻译，不进行翻译处理
         elif self.template and self.load_text:
             logger.info("Template + Load text mode: TXT content is translation, skipping translation.")
@@ -1382,12 +1396,8 @@ class MangaTranslator:
 
         # === 模板+保存文本模式退出逻辑 ===
         if self.template and self.save_text:
-            if self.is_ui_mode:
-                logger.info("Template + Save Text mode: Stopping pipeline to generate text template only.")
-                ctx.pipeline_should_stop = True
-            else:
-                logger.info("Template + Save Text mode: Exiting to generate text template only.")
-                exit(0)
+            logger.info("Template + Save Text mode: Stopping pipeline for this file to generate text template only.")
+            ctx.pipeline_should_stop = True
             # Return early to skip all post-processing
             return ctx.text_regions
 

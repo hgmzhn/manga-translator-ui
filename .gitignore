@@ -16,3 +16,18 @@ venv/
 
 # Build output
 dist/
+
+# Build artifacts
+build/
+result/
+
+# PyInstaller
+*.spec
+
+# Batch files and executables
+*.bat
+*.exe
+*.sh
+
+# Wheel files
+*.whl

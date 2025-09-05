@@ -67,7 +67,7 @@
         "skip_no_text": true,
         "use_mtpe": false,
         "save_text": false,
-        "load_text": false,
+        "load_text": true,
         "template": false,
         "prep_manual": false,
         "save_quality": 100,
