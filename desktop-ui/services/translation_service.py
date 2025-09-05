@@ -9,7 +9,8 @@ import os
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
+if not getattr(sys, 'frozen', False):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
 
 try:
     from manga_translator.translators import dispatch as dispatch_translator
@@ -53,58 +54,6 @@ class TranslationService:
             'POR': '葡萄牙语'
         }
 
-    async def translate_text_batch(self, texts: List[str], 
-                                  translator: Optional[Translator] = None,
-                                  target_lang: Optional[str] = None,
-                                  config: Optional[TranslatorConfig] = None) -> List[Optional[TranslationResult]]:
-        """批量翻译文本，保持上下文信息"""
-        if not TRANSLATOR_AVAILABLE or not texts:
-            return [None] * len(texts)
-
-        translator_to_use = translator or self.current_translator_enum
-        target_lang_to_use = target_lang or self.current_target_lang
-
-        try:
-            # TranslatorChain需要字符串形式的链定义
-            chain_string = f"{translator_to_use.name}:{target_lang_to_use}"
-            chain = TranslatorChain(chain_string)
-            
-            # 过滤空文本但保持索引对应关系
-            queries = []
-            valid_indices = []
-            for i, text in enumerate(texts):
-                if text and text.strip():
-                    queries.append(text)
-                    valid_indices.append(i)
-            
-            if not queries:
-                return [None] * len(texts)
-
-            ctx = Context()
-            translated_texts = await dispatch_translator(
-                chain,
-                queries,
-                translator_config=config,
-                args=ctx
-            )
-
-            # 构建结果列表
-            results = [None] * len(texts)
-            for i, translated_text in enumerate(translated_texts or []):
-                if i < len(valid_indices):
-                    original_index = valid_indices[i]
-                    results[original_index] = TranslationResult(
-                        original_text=texts[original_index],
-                        translated_text=translated_text,
-                        translator_used=translator_to_use.value
-                    )
-
-            return results
-            
-        except Exception as e:
-            self.logger.error(f"批量翻译失败: {e}")
-            return [None] * len(texts)
-
     async def translate_text(self, text: str, 
                            translator: Optional[Translator] = None,
                            target_lang: Optional[str] = None,
@@ -116,9 +65,7 @@ class TranslationService:
         target_lang_to_use = target_lang or self.current_target_lang
 
         try:
-            # TranslatorChain需要字符串形式的链定义
-            chain_string = f"{translator_to_use.name}:{target_lang_to_use}"
-            chain = TranslatorChain(chain_string)
+            chain = TranslatorChain(chain=[(translator_to_use, target_lang_to_use)])
             ctx = Context()
             ctx.text = text
             queries = [text]
@@ -142,34 +89,8 @@ class TranslationService:
             raise
 
     def set_translator(self, translator_name: str):
-        """设置翻译器，支持通过value或name设置"""
-        if not TRANSLATOR_AVAILABLE:
-            return
-        
-        try:
-            # 先尝试通过name查找（最常见的情况）
-            if hasattr(Translator, translator_name):
-                self.current_translator_enum = Translator[translator_name]
-                self.logger.info(f"通过name设置翻译器: {translator_name}")
-                return
-            
-            # 如果name查找失败，尝试通过value查找
-            for translator in Translator:
-                if translator.value == translator_name:
-                    self.current_translator_enum = translator
-                    self.logger.info(f"通过value设置翻译器: {translator_name} -> {translator.name}")
-                    return
-            
-            # 如果都没找到，记录错误但不抛异常
-            self.logger.warning(f"未找到翻译器: {translator_name}，保持当前设置")
-        except Exception as e:
-            self.logger.error(f"设置翻译器时发生错误: {e}")
-
-    def get_current_translator(self) -> str:
-        """获取当前翻译器名称"""
-        if self.current_translator_enum:
-            return self.current_translator_enum.value
-        return "sugoi"  # 默认值
+        if TRANSLATOR_AVAILABLE and hasattr(Translator, translator_name):
+            self.current_translator_enum = Translator[translator_name]
 
     def set_target_language(self, lang_code: str):
         self.current_target_lang = lang_code

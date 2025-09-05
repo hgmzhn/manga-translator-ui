@@ -4,6 +4,8 @@ __pycache__/
 
 # Virtual environment
 venv/
+.venv_cpu/
+.venv_gpu/
 
 # Environment files (contain sensitive information)
 .env
@@ -11,3 +13,6 @@ venv/
 
 # Claude settings
 .claude/
+
+# Build output
+dist/
