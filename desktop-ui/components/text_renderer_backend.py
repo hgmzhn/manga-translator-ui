@@ -63,6 +63,35 @@ class BackendTextRenderer:
         
         self._text_render_cache[cache_key] = (temp_box, render_w, render_h, norm_h, norm_v)
 
+    def update_font_config(self, font_filename: str):
+        """更新字体配置"""
+        if not font_filename:
+            return
+            
+        import os
+        # 构建完整的字体路径
+        full_font_path = os.path.join(os.path.dirname(__file__), '..', '..', 'fonts', font_filename)
+        full_font_path = os.path.abspath(full_font_path)
+        
+        if os.path.exists(full_font_path):
+            # 导入后端渲染模块
+            try:
+                import sys
+                sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+                from manga_translator.rendering.text_render import set_font
+                
+                set_font(full_font_path)
+                print(f"[BackendTextRenderer] 字体已更新: {full_font_path}")
+                
+                # 清除渲染缓存以强制重新渲染
+                self._text_render_cache.clear()
+                print(f"[BackendTextRenderer] 渲染缓存已清除，缓存大小: {len(self._text_render_cache)}")
+                
+            except Exception as e:
+                print(f"[BackendTextRenderer] 更新字体失败: {e}")
+        else:
+            print(f"[BackendTextRenderer] 字体文件不存在: {full_font_path}")
+
     def draw_regions(self, text_blocks: List[TextBlock], dst_points_list: List[np.ndarray], selected_indices: List[int] = [], transform_service: TransformService = None, hide_indices: Set[int] = None, fast_mode: bool = False, hyphenate: bool = True, line_spacing: float = None, disable_font_border: bool = False):
         if not transform_service or text_blocks is None:
             return
@@ -83,9 +112,15 @@ class BackendTextRenderer:
 
             if self.boxes_visible:
                 self._draw_original_shape(i, text_block, is_selected, transform_service)
-                if is_selected and dst_points_list and i < len(dst_points_list) and dst_points_list[i] is not None:
+                if dst_points_list and i < len(dst_points_list) and dst_points_list[i] is not None:
+                    # 绘制绿色框（不带手柄）
                     self._draw_region_box(i, dst_points_list[i], transform_service)
+                    
+                    # 如果选中，绘制白色外框和手柄
+                    if is_selected:
+                        self._draw_white_outer_frame_with_handles(i, dst_points_list[i], transform_service)
 
+            # 原有的手柄绘制（用于文本框内部的顶点编辑）- 最高优先级
             if is_selected:
                 self._draw_handles(i, text_block, transform_service)
 
@@ -116,7 +151,14 @@ class BackendTextRenderer:
                 if render_w <= 0 or render_h <= 0:
                     return
 
-                set_font(text_block.font_family)
+                try:
+                    print(f"[BACKEND RENDER] Region {i}: Attempting to set font: {text_block.font_family}")
+                    set_font(text_block.font_family)
+                    print(f"[BACKEND RENDER] Region {i}: Font set successfully.")
+                except Exception as e:
+                    print(f"[BACKEND RENDER] Region {i}: ERROR calling set_font with path '{text_block.font_family}': {e}")
+                    # Continue without setting the font, it will use the last successful one
+                
                 temp_box = None
                 if text_block.horizontal:
                     temp_box = put_text_horizontal(text_block.font_size, text_block.get_translation_for_rendering(), render_w, render_h, text_block.alignment, text_block.direction == 'hl', fg_color, bg_color, text_block.target_lang, hyphenate, line_spacing)
@@ -203,7 +245,7 @@ class BackendTextRenderer:
                 return
             
             region_tag = f"region_box_{i}"
-            self.canvas.create_polygon(screen_coords, outline="green", fill="", width=1, tags=(region_tag, "region_box"))
+            self.canvas.create_polygon(screen_coords, outline="green", fill="", width=2, tags=(region_tag, "region_box"))
         except Exception as e:
             print(f"Error drawing region box for region {i}: {e}")
             # 如果出错，回退到简单的外接矩形
@@ -212,9 +254,171 @@ class BackendTextRenderer:
                 screen_coords = [c for p in points_2d for c in transform_service.image_to_screen(p[0], p[1])]
                 if len(screen_coords) >= 8:
                     region_tag = f"region_box_{i}"
-                    self.canvas.create_polygon(screen_coords, outline="green", fill="", width=1, tags=(region_tag, "region_box"))
+                    self.canvas.create_polygon(screen_coords, outline="green", fill="", width=2, tags=(region_tag, "region_box"))
             except:
                 pass
+    
+    def _draw_region_box_with_handles(self, i: int, dst_points: np.ndarray, transform_service: TransformService, is_selected: bool = False):
+        """绘制带有交互手柄的绿色外框"""
+        if dst_points is None or dst_points.size == 0:
+            return
+            
+        try:
+            # 获取四个角点的屏幕坐标
+            points_2d = dst_points[0] if len(dst_points.shape) > 2 else dst_points
+            screen_points = [transform_service.image_to_screen(p[0], p[1]) for p in points_2d]
+            
+            if len(screen_points) < 4:
+                return
+            
+            # 绘制绿色边框
+            screen_coords = [c for p in screen_points for c in p]
+            region_tag = f"region_box_{i}"
+            
+            # 根据选中状态调整颜色和线宽
+            outline_color = "cyan" if is_selected else "green"
+            line_width = 3 if is_selected else 2
+            
+            box_id = self.canvas.create_polygon(
+                screen_coords, 
+                outline=outline_color, 
+                fill="", 
+                width=line_width, 
+                tags=(region_tag, "region_box", f"interactive_box_{i}")
+            )
+            
+            # 如果选中，绘制交互手柄
+            if is_selected:
+                self._draw_box_handles(i, screen_points, transform_service)
+                
+        except Exception as e:
+            print(f"Error drawing interactive region box for region {i}: {e}")
+    
+    def _draw_box_handles(self, region_index: int, screen_points: list, transform_service: TransformService):
+        """绘制绿色框的交互手柄"""
+        handle_size = 10
+        
+        # 绘制四个角点手柄
+        for i, (sx, sy) in enumerate(screen_points):
+            handle_id = self.canvas.create_rectangle(
+                sx - handle_size//2, sy - handle_size//2,
+                sx + handle_size//2, sy + handle_size//2,
+                fill="yellow", outline="black", width=2,
+                tags=(f"region_{region_index}", "box_handle", f"corner_handle_{i}", "handle")
+            )
+        
+        # 绘制边中点手柄（用于边编辑）
+        for i in range(len(screen_points)):
+            p1 = screen_points[i]
+            p2 = screen_points[(i + 1) % len(screen_points)]
+            mid_x = (p1[0] + p2[0]) / 2
+            mid_y = (p1[1] + p2[1]) / 2
+            
+            handle_id = self.canvas.create_oval(
+                mid_x - handle_size//2, mid_y - handle_size//2,
+                mid_x + handle_size//2, mid_y + handle_size//2,
+                fill="orange", outline="black", width=2,
+                tags=(f"region_{region_index}", "box_handle", f"edge_handle_{i}", "handle")
+            )
+        
+        # 绘制中心旋转手柄
+        center_x = sum(p[0] for p in screen_points) / len(screen_points)
+        center_y = sum(p[1] for p in screen_points) / len(screen_points)
+        
+        # 旋转手柄位置（在中心上方）
+        rotation_handle_y = center_y - 40
+        
+        # 绘制连接线
+        self.canvas.create_line(
+            center_x, center_y, center_x, rotation_handle_y,
+            fill="red", width=2,
+            tags=(f"region_{region_index}", "rotation_line", "handle")
+        )
+        
+        # 绘制旋转手柄
+        self.canvas.create_oval(
+            center_x - handle_size//2, rotation_handle_y - handle_size//2,
+            center_x + handle_size//2, rotation_handle_y + handle_size//2,
+            fill="red", outline="black", width=2,
+            tags=(f"region_{region_index}", "box_handle", "rotation_handle", "handle")
+        )
+    
+    def _draw_white_outer_frame_with_handles(self, i: int, dst_points: np.ndarray, transform_service: TransformService):
+        """绘制白色外框和交互手柄"""
+        if dst_points is None or dst_points.size == 0:
+            return
+            
+        try:
+            # 参考蓝色区域编辑的逻辑：在图像坐标系中计算，避免旋转时的位置偏移
+            points_2d = dst_points[0] if len(dst_points.shape) > 2 else dst_points
+            
+            if len(points_2d) < 4:
+                return
+            
+            # 在图像坐标系中计算边界框（参考蓝色手柄的方式）
+            min_x = min(p[0] for p in points_2d)
+            max_x = max(p[0] for p in points_2d)
+            min_y = min(p[1] for p in points_2d)
+            max_y = max(p[1] for p in points_2d)
+            
+            # 在图像坐标系中创建白色外框（比绿框大40像素）
+            padding = 40
+            white_frame_image = [
+                [min_x - padding, min_y - padding],  # 左上
+                [max_x + padding, min_y - padding],  # 右上
+                [max_x + padding, max_y + padding],  # 右下
+                [min_x - padding, max_y + padding]   # 左下
+            ]
+            
+            # 转换到屏幕坐标（参考蓝色手柄的转换方式）
+            white_box_points = [transform_service.image_to_screen(p[0], p[1]) for p in white_frame_image]
+            
+            # 绘制白色外框
+            screen_coords = [c for p in white_box_points for c in p]
+            region_tag = f"white_frame_{i}"
+            
+            self.canvas.create_polygon(
+                screen_coords, 
+                outline="white", 
+                fill="", 
+                width=2, 
+                tags=(region_tag, "white_frame", f"interactive_white_frame_{i}")
+            )
+            
+            # 绘制交互手柄在白色外框上
+            self._draw_white_frame_handles(i, white_box_points, transform_service)
+                
+        except Exception as e:
+            print(f"Error drawing white outer frame for region {i}: {e}")
+    
+    def _draw_white_frame_handles(self, region_index: int, white_box_points: list, transform_service: TransformService):
+        """在白色外框上绘制交互手柄"""
+        handle_size = 10
+        
+        # 绘制四个角点手柄
+        for i, (sx, sy) in enumerate(white_box_points):
+            handle_id = self.canvas.create_rectangle(
+                sx - handle_size//2, sy - handle_size//2,
+                sx + handle_size//2, sy + handle_size//2,
+                fill="yellow", outline="black", width=2,
+                tags=(f"region_{region_index}", "white_frame_handle", f"corner_handle_{i}", "handle")
+            )
+        
+        # 绘制边中点手柄（用于边编辑）
+        for i in range(len(white_box_points)):
+            p1 = white_box_points[i]
+            p2 = white_box_points[(i + 1) % len(white_box_points)]
+            mid_x = (p1[0] + p2[0]) / 2
+            mid_y = (p1[1] + p2[1]) / 2
+            
+            handle_id = self.canvas.create_oval(
+                mid_x - handle_size//2, mid_y - handle_size//2,
+                mid_x + handle_size//2, mid_y + handle_size//2,
+                fill="orange", outline="black", width=2,
+                tags=(f"region_{region_index}", "white_frame_handle", f"edge_handle_{i}", "handle")
+            )
+        
+        # 不在白色外框上绘制旋转手柄，使用原有的旋转手柄即可
 
     def _draw_original_shape(self, i: int, text_block: TextBlock, is_selected: bool, transform_service: TransformService):
         if not text_block or not hasattr(text_block, 'lines') or text_block.lines.size == 0:

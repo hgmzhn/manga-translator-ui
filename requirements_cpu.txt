@@ -27,7 +27,7 @@ onnxruntime
 openai
 opencv-python==4.12.0.88
 packaging
-pandas==1.5.3
+pandas
 Pillow
 psutil
 py3langid

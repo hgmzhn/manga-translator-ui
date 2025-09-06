@@ -91,7 +91,11 @@ class FileManager:
             # 加载蒙版数据
             mask_data_list = image_data.get('mask_raw')
             if mask_data_list is not None:
-                raw_mask = np.array(mask_data_list, dtype=np.uint8)
+                if isinstance(mask_data_list, list):
+                    raw_mask = np.array(mask_data_list, dtype=np.uint8)
+                else:
+                    print(f"[ERROR] Invalid 'mask_raw' data in {os.path.basename(json_path)}. Expected a list, got {type(mask_data_list)}.")
+                    raw_mask = None
             
             # 加载原始尺寸
             original_size = (image_data.get('original_width'), image_data.get('original_height'))

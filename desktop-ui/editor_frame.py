@@ -10,6 +10,7 @@ import winsound
 import traceback
 import json
 import cv2
+import pathlib
 
 from ui_components import show_toast, CollapsibleFrame
 from canvas_frame_new import CanvasFrame
@@ -74,6 +75,9 @@ class EditorFrame(ctk.CTkFrame):
         
         self.after(100, self._setup_shortcuts)
 
+        # 强制从文件重载一次配置，以确保UI显示的是最新的磁盘设置
+        self.config_service.reload_from_disk()
+        
         print("重构编辑器初始化完成")
 
     def _build_ui(self):
@@ -85,7 +89,7 @@ class EditorFrame(ctk.CTkFrame):
         self.toolbar = EditorToolbar(self, back_callback=self.return_callback)
         self.toolbar.grid(row=0, column=0, columnspan=3, sticky="ew")
 
-        self.property_panel = PropertyPanel(self)
+        self.property_panel = PropertyPanel(self, shortcut_manager=self.shortcut_manager)
         self.property_panel.grid(row=1, column=0, sticky="ns", padx=(2,1), pady=2)
 
         self.mask_edit_collapsible_frame = CollapsibleFrame(self.property_panel, title="蒙版编辑", start_expanded=True)
@@ -103,6 +107,20 @@ class EditorFrame(ctk.CTkFrame):
         self.show_mask_checkbox.select()
         self.show_mask_checkbox.grid(row=3, column=0, pady=5, padx=5, sticky="w")
         
+        # 新增：蒙版优化参数
+        ctk.CTkLabel(content_frame, text="扩张偏移:").grid(row=4, column=0, pady=(10, 2), padx=5, sticky="w")
+        self.mask_dilation_offset_entry = ctk.CTkEntry(content_frame, placeholder_text="0")
+        self.mask_dilation_offset_entry.grid(row=5, column=0, pady=2, padx=5, sticky="ew")
+        self.mask_dilation_offset_entry.bind("<FocusOut>", self._on_mask_setting_changed)
+
+        ctk.CTkLabel(content_frame, text="内核大小:").grid(row=6, column=0, pady=(10, 2), padx=5, sticky="w")
+        self.mask_kernel_size_entry = ctk.CTkEntry(content_frame, placeholder_text="3")
+        self.mask_kernel_size_entry.grid(row=7, column=0, pady=2, padx=5, sticky="ew")
+        self.mask_kernel_size_entry.bind("<FocusOut>", self._on_mask_setting_changed)
+
+        self.ignore_bubble_checkbox = ctk.CTkCheckBox(content_frame, text="忽略气泡", command=self._on_mask_setting_changed)
+        self.ignore_bubble_checkbox.grid(row=8, column=0, pady=10, padx=5, sticky="w")
+
         # 添加蒙版更新按钮
         self.update_mask_button = ctk.CTkButton(
             content_frame, 
@@ -110,13 +128,13 @@ class EditorFrame(ctk.CTkFrame):
             command=self._update_mask_with_config,
             height=28
         )
-        self.update_mask_button.grid(row=4, column=0, pady=5, padx=5, sticky="ew")
+        self.update_mask_button.grid(row=9, column=0, pady=5, padx=5, sticky="ew")
         
         # 添加显示被优化掉区域的选项
         self.show_removed_checkbox = ctk.CTkCheckBox(content_frame, text="显示被优化掉的区域", command=lambda: self._on_toggle_removed_mask_visibility(self.show_removed_checkbox.get()))
         # 默认不显示被优化掉的区域
         self.show_removed_checkbox.deselect()
-        self.show_removed_checkbox.grid(row=5, column=0, pady=5, padx=5, sticky="w")
+        self.show_removed_checkbox.grid(row=10, column=0, pady=5, padx=5, sticky="w")
 
         self.canvas_frame = CanvasFrame(self, self.transform_service, 
                                         on_region_selected=self._on_region_selected, 
@@ -129,6 +147,7 @@ class EditorFrame(ctk.CTkFrame):
                                         on_mask_edit_start=self._on_mask_edit_start,
                                         on_mask_edit_end=self._on_mask_edit_end)
         self.canvas_frame.grid(row=1, column=1, sticky="nsew", pady=2)
+        self.property_panel.set_canvas_frame(self.canvas_frame)
 
         self.file_list_frame = FileListFrame(self, 
                                              on_file_select=self._on_file_selected_from_list,
@@ -141,7 +160,7 @@ class EditorFrame(ctk.CTkFrame):
 
     def _setup_component_connections(self):
         self.file_manager.register_callback('image_loaded', self._on_image_loaded)
-        self.toolbar.register_callback('load_image', self._load_files_from_dialog)
+        self.toolbar.register_callback('export_image', self._export_rendered_image)
         self.toolbar.register_callback('save_file', self._save_file)
         self.toolbar.register_callback('undo', self.undo)
         self.toolbar.register_callback('redo', self.redo)
@@ -157,6 +176,7 @@ class EditorFrame(ctk.CTkFrame):
         self.toolbar.register_callback('toggle_mask_visibility', self._on_toggle_mask_visibility)
         self.transform_service.subscribe(self._on_transform_changed)
         self.canvas_frame.canvas.bind("<Button-3>", self._show_context_menu)
+        
         self.context_menu.register_callback('add_text_box', self._enter_drawing_mode)
         self.context_menu.register_callback('copy_region', self._copy_selected_regions)
         self.context_menu.register_callback('paste_region', self._on_paste_shortcut)
@@ -322,6 +342,9 @@ class EditorFrame(ctk.CTkFrame):
         self.canvas_frame.set_regions(self.regions_data)
 
     def _on_image_loaded(self, image: Image.Image, image_path: str):
+        # 存储当前图片路径供导出使用
+        self.current_image_path = image_path
+        
         # 记住当前是否处于蒙版视图
         was_in_mask_view = self.view_mode == 'mask'
         
@@ -370,6 +393,26 @@ class EditorFrame(ctk.CTkFrame):
         self.regions_data = regions
         self.raw_mask = raw_mask
         self.original_size = original_size
+
+        # Set default font for regions that don't have one
+        print("--- DEBUG: Applying font path in _on_image_loaded ---")
+        config = self.config_service.get_config()
+        render_config = config.get('render', {})
+        font_filename = render_config.get('font_path')
+        print(f"--- DEBUG: Font filename from config: {font_filename}")
+        if font_filename:
+            full_font_path = os.path.join(os.path.dirname(__file__), '..', 'fonts', font_filename)
+            full_font_path = os.path.abspath(full_font_path)
+            final_font_path = pathlib.Path(full_font_path).as_posix()
+            print(f"--- DEBUG: Constructed full font path: {full_font_path}")
+            if os.path.exists(full_font_path):
+                print("--- DEBUG: Font path exists. Applying to regions.")
+                for i, region in enumerate(self.regions_data):
+                    if 'font_family' not in region or not region['font_family']:
+                        region['font_family'] = final_font_path
+                        print(f"    -> Applied to region {i}")
+            else:
+                print("--- DEBUG: Font path does NOT exist.")
         self.canvas_frame.set_original_size(original_size)
         self.canvas_frame.set_mask(raw_mask)
         
@@ -380,7 +423,6 @@ class EditorFrame(ctk.CTkFrame):
         # Push config to canvas and then set regions
         self._push_config_to_canvas()
         self.canvas_frame.set_regions(self.regions_data)
-        self.canvas_frame.canvas.focus_set()
         self.after(100, self._fit_to_window)
         
         # 如果之前处于蒙版视图，为新文件生成蒙版
@@ -553,6 +595,8 @@ class EditorFrame(ctk.CTkFrame):
         self.last_mouse_event = event
         self.context_menu.show_menu(event, len(self.selected_indices))
 
+    
+
     def _enter_drawing_mode(self):
         print("--- DEBUG: Entering drawing mode.")
         # Clear any existing selection before drawing a new box
@@ -561,11 +605,26 @@ class EditorFrame(ctk.CTkFrame):
         self.canvas_frame.mouse_handler.set_mode('draw')
 
     def _enter_geometry_edit_mode(self):
+        print(f"--- DEBUG: _enter_geometry_edit_mode called, selected_indices: {self.selected_indices}")
+        print(f"--- DEBUG: canvas_frame.mouse_handler.selected_indices: {self.canvas_frame.mouse_handler.selected_indices}")
+        
+        # 同步选中状态，确保两边一致
+        if hasattr(self.canvas_frame.mouse_handler, 'selected_indices'):
+            mouse_handler_selected = self.canvas_frame.mouse_handler.selected_indices
+            if mouse_handler_selected and len(mouse_handler_selected) == 1:
+                # 使用mouse_handler的选中状态
+                self.selected_indices = list(mouse_handler_selected)
+                print(f"--- DEBUG: Synced selected_indices to: {self.selected_indices}")
+        
         if len(self.selected_indices) == 1:
             print("--- DEBUG: Entering geometry edit mode.")
             self.canvas_frame.mouse_handler.set_mode('geometry_edit')
+            # 强制重绘以确保蓝色框显示
+            print(f"--- DEBUG: Forcing redraw with selected_indices: {self.selected_indices}")
+            self.canvas_frame.redraw_canvas()
         else:
-            show_toast(self, "Please select exactly one region to edit its shape.", level="info")
+            print(f"--- DEBUG: Cannot enter geometry edit mode. Selected count: {len(self.selected_indices)}")
+            show_toast(self, "请选择一个文本框来编辑其形状。", level="info")
 
     def _on_geometry_added(self, region_index, new_polygon_world):
         print("\n\n--- DEBUGGING _on_geometry_added ---")
@@ -648,6 +707,7 @@ class EditorFrame(ctk.CTkFrame):
 
     def _update_mask_with_config(self):
         """根据最新配置参数更新蒙版，保留用户的手动编辑"""
+        self._save_mask_settings_to_config()
         if self.refined_mask is None:
             show_toast(self, "请先生成初始蒙版", level="warning")
             return
@@ -657,6 +717,51 @@ class EditorFrame(ctk.CTkFrame):
         
         # 异步更新蒙版
         self.async_service.submit_task(self._update_refined_mask_with_config(current_edited_mask))
+
+    def _load_mask_settings_from_config(self):
+        """从配置服务加载蒙版设置并更新UI"""
+        try:
+            config = self.config_service.get_config()
+            ocr_config = config.get('ocr', {})
+            
+            dilation = ocr_config.get('mask_dilation_offset', 0)
+            kernel = ocr_config.get('kernel_size', 3)
+            ignore_bubble = ocr_config.get('ignore_bubble', 0)
+            
+            self.mask_dilation_offset_entry.delete(0, "end")
+            self.mask_dilation_offset_entry.insert(0, str(dilation))
+            
+            self.mask_kernel_size_entry.delete(0, "end")
+            self.mask_kernel_size_entry.insert(0, str(kernel))
+            
+            if ignore_bubble:
+                self.ignore_bubble_checkbox.select()
+            else:
+                self.ignore_bubble_checkbox.deselect()
+        except Exception as e:
+            print(f"Error loading mask settings to UI: {e}")
+
+    def _save_mask_settings_to_config(self):
+        """从UI获取蒙版设置并保存到配置"""
+        try:
+            config = self.config_service.get_config()
+            ocr_config = config.setdefault('ocr', {})
+            
+            ocr_config['mask_dilation_offset'] = int(self.mask_dilation_offset_entry.get() or 0)
+            ocr_config['kernel_size'] = int(self.mask_kernel_size_entry.get() or 3)
+            ocr_config['ignore_bubble'] = self.ignore_bubble_checkbox.get()
+            
+            self.config_service.set_config(config)
+            self.config_service.save_config_file()
+            print("Mask settings saved to config file.")
+        except (ValueError, TypeError) as e:
+            print(f"Error saving mask settings: Invalid value. {e}")
+        except Exception as e:
+            print(f"Error saving mask settings: {e}")
+
+    def _on_mask_setting_changed(self, event=None):
+        """蒙版设置UI控件的回调函数"""
+        self._save_mask_settings_to_config()
     
     async def _update_refined_mask_with_config(self, edited_mask: np.ndarray):
         """异步更新蒙版的实现"""
@@ -684,6 +789,9 @@ class EditorFrame(ctk.CTkFrame):
             ignore_bubble = ocr_config.get('ignore_bubble', 0)
             mask_dilation_offset = ocr_config.get('mask_dilation_offset', 0)
             
+            # --- DEBUG: 打印将要传递给后端的蒙版偏移值 (更新蒙版时) ---
+            print(f"--- MASK_DEBUG (UPDATE): Preparing to refine mask with dilation_offset: {mask_dilation_offset} ---")
+
             print(f"更新蒙版使用配置: kernel_size={kernel_size}, ignore_bubble={ignore_bubble}, dilation_offset={mask_dilation_offset}")
             
             # 生成新的基础蒙版
@@ -894,6 +1002,9 @@ class EditorFrame(ctk.CTkFrame):
             kernel_size = ocr_config.get('kernel_size', 3)
             ignore_bubble = ocr_config.get('ignore_bubble', 0)
             mask_dilation_offset = ocr_config.get('mask_dilation_offset', 0)
+
+            # --- DEBUG: 打印将要传递给后端的蒙版偏移值 ---
+            print(f"--- MASK_DEBUG: Preparing to refine mask with dilation_offset: {mask_dilation_offset} ---")
             
             print(f"使用蒙版精细化配置: kernel_size={kernel_size}, ignore_bubble={ignore_bubble}, dilation_offset={mask_dilation_offset}")
             
@@ -983,7 +1094,7 @@ class EditorFrame(ctk.CTkFrame):
 
             inpainted_image_np = await inpaint_dispatch(
                 inpainter_key=inpainter_key, 
-                image=image_np,
+                image=image_np, 
                 mask=mask_to_use,
                 config=inpainter_config,
                 inpainting_size=inpainting_size, 
@@ -1132,7 +1243,7 @@ class EditorFrame(ctk.CTkFrame):
             for index in self.selected_indices:
                 region_data = self.regions_data[index]
                 
-                image_np = np.array(self.image.convert("RGB"))
+                image_np = np.array(self.image.convert("RGB")),
                 result = await self.ocr_service.recognize_region(image_np, region_data)
                 if result and result.text:
                     old_data = copy.deepcopy(region_data)
@@ -1403,8 +1514,131 @@ class EditorFrame(ctk.CTkFrame):
             traceback.print_exc()
             show_toast(self, f"文件保存失败: {e}", level="error")
 
+    def _export_rendered_image(self):
+        """导出后端渲染的图片 - 处理用户交互并启动异步导出任务"""
+        self._save_mask_settings_to_config()
+        if not self.image or not self.regions_data:
+            show_toast(self, "没有图片或区域数据可导出", level="warning")
+            return
+        
+        try:
+            # Use export_service to get initial path and config
+            from services.export_service import get_export_service
+            export_service = get_export_service()
+            output_dir = export_service.get_output_directory()
+            config = self.config_service.get_config()
+            output_format = export_service.get_output_format_from_config(config)
+
+            # Generate default filename
+            if hasattr(self, 'current_image_path') and self.current_image_path:
+                default_filename = export_service.generate_output_filename(self.current_image_path, output_format)
+            else:
+                default_filename = f"translated_image.{output_format or 'png'}"
+
+            initial_file = os.path.join(output_dir, default_filename) if output_dir else default_filename
+
+            # Define file types for the dialog
+            if output_format == "jpg" or output_format == "jpeg":
+                filetypes = [("JPEG files", "*.jpg"), ("PNG files", "*.png"), ("All files", "*.*")]
+                default_ext = ".jpg"
+            else:
+                filetypes = [("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("All files", "*.*")]
+                default_ext = ".png"
+
+            # Open file dialog to get the output path from the user
+            output_path = filedialog.asksaveasfilename(
+                title="导出渲染图片",
+                initialfile=initial_file,
+                initialdir=output_dir,
+                defaultextension=default_ext,
+                filetypes=filetypes
+            )
+            
+            if not output_path:
+                return # User cancelled
+
+            # Submit the actual export process to the async service
+            self.async_service.submit_task(self._async_export_with_mask(output_path))
+            
+        except Exception as e:
+            print(f"导出图片失败: {e}")
+            traceback.print_exc()
+            show_toast(self, f"导出图片失败: {e}", level="error")
+
+    async def _async_export_with_mask(self, output_path: str):
+        """Asynchronously handles the export process, including mask generation."""
+        try:
+            # 1. Ensure a refined mask exists, generating one if necessary.
+            if self.refined_mask is None:
+                show_toast(self, "未找到优化蒙版，正在自动生成...", level="info")
+                await self._generate_refined_mask()
+                # After generation, check if it was successful
+                if self.refined_mask is None:
+                    show_toast(self, "蒙版生成失败，无法导出。", level="error")
+                    return
+
+            show_toast(self, "正在导出图片...", level="info")
+
+            # 2. Get services and configuration
+            from services.export_service import get_export_service
+            export_service = get_export_service()
+            config = self.config_service.get_config()
+
+            # 3. Define callbacks for the export service
+            def progress_callback(message):
+                self.after(0, lambda: show_toast(self, message, level="info"))
+            
+            def success_callback(message):
+                self.after(0, lambda: show_toast(self, message, level="success"))
+            
+            def error_callback(message):
+                self.after(0, lambda: show_toast(self, message, level="error"))
+
+            # 4. Execute export with the refined mask
+            export_service.export_rendered_image(
+                image=self.image,
+                regions_data=self.regions_data,
+                config=config,
+                output_path=output_path,
+                mask=self.refined_mask,  # Pass the refined mask
+                progress_callback=progress_callback,
+                success_callback=success_callback,
+                error_callback=error_callback
+            )
+        except Exception as e:
+            print(f"异步导出图片失败: {e}")
+            traceback.print_exc()
+            show_toast(self, f"导出图片时发生意外错误: {e}", level="error")
+
     def reload_config_and_redraw(self):
         """Public method to reload configuration and trigger a full redraw."""
-        # print("--- EDITOR: Reloading config and redrawing... ---")
+        try:
+            config = self.config_service.get_config()
+            render_config = config.get('render', {})
+            font_filename = render_config.get('font_path')
+
+            if font_filename and self.regions_data:
+                full_font_path = os.path.join(os.path.dirname(__file__), '..', 'fonts', font_filename)
+                full_font_path = os.path.abspath(full_font_path)
+                final_font_path = pathlib.Path(full_font_path).as_posix()
+
+                if os.path.exists(full_font_path):
+                    for region in self.regions_data:
+                        region['font_family'] = final_font_path
+        except Exception as e:
+            print(f"[ERROR] Failed to update font properties in regions_data: {e}")
+
+        # Clear the text render cache and update font config
+        if hasattr(self, 'canvas_frame') and hasattr(self.canvas_frame, 'renderer') and hasattr(self.canvas_frame.renderer, 'text_renderer'):
+            self.canvas_frame.renderer.text_renderer._text_render_cache.clear()
+            # 同时更新文本渲染器的字体配置
+            if font_filename:
+                self.canvas_frame.renderer.text_renderer.update_font_config(font_filename)
+
+        # Push other render configs and redraw
         self._push_config_to_canvas()
         self._update_canvas_regions()
+
+        # Also update the new mask settings UI
+        if hasattr(self, '_load_mask_settings_from_config'):
+            self._load_mask_settings_from_config()

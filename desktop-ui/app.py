@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 
 import sys
@@ -10,6 +9,8 @@ import asyncio
 import logging
 import queue
 import threading
+import subprocess
+import signal
 from dotenv import dotenv_values, set_key
 from PIL import Image
 from typing import List
@@ -90,6 +91,9 @@ class QueueIO:
 
     def flush(self):
         pass
+    
+    def isatty(self):
+        return False
 
 class App(ctk.CTk):
 
@@ -124,14 +128,23 @@ class AppController:
         self.env_widgets = {}
         self.input_files = []
         self.translation_process = None
+        self.translation_process_pid = None
         self.stop_requested = threading.Event()
         self.current_config_path = None
         self.service = None
         self.cli_widgets = {}
+        self.gimp_font_widgets = {}
+        self.font_path_widgets = {}
+        
+        # 字体监控服务
+        self.font_monitor = None
         
         # 延迟初始化重量级组件
         self._translator_env_map = None
         self._shortcut_manager = None
+        
+        # 初始化字体监控服务
+        self._init_font_monitor()
         
         # 立即初始化必要的组件（保证功能正常）
         self.translations = {}
@@ -398,6 +411,10 @@ class AppController:
             frame.tkraise()
 
     def on_close(self):
+        # 停止字体监控服务
+        if self.font_monitor:
+            self.font_monitor.stop_monitoring()
+        
         # Check for unsaved changes in the editor
         EditorView = globals().get('EditorView')
         if not EditorView:
@@ -414,7 +431,7 @@ class AppController:
                 
                 result = messagebox.askyesnocancel(
                     "退出确认",
-                    "您有未保存的修改。是否要保存后再退出？\n\n- 选择“是”将保存并退出。\n- 选择“否”将不保存并退出。\n- 选择“取消”将不退出。"
+                    "您有未保存的修改。是否要保存后再退出？\n\n- 选择‘是’将保存并退出。\n- 选择‘否’将不保存并退出。\n- 选择‘取消’将不退出。"
                 )
                 
                 if result is True:  # Yes
@@ -609,23 +626,15 @@ class AppController:
             return
         parent_frame.grid_columnconfigure(1, weight=1)
 
-        def make_save_handler(key):
-            if key == "cli.template":
-                return lambda: self._save_widget_change(key, self.cli_widgets.get("template"))
-            return lambda *args: self._save_widget_change(key, self.parameter_widgets.get(key))
-
         for i, (key, value) in enumerate(data.items()):
             row = start_row + i
             full_key = f"{prefix}.{key}" if prefix else key
             
             label = ctk.CTkLabel(parent_frame, text=self.translate(key), anchor="w")
-            label.grid(row=row, column=0, padx=5, pady=2, sticky="w")
-
-            save_handler = make_save_handler(full_key)
+            widget = None
 
             if full_key == "render.font_path":
                 widget_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
-                widget_frame.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
                 widget_frame.grid_columnconfigure(0, weight=1)
 
                 font_options = self.get_options_for_key(key) or []
@@ -633,39 +642,24 @@ class AppController:
                 widget.set(str(value) if value else "")
                 widget.grid(row=0, column=0, sticky="ew")
                 
-                def on_font_path_edit(*args):
-                    self._save_widget_change(full_key, value=widget.get())
-                
-                widget._variable.trace_add("write", on_font_path_edit)
-
                 browse_button = ctk.CTkButton(widget_frame, text="打开目录", width=80, command=self._open_font_directory)
                 browse_button.grid(row=0, column=1, padx=(5, 0))
                 
                 self.parameter_widgets[full_key] = widget
+                self.font_path_widgets['label'] = label
+                self.font_path_widgets['frame'] = widget_frame
+                label.grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                widget_frame.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
                 continue
 
             if key == 'format':
                 formats = ["不指定"] + list(OUTPUT_FORMATS.keys())
-                widget = ctk.CTkOptionMenu(parent_frame, values=formats, command=lambda v: save_handler())
+                widget = ctk.CTkOptionMenu(parent_frame, values=formats, command=lambda v, k=full_key: self._save_widget_change(k, value=v))
                 widget.set(str(value) if value else "不指定")
             elif isinstance(value, bool):
-                if full_key == "cli.load_text":
-                    widget = ctk.CTkSwitch(parent_frame, text="", onvalue=True, offvalue=False, command=self._on_load_text_toggled)
-                    self.cli_widgets["load_text"] = widget
-                elif full_key == "cli.save_text":
-                    widget = ctk.CTkSwitch(parent_frame, text="", onvalue=True, offvalue=False, command=self._on_save_text_toggled)
-                    self.cli_widgets["save_text"] = widget
-                elif full_key == "cli.template":
-                    widget = ctk.CTkSwitch(parent_frame, text="", onvalue=True, offvalue=False, command=save_handler)
-                    self.cli_widgets["template"] = widget
-                    self.cli_widgets["template_label"] = label
-                else:
-                    widget = ctk.CTkSwitch(parent_frame, text="", onvalue=True, offvalue=False, command=save_handler)
-                
-                if value:
-                    widget.select()
-                else:
-                    widget.deselect()
+                widget = ctk.CTkSwitch(parent_frame, text="", onvalue=True, offvalue=False, command=lambda k=full_key: self._save_widget_change(k))
+                if value: widget.select()
+                else: widget.deselect()
             elif isinstance(value, (int, float)):
                 entry_var = ctk.StringVar(value=str(value))
                 widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
@@ -673,50 +667,46 @@ class AppController:
             elif isinstance(value, str):
                 options = self.get_options_for_key(key)
                 if options:
-                    command = lambda v, k=full_key, w=None: self._save_widget_change(k, w if w else self.parameter_widgets[k])
-                    if key == "translator":
-                        def translator_change_handler(v):
+                    if key == "renderer":
+                        widget = ctk.CTkOptionMenu(parent_frame, values=options, command=self._on_renderer_changed)
+                    elif key == "translator":
+                        def translator_change_handler(v, k="translator.translator"):
                             self.on_translator_change(v)
-                            command(v)
+                            self._save_widget_change(k, value=v)
                         widget = ctk.CTkOptionMenu(parent_frame, values=options, command=translator_change_handler)
                     elif key == "target_lang":
                         from services.translation_service import TranslationService
                         translation_service = TranslationService()
                         lang_map = translation_service.get_target_languages()
-                        
                         def lang_change_handler(v):
-                            # Find the key (lang_code) for the selected value (lang_name)
                             lang_code = next((code for code, name in lang_map.items() if name == v), None)
                             if lang_code:
                                 self._save_widget_change("translator.target_lang", value=lang_code)
-
                         widget = ctk.CTkOptionMenu(parent_frame, values=options, command=lang_change_handler)
                     else:
-                        widget = ctk.CTkOptionMenu(parent_frame, values=options, command=command)
+                        widget = ctk.CTkOptionMenu(parent_frame, values=options, command=lambda v, k=full_key: self._save_widget_change(k, value=v))
                     
                     value_to_set = value
                     if key == "translator":
-                        if value == "chatgpt":
-                            value_to_set = "openai"
+                        if value == "chatgpt": value_to_set = "openai"
                         elif value not in options:
                             try:
-                                mapped_enum = Translator(value)
-                                value_to_set = mapped_enum.value
-                                if value_to_set == "chatgpt":
-                                    value_to_set = "openai"
-                            except ValueError:
-                                pass
+                                value_to_set = Translator(value).value
+                                if value_to_set == "chatgpt": value_to_set = "openai"
+                            except ValueError: pass
                     elif key == "target_lang":
                         from services.translation_service import TranslationService
                         translation_service = TranslationService()
                         lang_map = translation_service.get_target_languages()
                         value_to_set = lang_map.get(value, value)
-
                     widget.set(value_to_set)
                 else:
                     entry_var = ctk.StringVar(value=value)
                     widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
                     entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._save_widget_change(k, w))
+                    if full_key == "render.gimp_font":
+                        self.gimp_font_widgets['label'] = label
+                        self.gimp_font_widgets['widget'] = widget
             elif value is None:
                 entry_var = ctk.StringVar(value="")
                 widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
@@ -726,8 +716,10 @@ class AppController:
                 widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
                 entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._save_widget_change(k, w))
             
-            widget.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
-            self.parameter_widgets[full_key] = widget
+            if widget:
+                label.grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                widget.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
+                self.parameter_widgets[full_key] = widget
 
     def create_env_widgets(self, keys, current_values, parent_frame):
         parent_frame.grid_columnconfigure(1, weight=1)
@@ -792,6 +784,34 @@ class AppController:
         
         return options
 
+    def _init_font_monitor(self):
+        """初始化字体监控服务"""
+        try:
+            from services.font_monitor_service import FontMonitorService
+            fonts_dir = resource_path('fonts')
+            
+            self.font_monitor = FontMonitorService(fonts_dir)
+            self.font_monitor.register_callback(self._on_fonts_changed)
+            self.font_monitor.start_monitoring()
+            
+        except Exception as e:
+            print(f"初始化字体监控服务失败: {e}")
+    
+    def _on_fonts_changed(self, font_files: list):
+        """字体文件变化回调"""
+        try:
+            # 更新字体下拉菜单
+            font_widget = self.parameter_widgets.get("render.font_path")
+            if font_widget and hasattr(font_widget, 'configure'):
+                # 更新下拉菜单的选项
+                font_widget.configure(values=font_files)
+                print(f"[字体监控] 字体下拉菜单已更新: {len(font_files)} 个字体")
+                
+                # 记录日志
+                self.update_log(f"检测到字体目录变化，已更新字体列表 ({len(font_files)} 个字体)\n")
+        except Exception as e:
+            print(f"更新字体下拉菜单失败: {e}")
+
     def _open_font_directory(self):
         fonts_dir = resource_path('fonts')
         try:
@@ -803,6 +823,10 @@ class AppController:
                 subprocess.run(["xdg-open", fonts_dir])
         except Exception as e:
             self.update_log(f"Error opening font directory: {e}\n")
+        
+        # 手动刷新字体列表
+        if self.font_monitor:
+            self.font_monitor.refresh_fonts()
 
     def _select_font_path(self):
         font_path = filedialog.askopenfilename(
@@ -891,6 +915,34 @@ class AppController:
         
         # Directly call the save function with the resolved value
         self._save_widget_change('render.layout_mode', value=internal_name)
+
+    def _on_renderer_changed(self, selected_renderer: str):
+        self.update_log(f"[DEBUG] Renderer changed to: {selected_renderer}\n")
+        self._save_widget_change('render.renderer', value=selected_renderer)
+
+        # Toggle visibility for gimp_font
+        if self.gimp_font_widgets:
+            label = self.gimp_font_widgets.get('label')
+            widget = self.gimp_font_widgets.get('widget')
+            if label and widget:
+                if selected_renderer == 'gimp':
+                    label.grid()
+                    widget.grid()
+                else:
+                    label.grid_remove()
+                    widget.grid_remove()
+
+        # Toggle visibility for font_path
+        if self.font_path_widgets:
+            label = self.font_path_widgets.get('label')
+            frame = self.font_path_widgets.get('frame')
+            if label and frame:
+                if selected_renderer == 'gimp':
+                    label.grid_remove()
+                    frame.grid_remove()
+                else:
+                    label.grid()
+                    frame.grid()
 
     def load_default_config(self):
         main_view = self.views[MainView]
@@ -1025,6 +1077,14 @@ class AppController:
 
         # Set initial state for the template switch
         self._update_template_state()
+
+        # Set initial visibility of font settings
+        initial_renderer = config.get("render", {}).get("renderer", "default")
+        self._on_renderer_changed(initial_renderer)
+
+        # Set initial visibility of font settings
+        initial_renderer = config.get("render", {}).get("renderer", "default")
+        self._on_renderer_changed(initial_renderer)
 
     async def _process_txt_import_async(self):
         """异步处理TXT文件导入到JSON，避免UI卡死"""
@@ -1173,9 +1233,31 @@ class AppController:
             self.update_log(f"Error loading output path: {e}\n")
 
     def stop_translation(self):
-        if self.translation_process and self.translation_process.is_alive():
-            self.update_log("正在请求停止翻译...\n")
-            self.stop_requested.set()
+        if self.translation_process and self.translation_process.poll() is None:  # 进程还在运行
+            self.update_log("正在强制终止翻译进程...\n")
+            try:
+                # 先尝试优雅终止
+                self.translation_process.terminate()
+                
+                # 等待5秒
+                try:
+                    self.translation_process.wait(timeout=5)
+                    self.update_log("翻译进程已优雅终止\n")
+                except subprocess.TimeoutExpired:
+                    # 如果5秒后进程还存在，强制杀死
+                    self.update_log("使用强制杀死进程...\n")
+                    self.translation_process.kill()
+                    self.translation_process.wait()
+                    self.update_log("翻译进程已被强制终止\n")
+                    
+            except Exception as e:
+                self.update_log(f"终止进程时出错: {e}\n")
+            finally:
+                self.translation_process = None
+                self.translation_process_pid = None
+                self._reset_start_button()
+        else:
+            self.update_log("没有正在运行的翻译进程\n")
 
     def _reset_start_button(self):
         self.main_view_widgets['start_translation_button'].configure(
@@ -1228,6 +1310,19 @@ class AppController:
             if 'cli' in config_dict:
                 translator_params.update(config_dict.pop('cli'))
             
+            # 提取字体路径并设置为翻译器参数
+            render_config = config_dict.get('render', {})
+            font_filename = render_config.get('font_path')
+            if font_filename:
+                # 构建完整的字体路径
+                font_full_path = os.path.join(os.path.dirname(__file__), '..', 'fonts', font_filename)
+                font_full_path = os.path.abspath(font_full_path)
+                if os.path.exists(font_full_path):
+                    translator_params['font_path'] = font_full_path
+                    self.update_log(f"设置翻译器字体路径: {font_full_path}\n")
+                else:
+                    self.update_log(f"警告: 字体文件不存在: {font_full_path}\n")
+            
             translator_params.update(config_dict)
             translator_params['is_ui_mode'] = True
 
@@ -1250,7 +1345,7 @@ class AppController:
             return
 
         if self.translation_process and self.translation_process.is_alive():
-            self.update_log("\n翻译已在运行。请等待或重启应用以停止。")
+            self.update_log("\n翻译已在运行。请使用停止按钮终止当前翻译。")
             return
 
         # Update button state to Stop
@@ -1261,9 +1356,532 @@ class AppController:
             hover_color=("#C53929", "#B03021")
         )
 
-        # Start the single, sequential pipeline thread
-        self.translation_process = threading.Thread(target=self._run_full_pipeline_thread, daemon=True)
-        self.translation_process.start()
+        # 创建翻译配置文件
+        temp_config_path = self._create_temp_config()
+        
+        # Start the subprocess for translation
+        try:
+            # 使用subprocess运行翻译脚本
+            script_path = os.path.join(os.path.dirname(__file__), 'translation_worker.py')
+            
+            # 创建翻译工作脚本
+            self._create_translation_worker_script()
+            
+            # 简化的进程启动方式
+            self.translation_process = subprocess.Popen(
+                [sys.executable, '-u', script_path, temp_config_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # 合并stdout和stderr
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                encoding='utf-8',  # 强制使用UTF-8编码
+                errors='ignore',   # 忽略编码错误
+                env=dict(os.environ, 
+                        PYTHONUNBUFFERED='1', 
+                        PYTHONIOENCODING='utf-8',
+                        PYTHONUTF8='1'),  # 强制Python使用UTF-8
+                cwd=os.path.dirname(__file__)
+            )
+            
+            self.translation_process_pid = self.translation_process.pid
+            self.update_log(f"翻译进程已启动，PID: {self.translation_process_pid}\n")
+            
+            # 启动简单的监控线程
+            monitor_thread = threading.Thread(target=self._monitor_translation_simple, daemon=True)
+            monitor_thread.start()
+            
+        except Exception as e:
+            self.update_log(f"启动翻译进程失败: {e}\n")
+            import traceback
+            self.update_log(f"详细错误: {traceback.format_exc()}\n")
+            self._reset_start_button()
+
+    def _create_temp_config(self):
+        """创建临时配置文件供子进程使用"""
+        temp_dir = os.path.join(os.path.dirname(__file__), 'temp')
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        temp_config_path = os.path.join(temp_dir, 'translation_config.json')
+        
+        config_data = {
+            'config_dict': self.get_config_from_widgets(as_dict=True),
+            'input_files': self.input_files,
+            'output_folder': self.main_view_widgets['output_folder_entry'].get(),
+            'root_dir': self.root_dir
+        }
+        
+        with open(temp_config_path, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=2, ensure_ascii=False)
+        
+        return temp_config_path
+    
+    def _create_translation_worker_script(self):
+        """创建翻译工作脚本"""
+        script_path = os.path.join(os.path.dirname(__file__), 'translation_worker.py')
+        
+        script_content = '''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import json
+import asyncio
+import logging
+from pathlib import Path
+
+# 强制设置UTF-8编码
+if sys.platform == "win32":
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer)
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer)
+
+# 强制刷新输出
+def flush_print(text):
+    try:
+        print(text, flush=True)
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception as e:
+        # 如果输出出错，尝试用ASCII输出
+        try:
+            print(str(text).encode('ascii', 'ignore').decode('ascii'), flush=True)
+        except:
+            pass
+
+# 配置日志输出到stdout
+def setup_logging():
+    try:
+        # 清除现有handlers
+        logging.getLogger().handlers.clear()
+        
+        # 创建stdout handler
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        
+        # 设置根logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        root_logger.addHandler(handler)
+        
+        # 确保manga_translator的日志也输出
+        manga_logger = logging.getLogger('manga_translator')
+        manga_logger.setLevel(logging.INFO)
+        manga_logger.addHandler(handler)
+    except Exception as e:
+        flush_print(f"设置日志时出错: {e}")
+
+# 添加项目路径
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+def main():
+    try:
+        if len(sys.argv) != 2:
+            flush_print("Usage: translation_worker.py <config_file>")
+            sys.exit(1)
+        
+        config_file = sys.argv[1]
+        flush_print(f"翻译工作进程启动，PID: {os.getpid()}")
+        flush_print(f"配置文件: {config_file}")
+        
+        # 设置日志
+        setup_logging()
+        
+        # 加载配置
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+        
+        config_dict = config_data['config_dict']
+        input_files = config_data['input_files']
+        output_folder = config_data['output_folder']
+        
+        flush_print(f"输入文件数: {len(input_files)}")
+        flush_print(f"输出文件夹: {output_folder}")
+        
+        # 导入翻译相关模块
+        flush_print("正在导入翻译模块...")
+        try:
+            from manga_translator.config import (
+                Config, RenderConfig, UpscaleConfig, TranslatorConfig, DetectorConfig,
+                ColorizerConfig, InpainterConfig, OcrConfig
+            )
+            from manga_translator.manga_translator import MangaTranslator
+            from PIL import Image
+            flush_print("翻译模块导入成功")
+        except Exception as e:
+            flush_print(f"导入翻译模块失败: {e}")
+            import traceback
+            flush_print(traceback.format_exc())
+            return
+        
+        # 初始化翻译器
+        translator_params = {}
+        if 'cli' in config_dict:
+            translator_params.update(config_dict.pop('cli'))
+        
+        # 提取字体路径并设置为翻译器参数
+        render_config = config_dict.get('render', {})
+        font_filename = render_config.get('font_path')
+        if font_filename:
+            # 构建完整的字体路径
+            font_full_path = os.path.join(os.path.dirname(__file__), '..', 'fonts', font_filename)
+            font_full_path = os.path.abspath(font_full_path)
+            if os.path.exists(font_full_path):
+                translator_params['font_path'] = font_full_path
+                flush_print(f"设置翻译器字体路径: {font_full_path}")
+            else:
+                flush_print(f"警告: 字体文件不存在: {font_full_path}")
+        
+        translator_params.update(config_dict)
+        translator_params['is_ui_mode'] = True
+        
+        flush_print("正在初始化翻译引擎...")
+        try:
+            translator = MangaTranslator(params=translator_params)
+            flush_print("翻译引擎初始化完成")
+        except Exception as e:
+            flush_print(f"翻译引擎初始化失败: {e}")
+            import traceback
+            flush_print(traceback.format_exc())
+            return
+        
+        # 解析输入文件
+        flush_print("正在解析输入文件...")
+        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'}
+        resolved_files = []
+        
+        for path in input_files:
+            if os.path.isfile(path):
+                _, ext = os.path.splitext(path.lower())
+                if ext in image_extensions:
+                    resolved_files.append(path)
+            elif os.path.isdir(path):
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        _, ext = os.path.splitext(file.lower())
+                        if ext in image_extensions:
+                            resolved_files.append(os.path.join(root, file))
+        
+        if not resolved_files:
+            flush_print("没有找到有效的图片文件")
+            return
+            
+        flush_print(f"找到 {len(resolved_files)} 个图片文件")
+        
+        # 创建配置对象
+        try:
+            config = Config(
+                render=RenderConfig(**config_dict.get('render', {})),
+                upscale=UpscaleConfig(**config_dict.get('upscale', {})),
+                translator=TranslatorConfig(**config_dict.get('translator', {})),
+                detector=DetectorConfig(**config_dict.get('detector', {})),
+                colorizer=ColorizerConfig(**config_dict.get('colorizer', {})),
+                inpainter=InpainterConfig(**config_dict.get('inpainter', {})),
+                ocr=OcrConfig(**config_dict.get('ocr', {}))
+            )
+            flush_print("配置对象创建成功")
+        except Exception as e:
+            flush_print(f"创建配置对象失败: {e}")
+            import traceback
+            flush_print(traceback.format_exc())
+            return
+        
+        # 处理每个文件
+        for i, file_path in enumerate(resolved_files):
+            flush_print(f"\n=== [{i+1}/{len(resolved_files)}] 处理文件: {os.path.basename(file_path)} ===")
+            
+            try:
+                # 加载图片
+                flush_print(f"  -> 加载图片: {os.path.basename(file_path)}")
+                image = Image.open(file_path)
+                image.name = file_path
+                flush_print(f"  -> 图片尺寸: {image.size}")
+                
+                flush_print(f"  -> 开始翻译处理...")
+                
+                # 异步翻译
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                ctx = loop.run_until_complete(translator.translate(image, config, image_name=image.name))
+                loop.close()
+                
+                if ctx and ctx.result:
+                    os.makedirs(output_folder, exist_ok=True)
+                    output_filename = "translated_" + os.path.basename(file_path)
+                    final_output_path = os.path.join(output_folder, output_filename)
+                    
+                    image_to_save = ctx.result
+                    if final_output_path.lower().endswith(('.jpg', '.jpeg')) and image_to_save.mode in ('RGBA', 'LA'):
+                        image_to_save = image_to_save.convert('RGB')
+                    
+                    image_to_save.save(final_output_path)
+                    flush_print(f"  -> ✅ 翻译完成: {os.path.basename(final_output_path)}")
+                    
+                    # 显示识别的文本信息
+                    if hasattr(ctx, 'text_regions') and ctx.text_regions:
+                        flush_print(f"  -> 识别到 {len(ctx.text_regions)} 个文本区域")
+                        for j, region in enumerate(ctx.text_regions[:3]):  # 只显示前3个
+                            text = getattr(region, 'text', '') or getattr(region, 'translation', '')
+                            if text:
+                                flush_print(f"     区域{j+1}: {text[:50]}{'...' if len(text) > 50 else ''}")
+                else:
+                    flush_print(f"  -> ❌ 翻译失败: {os.path.basename(file_path)}")
+                    
+            except Exception as e:
+                flush_print(f"  -> ❌ 处理文件时出错 {os.path.basename(file_path)}: {e}")
+                import traceback
+                flush_print(traceback.format_exc())
+        
+        flush_print("\n=== 翻译进程完成 ===")
+        
+    except Exception as e:
+        flush_print(f"翻译工作进程出错: {e}")
+        import traceback
+        flush_print(traceback.format_exc())
+        sys.exit(1)
+    finally:
+        # 清理临时文件
+        try:
+            if 'config_file' in locals() and os.path.exists(config_file):
+                os.remove(config_file)
+                flush_print(f"已清理临时配置文件: {config_file}")
+        except Exception as e:
+            flush_print(f"清理临时文件出错: {e}")
+
+if __name__ == '__main__':
+    main()
+'''
+        
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+        
+        return script_path
+    
+    def _monitor_translation_simple(self):
+        """简化的翻译进程监控"""
+        try:
+            self.update_log("开始监控翻译进程输出...\n")
+            
+            while self.translation_process and self.translation_process.poll() is None:
+                try:
+                    line = self.translation_process.stdout.readline()
+                    if line:
+                        line_text = line.strip()
+                        if line_text:
+                            # 使用partial来避免闭包问题
+                            from functools import partial
+                            update_func = partial(self._update_log_safe, line_text + '\n')
+                            self.app.after(0, update_func)
+                except UnicodeDecodeError as decode_error:
+                    from functools import partial
+                    error_func = partial(self._update_log_safe, f"编码错误，跳过一行: {decode_error}\n")
+                    self.app.after(0, error_func)
+                    continue
+                except Exception as read_error:
+                    from functools import partial
+                    error_func = partial(self._update_log_safe, f"读取输出时出错: {read_error}\n")
+                    self.app.after(0, error_func)
+                    break
+            
+            # 读取剩余输出
+            try:
+                remaining_output, _ = self.translation_process.communicate(timeout=5)
+                if remaining_output:
+                    lines = remaining_output.strip().split('\n')
+                    for output_line in lines:
+                        if output_line.strip():
+                            from functools import partial
+                            final_func = partial(self._update_log_safe, output_line.strip() + '\n')
+                            self.app.after(0, final_func)
+            except subprocess.TimeoutExpired:
+                from functools import partial
+                timeout_func = partial(self._update_log_safe, "等待进程结束超时\n")
+                self.app.after(0, timeout_func)
+            except UnicodeDecodeError as decode_error:
+                from functools import partial
+                decode_func = partial(self._update_log_safe, f"最终输出编码错误: {decode_error}\n")
+                self.app.after(0, decode_func)
+            except Exception as comm_error:
+                from functools import partial
+                comm_func = partial(self._update_log_safe, f"读取最终输出时出错: {comm_error}\n")
+                self.app.after(0, comm_func)
+            
+            # 结束处理
+            return_code = self.translation_process.returncode if self.translation_process else None
+            from functools import partial
+            end_func = partial(self._update_log_safe, f"翻译进程结束，返回码: {return_code}\n")
+            self.app.after(0, end_func)
+            self.app.after(0, self._reset_start_button)
+            
+        except Exception as monitor_error:
+            from functools import partial
+            monitor_func = partial(self._update_log_safe, f"监控进程时出错: {monitor_error}\n")
+            self.app.after(0, monitor_func)
+            self.app.after(0, self._reset_start_button)
+    
+    def _update_log_safe(self, text):
+        """安全的日志更新方法"""
+        self.update_log(text)
+    
+    def _monitor_translation_process_simple(self):
+        """简化的进程监控 - 使用队列确保日志不丢失"""
+        try:
+            while self.translation_process and self.translation_process.poll() is None:
+                # 读取stdout
+                if self.translation_process.stdout:
+                    try:
+                        line = self.translation_process.stdout.readline()
+                        if line and line.strip():
+                            self.log_queue.put(('stdout', line.strip()))
+                    except:
+                        pass
+                
+                # 读取stderr  
+                if self.translation_process.stderr:
+                    try:
+                        line = self.translation_process.stderr.readline()
+                        if line and line.strip():
+                            self.log_queue.put(('stderr', line.strip()))
+                    except:
+                        pass
+                        
+            # 进程结束，读取剩余输出
+            if self.translation_process:
+                try:
+                    stdout, stderr = self.translation_process.communicate(timeout=3)
+                    
+                    if stdout:
+                        for line in stdout.strip().split('\n'):
+                            if line.strip():
+                                self.log_queue.put(('stdout', line.strip()))
+                                
+                    if stderr:
+                        for line in stderr.strip().split('\n'):
+                            if line.strip():
+                                self.log_queue.put(('stderr', line.strip()))
+                except:
+                    pass
+            
+            # 结束标记
+            self.log_queue.put(('end', None))
+            
+        except Exception as e:
+            self.log_queue.put(('error', f"监控进程出错: {e}"))
+    
+    def _process_translation_log_queue(self):
+        """处理翻译日志队列"""
+        try:
+            while True:
+                try:
+                    msg_type, content = self.log_queue.get_nowait()
+                    
+                    if msg_type == 'stdout':
+                        self.update_log(content + '\n')
+                    elif msg_type == 'stderr':
+                        self.update_log(f"[ERROR] {content}\n")
+                    elif msg_type == 'error':
+                        self.update_log(content + '\n')
+                    elif msg_type == 'end':
+                        self.update_log("翻译进程结束\n")
+                        self._reset_start_button()
+                        return  # 结束队列处理
+                        
+                except queue.Empty:
+                    break
+                    
+        except Exception as e:
+            self.update_log(f"处理日志队列出错: {e}\n")
+        
+        # 如果进程还在运行，继续处理队列
+        if self.translation_process and self.translation_process.poll() is None:
+            self.app.after(100, self._process_translation_log_queue)
+        else:
+            # 进程已结束，最后处理一次队列
+            self.app.after(100, self._process_translation_log_queue_final)
+    
+    def _process_translation_log_queue_final(self):
+        """最终处理剩余的日志"""
+        try:
+            while True:
+                try:
+                    msg_type, content = self.log_queue.get_nowait()
+                    if msg_type == 'stdout':
+                        self.update_log(content + '\n')
+                    elif msg_type == 'stderr':
+                        self.update_log(f"[ERROR] {content}\n")
+                    elif msg_type == 'error':
+                        self.update_log(content + '\n')
+                except queue.Empty:
+                    break
+        except:
+            pass
+        finally:
+            self._reset_start_button()
+            self.update_log("翻译监控完成\n")
+    
+    def _monitor_translation_process(self):
+        """监控翻译进程的输出"""
+        try:
+            while self.translation_process and self.translation_process.poll() is None:
+                # 读取stdout
+                try:
+                    output = self.translation_process.stdout.readline()
+                    if output:
+                        output = output.strip()
+                        if output:
+                            # 直接在主线程中更新，避免lambda闭包问题
+                            def update_ui(text=output):
+                                self.update_log(text + '\n')
+                            self.app.after(0, update_ui)
+                except:
+                    pass
+                
+                # 读取stderr
+                try:
+                    error = self.translation_process.stderr.readline() 
+                    if error:
+                        error = error.strip()
+                        if error:
+                            def update_ui_err(text=error):
+                                self.update_log(f"[ERROR] {text}\n")
+                            self.app.after(0, update_ui_err)
+                except:
+                    pass
+                    
+            # 读取剩余输出
+            if self.translation_process:
+                try:
+                    stdout, stderr = self.translation_process.communicate(timeout=2)
+                    
+                    if stdout and stdout.strip():
+                        for line in stdout.strip().split('\n'):
+                            if line.strip():
+                                def update_final(text=line.strip()):
+                                    self.update_log(text + '\n')
+                                self.app.after(0, update_final)
+                                
+                    if stderr and stderr.strip():
+                        for line in stderr.strip().split('\n'):
+                            if line.strip():
+                                def update_final_err(text=line.strip()):
+                                    self.update_log(f"[ERROR] {text}\n")
+                                self.app.after(0, update_final_err)
+                except:
+                    pass
+                    
+        except Exception as e:
+            def show_error():
+                self.update_log(f"监控进程时出错: {e}\n")
+            self.app.after(0, show_error)
+        finally:
+            # 重置按钮
+            self.app.after(0, self._reset_start_button)
+            def show_end():
+                self.update_log("翻译进程监控结束\n")
+            self.app.after(0, show_end)
 
     def run_translation_thread(self):
         _, TranslationInterrupt = get_manga_translator_classes()
@@ -1519,6 +2137,17 @@ class AppController:
                     "完全禁用 (裁剪文本)": "disable_all"
                 }
                 value = display_map.get(value, 'smart_scaling')
+            
+            # Special handling for target_lang to convert Chinese display name to language code
+            elif full_key == 'translator.target_lang' and isinstance(value, str):
+                from services.translation_service import TranslationService
+                translation_service = TranslationService()
+                lang_map = translation_service.get_target_languages()
+                # Find the language code for the Chinese display name
+                for code, name in lang_map.items():
+                    if name == value:
+                        value = code
+                        break
 
             if value is not None:
                 d[keys[-1]] = value

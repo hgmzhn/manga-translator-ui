@@ -60,6 +60,7 @@ class Renderer(str, Enum):
     default = "default"
     manga2Eng = "manga2eng"
     manga2EngPillow = "manga2eng_pillow"
+    gimp = "gimp"
     none = "none"
 
 class Alignment(str, Enum):
@@ -182,6 +183,8 @@ class RenderConfig(BaseModel):
     """Use fixed font size for rendering"""
     rtl: bool = True
     """Right-to-left reading order for panel and text_region sorting,"""  
+    layout_mode: str = 'smart_scaling'
+    """The layout mode to use for rendering. Only affects the default renderer."""
     _font_color_fg = None
     _font_color_bg = None
     @property

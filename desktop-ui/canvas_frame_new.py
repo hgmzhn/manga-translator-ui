@@ -70,7 +70,20 @@ class CanvasFrame(ctk.CTkFrame):
     def set_render_config(self, config: Dict[str, Any]):
         # print("--- TRACE: canvas_frame.set_render_config called ---")
         self.render_config = config
-        self.redraw_canvas()
+        
+        # 更新文本渲染器的字体配置
+        font_path = config.get('font_path')
+        if font_path and hasattr(self.renderer, 'text_renderer'):
+            self.renderer.text_renderer.update_font_config(font_path)
+            # 强制重新计算渲染数据以应用新字体
+            if hasattr(self.renderer, 'text_blocks_cache') and self.renderer.text_blocks_cache:
+                print(f"[FONT_UPDATE] 强制重新计算渲染数据以应用新字体: {font_path}")
+                self.renderer.recalculate_render_data(
+                    [tb.__dict__ if hasattr(tb, '__dict__') else tb for tb in self.renderer.text_blocks_cache if tb], 
+                    self.render_config
+                )
+            # 强制重绘画布
+            self.redraw_canvas()
 
     def redraw_canvas(self, fast_mode=False, use_debounce=False):
         # print("--- TRACE: canvas_frame.redraw_canvas called ---")
@@ -171,9 +184,8 @@ class CanvasFrame(ctk.CTkFrame):
         print(f"--- UNDO_DEBUG: NEW_DATA: {new_region_data}")
         self.is_previewing = False
         self.regions[index] = new_region_data
-        # Directly trigger recalculation and redraw to ensure immediate UI update.
-        self.renderer.recalculate_render_data(self.regions, self.render_config)
-        self.redraw_canvas()
+        # 优化：只重新计算修改的区域，使用延迟重绘
+        self._schedule_optimized_redraw(index)
         if self.on_region_moved:
             self.on_region_moved(index, old_region_data, new_region_data)
 
@@ -183,9 +195,8 @@ class CanvasFrame(ctk.CTkFrame):
         print(f"--- UNDO_DEBUG: NEW_DATA: {new_region_data}")
         self.is_previewing = False
         self.regions[index] = new_region_data
-        # Directly trigger recalculation and redraw to ensure immediate UI update.
-        self.renderer.recalculate_render_data(self.regions, self.render_config)
-        self.redraw_canvas()
+        # 优化：只重新计算修改的区域，使用延迟重绘
+        self._schedule_optimized_redraw(index)
         if self.on_region_resized:
             self.on_region_resized(index, old_region_data, new_region_data)
 
@@ -195,11 +206,26 @@ class CanvasFrame(ctk.CTkFrame):
         print(f"--- UNDO_DEBUG: NEW_DATA: {new_region_data}")
         self.is_previewing = False
         self.regions[index] = new_region_data
-        # Directly trigger recalculation and redraw to ensure immediate UI update.
-        self.renderer.recalculate_render_data(self.regions, self.render_config)
-        self.redraw_canvas()
+        # 优化：只重新计算修改的区域，使用延迟重绘
+        self._schedule_optimized_redraw(index)
         if self.on_region_rotated:
             self.on_region_rotated(index, old_region_data, new_region_data)
+    
+    def _schedule_optimized_redraw(self, changed_index=None):
+        """优化的重绘调度：使用延迟和增量更新减少卡顿"""
+        # 取消之前的延迟重绘
+        if hasattr(self, '_redraw_timer') and self._redraw_timer:
+            self.canvas.after_cancel(self._redraw_timer)
+        
+        # 延迟重绘，避免连续编辑时的多次重绘
+        self._redraw_timer = self.canvas.after(10, lambda: self._perform_optimized_redraw(changed_index))
+    
+    def _perform_optimized_redraw(self, changed_index=None):
+        """执行优化的重绘"""
+        # 简化重绘：直接进行全量重绘，去掉复杂的优化逻辑
+        self.renderer.recalculate_render_data(self.regions, self.render_config)
+        self.redraw_canvas()
+        self._redraw_timer = None
 
     def _on_region_created(self, new_region):
         if self.on_region_created:
@@ -213,19 +239,26 @@ class CanvasFrame(ctk.CTkFrame):
         else:
             self.renderer.draw_preview(None)
 
-    def _on_drag_preview(self, polygons):
+    def _on_drag_preview(self, polygons, preview_type="default"):
         if polygons:
-            # On the first frame of the drag, tell the main renderer to hide the region we are editing.
-            if not self.is_previewing:
-                self.is_previewing = True
-                # Get the index of the selected region from the mouse_handler
-                hide_indices = self.mouse_handler.selected_indices
-                # Redraw everything BUT the region we are currently dragging.
-                self.renderer.redraw_all(self.regions, self.selected_indices, hide_indices=hide_indices)
+            # 检查是否在geometry_edit模式下
+            mouse_handler_mode = getattr(self.mouse_handler, 'mode', 'select')
             
-            # Now, draw the preview shape. This will be drawn on a canvas where the original shape is hidden.
-            self.renderer.draw_preview(polygons)
-        # When the drag stops, this preview will be cleared and a full redraw with the updated data will occur.
+            if mouse_handler_mode == 'geometry_edit':
+                # 编辑形状模式：不隐藏原始区域，保持蓝色框可见
+                self.renderer.draw_preview(polygons, preview_type=preview_type)
+            else:
+                # 其他模式：使用原来的预览逻辑
+                if not self.is_previewing:
+                    self.is_previewing = True
+                    # 隐藏正在编辑的区域
+                    hide_indices = self.mouse_handler.selected_indices
+                    self.renderer.redraw_all(self.regions, self.selected_indices, hide_indices=hide_indices, fast_mode=True)
+                
+                self.renderer.draw_preview(polygons, preview_type=preview_type)
+        else:
+            # 清除预览
+            self.renderer.draw_preview(None)
 
     def _on_geometry_added(self, region_index, new_polygon):
         if self.on_geometry_added:

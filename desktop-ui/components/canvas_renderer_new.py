@@ -281,17 +281,39 @@ class CanvasRenderer:
             self.dst_points_cache = [tb.min_rect if tb else None for tb in text_blocks]
             self.text_blocks_cache = text_blocks
 
-    def draw_preview(self, polygons, color="cyan"):
+    def draw_preview(self, polygons, color="cyan", preview_type="default"):
         """
         Draws a lightweight preview on the canvas, typically during a drag operation.
         Clears any previous preview.
         `polygons` is a list of polygons, where each polygon is a list of (x, y) image coordinates.
+        `preview_type` can be "default", "region_edit", "white_frame_edit"
         """
         # Delete previous preview items
         self.canvas.delete("preview")
+        self.canvas.delete("edit_preview")
 
         if not polygons:
             return
+
+        # 根据预览类型设置不同的视觉效果
+        if preview_type == "region_edit":
+            # 文本框内区域编辑预览 - 使用蓝色边框，无填充（Tkinter不支持透明填充）
+            fill_color = ""           # 无填充
+            outline_color = "blue"    # 明显的蓝色边框
+            width = 3
+            tags = "edit_preview"
+        elif preview_type == "white_frame_edit":
+            # 白色外框编辑预览 - 使用黑边框，无填充
+            fill_color = ""           # 无填充
+            outline_color = "black"   # 黑色边框更明显
+            width = 3
+            tags = "edit_preview"
+        else:
+            # 默认预览
+            fill_color = ""
+            outline_color = color
+            width = 2
+            tags = "preview"
 
         for poly_coords in polygons:
             # Convert image coordinates to screen coordinates
@@ -301,13 +323,17 @@ class CanvasRenderer:
                 screen_poly.extend([sx, sy])
             
             if len(screen_poly) > 2:
-                self.canvas.create_polygon(
+                polygon_id = self.canvas.create_polygon(
                     screen_poly,
-                    outline=color, 
-                    fill="",
-                    width=2,
-                    tags="preview"
+                    outline=outline_color, 
+                    fill=fill_color,
+                    width=width,
+                    tags=tags
                 )
+                
+                # 为白色外框预览添加虚线效果
+                if preview_type == "white_frame_edit":
+                    self.canvas.itemconfig(polygon_id, dash=(5, 5))
 
     def draw_mask_preview(self, points: List[Tuple[int, int]], brush_size: int, tool: str):
         self.canvas.delete("mask_preview")

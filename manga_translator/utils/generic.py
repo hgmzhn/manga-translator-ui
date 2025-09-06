@@ -21,8 +21,8 @@ except AttributeError: # Supports Python versions below 3.8
     from backports.cached_property import cached_property
     functools.cached_property = cached_property
 
-MODULE_PATH = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-BASE_PATH = os.path.dirname(MODULE_PATH)
+MODULE_PATH = os.path.dirname(os.path.realpath(__file__))
+BASE_PATH = os.path.abspath(os.path.join(MODULE_PATH, '..', '..'))
 
 # Adapted from argparse.Namespace
 class Context(dict):

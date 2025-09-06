@@ -35,11 +35,11 @@ class EditorToolbar(ctk.CTkFrame):
             command=self.back_callback
         )
 
-        self.load_btn = ctk.CTkButton(
+        self.export_btn = ctk.CTkButton(
             self.file_frame, 
-            text="📂 加载", 
+            text="📤 导出", 
             width=70,
-            command=lambda: self._execute_callback('load_image')
+            command=lambda: self._execute_callback('export_image')
         )
         
         self.save_btn = ctk.CTkButton(
@@ -141,7 +141,7 @@ class EditorToolbar(ctk.CTkFrame):
         # 文件操作
         self.file_frame.grid(row=0, column=0, padx=(5, 10), pady=5, sticky="w")
         self.back_btn.pack(side="left", padx=2)
-        self.load_btn.pack(side="left", padx=2)
+        self.export_btn.pack(side="left", padx=2)
         self.save_btn.pack(side="left", padx=2)
         
         # 编辑操作

@@ -186,6 +186,23 @@ class ConfigService:
         except Exception as e:
             self.logger.error(f"保存配置文件失败: {e}")
             return False
+
+    def reload_from_disk(self):
+        """
+        强制从当前设置的 config_path 重新加载配置, 并通知所有监听者。
+        """
+        if self.config_path and os.path.exists(self.config_path):
+            self.logger.info(f"正在从 {self.config_path} 强制重载配置...")
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    new_config = json.load(f)
+                # 使用 set_config 来更新内存并触发回调
+                self.set_config(new_config)
+                self.logger.info("配置重载完成。")
+            except Exception as e:
+                self.logger.error(f"从文件重载配置失败: {e}")
+        else:
+            self.logger.warning("无法重载配置：config_path 未设置或文件不存在。")
     
     def get_config(self) -> Dict[str, Any]:
         """获取当前配置"""

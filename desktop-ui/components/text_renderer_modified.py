@@ -89,6 +89,31 @@ class TextRenderer:
             self.clear_cache()
             print(f"WYSIWYG模式: {'启用' if enabled else '禁用'}")
     
+    def update_font_config(self, font_filename: str):
+        """更新字体配置"""
+        if not font_filename:
+            return
+            
+        # 构建完整的字体路径
+        full_font_path = os.path.join(os.path.dirname(__file__), '..', '..', 'fonts', font_filename)
+        full_font_path = os.path.abspath(full_font_path)
+        
+        if os.path.exists(full_font_path):
+            self.default_font_path = full_font_path
+            
+            # 如果后端渲染可用，也更新后端字体
+            if self.backend_available and text_render:
+                try:
+                    text_render.set_font(full_font_path)
+                    print(f"[TextRenderer] 字体已更新: {full_font_path}")
+                except Exception as e:
+                    print(f"[TextRenderer] 更新后端字体失败: {e}")
+            
+            # 清除缓存以强制重新渲染
+            self.clear_cache()
+        else:
+            print(f"[TextRenderer] 字体文件不存在: {full_font_path}")
+    
     def draw_region(self, region: Dict[str, Any], index: int, canvas: ctk.CTkCanvas, 
                    zoom_level: float, is_selected: bool = False):
         """绘制文本区域"""
@@ -223,8 +248,14 @@ class TextRenderer:
         font_size = max(font_size, 4)
         
         try:
-            font = ctk.CTkFont(size=font_size)
-        except Exception:
+            # 如果有自定义字体路径并且文件存在，则使用它
+            if self.default_font_path and os.path.exists(self.default_font_path):
+                font = ctk.CTkFont(family=self.default_font_path, size=font_size)
+            else:
+                # 否则使用默认字体
+                font = ctk.CTkFont(size=font_size)
+        except Exception as e:
+            print(f"创建字体失败 (路径: {self.default_font_path})，使用备用字体。错误: {e}")
             font = ctk.CTkFont(size=12)
         
         # 绘制文本
@@ -583,16 +614,17 @@ class TextRenderer:
     
     def set_font(self, font_path: str) -> bool:
         """设置字体"""
+        self.default_font_path = font_path
+        self.clear_cache()  # 清空缓存以应用新字体
+        
         if self.backend_available and text_render:
             try:
                 text_render.set_font(font_path)
-                self.default_font_path = font_path
-                self.clear_cache()  # 清空缓存以应用新字体
-                print(f"字体已设置: {font_path}")
                 return True
             except Exception as e:
-                print(f"设置字体失败: {e}")
-        return False
+                print(f"后端渲染器设置字体失败: {e}")
+                return False
+        return True
     
     def get_current_font(self) -> Optional[str]:
         """获取当前字体路径"""

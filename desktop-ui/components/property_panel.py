@@ -17,12 +17,14 @@ from services import get_config_service, get_translation_service, get_ocr_servic
 class PropertyPanel(ctk.CTkScrollableFrame):
     """属性面板"""
     
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, shortcut_manager=None, **kwargs):
         super().__init__(parent, **kwargs)
         
         self.logger = logging.getLogger(__name__)
         self.callbacks: Dict[str, Callable] = {}
         self.widgets: Dict[str, Any] = {}
+        self.shortcut_manager = shortcut_manager
+        self.canvas_frame = None
         
         self.ocr_service = get_ocr_service()
         self.translation_service = get_translation_service()
@@ -33,6 +35,12 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         self.region_index = None
         
         self._create_widgets()
+
+    def set_canvas_frame(self, canvas_frame):
+        """设置对canvas_frame的引用"""
+        self.canvas_frame = canvas_frame
+
+    
     
     def _create_widgets(self):
         """创建组件"""
@@ -121,6 +129,9 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         self.widgets['translation_text'].bind("<Button-1>", self._on_text_click)
         self.widgets['translation_text'].bind("<FocusIn>", self._on_text_focus_in)
         self.widgets['translation_text'].bind("<Double-Button-1>", self._on_text_double_click)
+        self.widgets['original_text'].bind("<KeyPress>", self._handle_textbox_key_press)
+        self.widgets['translation_text'].bind("<KeyPress>", self._handle_textbox_key_press)
+        
         
         # 为文本框添加描述性属性
         self.widgets['translation_text']._textbox.configure(insertbackground="#000000")  # 设置光标颜色为黑色，与原文框一致
@@ -132,7 +143,43 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         # 文本统计
         self.widgets['text_stats'] = ctk.CTkLabel(self, text="字符数: 0", font=ctk.CTkFont(size=10))
         self.widgets['text_stats'].grid(row=10, column=0, sticky="w", padx=5, pady=2)
+
+    def _handle_textbox_key_press(self, event):
+        """处理文本框中的按键事件，以允许全局快捷键"""
+        if not self.shortcut_manager:
+            return
+
+        # 构造快捷键字符串
+        parts = []
+        if event.state & 0x4:  # Control
+            parts.append("Control")
+        if event.state & 0x8:  # Alt
+            parts.append("Alt")
+        if event.state & 0x1:  # Shift
+            parts.append("Shift")
+        
+        keysym = event.keysym
+        if len(keysym) == 1 and keysym.isalpha():
+            keysym = keysym.lower()
+        
+        parts.append(keysym)
+        shortcut_str = "<" + "-".join(parts) + ">"
+
+        # 检查快捷键是否存在
+        shortcut = self.shortcut_manager.shortcuts.get(shortcut_str)
+        if shortcut and shortcut.enabled:
+            # 在这里，我们允许所有上下文的快捷键，或者可以根据需要进行筛选
+            # if shortcut.context == "global": 
+            try:
+                shortcut.callback()
+                return "break"  # 阻止事件传播
+            except Exception as e:
+                self.logger.error(f"执行快捷键回调失败 {shortcut_str}: {e}")
+
+        return None
     
+    
+
     def _create_style_section(self):
         """创建样式设置部分"""
         # 样式标题

@@ -115,6 +115,9 @@ CJK_V2H = {
 logger = logging.getLogger(__name__)  
 logger.addHandler(logging.NullHandler())  
 
+DEFAULT_FONT = os.path.join(BASE_PATH, 'fonts', 'Arial-Unicode-Regular.ttf')
+FONT = freetype.Face(Path(DEFAULT_FONT).open('rb'))  
+
 def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     """direction: 0 - horizontal, 1 - vertical"""
     if cdpt == 'ー' and direction == 1:
@@ -199,13 +202,44 @@ def get_cached_font(path: str) -> freetype.Face:
         font_cache[path] = freetype.Face(Path(path).open('rb'))
     return font_cache[path]
 
-def set_font(font_path: str):
+def update_font_selection():
     global FONT_SELECTION
-    if font_path:
-        selection = [font_path] + FALLBACK_FONTS
-    else:
-        selection = FALLBACK_FONTS
-    FONT_SELECTION = [get_cached_font(p) for p in selection]
+    FONT_SELECTION = []
+    if FONT:
+        FONT_SELECTION.append(FONT)
+    for font_path in FALLBACK_FONTS:
+        try:
+            face = get_cached_font(font_path)
+            if face and face not in FONT_SELECTION:
+                FONT_SELECTION.append(face)
+        except Exception as e:
+            logger.error(f"Failed to load fallback font: {font_path} - {e}")
+
+
+
+def set_font(path: str):
+    global FONT
+    if not path or not os.path.exists(path):
+        if path:
+            logger.error(f'Could not load font: {path}')
+        try:
+            FONT = freetype.Face(Path(DEFAULT_FONT).open('rb'))
+        except (freetype.ft_errors.FT_Exception, FileNotFoundError):
+            logger.critical("Default font could not be loaded. Please check your installation.")
+            FONT = None
+        update_font_selection()
+        return
+
+    try:
+        FONT = freetype.Face(Path(path).open('rb'))
+    except (freetype.ft_errors.FT_Exception, FileNotFoundError):
+        logger.error(f'Could not load font: {path}')
+        try:
+            FONT = freetype.Face(Path(DEFAULT_FONT).open('rb'))
+        except (freetype.ft_errors.FT_Exception, FileNotFoundError):
+            logger.critical("Default font could not be loaded. Please check your installation.")
+            FONT = None
+    update_font_selection()
 
 class namespace:
     pass
