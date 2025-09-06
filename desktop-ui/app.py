@@ -447,7 +447,7 @@ class AppController:
             "renderer": "渲染器",
             "alignment": "对齐方式",
             "disable_font_border": "禁用字体边框",
-            "font_size_offset": "字体大小偏移",
+            "font_size_offset": "字体大小偏移量",
             "font_size_minimum": "最小字体大小",
             "direction": "文本方向",
             "uppercase": "大写",
@@ -462,29 +462,29 @@ class AppController:
             "upscaler": "超分模型",
             "revert_upscaling": "还原超分",
             "upscale_ratio": "超分比例",
-            "translator": "翻译引擎",
+            "translator": "翻译器",
             "target_lang": "目标语言",
             "no_text_lang_skip": "不跳过目标语言文本",
             "skip_lang": "跳过语言",
             "gpt_config": "GPT配置文件路径",
             "translator_chain": "链式翻译",
             "selective_translation": "选择性翻译",
-            "detector": "文本检测",
+            "detector": "文本检测器",
             "detection_size": "检测大小",
             "text_threshold": "文本阈值",
-            "det_rotate": "旋转检测",
-            "det_auto_rotate": "自动旋转检测",
-            "det_invert": "反色检测",
-            "det_gamma_correct": "伽马校正",
-            "box_threshold": "边框阈值",
+            "det_rotate": "旋转图像进行检测",
+            "det_auto_rotate": "旋转图像以优先检测垂直文本行",
+            "det_invert": "反转图像颜色进行检测",
+            "det_gamma_correct": "应用伽马校正进行检测",
+            "box_threshold": "边界框生成阈值",
             "unclip_ratio": "Unclip比例",
-            "colorizer": "上色参数",
+            "colorizer": "上色模型",
             "colorization_size": "上色大小",
             "denoise_sigma": "降噪强度",
-            "inpainter": "图像修复",
+            "inpainter": "修复模型",
             "inpainting_size": "修复大小",
             "inpainting_precision": "修复精度",
-            "ocr": "文本识别",
+            "ocr": "OCR模型",
             "use_mocr_merge": "使用MOCR合并",
             "min_text_length": "最小文本长度",
             "ignore_bubble": "忽略非气泡文本",
@@ -610,10 +610,9 @@ class AppController:
         parent_frame.grid_columnconfigure(1, weight=1)
 
         def make_save_handler(key):
-            # For template switch, we need a different handler
             if key == "cli.template":
                 return lambda: self._save_widget_change(key, self.cli_widgets.get("template"))
-            return lambda *args: self._save_widget_change(key, self.parameter_widgets[key])
+            return lambda *args: self._save_widget_change(key, self.parameter_widgets.get(key))
 
         for i, (key, value) in enumerate(data.items()):
             row = start_row + i
@@ -622,15 +621,34 @@ class AppController:
             label = ctk.CTkLabel(parent_frame, text=self.translate(key), anchor="w")
             label.grid(row=row, column=0, padx=5, pady=2, sticky="w")
 
-            # General save handler
             save_handler = make_save_handler(full_key)
+
+            if full_key == "render.font_path":
+                widget_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+                widget_frame.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
+                widget_frame.grid_columnconfigure(0, weight=1)
+
+                font_options = self.get_options_for_key(key) or []
+                widget = ctk.CTkComboBox(widget_frame, values=font_options, command=lambda v, k=full_key: self._save_widget_change(k, value=v))
+                widget.set(str(value) if value else "")
+                widget.grid(row=0, column=0, sticky="ew")
+                
+                def on_font_path_edit(*args):
+                    self._save_widget_change(full_key, value=widget.get())
+                
+                widget._variable.trace_add("write", on_font_path_edit)
+
+                browse_button = ctk.CTkButton(widget_frame, text="打开目录", width=80, command=self._open_font_directory)
+                browse_button.grid(row=0, column=1, padx=(5, 0))
+                
+                self.parameter_widgets[full_key] = widget
+                continue
 
             if key == 'format':
                 formats = ["不指定"] + list(OUTPUT_FORMATS.keys())
                 widget = ctk.CTkOptionMenu(parent_frame, values=formats, command=lambda v: save_handler())
                 widget.set(str(value) if value else "不指定")
             elif isinstance(value, bool):
-                # Special handling for our interactive switches
                 if full_key == "cli.load_text":
                     widget = ctk.CTkSwitch(parent_frame, text="", onvalue=True, offvalue=False, command=self._on_load_text_toggled)
                     self.cli_widgets["load_text"] = widget
@@ -661,6 +679,18 @@ class AppController:
                             self.on_translator_change(v)
                             command(v)
                         widget = ctk.CTkOptionMenu(parent_frame, values=options, command=translator_change_handler)
+                    elif key == "target_lang":
+                        from services.translation_service import TranslationService
+                        translation_service = TranslationService()
+                        lang_map = translation_service.get_target_languages()
+                        
+                        def lang_change_handler(v):
+                            # Find the key (lang_code) for the selected value (lang_name)
+                            lang_code = next((code for code, name in lang_map.items() if name == v), None)
+                            if lang_code:
+                                self._save_widget_change("translator.target_lang", value=lang_code)
+
+                        widget = ctk.CTkOptionMenu(parent_frame, values=options, command=lang_change_handler)
                     else:
                         widget = ctk.CTkOptionMenu(parent_frame, values=options, command=command)
                     
@@ -676,6 +706,12 @@ class AppController:
                                     value_to_set = "openai"
                             except ValueError:
                                 pass
+                    elif key == "target_lang":
+                        from services.translation_service import TranslationService
+                        translation_service = TranslationService()
+                        lang_map = translation_service.get_target_languages()
+                        value_to_set = lang_map.get(value, value)
+
                     widget.set(value_to_set)
                 else:
                     entry_var = ctk.StringVar(value=value)
@@ -718,6 +754,24 @@ class AppController:
             self.update_log(f"Error saving .env change: {e}\n")
 
     def get_options_for_key(self, key):
+        if key == 'font_path':
+            try:
+                fonts_dir = resource_path('fonts')
+                if os.path.isdir(fonts_dir):
+                    return sorted([f for f in os.listdir(fonts_dir) if f.lower().endswith(('.ttf', '.otf', '.ttc'))])
+                else:
+                    return []
+            except Exception as e:
+                print(f"Error scanning fonts directory: {e}")
+                return []
+
+        if key == 'target_lang':
+            from services.translation_service import TranslationService
+            # This is not ideal, but for now it's the easiest way to get the languages
+            # without a major refactoring of the service locator pattern.
+            translation_service = TranslationService()
+            return list(translation_service.get_target_languages().values())
+
         options = {
             "renderer": [member.value for member in Renderer],
             "alignment": [member.value for member in Alignment],
@@ -737,6 +791,30 @@ class AppController:
             options = [option if option != "chatgpt" else "openai" for option in options]
         
         return options
+
+    def _open_font_directory(self):
+        fonts_dir = resource_path('fonts')
+        try:
+            if sys.platform == "win32":
+                os.startfile(fonts_dir)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", fonts_dir])
+            else:
+                subprocess.run(["xdg-open", fonts_dir])
+        except Exception as e:
+            self.update_log(f"Error opening font directory: {e}\n")
+
+    def _select_font_path(self):
+        font_path = filedialog.askopenfilename(
+            title="Select Font File",
+            filetypes=[("Font files", "*.ttf *.otf *.ttc"), ("All files", "*.* אמיתי")])
+        if font_path:
+            widget = self.parameter_widgets.get("render.font_path")
+            if widget:
+                # When selecting a file, we should probably just use the filename
+                font_filename = os.path.basename(font_path)
+                widget.set(font_filename)
+                self._save_widget_change("render.font_path", value=font_filename)
 
     def _save_widget_change(self, full_key, widget=None, value=None):
         self.update_log(f"[DEBUG] _save_widget_change called for key: '{full_key}'\n")

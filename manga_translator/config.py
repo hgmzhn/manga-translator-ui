@@ -154,8 +154,6 @@ class Upscaler(str, Enum):
 class RenderConfig(BaseModel):
     renderer: Renderer = Renderer.default
     """Render english text translated from manga with some additional typesetting. Ignores some other argument options"""
-    layout_mode: str = 'smart_scaling'
-    """Layout mode to use. Options: default, smart_scaling, strict, fixed_font, disable_all"""
     force_strict_layout: bool = False
     """Force renderer to strictly adhere to the bounding box, like in --load-text mode."""
     alignment: Alignment = Alignment.auto
@@ -265,13 +263,9 @@ class TranslatorConfig(BaseModel):
 
     @property
     def chatgpt_config(self):
-        from .utils import BASE_PATH
-        import os
         if self.gpt_config is not None and self._gpt_config is None:
-            config_path = self.gpt_config
-            if not os.path.isabs(config_path):
-                config_path = os.path.join(BASE_PATH, config_path)
-            self._gpt_config = OmegaConf.load(config_path)
+            #todo: load from already loaded file
+            self._gpt_config = OmegaConf.load(self.gpt_config)
         return self._gpt_config
 
 

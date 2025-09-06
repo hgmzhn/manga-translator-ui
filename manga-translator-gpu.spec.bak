@@ -1,0 +1,44 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+
+a = Analysis(
+    ['desktop-ui\\main.py'],
+    pathex=['C:/Users/徐浩文/manga-image-translator/manga-translator-ui-package'],
+    binaries=[],
+    datas=[('desktop-ui/locales', 'locales'), ('MangaStudio_Data/app', 'app'), ('MangaStudio_Data/dicts', 'dicts'), ('MangaStudio_Data/gpt_configs', 'gpt_configs'), ('MangaStudio_Data/profiles', 'profiles'), ('MangaStudio_Data/themes', 'themes'), ('MangaStudio_Data/tasks.json', '.'), ('MangaStudio_Data/ui_map.json', '.'), ('fonts', 'fonts'), ('dict', 'dict'), ('models', 'models'), ('examples', 'examples'), ('desktop-ui/prompts.json', '.'), ('desktop-ui/translations_cn.json', '.')],
+    hiddenimports=['torch', 'torchvision', 'torchaudio', 'langcodes', 'pydensecrf.eigen'],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='manga-translator-gpu',
+    debug=True,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='manga-translator-gpu',
+)
