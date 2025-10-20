@@ -72,6 +72,10 @@ class GraphicsView(QGraphicsView):
         self._textbox_start_pos = None
         self._textbox_preview_item = None
 
+        # --- Panning State ---
+        self._is_middle_panning = False
+        self._last_pan_pos = None
+
         # --- Text Rendering Cache ---
         self._text_render_cache = {}
 
@@ -880,6 +884,17 @@ class GraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         """处理鼠标按下事件以实现平移、选择和开始绘图"""
+        # --- Middle-button pan (safe, cross-platform) ---
+        if event.button() == Qt.MouseButton.MiddleButton:
+            try:
+                self._is_middle_panning = True
+                self._last_pan_pos = event.pos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            except Exception as e:
+                print(f"[VIEW WARN] Middle-button press handling error: {e}")
+            event.accept()
+            return
+
         if self._active_tool == 'geometry_edit' and event.button() == Qt.MouseButton.LeftButton:
             if len(self.model.get_selection()) == 1:
                 self._is_drawing_geometry = True
@@ -916,20 +931,14 @@ class GraphicsView(QGraphicsView):
             pass  # 让事件继续传播
 
         # --- Panning and Item Interaction Logic ---
-        if event.button() == Qt.MouseButton.MiddleButton:
-            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            dummy_event = event.clone()
-            dummy_event.setButton(Qt.MouseButton.LeftButton)
-            super().mousePressEvent(dummy_event)
-        elif event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             # 检查是否点击在空白区域
             item_at_pos = self.itemAt(event.pos())
 
             # 如果点击在空白区域（没有 item 或只有图片），启用拖动模式
             if item_at_pos is None or item_at_pos == self._image_item:
                 self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-                dummy_event = event.clone()
-                super().mousePressEvent(dummy_event)
+                super().mousePressEvent(event)
                 return
 
             # 先记录当前选择
@@ -948,7 +957,23 @@ class GraphicsView(QGraphicsView):
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        """Handle mouse move for drawing."""
+        """Handle mouse move for drawing and panning."""
+        # Middle-button panning
+        if self._is_middle_panning:
+            try:
+                if self._last_pan_pos is not None:
+                    delta = event.pos() - self._last_pan_pos
+                    # Move view opposite to mouse movement
+                    hbar = self.horizontalScrollBar()
+                    vbar = self.verticalScrollBar()
+                    hbar.setValue(hbar.value() - delta.x())
+                    vbar.setValue(vbar.value() - delta.y())
+                    self._last_pan_pos = event.pos()
+            except Exception as e:
+                print(f"[VIEW WARN] Middle-button move handling error: {e}")
+            event.accept()
+            return
+
         if self._is_drawing_textbox:
             self._update_textbox_drawing(event.pos())
             event.accept()
@@ -984,6 +1009,18 @@ class GraphicsView(QGraphicsView):
 
     def mouseReleaseEvent(self, event):
         """处理鼠标释放事件"""
+        # End middle-button panning session
+        if event.button() == Qt.MouseButton.MiddleButton and self._is_middle_panning:
+            self._is_middle_panning = False
+            self._last_pan_pos = None
+            # restore cursor according to current tool
+            try:
+                self._update_cursor()
+            except Exception:
+                pass
+            event.accept()
+            return
+
         if self._is_drawing_textbox and event.button() == Qt.MouseButton.LeftButton:
             self._finish_textbox_drawing()
             event.accept()
@@ -1019,7 +1056,7 @@ class GraphicsView(QGraphicsView):
         if self._is_drawing and event.button() == Qt.MouseButton.LeftButton:
             self._finish_drawing()
 
-        if event.button() == Qt.MouseButton.MiddleButton or event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
         super().mouseReleaseEvent(event)
 
