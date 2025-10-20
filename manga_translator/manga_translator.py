@@ -165,6 +165,13 @@ class MangaTranslator:
         # 设置日志文件
         self._setup_log_file()
 
+        # Backend self-check and logging (ONNX Runtime providers, selection, fallbacks)
+        try:
+            from .utils.backend import startup_backend_selfcheck
+            startup_backend_selfcheck(logger)
+        except Exception as _e:
+            logger.debug(f"Backend self-check skipped: {_e}")
+
     def _setup_log_file(self):
         """设置日志文件，在result文件夹下创建带时间戳的log文件"""
         try:

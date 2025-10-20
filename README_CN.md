@@ -197,6 +197,41 @@ $ pip install -r requirements.txt
 
 要在 Windows 上使用 [CUDA](https://developer.nvidia.com/cuda-downloads?target_os=Windows&target_arch=x86_64)，请按照 <https://pytorch.org/get-started/locally/> 上的说明安装正确的 PyTorch 版本。
 
+##### Windows 11 + AMD RDNA3/RDNA4（DirectML）GPU 加速
+
+本项目已接入 ONNX Runtime DirectML（DmlExecutionProvider）。在 Windows 11 + AMD 显卡（如 RX 7900/7800/7700 系列、RX 9070 GRE 等）上，OCR 等 ONNX 模型将优先使用 DirectML 在 GPU 上运行，并在日志中显示所选后端。
+
+- 安装 DirectML 版 ONNX Runtime：
+  ```bash
+  pip install --upgrade onnxruntime-directml
+  ```
+- 可选（PyTorch 路线，仅当可用时）：
+  ```bash
+  pip install torch-directml
+  ```
+  注意：当前版本仅对 ONNX 模型（如 PP-OCRv5、Booru Tagger）启用 DirectML 加速；大部分 PyTorch 模型（检测/修复/上采样）仍走 CPU/CUDA 路线。torch-directml 支持有限，未默认启用全量加速。
+
+- 启动自检与日志：
+  程序启动时会打印 ONNX Runtime 可用 Providers 和最终选择，例如：
+  ```
+  ONNX Runtime available providers: ['DmlExecutionProvider', 'CPUExecutionProvider']
+  ONNX Runtime backend selected: DmlExecutionProvider (...)
+  ```
+  如果 DML 不可用，会自动回退到 CPU，并在日志中提示原因。
+
+- 配置项（环境变量）：
+  - 强制后端：
+    - `MT_ONNX_BACKEND=auto|dml|cuda|cpu`（默认 auto，Windows 下优先 dml）
+  - 指定 DML 设备：
+    - `MT_DML_DEVICE_ID=0`（默认 0）
+  - 强制 CPU：
+    - `MT_ONNX_BACKEND=cpu`
+
+- 常见问题：
+  - 如提示缺少 onnxruntime，请先安装 `onnxruntime-directml`；
+  - 仅 ONNX 模块会使用 DirectML；若需完整 GPU 加速，请使用 NVIDIA + CUDA 版本；
+  - 某些老显卡或驱动版本可能不支持 DirectML，程序会回退到 CPU。 
+
 ### Docker
 
 要求：

@@ -39,7 +39,8 @@ def smart_resize(img, size):
 
 class Tagger :
     def __init__(self, filename) -> None:
-        self.model = InferenceSession(filename, providers=['CUDAExecutionProvider'])
+        from ..utils.backend import create_onnx_session
+        self.model, selected = create_onnx_session(filename)
         [root, _] = os.path.split(filename)
         self.tags = pd.read_csv(os.path.join(root, 'selected_tags.csv') if root else 'selected_tags.csv')
         _, self.height, _, _ = self.model.get_inputs()[0].shape

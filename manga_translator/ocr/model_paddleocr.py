@@ -58,7 +58,7 @@ class ModelPaddleOCR(OfflineOCR):
 
     async def _load(self, device: str):
         """Load PP-OCRv5 ONNX model"""
-        import onnxruntime as ort
+        from ..utils.backend import create_onnx_session
 
         self.device = device
         model_config = self._MODELS[self.model_type]
@@ -76,14 +76,18 @@ class ModelPaddleOCR(OfflineOCR):
         with open(dict_path, 'r', encoding='utf-8') as f:
             self.char_dict = ['<blank>'] + [line.strip() for line in f]
 
-        # Create ONNX session
-        providers = ['CPUExecutionProvider']
-        if device == 'cuda':
-            providers.insert(0, 'CUDAExecutionProvider')
+        # Create ONNX session with backend auto-selection (prefer DML on Windows; fallback to CPU)
+        prefer = 'cuda' if str(device).startswith('cuda') else 'auto'
+        self.session, selected_backend = create_onnx_session(
+            model_path,
+            logger=self.logger,
+            prefer=prefer,
+            device_hint=device,
+        )
 
-        self.session = ort.InferenceSession(model_path, providers=providers)
-
-        self.logger.info(f"PP-OCRv5 ONNX loaded: {model_config['onnx']} ({len(self.char_dict)} chars, device={device})")
+        self.logger.info(
+            f"PP-OCRv5 ONNX loaded: {model_config['onnx']} ({len(self.char_dict)} chars, device={device}, provider={selected_backend})"
+        )
 
     async def _unload(self):
         """Unload model"""
