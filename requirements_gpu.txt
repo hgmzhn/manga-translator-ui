@@ -19,6 +19,7 @@ freetype-py
 
 httpcore
 httpx
+requests
 huggingface-hub
 kornia
 langcodes

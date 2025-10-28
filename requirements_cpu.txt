@@ -21,6 +21,7 @@ httpcore
 
 huggingface-hub
 httpx==0.28.1
+requests
 ijson
 kornia
 langcodes
