@@ -53,7 +53,8 @@
    - 前往 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases)
    - 选择版本：
      - **CPU 版本**：适用于所有电脑
-     - **GPU 版本**：需要支持 CUDA 12.x 的 NVIDIA 显卡
+     - **NVIDIA GPU 版本**：需要支持 CUDA 12.x 的 NVIDIA 显卡
+     - **AMD ROCm 版本**：需要 AMD Radeon RX 9000 系列（gfx1201）或更新显卡
 
 2. **解压运行**：
    - 解压压缩包到任意目录
@@ -64,9 +65,12 @@
 1. **安装 Python 3.12**：[下载](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe)
 2. **克隆仓库**：`git clone https://github.com/hgmzhn/manga-translator-ui.git`
 3. **安装依赖**：
-   - **GPU 版本**：`py -3.12 -m pip install -r requirements.txt`
+   - **NVIDIA GPU 版本**：`py -3.12 -m pip install -r requirements.txt`
+   - **AMD ROCm 版本**：`py -3.12 -m pip install -r requirements_rocm.txt`
    - **CPU 版本**：`py -3.12 -m pip install -r requirements_cpu.txt`
-4. **运行程序**：`py -3.12 -m desktop_qt_ui.main`
+4. **运行程序**：
+   - **NVIDIA/CPU**：`py -3.12 -m desktop_qt_ui.main`
+   - **AMD ROCm**：运行 `start-rocm.bat` 或参考 [ROCm 部署指南](部署指南-gfx1201.md)
 
 **详细安装指南** → [doc/INSTALLATION.md](doc/INSTALLATION.md)
 

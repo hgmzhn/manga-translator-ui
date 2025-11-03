@@ -67,10 +67,21 @@ def complete_mask_fill(text_lines: List[Tuple[int, int, int, int]]):
         final_mask = cv2.rectangle(final_mask, (x, y), (x + w, y + h), (255), -1)
     return final_mask
 
-from pydensecrf.utils import compute_unary, unary_from_softmax
-import pydensecrf.densecrf as dcrf
+try:
+    from pydensecrf.utils import compute_unary, unary_from_softmax
+    import pydensecrf.densecrf as dcrf
+    _PYDENSECRF_AVAILABLE = True
+except ImportError:
+    _PYDENSECRF_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("pydensecrf 未安裝，refine_mask 功能將使用簡化版本")
 
 def refine_mask(rgbimg, rawmask):
+    if not _PYDENSECRF_AVAILABLE:
+        # 簡化版本：直接返回原始 mask（可選：使用 OpenCV 進行簡單處理）
+        if len(rawmask.shape) == 2:
+            return rawmask
+        return rawmask[:, :, 0]
     if len(rawmask.shape) == 2:
         rawmask = rawmask[:, :, None]
     mask_softmax = np.concatenate([cv2.bitwise_not(rawmask)[:, :, None], rawmask], axis=2)
