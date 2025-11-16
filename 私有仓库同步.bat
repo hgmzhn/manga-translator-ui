@@ -7,7 +7,7 @@ echo 私有仓库同步工具
 echo ========================================
 echo.
 echo 分支说明:
-echo   don - 流水线功能（四线流水线+v2.5.7分段翻译）
+echo   don - 流水线功能（四线流水线，简化版，原文上下文）
 echo   my-custom-features - UI功能（漫画管理面板+CBZ工具等）
 echo.
 echo 使用说明:

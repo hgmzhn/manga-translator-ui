@@ -1,7 +1,15 @@
 {
-  "timestamp": "2025-11-10 16:02:20",
+  "timestamp": "2025-11-16 16:42:49",
   "folder": "D:/漫画/已翻译",
   "comics": {
+    "manga_translator_work": {
+      "chapters": [],
+      "cbz_files": [
+        "inpainted"
+      ],
+      "path": "D:\\漫画\\已翻译\\manga_translator_work",
+      "latest": "inpainted"
+    },
     "借妻條約": {
       "chapters": [],
       "cbz_files": [
@@ -13,10 +21,11 @@
         "Chapter 19",
         "Chapter 20",
         "Chapter 21",
-        "Chapter 22"
+        "Chapter 22_148c65",
+        "Chapter 23_a3447a"
       ],
       "path": "D:\\漫画\\已翻译\\借妻條約",
-      "latest": "Chapter 22"
+      "latest": "Chapter 23_a3447a"
     },
     "女神都在看这些": {
       "chapters": [],
@@ -36,10 +45,11 @@
         "Chapter 60 raw",
         "Chapter 61 raw",
         "Chapter 62 raw",
-        "Chapter 63 raw"
+        "Chapter 63 raw",
+        "Chapter 64 raw_7de63c"
       ],
       "path": "D:\\漫画\\已翻译\\女神都在看这些",
-      "latest": "Chapter 63 raw"
+      "latest": "Chapter 64 raw_7de63c"
     },
     "币转人生": {
       "chapters": [],
@@ -56,10 +66,11 @@
         "Chapter 43",
         "Chapter 44",
         "Chapter 45",
-        "Chapter 46"
+        "Chapter 46",
+        "Chapter 54_2fb6ba"
       ],
       "path": "D:\\漫画\\已翻译\\币转人生",
-      "latest": "Chapter 46"
+      "latest": "Chapter 54_2fb6ba"
     },
     "我的掌上明珠": {
       "chapters": [],
@@ -74,10 +85,11 @@
         "Chapter 30",
         "Chapter 31",
         "Chapter 32",
-        "Chapter 33"
+        "Chapter 33",
+        "Chapter 34_c077cd"
       ],
       "path": "D:\\漫画\\已翻译\\我的掌上明珠",
-      "latest": "Chapter 33"
+      "latest": "Chapter 34_c077cd"
     },
     "排球少女": {
       "chapters": [],
@@ -95,10 +107,26 @@
         "Chapter 59",
         "Chapter 60",
         "Chapter 61",
-        "Chapter 62"
+        "Chapter 62",
+        "Chapter 63_626e7f",
+        "Chapter 64_a747b3",
+        "Chapter 65_15252c",
+        "Chapter 66_86e2d8",
+        "Chapter 67_068b4e",
+        "Chapter 68_118cdf",
+        "Chapter 69_9d3a17"
       ],
       "path": "D:\\漫画\\已翻译\\排球少女",
-      "latest": "Chapter 62"
+      "latest": "Chapter 69_9d3a17"
+    },
+    "未翻译": {
+      "chapters": [],
+      "cbz_files": [
+        "Chapter 20",
+        "Chapter 22"
+      ],
+      "path": "D:\\漫画\\已翻译\\未翻译",
+      "latest": "Chapter 22"
     },
     "猎艳管理员": {
       "chapters": [],
@@ -109,10 +137,11 @@
         "Chapter 13",
         "Chapter 14",
         "Chapter 15",
-        "Chapter 16"
+        "Chapter 16",
+        "Chapter 17_97c50c"
       ],
       "path": "D:\\漫画\\已翻译\\猎艳管理员",
-      "latest": "Chapter 16"
+      "latest": "Chapter 17_97c50c"
     },
     "神圣陷阱": {
       "chapters": [],
@@ -128,10 +157,12 @@
         "Chapter 19",
         "Chapter 20",
         "Chapter 22",
-        "Chapter 23"
+        "Chapter 23",
+        "Chapter 24_a1fab4",
+        "Chapter 25_8fb4e6"
       ],
       "path": "D:\\漫画\\已翻译\\神圣陷阱",
-      "latest": "Chapter 23"
+      "latest": "Chapter 25_8fb4e6"
     },
     "老闆娘的誘惑": {
       "chapters": [],
@@ -141,10 +172,14 @@
         "Chapter 73",
         "Chapter 74",
         "Chapter 75",
-        "Chapter 76"
+        "Chapter 76",
+        "Chapter 78_c2591e",
+        "Chapter 79_977c92",
+        "Chapter 80_c8d42b",
+        "Chapter 81_5b52fa"
       ],
       "path": "D:\\漫画\\已翻译\\老闆娘的誘惑",
-      "latest": "Chapter 76"
+      "latest": "Chapter 81_5b52fa"
     },
     "鄰家扭蛋女": {
       "chapters": [],
@@ -241,10 +276,13 @@
         "Chapter 52",
         "Chapter 53",
         "Chapter 54",
-        "Chapter 55"
+        "Chapter 55",
+        "Chapter 56_e6ddc1",
+        "Chapter 57_7a2960",
+        "Chapter 58_2f5af9"
       ],
       "path": "D:\\漫画\\已翻译\\飞机杯女神连线中",
-      "latest": "Chapter 55"
+      "latest": "Chapter 58_2f5af9"
     }
   }
 }

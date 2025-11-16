@@ -20,7 +20,7 @@ $remoteUrl = "https://gitee.com/long-xin12/manga-translator-ui.git"
 
 # 分支说明
 $branchInfo = @{
-    "don" = "流水线功能（四线流水线+v2.5.7分段翻译）"
+    "don" = "流水线功能（四线流水线，简化版，原文上下文）"
     "my-custom-features" = "UI功能（漫画管理面板+CBZ工具等）"
 }
 
