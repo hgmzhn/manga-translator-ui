@@ -846,7 +846,21 @@ def safe_update_large_json_from_text(
     # 2. 解析翻译内容
     logger.debug("Parsing translations from text content.")
     translations = {}
+    
+    # 首先尝试直接解析为JSON（支持紧凑格式）
     try:
+        parsed_json = json.loads(text_content)
+        if isinstance(parsed_json, dict):
+            translations = parsed_json
+            logger.info(f"[DEBUG] 直接解析为JSON成功，找到 {len(translations)} 条翻译")
+            logger.info(f"[DEBUG] 前3条翻译: {list(translations.items())[:3]}")
+        else:
+            logger.info(f"[DEBUG] JSON解析成功但不是字典格式，尝试模板解析")
+            raise ValueError("Not a dict")
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.info(f"[DEBUG] 直接JSON解析失败: {e}，尝试使用模板解析")
+        # 如果JSON解析失败，使用原来的模板解析逻辑
+        try:
         # 移除前缀和后缀
         if prefix and text_content.startswith(prefix):
             text_content = text_content[len(prefix):]
@@ -855,7 +869,15 @@ def safe_update_large_json_from_text(
 
         # 分割条目
         if separator:
+            # 尝试使用separator分割
             items = text_content.split(separator)
+            # 如果只分割出1个item，可能是紧凑格式（没有换行），尝试用逗号分割
+            if len(items) == 1 and ',' in text_content:
+                logger.info(f"[DEBUG] Separator分割失败，尝试用逗号分割紧凑格式")
+                # 使用正则表达式分割：匹配 "key": "value", 的模式
+                # 注意：这个正则会保留引号
+                items = re.split(r'",\s*"', text_content)
+                logger.info(f"[DEBUG] 逗号分割后得到 {len(items)} 个items")
         else:
             items = [text_content] if text_content.strip() else []
         logger.debug(f"Found {len(items)} items in text file.")
@@ -894,8 +916,8 @@ def safe_update_large_json_from_text(
                     logger.debug(f"Failed to parse item: {item[:100]}... Error: {e}")
                     continue  # 跳过解析失败的条目
 
-    except Exception as e:
-        return f"错误：解析TXT文件失败: {e}"
+        except Exception as e:
+            return f"错误：解析TXT文件失败: {e}"
 
     if not translations:
         logger.warning(f"Could not parse any translations from '{os.path.basename(text_file_path)}'.")
