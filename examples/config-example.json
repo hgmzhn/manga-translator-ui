@@ -11,7 +11,7 @@
     "target_lang": "CHS",
     "no_text_lang_skip": false,
     "gpt_config": "examples/gpt_config-example.yaml",
-    "high_quality_prompt_path": "dict/zbjdbxjs.json",
+    "high_quality_prompt_path": "dict/prompt_example.json",
     "max_requests_per_minute": 0
   },
   "ocr": {
@@ -95,23 +95,23 @@
     "format": "png",
     "overwrite": false,
     "skip_no_text": false,
-    "use_mtpe": false,
     "save_text": false,
     "load_text": false,
     "template": false,
-    "prep_manual": false,
     "save_quality": 100,
     "batch_size": 3,
     "batch_concurrent": false,
     "pipeline_mode": true,
-    "pipeline_line1_concurrency": 6,
+    "pipeline_line1_concurrency": 4,
     "pipeline_line2_concurrency": 3,
-    "pipeline_translation_batch_size": 3,
+    "pipeline_translation_batch_size": 2,
     "pipeline_line3_concurrency": 2,
     "pipeline_line4_concurrency": 2,
+    "enable_long_image_stitching": true,
+    "long_image_max_height": 10000,
+    "long_image_bubble_margin": 100,
     "generate_and_export": false,
     "colorize_only": false,
-    "upscale_only": false,
-    "high_quality_batch_size": 3
+    "upscale_only": false
   }
 }

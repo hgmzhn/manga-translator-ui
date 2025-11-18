@@ -444,7 +444,6 @@ class ExportService:
         
         # 设置其他参数
         translator_params.update(config)
-        translator_params['is_ui_mode'] = True
         translator_params['load_text'] = True  # 关键：启用加载文本模式
         translator_params['save_text'] = False  # 不保存文本
         

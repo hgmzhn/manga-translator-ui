@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-11-16 16:42:49",
+  "timestamp": "2025-11-17 16:10:08",
   "folder": "D:/漫画/已翻译",
   "comics": {
     "manga_translator_work": {
@@ -142,6 +142,21 @@
       ],
       "path": "D:\\漫画\\已翻译\\猎艳管理员",
       "latest": "Chapter 17_97c50c"
+    },
+    "男人配額制": {
+      "chapters": [],
+      "cbz_files": [
+        "Chapter 19_be5372",
+        "Chapter 20_7a0157",
+        "Chapter 21_c8ed33",
+        "Chapter 22_b0486c",
+        "Chapter 23_b03a54",
+        "Chapter 24_575167",
+        "Chapter 25_7765ce",
+        "Chapter 26_6807af"
+      ],
+      "path": "D:\\漫画\\已翻译\\男人配額制",
+      "latest": "Chapter 26_6807af"
     },
     "神圣陷阱": {
       "chapters": [],

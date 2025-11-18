@@ -179,7 +179,7 @@ class TranslationService:
                 chain,
                 texts,
                 config=final_config, # Pass the full config object
-                use_mtpe=False, # Assuming False for editor context
+                use_mtpe=False, # use_mtpe removed but kept for API compatibility
                 args=translator_args, # Pass the constructed context object
                 device='cuda' if final_config.cli.use_gpu else 'cpu'
             )

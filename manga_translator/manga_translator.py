@@ -172,6 +172,13 @@ class MangaTranslator:
         self._current_image_context = None  # 存储当前处理图片的上下文信息
         self._saved_image_contexts = {}     # 存储批量处理中每个图片的上下文信息
         
+        # API失败智能降级相关属性
+        self._degraded_mode = False          # 是否处于降级模式
+        self._degraded_success_count = 0     # 降级模式下成功翻译的图片数
+        self._degraded_recovery_threshold = 3  # 恢复正常模式所需的连续成功数
+        self._original_batch_size = None     # 原始批次大小
+        self._original_line2_concurrency = None  # 原始Line2并发数
+        
         # 设置日志文件
         self._setup_log_file()
 
@@ -318,6 +325,11 @@ class MangaTranslator:
             params.get('pipeline_translation_batch_size', self.high_quality_batch_size),
             self.high_quality_batch_size
         )
+        
+        # 长图拼接配置
+        self.enable_long_image_stitching = params.get('enable_long_image_stitching', False)
+        self.long_image_max_height = _safe_int(params.get('long_image_max_height', 10000), 10000)
+        self.long_image_bubble_margin = _safe_int(params.get('long_image_bubble_margin', 100), 100)
         
         # 验证batch_concurrent参数
         if self.batch_concurrent and self.batch_size < 2:
@@ -1663,8 +1675,31 @@ class MangaTranslator:
               
             region.text = stripped_text.strip()     
             
+            # 增强过滤：检测网站水印
+            is_watermark = False
+            watermark_patterns = [
+                '웹툰왕국뉴토끼',  # 韩文漫画网站水印
+                'newtoki',
+                'manga18',
+                '뉴토끼',
+                'webtoon',
+                'toonkor',
+            ]
+            for pattern in watermark_patterns:
+                if pattern.lower() in region.text.lower():
+                    is_watermark = True
+                    break
+            
+            # 增强过滤：检测混合日韩文（MangaOCR误识别）
+            has_hiragana = any('\u3040' <= ch <= '\u309f' for ch in region.text)
+            has_katakana = any('\u30a0' <= ch <= '\u30ff' for ch in region.text)
+            has_hangul = any('\uac00' <= ch <= '\ud7a3' for ch in region.text)
+            is_mixed_jp_kr = (has_hiragana or has_katakana) and has_hangul
+            
             if len(region.text) < config.ocr.min_text_length \
                     or not is_valuable_text(region.text) \
+                    or is_watermark \
+                    or is_mixed_jp_kr \
                     or (not config.translator.no_text_lang_skip and langcodes.tag_distance(region.source_lang, config.translator.target_lang) == 0):
                 if region.text.strip():
                     logger.info(f'Filtered out: {region.text}')
@@ -1672,6 +1707,10 @@ class MangaTranslator:
                         logger.info('Reason: Text length is less than the minimum required length.')
                     elif not is_valuable_text(region.text):
                         logger.info('Reason: Text is not considered valuable.')
+                    elif is_watermark:
+                        logger.info('Reason: Detected as website watermark or spam.')
+                    elif is_mixed_jp_kr:
+                        logger.info('Reason: Mixed Japanese-Korean text detected (likely OCR error).')
                     elif langcodes.tag_distance(region.source_lang, config.translator.target_lang) == 0:
                         logger.info('Reason: Text language matches the target language and no_text_lang_skip is False.')
             else:
@@ -1692,7 +1731,7 @@ class MangaTranslator:
         
         return text_regions
 
-    def _build_prev_context(self, use_original_text=False, current_page_index=None, batch_index=None, batch_original_texts=None):
+    def _build_prev_context(self, use_original_text=True, current_page_index=None, batch_index=None, batch_original_texts=None):
         """
         跳过句子数为0的页面，取最近 context_size 个非空页面，拼成：
         <|1|>句子
@@ -1724,8 +1763,11 @@ class MangaTranslator:
                         # 如果不使用原文，则跳过当前批次的页面（因为它们还没有翻译完成）
                         pass
         elif current_page_index is not None:
-            # 使用指定页面索引之前的页面作为上下文
-            available_pages = self.all_page_translations[:current_page_index] if self.all_page_translations else []
+            # 流水线模式：只使用指定批次索引的页面作为上下文（不跨批次）
+            if current_page_index >= 0 and current_page_index < len(self.all_page_translations):
+                available_pages = [self.all_page_translations[current_page_index]]
+            else:
+                available_pages = []
         else:
             # 使用所有已完成的页面
             available_pages = self.all_page_translations or []
@@ -1747,23 +1789,11 @@ class MangaTranslator:
         # 拼接 - 根据参数决定使用原文还是译文
         lines = []
         for page in tail:
-            for sent in page.values():
+            # 使用原文（字典的键）或译文（字典的值）
+            items = page.keys() if use_original_text else page.values()
+            for sent in items:
                 if sent.strip():
                     lines.append(sent.strip())
-
-        # 如果使用原文，需要从原始数据中获取
-        if use_original_text and hasattr(self, '_original_page_texts'):
-            # 尝试获取对应的原文
-            original_lines = []
-            for i, page in enumerate(tail):
-                page_idx = available_pages.index(page)
-                if page_idx < len(self._original_page_texts):
-                    original_page = self._original_page_texts[page_idx]
-                    for sent in original_page.values():
-                        if sent.strip():
-                            original_lines.append(sent.strip())
-            if original_lines:
-                lines = original_lines
 
         numbered = [f"<|{i+1}|>{s}" for i, s in enumerate(lines)]
         context_type = "original text" if use_original_text else "translation results"
@@ -1788,11 +1818,11 @@ class MangaTranslator:
             pages_used = skipped = 0
 
         if self.context_size > 0:
-            logger.info(f"Context-aware translation enabled with {self.context_size} pages of history")
+            logger.info(f"Context-aware translation enabled with {self.context_size} pages of history using original text")
 
-        # 构建上下文字符串
-        # Build the context string
-        prev_ctx = self._build_prev_context()
+        # 构建上下文字符串 - 使用原文
+        # Build the context string - use original text
+        prev_ctx = self._build_prev_context(use_original_text=True)
 
         # 如果是 OpenAI 翻译器，则专门处理上下文注入
         # Special handling for OpenAI translator: inject context
@@ -3730,7 +3760,7 @@ class MangaTranslator:
             translator.attempts = self.attempts
 
             # 为所有翻译器构建和设置文本上下文（包括HQ翻译器）
-            # 默认使用原文作为上下文（而不是译文）
+            # 始终使用原文作为上下文
             use_original_text = True
 
             done_pages = self.all_page_translations
@@ -4595,11 +4625,57 @@ class MangaTranslator:
         logger.info(f"High quality translation completed: processed {len(results)} images")
         return results
 
+    def _group_by_chapter(self, images_with_configs):
+        """
+        按章节分组图片（基于文件路径）
+        
+        返回: List[{'name': str, 'path': Path, 'images': List[tuple]}]
+        """
+        from pathlib import Path
+        
+        chapters = []
+        current_chapter_dir = None
+        current_chapter_images = []
+        
+        for img, cfg in images_with_configs:
+            # 获取图片所在目录
+            img_path = Path(img.name) if hasattr(img, 'name') and img.name else None
+            img_dir = img_path.parent if img_path else None
+            
+            if img_dir != current_chapter_dir:
+                # 新章节开始
+                if current_chapter_images:
+                    chapters.append({
+                        'name': current_chapter_dir.name if current_chapter_dir else 'Unknown',
+                        'path': current_chapter_dir,
+                        'images': current_chapter_images
+                    })
+                current_chapter_dir = img_dir
+                current_chapter_images = [(img, cfg)]
+            else:
+                # 同一章节
+                current_chapter_images.append((img, cfg))
+        
+        # 最后一个章节
+        if current_chapter_images:
+            chapters.append({
+                'name': current_chapter_dir.name if current_chapter_dir else 'Unknown',
+                'path': current_chapter_dir,
+                'images': current_chapter_images
+            })
+        
+        return chapters
+
     async def _translate_batch_pipeline_4_lines(self, images_with_configs: List[tuple], save_info: dict = None) -> List[Context]:
         """
         四线流水线批量翻译实现
+        
+        特性：
+        - 按章节分组处理，每章节重置上下文
+        - 章节内批次串行，保证滚动窗口上下文
+        
         Line1: 检测+OCR (并发)
-        Line2: 翻译 (打包批量处理)
+        Line2: 翻译 (批次并行)
         Line3: 修复/Inpainting (并发)
         Line4: 渲染+超分 (并发)
         """
@@ -4608,7 +4684,145 @@ class MangaTranslator:
         import traceback
         
         total_images = len(images_with_configs)
+        
+        # === 智能长图拼接（可选） ===
+        if self.enable_long_image_stitching:
+            try:
+                from .image_stitcher import SmartImageStitcher
+                import cv2
+                import numpy as np
+                from PIL import Image
+                
+                logger.info(f"[长图拼接] 启用智能长图拼接功能")
+                logger.info(f"[长图拼接] 配置: 最大高度={self.long_image_max_height}px, 边界检测={self.long_image_bubble_margin}px")
+                logger.info(f"[长图拼接] 开始处理 {total_images} 张图片")
+                
+                # 创建拼接器
+                stitcher = SmartImageStitcher(
+                    max_height=self.long_image_max_height,
+                    bubble_margin=self.long_image_bubble_margin
+                )
+                
+                # 拼接图片
+                stitched_segments = stitcher.stitch_images(images_with_configs)
+                
+                logger.info(f"[长图拼接] 完成: {total_images}张原始图片 → {len(stitched_segments)}个长图段")
+                
+                # 准备所有长图段（批量处理以保持上下文连贯）
+                all_segment_images_configs = []
+                
+                for segment_idx, (stitched_img, original_configs, metadata) in enumerate(stitched_segments):
+                    logger.info(f"[长图拼接] 准备段{segment_idx+1}/{len(stitched_segments)}: {metadata['image_count']}张图, 高度{metadata['total_height']}px")
+                    
+                    # 将numpy数组转换为PIL Image
+                    if isinstance(stitched_img, np.ndarray):
+                        stitched_img_pil = Image.fromarray(cv2.cvtColor(stitched_img, cv2.COLOR_BGR2RGB))
+                    else:
+                        stitched_img_pil = stitched_img
+                    
+                    # 使用第一张图的config作为长图的config
+                    if original_configs:
+                        # original_configs是[(img, config), ...]格式，提取第一个config
+                        segment_config = original_configs[0][1]
+                    else:
+                        segment_config = images_with_configs[0][1] if images_with_configs else None
+                    
+                    # 为长图生成清晰的名称：seg03_img005-007_3p.jpg
+                    indices = metadata['image_indices']
+                    img_count = metadata['image_count']
+                    start_num = indices[0] + 1  # 转为1-based
+                    end_num = indices[-1] + 1
+                    
+                    # 获取原始图片的完整路径和扩展名
+                    if original_configs:
+                        first_img = original_configs[0][0]
+                        base_name = getattr(first_img, 'name', '')
+                        import os
+                        if base_name:
+                            # 获取原始图片的目录路径
+                            original_dir = os.path.dirname(base_name)
+                            ext = os.path.splitext(base_name)[1]
+                        else:
+                            original_dir = ''
+                            ext = '.jpg'
+                    else:
+                        original_dir = ''
+                        ext = '.jpg'
+                    
+                    # 新命名格式：seg03_img005-007_3p.jpg
+                    new_filename = f"seg{segment_idx+1:02d}_img{start_num:03d}-{end_num:03d}_{img_count}p{ext}"
+                    
+                    # 设置PIL Image的name属性（包含完整路径）
+                    if original_dir:
+                        stitched_name = os.path.join(original_dir, new_filename)
+                    else:
+                        stitched_name = new_filename
+                    stitched_img_pil.name = stitched_name
+                    
+                    # 添加到批量处理列表
+                    all_segment_images_configs.append((stitched_img_pil, segment_config))
+                
+                logger.info(f"[长图拼接] 所有段准备完成，开始批量处理 {len(all_segment_images_configs)} 个长图段")
+                
+                # 临时禁用拼接避免递归，然后批量处理所有段
+                original_stitching_flag = self.enable_long_image_stitching
+                self.enable_long_image_stitching = False
+                
+                try:
+                    # 一次性处理所有段，保持上下文连贯
+                    all_segment_results = await self._translate_batch_pipeline_4_lines(
+                        all_segment_images_configs, save_info
+                    )
+                    logger.info(f"[长图拼接] 所有段处理完成，共 {len(all_segment_results)} 个结果")
+                    return all_segment_results
+                finally:
+                    # 恢复拼接标志
+                    self.enable_long_image_stitching = original_stitching_flag
+                
+            except Exception as e:
+                logger.error(f"[长图拼接] 拼接失败: {e}")
+                logger.exception(e)
+                logger.info(f"[长图拼接] 回退到正常流水线处理")
+                # 失败时继续使用正常流程
+        
         logger.info(f"四线流水线启动：处理 {total_images} 张图片")
+        
+        # 按章节分组
+        chapters = self._group_by_chapter(images_with_configs)
+        logger.info(f"检测到 {len(chapters)} 个章节")
+        
+        all_results = []
+        
+        # 逐章节处理
+        for chapter_idx, chapter in enumerate(chapters):
+            logger.info(f"\n{'='*60}")
+            logger.info(f"开始处理章节 {chapter_idx+1}/{len(chapters)}: {chapter['name']} ({len(chapter['images'])}页)")
+            logger.info(f"{'='*60}\n")
+            
+            # 🔑 每个章节开始时重置上下文
+            self.all_page_translations = []
+            logger.info(f"章节 {chapter['name']}: 重置上下文历史")
+            
+            # 处理该章节
+            chapter_results = await self._process_chapter_pipeline(chapter['images'], save_info)
+            all_results.extend(chapter_results)
+            
+            logger.info(f"\n{'='*60}")
+            logger.info(f"完成章节 {chapter_idx+1}/{len(chapters)}: {chapter['name']}")
+            logger.info(f"{'='*60}\n")
+        
+        return all_results
+    
+    async def _process_chapter_pipeline(self, images_with_configs: List[tuple], save_info: dict = None) -> List[Context]:
+        """
+        处理单个章节的流水线
+        """
+        import asyncio
+        from asyncio import Queue, Semaphore
+        import traceback
+        
+        total_images = len(images_with_configs)
+        logger.info(f"章节图片数: {total_images} 张")
         
         # 创建队列和信号量
         ocr_queue = Queue(maxsize=50)  # Line1 -> Line2
@@ -4618,9 +4832,12 @@ class MangaTranslator:
         
         # 并发控制信号量
         line1_semaphore = Semaphore(self.pipeline_line1_concurrency)
-        line2_semaphore = Semaphore(self.pipeline_line2_concurrency)
         line3_semaphore = Semaphore(self.pipeline_line3_concurrency)
         line4_semaphore = Semaphore(self.pipeline_line4_concurrency)
+        
+        # 上下文追踪
+        page_counter = {'count': 0}
+        page_counter_lock = asyncio.Lock()  # 保护批次计数器的并发访问
         
         results = []
         completed_count = 0
@@ -4629,7 +4846,7 @@ class MangaTranslator:
             """Line1: 检测+OCR"""
             async with line1_semaphore:
                 try:
-                    logger.info(f"Line1: 开始处理图片 {index+1}/{total_images}")
+                    logger.info(f"Line1: [并发{self.pipeline_line1_concurrency}] 开始处理图片 {index+1}/{total_images}")
                     
                     # 设置图片上下文
                     self._set_image_context(config, image)
@@ -4660,6 +4877,7 @@ class MangaTranslator:
                     # 检测
                     logger.debug(f"Line1: 检测处理 - 图片 {index+1}")
                     ctx.textlines, ctx.mask_raw, ctx.mask = await self._run_detection(config, ctx)
+                    await asyncio.sleep(0)  # 让出控制权
 
                     if not ctx.textlines:
                         logger.info(f"Line1: 图片 {index+1} 未检测到文本，跳过后续处理")
@@ -4669,6 +4887,7 @@ class MangaTranslator:
                     # OCR
                     logger.debug(f"Line1: OCR处理 - 图片 {index+1}")
                     ctx.textlines = await self._run_ocr(config, ctx)
+                    await asyncio.sleep(0)  # 让出控制权
 
                     if not ctx.textlines:
                         logger.info(f"Line1: 图片 {index+1} OCR未识别到文本，跳过后续处理")
@@ -4677,15 +4896,25 @@ class MangaTranslator:
 
                     # 文本行合并
                     logger.debug(f"Line1: 文本行合并 - 图片 {index+1}")
+                    textline_count_before = len(ctx.textlines) if ctx.textlines else 0
                     ctx.text_regions = await self._run_textline_merge(config, ctx)
+                    await asyncio.sleep(0)  # 让出控制权
 
                     if not ctx.text_regions:
-                        logger.info(f"Line1: 图片 {index+1} 文本合并后无区域，跳过后续处理")
+                        logger.warning(f"Line1: 图片 {index+1} 文本合并后无区域（合并前有{textline_count_before}个文本行），跳过后续处理")
                         await render_queue.put((ctx, config, index, True))
                         return
 
                     logger.info(f"Line1: 完成处理图片 {index+1}/{total_images}，检测到 {len(ctx.text_regions)} 个文本区域")
+                    for i, region in enumerate(ctx.text_regions):
+                        logger.debug(f"Line1: 图片{index+1} - region{i}: '{region.text}'")
+                    
+                    # 放入OCR队列
                     await ocr_queue.put((ctx, config, index))
+                    logger.debug(f"Line1: 图片{index+1}已放入ocr_queue，当前队列大小: {ocr_queue.qsize()}")
+                    
+                    # 主动让出控制权，让Line2/3/4有机会执行
+                    await asyncio.sleep(0)
                     
                 except Exception as e:
                     logger.error(f"Line1: 处理图片 {index+1} 时出错: {e}")
@@ -4699,40 +4928,55 @@ class MangaTranslator:
 
         async def line2_worker():
             """Line2: 翻译（批量处理）"""
+            logger.info("Line2: 翻译工作线程已启动")
             batch_buffer = []
+            consecutive_timeouts = 0
+            max_consecutive_timeouts = 3
             
             while True:
                 try:
-                    # 收集批量翻译的项目
                     try:
-                        # 超时等待，避免无限阻塞
-                        item = await asyncio.wait_for(ocr_queue.get(), timeout=2.0)
+                        item = await asyncio.wait_for(ocr_queue.get(), timeout=1.0)
+                        ctx, config, image_idx = item
                         batch_buffer.append(item)
+                        consecutive_timeouts = 0
+                        logger.debug(f"Line2: 从队列获取图片{image_idx+1}，当前批次大小: {len(batch_buffer)}")
                         
-                        # 检查是否达到批量大小或队列为空
-                        if len(batch_buffer) >= self.pipeline_translation_batch_size or ocr_queue.empty():
-                            await self._process_translation_batch(batch_buffer, translate_queue, line2_semaphore)
+                        if len(batch_buffer) >= self.pipeline_translation_batch_size:
+                            await self._process_translation_batch(batch_buffer, translate_queue, page_counter, page_counter_lock)
                             batch_buffer = []
                             
                     except asyncio.TimeoutError:
-                        # 超时后处理剩余的批次
+                        consecutive_timeouts += 1
+                        logger.debug(f"Line2: 超时{consecutive_timeouts}次，队列大小: {ocr_queue.qsize()}, Line1完成: {all(task.done() for task in line1_tasks)}")
+                        
                         if batch_buffer:
-                            await self._process_translation_batch(batch_buffer, translate_queue, line2_semaphore)
+                            logger.info(f"Line2: 超时后处理剩余批次，大小: {len(batch_buffer)}")
+                            await self._process_translation_batch(batch_buffer, translate_queue, page_counter, page_counter_lock)
                             batch_buffer = []
-                        # 检查是否所有任务都完成了
-                        if ocr_queue.empty() and all(task.done() for task in line1_tasks):
-                            break
+                        
+                        if consecutive_timeouts >= max_consecutive_timeouts:
+                            if all(task.done() for task in line1_tasks) and ocr_queue.empty():
+                                logger.info(f"Line2: Line1已完成且队列为空（连续{consecutive_timeouts}次超时），退出")
+                                break
+                            else:
+                                if not all(task.done() for task in line1_tasks):
+                                    logger.debug("Line2: Line1还在运行，重置超时计数")
+                                    consecutive_timeouts = 0
+                                elif not ocr_queue.empty():
+                                    logger.debug(f"Line2: 队列不为空（{ocr_queue.qsize()}项），重置超时计数")
+                                    consecutive_timeouts = 0
                             
                 except Exception as e:
                     logger.error(f"Line2: 翻译工作进程出错: {e}")
                     break
             
-            # 处理最后的批次
             if batch_buffer:
-                await self._process_translation_batch(batch_buffer, translate_queue, line2_semaphore)
+                await self._process_translation_batch(batch_buffer, translate_queue, page_counter, page_counter_lock)
 
         async def line3_worker():
             """Line3: 修复/Inpainting"""
+            logger.info("Line3: 修复工作线程已启动")
             while True:
                 try:
                     item = await asyncio.wait_for(translate_queue.get(), timeout=5.0)
@@ -4785,6 +5029,7 @@ class MangaTranslator:
 
         async def line4_worker():
             """Line4: 渲染+超分"""
+            logger.info("Line4: 渲染工作线程已启动")
             while True:
                 try:
                     item = await asyncio.wait_for(inpaint_queue.get(), timeout=5.0)
@@ -4834,6 +5079,12 @@ class MangaTranslator:
                     logger.error(f"Line4: 工作进程出错: {e}")
                     break
 
+        # 预先声明任务列表（供worker函数内部引用）
+        line1_tasks = []
+        line2_tasks = []
+        line3_tasks = []
+        line4_tasks = []
+        
         # 启动所有工作线程
         line1_tasks = [asyncio.create_task(line1_worker(image, config, i)) 
                        for i, (image, config) in enumerate(images_with_configs)]
@@ -4846,6 +5097,8 @@ class MangaTranslator:
         
         line4_tasks = [asyncio.create_task(line4_worker()) 
                        for _ in range(self.pipeline_line4_concurrency)]
+        
+        logger.info(f"四线流水线任务启动完成：Line1({len(line1_tasks)}), Line2({len(line2_tasks)}), Line3({len(line3_tasks)}), Line4({len(line4_tasks)})")
 
         # 收集结果
         result_contexts = [None] * total_images
@@ -4909,33 +5162,168 @@ class MangaTranslator:
         
         return final_results
 
-    async def _process_translation_batch(self, batch_buffer, translate_queue, line2_semaphore):
-        """处理翻译批次"""
+    def _is_api_polling_failure(self, translated_texts):
+        """检测是否为API轮询失败错误"""
+        if not translated_texts or len(translated_texts) < 2:
+            return False
+        
+        # 检测是否包含特定的错误消息
+        error_patterns = [
+            '所有API密钥均请求失败',
+            '具体错误请查看轮询日志',
+            'all.*key.*failed',
+            'API.*polling.*failed'
+        ]
+        
+        text_combined = ' '.join(translated_texts[:5])  # 检查前5条
+        return any(pattern in text_combined for pattern in error_patterns)
+    
+    async def _enter_degraded_mode(self):
+        """进入降级模式：单图处理，减少并发数"""
+        if self._degraded_mode:
+            return  # 已经在降级模式
+        
+        self._degraded_mode = True
+        self._degraded_success_count = 0
+        
+        # 保存原始配置
+        self._original_batch_size = self.pipeline_translation_batch_size
+        self._original_line2_concurrency = self.pipeline_line2_concurrency
+        
+        # 降级配置：单图处理，并发数为1
+        self.pipeline_translation_batch_size = 1
+        # 注意：Line2并发数不能在运行时改变（线程已启动）
+        # 但批次大小变为1就能实现单图处理
+        
+        logger.warning("="*80)
+        logger.warning("🔻 API轮询失败被检测到！启动智能降级模式")
+        logger.warning(f"降级配置：批次大小 {self._original_batch_size} → 1 (单图处理)")
+        logger.warning(f"恢复条件：连续成功 {self._degraded_recovery_threshold} 张图片")
+        logger.warning("="*80)
+    
+    async def _exit_degraded_mode(self):
+        """退出降级模式：恢复批量处理"""
+        if not self._degraded_mode:
+            return  # 未在降级模式
+        
+        self._degraded_mode = False
+        self._degraded_success_count = 0
+        
+        # 恢复原始配置
+        if self._original_batch_size is not None:
+            self.pipeline_translation_batch_size = self._original_batch_size
+        
+        logger.info("="*80)
+        logger.info("✨ API恢复正常！退出降级模式")
+        logger.info(f"恢复配置：批次大小 1 → {self.pipeline_translation_batch_size} (批量处理)")
+        logger.info("="*80)
+    
+    async def _process_translation_batch(self, batch_buffer, translate_queue, page_counter, page_counter_lock):
+        """处理翻译批次：使用原文作为上下文"""
         if not batch_buffer:
             return
             
-        async with line2_semaphore:
-            try:
-                logger.info(f"Line2: 开始批量翻译 {len(batch_buffer)} 个项目")
-                
-                # 提取所有文本
-                all_texts = []
-                text_mapping = []  # (batch_index, region_index)
-                
-                for batch_idx, (ctx, config, image_idx) in enumerate(batch_buffer):
-                    if ctx.text_regions:
-                        for region_idx, region in enumerate(ctx.text_regions):
-                            all_texts.append(region.text)
-                            text_mapping.append((batch_idx, region_idx, image_idx))
+        try:
+            # 原子地获取并递增批次索引（防止并发竞态条件）
+            async with page_counter_lock:
+                current_batch_index = page_counter['count']
+                page_counter['count'] += 1
+            
+            logger.info(f"Line2: 开始翻译批次{current_batch_index} ({len(batch_buffer)}张图片) - 使用原文作为上下文参考")
+            
+            # 提取整个批次的所有文本
+            all_texts = []
+            text_mapping = []  # (batch_index, region_index, image_idx)
+            
+            # 先为批次加载AI断句prompt（使用第一个配置）
+            sample_ctx, sample_config, _ = batch_buffer[0]
+            # 确保ctx.config存在（翻译器需要检查config.render.disable_auto_wrap）
+            if not hasattr(sample_ctx, 'config') or sample_ctx.config is None:
+                sample_ctx.config = sample_config
+            sample_ctx = await self._load_and_prepare_prompts(sample_config, sample_ctx)
+            
+            # 检查AI断句是否启用
+            ai_break_enabled = sample_config.render.disable_auto_wrap
+            logger.info(f"Line2: 为批次加载AI断句prompt完成 (AI断句开关: {ai_break_enabled})")
+            
+            for batch_idx, (ctx, config, image_idx) in enumerate(batch_buffer):
+                if ctx.text_regions:
+                    for region_idx, region in enumerate(ctx.text_regions):
+                        all_texts.append(region.text)
+                        text_mapping.append((batch_idx, region_idx, image_idx))
 
-                if all_texts:
-                    # 使用第一个配置进行翻译
-                    sample_ctx, sample_config, _ = batch_buffer[0]
+            if all_texts:
+                logger.info(f"Line2: 批次总共 {len(all_texts)} 个文本区域，准备高质量翻译")
+                logger.debug(f"Line2: 批次文本内容: {all_texts}")
+                
+                # 【关键修复】在翻译前先保存原文，使后续批次能立即获取上下文
+                # 这样可以避免并发竞态条件导致上下文丢失
+                batch_originals = {}
+                for ctx, config, image_idx in batch_buffer:
+                    if ctx.text_regions:
+                        for region in ctx.text_regions:
+                            batch_originals[region.text] = region.text  # 原文->原文的映射
+                
+                if batch_originals:
+                    self.all_page_translations.append(batch_originals)
+                    logger.info(f"Line2: 批次{current_batch_index}在翻译前保存了 {len(batch_originals)} 条原文（供后续批次使用）")
+                
+                try:
+                    # 为高质量翻译器准备batch_data（启用高质量翻译模式和AI断句）
+                    if sample_config.translator.translator in [Translator.openai_hq, Translator.gemini_hq]:
+                        batch_data = []
+                        for batch_idx, (ctx, config, image_idx) in enumerate(batch_buffer):
+                            if ctx.text_regions:
+                                batch_data.append({
+                                    'original_texts': [region.text for region in ctx.text_regions],
+                                    'text_regions': ctx.text_regions,
+                                    'image': ctx.input if hasattr(ctx, 'input') else None
+                                })
+                        
+                        # 设置high_quality_batch_data以启用高质量翻译模式
+                        sample_ctx.high_quality_batch_data = batch_data
+                        sample_ctx.high_quality_batch_size = len(batch_buffer)
+                        logger.info(f"Line2: 已设置high_quality_batch_data，批次大小: {len(batch_data)}")
                     
-                    # 批量翻译
+                    # 整个批次统一翻译（传递prev_batch_index以使用前一批次上下文）
+                    # 高质量翻译器同时处理批次内的多图上下文
+                    prev_batch_index = current_batch_index - 1 if current_batch_index > 0 else None
                     translated_texts = await self._batch_translate_texts(
-                        all_texts, sample_config, sample_ctx
+                        all_texts, sample_config, sample_ctx,
+                        page_index=prev_batch_index  # ← 使用前一批次作为上下文
                     )
+                    
+                    # 【智能降级检测】检测API轮询失败
+                    if self._is_api_polling_failure(translated_texts):
+                        logger.error(f"Line2: 批次{current_batch_index} 检测到API轮询失败")
+                        await self._enter_degraded_mode()
+                        # 使用原文作为后备
+                        translated_texts = all_texts.copy()
+                    elif self._degraded_mode:
+                        # 在降级模式下，翻译成功的计数
+                        self._degraded_success_count += len(batch_buffer)
+                        logger.info(f"Line2: 降级模式 - 成功翻译 {len(batch_buffer)} 张图片，累计成功 {self._degraded_success_count}/{self._degraded_recovery_threshold}")
+                        
+                        # 检查是否达到恢复阈值
+                        if self._degraded_success_count >= self._degraded_recovery_threshold:
+                            await self._exit_degraded_mode()
+                    
+                    # AI断句处理：整个批次级别检查数量匹配
+                    if len(translated_texts) != len(all_texts):
+                        logger.warning(f"Line2: 批次AI断句导致翻译数量不匹配 - 输入:{len(all_texts)}, 输出:{len(translated_texts)}")
+                        logger.info(f"Line2: 批次原文: {all_texts}")
+                        logger.info(f"Line2: 批次译文: {translated_texts}")
+                        
+                        # 智能分配：尝试映射翻译结果
+                        if len(translated_texts) > len(all_texts):
+                            # 翻译结果更多：可能是拆分，取前N个
+                            logger.info(f"Line2: 批次AI断句拆分了文本，取前{len(all_texts)}个翻译")
+                            translated_texts = translated_texts[:len(all_texts)]
+                        else:
+                            # 翻译结果更少：可能是合并，补充原文
+                            logger.info(f"Line2: 批次AI断句合并了文本，用原文补足")
+                            while len(translated_texts) < len(all_texts):
+                                translated_texts.append(all_texts[len(translated_texts)])
                     
                     # 将翻译结果分配回原始区域
                     for text_idx, (batch_idx, region_idx, image_idx) in enumerate(text_mapping):
@@ -4947,24 +5335,85 @@ class MangaTranslator:
                                 region.target_lang = config.translator.target_lang
                                 region._alignment = config.render.alignment
                                 region._direction = config.render.direction
+                                logger.debug(f"Line2: 图片{image_idx+1} 区域{region_idx}: '{region.text}' -> '{region.translation}'")
 
-                    # 应用后处理
-                    for ctx, config, image_idx in batch_buffer:
-                        if ctx.text_regions:
-                            ctx.text_regions = await self._apply_post_translation_processing(ctx, config)
-                
-                logger.info(f"Line2: 完成批量翻译 {len(batch_buffer)} 个项目")
-                
-                # 将处理好的项目放入下一个队列
-                for ctx, config, image_idx in batch_buffer:
-                    await translate_queue.put((ctx, config, image_idx))
+                except Exception as e:
+                    # 【智能降级检测】检查是否为API失败
+                    error_msg = str(e)
+                    if '所有API密钥均请求失败' in error_msg or 'API.*failed' in error_msg.lower():
+                        logger.error(f"Line2: 批次{current_batch_index} 翻译异常 - 检测到API失败: {e}")
+                        await self._enter_degraded_mode()
                     
-            except Exception as e:
-                logger.error(f"Line2: 批量翻译出错: {e}")
-                logger.error(f"Line2: 错误详情: {traceback.format_exc()}")
-                # 出错时仍然要将项目传递给下一阶段，避免流水线阻塞
-                for ctx, config, image_idx in batch_buffer:
-                    await translate_queue.put((ctx, config, image_idx))
+                    # 捕获翻译错误（包括AI断句数量不匹配）
+                    if "Translation count mismatch" in error_msg:
+                        logger.warning(f"Line2: 批次AI断句数量不匹配错误，使用原文作为备选: {e}")
+                        # 使用原文作为翻译结果
+                        for text_idx, (batch_idx, region_idx, image_idx) in enumerate(text_mapping):
+                            if text_idx < len(all_texts):
+                                ctx, config, _ = batch_buffer[batch_idx]
+                                if ctx.text_regions and region_idx < len(ctx.text_regions):
+                                    region = ctx.text_regions[region_idx]
+                                    region.translation = all_texts[text_idx]
+                                    region.target_lang = config.translator.target_lang
+                                    region._alignment = config.render.alignment
+                                    region._direction = config.render.direction
+                        # 标记翻译错误（使用原文）
+                        for ctx, config, _ in batch_buffer:
+                            ctx.translation_error = f"批次翻译失败（AI断句数量不匹配），已使用原文: {error_msg}"
+                    else:
+                        logger.error(f"Line2: 批次翻译出错: {e}")
+                        logger.error(f"Line2: 错误详情: {traceback.format_exc()}")
+                        # 出错时使用原文
+                        for text_idx, (batch_idx, region_idx, image_idx) in enumerate(text_mapping):
+                            if text_idx < len(all_texts):
+                                ctx, config, _ = batch_buffer[batch_idx]
+                                if ctx.text_regions and region_idx < len(ctx.text_regions):
+                                    region = ctx.text_regions[region_idx]
+                                    region.translation = all_texts[text_idx]
+                                    region.target_lang = config.translator.target_lang
+                                    region._alignment = config.render.alignment
+                                    region._direction = config.render.direction
+                        # 标记翻译错误（使用原文）
+                        for ctx, config, _ in batch_buffer:
+                            ctx.translation_error = f"批次翻译失败，已使用原文: {error_msg}\n详情: {traceback.format_exc()}"
+
+            # 应用后处理
+            for ctx, config, image_idx in batch_buffer:
+                if ctx.text_regions:
+                    ctx.text_regions = await self._apply_post_translation_processing(ctx, config)
+            
+            # 更新批次翻译结果（原文->译文映射）
+            # 注意：翻译前已经保存了原文，这里需要更新为译文
+            batch_translations = {}
+            for ctx, config, image_idx in batch_buffer:
+                if ctx.text_regions:
+                    for r in ctx.text_regions:
+                        if r.translation:
+                            batch_translations[r.text] = r.translation
+            
+            if batch_translations and current_batch_index < len(self.all_page_translations):
+                # 更新已存在的原文条目为译文
+                self.all_page_translations[current_batch_index].update(batch_translations)
+                logger.info(f"Line2: 更新批次{current_batch_index}的 {len(batch_translations)} 条翻译结果（原文->译文）")
+            
+            logger.info(f"Line2: 完成批次{current_batch_index}翻译 ({len(batch_buffer)}张图片)")
+            
+            # 将处理好的项目放入下一个队列
+            for ctx, config, image_idx in batch_buffer:
+                await translate_queue.put((ctx, config, image_idx))
+                    
+        except Exception as e:
+            logger.error(f"Line2: 批量翻译出错: {e}")
+            logger.error(f"Line2: 错误详情: {traceback.format_exc()}")
+            
+            # 标记批次中所有图片翻译失败
+            for ctx, config, _ in batch_buffer:
+                if not hasattr(ctx, 'translation_error') or not ctx.translation_error:
+                    ctx.translation_error = f"批次翻译过程出错: {str(e)}\n详情: {traceback.format_exc()}"
+            
+            # 出错时仍然要将项目传递给下一阶段，避免流水线阻塞
+            for ctx, config, image_idx in batch_buffer:
+                await translate_queue.put((ctx, config, image_idx))
 
     async def _save_pipeline_result(self, ctx, config, save_info):
         """保存流水线处理结果"""
@@ -5010,7 +5459,6 @@ class MangaTranslator:
                 
                 image_to_save.save(final_output_path, quality=self.save_quality)
                 logger.info(f"  -> ✅ [PIPELINE] Saved successfully: {os.path.basename(final_output_path)}")
-                self._update_translation_map(file_path, final_output_path)
 
         except Exception as save_err:
             logger.error(f"Error saving pipeline result for {os.path.basename(ctx.image_name) if hasattr(ctx, 'image_name') else 'Unknown'}: {save_err}")

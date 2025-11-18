@@ -60,7 +60,6 @@ class Renderer(str, Enum):
     default = "default"
     manga2Eng = "manga2eng"
     manga2EngPillow = "manga2eng_pillow"
-    gimp = "gimp"
     none = "none"
 
 class Alignment(str, Enum):
@@ -186,8 +185,6 @@ class RenderConfig(BaseModel):
     """Change text to uppercase"""
     lowercase: bool = False
     """Change text to lowercase"""
-    gimp_font: str = 'Sans-serif'
-    """Font family to use for gimp rendering."""
     no_hyphenation: bool = False
     """If renderer should be splitting up words using a hyphen character (-)"""
     font_color: Optional[str] = None
@@ -406,8 +403,6 @@ class Config(BaseModel):
     """Set the convolution kernel size of the text erasure area to completely clean up text residues"""
     mask_dilation_offset: int = 20
     """By how much to extend the text mask to remove left-over text pixels of the original image."""
-    high_quality_batch_size: int = 3
-    """Number of images to send to AI translator at once in high quality mode"""
     _filter_text = None
 
     @property

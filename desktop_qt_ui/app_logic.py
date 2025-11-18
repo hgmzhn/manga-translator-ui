@@ -459,7 +459,7 @@ class MainAppLogic(QObject):
                     "denoise_sigma": "降噪强度", "colorizer": "上色模型", "verbose": "详细日志",
                     "attempts": "重试次数", "max_requests_per_minute": "每分钟最大请求数", "ignore_errors": "忽略错误", "use_gpu": "使用 GPU",
                     "use_gpu_limited": "使用 GPU（受限）", "context_size": "上下文页数", "format": "输出格式",
-                    "overwrite": "覆盖已存在文件", "skip_no_text": "跳过无文本图像", "use_mtpe": "启用后期编辑(MTPE)",
+                    "overwrite": "覆盖已存在文件", "skip_no_text": "跳过无文本图像",
                     "save_text": "图片可编辑", "load_text": "导入翻译", "template": "导出原文",
                     "prep_manual": "为手动排版做准备", "save_quality": "图像保存质量", "batch_size": "批量大小",
                     "batch_concurrent": "并发批量处理", "pipeline_mode": "流水线并行模式",
@@ -468,6 +468,9 @@ class MainAppLogic(QObject):
                     "pipeline_translation_batch_size": "流水线打包-线2(每批图片数)",
                     "pipeline_line3_concurrency": "流水线并发-线3(修复/Inpainting)",
                     "pipeline_line4_concurrency": "流水线并发-线4(渲染+超分)",
+                    "enable_long_image_stitching": "启用智能长图拼接",
+                    "long_image_max_height": "长图最大高度(像素)",
+                    "long_image_bubble_margin": "边界气泡检测范围(像素)",
                     "generate_and_export": "导出翻译", "high_quality_batch_size": "高质量批次大小",
                     "last_output_path": "最后输出路径", "line_spacing": "行间距", "font_size": "字体大小",
                     "YOUDAO_APP_KEY": "有道翻译应用ID", "YOUDAO_SECRET_KEY": "有道翻译应用秘钥",
@@ -1244,7 +1247,6 @@ class TranslationWorker(QObject):
             self.log_received.emit("--- [9] THREAD: Initializing translator...")
             translator_params = self.config_dict.get('cli', {})
             translator_params.update(self.config_dict)
-            translator_params['is_ui_mode'] = True
             
             
             font_filename = self.config_dict.get('render', {}).get('font_path')
@@ -1397,11 +1399,16 @@ class TranslationWorker(QObject):
                             results.append({'success': True, 'original_path': ctx.image_name, 'image_data': None})
                             success_count += 1
                         else:
+                            # 翻译结果为空的失败情况
+                            img_name = os.path.basename(ctx.image_name) if hasattr(ctx, 'image_name') and ctx.image_name else 'Unknown'
                             results.append({'success': False, 'original_path': ctx.image_name, 'error': '翻译结果为空'})
                             failed_count += 1
+                            self.log_received.emit(f"⚠️ 图片 {img_name} 翻译失败：翻译结果为空")
                     else:
-                        results.append({'succes000000000000000000000000000000000000000000s': False, 'original_path': 'Unknown', 'error': 'Batch translation returned no context'})
+                        # ctx 本身为 None 的失败情况
+                        results.append({'success': False, 'original_path': 'Unknown', 'error': 'Batch translation returned no context'})
                         failed_count += 1
+                        self.log_received.emit(f"⚠️ 图片翻译失败：批量翻译返回空上下文（ctx=None）")
 
                 if failed_count > 0:
                     self.log_received.emit(f"\n⚠️ 批量翻译完成：成功 {success_count}/{total_images} 张，失败 {failed_count}/{total_images} 张")

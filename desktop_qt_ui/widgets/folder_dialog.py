@@ -178,35 +178,43 @@ class FolderDialog(QDialog):
         """)
         address_layout.addWidget(self.edit_path_button)
 
-        # 添加边距的容器
-        address_container = QWidget()
-        address_container_layout = QVBoxLayout(address_container)
-        address_container_layout.setContentsMargins(8, 4, 8, 4)
-        address_container_layout.addWidget(address_widget)
-
-        layout.addWidget(address_container)
-
         # 路径输入框（初始隐藏，点击编辑按钮时显示）
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText("输入路径后按回车跳转，或按 Esc 取消")
-        self.path_edit.hide()
         self.path_edit.setStyleSheet("""
             QLineEdit {
-                padding: 6px;
-                border: 1px solid #0078d4;
-                border-radius: 2px;
+                padding: 8px;
+                border: 2px solid #0078d4;
+                border-radius: 3px;
                 font-size: 13px;
+                background-color: white;
             }
         """)
 
-        path_edit_container = QWidget()
-        path_edit_layout = QVBoxLayout(path_edit_container)
-        path_edit_layout.setContentsMargins(8, 0, 8, 4)
+        # 创建一个容器来包含面包屑和输入框，它们互斥显示
+        self.address_container = QWidget()
+        address_container_layout = QVBoxLayout(self.address_container)
+        address_container_layout.setContentsMargins(8, 4, 8, 8)
+        address_container_layout.setSpacing(0)
+        
+        # 面包屑容器
+        self.breadcrumb_container = QWidget()
+        breadcrumb_container_layout = QVBoxLayout(self.breadcrumb_container)
+        breadcrumb_container_layout.setContentsMargins(0, 0, 0, 0)
+        breadcrumb_container_layout.addWidget(address_widget)
+        
+        # 输入框容器
+        self.path_edit_container = QWidget()
+        path_edit_layout = QVBoxLayout(self.path_edit_container)
+        path_edit_layout.setContentsMargins(0, 0, 0, 0)
         path_edit_layout.addWidget(self.path_edit)
-        path_edit_container.hide()
-        self.path_edit_container = path_edit_container
+        self.path_edit_container.hide()
+        
+        # 将两个容器添加到主地址栏容器
+        address_container_layout.addWidget(self.breadcrumb_container)
+        address_container_layout.addWidget(self.path_edit_container)
 
-        layout.addWidget(path_edit_container)
+        layout.addWidget(self.address_container)
 
         # 主内容区域：左侧快捷栏 + 右侧文件夹树
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -627,6 +635,9 @@ class FolderDialog(QDialog):
 
             # 更新按钮状态
             self._update_navigation_buttons()
+            
+            # 更新选择状态（如果没有选中任何文件夹，显示当前目录）
+            self._on_selection_changed()
 
     def _update_breadcrumb(self, path: str):
         """更新面包屑导航"""
@@ -719,11 +730,10 @@ class FolderDialog(QDialog):
         """切换路径编辑模式"""
         if self.path_edit_container.isVisible():
             # 隐藏输入框，显示面包屑
-            self.path_edit_container.hide()
-            self.breadcrumb_scroll.parentWidget().show()
+            self._cancel_path_edit()
         else:
             # 显示输入框，隐藏面包屑
-            self.breadcrumb_scroll.parentWidget().hide()
+            self.breadcrumb_container.hide()
             self.path_edit_container.show()
             if self.history:
                 self.path_edit.setText(self.history[self.history_index])
@@ -736,23 +746,34 @@ class FolderDialog(QDialog):
         if path and os.path.isdir(path):
             self.navigate_to(path, add_to_history=True)
             # 切换回面包屑显示
-            self.path_edit_container.hide()
-            self.breadcrumb_scroll.parentWidget().show()
+            self._cancel_path_edit()
         else:
             QMessageBox.warning(self, "路径错误", f"路径不存在或不是有效目录：\n{path}")
+            # 保持输入框显示，让用户修改
 
     def eventFilter(self, obj, event):
-        """事件过滤器：处理 Esc 键取消路径编辑"""
+        """事件过滤器：处理 Esc 键取消路径编辑和点击外部区域"""
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtGui import QKeyEvent, QMouseEvent
+        
         if obj == self.path_edit:
-            from PyQt6.QtCore import QEvent
-            from PyQt6.QtGui import QKeyEvent
             if event.type() == QEvent.Type.KeyPress:
                 if event.key() == Qt.Key.Key_Escape:
                     # 取消编辑，恢复面包屑
-                    self.path_edit_container.hide()
-                    self.breadcrumb_scroll.parentWidget().show()
+                    self._cancel_path_edit()
                     return True
+            elif event.type() == QEvent.Type.FocusOut:
+                # 失去焦点时恢复面包屑
+                self._cancel_path_edit()
+                return False
+        
         return super().eventFilter(obj, event)
+    
+    def _cancel_path_edit(self):
+        """取消路径编辑，恢复面包屑显示"""
+        if self.path_edit_container.isVisible():
+            self.path_edit_container.hide()
+            self.breadcrumb_container.show()
 
     def _on_folder_double_clicked(self, index: QModelIndex):
         """文件夹双击：进入该文件夹"""
@@ -762,13 +783,21 @@ class FolderDialog(QDialog):
 
     def _on_selection_changed(self):
         """选择改变时更新状态"""
-        indexes = self.folder_tree.selectionModel().selectedIndexes()
-        self.selected_folders = [self.fs_model.filePath(idx) for idx in indexes]
+        # 只获取第一列（名称列）的选中行，避免重复计数
+        selected_rows = self.folder_tree.selectionModel().selectedRows(0)
+        self.selected_folders = [self.fs_model.filePath(idx) for idx in selected_rows]
 
         count = len(self.selected_folders)
         if count == 0:
-            self.selection_label.setText("未选择")
-            self.ok_button.setEnabled(False)
+            # 没有选中任何文件夹时，显示当前目录
+            if self.history and self.history_index >= 0:
+                current_dir = self.history[self.history_index]
+                dir_name = os.path.basename(current_dir) or current_dir
+                self.selection_label.setText(f"将添加当前目录: {dir_name}")
+                self.ok_button.setEnabled(True)
+            else:
+                self.selection_label.setText("未选择")
+                self.ok_button.setEnabled(False)
         elif count == 1:
             folder_name = os.path.basename(self.selected_folders[0])
             self.selection_label.setText(f"已选择: {folder_name}")
@@ -779,6 +808,9 @@ class FolderDialog(QDialog):
 
     def get_selected_folders(self) -> List[str]:
         """获取选中的文件夹列表"""
+        # 如果没有选中任何文件夹，返回当前目录
+        if not self.selected_folders and self.history and self.history_index >= 0:
+            return [self.history[self.history_index]]
         return self.selected_folders
 
 

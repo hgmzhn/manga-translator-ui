@@ -173,3 +173,6 @@ fonts/
 
 # Ignore local wheels
 *.whl
+
+# Kiro IDE settings
+.kiro/

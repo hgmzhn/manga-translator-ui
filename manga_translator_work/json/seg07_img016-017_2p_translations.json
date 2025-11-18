@@ -1,0 +1,377 @@
+{
+    "D:\\漫画\\1\\seg07_img016-017_2p.jpg": {
+        "regions": [
+            {
+                "lines": [
+                    [
+                        [
+                            127.0,
+                            82.0
+                        ],
+                        [
+                            234.0,
+                            82.0
+                        ],
+                        [
+                            234.0,
+                            117.0
+                        ],
+                        [
+                            127.0,
+                            117.0
+                        ]
+                    ],
+                    [
+                        [
+                            93.0,
+                            115.0
+                        ],
+                        [
+                            267.0,
+                            115.0
+                        ],
+                        [
+                            267.0,
+                            155.0
+                        ],
+                        [
+                            93.0,
+                            155.0
+                        ]
+                    ]
+                ],
+                "texts": [
+                    "지희 씨?",
+                    "잠시, 잠시만요."
+                ],
+                "text": "지희 씨? 잠시, 잠시만요.",
+                "translation": "智熙小姐？[BR]等一下，请等一下。",
+                "angle": 0,
+                "font_size": 35,
+                "fg_colors": [
+                    2,
+                    2,
+                    1
+                ],
+                "bg_colors": [
+                    2,
+                    2,
+                    1
+                ],
+                "direction": "h",
+                "alignment": "center",
+                "target_lang": "CHS",
+                "source_lang": "ko",
+                "line_spacing": 1.0,
+                "default_stroke_width": 0.2,
+                "adjust_bg_color": true,
+                "prob": 0.7536463625389904
+            },
+            {
+                "lines": [
+                    [
+                        [
+                            467.0,
+                            740.0
+                        ],
+                        [
+                            516.0,
+                            740.0
+                        ],
+                        [
+                            516.0,
+                            779.0
+                        ],
+                        [
+                            467.0,
+                            779.0
+                        ]
+                    ]
+                ],
+                "texts": [
+                    "엘?"
+                ],
+                "text": "엘?",
+                "translation": "嗯？",
+                "angle": 0,
+                "font_size": 39,
+                "fg_colors": [
+                    3,
+                    2,
+                    4
+                ],
+                "bg_colors": [
+                    3,
+                    2,
+                    4
+                ],
+                "direction": "h",
+                "alignment": "center",
+                "target_lang": "CHS",
+                "source_lang": "ko",
+                "line_spacing": 1.0,
+                "default_stroke_width": 0.2,
+                "adjust_bg_color": true,
+                "prob": 0.44217821955680847
+            },
+            {
+                "lines": [
+                    [
+                        [
+                            396.0,
+                            991.0
+                        ],
+                        [
+                            508.0,
+                            991.0
+                        ],
+                        [
+                            508.0,
+                            1020.0
+                        ],
+                        [
+                            396.0,
+                            1020.0
+                        ]
+                    ],
+                    [
+                        [
+                            335.0,
+                            1024.0
+                        ],
+                        [
+                            570.0,
+                            1024.0
+                        ],
+                        [
+                            570.0,
+                            1058.0
+                        ],
+                        [
+                            335.0,
+                            1058.0
+                        ]
+                    ]
+                ],
+                "texts": [
+                    "입에 물고",
+                    "말씀하시면 안 돼요!!"
+                ],
+                "text": "입에 물고 말씀하시면 안 돼요!!",
+                "translation": "嘴里含着东西[BR]是不能说话的！！",
+                "angle": 0,
+                "font_size": 29,
+                "fg_colors": [
+                    1,
+                    2,
+                    1
+                ],
+                "bg_colors": [
+                    1,
+                    2,
+                    1
+                ],
+                "direction": "h",
+                "alignment": "center",
+                "target_lang": "CHS",
+                "source_lang": "ko",
+                "line_spacing": 1.0,
+                "default_stroke_width": 0.2,
+                "adjust_bg_color": true,
+                "prob": 0.7841437243912386
+            },
+            {
+                "lines": [
+                    [
+                        [
+                            220.0,
+                            1625.0
+                        ],
+                        [
+                            273.0,
+                            1625.0
+                        ],
+                        [
+                            273.0,
+                            1655.0
+                        ],
+                        [
+                            220.0,
+                            1655.0
+                        ]
+                    ],
+                    [
+                        [
+                            147.0,
+                            1657.0
+                        ],
+                        [
+                            358.0,
+                            1657.0
+                        ],
+                        [
+                            358.0,
+                            1692.0
+                        ],
+                        [
+                            147.0,
+                            1692.0
+                        ]
+                    ],
+                    [
+                        [
+                            163.0,
+                            1689.0
+                        ],
+                        [
+                            348.0,
+                            1689.0
+                        ],
+                        [
+                            348.0,
+                            1724.0
+                        ],
+                        [
+                            163.0,
+                            1724.0
+                        ]
+                    ],
+                    [
+                        [
+                            182.0,
+                            1720.0
+                        ],
+                        [
+                            327.0,
+                            1720.0
+                        ],
+                        [
+                            327.0,
+                            1760.0
+                        ],
+                        [
+                            182.0,
+                            1760.0
+                        ]
+                    ],
+                    [
+                        [
+                            155.0,
+                            1758.0
+                        ],
+                        [
+                            346.0,
+                            1758.0
+                        ],
+                        [
+                            346.0,
+                            1793.0
+                        ],
+                        [
+                            155.0,
+                            1793.0
+                        ]
+                    ]
+                ],
+                "texts": [
+                    "그..",
+                    "입에 끝부분만 넣고",
+                    "나머지는 손으로",
+                    "해주시는 게",
+                    "편할것같아서요"
+                ],
+                "text": "그.. 입에 끝부분만 넣고 나머지는 손으로 해주시는 게 편할것같아서요",
+                "translation": "那个…[BR]我觉得只用嘴含住前端，[BR]剩下的部分用手[BR]会比较舒服。",
+                "angle": 0,
+                "font_size": 30,
+                "fg_colors": [
+                    2,
+                    3,
+                    1
+                ],
+                "bg_colors": [
+                    3,
+                    3,
+                    1
+                ],
+                "direction": "h",
+                "alignment": "center",
+                "target_lang": "CHS",
+                "source_lang": "ko",
+                "line_spacing": 1.0,
+                "default_stroke_width": 0.2,
+                "adjust_bg_color": true,
+                "prob": 0.7929821006689999
+            },
+            {
+                "lines": [
+                    [
+                        [
+                            404.0,
+                            1787.0
+                        ],
+                        [
+                            526.0,
+                            1787.0
+                        ],
+                        [
+                            526.0,
+                            1827.0
+                        ],
+                        [
+                            404.0,
+                            1827.0
+                        ]
+                    ],
+                    [
+                        [
+                            406.0,
+                            1825.0
+                        ],
+                        [
+                            524.0,
+                            1825.0
+                        ],
+                        [
+                            524.0,
+                            1859.0
+                        ],
+                        [
+                            406.0,
+                            1859.0
+                        ]
+                    ]
+                ],
+                "texts": [
+                    "티 아프시면",
+                    "좀 그러니까"
+                ],
+                "text": "티 아프시면 좀 그러니까",
+                "translation": "因为怕[BR]弄疼你的牙齿。",
+                "angle": 0,
+                "font_size": 34,
+                "fg_colors": [
+                    0,
+                    0,
+                    1
+                ],
+                "bg_colors": [
+                    0,
+                    0,
+                    1
+                ],
+                "direction": "h",
+                "alignment": "center",
+                "target_lang": "CHS",
+                "source_lang": "ko",
+                "line_spacing": 1.0,
+                "default_stroke_width": 0.2,
+                "adjust_bg_color": true,
+                "prob": 0.3554737624712319
+            }
+        ],
+        "original_width": 720,
+        "original_height": 4145,
+        "mask_raw": "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J5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTn+P+D9dvfiH5OR5fOF/4heTneHzhfOEXkp/j/g/Xb34hyZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yZxkTjInmZPMSeYkc5I5yXF3J67f3Exy3MMr5ws3kxz39HZ/fr9+cyPJcU9vj9f384UbSY57envi4+2DG0mOe/rvmY+3D24kOeru9Pxy+nw/X7iR5KiH1+c/n+f36zc3khxzd3p+PV3fzxduJjnm4fX5dD1/XL+4meSYh9dH/v39xwGSY+5O93x9fnGAZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSOcmcZE4yJ5mTzEnmJHOSuf8B5+B+0yPI1r0AAAAASUVORK5CYII="
+    }
+}

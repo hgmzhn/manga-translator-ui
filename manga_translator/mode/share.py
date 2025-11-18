@@ -129,10 +129,6 @@ class MangaShare:
             method = self.get_fn(method_name)
             attr = pickle.loads(await request.body())
 
-            # 根据端点类型决定是否使用占位符优化
-            config = attr.get('config')
-            self.manga._is_streaming_mode = getattr(config, '_web_frontend_optimized', False) if config else False
-
             # streaming response
             streaming_response = StreamingResponse(self.progress_stream(), media_type="application/octet-stream")
             asyncio.create_task(self.run_method(method, **attr))

@@ -77,7 +77,6 @@ class MangaTranslatorLocal(MangaTranslator):
         self.text_regions = params.get('text_regions', None)
         self.save_text_file = params.get('save_text_file', None)
         self.save_text = params.get('save_text', None)
-        self.prep_manual = params.get('prep_manual', None)
         self.batch_size = params.get('batch_size', 1)
         self.disable_memory_optimization = params.get('disable_memory_optimization', False)
 
@@ -291,13 +290,7 @@ class MangaTranslatorLocal(MangaTranslator):
                     save_result(result, dest, ctx)
                     await self._report_progress('saved', True)
 
-                if self.save_text or self.save_text_file or self.prep_manual:
-                    if self.prep_manual:
-                        # Save original image next to translated
-                        p, ext = os.path.splitext(dest)
-                        img_filename = p + '-orig' + ext
-                        img_path = os.path.join(os.path.dirname(dest), img_filename)
-                        img.save(img_path, quality=self.save_quality)
+                if self.save_text or self.save_text_file:
                     if self.text_regions:
                         self._save_text_to_file(path, ctx)
                         logger.info(f"Translations saved to JSON for {path}")
@@ -444,12 +437,7 @@ class MangaTranslatorLocal(MangaTranslator):
                             translated_count += 1
                         
                         # 保存文本文件（如果需要）
-                        if self.save_text or self.save_text_file or self.prep_manual:
-                            if self.prep_manual:
-                                p, ext = os.path.splitext(output_dest)
-                                img_filename = p + '-orig' + ext
-                                img_path = os.path.join(os.path.dirname(output_dest), img_filename)
-                                img.save(img_path, quality=self.save_quality)
+                        if self.save_text or self.save_text_file:
                             if ctx.text_regions:
                                 self._save_text_to_file(file_path, ctx)
                         
