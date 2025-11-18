@@ -44,7 +44,7 @@ class CommonDetector(InfererModule):
         textlines, raw_mask, mask = await self._detect(image, detect_size, text_threshold, box_threshold, unclip_ratio, verbose)
         # 应用面积过滤：固定阈值 + 相对图片总像素的比例阈值
         img_total_pixels = img_h * img_w  # 使用原始图片尺寸
-        min_area_ratio = 0.0002  # 0.02%的比例阈值
+        min_area_ratio = 0.001  # 0.1%的比例阈值（千分之一）
         textlines = list(filter(lambda x: x.area > 16 and x.area / img_total_pixels > min_area_ratio, textlines))
 
         # Remove filters

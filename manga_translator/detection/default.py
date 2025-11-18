@@ -207,7 +207,7 @@ class DefaultDetector(OfflineDetector):
         # 应用面积过滤：固定阈值 + 相对图片总像素的比例阈值
         img_h, img_w = image.shape[:2]
         img_total_pixels = img_h * img_w
-        min_area_ratio = 0.0002  # 0.02%的比例阈值
+        min_area_ratio = 0.001  # 0.1%的比例阈值（千分之一）
         textlines = list(filter(lambda q: q.area > 16 and q.area / img_total_pixels > min_area_ratio, textlines))
         
         # 使用mask生成raw_mask（用于inpainting修复）
