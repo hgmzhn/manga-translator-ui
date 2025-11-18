@@ -1354,6 +1354,16 @@ class TranslationWorker(QObject):
             elif cli_config.get('load_text', False):
                 workflow_mode = "导入翻译并渲染"
                 workflow_tip = "💡 提示：将从 manga_translator_work/originals/ 或 translations/ 目录读取 TXT 文件并渲染（优先使用 _original.txt）"
+                
+                # 在load_text模式下，先自动导入txt文件的翻译到JSON
+                self.log_received.emit("📥 正在从TXT文件导入翻译到JSON...")
+                from desktop_qt_ui.services.workflow_service import smart_update_translations_from_images, ensure_default_template_exists
+                template_path = ensure_default_template_exists()
+                if template_path:
+                    import_result = smart_update_translations_from_images(self.files, template_path)
+                    self.log_received.emit(f"导入结果：{import_result}")
+                else:
+                    self.log_received.emit("⚠️ 警告：无法找到模板文件，跳过自动导入翻译")
 
             if is_hq or (len(self.files) > 1 and batch_size > 1):
                 self.log_received.emit(f"--- [12] THREAD: Starting batch processing ({'HQ mode' if is_hq else 'Batch mode'})...")
