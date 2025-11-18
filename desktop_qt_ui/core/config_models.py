@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 import os
 
 from pydantic import BaseModel, Field
@@ -136,6 +136,7 @@ class CliSettings(BaseModel):
 class AppSection(BaseModel):
     last_open_dir: str = '.'
     last_output_path: str = ""
+    favorite_folders: List[str] = Field(default_factory=list)
 
 class AppSettings(BaseModel):
     app: AppSection = Field(default_factory=AppSection)
