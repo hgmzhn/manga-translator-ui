@@ -866,10 +866,10 @@ def safe_update_large_json_from_text(
         group_order = []
         for part in parts:
             if part == "<original>":
-                parser_regex_str += "(.+?)"
+                parser_regex_str += "(.+?)"  # 原文必须至少有一个字符
                 group_order.append("original")
             elif part == "<translated>":
-                parser_regex_str += "(.+?)"
+                parser_regex_str += "(.*?)"  # 译文可以为空
                 group_order.append("translated")
             else:
                 parser_regex_str += re.escape(part)
