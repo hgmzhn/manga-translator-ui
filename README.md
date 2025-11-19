@@ -1,6 +1,10 @@
-# 漫画图片翻译器
+<div align="center">
+
+![主页](doc/images/主页.png)
 
 [![DeepWiki文档](https://img.shields.io/badge/DeepWiki-在线文档-blue?style=for-the-badge)](https://deepwiki.com/hgmzhn/manga-translator-ui)
+
+</div>
 
 一键翻译漫画图片中的文字，支持日语、中文、英语等多种语言，提供完整的可视化编辑功能。
 
