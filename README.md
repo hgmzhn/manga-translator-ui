@@ -1,6 +1,6 @@
 <div align="center">
 
-![主页](doc/images/主页.png)
+<img src="doc/images/主页.png" width="600" alt="主页">
 
 [![DeepWiki文档](https://img.shields.io/badge/DeepWiki-在线文档-blue?style=for-the-badge)](https://deepwiki.com/hgmzhn/manga-translator-ui)
 
