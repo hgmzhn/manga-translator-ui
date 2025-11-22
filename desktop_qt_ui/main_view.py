@@ -428,9 +428,11 @@ class MainView(QWidget):
         file_buttons_layout.setContentsMargins(0,0,0,0)
         self.add_files_button = QPushButton("添加文件")
         self.add_folder_button = QPushButton("添加文件夹")
+        self.advanced_folder_button = QPushButton("高级文件夹")
         self.clear_list_button = QPushButton("清空列表")
         file_buttons_layout.addWidget(self.add_files_button)
         file_buttons_layout.addWidget(self.add_folder_button)
+        file_buttons_layout.addWidget(self.advanced_folder_button)
         file_buttons_layout.addWidget(self.clear_list_button)
         left_layout.addWidget(file_button_widget)
 
@@ -478,6 +480,7 @@ class MainView(QWidget):
         # Connect all signals at the end, after all widgets are created
         self.add_files_button.clicked.connect(self._trigger_add_files)
         self.add_folder_button.clicked.connect(self.controller.add_folder)
+        self.advanced_folder_button.clicked.connect(self.controller.open_advanced_folder)
         self.clear_list_button.clicked.connect(self.controller.clear_file_list)
         self.file_list.file_remove_requested.connect(self.controller.remove_file)
         self.browse_output_button.clicked.connect(self.controller.select_output_folder)

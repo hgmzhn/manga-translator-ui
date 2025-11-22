@@ -570,6 +570,30 @@ class MainAppLogic(QObject):
     def add_folders(self):
         """Alias for add_folder for backward compatibility."""
         self.add_folder()
+    
+    def open_advanced_folder(self):
+        """打开高级文件夹对话框，支持三层目录结构批量选择章节"""
+        last_dir = self.get_last_open_dir()
+        
+        # 导入高级文件夹对话框
+        from widgets.advanced_folder_panel import show_advanced_folder_dialog
+        
+        # 显示对话框并获取选中的章节路径
+        selected_chapters = show_advanced_folder_dialog(
+            parent=None,
+            start_dir=last_dir
+        )
+        
+        if selected_chapters:
+            # 保存最后打开的目录（使用第一个章节的父目录）
+            if selected_chapters:
+                first_chapter_parent = os.path.dirname(selected_chapters[0])
+                self.set_last_open_dir(first_chapter_parent)
+            
+            # 添加选中的章节到文件列表
+            self.add_files(selected_chapters)
+            
+            self.logger.info(f"从高级文件夹对话框添加了 {len(selected_chapters)} 个章节")
 
     def remove_file(self, file_path: str):
         try:
