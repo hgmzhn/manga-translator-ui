@@ -42,8 +42,9 @@ class AdvancedFolderDialog(QDialog):
         self.folder_data = {}  # {title: {'sources': [source1, source2], 'chapters': {source: [chapters]}}}
         self.selected_chapters = []
         
-        # 智能选择根目录：如果start_dir看起来是章节路径，向上找到可能的根目录
-        self.root_path = self._determine_root_path(start_dir)
+        # 直接使用传入的路径，不进行智能判断
+        # 因为智能判断可能会错误地向上查找，导致根目录变化
+        self.root_path = start_dir if start_dir else str(Path.home() / "Downloads")
         
         self._init_ui()
         self._apply_modern_style()
@@ -1090,9 +1091,12 @@ class AdvancedFolderDialog(QDialog):
     def _save_root_path(self):
         """保存根目录路径"""
         settings = QSettings("MangaTranslator", "AdvancedFolder")
-        root_path = self.root_path_edit.text()
+        root_path = self.root_path_edit.text().strip()
         if root_path and os.path.isdir(root_path):
-            settings.setValue("last_dir", root_path)
+            # 规范化路径（统一使用正斜杠）
+            normalized_path = str(Path(root_path).resolve())
+            settings.setValue("last_dir", normalized_path)
+            self._log(f"✓ 已保存根目录: {normalized_path}")
     
     def _save_scan_cache(self):
         """保存扫描结果到缓存"""
@@ -1102,7 +1106,7 @@ class AdvancedFolderDialog(QDialog):
             
             # 转换set为list以便JSON序列化
             cache_data = {
-                'root_path': self.root_path_edit.text(),
+                'root_path': str(Path(self.root_path_edit.text().strip()).resolve()),  # 规范化路径
                 'folder_data': {}
             }
             
@@ -1133,9 +1137,15 @@ class AdvancedFolderDialog(QDialog):
             cache = json.loads(cached_data)
             cached_root = cache.get('root_path', '')
             
+            # 规范化路径进行比较
+            current_root = str(Path(self.root_path_edit.text().strip()).resolve()) if self.root_path_edit.text().strip() else ""
+            cached_root_normalized = str(Path(cached_root).resolve()) if cached_root else ""
+            
             # 如果缓存的根目录与当前根目录不同，不加载
-            if cached_root != self.root_path_edit.text():
+            if cached_root_normalized != current_root:
                 self._log(f"💡 根目录已更改，请重新扫描")
+                self._log(f"  缓存: {cached_root_normalized}")
+                self._log(f"  当前: {current_root}")
                 return
             
             # 转换list回set
@@ -1164,7 +1174,11 @@ def show_advanced_folder_dialog(parent=None, start_dir: str = "") -> Optional[Li
     # 读取上次路径
     settings = QSettings("MangaTranslator", "AdvancedFolder")
     if not start_dir:
-        start_dir = settings.value("last_dir", str(Path.home() / "Downloads"))
+        saved_dir = settings.value("last_dir", "")
+        if saved_dir and os.path.isdir(saved_dir):
+            start_dir = saved_dir
+        else:
+            start_dir = str(Path.home() / "Downloads")
     
     dialog = AdvancedFolderDialog(parent, start_dir)
     
