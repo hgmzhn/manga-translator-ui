@@ -169,11 +169,13 @@ class AdvancedFolderDialog(QDialog):
         # 最近操作的作品
         layout.addWidget(QLabel("最近操作:"))
         
-        # 创建最近作品列表
+        # 创建最近作品列表（两行显示一个操作）
         self.recent_works_list = QTreeWidget()
         self.recent_works_list.setHeaderHidden(True)
-        self.recent_works_list.setMaximumHeight(100)  # 显示4行左右
+        self.recent_works_list.setMinimumHeight(160)  # 增加高度，显示4个操作（8行）
+        self.recent_works_list.setMaximumHeight(160)
         self.recent_works_list.setRootIsDecorated(False)
+        self.recent_works_list.setWordWrap(True)  # 启用文本换行
         self.recent_works_list.itemDoubleClicked.connect(self.on_recent_work_double_clicked)
         layout.addWidget(self.recent_works_list)
         
@@ -1214,7 +1216,7 @@ class AdvancedFolderDialog(QDialog):
             self._log(f"✓ 已保存根目录: {normalized_path}")
     
     def _load_recent_works(self):
-        """加载最近操作的作品"""
+        """加载最近操作的作品（两行显示一个操作）"""
         try:
             import json
             settings = QSettings("MangaTranslator", "AdvancedFolder")
@@ -1223,56 +1225,82 @@ class AdvancedFolderDialog(QDialog):
             if not recent_data:
                 return
             
-            recent_works = json.loads(recent_data)
+            recent_operations = json.loads(recent_data)
             self.recent_works_list.clear()
             
-            # 显示最近4个作品
-            for work_name in recent_works[:4]:
+            # 显示最近4个操作（每个操作占两行）
+            for operation in recent_operations[:4]:
                 item = QTreeWidgetItem(self.recent_works_list)
-                item.setText(0, work_name)
-                item.setData(0, Qt.ItemDataRole.UserRole, work_name)
+                
+                # 第一行：作品名称（多个作品用逗号分隔）
+                works_text = ", ".join(operation['works'][:3])  # 最多显示3个
+                if len(operation['works']) > 3:
+                    works_text += f" 等{len(operation['works'])}个"
+                
+                # 第二行：时间 + 章节数
+                time_str = operation.get('time', '')
+                chapter_count = operation.get('chapter_count', 0)
+                detail_text = f"{time_str}  ·  {chapter_count}章"
+                
+                # 组合显示
+                display_text = f"{works_text}\n{detail_text}"
+                item.setText(0, display_text)
+                
+                # 保存完整数据
+                item.setData(0, Qt.ItemDataRole.UserRole, operation)
+                
+                # 设置行高
+                item.setSizeHint(0, QSize(0, 40))  # 每个项目40px高
                 
         except Exception as e:
             self._log(f"⚠️ 加载最近作品失败: {e}")
     
     def _save_recent_works(self):
-        """保存最近操作的作品"""
+        """保存最近操作的作品（支持多个作品一起保存）"""
         try:
             import json
+            from datetime import datetime
             settings = QSettings("MangaTranslator", "AdvancedFolder")
             
-            # 获取当前选中的作品
-            selected_works = set()
+            # 获取当前选中的作品和章节数
+            selected_works = []
+            total_chapters = 0
             root = self.title_tree.invisibleRootItem()
             for i in range(root.childCount()):
                 work_item = root.child(i)
                 # 检查是否有子项被选中
-                if self._has_checked_children(work_item):
+                chapter_count = self._count_checked_children(work_item)
+                if chapter_count > 0:
                     work_name = work_item.text(0)
-                    selected_works.add(work_name)
+                    selected_works.append(work_name)
+                    total_chapters += chapter_count
             
             if not selected_works:
                 return
             
-            # 加载现有的最近作品
+            # 创建操作记录
+            operation = {
+                'works': selected_works,
+                'chapter_count': total_chapters,
+                'time': datetime.now().strftime("%m-%d %H:%M")
+            }
+            
+            # 加载现有的最近操作
             recent_data = settings.value("recent_works", "")
             if recent_data:
-                recent_works = json.loads(recent_data)
+                recent_operations = json.loads(recent_data)
             else:
-                recent_works = []
+                recent_operations = []
             
-            # 将新选中的作品添加到列表开头，移除重复
-            for work in selected_works:
-                if work in recent_works:
-                    recent_works.remove(work)
-                recent_works.insert(0, work)
+            # 将新操作添加到列表开头
+            recent_operations.insert(0, operation)
             
-            # 只保留最近10个
-            recent_works = recent_works[:10]
+            # 只保留最近10个操作
+            recent_operations = recent_operations[:10]
             
             # 保存
-            settings.setValue("recent_works", json.dumps(recent_works, ensure_ascii=False))
-            self._log(f"✓ 已保存最近操作: {len(selected_works)} 个作品")
+            settings.setValue("recent_works", json.dumps(recent_operations, ensure_ascii=False))
+            self._log(f"✓ 已保存最近操作: {len(selected_works)}个作品, {total_chapters}章")
             
         except Exception as e:
             self._log(f"⚠️ 保存最近作品失败: {e}")
@@ -1287,26 +1315,62 @@ class AdvancedFolderDialog(QDialog):
                 return True
         return False
     
+    def _count_checked_children(self, item: QTreeWidgetItem) -> int:
+        """统计项目下被选中的子项数量"""
+        count = 0
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.checkState(0) == Qt.CheckState.Checked:
+                count += 1
+            count += self._count_checked_children(child)
+        return count
+    
     def on_recent_work_double_clicked(self, item: QTreeWidgetItem, column: int):
-        """双击最近作品时跳转到该作品"""
-        work_name = item.data(0, Qt.ItemDataRole.UserRole)
-        if not work_name:
+        """双击最近操作时跳转到该作品（支持多个作品）"""
+        operation = item.data(0, Qt.ItemDataRole.UserRole)
+        if not operation or 'works' not in operation:
             return
         
-        # 在作品列表中查找并展开
+        works = operation['works']
+        if not works:
+            return
+        
+        # 清除当前选中
+        self.title_tree.clearSelection()
+        
+        # 在作品列表中查找并展开所有相关作品
         root = self.title_tree.invisibleRootItem()
-        for i in range(root.childCount()):
-            work_item = root.child(i)
-            if work_item.text(0) == work_name:
-                # 清除其他选中
-                self.title_tree.clearSelection()
-                # 选中并展开
-                work_item.setSelected(True)
-                work_item.setExpanded(True)
-                # 滚动到可见区域
-                self.title_tree.scrollToItem(work_item)
-                self._log(f"✓ 已跳转到: {work_name}")
-                break
+        found_count = 0
+        first_item = None
+        
+        for work_name in works:
+            for i in range(root.childCount()):
+                work_item = root.child(i)
+                if work_item.text(0) == work_name:
+                    # 选中并展开
+                    work_item.setSelected(True)
+                    work_item.setExpanded(True)
+                    
+                    # 加载章节（如果还没加载）
+                    if work_item.childCount() == 0:
+                        self._load_chapters_for_item(work_item)
+                    
+                    found_count += 1
+                    if first_item is None:
+                        first_item = work_item
+                    break
+        
+        # 滚动到第一个作品
+        if first_item:
+            self.title_tree.scrollToItem(first_item)
+        
+        if found_count > 0:
+            if found_count == 1:
+                self._log(f"✓ 已跳转到: {works[0]}")
+            else:
+                self._log(f"✓ 已跳转到 {found_count} 个作品")
+        else:
+            self._log("⚠️ 未找到相关作品")
     
     def _save_scan_cache(self):
         """保存扫描结果到缓存"""
