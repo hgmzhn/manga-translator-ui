@@ -1350,11 +1350,19 @@ class AdvancedFolderDialog(QDialog):
         """双击最近操作时跳转到该作品（支持多个作品）"""
         operation = item.data(0, Qt.ItemDataRole.UserRole)
         if not operation or 'works' not in operation:
+            self._log("⚠️ 无效的操作数据")
             return
         
         works = operation['works']
         if not works:
+            self._log("⚠️ 操作中没有作品")
             return
+        
+        self._log(f"🔍 正在查找: {', '.join(works)}")
+        
+        # 清除搜索过滤，确保所有作品可见
+        self.search_combo.setCurrentText("")
+        self.search_combo.clearEditText()
         
         # 清除当前选中
         self.title_tree.clearSelection()
@@ -1363,11 +1371,23 @@ class AdvancedFolderDialog(QDialog):
         root = self.title_tree.invisibleRootItem()
         found_count = 0
         first_item = None
+        not_found = []
         
         for work_name in works:
+            found = False
             for i in range(root.childCount()):
                 work_item = root.child(i)
-                if work_item.text(0) == work_name:
+                item_name = work_item.text(0)
+                
+                # 多种匹配方式：精确匹配、包含匹配、忽略空格匹配
+                item_name_clean = item_name.replace(' ', '').lower()
+                work_name_clean = work_name.replace(' ', '').lower()
+                
+                if (item_name == work_name or 
+                    work_name in item_name or 
+                    item_name in work_name or
+                    item_name_clean == work_name_clean or
+                    work_name_clean in item_name_clean):
                     # 选中并展开
                     work_item.setSelected(True)
                     work_item.setExpanded(True)
@@ -1377,21 +1397,30 @@ class AdvancedFolderDialog(QDialog):
                         self._load_chapters_for_item(work_item)
                     
                     found_count += 1
+                    found = True
                     if first_item is None:
                         first_item = work_item
+                    self._log(f"  ✓ 找到: {item_name}")
                     break
+            
+            if not found:
+                not_found.append(work_name)
         
         # 滚动到第一个作品
         if first_item:
             self.title_tree.scrollToItem(first_item)
+            # 确保第一个作品在视窗顶部
+            self.title_tree.setCurrentItem(first_item)
         
+        # 输出结果
         if found_count > 0:
             if found_count == 1:
                 self._log(f"✓ 已跳转到: {works[0]}")
             else:
                 self._log(f"✓ 已跳转到 {found_count} 个作品")
-        else:
-            self._log("⚠️ 未找到相关作品")
+        
+        if not_found:
+            self._log(f"⚠️ 未找到: {', '.join(not_found)}")
     
     def _save_scan_cache(self):
         """保存扫描结果到缓存"""
