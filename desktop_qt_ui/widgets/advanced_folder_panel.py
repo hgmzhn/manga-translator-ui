@@ -469,6 +469,8 @@ class AdvancedFolderDialog(QDialog):
         if folder:
             self.root_path_edit.setText(folder)
             self._log(f"已选择文件夹: {folder}")
+            # 立即保存选择的根目录
+            self._save_root_path()
     
     def scan_folders(self):
         """扫描文件夹结构"""
@@ -486,48 +488,68 @@ class AdvancedFolderDialog(QDialog):
             scanned_sources = 0
             scanned_titles = 0
             
+            # 系统文件夹和隐藏文件夹列表
+            system_folders = {'$RECYCLE.BIN', 'System Volume Information', 'Config.Msi', 
+                            'ProgramData', 'Windows', 'Program Files', 'Program Files (x86)',
+                            'PerfLogs', 'Recovery', '$Windows.~BT', '$Windows.~WS'}
+            
             for source_dir in root.iterdir():
-                if not source_dir.is_dir():
+                # 跳过系统文件夹、隐藏文件夹和以.开头的文件夹
+                if (not source_dir.is_dir() or 
+                    source_dir.name in system_folders or 
+                    source_dir.name.startswith('.') or
+                    source_dir.name.startswith('$')):
                     continue
                 
-                source_name = source_dir.name
-                scanned_sources += 1
-                
-                for title_dir in source_dir.iterdir():
-                    if not title_dir.is_dir():
-                        continue
+                try:
+                    source_name = source_dir.name
+                    scanned_sources += 1
                     
-                    title_name = title_dir.name
-                    scanned_titles += 1
-                    
-                    # 尝试映射名称
-                    mapped_name = self._get_mapped_name(title_name)
-                    
-                    if mapped_name not in self.folder_data:
-                        self.folder_data[mapped_name] = {
-                            'original_names': set(),
-                            'sources': set(),
-                            'chapters': {}
-                        }
-                    
-                    self.folder_data[mapped_name]['original_names'].add(title_name)
-                    self.folder_data[mapped_name]['sources'].add(source_name)
-                    
-                    # 扫描章节
-                    chapters = []
-                    for chapter in title_dir.iterdir():
-                        if chapter.is_dir():
-                            chapters.append({
-                                'name': chapter.name,
-                                'path': str(chapter),
-                                'source': source_name
-                            })
-                    
-                    self.folder_data[mapped_name]['chapters'][source_name] = chapters
+                    for title_dir in source_dir.iterdir():
+                        if not title_dir.is_dir():
+                            continue
+                        
+                        title_name = title_dir.name
+                        scanned_titles += 1
+                        
+                        # 尝试映射名称
+                        mapped_name = self._get_mapped_name(title_name)
+                        
+                        if mapped_name not in self.folder_data:
+                            self.folder_data[mapped_name] = {
+                                'original_names': set(),
+                                'sources': set(),
+                                'chapters': {}
+                            }
+                        
+                        self.folder_data[mapped_name]['original_names'].add(title_name)
+                        self.folder_data[mapped_name]['sources'].add(source_name)
+                        
+                        # 扫描章节
+                        chapters = []
+                        for chapter in title_dir.iterdir():
+                            if chapter.is_dir():
+                                chapters.append({
+                                    'name': chapter.name,
+                                    'path': str(chapter),
+                                    'source': source_name
+                                })
+                        
+                        self.folder_data[mapped_name]['chapters'][source_name] = chapters
+                        
+                except PermissionError as e:
+                    self._log(f"⚠️ 跳过无权限访问的文件夹: {source_dir.name}")
+                    continue
+                except Exception as e:
+                    self._log(f"⚠️ 跳过错误文件夹 {source_dir.name}: {e}")
+                    continue
             
             self._log(f"✓ 扫描完成！发现 {scanned_sources} 个来源，{len(self.folder_data)} 个作品")
             self.refresh_title_list()
             self.refresh_mapping_names()
+            
+            # 扫描成功后保存根目录
+            self._save_root_path()
             
             # 保存扫描结果到缓存
             self._save_scan_cache()
