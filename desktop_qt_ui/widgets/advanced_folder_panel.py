@@ -170,22 +170,41 @@ class AdvancedFolderDialog(QDialog):
         layout.addWidget(QLabel("快速操作:"))
         
         # 智能选择按钮（带下拉菜单）
-        smart_select_btn = QToolButton()
-        smart_select_btn.setText("⚡ 智能选择")
-        smart_select_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        smart_select_btn.clicked.connect(self.select_latest_chapters)
+        self.smart_select_btn = QToolButton()
+        self.smart_select_btn.setText("⚡ 智能选择")
+        self.smart_select_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.smart_select_btn.setMinimumHeight(30)  # 设置最小高度
+        self.smart_select_btn.clicked.connect(self.execute_smart_select)
         
+        # 创建可勾选的菜单
         smart_menu = QMenu()
-        smart_menu.addAction("选择所有最新章节", self.select_latest_chapters)
-        smart_menu.addAction("选择1小时内下载的最新话", self.select_recent_hour_latest)
-        smart_select_btn.setMenu(smart_menu)
-        layout.addWidget(smart_select_btn)
+        
+        # 加载上次选择的模式
+        settings = QSettings("MangaTranslator", "AdvancedFolder")
+        self.smart_select_mode = settings.value("smart_select_mode", "latest")  # latest 或 recent_hour
+        
+        # 选项1：选择所有最新章节
+        self.action_latest = smart_menu.addAction("选择所有最新章节")
+        self.action_latest.setCheckable(True)
+        self.action_latest.setChecked(self.smart_select_mode == "latest")
+        self.action_latest.triggered.connect(lambda: self.set_smart_select_mode("latest"))
+        
+        # 选项2：选择1小时内下载的最新话
+        self.action_recent_hour = smart_menu.addAction("选择1小时内下载的最新话")
+        self.action_recent_hour.setCheckable(True)
+        self.action_recent_hour.setChecked(self.smart_select_mode == "recent_hour")
+        self.action_recent_hour.triggered.connect(lambda: self.set_smart_select_mode("recent_hour"))
+        
+        self.smart_select_btn.setMenu(smart_menu)
+        layout.addWidget(self.smart_select_btn)
         
         select_all_btn = QPushButton("全选章节")
+        select_all_btn.setMinimumHeight(30)  # 与智能选择按钮同高
         select_all_btn.clicked.connect(self.select_all_chapters)
         layout.addWidget(select_all_btn)
         
         deselect_all_btn = QPushButton("取消全选")
+        deselect_all_btn.setMinimumHeight(30)  # 与智能选择按钮同高
         deselect_all_btn.clicked.connect(self.deselect_all_chapters)
         layout.addWidget(deselect_all_btn)
         
@@ -1006,6 +1025,31 @@ class AdvancedFolderDialog(QDialog):
         else:
             self.log_text.show()
             self.log_toggle_btn.setText("收起 ▼")
+    
+    def execute_smart_select(self):
+        """执行智能选择（根据当前模式）"""
+        if self.smart_select_mode == "latest":
+            self.select_latest_chapters()
+        else:
+            self.select_recent_hour_latest()
+    
+    def set_smart_select_mode(self, mode: str):
+        """设置智能选择模式并保存"""
+        self.smart_select_mode = mode
+        
+        # 更新菜单项的勾选状态
+        self.action_latest.setChecked(mode == "latest")
+        self.action_recent_hour.setChecked(mode == "recent_hour")
+        
+        # 保存选择
+        settings = QSettings("MangaTranslator", "AdvancedFolder")
+        settings.setValue("smart_select_mode", mode)
+        
+        mode_names = {"latest": "选择所有最新章节", "recent_hour": "选择1小时内下载的最新话"}
+        self._log(f"✓ 智能选择模式: {mode_names.get(mode, mode)}")
+        
+        # 立即执行选择
+        self.execute_smart_select()
     
     def select_latest_chapters(self):
         """智能选择：选择所有已展开作品的最新话"""
