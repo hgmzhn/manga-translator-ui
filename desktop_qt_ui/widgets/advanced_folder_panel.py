@@ -720,26 +720,50 @@ class AdvancedFolderDialog(QDialog):
             self._update_selection_count()
     
     def on_selection_changed(self):
-        """选择改变时同步到复选框（支持鼠标拉取多选）"""
+        """选择改变时同步到复选框（支持鼠标拉取多选和反向取消）"""
         # 暂时断开itemChanged信号，避免递归
         self.title_tree.itemChanged.disconnect(self.on_item_changed)
         
         try:
             # 获取当前选中的项目
             selected_items = self.title_tree.selectedItems()
+            selected_paths = set()
             
-            # 只处理章节项（有UserRole数据存储路径的）
+            # 收集所有选中的章节路径
             for item in selected_items:
                 path = item.data(0, Qt.ItemDataRole.UserRole)
                 if path and isinstance(path, str) and os.path.isdir(path):  # 是章节项
-                    # 勾选复选框
-                    if item.checkState(0) != Qt.CheckState.Checked:
-                        item.setCheckState(0, Qt.CheckState.Checked)
+                    selected_paths.add(path)
+            
+            # 遍历所有章节项，同步复选框状态
+            root = self.title_tree.invisibleRootItem()
+            self._sync_checkboxes_recursive(root, selected_paths)
+            
         finally:
             # 重新连接信号
             self.title_tree.itemChanged.connect(self.on_item_changed)
             # 更新统计
             self._update_selection_count()
+    
+    def _sync_checkboxes_recursive(self, parent: QTreeWidgetItem, selected_paths: set):
+        """递归同步复选框状态"""
+        for i in range(parent.childCount()):
+            item = parent.child(i)
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+            
+            if path and isinstance(path, str) and os.path.isdir(path):  # 是章节项
+                # 根据是否在选中集合中，设置复选框状态
+                should_be_checked = path in selected_paths
+                current_state = item.checkState(0)
+                
+                if should_be_checked and current_state != Qt.CheckState.Checked:
+                    item.setCheckState(0, Qt.CheckState.Checked)
+                elif not should_be_checked and current_state == Qt.CheckState.Checked:
+                    item.setCheckState(0, Qt.CheckState.Unchecked)
+            
+            # 递归处理子项
+            if item.childCount() > 0:
+                self._sync_checkboxes_recursive(item, selected_paths)
     
     def on_sort_changed(self):
         """排序方式改变"""
