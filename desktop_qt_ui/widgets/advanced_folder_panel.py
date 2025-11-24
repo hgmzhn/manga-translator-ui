@@ -1228,19 +1228,39 @@ class AdvancedFolderDialog(QDialog):
             recent_operations = json.loads(recent_data)
             self.recent_works_list.clear()
             
+            # 处理旧格式数据（字符串列表）兼容
+            if recent_operations and isinstance(recent_operations[0], str):
+                # 转换为新格式
+                new_operations = []
+                for work_name in recent_operations[:4]:
+                    new_operations.append({
+                        'works': [work_name],
+                        'chapter_count': 0,
+                        'time': ''
+                    })
+                recent_operations = new_operations
+            
             # 显示最近4个操作（每个操作占两行）
             for operation in recent_operations[:4]:
                 item = QTreeWidgetItem(self.recent_works_list)
                 
                 # 第一行：作品名称（多个作品用逗号分隔）
-                works_text = ", ".join(operation['works'][:3])  # 最多显示3个
-                if len(operation['works']) > 3:
-                    works_text += f" 等{len(operation['works'])}个"
+                works = operation.get('works', [])
+                works_text = ", ".join(works[:3])  # 最多显示3个
+                if len(works) > 3:
+                    works_text += f" 等{len(works)}个"
                 
                 # 第二行：时间 + 章节数
                 time_str = operation.get('time', '')
                 chapter_count = operation.get('chapter_count', 0)
-                detail_text = f"{time_str}  ·  {chapter_count}章"
+                if time_str and chapter_count > 0:
+                    detail_text = f"{time_str}  ·  {chapter_count}章"
+                elif chapter_count > 0:
+                    detail_text = f"{chapter_count}章"
+                elif time_str:
+                    detail_text = time_str
+                else:
+                    detail_text = "历史记录"
                 
                 # 组合显示
                 display_text = f"{works_text}\n{detail_text}"
@@ -1253,7 +1273,8 @@ class AdvancedFolderDialog(QDialog):
                 item.setSizeHint(0, QSize(0, 40))  # 每个项目40px高
                 
         except Exception as e:
-            self._log(f"⚠️ 加载最近作品失败: {e}")
+            # 错误时不输出日志，避免log_text未初始化错误
+            print(f"[AdvancedFolder] 加载最近作品失败: {e}")
     
     def _save_recent_works(self):
         """保存最近操作的作品（支持多个作品一起保存）"""
