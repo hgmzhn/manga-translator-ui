@@ -1056,12 +1056,21 @@ class AdvancedFolderDialog(QDialog):
     def accept(self):
         """确定按钮点击"""
         self._save_column_widths()
+        self._save_root_path()
         super().accept()
     
     def reject(self):
         """取消按钮点击"""
         self._save_column_widths()
+        self._save_root_path()
         super().reject()
+    
+    def _save_root_path(self):
+        """保存根目录路径"""
+        settings = QSettings("MangaTranslator", "AdvancedFolder")
+        root_path = self.root_path_edit.text()
+        if root_path and os.path.isdir(root_path):
+            settings.setValue("last_dir", root_path)
     
     def _save_scan_cache(self):
         """保存扫描结果到缓存"""
@@ -1139,10 +1148,7 @@ def show_advanced_folder_dialog(parent=None, start_dir: str = "") -> Optional[Li
     
     if dialog.exec() == QDialog.DialogCode.Accepted:
         selected = dialog.get_selected_chapters()
-        
         if selected:
-            # 保存路径
-            settings.setValue("last_dir", dialog.root_path_edit.text())
             return selected
     
     return None
