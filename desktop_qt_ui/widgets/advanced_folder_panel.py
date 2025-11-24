@@ -166,6 +166,20 @@ class AdvancedFolderDialog(QDialog):
         
         layout.addStretch()
         
+        # 最近操作的作品
+        layout.addWidget(QLabel("最近操作:"))
+        
+        # 创建最近作品列表
+        self.recent_works_list = QTreeWidget()
+        self.recent_works_list.setHeaderHidden(True)
+        self.recent_works_list.setMaximumHeight(100)  # 显示4行左右
+        self.recent_works_list.setRootIsDecorated(False)
+        self.recent_works_list.itemDoubleClicked.connect(self.on_recent_work_double_clicked)
+        layout.addWidget(self.recent_works_list)
+        
+        # 加载最近操作的作品
+        self._load_recent_works()
+        
         # 快速操作
         layout.addWidget(QLabel("快速操作:"))
         
@@ -1180,6 +1194,7 @@ class AdvancedFolderDialog(QDialog):
         """确定按钮点击"""
         self._save_column_widths()
         self._save_root_path()
+        self._save_recent_works()  # 保存最近操作的作品
         super().accept()
     
     def reject(self):
@@ -1197,6 +1212,101 @@ class AdvancedFolderDialog(QDialog):
             normalized_path = str(Path(root_path).resolve())
             settings.setValue("last_dir", normalized_path)
             self._log(f"✓ 已保存根目录: {normalized_path}")
+    
+    def _load_recent_works(self):
+        """加载最近操作的作品"""
+        try:
+            import json
+            settings = QSettings("MangaTranslator", "AdvancedFolder")
+            recent_data = settings.value("recent_works", "")
+            
+            if not recent_data:
+                return
+            
+            recent_works = json.loads(recent_data)
+            self.recent_works_list.clear()
+            
+            # 显示最近4个作品
+            for work_name in recent_works[:4]:
+                item = QTreeWidgetItem(self.recent_works_list)
+                item.setText(0, work_name)
+                item.setData(0, Qt.ItemDataRole.UserRole, work_name)
+                
+        except Exception as e:
+            self._log(f"⚠️ 加载最近作品失败: {e}")
+    
+    def _save_recent_works(self):
+        """保存最近操作的作品"""
+        try:
+            import json
+            settings = QSettings("MangaTranslator", "AdvancedFolder")
+            
+            # 获取当前选中的作品
+            selected_works = set()
+            root = self.title_tree.invisibleRootItem()
+            for i in range(root.childCount()):
+                work_item = root.child(i)
+                # 检查是否有子项被选中
+                if self._has_checked_children(work_item):
+                    work_name = work_item.text(0)
+                    selected_works.add(work_name)
+            
+            if not selected_works:
+                return
+            
+            # 加载现有的最近作品
+            recent_data = settings.value("recent_works", "")
+            if recent_data:
+                recent_works = json.loads(recent_data)
+            else:
+                recent_works = []
+            
+            # 将新选中的作品添加到列表开头，移除重复
+            for work in selected_works:
+                if work in recent_works:
+                    recent_works.remove(work)
+                recent_works.insert(0, work)
+            
+            # 只保留最近10个
+            recent_works = recent_works[:10]
+            
+            # 保存
+            settings.setValue("recent_works", json.dumps(recent_works, ensure_ascii=False))
+            self._log(f"✓ 已保存最近操作: {len(selected_works)} 个作品")
+            
+        except Exception as e:
+            self._log(f"⚠️ 保存最近作品失败: {e}")
+    
+    def _has_checked_children(self, item: QTreeWidgetItem) -> bool:
+        """检查项目是否有被选中的子项"""
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.checkState(0) == Qt.CheckState.Checked:
+                return True
+            if self._has_checked_children(child):
+                return True
+        return False
+    
+    def on_recent_work_double_clicked(self, item: QTreeWidgetItem, column: int):
+        """双击最近作品时跳转到该作品"""
+        work_name = item.data(0, Qt.ItemDataRole.UserRole)
+        if not work_name:
+            return
+        
+        # 在作品列表中查找并展开
+        root = self.title_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            work_item = root.child(i)
+            if work_item.text(0) == work_name:
+                # 清除其他选中
+                self.title_tree.clearSelection()
+                # 选中并展开
+                work_item.setSelected(True)
+                work_item.setExpanded(True)
+                # 滚动到可见区域
+                self.title_tree.scrollToItem(work_item)
+                self._log(f"✓ 已跳转到: {work_name}")
+                break
     
     def _save_scan_cache(self):
         """保存扫描结果到缓存"""
