@@ -10,6 +10,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional
+from datetime import datetime, timedelta
 from PyQt6.QtCore import Qt, QSettings, QSize
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QPushButton,
@@ -47,8 +48,15 @@ class AdvancedFolderDialog(QDialog):
         self._init_ui()
         self._apply_modern_style()
         
+        # 自动刷新名称映射
+        self.refresh_mapping_names()
+        
         # 尝试加载上次扫描结果
         self._load_scan_cache()
+        
+        # 如果有有效的根目录且没有缓存数据，自动扫描
+        if self.root_path and os.path.isdir(self.root_path) and not self.folder_data:
+            self.scan_folders()
     
     def _init_ui(self):
         """初始化UI"""
@@ -160,6 +168,18 @@ class AdvancedFolderDialog(QDialog):
         # 快速操作
         layout.addWidget(QLabel("快速操作:"))
         
+        # 智能选择按钮（带下拉菜单）
+        smart_select_btn = QToolButton()
+        smart_select_btn.setText("⚡ 智能选择")
+        smart_select_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        smart_select_btn.clicked.connect(self.select_latest_chapters)
+        
+        smart_menu = QMenu()
+        smart_menu.addAction("选择所有最新章节", self.select_latest_chapters)
+        smart_menu.addAction("选择1小时内下载的最新话", self.select_recent_hour_latest)
+        smart_select_btn.setMenu(smart_menu)
+        layout.addWidget(smart_select_btn)
+        
         select_all_btn = QPushButton("全选章节")
         select_all_btn.clicked.connect(self.select_all_chapters)
         layout.addWidget(select_all_btn)
@@ -244,12 +264,29 @@ class AdvancedFolderDialog(QDialog):
         header.resizeSection(2, 150)
         header.resizeSection(3, 100)
         
+        # 加载保存的列宽
+        self._load_column_widths()
+        
         layout.addWidget(self.title_tree)
         
-        # 日志区域
+        # 日志区域标题栏（带折叠按钮）
+        log_title_bar = QWidget()
+        log_title_layout = QHBoxLayout(log_title_bar)
+        log_title_layout.setContentsMargins(0, 0, 0, 0)
+        log_title_layout.setSpacing(4)
+        
         log_label = QLabel("操作日志:")
         log_label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        layout.addWidget(log_label)
+        log_title_layout.addWidget(log_label)
+        
+        self.log_toggle_btn = QPushButton("收起 ▼")
+        self.log_toggle_btn.setMaximumWidth(80)
+        self.log_toggle_btn.clicked.connect(self.toggle_log)
+        log_title_layout.addWidget(self.log_toggle_btn)
+        
+        log_title_layout.addStretch()
+        
+        layout.addWidget(log_title_bar)
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
@@ -609,7 +646,13 @@ class AdvancedFolderDialog(QDialog):
                     chapter_item = QTreeWidgetItem(source_item)
                     chapter_item.setText(0, chapter['name'])
                     chapter_item.setText(1, info['name'])
-                    chapter_item.setText(2, chapter['path'])
+                    # 显示修改时间而不是路径
+                    try:
+                        mtime = os.path.getmtime(chapter['path'])
+                        time_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                        chapter_item.setText(2, time_str)
+                    except:
+                        chapter_item.setText(2, "未知")
                     chapter_item.setData(0, Qt.ItemDataRole.UserRole, chapter['path'])
                     # 设置复选框
                     chapter_item.setCheckState(0, Qt.CheckState.Unchecked)
@@ -630,7 +673,13 @@ class AdvancedFolderDialog(QDialog):
                 child_item = QTreeWidgetItem(item)
                 child_item.setText(0, chapter['name'])
                 child_item.setText(1, source_name)
-                child_item.setText(2, chapter['path'])
+                # 显示修改时间而不是路径
+                try:
+                    mtime = os.path.getmtime(chapter['path'])
+                    time_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                    child_item.setText(2, time_str)
+                except:
+                    child_item.setText(2, "未知")
                 child_item.setData(0, Qt.ItemDataRole.UserRole, chapter['path'])
                 # 设置复选框
                 child_item.setCheckState(0, Qt.CheckState.Unchecked)
@@ -875,6 +924,144 @@ class AdvancedFolderDialog(QDialog):
     def _log(self, message: str):
         """输出日志"""
         self.log_text.append(message)
+    
+    def toggle_log(self):
+        """切换日志显示/隐藏"""
+        if self.log_text.isVisible():
+            self.log_text.hide()
+            self.log_toggle_btn.setText("展开 ▲")
+        else:
+            self.log_text.show()
+            self.log_toggle_btn.setText("收起 ▼")
+    
+    def select_latest_chapters(self):
+        """智能选择：选择所有已展开作品的最新话"""
+        count = self._select_latest_recursive(self.title_tree.invisibleRootItem())
+        self._update_selection_count()
+        self._log(f"✓ 已智能选择 {count} 个最新章节")
+    
+    def select_recent_hour_latest(self):
+        """智能选择：选择1小时内下载的所有作品最新话"""
+        one_hour_ago = datetime.now() - timedelta(hours=1)
+        count = 0
+        
+        # 遍历所有作品
+        root = self.title_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            work_item = root.child(i)
+            # 展开作品以加载章节
+            if work_item.childCount() == 0:
+                self._load_chapters_for_item(work_item)
+                work_item.setExpanded(True)
+            
+            # 查找该作品的最新章节
+            latest_chapter_item = self._find_latest_chapter_item(work_item, one_hour_ago)
+            if latest_chapter_item:
+                latest_chapter_item.setCheckState(0, Qt.CheckState.Checked)
+                count += 1
+        
+        self._update_selection_count()
+        self._log(f"✓ 已选择1小时内下载的 {count} 个最新章节")
+    
+    def _find_latest_chapter_item(self, work_item: QTreeWidgetItem, time_threshold: datetime) -> Optional[QTreeWidgetItem]:
+        """查找作品的最新章节项（需要在时间阈值之后）"""
+        latest_item = None
+        latest_time = 0
+        
+        # 递归查找所有章节项
+        def find_chapters(parent):
+            nonlocal latest_item, latest_time
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                chapter_path = child.data(0, Qt.ItemDataRole.UserRole)
+                
+                if chapter_path and os.path.isdir(chapter_path):  # 是章节项
+                    try:
+                        mtime = os.path.getmtime(chapter_path)
+                        # 检查是否在时间阈值之后
+                        if mtime > time_threshold.timestamp() and mtime > latest_time:
+                            latest_time = mtime
+                            latest_item = child
+                    except:
+                        pass
+                else:  # 可能是来源项，继续递归
+                    find_chapters(child)
+        
+        find_chapters(work_item)
+        return latest_item
+    
+    def _select_latest_recursive(self, parent: QTreeWidgetItem) -> int:
+        """递归选择已展开节点的最新章节"""
+        count = 0
+        
+        for i in range(parent.childCount()):
+            item = parent.child(i)
+            
+            # 如果是已展开的作品项且有子项
+            if item.isExpanded() and item.childCount() > 0:
+                # 查找并选中最新的章节
+                latest_chapter = self._find_latest_chapter_in_item(item)
+                if latest_chapter:
+                    latest_chapter.setCheckState(0, Qt.CheckState.Checked)
+                    count += 1
+                
+                # 递归处理子项
+                count += self._select_latest_recursive(item)
+        
+        return count
+    
+    def _find_latest_chapter_in_item(self, item: QTreeWidgetItem) -> Optional[QTreeWidgetItem]:
+        """在指定项中查找最新的章节项"""
+        latest_item = None
+        latest_time = 0
+        
+        def find_in_children(parent):
+            nonlocal latest_item, latest_time
+            for i in range(parent.childCount()):
+                child = parent.child(i)
+                chapter_path = child.data(0, Qt.ItemDataRole.UserRole)
+                
+                if chapter_path and os.path.isdir(chapter_path):  # 是章节项
+                    try:
+                        mtime = os.path.getmtime(chapter_path)
+                        if mtime > latest_time:
+                            latest_time = mtime
+                            latest_item = child
+                    except:
+                        pass
+                else:  # 可能是来源项，继续递归
+                    find_in_children(child)
+        
+        find_in_children(item)
+        return latest_item
+    
+    def _load_column_widths(self):
+        """加载保存的列宽"""
+        settings = QSettings("MangaTranslator", "AdvancedFolder")
+        header = self.title_tree.header()
+        
+        for i in range(4):
+            width = settings.value(f"column_width_{i}", type=int)
+            if width:
+                header.resizeSection(i, width)
+    
+    def _save_column_widths(self):
+        """保存列宽"""
+        settings = QSettings("MangaTranslator", "AdvancedFolder")
+        header = self.title_tree.header()
+        
+        for i in range(4):
+            settings.setValue(f"column_width_{i}", header.sectionSize(i))
+    
+    def accept(self):
+        """确定按钮点击"""
+        self._save_column_widths()
+        super().accept()
+    
+    def reject(self):
+        """取消按钮点击"""
+        self._save_column_widths()
+        super().reject()
     
     def _save_scan_cache(self):
         """保存扫描结果到缓存"""
