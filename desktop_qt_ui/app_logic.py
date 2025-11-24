@@ -573,15 +573,14 @@ class MainAppLogic(QObject):
     
     def open_advanced_folder(self):
         """打开高级文件夹对话框，支持三层目录结构批量选择章节"""
-        last_dir = self.get_last_open_dir()
-        
         # 导入高级文件夹对话框
         from widgets.advanced_folder_panel import show_advanced_folder_dialog
         
         # 显示对话框并获取选中的章节路径
+        # 不传入start_dir，让高级文件夹使用自己保存的根目录设置
         selected_chapters = show_advanced_folder_dialog(
             parent=None,
-            start_dir=last_dir
+            start_dir=""  # 空字符串，让对话框使用自己的last_dir
         )
         
         if selected_chapters:
