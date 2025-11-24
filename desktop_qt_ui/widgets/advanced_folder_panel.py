@@ -669,10 +669,10 @@ class AdvancedFolderDialog(QDialog):
                     chapter_item = QTreeWidgetItem(source_item)
                     chapter_item.setText(0, chapter['name'])
                     chapter_item.setText(1, info['name'])
-                    # 显示修改时间而不是路径
+                    # 显示修改时间而不是路径（智能格式）
                     try:
                         mtime = os.path.getmtime(chapter['path'])
-                        time_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                        time_str = self._format_time_smart(mtime)
                         chapter_item.setText(2, time_str)
                     except:
                         chapter_item.setText(2, "未知")
@@ -696,10 +696,10 @@ class AdvancedFolderDialog(QDialog):
                 child_item = QTreeWidgetItem(item)
                 child_item.setText(0, chapter['name'])
                 child_item.setText(1, source_name)
-                # 显示修改时间而不是路径
+                # 显示修改时间而不是路径（智能格式）
                 try:
                     mtime = os.path.getmtime(chapter['path'])
-                    time_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                    time_str = self._format_time_smart(mtime)
                     child_item.setText(2, time_str)
                 except:
                     child_item.setText(2, "未知")
@@ -947,6 +947,32 @@ class AdvancedFolderDialog(QDialog):
     def _log(self, message: str):
         """输出日志"""
         self.log_text.append(message)
+    
+    def _format_time_smart(self, timestamp: float) -> str:
+        """智能格式化时间
+        
+        规则：
+        - 今天：HH:MM (如 14:30)
+        - 今年：MM-DD HH:MM (如 11-23 14:30)
+        - 往年：YYYY-MM-DD (如 2024-11-23)
+        """
+        try:
+            file_time = datetime.fromtimestamp(timestamp)
+            now = datetime.now()
+            
+            # 判断是否是今天
+            if file_time.date() == now.date():
+                return file_time.strftime("%H:%M")
+            
+            # 判断是否是今年
+            elif file_time.year == now.year:
+                return file_time.strftime("%m-%d %H:%M")
+            
+            # 往年
+            else:
+                return file_time.strftime("%Y-%m-%d")
+        except:
+            return "未知"
     
     def toggle_log(self):
         """切换日志显示/隐藏"""
