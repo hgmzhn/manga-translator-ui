@@ -335,6 +335,13 @@ class AdvancedFolderDialog(QDialog):
         self.log_text.setMaximumHeight(120)
         layout.addWidget(self.log_text)
         
+        # 加载日志展开状态
+        settings = QSettings("MangaTranslator", "AdvancedFolder")
+        log_expanded = settings.value("log_expanded", True, type=bool)
+        if not log_expanded:
+            self.log_text.hide()
+            self.log_toggle_btn.setText("展开 ▲")
+        
         return panel
     
     def _create_info_bar(self) -> QWidget:
@@ -1115,12 +1122,15 @@ class AdvancedFolderDialog(QDialog):
     
     def toggle_log(self):
         """切换日志显示/隐藏"""
+        settings = QSettings("MangaTranslator", "AdvancedFolder")
         if self.log_text.isVisible():
             self.log_text.hide()
             self.log_toggle_btn.setText("展开 ▲")
+            settings.setValue("log_expanded", False)
         else:
             self.log_text.show()
             self.log_toggle_btn.setText("收起 ▼")
+            settings.setValue("log_expanded", True)
     
     def execute_smart_select(self):
         """执行智能选择（根据当前模式）"""
