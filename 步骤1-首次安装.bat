@@ -650,6 +650,45 @@ echo [4/5] 创建Python环境并安装依赖...
 echo ========================================
 echo.
 
+REM 重新检测 Conda 路径（确保变量可用）
+if not defined MINICONDA_ROOT (
+    set MINICONDA_ROOT=%SCRIPT_DIR%\Miniconda3
+    REM 检测路径是否包含中文
+    powershell -Command "$path = '%SCRIPT_DIR%'; if ($path -match '[^\x00-\x7F]') { exit 1 } else { exit 0 }" >nul 2>&1
+    if errorlevel 1 (
+        set MINICONDA_ROOT=%~d0\Miniconda3
+    )
+)
+
+REM 尝试从系统获取 Conda 路径
+if defined CONDA_EXE (
+    for %%p in ("%CONDA_EXE%\..\..") do set "MINICONDA_ROOT=%%~fp"
+)
+if not defined MINICONDA_ROOT (
+    for /f "delims=" %%i in ('conda info --base 2^>nul') do set "MINICONDA_ROOT=%%i"
+)
+
+REM 初始化 Conda（确保 conda 命令可用）
+echo 正在初始化 Conda...
+if exist "%MINICONDA_ROOT%\Scripts\activate.bat" (
+    call "%MINICONDA_ROOT%\Scripts\activate.bat"
+    echo [OK] Conda 已初始化
+    echo 位置: %MINICONDA_ROOT%
+) else (
+    REM 尝试使用系统 conda
+    where conda >nul 2>&1
+    if !ERRORLEVEL! neq 0 (
+        echo [ERROR] 无法找到 Conda
+        echo 请确保 Conda 已正确安装
+        echo.
+        echo 预期位置: %MINICONDA_ROOT%
+        pause
+        exit /b 1
+    )
+    echo [OK] 使用系统 Conda
+)
+echo.
+
 REM 使用命名环境（避免中文路径问题）
 set CONDA_ENV_NAME=manga-env
 set CONDA_ENV_EXISTS=0

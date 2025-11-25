@@ -1,0 +1,187 @@
+19:30:17 - INFO - 即将开始后台任务，强制重新加载所有配置...
+2025-11-18 19:30:17,476 - INFO - [app_logic] - 即将开始后台任务，强制重新加载所有配置...
+2025-11-18 19:30:17,478 - INFO - [services.config_service] - 正在强制重新加载配置...
+2025-11-18 19:30:17,479 - INFO - [services.config_service] - .env 文件已从 D:\Tools\manga-translator-ui\.env 重新加载， 环境变量已更新。
+2025-11-18 19:30:17,480 - INFO - [services.config_service] - 配置重载完成。
+19:30:17 - INFO - 配置已刷新，继续执行任务。
+2025-11-18 19:30:17,481 - INFO - [app_logic] - 配置已刷新，继续执行任务。
+19:30:17 - INFO - 翻译工作线程已启动。
+2025-11-18 19:30:17,483 - INFO - [app_logic] - 翻译工作线程已启动。
+2025-11-18 19:30:17,490 - WARNING - [manga_translator] - CUDA or Metal compatible device could not be found in torch whilst --use-gpu was set. Automatically falling back to CPU mode.
+2025-11-18 19:30:17,493 - INFO - [manga_translator] - Log file created: D:\Tools\manga-translator-ui\result\log_20251118193017.txt
+2025-11-18 19:30:17,495 - INFO - [desktop_qt_ui.services.workflow_service] - 处理JSON文件: p_158_translations.json (0.07 MB)
+2025-11-18 19:30:17,495 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] TXT文件路径: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\originals\p_158_original.txt
+2025-11-18 19:30:17,496 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] JSON文件路径: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\json\p_158_translations.json
+2025-11-18 19:30:17,497 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] 模板文件路径: D:\Tools\manga-translator-ui\examples\translation_template.json
+2025-11-18 19:30:17,497 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] 原始文本内容长度: 255
+2025-11-18 19:30:17,497 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Prefix: '{\n      "'
+2025-11-18 19:30:17,497 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Suffix: '"\n  }'
+2025-11-18 19:30:17,498 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Separator: '",\n      "'
+2025-11-18 19:30:17,498 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Found 1 items in text file.
+2025-11-18 19:30:17,498 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] First item: '{\n    "中は…": "里面…",\n    "小型のエイリアンが５体くらい": "大约有5只小型外星人",\n    "１体だけ大型がいるね": "只有一只是大型的",\n    "同じようにマスクを'
+2025-11-18 19:30:17,498 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item template: '<original>": "<translated>'
+2025-11-18 19:30:17,499 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Parser regex: '(.+?)":\\ "(.*)$'
+2025-11-18 19:30:17,499 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item 0 原始内容: '{\n    "中は…": "里面…",\n    "小型のエイリアンが５体くらい": "大约有5只小型外星人",\n    "１体だけ大型がいるね": "只有一只是大型的",\n    "同じようにマスクをかぶって服も着てるけど": "同样也戴着口罩穿着衣服",\n    "作業はしてない…": "但没有在工作…",\n    "小型のエイリアンに色々と指示を出しているのかな": "好像在对小型外星人发各种指示",\n    "なんか…": "有种…",\n    "現 場監督みたいね…": "像现场监督的感觉呢…"\n}'
+2025-11-18 19:30:17,499 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item 0 匹配成功: original='{\n    "中は…', translated='里面…",\n    "小型のエイリアンが５体くらい": "大约有5只小型外星人",\n    "１体だけ大型がいるね": "只有一只是大型的",\n    "同じようにマスクをかぶって服も着てるけど": "同样也戴着口罩穿着衣服",\n    "作業はしてない…": "但没有在工作…",\n    "小型のエイリアンに色々と指示を出しているのかな": "好像在对小型外星人发各种指示",\n    "なんか…": "有种…",\n    "現場監督みたいね…": "像现场监督的感觉呢…"\n}'
+2025-11-18 19:30:17,499 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item 0 匹配的groups: ('{\n    "中は…', '里面…",\n    "小型のエイリアンが５体くらい": "大约有5只小型外星人",\n    "１体だけ大型がいるね": "只有一只是大型 的",\n    "同じようにマスクをかぶって服も着てるけど": "同样也戴着口罩穿着衣服",\n    "作業はしてない…": "但没有在工作…",\n    "小型のエイリアンに色々と指示を出しているのかな": "好像在对小型外星人发各种指示",\n    "なんか…": "有种…",\n    "現場監督みたいね…": "像现场监督的感觉呢…"\n}')
+2025-11-18 19:30:17,499 - INFO - [desktop_qt_ui.services.workflow_service] - 解析出 1 条翻译
+2025-11-18 19:30:17,500 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] 前3条翻译: [('{\n    "中は…', '里 面…",\n    "小型のエイリアンが５体くらい": "大约有5只小型外星人",\n    "１体だけ大型がいるね": "只有一只是大型的",\n    "同じようにマスクをかぶって服も着てるけど": "同样也戴着口罩穿着衣服",\n    "作業はしてない…": "但没有在工作…",\n    "小型のエイリアンに色々と指示を出しているのかな": "好像在对小型外星人发各种指示",\n    "なんか…": "有种…",\n    "現場監督みたいね…": "像现场监督的感觉呢…"\n}')]
+2025-11-18 19:30:17,640 - INFO - [desktop_qt_ui.services.workflow_service] - JSON加载完成，耗时 0.00 秒
+2025-11-18 19:30:17,641 - INFO - [desktop_qt_ui.services.workflow_service] - 更新完成，耗时 0.00 秒，更新了 0 条
+2025-11-18 19:30:17,644 - INFO - [desktop_qt_ui.services.workflow_service] - 临时文件写入完成，耗时 0.00 秒
+2025-11-18 19:30:17,792 - INFO - [desktop_qt_ui.services.workflow_service] - 文件完整性验证通过
+2025-11-18 19:30:17,937 - INFO - [desktop_qt_ui.services.workflow_service] - 处理JSON文件: p_159_translations.json (0.05 MB)
+2025-11-18 19:30:17,938 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] TXT文件路径: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\originals\p_159_original.txt
+2025-11-18 19:30:17,939 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] JSON文件路径: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\json\p_159_translations.json
+2025-11-18 19:30:17,939 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] 模板文件路径: D:\Tools\manga-translator-ui\examples\translation_template.json
+2025-11-18 19:30:17,939 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] 原始文本内容长度: 162
+2025-11-18 19:30:17,939 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Prefix: '{\n      "'
+2025-11-18 19:30:17,941 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Suffix: '"\n  }'
+2025-11-18 19:30:17,941 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Separator: '",\n      "'
+2025-11-18 19:30:17,942 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Found 1 items in text file.
+2025-11-18 19:30:17,942 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] First item: '{\n    "重労働は地位の低い小型エイリアンの仕事なのね…": "重体力劳动原来是地位低的小型外星人的工作呢…",\n    "大型のエイリアンも腕がないと地 位に影響するのかしら": "大型外星人要是'
+2025-11-18 19:30:17,942 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item template: '<original>": "<translated>'
+2025-11-18 19:30:17,942 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Parser regex: '(.+?)":\\ "(.*)$'
+2025-11-18 19:30:17,942 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item 0 原始内容: '{\n    "重労働は 地位の低い小型エイリアンの仕事なのね…": "重体力劳动原来是地位低的小型外星人的工作呢…",\n    "大型のエイリアンも腕がな いと地位に影響するのかしら": "大型外星人要是失去手臂也会影响到它的地位吗",\n    "うーん…": "嗯——…",\n    "……あ容器が！": "……啊容器！"\n}'
+2025-11-18 19:30:17,943 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item 0 匹配成功: original='{\n    "重労働は地位の低い小型エイリアンの仕事なのね…', translated='重体力劳动原来是地位低的小型外星人的工作呢…",\n    "大型のエイリアンも腕がないと地位に影響するのかしら": "大型外星人要是失去手臂也会影响到它的地位吗",\n    "うーん…": "嗯——…",\n    "……あ容器が！": "……啊容器！"\n}'
+2025-11-18 19:30:17,943 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] Item 0 匹配的groups: ('{\n    "重労働は地位の低い小型エイリアンの仕事なのね…', '重体力劳动原来是地位低的小型外星人的工作呢…",\n    "大型のエイリアンも腕 がないと地位に影響するのかしら": "大型外星人要是失去手臂也会影响到它的地位吗",\n    "うーん…": "嗯——…",\n    "……あ容器が！": "……啊容器！"\n}')
+2025-11-18 19:30:17,943 - INFO - [desktop_qt_ui.services.workflow_service] - 解析出 1 条翻译
+2025-11-18 19:30:17,943 - INFO - [desktop_qt_ui.services.workflow_service] - [DEBUG] 前3条翻译: [('{\n    "重労働は地位 の低い小型エイリアンの仕事なのね…', '重体力劳动原来是地位低的小型外星人的工作呢…",\n    "大型のエイリアンも腕がないと 地位に影響するのかしら": "大型外星人要是失去手臂也会影响到它的地位吗",\n    "うーん…": "嗯——…",\n    "……あ容器が！": "……啊容器！"\n}')]
+2025-11-18 19:30:18,086 - INFO - [desktop_qt_ui.services.workflow_service] - JSON加载完成，耗时 0.00 秒
+2025-11-18 19:30:18,087 - INFO - [desktop_qt_ui.services.workflow_service] - 更新完成，耗时 0.00 秒，更新了 0 条
+2025-11-18 19:30:18,089 - INFO - [desktop_qt_ui.services.workflow_service] - 临时文件写入完成，耗时 0.00 秒
+2025-11-18 19:30:18,235 - INFO - [desktop_qt_ui.services.workflow_service] - 文件完整性验证通过
+19:30:18 - INFO - [进度] 0/2: Processing: p_158.jpg
+2025-11-18 19:30:18,392 - INFO - [manga_translator] - Processing rolling batch 1/1 (images 1-1)
+2025-11-18 19:30:18,390 - INFO - [app_logic] - [进度] 0/2: Processing: p_158.jpg
+2025-11-18 19:30:18,392 - INFO - [manga_translator] - Load text mode: Loading translations from JSON and skipping detection/OCR/translation
+2025-11-18 19:30:18,608 - INFO - [manga_translator] - Loaded 8 regions from D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\json\p_158_translations.json
+2025-11-18 19:30:18,609 - INFO - [manga_translator] - Loaded mask_raw from D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\json\p_158_translations.json
+2025-11-18 19:30:18,618 - INFO - [manga_translator] - Running mask refinement
+[mask]: 100%|█████████████████████████████████████████████████████████████████████████| 17/17 [00:00<00:00, 127.05it/s]
+2025-11-18 19:31:05,209 - INFO - [manga_translator] - Running rendering
+2025-11-18 19:31:05,230 - INFO - [manga-translator.render] - === resize_regions_to_font_size called with mode='smart_scaling' ===
+2025-11-18 19:31:05,231 - INFO - [manga-translator.render] - Total regions: 8, original_img provided: True
+[render]: 100%|██████████████████████████████████████████████████████████████████████████| 8/8 [00:00<00:00, 31.66it/s]
+2025-11-18 19:31:05,541 - INFO - [manga_translator] - Batch translation completed: processed 1 images
+2025-11-18 19:31:05,544 - INFO - [manga_translator] - Processing rolling batch 1/1 (images 1-1)
+2025-11-18 19:31:05,545 - INFO - [manga_translator] - Load text mode: Loading translations from JSON and skipping detection/OCR/translation
+2025-11-18 19:31:05,703 - INFO - [manga_translator] - Loaded 4 regions from D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\json\p_159_translations.json
+2025-11-18 19:31:05,704 - INFO - [manga_translator] - Loaded mask_raw from D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\json\p_159_translations.json
+2025-11-18 19:31:05,713 - INFO - [manga_translator] - Running mask refinement
+[mask]: 100%|██████████████████████████████████████████████████████████████████████████| 11/11 [00:00<00:00, 99.25it/s]
+19:31:06 - INFO - Updated translation_map.json: D:\My_Documents\My Library\漫画\translated\p_158.webp -> D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_158.jpg
+2025-11-18 19:31:06,237 - INFO - [app_logic] - Updated translation_map.json: D:\My_Documents\My Library\漫画\translated\p_158.webp -> D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_158.jpg
+19:31:06 - INFO - 成功保存文件: D:/My_Documents/My Library/漫画/translated\p_158.webp
+2025-11-18 19:31:06,238 - INFO - [app_logic] - 成功保存文件: D:/My_Documents/My Library/漫画/translated\p_158.webp
+19:31:06 - INFO - [进度] 1/2: Processing: p_159.jpg
+2025-11-18 19:31:06,240 - INFO - [app_logic] - [进度] 1/2: Processing: p_159.jpg
+2025-11-18 19:32:03,589 - INFO - [manga_translator] - Running rendering
+2025-11-18 19:34:52,328 - INFO - [manga-translator.render] - === resize_regions_to_font_size called with mode='smart_scaling' ===
+2025-11-18 19:34:52,330 - INFO - [manga-translator.render] - Total regions: 4, original_img provided: True
+[render]: 100%|██████████████████████████████████████████████████████████████████████████| 4/4 [00:00<00:00, 23.61it/s]
+2025-11-18 19:34:52,560 - INFO - [manga_translator] - Batch translation completed: processed 1 images
+19:34:53 - INFO - Updated translation_map.json: D:\My_Documents\My Library\漫画\translated\p_159.webp -> D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_159.jpg
+2025-11-18 19:34:53,147 - INFO - [app_logic] - Updated translation_map.json: D:\My_Documents\My Library\漫画\translated\p_159.webp -> D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_159.jpg
+19:34:53 - INFO - 成功保存文件: D:/My_Documents/My Library/漫画/translated\p_159.webp
+2025-11-18 19:34:53,151 - INFO - [app_logic] - 成功保存文件: D:/My_Documents/My Library/漫画/translated\p_159.webp
+--- MainAppLogic: Slot on_task_finished triggered.
+19:34:53 - INFO - 翻译任务完成。总共成功处理 2 个文件。
+2025-11-18 19:34:53,156 - INFO - [app_logic] - 翻译任务完成。总共成功处理 2 个文件。
+--- DEBUG: on_task_finished step 1: Setting translating state to False.
+--- DEBUG: on_task_finished step 2: Setting status message.
+--- DEBUG: on_task_finished step 3: Emitting task_completed signal.
+--- DEBUG: on_task_finished step 4: Signal emitted successfully.
+--- DEBUG: on_task_finished step 5: Entering finally block.
+--- MainAppLogic: Slot on_task_finished finished.
+19:34:55 - INFO - User chose to open results in editor.
+2025-11-18 19:34:55,154 - INFO - [main_window] - User chose to open results in editor.
+19:34:55 - INFO - Controller: Loading image D:/My_Documents/My Library/漫画/translated\p_158.webp
+2025-11-18 19:34:55,173 - INFO - [editor.editor_controller] - Controller: Loading image D:/My_Documents/My Library/漫画/translated\p_158.webp
+19:34:55 - INFO - Clearing editor state
+2025-11-18 19:34:55,174 - INFO - [editor.editor_controller] - Clearing editor state
+2025-11-18 19:34:55,175 - INFO - [desktop_qt_ui.editor.core.async_job_manager] - Cancelled 1 active jobs
+2025-11-18 19:34:55,175 - INFO - [services.async_service] - Cancelled 1 tasks via AsyncService
+19:34:55 - INFO - Cancelled all background tasks
+2025-11-18 19:34:55,176 - INFO - [editor.editor_controller] - Cancelled all background tasks
+2025-11-18 19:34:55,176 - INFO - [desktop_qt_ui.editor.core.resource_manager] - Unloading image: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_159.jpg
+19:34:55 - INFO - Unloaded image from ResourceManager
+2025-11-18 19:34:55,177 - INFO - [editor.editor_controller] - Unloaded image from ResourceManager
+2025-11-18 19:34:55,179 - INFO - [root] - [MODEL LOG] set_refined_mask called. Mask Type: <class 'NoneType'>, Shape: N/A
+19:34:55 - INFO - !!! Refined mask changed signal received !!!
+2025-11-18 19:34:55,179 - INFO - [editor.editor_controller] - !!! Refined mask changed signal received !!!
+19:34:55 - INFO - Refined mask changed, checking for incremental inpainting...
+2025-11-18 19:34:55,180 - INFO - [editor.editor_controller] - Refined mask changed, checking for incremental inpainting...
+19:34:55 - WARNING - Incremental inpainting skipped: image=True, mask=False, raw_mask=False
+2025-11-18 19:34:55,181 - WARNING - [editor.editor_controller] - Incremental inpainting skipped: image=True, mask=False, raw_mask=False
+19:34:55 - INFO - Editor state cleared
+2025-11-18 19:34:55,182 - INFO - [editor.editor_controller] - Editor state cleared
+19:34:55 - INFO - Checking if translated image: D:/My_Documents/My Library/漫画/translated\p_158.webp
+2025-11-18 19:34:55,183 - INFO - [editor.editor_controller] - Checking if translated image: D:/My_Documents/My Library/ 漫画/translated\p_158.webp
+19:34:55 - INFO - Normalized path: D:\My_Documents\My Library\漫画\translated\p_158.webp
+2025-11-18 19:34:55,183 - INFO - [editor.editor_controller] - Normalized path: D:\My_Documents\My Library\漫画\translated\p_158.webp
+19:34:55 - INFO - Looking for translation_map.json at: D:\My_Documents\My Library\漫画\translated\translation_map.json
+2025-11-18 19:34:55,187 - INFO - [editor.editor_controller] - Looking for translation_map.json at: D:\My_Documents\My Library\漫画\translated\translation_map.json
+19:34:55 - INFO - Found translation_map.json with 2 entries
+2025-11-18 19:34:55,188 - INFO - [editor.editor_controller] - Found translation_map.json with 2 entries
+19:34:55 - INFO - Translation map keys: ['D:\\My_Documents\\My Library\\漫画\\translated\\p_158.webp', 'D:\\My_Documents\\My Library\\漫画\\translated\\p_159.webp']...
+2025-11-18 19:34:55,189 - INFO - [editor.editor_controller] - Translation map keys: ['D:\\My_Documents\\My Library\\漫画\\translated\\p_158.webp', 'D:\\My_Documents\\My Library\\漫画\\translated\\p_159.webp']...
+19:34:55 - INFO - ✓ Found translation mapping for: D:/My_Documents/My Library/漫画/translated\p_158.webp
+2025-11-18 19:34:55,191 - INFO - [editor.editor_controller] - ✓ Found translation mapping for: D:/My_Documents/My Library/漫画/translated\p_158.webp
+19:34:55 - INFO - Detected translated image, loading as viewer only: D:/My_Documents/My Library/漫画/translated\p_158.webp
+2025-11-18 19:34:55,192 - INFO - [editor.editor_controller] - Detected translated image, loading as viewer only: D:/My_Documents/My Library/漫画/translated\p_158.webp
+2025-11-18 19:34:55,211 - INFO - [root] - [MODEL LOG] set_refined_mask called. Mask Type: <class 'NoneType'>, Shape: N/A
+19:34:55 - INFO - !!! Refined mask changed signal received !!!
+2025-11-18 19:34:55,212 - INFO - [editor.editor_controller] - !!! Refined mask changed signal received !!!
+19:34:55 - INFO - Refined mask changed, checking for incremental inpainting...
+2025-11-18 19:34:55,214 - INFO - [editor.editor_controller] - Refined mask changed, checking for incremental inpainting...
+19:34:55 - WARNING - Incremental inpainting skipped: image=True, mask=False, raw_mask=False
+2025-11-18 19:34:55,215 - WARNING - [editor.editor_controller] - Incremental inpainting skipped: image=True, mask=False, raw_mask=False
+19:34:56 - INFO - Controller: Loading image D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_159.jpg
+2025-11-18 19:34:56,738 - INFO - [editor.editor_controller] - Controller: Loading image D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_159.jpg
+19:34:56 - INFO - Clearing editor state
+2025-11-18 19:34:56,741 - INFO - [editor.editor_controller] - Clearing editor state
+2025-11-18 19:34:56,742 - INFO - [desktop_qt_ui.editor.core.async_job_manager] - Cancelled 0 active jobs
+2025-11-18 19:34:56,742 - INFO - [services.async_service] - Cancelled 0 tasks via AsyncService
+19:34:56 - INFO - Cancelled all background tasks
+2025-11-18 19:34:56,743 - INFO - [editor.editor_controller] - Cancelled all background tasks
+2025-11-18 19:34:56,743 - INFO - [desktop_qt_ui.editor.core.resource_manager] - Unloading image: D:\My_Documents\My Library\漫画\translated\p_158.webp
+19:34:56 - INFO - Unloaded image from ResourceManager
+2025-11-18 19:34:56,743 - INFO - [editor.editor_controller] - Unloaded image from ResourceManager
+2025-11-18 19:34:56,744 - INFO - [root] - [MODEL LOG] set_refined_mask called. Mask Type: <class 'NoneType'>, Shape: N/A
+19:34:56 - INFO - !!! Refined mask changed signal received !!!
+2025-11-18 19:34:56,745 - INFO - [editor.editor_controller] - !!! Refined mask changed signal received !!!
+19:34:56 - INFO - Refined mask changed, checking for incremental inpainting...
+2025-11-18 19:34:56,746 - INFO - [editor.editor_controller] - Refined mask changed, checking for incremental inpainting...
+19:34:56 - WARNING - Incremental inpainting skipped: image=True, mask=False, raw_mask=False
+2025-11-18 19:34:56,747 - WARNING - [editor.editor_controller] - Incremental inpainting skipped: image=True, mask=False, raw_mask=False
+19:34:56 - INFO - Editor state cleared
+2025-11-18 19:34:56,747 - INFO - [editor.editor_controller] - Editor state cleared
+19:34:56 - INFO - Checking if translated image: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_159.jpg
+2025-11-18 19:34:56,750 - INFO - [editor.editor_controller] - Checking if translated image: D:\My_Documents\My Library\ 漫画\異世界監禁婚\v03\p_159.jpg
+19:34:56 - INFO - Normalized path: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\p_159.jpg
+2025-11-18 19:34:56,750 - INFO - [editor.editor_controller] - Normalized path: D:\My_Documents\My Library\漫画\異世界監 禁婚\v03\p_159.jpg
+19:34:56 - INFO - Looking for translation_map.json at: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\translation_map.json
+2025-11-18 19:34:56,751 - INFO - [editor.editor_controller] - Looking for translation_map.json at: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\translation_map.json
+19:34:56 - INFO - ✗ translation_map.json not found at: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\translation_map.json
+2025-11-18 19:34:56,752 - INFO - [editor.editor_controller] - ✗ translation_map.json not found at: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\translation_map.json
+2025-11-18 19:34:56,752 - INFO - [services.file_service] - Loading JSON from: D:\My_Documents\My Library\漫画\異世界監禁婚\v03\manga_translator_work\json\p_159_translations.json
+2025-11-18 19:34:56,764 - INFO - [services.file_service] - Loaded 4 regions from p_159_translations.json
+2025-11-18 19:34:56,773 - INFO - [services.render_parameter_service] - 从JSON导入区域 0 的参数
+2025-11-18 19:34:56,774 - INFO - [services.render_parameter_service] - 从JSON导入区域 1 的参数
+2025-11-18 19:34:56,774 - INFO - [services.render_parameter_service] - 从JSON导入区域 2 的参数
+2025-11-18 19:34:56,774 - INFO - [services.render_parameter_service] - 从JSON导入区域 3 的参数
+19:34:56 - INFO - Raw mask loaded with shape: (2048, 1454)
+2025-11-18 19:34:56,810 - INFO - [editor.editor_controller] - Raw mask loaded with shape: (2048, 1454)
+2025-11-18 19:34:56,814 - INFO - [root] - [MODEL LOG] set_refined_mask called. Mask Type: <class 'NoneType'>, Shape: N/A
+19:34:56 - INFO - !!! Refined mask changed signal received !!!
+2025-11-18 19:34:56,815 - INFO - [editor.editor_controller] - !!! Refined mask changed signal received !!!
+19:34:56 - INFO - Refined mask changed, checking for incremental inpainting...
+2025-11-18 19:34:56,815 - INFO - [editor.editor_controller] - Refined mask changed, checking for incremental inpainting...
+19:34:56 - WARNING - Incremental inpainting skipped: image=True, mask=False, raw_mask=True
+2025-11-18 19:34:56,816 - WARNING - [editor.editor_controller] - Incremental inpainting skipped: image=True, mask=False, raw_mask=True
+19:34:56 - INFO - JSON data loaded, background processing is temporarily disabled.
+2025-11-18 19:34:56,817 - INFO - [editor.editor_controller] - JSON data loaded, background processing is temporarily disabled.
+2025-11-18 19:34:56,967 - INFO - [manga-translator.render] - === resize_regions_to_font_size called with mode='smart_scaling' ===
+2025-11-18 19:34:56,969 - INFO - [manga-translator.render] - Total regions: 4, original_img provided: True
+[View] Recalculated dst_points for 4 regions.

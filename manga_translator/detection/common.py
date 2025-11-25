@@ -10,7 +10,7 @@ from ..utils import InfererModule, ModelWrapper, Quadrilateral
 class CommonDetector(InfererModule):
 
     async def detect(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float, unclip_ratio: float,
-                     invert: bool, gamma_correct: bool, rotate: bool, auto_rotate: bool = False, verbose: bool = False):
+                     invert: bool, gamma_correct: bool, rotate: bool, auto_rotate: bool = False, verbose: bool = False, min_box_area_ratio: float = 0.0009):
         '''
         Returns textblock list and text mask.
         '''
@@ -44,8 +44,28 @@ class CommonDetector(InfererModule):
         textlines, raw_mask, mask = await self._detect(image, detect_size, text_threshold, box_threshold, unclip_ratio, verbose)
         # 应用面积过滤：固定阈值 + 相对图片总像素的比例阈值
         img_total_pixels = img_h * img_w  # 使用原始图片尺寸
-        min_area_ratio = 0.001  # 0.1%的比例阈值（千分之一）
-        textlines = list(filter(lambda x: x.area > 16 and x.area / img_total_pixels > min_area_ratio, textlines))
+        before_filter_count = len(textlines)
+        
+        # 记录被过滤掉的框
+        filtered_out = []
+        filtered_in = []
+        for x in textlines:
+            area_ratio = x.area / img_total_pixels
+            if x.area <= 16 or area_ratio <= min_box_area_ratio:
+                filtered_out.append((x, area_ratio))
+            else:
+                filtered_in.append(x)
+        
+        textlines = filtered_in
+        after_filter_count = len(textlines)
+        
+        if filtered_out:
+            self.logger.info(f'面积过滤: 图片{img_w}x{img_h} ({img_total_pixels}像素), 最小面积比例={min_box_area_ratio:.4f} ({min_box_area_ratio*100:.2f}%), '
+                            f'过滤前={before_filter_count}, 过滤后={after_filter_count}, 移除={len(filtered_out)}')
+            for idx, (x, ratio) in enumerate(filtered_out[:5]):  # 只打印前5个
+                self.logger.debug(f'  移除框[{idx+1}]: 面积={x.area:.1f}像素, 占比={ratio*100:.3f}%, 得分={x.prob:.3f}')
+            if len(filtered_out) > 5:
+                self.logger.debug(f'  ... 还有 {len(filtered_out)-5} 个被过滤的框未显示')
 
         # Remove filters
         if add_border:
@@ -106,8 +126,21 @@ class CommonDetector(InfererModule):
 
     def _remove_rotation(self, textlines, raw_mask, mask, img_w, img_h):
         raw_mask = np.ascontiguousarray(np.rot90(raw_mask))
+        
+        # mask 可能是 tuple（包含多个调试图片）或单个数组
         if mask is not None:
-            mask = np.ascontiguousarray(np.rot90(mask).astype(np.uint8))
+            if isinstance(mask, tuple):
+                # 如果是 tuple，对每个元素分别旋转
+                rotated_masks = []
+                for m in mask:
+                    if m is not None and hasattr(m, 'shape'):
+                        rotated_masks.append(np.ascontiguousarray(np.rot90(m).astype(np.uint8)))
+                    else:
+                        rotated_masks.append(m)
+                mask = tuple(rotated_masks)
+            else:
+                # 单个数组
+                mask = np.ascontiguousarray(np.rot90(mask).astype(np.uint8))
 
         for i, txtln in enumerate(textlines):
             rotated_pts = txtln.pts[:,[1,0]]

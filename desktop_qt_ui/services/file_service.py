@@ -180,6 +180,30 @@ class FileService:
             self.logger.error(f"验证配置文件失败 {file_path}: {e}")
             return False
     
+    def _natural_sort_key(self, path: str):
+        """
+        生成自然排序的键，支持数字排序
+        例如: file1.jpg, file2.jpg, file10.jpg 会按 1, 2, 10 排序
+        而不是按字符串 1, 10, 2 排序
+        """
+        import re
+        
+        # 获取文件名（不含路径）
+        filename = os.path.basename(path)
+        
+        # 将文件名分割成文本和数字部分
+        # 例如: "page123abc456.jpg" -> ["page", 123, "abc", 456, ".jpg"]
+        parts = []
+        for part in re.split(r'(\d+)', filename):
+            if part.isdigit():
+                # 数字部分转换为整数，用于数值比较
+                parts.append(int(part))
+            else:
+                # 文本部分转换为小写，用于不区分大小写的比较
+                parts.append(part.lower())
+        
+        return parts
+    
     def get_image_files_from_folder(self, folder_path: str, recursive: bool = False) -> List[str]:
         """从文件夹获取所有图片文件，忽略manga_translator_work目录"""
         image_files = []
@@ -206,8 +230,8 @@ class FileService:
                     if os.path.isfile(file_path) and self.validate_image_file(file_path):
                         image_files.append(file_path)
 
-            # 按文件名排序
-            image_files.sort(key=lambda x: os.path.basename(x).lower())
+            # 使用自然排序（支持数字排序）
+            image_files.sort(key=self._natural_sort_key)
 
         except Exception as e:
             self.logger.error(f"获取文件夹图片失败 {folder_path}: {e}")

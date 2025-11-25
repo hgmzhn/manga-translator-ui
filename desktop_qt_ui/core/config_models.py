@@ -57,6 +57,7 @@ class DetectorSettings(BaseModel):
     yolo_obb_conf: float = 0.4
     yolo_obb_iou: float = 0.6
     yolo_obb_overlap_threshold: float = 0.1
+    min_box_area_ratio: float = 0.0009  # 最小检测框面积占比（相对图片总像素），默认0.09%
 
 class InpainterSettings(BaseModel):
     inpainter: str = "lama_mpe"
@@ -137,6 +138,7 @@ class AppSection(BaseModel):
     last_open_dir: str = '.'
     last_output_path: str = ""
     favorite_folders: List[str] = Field(default_factory=list)
+    theme: str = "light"  # 主题：light, dark, gray, native
 
 class AppSettings(BaseModel):
     app: AppSection = Field(default_factory=AppSection)

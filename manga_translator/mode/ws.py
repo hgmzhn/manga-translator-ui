@@ -24,10 +24,25 @@ class MangaTranslatorWS(MangaTranslator):
     async def listen(self, translation_params: dict = None):
         from threading import Thread
         import io
+        import sys
         import aioshutil
         from aiofiles import os
         import websockets
         from ..server import ws_pb2
+
+        # 在Windows上的工作线程中，需要手动初始化Windows Socket
+        if sys.platform == 'win32':
+            # 使用ctypes直接调用WSAStartup
+            import ctypes
+            try:
+                WSADATA_SIZE = 400
+                wsa_data = ctypes.create_string_buffer(WSADATA_SIZE)
+                ws2_32 = ctypes.WinDLL('ws2_32')
+                ws2_32.WSAStartup(0x0202, wsa_data)
+            except:
+                pass
+            
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
         self._server_loop = asyncio.new_event_loop()
         self.task_lock = PriorityLock()
@@ -208,6 +223,21 @@ class MangaTranslatorWS(MangaTranslator):
                             bg_task.cancel()
 
         def server_thread(future, main_loop, server_loop):
+            import sys
+            # 在Windows上的工作线程中，需要手动初始化Windows Socket
+            if sys.platform == 'win32':
+                # 使用ctypes直接调用WSAStartup
+                import ctypes
+                try:
+                    WSADATA_SIZE = 400
+                    wsa_data = ctypes.create_string_buffer(WSADATA_SIZE)
+                    ws2_32 = ctypes.WinDLL('ws2_32')
+                    ws2_32.WSAStartup(0x0202, wsa_data)
+                except:
+                    pass
+                
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            
             asyncio.set_event_loop(server_loop)
             try:
                 server_loop.run_until_complete(async_server_thread(main_loop))

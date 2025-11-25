@@ -28,9 +28,23 @@ if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
 warnings.filterwarnings('ignore', message='.*Triton.*')
 warnings.filterwarnings('ignore', module='xformers')
 
+# 抑制 xformers 导入时的 Triton 警告（这些是直接打印到 stdout 的）
+import io
+import contextlib
+
+# 临时重定向 stdout 和 stderr 来抑制 xformers 的 Triton 警告
+_original_stdout = sys.stdout
+_original_stderr = sys.stderr
+sys.stdout = io.StringIO()
+sys.stderr = io.StringIO()
+
 from PyQt6.QtWidgets import QApplication
 from main_window import MainWindow
 from services import init_services
+
+# 恢复 stdout 和 stderr（xformers 已经导入完成）
+sys.stdout = _original_stdout
+sys.stderr = _original_stderr
 
 def print_memory_snapshot():
     """打印内存快照（前100行）"""
@@ -56,8 +70,41 @@ def main():
     )
 
     # --- 环境设置 ---
+    # Windows特殊处理：必须在创建QApplication之前设置AppUserModelID
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            # 设置AppUserModelID，让Windows识别这是独立应用
+            myappid = 'manga.translator.ui.1.0'
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception as e:
+            pass
+    
     # 1. 创建 QApplication 实例
     app = QApplication(sys.argv)
+    app.setApplicationName("Manga Translator")
+    app.setOrganizationName("Manga Translator")
+    
+    # 设置应用程序图标（用于任务栏）
+    from PyQt6.QtGui import QIcon
+    
+    # 确定图标路径
+    if getattr(sys, 'frozen', False):
+        # 打包环境：图标在 _internal 目录下
+        # sys.executable 是 app.exe 的路径，_internal 在同级目录
+        exe_dir = os.path.dirname(sys.executable)
+        icon_path = os.path.join(exe_dir, '_internal', 'doc', 'images', 'icon.ico')
+    else:
+        # 开发环境
+        icon_path = os.path.join(os.path.dirname(__file__), '..', 'doc', 'images', 'icon.ico')
+    
+    icon_path = os.path.abspath(icon_path)
+    app_icon = None
+    
+    if os.path.exists(icon_path):
+        app_icon = QIcon(icon_path)
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
 
     # 2. 初始化所有服务
     # 设置正确的根目录：打包后指向_internal，开发时指向项目根目录
@@ -74,7 +121,31 @@ def main():
 
     # 3. 创建并显示主窗口
     main_window = MainWindow()
+    
+    # 确保主窗口也设置了图标
+    if app_icon and not app_icon.isNull():
+        main_window.setWindowIcon(app_icon)
+    
     main_window.show()
+    
+    # Windows特殊处理：强制窗口显示在最前面
+    if sys.platform == 'win32':
+        # 设置窗口标志，使其显示在最前面
+        from PyQt6.QtCore import Qt
+        main_window.setWindowFlags(main_window.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        main_window.show()  # 重新显示以应用标志
+        # 立即取消置顶，避免一直在最前面
+        main_window.setWindowFlags(main_window.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint)
+        main_window.show()  # 再次显示以应用标志
+        
+        # 设置图标并刷新
+        if app_icon and not app_icon.isNull():
+            main_window.setWindowIcon(app_icon)
+            app.processEvents()  # 强制处理事件，刷新任务栏图标
+    
+    main_window.raise_()  # 将窗口提升到最前面
+    main_window.activateWindow()  # 激活窗口
+    app.processEvents()  # 处理所有待处理事件
 
     # 4. 启动事件循环
     sys.exit(app.exec())

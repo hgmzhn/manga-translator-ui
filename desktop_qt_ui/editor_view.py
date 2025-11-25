@@ -69,7 +69,7 @@ class EditorView(QWidget):
         main_splitter.addWidget(self.graphics_view)
         main_splitter.addWidget(right_panel)
         main_splitter.setStretchFactor(1, 1)  # 让中心画布拉伸
-        main_splitter.setSizes([280, 800, 250])  # 调整左侧宽度以适应属性面板
+        main_splitter.setSizes([345, 800, 250])  # 左侧面板345px，适应属性面板内容
 
         # --- 连接信号与槽 ---
         self._connect_signals()
@@ -261,7 +261,7 @@ class EditorView(QWidget):
         self.add_files_button.clicked.connect(self.logic.open_and_add_files)
         self.add_folder_button.clicked.connect(self.logic.open_and_add_folder)
         self.clear_list_button.clicked.connect(self.logic.clear_list)
-        self.file_list.file_remove_requested.connect(self.logic.remove_file)
+        self.file_list.file_remove_requested.connect(self._on_file_remove_requested)
         self.file_list.file_selected.connect(self.logic.load_image_into_editor)
         self.logic.file_list_changed.connect(self.update_file_list)
 
@@ -337,6 +337,14 @@ class EditorView(QWidget):
         
         return right_panel
 
+    @pyqtSlot(str)
+    def _on_file_remove_requested(self, file_path: str):
+        """处理文件移除请求：先在视图中移除，再更新逻辑层"""
+        # 先在视图中移除文件（不会触发重新构建）
+        self.file_list.remove_file(file_path)
+        # 然后更新逻辑层的数据（不发射信号）
+        self.logic.remove_file(file_path, emit_signal=False)
+    
     @pyqtSlot(list)
     def update_file_list(self, files: list):
         """Clears and repopulates the file list view based on a signal from the logic."""

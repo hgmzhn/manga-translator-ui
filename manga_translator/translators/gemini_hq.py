@@ -325,14 +325,18 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     delay = 60.0 / self._MAX_REQUESTS_PER_MINUTE
                     elapsed = now - GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key]
                     if elapsed < delay:
-                        await asyncio.sleep(delay - elapsed)
-                    # 在请求前更新时间戳,确保下次计算的是从这次请求开始的间隔
-                    GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
+                        sleep_time = delay - elapsed
+                        self.logger.info(f'Ratelimit sleep: {sleep_time:.2f}s')
+                        await asyncio.sleep(sleep_time)
                 
                 response = await asyncio.to_thread(
                     generate_content_with_logging,
                     **request_args
                 )
+                
+                # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
+                if self._MAX_REQUESTS_PER_MINUTE > 0:
+                    GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
 
                 # 检查finish_reason，只有成功(1)才继续，其他都重试
                 if hasattr(response, 'candidates') and response.candidates:
@@ -550,14 +554,18 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 delay = 60.0 / self._MAX_REQUESTS_PER_MINUTE
                 elapsed = now - GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key]
                 if elapsed < delay:
-                    await asyncio.sleep(delay - elapsed)
-                # 在请求前更新时间戳,确保下次计算的是从这次请求开始的间隔
-                GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
+                    sleep_time = delay - elapsed
+                    self.logger.info(f'Ratelimit sleep: {sleep_time:.2f}s')
+                    await asyncio.sleep(sleep_time)
             
             response = await asyncio.to_thread(
                 generate_content_with_logging,
                 **request_args
             )
+            
+            # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
+            if self._MAX_REQUESTS_PER_MINUTE > 0:
+                GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
             
             if response and response.text:
                 result = response.text.strip()

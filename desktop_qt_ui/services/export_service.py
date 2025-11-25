@@ -425,6 +425,8 @@ class ExportService:
             font_full_path = os.path.abspath(font_full_path)
             if os.path.exists(font_full_path):
                 translator_params['font_path'] = font_full_path
+                # 同时更新 config 中的 font_path
+                config['render']['font_path'] = font_full_path
                 self.logger.info(f"设置字体路径: {font_full_path}")
         
         # 提取输出格式
@@ -518,6 +520,21 @@ class ExportService:
                 progress_callback("执行后端渲染...")
 
             # 执行翻译（实际是渲染）
+            import sys
+            # 在Windows上的工作线程中，需要手动初始化Windows Socket
+            if sys.platform == 'win32':
+                # 使用ctypes直接调用WSAStartup
+                import ctypes
+                try:
+                    WSADATA_SIZE = 400
+                    wsa_data = ctypes.create_string_buffer(WSADATA_SIZE)
+                    ws2_32 = ctypes.WinDLL('ws2_32')
+                    ws2_32.WSAStartup(0x0202, wsa_data)
+                except:
+                    pass
+                
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 

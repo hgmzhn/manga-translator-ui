@@ -41,6 +41,21 @@ class AsyncJobManager:
         
         def run_loop():
             """在线程中运行事件循环"""
+            import sys
+            # 在Windows上的工作线程中，需要手动初始化Windows Socket
+            if sys.platform == 'win32':
+                # 使用ctypes直接调用WSAStartup
+                import ctypes
+                try:
+                    WSADATA_SIZE = 400
+                    wsa_data = ctypes.create_string_buffer(WSADATA_SIZE)
+                    ws2_32 = ctypes.WinDLL('ws2_32')
+                    ws2_32.WSAStartup(0x0202, wsa_data)
+                except:
+                    pass
+                
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
             self._running = True

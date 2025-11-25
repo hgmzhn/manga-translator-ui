@@ -292,7 +292,7 @@ def generate_original_text(
         if original_text.strip():
             items.append({
                 'original': original_text,
-                'translated': translated_text if translated_text else original_text  # 使用translation字段，如果为空则使用原文
+                'translated': translated_text if translated_text else original_text  # 如果translation为空，使用原文作为占位符
             })
 
     # 生成输出路径
@@ -852,13 +852,10 @@ def safe_update_large_json_from_text(
         parsed_json = json.loads(text_content)
         if isinstance(parsed_json, dict):
             translations = parsed_json
-            logger.info(f"[DEBUG] 直接解析为JSON成功，找到 {len(translations)} 条翻译")
-            logger.info(f"[DEBUG] 前3条翻译: {list(translations.items())[:3]}")
+            logger.info(f"直接解析为JSON成功，找到 {len(translations)} 条翻译")
         else:
-            logger.info(f"[DEBUG] JSON解析成功但不是字典格式，尝试模板解析")
             raise ValueError("Not a dict")
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.info(f"[DEBUG] 直接JSON解析失败: {e}，尝试使用模板解析")
+    except (json.JSONDecodeError, ValueError):
         # 如果JSON解析失败，使用原来的模板解析逻辑
         # 移除前缀和后缀
         if prefix and text_content.startswith(prefix):
@@ -872,11 +869,8 @@ def safe_update_large_json_from_text(
             items = text_content.split(separator)
             # 如果只分割出1个item，可能是紧凑格式（没有换行），尝试用逗号分割
             if len(items) == 1 and ',' in text_content:
-                logger.info(f"[DEBUG] Separator分割失败，尝试用逗号分割紧凑格式")
                 # 使用正则表达式分割：匹配 "key": "value", 的模式
-                # 注意：这个正则会保留引号
                 items = re.split(r'",\s*"', text_content)
-                logger.info(f"[DEBUG] 逗号分割后得到 {len(items)} 个items")
         else:
             items = [text_content] if text_content.strip() else []
         logger.debug(f"Found {len(items)} items in text file.")
@@ -890,29 +884,29 @@ def safe_update_large_json_from_text(
                 parser_regex_str += "(.+?)"  # 原文必须至少有一个字符
                 group_order.append("original")
             elif part == "<translated>":
-                parser_regex_str += "(.*?)"  # 译文可以为空
+                parser_regex_str += "(.*)"  # 译文可以为空，匹配到结尾
                 group_order.append("translated")
             else:
                 parser_regex_str += re.escape(part)
-
+        
+        # 添加结尾匹配，确保匹配到字符串末尾
+        parser_regex_str += "$"
         parser_regex = re.compile(parser_regex_str, re.DOTALL)
 
         for item in items:
             item_stripped = item.strip()
             if not item_stripped:
                 continue
-
+            
             match = parser_regex.search(item)
             if match:
                 try:
                     result = {}
                     for j, group_name in enumerate(group_order):
                         captured_string = match.group(j + 1)
-                        # 直接使用捕获的字符串
                         result[group_name] = captured_string
                     translations[result['original']] = result['translated']
-                except (IndexError, KeyError) as e:
-                    logger.debug(f"Failed to parse item: {item[:100]}... Error: {e}")
+                except (IndexError, KeyError):
                     continue  # 跳过解析失败的条目
 
     if not translations:
@@ -984,10 +978,11 @@ def safe_update_large_json_from_text(
                 old_translation = region.get('translation', '')
                 new_translation = translations[original_text]
 
-                # 只有当翻译实际改变时才更新
+                # 总是更新translation字段，即使原文和译文相同
                 if old_translation != new_translation:
                     region['translation'] = new_translation
                     updated_count += 1
+                    logger.debug(f"更新翻译: '{original_text[:30]}...' -> '{new_translation[:30]}...'")
             else:
                 # 如果精确匹配失败，尝试模糊匹配
                 normalized = normalize_text(original_text)
@@ -999,7 +994,7 @@ def safe_update_large_json_from_text(
 
                     logger.debug(f"模糊匹配成功: '{original_text}' -> '{matched_original}', old='{old_translation}', new='{new_translation}'")
 
-                    # 只有当翻译实际改变时才更新
+                    # 总是更新translation字段，即使原文和译文相同
                     if old_translation != new_translation:
                         region['translation'] = new_translation
                         updated_count += 1

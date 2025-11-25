@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QColorDialog,
     QComboBox,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -19,7 +20,7 @@ from PyQt6.QtWidgets import (
 
 from services import get_config_service
 
-from .collapsible_frame import CollapsibleFrame
+# from .collapsible_frame import CollapsibleFrame  # 不再使用折叠框
 from .syntax_highlighter import HorizontalTagHighlighter
 import logging
 
@@ -121,26 +122,41 @@ class PropertyPanel(QWidget):
         self._load_mask_config_from_settings()
 
     def _init_ui(self):
+        # 创建主布局
         main_layout = QVBoxLayout(self)
-        main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(main_layout)
-
-        self._create_region_info_section(main_layout)
-        self._create_mask_edit_section(main_layout)
-        self._create_text_section(main_layout)
-        self._create_style_section(main_layout)
-        self._create_action_section(main_layout)
+        
+        # 创建滚动区域
+        from PyQt6.QtWidgets import QScrollArea
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        
+        # 创建内容容器
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        self._create_region_info_section(content_layout)
+        self._create_mask_edit_section(content_layout)
+        self._create_text_section(content_layout)
+        self._create_style_section(content_layout)
+        self._create_action_section(content_layout)
 
         # 添加一个弹性空间，将所有内容向上推，使布局更紧凑
-        main_layout.addStretch()
+        content_layout.addStretch()
+        
+        # 将内容容器放入滚动区域
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
 
         # 不再使用语法高亮器,改用符号替换
         # self.highlighter = HorizontalTagHighlighter(self.translated_text_box.document())
 
     def _create_region_info_section(self, layout):
-        self.info_group = CollapsibleFrame("区域信息")
-        info_content = QWidget()
-        info_layout = QFormLayout(info_content)
+        self.info_group = QGroupBox("区域信息")
+        info_layout = QFormLayout(self.info_group)
         self.index_label = QLabel("-")
         self.bbox_label = QLabel("-")
         self.size_label = QLabel("-")
@@ -149,13 +165,11 @@ class PropertyPanel(QWidget):
         info_layout.addRow("位置:", self.bbox_label)
         info_layout.addRow("尺寸:", self.size_label)
         info_layout.addRow("角度:", self.angle_label)
-        self.info_group.add_widget(info_content)
         layout.addWidget(self.info_group)
 
     def _create_mask_edit_section(self, layout):
-        self.mask_edit_frame = CollapsibleFrame("蒙版编辑")
-        mask_content_widget = QWidget()
-        mask_layout = QVBoxLayout(mask_content_widget)
+        self.mask_edit_frame = QGroupBox("蒙版编辑")
+        mask_layout = QVBoxLayout(self.mask_edit_frame)
         tools_layout = QHBoxLayout()
 
         self.mask_tool_group = QButtonGroup(self)
@@ -202,13 +216,11 @@ class PropertyPanel(QWidget):
         mask_layout.addWidget(self.update_mask_button)
         mask_layout.addWidget(self.show_refined_mask_checkbox)
         mask_layout.addWidget(self.show_removed_checkbox)
-        self.mask_edit_frame.add_widget(mask_content_widget)
         layout.addWidget(self.mask_edit_frame)
 
     def _create_text_section(self, layout):
-        self.text_edit_frame = CollapsibleFrame("文本内容")
-        text_content_widget = QWidget()
-        text_layout = QVBoxLayout(text_content_widget)
+        self.text_edit_frame = QGroupBox("文本内容")
+        text_layout = QVBoxLayout(self.text_edit_frame)
         ocr_trans_config_layout = QFormLayout()
         self.ocr_model_combo = QComboBox()
         self.translator_combo = QComboBox()
@@ -225,33 +237,47 @@ class PropertyPanel(QWidget):
         ocr_trans_config_layout.addRow("翻译器:", translator_row)
         ocr_trans_config_layout.addRow("目标语言:", self.target_language_combo)
         text_layout.addLayout(ocr_trans_config_layout)
+        
+        # 原文文本框
         self.original_text_box = QTextEdit()
-        self.original_text_box.setUndoRedoEnabled(True)  # 确保撤销功能启用
+        self.original_text_box.setUndoRedoEnabled(True)
+        self.original_text_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.original_text_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.original_text_box.setMinimumHeight(80)
+        self.original_text_box.setMaximumHeight(150)
+        
         self.translated_text_box = QTextEdit()
-        self.translated_text_box.setUndoRedoEnabled(True)  # 确保撤销功能启用
+        self.translated_text_box.setObjectName("translationEdit")
+        self.translated_text_box.setUndoRedoEnabled(True)
+        self.translated_text_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.translated_text_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.translated_text_box.setMinimumHeight(80)
+        self.translated_text_box.setMaximumHeight(150)
+        
         text_layout.addWidget(QLabel("原文:"))
-        text_layout.addWidget(self.original_text_box)
         self.original_edit_status_label = QLabel("点击编辑原文")
         text_layout.addWidget(self.original_edit_status_label)
         text_layout.addWidget(QLabel("译文:"))
         text_layout.addWidget(self.translated_text_box)
         insert_buttons_layout = QHBoxLayout()
-        self.insert_placeholder_button = QPushButton("插入占位符")
-        self.insert_newline_button = QPushButton("插入换行")
-        self.mark_horizontal_button = QPushButton("标记横排")
+        insert_buttons_layout.setSpacing(4)
+        self.insert_placeholder_button = QPushButton("占位符")
+        self.insert_placeholder_button.setToolTip("插入占位符 ＿")
+        self.insert_newline_button = QPushButton("换行↵")
+        self.insert_newline_button.setToolTip("插入换行符")
+        self.mark_horizontal_button = QPushButton("横排⇄")
+        self.mark_horizontal_button.setToolTip("标记选中文字为横排显示")
         insert_buttons_layout.addWidget(self.insert_placeholder_button)
         insert_buttons_layout.addWidget(self.insert_newline_button)
         insert_buttons_layout.addWidget(self.mark_horizontal_button)
         text_layout.addLayout(insert_buttons_layout)
         self.text_stats_label = QLabel("字符数: 0")
         text_layout.addWidget(self.text_stats_label)
-        self.text_edit_frame.add_widget(text_content_widget)
         layout.addWidget(self.text_edit_frame)
 
     def _create_style_section(self, layout):
-        self.style_edit_frame = CollapsibleFrame("样式设置")
-        style_content_widget = QWidget()
-        style_layout = QFormLayout(style_content_widget)
+        self.style_edit_frame = QGroupBox("样式设置")
+        style_layout = QFormLayout(self.style_edit_frame)
         
         # Font family selector with refresh capability
         class RefreshableComboBox(QComboBox):
@@ -307,7 +333,6 @@ class PropertyPanel(QWidget):
         style_layout.addRow("对齐:", self.alignment_combo)
         style_layout.addRow("方向:", self.direction_combo)
         
-        self.style_edit_frame.add_widget(style_content_widget)
         layout.addWidget(self.style_edit_frame)
     
     def _populate_font_list(self):
@@ -339,9 +364,9 @@ class PropertyPanel(QWidget):
             self.font_family_combo.addItem(display_name, filename)
 
     def _create_action_section(self, layout):
-        self.action_frame = CollapsibleFrame("操作")
-        action_content = QWidget()
-        action_layout = QHBoxLayout(action_content)
+        self.action_frame = QGroupBox("操作")
+        action_layout = QHBoxLayout(self.action_frame)
+        action_layout.setSpacing(4)
         self.copy_button = QPushButton("复制")
         self.paste_button = QPushButton("粘贴")
         self.delete_button = QPushButton("删除")
@@ -350,9 +375,8 @@ class PropertyPanel(QWidget):
         action_layout.addWidget(self.delete_button)
         # 添加弹性空间，将按钮推向左侧，使它们更紧凑
         action_layout.addStretch()
-        self.action_frame.add_widget(action_content)
         layout.addWidget(self.action_frame)
-
+    
     def _connect_signals(self):
         # Mask
         self.mask_tool_group.buttonClicked.connect(self._on_mask_tool_changed)

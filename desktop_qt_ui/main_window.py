@@ -20,13 +20,23 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Manga Translator (Qt Refactor)")
+        self.setWindowTitle("Manga Translator")
         self.resize(1280, 800) # 设置默认窗口大小
+        
+        # 窗口居中显示
+        from PyQt6.QtGui import QScreen
+        screen = QScreen.availableGeometry(self.screen())
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
+        
+        # 窗口图标已在 main.py 中设置，这里不需要重复设置
 
         self.logger = get_logger(__name__)
 
         self._setup_logic_and_models()
         self._setup_ui()
+        self._load_stylesheet()  # 加载样式表
         self._connect_signals()
 
         self.app_logic.initialize()
@@ -62,6 +72,15 @@ class MainWindow(QMainWindow):
         self.editor_view_action = QAction("编辑器视图", self)
         view_menu.addAction(self.main_view_action)
         view_menu.addAction(self.editor_view_action)
+        
+        # 主题菜单（顶级菜单）
+        theme_menu = menu_bar.addMenu("&主题")
+        self.light_theme_action = QAction("浅色", self)
+        self.dark_theme_action = QAction("深色", self)
+        self.gray_theme_action = QAction("灰色", self)
+        theme_menu.addAction(self.light_theme_action)
+        theme_menu.addAction(self.dark_theme_action)
+        theme_menu.addAction(self.gray_theme_action)
 
         # --- 中心布局 (QStackedWidget) ---
         self.stacked_widget = QStackedWidget()
@@ -74,6 +93,75 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(self.editor_view)
 
         self.stacked_widget.setCurrentWidget(self.main_view)
+
+    def _load_stylesheet(self):
+        """加载样式表，根据配置选择主题"""
+        from services import get_config_service
+        config_service = get_config_service()
+        config = config_service.get_config()
+        
+        # 获取主题设置，Pydantic会自动使用默认值'light'
+        theme = config.app.theme
+        self._apply_theme(theme)
+    
+    def _apply_theme(self, theme: str):
+        """应用指定的主题"""
+        import os
+        import sys
+        
+        # 主题文件映射
+        theme_files = {
+            'light': 'modern.qss',
+            'dark': 'dark.qss',
+            'gray': 'gray.qss'
+        }
+        
+        stylesheet_file = theme_files.get(theme, 'modern.qss')
+        
+        # 适配打包环境和开发环境
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            # 打包环境：样式文件在 _internal/desktop_qt_ui/styles/
+            stylesheet_path = os.path.join(sys._MEIPASS, 'desktop_qt_ui', 'styles', stylesheet_file)
+            # 图标基础路径
+            icon_base_path = os.path.join(sys._MEIPASS, 'desktop_qt_ui', 'styles', 'icons')
+        else:
+            # 开发环境
+            stylesheet_path = os.path.join(os.path.dirname(__file__), 'styles', stylesheet_file)
+            # 图标基础路径
+            icon_base_path = os.path.join(os.path.dirname(__file__), 'styles', 'icons')
+        
+        try:
+            with open(stylesheet_path, 'r', encoding='utf-8') as f:
+                stylesheet = f.read()
+                
+                # 替换样式表中的图标路径为绝对路径
+                # 将 desktop_qt_ui/styles/icons/ 替换为实际的绝对路径
+                stylesheet = stylesheet.replace(
+                    'desktop_qt_ui/styles/icons/',
+                    icon_base_path.replace('\\', '/') + '/'
+                )
+                
+                self.setStyleSheet(stylesheet)
+        except FileNotFoundError:
+            self.logger.warning(f"Stylesheet not found: {stylesheet_path}")
+        except Exception as e:
+            self.logger.error(f"Error loading stylesheet: {e}")
+    
+    def _change_theme(self, theme: str):
+        """切换主题并保存到配置"""
+        from services import get_config_service
+        
+        # 应用主题
+        self._apply_theme(theme)
+        
+        # 保存到配置（使用统一的配置管理服务）
+        config_service = get_config_service()
+        config = config_service.get_config()
+        config.app.theme = theme
+        config_service.set_config(config)
+        
+        # 保存到文件
+        config_service.save_config_file()
 
     def _connect_signals(self):
         # --- MainAppLogic Connections ---
@@ -106,6 +194,11 @@ class MainWindow(QMainWindow):
         # --- 撤销/重做连接到编辑器controller ---
         self.undo_action.triggered.connect(self.editor_controller.undo)
         self.redo_action.triggered.connect(self.editor_controller.redo)
+        
+        # --- 主题切换连接 ---
+        self.light_theme_action.triggered.connect(lambda: self._change_theme("light"))
+        self.dark_theme_action.triggered.connect(lambda: self._change_theme("dark"))
+        self.gray_theme_action.triggered.connect(lambda: self._change_theme("gray"))
 
     @pyqtSlot(str)
     def on_file_selected_from_main_list(self, file_path: str):
@@ -211,6 +304,5 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""
-        self.logger.info("Shutting down application...")
         self.app_logic.shutdown()
         event.accept()

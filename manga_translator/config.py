@@ -187,6 +187,8 @@ class RenderConfig(BaseModel):
     """Change text to lowercase"""
     no_hyphenation: bool = False
     """If renderer should be splitting up words using a hyphen character (-)"""
+    font_path: Optional[str] = None
+    """Path to font file for rendering. If not specified, uses default font."""
     font_color: Optional[str] = None
     """Overwrite the text fg/bg color detected by the OCR model. Use hex string without the "#" such as FFFFFF for a white foreground or FFFFFF:000000 to also have a black background around the text."""
     line_spacing: Optional[float] = None
@@ -339,6 +341,8 @@ class DetectorConfig(BaseModel):
     """Threshold for bbox generation"""
     unclip_ratio: float = 2.3
     """How much to extend text skeleton to form bounding box"""
+    min_box_area_ratio: float = 0.0009
+    """Minimum detection box area ratio relative to total image pixels (default 0.0009 = 0.09%)"""
 
 class InpainterConfig(BaseModel):
     inpainter: Inpainter = Inpainter.lama_large

@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Dict, List, Optional
 
 from PIL import Image
@@ -14,6 +15,21 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QWidget,
 )
+
+
+def natural_sort_key(path: str):
+    """
+    生成自然排序的键，支持数字排序
+    例如: file1.jpg, file2.jpg, file10.jpg 会按 1, 2, 10 排序
+    """
+    filename = os.path.basename(path)
+    parts = []
+    for part in re.split(r'(\d+)', filename):
+        if part.isdigit():
+            parts.append(int(part))
+        else:
+            parts.append(part.lower())
+    return parts
 
 
 class ThumbnailSignals(QObject):

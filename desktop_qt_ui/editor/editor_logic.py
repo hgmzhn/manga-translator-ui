@@ -49,11 +49,12 @@ class EditorLogic(QObject):
         folders = select_folders(
             parent=None,
             start_dir=last_dir,
-            multi_select=True
+            multi_select=True,
+            config_service=self.config_service
         )
 
         if folders:
-            # 添加所有选中的文件夹
+            # 扫描文件夹，添加所有图片文件路径
             for folder_path in folders:
                 self.add_folder(folder_path)
 
@@ -88,15 +89,21 @@ class EditorLogic(QObject):
             print(f"Error reading folder {folder_path}: {e}")
 
     @pyqtSlot(str)
-    def remove_file(self, file_path: str):
-        """移除文件（可能是源文件或翻译后的文件）"""
+    def remove_file(self, file_path: str, emit_signal: bool = False):
+        """
+        移除文件（可能是源文件或翻译后的文件）
+        
+        Args:
+            file_path: 要移除的文件路径
+            emit_signal: 是否发射 file_list_changed 信号（默认 False，由视图自己处理）
+        """
         removed = False
-
+        norm_file = os.path.normpath(file_path) if file_path else None
+        
         # 查找文件对（源文件和翻译文件）
         source_path, translated_path = self._find_file_pair(file_path)
         
         # 规范化路径进行比较
-        norm_file = os.path.normpath(file_path) if file_path else None
         norm_source = os.path.normpath(source_path) if source_path else None
         norm_translated = os.path.normpath(translated_path) if translated_path else None
         
@@ -129,10 +136,11 @@ class EditorLogic(QObject):
                     break
 
         if removed:
-            # 重新发射文件列表（优先发射翻译文件列表）
-            self.file_list_changed.emit(self.translated_files if self.translated_files else self.source_files)
+            # 只有在明确要求时才发射信号（用于清空列表等操作）
+            if emit_signal:
+                self.file_list_changed.emit(self.translated_files if self.translated_files else self.source_files)
 
-            # 检查当前加载的图片是否是被移除的文件（使用规范化路径比较）
+            # 检查当前加载的图片是否是被移除的文件
             current_image_path = self.controller.model.get_source_image_path()
             if current_image_path:
                 # 规范化所有路径以确保比较准确

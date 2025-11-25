@@ -16,6 +16,7 @@ customtkinter==5.2.2
 einops==0.8.1
 fastapi==0.116.1
 freetype-py==2.5.1
+python-multipart==0.0.20
 
 httpcore==1.0.9
 httpx==0.27.2

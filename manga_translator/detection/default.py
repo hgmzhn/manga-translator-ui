@@ -130,7 +130,8 @@ class DefaultDetector(OfflineDetector):
                         box_points = box_points[0].astype(np.int64)
                         
                         # 计算该区域的平均置信度作为得分（使用db）
-                        contour_mask = np.zeros_like(binary_mask)
+                        # 创建与db_resized_debug相同尺寸的mask
+                        contour_mask = np.zeros(db_resized_debug.shape, dtype=np.uint8)
                         cv2.drawContours(contour_mask, [contour], 0, 1, -1)
                         region_score = float(np.mean(db_resized_debug[contour_mask > 0]))
                         
@@ -143,7 +144,7 @@ class DefaultDetector(OfflineDetector):
                     
                     self.logger.info(f'[DEBUG] Found {len(all_textlines)} regions from mask (before box_threshold filtering)')
                     
-                    # 创建调试图像
+                    # 创建调试图像（使用原图）
                     debug_img = image.copy()
                     
                     # 生成不同的颜色
@@ -203,12 +204,6 @@ class DefaultDetector(OfflineDetector):
             polys = polys.astype(np.int64)
 
         textlines = [Quadrilateral(pts.astype(int), '', score) for pts, score in zip(polys, filtered_scores)]
-        
-        # 应用面积过滤：固定阈值 + 相对图片总像素的比例阈值
-        img_h, img_w = image.shape[:2]
-        img_total_pixels = img_h * img_w
-        min_area_ratio = 0.001  # 0.1%的比例阈值（千分之一）
-        textlines = list(filter(lambda q: q.area > 16 and q.area / img_total_pixels > min_area_ratio, textlines))
         
         # 使用mask生成raw_mask（用于inpainting修复）
         mask_resized = cv2.resize(mask, (mask.shape[1] * 2, mask.shape[0] * 2), interpolation=cv2.INTER_LINEAR)

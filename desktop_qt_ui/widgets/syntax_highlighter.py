@@ -14,11 +14,14 @@ class HorizontalTagHighlighter(QSyntaxHighlighter):
 
         # 格式1: 用于 <H> 和 </H> 标签本身 (使其不可见)
         self.tag_format = QTextCharFormat()
-        # 使用与背景相同的颜色来隐藏标签
-        # Qt 的 QTextEdit 默认背景是白色,但我们需要获取实际的背景色
-        # 这里先使用透明色,如果不行再改用背景色
-        self.tag_format.setForeground(QColor(255, 255, 255, 0))  # 白色透明
-        self.tag_format.setFontPointSize(1)  # 设置极小的字体大小
+        # 将标签设置为完全透明，字体大小为0
+        self.tag_format.setForeground(QColor(0, 0, 0, 0))  # 完全透明
+        self.tag_format.setFontPointSize(0.1)  # 设置极小的字体大小
+        # 隐藏标签的另一种方法：使用与背景相同的颜色
+        # 获取父控件的背景色
+        if parent:
+            bg_color = parent.palette().color(parent.backgroundRole())
+            self.tag_format.setForeground(bg_color)
 
         # 格式2: 用于标签内的内容 (高亮背景)
         self.content_format = QTextCharFormat()
@@ -31,11 +34,11 @@ class HorizontalTagHighlighter(QSyntaxHighlighter):
     def highlightBlock(self, text):
         """在文本块中应用高亮"""
         for match in self.pattern.finditer(text):
-            # 高亮开始标签 <H>
+            # 高亮开始标签 <H> - 使其不可见
             self.setFormat(match.start(1), match.end(1) - match.start(1), self.tag_format)
             
             # 高亮内容
             self.setFormat(match.start(2), match.end(2) - match.start(2), self.content_format)
             
-            # 高亮结束标签 </H>
+            # 高亮结束标签 </H> - 使其不可见
             self.setFormat(match.start(3), match.end(3) - match.start(3), self.tag_format)

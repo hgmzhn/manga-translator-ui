@@ -397,6 +397,12 @@ class MainAppLogic(QObject):
             self.display_name_maps = {
                 "alignment": {"auto": "自动", "left": "左对齐", "center": "居中", "right": "右对齐"},
                 "direction": {"auto": "自动", "h": "横排", "v": "竖排"},
+                "upscaler": {
+                    "waifu2x": "Waifu2x",
+                    "esrgan": "ESRGAN",
+                    "4xultrasharp": "4x UltraSharp",
+                    "realcugan": "Real-CUGAN"
+                },
                 "layout_mode": {
                     'default': "默认模式 (有Bug)",
                     'smart_scaling': "智能缩放 (推荐)",
@@ -443,7 +449,7 @@ class MainAppLogic(QObject):
                     "merge_gamma": "合并-距离容忍度", "merge_sigma": "合并-离群容忍度", "merge_edge_ratio_threshold": "合并-边缘距离比例阈值", "detector": "文本检测器",
                     "detection_size": "检测大小", "text_threshold": "文本阈值", "det_rotate": "旋转图像进行检测",
                     "det_auto_rotate": "旋转图像以优先检测垂直文本行", "det_invert": "反转图像颜色进行检测",
-                    "det_gamma_correct": "应用伽马校正进行检测", "use_yolo_obb": "启用YOLO辅助检测", "yolo_obb_conf": "YOLO置信度阈值", "yolo_obb_iou": "YOLO交叉比(IoU)", "yolo_obb_overlap_threshold": "YOLO辅助检测重叠率删除阈值", "box_threshold": "边界框生成阈值", "unclip_ratio": "Unclip比例",
+                    "det_gamma_correct": "应用伽马校正进行检测", "use_yolo_obb": "启用YOLO辅助检测", "yolo_obb_conf": "YOLO置信度阈值", "yolo_obb_iou": "YOLO交叉比(IoU)", "yolo_obb_overlap_threshold": "YOLO辅助检测重叠率删除阈值", "box_threshold": "边界框生成阈值", "unclip_ratio": "Unclip比例", "min_box_area_ratio": "最小检测框面积占比",
                     "inpainter": "修复模型", "inpainting_size": "修复大小", "inpainting_precision": "修复精度",
                     "renderer": "渲染器", "alignment": "对齐方式", "disable_font_border": "禁用字体边框",
                     "disable_auto_wrap": "AI断句", "font_size_offset": "字体大小偏移量", "font_size_minimum": "最小字体大小",
@@ -452,7 +458,7 @@ class MainAppLogic(QObject):
                     "center_text_in_bubble": "AI断句时文本居中",
                     "optimize_line_breaks": "AI断句自动扩大文字", "check_br_and_retry": "AI断句检查",
                     "strict_smart_scaling": "AI断句自动扩大文字下不扩大文本框",
-                    "direction": "文本方向", "uppercase": "大写", "lowercase": "小写", "gimp_font": "GIMP字体",
+                    "direction": "文本方向", "uppercase": "大写", "lowercase": "小写",
                     "font_path": "字体路径", "no_hyphenation": "禁用连字符", "font_color": "字体颜色",
                     "auto_rotate_symbols": "竖排内横排", "rtl": "从右到左", "layout_mode": "排版模式",
                     "upscaler": "超分模型", "upscale_ratio": "超分倍数", "realcugan_model": "Real-CUGAN模型", "tile_size": "分块大小(0=不分割)", "revert_upscaling": "还原超分", "colorization_size": "上色大小",
@@ -560,7 +566,8 @@ class MainAppLogic(QObject):
         folders = select_folders(
             parent=None,
             start_dir=last_dir,
-            multi_select=True
+            multi_select=True,
+            config_service=self.config_service
         )
 
         if folders:
@@ -597,12 +604,54 @@ class MainAppLogic(QObject):
     def remove_file(self, file_path: str):
         try:
             norm_file_path = os.path.normpath(file_path)
+            
+            # 情况1：直接在 source_files 中（文件夹或单独添加的文件）
             if norm_file_path in self.source_files:
                 self.source_files.remove(norm_file_path)
                 self.file_removed.emit(file_path)
-                self.logger.info(f"Removed path {os.path.basename(file_path)} from list.")
-            else:
-                self.logger.warning(f"Path not found in list for removal: {file_path}")
+                return
+            
+            # 情况2：文件夹内的单个文件（只处理文件，不处理文件夹）
+            if os.path.isfile(norm_file_path):
+                # 检查这个文件是否来自某个文件夹
+                parent_folder = None
+                for folder in self.source_files:
+                    if os.path.isdir(folder):
+                        # 检查文件是否在这个文件夹内
+                        try:
+                            common = os.path.commonpath([folder, norm_file_path])
+                            # 确保文件在文件夹内，而不是文件夹本身
+                            if common == os.path.normpath(folder) and norm_file_path != os.path.normpath(folder):
+                                parent_folder = folder
+                                break
+                        except ValueError:
+                            # 不同驱动器，跳过
+                            continue
+                
+                if parent_folder:
+                    # 这是文件夹内的文件，需要将其添加到排除列表
+                    # 由于当前架构不支持排除单个文件，我们需要：
+                    # 1. 移除整个文件夹
+                    # 2. 添加文件夹内的其他文件
+                    
+                    # 获取文件夹内的所有图片文件
+                    folder_files = self.file_service.get_image_files_from_folder(parent_folder, recursive=True)
+                    
+                    # 移除要删除的文件
+                    remaining_files = [f for f in folder_files if os.path.normpath(f) != norm_file_path]
+                    
+                    # 从 source_files 中移除文件夹
+                    self.source_files.remove(parent_folder)
+                    
+                    # 如果还有剩余文件，将它们作为单独的文件添加回去
+                    if remaining_files:
+                        self.source_files.extend(remaining_files)
+                    
+                    self.file_removed.emit(file_path)
+                    return
+            
+            # 如果到这里还没有处理，说明路径不存在
+            self.logger.warning(f"Path not found in list for removal: {file_path}")
         except Exception as e:
             self.logger.error(f"移除路径时发生异常: {e}")
 
@@ -637,22 +686,20 @@ class MainAppLogic(QObject):
                 if self.file_service.validate_image_file(path):
                     individual_files.append(path)
         
-        # 对文件夹进行排序
-        folders.sort()
+        # 对文件夹进行自然排序
+        folders.sort(key=self.file_service._natural_sort_key)
         
         # 按文件夹分组处理
         for folder in folders:
-            # 获取文件夹中的所有图片
+            # 获取文件夹中的所有图片（已经使用自然排序）
             folder_files = self.file_service.get_image_files_from_folder(folder, recursive=True)
-            # 对文件夹内的图片进行排序
-            folder_files.sort()
             resolved_files.extend(folder_files)
             # 记录这些文件来自这个文件夹
             for file_path in folder_files:
                 self.file_to_folder_map[file_path] = folder
         
-        # 处理单独添加的文件
-        individual_files.sort()
+        # 处理单独添加的文件（使用自然排序）
+        individual_files.sort(key=self.file_service._natural_sort_key)
         for file_path in individual_files:
             resolved_files.append(file_path)
             # 单独添加的文件，不属于任何文件夹
@@ -676,9 +723,27 @@ class MainAppLogic(QObject):
             # QMessageBox.critical(None, "配置错误", f"无法加载最新配置: {e}")
             # return
 
-        if self.thread is not None and self.thread.isRunning():
+        # 检查是否有任务在运行（基于状态而不是线程）
+        if self.state_manager.is_translating():
             self.logger.warning("一个任务已经在运行中。")
             return
+        
+        # 如果有旧线程还在运行，等待它结束（不使用 terminate）
+        if self.thread is not None and self.thread.isRunning():
+            self.logger.warning("检测到旧线程还在运行，等待其结束...")
+            # 通知 worker 停止
+            if self.worker:
+                try:
+                    self.worker.stop()
+                except:
+                    pass
+            # 请求线程退出
+            self.thread.quit()
+            # 等待最多500ms
+            if not self.thread.wait(500):
+                self.logger.warning("旧线程500ms内未停止，放弃等待并继续")
+            self.thread = None
+            self.worker = None
 
         # 检查文件列表是否为空
         files_to_process = self._resolve_input_files()
@@ -739,7 +804,6 @@ class MainAppLogic(QObject):
 
     def on_task_finished(self, results):
         """处理任务完成信号，并根据需要保存批量任务的结果"""
-        print("--- MainAppLogic: Slot on_task_finished triggered.")
         saved_files = []
         # The `results` list will only contain items from a batch job now.
         # Sequential jobs handle saving in `on_file_completed`.
@@ -817,47 +881,38 @@ class MainAppLogic(QObject):
             saved_files = self.saved_files_list.copy()
         
         try:
-            print("--- DEBUG: on_task_finished step 1: Setting translating state to False.")
             self.state_manager.set_translating(False)
-            print("--- DEBUG: on_task_finished step 2: Setting status message.")
             self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件。")
-            print("--- DEBUG: on_task_finished step 3: Emitting task_completed signal.")
             self.task_completed.emit(saved_files)
-            print("--- DEBUG: on_task_finished step 4: Signal emitted successfully.")
         except Exception as e:
             self.logger.error(f"完成任务状态更新或信号发射时发生致命错误: {e}", exc_info=True)
         finally:
-            print("--- DEBUG: on_task_finished step 5: Entering finally block.")
             if self.thread and self.thread.isRunning():
                 self.thread.quit()
-                self.thread.wait(5000)  # 等待线程结束，最多等待5秒
+                self.thread.wait(5000)
                 if self.thread.isRunning():
                     self.logger.warning("Thread did not finish within timeout, terminating...")
                     self.thread.terminate()
                     self.thread.wait()
             self.thread = None
             self.worker = None
-            print("--- MainAppLogic: Slot on_task_finished finished.")
 
     def on_task_error(self, error_message):
-        print("--- MainAppLogic: Slot on_task_error triggered.")
         self.logger.error(f"翻译任务发生错误: {error_message}")
+        
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message(f"任务失败: {error_message}")
         
-        # 正确停止线程
         if self.thread and self.thread.isRunning():
-            self.logger.info("Waiting for error cleanup thread to finish...")
             self.thread.quit()
-            self.thread.wait(5000)  # 等待最多5秒
+            self.thread.wait(2000)
             if self.thread.isRunning():
                 self.logger.warning("Thread did not finish within timeout, terminating...")
                 self.thread.terminate()
-                self.thread.wait()
+                self.thread.wait(500)
         
         self.thread = None
         self.worker = None
-        print("--- MainAppLogic: Slot on_task_error finished.")
 
     def on_task_progress(self, current, total, message):
         self.logger.info(f"[进度] {current}/{total}: {message}")
@@ -866,62 +921,42 @@ class MainAppLogic(QObject):
         self.state_manager.set_status_message(f"[{current}/{total}] {message}")
 
     def stop_task(self) -> bool:
+        """停止翻译任务（优雅停止，不使用 terminate）"""
         if self.thread and self.thread.isRunning():
             self.logger.info("正在请求停止翻译线程...")
 
-            # 立即更新UI状态：设置为非翻译状态，显示"停止中"
+            # 立即更新UI状态：设置为非翻译状态
             self.state_manager.set_translating(False)
-            self.state_manager.set_status_message("正在停止翻译...")
+            self.state_manager.set_status_message("正在停止...")
 
-            # 1. 先通知 worker 停止
+            # 1. 通知 worker 停止（设置标志）
             if self.worker:
-                self.worker.stop()
-
-            # 2. 请求线程退出
-            self.thread.quit()
-
-            # 保存线程引用，避免在等待过程中被清空
-            thread_ref = self.thread
-            worker_ref = self.worker
-
-            # 在后台等待线程停止，不阻塞UI
-            from PyQt6.QtCore import QTimer
-            timeout_counter = [0]  # 使用列表以便在闭包中修改
-
-            def wait_for_thread():
                 try:
-                    if thread_ref and not thread_ref.wait(100):  # 等待100ms
-                        timeout_counter[0] += 100
+                    self.worker.stop()
+                except:
+                    pass
 
-                        # 如果超过5秒还没停止，强制终止
-                        if timeout_counter[0] >= 5000:
-                            self.logger.warning("线程5秒内未停止，强制终止...")
-                            try:
-                                thread_ref.terminate()
-                                thread_ref.wait(1000)  # 等待1秒
-                                self.logger.info("翻译线程已被强制终止。")
-                                self.state_manager.set_status_message("任务已强制停止")
-                            except Exception as e:
-                                self.logger.error(f"强制终止线程失败: {e}")
-                                self.state_manager.set_status_message("停止失败")
-                        else:
-                            # 继续等待
-                            QTimer.singleShot(100, wait_for_thread)
-                    else:
-                        # 线程已停止
-                        self.logger.info("翻译线程已成功停止。")
-                        self.state_manager.set_status_message("任务已停止")
-                except RuntimeError:
-                    # 线程对象已被删除，认为已停止
-                    self.logger.info("翻译线程已停止（对象已删除）。")
-                    self.state_manager.set_status_message("任务已停止")
+            # 2. 请求线程退出事件循环
+            self.thread.quit()
+            
+            # 3. 连接 finished 信号以清理资源
+            def on_thread_finished():
+                self.logger.info("翻译线程已正常停止")
+                self.state_manager.set_status_message("任务已停止")
+                self.thread = None
+                self.worker = None
+            
+            try:
+                self.thread.finished.disconnect()
+            except:
+                pass
+            self.thread.finished.connect(on_thread_finished)
 
-            # 启动非阻塞等待
-            QTimer.singleShot(0, wait_for_thread)
-
-            # 立即返回，不等待线程停止
             return True
+        
         self.logger.warning("请求停止任务，但没有正在运行的线程。")
+        self.state_manager.set_translating(False)
+        return False
         return False
     # endregion
 
@@ -955,9 +990,30 @@ class MainAppLogic(QObject):
             return False
     
     def shutdown(self):
+        """应用关闭时的清理"""
         try:
             if self.state_manager.is_translating():
-                self.stop_task()
+                self.logger.info("应用关闭中，停止翻译任务...")
+                
+                # 通知 worker 停止
+                if self.worker:
+                    try:
+                        self.worker.stop()
+                    except:
+                        pass
+                
+                # 请求线程退出并等待（最多1秒）
+                if self.thread and self.thread.isRunning():
+                    self.thread.quit()
+                    if not self.thread.wait(1000):
+                        self.logger.warning("线程1秒内未停止，放弃等待")
+                    else:
+                        self.logger.info("翻译线程已停止")
+                
+                self.thread = None
+                self.worker = None
+                self.state_manager.set_translating(False)
+            
             if self.translation_service:
                 pass
         except Exception as e:
@@ -1277,6 +1333,8 @@ class TranslationWorker(QObject):
                 font_full_path = os.path.join(self.root_dir, 'fonts', font_filename)
                 if os.path.exists(font_full_path):
                     translator_params['font_path'] = font_full_path
+                    # 同时更新 config_dict 中的 font_path
+                    self.config_dict['render']['font_path'] = font_full_path
 
             translator = MangaTranslator(params=translator_params)
             self.log_received.emit("--- [10] THREAD: Translator initialized.")
@@ -1404,9 +1462,16 @@ class TranslationWorker(QObject):
                 for file_path in self.files:
                     if not self._is_running: raise asyncio.CancelledError("Task stopped by user.")
                     self.progress.emit(len(images_with_configs), len(self.files), f"Loading for batch: {os.path.basename(file_path)}")
-                    image = Image.open(file_path)
-                    image.name = file_path
-                    images_with_configs.append((image, config))
+                    try:
+                        # 使用二进制模式读取以避免Windows路径编码问题
+                        with open(file_path, 'rb') as f:
+                            image = Image.open(f)
+                            image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
+                        image.name = file_path
+                        images_with_configs.append((image, config))
+                    except Exception as e:
+                        self.log_received.emit(f"⚠️ 无法加载图片 {os.path.basename(file_path)}: {e}")
+                        self.logger.error(f"Error loading image {file_path}: {e}")
 
                 self.log_received.emit(f"🚀 开始翻译...")
                 contexts = await translator.translate_batch(images_with_configs, save_info=save_info)
@@ -1470,7 +1535,10 @@ class TranslationWorker(QObject):
                     self.log_received.emit(f"🔄 [{current_num}/{total_files}] 正在处理：{os.path.basename(file_path)}")
 
                     try:
-                        image = Image.open(file_path)
+                        # 使用二进制模式读取以避免Windows路径编码问题
+                        with open(file_path, 'rb') as f:
+                            image = Image.open(f)
+                            image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
                         image.name = file_path
 
                         ctx = await translator.translate(image, config, image_name=image.name)
@@ -1537,10 +1605,38 @@ class TranslationWorker(QObject):
         loop = None
         try:
             import asyncio
+            import sys
             self.log_received.emit("--- [1] THREAD: process() method entered, starting asyncio task.")
 
+            # 在Windows上的工作线程中，需要手动初始化Windows Socket
+            if sys.platform == 'win32':
+                # 使用ctypes直接调用WSAStartup
+                import ctypes
+                
+                try:
+                    # WSADATA结构体大小
+                    WSADATA_SIZE = 400
+                    wsa_data = ctypes.create_string_buffer(WSADATA_SIZE)
+                    # 调用WSAStartup，版本2.2
+                    ws2_32 = ctypes.WinDLL('ws2_32')
+                    result = ws2_32.WSAStartup(0x0202, wsa_data)
+                    if result != 0:
+                        self.log_received.emit(f"--- [ERROR] WSAStartup failed with code {result}")
+                except Exception as e:
+                    self.log_received.emit(f"--- [ERROR] Failed to initialize WSA: {e}")
+                
+                # 使用ProactorEventLoop（Windows默认）
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
             # 创建事件循环并保存任务引用
-            loop = asyncio.new_event_loop()
+            try:
+                loop = asyncio.new_event_loop()
+            except Exception as e:
+                self.log_received.emit(f"--- [ERROR] Failed to create event loop: {e}")
+                import traceback
+                self.log_received.emit(f"--- [ERROR] Traceback: {traceback.format_exc()}")
+                raise
+            
             asyncio.set_event_loop(loop)
             
             self._current_task = loop.create_task(self._do_processing())

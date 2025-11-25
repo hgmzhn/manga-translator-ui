@@ -80,6 +80,10 @@ logs/
 # Ignore user config (这是用户自己的配置，防止推送到git)
 examples/config.json
 
+# Ignore API test files (本地测试文件)
+examples/api_test_ui.py
+examples/API_TEST_README.md
+
 # ---------- Below from old .gitignore ----------
 
 # Pycharm

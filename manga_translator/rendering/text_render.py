@@ -383,26 +383,11 @@ def calc_horizontal_block_height(font_size: int, content: str) -> int:
     # 判断：2个字符横排，3个及以上字符竖排但旋转90度
     if len(content) >= 3:
         # --- 计算竖排旋转块的高度 ---
-        total_height = 0
-        for char_r in content:
-            if char_r == '！':
-                char_r = '!'
-            elif char_r == '？':
-                char_r = '?'
-
-            try:
-                # 获取横排间距（horiAdvance），用于竖排时的字符间距
-                slot = get_char_glyph(char_r, font_size, 0)
-                if hasattr(slot, 'metrics') and hasattr(slot.metrics, 'horiAdvance') and slot.metrics.horiAdvance:
-                    horizontal_advance = slot.metrics.horiAdvance >> 6
-                else:
-                    horizontal_advance = font_size // 2
-
-                total_height += horizontal_advance
-            except Exception:
-                total_height += font_size // 2
-
-        return total_height
+        # 使用与渲染相同的方式：横排渲染后旋转90度
+        # 旋转后，原来的宽度变成高度
+        total_width = get_string_width(font_size, content)
+        # 旋转90度后，宽度变成高度
+        return total_width
     else:
         # --- 计算横排块的高度（2个字符） ---
         h_font_size = font_size
@@ -710,23 +695,73 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
                 # 判断：2个字符横排，3个及以上字符竖排但旋转90度
                 if len(content) >= 3:
                     # --- RENDER ROTATED BLOCK (竖排但每个字符旋转90度) ---
+                    # 使用与2个字符横排相同的渲染方式，确保字符间距一致
+                    r_font_size = font_size
+                    
+                    # 先在临时画布上横排渲染
+                    r_width = get_string_width(r_font_size, content) + r_font_size
+                    r_height = r_font_size * 2
+                    
+                    temp_canvas_text = np.zeros((r_height, r_width), dtype=np.uint8)
+                    temp_canvas_border = np.zeros((r_height, r_width), dtype=np.uint8)
+                    pen_r = [r_font_size // 2, r_font_size]
+                    
                     for char_r in content:
-                        # 每个字符旋转90度后竖排显示
                         if char_r == '！': char_r = '!'
                         elif char_r == '？': char_r = '?'
-
-                        # 使用 put_char_vertical，但强制旋转90度
-                        offset_y = put_char_vertical(font_size, char_r, pen_line, canvas_text, canvas_border, border_size=bg_size, config=config, line_width=font_size, force_rotate_90=True)
-
-                        # 获取横排间距（horiAdvance），用于竖排时的字符间距
-                        slot = get_char_glyph(char_r, font_size, 0)
-                        if hasattr(slot, 'metrics') and hasattr(slot.metrics, 'horiAdvance') and slot.metrics.horiAdvance:
-                            horizontal_advance = slot.metrics.horiAdvance >> 6
-                        else:
-                            horizontal_advance = font_size // 2  # 备用值
-
-                        # 使用横排的间距作为竖排旋转后的间距
-                        pen_line[1] += horizontal_advance
+                        offset_x = put_char_horizontal(r_font_size, char_r, pen_r, temp_canvas_text, temp_canvas_border, border_size=bg_size, config=config)
+                        pen_r[0] += offset_x
+                    
+                    # 旋转90度（顺时针）
+                    rotated_text = cv2.rotate(temp_canvas_text, cv2.ROTATE_90_CLOCKWISE)
+                    rotated_border = cv2.rotate(temp_canvas_border, cv2.ROTATE_90_CLOCKWISE)
+                    
+                    # 裁剪空白
+                    combined_temp = cv2.add(rotated_text, rotated_border)
+                    x, y, w, h_crop = cv2.boundingRect(combined_temp)
+                    if w == 0 or h_crop == 0:
+                        logger.warning(f"[RENDER SKIPPED] Rotated block has zero dimensions. Width: {w}, Height: {h_crop}")
+                        continue
+                    
+                    rotated_block_text = rotated_text[y:y+h_crop, x:x+w]
+                    rotated_block_border = rotated_border[y:y+h_crop, x:x+w]
+                    
+                    rh, rw = rotated_block_text.shape
+                    
+                    # 在竖排行的中心对齐旋转块
+                    line_start_x = pen_line[0] - font_size
+                    paste_x = line_start_x + (font_size - rw) // 2
+                    paste_y = pen_line[1]
+                    
+                    # 边界检查和调整
+                    canvas_h, canvas_w = canvas_text.shape
+                    if paste_y + rh > canvas_h or paste_x + rw > canvas_w or paste_x < 0 or paste_y < 0:
+                        # 向中心调整
+                        if paste_x < 0:
+                            paste_x = 0
+                        elif paste_x + rw > canvas_w:
+                            paste_x = canvas_w - rw
+                        if paste_y < 0:
+                            paste_y = 0
+                        elif paste_y + rh > canvas_h:
+                            paste_y = canvas_h - rh
+                        
+                        paste_x = max(0, min(paste_x, canvas_w - rw))
+                        paste_y = max(0, min(paste_y, canvas_h - rh))
+                        
+                        if paste_x < 0 or paste_y < 0 or paste_x + rw > canvas_w or paste_y + rh > canvas_h:
+                            logger.warning(f"Rotated block too large for canvas, skipping. Size: {rw}x{rh}, Canvas: {canvas_w}x{canvas_h}")
+                            continue
+                    
+                    # 粘贴到主画布
+                    target_text_roi = canvas_text[paste_y:paste_y+rh, paste_x:paste_x+rw]
+                    canvas_text[paste_y:paste_y+rh, paste_x:paste_x+rw] = np.maximum(target_text_roi, rotated_block_text)
+                    
+                    target_border_roi = canvas_border[paste_y:paste_y+rh, paste_x:paste_x+rw]
+                    canvas_border[paste_y:paste_y+rh, paste_x:paste_x+rw] = np.maximum(target_border_roi, rotated_block_border)
+                    
+                    # 使用旋转后的实际高度
+                    pen_line[1] += rh
                     # --- END ROTATED BLOCK RENDER ---
                 else:
                     # --- RENDER HORIZONTAL BLOCK (2个字符横排) ---

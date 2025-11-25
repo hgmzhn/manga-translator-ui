@@ -36,11 +36,12 @@ class ConfigService(QObject):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.root_dir = root_dir
-        # .env文件应该在exe所在目录（root_dir的上一级，与exe同级）
-        # 打包后：root_dir = _internal，.env在_internal的上一级
+        # .env文件应该在exe所在目录（可写位置）
+        # 打包后：root_dir = _internal，.env在exe所在目录（_internal的上一级）
         # 开发时：root_dir = 项目根目录，.env也在项目根目录
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            self.env_path = os.path.join(self.root_dir, "..", ".env")
+            exe_dir = os.path.dirname(sys.executable)
+            self.env_path = os.path.join(exe_dir, ".env")
         else:
             self.env_path = os.path.join(self.root_dir, ".env")
 
@@ -168,17 +169,21 @@ class ConfigService(QObject):
     def save_config_file(self, config_path: Optional[str] = None) -> bool:
         """
         保存JSON配置文件
-        默认同时保存到用户配置和模板配置
-        - 模板配置：临时UI状态强制设为默认值
-        - 用户配置：包含所有配置（保留实际值）
+        - 如果指定路径，只保存到指定路径
+        - 否则保存到用户配置路径（打包后在_internal/examples，开发时在examples目录）
+        - 同时更新模板配置（开发环境）
         """
         try:
             if config_path:
                 # 如果指定了路径，只保存到指定路径
                 save_paths = [config_path]
             else:
-                # 默认同时保存到两个文件
-                save_paths = [self.user_config_path, self.default_config_path]
+                # 打包环境和开发环境都保存到用户配置
+                # 开发环境额外保存到模板配置
+                if hasattr(sys, '_MEIPASS'):
+                    save_paths = [self.user_config_path]
+                else:
+                    save_paths = [self.user_config_path, self.default_config_path]
             
             success_count = 0
             for save_path in save_paths:
@@ -188,17 +193,38 @@ class ConfigService(QObject):
                 # 获取当前配置
                 config_dict = self.current_config.dict()
                 
-                # 只有保存到模板配置时才重置临时状态
+                # 读取现有配置，保留favorite_folders
+                existing_favorites = None
+                if os.path.exists(save_path):
+                    try:
+                        with open(save_path, 'r', encoding='utf-8') as f:
+                            existing_config = json.load(f)
+                            existing_favorites = existing_config.get('app', {}).get('favorite_folders')
+                    except:
+                        pass
+                
+                # 只有保存到模板配置时才重置临时状态（仅开发环境）
                 is_default_config = save_path == self.default_config_path
-                if is_default_config:
+                if is_default_config and not hasattr(sys, '_MEIPASS'):
                     # 重置临时UI状态为默认值
                     if 'app' not in config_dict:
                         config_dict['app'] = {}
                     config_dict['app']['last_open_dir'] = '.'
                     config_dict['app']['last_output_path'] = ''
+                    # 模板配置中这两个字段保持固定值
+                    config_dict['app']['favorite_folders'] = None
+                    config_dict['app']['theme'] = 'light'
                     
                     if 'cli' in config_dict:
                         config_dict['cli']['verbose'] = False
+                else:
+                    # 用户配置保留favorite_folders（但如果当前配置已经有新值，就不覆盖）
+                    if existing_favorites is not None:
+                        if 'app' not in config_dict:
+                            config_dict['app'] = {}
+                        # 只有当前配置中没有 favorite_folders 时，才使用旧值
+                        if 'favorite_folders' not in config_dict.get('app', {}):
+                            config_dict['app']['favorite_folders'] = existing_favorites
                 
                 try:
                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -206,8 +232,6 @@ class ConfigService(QObject):
                     with open(save_path, 'w', encoding='utf-8') as f:
                         json.dump(config_dict, f, indent=2, ensure_ascii=False)
                     
-                    filename = os.path.basename(save_path)
-                    self.logger.debug(f"保存配置: {filename}")
                     success_count += 1
                 except Exception as e:
                     self.logger.error(f"保存配置失败 ({os.path.basename(save_path)}): {e}")
@@ -408,7 +432,8 @@ class ConfigService(QObject):
         """
         获取用户配置文件路径
         
-        打包后和开发时都在examples目录
+        打包后：用户配置在_internal/examples/config.json（可写）
+        开发时：在项目根目录的examples目录
         """
         if hasattr(sys, '_MEIPASS'):
             # 打包环境：用户配置在_internal/examples目录
@@ -424,21 +449,35 @@ class ConfigService(QObject):
         """
         # 1. 先加载默认配置（如果存在）
         if os.path.exists(self.default_config_path):
-            self.logger.debug(f"加载默认配置: {os.path.basename(self.default_config_path)}")
+            self.logger.info(f"加载默认配置: {self.default_config_path}")
             self.load_config_file(self.default_config_path)
         else:
-            self.logger.warning(f"默认配置不存在: {os.path.basename(self.default_config_path)}")
+            self.logger.warning(f"默认配置不存在: {self.default_config_path}")
         
         # 2. 再加载用户配置（如果存在），覆盖默认配置
         if os.path.exists(self.user_config_path):
-            self.logger.debug(f"加载用户配置: {os.path.basename(self.user_config_path)}")
+            self.logger.info(f"加载用户配置: {self.user_config_path}")
             self.load_config_file(self.user_config_path)
             self.config_path = self.user_config_path
         else:
-            self.logger.debug(f"用户配置不存在，使用默认配置")
-            # 如果用户配置不存在，使用默认配置路径作为保存目标
+            self.logger.info(f"用户配置不存在: {self.user_config_path}")
+            # 如果用户配置不存在，从默认配置创建一份
             if os.path.exists(self.default_config_path):
-                self.config_path = self.default_config_path
+                self.logger.info("从默认配置创建用户配置")
+                try:
+                    # 复制默认配置到用户配置位置
+                    os.makedirs(os.path.dirname(self.user_config_path), exist_ok=True)
+                    with open(self.default_config_path, 'r', encoding='utf-8') as src:
+                        config_data = json.load(src)
+                    with open(self.user_config_path, 'w', encoding='utf-8') as dst:
+                        json.dump(config_data, dst, indent=2, ensure_ascii=False)
+                    self.logger.info(f"用户配置已创建: {self.user_config_path}")
+                    self.config_path = self.user_config_path
+                except Exception as e:
+                    self.logger.error(f"创建用户配置失败: {e}")
+                    self.config_path = self.default_config_path
+            else:
+                self.config_path = self.user_config_path
         
         # 3. 同步用户配置（添加新字段、删除旧字段）
         self._sync_user_config()
@@ -454,28 +493,28 @@ class ConfigService(QObject):
             self.logger.warning("默认配置不存在，跳过同步")
             return
         
+        if not os.path.exists(self.user_config_path):
+            self.logger.info("用户配置不存在，跳过同步")
+            return
+        
         try:
             # 读取默认配置（作为模板）
             with open(self.default_config_path, 'r', encoding='utf-8') as f:
                 default_data = json.load(f)
             
-            # 如果用户配置存在，读取并同步
-            if os.path.exists(self.user_config_path):
-                with open(self.user_config_path, 'r', encoding='utf-8') as f:
-                    user_data = json.load(f)
-                
-                # 同步配置（递归处理嵌套字典）
-                synced_data = self._sync_dict(default_data, user_data)
-                
-                # 如果有变化，保存回用户配置
-                if synced_data != user_data:
-                    self.logger.info("检测到配置结构变化，正在同步用户配置")
-                    with open(self.user_config_path, 'w', encoding='utf-8') as f:
-                        json.dump(synced_data, f, indent=2, ensure_ascii=False)
-                    self.logger.info("用户配置同步完成")
-            else:
-                # 用户配置不存在，创建一个空的（只包含用户修改的值）
-                self.logger.info("用户配置不存在，将在首次保存时创建")
+            # 读取用户配置
+            with open(self.user_config_path, 'r', encoding='utf-8') as f:
+                user_data = json.load(f)
+            
+            # 同步配置（递归处理嵌套字典）
+            synced_data = self._sync_dict(default_data, user_data)
+            
+            # 如果有变化，保存回用户配置
+            if synced_data != user_data:
+                self.logger.info("检测到配置结构变化，正在同步用户配置")
+                with open(self.user_config_path, 'w', encoding='utf-8') as f:
+                    json.dump(synced_data, f, indent=2, ensure_ascii=False)
+                self.logger.info("用户配置同步完成")
                 
         except Exception as e:
             self.logger.error(f"同步用户配置失败: {e}")

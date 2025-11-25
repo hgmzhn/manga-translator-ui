@@ -38,7 +38,7 @@ async def prepare(detector_key: Detector):
 
 async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float, unclip_ratio: float,
                    invert: bool, gamma_correct: bool, rotate: bool, auto_rotate: bool = False, device: str = 'cpu', verbose: bool = False,
-                   use_yolo_obb: bool = False, yolo_obb_conf: float = 0.4, yolo_obb_iou: float = 0.6, yolo_obb_overlap_threshold: float = 0.1):
+                   use_yolo_obb: bool = False, yolo_obb_conf: float = 0.4, yolo_obb_iou: float = 0.6, yolo_obb_overlap_threshold: float = 0.1, min_box_area_ratio: float = 0.0009):
     """
     检测调度函数，支持混合检测模式
     
@@ -46,12 +46,13 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
         use_yolo_obb: 是否启用YOLO OBB辅助检测器
         yolo_obb_conf: YOLO OBB检测器的置信度阈值
         yolo_obb_iou: YOLO OBB检测器的IoU阈值（交叉比）
+        min_box_area_ratio: 最小检测框面积占比（相对图片总像素）
     """
     # 主检测器检测
     detector = get_detector(detector_key)
     if isinstance(detector, OfflineDetector):
         await detector.load(device)
-    main_textlines, mask, raw_image = await detector.detect(image, detect_size, text_threshold, box_threshold, unclip_ratio, invert, gamma_correct, rotate, auto_rotate, verbose)
+    main_textlines, mask, raw_image = await detector.detect(image, detect_size, text_threshold, box_threshold, unclip_ratio, invert, gamma_correct, rotate, auto_rotate, verbose, min_box_area_ratio)
     
     # 如果不启用YOLO OBB，直接返回主检测器结果
     if not use_yolo_obb:

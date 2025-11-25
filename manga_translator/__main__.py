@@ -1,100 +1,63 @@
-import os
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Manga Translator - 命令行入口
+支持多种运行模式：cli, local, ws, shared
+"""
 import sys
 import asyncio
 import logging
-from argparse import Namespace
 
-from manga_translator import Config
-from manga_translator.args import parser, reparse
-from .manga_translator import (
-    set_main_logger, load_dictionary, apply_dictionary,
-)
-from .args import parser
-from .utils import (
-    BASE_PATH,
-    init_logging,
-    get_logger,
-    set_log_level,
-    natural_sort,
-)
-
-# TODO: Dynamic imports to reduce ram usage in web(-server) mode. Will require dealing with args.py imports.
-
-async def dispatch(args: Namespace):
-    args_dict = vars(args)
-
-    logger.info(f'Running in {args.mode} mode')
-
-    if args.mode == 'local':
-        if not args.input:
-            raise Exception('No input image was supplied. Use -i <image_path>')
-        from manga_translator.mode.local import MangaTranslatorLocal
-        translator = MangaTranslatorLocal(args_dict)
-
-        # Load pre-translation and post-translation dictionaries
-        pre_dict = load_dictionary(args.pre_dict)
-        post_dict = load_dictionary(args.post_dict)
-
-        if len(args.input) == 1 and os.path.isfile(args.input[0]):
-            dest = args.dest
-            if not dest:
-                dest = os.path.join(BASE_PATH, 'result/final.png')
-                args.overwrite = True # Do overwrite result/final.png file
-
-            # Apply pre-translation dictionaries
-            await translator.translate_path(args.input[0], dest, args_dict)
-            for textline in translator.textlines:
-                textline.text = apply_dictionary(textline.text, pre_dict)
-                logger.info(f'Pre-translation dictionary applied: {textline.text}')
-
-            # Apply post-translation dictionaries
-            for textline in translator.textlines:
-                textline.translation = apply_dictionary(textline.translation, post_dict)
-                logger.info(f'Post-translation dictionary applied: {textline.translation}')
-
-        else: # batch
-            dest = args.dest
-            for path in natural_sort(args.input):
-                    # Apply pre-translation dictionaries
-                await translator.translate_path(path, dest, args_dict)
-                for textline in translator.textlines:
-                    textline.text = apply_dictionary(textline.text, pre_dict)
-                    logger.info(f'Pre-translation dictionary applied: {textline.text}')
-
-                    # Apply post-translation dictionaries
-                for textline in translator.textlines:
-                    textline.translation = apply_dictionary(textline.translation, post_dict)
-                    logger.info(f'Post-translation dictionary applied: {textline.translation}')
-
+def main():
+    """主函数"""
+    from manga_translator.args import parse_args
+    from manga_translator.utils import init_logging, set_log_level, get_logger
+    
+    # 解析参数
+    args = parse_args()
+    
+    # 初始化日志
+    init_logging()
+    set_log_level(level=logging.DEBUG if args.verbose else logging.INFO)
+    logger = get_logger(args.mode)
+    
+    # 根据模式分发
+    if args.mode == 'web':
+        # Web API 服务器模式
+        logger.info('Starting Web API server')
+        from manga_translator.server.main import main as web_main
+        
+        # 调用 web_main 来正确设置所有配置
+        web_main(args)
+    
+    elif args.mode == 'local':
+        # Local 模式（命令行翻译）
+        logger.info('Running in local mode')
+        from manga_translator.mode.local import run_local_mode
+        asyncio.run(run_local_mode(args))
+    
     elif args.mode == 'ws':
+        # WebSocket 模式
+        logger.info('Running in WebSocket mode')
         from manga_translator.mode.ws import MangaTranslatorWS
-        translator = MangaTranslatorWS(args_dict)
-        await translator.listen(args_dict)
-
+        translator = MangaTranslatorWS(vars(args))
+        asyncio.run(translator.listen(vars(args)))
+    
     elif args.mode == 'shared':
+        # Shared/API 模式
+        logger.info('Running in shared/API mode')
         from manga_translator.mode.share import MangaShare
-        translator = MangaShare(args_dict)
-        await translator.listen(args_dict)
-    elif args.mode == 'config-help':
-        import json
-        config = Config.schema()
-        print(json.dumps(config, indent=2))
-
+        translator = MangaShare(vars(args))
+        asyncio.run(translator.listen(vars(args)))
+    
+    else:
+        logger.error(f'Unknown mode: {args.mode}')
+        sys.exit(1)
 
 
 if __name__ == '__main__':
-    args = None
-    init_logging()
     try:
-        args, unknown = parser.parse_known_args()
-        args = Namespace(**{**vars(args), **vars(reparse(unknown))})
-        set_log_level(level=logging.DEBUG if args.verbose else logging.INFO)
-        logger = get_logger(args.mode)
-        set_main_logger(logger)
-        if args.mode != 'web':
-            logger.debug(args)
-
-        asyncio.run(dispatch(args))
+        main()
     except KeyboardInterrupt:
         print('\nTranslation cancelled by user.')
         sys.exit(0)
@@ -102,5 +65,7 @@ if __name__ == '__main__':
         print('\nTranslation cancelled by user.')
         sys.exit(0)
     except Exception as e:
-        logger.error(f'{e.__class__.__name__}: {e}',
-                     exc_info=e if args and args.verbose else None)
+        import traceback
+        print(f'\n{e.__class__.__name__}: {e}')
+        traceback.print_exc()
+        sys.exit(1)

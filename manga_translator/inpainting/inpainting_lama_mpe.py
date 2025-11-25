@@ -140,10 +140,11 @@ class LamaMPEInpainter(OfflineInpainter):
         super().__init__(*args, **kwargs)
     
     def _check_downloaded_map(self, map_key: str) -> bool:
-        """如果ONNX模型存在，跳过PyTorch模型检查"""
-        onnx_path = self._get_file_path('lamampe.onnx')
-        if os.path.isfile(onnx_path):
-            return True  # ONNX存在，不检查.ckpt
+        """检查模型文件是否存在
+        
+        lama_mpe 的 ONNX 模型有设计缺陷会导致降级到 PyTorch，
+        因此需要确保两个模型文件都下载，不跳过任何检查。
+        """
         return super()._check_downloaded_map(map_key)
 
     async def _load(self, device: str):
@@ -196,7 +197,7 @@ class LamaMPEInpainter(OfflineInpainter):
                 return await self._infer_onnx(image, mask, inpainting_size, verbose)
             except Exception as e:
                 self.logger.warning(f'ONNX推理失败（{str(e)[:100]}），本次降级到PyTorch')
-                # 降级：需要加载PyTorch模型
+                # 降级：加载PyTorch模型（.ckpt 应该已经在初始化时下载）
                 if not hasattr(self, 'model'):
                     self.logger.info('正在加载PyTorch模型...')
                     self.model = load_lama_mpe(self._get_file_path('inpainting_lama_mpe.ckpt'), device='cpu')
