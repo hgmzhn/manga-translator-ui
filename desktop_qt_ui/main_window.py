@@ -75,9 +75,12 @@ class MainWindow(QMainWindow):
         
         # 主题菜单（顶级菜单）
         theme_menu = menu_bar.addMenu("&主题")
+        self.native_theme_action = QAction("原生 Windows", self)
         self.light_theme_action = QAction("浅色", self)
         self.dark_theme_action = QAction("深色", self)
         self.gray_theme_action = QAction("灰色", self)
+        theme_menu.addAction(self.native_theme_action)
+        theme_menu.addSeparator()
         theme_menu.addAction(self.light_theme_action)
         theme_menu.addAction(self.dark_theme_action)
         theme_menu.addAction(self.gray_theme_action)
@@ -108,6 +111,12 @@ class MainWindow(QMainWindow):
         """应用指定的主题"""
         import os
         import sys
+        
+        # 原生主题：清空样式表，使用系统默认外观
+        if theme == 'native':
+            self.setStyleSheet("")
+            self.logger.info("Applied native Windows theme")
+            return
         
         # 主题文件映射
         theme_files = {
@@ -196,6 +205,7 @@ class MainWindow(QMainWindow):
         self.redo_action.triggered.connect(self.editor_controller.redo)
         
         # --- 主题切换连接 ---
+        self.native_theme_action.triggered.connect(lambda: self._change_theme("native"))
         self.light_theme_action.triggered.connect(lambda: self._change_theme("light"))
         self.dark_theme_action.triggered.connect(lambda: self._change_theme("dark"))
         self.gray_theme_action.triggered.connect(lambda: self._change_theme("gray"))
