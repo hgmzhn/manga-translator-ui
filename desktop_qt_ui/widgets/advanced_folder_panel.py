@@ -42,6 +42,9 @@ class AdvancedFolderDialog(QDialog):
         self.folder_data = {}  # {title: {'sources': [source1, source2], 'chapters': {source: [chapters]}}}
         self.selected_chapters = []
         
+        # 递归锁：防止在处理选择改变时被递归调用
+        self._processing_selection = False
+        
         # 直接使用传入的路径，不进行智能判断
         # 因为智能判断可能会错误地向上查找，导致根目录变化
         self.root_path = start_dir if start_dir else str(Path.home() / "Downloads")
@@ -169,11 +172,11 @@ class AdvancedFolderDialog(QDialog):
         # 最近操作的作品
         layout.addWidget(QLabel("最近操作:"))
         
-        # 创建最近作品列表（两行显示一个操作）
+        # 创建最近作品列表（单行显示）
         self.recent_works_list = QTreeWidget()
         self.recent_works_list.setHeaderHidden(True)
-        self.recent_works_list.setMinimumHeight(160)  # 增加高度，显示4个操作（8行）
-        self.recent_works_list.setMaximumHeight(160)
+        self.recent_works_list.setMinimumHeight(100)  # 显示4个操作（单行）
+        self.recent_works_list.setMaximumHeight(100)
         self.recent_works_list.setRootIsDecorated(False)
         self.recent_works_list.setWordWrap(True)  # 启用文本换行
         self.recent_works_list.itemDoubleClicked.connect(self.on_recent_work_double_clicked)
@@ -276,6 +279,9 @@ class AdvancedFolderDialog(QDialog):
         self.title_tree.itemChanged.connect(self.on_item_changed)
         # 连接选择改变信号，同步到复选框
         self.title_tree.itemSelectionChanged.connect(self.on_selection_changed)
+        
+        # 追踪上一次的选择状态，用于支持多重拖拽
+        self.last_selected_paths = set()
         
         # 当前排序方式 - 从设置中加载，默认为智能排序+升序
         settings = QSettings("MangaTranslator", "AdvancedFolder")
@@ -670,7 +676,9 @@ class AdvancedFolderDialog(QDialog):
                 if chapters:
                     # 排序章节获取最新的
                     sorted_chapters = self._sort_chapters(chapters)
-                    latest_chapter = sorted_chapters[-1] if not self.sort_ascending else sorted_chapters[0]
+                    # 注意：_sort_chapters 已根据 sort_ascending 处理过升/降序
+                    # 升序 -> 最新在最后一个；降序 -> 最新在第一个
+                    latest_chapter = sorted_chapters[-1] if self.sort_ascending else sorted_chapters[0]
                     # 获取最新话的修改时间
                     try:
                         latest_time = os.path.getmtime(latest_chapter['path'])
@@ -693,8 +701,15 @@ class AdvancedFolderDialog(QDialog):
                 source_item = QTreeWidgetItem(item)
                 source_item.setText(0, info['name'])
                 source_item.setText(1, "来源")
-                # 显示：最新话 / 总数
-                source_item.setText(2, f"{info['latest_chapter']['name']} / {info['count']}章")
+                # 显示：最新话 / 总数（提取章节号）
+                import re
+                latest_name = info['latest_chapter']['name']
+                match = re.search(r'(\d+)', latest_name)
+                if match:
+                    chapter_num = match.group(1)
+                    source_item.setText(2, f"{chapter_num}话 / {info['count']}章")
+                else:
+                    source_item.setText(2, f"{latest_name} / {info['count']}章")
                 
                 # 排序章节
                 sorted_chapters = self._sort_chapters(info['chapters'])
@@ -721,11 +736,24 @@ class AdvancedFolderDialog(QDialog):
                     source_item.setExpanded(True)
         else:
             # 只有一个来源，直接显示章节
-            source_name = sources[0] if sources else ""
+            source_name = sources[0]
             chapters = data['chapters'].get(source_name, [])
             
             # 排序章节
             sorted_chapters = self._sort_chapters(chapters)
+            
+            # 更新作品的"最新话/数量"列：显示最新章节号 / 总数
+            if sorted_chapters:
+                # 升序 -> 最新在最后一个；降序 -> 最新在第一个
+                latest_chapter = sorted_chapters[-1] if self.sort_ascending else sorted_chapters[0]
+                import re
+                latest_name = latest_chapter['name']
+                match = re.search(r'(\d+)', latest_name)
+                if match:
+                    chapter_num = match.group(1)
+                    item.setText(2, f"{chapter_num}话 / {len(sorted_chapters)}章")
+                else:
+                    item.setText(2, f"{latest_name} / {len(sorted_chapters)}章")
             
             for chapter in sorted_chapters:
                 child_item = QTreeWidgetItem(item)
@@ -755,50 +783,102 @@ class AdvancedFolderDialog(QDialog):
             self._update_selection_count()
     
     def on_selection_changed(self):
-        """选择改变时同步到复选框（支持鼠标拉取多选和反向取消）"""
+        """选择改变时同步到复选框（正向累加，反向取消）"""
+        # 防止递归调用
+        if self._processing_selection:
+            return
+        
+        self._processing_selection = True
+        
         # 暂时断开itemChanged信号，避免递归
-        self.title_tree.itemChanged.disconnect(self.on_item_changed)
+        try:
+            self.title_tree.itemChanged.disconnect(self.on_item_changed)
+        except TypeError:
+            # 信号未连接时忽略
+            pass
         
         try:
             # 获取当前选中的项目
             selected_items = self.title_tree.selectedItems()
-            selected_paths = set()
+            current_selected_paths = set()
             
             # 收集所有选中的章节路径
             for item in selected_items:
                 path = item.data(0, Qt.ItemDataRole.UserRole)
                 if path and isinstance(path, str) and os.path.isdir(path):  # 是章节项
-                    selected_paths.add(path)
+                    current_selected_paths.add(path)
             
-            # 遍历所有章节项，同步复选框状态
+            # 获取所有已勾选的章节路径
             root = self.title_tree.invisibleRootItem()
-            self._sync_checkboxes_recursive(root, selected_paths)
+            checked_paths = self._get_all_checked_paths(root)
+            
+            # 上一次的选择集合（用于判断是扩展、收缩还是新的选择）
+            last_paths = getattr(self, "last_selected_paths", set())
+            
+            if last_paths and current_selected_paths and current_selected_paths.issuperset(last_paths):
+                # 情况1：当前选择是上次选择的扩展（正向拖拽）→ 只勾选新增部分
+                newly_selected = current_selected_paths - checked_paths
+                if newly_selected:
+                    self._toggle_checkboxes_for_paths(root, newly_selected, Qt.CheckState.Checked)
+            
+            elif last_paths and current_selected_paths and current_selected_paths.issubset(last_paths):
+                # 情况2：当前选择是上次选择的子集（反向拖拽）→ 只取消本次被“缩出去”的部分
+                to_uncheck = (last_paths - current_selected_paths) & checked_paths
+                if to_uncheck:
+                    self._toggle_checkboxes_for_paths(root, to_uncheck, Qt.CheckState.Unchecked)
+            
+            else:
+                # 情况3：与上次选择无关（新的区域或复杂形状）→ 默认为累加选择
+                newly_selected = current_selected_paths - checked_paths
+                if newly_selected:
+                    self._toggle_checkboxes_for_paths(root, newly_selected, Qt.CheckState.Checked)
+            
+            # 更新上一次的选择状态
+            self.last_selected_paths = current_selected_paths.copy()
             
         finally:
             # 重新连接信号
-            self.title_tree.itemChanged.connect(self.on_item_changed)
+            try:
+                self.title_tree.itemChanged.connect(self.on_item_changed)
+            except Exception:
+                # 忽略重复连接错误
+                pass
             # 更新统计
             self._update_selection_count()
+            # 释放递归锁
+            self._processing_selection = False
     
-    def _sync_checkboxes_recursive(self, parent: QTreeWidgetItem, selected_paths: set):
-        """递归同步复选框状态"""
+    def _get_all_checked_paths(self, parent: QTreeWidgetItem) -> set:
+        """获取所有已勾选的章节路径（递归）"""
+        checked_paths = set()
         for i in range(parent.childCount()):
             item = parent.child(i)
             path = item.data(0, Qt.ItemDataRole.UserRole)
             
             if path and isinstance(path, str) and os.path.isdir(path):  # 是章节项
-                # 根据是否在选中集合中，设置复选框状态
-                should_be_checked = path in selected_paths
-                current_state = item.checkState(0)
-                
-                if should_be_checked and current_state != Qt.CheckState.Checked:
-                    item.setCheckState(0, Qt.CheckState.Checked)
-                elif not should_be_checked and current_state == Qt.CheckState.Checked:
-                    item.setCheckState(0, Qt.CheckState.Unchecked)
+                if item.checkState(0) == Qt.CheckState.Checked:
+                    checked_paths.add(path)
             
             # 递归处理子项
             if item.childCount() > 0:
-                self._sync_checkboxes_recursive(item, selected_paths)
+                checked_paths.update(self._get_all_checked_paths(item))
+        
+        return checked_paths
+    
+    def _toggle_checkboxes_for_paths(self, parent: QTreeWidgetItem, paths: set, new_state: Qt.CheckState):
+        """为指定路径的项目切换复选框状态（递归）"""
+        for i in range(parent.childCount()):
+            item = parent.child(i)
+            path = item.data(0, Qt.ItemDataRole.UserRole)
+            
+            if path and isinstance(path, str) and os.path.isdir(path):  # 是章节项
+                if path in paths:
+                    # 切换到新状态
+                    item.setCheckState(0, new_state)
+            
+            # 递归处理子项
+            if item.childCount() > 0:
+                self._toggle_checkboxes_for_paths(item, paths, new_state)
     
     def on_sort_changed(self):
         """排序方式改变"""
@@ -1242,67 +1322,89 @@ class AdvancedFolderDialog(QDialog):
             
             # 显示最近4个操作（每个操作占两行）
             for operation in recent_operations[:4]:
+                # 确保operation是字典类型
+                if not isinstance(operation, dict):
+                    continue
+                
                 item = QTreeWidgetItem(self.recent_works_list)
                 
-                # 第一行：作品名称（多个作品用逗号分隔）
+                # 统计信息（N个作品 M章）
                 works = operation.get('works', [])
-                works_text = ", ".join(works[:3])  # 最多显示3个
-                if len(works) > 3:
-                    works_text += f" 等{len(works)}个"
-                
-                # 第二行：时间 + 章节数
-                time_str = operation.get('time', '')
                 chapter_count = operation.get('chapter_count', 0)
-                if time_str and chapter_count > 0:
-                    detail_text = f"{time_str}  ·  {chapter_count}章"
-                elif chapter_count > 0:
-                    detail_text = f"{chapter_count}章"
+                work_count = len(works)
+                
+                if work_count == 1:
+                    summary_text = f"{chapter_count}章"
+                else:
+                    summary_text = f"{work_count}个作品, {chapter_count}章"
+                
+                # 时间 + 章节范围
+                time_str = operation.get('time', '')
+                chapter_range = operation.get('chapter_range', '')
+                
+                if time_str and chapter_range:
+                    detail_text = f"{time_str} · {chapter_range}"
                 elif time_str:
                     detail_text = time_str
+                elif chapter_range:
+                    detail_text = chapter_range
                 else:
                     detail_text = "历史记录"
                 
-                # 组合显示
-                display_text = f"{works_text}\n{detail_text}"
+                # 单行显示：统计信息 | 详细信息
+                display_text = f"{summary_text} | {detail_text}"
                 item.setText(0, display_text)
                 
                 # 保存完整数据
                 item.setData(0, Qt.ItemDataRole.UserRole, operation)
                 
-                # 设置行高
-                item.setSizeHint(0, QSize(0, 40))  # 每个项目40px高
+                # 设置行高（单行）
+                item.setSizeHint(0, QSize(0, 24))
                 
         except Exception as e:
             # 错误时不输出日志，避免log_text未初始化错误
             print(f"[AdvancedFolder] 加载最近作品失败: {e}")
     
     def _save_recent_works(self):
-        """保存最近操作的作品（支持多个作品一起保存）"""
+        """保存最近操作的作品（支持多个作品一起保存，记录具体章节）"""
         try:
             import json
             from datetime import datetime
             settings = QSettings("MangaTranslator", "AdvancedFolder")
             
-            # 获取当前选中的作品和章节数
-            selected_works = []
+            # 获取当前选中的作品和章节
+            selected_data = []  # [{"work": name, "chapters": [ch1, ch2, ...]}, ...]
             total_chapters = 0
             root = self.title_tree.invisibleRootItem()
             for i in range(root.childCount()):
                 work_item = root.child(i)
-                # 检查是否有子项被选中
-                chapter_count = self._count_checked_children(work_item)
-                if chapter_count > 0:
+                # 获取这个作品选中的章节
+                checked_chapters = self._get_checked_chapter_names(work_item)
+                if checked_chapters:
                     work_name = work_item.text(0)
-                    selected_works.append(work_name)
-                    total_chapters += chapter_count
+                    selected_data.append({
+                        'work': work_name,
+                        'chapters': checked_chapters
+                    })
+                    total_chapters += len(checked_chapters)
             
-            if not selected_works:
+            if not selected_data:
                 return
             
+            # 计算章节范围（取所有章节名中的最小和最大）
+            all_chapter_names = []
+            for item in selected_data:
+                all_chapter_names.extend(item['chapters'])
+            
+            chapter_range = self._calculate_chapter_range(all_chapter_names)
+            
             # 创建操作记录
+            work_list = [item['work'] for item in selected_data]
             operation = {
-                'works': selected_works,
+                'works': work_list,  # 保持兼容
+                'works_detail': selected_data,  # 新增：详细章节信息
                 'chapter_count': total_chapters,
+                'chapter_range': chapter_range,
                 'time': datetime.now().strftime("%m-%d %H:%M")
             }
             
@@ -1313,6 +1415,13 @@ class AdvancedFolderDialog(QDialog):
             else:
                 recent_operations = []
             
+            # 去重：删除相同作品组合的旧记录
+            work_set = set(work_list)
+            recent_operations = [
+                op for op in recent_operations
+                if set(op.get('works', [])) != work_set
+            ]
+            
             # 将新操作添加到列表开头
             recent_operations.insert(0, operation)
             
@@ -1321,10 +1430,37 @@ class AdvancedFolderDialog(QDialog):
             
             # 保存
             settings.setValue("recent_works", json.dumps(recent_operations, ensure_ascii=False))
-            self._log(f"✓ 已保存最近操作: {len(selected_works)}个作品, {total_chapters}章")
+            self._log(f"✓ 已保存最近操作: {len(selected_data)}个作品, {total_chapters}章")
             
         except Exception as e:
             self._log(f"⚠️ 保存最近作品失败: {e}")
+    
+    def _calculate_chapter_range(self, chapter_names: List[str]) -> str:
+        """计算章节范围，如 Ch.1-Ch.10"""
+        if not chapter_names:
+            return ""
+        
+        import re
+        # 提取章节号
+        chapter_numbers = []
+        for name in chapter_names:
+            # 尝试从章节名中提取数字
+            match = re.search(r'(\d+)', name)
+            if match:
+                chapter_numbers.append(int(match.group(1)))
+        
+        if not chapter_numbers:
+            # 无法提取数字，返回章节数量
+            return f"{len(chapter_names)}章"
+        
+        chapter_numbers.sort()
+        min_ch = chapter_numbers[0]
+        max_ch = chapter_numbers[-1]
+        
+        if min_ch == max_ch:
+            return f"Ch.{min_ch}"
+        else:
+            return f"Ch.{min_ch}-{max_ch}"
     
     def _has_checked_children(self, item: QTreeWidgetItem) -> bool:
         """检查项目是否有被选中的子项"""
@@ -1346,19 +1482,37 @@ class AdvancedFolderDialog(QDialog):
             count += self._count_checked_children(child)
         return count
     
+    def _get_checked_chapter_names(self, item: QTreeWidgetItem) -> List[str]:
+        """获取项目下所有被选中的章节名称"""
+        chapters = []
+        for i in range(item.childCount()):
+            child = item.child(i)
+            # 检查是否是章节项（有路径数据）
+            path = child.data(0, Qt.ItemDataRole.UserRole)
+            if path and isinstance(path, str) and os.path.isdir(path):
+                if child.checkState(0) == Qt.CheckState.Checked:
+                    chapters.append(child.text(0))  # 保存章节名
+            else:
+                # 递归处理子项（三层结构时的来源节点）
+                chapters.extend(self._get_checked_chapter_names(child))
+        return chapters
+    
     def on_recent_work_double_clicked(self, item: QTreeWidgetItem, column: int):
-        """双击最近操作时跳转到该作品（支持多个作品）"""
+        """双击最近操作时跳转并恢复章节选中（支持多个作品）"""
         operation = item.data(0, Qt.ItemDataRole.UserRole)
         if not operation or 'works' not in operation:
             self._log("⚠️ 无效的操作数据")
             return
         
-        works = operation['works']
-        if not works:
-            self._log("⚠️ 操作中没有作品")
-            return
+        # 获取详细信息（包含章节列表）或旧格式数据
+        works_detail = operation.get('works_detail', [])
+        if not works_detail:
+            # 兼容旧数据：只有作品名，没有章节信息
+            works = operation['works']
+            works_detail = [{'work': w, 'chapters': []} for w in works]
         
-        self._log(f"🔍 正在查找: {', '.join(works)}")
+        work_names = [w['work'] for w in works_detail]
+        self._log(f"🔍 正在查找: {', '.join(work_names)}")
         
         # 清除搜索过滤，确保所有作品可见
         self.search_combo.setCurrentText("")
@@ -1367,60 +1521,125 @@ class AdvancedFolderDialog(QDialog):
         # 清除当前选中
         self.title_tree.clearSelection()
         
-        # 在作品列表中查找并展开所有相关作品
-        root = self.title_tree.invisibleRootItem()
-        found_count = 0
-        first_item = None
-        not_found = []
+        # 暂时断开信号，避免批量操作时多次触发
+        try:
+            self.title_tree.itemChanged.disconnect(self.on_item_changed)
+        except TypeError:
+            # 信号未连接时忽略
+            pass
         
-        for work_name in works:
-            found = False
-            for i in range(root.childCount()):
-                work_item = root.child(i)
-                item_name = work_item.text(0)
-                
-                # 多种匹配方式：精确匹配、包含匹配、忽略空格匹配
-                item_name_clean = item_name.replace(' ', '').lower()
-                work_name_clean = work_name.replace(' ', '').lower()
-                
-                if (item_name == work_name or 
-                    work_name in item_name or 
-                    item_name in work_name or
-                    item_name_clean == work_name_clean or
-                    work_name_clean in item_name_clean):
-                    # 选中并展开
-                    work_item.setSelected(True)
-                    work_item.setExpanded(True)
-                    
-                    # 加载章节（如果还没加载）
-                    if work_item.childCount() == 0:
-                        self._load_chapters_for_item(work_item)
-                    
-                    found_count += 1
-                    found = True
-                    if first_item is None:
-                        first_item = work_item
-                    self._log(f"  ✓ 找到: {item_name}")
-                    break
+        try:
+            # 在作品列表中查找并展开所有相关作品
+            root = self.title_tree.invisibleRootItem()
+            found_count = 0
+            first_item = None
+            not_found = []
+            total_checked = 0
             
-            if not found:
-                not_found.append(work_name)
+            for work_data in works_detail:
+                work_name = work_data['work']
+                chapter_names = work_data.get('chapters', [])
+                found = False
+                
+                for i in range(root.childCount()):
+                    work_item = root.child(i)
+                    item_name = work_item.text(0)
+                    
+                    # 多种匹配方式：精确匹配、包含匹配、忽略空格匹配
+                    item_name_clean = item_name.replace(' ', '').lower()
+                    work_name_clean = work_name.replace(' ', '').lower()
+                    
+                    if (item_name == work_name or 
+                        work_name in item_name or 
+                        item_name in work_name or
+                        item_name_clean == work_name_clean or
+                        work_name_clean in item_name_clean):
+                        # 选中并展开
+                        work_item.setSelected(True)
+                        work_item.setExpanded(True)
+                        
+                        # 加载章节（如果还没加载）
+                        if work_item.childCount() == 0:
+                            self._load_chapters_for_item(work_item)
+                        
+                        # 恢复章节选中状态
+                        if chapter_names:
+                            checked_count = self._restore_chapter_selection(work_item, chapter_names)
+                            total_checked += checked_count
+                            self._log(f"  ✓ 找到: {item_name}，恢复选中 {checked_count} 章")
+                        else:
+                            self._log(f"  ✓ 找到: {item_name}")
+                        
+                        found_count += 1
+                        found = True
+                        if first_item is None:
+                            first_item = work_item
+                        break
+                
+                if not found:
+                    not_found.append(work_name)
+            
+            # 滚动到第一个作品
+            if first_item:
+                self.title_tree.scrollToItem(first_item)
+                # 确保第一个作品在视窗顶部
+                self.title_tree.setCurrentItem(first_item)
+            
+            # 输出结果
+            if found_count > 0:
+                if total_checked > 0:
+                    self._log(f"✓ 已跳转到 {found_count} 个作品，恢复选中 {total_checked} 章")
+                elif found_count == 1:
+                    self._log(f"✓ 已跳转到: {work_names[0]}")
+                else:
+                    self._log(f"✓ 已跳转到 {found_count} 个作品")
+            
+            if not_found:
+                self._log(f"⚠️ 未找到: {', '.join(not_found)}")
         
-        # 滚动到第一个作品
-        if first_item:
-            self.title_tree.scrollToItem(first_item)
-            # 确保第一个作品在视窗顶部
-            self.title_tree.setCurrentItem(first_item)
-        
-        # 输出结果
-        if found_count > 0:
-            if found_count == 1:
-                self._log(f"✓ 已跳转到: {works[0]}")
+        finally:
+            # 重新连接信号
+            try:
+                self.title_tree.itemChanged.connect(self.on_item_changed)
+            except Exception:
+                # 忽略重复连接错误
+                pass
+            # 手动触发一次统计更新
+            self._update_selection_count()
+    
+    def _restore_chapter_selection(self, work_item: QTreeWidgetItem, chapter_names: List[str]) -> int:
+        """恢复作品下的章节选中状态"""
+        checked_count = 0
+        # 遍历所有子项（可能是章节或来源）
+        for i in range(work_item.childCount()):
+            child = work_item.child(i)
+            path = child.data(0, Qt.ItemDataRole.UserRole)
+            
+            # 如果是章节项
+            if path and isinstance(path, str) and os.path.isdir(path):
+                chapter_name = child.text(0)
+                # 模糊匹配章节名
+                if self._is_chapter_match(chapter_name, chapter_names):
+                    child.setCheckState(0, Qt.CheckState.Checked)
+                    checked_count += 1
             else:
-                self._log(f"✓ 已跳转到 {found_count} 个作品")
+                # 递归处理子项（三层结构时的来源节点）
+                checked_count += self._restore_chapter_selection(child, chapter_names)
         
-        if not_found:
-            self._log(f"⚠️ 未找到: {', '.join(not_found)}")
+        return checked_count
+    
+    def _is_chapter_match(self, chapter_name: str, chapter_names: List[str]) -> bool:
+        """检查章节名是否匹配（多种匹配方式）"""
+        chapter_clean = chapter_name.replace(' ', '').lower()
+        for name in chapter_names:
+            name_clean = name.replace(' ', '').lower()
+            if (chapter_name == name or 
+                name in chapter_name or 
+                chapter_name in name or
+                chapter_clean == name_clean or
+                name_clean in chapter_clean):
+                return True
+        return False
     
     def _save_scan_cache(self):
         """保存扫描结果到缓存"""

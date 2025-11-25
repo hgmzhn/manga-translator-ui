@@ -1,7 +1,8 @@
 {
   "app": {
     "last_open_dir": ".",
-    "last_output_path": ""
+    "last_output_path": "",
+    "favorite_folders": []
   },
   "filter_text": null,
   "kernel_size": 3,
@@ -44,7 +45,7 @@
   "inpainter": {
     "inpainter": "lama_large",
     "inpainting_size": 2048,
-    "inpainting_precision": "fp32"
+    "inpainting_precision": "bf16"
   },
   "render": {
     "renderer": "default",
@@ -57,7 +58,7 @@
     "uppercase": false,
     "lowercase": false,
     "gimp_font": "Arial-Unicode-Regular.ttf",
-    "font_path": "anime_ace.ttf",
+    "font_path": "NotoSerifSC-Bold.otf",
     "no_hyphenation": false,
     "font_color": null,
     "line_spacing": null,
@@ -93,7 +94,7 @@
     "use_gpu_limited": false,
     "context_size": 3,
     "format": "png",
-    "overwrite": false,
+    "overwrite": true,
     "skip_no_text": false,
     "save_text": false,
     "load_text": false,
@@ -103,12 +104,12 @@
     "batch_concurrent": false,
     "pipeline_mode": true,
     "pipeline_line1_concurrency": 4,
-    "pipeline_line2_concurrency": 3,
-    "pipeline_translation_batch_size": 2,
+    "pipeline_line2_concurrency": 2,
+    "pipeline_translation_batch_size": 3,
     "pipeline_line3_concurrency": 2,
     "pipeline_line4_concurrency": 2,
     "enable_long_image_stitching": true,
-    "long_image_max_height": 10000,
+    "long_image_max_height": 15000,
     "long_image_bubble_margin": 100,
     "generate_and_export": false,
     "colorize_only": false,

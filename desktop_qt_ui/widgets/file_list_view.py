@@ -2,7 +2,7 @@ import os
 from typing import Dict, List, Optional
 
 from PIL import Image
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal, QRunnable, QThreadPool, QObject
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -16,6 +16,40 @@ from PyQt6.QtWidgets import (
 )
 
 
+class ThumbnailSignals(QObject):
+    """缩略图加载信号"""
+    finished = pyqtSignal(str, QPixmap)  # file_path, pixmap
+    error = pyqtSignal(str)  # file_path
+
+
+class ThumbnailLoader(QRunnable):
+    """后台线程加载缩略图"""
+    def __init__(self, file_path: str):
+        super().__init__()
+        self.file_path = file_path
+        self.signals = ThumbnailSignals()
+    
+    def run(self):
+        """在后台线程中加载和处理图片"""
+        try:
+            img = Image.open(self.file_path)
+            img.thumbnail((40, 40))
+            
+            # Convert PIL image to QPixmap
+            if img.mode == 'RGB':
+                q_img = QImage(img.tobytes(), img.width, img.height, img.width * 3, QImage.Format.Format_RGB888)
+            elif img.mode == 'RGBA':
+                q_img = QImage(img.tobytes(), img.width, img.height, img.width * 4, QImage.Format.Format_RGBA8888)
+            else:
+                img = img.convert('RGBA')
+                q_img = QImage(img.tobytes(), img.width, img.height, img.width * 4, QImage.Format.Format_RGBA8888)
+            
+            pixmap = QPixmap.fromImage(q_img)
+            self.signals.finished.emit(self.file_path, pixmap)
+        except Exception as e:
+            self.signals.error.emit(self.file_path)
+
+
 class FileItemWidget(QWidget):
     """自定义列表项，用于显示缩略图、文件名和移除按钮"""
     remove_requested = pyqtSignal(str)
@@ -24,6 +58,7 @@ class FileItemWidget(QWidget):
         super().__init__(parent)
         self.file_path = file_path
         self.is_folder = is_folder
+        self.thread_pool = QThreadPool.globalInstance()
 
         self.layout = QHBoxLayout(self)
         self.layout.setContentsMargins(5, 5, 5, 5)
@@ -40,7 +75,12 @@ class FileItemWidget(QWidget):
             icon = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
             self.thumbnail_label.setPixmap(icon.pixmap(QSize(40,40)))
         else:
-            self._load_thumbnail()
+            # 先显示占位图标
+            style = QApplication.style()
+            icon = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+            self.thumbnail_label.setPixmap(icon.pixmap(QSize(40,40)))
+            # 在后台线程加载真正的缩略图
+            self._load_thumbnail_async()
 
         # File Name
         display_name = os.path.basename(file_path)
@@ -71,25 +111,22 @@ class FileItemWidget(QWidget):
         except:
             return 0
 
-    def _load_thumbnail(self):
-        try:
-            img = Image.open(self.file_path)
-            img.thumbnail((40, 40))
-            
-            # Convert PIL image to QPixmap
-            if img.mode == 'RGB':
-                q_img = QImage(img.tobytes(), img.width, img.height, img.width * 3, QImage.Format.Format_RGB888)
-            elif img.mode == 'RGBA':
-                q_img = QImage(img.tobytes(), img.width, img.height, img.width * 4, QImage.Format.Format_RGBA8888)
-            else: # Fallback for other modes like L, P, etc.
-                img = img.convert('RGBA')
-                q_img = QImage(img.tobytes(), img.width, img.height, img.width * 4, QImage.Format.Format_RGBA8888)
-
-            pixmap = QPixmap.fromImage(q_img)
+    def _load_thumbnail_async(self):
+        """在后台线程加载缩略图"""
+        loader = ThumbnailLoader(self.file_path)
+        loader.signals.finished.connect(self._on_thumbnail_loaded)
+        loader.signals.error.connect(self._on_thumbnail_error)
+        self.thread_pool.start(loader)
+    
+    def _on_thumbnail_loaded(self, file_path: str, pixmap: QPixmap):
+        """缩略图加载完成"""
+        if file_path == self.file_path:
             self.thumbnail_label.setPixmap(pixmap)
-        except Exception as e:
+    
+    def _on_thumbnail_error(self, file_path: str):
+        """缩略图加载失败"""
+        if file_path == self.file_path:
             self.thumbnail_label.setText("ERR")
-            print(f"Error loading thumbnail for {self.file_path}: {e}")
 
     def _emit_remove_request(self):
         self.remove_requested.emit(self.file_path)
