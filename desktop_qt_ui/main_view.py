@@ -136,10 +136,17 @@ class MainView(QWidget):
         translator_combo = self.findChild(QComboBox, "translator.translator")
         if translator_combo:
             parent_layout = translator_combo.parent().layout()
-            if parent_layout and not hasattr(self, 'env_group_box'):
+            if parent_layout:
+                # 如果 env_group_box 已存在，先移除它
+                if hasattr(self, 'env_group_box') and self.env_group_box is not None:
+                    parent_layout.removeWidget(self.env_group_box)
+                    self.env_group_box.deleteLater()
+                
+                # 重新创建 env_group_box
                 self.env_group_box = QGroupBox("API密钥 (.env)")
                 self.env_layout = QFormLayout(self.env_group_box)
                 parent_layout.addWidget(self.env_group_box)
+            
             try:
                 translator_combo.currentTextChanged.disconnect(self._on_translator_changed)
             except TypeError:
@@ -542,6 +549,16 @@ class MainView(QWidget):
         self.start_button.setFixedHeight(40)
         left_layout.addWidget(self.start_button)
 
+        # 配置导入导出按钮
+        config_io_widget = QWidget()
+        config_io_layout = QHBoxLayout(config_io_widget)
+        config_io_layout.setContentsMargins(0,0,0,0)
+        self.export_config_button = QPushButton("导出配置")
+        self.import_config_button = QPushButton("导入配置")
+        config_io_layout.addWidget(self.export_config_button)
+        config_io_layout.addWidget(self.import_config_button)
+        left_layout.addWidget(config_io_widget)
+
         # Connect all signals at the end, after all widgets are created
         self.add_files_button.clicked.connect(self._trigger_add_files)
         self.add_folder_button.clicked.connect(self.controller.add_folder)
@@ -550,6 +567,8 @@ class MainView(QWidget):
         self.browse_output_button.clicked.connect(self.controller.select_output_folder)
         self.open_output_button.clicked.connect(self.controller.open_output_folder)
         self.start_button.clicked.connect(self.controller.start_backend_task)
+        self.export_config_button.clicked.connect(self.controller.export_config)
+        self.import_config_button.clicked.connect(self.controller.import_config)
 
         return left_panel
 
