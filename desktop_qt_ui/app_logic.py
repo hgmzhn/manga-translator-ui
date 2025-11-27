@@ -71,6 +71,7 @@ class MainAppLogic(QObject):
 
         self.source_files: List[str] = [] # Holds both files and folders
         self.file_to_folder_map: Dict[str, Optional[str]] = {} # 记录文件来自哪个文件夹
+        self.excluded_paths: List[str] = [] # 排除的文件和文件夹路径
         self.display_name_maps = None
 
         self.app_config = AppConfig()
@@ -396,7 +397,7 @@ class MainAppLogic(QObject):
                     "detection_size": "检测大小", "text_threshold": "文本阈值", "det_rotate": "旋转图像进行检测",
                     "det_auto_rotate": "旋转图像以优先检测垂直文本行", "det_invert": "反转图像颜色进行检测",
                     "det_gamma_correct": "应用伽马校正进行检测", "use_yolo_obb": "启用YOLO辅助检测", "yolo_obb_conf": "YOLO置信度阈值", "yolo_obb_iou": "YOLO交叉比(IoU)", "yolo_obb_overlap_threshold": "YOLO辅助检测重叠率删除阈值", "box_threshold": "边界框生成阈值", "unclip_ratio": "Unclip比例", "min_box_area_ratio": "最小检测框面积占比",
-                    "inpainter": "修复模型", "inpainting_size": "修复大小", "inpainting_precision": "修复精度", "inpainting_split_ratio": "极端长宽比切割阈值",
+                    "inpainter": "修复模型", "inpainting_size": "修复大小", "inpainting_precision": "修复精度",
                     "renderer": "渲染器", "alignment": "对齐方式", "disable_font_border": "禁用字体边框",
                     "disable_auto_wrap": "AI断句", "font_size_offset": "字体大小偏移量", "font_size_minimum": "最小字体大小",
                     "max_font_size": "最大字体大小", "font_scale_ratio": "字体缩放比例",
@@ -466,6 +467,128 @@ class MainAppLogic(QObject):
             "secondary_ocr": [member.value for member in Ocr]
         }
         return options_map.get(key)
+    
+    @pyqtSlot()
+    def export_config(self):
+        """导出配置（排除敏感信息）"""
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        import json
+        
+        try:
+            # 选择保存位置
+            file_path, _ = QFileDialog.getSaveFileName(
+                None,
+                "导出配置",
+                "manga_translator_config.json",
+                "JSON Files (*.json)"
+            )
+            
+            if not file_path:
+                return
+            
+            # 获取当前配置
+            config = self.config_service.get_config()
+            config_dict = config.dict()
+            
+            # 排除敏感信息和临时状态
+            # 1. 排除 app 配置（包含路径等临时信息）
+            if 'app' in config_dict:
+                del config_dict['app']
+            
+            # 2. 排除 CLI 中的临时状态
+            if 'cli' in config_dict:
+                # 保留 CLI 配置，但排除某些临时字段
+                cli_exclude = ['verbose']  # 可以根据需要添加更多
+                for key in cli_exclude:
+                    if key in config_dict['cli']:
+                        del config_dict['cli'][key]
+            
+            # 保存到文件
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(config_dict, f, indent=2, ensure_ascii=False)
+            
+            self.logger.info(f"配置已导出到: {file_path}")
+            QMessageBox.information(
+                None,
+                "导出成功",
+                f"配置已成功导出到：\n{file_path}\n\n注意：API密钥等敏感信息未包含在导出文件中。"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"导出配置失败: {e}")
+            QMessageBox.critical(
+                None,
+                "导出失败",
+                f"导出配置时发生错误：\n{str(e)}"
+            )
+    
+    @pyqtSlot()
+    def import_config(self):
+        """导入配置（保留现有的敏感信息）"""
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        import json
+        
+        try:
+            # 选择要导入的文件
+            file_path, _ = QFileDialog.getOpenFileName(
+                None,
+                "导入配置",
+                "",
+                "JSON Files (*.json)"
+            )
+            
+            if not file_path:
+                return
+            
+            # 读取导入的配置
+            with open(file_path, 'r', encoding='utf-8') as f:
+                imported_config = json.load(f)
+            
+            # 获取当前配置
+            current_config = self.config_service.get_config()
+            current_dict = current_config.dict()
+            
+            # 保留当前的 app 配置（路径等临时信息）
+            preserved_app = current_dict.get('app', {})
+            
+            # 深度合并配置
+            def deep_update(target, source):
+                for key, value in source.items():
+                    if isinstance(value, dict) and key in target and isinstance(target[key], dict):
+                        deep_update(target[key], value)
+                    else:
+                        target[key] = value
+            
+            # 合并导入的配置到当前配置
+            deep_update(current_dict, imported_config)
+            
+            # 恢复 app 配置
+            current_dict['app'] = preserved_app
+            
+            # 更新配置
+            from core.config_models import AppSettings
+            new_config = AppSettings.parse_obj(current_dict)
+            self.config_service.set_config(new_config)
+            self.config_service.save_config_file()
+            
+            # 通知UI更新 - 使用转换后的配置字典
+            config_dict_for_ui = self.config_service._convert_config_for_ui(new_config.dict())
+            self.config_loaded.emit(config_dict_for_ui)
+            
+            self.logger.info(f"配置已从 {file_path} 导入")
+            QMessageBox.information(
+                None,
+                "导入成功",
+                f"配置已成功导入！\n\n来源：{file_path}\n\n注意：您的API密钥等敏感信息已保留，未被覆盖。"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"导入配置失败: {e}")
+            QMessageBox.critical(
+                None,
+                "导入失败",
+                f"导入配置时发生错误：\n{str(e)}\n\n请确保文件格式正确。"
+            )
     # endregion
 
     # region 文件管理
@@ -525,44 +648,30 @@ class MainAppLogic(QObject):
                 self.file_removed.emit(file_path)
                 return
             
-            # 情况2：文件夹内的单个文件（只处理文件，不处理文件夹）
-            if os.path.isfile(norm_file_path):
-                # 检查这个文件是否来自某个文件夹
-                parent_folder = None
-                for folder in self.source_files:
-                    if os.path.isdir(folder):
-                        # 检查文件是否在这个文件夹内
-                        try:
-                            common = os.path.commonpath([folder, norm_file_path])
-                            # 确保文件在文件夹内，而不是文件夹本身
-                            if common == os.path.normpath(folder) and norm_file_path != os.path.normpath(folder):
-                                parent_folder = folder
-                                break
-                        except ValueError:
-                            # 不同驱动器，跳过
-                            continue
-                
-                if parent_folder:
-                    # 这是文件夹内的文件，需要将其添加到排除列表
-                    # 由于当前架构不支持排除单个文件，我们需要：
-                    # 1. 移除整个文件夹
-                    # 2. 添加文件夹内的其他文件
-                    
-                    # 获取文件夹内的所有图片文件
-                    folder_files = self.file_service.get_image_files_from_folder(parent_folder, recursive=True)
-                    
-                    # 移除要删除的文件
-                    remaining_files = [f for f in folder_files if os.path.normpath(f) != norm_file_path]
-                    
-                    # 从 source_files 中移除文件夹
-                    self.source_files.remove(parent_folder)
-                    
-                    # 如果还有剩余文件，将它们作为单独的文件添加回去
-                    if remaining_files:
-                        self.source_files.extend(remaining_files)
-                    
-                    self.file_removed.emit(file_path)
-                    return
+            # 情况2：子文件夹或文件（在某个父文件夹内）
+            # 检查是否在某个父文件夹内
+            parent_folder = None
+            for folder in self.source_files:
+                if os.path.isdir(folder):
+                    try:
+                        # 检查路径是否在这个文件夹内
+                        common = os.path.commonpath([folder, norm_file_path])
+                        if common == os.path.normpath(folder) and norm_file_path != os.path.normpath(folder):
+                            parent_folder = folder
+                            break
+                    except ValueError:
+                        # 不同驱动器，跳过
+                        continue
+            
+            if parent_folder:
+                # 这是父文件夹内的项（文件或子文件夹）
+                # 添加到排除列表
+                if norm_file_path not in self.excluded_paths:
+                    self.excluded_paths.append(norm_file_path)
+                # 发出信号让UI更新
+                self.file_removed.emit(file_path)
+                self.logger.info(f"Added to exclusion list: {file_path} (parent folder: {parent_folder})")
+                return
             
             # 如果到这里还没有处理，说明路径不存在
             self.logger.warning(f"Path not found in list for removal: {file_path}")
@@ -575,6 +684,7 @@ class MainAppLogic(QObject):
         # TODO: Add confirmation dialog
         self.source_files.clear()
         self.file_to_folder_map.clear()  # 清空文件夹映射
+        self.excluded_paths.clear()  # 清空排除列表
         self.files_cleared.emit()
         self.logger.info("File list cleared by user.")
     # endregion
@@ -607,9 +717,36 @@ class MainAppLogic(QObject):
         for folder in folders:
             # 获取文件夹中的所有图片（已经使用自然排序）
             folder_files = self.file_service.get_image_files_from_folder(folder, recursive=True)
-            resolved_files.extend(folder_files)
-            # 记录这些文件来自这个文件夹
+            self.logger.info(f"[DEBUG] Folder: {folder}, found {len(folder_files)} files")
+            self.logger.info(f"[DEBUG] Excluded paths: {self.excluded_paths}")
+            
+            # 过滤掉排除的文件和文件夹
+            filtered_files = []
             for file_path in folder_files:
+                norm_file_path = os.path.normpath(file_path)
+                # 检查文件本身是否被排除
+                if norm_file_path in self.excluded_paths:
+                    self.logger.info(f"[DEBUG] Excluded file: {norm_file_path}")
+                    continue
+                # 检查文件是否在被排除的文件夹内
+                is_excluded = False
+                for excluded_path in self.excluded_paths:
+                    if os.path.isdir(excluded_path):
+                        try:
+                            common = os.path.commonpath([excluded_path, norm_file_path])
+                            if common == os.path.normpath(excluded_path):
+                                is_excluded = True
+                                self.logger.info(f"[DEBUG] File in excluded folder: {norm_file_path} (excluded folder: {excluded_path})")
+                                break
+                        except ValueError:
+                            continue
+                if not is_excluded:
+                    filtered_files.append(file_path)
+            
+            self.logger.info(f"[DEBUG] After filtering: {len(filtered_files)} files remaining")
+            resolved_files.extend(filtered_files)
+            # 记录这些文件来自这个文件夹
+            for file_path in filtered_files:
                 self.file_to_folder_map[file_path] = folder
         
         # 处理单独添加的文件（使用自然排序）
@@ -644,37 +781,20 @@ class MainAppLogic(QObject):
         
         # 如果有旧线程还在运行，等待它结束（不使用 terminate）
         if self.thread is not None and self.thread.isRunning():
-            self.logger.warning("检测到旧线程还在运行，正在请求停止...")
-            self.state_manager.set_status_message("正在停止旧任务...")
-            
+            self.logger.warning("检测到旧线程还在运行，等待其结束...")
             # 通知 worker 停止
             if self.worker:
                 try:
                     self.worker.stop()
-                except Exception as e:
-                    self.logger.warning(f"停止worker时出错: {e}")
-            
+                except:
+                    pass
             # 请求线程退出
             self.thread.quit()
-            
-            # 等待最多5秒（给渲染任务足够的时间完成）
-            wait_time = 5000  # 5秒
-            if not self.thread.wait(wait_time):
-                self.logger.error(f"旧线程在{wait_time}ms内未停止，强制终止")
-                # 最后手段：强制终止（可能导致资源泄漏，但比线程冲突好）
-                self.thread.terminate()
-                self.thread.wait()  # 等待终止完成
-                self.logger.warning("旧线程已被强制终止")
-            else:
-                self.logger.info("旧线程已正常停止")
-            
-            # 清理引用
+            # 等待最多500ms
+            if not self.thread.wait(500):
+                self.logger.warning("旧线程500ms内未停止，放弃等待并继续")
             self.thread = None
             self.worker = None
-            
-            # 重置状态
-            self.state_manager.set_translating(False)
-            self.state_manager.set_status_message("就绪")
 
         # 检查文件列表是否为空
         files_to_process = self._resolve_input_files()
@@ -813,17 +933,13 @@ class MainAppLogic(QObject):
         except Exception as e:
             self.logger.error(f"完成任务状态更新或信号发射时发生致命错误: {e}", exc_info=True)
         finally:
-            # 清理线程引用（线程应该已经通过deleteLater自动清理）
-            # 只在线程仍在运行时进行额外处理
             if self.thread and self.thread.isRunning():
-                self.logger.warning("任务完成但线程仍在运行，请求退出...")
                 self.thread.quit()
-                # 不阻塞UI，让deleteLater处理清理
-                # 如果线程在2秒内没有停止，记录警告但不强制终止
-                if not self.thread.wait(2000):
-                    self.logger.warning("线程未在2秒内停止，将由Qt事件循环自动清理")
-            
-            # 清理引用，让Qt的deleteLater机制处理实际的对象销毁
+                self.thread.wait(5000)
+                if self.thread.isRunning():
+                    self.logger.warning("Thread did not finish within timeout, terminating...")
+                    self.thread.terminate()
+                    self.thread.wait()
             self.thread = None
             self.worker = None
 
@@ -833,14 +949,14 @@ class MainAppLogic(QObject):
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message(f"任务失败: {error_message}")
         
-        # 清理线程
         if self.thread and self.thread.isRunning():
-            self.logger.warning("错误发生但线程仍在运行，请求退出...")
             self.thread.quit()
-            if not self.thread.wait(2000):
-                self.logger.warning("线程未在2秒内停止，将由Qt事件循环自动清理")
+            self.thread.wait(2000)
+            if self.thread.isRunning():
+                self.logger.warning("Thread did not finish within timeout, terminating...")
+                self.thread.terminate()
+                self.thread.wait(500)
         
-        # 清理引用
         self.thread = None
         self.worker = None
 
@@ -922,25 +1038,23 @@ class MainAppLogic(QObject):
     def shutdown(self):
         """应用关闭时的清理"""
         try:
-            if self.state_manager.is_translating() or (self.thread and self.thread.isRunning()):
+            if self.state_manager.is_translating():
                 self.logger.info("应用关闭中，停止翻译任务...")
                 
                 # 通知 worker 停止
                 if self.worker:
                     try:
                         self.worker.stop()
-                    except Exception as e:
-                        self.logger.warning(f"停止worker时出错: {e}")
+                    except:
+                        pass
                 
-                # 请求线程退出并等待（最多3秒）
+                # 请求线程退出并等待（最多1秒）
                 if self.thread and self.thread.isRunning():
                     self.thread.quit()
-                    if not self.thread.wait(3000):
-                        self.logger.warning("线程3秒内未停止，强制终止")
-                        self.thread.terminate()
-                        self.thread.wait()
+                    if not self.thread.wait(1000):
+                        self.logger.warning("线程1秒内未停止，放弃等待")
                     else:
-                        self.logger.info("翻译线程已正常停止")
+                        self.logger.info("翻译线程已停止")
                 
                 self.thread = None
                 self.worker = None
