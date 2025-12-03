@@ -91,6 +91,9 @@ class MainAppLogic(QObject):
         """处理单个文件处理完成的信号并保存"""
         if not result.get('success') or not result.get('image_data'):
             self.logger.error(f"Skipping save for failed item: {result.get('original_path')}")
+            # 更新任务统计（失败）
+            if hasattr(self, 'main_view') and self.main_view:
+                self.main_view.update_task_stats(success=False)
             return
 
         try:
@@ -157,9 +160,16 @@ class MainAppLogic(QObject):
             self.saved_files_list.append(final_output_path)  # 收集保存的文件路径
             self.logger.info(self._t("log_file_saved_successfully", path=final_output_path))
             self.task_file_completed.emit({'path': final_output_path})
+            
+            # 更新任务统计（成功）
+            if hasattr(self, 'main_view') and self.main_view:
+                self.main_view.update_task_stats(success=True)
 
         except Exception as e:
             self.logger.error(self._t("log_file_save_error", path=result['original_path'], error=e))
+            # 更新任务统计（失败）
+            if hasattr(self, 'main_view') and self.main_view:
+                self.main_view.update_task_stats(success=False)
 
     def _update_translation_map(self, source_path: str, translated_path: str):
         """在输出目录创建或更新 translation_map.json"""
@@ -1159,6 +1169,10 @@ class MainAppLogic(QObject):
         self.logger.info("翻译工作线程已启动。")
         self.state_manager.set_translating(True)
         self.state_manager.set_status_message("正在翻译...")
+        
+        # 开始任务统计跟踪
+        if hasattr(self, 'main_view') and self.main_view:
+            self.main_view.start_task_tracking(len(files_to_process))
 
     def on_task_finished(self, results):
         """处理任务完成信号，并根据需要保存批量任务的结果"""
@@ -1242,8 +1256,9 @@ class MainAppLogic(QObject):
             self.state_manager.set_translating(False)
             self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件。")
             
-            # 重置主视图的进度条
+            # 停止任务统计跟踪并重置进度条
             if hasattr(self, 'main_view') and self.main_view:
+                self.main_view.stop_task_tracking()
                 self.main_view.reset_progress()
             
             # 播放系统提示音
@@ -1278,8 +1293,9 @@ class MainAppLogic(QObject):
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message(f"任务失败: {error_message}")
         
-        # 重置主视图的进度条
+        # 停止任务统计跟踪并重置进度条
         if hasattr(self, 'main_view') and self.main_view:
+            self.main_view.stop_task_tracking()
             self.main_view.reset_progress()
         
         # 清理线程
@@ -1326,6 +1342,10 @@ class MainAppLogic(QObject):
             def on_thread_finished():
                 self.logger.info("翻译线程已正常停止")
                 self.state_manager.set_status_message("任务已停止")
+                # 停止任务统计跟踪并重置进度条
+                if hasattr(self, 'main_view') and self.main_view:
+                    self.main_view.stop_task_tracking()
+                    self.main_view.reset_progress()
                 self.thread = None
                 self.worker = None
             

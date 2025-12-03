@@ -12,6 +12,7 @@
   "Light": "라이트",
   "Dark": "다크",
   "Gray": "그레이",
+  "Win (Native)": "Win (네이티브)",
   "&Language": "&언어",
   "Task Completed": "작업 완료",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "번역이 완료되었습니다. {count}개의 파일을 저장했습니다.\n\n편집기에서 결과를 열까요?",

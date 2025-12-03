@@ -24,20 +24,15 @@ class MainWindow(QMainWindow):
         self.i18n = get_i18n_manager()
         
         self.setWindowTitle(self._t("Manga Translator"))
-        self.resize(1300, 800) # 设置默认窗口大小（增加20像素）
         self.setMinimumSize(800, 600) # 设置最小窗口大小
-        # 不设置最大大小，允许无限制调整
-        
-        # 窗口居中显示
-        from PyQt6.QtGui import QScreen
-        screen = QScreen.availableGeometry(self.screen())
-        x = (screen.width() - self.width()) // 2
-        y = (screen.height() - self.height()) // 2
-        self.move(x, y)
         
         # 窗口图标已在 main.py 中设置，这里不需要重复设置
 
         self._setup_logic_and_models()
+        
+        # 恢复窗口位置和大小（需要在 config_service 初始化之后）
+        self._restore_window_state()
+        
         self._setup_ui()
         self._load_stylesheet()  # 加载样式表
         self._connect_signals()
@@ -87,9 +82,12 @@ class MainWindow(QMainWindow):
         self.light_theme_action = QAction(self._t("Light"), self)
         self.dark_theme_action = QAction(self._t("Dark"), self)
         self.gray_theme_action = QAction(self._t("Gray"), self)
+        self.native_theme_action = QAction(self._t("Win (Native)"), self)
         theme_menu.addAction(self.light_theme_action)
         theme_menu.addAction(self.dark_theme_action)
         theme_menu.addAction(self.gray_theme_action)
+        theme_menu.addSeparator()
+        theme_menu.addAction(self.native_theme_action)
         
         # 语言菜单（顶级菜单）
         language_menu = menu_bar.addMenu(self._t("&Language"))
@@ -129,6 +127,11 @@ class MainWindow(QMainWindow):
         """应用指定的主题"""
         import os
         import sys
+        
+        # Windows 原生主题：清除所有样式表
+        if theme == 'native':
+            self.setStyleSheet('')
+            return
         
         # 主题文件映射
         theme_files = {
@@ -223,6 +226,7 @@ class MainWindow(QMainWindow):
         self.light_theme_action.triggered.connect(lambda: self._change_theme("light"))
         self.dark_theme_action.triggered.connect(lambda: self._change_theme("dark"))
         self.gray_theme_action.triggered.connect(lambda: self._change_theme("gray"))
+        self.native_theme_action.triggered.connect(lambda: self._change_theme("native"))
 
     @pyqtSlot(str)
     def on_file_selected_from_main_list(self, file_path: str):
@@ -348,9 +352,12 @@ class MainWindow(QMainWindow):
         self.light_theme_action = QAction(self._t("Light"), self)
         self.dark_theme_action = QAction(self._t("Dark"), self)
         self.gray_theme_action = QAction(self._t("Gray"), self)
+        self.native_theme_action = QAction(self._t("Win (Native)"), self)
         theme_menu.addAction(self.light_theme_action)
         theme_menu.addAction(self.dark_theme_action)
         theme_menu.addAction(self.gray_theme_action)
+        theme_menu.addSeparator()
+        theme_menu.addAction(self.native_theme_action)
         
         # 语言菜单
         language_menu = menu_bar.addMenu(self._t("&Language"))
@@ -369,6 +376,7 @@ class MainWindow(QMainWindow):
         self.light_theme_action.triggered.connect(lambda: self._change_theme("light"))
         self.dark_theme_action.triggered.connect(lambda: self._change_theme("dark"))
         self.gray_theme_action.triggered.connect(lambda: self._change_theme("gray"))
+        self.native_theme_action.triggered.connect(lambda: self._change_theme("native"))
     
     @pyqtSlot(list)
     def on_task_completed(self, saved_files: list):
@@ -462,5 +470,76 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        # 保存窗口位置和大小
+        self._save_window_state()
         self.app_logic.shutdown()
         event.accept()
+    
+    def _restore_window_state(self):
+        """从配置恢复窗口位置和大小"""
+        from PyQt6.QtGui import QScreen
+        
+        config = self.config_service.get_config()
+        app_config = config.app
+        
+        # 获取当前屏幕可用区域
+        screen = QScreen.availableGeometry(self.screen())
+        
+        # 检查是否有保存的窗口状态
+        if app_config.window_width and app_config.window_height:
+            width = app_config.window_width
+            height = app_config.window_height
+            
+            # 确保窗口大小不超过屏幕
+            width = min(width, screen.width())
+            height = min(height, screen.height())
+            self.resize(width, height)
+        else:
+            # 默认大小
+            self.resize(1300, 800)
+        
+        # 检查是否有保存的窗口位置
+        if app_config.window_x is not None and app_config.window_y is not None:
+            x = app_config.window_x
+            y = app_config.window_y
+            
+            # 确保窗口在屏幕范围内（至少部分可见）
+            if x < -self.width() + 100:
+                x = 0
+            if y < 0:
+                y = 0
+            if x > screen.width() - 100:
+                x = screen.width() - self.width()
+            if y > screen.height() - 100:
+                y = screen.height() - self.height()
+            
+            self.move(x, y)
+        else:
+            # 默认居中
+            x = (screen.width() - self.width()) // 2
+            y = (screen.height() - self.height()) // 2
+            self.move(x, y)
+        
+        # 恢复最大化状态
+        if app_config.window_maximized:
+            self.showMaximized()
+    
+    def _save_window_state(self):
+        """保存窗口位置和大小到配置"""
+        config = self.config_service.get_config()
+        
+        # 保存最大化状态
+        config.app.window_maximized = self.isMaximized()
+        
+        # 如果没有最大化，保存当前位置和大小
+        if not self.isMaximized():
+            geometry = self.geometry()
+            config.app.window_x = geometry.x()
+            config.app.window_y = geometry.y()
+            config.app.window_width = geometry.width()
+            config.app.window_height = geometry.height()
+        
+        # 保存配置
+        self.config_service.set_config(config)
+        self.config_service.save_config_file()
+        self.logger.info("窗口状态已保存")

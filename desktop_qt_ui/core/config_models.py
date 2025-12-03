@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import os
 
 from pydantic import BaseModel, Field
@@ -128,8 +128,16 @@ class AppSection(BaseModel):
     last_open_dir: str = '.'
     last_output_path: str = ""
     favorite_folders: Optional[List[str]] = None
-    theme: str = "light"  # 主题：light, dark, gray
+    theme: str = "light"  # 主题：light, dark, gray, native
     ui_language: str = "auto"  # UI语言：auto(自动检测), zh_CN, en_US, ja_JP, ko_KR 等
+    # 窗口状态
+    window_x: Optional[int] = None
+    window_y: Optional[int] = None
+    window_width: Optional[int] = None
+    window_height: Optional[int] = None
+    window_maximized: bool = False
+    # 监控设置
+    monitor_config: Optional[Dict[str, Any]] = None
 
 class AppSettings(BaseModel):
     app: AppSection = Field(default_factory=AppSection)

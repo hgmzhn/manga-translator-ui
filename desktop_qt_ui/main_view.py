@@ -1,5 +1,6 @@
 
 import os
+import time
 from functools import partial
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
@@ -669,7 +670,7 @@ class MainView(QWidget):
         log_container = QWidget()
         log_container_layout = QVBoxLayout(log_container)
         log_container_layout.setContentsMargins(0, 0, 0, 0)
-        log_container_layout.setSpacing(5)
+        log_container_layout.setSpacing(3)
         
         # 日志框
         self.log_box = QTextEdit()
@@ -677,16 +678,25 @@ class MainView(QWidget):
         self.log_box.setPlaceholderText(self._t("Log output..."))
         log_container_layout.addWidget(self.log_box)
         
-        # 进度条（常态显示）
-        from PyQt6.QtWidgets import QProgressBar
+        # 状态信息面板（使用 QStackedWidget 切换两种布局）
+        from PyQt6.QtWidgets import QProgressBar, QStackedWidget
+        
+        status_stack = QStackedWidget()
+        status_stack.setFixedHeight(26)
+        
+        # === 简略布局（旧版）：进度条 + 切换按钮 ===
+        simple_row = QWidget()
+        simple_layout = QHBoxLayout(simple_row)
+        simple_layout.setContentsMargins(0, 0, 0, 0)
+        simple_layout.setSpacing(5)
+        
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFormat("0/0 (0%)")
-        self.progress_bar.setFixedHeight(25)
-        # 设置样式：默认灰色，翻译时蓝色
+        self.progress_bar.setFixedHeight(22)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
                 border: 1px solid #ccc;
@@ -698,7 +708,139 @@ class MainView(QWidget):
                 background-color: #d0d0d0;
             }
         """)
-        log_container_layout.addWidget(self.progress_bar)
+        simple_layout.addWidget(self.progress_bar)
+        
+        # 简略模式切换按钮
+        self.simple_toggle_btn = QPushButton("▲")
+        self.simple_toggle_btn.setFixedSize(22, 22)
+        self.simple_toggle_btn.setToolTip("切换到详细显示")
+        self.simple_toggle_btn.setStyleSheet("""
+            QPushButton {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                background-color: #f0f0f0;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+        """)
+        self.simple_toggle_btn.clicked.connect(self._toggle_status_detail)
+        simple_layout.addWidget(self.simple_toggle_btn)
+        
+        status_stack.addWidget(simple_row)  # index 0: 简略
+        
+        # === 详细布局（新版）：状态信息 + 进度条 + 用时 + ▼ + ⚙ ===
+        detail_row = QWidget()
+        detail_layout = QHBoxLayout(detail_row)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(5)
+        
+        self.detail_stats_label = QLabel("CPU: --% | GPU 3D: --% | Compute: --% | RAM: --/--G | VRAM: --/--G | HDD: --% | ✓0/0 | ✗0")
+        self.detail_stats_label.setStyleSheet("font-size: 11px; color: #666; padding: 2px;")
+        detail_layout.addWidget(self.detail_stats_label)
+        
+        # 详细模式的小进度条（可在设置中显示/隐藏）
+        self.detail_progress_bar = QProgressBar()
+        self.detail_progress_bar.setMinimum(0)
+        self.detail_progress_bar.setMaximum(100)
+        self.detail_progress_bar.setValue(0)
+        self.detail_progress_bar.setTextVisible(True)
+        self.detail_progress_bar.setFormat("0/0 (0%)")
+        self.detail_progress_bar.setFixedSize(100, 18)
+        self.detail_progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                text-align: center;
+                background-color: #f0f0f0;
+                font-size: 10px;
+            }
+            QProgressBar::chunk {
+                background-color: #d0d0d0;
+            }
+        """)
+        detail_layout.addWidget(self.detail_progress_bar)
+        
+        # 耗时标签
+        self.elapsed_label = QLabel("00:00:00")
+        self.elapsed_label.setStyleSheet("font-size: 11px; color: #666; padding: 2px;")
+        detail_layout.addWidget(self.elapsed_label)
+        
+        # 初始化监控设置（必须在 _setup_monitor_menu 之前）
+        # 从配置文件加载，如果没有则使用默认值
+        default_monitor_config = {
+            'show_cpu': True,
+            'show_gpu': True,
+            'show_ram': True,
+            'show_vram': True,
+            'show_hdd': True,
+            'show_success_fail': True,
+            'show_progress': True,
+            'show_elapsed': True,
+            'interval_ms': 500  # 默认 0.5 秒
+        }
+        saved_config = self.config_service.get_config().app.monitor_config or {}
+        self._monitor_config = {**default_monitor_config, **saved_config}
+        
+        # 设置按钮（齿轮图标）- 放左边
+        self.monitor_settings_btn = QPushButton("⚙")
+        self.monitor_settings_btn.setFixedSize(22, 22)
+        self.monitor_settings_btn.setToolTip("监控设置")
+        self.monitor_settings_btn.setStyleSheet("""
+            QPushButton {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                background-color: #f0f0f0;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+            QPushButton::menu-indicator { width: 0; height: 0; }
+        """)
+        self._setup_monitor_menu()
+        detail_layout.addWidget(self.monitor_settings_btn)
+        
+        # 详细模式切换按钮 - 放右边
+        self.detail_toggle_btn = QPushButton("▼")
+        self.detail_toggle_btn.setFixedSize(22, 22)
+        self.detail_toggle_btn.setToolTip("切换到简略显示")
+        self.detail_toggle_btn.setStyleSheet("""
+            QPushButton {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                background-color: #f0f0f0;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+        """)
+        self.detail_toggle_btn.clicked.connect(self._toggle_status_detail)
+        detail_layout.addWidget(self.detail_toggle_btn)
+        
+        status_stack.addWidget(detail_row)  # index 1: 详细
+        
+        # 默认显示详细模式
+        self._status_stack = status_stack
+        self._status_detail_mode = True
+        status_stack.setCurrentIndex(1)  # 1 = 详细
+        
+        log_container_layout.addWidget(status_stack)
+        
+        # 初始化任务统计变量
+        self._task_start_time = None
+        self._task_success_count = 0
+        self._task_failed_count = 0
+        self._task_total_count = 0
+        
+        # 任务计时器
+        self._task_timer = QTimer(self)
+        self._task_timer.timeout.connect(self._update_task_elapsed_time)
+        
+        # 系统监控
+        self._init_system_monitor()
         
         right_splitter.addWidget(log_container)
 
@@ -722,14 +864,20 @@ class MainView(QWidget):
             message: 可选的进度消息
         """
         if total > 0:
+            # 更新简略模式进度条
             self.progress_bar.setMaximum(total)
             self.progress_bar.setValue(current)
             percentage = int((current / total) * 100) if total > 0 else 0
             self.progress_bar.setFormat(f"{current}/{total} ({percentage}%)")
             
+            # 更新详细模式小进度条（与旧版一致）
+            self.detail_progress_bar.setMaximum(total)
+            self.detail_progress_bar.setValue(current)
+            self.detail_progress_bar.setFormat(f"{current}/{total} ({percentage}%)")
+            
             # 翻译中：蓝色进度条
             if current > 0:
-                self.progress_bar.setStyleSheet("""
+                blue_style = """
                     QProgressBar {
                         border: 1px solid #0078d4;
                         border-radius: 3px;
@@ -739,30 +887,16 @@ class MainView(QWidget):
                     QProgressBar::chunk {
                         background-color: #0078d4;
                     }
-                """)
+                """
+                self.progress_bar.setStyleSheet(blue_style)
+                self.detail_progress_bar.setStyleSheet(blue_style + "QProgressBar { font-size: 10px; }")
         else:
             # 重置为灰色
-            self.progress_bar.setMaximum(100)
-            self.progress_bar.setValue(0)
-            self.progress_bar.setFormat("0/0 (0%)")
-            self.progress_bar.setStyleSheet("""
-                QProgressBar {
-                    border: 1px solid #ccc;
-                    border-radius: 3px;
-                    text-align: center;
-                    background-color: #f0f0f0;
-                }
-                QProgressBar::chunk {
-                    background-color: #d0d0d0;
-                }
-            """)
+            self._reset_progress_style()
     
-    def reset_progress(self):
-        """重置进度条为初始状态（灰色）"""
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("0/0 (0%)")
-        self.progress_bar.setStyleSheet("""
+    def _reset_progress_style(self):
+        """重置进度条样式为灰色"""
+        gray_style = """
             QProgressBar {
                 border: 1px solid #ccc;
                 border-radius: 3px;
@@ -772,7 +906,20 @@ class MainView(QWidget):
             QProgressBar::chunk {
                 background-color: #d0d0d0;
             }
-        """)
+        """
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("0/0 (0%)")
+        self.progress_bar.setStyleSheet(gray_style)
+        
+        self.detail_progress_bar.setMaximum(100)
+        self.detail_progress_bar.setValue(0)
+        self.detail_progress_bar.setFormat("0/0 (0%)")
+        self.detail_progress_bar.setStyleSheet(gray_style + "QProgressBar { font-size: 10px; }")
+    
+    def reset_progress(self):
+        """重置进度条为初始状态（灰色）"""
+        self._reset_progress_style()
     
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）"""
@@ -1069,5 +1216,219 @@ class MainView(QWidget):
             # Fallback in case config is not ready
             self.start_button.setText(self._t("Start Translation"))
             print(f"Could not update button text: {e}")
+
+    # ==================== 系统监控相关方法 ====================
+    
+    def _init_system_monitor(self):
+        """初始化系统监控"""
+        # 缓存最新的系统状态
+        self._last_cpu = 0.0
+        self._last_gpu_3d = 0.0
+        self._last_gpu_compute = 0.0
+        self._last_ram_used = 0.0
+        self._last_ram_total = 0.0
+        self._last_vram_used = 0.0
+        self._last_vram_total = 0.0
+        self._last_hdd = 0.0
+        
+        try:
+            from services.system_monitor import SystemMonitor
+            # 使用配置的间隔时间
+            interval = getattr(self, '_monitor_config', {}).get('interval_ms', 500)
+            self._system_monitor = SystemMonitor(interval_ms=interval, parent=self)
+            self._system_monitor.stats_updated.connect(self._on_system_stats_updated)
+            self._system_monitor.set_config(self._monitor_config)  # 应用监控配置
+            self._system_monitor.start()
+            self._update_monitor_visibility()  # 应用可见性配置
+        except Exception as e:
+            print(f"系统监控初始化失败: {e}")
+            self._system_monitor = None
+    
+    def _on_system_stats_updated(self, cpu: float, gpu_3d: float, gpu_compute: float, 
+                                  ram_used: float, ram_total: float, vram_used: float, vram_total: float, hdd: float):
+        """更新系统资源显示"""
+        self._last_cpu = cpu
+        self._last_gpu_3d = gpu_3d
+        self._last_gpu_compute = gpu_compute
+        self._last_ram_used = ram_used
+        self._last_ram_total = ram_total
+        self._last_vram_used = vram_used
+        self._last_vram_total = vram_total
+        self._last_hdd = hdd
+        self._update_detail_stats_label()
+    
+    def _toggle_status_detail(self):
+        """切换详细/简略显示模式"""
+        self._status_detail_mode = not self._status_detail_mode
+        if self._status_detail_mode:
+            self._status_stack.setCurrentIndex(1)  # 详细模式
+        else:
+            self._status_stack.setCurrentIndex(0)  # 简略模式
+    
+    def _update_detail_stats_label(self):
+        """更新详细状态标签和耗时"""
+        # 根据配置构建显示内容
+        parts = []
+        config = getattr(self, '_monitor_config', {})
+        
+        if config.get('show_cpu', True):
+            parts.append(f"CPU: {self._last_cpu:.0f}%")
+        if config.get('show_gpu', True):
+            parts.append(f"GPU 3D: {self._last_gpu_3d:.0f}%")
+            parts.append(f"Compute: {self._last_gpu_compute:.0f}%")
+        if config.get('show_ram', True):
+            parts.append(f"RAM: {self._last_ram_used:.1f}/{self._last_ram_total:.1f}G")
+        if config.get('show_vram', True):
+            parts.append(f"VRAM: {self._last_vram_used:.1f}/{self._last_vram_total:.1f}G")
+        if config.get('show_hdd', True):
+            parts.append(f"HDD: {self._last_hdd:.0f}%")
+        if config.get('show_success_fail', True):
+            parts.append(f"✓{self._task_success_count}/{self._task_total_count}")
+            parts.append(f"✗{self._task_failed_count}")
+        
+        self.detail_stats_label.setText(" | ".join(parts) if parts else "无显示内容")
+        
+        # 更新耗时标签（只在任务运行中才更新）
+        if self._task_start_time and self._task_timer.isActive():
+            elapsed = time.time() - self._task_start_time
+            hours = int(elapsed // 3600)
+            minutes = int((elapsed % 3600) // 60)
+            seconds = int(elapsed % 60)
+            self.elapsed_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+    
+    def _update_task_elapsed_time(self):
+        """更新任务耗时显示"""
+        self._update_detail_stats_label()
+    
+    def start_task_tracking(self, total_count: int):
+        """开始任务跟踪
+        
+        Args:
+            total_count: 总任务数量
+        """
+        self._task_start_time = time.time()
+        self._task_success_count = 0
+        self._task_failed_count = 0
+        self._task_total_count = total_count
+        self._task_timer.start(1000)  # 每秒更新一次
+        self._update_detail_stats_label()
+    
+    def update_task_stats(self, success: bool = True):
+        """更新任务统计
+        
+        Args:
+            success: 是否成功
+        """
+        if success:
+            self._task_success_count += 1
+        else:
+            self._task_failed_count += 1
+        self._update_detail_stats_label()
+    
+    def stop_task_tracking(self):
+        """停止任务跟踪"""
+        self._task_timer.stop()
+        self._update_detail_stats_label()  # 最终更新一次
+    
+    def reset_task_stats(self):
+        """重置任务统计"""
+        self._task_timer.stop()
+        self._task_start_time = None
+        self._task_success_count = 0
+        self._task_failed_count = 0
+        self._task_total_count = 0
+        self._update_detail_stats_label()
+    
+    def _setup_monitor_menu(self):
+        """设置监控选项下拉菜单"""
+        from PyQt6.QtWidgets import QMenu, QWidgetAction, QSlider
+        from PyQt6.QtGui import QAction
+        
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu { padding: 5px; }")
+        
+        # 显示选项（可勾选菜单项）
+        self._monitor_actions = {}
+        options = [
+            ('show_cpu', 'CPU'),
+            ('show_gpu', 'GPU 3D / Compute'),
+            ('show_ram', 'RAM 内存'),
+            ('show_vram', 'VRAM 显存'),
+            ('show_hdd', 'HDD 硬盘'),
+            ('show_success_fail', '✓成功/✗失败'),
+            ('show_progress', '进度条'),
+            ('show_elapsed', '用时'),
+        ]
+        
+        for key, label in options:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(self._monitor_config.get(key, True))
+            action.triggered.connect(lambda checked, k=key: self._toggle_monitor_option(k, checked))
+            self._monitor_actions[key] = action
+            menu.addAction(action)
+        
+        menu.addSeparator()
+        
+        # 监控间隔子菜单
+        interval_menu = menu.addMenu("监控间隔")
+        intervals = [
+            (100, "0.1s"),
+            (250, "0.25s"),
+            (500, "0.5s"),
+            (1000, "1s"),
+            (2000, "2s"),
+            (3000, "3s"),
+        ]
+        self._interval_actions = {}
+        for ms, label in intervals:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(self._monitor_config.get('interval_ms', 500) == ms)
+            action.triggered.connect(lambda checked, m=ms: self._set_monitor_interval(m))
+            self._interval_actions[ms] = action
+            interval_menu.addAction(action)
+        
+        self.monitor_settings_btn.setMenu(menu)
+    
+    def _toggle_monitor_option(self, key: str, checked: bool):
+        """切换监控选项"""
+        self._monitor_config[key] = checked
+        
+        # 应用监控配置
+        if hasattr(self, '_system_monitor') and self._system_monitor:
+            self._system_monitor.set_config(self._monitor_config)
+        
+        self._update_detail_stats_label()
+        self._update_monitor_visibility()
+        self._save_monitor_config()
+    
+    def _set_monitor_interval(self, interval_ms: int):
+        """设置监控间隔"""
+        self._monitor_config['interval_ms'] = interval_ms
+        
+        # 更新菜单选中状态
+        for ms, action in self._interval_actions.items():
+            action.setChecked(ms == interval_ms)
+        
+        # 应用监控间隔
+        if hasattr(self, '_system_monitor') and self._system_monitor:
+            self._system_monitor.set_interval(interval_ms)
+        
+        self._save_monitor_config()
+    
+    def _save_monitor_config(self):
+        """保存监控配置"""
+        self.config_service.update_config({'app': {'monitor_config': self._monitor_config}})
+    
+    def _update_monitor_visibility(self):
+        """根据配置更新监控组件可见性"""
+        # 进度条可见性
+        show_progress = self._monitor_config.get('show_progress', True)
+        self.detail_progress_bar.setVisible(show_progress)
+        
+        # 用时标签可见性
+        show_elapsed = self._monitor_config.get('show_elapsed', True)
+        self.elapsed_label.setVisible(show_elapsed)
 
 

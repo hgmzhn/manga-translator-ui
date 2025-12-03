@@ -12,6 +12,7 @@
   "Light": "淺色",
   "Dark": "深色",
   "Gray": "灰色",
+  "Win (Native)": "Win (原生)",
   "&Language": "&語言",
   "Task Completed": "任務完成",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "翻譯完成，成功儲存 {count} 個檔案。\n\n是否在編輯器中開啟結果？",

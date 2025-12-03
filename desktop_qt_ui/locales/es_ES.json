@@ -12,6 +12,7 @@
   "Light": "Claro",
   "Dark": "Oscuro",
   "Gray": "Gris",
+  "Win (Native)": "Win (Nativo)",
   "&Language": "&Idioma",
   "Task Completed": "Tarea completada",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "Traducción completada, {count} archivos guardados.\n\n¿Abrir resultados en el editor?",

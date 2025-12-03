@@ -12,6 +12,7 @@
   "Light": "ライト",
   "Dark": "ダーク",
   "Gray": "グレー",
+  "Win (Native)": "Win (ネイティブ)",
   "&Language": "&言語",
   "Task Completed": "タスク完了",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "翻訳が完了しました。{count}個のファイルを保存しました。\n\nエディターで結果を開きますか？",
