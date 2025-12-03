@@ -86,7 +86,12 @@ class SystemMonitor(QObject):
             # HDD 使用率（当前工作目录所在磁盘）
             if self._monitor_hdd:
                 try:
-                    disk_usage = psutil.disk_usage('/')
+                    import os
+                    # Windows 使用当前驱动器，Linux/Mac 使用根目录
+                    drive = os.path.splitdrive(os.getcwd())[0] or '/'
+                    if drive and not drive.endswith(os.sep):
+                        drive += os.sep
+                    disk_usage = psutil.disk_usage(drive)
                     hdd_percent = disk_usage.percent
                 except:
                     hdd_percent = 0.0
