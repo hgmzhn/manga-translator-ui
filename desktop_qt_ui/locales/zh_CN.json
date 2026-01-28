@@ -656,5 +656,11 @@
   "replace_translation_mode_scale_by_size": "按尺寸缩放",
   "replace_translation_mode_region_match": "区域匹配",
   "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 提示：替换翻译将一张图的翻译数据应用到另一张生肉图片上",
-  "Start Replace Translation": "开始替换翻译"
+  "Start Replace Translation": "开始替换翻译",
+  "Translator": "翻译器设置",
+  "Detection": "文本检测与修复",
+  "OCR": "OCR 设置",
+  "Rendering": "渲染与排版",
+  "Image Processing": "图像后处理设置",
+  "Application": "应用设置"
 }
