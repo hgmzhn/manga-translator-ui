@@ -134,16 +134,16 @@ class MainView(QWidget):
 
         # 使用固定的英文键名
         panel_map = {
-            "translator": self.tab_frames["Basic Settings_left"],
-            "cli": self.tab_frames["Basic Settings_right"],
-            "detector": self.tab_frames["Advanced Settings_left"],
-            "inpainter": self.tab_frames["Advanced Settings_left"],
-            "render": self.tab_frames["Advanced Settings_right"],
-            "upscale": self.tab_frames["Advanced Settings_right"],
-            "colorizer": self.tab_frames["Advanced Settings_right"],
-            "ocr": self.tab_frames["Options_left"],
-            "app": self.tab_frames["Options_right"],  # 应用设置显示在Options右侧
-            "global": self.tab_frames["Options_right"],
+            "translator": self.tab_frames["Translator_left"],
+            "cli": self.tab_frames["Translator_right"],
+            "ocr": self.tab_frames["OCR_left"],
+            "detector": self.tab_frames["Detection_left"],
+            "inpainter": self.tab_frames["Detection_right"],
+            "upscale": self.tab_frames["ImageProcessing_left"],
+            "colorizer": self.tab_frames["ImageProcessing_right"],
+            "render": self.tab_frames["Rendering_left"],
+            "app": self.tab_frames["Application_left"],  # 应用设置显示在Application左侧
+            "global": self.tab_frames["Application_right"],
         }
 
         panel = panel_map.get(section)
@@ -163,7 +163,7 @@ class MainView(QWidget):
         Called after all incremental updates are done. Sets up dependent UI like .env section.
         """
         # 在 CLI 配置区域最上面添加"翻译完成后卸载模型"复选框
-        cli_panel = self.tab_frames.get("Basic Settings_right")
+        cli_panel = self.tab_frames.get("Translator_right")
         if cli_panel:
             cli_layout = cli_panel.layout()
             if cli_layout and isinstance(cli_layout, QFormLayout):
@@ -797,9 +797,12 @@ class MainView(QWidget):
         self.tab_frames = {}
         # 使用固定的英文键名，避免语言切换时键名不匹配
         tabs_config = [
-            ("Basic Settings", self._t("Basic Settings")),
-            ("Advanced Settings", self._t("Advanced Settings")),
-            ("Options", self._t("Options"))
+            ("Translator", self._t("Translator")),
+            ("Detection", self._t("Detection")),
+            ("OCR", self._t("OCR")),
+            ("Rendering", self._t("Rendering")),
+            ("ImageProcessing", self._t("Image Processing")),
+            ("Application", self._t("Application"))
         ]
         for tab_key, tab_display_name in tabs_config:
             tab_content_widget = QWidget()
@@ -1009,7 +1012,7 @@ class MainView(QWidget):
     
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）"""
-        tab_titles = ["Basic Settings", "Advanced Settings", "Options"]
+        tab_titles = ["Translator", "Detection", "OCR", "Rendering", "Image Processing", "Application"]
         for i, title_key in enumerate(tab_titles):
             if i < self.settings_tabs.count():
                 self.settings_tabs.setTabText(i, self._t(title_key))
