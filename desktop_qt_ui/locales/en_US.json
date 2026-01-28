@@ -656,5 +656,11 @@
   "replace_translation_mode_scale_by_size": "Scale by Size",
   "replace_translation_mode_region_match": "Region Match",
   "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 Tip: Replace translation applies translations from one image to another raw image",
-  "Start Replace Translation": "Start Replace Translation"
+  "Start Replace Translation": "Start Replace Translation",
+  "Translator": "Translator",
+  "Detection": "Detection",
+  "OCR": "OCR",
+  "Rendering": "Rendering",
+  "Image Processing": "Image Processing",
+  "Application": "Application"
 }
