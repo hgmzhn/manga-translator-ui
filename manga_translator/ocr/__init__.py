@@ -1,3 +1,6 @@
+import asyncio
+import threading
+from dataclasses import dataclass
 import numpy as np
 from typing import Any, List, Optional
 from .common import CommonOCR, OfflineOCR
@@ -8,6 +11,7 @@ from .model_48px_ctc import Model48pxCTCOCR
 from .model_paddleocr import ModelPaddleOCR, ModelPaddleOCRKorean, ModelPaddleOCRLatin, ModelPaddleOCRThai
 from ..config import Ocr, OcrConfig
 from ..utils import Quadrilateral
+from ..utils.local_process_pool import get_or_create_process_pool, shutdown_process_pools
 
 
 def _get_manga_ocr_class():
@@ -48,6 +52,15 @@ OCRS = {
     Ocr.gemini_ocr: _get_gemini_ocr_class,
 }
 ocr_cache = {}
+_ocr_pool_cache = {}
+_ocr_pool_lock = threading.Lock()
+_ocr_single_instance_locks = {}
+
+
+@dataclass
+class _OcrPoolState:
+    queue: asyncio.Queue
+    instances: List[Optional[CommonOCR]]
 
 
 def _resolve_ocr_config(config: Optional[Any]) -> Any:
@@ -64,16 +77,53 @@ def _resolve_ocr_config(config: Optional[Any]) -> Any:
         return OcrConfig(ocr=config)
     return config
 
+
+def _instantiate_ocr(key: Ocr, *args, **kwargs) -> CommonOCR:
+    ocr_class = OCRS[key]
+    if not isinstance(ocr_class, type):
+        ocr_class = ocr_class()
+    return ocr_class(*args, **kwargs)
+
+
+def _enum_value(key: Ocr) -> str:
+    return key.value if hasattr(key, "value") else str(key)
+
+
+def _resolve_local_ocr_concurrency(config: Optional[Any], ocr_key: Optional[Ocr] = None) -> int:
+    ocr_config = _resolve_ocr_config(config)
+    try:
+        concurrency = max(int(getattr(ocr_config, 'local_ocr_concurrency', 1) or 1), 1)
+    except (TypeError, ValueError):
+        concurrency = 1
+    return concurrency
+
+
+def _get_or_create_ocr_pool_state(pool_key: tuple, concurrency: int) -> _OcrPoolState:
+    with _ocr_pool_lock:
+        state = _ocr_pool_cache.get(pool_key)
+        if state is None:
+            queue = asyncio.Queue()
+            for index in range(concurrency):
+                queue.put_nowait(index)
+            state = _OcrPoolState(queue=queue, instances=[None] * concurrency)
+            _ocr_pool_cache[pool_key] = state
+        return state
+
+
+def _get_single_instance_lock(key: str) -> threading.Lock:
+    with _ocr_pool_lock:
+        lock = _ocr_single_instance_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _ocr_single_instance_locks[key] = lock
+        return lock
+
 def get_ocr(key: Ocr, *args, **kwargs) -> CommonOCR:
     if key not in OCRS:
         raise ValueError(f'Could not find OCR for: "{key}". Choose from the following: %s' % ','.join(OCRS))
     # Use cache to avoid reloading models in the same translation session
     if key not in ocr_cache:
-        ocr_class = OCRS[key]
-        # 处理延迟导入的情况
-        if not isinstance(ocr_class, type):
-            ocr_class = ocr_class()  # 调用函数获取真正的类
-        ocr_cache[key] = ocr_class(*args, **kwargs)
+        ocr_cache[key] = _instantiate_ocr(key, *args, **kwargs)
     return ocr_cache[key]
 
 async def prepare(ocr_key: Ocr, device: str = 'cpu'):
@@ -91,22 +141,70 @@ async def dispatch(
     verbose: bool = False,
     runtime_config=None,
 ) -> List[Quadrilateral]:
-    ocr = get_ocr(ocr_key)
-    if isinstance(ocr, OfflineOCR):
-        await ocr.load(device)
     runtime_config = runtime_config or config
     ocr_config = _resolve_ocr_config(config)
-    if getattr(ocr, "SUPPORTS_RUNTIME_CONFIG", False):
-        return await ocr.recognize(
-            image,
-            regions,
-            ocr_config,
-            verbose,
-            runtime_config=runtime_config,
-        )
-    return await ocr.recognize(image, regions, ocr_config, verbose)
+
+    # API OCR 已经有单独的并发控制，这里只为本地 OCR 准备多实例池。
+    if ocr_key in (Ocr.openai_ocr, Ocr.gemini_ocr):
+        ocr = get_ocr(ocr_key)
+        if isinstance(ocr, OfflineOCR):
+            await ocr.load(device)
+        if getattr(ocr, "SUPPORTS_RUNTIME_CONFIG", False):
+            return await ocr.recognize(
+                image,
+                regions,
+                ocr_config,
+                verbose,
+                runtime_config=runtime_config,
+            )
+        return await ocr.recognize(image, regions, ocr_config, verbose)
+
+    local_concurrency = _resolve_local_ocr_concurrency(ocr_config, ocr_key)
+    if local_concurrency <= 1:
+        ocr = get_ocr(ocr_key)
+        ocr_key_value = _enum_value(ocr_key)
+        lock = _get_single_instance_lock(f"{ocr_key_value}::{device}")
+        with lock:
+            if isinstance(ocr, OfflineOCR):
+                await ocr.load(device)
+            return await ocr.recognize(image, regions, ocr_config, verbose)
+
+    ocr_key_value = _enum_value(ocr_key)
+    pool_key = ("ocr", ocr_key_value, device, local_concurrency)
+    process_pool = get_or_create_process_pool(
+        pool_key,
+        worker_kind="ocr",
+        worker_params={
+            "key": ocr_key_value,
+            "device": device,
+        },
+        concurrency=local_concurrency,
+    )
+    future = process_pool.submit(
+        {
+            "image": image,
+            "regions": regions,
+            "config": ocr_config,
+            "verbose": verbose,
+        }
+    )
+    return await asyncio.wrap_future(future)
 
 async def unload(ocr_key: Ocr):
+    ocr_key_value = _enum_value(ocr_key)
     ocr = ocr_cache.pop(ocr_key, None)
     if isinstance(ocr, OfflineOCR):
         await ocr.unload()
+    pool_keys = [key for key in list(_ocr_pool_cache.keys()) if key[0] == ocr_key_value]
+    for pool_key in pool_keys:
+        state = _ocr_pool_cache.pop(pool_key, None)
+        if not state:
+            continue
+        for instance in state.instances:
+            if isinstance(instance, OfflineOCR):
+                await instance.unload()
+    with _ocr_pool_lock:
+        stale_lock_keys = [key for key in list(_ocr_single_instance_locks.keys()) if key.startswith(f"{ocr_key_value}::")]
+        for lock_key in stale_lock_keys:
+            _ocr_single_instance_locks.pop(lock_key, None)
+    shutdown_process_pools(prefix="ocr")

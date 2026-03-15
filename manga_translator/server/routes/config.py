@@ -22,8 +22,12 @@ SERVER_HIDDEN_RENDERER_OPTIONS = {"openai_renderer", "gemini_renderer"}
 SERVER_HIDDEN_COLORIZER_OPTIONS = {"openai_colorizer", "gemini_colorizer"}
 SERVER_HIDDEN_CONFIG_KEYS = {
     "use_custom_api_params",
+    "cli.full_image_workers",
     "ocr.ai_ocr_concurrency",
+    "ocr.local_ocr_concurrency",
+    "inpainter.local_inpainting_concurrency",
     "render.ai_renderer_concurrency",
+    "upscale.local_upscaling_concurrency",
     "colorizer.ai_colorizer_history_pages",
 }
 

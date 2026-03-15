@@ -2,6 +2,7 @@ import math
 import os
 import re
 import copy
+import threading
 import cv2
 # import logging
 import numpy as np
@@ -30,6 +31,11 @@ from ..utils import (
 from ..config import Config, Renderer
 
 logger = get_logger('render')
+
+# FreeType 的 Face/Glyph 状态和当前文本渲染缓存是全局共享的。
+# 在整图并发开启后，多条渲染线程会同时操作这些共享对象，容易触发 invalid outline/reference。
+# 先把本地字体渲染串行化，恢复到并发改造前的稳定行为。
+_FREETYPE_RENDER_LOCK = threading.RLock()
 
 # 基准字体大小，用于模拟文本块
 BASE_FONT_SIZE = 100
@@ -1882,44 +1888,45 @@ async def dispatch(
 
         return await dispatch_api_rendering(img=img, text_regions=text_regions, config=config)
 
-    # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
-    text_render.set_font(text_render.DEFAULT_FONT)
-    text_regions = list(filter(lambda region: region.translation, text_regions))
+    with _FREETYPE_RENDER_LOCK:
+        # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
+        text_render.set_font(text_render.DEFAULT_FONT)
+        text_regions = list(filter(lambda region: region.translation, text_regions))
 
-    result = resize_regions_to_font_size(img, text_regions, config, original_img, return_debug_img, skip_font_scaling=skip_font_scaling)
-    
-    # Handle return value (may be tuple if debug image is included)
-    if return_debug_img and isinstance(result, tuple):
-        dst_points_list, debug_img = result
-    else:
-        dst_points_list = result
-        debug_img = None
+        result = resize_regions_to_font_size(img, text_regions, config, original_img, return_debug_img, skip_font_scaling=skip_font_scaling)
+        
+        # Handle return value (may be tuple if debug image is included)
+        if return_debug_img and isinstance(result, tuple):
+            dst_points_list, debug_img = result
+        else:
+            dst_points_list = result
+            debug_img = None
 
-    for region, dst_points in tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions)):
-        # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
-        # 注意：这是缩放后的真实文本区域，不是 render 函数中扩展后的区域
-        region.dst_points = dst_points
+        for region, dst_points in tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions)):
+            # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
+            # 注意：这是缩放后的真实文本区域，不是 render 函数中扩展后的区域
+            region.dst_points = dst_points
+            
+            # 检查是否有文本需要渲染
+            if not region.translation or not region.translation.strip():
+                logger.info(f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', translation='{region.translation[:20] if region.translation else ''}'")
+                continue
+            
+            # render() / put_text_*() 统一接收“倍率”，基础值在文本渲染器内部处理。
+            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+            img = render(
+                img,
+                region,
+                dst_points,
+                not config.render.no_hyphenation,
+                line_spacing_multiplier,
+                config.render.disable_font_border,
+                config,
+            )
         
-        # 检查是否有文本需要渲染
-        if not region.translation or not region.translation.strip():
-            logger.info(f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', translation='{region.translation[:20] if region.translation else ''}'")
-            continue
-        
-        # render() / put_text_*() 统一接收“倍率”，基础值在文本渲染器内部处理。
-        line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-        img = render(
-            img,
-            region,
-            dst_points,
-            not config.render.no_hyphenation,
-            line_spacing_multiplier,
-            config.render.disable_font_border,
-            config,
-        )
-    
-    if return_debug_img and debug_img is not None:
-        return img, debug_img
-    return img
+        if return_debug_img and debug_img is not None:
+            return img, debug_img
+        return img
 
 def render(
     img,

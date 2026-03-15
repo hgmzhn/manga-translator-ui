@@ -49,6 +49,8 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
     # 清理OCR缓存
     try:
         from manga_translator.ocr import ocr_cache
+        from manga_translator.ocr import _ocr_pool_cache
+        from manga_translator.utils.local_process_pool import shutdown_process_pools
         if ocr_cache:
             if unload_models:
                 # 先卸载所有模型实例
@@ -64,6 +66,20 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
             
             cleanup_count += len(ocr_cache)
             ocr_cache.clear()
+        if _ocr_pool_cache:
+            if unload_models:
+                for pool_state in list(_ocr_pool_cache.values()):
+                    for model_instance in getattr(pool_state, 'instances', []):
+                        try:
+                            if hasattr(model_instance, '_unload'):
+                                model_instance._unload()
+                            elif hasattr(model_instance, 'unload'):
+                                model_instance.unload()
+                        except Exception as e:
+                            logger.debug(f"卸载OCR并发实例时出错: {e}")
+            cleanup_count += len(_ocr_pool_cache)
+            _ocr_pool_cache.clear()
+        shutdown_process_pools(prefix="ocr")
     except Exception as e:
         logger.debug(f"清理OCR缓存时出错: {e}")
     
@@ -91,6 +107,8 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
     # 清理修复器缓存
     try:
         from manga_translator.inpainting import inpainter_cache
+        from manga_translator.inpainting import _inpainter_pool_cache
+        from manga_translator.utils.local_process_pool import shutdown_process_pools
         if inpainter_cache:
             if unload_models:
                 # 先卸载所有模型实例
@@ -106,12 +124,28 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
             
             cleanup_count += len(inpainter_cache)
             inpainter_cache.clear()
+        if _inpainter_pool_cache:
+            if unload_models:
+                for pool_state in list(_inpainter_pool_cache.values()):
+                    for model_instance in getattr(pool_state, 'instances', []):
+                        try:
+                            if hasattr(model_instance, '_unload'):
+                                model_instance._unload()
+                            elif hasattr(model_instance, 'unload'):
+                                model_instance.unload()
+                        except Exception as e:
+                            logger.debug(f"卸载修复并发实例时出错: {e}")
+            cleanup_count += len(_inpainter_pool_cache)
+            _inpainter_pool_cache.clear()
+        shutdown_process_pools(prefix="inpainting")
     except Exception as e:
         logger.debug(f"清理修复器缓存时出错: {e}")
     
     # 清理超分缓存
     try:
         from manga_translator.upscaling import upscaler_cache
+        from manga_translator.upscaling import _upscaler_pool_cache
+        from manga_translator.utils.local_process_pool import shutdown_process_pools
         if upscaler_cache:
             if unload_models:
                 # 先卸载所有模型实例
@@ -127,6 +161,20 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
             
             cleanup_count += len(upscaler_cache)
             upscaler_cache.clear()
+        if _upscaler_pool_cache:
+            if unload_models:
+                for pool_state in list(_upscaler_pool_cache.values()):
+                    for model_instance in getattr(pool_state, 'instances', []):
+                        try:
+                            if hasattr(model_instance, '_unload'):
+                                model_instance._unload()
+                            elif hasattr(model_instance, 'unload'):
+                                model_instance.unload()
+                        except Exception as e:
+                            logger.debug(f"卸载超分并发实例时出错: {e}")
+            cleanup_count += len(_upscaler_pool_cache)
+            _upscaler_pool_cache.clear()
+        shutdown_process_pools(prefix="upscaling")
     except Exception as e:
         logger.debug(f"清理超分缓存时出错: {e}")
     
@@ -227,5 +275,3 @@ def full_memory_cleanup(log_callback=None, unload_models: bool = False):
     result['physical_memory_released'] = cleanup_physical_memory()
     
     return result
-
-

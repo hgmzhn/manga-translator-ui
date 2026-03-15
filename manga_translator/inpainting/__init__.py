@@ -1,3 +1,6 @@
+import asyncio
+import threading
+from dataclasses import dataclass
 from typing import Optional
 
 import cv2
@@ -9,6 +12,7 @@ from .inpainting_lama_mpe import LamaMPEInpainter, LamaLargeInpainter
 from .none import NoneInpainter
 from .original import OriginalInpainter
 from ..config import Inpainter, InpainterConfig
+from ..utils.local_process_pool import get_or_create_process_pool, shutdown_process_pools
 
 _SD_IMPORT_ERROR = None
 try:
@@ -38,14 +42,59 @@ INPAINTERS = {
     Inpainter.original: OriginalInpainter,
 }
 inpainter_cache = {}
+_inpainter_pool_cache = {}
+_inpainter_pool_lock = threading.Lock()
+_inpainter_single_instance_locks = {}
 INPAINT_SPLIT_RATIO = 3.0
+
+
+@dataclass
+class _InpainterPoolState:
+    queue: asyncio.Queue
+    instances: list[Optional[CommonInpainter]]
+
+
+def _instantiate_inpainter(key: Inpainter, *args, **kwargs) -> CommonInpainter:
+    inpainter = INPAINTERS[key]
+    return inpainter(*args, **kwargs)
+
+
+def _enum_value(key: Inpainter) -> str:
+    return key.value if hasattr(key, "value") else str(key)
+
+
+def _resolve_local_inpainting_concurrency(config: Optional[InpainterConfig]) -> int:
+    try:
+        return max(int(getattr(config, 'local_inpainting_concurrency', 1) or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _get_or_create_inpainter_pool_state(pool_key: tuple, concurrency: int) -> _InpainterPoolState:
+    with _inpainter_pool_lock:
+        state = _inpainter_pool_cache.get(pool_key)
+        if state is None:
+            queue = asyncio.Queue()
+            for index in range(concurrency):
+                queue.put_nowait(index)
+            state = _InpainterPoolState(queue=queue, instances=[None] * concurrency)
+            _inpainter_pool_cache[pool_key] = state
+        return state
+
+
+def _get_single_instance_lock(key: str) -> threading.Lock:
+    with _inpainter_pool_lock:
+        lock = _inpainter_single_instance_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _inpainter_single_instance_locks[key] = lock
+        return lock
 
 def get_inpainter(key: Inpainter, *args, **kwargs) -> CommonInpainter:
     if key not in INPAINTERS:
         raise ValueError(f'Could not find inpainter for: "{key}". Choose from the following: %s' % ','.join(INPAINTERS))
     if not inpainter_cache.get(key):
-        inpainter = INPAINTERS[key]
-        inpainter_cache[key] = inpainter(*args, **kwargs)
+        inpainter_cache[key] = _instantiate_inpainter(key, *args, **kwargs)
     return inpainter_cache[key]
 
 async def prepare(inpainter_key: Inpainter, device: str = 'cpu', force_torch: bool = False):
@@ -88,12 +137,7 @@ def _inpaint_handle_alpha_channel(original_alpha: np.ndarray, mask: np.ndarray) 
     return result_alpha
 
 async def dispatch(inpainter_key: Inpainter, image: np.ndarray, mask: np.ndarray, config: Optional[InpainterConfig], inpainting_size: int = 1024, device: str = 'cpu', verbose: bool = False) -> np.ndarray:
-    inpainter = get_inpainter(inpainter_key)
     config = config or InpainterConfig()
-    if isinstance(inpainter, OfflineInpainter):
-        force_torch = getattr(config, 'force_use_torch_inpainting', False)
-        await inpainter.load(device, force_torch=force_torch)
-
     mask_binary = _normalize_binary_mask(mask)
 
     original_alpha = None
@@ -104,17 +148,52 @@ async def dispatch(inpainter_key: Inpainter, image: np.ndarray, mask: np.ndarray
 
     h, w = image_rgb.shape[:2]
     aspect_ratio = max(w / h, h / w)
-    if aspect_ratio > INPAINT_SPLIT_RATIO:
-        inpainted_rgb = await _dispatch_with_split(
-            inpainter,
-            image_rgb,
-            mask_binary,
-            config,
-            inpainting_size,
-            verbose,
-        )
+
+    force_torch = getattr(config, 'force_use_torch_inpainting', False)
+    local_concurrency = _resolve_local_inpainting_concurrency(config)
+
+    async def _run_inpaint_with_instance(inpainter: CommonInpainter) -> np.ndarray:
+        if isinstance(inpainter, OfflineInpainter):
+            await inpainter.load(device, force_torch=force_torch)
+        if aspect_ratio > INPAINT_SPLIT_RATIO:
+            return await _dispatch_with_split(
+                inpainter,
+                image_rgb,
+                mask_binary,
+                config,
+                inpainting_size,
+                verbose,
+            )
+        return await inpainter.inpaint(image_rgb, mask_binary, config, inpainting_size, verbose)
+
+    if local_concurrency <= 1:
+        inpainter_key_value = _enum_value(inpainter_key)
+        lock = _get_single_instance_lock(f"{inpainter_key_value}::{device}::{force_torch}")
+        with lock:
+            inpainted_rgb = await _run_inpaint_with_instance(get_inpainter(inpainter_key))
     else:
-        inpainted_rgb = await inpainter.inpaint(image_rgb, mask_binary, config, inpainting_size, verbose)
+        inpainter_key_value = _enum_value(inpainter_key)
+        pool_key = ("inpainting", inpainter_key_value, device, force_torch, local_concurrency)
+        process_pool = get_or_create_process_pool(
+            pool_key,
+            worker_kind="inpainting",
+            worker_params={
+                "key": inpainter_key_value,
+                "device": device,
+                "force_torch": force_torch,
+            },
+            concurrency=local_concurrency,
+        )
+        future = process_pool.submit(
+            {
+                "image": image_rgb,
+                "mask": mask_binary,
+                "config": config,
+                "inpainting_size": inpainting_size,
+                "verbose": verbose,
+            }
+        )
+        inpainted_rgb = await asyncio.wrap_future(future)
 
     if original_alpha is not None:
         alpha = _inpaint_handle_alpha_channel(original_alpha, mask_binary)
@@ -123,9 +202,23 @@ async def dispatch(inpainter_key: Inpainter, image: np.ndarray, mask: np.ndarray
     return inpainted_rgb
 
 async def unload(inpainter_key: Inpainter):
+    inpainter_key_value = _enum_value(inpainter_key)
     inpainter = inpainter_cache.pop(inpainter_key, None)
     if isinstance(inpainter, OfflineInpainter):
         await inpainter.unload()
+    pool_keys = [key for key in list(_inpainter_pool_cache.keys()) if key[0] == inpainter_key_value]
+    for pool_key in pool_keys:
+        state = _inpainter_pool_cache.pop(pool_key, None)
+        if not state:
+            continue
+        for instance in state.instances:
+            if isinstance(instance, OfflineInpainter):
+                await instance.unload()
+    with _inpainter_pool_lock:
+        stale_lock_keys = [key for key in list(_inpainter_single_instance_locks.keys()) if key.startswith(f"{inpainter_key_value}::")]
+        for lock_key in stale_lock_keys:
+            _inpainter_single_instance_locks.pop(lock_key, None)
+    shutdown_process_pools(prefix="inpainting")
 
 async def _dispatch_with_split(
     inpainter: CommonInpainter,

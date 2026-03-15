@@ -37,6 +37,7 @@ class OcrSettings(BaseModel):
     ocr_vl_language_hint: str = "auto"
     ocr_vl_custom_prompt: Optional[str] = None
     ai_ocr_concurrency: int = 1
+    local_ocr_concurrency: int = 1
     ai_ocr_custom_prompt: Optional[str] = None
 
 class DetectorSettings(BaseModel):
@@ -55,6 +56,7 @@ class InpainterSettings(BaseModel):
     inpainting_size: int = 2048
     inpainting_precision: str = "fp32"
     force_use_torch_inpainting: bool = False
+    local_inpainting_concurrency: int = 1
 
 class RenderSettings(BaseModel):
     renderer: str = "default"
@@ -92,6 +94,7 @@ class UpscaleSettings(BaseModel):
     realcugan_model: Optional[str] = None
     tile_size: Optional[int] = None
     revert_upscaling: bool = False
+    local_upscaling_concurrency: int = 1
 
 class ColorizerSettings(BaseModel):
     colorization_size: int = 576
@@ -115,6 +118,7 @@ class CliSettings(BaseModel):
     save_quality: int = 100
     batch_size: int = 1
     batch_concurrent: bool = False
+    full_image_workers: int = 1
     generate_and_export: bool = False
     colorize_only: bool = False
     upscale_only: bool = False  # 仅超分模式

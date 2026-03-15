@@ -240,6 +240,8 @@ class UpscaleConfig(BaseModel):
     """Real-CUGAN model to use when upscaler is set to realcugan"""
     tile_size: Optional[int] = None
     """Tile size for Real-CUGAN upscaling (default: 400, 0 = process full image without tiling)"""
+    local_upscaling_concurrency: int = 1
+    """Maximum concurrent local upscaler instances. Higher values use more VRAM/RAM."""
 
 class TranslatorConfig(BaseModel):
     translator: Translator = Translator.openai_hq
@@ -336,6 +338,8 @@ class InpainterConfig(BaseModel):
     """Inpainting precision for lama, use bf16 while you can."""
     force_use_torch_inpainting: bool = False
     """Force use PyTorch for inpainting instead of ONNX (useful if ONNX has memory issues)"""
+    local_inpainting_concurrency: int = 1
+    """Maximum concurrent local inpainter instances. Higher values use more VRAM/RAM."""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576
@@ -363,6 +367,8 @@ class CliConfig(BaseModel):
     """Batch size for processing"""
     batch_concurrent: bool = False
     """Enable concurrent pipeline (Detection, OCR, Inpainting, Translation in parallel)"""
+    full_image_workers: int = 1
+    """Number of whole-image workers in concurrent pipeline. Only used when batch_concurrent is enabled."""
     format: Optional[str] = None
     """Output format"""
     save_quality: int = 100
@@ -419,6 +425,8 @@ class OcrConfig(BaseModel):
     """Custom PaddleOCR-VL prompt. If set, it overrides built-in prompt mode/language hint."""
     ai_ocr_concurrency: int = 1
     """Maximum concurrent API requests for OpenAI OCR and Gemini OCR."""
+    local_ocr_concurrency: int = 1
+    """Maximum concurrent local OCR instances. Higher values use more VRAM/RAM."""
     ai_ocr_custom_prompt: Optional[str] = None
     """Custom prompt for API OCR backends such as OpenAI OCR and Gemini OCR."""
 

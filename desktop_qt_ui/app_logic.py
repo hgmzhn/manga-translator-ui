@@ -1075,6 +1075,7 @@ class MainAppLogic(QObject):
                     "merge_edge_ratio_threshold": self._t("label_merge_edge_ratio_threshold"),
                     "merge_special_require_full_wrap": self._t("label_merge_special_require_full_wrap"),
                     "ai_ocr_concurrency": self._t("label_ai_ocr_concurrency"),
+                    "local_ocr_concurrency": self._t("label_local_ocr_concurrency"),
                     "ai_ocr_custom_prompt": self._t("label_ai_ocr_custom_prompt"),
                     "ocr_vl_language_hint": self._t("label_ocr_vl_language_hint"),
                     "ocr_vl_custom_prompt": self._t("label_ocr_vl_custom_prompt"),
@@ -1091,6 +1092,7 @@ class MainAppLogic(QObject):
                     "inpainting_size": self._t("label_inpainting_size"),
                     "inpainting_precision": self._t("label_inpainting_precision"),
                     "force_use_torch_inpainting": self._t("label_force_use_torch_inpainting"),
+                    "local_inpainting_concurrency": self._t("label_local_inpainting_concurrency"),
                     "renderer": self._t("label_renderer"),
                     "alignment": self._t("label_alignment"),
                     "disable_font_border": self._t("label_disable_font_border"),
@@ -1121,6 +1123,7 @@ class MainAppLogic(QObject):
                     "realcugan_model": self._t("label_realcugan_model"),
                     "tile_size": self._t("label_tile_size"),
                     "revert_upscaling": self._t("label_revert_upscaling"),
+                    "local_upscaling_concurrency": self._t("label_local_upscaling_concurrency"),
                     "colorization_size": self._t("label_colorization_size"),
                     "denoise_sigma": self._t("label_denoise_sigma"),
                     "colorizer": self._t("label_colorizer"),
@@ -1141,6 +1144,7 @@ class MainAppLogic(QObject):
                     "save_quality": self._t("label_save_quality"),
                     "batch_size": self._t("label_batch_size"),
                     "batch_concurrent": self._t("label_batch_concurrent"),
+                    "full_image_workers": self._t("label_full_image_workers"),
                     "generate_and_export": self._t("label_generate_and_export"),
                     "export_editable_psd": self._t("label_export_editable_psd"),
                     "last_output_path": self._t("label_last_output_path"),
@@ -3166,6 +3170,7 @@ class TranslationWorker(QObject):
 
             # 检查是否启用并发模式
             batch_concurrent = self.config_dict.get('cli', {}).get('batch_concurrent', False)
+            full_image_workers = self.config_dict.get('cli', {}).get('full_image_workers', 1)
             
             # 检查是否有不兼容并行的特殊模式
             load_text = self.config_dict.get('cli', {}).get('load_text', False)
@@ -3222,12 +3227,13 @@ class TranslationWorker(QObject):
                 # 如果启用并发模式，不分批加载（并发流水线内部会按需加载）
                 if batch_concurrent:
                     progress_context["detail"] = "并发处理中"
-                    self._log_info(self._t("📊 Concurrent pipeline mode: {total} images (Total: {orig})", total=total_images, orig=total_original_count))
-                    self._log_info(self._t("🔧 Translation workflow: {mode}", mode=workflow_mode))
-                    self._log_info(self._t("📁 Output directory: {dir}", dir=self.output_folder))
+                    self._log_info(f"📊 Concurrent pipeline mode: {total_images} images (Total: {total_original_count})")
+                    self._log_info(f"🧵 Whole-image workers: {full_image_workers}")
+                    self._log_info(f"🔧 Translation workflow: {workflow_mode}")
+                    self._log_info(f"📁 Output directory: {self.output_folder}")
                     if workflow_tip:
                         self._log_info(workflow_tip)
-                    self._log_info(self._t("🚀 Starting translation..."))
+                    self._log_info("🚀 Starting translation...")
                     
                     # 初始化进度条 (start from skipped_count)
                     emit_eta_progress(skipped_count, total_original_count, "并发处理中")
@@ -3884,4 +3890,3 @@ class TranslationRunnable(QRunnable):
     def _emit_file_processed(self, data):
         """线程安全地发送文件处理完成信号"""
         self.signals.file_processed.emit(data)
-

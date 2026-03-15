@@ -317,7 +317,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
     print("✅ 翻译器初始化完成")
     
     # 创建 Config 对象
-    explicit_keys = {'render', 'upscale', 'translator', 'detector', 'colorizer', 'inpainter', 'ocr'}
+    explicit_keys = {'render', 'upscale', 'translator', 'detector', 'colorizer', 'inpainter', 'ocr', 'cli'}
     config_for_translate = {k: v for k, v in config_dict.items() if k in explicit_keys}
     for key in ['kernel_size', 'mask_dilation_offset', 'force_simple_sort']:
         if key in config_dict:
@@ -797,4 +797,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

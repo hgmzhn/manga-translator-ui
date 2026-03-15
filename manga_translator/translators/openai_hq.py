@@ -80,6 +80,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
     
     # 类变量: 跨实例共享的RPM限制时间戳
     _GLOBAL_LAST_REQUEST_TS = {}  # {model_name: timestamp}
+    _MAX_CONSECUTIVE_EMPTY_RESPONSES = 8
     
     def __init__(self):
         super().__init__()
@@ -225,6 +226,24 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         """获取完整的系统提示词（包含断句提示词、自定义提示词和基础系统提示词）"""
         return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
 
+    def _format_empty_response_diagnostics(self, response, finish_reason) -> str:
+        if response is None:
+            return f"finish_reason={finish_reason}, response=None"
+        try:
+            choice = response.choices[0] if getattr(response, 'choices', None) else None
+            message = getattr(choice, 'message', None) if choice else None
+            return (
+                f"finish_reason={finish_reason}, "
+                f"response_id={getattr(response, 'id', None)}, "
+                f"model={getattr(response, 'model', None)}, "
+                f"role={getattr(message, 'role', None) if message else None}, "
+                f"content={repr(getattr(message, 'content', None) if message else None)}, "
+                f"tool_calls={getattr(message, 'tool_calls', None) if message else None}, "
+                f"usage={getattr(response, 'usage', None)}"
+            )
+        except Exception as exc:
+            return f"finish_reason={finish_reason}, diagnostics_error={exc!r}"
+
     async def _translate_batch_high_quality(self, texts: List[str], batch_data: List[Dict], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, ctx: Any = None, split_level: int = 0) -> List[str]:
         """高质量批量翻译方法"""
         if not texts:
@@ -275,6 +294,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         is_infinite = max_retries == -1
         last_exception = None
         local_attempt = 0  # 本次批次的尝试次数
+        consecutive_empty_responses = 0
 
         while is_infinite or attempt < max_retries:
             # 检查是否被取消
@@ -410,6 +430,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                     has_content = response.choices and response.choices[0].message.content
                  
                 if has_content:
+                    consecutive_empty_responses = 0
                     result_text = streamed_text.strip() if streamed_text is not None else response.choices[0].message.content.strip()
                     
                     # 统一的编码清理（处理UTF-16-LE等编码问题）
@@ -544,13 +565,25 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                     send_images = False
                     last_exception = Exception("OpenAI attempted tool calls instead of translation")
                 elif not has_content:
-                    self.logger.warning(f"OpenAI返回空内容 (finish_reason: '{finish_reason}') ({log_attempt})。下次重试将不再发送图片")
+                    consecutive_empty_responses += 1
+                    diagnostics = self._format_empty_response_diagnostics(response, finish_reason)
+                    self.logger.warning(
+                        f"OpenAI返回空内容 (finish_reason: '{finish_reason}') ({log_attempt})。"
+                        f"连续空响应: {consecutive_empty_responses}/{self._MAX_CONSECUTIVE_EMPTY_RESPONSES}。下次重试将不再发送图片"
+                    )
+                    self.logger.warning(f"OpenAI空响应诊断: {diagnostics}")
                     send_images = False
                     last_exception = Exception(f"OpenAI returned empty content (finish_reason: {finish_reason})")
                 else:
                     self.logger.warning(f"OpenAI返回意外的结束原因 '{finish_reason}' ({log_attempt})。下次重试将不再发送图片")
                     send_images = False
                     last_exception = Exception(f"OpenAI returned unexpected finish_reason: {finish_reason}")
+
+                if consecutive_empty_responses >= self._MAX_CONSECUTIVE_EMPTY_RESPONSES:
+                    raise Exception(
+                        f"OpenAI连续返回空内容 {consecutive_empty_responses} 次，已停止重试。"
+                        f"最后一次 finish_reason: {finish_reason}"
+                    )
 
                 if not is_infinite and attempt >= max_retries:
                     self.logger.error("OpenAI翻译在多次重试后仍然失败。即将终止程序。")

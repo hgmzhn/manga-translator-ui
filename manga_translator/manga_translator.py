@@ -1274,6 +1274,7 @@ class MangaTranslator:
             [ctx.img_colorized], 
             upscale_ratio_num, 
             self.device,
+            config=config,
             **upscaler_kwargs
         ))[0]
         
@@ -3195,13 +3196,23 @@ class MangaTranslator:
         
         if self.batch_concurrent and not has_incompatible_mode:
             mode_desc = "高质量翻译" if is_hq_translator else "标准翻译"
-            logger.info(f'🚀 启用并发流水线模式 ({mode_desc}): {len(images_with_configs)} 张图片, 翻译批量大小: {batch_size}')
+            full_image_workers = 1
+            if first_config and hasattr(first_config, 'cli'):
+                try:
+                    full_image_workers = max(int(getattr(first_config.cli, 'full_image_workers', 1) or 1), 1)
+                except (TypeError, ValueError):
+                    full_image_workers = 1
+
+            logger.info(
+                f'🚀 启用并发流水线模式 ({mode_desc}): {len(images_with_configs)} 张图片, '
+                f'翻译批量大小: {batch_size}, 整图并发数: {full_image_workers}'
+            )
             from .utils.concurrent_pipeline import ConcurrentPipeline
             
             # 保存save_info供并发流水线使用
             self._current_save_info = save_info
             
-            pipeline = ConcurrentPipeline(self, batch_size)
+            pipeline = ConcurrentPipeline(self, batch_size, image_workers=full_image_workers)
             
             # 提取文件路径和配置
             file_paths = []

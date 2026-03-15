@@ -22,6 +22,7 @@
         "cli.attempts",
         "cli.batch_size",
         "cli.batch_concurrent",
+        "cli.full_image_workers",
         "use_custom_api_params",
         "cli.save_to_source_dir",
         "cli.export_editable_psd",
@@ -44,6 +45,7 @@
         "ocr.secondary_ocr",
         "ocr.ai_ocr_prompt_path",
         "ocr.ai_ocr_concurrency",
+        "ocr.local_ocr_concurrency",
         "ocr.ocr_vl_language_hint",
         "ocr.ocr_vl_custom_prompt",
         "ocr.use_model_bubble_filter",
@@ -109,6 +111,7 @@
         },
         "inpainter.inpainting_size",
         "inpainter.inpainting_precision",
+        "inpainter.local_inpainting_concurrency",
         "kernel_size",
         "inpainter.force_use_torch_inpainting"
       ]
@@ -165,6 +168,7 @@
         "upscale.upscale_ratio",
         "upscale.tile_size",
         "upscale.revert_upscaling",
+        "upscale.local_upscaling_concurrency",
         {
           "kind": "divider",
           "title": "Colorization"

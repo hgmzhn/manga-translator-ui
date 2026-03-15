@@ -57,6 +57,7 @@ DEFAULT_ADMIN_SETTINGS = {
         'cli.context_size',
         'cli.batch_size',
         'cli.batch_concurrent',
+        'cli.full_image_workers',
         'cli.use_gpu',
         'cli.verbose',
         'cli.psd_script_only',  # Web UI隐藏PSD脚本模式参数
@@ -78,7 +79,10 @@ DEFAULT_ADMIN_SETTINGS = {
         'translator.skip_lang',
          'use_custom_api_params',  # 仅用于服务器端，Web UI 用户端不显示
          'ocr.ai_ocr_concurrency',
+         'ocr.local_ocr_concurrency',
+         'inpainter.local_inpainting_concurrency',
          'render.ai_renderer_concurrency',
+         'upscale.local_upscaling_concurrency',
          'colorizer.ai_colorizer_history_pages',
          'render.gimp_font',
       ],
