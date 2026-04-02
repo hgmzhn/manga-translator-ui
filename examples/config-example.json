@@ -118,7 +118,7 @@
     "overwrite": true,
     "skip_no_text": false,
     "save_text": true,
-    "load_text": true,
+    "load_text": false,
     "translate_json_only": false,
     "template": false,
     "save_quality": 100,

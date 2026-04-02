@@ -835,19 +835,42 @@ class MangaTranslator:
         }
 
         preserved_skip_font_scaling = getattr(ctx, 'skip_font_scaling', None)
-        if preserved_skip_font_scaling is None and os.path.exists(text_output_file):
+        if os.path.exists(text_output_file):
             try:
                 with open(text_output_file, 'r', encoding='utf-8') as f:
                     existing_data = json.load(f)
                 if existing_data and len(existing_data.values()) > 0:
                     existing_image_data = next(iter(existing_data.values()))
-                    if isinstance(existing_image_data, dict) and 'skip_font_scaling' in existing_image_data:
-                        preserved_skip_font_scaling = _parse_skip_font_scaling_flag(
-                            existing_image_data.get('skip_font_scaling'),
-                            default=True,
-                        )
+                    if isinstance(existing_image_data, dict):
+                        # 保留 skip_font_scaling
+                        if preserved_skip_font_scaling is None and 'skip_font_scaling' in existing_image_data:
+                            preserved_skip_font_scaling = _parse_skip_font_scaling_flag(
+                                existing_image_data.get('skip_font_scaling'),
+                                default=True,
+                            )
+
+                        # 合并已有 JSON 中其他语言的翻译，避免当前翻译语言覆盖其他语言
+                        existing_regions = existing_image_data.get('regions', [])
+                        if existing_regions:
+                            # 建立 text → existing translation dict 的映射
+                            existing_trans_map: dict = {}
+                            for er in existing_regions:
+                                text_key = er.get('text', '')
+                                et = er.get('translation')
+                                if text_key and isinstance(et, dict):
+                                    existing_trans_map[text_key] = et
+                            # 对每个新 region 合并（已有语言优先，新翻译覆盖同语言）
+                            if existing_trans_map:
+                                for region in regions_data:
+                                    text_key = region.get('text', '')
+                                    new_trans = region.get('translation')
+                                    existing_trans = existing_trans_map.get(text_key)
+                                    if existing_trans and isinstance(new_trans, dict):
+                                        merged = dict(existing_trans)
+                                        merged.update(new_trans)
+                                        region['translation'] = merged
             except Exception as e:
-                logger.warning(f"Failed to preserve skip_font_scaling from existing JSON {text_output_file}: {e}")
+                logger.warning(f"Failed to merge existing translations from {text_output_file}: {e}")
 
         # 导出原文 / 仅翻译(JSON)：后续导入渲染应重新执行智能排版，不继承旧字号。
         if (self.template and self.save_text) or self.translate_json_only:
@@ -1024,7 +1047,7 @@ class MangaTranslator:
                 )
                 template_path = get_template_path_from_config()
                 if template_path and os.path.exists(template_path):
-                    translated_result = generate_translated_text(json_path, template_path)
+                    translated_result = generate_translated_text(json_path, template_path, config=config)
                     logger.info(f"Translated text export for {os.path.basename(image_name)}: {translated_result}")
                 else:
                     logger.warning(f"Template file not found for {os.path.basename(image_name)}: {template_path}")
@@ -1180,6 +1203,7 @@ class MangaTranslator:
             from manga_translator.utils.path_manager import (
                 find_json_path,
                 find_txt_files,
+                find_text_files_with_lang,
             )
             
             # 获取默认模板路径
@@ -1213,15 +1237,17 @@ class MangaTranslator:
                 try:
                     # 查找JSON和TXT文件
                     json_path = find_json_path(image_path)
-                    original_txt_path, translated_txt_path = find_txt_files(image_path)
+                    original_txt_path, translated_txt_path, target_translated_txt_path = find_text_files_with_lang(image_path, config.translator.target_lang)
                     
                     # 如果没有JSON文件，跳过（稍后会报错）
                     if not json_path:
                         skip_count += 1
                         continue
                     
-                    # 优先使用原文TXT，其次使用翻译TXT
-                    txt_path = original_txt_path if original_txt_path else translated_txt_path
+                    # 渲染时优先使用翻译TXT（*_translated.txt），其次才是原文TXT（*_original.txt）
+                    # _original.txt 是供人工翻译用的原文模板，其 <translated> 占位符填的是原文而非译文，
+                    # 若优先使用会将原文覆盖回 JSON 的 translation 字段，导致渲染内容错误。
+                    txt_path = target_translated_txt_path if target_translated_txt_path else translated_txt_path if translated_txt_path else original_txt_path
                     
                     if not txt_path:
                         skip_count += 1

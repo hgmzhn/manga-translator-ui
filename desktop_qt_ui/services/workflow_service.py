@@ -4,14 +4,16 @@ import logging
 import os
 import re
 import sys
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 # 添加项目根目录到路径以便导入path_manager
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from manga_translator.config import TranslatorConfig
 from manga_translator.utils.path_manager import (
     find_json_path,
     find_txt_files,
     get_original_txt_path,
+    get_target_translated_txt_path,
     get_translated_txt_path,
 )
 
@@ -374,7 +376,8 @@ def generate_original_text(
 def generate_translated_text(
     detailed_json_path: str,
     template_path: str = None,
-    output_path: str = None
+    output_path: str = None,
+    config: Optional[TranslatorConfig] = None
 ) -> str:
     """
     导出翻译到TXT文件
@@ -429,14 +432,23 @@ def generate_translated_text(
             for ext in ['.jpg', '.png', '.jpeg', '.webp', '.avif']:
                 image_path = os.path.join(image_dir, image_name + ext)
                 if os.path.exists(image_path):
-                    output_path = get_translated_txt_path(image_path)
+                    if config:
+                        output_path = get_target_translated_txt_path(image_path, config.translator.target_lang)
+                    else:
+                        output_path = get_translated_txt_path(image_path)
                     break
             if output_path is None:
                 # 如果找不到图片，使用JSON同目录
-                output_path = os.path.splitext(detailed_json_path)[0] + '_translated.txt'
+                if config:
+                    output_path = get_target_translated_txt_path(image_path, config.translator.target_lang)
+                else:
+                    output_path = get_translated_txt_path(image_path)
         else:
             # 旧格式，使用JSON同目录
-            output_path = os.path.splitext(detailed_json_path)[0] + '_translated.txt'
+            if config:
+                output_path = get_target_translated_txt_path(image_path, config.translator.target_lang)
+            else:
+                output_path = get_translated_txt_path(image_path)
 
     # 使用模板格式化输出
     try:
@@ -486,7 +498,7 @@ def generate_text_from_template(
         logger.warning(f"Failed to generate original text: {original_result}")
 
     # 生成翻译
-    translated_result = generate_translated_text(detailed_json_path, template_path)
+    translated_result = generate_translated_text(detailed_json_path, template_path, config=config)
     if translated_result.startswith("Error"):
         return translated_result
 

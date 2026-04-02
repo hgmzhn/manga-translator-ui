@@ -203,6 +203,27 @@ def get_translated_txt_path(image_path: str, create_dir: bool = True) -> str:
     return os.path.join(translations_dir, f"{base_name}_translated.txt")
 
 
+def get_target_translated_txt_path(image_path: str, lang: str, create_dir: bool = True) -> str:
+    """
+    获取目标语言翻译TXT文件的路径
+    
+    Args:
+        image_path: 原图片路径
+        lang: 目标语言
+        create_dir: 是否自动创建目录
+        
+    Returns:
+        目标语言翻译TXT文件的绝对路径
+    """
+    work_dir = get_work_dir(image_path)
+    translations_dir = os.path.join(work_dir, TRANSLATIONS_SUBDIR)
+
+    if create_dir:
+        os.makedirs(translations_dir, exist_ok=True)
+
+    base_name = os.path.splitext(os.path.basename(image_path))[0]
+    return os.path.join(translations_dir, f"{base_name}_{lang}_translated.txt")
+
 def get_yolo_labels_dir(image_path: str, create_dir: bool = True) -> str:
     """
     获取 YOLO 标注目录路径。
@@ -405,6 +426,32 @@ def find_txt_files(image_path: str) -> Tuple[Optional[str], Optional[str]]:
             translated_exists = old_txt_path
     
     return original_exists, translated_exists
+
+def find_text_files_with_lang(image_path: str, lang: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    查找原文和翻译TXT文件
+    
+    Args:
+        image_path: 原图片路径
+        
+    Returns:
+        (原文TXT路径, 翻译TXT路径)，不存在的返回None
+    """
+    original_path = get_original_txt_path(image_path, create_dir=False)
+    translated_path = get_translated_txt_path(image_path, create_dir=False)
+    target_translated_path = get_translated_txt_path(image_path, create_dir=False, lang=lang)
+    
+    original_exists = original_path if os.path.exists(original_path) else None
+    translated_exists = translated_path if os.path.exists(translated_path) else None
+    target_translated_exists = target_translated_path if os.path.exists(target_translated_path) else None
+    
+    # 向后兼容：查找旧格式的TXT文件
+    if not translated_exists:
+        old_txt_path = os.path.splitext(image_path)[0] + '_translations.txt'
+        if os.path.exists(old_txt_path):
+            translated_exists = old_txt_path
+    
+    return original_exists, translated_exists, target_translated_exists
 
 
 def get_legacy_json_path(image_path: str) -> str:

@@ -1,0 +1,7 @@
+ai_colorizer_prompt: You are a manga colorization engine. Colorize the provided manga
+  page while preserving the original composition, character identities, panel structure,
+  line art, shading, and readability of all existing details. Keep the page content
+  unchanged except for adding natural, coherent color. Return only the final colorized
+  image.
+colorization_rules: []
+reference_images: []
