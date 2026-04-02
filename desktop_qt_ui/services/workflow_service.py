@@ -48,8 +48,12 @@ def restore_translation_to_text(json_path: str) -> bool:
                 
                 for region in regions:
                     if isinstance(region, dict):
-                        # 获取翻译和原文
-                        translation = region.get('translation', '').strip()
+                        # 获取翻译和原文（兼容多语言 dict 格式）
+                        trans_raw = region.get('translation', '')
+                        if isinstance(trans_raw, dict):
+                            lang_key = region.get('target_lang', '')
+                            trans_raw = trans_raw.get(lang_key) or next(iter(trans_raw.values()), '')
+                        translation = trans_raw.strip()
                         original_text = region.get('text', '').strip()
                         
                         # 只有翻译不为空且与原文不同时才写回
@@ -292,7 +296,10 @@ def generate_original_text(
     items = []
     for region in regions:
         original_text = region.get('text', '').replace('[BR]', '')
-        translated_text = region.get('translation', '').replace('[BR]', '')
+        trans_raw = region.get('translation', '')
+        if isinstance(trans_raw, dict):
+            trans_raw = next(iter(trans_raw.values()), '')
+        translated_text = trans_raw.replace('[BR]', '')
         if original_text.strip():
             items.append({
                 'original': original_text,
@@ -395,7 +402,11 @@ def generate_translated_text(
     items = []
     for region in regions:
         original_text = region.get('text', '').replace('[BR]', '')
-        translated_text = region.get('translation', '').replace('[BR]', '')
+        trans_raw = region.get('translation', '')
+        if isinstance(trans_raw, dict):
+            lang_key = region.get('target_lang', '')
+            trans_raw = trans_raw.get(lang_key) or next(iter(trans_raw.values()), '')
+        translated_text = trans_raw.replace('[BR]', '')
         if original_text.strip():
             items.append({
                 'original': original_text,
@@ -982,17 +993,39 @@ def safe_update_large_json_from_text(
 
         start_time = time.time()
         
+        def _set_region_translation(region: dict, new_translation: str) -> bool:
+            """将 new_translation 写入 region，支持多语言 dict 格式。
+            返回 True 表示实际发生了变更。"""
+            existing = region.get('translation', '')
+            lang_key = region.get('target_lang', '')
+            if isinstance(existing, dict):
+                if lang_key:
+                    changed = existing.get(lang_key) != new_translation
+                    if changed:
+                        existing[lang_key] = new_translation
+                    return changed
+                else:
+                    # 没有 target_lang，更新所有已有 key
+                    changed = any(v != new_translation for v in existing.values())
+                    if changed:
+                        region['translation'] = {k: new_translation for k in existing}
+                    return changed
+            else:
+                changed = existing != new_translation
+                if changed:
+                    if lang_key:
+                        region['translation'] = {lang_key: new_translation}
+                    else:
+                        region['translation'] = new_translation
+                return changed
+
         for region in source_data[image_key]['regions']:
             original_text = region.get('text', '')
 
             # 首先尝试精确匹配
             if original_text in translations:
-                old_translation = region.get('translation', '')
                 new_translation = translations[original_text]
-
-                # 总是更新translation字段，即使原文和译文相同
-                if old_translation != new_translation:
-                    region['translation'] = new_translation
+                if _set_region_translation(region, new_translation):
                     updated_count += 1
                     logger.debug(f"更新翻译: '{original_text[:30]}...' -> '{new_translation[:30]}...'")
             else:
@@ -1001,14 +1034,9 @@ def safe_update_large_json_from_text(
                 logger.debug(f"精确匹配失败，尝试模糊匹配: '{original_text}' -> '{normalized}'")
                 if normalized in normalized_to_original:
                     matched_original = normalized_to_original[normalized]
-                    old_translation = region.get('translation', '')
                     new_translation = translations[matched_original]
-
-                    logger.debug(f"模糊匹配成功: '{original_text}' -> '{matched_original}', old='{old_translation}', new='{new_translation}'")
-
-                    # 总是更新translation字段，即使原文和译文相同
-                    if old_translation != new_translation:
-                        region['translation'] = new_translation
+                    logger.debug(f"模糊匹配成功: '{original_text}' -> '{matched_original}', new='{new_translation}'")
+                    if _set_region_translation(region, new_translation):
                         updated_count += 1
                 else:
                     logger.debug(f"模糊匹配也失败: '{normalized}' not in normalized_to_original")

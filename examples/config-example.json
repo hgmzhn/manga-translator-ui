@@ -124,7 +124,7 @@
     "save_quality": 100,
     "batch_size": 3,
     "batch_concurrent": false,
-    "generate_and_export": false,
+    "generate_and_export": true,
     "colorize_only": false,
     "upscale_only": false,
     "inpaint_only": false,

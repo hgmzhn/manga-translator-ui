@@ -28,7 +28,11 @@ class RegionListView(QListWidget):
         self.clear()
         for i, region in enumerate(regions):
             original_text = region.get('text', '')
-            translated_text = region.get('translation', '')
+            trans_raw = region.get('translation', '')
+            if isinstance(trans_raw, dict):
+                lang_key = region.get('target_lang', '')
+                trans_raw = trans_raw.get(lang_key) or next(iter(trans_raw.values()), '')
+            translated_text = trans_raw
 
             item_container = QWidget()
             layout = QVBoxLayout(item_container)

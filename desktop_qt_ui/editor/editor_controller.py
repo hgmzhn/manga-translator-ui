@@ -2053,7 +2053,12 @@ class EditorController(QObject):
             for i, region in enumerate(regions):
                 enhanced_region = region.copy()
 
-                # 确保有翻译文本
+                # 确保有翻译文本（兼容多语言 dict 格式，渲染前展开为字符串）
+                trans_val = enhanced_region.get('translation')
+                if isinstance(trans_val, dict):
+                    lang_key = enhanced_region.get('target_lang', '')
+                    trans_val = trans_val.get(lang_key) or next(iter(trans_val.values()), '')
+                    enhanced_region['translation'] = trans_val
                 if not enhanced_region.get('translation'):
                     enhanced_region['translation'] = enhanced_region.get('text', '')
 

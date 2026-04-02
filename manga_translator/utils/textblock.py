@@ -122,7 +122,14 @@ class TextBlock(object):
         self.prob = prob
         self.layout_mode = layout_mode
 
-        self.translation = translation
+        # 规范化 translation：若传入多语言 dict，提取当前 target_lang 的字符串
+        # 并将完整 dict 保存到 _all_translations，以便序列化时合并保留其他语言
+        if isinstance(translation, dict):
+            self._all_translations: dict = dict(translation)
+            self.translation: str = self._all_translations.get(target_lang) or next(iter(self._all_translations.values()), '')
+        else:
+            self.translation: str = translation
+            self._all_translations: dict = kwargs.get('_all_translations', {})
 
         # Handle color from UI (hex string) or backend (RGB tuple)
         font_color_hex = kwargs.get('font_color')
@@ -278,6 +285,15 @@ class TextBlock(object):
     def __getitem__(self, idx):
         return self.lines[idx]
 
+    def _build_translation_dict(self):
+        """以 _all_translations 为基础，添加或替换当前 target_lang 的翻译，返回合并后的 dict。
+        若 target_lang 为空则退化为裸字符串（向后兼容）。"""
+        if not self.target_lang:
+            return self.translation
+        merged = dict(self._all_translations)
+        merged[self.target_lang] = self.translation
+        return merged
+
     def to_dict(self):
         """Serializes the TextBlock to a dictionary, only including necessary fields."""
         # Note: The UI might add/use other fields like 'center' which it calculates itself.
@@ -351,7 +367,7 @@ class TextBlock(object):
             'center': [float(center_x), float(center_y)],
             'texts': self.texts,
             'text': self.text,
-            'translation': self.translation,
+            'translation': self._build_translation_dict(),
             'angle': self.angle,
             'font_size': self.font_size,  # 保存最终渲染的字体大小
             'fg_colors': fg_out,

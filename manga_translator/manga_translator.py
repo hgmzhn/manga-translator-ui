@@ -811,8 +811,12 @@ class MangaTranslator:
                 is_vertical = direction in ('v', 'vertical')
                 if 'horizontal' in region:
                     is_vertical = not region['horizontal']
-                if is_vertical and region.get('translation'):
-                    region['translation'] = auto_add_horizontal_tags(region['translation'])
+                trans_val = region.get('translation')
+                if is_vertical and trans_val:
+                    if isinstance(trans_val, dict):
+                        region['translation'] = {k: auto_add_horizontal_tags(v) for k, v in trans_val.items()}
+                    else:
+                        region['translation'] = auto_add_horizontal_tags(trans_val)
 
         # 获取图片尺寸（优先使用保存的尺寸，兼容并发模式）
         if hasattr(ctx, 'original_size') and ctx.original_size:
@@ -1354,8 +1358,20 @@ class MangaTranslator:
                 # Convert literal '\\n' to newline characters for the rendering engine
                 if 'text' in region_data and isinstance(region_data['text'], str):
                     region_data['text'] = region_data['text'].replace('\\n', '\n')
-                if 'translation' in region_data and isinstance(region_data['translation'], str):
-                    region_data['translation'] = region_data['translation'].replace('\\n', '\n')
+                if 'translation' in region_data:
+                    trans_val = region_data['translation']
+                    if isinstance(trans_val, dict):
+                        # 新格式：{"CHS": "译文"} — 保留完整 dict 供再次保存时合并
+                        region_data['_all_translations'] = trans_val
+                        target = (config.translator.target_lang if config and config.translator else None)
+                        if target and target in trans_val:
+                            region_data['translation'] = trans_val[target].replace('\\n', '\n')
+                        elif trans_val:
+                            region_data['translation'] = next(iter(trans_val.values())).replace('\\n', '\n')
+                        else:
+                            region_data['translation'] = ''
+                    elif isinstance(trans_val, str):
+                        region_data['translation'] = trans_val.replace('\\n', '\n')
 
                 # If target_lang is missing or empty, set it from the config.
                 if not region_data.get('target_lang'):
@@ -4158,7 +4174,8 @@ class MangaTranslator:
                             save_success = self._save_text_to_file(ctx.image_name, ctx, config)
                             if not save_success:
                                 raise IOError(f"Failed to save JSON for {os.path.basename(ctx.image_name)}")
-                            self._delete_original_txt_after_json_translation(ctx.image_name)
+                                pass
+                            #self._delete_original_txt_after_json_translation(ctx.image_name)
                             ctx.success = True
                         except Exception as save_err:
                             logger.error(f"Error saving translated JSON for {os.path.basename(ctx.image_name)}: {save_err}")
