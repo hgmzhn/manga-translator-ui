@@ -43,6 +43,8 @@ _VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'}
 _VERTICAL_ALIGN_TOP_CENTER = {'︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
 _VERTICAL_ALIGN_BOTTOM_CENTER = {'︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
 
+_VERTICAL_ROTATE_90 = {'ー', '~', '〜', '～'}
+
 _QT_FONT_PROBE_SIZE = 32.0
 _thread_state = threading.local()
 _qt_runtime_lock = threading.Lock()
@@ -99,8 +101,8 @@ class FontState:
 
 def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     """渲染层不再做字符替换，全部交给翻译后处理阶段。"""
-    if cdpt == 'ー' and direction == 1:
-        return 'ー', 90
+    if direction == 1 and cdpt in _VERTICAL_ROTATE_90:
+        return cdpt, 90
     return cdpt, 0
 
 
