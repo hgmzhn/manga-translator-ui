@@ -6,7 +6,8 @@
   - horizontal: 横排时执行（direction == 0）
   - vertical: 竖排时执行（direction == 1）
 
-每条规则支持字面替换和正则替换（regex: true）
+每条规则支持字面替换和正则替换（regex: true）。
+连续的单字符字面规则会合并为一次 str.translate 调用以提升性能。
 """
 import logging
 import os
@@ -22,12 +23,24 @@ logger = logging.getLogger(__name__)
 # 默认配置文件路径
 _DEFAULT_REPLACEMENTS_PATH = os.path.join(BASE_PATH, 'examples', 'text_replacements.yaml')
 
-# 缓存：(文件路径, mtime) -> 解析后的规则
+# 保护标记正则（模块级，编译一次复用，避免每次调用 apply_replacements 时重复编译）
+_PROTECTED_RE = re.compile(
+    r'<H>.*?</H>'        # <H>...</H> 块
+    r'|\[BR\]'           # [BR]
+    r'|【BR】'           # 【BR】
+    r'|<br\s*/?>'        # <br> / <br/>
+    , re.IGNORECASE | re.DOTALL
+)
+
+# 缓存：文件路径 -> (mtime, 解析后的规则)
 _replacements_cache: Dict[str, Tuple[float, dict]] = {}
 
 
-def _compile_rule(rule: dict) -> Optional[Tuple[re.Pattern, str]]:
-    """编译单条替换规则为 (compiled_pattern, replace_string)"""
+def _compile_rule(rule: dict):
+    """编译单条规则。
+    返回 ('translate', char, repl_str) 或 ('regex', compiled_pattern, repl_str) 或 None
+    单字符字面替换走 translate 路径；其余（多字符字面、正则）走 regex 路径。
+    """
     pattern_str = rule.get('pattern')
     replace_str = rule.get('replace', '')
     is_regex = rule.get('regex', False)
@@ -37,25 +50,64 @@ def _compile_rule(rule: dict) -> Optional[Tuple[re.Pattern, str]]:
         return None
 
     try:
+        if not is_regex and len(pattern_str) == 1:
+            return ('translate', pattern_str, replace_str)
         if is_regex:
-            compiled = re.compile(pattern_str)
-        else:
-            # 字面替换：转义所有正则特殊字符
-            compiled = re.compile(re.escape(pattern_str))
-        return (compiled, replace_str)
+            return ('regex', re.compile(pattern_str), replace_str)
+        return ('regex', re.compile(re.escape(pattern_str)), replace_str)
     except re.error as e:
         comment = rule.get('comment', '')
         logger.warning(f"替换规则编译失败: pattern='{pattern_str}' comment='{comment}' error={e}")
         return None
 
 
+def _build_group(rules) -> dict:
+    """
+    将一个分组的规则列表编译为执行 pipeline。
+    保持原始顺序：相邻的单字符字面规则合并为一次 translate，遇到正则就 flush。
+
+    返回 {
+        'pipeline': [('translate', table) | ('regex', pattern, repl), ...],
+        'translate_dict': {char: repl_str, ...}  # 扁平字典，供 build_h2v_dict / build_v2h_dict 使用
+    }
+    """
+    pipeline: list = []
+    translate_dict: Dict[str, str] = {}
+    current_batch: Dict[str, str] = {}
+
+    def flush():
+        if current_batch:
+            pipeline.append(('translate', str.maketrans(current_batch)))
+            current_batch.clear()
+
+    if isinstance(rules, list):
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            compiled = _compile_rule(rule)
+            if not compiled:
+                continue
+            if compiled[0] == 'translate':
+                current_batch[compiled[1]] = compiled[2]
+                translate_dict[compiled[1]] = compiled[2]
+            else:
+                flush()
+                pipeline.append(compiled)
+        flush()
+
+    return {'pipeline': pipeline, 'translate_dict': translate_dict}
+
+
+def _empty_group() -> dict:
+    return {'pipeline': [], 'translate_dict': {}}
+
+
 def _load_and_parse(file_path: str) -> dict:
     """
     加载并解析 YAML 替换配置文件。
-    返回 {'common': [...], 'horizontal': [...], 'vertical': [...]}
-    每个列表元素为 (compiled_pattern, replace_string)
+    返回 {'common': {...}, 'horizontal': {...}, 'vertical': {...}}，每个值由 _build_group 给出。
     """
-    result = {'common': [], 'horizontal': [], 'vertical': []}
+    result = {'common': _empty_group(), 'horizontal': _empty_group(), 'vertical': _empty_group()}
 
     if not file_path or not os.path.exists(file_path):
         return result
@@ -72,39 +124,23 @@ def _load_and_parse(file_path: str) -> dict:
         return result
 
     for group_name in ('common', 'horizontal', 'vertical'):
-        rules = data.get(group_name, [])
-        if not isinstance(rules, list):
-            continue
-        for rule in rules:
-            if not isinstance(rule, dict):
-                continue
-            compiled = _compile_rule(rule)
-            if compiled:
-                result[group_name].append(compiled)
+        result[group_name] = _build_group(data.get(group_name, []))
 
     return result
 
 
 def load_replacements(file_path: Optional[str] = None) -> dict:
-    """
-    加载替换规则（带文件修改时间缓存）。
-
-    参数:
-        file_path: YAML 配置文件路径，None 时使用默认路径
-
-    返回:
-        {'common': [...], 'horizontal': [...], 'vertical': [...]}
-    """
+    """加载替换规则（带文件修改时间缓存）。"""
     if file_path is None:
         file_path = _DEFAULT_REPLACEMENTS_PATH
 
     if not os.path.exists(file_path):
-        return {'common': [], 'horizontal': [], 'vertical': []}
+        return {'common': _empty_group(), 'horizontal': _empty_group(), 'vertical': _empty_group()}
 
     try:
         mtime = os.path.getmtime(file_path)
     except OSError:
-        return {'common': [], 'horizontal': [], 'vertical': []}
+        return {'common': _empty_group(), 'horizontal': _empty_group(), 'vertical': _empty_group()}
 
     cached = _replacements_cache.get(file_path)
     if cached and cached[0] == mtime:
@@ -113,6 +149,15 @@ def load_replacements(file_path: Optional[str] = None) -> dict:
     parsed = _load_and_parse(file_path)
     _replacements_cache[file_path] = (mtime, parsed)
     return parsed
+
+
+def _apply_pipeline(text: str, pipeline: list) -> str:
+    for step in pipeline:
+        if step[0] == 'translate':
+            text = text.translate(step[1])
+        else:  # 'regex'
+            text = step[1].sub(step[2], text)
+    return text
 
 
 def apply_replacements(text: str, direction: int, replacements: Optional[dict] = None,
@@ -136,15 +181,7 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
     if replacements is None:
         replacements = load_replacements(file_path)
 
-    # 保护标记：提取 <H>...</H>、[BR]、<br>、【BR】 等，用占位符替代
-    _PROTECTED_RE = re.compile(
-        r'<H>.*?</H>'        # <H>...</H> 块
-        r'|\[BR\]'           # [BR]
-        r'|【BR】'           # 【BR】
-        r'|<br\s*/?>'        # <br> / <br/>
-        , re.IGNORECASE | re.DOTALL
-    )
-    protected_tokens = []
+    protected_tokens: List[str] = []
 
     def _protect(match):
         protected_tokens.append(match.group(0))
@@ -153,13 +190,13 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
     text = _PROTECTED_RE.sub(_protect, text)
 
     # 1. 先应用 common 规则
-    for pattern, repl in replacements.get('common', []):
-        text = pattern.sub(repl, text)
+    common = replacements.get('common') or _empty_group()
+    text = _apply_pipeline(text, common.get('pipeline', []))
 
     # 2. 根据方向应用对应分组
     group_key = 'vertical' if direction == 1 else 'horizontal'
-    for pattern, repl in replacements.get(group_key, []):
-        text = pattern.sub(repl, text)
+    directional = replacements.get(group_key) or _empty_group()
+    text = _apply_pipeline(text, directional.get('pipeline', []))
 
     # 恢复保护的标记
     for i, token in enumerate(protected_tokens):
@@ -170,43 +207,25 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
 
 def build_h2v_dict(file_path: Optional[str] = None) -> dict:
     """
-    从 YAML vertical 分组构建 CJK_H2V 兼容字典。
-    仅包含非正则的单字符→单字符映射，供 CJK_Compatibility_Forms_translate 使用。
+    从 YAML vertical 分组构建 CJK_H2V 兼容字典（单字符→单字符或保留原字符）。
     """
     replacements = load_replacements(file_path)
+    translate_dict = (replacements.get('vertical') or _empty_group()).get('translate_dict', {})
     h2v = {}
-    for pattern, repl in replacements.get('vertical', []):
-        # 只取字面替换（pattern 是 re.escape 后的单字符）
-        raw = pattern.pattern
-        # re.escape 单字符的结果：要么是字符本身，要么是 \x 形式
-        unescaped = None
-        if len(raw) == 1:
-            unescaped = raw
-        elif len(raw) == 2 and raw[0] == '\\':
-            unescaped = raw[1]
-        
-        if unescaped and len(repl) <= 1:
-            h2v[unescaped] = repl if repl else unescaped
-
+    for char, repl in translate_dict.items():
+        if len(repl) <= 1:
+            h2v[char] = repl if repl else char
     return h2v
 
 
 def build_v2h_dict(file_path: Optional[str] = None) -> dict:
     """
-    从 YAML horizontal 分组构建 CJK_V2H 兼容字典。
-    仅包含非正则的单字符→单字符映射。
+    从 YAML horizontal 分组构建 CJK_V2H 兼容字典（单字符→单字符）。
     """
     replacements = load_replacements(file_path)
+    translate_dict = (replacements.get('horizontal') or _empty_group()).get('translate_dict', {})
     v2h = {}
-    for pattern, repl in replacements.get('horizontal', []):
-        raw = pattern.pattern
-        unescaped = None
-        if len(raw) == 1:
-            unescaped = raw
-        elif len(raw) == 2 and raw[0] == '\\':
-            unescaped = raw[1]
-
-        if unescaped and len(repl) == 1:
-            v2h[unescaped] = repl
-
+    for char, repl in translate_dict.items():
+        if len(repl) == 1:
+            v2h[char] = repl
     return v2h
