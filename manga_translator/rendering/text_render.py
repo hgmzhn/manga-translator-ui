@@ -43,7 +43,7 @@ _VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'}
 _VERTICAL_ALIGN_TOP_CENTER = {'︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
 _VERTICAL_ALIGN_BOTTOM_CENTER = {'︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
 
-_VERTICAL_ROTATE_90 = {'ー', '~', '〜', '～'}
+_VERTICAL_ROTATE_90 = {'ー', '~', '〜', '～', '_', '—', '–', '-', '−', '‥'}
 
 _QT_FONT_PROBE_SIZE = 32.0
 _thread_state = threading.local()
