@@ -337,15 +337,11 @@ class EditorToolbar(QWidget):
         layout.addWidget(icon_container)
 
     def _on_dist_spacing(self, orientation: str):
-        """处理间距分布按钮点击（垂直/水平间距均分）。
-
-        orientation: "vertical" | "horizontal"
-        转换为 distribute_spacing mode，controller 需要支持。
-        """
+        """处理间距分布按钮点击（垂直/水平空白间隙均分）。"""
         if orientation == "vertical":
-            self.distribute_requested.emit("top")  # 等价于垂直方向按间距均分
+            self.distribute_requested.emit("spacing_v")
         else:
-            self.distribute_requested.emit("left")  # 等价于水平方向按间距均分
+            self.distribute_requested.emit("spacing_h")
 
     def _toggle_align_ref(self):
         """切换对齐参照模式：选区 ↔ 画布。同时更新按钮启用状态。"""
