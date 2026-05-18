@@ -1,14 +1,14 @@
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QCursor, QIcon, QPainter, QPen, QPixmap, QBrush
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSlider,
     QToolButton,
-    QVBoxLayout,
     QWidget,
 )
 from services import get_i18n_manager
@@ -101,7 +101,7 @@ class EditorToolbar(QWidget):
         self.fit_window_button.setText(self._t("Fit to Window"))
         self.fit_window_button.setObjectName("editor_fit_window_button")
         layout.addWidget(self.fit_window_button)
-        
+
         layout.addWidget(self._create_separator())
 
         # --- Display Mode ---
@@ -149,92 +149,203 @@ class EditorToolbar(QWidget):
 
         layout.addStretch() # Pushes everything to the left
 
-    def _build_align_distribute_ui(self, layout: QHBoxLayout):
-        """构建对齐/分布按钮组。"""
-        from PyQt6.QtWidgets import QSizePolicy
+    # ------------------------------------------------------------------
+    # 图标工厂 — QPainter 绘制 PS 风格对齐/分布图标 (24×24)
+    # ------------------------------------------------------------------
+    _ICON_SZ = 28
 
-        # 参照模式切换按钮
+    @staticmethod
+    def _make_align_icon(mode: str, rect_color: QColor, line_color: QColor) -> QIcon:
+        """绘制对齐图标（28×28）。视觉重心居中。"""
+        s = 28
+        px = QPixmap(s, s)
+        px.fill(Qt.GlobalColor.transparent)
+        p = QPainter(px)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        sr = 8; lr = 13; rt = 5; gap = 6     # 短/长方块宽、厚度、间距
+        is_horiz = mode in ("left", "horizontal_center", "right")
+        line_pen = QPen(line_color, 2)
+        # 以 bx = 所有元素视觉包围盒中心的 x 坐标为准，让 bx == s/2
+        if is_horiz:
+            if mode == "left":
+                bx = 7 + lr / 2            # ≈ 13.5，配 guide_x=7
+                guide_x = 7
+            elif mode == "horizontal_center":
+                guide_x = s // 2
+                bx = s // 2
+            else:
+                guide_x = s - 7
+                bx = guide_x - lr / 2      # ≈ 14.5
+            dx = s // 2 - bx               # 把包围盒平移到正中央
+            guide_x += dx
+            sr_y = (s - rt * 2 - gap) // 2
+            lr_y = sr_y + rt + gap
+            p.setPen(line_pen)
+            p.drawLine(int(guide_x), 5, int(guide_x), s - 5)
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
+            if mode == "left":
+                p.drawRect(int(guide_x), sr_y, sr, rt)
+                p.drawRect(int(guide_x), lr_y, lr, rt)
+            elif mode == "horizontal_center":
+                p.drawRect(int(guide_x - sr // 2), sr_y, sr, rt)
+                p.drawRect(int(guide_x - lr // 2), lr_y, lr, rt)
+            else:
+                p.drawRect(int(guide_x - sr), sr_y, sr, rt)
+                p.drawRect(int(guide_x - lr), lr_y, lr, rt)
+        else:
+            if mode == "top":
+                by = 7 + lr / 2            # ≈ 13.5
+                guide_y = 7
+            elif mode == "vertical_center":
+                guide_y = s // 2
+                by = s // 2
+            else:
+                guide_y = s - 7
+                by = guide_y - lr / 2      # ≈ 14.5
+            dy = s // 2 - by
+            guide_y += dy
+            sr_x = (s - rt * 2 - gap) // 2
+            lr_x = sr_x + rt + gap
+            p.setPen(line_pen)
+            p.drawLine(5, int(guide_y), s - 5, int(guide_y))
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
+            if mode == "top":
+                p.drawRect(sr_x, int(guide_y), rt, sr)
+                p.drawRect(lr_x, int(guide_y), rt, lr)
+            elif mode == "vertical_center":
+                p.drawRect(sr_x, int(guide_y - sr // 2), rt, sr)
+                p.drawRect(lr_x, int(guide_y - lr // 2), rt, lr)
+            else:
+                p.drawRect(sr_x, int(guide_y - sr), rt, sr)
+                p.drawRect(lr_x, int(guide_y - lr), rt, lr)
+        p.end()
+        return QIcon(px)
+
+    @staticmethod
+    def _make_dist_spacing_icon(orientation: str, rect_color: QColor, line_color: QColor) -> QIcon:
+        """绘制间距分布图标（28×28）。"""
+        s = 28
+        px = QPixmap(s, s)
+        px.fill(Qt.GlobalColor.transparent)
+        p = QPainter(px)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        m = 4; th = 10
+        line_pen = QPen(line_color, 2)
+        if orientation == "vertical":
+            p.setPen(line_pen); p.drawLine(m, m, s - m, m); p.drawLine(m, s - m, s - m, s - m)
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
+            p.drawRect(m + 2, s // 2 - th // 2, s - (m + 2) * 2, th)
+        else:
+            p.setPen(line_pen); p.drawLine(m, m, m, s - m); p.drawLine(s - m, m, s - m, s - m)
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(rect_color))
+            p.drawRect(s // 2 - th // 2, m + 2, th, s - (m + 2) * 2)
+        p.end()
+        return QIcon(px)
+
+    def _icon_colors(self):
+        """从当前主题取色，返回 (rect_color, line_color, dot_color)。"""
+        from PyQt6.QtGui import QPalette
+        pal = self.palette()
+        text_c = pal.color(QPalette.ColorRole.Text)
+        # guideline: 使用主题 accent 色，默认 #5599ff
+        line_c = QColor("#5599ff")
+        # 更多按钮圆点: 用 muted text
+        dot_c = text_c.darker(150)
+        return text_c, line_c, dot_c
+
+    # ------------------------------------------------------------------
+    # 对齐/分布 UI — 单行 PS 风格布局
+    # ------------------------------------------------------------------
+
+    def _build_align_distribute_ui(self, layout: QHBoxLayout):
+        """构建对齐/分布按钮组：单行 PS 风格。"""
+        BTN_W = 28
+        rc, lc, dc = self._icon_colors()
+
+        def _make_icon_btn(icon, obj_name, tip):
+            btn = QPushButton()
+            btn.setIcon(icon)
+            btn.setObjectName(obj_name)
+            btn.setToolTip(tip)
+            btn.setFixedSize(QSize(BTN_W + 2, BTN_W + 2))
+            btn.setIconSize(QSize(BTN_W, BTN_W))
+            btn.setFlat(True)
+            btn.setStyleSheet("QPushButton { padding: 0px; border: none; background: transparent; }"
+                             "QPushButton:hover { background: rgba(128,128,128,0.2); }"
+                             "QPushButton:disabled { background: transparent; }")
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.setEnabled(False)
+            return btn
+
+        # 参照模式切换（独立放在外面）
         self.align_ref_button = QToolButton()
         self.align_ref_button.setText("选区")
         self.align_ref_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.align_ref_button.setObjectName("editor_align_ref_button")
         self.align_ref_button.setToolTip("对齐参照：选区（包围盒）/ 画布（整张图）")
         self._align_ref = "selection"
-        self.align_ref_button.clicked.connect(self._toggle_align_ref)
         self._last_selection_count = 0
+        self.align_ref_button.clicked.connect(self._toggle_align_ref)
         layout.addWidget(self.align_ref_button)
-
         layout.addWidget(self._create_separator())
 
-        # 对齐按钮的 grid: 2 rows × 3 cols
-        align_modes = [
-            ("top", "⊤"), ("vertical_center", "⇅"), ("bottom", "⊥"),
-            ("left", "⊣"), ("horizontal_center", "⇔"), ("right", "⊢"),
-        ]
-        align_tips = {
-            "top": "顶对齐", "vertical_center": "垂直居中", "bottom": "底对齐",
-            "left": "左对齐", "horizontal_center": "水平居中", "right": "右对齐",
-        }
+        # 图标按钮用一个独立容器，内部间距统一为 2px，竖线分隔符嵌在其中
+        icon_container = QWidget()
+        icon_container.setObjectName("editor_align_icon_container")
+        icon_layout = QHBoxLayout(icon_container)
+        icon_layout.setContentsMargins(0, 0, 0, 0)
+        icon_layout.setSpacing(10)
+
+        # ── 第 1 组 (4 按钮): 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
         self.align_buttons: dict[str, QToolButton] = {}
-        align_container = QWidget()
-        align_container.setObjectName("editor_align_container")
-        align_vbox = QVBoxLayout(align_container)
-        align_vbox.setContentsMargins(0, 0, 0, 0)
-        align_vbox.setSpacing(1)
-        align_label = QLabel("对齐")
-        align_label.setObjectName("editor_align_label")
-        align_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        align_vbox.addWidget(align_label)
-        align_grid = QGridLayout()
-        align_grid.setSpacing(1)
-        for idx, (mode, symbol) in enumerate(align_modes):
-            btn = QToolButton()
-            btn.setText(symbol)
-            btn.setObjectName(f"editor_align_{mode}")
-            btn.setToolTip(align_tips[mode])
-            btn.setFixedSize(24, 24)
-            btn.setEnabled(False)
-            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
-            align_grid.addWidget(btn, idx // 3, idx % 3)
-            self.align_buttons[mode] = btn
-        align_vbox.addLayout(align_grid)
-        layout.addWidget(align_container)
-
-        layout.addWidget(self._create_separator())
-
-        # 分布按钮的 grid: 2 rows × 3 cols
-        dist_modes = [
-            ("top", "⊤═"), ("vertical_center", "⇅═"), ("bottom", "⊥═"),
-            ("left", "⊣═"), ("horizontal_center", "⇔═"), ("right", "⊢═"),
+        group1 = [
+            ("left", "左对齐"), ("horizontal_center", "水平居中"),
+            ("right", "右对齐"),
         ]
-        dist_tips = {
-            "top": "按顶分布", "vertical_center": "垂直居中分布", "bottom": "按底分布",
-            "left": "按左分布", "horizontal_center": "水平居中分布", "right": "按右分布",
-        }
-        self.distribute_buttons: dict[str, QToolButton] = {}
-        dist_container = QWidget()
-        dist_container.setObjectName("editor_dist_container")
-        dist_vbox = QVBoxLayout(dist_container)
-        dist_vbox.setContentsMargins(0, 0, 0, 0)
-        dist_vbox.setSpacing(1)
-        dist_label = QLabel("分布")
-        dist_label.setObjectName("editor_dist_label")
-        dist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        dist_vbox.addWidget(dist_label)
-        dist_grid = QGridLayout()
-        dist_grid.setSpacing(1)
-        for idx, (mode, symbol) in enumerate(dist_modes):
-            btn = QToolButton()
-            btn.setText(symbol)
-            btn.setObjectName(f"editor_dist_{mode}")
-            btn.setToolTip(dist_tips[mode])
-            btn.setFixedSize(24, 24)
-            btn.setEnabled(False)
-            btn.clicked.connect(lambda checked, m=mode: self.distribute_requested.emit(m))
-            dist_grid.addWidget(btn, idx // 3, idx % 3)
-            self.distribute_buttons[mode] = btn
-        dist_vbox.addLayout(dist_grid)
-        layout.addWidget(dist_container)
+        for mode, tip in group1:
+            icon = self._make_align_icon(mode, rc, lc)
+            btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
+            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
+            self.align_buttons[mode] = btn
+            icon_layout.addWidget(btn)
+
+        icon = self._make_dist_spacing_icon("vertical", rc, lc)
+        btn = _make_icon_btn(icon, "editor_dist_vertical_spacing", "垂直间距分布")
+        btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
+        self._dist_v_btn = btn
+        icon_layout.addWidget(btn)
+
+        # ── 第 2 组: 顶对齐 / 垂直居中 / 底对齐 / 水平间距分布 ──
+        group2 = [
+            ("top", "顶对齐"), ("vertical_center", "垂直居中"),
+            ("bottom", "底对齐"),
+        ]
+        for mode, tip in group2:
+            icon = self._make_align_icon(mode, rc, lc)
+            btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
+            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
+            self.align_buttons[mode] = btn
+            icon_layout.addWidget(btn)
+
+        icon = self._make_dist_spacing_icon("horizontal", rc, lc)
+        btn = _make_icon_btn(icon, "editor_dist_horizontal_spacing", "水平间距分布")
+        btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
+        self._dist_h_btn = btn
+        icon_layout.addWidget(btn)
+
+        # 将图标容器挂到主布局
+        layout.addWidget(icon_container)
+
+    def _on_dist_spacing(self, orientation: str):
+        """处理间距分布按钮点击（垂直/水平间距均分）。
+
+        orientation: "vertical" | "horizontal"
+        转换为 distribute_spacing mode，controller 需要支持。
+        """
+        if orientation == "vertical":
+            self.distribute_requested.emit("top")  # 等价于垂直方向按间距均分
+        else:
+            self.distribute_requested.emit("left")  # 等价于水平方向按间距均分
 
     def _toggle_align_ref(self):
         """切换对齐参照模式：选区 ↔ 画布。同时更新按钮启用状态。"""
@@ -250,14 +361,14 @@ class EditorToolbar(QWidget):
         return self._align_ref
 
     def update_align_distribute_buttons(self, selection_count: int):
-        """根据选中数量和参照模式更新按钮启用状态。"""
+        """根据选中数量和参照模式更新按钮启用状态。更多按钮始终可用。"""
         self._last_selection_count = selection_count
         align_enabled = (selection_count >= 1 and self._align_ref == "canvas") or (selection_count >= 2)
         dist_enabled = selection_count >= 3
         for btn in self.align_buttons.values():
             btn.setEnabled(align_enabled)
-        for btn in self.distribute_buttons.values():
-            btn.setEnabled(dist_enabled)
+        self._dist_v_btn.setEnabled(dist_enabled)
+        self._dist_h_btn.setEnabled(dist_enabled)
 
     def _create_separator(self):
         separator = QFrame()
@@ -266,8 +377,7 @@ class EditorToolbar(QWidget):
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setLineWidth(1)
         separator.setMidLineWidth(0)
-        separator.setFixedWidth(2)  # 分隔符可以固定宽度，因为它只是一条线
-        # 设置分隔符的最小高度，确保它垂直显示
+        separator.setFixedWidth(2)
         separator.setMinimumHeight(20)
         return separator
 
