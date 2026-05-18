@@ -115,6 +115,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_handle_indices = None
         self._drag_start_pos = QPointF()
         self._drag_start_polygons: List[QPolygonF] = []
+        self._batch_drag_peers: list = []   # 批量移动时其他选中项的快照
         self._drag_start_rotation = 0.0
         self._drag_raw_rotation = 0.0
         self._drag_start_visual_center = QPointF()
@@ -499,6 +500,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_start_pivot_scene = QPointF()
         self._drag_raw_rotation = 0.0
         self._drag_last_angle_rad = 0.0
+        self._batch_drag_peers = []
 
     def _reset_interaction_state(self):
         self._interaction_mode = "none"
@@ -514,6 +516,61 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_start_white_handle_world = None
         if capture_text_pos:
             self._drag_start_text_item_pos = QPointF(self.text_item.pos())
+
+    def _capture_batch_drag_peers(self):
+        """批量移动：记录场景中其他选中 item 的初始状态，拖动时同步移动。"""
+        self._batch_drag_peers = []
+        sc = self.scene()
+        if sc is None:
+            return
+        for item in sc.items():
+            if not isinstance(item, RegionTextItem):
+                continue
+            if item is self or not item.isSelected():
+                continue
+            wf = item.geo.white_frame_local
+            if wf is None:
+                continue
+            self._batch_drag_peers.append({
+                "item": item,
+                "start_wf_local": list(wf),
+                "start_text_pos": QPointF(item.text_item.pos()),
+                "start_center": list(item.geo.center),
+                "old_rect": item.sceneBoundingRect(),
+            })
+
+    def _move_batch_peers(self, scene_dx: float, scene_dy: float):
+        """对批量 peers 应用相同的场景位移。"""
+        for peer in self._batch_drag_peers:
+            item = peer["item"]
+            if item.scene() is None:
+                continue
+            angle_rad = np.radians(item.rotation())
+            cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+            ldx = scene_dx * cos_a + scene_dy * sin_a
+            ldy = -scene_dx * sin_a + scene_dy * cos_a
+            wf = peer["start_wf_local"]
+            moved = [wf[0] + ldx, wf[1] + ldy, wf[2] + ldx, wf[3] + ldy]
+            item.prepareGeometryChange()
+            item._shape_path = None
+            item.geo.set_custom_white_frame_local(moved)
+            item.text_item.setPos(peer["start_text_pos"] + QPointF(ldx, ldy))
+            item.update()
+            item._invalidate_scene_rect(peer["old_rect"])
+
+    def _commit_batch_peers(self, event):
+        """提交批量 peers 的位置变更到模型。"""
+        for peer in self._batch_drag_peers:
+            item = peer["item"]
+            if item.scene() is None:
+                continue
+            patch = item.geo.to_region_data_patch()
+            new_data = build_white_frame_region_data(
+                item.region_data, patch, item.geo.white_frame_local,
+                old_white_frame_local=peer["start_wf_local"],
+                edit_mode="white_move",
+            )
+            item._emit_region_update(event, new_data)
 
     # ------------------------------------------------------------------
     # 旋转角度显示
@@ -917,6 +974,7 @@ class RegionTextItem(QGraphicsItemGroup):
                 self._drag_start_white_handle_world = self._white_handle_world_at_start()
             elif handle == "white_move":
                 self._capture_white_frame_drag_context(capture_text_pos=True)
+                self._capture_batch_drag_peers()
             elif handle == "rotate":
                 self.setTransformOriginPoint(QPointF(0, 0))
                 self._drag_start_pivot_scene = self.mapToScene(self._drag_start_center)
@@ -1192,6 +1250,9 @@ class RegionTextItem(QGraphicsItemGroup):
             self.update()
             self._invalidate_scene_rect(old_rect)
 
+            # 批量移动其他选中项
+            self._move_batch_peers(scene_delta.x(), scene_delta.y())
+
         except Exception as e:
             logger.error(f"[RegionTextItem] _handle_white_frame_move: {e}\n{traceback.format_exc()}")
 
@@ -1209,6 +1270,9 @@ class RegionTextItem(QGraphicsItemGroup):
             edit_mode=edit_mode,
         )
         self._emit_region_update(event, new_data)
+
+        # 同步提交其他选中项的位移
+        self._commit_batch_peers(event)
 
     def _white_handle_world_at_start(self):
         if self._drag_start_white_frame_local is None:
