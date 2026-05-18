@@ -207,3 +207,67 @@ def distribute_items(
         results.append((item.region_index, new_cx, new_cy))
 
     return results
+
+
+def distribute_spacing_items(
+    items: list["RegionTextItem"],
+    orientation: str,
+) -> list[tuple[int, float, float]]:
+    """
+    真正的间距分布：等分 item 之间的空白间隙，而非等分边缘/中心位置。
+
+    orientation: "vertical" | "horizontal"
+    返回 [(region_index, new_center_x, new_center_y), ...]
+    """
+    if len(items) < 3:
+        return []
+
+    is_vert = orientation == "vertical"
+    positioned: list[tuple["RegionTextItem", float, float, float, float]] = []
+    for item in items:
+        pts = item._get_white_frame_world_points()
+        if not pts:
+            continue
+        cx = float(item.pos().x())
+        cy = float(item.pos().y())
+        if is_vert:
+            top_pt = pts.get("top")
+            bottom_pt = pts.get("bottom")
+            if top_pt is None or bottom_pt is None:
+                continue
+            near = top_pt.y()
+            far = bottom_pt.y()
+            pos = near
+        else:
+            left_pt = pts.get("left")
+            right_pt = pts.get("right")
+            if left_pt is None or right_pt is None:
+                continue
+            near = left_pt.x()
+            far = right_pt.x()
+            pos = near
+        positioned.append((item, near, far, cx, cy, pos))
+
+    if len(positioned) < 3:
+        return []
+
+    positioned.sort(key=lambda p: p[5])
+    n = len(positioned)
+    first_near = positioned[0][1]
+    last_far = positioned[-1][2]
+    total_span = last_far - first_near
+    total_size = sum(far - near for _, near, far, _, _, _ in positioned)
+    total_gap = max(0.0, total_span - total_size)
+    gap_per_space = total_gap / (n - 1)
+
+    results = []
+    for i in range(1, n - 1):
+        item, near, far, cx, cy, _pos = positioned[i]
+        prev_far = positioned[i - 1][2]
+        target_near = prev_far + gap_per_space
+        delta = target_near - near
+        new_cx = cx + (0.0 if is_vert else delta)
+        new_cy = cy + (delta if is_vert else 0.0)
+        results.append((item.region_index, new_cx, new_cy))
+
+    return results

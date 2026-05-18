@@ -191,6 +191,7 @@ class EditorControllerExportService:
 
     @classmethod
     def apply_white_frame_center(cls, region: dict) -> None:
+        """将 center 重算为白框世界中心，并同步平移 local 坐标以免漂移。"""
         wf_local = cls.resolve_effective_box_local(region)
         base_center = region.get("center")
         if not (
@@ -204,11 +205,28 @@ class EditorControllerExportService:
             left, top, right, bottom = (float(v) for v in wf_local)
             lx = (left + right) / 2.0
             ly = (top + bottom) / 2.0
+            if abs(lx) < 0.001 and abs(ly) < 0.001:
+                return
             cx, cy = float(base_center[0]), float(base_center[1])
             angle = float(region.get("angle") or 0.0)
             rad = math.radians(angle)
             cos_a, sin_a = math.cos(rad), math.sin(rad)
             region["center"] = [cx + lx * cos_a - ly * sin_a, cy + lx * sin_a + ly * cos_a]
+            # 同步平移 local 坐标，以新 center 为原点，防止存/读漂移
+            if "white_frame_rect_local" in region:
+                wf = region["white_frame_rect_local"]
+                if isinstance(wf, (list, tuple)) and len(wf) == 4:
+                    region["white_frame_rect_local"] = [
+                        float(wf[0]) - lx, float(wf[1]) - ly,
+                        float(wf[2]) - lx, float(wf[3]) - ly,
+                    ]
+            if "render_box_rect_local" in region:
+                rb = region["render_box_rect_local"]
+                if isinstance(rb, (list, tuple)) and len(rb) == 4:
+                    region["render_box_rect_local"] = [
+                        float(rb[0]) - lx, float(rb[1]) - ly,
+                        float(rb[2]) - lx, float(rb[3]) - ly,
+                    ]
         except (TypeError, ValueError):
             return
 

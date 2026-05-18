@@ -135,8 +135,10 @@ class RegionTextItem(QGraphicsItemGroup):
         self._angle_label = None
         # 对齐辅助线（场景级别）
         self._guide_lines = []
+        self._spacing_labels: list = []
         # 吸附阈值（像素）
         self._snap_threshold = 1.0
+        self._spacing_snap_threshold = 15.0
 
         self._setup_pens()
 
@@ -769,19 +771,113 @@ class RegionTextItem(QGraphicsItemGroup):
             pen
         )
 
+    def _detect_spacing_snap(self, my_points: dict) -> tuple:
+        """智能间距吸附：检测与其他 item 对的等距关系。"""
+        scene = self.scene()
+        if scene is None:
+            return 0.0, 0.0, []
+        others: list[dict] = []
+        for item in scene.items():
+            if not isinstance(item, RegionTextItem):
+                continue
+            if item is self or item.isSelected():
+                continue
+            pts = item._get_white_frame_world_points()
+            if pts:
+                others.append(pts)
+        if len(others) < 2:
+            return 0.0, 0.0, []
+
+        threshold = self._spacing_snap_threshold
+        snap_dx = 0.0; snap_dy = 0.0
+        guides = []
+
+        my_left = my_points.get("left"); my_right = my_points.get("right")
+        my_top = my_points.get("top"); my_bottom = my_points.get("bottom")
+
+        for i, pa in enumerate(others):
+            al = pa.get("left"); ar = pa.get("right")
+            at = pa.get("top"); ab = pa.get("bottom")
+            if not all([al, ar, at, ab]):
+                continue
+            for j, pb in enumerate(others):
+                if j <= i:
+                    continue
+                bl = pb.get("left"); br = pb.get("right")
+                bt = pb.get("top"); bb = pb.get("bottom")
+                if not all([bl, br, bt, bb]):
+                    continue
+
+                # ── 水平间距 ──
+                if my_left and my_right:
+                    # A 在 B 左边
+                    if ar.x() < bl.x():
+                        gap = bl.x() - ar.x()
+                        if gap >= 4:
+                            # 拖到 B 右边
+                            tgt = br.x() + gap
+                            if abs(my_left.x() - tgt) < threshold and abs(snap_dx) < 0.01:
+                                snap_dx = tgt - my_left.x()
+                                guides.append({"kind":"spacing","ori":"h","x1":ar.x(),"x2":bl.x(),"x3":br.x(),"x4":tgt,"y":my_left.y(),"label":f"{gap:.0f}"})
+                            # 拖到 A 左边
+                            tgt = al.x() - gap
+                            if abs(my_right.x() - tgt) < threshold and abs(snap_dx) < 0.01:
+                                snap_dx = tgt - my_right.x()
+                                guides.append({"kind":"spacing","ori":"h","x1":al.x()-gap,"x2":al.x(),"x3":ar.x(),"x4":br.x(),"y":my_right.y(),"label":f"{gap:.0f}"})
+                    # B 在 A 左边
+                    if br.x() < al.x():
+                        gap = al.x() - br.x()
+                        if gap >= 4:
+                            tgt = ar.x() + gap
+                            if abs(my_left.x() - tgt) < threshold and abs(snap_dx) < 0.01:
+                                snap_dx = tgt - my_left.x()
+                                guides.append({"kind":"spacing","ori":"h","x1":br.x(),"x2":al.x(),"x3":ar.x(),"x4":tgt,"y":my_left.y(),"label":f"{gap:.0f}"})
+                            tgt = bl.x() - gap
+                            if abs(my_right.x() - tgt) < threshold and abs(snap_dx) < 0.01:
+                                snap_dx = tgt - my_right.x()
+                                guides.append({"kind":"spacing","ori":"h","x1":bl.x()-gap,"x2":bl.x(),"x3":br.x(),"x4":al.x(),"y":my_right.y(),"label":f"{gap:.0f}"})
+
+                # ── 垂直间距 ──
+                if my_top and my_bottom:
+                    # A 在 B 上边
+                    if ab.y() < bt.y():
+                        gap = bt.y() - ab.y()
+                        if gap >= 4:
+                            # 拖到 B 下边
+                            tgt = bb.y() + gap
+                            if abs(my_top.y() - tgt) < threshold and abs(snap_dy) < 0.01:
+                                snap_dy = tgt - my_top.y()
+                                guides.append({"kind":"spacing","ori":"v","y1":ab.y(),"y2":bt.y(),"y3":bb.y(),"y4":tgt,"x":my_top.x(),"label":f"{gap:.0f}"})
+                            # 拖到 A 上边
+                            tgt = at.y() - gap
+                            if abs(my_bottom.y() - tgt) < threshold and abs(snap_dy) < 0.01:
+                                snap_dy = tgt - my_bottom.y()
+                                guides.append({"kind":"spacing","ori":"v","y1":at.y()-gap,"y2":at.y(),"y3":ab.y(),"y4":bt.y(),"x":my_bottom.x(),"label":f"{gap:.0f}"})
+                    # B 在 A 上边
+                    if bb.y() < at.y():
+                        gap = at.y() - bb.y()
+                        if gap >= 4:
+                            tgt = ab.y() + gap
+                            if abs(my_top.y() - tgt) < threshold and abs(snap_dy) < 0.01:
+                                snap_dy = tgt - my_top.y()
+                                guides.append({"kind":"spacing","ori":"v","y1":bb.y(),"y2":at.y(),"y3":ab.y(),"y4":tgt,"x":my_top.x(),"label":f"{gap:.0f}"})
+                            tgt = bt.y() - gap
+                            if abs(my_bottom.y() - tgt) < threshold and abs(snap_dy) < 0.01:
+                                snap_dy = tgt - my_bottom.y()
+                                guides.append({"kind":"spacing","ori":"v","y1":bt.y()-gap,"y2":bt.y(),"y3":bb.y(),"y4":at.y(),"x":my_bottom.x(),"label":f"{gap:.0f}"})
+
+        return snap_dx, snap_dy, guides
+
     def _show_guide_lines(self, guide_specs: list, is_rotation: bool = False):
-        """在场景中绘制全屏的对齐/旋转辅助虚线。"""
+        """在场景中绘制全屏的对齐/旋转辅助虚线 + 间距标尺。"""
         self._clear_guide_lines()
         scene = self.scene()
         if scene is None or not guide_specs:
             return
 
         visible_rect = self._visible_scene_rect(scene)
-
-        # 根据可视区域对角线计算一个足够长的延伸距离
         extent = 2.0 * math.hypot(visible_rect.width(), visible_rect.height())
 
-        # 旋转时用橙黄色，平移吸附用青色
         if is_rotation:
             pen = QPen(QColor(255, 165, 0, 255), 1.5)
         else:
@@ -789,15 +885,59 @@ class RegionTextItem(QGraphicsItemGroup):
         pen.setCosmetic(True)
         pen.setStyle(Qt.PenStyle.DashLine)
 
+        # 间距标尺的画笔：亮橙色实线，粗 2px
+        sp_pen = QPen(QColor(255, 180, 60, 255), 2)
+        sp_pen.setCosmetic(True)
+
         for guide_spec in guide_specs:
-            line = self._build_guide_line(scene, visible_rect, extent, pen, guide_spec)
-            if line is None:
-                continue
-            line.setZValue(9999) # 确保层级最高
-            self._guide_lines.append(line)
+            if isinstance(guide_spec, dict) and guide_spec.get("kind") == "spacing":
+                ori = guide_spec.get("ori", "h")
+                label = guide_spec.get("label", "")
+                tick_half = 24.0  # 刻度线半长
+
+                if ori == "h":
+                    # 参考间距 (x1,x2) 和目标间距 (x3,x4) 各画一对竖线
+                    for xa, xb in [(guide_spec.get("x1"), guide_spec.get("x2")),
+                                   (guide_spec.get("x3"), guide_spec.get("x4"))]:
+                        if xa is not None and xb is not None:
+                            y = guide_spec.get("y", 0)
+                            ln = scene.addLine(xa, y - tick_half, xa, y + tick_half, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            ln = scene.addLine(xb, y - tick_half, xb, y + tick_half, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            # 标签放在两根刻度线中间上方
+                            lbl = QGraphicsSimpleTextItem(label)
+                            lbl.setPos((xa + xb) / 2.0 - 10, y - tick_half - 22)
+                            lbl.setZValue(9999)
+                            lbl.setBrush(QBrush(QColor(255, 180, 60)))
+                            f = lbl.font(); f.setPixelSize(16); f.setBold(True)
+                            lbl.setFont(f)
+                            scene.addItem(lbl); self._spacing_labels.append(lbl)
+                else:
+                    for ya, yb in [(guide_spec.get("y1"), guide_spec.get("y2")),
+                                   (guide_spec.get("y3"), guide_spec.get("y4"))]:
+                        if ya is not None and yb is not None:
+                            x = guide_spec.get("x", 0)
+                            ln = scene.addLine(x - tick_half, ya, x + tick_half, ya, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            ln = scene.addLine(x - tick_half, yb, x + tick_half, yb, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            lbl = QGraphicsSimpleTextItem(label)
+                            lbl.setPos(x - tick_half - 34, (ya + yb) / 2.0 - 10)
+                            lbl.setZValue(9999)
+                            lbl.setBrush(QBrush(QColor(255, 180, 60)))
+                            f = lbl.font(); f.setPixelSize(16); f.setBold(True)
+                            lbl.setFont(f)
+                            scene.addItem(lbl); self._spacing_labels.append(lbl)
+            else:
+                line = self._build_guide_line(scene, visible_rect, extent, pen, guide_spec)
+                if line is None:
+                    continue
+                line.setZValue(9999)
+                self._guide_lines.append(line)
 
     def _clear_guide_lines(self):
-        """清除所有辅助线。"""
+        """清除所有辅助线和间距标签。"""
         scene = self.scene()
         for line in self._guide_lines:
             try:
@@ -806,6 +946,13 @@ class RegionTextItem(QGraphicsItemGroup):
             except (RuntimeError, AttributeError):
                 pass
         self._guide_lines.clear()
+        for label in self._spacing_labels:
+            try:
+                if scene is not None:
+                    scene.removeItem(label)
+            except (RuntimeError, AttributeError):
+                pass
+        self._spacing_labels.clear()
 
     # ------------------------------------------------------------------
     # 手柄命中检测
@@ -1220,23 +1367,27 @@ class RegionTextItem(QGraphicsItemGroup):
             left, top, right, bottom = self._drag_start_white_frame_local
             moved = [left + dx, top + dy, right + dx, bottom + dy]
 
-            # --- 吸附逻辑 ---
+            # --- 吸附：边缘 + 间距从同一位置独立计算，间距优先 ---
             my_points = self._get_white_frame_world_points_from_local(moved)
             targets = self._get_other_items_snap_targets()
+            guide_specs = []
+            edge_dx = edge_dy = 0.0
             if my_points and targets:
-                snap_dx_scene, snap_dy_scene, guide_specs = self._calculate_snap_offset(
-                    my_points, targets
-                )
-                if snap_dx_scene != 0.0 or snap_dy_scene != 0.0:
-                    snap_local_dx = snap_dx_scene * cos_a + snap_dy_scene * sin_a
-                    snap_local_dy = -snap_dx_scene * sin_a + snap_dy_scene * cos_a
-                    moved = [
-                        moved[0] + snap_local_dx, moved[1] + snap_local_dy,
-                        moved[2] + snap_local_dx, moved[3] + snap_local_dy,
-                    ]
-                    dx += snap_local_dx
-                    dy += snap_local_dy
-                    logger.debug(f"[RegionTextItem] snap: dx={snap_dx_scene:.1f} dy={snap_dy_scene:.1f}")
+                edge_dx, edge_dy, edge_guides = self._calculate_snap_offset(my_points, targets)
+                guide_specs.extend(edge_guides)
+            spacing_dx, spacing_dy, spacing_guides = self._detect_spacing_snap(my_points)
+            guide_specs.extend(spacing_guides)
+            if spacing_dx != 0.0 or spacing_dy != 0.0:
+                sldx = spacing_dx * cos_a + spacing_dy * sin_a
+                sldy = -spacing_dx * sin_a + spacing_dy * cos_a
+                moved = [moved[0]+sldx, moved[1]+sldy, moved[2]+sldx, moved[3]+sldy]
+                dx += sldx; dy += sldy
+            elif edge_dx != 0.0 or edge_dy != 0.0:
+                eldx = edge_dx * cos_a + edge_dy * sin_a
+                eldy = -edge_dx * sin_a + edge_dy * cos_a
+                moved = [moved[0]+eldx, moved[1]+eldy, moved[2]+eldx, moved[3]+eldy]
+                dx += eldx; dy += eldy
+            if guide_specs:
                 self._show_guide_lines(guide_specs)
             else:
                 self._clear_guide_lines()
