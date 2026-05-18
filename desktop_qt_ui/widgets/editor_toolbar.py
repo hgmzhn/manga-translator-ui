@@ -3,10 +3,12 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QSlider,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 from services import get_i18n_manager
@@ -27,6 +29,8 @@ class EditorToolbar(QWidget):
     fit_window_requested = pyqtSignal()
     display_mode_changed = pyqtSignal(str)
     original_image_alpha_changed = pyqtSignal(int)
+    align_requested = pyqtSignal(str)
+    distribute_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -138,7 +142,122 @@ class EditorToolbar(QWidget):
         self.original_image_alpha_slider.setMinimumWidth(80)
         layout.addWidget(self.original_image_alpha_slider)
 
+        layout.addWidget(self._create_separator())
+
+        # --- Align / Distribute ---
+        self._build_align_distribute_ui(layout)
+
         layout.addStretch() # Pushes everything to the left
+
+    def _build_align_distribute_ui(self, layout: QHBoxLayout):
+        """构建对齐/分布按钮组。"""
+        from PyQt6.QtWidgets import QSizePolicy
+
+        # 参照模式切换按钮
+        self.align_ref_button = QToolButton()
+        self.align_ref_button.setText("选区")
+        self.align_ref_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.align_ref_button.setObjectName("editor_align_ref_button")
+        self.align_ref_button.setToolTip("对齐参照：选区（包围盒）/ 画布（整张图）")
+        self._align_ref = "selection"
+        self.align_ref_button.clicked.connect(self._toggle_align_ref)
+        self._last_selection_count = 0
+        layout.addWidget(self.align_ref_button)
+
+        layout.addWidget(self._create_separator())
+
+        # 对齐按钮的 grid: 2 rows × 3 cols
+        align_modes = [
+            ("top", "⊤"), ("vertical_center", "⇅"), ("bottom", "⊥"),
+            ("left", "⊣"), ("horizontal_center", "⇔"), ("right", "⊢"),
+        ]
+        align_tips = {
+            "top": "顶对齐", "vertical_center": "垂直居中", "bottom": "底对齐",
+            "left": "左对齐", "horizontal_center": "水平居中", "right": "右对齐",
+        }
+        self.align_buttons: dict[str, QToolButton] = {}
+        align_container = QWidget()
+        align_container.setObjectName("editor_align_container")
+        align_vbox = QVBoxLayout(align_container)
+        align_vbox.setContentsMargins(0, 0, 0, 0)
+        align_vbox.setSpacing(1)
+        align_label = QLabel("对齐")
+        align_label.setObjectName("editor_align_label")
+        align_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        align_vbox.addWidget(align_label)
+        align_grid = QGridLayout()
+        align_grid.setSpacing(1)
+        for idx, (mode, symbol) in enumerate(align_modes):
+            btn = QToolButton()
+            btn.setText(symbol)
+            btn.setObjectName(f"editor_align_{mode}")
+            btn.setToolTip(align_tips[mode])
+            btn.setFixedSize(24, 24)
+            btn.setEnabled(False)
+            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
+            align_grid.addWidget(btn, idx // 3, idx % 3)
+            self.align_buttons[mode] = btn
+        align_vbox.addLayout(align_grid)
+        layout.addWidget(align_container)
+
+        layout.addWidget(self._create_separator())
+
+        # 分布按钮的 grid: 2 rows × 3 cols
+        dist_modes = [
+            ("top", "⊤═"), ("vertical_center", "⇅═"), ("bottom", "⊥═"),
+            ("left", "⊣═"), ("horizontal_center", "⇔═"), ("right", "⊢═"),
+        ]
+        dist_tips = {
+            "top": "按顶分布", "vertical_center": "垂直居中分布", "bottom": "按底分布",
+            "left": "按左分布", "horizontal_center": "水平居中分布", "right": "按右分布",
+        }
+        self.distribute_buttons: dict[str, QToolButton] = {}
+        dist_container = QWidget()
+        dist_container.setObjectName("editor_dist_container")
+        dist_vbox = QVBoxLayout(dist_container)
+        dist_vbox.setContentsMargins(0, 0, 0, 0)
+        dist_vbox.setSpacing(1)
+        dist_label = QLabel("分布")
+        dist_label.setObjectName("editor_dist_label")
+        dist_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dist_vbox.addWidget(dist_label)
+        dist_grid = QGridLayout()
+        dist_grid.setSpacing(1)
+        for idx, (mode, symbol) in enumerate(dist_modes):
+            btn = QToolButton()
+            btn.setText(symbol)
+            btn.setObjectName(f"editor_dist_{mode}")
+            btn.setToolTip(dist_tips[mode])
+            btn.setFixedSize(24, 24)
+            btn.setEnabled(False)
+            btn.clicked.connect(lambda checked, m=mode: self.distribute_requested.emit(m))
+            dist_grid.addWidget(btn, idx // 3, idx % 3)
+            self.distribute_buttons[mode] = btn
+        dist_vbox.addLayout(dist_grid)
+        layout.addWidget(dist_container)
+
+    def _toggle_align_ref(self):
+        """切换对齐参照模式：选区 ↔ 画布。同时更新按钮启用状态。"""
+        if self._align_ref == "selection":
+            self._align_ref = "canvas"
+            self.align_ref_button.setText("画布")
+        else:
+            self._align_ref = "selection"
+            self.align_ref_button.setText("选区")
+        self.update_align_distribute_buttons(self._last_selection_count)
+
+    def get_align_reference(self) -> str:
+        return self._align_ref
+
+    def update_align_distribute_buttons(self, selection_count: int):
+        """根据选中数量和参照模式更新按钮启用状态。"""
+        self._last_selection_count = selection_count
+        align_enabled = (selection_count >= 1 and self._align_ref == "canvas") or (selection_count >= 2)
+        dist_enabled = selection_count >= 3
+        for btn in self.align_buttons.values():
+            btn.setEnabled(align_enabled)
+        for btn in self.distribute_buttons.values():
+            btn.setEnabled(dist_enabled)
 
     def _create_separator(self):
         separator = QFrame()

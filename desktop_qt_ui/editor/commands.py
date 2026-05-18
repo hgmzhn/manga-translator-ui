@@ -402,3 +402,38 @@ class PaintOverlayEditCommand(QUndoCommand):
 
     def undo(self):
         self._apply(self._full_old, self._old_patch)
+
+
+class MultiRegionUpdateCommand(QUndoCommand):
+    """批量更新多条 region 数据，一次性 set_regions_silent + emit 一次信号。
+
+    避免逐条 UpdateRegionCommand 因 clear_regions() 导致的跨命令索引失效。
+    """
+
+    def __init__(
+        self,
+        model: "EditorModel",
+        old_regions: list[dict],
+        new_regions: list[dict],
+        description: str = "Batch Update Regions",
+    ):
+        super().__init__(description)
+        self._model = model
+        self._old_regions = old_regions
+        self._new_regions = new_regions
+
+    def _apply(self, regions: list[dict]) -> None:
+        self._model.set_regions_silent(regions)
+        self._model.regions_changed.emit(self._model.get_regions())
+        old_selection = self._model.get_selection()
+        if old_selection:
+            current = self._model.get_regions()
+            valid = [i for i in old_selection if 0 <= i < len(current)]
+            if valid:
+                self._model.set_selection(valid)
+
+    def redo(self):
+        self._apply(self._new_regions)
+
+    def undo(self):
+        self._apply(self._old_regions)

@@ -827,6 +827,132 @@ class EditorController(QObject):
         )
         self.execute_command(command)
 
+    # ------------------------------------------------------------------
+    # 对齐与分布
+    # ------------------------------------------------------------------
+
+    def align_regions(self, mode: str, reference: str) -> None:
+        """批量对齐选中的区域。
+
+        mode: top / vertical_center / bottom / left / horizontal_center / right
+        reference: "selection" | "canvas"
+        """
+        from .alignment_service import align_items
+
+        view = self.get_graphics_view()
+        if view is None:
+            return
+        items = [item for item in view._region_items if item.isSelected()]
+        if not items:
+            return
+
+        canvas_rect = None
+        if reference == "canvas":
+            r = view.get_image_scene_rect()
+            if r is not None:
+                canvas_rect = (r.left(), r.top(), r.right(), r.bottom())
+
+        results = align_items(items, mode, reference, canvas_rect)
+        if not results:
+            return
+
+        # 构建单条批量命令：修改 model center + 同��移动 item 白框和文字
+        regions = self.model.get_regions()
+        old_regions = [dict(r) for r in regions]
+        new_regions = [dict(r) for r in regions]
+        for idx, new_cx, new_cy in results:
+            new_regions[idx]["center"] = [new_cx, new_cy]
+
+        from .commands import MultiRegionUpdateCommand
+        mode_names = {
+            "top": "Top Align", "vertical_center": "Vertical Center",
+            "bottom": "Bottom Align", "left": "Left Align",
+            "horizontal_center": "Horizontal Center", "right": "Right Align",
+        }
+        cmd = MultiRegionUpdateCommand(self.model, old_regions, new_regions,
+                                       description=f"{mode_names.get(mode, 'Align')} ({reference})")
+        self.execute_command(cmd)
+
+        # 不依赖 debounce → 异步重建，仿照拖拽逻辑立刻移动 item 的白框和文字
+        self._sync_items_positions(results, items)
+
+    def _sync_items_positions(self, results, items):
+        """按对齐/分布的计算结果，直接移动 item 局部的白框和文字（仿照拖拽）。"""
+        import math
+        from PyQt6.QtCore import QPointF
+
+        for idx, new_cx, new_cy in results:
+            item = None
+            for it in items:
+                if it.region_index == idx:
+                    item = it
+                    break
+            if item is None or item.scene() is None:
+                continue
+
+            old_pos = item.pos()
+            dx = new_cx - float(old_pos.x())
+            dy = new_cy - float(old_pos.y())
+
+            if abs(dx) < 0.01 and abs(dy) < 0.01:
+                continue
+
+            angle_rad = math.radians(float(item.rotation()))
+            cos_a, sin_a = math.cos(angle_rad), math.sin(angle_rad)
+            local_dx = dx * cos_a + dy * sin_a
+            local_dy = -dx * sin_a + dy * cos_a
+
+            wf = item.geo.white_frame_local
+            if wf is not None:
+                old_rect = item.sceneBoundingRect()
+                item.prepareGeometryChange()
+                item._shape_path = None
+                moved_wf = [wf[0] + local_dx, wf[1] + local_dy,
+                           wf[2] + local_dx, wf[3] + local_dy]
+                item.geo.set_custom_white_frame_local(moved_wf)
+                item.text_item.setPos(item.text_item.pos() + QPointF(local_dx, local_dy))
+                item.update()
+                item._invalidate_scene_rect(old_rect)
+
+            item.geo.center = [new_cx, new_cy]
+            item.visual_center = QPointF(new_cx, new_cy)
+
+    def distribute_regions(self, mode: str) -> None:
+        """批量均分选中区域的间距。
+
+        mode: top / vertical_center / bottom / left / horizontal_center / right
+        """
+        from .alignment_service import distribute_items
+
+        view = self.get_graphics_view()
+        if view is None:
+            return
+        items = [item for item in view._region_items if item.isSelected()]
+        if len(items) < 3:
+            return
+
+        results = distribute_items(items, mode)
+        if not results:
+            return
+
+        regions = self.model.get_regions()
+        old_regions = [dict(r) for r in regions]
+        new_regions = [dict(r) for r in regions]
+        for idx, new_cx, new_cy in results:
+            new_regions[idx]["center"] = [new_cx, new_cy]
+
+        from .commands import MultiRegionUpdateCommand
+        mode_names = {
+            "top": "Top Distribute", "vertical_center": "Vertical Center Distribute",
+            "bottom": "Bottom Distribute", "left": "Left Distribute",
+            "horizontal_center": "Horizontal Center Distribute", "right": "Right Distribute",
+        }
+        cmd = MultiRegionUpdateCommand(self.model, old_regions, new_regions,
+                                       description=mode_names.get(mode, 'Distribute'))
+        self.execute_command(cmd)
+
+        self._sync_items_positions(results, items)
+
     @pyqtSlot(int, str)
     def update_direction(self, region_index: int, direction_text: str):
         direction_value = self._normalize_direction_value(direction_text)

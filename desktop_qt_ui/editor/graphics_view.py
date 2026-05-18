@@ -127,6 +127,14 @@ class GraphicsView(
         patch["center"] = list(geo.center)
         return patch
 
+    def get_image_scene_rect(self) -> QRectF | None:
+        """返回图片 item 在场景中的包围矩形，供对齐的"画布"参照模式使用。"""
+        if self._image_item is not None:
+            r = self._image_item.sceneBoundingRect()
+            if r.isValid() and not r.isNull():
+                return QRectF(r)
+        return None
+
     def get_content_scene_rect(self) -> QRectF | None:
         rect = self.scene.itemsBoundingRect()
         if (not rect.isValid() or rect.isNull()) and self._image_item is not None:
