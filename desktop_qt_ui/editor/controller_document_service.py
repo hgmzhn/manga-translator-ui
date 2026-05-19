@@ -203,7 +203,23 @@ class EditorControllerDocumentService:
         )
 
     def do_load_image(self, image_path: str) -> None:
-        self.clear_editor_state()
+        # 切图轻量清理：取消后台任务 + 清历史。不碰 model/画布，旧图保留。
+        self.async_service.cancel_all_tasks()
+        self.controller.inpaint_service.invalidate_inpaint_requests()
+        self.history_service.clear()
+        self.history_service.mark_clean()
+        self.controller._update_undo_redo_buttons()
+        self.controller._user_adjusted_alpha = False
+        self.controller._last_export_snapshot = None
+        from services import get_render_parameter_service
+        get_render_parameter_service().clear_cache()
+        load_executor = getattr(self.controller, "_load_executor", None)
+        if load_executor is not None:
+            try:
+                load_executor.shutdown(wait=False)
+            except Exception:
+                pass
+            delattr(self.controller, "_load_executor")
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:

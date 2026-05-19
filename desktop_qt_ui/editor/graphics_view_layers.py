@@ -90,33 +90,58 @@ class GraphicsViewLayersMixin:
             self.selection_manager.suppress_forward_sync(False)
 
     def on_image_changed(self, image):
-        self.clear_all_state()
         self.render_coordinator.invalidate_document(self.model.get_document_revision())
 
+        # 先构建新图 QPixmap，旧图保留不动
+        new_pixmap = None
+        new_qimage = None
+        if image is not None:
+            try:
+                new_qimage = image_like_to_qimage(image)
+                new_pixmap = QPixmap.fromImage(new_qimage)
+            except Exception as convert_error:
+                self.logger.warning("Failed to convert image to QImage: %s", convert_error)
+
+        # 清理旧状态（保留 _image_item，直接换图避免黑屏）
         self.selection_manager.suppress_forward_sync(True)
-        self.scene.clear()
-        self.selection_manager.suppress_forward_sync(False)
-        self.selection_manager.on_scene_cleared()
-        self._image_item = None
-        self._raw_mask_item = None
-        self._refined_mask_item = None
-        self._inpainted_image_item = None
-        self._paint_overlay_item = None
-        self._preview_item = None
-
-        if image is None:
-            return
-
         try:
-            self._q_image_ref = image_like_to_qimage(image)
-        except Exception as convert_error:
-            self.logger.warning("Failed to convert image to QImage: %s", convert_error)
-            self._q_image_ref = None
+            self._reset_drawing_state()
+            if self.render_debounce_timer.isActive():
+                self.render_debounce_timer.stop()
+            for item in list(self._region_items):
+                try:
+                    if item and item.scene():
+                        self.scene.removeItem(item)
+                except (RuntimeError, AttributeError):
+                    pass
+            self._region_items.clear()
+            for attr in ('_raw_mask_item', '_refined_mask_item',
+                         '_inpainted_image_item', '_paint_overlay_item'):
+                item = getattr(self, attr, None)
+                if item and item.scene():
+                    self.scene.removeItem(item)
+                setattr(self, attr, None)
+            self._preview_item = None
+            self._inpainted_q_image_ref = None
+            self._paint_overlay_q_image_ref = None
+            self.render_coordinator.reset()
+            self._clear_pending_geometry_edits()
+        finally:
+            self.selection_manager.suppress_forward_sync(False)
+        self.selection_manager.on_scene_cleared()
+
+        if new_pixmap is None:
+            if self._image_item:
+                self._image_item.setPixmap(QPixmap())
             return
 
-        pixmap = QPixmap.fromImage(self._q_image_ref)
-        self._image_item = self.scene.addPixmap(pixmap)
-        self._image_item.setZValue(2)
+        # 原地换图：旧 item 直接 setPixmap，不删不加
+        self._q_image_ref = new_qimage
+        if self._image_item and self._image_item.scene():
+            self._image_item.setPixmap(new_pixmap)
+        else:
+            self._image_item = self.scene.addPixmap(new_pixmap)
+            self._image_item.setZValue(2)
         self._image_item.setOpacity(self.model.get_original_image_alpha())
         self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
         self._emit_view_state_changed()
