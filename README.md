@@ -1,15 +1,3 @@
-> **`feature/align-distribute-buttons` 分支新增功能**
-> - 📐 **PS 风格对齐/分布工具栏** — 6 种对齐 + 2 种间距分布，支持选区/画布参照
-> - 🔲 **批量移动** — 多选文本框后拖拽任意一个，其余同步跟随
-> - 🧲 **智能间距吸附** — 拖拽时检测等距关系，显示辅助线和距离标签（阈值 5px）
-> - 📤 **导出全部** — 工具栏一键导出所有已编辑图片
-> - 🖼️ **A/D 切换防黑闪** — 切图保持上一张可见，消除黑屏闪烁
-> - 🧪 **25 个单元测试** — 对齐/分布服务全覆盖
->
-> 详细说明 → [doc/FEATURE_ALIGN_DISTRIBUTE.md](doc/FEATURE_ALIGN_DISTRIBUTE.md)
-
----
-
 <div align="center">
 
 <img src="doc/images/主页.png" width="500" alt="主页">
