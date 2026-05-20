@@ -42,15 +42,7 @@
 - 阈值 5px，间距优先于边缘吸附
 - 辅助线 + 距离标签: `_show_guide_lines()`
 
-### 5. Bug 修复
-
-| 修复 | 位置 |
-|------|------|
-| 导出漂移（center 更新不同步 local 坐标） | `controller_export_service.py:apply_white_frame_center` |
-| 对齐后双重位移（center + wf_local 都改） | `editor_controller.py:_sync_items_positions` |
-| 导出 JSON 中 `rich_text` 被后端当文字渲染 | `export_service.py:_save_regions_data_internal` |
-
-### 6. 工具栏精简
+### 4. 工具栏精简
 
 - 隐藏缩放按钮（+/-）和百分比标签
 - 图标按钮统一 10px 间距
