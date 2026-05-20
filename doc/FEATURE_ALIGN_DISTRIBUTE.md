@@ -42,22 +42,7 @@
 - 阈值 5px，间距优先于边缘吸附
 - 辅助线 + 距离标签: `_show_guide_lines()`
 
-### 4. 导出全部
-
-**位置**: `desktop_qt_ui/widgets/editor_toolbar.py` / `desktop_qt_ui/editor/editor_controller.py`
-
-工具栏新增"导出全部"按钮，遍历文件列表逐个加载→导出，toast 显示进度。
-
-### 5. 逐字着色（进行中）
-
-**位置**: 多个文件
-
-- `desktop_qt_ui/editor/rich_text_run.py` — `TextRun` + `RunManager`（Split & Merge）
-- `desktop_qt_ui/widgets/property_panel.py` — "字色"按钮 + ExtraSelections 高亮
-- **当前方案**: 点"字色" → 在 JSON 中创建伴生区域（`companion_region_requested` 信号 → `AddRegionCommand`）
-- **待完成**: 伴生区域不可选中、原框移动时跟随、原框删除时同步删除
-
-### 6. Bug 修复
+### 5. Bug 修复
 
 | 修复 | 位置 |
 |------|------|
@@ -65,7 +50,7 @@
 | 对齐后双重位移（center + wf_local 都改） | `editor_controller.py:_sync_items_positions` |
 | 导出 JSON 中 `rich_text` 被后端当文字渲染 | `export_service.py:_save_regions_data_internal` |
 
-### 7. 工具栏精简
+### 6. 工具栏精简
 
 - 隐藏缩放按钮（+/-）和百分比标签
 - 图标按钮统一 10px 间距
