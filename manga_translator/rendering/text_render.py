@@ -812,6 +812,10 @@ def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio
     # 修复：用 _glyph_spec 查字形路径（走 font_selection 直接加载的 QRawFont，
     # 绕开 Qt 字体数据库），位置（pos）仍从 QTextLayout 取。
     all_positions = [pos for run in layout.glyphRuns() for pos in run.positions()]
+    # glyphRuns() 返回的 run 顺序不保证与字符串字符顺序一致（混合脚本时
+    # 如 CJK + ASCII 会分成多个 run，run 顺序不定），按 x 坐标排序以
+    # 确保位置与字符的逻辑顺序匹配
+    all_positions.sort(key=lambda p: p.x(), reverse=reversed_direction)
     for idx, char in enumerate(normalized):
         if idx >= len(all_positions):
             break

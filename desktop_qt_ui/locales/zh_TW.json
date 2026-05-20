@@ -1094,5 +1094,7 @@
   "Skip when OCR text contains any of these rules.": "當 OCR 文字包含以下任一規則時跳過該文字區域。",
   "Skip only when OCR text exactly matches one of these rules.": "僅當 OCR 文字與以下某條規則完全一致時跳過該文字區域。",
   "Warning": "警告",
-  "Error": "錯誤"
+  "Error": "錯誤",
+  "Filter:": "過濾:",
+  "Type to filter by pattern / replace / comment...": "輸入匹配 / 替換 / 備註以過濾..."
 }

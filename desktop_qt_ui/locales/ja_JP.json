@@ -1092,5 +1092,7 @@
   "Skip when OCR text contains any of these rules.": "OCR テキストに以下のいずれかが含まれる場合、そのテキスト領域をスキップします。",
   "Skip only when OCR text exactly matches one of these rules.": "OCR テキストが以下のいずれかと完全一致する場合のみ、そのテキスト領域をスキップします。",
   "Warning": "警告",
-  "Error": "エラー"
+  "Error": "エラー",
+  "Filter:": "フィルター:",
+  "Type to filter by pattern / replace / comment...": "パターン / 置換 / コメントで絞り込み..."
 }

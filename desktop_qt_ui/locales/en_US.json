@@ -1103,5 +1103,7 @@
   "Skip when OCR text contains any of these rules.": "Skip when OCR text contains any of these rules.",
   "Skip only when OCR text exactly matches one of these rules.": "Skip only when OCR text exactly matches one of these rules.",
   "Warning": "Warning",
-  "Error": "Error"
+  "Error": "Error",
+  "Filter:": "Filter:",
+  "Type to filter by pattern / replace / comment...": "Type to filter by pattern / replace / comment..."
 }

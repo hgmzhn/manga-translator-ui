@@ -1092,5 +1092,7 @@
   "Skip when OCR text contains any of these rules.": "OCR 텍스트에 아래 규칙 중 하나라도 포함되면 해당 텍스트 영역을 건너뜁니다.",
   "Skip only when OCR text exactly matches one of these rules.": "OCR 텍스트가 아래 규칙 중 하나와 완전히 일치할 때만 해당 텍스트 영역을 건너뜁니다.",
   "Warning": "경고",
-  "Error": "오류"
+  "Error": "오류",
+  "Filter:": "필터:",
+  "Type to filter by pattern / replace / comment...": "패턴 / 치환 / 주석으로 필터링하려면 입력..."
 }

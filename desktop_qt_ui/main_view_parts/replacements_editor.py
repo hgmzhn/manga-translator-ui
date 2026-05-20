@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -138,6 +139,32 @@ class ReplacementsEditorPanel(QWidget):
         toolbar_layout.addWidget(self._save_button)
         layout.addWidget(toolbar)
 
+        # --- 搜索 / 预设栏 ---
+        filter_row = QWidget()
+        filter_row.setObjectName("replacements_filter_row")
+        filter_row_layout = QHBoxLayout(filter_row)
+        filter_row_layout.setContentsMargins(0, 0, 0, 0)
+        filter_row_layout.setSpacing(8)
+
+        self._search_label = QLabel(self._t("Filter:"))
+        self._search_input = QLineEdit()
+        self._search_input.setObjectName("replacements_search")
+        self._search_input.setPlaceholderText(self._t("Type to filter by pattern / replace / comment..."))
+        self._search_input.setClearButtonEnabled(True)
+
+        # 预设按钮位（接口预留：将来通过 register_preset_button 加按钮，目前为空隐藏）
+        self._preset_slot = QWidget()
+        self._preset_slot.setObjectName("replacements_preset_slot")
+        self._preset_slot_layout = QHBoxLayout(self._preset_slot)
+        self._preset_slot_layout.setContentsMargins(0, 0, 0, 0)
+        self._preset_slot_layout.setSpacing(6)
+
+        filter_row_layout.addWidget(self._search_label)
+        filter_row_layout.addWidget(self._search_input, 1)
+        filter_row_layout.addWidget(self._preset_slot)
+        layout.addWidget(filter_row)
+        self._filter_row = filter_row
+
         # --- 双模式切换容器 ---
         self._mode_stack = QStackedWidget()
 
@@ -209,6 +236,7 @@ class ReplacementsEditorPanel(QWidget):
         self._save_button.clicked.connect(self._on_save)
         self._tab_widget.currentChanged.connect(self._on_tab_changed)
         self._raw_editor.textChanged.connect(self._on_raw_changed)
+        self._search_input.textChanged.connect(self._on_search_changed)
 
     def _create_table(self) -> QTableWidget:
         """创建规则编辑表格"""
@@ -447,16 +475,25 @@ class ReplacementsEditorPanel(QWidget):
         self._mark_modified()
 
     def _on_select_all(self):
-        """选中表格中所有行"""
+        """选中表格中所有行（仅限可见行）"""
         if self._mode_stack.currentIndex() == 1:
             return
         table = self._current_table()
-        table.selectAll()
+        table.blockSignals(True)
+        table.clearSelection()
+        for r in range(table.rowCount()):
+            if not table.isRowHidden(r):
+                for c in range(table.columnCount()):
+                    item = table.item(r, c)
+                    if item:
+                        item.setSelected(True)
+        table.blockSignals(False)
+        self._on_selection_changed()
 
     def _get_selected_rows(self) -> list:
-        """获取当前表格选中的行号列表"""
+        """获取当前表格中被选中且未被过滤隐藏的行号列表"""
         table = self._current_table()
-        return sorted(set(idx.row() for idx in table.selectedIndexes()))
+        return sorted(set(idx.row() for idx in table.selectedIndexes() if not table.isRowHidden(idx.row())))
 
     def _on_selection_changed(self):
         """选中行变化时，更新启用/正则按钮的文字"""
@@ -548,6 +585,7 @@ class ReplacementsEditorPanel(QWidget):
             self._move_up_button.setEnabled(False)
             self._move_down_button.setEnabled(False)
             self._select_all_button.setEnabled(False)
+            self._filter_row.setVisible(False)
         else:
             # 切换回表格模式
             raw_text = self._raw_editor.toPlainText()
@@ -580,6 +618,8 @@ class ReplacementsEditorPanel(QWidget):
             self._move_up_button.setEnabled(True)
             self._move_down_button.setEnabled(True)
             self._select_all_button.setEnabled(True)
+            self._filter_row.setVisible(True)
+            self._apply_filter(self._current_table(), self._search_input.text())
 
         self._update_status()
 
@@ -589,6 +629,31 @@ class ReplacementsEditorPanel(QWidget):
     def _on_tab_changed(self, index: int):
         self._update_status()
         self._on_selection_changed()
+        self._apply_filter(self._current_table(), self._search_input.text())
+
+    def _on_search_changed(self, text: str):
+        """搜索框内容变化：过滤当前表格的行"""
+        if self._mode_stack.currentIndex() == 1:
+            return
+        self._apply_filter(self._current_table(), text)
+
+    def _apply_filter(self, table: QTableWidget, query: str):
+        """根据 query 过滤 table 的行；query 命中 pattern / replace / comment 即显示"""
+        q = (query or '').strip().lower()
+        if not q:
+            for r in range(table.rowCount()):
+                table.setRowHidden(r, False)
+            return
+        for r in range(table.rowCount()):
+            pattern_item = table.item(r, self.COL_PATTERN)
+            replace_item = table.item(r, self.COL_REPLACE)
+            comment_item = table.item(r, self.COL_COMMENT)
+            haystack = ' '.join([
+                pattern_item.text() if pattern_item else '',
+                replace_item.text() if replace_item else '',
+                comment_item.text() if comment_item else '',
+            ]).lower()
+            table.setRowHidden(r, q not in haystack)
 
     def _on_raw_changed(self):
         self._mark_modified()
@@ -691,6 +756,26 @@ class ReplacementsEditorPanel(QWidget):
     def refresh(self):
         """刷新数据（重新加载文件）"""
         self._load_data()
+        self._apply_filter(self._current_table(), self._search_input.text())
+
+    def register_preset_button(self, label: str, callback: Callable) -> QPushButton:
+        """
+        预设按钮接口（接口预留 - 将来加"中文""全开""全关"等一键预设时使用）。
+        callback 签名应为 () -> None。返回创建的 QPushButton 以便外部进一步定制。
+        """
+        btn = QPushButton(label)
+        btn.setProperty("chipButton", True)
+        btn.clicked.connect(callback)
+        self._preset_slot_layout.addWidget(btn)
+        return btn
+
+    def clear_preset_buttons(self):
+        """清空所有预设按钮（接口预留）"""
+        while self._preset_slot_layout.count():
+            item = self._preset_slot_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
 
     def apply_theme(self):
         """应用主题"""
@@ -723,4 +808,8 @@ class ReplacementsEditorPanel(QWidget):
             self._raw_hint_label.setText(
                 self._t("Edit raw YAML content directly. Save to apply changes.")
             )
+        if hasattr(self, '_search_label'):
+            self._search_label.setText(self._t("Filter:"))
+        if hasattr(self, '_search_input'):
+            self._search_input.setPlaceholderText(self._t("Type to filter by pattern / replace / comment..."))
         self._update_status()
