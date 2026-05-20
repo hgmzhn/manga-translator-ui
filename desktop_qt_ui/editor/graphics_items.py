@@ -138,7 +138,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._spacing_labels: list = []
         # 吸附阈值（像素）
         self._snap_threshold = 1.0
-        self._spacing_snap_threshold = 15.0
+        self._spacing_snap_threshold = 5.0
 
         self._setup_pens()
 

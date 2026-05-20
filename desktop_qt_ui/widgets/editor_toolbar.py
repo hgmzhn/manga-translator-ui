@@ -22,6 +22,7 @@ class EditorToolbar(QWidget):
     # --- Define signals for all actions ---
     back_requested = pyqtSignal()
     export_requested = pyqtSignal()
+    export_all_requested = pyqtSignal()
     undo_requested = pyqtSignal()
     redo_requested = pyqtSignal()
     zoom_in_requested = pyqtSignal()
@@ -62,6 +63,12 @@ class EditorToolbar(QWidget):
         self.export_button.setObjectName("editor_export_button")
         layout.addWidget(self.export_button)
 
+        self.export_all_button = QToolButton()
+        self.export_all_button.setText("导出全部")
+        set_hover_hint(self.export_all_button, "批量导出文件列表中所有图片")
+        self.export_all_button.setObjectName("editor_export_all_button")
+        layout.addWidget(self.export_all_button)
+
         layout.addWidget(self._create_separator())
 
         # --- Edit Actions ---
@@ -85,16 +92,19 @@ class EditorToolbar(QWidget):
         self.zoom_out_button = QToolButton()
         self.zoom_out_button.setText(self._t("Zoom Out (-)"))
         self.zoom_out_button.setObjectName("editor_zoom_out_button")
+        self.zoom_out_button.setVisible(False)
         layout.addWidget(self.zoom_out_button)
 
         self.zoom_label = QLabel("100%")
         self.zoom_label.setMinimumWidth(40)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.zoom_label.setVisible(False)
         layout.addWidget(self.zoom_label)
 
         self.zoom_in_button = QToolButton()
         self.zoom_in_button.setText(self._t("Zoom In (+)"))
         self.zoom_in_button.setObjectName("editor_zoom_in_button")
+        self.zoom_in_button.setVisible(False)
         layout.addWidget(self.zoom_in_button)
 
         self.fit_window_button = QToolButton()
@@ -380,6 +390,7 @@ class EditorToolbar(QWidget):
     def _connect_signals(self):
         self.back_button.clicked.connect(self.back_requested)
         self.export_button.clicked.connect(self.export_requested)
+        self.export_all_button.clicked.connect(self.export_all_requested)
         self.undo_button.clicked.connect(self.undo_requested)
         self.redo_button.clicked.connect(self.redo_requested)
         self.zoom_in_button.clicked.connect(self.zoom_in_requested)
@@ -432,6 +443,7 @@ class EditorToolbar(QWidget):
     def set_export_enabled(self, enabled: bool):
         """设置导出按钮的启用状态"""
         self.export_button.setEnabled(enabled)
+        self.export_all_button.setEnabled(enabled)
     
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）"""
@@ -440,6 +452,8 @@ class EditorToolbar(QWidget):
         set_hover_hint(self.back_button, self._t("Back to Main"))
         self.export_button.setText(self._t("Export Image"))
         set_hover_hint(self.export_button, self._t("Export current rendered image") + " (Ctrl+Q)")
+        self.export_all_button.setText("导出全部")
+        set_hover_hint(self.export_all_button, "批量导出文件列表中所有图片")
         self.undo_button.setText(self._t("Undo"))
         set_hover_hint(self.undo_button, self._t("Undo last operation") + " (Ctrl+Z)")
         self.redo_button.setText(self._t("Redo"))
