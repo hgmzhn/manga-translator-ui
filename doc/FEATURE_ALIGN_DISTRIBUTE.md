@@ -42,13 +42,7 @@
 - 阈值 5px，间距优先于边缘吸附
 - 辅助线 + 距离标签: `_show_guide_lines()`
 
-### 4. 导出全部
-
-**位置**: `desktop_qt_ui/widgets/editor_toolbar.py` / `desktop_qt_ui/editor/editor_controller.py`
-
-工具栏新增"导出全部"按钮，遍历文件列表逐个加载→导出，toast 显示进度。
-
-### 5. 逐字着色（进行中）
+### 4. 逐字着色（进行中）
 
 **位置**: 多个文件
 
