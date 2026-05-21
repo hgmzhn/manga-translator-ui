@@ -1221,6 +1221,10 @@ class EditorController(QObject):
 
         config = self.config_service.get_config()
 
+        toast = self.get_toast_manager()
+        if toast is not None:
+            toast.show_info(f"开始批量导出 {len(file_paths)} 张图片...", duration=3)
+
         async def _run():
             success, fail = await self.export_service.async_batch_export(file_paths, config)
             self._show_toast_signal.emit(
@@ -1228,12 +1232,7 @@ class EditorController(QObject):
                 + (f"，{fail} 失败" if fail else ""),
                 5000, fail == 0, "",
             )
-
-        toast = self.get_toast_manager()
-        if toast is not None:
-            toast.show_info(f"开始批量导出 {len(file_paths)} 张图片...", duration=3)
-
-        asyncio.ensure_future(_run())
+        self.async_service.submit_task(_run())
 
     @staticmethod
     def _apply_white_frame_center(region: dict):
