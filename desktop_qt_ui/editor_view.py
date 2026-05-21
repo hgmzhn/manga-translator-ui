@@ -279,12 +279,13 @@ class EditorView(QWidget):
             self.toolbar.export_all_requested.disconnect()
             self.toolbar.export_all_requested.connect(self.controller.export_all)
         else:
-            btn.setText(f"导出中 {done}/{total}")
+            btn.setText("停止导出")
             btn.setStyleSheet(
-                "QToolButton { border: 1.5px solid #5284c1; border-radius: 3px; }"
+                "QToolButton { border: 1.5px solid #5284c1;"
+                " border-radius: 4px; padding: 2px 6px; }"
             )
             btn.setEnabled(True)
-            set_hover_hint(btn, "停止导出")
+            set_hover_hint(btn, f"导出进度 {done}/{total}，点击停止")
             self.toolbar.export_all_requested.disconnect()
             self.toolbar.export_all_requested.connect(self.controller.cancel_batch_export)
 
