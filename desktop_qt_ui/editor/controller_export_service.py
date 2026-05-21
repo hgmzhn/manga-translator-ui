@@ -600,7 +600,27 @@ class EditorControllerExportService:
                         return False
 
                     with open(json_path, 'r', encoding='utf-8') as f:
-                        regions = json.load(f)
+                        raw = json.load(f)
+                    if isinstance(raw, list):
+                        regions = raw
+                    elif isinstance(raw, dict):
+                        if fp in raw:
+                            entry = raw[fp]
+                        else:
+                            entry = raw
+                        for key in ('regions', 'text_regions', 'region'):
+                            if isinstance(entry, dict) and key in entry:
+                                regions = entry[key]
+                                break
+                        else:
+                            if isinstance(entry, list):
+                                regions = entry
+                            else:
+                                self.logger.warning(f'[批量导出] 无法解析 JSON regions: {fp}')
+                                return False
+                    else:
+                        self.logger.warning(f'[批量导出] JSON 根类型异常: {type(raw).__name__}, {fp}')
+                        return False
 
                     img = self.controller.resource_manager.load_detached_image(fp)
                     if img is None:
