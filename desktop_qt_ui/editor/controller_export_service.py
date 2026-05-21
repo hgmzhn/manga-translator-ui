@@ -590,8 +590,13 @@ class EditorControllerExportService:
         self._prepare_render_config(config_dict)
         export_service = ExportService()
 
+        sem = asyncio.Semaphore(4)
+
         async def _export_one(fp: str) -> bool:
-            try:
+            async with sem:
+                if getattr(self.controller, '_export_cancel_flag', False):
+                    return False
+                try:
                     json_path = find_json_path(fp)
                     if not json_path:
                         self.logger.warning(f"[批量导出] 未找到 JSON: {fp}")
@@ -665,14 +670,13 @@ class EditorControllerExportService:
 
         success = 0
         fail = 0
-        for idx, fp in enumerate(file_paths, 1):
-            if getattr(self.controller, '_export_cancel_flag', False):
-                break
-            ok = await _export_one(fp)
+        coros = [_export_one(fp) for fp in file_paths]
+        for task in asyncio.as_completed(coros):
+            ok = await task
             if ok:
                 success += 1
             else:
                 fail += 1
             if progress_callback:
-                progress_callback(idx)
+                progress_callback(success + fail)
         return success, fail
