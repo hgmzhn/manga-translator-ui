@@ -165,7 +165,10 @@ class EditorToolbar(QWidget):
         px.fill(Qt.GlobalColor.transparent)
         p = QPainter(px)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        sr = 8; lr = 13; rt = 5; gap = 6     # 短/长方块宽、厚度、间距
+        sr = 8
+        lr = 13
+        rt = 5
+        gap = 6     # 短/长方块宽、厚度、间距
         is_horiz = mode in ("left", "horizontal_center", "right")
         line_pen = QPen(line_color, 2)
         # 以 bx = 所有元素视觉包围盒中心的 x 坐标为准，让 bx == s/2
@@ -232,7 +235,8 @@ class EditorToolbar(QWidget):
         px.fill(Qt.GlobalColor.transparent)
         p = QPainter(px)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        m = 4; th = 10
+        m = 4
+        th = 10
         line_pen = QPen(line_color, 2)
         if orientation == "vertical":
             p.setPen(line_pen); p.drawLine(m, m, s - m, m); p.drawLine(m, s - m, s - m, s - m)

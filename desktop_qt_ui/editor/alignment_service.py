@@ -261,10 +261,15 @@ def distribute_spacing_items(
     gap_per_space = total_gap / (n - 1)
 
     results = []
+    prev_delta = 0.0
     for i in range(1, n - 1):
         item, near, far, cx, cy, _pos = positioned[i]
-        prev_far = positioned[i - 1][2]
+        # Use the shifted far of the previous item so later gaps
+        # accumulate corrections from earlier redistributions.
+        prev_far = positioned[i - 1][2] + prev_delta
         target_near = prev_far + gap_per_space
+        delta = target_near - near
+        prev_delta = delta
         delta = target_near - near
         new_cx = cx + (0.0 if is_vert else delta)
         new_cy = cy + (delta if is_vert else 0.0)

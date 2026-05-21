@@ -116,12 +116,12 @@ class GraphicsViewLayersMixin:
                     pass
             self._region_items.clear()
             for attr in ('_raw_mask_item', '_refined_mask_item',
-                         '_inpainted_image_item', '_paint_overlay_item'):
+                         '_inpainted_image_item', '_paint_overlay_item',
+                         '_preview_item', '_textbox_preview_item'):
                 item = getattr(self, attr, None)
                 if item and item.scene():
                     self.scene.removeItem(item)
                 setattr(self, attr, None)
-            self._preview_item = None
             self._inpainted_q_image_ref = None
             self._paint_overlay_q_image_ref = None
             self.render_coordinator.reset()

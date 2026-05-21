@@ -419,13 +419,15 @@ class MultiRegionUpdateCommand(QUndoCommand):
     ):
         super().__init__(description)
         self._model = model
-        self._old_regions = old_regions
-        self._new_regions = new_regions
+        # Defensive copies prevent in-place mutations from corrupting undo/redo.
+        self._old_regions = copy.deepcopy(old_regions)
+        self._new_regions = copy.deepcopy(new_regions)
 
     def _apply(self, regions: list[dict]) -> None:
         self._model.set_regions_silent(regions)
-        self._model.regions_changed.emit(self._model.get_regions())
+        # Capture selection before emitting — slots may modify regions.
         old_selection = self._model.get_selection()
+        self._model.regions_changed.emit(self._model.get_regions())
         if old_selection:
             current = self._model.get_regions()
             valid = [i for i in old_selection if 0 <= i < len(current)]
