@@ -268,6 +268,14 @@ class EditorView(QWidget):
         """处理分布按钮点击。"""
         self.controller.distribute_regions(mode)
 
+    def _safe_connect(self, target):
+        """安全切换 export_all_requested 的连接。"""
+        try:
+            self.toolbar.export_all_requested.disconnect()
+        except TypeError:
+            pass
+        self.toolbar.export_all_requested.connect(target)
+
     def _on_batch_export_progress(self, done: int, total: int):
         """批量导出进度更新。"""
         btn = self.toolbar.export_all_button
@@ -277,8 +285,7 @@ class EditorView(QWidget):
             btn.setEnabled(True)
             self._export_progress_text = ""
             set_hover_hint(btn, "遍历文件列表导出所有图片")
-            self.toolbar.export_all_requested.disconnect()
-            self.toolbar.export_all_requested.connect(self.controller.export_all)
+            self._safe_connect(self.controller.export_all)
         else:
             self._export_progress_text = f"{done}/{total}"
             btn.setText(self._export_progress_text)
@@ -287,8 +294,7 @@ class EditorView(QWidget):
             )
             btn.setEnabled(True)
             set_hover_hint(btn, "点击停止导出")
-            self.toolbar.export_all_requested.disconnect()
-            self.toolbar.export_all_requested.connect(self.controller.cancel_batch_export)
+            self._safe_connect(self.controller.cancel_batch_export)
             try:
                 btn.enterEvent
             except RuntimeError:
