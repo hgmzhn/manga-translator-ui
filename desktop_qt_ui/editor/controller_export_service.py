@@ -573,7 +573,8 @@ class EditorControllerExportService:
 
     async def async_batch_export(self, file_paths: list[str], config,
                                   max_concurrent: int = 4,
-                                  progress_callback=None) -> tuple[int, int]:
+                                  progress_callback=None,
+                                  cancel_flag=None) -> tuple[int, int]:
         """不经过编辑器，直接读取文件系统中的 JSON 和修复图并导出。
 
         Args:
@@ -581,6 +582,7 @@ class EditorControllerExportService:
             config: 配置对象
             max_concurrent: 最大并发数
             progress_callback: 进度回调 fn(done_count)
+            cancel_flag: 可调用返回 bool，True 时停止继续导出
 
         Returns:
             (成功数, 失败数)
@@ -681,4 +683,6 @@ class EditorControllerExportService:
                 fail += 1
             if progress_callback:
                 progress_callback(done)
+            if cancel_flag and cancel_flag():
+                break
         return success, fail

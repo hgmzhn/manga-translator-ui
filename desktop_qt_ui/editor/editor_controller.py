@@ -1222,12 +1222,11 @@ class EditorController(QObject):
             return
 
         config = self.config_service.get_config()
-
-        toast = self.get_toast_manager()
-        if toast is not None:
-            toast.show_info(f"开始批量导出 {len(file_paths)} 张图片...", duration=3)
+        first_out = self.export_service._build_output_path(config, file_paths[0])
+        out_dir = os.path.dirname(first_out)
 
         total = len(file_paths)
+        self._export_cancel_flag = False
         self._batch_export_progress.emit(0, total)
 
         async def _run():
@@ -1235,14 +1234,21 @@ class EditorController(QObject):
                 self._batch_export_progress.emit(done, total)
             success, fail = await self.export_service.async_batch_export(
                 file_paths, config, progress_callback=on_progress,
+                cancel_flag=lambda: self._export_cancel_flag,
             )
             self._batch_export_progress.emit(0, 0)  # 0/0 表示完成
-            self._show_toast_signal.emit(
-                f"批量导出完成：{success}/{success+fail} 成功"
-                + (f"，{fail} 失败" if fail else ""),
-                5000, fail == 0, "",
-            )
+            summary = f"批量导出完成：{success}/{success+fail} 成功"
+            if fail:
+                summary += f"，{fail} 失败"
+            summary += f"\n{out_dir}"
+            self._show_toast_signal.emit(summary, 5000, fail == 0, out_dir)
         self.async_service.submit_task(_run())
+
+    @pyqtSlot()
+    def cancel_batch_export(self):
+        """停止批量导出（当前导出完成后不再继续下一张）。"""
+        self._export_cancel_flag = True
+        self._batch_export_progress.emit(0, 0)
 
     @staticmethod
     def _apply_white_frame_center(region: dict):

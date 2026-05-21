@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from services import get_i18n_manager
 from utils.shortcut_manager import EditorShortcutManager
 from widgets.editor_toolbar import EditorToolbar
+from widgets.hover_hint import set_hover_hint
 from widgets.file_list_view import FileListView
 from widgets.property_panel import PropertyPanel
 from widgets.region_list_view import RegionListView
@@ -269,12 +270,23 @@ class EditorView(QWidget):
 
     def _on_batch_export_progress(self, done: int, total: int):
         """批量导出进度更新。"""
+        btn = self.toolbar.export_all_button
         if total == 0:
-            self.toolbar.export_all_button.setText("导出全部")
-            self.toolbar.export_all_button.setEnabled(True)
+            btn.setText("导出全部")
+            btn.setStyleSheet("")
+            btn.setEnabled(True)
+            set_hover_hint(btn, "遍历文件列表导出所有图片")
+            self.toolbar.export_all_requested.disconnect()
+            self.toolbar.export_all_requested.connect(self.controller.export_all)
         else:
-            self.toolbar.export_all_button.setText(f"导出中 {done}/{total}")
-            self.toolbar.export_all_button.setEnabled(False)
+            btn.setText(f"导出中 {done}/{total}")
+            btn.setStyleSheet(
+                "QToolButton { border: 1.5px solid #5284c1; border-radius: 3px; }"
+            )
+            btn.setEnabled(True)
+            set_hover_hint(btn, "停止导出")
+            self.toolbar.export_all_requested.disconnect()
+            self.toolbar.export_all_requested.connect(self.controller.cancel_batch_export)
 
     def _on_selection_changed_for_toolbar(self, selected_indices: list):
         """根据选区数量更新对齐/分布按钮的启用状态。"""
