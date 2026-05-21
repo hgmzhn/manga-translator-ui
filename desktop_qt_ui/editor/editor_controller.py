@@ -1227,6 +1227,7 @@ class EditorController(QObject):
 
         total = len(file_paths)
         self._export_cancel_flag = False
+        self._export_cancelled = False
         self._batch_export_progress.emit(0, total)
 
         async def _run():
@@ -1236,6 +1237,8 @@ class EditorController(QObject):
                 file_paths, config, progress_callback=on_progress,
                 cancel_flag=lambda: self._export_cancel_flag,
             )
+            if self._export_cancelled:
+                return  # 已被手动取消，不再发通知
             self._batch_export_progress.emit(0, 0)  # 0/0 表示完成
             summary = f"批量导出完成：{success}/{success+fail} 成功"
             if fail:
@@ -1248,6 +1251,7 @@ class EditorController(QObject):
     def cancel_batch_export(self):
         """停止批量导出（当前导出完成后不再继续下一张）。"""
         self._export_cancel_flag = True
+        self._export_cancelled = True
         self._batch_export_progress.emit(0, 0)
 
     @staticmethod
