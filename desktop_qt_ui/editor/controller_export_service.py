@@ -571,13 +571,16 @@ class EditorControllerExportService:
             )
             return outcome
 
-    async def async_batch_export(self, file_paths: list[str], config, max_concurrent: int = 4) -> tuple[int, int]:
+    async def async_batch_export(self, file_paths: list[str], config,
+                                  max_concurrent: int = 4,
+                                  progress_callback=None) -> tuple[int, int]:
         """不经过编辑器，直接读取文件系统中的 JSON 和修复图并导出。
 
         Args:
             file_paths: 源图片路径列表
             config: 配置对象
             max_concurrent: 最大并发数
+            progress_callback: 进度回调 fn(done_count)
 
         Returns:
             (成功数, 失败数)
@@ -665,11 +668,17 @@ class EditorControllerExportService:
                     self.logger.error(f"[批量导出] 失败 {fp}: {e}")
                     return False
 
+        done = 0
         success = 0
         fail = 0
-        for result in await asyncio.gather(*[_export_one(fp) for fp in file_paths]):
+        coros = [_export_one(fp) for fp in file_paths]
+        for task in asyncio.as_completed(coros):
+            result = await task
+            done += 1
             if result:
                 success += 1
             else:
                 fail += 1
+            if progress_callback:
+                progress_callback(done)
         return success, fail

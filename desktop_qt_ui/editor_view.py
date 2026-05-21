@@ -267,6 +267,15 @@ class EditorView(QWidget):
         """处理分布按钮点击。"""
         self.controller.distribute_regions(mode)
 
+    def _on_batch_export_progress(self, done: int, total: int):
+        """批量导出进度更新。"""
+        if total == 0:
+            self.toolbar.export_all_button.setText("导出全部")
+            self.toolbar.export_all_button.setEnabled(True)
+        else:
+            self.toolbar.export_all_button.setText(f"导出中 {done}/{total}")
+            self.toolbar.export_all_button.setEnabled(False)
+
     def _on_selection_changed_for_toolbar(self, selected_indices: list):
         """根据选区数量更新对齐/分布按钮的启用状态。"""
         count = len(selected_indices) if selected_indices else 0
@@ -307,6 +316,7 @@ class EditorView(QWidget):
         self.toolbar.back_requested.connect(self.back_to_main_requested)
         self.toolbar.export_requested.connect(self.controller.export_image)
         self.toolbar.export_all_requested.connect(self.controller.export_all)
+        self.controller._batch_export_progress.connect(self._on_batch_export_progress)
         self.toolbar.undo_requested.connect(self.controller.undo)
         self.toolbar.redo_requested.connect(self.controller.redo)
         self.toolbar.zoom_in_requested.connect(self.graphics_view.zoom_in)

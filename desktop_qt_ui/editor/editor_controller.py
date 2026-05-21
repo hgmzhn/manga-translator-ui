@@ -52,6 +52,8 @@ class EditorController(QObject):
     # Signal for thread-safe image loading
     _load_result_ready = pyqtSignal(object)  # 加载结果信号
     _deferred_load_requested = pyqtSignal(str)
+    # 批量导出进度 (完成数, 总数)
+    _batch_export_progress = pyqtSignal(int, int)
 
     def __init__(self, model: EditorModel, parent=None):
         super().__init__(parent)
@@ -1225,8 +1227,16 @@ class EditorController(QObject):
         if toast is not None:
             toast.show_info(f"开始批量导出 {len(file_paths)} 张图片...", duration=3)
 
+        total = len(file_paths)
+        self._batch_export_progress.emit(0, total)
+
         async def _run():
-            success, fail = await self.export_service.async_batch_export(file_paths, config)
+            def on_progress(done: int):
+                self._batch_export_progress.emit(done, total)
+            success, fail = await self.export_service.async_batch_export(
+                file_paths, config, progress_callback=on_progress,
+            )
+            self._batch_export_progress.emit(0, 0)  # 0/0 表示完成
             self._show_toast_signal.emit(
                 f"批量导出完成：{success}/{success+fail} 成功"
                 + (f"，{fail} 失败" if fail else ""),
