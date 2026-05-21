@@ -590,7 +590,7 @@ class EditorControllerExportService:
         self._prepare_render_config(config_dict)
         export_service = ExportService()
 
-        NUM_THREADS = 8
+        NUM_THREADS = 4
 
         async def _export_one(fp: str) -> bool:
             if getattr(self.controller, '_export_cancel_flag', False):
