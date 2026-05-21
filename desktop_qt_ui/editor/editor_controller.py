@@ -1225,7 +1225,7 @@ class EditorController(QObject):
         first_out = self.export_service._build_output_path(config, file_paths[0])
         out_dir = os.path.dirname(first_out)
 
-        total = len(file_paths)
+        self._export_cancel_flag = False
         self._batch_export_progress.emit(0, total)
 
         async def _run():
@@ -1234,23 +1234,21 @@ class EditorController(QObject):
             success, fail = await self.export_service.async_batch_export(
                 file_paths, config, progress_callback=on_progress,
             )
-            if getattr(self, '_export_cancel_flag', False):
+            if self._export_cancel_flag:
                 return
-            self._batch_export_progress.emit(0, 0)  # 0/0 表示完成
+            self._batch_export_progress.emit(0, 0)
             summary = f"批量导出完成：{success}/{success+fail} 成功"
             if fail:
                 summary += f"，{fail} 失败"
             summary += f"\n{out_dir}"
             self._show_toast_signal.emit(summary, 5000, fail == 0, out_dir)
-        task = self.async_service.submit_task(_run())
-        self._export_batch_task = task
+        self.async_service.submit_task(_run())
 
     @pyqtSlot()
     def cancel_batch_export(self):
         """停止批量导出。"""
-        if hasattr(self, '_export_batch_task') and self._export_batch_task is not None:
-            self._export_batch_task.cancel()
-        self._export_batch_task = None
+        self._export_cancel_flag = True
+        self._batch_export_progress.emit(0, 0)
 
     @staticmethod
     def _apply_white_frame_center(region: dict):
