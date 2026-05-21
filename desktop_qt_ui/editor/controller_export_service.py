@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
@@ -568,3 +570,69 @@ class EditorControllerExportService:
                 lambda: QMessageBox.critical(None, "导出失败", f"导出过程中发生意外错误:\n{err_msg}"),
             )
             return outcome
+
+    async def async_batch_export(self, file_paths: list[str], config, max_concurrent: int = 4) -> tuple[int, int]:
+        """不经过编辑器，直接读取文件系统中的 JSON 和修复图并导出。
+
+        Args:
+            file_paths: 源图片路径列表
+            config: 配置对象
+            max_concurrent: 最大并发数
+
+        Returns:
+            (成功数, 失败数)
+        """
+        from services.export_service import ExportService
+        from manga_translator.utils.path_manager import find_json_path, find_inpainted_path
+
+        config_dict = self._build_config_dict(config)
+        self._prepare_render_config(config_dict)
+        export_service = ExportService()
+
+        sem = asyncio.Semaphore(max_concurrent)
+
+        async def _export_one(fp: str) -> bool:
+            async with sem:
+                try:
+                    json_path = find_json_path(fp)
+                    if not json_path:
+                        self.logger.warning(f"[批量导出] 未找到 JSON: {fp}")
+                        return False
+
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        regions = json.load(f)
+
+                    img = self.controller.resource_manager.load_detached_image(fp)
+                    if img is None:
+                        self.logger.warning(f"[批量导出] 加载图片失败: {fp}")
+                        return False
+
+                    inpainted_path = find_inpainted_path(fp)
+                    inpainted_img = None
+                    if inpainted_path:
+                        from PIL import Image
+                        inpainted_img = Image.open(inpainted_path).convert('RGBA')
+
+                    output_path = self._build_output_path(config, fp)
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+                    enhanced = self._build_enhanced_regions(regions)
+                    await asyncio.to_thread(
+                        export_service._perform_backend_render_export,
+                        img, enhanced, config_dict, output_path,
+                        None, lambda _: None, lambda _: None, lambda _: None,
+                        fp, False, inpainted_img,
+                    )
+                    return True
+                except Exception as e:
+                    self.logger.error(f"[批量导出] 失败 {fp}: {e}")
+                    return False
+
+        success = 0
+        fail = 0
+        for result in await asyncio.gather(*[_export_one(fp) for fp in file_paths]):
+            if result:
+                success += 1
+            else:
+                fail += 1
+        return success, fail
