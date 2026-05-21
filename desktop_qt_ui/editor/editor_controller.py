@@ -476,6 +476,10 @@ class EditorController(QObject):
     @pyqtSlot(object)
     def _apply_load_result(self, result: object):
         self.document_service.apply_load_result(result)
+        # 导出全部模式：加载后触发出队列
+        if hasattr(self, '_export_queue') and self._export_queue:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._on_export_load_finish)
     
     def _apply_loaded_data_to_model(self, snapshot: DocumentSnapshot):
         self.document_service.apply_loaded_data_to_model(snapshot)
@@ -1204,6 +1208,76 @@ class EditorController(QObject):
     @pyqtSlot()
     def export_image(self):
         return self.export_service.export_image()
+
+    @pyqtSlot()
+    def export_all(self):
+        """遍历文件列表，逐个加载并导出所有图片。"""
+        view = self.view
+        if view is None or not hasattr(view, 'logic'):
+            return
+        file_paths = view.logic.get_file_paths()
+        if not file_paths:
+            toast = self.get_toast_manager()
+            if toast is not None:
+                toast.show_info("文件列表为空", duration=3)
+            return
+
+        self._export_queue = list(file_paths)
+        self._export_queue_idx = 0
+        self._export_success = 0
+        self._export_failed = []
+        toast = self.get_toast_manager()
+        if toast is not None:
+            toast.show_info(f"开始导出：{len(file_paths)} 张图片", duration=3)
+        self._process_next_export()
+
+    def _process_next_export(self):
+        """处理导出队列中的下一个文件。"""
+        while self._export_queue_idx < len(self._export_queue):
+            fp = self._export_queue[self._export_queue_idx]
+            current = self.model.get_source_image_path()
+
+            if current is not None and os.path.normpath(fp) == os.path.normpath(current):
+                # 当前已加载的图片 —— 直接导出
+                try:
+                    self.export_image()
+                    self._export_success += 1
+                except Exception as e:
+                    self.logger.error(f"导出失败 {fp}: {e}")
+                    self._export_failed.append(fp)
+                self._export_queue_idx += 1
+                continue
+
+            # 异步加载下一张，完成后由 _apply_load_result → _on_export_load_finish 继续
+            self._export_queue_idx += 1
+            self.document_service.do_load_image(fp)
+            return
+
+        # 全部完成
+        self._finish_export_all()
+
+    def _on_export_load_finish(self):
+        """图片加载完成后导出当前图片，然后处理下一张。"""
+        current = self.model.get_source_image_path()
+        try:
+            self.export_image()
+            self._export_success += 1
+        except Exception as e:
+            self.logger.error(f"导出失败 {current}: {e}")
+            if current:
+                self._export_failed.append(current)
+        self._process_next_export()
+
+    def _finish_export_all(self):
+        total = self._export_success + len(self._export_failed)
+        parts = [f"导出完成：{self._export_success}/{total}"]
+        if self._export_failed:
+            parts.append(f"失败 {len(self._export_failed)} 个")
+        toast = self.get_toast_manager()
+        if toast is not None:
+            toast.show_info("，".join(parts), duration=5)
+        self._export_queue = []
+        self._export_queue_idx = 0
 
     @staticmethod
     def _apply_white_frame_center(region: dict):

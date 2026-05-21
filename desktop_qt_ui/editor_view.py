@@ -306,6 +306,7 @@ class EditorView(QWidget):
         # --- Toolbar (Top) to Controller/View ---
         self.toolbar.back_requested.connect(self.back_to_main_requested)
         self.toolbar.export_requested.connect(self.controller.export_image)
+        self.toolbar.export_all_requested.connect(self.controller.export_all)
         self.toolbar.undo_requested.connect(self.controller.undo)
         self.toolbar.redo_requested.connect(self.controller.redo)
         self.toolbar.zoom_in_requested.connect(self.graphics_view.zoom_in)
