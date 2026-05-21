@@ -633,6 +633,23 @@ class EditorControllerExportService:
                         from PIL import Image
                         inpainted_img = Image.open(inpainted_path).convert('RGBA')
 
+                    # 从 JSON 中提取 mask_raw（base64 PNG → numpy）
+                    mask_arr = None
+                    if isinstance(raw, dict):
+                        entry = raw[fp] if fp in raw else None
+                        if entry is None and isinstance(next(iter(raw.values()), None), dict):
+                            entry = next(iter(raw.values()))
+                        if isinstance(entry, dict):
+                            mask_raw_b64 = entry.get('mask_raw')
+                            if mask_raw_b64:
+                                import base64, io
+                                try:
+                                    mask_bytes = base64.b64decode(mask_raw_b64)
+                                    mask_img = Image.open(io.BytesIO(mask_bytes))
+                                    mask_arr = np.array(mask_img.convert('L'))
+                                except Exception as e:
+                                    self.logger.warning(f'[批量导出] mask 解码失败: {e}')
+
                     output_path = self._build_output_path(config, fp)
                     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -640,7 +657,7 @@ class EditorControllerExportService:
                     await asyncio.to_thread(
                         export_service._perform_backend_render_export,
                         img, enhanced, config_dict, output_path,
-                        None, lambda _: None, lambda _: None, lambda _: None,
+                        mask_arr, lambda _: None, lambda _: None, lambda _: None,
                         fp, False, inpainted_img,
                     )
                     return True
