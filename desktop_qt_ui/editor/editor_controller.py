@@ -1231,6 +1231,8 @@ class EditorController(QObject):
 
         async def _run():
             def on_progress(done: int):
+                if self._export_cancel_flag:
+                    return
                 self._batch_export_progress.emit(done, total)
             success, fail = await self.export_service.async_batch_export(
                 file_paths, config, progress_callback=on_progress,
