@@ -1226,6 +1226,7 @@ class EditorController(QObject):
         out_dir = os.path.dirname(first_out)
 
         self._export_cancel_flag = False
+        total = len(file_paths)
         self._batch_export_progress.emit(0, total)
 
         async def _run():
