@@ -52,7 +52,10 @@ class MainWindow(QMainWindow):
         self._connect_signals()
 
         self.app_logic.initialize()
-        
+
+        # 启动内嵌 HTTP API 服务器（用于 Claude 等外部工具获取/修改 region data）
+        self._start_api_server()
+
         # 检查是否需要启动系统主题监听
         config = self.config_service.get_config()
         if config.app.theme == "system":
@@ -96,6 +99,7 @@ class MainWindow(QMainWindow):
         self.editor_controller = None
         self.editor_logic = None
         self.editor_view = None
+        self._api_server = None
 
     def _setup_ui(self):
         """初始化UI组件"""
@@ -142,6 +146,20 @@ class MainWindow(QMainWindow):
 
         self.editor_view._apply_editor_style(self.current_applied_theme)
         self.editor_view.property_panel.repopulate_options()
+
+        # 将 controller 注入 API 服务器
+        if self._api_server is not None:
+            self._api_server.set_controller(self.editor_controller)
+
+    def _start_api_server(self):
+        """启动内嵌 HTTP API 服务器（后台 daemon 线程）。"""
+        try:
+            from editor_api_server import EditorApiServer, DEFAULT_PORT
+
+            self._api_server = EditorApiServer(port=DEFAULT_PORT)
+            self._api_server.start()
+        except Exception:
+            self.logger.exception("Failed to start EditorApiServer")
 
     def _create_ui_actions(self):
         """创建内部动作对象（无顶部菜单栏）"""
