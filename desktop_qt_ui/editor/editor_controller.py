@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import os
@@ -51,6 +52,8 @@ class EditorController(QObject):
     # Signal for thread-safe image loading
     _load_result_ready = pyqtSignal(object)  # 加载结果信号
     _deferred_load_requested = pyqtSignal(str)
+    # 批量导出进度 (完成数, 总数)
+    _batch_export_progress = pyqtSignal(int, int)
 
     def __init__(self, model: EditorModel, parent=None):
         super().__init__(parent)
@@ -1204,6 +1207,51 @@ class EditorController(QObject):
     @pyqtSlot()
     def export_image(self):
         return self.export_service.export_image()
+
+    @pyqtSlot()
+    def export_all(self):
+        """不经过编辑器，直接读取 JSON 和修复图，多线程批量导出所有图片。"""
+        view = self.view
+        if view is None or not hasattr(view, 'logic'):
+            return
+        file_paths = view.logic.get_file_paths()
+        if not file_paths:
+            toast = self.get_toast_manager()
+            if toast is not None:
+                toast.show_info("文件列表为空", duration=3)
+            return
+
+        config = self.config_service.get_config()
+        first_out = self.export_service._build_output_path(config, file_paths[0])
+        out_dir = os.path.dirname(first_out)
+
+        self._export_cancel_flag = False
+        total = len(file_paths)
+        self._batch_export_progress.emit(0, total)
+
+        async def _run():
+            def on_progress(done: int):
+                if self._export_cancel_flag:
+                    return
+                self._batch_export_progress.emit(done, total)
+            success, fail = await self.export_service.async_batch_export(
+                file_paths, config, progress_callback=on_progress,
+            )
+            if self._export_cancel_flag:
+                return
+            self._batch_export_progress.emit(0, 0)
+            summary = f"批量导出完成：{success}/{success+fail} 成功"
+            if fail:
+                summary += f"，{fail} 失败"
+            summary += f"\n{out_dir}"
+            self._show_toast_signal.emit(summary, 5000, fail == 0, out_dir)
+        self.async_service.submit_task(_run())
+
+    @pyqtSlot()
+    def cancel_batch_export(self):
+        """停止批量导出。"""
+        self._export_cancel_flag = True
+        self._batch_export_progress.emit(0, 0)
 
     @staticmethod
     def _apply_white_frame_center(region: dict):

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from services import get_i18n_manager
 from utils.shortcut_manager import EditorShortcutManager
 from widgets.editor_toolbar import EditorToolbar
+from widgets.hover_hint import set_hover_hint
 from widgets.file_list_view import FileListView
 from widgets.property_panel import PropertyPanel
 from widgets.region_list_view import RegionListView
@@ -267,6 +268,52 @@ class EditorView(QWidget):
         """处理分布按钮点击。"""
         self.controller.distribute_regions(mode)
 
+    def _safe_connect(self, target):
+        """安全切换 export_all_requested 的连接。"""
+        try:
+            self.toolbar.export_all_requested.disconnect()
+        except TypeError:
+            pass
+        self.toolbar.export_all_requested.connect(target)
+
+    def _on_batch_export_progress(self, done: int, total: int):
+        """批量导出进度更新。"""
+        btn = self.toolbar.export_all_button
+        if total == 0:
+            btn.setText("导出全部")
+            btn.setStyleSheet("")
+            btn.setEnabled(True)
+            self._export_progress_text = ""
+            set_hover_hint(btn, "遍历文件列表导出所有图片")
+            self._safe_connect(self.controller.export_all)
+        else:
+            self._export_progress_text = f"{done}/{total}"
+            btn.setText(self._export_progress_text)
+            btn.setStyleSheet(
+                "QToolButton { border: 1.5px solid #5284c1; }"
+            )
+            btn.setEnabled(True)
+            set_hover_hint(btn, "点击停止导出")
+            self._safe_connect(self.controller.cancel_batch_export)
+            try:
+                btn.enterEvent
+            except RuntimeError:
+                pass
+            if not hasattr(self, '_export_hover_filter_installed'):
+                self._export_hover_filter_installed = True
+                btn.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        """悬停时按钮文字切换。"""
+        if (hasattr(self, '_export_progress_text') and self._export_progress_text
+                and obj is self.toolbar.export_all_button):
+            from PyQt6.QtCore import QEvent
+            if event.type() == QEvent.Type.Enter:
+                obj.setText("停止导出")
+            elif event.type() == QEvent.Type.Leave:
+                obj.setText(self._export_progress_text)
+        return super().eventFilter(obj, event)
+
     def _on_selection_changed_for_toolbar(self, selected_indices: list):
         """根据选区数量更新对齐/分布按钮的启用状态。"""
         count = len(selected_indices) if selected_indices else 0
@@ -306,6 +353,8 @@ class EditorView(QWidget):
         # --- Toolbar (Top) to Controller/View ---
         self.toolbar.back_requested.connect(self.back_to_main_requested)
         self.toolbar.export_requested.connect(self.controller.export_image)
+        self.toolbar.export_all_requested.connect(self.controller.export_all)
+        self.controller._batch_export_progress.connect(self._on_batch_export_progress)
         self.toolbar.undo_requested.connect(self.controller.undo)
         self.toolbar.redo_requested.connect(self.controller.redo)
         self.toolbar.zoom_in_requested.connect(self.graphics_view.zoom_in)

@@ -228,6 +228,10 @@ class EditorLogic(QObject):
             else:
                 self.file_list_changed.emit(file_paths)
 
+    def get_file_paths(self) -> list[str]:
+        """返回文件列表中所有文件路径。"""
+        return [item.path for item in self.file_model.files]
+
     @pyqtSlot()
     def clear_list(self):
         """清空文件列表"""

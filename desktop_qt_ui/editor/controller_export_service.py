@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import math
 import os
 from datetime import datetime
@@ -568,3 +569,120 @@ class EditorControllerExportService:
                 lambda: QMessageBox.critical(None, "导出失败", f"导出过程中发生意外错误:\n{err_msg}"),
             )
             return outcome
+
+    async def async_batch_export(self, file_paths: list[str], config,
+                                  progress_callback=None) -> tuple[int, int]:
+        """不经过编辑器，按顺序逐个读取 JSON 和修复图并导出。
+
+        Args:
+            file_paths: 源图片路径列表
+            config: 配置对象
+            progress_callback: 进度回调 fn(done_count)
+
+        Returns:
+            (成功数, 失败数)
+        """
+        from services.export_service import ExportService
+        from manga_translator.utils.path_manager import find_json_path, find_inpainted_path
+
+        config_dict = self._build_config_dict(config)
+        self._prepare_render_config(config_dict)
+        export_service = ExportService()
+
+        NUM_THREADS = 4
+
+        async def _export_one(fp: str) -> bool:
+            if getattr(self.controller, '_export_cancel_flag', False):
+                return False
+            try:
+                json_path = find_json_path(fp)
+                if not json_path:
+                    self.logger.warning(f"[批量导出] 未找到 JSON: {fp}")
+                    return False
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    raw = json.load(f)
+                if isinstance(raw, list):
+                    regions = raw
+                elif isinstance(raw, dict):
+                    if fp in raw:
+                        entry = raw[fp]
+                    else:
+                        entry = raw
+                    for key in ('regions', 'text_regions', 'region'):
+                        if isinstance(entry, dict) and key in entry:
+                            regions = entry[key]
+                            break
+                    else:
+                        if isinstance(entry, list):
+                            regions = entry
+                        else:
+                            self.logger.warning(f'[批量导出] 无法解析 JSON regions: {fp}')
+                            return False
+                else:
+                    self.logger.warning(f'[批量导出] JSON 根类型异常: {type(raw).__name__}, {fp}')
+                    return False
+                img = self.controller.resource_manager.load_detached_image(fp)
+                if img is None:
+                    self.logger.warning(f"[批量导出] 加载图片失败: {fp}")
+                    return False
+                inpainted_path = find_inpainted_path(fp)
+                inpainted_img = None
+                if inpainted_path:
+                    from PIL import Image
+                    inpainted_img = Image.open(inpainted_path).convert('RGBA')
+                mask_arr = None
+                if isinstance(raw, dict):
+                    entry = raw[fp] if fp in raw else None
+                    if entry is None and isinstance(next(iter(raw.values()), None), dict):
+                        entry = next(iter(raw.values()))
+                    if isinstance(entry, dict):
+                        mask_raw_b64 = entry.get('mask_raw')
+                        if mask_raw_b64:
+                            import base64, io
+                            try:
+                                mask_bytes = base64.b64decode(mask_raw_b64)
+                                mask_img = Image.open(io.BytesIO(mask_bytes))
+                                mask_arr = np.array(mask_img.convert('L'))
+                            except Exception as e:
+                                self.logger.warning(f'[批量导出] mask 解码失败: {e}')
+                output_path = self._build_output_path(config, fp)
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                enhanced = self._build_enhanced_regions(regions)
+                await asyncio.to_thread(
+                    export_service._perform_backend_render_export,
+                    img, enhanced, config_dict, output_path,
+                    mask_arr, lambda _: None, lambda _: None, lambda _: None,
+                    fp, False, inpainted_img,
+                )
+                return True
+            except Exception as e:
+                self.logger.error(f"[批量导出] 失败 {fp}: {e}")
+                return False
+
+        chunks = [[] for _ in range(NUM_THREADS)]
+        for idx, fp in enumerate(file_paths):
+            chunks[idx % NUM_THREADS].append(fp)
+
+        shared_done = []
+        lock = asyncio.Lock()
+
+        async def _run_chunk(chunk: list[str]):
+            s, f = 0, 0
+            for fp in chunk:
+                if getattr(self.controller, '_export_cancel_flag', False):
+                    break
+                ok = await _export_one(fp)
+                if ok:
+                    s += 1
+                else:
+                    f += 1
+                async with lock:
+                    shared_done.append(1)
+                    if progress_callback:
+                        progress_callback(len(shared_done))
+            return s, f
+
+        results = await asyncio.gather(*[_run_chunk(c) for c in chunks])
+        success = sum(r[0] for r in results)
+        fail = sum(r[1] for r in results)
+        return success, fail
