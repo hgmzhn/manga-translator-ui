@@ -207,8 +207,9 @@ class EditorControllerDocumentService:
         )
 
     def do_load_image(self, image_path: str) -> None:
-        # 切图:保留旧画面 + 旧 LRU 缓存,等新数据信号到达再覆盖,避免黑闪
-        self.clear_editor_state(keep_document=True)
+        # 防黑闪:仅对有修复图的页保留旧画面,无修复图时需立即刷新避免蒙版画在旧原图上
+        has_inpainted = bool(find_inpainted_path(image_path))
+        self.clear_editor_state(keep_document=has_inpainted)
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:
