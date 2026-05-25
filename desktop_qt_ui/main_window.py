@@ -147,9 +147,10 @@ class MainWindow(QMainWindow):
         self.editor_view._apply_editor_style(self.current_applied_theme)
         self.editor_view.property_panel.repopulate_options()
 
-        # 将 controller 注入 API 服务器
+        # 将 controller 和 editor_logic 注入 API 服务器
         if self._api_server is not None:
             self._api_server.set_controller(self.editor_controller)
+            self._api_server.set_editor_logic(self.editor_logic)
 
     def _start_api_server(self):
         """启动内嵌 HTTP API 服务器（后台 daemon 线程）。"""
