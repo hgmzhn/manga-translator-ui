@@ -422,13 +422,25 @@ class MangaTranslator:
         # 开启后：检测、OCR、修复、翻译四并发，提升处理速度
             
         self.ignore_errors = params.get('ignore_errors', False)
-        # check mps for apple silicon or cuda for nvidia
-        device = 'mps' if torch.backends.mps.is_available() else 'cuda'
+        # check mps for apple silicon, directml for amd/intel on windows, or cuda for nvidia
+        try:
+            import torch_directml
+            has_dml = torch_directml.is_available()
+        except ImportError:
+            has_dml = False
+
+        if torch.backends.mps.is_available():
+            device = 'mps'
+        elif has_dml:
+            device = 'dml'
+        else:
+            device = 'cuda'
+
         self.device = device if params.get('use_gpu', False) else 'cpu'
-        if self.using_gpu and ( not torch.cuda.is_available() and not torch.backends.mps.is_available()):
+        if self.using_gpu and (not torch.cuda.is_available() and not torch.backends.mps.is_available() and not has_dml):
             # GPU不可用时，自动回退到CPU而不是抛出异常
             logger.warning(
-                'CUDA or Metal compatible device could not be found in torch whilst --use-gpu was set. '
+                'CUDA, DirectML, or Metal compatible device could not be found in torch whilst --use-gpu was set. '
                 'Automatically falling back to CPU mode.'
             )
             self.device = 'cpu'
@@ -507,7 +519,7 @@ class MangaTranslator:
 
     @property
     def using_gpu(self):
-        return self.device.startswith('cuda') or self.device == 'mps'
+        return self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml'
 
     async def translate(self, image: Image.Image, config: Config, image_name: str = None, skip_context_save: bool = False, save_info: dict = None) -> Context:
         """

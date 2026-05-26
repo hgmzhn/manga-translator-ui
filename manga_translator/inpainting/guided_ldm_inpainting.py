@@ -157,10 +157,15 @@ class GuidedLDM(LatentDiffusion):
         device: str = 'cpu',
         **kwargs) -> Image.Image :
         ddim_sampler = GuidedDDIMSample(self)
-        # move to device mps, cuda or cpu
-        if device.startswith('cuda') or device == 'mps':
-            self.cond_stage_model.to(device)
-            self.first_stage_model.to(device)
+        torch_device = device
+        if device == 'dml':
+            import torch_directml
+            torch_device = torch_directml.device()
+
+        # move to device mps, cuda, dml or cpu
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
+            self.cond_stage_model.to(torch_device)
+            self.first_stage_model.to(torch_device)
         c_text = self.get_learned_conditioning([c_text])
         uc_text = self.get_learned_conditioning([uc_text])
         cond = {"c_crossattn": [c_text]}
@@ -174,7 +179,7 @@ class GuidedLDM(LatentDiffusion):
         image = fill_mask_input(image, latent_mask)
         image = np.array(image).astype(np.float32) / 127.5 - 1.0
         image = np.moveaxis(image, 2, 0)
-        image = torch.from_numpy(image).to(device)[None]
+        image = torch.from_numpy(image).to(torch_device)[None]
         init_latent = self.get_first_stage_encoding(self.encode_first_stage(image))
         init_mask = latent_mask
         latmask = init_mask.convert('RGB').resize((init_latent.shape[3], init_latent.shape[2]))
@@ -196,25 +201,25 @@ class GuidedLDM(LatentDiffusion):
 
         noise = torch.randn_like(init_latent)
         ddim_sampler.make_schedule(ddim_num_steps=steps, ddim_eta=eta, ddim_discretize="uniform", verbose=False)
-        x1 = ddim_sampler.stochastic_encode(init_latent, torch.tensor([t_enc] * int(init_latent.shape[0])).to(device), noise=noise)
+        x1 = ddim_sampler.stochastic_encode(init_latent, torch.tensor([t_enc] * int(init_latent.shape[0])).to(torch_device), noise=noise)
 
-        if device.startswith('cuda') or device == 'mps':
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
             self.cond_stage_model.cpu()
             self.first_stage_model.cpu()
 
-        if device.startswith('cuda') or device == 'mps':
-            self.model.to(device)
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
+            self.model.to(torch_device)
         decoded = ddim_sampler.decode(x1, cond,t_enc,init_latent=init_latent,nmask=nmask,unconditional_guidance_scale=7,unconditional_conditioning=uc_cond)
-        if device.startswith('cuda') or device == 'mps':
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
             self.model.cpu()
 
         if mask is not None :
             decoded = init_latent * (1 - nmask) + decoded * nmask
 
-        if device.startswith('cuda') or device == 'mps':
-            self.first_stage_model.to(device)
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
+            self.first_stage_model.to(torch_device)
         x_samples = self.decode_first_stage(decoded)
-        if device.startswith('cuda') or device == 'mps':
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
             self.first_stage_model.cpu()
         return torch.clip(x_samples, -1, 1)
     

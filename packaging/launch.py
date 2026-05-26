@@ -802,31 +802,58 @@ def choose_when_amd_unsupported():
     print_supported_amd_gpu_types()
     print('')
     print('请选择:')
-    print('  [1] 使用 CPU 版本 (默认, 推荐)')
-    print('  [2] 强制安装 AMD 版本 (实验性, 可能失败)')
-    print('  [3] 退出安装')
-    print('')
+    import sys
+    if sys.platform == 'win32':
+        print('  [1] 使用 DirectML GPU 加速版本 (推荐 Windows 用户，无报错，极速加速) 🌟')
+        print('  [2] 使用 CPU 版本 (速度较慢但兼容性好)')
+        print('  [3] 强制安装 AMD ROCm 版本 (实验性, 极易报错)')
+        print('  [4] 退出安装')
+        print('')
+        while True:
+            choice = input('请选择 (1/2/3/4, 默认1): ').strip()
+            if choice in ['', '1']:
+                return 'directml'
+            elif choice == '2':
+                return 'cpu'
+            elif choice == '3':
+                return 'force_amd'
+            elif choice == '4':
+                return 'exit'
+            else:
+                print('无效输入,请输入 1, 2, 3 或 4')
+    else:
+        print('  [1] 使用 CPU 版本 (默认, 推荐)')
+        print('  [2] 强制安装 AMD 版本 (实验性, 可能失败)')
+        print('  [3] 退出安装')
+        print('')
 
-    while True:
-        choice = input('请选择 (1/2/3, 默认1): ').strip()
-        if choice in ['', '1']:
-            return 'cpu'
-        elif choice == '2':
-            return 'force_amd'
-        elif choice == '3':
-            return 'exit'
-        else:
-            print('无效输入,请输入 1, 2 或 3')
+        while True:
+            choice = input('请选择 (1/2/3, 默认1): ').strip()
+            if choice in ['', '1']:
+                return 'cpu'
+            elif choice == '2':
+                return 'force_amd'
+            elif choice == '3':
+                return 'exit'
+            else:
+                print('无效输入,请输入 1, 2 或 3')
 
 
 def detect_installed_pytorch_version():
-    """检测当前安装的PyTorch版本类型(CPU/GPU/Metal)"""
+    """检测当前安装的PyTorch版本类型(CPU/GPU/Metal/DirectML)"""
     try:
         # 在子进程中检测，避免在主进程中加载 torch DLL
         # 这样可以在需要时卸载 torch
         code = """
 import sys
 try:
+    # 优先检查是否安装了 torch_directml
+    try:
+        import torch_directml
+        print("DirectML|DirectML-enabled")
+        sys.exit(0)
+    except ImportError:
+        pass
     import torch
     # 检查 AMD ROCm
     if hasattr(torch.version, 'hip') and torch.version.hip:
@@ -872,7 +899,9 @@ def get_requirements_file_from_env():
     """从当前虚拟环境检测应该使用哪个requirements文件"""
     pytorch_type, detail = detect_installed_pytorch_version()
     
-    if pytorch_type == "GPU":
+    if pytorch_type == "DirectML":
+        return 'requirements_dml.txt', pytorch_type, detail
+    elif pytorch_type == "GPU":
         return 'requirements_gpu.txt', pytorch_type, detail
     elif pytorch_type == "Metal":
         return 'requirements_metal.txt', pytorch_type, detail
@@ -1174,6 +1203,10 @@ except:
                     amd_gfx_version = detected_gfx
                     print('⚠️  已选择强制安装 AMD 版本，兼容性无法保证。')
                     print(f'✓ 使用: {requirements_file} (AMD 强制安装)')
+                elif user_action == 'directml':
+                    requirements_file = 'requirements_dml.txt'
+                    use_amd_pytorch = False
+                    print(f'✓ 使用: {requirements_file} (DirectML 通用加速版)')
                 else:
                     requirements_file = 'requirements_cpu.txt'
                     use_amd_pytorch = False
@@ -1218,91 +1251,181 @@ except:
             print('=' * 50)
             print('')
             print('请手动选择安装版本:')
-            print('  [1] NVIDIA GPU 版本 (CUDA) - 需要 NVIDIA 显卡')
-            print('  [2] AMD GPU 版本 (ROCm) - 需要兼容的 AMD 显卡')
-            print('  [3] CPU 版本 - 兼容所有电脑')
-            print('')
-            
-            while True:
-                choice = input('请选择 (1/2/3, 默认3): ').strip()
-                if choice == '1':
-                    requirements_file = 'requirements_gpu.txt'
-                    print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
-                    break
-                elif choice == '2':
-                    # AMD GPU（纯自动检测）
-                    print('')
-                    print('✓ 支持 PyTorch 的 AMD gfx 版本:')
-                    print('  - gfx94X-dcgpu: MI300A / MI300X')
-                    print('  - gfx950-dcgpu: MI350X / MI355X')
-                    print('  - gfx110X-dgpu: RX 7900 XTX / RX 7800 XT / RX 7700S (Framework Laptop 16)')
-                    print('  - gfx1151:      AMD Strix Halo iGPU')
-                    print('  - gfx120X-all:  RX 9060 / RX 9060 XT / RX 9070 / RX 9070 XT')
-                    print('')
-                    print('✗ 不支持 PyTorch 的版本:')
-                    print('  - gfx101X-dgpu: RX 5000 系列')
-                    print('  - gfx103X-dgpu: RX 6000 系列')
-                    print('  - gfx90X-dcgpu: Vega / Radeon VII')
-                    print('')
-
-                    detected_gfx, arch_name, has_torch = detect_amd_gfx_version(gpu_name) if gpu_name else (None, None, False)
-                    if detected_gfx and has_torch:
-                        amd_gfx_version = detected_gfx
-                        requirements_file = 'requirements_amd.txt'
-                        use_amd_pytorch = True
-                        print(f'✓ 自动识别架构: {arch_name}')
-                        print(f'✓ 将使用 AMD ROCm PyTorch ({amd_gfx_version})')
-                        print(f'✓ 依赖文件: {requirements_file}')
+            import sys
+            if sys.platform == 'win32':
+                print('  [1] NVIDIA GPU 版本 (CUDA) - 需要 NVIDIA 显卡')
+                print('  [2] AMD GPU 版本 (ROCm) - 需要兼容的 AMD 显卡')
+                print('  [3] DirectML 通用 GPU 加速版本 - 支持 AMD 老显卡/核显、Intel 显卡等 🌟')
+                print('  [4] CPU 版本 - 兼容所有电脑')
+                print('')
+                while True:
+                    choice = input('请选择 (1/2/3/4, 默认4): ').strip()
+                    if choice == '1':
+                        requirements_file = 'requirements_gpu.txt'
+                        print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
                         break
-                    else:
-                        user_action = choose_when_amd_unsupported()
-                        if user_action == 'exit':
-                            print('已取消安装，请确认显卡型号和驱动版本后重试。')
-                            sys.exit(0)
-                        elif user_action == 'force_amd':
+                    elif choice == '2':
+                        # AMD GPU
+                        print('')
+                        print('✓ 支持 PyTorch 的 AMD gfx 版本:')
+                        print('  - gfx94X-dcgpu: MI300A / MI300X')
+                        print('  - gfx950-dcgpu: MI350X / MI355X')
+                        print('  - gfx110X-dgpu: RX 7900 XTX / RX 7800 XT / RX 7700S (Framework Laptop 16)')
+                        print('  - gfx1151:      AMD Strix Halo iGPU')
+                        print('  - gfx120X-all:  RX 9060 / RX 9060 XT / RX 9070 / RX 9070 XT')
+                        print('')
+                        print('✗ 不支持 PyTorch 的版本:')
+                        print('  - gfx101X-dgpu: RX 5000 系列')
+                        print('  - gfx103X-dgpu: RX 6000 系列')
+                        print('  - gfx90X-dcgpu: Vega / Radeon VII')
+                        print('')
+                        detected_gfx, arch_name, has_torch = detect_amd_gfx_version(gpu_name) if gpu_name else (None, None, False)
+                        if detected_gfx and has_torch:
+                            amd_gfx_version = detected_gfx
                             requirements_file = 'requirements_amd.txt'
                             use_amd_pytorch = True
-                            amd_gfx_version = detected_gfx
-                            print('⚠️  已选择强制安装 AMD 版本，兼容性无法保证。')
-                            print(f'✓ 使用: {requirements_file} (AMD 强制安装)')
+                            print(f'✓ 自动识别架构: {arch_name}')
+                            print(f'✓ 将使用 AMD ROCm PyTorch ({amd_gfx_version})')
+                            print(f'✓ 依赖文件: {requirements_file}')
+                            break
                         else:
-                            requirements_file = 'requirements_cpu.txt'
-                            use_amd_pytorch = False
-                            print(f'✓ 使用: {requirements_file} (CPU版本)')
+                            user_action = choose_when_amd_unsupported()
+                            if user_action == 'exit':
+                                print('已取消安装，请确认显卡型号和驱动版本后重试。')
+                                sys.exit(0)
+                            elif user_action == 'force_amd':
+                                requirements_file = 'requirements_amd.txt'
+                                use_amd_pytorch = True
+                                amd_gfx_version = detected_gfx
+                                print('⚠️  已选择强制安装 AMD 版本，兼容性无法保证。')
+                                print(f'✓ 使用: {requirements_file} (AMD 强制安装)')
+                            elif user_action == 'directml':
+                                requirements_file = 'requirements_dml.txt'
+                                use_amd_pytorch = False
+                                print(f'✓ 使用: {requirements_file} (DirectML 通用加速版)')
+                            else:
+                                requirements_file = 'requirements_cpu.txt'
+                                use_amd_pytorch = False
+                                print(f'✓ 使用: {requirements_file} (CPU版本)')
+                            break
+                    elif choice == '3':
+                        requirements_file = 'requirements_dml.txt'
+                        print(f'✓ 使用: {requirements_file} (DirectML 通用加速版)')
                         break
-                elif choice in ['', '3']:
-                    requirements_file = 'requirements_cpu.txt'
-                    print(f'✓ 使用: {requirements_file} (CPU版本)')
-                    break
-                else:
-                    print('无效输入,请输入 1, 2 或 3')
-                    
+                    elif choice in ['', '4']:
+                        requirements_file = 'requirements_cpu.txt'
+                        print(f'✓ 使用: {requirements_file} (CPU版本)')
+                        break
+                    else:
+                        print('无效输入,请输入 1, 2, 3 或 4')
+            else:
+                print('  [1] NVIDIA GPU 版本 (CUDA) - 需要 NVIDIA 显卡')
+                print('  [2] AMD GPU 版本 (ROCm) - 需要兼容的 AMD 显卡')
+                print('  [3] CPU 版本 - 兼容所有电脑')
+                print('')
+                while True:
+                    choice = input('请选择 (1/2/3, 默认3): ').strip()
+                    if choice == '1':
+                        requirements_file = 'requirements_gpu.txt'
+                        print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
+                        break
+                    elif choice == '2':
+                        # AMD GPU
+                        print('')
+                        print('✓ 支持 PyTorch 的 AMD gfx 版本:')
+                        print('  - gfx94X-dcgpu: MI300A / MI300X')
+                        print('  - gfx950-dcgpu: MI350X / MI355X')
+                        print('  - gfx110X-dgpu: RX 7900 XTX / RX 7800 XT / RX 7700S (Framework Laptop 16)')
+                        print('  - gfx1151:      AMD Strix Halo iGPU')
+                        print('  - gfx120X-all:  RX 9060 / RX 9060 XT / RX 9070 / RX 9070 XT')
+                        print('')
+                        print('✗ 不支持 PyTorch 的版本:')
+                        print('  - gfx101X-dgpu: RX 5000 系列')
+                        print('  - gfx103X-dgpu: RX 6000 系列')
+                        print('  - gfx90X-dcgpu: Vega / Radeon VII')
+                        print('')
+                        detected_gfx, arch_name, has_torch = detect_amd_gfx_version(gpu_name) if gpu_name else (None, None, False)
+                        if detected_gfx and has_torch:
+                            amd_gfx_version = detected_gfx
+                            requirements_file = 'requirements_amd.txt'
+                            use_amd_pytorch = True
+                            print(f'✓ 自动识别架构: {arch_name}')
+                            print(f'✓ 将使用 AMD ROCm PyTorch ({amd_gfx_version})')
+                            print(f'✓ 依赖文件: {requirements_file}')
+                            break
+                        else:
+                            user_action = choose_when_amd_unsupported()
+                            if user_action == 'exit':
+                                print('已取消安装，请确认显卡型号和驱动版本后重试。')
+                                sys.exit(0)
+                            elif user_action == 'force_amd':
+                                requirements_file = 'requirements_amd.txt'
+                                use_amd_pytorch = True
+                                amd_gfx_version = detected_gfx
+                                print('⚠️  已选择强制安装 AMD 版本，兼容性无法保证。')
+                                print(f'✓ 使用: {requirements_file} (AMD 强制安装)')
+                            else:
+                                requirements_file = 'requirements_cpu.txt'
+                                use_amd_pytorch = False
+                                print(f'✓ 使用: {requirements_file} (CPU版本)')
+                            break
+                    elif choice in ['', '3']:
+                        requirements_file = 'requirements_cpu.txt'
+                        print(f'✓ 使用: {requirements_file} (CPU版本)')
+                        break
+                    else:
+                        print('无效输入,请输入 1, 2 或 3')
         else:
             # Intel GPU - 在 Windows 上支持有限,推荐使用 CPU 版本
             print('=' * 50)
             print('检测到 Intel GPU')
             print('=' * 50)
             print('')
-            print('⚠️  Intel GPU 在 PyTorch 上的支持有限')
-            print('推荐使用 CPU 版本以获得最佳兼容性')
-            print('')
-            print('请选择:')
-            print('  [1] NVIDIA GPU 版本 (如果有独立显卡)')
-            print('  [2] CPU 版本 (推荐)')
-            print('')
-            
-            while True:
-                choice = input('请选择 (1/2, 默认2): ').strip()
-                if choice == '1':
-                    requirements_file = 'requirements_gpu.txt'
-                    print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
-                    break
-                elif choice in ['', '2']:
-                    requirements_file = 'requirements_cpu.txt'
-                    print(f'✓ 使用: {requirements_file} (CPU版本)')
-                    break
-                else:
-                    print('无效输入,请输入 1 或 2')
+            import sys
+            if sys.platform == 'win32':
+                print('推荐在 Windows 系统下使用 DirectML 显卡加速版，无报错且完美加速！')
+                print('')
+                print('请选择:')
+                print('  [1] 使用 DirectML GPU 加速版本 (推荐 Windows 用户，无报错，极速加速) 🌟')
+                print('  [2] 使用 CPU 版本 (速度较慢但兼容性好)')
+                print('  [3] 使用 NVIDIA GPU 版本 (仅当您还有 NVIDIA 独立显卡时使用)')
+                print('')
+                while True:
+                    choice = input('请选择 (1/2/3, 默认1): ').strip()
+                    if choice in ['', '1']:
+                        requirements_file = 'requirements_dml.txt'
+                        print(f'✓ 使用: {requirements_file} (DirectML 通用加速版)')
+                        break
+                    elif choice == '2':
+                        requirements_file = 'requirements_cpu.txt'
+                        print(f'✓ 使用: {requirements_file} (CPU版本)')
+                        break
+                    elif choice == '3':
+                        requirements_file = 'requirements_gpu.txt'
+                        print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
+                        break
+                    else:
+                        print('无效输入,请输入 1, 2 或 3')
+            else:
+                print('⚠️  Intel GPU 在 PyTorch 上的支持有限')
+                print('推荐使用 CPU 版本以获得最佳兼容性')
+                print('')
+                print('请选择:')
+                print('  [1] NVIDIA GPU 版本 (如果有独立显卡)')
+                print('  [2] CPU 版本 (推荐)')
+                print('')
+                while True:
+                    choice = input('请选择 (1/2, 默认2): ').strip()
+                    if choice == '1':
+                        requirements_file = 'requirements_gpu.txt'
+                        print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
+                        break
+                    elif choice in ['', '2']:
+                        requirements_file = 'requirements_cpu.txt'
+                        print(f'✓ 使用: {requirements_file} (CPU版本)')
+                        break
+                    else:
+                        print('无效输入,请输入 1 或 2')
     
     # 选择对应的PyTorch版本 (根据requirements_gpu.txt中的版本)
     # 注意: 不再单独安装 PyTorch，而是通过 requirements 文件统一安装
@@ -1314,7 +1437,7 @@ except:
     if not need_reinstall:
         # 检测当前安装的 PyTorch 类型
         installed_pytorch_type, installed_detail = detect_installed_pytorch_version()
-        target_type = "GPU" if "gpu" in requirements_file.lower() else "CPU"
+        target_type = "DirectML" if "dml" in requirements_file.lower() else ("GPU" if "gpu" in requirements_file.lower() else "CPU")
         
         if installed_pytorch_type is not None and installed_pytorch_type != target_type:
             print('\n' + '=' * 50)

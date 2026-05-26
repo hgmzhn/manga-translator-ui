@@ -143,9 +143,13 @@ class CRAFTDetector(OfflineDetector):
         self.model_refiner.load_state_dict(copyStateDict(torch.load(self._get_file_path('craft_refiner_CTW1500.pth'), map_location='cpu')))
         self.model_refiner.eval()
         self.device = device
-        if device == 'cuda' or device == 'mps':
-            self.model = self.model.to(self.device)
-            self.model_refiner = self.model_refiner.to(self.device)
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        if device in ('cuda', 'mps', 'dml'):
+            self.model = self.model.to(self.torch_device)
+            self.model_refiner = self.model_refiner.to(self.torch_device)
         global MODEL
         MODEL = self.model
 
@@ -161,7 +165,7 @@ class CRAFTDetector(OfflineDetector):
         # preprocessing
         x = imgproc.normalizeMeanVariance(img_resized)
         x = torch.from_numpy(x).permute(2, 0, 1)    # [h, w, c] to [c, h, w]
-        x = x.unsqueeze(0).to(self.device)                # [c, h, w] to [b, c, h, w]
+        x = x.unsqueeze(0).to(self.torch_device)                # [c, h, w] to [b, c, h, w]
 
         with torch.no_grad() :
             y, feature = self.model(x)
@@ -204,7 +208,7 @@ class CRAFTDetector(OfflineDetector):
 
         # ✅ Detection完成后立即清理GPU内存
         del x, y, y_refiner, feature
-        if (self.device.startswith('cuda') or self.device == 'mps') and torch.cuda.is_available():
+        if (self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml') and torch.cuda.is_available():
             pass
         
         return textlines, mask, None

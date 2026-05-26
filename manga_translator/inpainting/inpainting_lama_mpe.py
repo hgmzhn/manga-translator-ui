@@ -160,9 +160,13 @@ class LamaMPEInpainter(OfflineInpainter):
 
     async def _load(self, device: str, **kwargs):
         self.device = device
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
         
         # ✅ CPU模式使用ONNX（解决虚拟内存泄漏）
-        if not device.startswith('cuda') and device != 'mps':
+        if not device.startswith('cuda') and device != 'mps' and device != 'dml':
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama MPE ONNX inference. "
@@ -195,8 +199,8 @@ class LamaMPEInpainter(OfflineInpainter):
         self.model = load_lama_mpe(self._get_file_path('inpainting_lama_mpe.ckpt'), device='cpu')
         self.model.eval()
         self.backend = 'torch'
-        if device.startswith('cuda') or device == 'mps':
-            self.model.to(device)
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
+            self.model.to(self.torch_device)
 
     async def _unload(self):
         if hasattr(self, 'backend'):
@@ -220,8 +224,8 @@ class LamaMPEInpainter(OfflineInpainter):
                     self.logger.info('正在加载PyTorch模型...')
                     self.model = load_lama_mpe(self._get_file_path('inpainting_lama_mpe.ckpt'), device='cpu')
                     self.model.eval()
-                    if self.device.startswith('cuda') or self.device == 'mps':
-                        self.model.to(self.device)
+                    if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
+                        self.model.to(self.torch_device)
         
         # ✅ PyTorch推理（原有逻辑）
         img_original = np.copy(image)
@@ -255,13 +259,13 @@ class LamaMPEInpainter(OfflineInpainter):
         mask_torch = torch.from_numpy(mask).unsqueeze_(0).unsqueeze_(0).float() / 255.0
         mask_torch[mask_torch < 0.5] = 0
         mask_torch[mask_torch >= 0.5] = 1
-        if self.device.startswith('cuda') or self.device == 'mps':
-            img_torch = img_torch.to(self.device)
-            mask_torch = mask_torch.to(self.device)
+        if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
+            img_torch = img_torch.to(self.torch_device)
+            mask_torch = mask_torch.to(self.torch_device)
         with torch.no_grad():
             img_torch *= (1 - mask_torch)
             if not (self.device.startswith('cuda')):
-                # mps devices here
+                # mps and dml devices here
                 img_inpainted_torch = self.model(img_torch, mask_torch)
             else:
                 # Note: lama's weight shouldn't be convert to fp16 or bf16 otherwise it produces darkened results.
@@ -501,9 +505,13 @@ class LamaLargeInpainter(LamaMPEInpainter):
 
     async def _load(self, device: str, force_torch: bool = False):
         self.device = device
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
         
         # ✅ CPU模式使用ONNX（除非强制使用PyTorch）
-        if not device.startswith('cuda') and device != 'mps' and not force_torch:
+        if not device.startswith('cuda') and device != 'mps' and device != 'dml' and not force_torch:
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama Large ONNX inference. "
@@ -575,7 +583,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
             self._downloaded = True
         
         # 直接加载到目标设备，避免重复移动
-        target_device = device if (device.startswith('cuda') or device == 'mps') else 'cpu'
+        target_device = self.torch_device if (device.startswith('cuda') or device == 'mps' or device == 'dml') else 'cpu'
         self.model = load_lama_mpe(ckpt_path, device=target_device, use_mpe=False, large_arch=True)
         self.model.eval()
         self.backend = 'torch'
@@ -665,9 +673,9 @@ class LamaLargeInpainter(LamaMPEInpainter):
 
         mask_torch = torch.from_numpy(mask_pad[:, :, 0]).unsqueeze_(0).unsqueeze_(0).float()
         del image_pad, mask_pad
-        if self.device.startswith('cuda') or self.device == 'mps':
-            img_torch = img_torch.to(self.device)
-            mask_torch = mask_torch.to(self.device)
+        if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
+            img_torch = img_torch.to(self.torch_device)
+            mask_torch = mask_torch.to(self.torch_device)
 
         with torch.no_grad():
             img_torch *= (1 - mask_torch)
@@ -708,8 +716,8 @@ class LamaLargeInpainter(LamaMPEInpainter):
                         raise FileNotFoundError(f'模型文件缺失: {ckpt_path}')
                     self.model = load_lama_mpe(ckpt_path, device='cpu', use_mpe=False, large_arch=True)
                     self.model.eval()
-                    if self.device.startswith('cuda') or self.device == 'mps':
-                        self.model.to(self.device)
+                    if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
+                        self.model.to(self.torch_device)
 
         # ✅ PyTorch推理：与 ONNX 保持一致的缩放/补边逻辑
         return await self._infer_torch_large(image, mask, config, inpainting_size, verbose)

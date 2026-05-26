@@ -204,8 +204,9 @@ class TextDetector(nn.Module):
             return self.dbnet(*outs)
 
 def get_base_det_models(model_path, device='cpu', half=False, act='leaky'):
-    textdetector_dict = torch.load(model_path, map_location=device)
-    blk_det = load_yolov5_ckpt(textdetector_dict['blk_det'], map_location=device)
+    load_device = 'cpu' if str(device).startswith('privateuseone') or 'dml' in str(device).lower() else device
+    textdetector_dict = torch.load(model_path, map_location=load_device)
+    blk_det = load_yolov5_ckpt(textdetector_dict['blk_det'], map_location=load_device)
     text_seg = UnetHead(act=act)
     text_seg.load_state_dict(textdetector_dict['text_seg'])
     text_det = DBHead(64, act=act)

@@ -61,11 +61,11 @@ def create_session_options(
     return sess_options
 
 
-def _provider_has_cuda(provider: Any) -> bool:
+def _provider_has_gpu(provider: Any) -> bool:
     if isinstance(provider, str):
-        return provider == "CUDAExecutionProvider"
+        return provider in ("CUDAExecutionProvider", "DmlExecutionProvider")
     if isinstance(provider, (tuple, list)) and provider:
-        return provider[0] == "CUDAExecutionProvider"
+        return provider[0] in ("CUDAExecutionProvider", "DmlExecutionProvider")
     return False
 
 
@@ -81,21 +81,21 @@ def build_execution_providers(
 ) -> list[Any]:
     """
     Build providers in ONNX Runtime official format:
-    [("CUDAExecutionProvider", {...}), "CPUExecutionProvider"].
+    [("DmlExecutionProvider", {}), ("CUDAExecutionProvider", {...}), "CPUExecutionProvider"].
     """
     normalized = (device or "cpu").lower()
-    wants_cuda = normalized.startswith("cuda")
+    wants_gpu = any(normalized.startswith(prefix) for prefix in ("cuda", "gpu", "hip", "dml", "directml"))
     onnx_gpu_disabled = is_onnx_gpu_disabled()
     if disable_onnx_gpu is not None:
         onnx_gpu_disabled = bool(disable_onnx_gpu) or onnx_gpu_disabled
     providers: list[Any] = []
 
-    if wants_cuda and onnx_gpu_disabled:
+    if wants_gpu and onnx_gpu_disabled:
         if logger is not None:
             logger.info("ONNX GPU acceleration disabled by switch; forcing CPUExecutionProvider.")
-        wants_cuda = False
+        wants_gpu = False
 
-    if wants_cuda:
+    if wants_gpu:
         if preload_cuda_dlls and hasattr(ort, "preload_dlls"):
             try:
                 ort.preload_dlls()
@@ -110,13 +110,16 @@ def build_execution_providers(
             if logger is not None:
                 logger.warning(f"Failed to query ONNX Runtime providers: {exc}")
 
-        if "CUDAExecutionProvider" in available_providers:
+        # 优先检测并使用微软 DirectML 加速
+        if "DmlExecutionProvider" in available_providers:
+            providers.append(("DmlExecutionProvider", {"device_id": 0}))
+        elif "CUDAExecutionProvider" in available_providers:
             options = {"device_id": 0}
             if cuda_options:
                 options.update(dict(cuda_options))
             providers.append(("CUDAExecutionProvider", options))
         elif logger is not None:
-            logger.warning(f"CUDAExecutionProvider not available, fallback to CPU: {available_providers}")
+            logger.warning(f"GPU execution provider not available, fallback to CPU: {available_providers}")
 
     if include_cpu or not providers:
         providers.append("CPUExecutionProvider")
@@ -137,7 +140,7 @@ def create_inference_session(
     preload_cuda_dlls: bool = True,
 ) -> tuple[Any, str]:
     """
-    Create InferenceSession with standard provider order and optional CUDA->CPU fallback.
+    Create InferenceSession with standard provider order and optional GPU->CPU fallback.
     Returns (session, active_device), where active_device is 'cuda' or 'cpu'.
     """
     providers = build_execution_providers(
@@ -151,14 +154,14 @@ def create_inference_session(
     )
 
     model_path_str = str(model_path)
-    tried_cuda = any(_provider_has_cuda(provider) for provider in providers)
+    tried_gpu = any(_provider_has_gpu(provider) for provider in providers)
 
     try:
         session = ort.InferenceSession(model_path_str, sess_options=sess_options, providers=providers)
     except Exception as exc:
-        if fallback_to_cpu and tried_cuda:
+        if fallback_to_cpu and tried_gpu:
             if logger is not None:
-                logger.warning(f"CUDA session creation failed, fallback to CPU: {exc}")
+                logger.warning(f"GPU session creation failed, fallback to CPU: {exc}")
             session = ort.InferenceSession(
                 model_path_str,
                 sess_options=sess_options,
@@ -167,5 +170,5 @@ def create_inference_session(
         else:
             raise
 
-    active_device = "cuda" if "CUDAExecutionProvider" in session.get_providers() else "cpu"
+    active_device = "cuda" if any(p in session.get_providers() for p in ("CUDAExecutionProvider", "DmlExecutionProvider")) else "cpu"
     return session, active_device

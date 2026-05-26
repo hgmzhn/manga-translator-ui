@@ -541,8 +541,12 @@ class DBConvNextDetector(OfflineDetector):
         self.model.load_state_dict(sd['model'] if 'model' in sd else sd)
         self.model.eval()
         self.device = device
-        if device == 'cuda' or device == 'mps':
-            self.model = self.model.to(self.device)
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        if device in ('cuda', 'mps', 'dml'):
+            self.model = self.model.to(self.torch_device)
         global MODEL
         MODEL = self.model
 
@@ -553,14 +557,14 @@ class DBConvNextDetector(OfflineDetector):
                      unclip_ratio: float, verbose: bool = False, result_path_fn=None):
 
         # TODO: Move det_rearrange_forward to common.py and refactor
-        db, mask = det_rearrange_forward(image, det_batch_forward_default, detect_size, 4, device=self.device, verbose=verbose, result_path_fn=result_path_fn)
+        db, mask = det_rearrange_forward(image, det_batch_forward_default, detect_size, 4, device=self.torch_device, verbose=verbose, result_path_fn=result_path_fn)
 
         if db is None:
             # rearrangement is not required, fallback to default forward
             img_resized, target_ratio, _, pad_w, pad_h = imgproc.resize_aspect_ratio(cv2.bilateralFilter(image, 17, 80, 80), detect_size, cv2.INTER_LINEAR, mag_ratio = 1)
             img_resized_h, img_resized_w = img_resized.shape[:2]
             ratio_h = ratio_w = 1 / target_ratio
-            db, mask = det_batch_forward_default([img_resized], self.device)
+            db, mask = det_batch_forward_default([img_resized], self.torch_device)
         else:
             img_resized_h, img_resized_w = image.shape[:2]
             ratio_w = ratio_h = 1
@@ -597,7 +601,7 @@ class DBConvNextDetector(OfflineDetector):
         #     cv2.imwrite(f'result/bboxes_unfiltered.png', cv2.cvtColor(img_bbox_raw, cv2.COLOR_RGB2BGR))
 
         # ✅ Detection完成后立即清理GPU内存
-        if (self.device.startswith('cuda') or self.device == 'mps'):
+        if (self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml'):
             try:
                 import torch
                 if torch.cuda.is_available():

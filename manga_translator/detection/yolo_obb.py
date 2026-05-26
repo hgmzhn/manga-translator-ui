@@ -83,6 +83,14 @@ class YOLOOBBDetector(OfflineDetector):
             if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
                 return torch.device("mps")
             self.logger.warning("YOLO OBB: 请求 MPS，但当前不可用，回退到 CPU")
+        elif requested.startswith("dml") or requested.startswith("directml"):
+            try:
+                import torch_directml
+                if torch_directml.is_available():
+                    return torch_directml.device()
+            except ImportError:
+                pass
+            self.logger.warning("YOLO OBB: 请求 DirectML，但当前不可用，回退到 CPU")
         return torch.device("cpu")
 
     async def _load(self, device: str):
@@ -99,10 +107,11 @@ class YOLOOBBDetector(OfflineDetector):
             load_path = model_path
 
         model = self.model or YOLO(load_path, task="obb")
-        model.to(str(self.torch_device))
+        model.to(self.torch_device)
         self.model = model
 
-        self.logger.info(f"YOLO OBB: {self.torch_device.type.upper()} 模式加载成功")
+        device_name = "DIRECTML" if self.torch_device.type.startswith("privateuseone") else self.torch_device.type.upper()
+        self.logger.info(f"YOLO OBB: {device_name} 模式加载成功")
 
     async def _unload(self):
         self.model = None
@@ -232,7 +241,7 @@ class YOLOOBBDetector(OfflineDetector):
             imgsz=int(self.input_size),
             conf=float(conf_threshold),
             iou=float(max(0.01, min(iou_threshold, 0.95))),
-            device=str(self.torch_device),
+            device=self.torch_device,
             verbose=False,
         )
         if isinstance(results, list):

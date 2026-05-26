@@ -91,9 +91,14 @@ class ComicTextDetector(OfflineDetector):
 
     async def _load(self, device: str, input_size=1024, half=False, nms_thresh=0.35, conf_thresh=0.4):
         self.device = device
-        if self.device == 'cuda' or self.device == 'mps':
-            self.model = TextDetBase(self._get_file_path('comictextdetector.pt'), device=self.device, act='leaky')
-            self.model.to(self.device)
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+
+        if self.device in ('cuda', 'mps', 'dml'):
+            self.model = TextDetBase(self._get_file_path('comictextdetector.pt'), device=self.torch_device, act='leaky')
+            self.model.to(self.torch_device)
             self.backend = 'torch'
         else:
             model_path = self._get_file_path('comictextdetector.pt.onnx')
@@ -142,11 +147,11 @@ class ComicTextDetector(OfflineDetector):
         # refine_mode = REFINEMASK_INPAINT
 
         im_h, im_w = image.shape[:2]
-        lines_map, mask = det_rearrange_forward(image, self.det_batch_forward_ctd, self.input_size[0], 4, self.device, verbose, result_path_fn)
+        lines_map, mask = det_rearrange_forward(image, self.det_batch_forward_ctd, self.input_size[0], 4, self.torch_device, verbose, result_path_fn)
         # blks = []
         # resize_ratio = [1, 1]
         if lines_map is None:
-            img_in, ratio, dw, dh = preprocess_img(image, input_size=self.input_size, device=self.device, half=self.half, to_tensor=self.backend=='torch')
+            img_in, ratio, dw, dh = preprocess_img(image, input_size=self.input_size, device=self.torch_device, half=self.half, to_tensor=self.backend=='torch')
             blks, mask, lines_map = self.model(img_in)
 
             if self.backend == 'opencv':
@@ -185,7 +190,7 @@ class ComicTextDetector(OfflineDetector):
         mask_refined = refine_mask(image, mask, textlines, refine_mode=None)
 
         # ✅ Detection完成后立即清理GPU内存
-        if (self.device.startswith('cuda') or self.device == 'mps'):
+        if (self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml'):
             try:
                 import torch
                 if torch.cuda.is_available():
