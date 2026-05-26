@@ -100,12 +100,30 @@ class BaseAPIOCR(OfflineOCR):
     async def _load(self, device: str):
         if device == "cuda" and torch.cuda.is_available():
             self.device = "cuda"
+            self.torch_device = "cuda"
             self.use_gpu = True
         elif device == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             self.device = "mps"
+            self.torch_device = "mps"
             self.use_gpu = True
+        elif device == "dml":
+            try:
+                import torch_directml
+                if torch_directml.is_available():
+                    self.device = "dml"
+                    self.torch_device = torch_directml.device()
+                    self.use_gpu = True
+                else:
+                    self.device = "cpu"
+                    self.torch_device = "cpu"
+                    self.use_gpu = False
+            except ImportError:
+                self.device = "cpu"
+                self.torch_device = "cpu"
+                self.use_gpu = False
         else:
             self.device = "cpu"
+            self.torch_device = "cpu"
             self.use_gpu = False
 
         await self._load_color_model(self.device)
@@ -245,8 +263,8 @@ class BaseAPIOCR(OfflineOCR):
                 self.color_model.load_state_dict(cleaned_sd)
                 self.color_model.eval()
 
-                if device in ("cuda", "mps"):
-                    self.color_model = self.color_model.to(device)
+                if device in ("cuda", "mps", "dml"):
+                    self.color_model = self.color_model.to(self.torch_device)
             else:
                 self.logger.warning(
                     f"48px model files are missing: {dict_48px_path} or {ckpt_48px_path}"
@@ -277,7 +295,7 @@ class BaseAPIOCR(OfflineOCR):
             image_tensor = einops.rearrange(image_tensor, "N H W C -> N C H W")
 
             if self.use_gpu:
-                image_tensor = image_tensor.to(self.device)
+                image_tensor = image_tensor.to(self.torch_device)
 
             with torch.no_grad():
                 ret = self.color_model.infer_beam_batch(

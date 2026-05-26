@@ -208,7 +208,7 @@ class CRAFTDetector(OfflineDetector):
 
         # ✅ Detection完成后立即清理GPU内存
         del x, y, y_refiner, feature
-        if (self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml') and torch.cuda.is_available():
+        if (self.device.startswith('cuda') or self.device == 'mps') and torch.cuda.is_available():
             pass
         
         return textlines, mask, None

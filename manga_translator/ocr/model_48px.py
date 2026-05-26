@@ -69,12 +69,16 @@ class Model48pxOCR(OfflineOCR):
         self.model.load_state_dict(cleaned_sd)
         self.model.eval()
         self.device = device
-        if (device == 'cuda' or device == 'mps'):
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        if (device == 'cuda' or device == 'mps' or device == 'dml'):
             self.use_gpu = True
         else:
             self.use_gpu = False
         if self.use_gpu:
-            self.model = self.model.to(device)
+            self.model = self.model.to(self.torch_device)
 
 
     async def _unload(self):
@@ -153,7 +157,7 @@ class Model48pxOCR(OfflineOCR):
             image_tensor = (torch.from_numpy(region).float() - 127.5) / 127.5
             image_tensor = einops.rearrange(image_tensor, 'N H W C -> N C H W')
             if self.use_gpu:
-                image_tensor = image_tensor.to(self.device)
+                image_tensor = image_tensor.to(self.torch_device)
             with torch.no_grad():
                 ret = self.model.infer_beam_batch_tensor(image_tensor, valid_widths, beams_k = 5, max_seq_length = 255)
             for i, (pred_chars_index, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred) in enumerate(ret):

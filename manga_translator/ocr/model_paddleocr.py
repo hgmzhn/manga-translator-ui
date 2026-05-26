@@ -164,6 +164,10 @@ class ModelPaddleOCR(OfflineOCR):
             "Install with: pip install onnxruntime-gpu (or onnxruntime)"
         )
         self.device = device
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
         model_config = self._MODELS[self.model_type]
 
         # Load model using inherited model_dir property (PyInstaller-compatible)
@@ -217,8 +221,8 @@ class ModelPaddleOCR(OfflineOCR):
                 self.color_model.load_state_dict(cleaned_sd)
                 self.color_model.eval()
                 
-                if device == 'cuda' or device == 'mps':
-                    self.color_model = self.color_model.to(device)
+                if device == 'cuda' or device == 'mps' or device == 'dml':
+                    self.color_model = self.color_model.to(self.torch_device)
                     self.use_gpu = True
                 else:
                     self.use_gpu = False
@@ -521,8 +525,8 @@ class ModelPaddleOCR(OfflineOCR):
                 
                 # GPU 加速
                 if self.use_gpu:
-                    image_tensor = image_tensor.to(self.device)
-                
+                    image_tensor = image_tensor.to(self.torch_device)
+
                 # 批量推理
                 with torch.no_grad():
                     ret = self.color_model.infer_beam_batch(image_tensor, widths, beams_k=5, max_seq_length=255)
@@ -613,7 +617,7 @@ class ModelPaddleOCR(OfflineOCR):
             
             # GPU 加速
             if self.use_gpu:
-                image_tensor = image_tensor.to(self.device)
+                image_tensor = image_tensor.to(self.torch_device)
             
             # 使用 48px 模型推理 - 使用 infer_beam_batch 而不是 infer_beam_batch_tensor
             with torch.no_grad():

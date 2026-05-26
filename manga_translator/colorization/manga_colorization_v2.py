@@ -37,11 +37,18 @@ class MangaColorizationV2(OfflineColorizer):
 
     async def _load(self, device: str):
         self.device = device
-        self.colorizer = Colorizer().to(device)
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        self.colorizer = Colorizer().to(self.torch_device)
         self.colorizer.generator.load_state_dict(
-            torch.load(self._get_file_path('generator.zip'), map_location=self.device))
+            torch.load(self._get_file_path('generator.zip'), map_location='cpu'))
         self.colorizer = self.colorizer.eval()
-        self.denoiser = FFDNetDenoiser(device, _weights_dir=self.model_dir)
+        # FFDNetDenoiser 内部使用 DataParallel/map_location 写死 cuda 分支,
+        # DirectML 不兼容,降噪开销很小,直接回退到 CPU。
+        denoiser_device = 'cpu' if device == 'dml' else device
+        self.denoiser = FFDNetDenoiser(denoiser_device, _weights_dir=self.model_dir)
 
     async def _unload(self):
         del self.colorizer
@@ -91,8 +98,8 @@ class MangaColorizationV2(OfflineColorizer):
                 img = np.pad(img, ((0, extra_pad[0]), (0, extra_pad[1]), (0, 0)), 'maximum')
 
         transform = ToTensor()
-        current_image = transform(img).unsqueeze(0).to(self.device)
-        current_hint = torch.zeros(1, 4, current_image.shape[2], current_image.shape[3]).float().to(self.device)
+        current_image = transform(img).unsqueeze(0).to(self.torch_device)
+        current_hint = torch.zeros(1, 4, current_image.shape[2], current_image.shape[3]).float().to(self.torch_device)
 
         with torch.no_grad():
             fake_color, _ = self.colorizer(torch.cat([current_image, current_hint], 1))

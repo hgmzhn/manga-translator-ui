@@ -404,6 +404,11 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
         # 延迟加载：不在这里加载模型，等到 _infer 时根据图片类型再加载
         # 只保存 device 信息
         self.device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        else:
+            self.torch_device = device
         logger.info("MangaJaNai upscaler initialized, will load model based on image type")
 
     async def _load_specific_model(self, filename: str, device: str):
@@ -451,7 +456,12 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
             raise
 
         self.model.eval()
-        self.model = self.model.to(device)
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        else:
+            self.torch_device = device
+        self.model = self.model.to(self.torch_device)
         self.device = device
         self.current_loaded_model_file = filename
 
@@ -489,9 +499,9 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
 
             # 4. Process (with tiling if needed)
             if self.tile_size > 0:
-                output_img = self._process_with_tiles(img_processed, self.device, self.tile_size)
+                output_img = self._process_with_tiles(img_processed, self.torch_device, self.tile_size)
             else:
-                output_img = self._process_single(img_processed, self.device)
+                output_img = self._process_single(img_processed, self.torch_device)
                 
             # 5. Post-resize if needed
             # Use current model scale, which might differ if we switched models

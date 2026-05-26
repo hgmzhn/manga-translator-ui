@@ -535,7 +535,12 @@ class ESRGANUpscalerPytorch(OfflineUpscaler):
         self.model = RRDBNet(in_nc=in_nc, out_nc=out_nc, nf=nf, nb=nb, upscale=mscale, plus=plus)
         self.model.load_state_dict(sd)
         self.model.eval()
-        self.model = self.model.to(device)
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        else:
+            self.torch_device = device
+        self.model = self.model.to(self.torch_device)
         self.device = device
 
     async def _unload(self):
@@ -565,7 +570,7 @@ class ESRGANUpscalerPytorch(OfflineUpscaler):
                     t = F.pad(t, (0, pad_w, 0, pad_h), mode='replicate')
                 padded_tensors.append(t)
 
-            batch = torch.stack(padded_tensors, dim=0).to(self.device)
+            batch = torch.stack(padded_tensors, dim=0).to(self.torch_device)
             with torch.no_grad() :
                 ret = self.model(batch)
             ret: torch.Tensor

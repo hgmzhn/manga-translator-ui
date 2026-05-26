@@ -431,6 +431,8 @@ class MangaTranslator:
 
         if torch.backends.mps.is_available():
             device = 'mps'
+        elif torch.cuda.is_available():
+            device = 'cuda'
         elif has_dml:
             device = 'dml'
         else:

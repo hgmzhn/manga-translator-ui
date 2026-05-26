@@ -190,7 +190,7 @@ class ComicTextDetector(OfflineDetector):
         mask_refined = refine_mask(image, mask, textlines, refine_mode=None)
 
         # ✅ Detection完成后立即清理GPU内存
-        if (self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml'):
+        if (self.device.startswith('cuda') or self.device == 'mps'):
             try:
                 import torch
                 if torch.cuda.is_available():

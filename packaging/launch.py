@@ -804,7 +804,7 @@ def choose_when_amd_unsupported():
     print('请选择:')
     import sys
     if sys.platform == 'win32':
-        print('  [1] 使用 DirectML GPU 加速版本 (推荐 Windows 用户，无报错，极速加速) 🌟')
+        print('  [1] 使用 DirectML GPU 加速版本 (Windows 通用 GPU 加速,支持 AMD/Intel,无需 CUDA/ROCm)')
         print('  [2] 使用 CPU 版本 (速度较慢但兼容性好)')
         print('  [3] 强制安装 AMD ROCm 版本 (实验性, 极易报错)')
         print('  [4] 退出安装')
@@ -847,13 +847,6 @@ def detect_installed_pytorch_version():
         code = """
 import sys
 try:
-    # 优先检查是否安装了 torch_directml
-    try:
-        import torch_directml
-        print("DirectML|DirectML-enabled")
-        sys.exit(0)
-    except ImportError:
-        pass
     import torch
     # 检查 AMD ROCm
     if hasattr(torch.version, 'hip') and torch.version.hip:
@@ -869,7 +862,12 @@ try:
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         print("Metal|MPS")
     else:
-        print("CPU|CPU-only")
+        # 没有 CUDA/ROCm/MPS 时，再看是否安装了 torch_directml
+        try:
+            import torch_directml
+            print("DirectML|DirectML-enabled")
+        except ImportError:
+            print("CPU|CPU-only")
 except (ImportError, AttributeError):
     print("None|未安装")
 except OSError as e:
@@ -1255,7 +1253,7 @@ except:
             if sys.platform == 'win32':
                 print('  [1] NVIDIA GPU 版本 (CUDA) - 需要 NVIDIA 显卡')
                 print('  [2] AMD GPU 版本 (ROCm) - 需要兼容的 AMD 显卡')
-                print('  [3] DirectML 通用 GPU 加速版本 - 支持 AMD 老显卡/核显、Intel 显卡等 🌟')
+                print('  [3] DirectML 通用 GPU 加速版本 - 支持 AMD/Intel 显卡(含集显),性能介于 CPU 和原生 CUDA 之间')
                 print('  [4] CPU 版本 - 兼容所有电脑')
                 print('')
                 while True:
@@ -1383,10 +1381,10 @@ except:
             print('')
             import sys
             if sys.platform == 'win32':
-                print('推荐在 Windows 系统下使用 DirectML 显卡加速版，无报错且完美加速！')
+                print('Windows 下 Intel 显卡可通过 DirectML 获得通用 GPU 加速(性能通常不及原生 CUDA,部分算子可能回退 CPU)。')
                 print('')
                 print('请选择:')
-                print('  [1] 使用 DirectML GPU 加速版本 (推荐 Windows 用户，无报错，极速加速) 🌟')
+                print('  [1] 使用 DirectML GPU 加速版本 (Windows 通用 GPU 加速,支持 AMD/Intel,无需 CUDA/ROCm)')
                 print('  [2] 使用 CPU 版本 (速度较慢但兼容性好)')
                 print('  [3] 使用 NVIDIA GPU 版本 (仅当您还有 NVIDIA 独立显卡时使用)')
                 print('')

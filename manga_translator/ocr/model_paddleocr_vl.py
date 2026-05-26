@@ -156,15 +156,37 @@ class ModelPaddleOCRVL(OfflineOCR):
         # 设置设备
         if device == 'cuda' and torch.cuda.is_available():
             self.device = 'cuda'
+            self.torch_device = 'cuda'
             self.use_gpu = True
             # 使用 bfloat16 以节省显存
             model_dtype = torch.bfloat16
         elif device == 'mps' and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             self.device = 'mps'
+            self.torch_device = 'mps'
             self.use_gpu = True
             model_dtype = torch.float16
+        elif device == 'dml':
+            try:
+                import torch_directml
+                if torch_directml.is_available():
+                    self.device = 'dml'
+                    self.torch_device = torch_directml.device()
+                    self.use_gpu = True
+                    # DirectML 不支持 bf16/fp16,使用 fp32
+                    model_dtype = torch.float32
+                else:
+                    self.device = 'cpu'
+                    self.torch_device = 'cpu'
+                    self.use_gpu = False
+                    model_dtype = torch.float32
+            except ImportError:
+                self.device = 'cpu'
+                self.torch_device = 'cpu'
+                self.use_gpu = False
+                model_dtype = torch.float32
         else:
             self.device = 'cpu'
+            self.torch_device = 'cpu'
             self.use_gpu = False
             model_dtype = torch.float32
 
@@ -239,11 +261,13 @@ class ModelPaddleOCRVL(OfflineOCR):
 
             # 使用 AutoModel 加载自定义模型架构
             from transformers import AutoModel
+            # DirectML 不支持 transformers device_map,改用显式 .to()
+            use_device_map = self.device not in ('cpu', 'dml')
             self.model = AutoModel.from_pretrained(
                 load_path,
                 trust_remote_code=True,
                 torch_dtype=model_dtype,
-                device_map=self.device if self.device != 'cpu' else None,
+                device_map=self.device if use_device_map else None,
                 local_files_only=use_relative_path
             )
         finally:
@@ -251,8 +275,8 @@ class ModelPaddleOCRVL(OfflineOCR):
             if original_cwd is not None:
                 os.chdir(original_cwd)
 
-        if self.device == 'cpu':
-            self.model = self.model.to(self.device)
+        if self.device == 'cpu' or self.device == 'dml':
+            self.model = self.model.to(self.torch_device)
 
         self.model.eval()
 
@@ -289,8 +313,8 @@ class ModelPaddleOCRVL(OfflineOCR):
                 self.color_model.load_state_dict(cleaned_sd)
                 self.color_model.eval()
 
-                if device == 'cuda' or device == 'mps':
-                    self.color_model = self.color_model.to(device)
+                if device == 'cuda' or device == 'mps' or device == 'dml':
+                    self.color_model = self.color_model.to(self.torch_device)
             else:
                 self.logger.warning(f"48px 模型文件不存在: {dict_48px_path} 或 {ckpt_48px_path}")
                 self.color_model = None
@@ -375,7 +399,7 @@ class ModelPaddleOCRVL(OfflineOCR):
             del inputs['token_type_ids']
 
         # 移动到设备
-        inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+        inputs = {k: v.to(self.torch_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
 
         # 生成文本
         with torch.no_grad():
@@ -424,7 +448,7 @@ class ModelPaddleOCRVL(OfflineOCR):
 
             # GPU 加速
             if self.use_gpu:
-                image_tensor = image_tensor.to(self.device)
+                image_tensor = image_tensor.to(self.torch_device)
 
             # 使用 48px 模型推理
             with torch.no_grad():

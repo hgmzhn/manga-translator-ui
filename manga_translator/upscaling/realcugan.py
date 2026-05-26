@@ -200,9 +200,15 @@ class RealCUGANUpscaler(OfflineUpscaler):
                 state_dict = {k: v for k, v in state_dict.items() if k != 'pro'}
             
             self.model.load_state_dict(state_dict, strict=True)
-            
+
             # Move to device
-            self.model = self.model.to(device)
+            if device == 'dml':
+                import torch_directml
+                self.torch_device = torch_directml.device()
+            else:
+                self.torch_device = device
+            self.model = self.model.to(self.torch_device)
+            self.device = device
             self.model.eval()
             
             logger.info(f'Real-CUGAN loaded: {self.model_name}, scale={self.scale}x')

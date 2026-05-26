@@ -49,7 +49,11 @@ class InternalMangaOcr:
         
         # 移动到指定设备
         self.device = device
-        self.model.to(device)
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        self.model.to(self.torch_device)
         self.model.eval()
     
     def __call__(self, img_or_path):
@@ -74,7 +78,7 @@ class InternalMangaOcr:
         
         # 预处理
         pixel_values = self.processor(img, return_tensors="pt").pixel_values
-        pixel_values = pixel_values.to(self.device)
+        pixel_values = pixel_values.to(self.torch_device)
         
         # 生成文本
         with torch.no_grad():
@@ -185,7 +189,7 @@ class ModelMangaOCR(OfflineOCR):
             model_path = "kha-white/manga-ocr-base"
         
         # 使用内置实现
-        manga_ocr_device = device if device in ['cuda', 'mps'] else 'cpu'
+        manga_ocr_device = device if device in ['cuda', 'mps', 'dml'] else 'cpu'
         self.mocr = InternalMangaOcr(
             pretrained_model_name_or_path=model_path,
             device=manga_ocr_device,
@@ -196,12 +200,16 @@ class ModelMangaOCR(OfflineOCR):
         self.model.load_state_dict(sd)
         self.model.eval()
         self.device = device
-        if (device == 'cuda' or device == 'mps'):
+        self.torch_device = device
+        if device == 'dml':
+            import torch_directml
+            self.torch_device = torch_directml.device()
+        if (device == 'cuda' or device == 'mps' or device == 'dml'):
             self.use_gpu = True
         else:
             self.use_gpu = False
         if self.use_gpu:
-            self.model = self.model.to(device)
+            self.model = self.model.to(self.torch_device)
 
 
     async def _unload(self):
@@ -286,7 +294,7 @@ class ModelMangaOCR(OfflineOCR):
             image_tensor = (torch.from_numpy(region).float() - 127.5) / 127.5
             image_tensor = einops.rearrange(image_tensor, 'N H W C -> N C H W')
             if self.use_gpu:
-                image_tensor = image_tensor.to(self.device)
+                image_tensor = image_tensor.to(self.torch_device)
             with torch.no_grad():
                 ret = self.model.infer_beam_batch(image_tensor, valid_widths, beams_k = 5, max_seq_length = 255)
             

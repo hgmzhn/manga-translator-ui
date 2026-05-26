@@ -14,7 +14,7 @@ arabic-reshaper==3.0.0
 backports.statistics==0.1.0
 colorama==0.4.6
 ctranslate2==3.24.0
-customtimer==5.2.2
+customtkinter==5.2.2
 einops==0.8.1
 fastapi==0.116.1
 fire==0.7.1

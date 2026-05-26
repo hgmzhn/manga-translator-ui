@@ -141,7 +141,7 @@ def create_inference_session(
 ) -> tuple[Any, str]:
     """
     Create InferenceSession with standard provider order and optional GPU->CPU fallback.
-    Returns (session, active_device), where active_device is 'cuda' or 'cpu'.
+    Returns (session, active_device), where active_device is 'cuda', 'dml', or 'cpu'.
     """
     providers = build_execution_providers(
         ort,
@@ -170,5 +170,11 @@ def create_inference_session(
         else:
             raise
 
-    active_device = "cuda" if any(p in session.get_providers() for p in ("CUDAExecutionProvider", "DmlExecutionProvider")) else "cpu"
+    active_providers = session.get_providers()
+    if "CUDAExecutionProvider" in active_providers:
+        active_device = "cuda"
+    elif "DmlExecutionProvider" in active_providers:
+        active_device = "dml"
+    else:
+        active_device = "cpu"
     return session, active_device

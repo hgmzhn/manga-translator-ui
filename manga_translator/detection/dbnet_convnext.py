@@ -601,7 +601,7 @@ class DBConvNextDetector(OfflineDetector):
         #     cv2.imwrite(f'result/bboxes_unfiltered.png', cv2.cvtColor(img_bbox_raw, cv2.COLOR_RGB2BGR))
 
         # ✅ Detection完成后立即清理GPU内存
-        if (self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml'):
+        if (self.device.startswith('cuda') or self.device == 'mps'):
             try:
                 import torch
                 if torch.cuda.is_available():
