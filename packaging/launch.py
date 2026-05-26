@@ -802,7 +802,6 @@ def choose_when_amd_unsupported():
     print_supported_amd_gpu_types()
     print('')
     print('请选择:')
-    import sys
     if sys.platform == 'win32':
         print('  [1] 使用 DirectML GPU 加速版本 (Windows 通用 GPU 加速,支持 AMD/Intel,无需 CUDA/ROCm)')
         print('  [2] 使用 CPU 版本 (速度较慢但兼容性好)')
@@ -1249,7 +1248,6 @@ except:
             print('=' * 50)
             print('')
             print('请手动选择安装版本:')
-            import sys
             if sys.platform == 'win32':
                 print('  [1] NVIDIA GPU 版本 (CUDA) - 需要 NVIDIA 显卡')
                 print('  [2] AMD GPU 版本 (ROCm) - 需要兼容的 AMD 显卡')
@@ -1379,7 +1377,6 @@ except:
             print('检测到 Intel GPU')
             print('=' * 50)
             print('')
-            import sys
             if sys.platform == 'win32':
                 print('Windows 下 Intel 显卡可通过 DirectML 获得通用 GPU 加速(性能通常不及原生 CUDA,部分算子可能回退 CPU)。')
                 print('')
