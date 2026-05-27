@@ -84,13 +84,11 @@ class YOLOOBBDetector(OfflineDetector):
                 return torch.device("mps")
             self.logger.warning("YOLO OBB: 请求 MPS，但当前不可用，回退到 CPU")
         elif requested.startswith("dml") or requested.startswith("directml"):
-            try:
-                import torch_directml
-                if torch_directml.is_available():
-                    return torch_directml.device()
-            except ImportError:
-                pass
-            self.logger.warning("YOLO OBB: 请求 DirectML，但当前不可用，回退到 CPU")
+            # DirectML 与 Ultralytics YOLO 的内部 torch.inference_mode() 存在不兼容，
+            # 在执行算子时会触发 "RuntimeError: Cannot set version_counter for inference tensor" 崩溃。
+            # YOLO OBB 仅作为辅助检测，模型体积极小，在 CPU 下运行耗时极短且 100% 稳定，因此在此模式下强制回退至 CPU 推理。
+            self.logger.info("YOLO OBB: 检测到使用 DirectML 模式。为规避 Ultralytics 内置 inference_mode 导致的设备兼容性崩溃，已自动回退 YOLO OBB 辅助检测至 CPU 模式以确保运行绝对稳定。")
+            return torch.device("cpu")
         return torch.device("cpu")
 
     async def _load(self, device: str):
