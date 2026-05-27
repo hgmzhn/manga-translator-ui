@@ -165,15 +165,15 @@ class LamaMPEInpainter(OfflineInpainter):
             import torch_directml
             self.torch_device = torch_directml.device()
         
-        # ✅ CPU模式使用ONNX（解决虚拟内存泄漏）
-        if not device.startswith('cuda') and device != 'mps' and device != 'dml':
+        # ✅ CPU或DirectML模式使用ONNX（DirectML不支持PyTorch的ComplexFloat复数算子，ONNX更稳定且支持DirectML GPU加速）
+        if not device.startswith('cuda') and device != 'mps':
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama MPE ONNX inference. "
                     "Install with: pip install onnxruntime-gpu (or onnxruntime)"
                 )
                 onnx_path = self._get_file_path('lamampe.onnx')
-                self.logger.info(f'使用ONNX模型（CPU优化）: {onnx_path}')
+                self.logger.info(f'使用ONNX模型（DirectML/CPU优化）: {onnx_path}')
                 
                 # 🔧 内存优化配置
                 sess_options = create_session_options(
@@ -182,15 +182,15 @@ class LamaMPEInpainter(OfflineInpainter):
                     enable_mem_pattern=False,
                     enable_cpu_mem_arena=False,
                 )
-                self.session, _ = create_inference_session(
+                self.session, ort_device = create_inference_session(
                     ort,
                     onnx_path,
                     sess_options=sess_options,
-                    device='cpu',
+                    device=device,
                     logger=self.logger,
                 )
                 self.backend = 'onnx'
-                self.logger.info(f'ONNX Runtime版本: {ort.__version__}（内存优化模式）')
+                self.logger.info(f'ONNX Runtime版本: {ort.__version__}，活动设备: {ort_device}')
                 return
             except Exception as e:
                 self.logger.warning(f'ONNX加载失败，回退到PyTorch: {e}')
@@ -199,8 +199,11 @@ class LamaMPEInpainter(OfflineInpainter):
         self.model = load_lama_mpe(self._get_file_path('inpainting_lama_mpe.ckpt'), device='cpu')
         self.model.eval()
         self.backend = 'torch'
-        if device.startswith('cuda') or device == 'mps' or device == 'dml':
+        if device.startswith('cuda') or device == 'mps':
             self.model.to(self.torch_device)
+        elif device == 'dml':
+            # PyTorch torch-directml 不支持 ComplexFloat 复数算子，在 PyTorch 模式下强制使用 CPU 运行以确保 100% 稳定
+            self.torch_device = torch.device('cpu')
 
     async def _unload(self):
         if hasattr(self, 'backend'):
@@ -224,6 +227,8 @@ class LamaMPEInpainter(OfflineInpainter):
                     self.logger.info('正在加载PyTorch模型...')
                     self.model = load_lama_mpe(self._get_file_path('inpainting_lama_mpe.ckpt'), device='cpu')
                     self.model.eval()
+                    if self.device == 'dml':
+                        self.torch_device = torch.device('cpu')
                     if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
                         self.model.to(self.torch_device)
         
@@ -510,8 +515,8 @@ class LamaLargeInpainter(LamaMPEInpainter):
             import torch_directml
             self.torch_device = torch_directml.device()
         
-        # ✅ CPU模式使用ONNX（除非强制使用PyTorch）
-        if not device.startswith('cuda') and device != 'mps' and device != 'dml' and not force_torch:
+        # ✅ CPU或DirectML模式使用ONNX（DirectML不支持PyTorch的ComplexFloat复数算子，ONNX更稳定且支持DirectML GPU加速）
+        if not device.startswith('cuda') and device != 'mps' and not force_torch:
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama Large ONNX inference. "
@@ -543,7 +548,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
                         self.logger.warning(f'备用模型下载失败: {download_error}')
                         self.logger.warning('如果 ONNX 推理失败，将无法降级到 PyTorch')
                 
-                self.logger.info(f'使用ONNX模型（CPU优化）: {onnx_path}')
+                self.logger.info(f'使用ONNX模型（DirectML/CPU优化）: {onnx_path}')
                 
                 # 🔧 ONNX Runtime 配置
                 sess_options = create_session_options(
@@ -554,15 +559,15 @@ class LamaLargeInpainter(LamaMPEInpainter):
                     intra_op_num_threads=4,
                     inter_op_num_threads=1,
                 )
-                self.session, _ = create_inference_session(
+                self.session, ort_device = create_inference_session(
                     ort,
                     onnx_path,
                     sess_options=sess_options,
-                    device='cpu',
+                    device=device,
                     logger=self.logger,
                 )
                 self.backend = 'onnx'
-                self.logger.info(f'ONNX Runtime版本: {ort.__version__}')
+                self.logger.info(f'ONNX Runtime版本: {ort.__version__}，活动设备: {ort_device}')
                 return
             except Exception as e:
                 self.logger.warning(f'ONNX加载失败，回退到PyTorch: {e}')
@@ -583,7 +588,10 @@ class LamaLargeInpainter(LamaMPEInpainter):
             self._downloaded = True
         
         # 直接加载到目标设备，避免重复移动
-        target_device = self.torch_device if (device.startswith('cuda') or device == 'mps' or device == 'dml') else 'cpu'
+        target_device = self.torch_device if (device.startswith('cuda') or device == 'mps') else 'cpu'
+        if device == 'dml':
+            # PyTorch torch-directml 不支持 ComplexFloat 复数算子，在 PyTorch 模式下强制使用 CPU 运行以确保 100% 稳定
+            target_device = 'cpu'
         self.model = load_lama_mpe(ckpt_path, device=target_device, use_mpe=False, large_arch=True)
         self.model.eval()
         self.backend = 'torch'
@@ -716,6 +724,8 @@ class LamaLargeInpainter(LamaMPEInpainter):
                         raise FileNotFoundError(f'模型文件缺失: {ckpt_path}')
                     self.model = load_lama_mpe(ckpt_path, device='cpu', use_mpe=False, large_arch=True)
                     self.model.eval()
+                    if self.device == 'dml':
+                        self.torch_device = torch.device('cpu')
                     if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
                         self.model.to(self.torch_device)
 
