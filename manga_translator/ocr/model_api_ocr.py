@@ -107,20 +107,11 @@ class BaseAPIOCR(OfflineOCR):
             self.torch_device = "mps"
             self.use_gpu = True
         elif device == "dml":
-            try:
-                import torch_directml
-                if torch_directml.is_available():
-                    self.device = "dml"
-                    self.torch_device = torch_directml.device()
-                    self.use_gpu = True
-                else:
-                    self.device = "cpu"
-                    self.torch_device = "cpu"
-                    self.use_gpu = False
-            except ImportError:
-                self.device = "cpu"
-                self.torch_device = "cpu"
-                self.use_gpu = False
+            # PyTorch torch-directml 算子在部分 AMD/Intel 显卡驱动上存在兼容性缺陷，极易引发 C++ 级底层崩溃闪退。
+            # 颜色预测模型在 CPU 下运行耗时极短且 100% 稳定，因此在此模式下强制其回退至 CPU 推理，保障软件绝对不闪退。
+            self.device = "dml"
+            self.torch_device = torch.device("cpu")
+            self.use_gpu = False
         else:
             self.device = "cpu"
             self.torch_device = "cpu"
@@ -263,8 +254,10 @@ class BaseAPIOCR(OfflineOCR):
                 self.color_model.load_state_dict(cleaned_sd)
                 self.color_model.eval()
 
-                if device in ("cuda", "mps", "dml"):
+                if device in ("cuda", "mps"):
                     self.color_model = self.color_model.to(self.torch_device)
+                else:
+                    self.color_model = self.color_model.to(torch.device("cpu"))
             else:
                 self.logger.warning(
                     f"48px model files are missing: {dict_48px_path} or {ckpt_48px_path}"

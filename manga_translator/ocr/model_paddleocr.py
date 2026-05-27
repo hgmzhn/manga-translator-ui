@@ -166,8 +166,9 @@ class ModelPaddleOCR(OfflineOCR):
         self.device = device
         self.torch_device = device
         if device == 'dml':
-            import torch_directml
-            self.torch_device = torch_directml.device()
+            # PyTorch torch-directml 算子在部分 AMD/Intel 显卡驱动上存在兼容性缺陷，极易引发 C++ 级底层崩溃闪退。
+            # 颜色预测模型在 CPU 下运行耗时极短且 100% 稳定，因此在此模式下强制其回退至 CPU 推理，保障软件绝对不闪退。
+            self.torch_device = torch.device('cpu')
         model_config = self._MODELS[self.model_type]
 
         # Load model using inherited model_dir property (PyInstaller-compatible)
@@ -221,10 +222,11 @@ class ModelPaddleOCR(OfflineOCR):
                 self.color_model.load_state_dict(cleaned_sd)
                 self.color_model.eval()
                 
-                if device == 'cuda' or device == 'mps' or device == 'dml':
+                if device == 'cuda' or device == 'mps':
                     self.color_model = self.color_model.to(self.torch_device)
                     self.use_gpu = True
                 else:
+                    self.color_model = self.color_model.to(self.torch_device)
                     self.use_gpu = False
                 
                 self.logger.info("48px color prediction model loaded for PaddleOCR")

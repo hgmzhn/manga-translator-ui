@@ -543,8 +543,9 @@ class DBConvNextDetector(OfflineDetector):
         self.device = device
         self.torch_device = device
         if device == 'dml':
-            import torch_directml
-            self.torch_device = torch_directml.device()
+            # PyTorch torch-directml 算子在部分 AMD/Intel 显卡驱动上存在兼容性缺陷，极易引发 C++ 级底层崩溃闪退。
+            # 由于检测模型较小，在 CPU 下运行耗时极短且 100% 稳定，因此在此模式下强制回退至 CPU 推理，保障软件绝对不闪退。
+            self.torch_device = torch.device('cpu')
         if device in ('cuda', 'mps', 'dml'):
             self.model = self.model.to(self.torch_device)
         global MODEL

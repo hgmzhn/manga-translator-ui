@@ -51,8 +51,9 @@ class InternalMangaOcr:
         self.device = device
         self.torch_device = device
         if device == 'dml':
-            import torch_directml
-            self.torch_device = torch_directml.device()
+            # Transformers VisionEncoderDecoderModel 在 torch-directml 运行时极易发生驱动超时或不支持的算子崩溃。
+            # 强制回退至 CPU 运行以确保 100% 稳定性。
+            self.torch_device = torch.device('cpu')
         self.model.to(self.torch_device)
         self.model.eval()
     
@@ -189,7 +190,7 @@ class ModelMangaOCR(OfflineOCR):
             model_path = "kha-white/manga-ocr-base"
         
         # 使用内置实现
-        manga_ocr_device = device if device in ['cuda', 'mps', 'dml'] else 'cpu'
+        manga_ocr_device = device if device in ['cuda', 'mps'] else 'cpu'
         self.mocr = InternalMangaOcr(
             pretrained_model_name_or_path=model_path,
             device=manga_ocr_device,
@@ -202,9 +203,10 @@ class ModelMangaOCR(OfflineOCR):
         self.device = device
         self.torch_device = device
         if device == 'dml':
-            import torch_directml
-            self.torch_device = torch_directml.device()
-        if (device == 'cuda' or device == 'mps' or device == 'dml'):
+            # PyTorch torch-directml 算子在部分 AMD/Intel 显卡驱动上存在兼容性缺陷，极易引发 C++ 级底层崩溃闪退。
+            # 由于 OCR 模型较小，在 CPU 下运行耗时极短且 100% 稳定，因此在此模式下强制回退至 CPU 推理，保障软件绝对不闪退。
+            self.torch_device = torch.device('cpu')
+        if (device == 'cuda' or device == 'mps'):
             self.use_gpu = True
         else:
             self.use_gpu = False

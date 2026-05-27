@@ -166,24 +166,13 @@ class ModelPaddleOCRVL(OfflineOCR):
             self.use_gpu = True
             model_dtype = torch.float16
         elif device == 'dml':
-            try:
-                import torch_directml
-                if torch_directml.is_available():
-                    self.device = 'dml'
-                    self.torch_device = torch_directml.device()
-                    self.use_gpu = True
-                    # DirectML 不支持 bf16/fp16,使用 fp32
-                    model_dtype = torch.float32
-                else:
-                    self.device = 'cpu'
-                    self.torch_device = 'cpu'
-                    self.use_gpu = False
-                    model_dtype = torch.float32
-            except ImportError:
-                self.device = 'cpu'
-                self.torch_device = 'cpu'
-                self.use_gpu = False
-                model_dtype = torch.float32
+            # PyTorch torch-directml 算子在部分 AMD/Intel 显卡驱动上存在兼容性缺陷，极易引发 C++ 级底层崩溃闪退。
+            # 这是一个重型的 VLM 视觉大模型，在 torch-directml 运行时极易发生驱动超时或算子兼容性崩溃。
+            # 强制回退至 CPU 推理，保障软件绝对不闪退。
+            self.device = 'cpu'
+            self.torch_device = 'cpu'
+            self.use_gpu = False
+            model_dtype = torch.float32
         else:
             self.device = 'cpu'
             self.torch_device = 'cpu'
@@ -313,8 +302,10 @@ class ModelPaddleOCRVL(OfflineOCR):
                 self.color_model.load_state_dict(cleaned_sd)
                 self.color_model.eval()
 
-                if device == 'cuda' or device == 'mps' or device == 'dml':
+                if device == 'cuda' or device == 'mps':
                     self.color_model = self.color_model.to(self.torch_device)
+                else:
+                    self.color_model = self.color_model.to(torch.device('cpu'))
             else:
                 self.logger.warning(f"48px 模型文件不存在: {dict_48px_path} 或 {ckpt_48px_path}")
                 self.color_model = None
