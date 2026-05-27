@@ -32,14 +32,16 @@ class AotInpainter(LamaMPEInpainter):
         self.device = device
         self.torch_device = device
         if device == 'dml':
-            import torch_directml
-            self.torch_device = torch_directml.device()
+            # PyTorch torch-directml 不支持 AotInpainter 内置的某些算子，如果使用 DML 则强制使用 CPU 运行以确保 100% 稳定
+            self.torch_device = torch.device('cpu')
 
         self.model = AOTGenerator()
         sd = torch.load(self._get_file_path('inpainting.ckpt'), map_location='cpu')
         self.model.load_state_dict(sd['model'] if 'model' in sd else sd)
         self.model.eval()
-        if device.startswith('cuda') or device == 'mps' or device == 'dml':
+        if device.startswith('cuda') or device == 'mps':
+            self.model.to(self.torch_device)
+        elif device == 'dml':
             self.model.to(self.torch_device)
     
     async def _unload(self):

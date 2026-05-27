@@ -186,7 +186,7 @@ class LamaMPEInpainter(OfflineInpainter):
                     ort,
                     onnx_path,
                     sess_options=sess_options,
-                    device=device,
+                    device='cpu' if device == 'dml' else device,
                     logger=self.logger,
                 )
                 self.backend = 'onnx'
@@ -563,7 +563,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
                     ort,
                     onnx_path,
                     sess_options=sess_options,
-                    device=device,
+                    device='cpu' if device == 'dml' else device,
                     logger=self.logger,
                 )
                 self.backend = 'onnx'
