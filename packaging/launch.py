@@ -366,7 +366,8 @@ def run_pip_requirements(requirements_file, desc=None):
         pkg_lower = pkg_name.lower()
         
         # 排除不应该从 PyTorch 源下载的包（即使名字以 torch 开头）
-        excluded_packages = ['torchsummary', 'torchmetrics']
+        # torch-directml 由微软发布,仅在 PyPI 上,PyTorch 镜像源没有
+        excluded_packages = ['torchsummary', 'torchmetrics', 'torch-directml', 'torch_directml']
         if pkg_lower in excluded_packages:
             return False
         
@@ -1825,7 +1826,7 @@ def update_dependencies_selective(args, missing_packages):
         'nvidia-curand', 'nvidia-cusolver', 'nvidia-cusparse', 'nvidia-nccl',
         'nvidia-nvjitlink', 'nvidia-nvtx', 'triton',
     ]
-    excluded_packages = ['torchsummary', 'torchmetrics']
+    excluded_packages = ['torchsummary', 'torchmetrics', 'torch-directml', 'torch_directml']
     
     def is_pytorch_package(pkg_name):
         """检查是否是需要从 PyTorch 源下载的包"""

@@ -1,11 +1,19 @@
 --index-url https://download.pytorch.org/whl/cpu
 --extra-index-url https://pypi.org/simple
 
-torch==2.8.0
-torchvision==0.23.0
-torchaudio==2.8.0
-torch-directml==0.1.20
+# torch-directml 0.2.5.dev240914 (微软最后一版,2024-09 发布) 强制锁定:
+#   torch==2.4.1, torchvision==0.19.1
+# torchaudio 跟随同 minor 版本
+# 此处不能升 torch,torch-directml 用 == 严格固定依赖。
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
+torch-directml==0.2.5.dev240914
 
+# ONNX DirectML 后端 (独立于 torch-directml,微软仍在活跃维护)
+onnxruntime-directml>=1.18.0
+
+# === 基础依赖 (与 requirements_cpu/gpu 一致) ===
 aiofiles==25.1.0
 aiohttp==3.12.15
 aioshutil==1.5
@@ -34,7 +42,6 @@ matplotlib==3.10.5
 networkx==3.5
 numpy>=2.0,<2.3
 omegaconf==2.3.0
-onnxruntime-directml>=1.18.0
 openai==2.14.0
 curl_cffi>=0.7.0
 opencv-contrib-python>=4.10.0
@@ -58,7 +65,7 @@ spandrel==0.4.1
 scipy==1.16.1
 # YOLO OBB / MangaLens 气泡检测运行时依赖 ultralytics
 ultralytics==8.4.14
-# sentencepiece 已移除，改用 tokenizers 库 (use_fast=True)
+# sentencepiece 已移除,改用 tokenizers 库 (use_fast=True)
 setuptools==80.9.0
 Shapely==2.1.1
 scikit-image==0.25.2
@@ -72,15 +79,17 @@ unidic_lite==1.0.8
 uvicorn==0.35.0
 websockets==14.2
 anyio>=4.8.0
-# xformers==0.0.32.post2  # CPU/DirectML版本不需要
+# xformers 不兼容 torch-directml,DML 版不安装
 google-genai==1.57.0
+
 # pydensecrf - 按平台选择安装来源
-# Windows: 使用预编译 wheel（避免本地编译失败）
+# Windows: 使用预编译 wheel (避免本地编译失败)
 pydensecrf @ https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.6/pydensecrf-1.0-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'
-# Linux/macOS: 从源码安装（需要 C++ 编译工具）
+# Linux/macOS: 从源码安装 (需要 C++ 编译工具)
 pydensecrf @ git+https://github.com/lucasb-eyer/pydensecrf.git ; sys_platform != 'win32'
-# 如果 Windows 下载失败，可尝试镜像站：
+# 如果 Windows 下载失败,可尝试镜像站:
 # pydensecrf @ https://gh-proxy.com/https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.6/pydensecrf-1.0-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'
+
 torchsummary
 open_clip_torch==3.1.0
 python-bidi==0.6.6
