@@ -45,6 +45,7 @@ class LamaInpainter(LamaMPEInpainter):
 
     async def _load(self, device: str):
         self.device = device
+        self.torch_device = torch.device('cpu') if device == 'dml' else device
         
         # ✅ CPU模式使用ONNX（解决虚拟内存泄漏）
         if not device.startswith('cuda') and device != 'mps':
@@ -96,8 +97,8 @@ class LamaInpainter(LamaMPEInpainter):
         self.model = model
         self.model.eval()
         self.backend = 'torch'
-        if device.startswith('cuda') or device == 'mps':
-            self.model.to(device)
+        if device.startswith('cuda') or device == 'mps' or device == 'dml':
+            self.model.to(self.torch_device)
     
     async def _unload(self):
         for attr in ('session', 'core', 'ov_model', 'model'):
@@ -122,8 +123,10 @@ class LamaInpainter(LamaMPEInpainter):
                     model.load_state_dict(sd['model'] if 'model' in sd else sd)
                     self.model = model
                     self.model.eval()
-                    if self.device.startswith('cuda') or self.device == 'mps':
-                        self.model.to(self.device)
+                    if self.device == 'dml':
+                        self.torch_device = torch.device('cpu')
+                    if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
+                        self.model.to(self.torch_device)
                 self.backend = 'torch'
         
         # ✅ PyTorch推理（调用父类）

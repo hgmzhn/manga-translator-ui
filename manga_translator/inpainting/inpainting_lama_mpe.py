@@ -624,6 +624,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
         if device == 'dml':
             # PyTorch torch-directml 不支持 ComplexFloat 复数算子，在 PyTorch 模式下强制使用 CPU 运行以确保 100% 稳定
             target_device = 'cpu'
+            self.torch_device = torch.device('cpu')
         self.model = load_lama_mpe(ckpt_path, device=target_device, use_mpe=False, large_arch=True)
         self.model.eval()
         self.backend = 'torch'
