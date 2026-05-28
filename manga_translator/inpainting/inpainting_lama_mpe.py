@@ -231,7 +231,7 @@ class LamaMPEInpainter(OfflineInpainter):
 
     async def _infer(self, image: np.ndarray, mask: np.ndarray, config: InpainterConfig, inpainting_size: int = 1024, verbose: bool = False) -> np.ndarray:
         # ✅ ONNX推理（lamampe.onnx 包含完整的 MPE 支持：4个输入 image, mask, rel_pos, direct）
-        if hasattr(self, 'backend') and self.backend == 'onnx':
+        if hasattr(self, 'backend') and (self.backend == 'onnx' or self.backend == 'openvino'):
             try:
                 # 调用包含MPE的ONNX推理
                 return await self._infer_onnx(image, mask, inpainting_size, verbose)
@@ -632,8 +632,10 @@ class LamaLargeInpainter(LamaMPEInpainter):
     
     async def _unload(self):
         if hasattr(self, 'backend'):
-            if self.backend == 'onnx':
+            if self.backend == 'onnx' or self.backend == 'openvino':
                 del self.session
+                if hasattr(self, 'core'):
+                    del self.core
             elif self.backend == 'torch':
                 del self.model
 
@@ -743,7 +745,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
 
     async def _infer(self, image: np.ndarray, mask: np.ndarray, config: InpainterConfig, inpainting_size: int = 1024, verbose: bool = False) -> np.ndarray:
         # ✅ ONNX推理，失败时自动降级到PyTorch
-        if hasattr(self, 'backend') and self.backend == 'onnx':
+        if hasattr(self, 'backend') and (self.backend == 'onnx' or self.backend == 'openvino'):
             try:
                 return await self._infer_onnx(image, mask, inpainting_size, verbose)
             except Exception as e:

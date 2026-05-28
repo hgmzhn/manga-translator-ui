@@ -48,12 +48,25 @@ class LamaInpainter(LamaMPEInpainter):
         
         # ✅ CPU模式使用ONNX（解决虚拟内存泄漏）
         if not device.startswith('cuda') and device != 'mps':
+            onnx_path = self._get_file_path('lamampe.onnx')
+            
+            # 优先尝试使用原生 OpenVINO 进行 CPU 侧的极致加速
+            try:
+                import openvino as ov
+                self.logger.info(f'检测到 OpenVINO 环境，正在使用 OpenVINO 原生推理加速（CPU）: {onnx_path}')
+                self.core = ov.Core()
+                self.ov_model = self.core.read_model(onnx_path)
+                self.session = self.core.compile_model(self.ov_model, "CPU")
+                self.backend = 'openvino'
+                return
+            except Exception as ov_exc:
+                self.logger.debug(f'未启用 OpenVINO 原生加速或加载失败（可忽略）: {ov_exc}')
+
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama ONNX inference. "
                     "Install with: pip install onnxruntime-gpu (or onnxruntime)"
                 )
-                onnx_path = self._get_file_path('lamampe.onnx')
                 self.logger.info(f'使用ONNX模型（CPU优化，default模型）: {onnx_path}')
                 
                 # 🔧 内存优化配置
@@ -88,20 +101,22 @@ class LamaInpainter(LamaMPEInpainter):
     
     async def _unload(self):
         if hasattr(self, 'backend'):
-            if self.backend == 'onnx':
+            if self.backend == 'onnx' or self.backend == 'openvino':
                 del self.session
+                if hasattr(self, 'core'):
+                    del self.core
             elif self.backend == 'torch':
                 del self.model
         elif hasattr(self, 'model'):
             del self.model
     
     async def _infer(self, image: np.ndarray, mask: np.ndarray, config, inpainting_size: int = 1024, verbose: bool = False) -> np.ndarray:
-        # ✅ ONNX推理（default模型，2个输入），失败时自动降级到PyTorch
-        if hasattr(self, 'backend') and self.backend == 'onnx':
+        # ✅ ONNX/OpenVINO推理（default模型，2个输入），失败时自动降级到PyTorch
+        if hasattr(self, 'backend') and (self.backend == 'onnx' or self.backend == 'openvino'):
             try:
                 return await self._infer_onnx_default(image, mask, inpainting_size, verbose)
             except Exception as e:
-                self.logger.warning(f'ONNX推理失败（{str(e)[:100]}），本次降级到PyTorch')
+                self.logger.warning(f'推理失败（{str(e)[:100]}），本次降级到PyTorch')
                 # 降级：需要加载PyTorch模型
                 if not hasattr(self, 'model'):
                     self.logger.info('正在加载PyTorch模型...')
@@ -117,7 +132,7 @@ class LamaInpainter(LamaMPEInpainter):
         return await super()._infer(image, mask, config, inpainting_size, verbose)
     
     async def _infer_onnx_default(self, image: np.ndarray, mask: np.ndarray, inpainting_size: int = 1024, verbose: bool = False) -> np.ndarray:
-        """ONNX推理方法（default模型，只需image和mask）"""
+        """ONNX/OpenVINO推理方法（default模型，只需image和mask）"""
         import cv2
         img_original = np.copy(image)
         mask_original = np.copy(mask)
@@ -153,12 +168,15 @@ class LamaInpainter(LamaMPEInpainter):
         mask_input = mask_pad.astype(np.float32)[:, :, 0:1]
         mask_input = np.transpose(mask_input, (2, 0, 1))[None, ...]  # [1, 1, H, W]
         
-        # ONNX推理（只需2个输入：image和mask）
+        # 推理（只需2个输入：image和mask）
         ort_inputs = {
             'image': img.astype(np.float32),
             'mask': mask_input.astype(np.float32)
         }
-        img_inpainted = self.session.run(None, ort_inputs)[0]
+        if self.backend == 'openvino':
+            img_inpainted = self.session(ort_inputs)[0]
+        else:
+            img_inpainted = self.session.run(None, ort_inputs)[0]
         
         # 后处理
         img_inpainted = np.transpose(img_inpainted[0], (1, 2, 0))  # [H, W, 3]

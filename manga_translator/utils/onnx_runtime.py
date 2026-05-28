@@ -175,7 +175,7 @@ def create_inference_session(
 ) -> tuple[Any, str]:
     """
     Create InferenceSession with standard provider order and optional GPU->CPU fallback.
-    Returns (session, active_device), where active_device is 'cuda', 'dml', or 'cpu'.
+    Returns (session, active_device), where active_device is 'cuda', 'dml', 'openvino', or 'cpu'.
     """
     providers = build_execution_providers(
         ort,
