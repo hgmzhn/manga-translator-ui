@@ -100,15 +100,12 @@ class LamaInpainter(LamaMPEInpainter):
             self.model.to(device)
     
     async def _unload(self):
-        if hasattr(self, 'backend'):
-            if self.backend == 'onnx' or self.backend == 'openvino':
-                del self.session
-                if hasattr(self, 'core'):
-                    del self.core
-            elif self.backend == 'torch':
-                del self.model
-        elif hasattr(self, 'model'):
-            del self.model
+        for attr in ('session', 'core', 'ov_model', 'model'):
+            if hasattr(self, attr):
+                try:
+                    delattr(self, attr)
+                except Exception:
+                    pass
     
     async def _infer(self, image: np.ndarray, mask: np.ndarray, config, inpainting_size: int = 1024, verbose: bool = False) -> np.ndarray:
         # ✅ ONNX/OpenVINO推理（default模型，2个输入），失败时自动降级到PyTorch
@@ -127,6 +124,7 @@ class LamaInpainter(LamaMPEInpainter):
                     self.model.eval()
                     if self.device.startswith('cuda') or self.device == 'mps':
                         self.model.to(self.device)
+                self.backend = 'torch'
         
         # ✅ PyTorch推理（调用父类）
         return await super()._infer(image, mask, config, inpainting_size, verbose)

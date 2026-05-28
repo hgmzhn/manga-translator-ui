@@ -219,15 +219,12 @@ class LamaMPEInpainter(OfflineInpainter):
             self.torch_device = torch.device('cpu')
 
     async def _unload(self):
-        if hasattr(self, 'backend'):
-            if self.backend == 'onnx' or self.backend == 'openvino':
-                del self.session
-                if hasattr(self, 'core'):
-                    del self.core
-            elif self.backend == 'torch':
-                del self.model
-        elif hasattr(self, 'model'):
-            del self.model
+        for attr in ('session', 'core', 'ov_model', 'model'):
+            if hasattr(self, attr):
+                try:
+                    delattr(self, attr)
+                except Exception:
+                    pass
 
     async def _infer(self, image: np.ndarray, mask: np.ndarray, config: InpainterConfig, inpainting_size: int = 1024, verbose: bool = False) -> np.ndarray:
         # ✅ ONNX推理（lamampe.onnx 包含完整的 MPE 支持：4个输入 image, mask, rel_pos, direct）
@@ -246,6 +243,7 @@ class LamaMPEInpainter(OfflineInpainter):
                         self.torch_device = torch.device('cpu')
                     if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
                         self.model.to(self.torch_device)
+                self.backend = 'torch'
         
         # ✅ PyTorch推理（原有逻辑）
         img_original = np.copy(image)
@@ -764,6 +762,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
                         self.torch_device = torch.device('cpu')
                     if self.device.startswith('cuda') or self.device == 'mps' or self.device == 'dml':
                         self.model.to(self.torch_device)
+                self.backend = 'torch'
 
         # ✅ PyTorch推理：与 ONNX 保持一致的缩放/补边逻辑
         return await self._infer_torch_large(image, mask, config, inpainting_size, verbose)
