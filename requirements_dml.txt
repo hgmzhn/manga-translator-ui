@@ -13,6 +13,11 @@ torch-directml==0.2.5.dev240914
 # ONNX DirectML 后端 (独立于 torch-directml,微软仍在活跃维护)
 onnxruntime-directml>=1.18.0
 
+# OpenVINO 极速 CPU 推理加速引擎 (用于 CPU 回退加速，与 DML 完美共存无冲突)
+openvino==2025.4.1
+openvino-telemetry>=2025.2.0
+
+
 # === 基础依赖 (与 requirements_cpu/gpu 一致) ===
 aiofiles==25.1.0
 aiohttp==3.12.15

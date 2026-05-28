@@ -167,12 +167,25 @@ class LamaMPEInpainter(OfflineInpainter):
         
         # ✅ CPU或DirectML模式使用ONNX（DirectML不支持PyTorch的ComplexFloat复数算子，ONNX更稳定且支持DirectML GPU加速）
         if not device.startswith('cuda') and device != 'mps':
+            onnx_path = self._get_file_path('lamampe.onnx')
+            
+            # 优先尝试使用原生 OpenVINO 进行 CPU 侧的极致加速（避免 onnxruntime-directml 与 openvino-ep 的 DLL 冲突）
+            try:
+                import openvino as ov
+                self.logger.info(f'检测到 OpenVINO 环境，正在使用 OpenVINO 原生推理加速（CPU）: {onnx_path}')
+                self.core = ov.Core()
+                self.ov_model = self.core.read_model(onnx_path)
+                self.session = self.core.compile_model(self.ov_model, "CPU")
+                self.backend = 'openvino'
+                return
+            except Exception as ov_exc:
+                self.logger.debug(f'未启用 OpenVINO 原生加速或加载失败（可忽略）: {ov_exc}')
+                
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama MPE ONNX inference. "
                     "Install with: pip install onnxruntime-gpu (or onnxruntime)"
                 )
-                onnx_path = self._get_file_path('lamampe.onnx')
                 self.logger.info(f'使用ONNX模型（DirectML/CPU优化）: {onnx_path}')
                 
                 # 🔧 内存优化配置
@@ -207,8 +220,10 @@ class LamaMPEInpainter(OfflineInpainter):
 
     async def _unload(self):
         if hasattr(self, 'backend'):
-            if self.backend == 'onnx':
+            if self.backend == 'onnx' or self.backend == 'openvino':
                 del self.session
+                if hasattr(self, 'core'):
+                    del self.core
             elif self.backend == 'torch':
                 del self.model
         elif hasattr(self, 'model'):
@@ -369,7 +384,10 @@ class LamaMPEInpainter(OfflineInpainter):
             'rel_pos': rel_pos_input,
             'direct': direct_input
         }
-        img_inpainted = self.session.run(None, ort_inputs)[0]
+        if self.backend == 'openvino':
+            img_inpainted = self.session(ort_inputs)[0]
+        else:
+            img_inpainted = self.session.run(None, ort_inputs)[0]
         
         # 后处理
         img_inpainted = np.transpose(img_inpainted[0], (1, 2, 0))
@@ -445,7 +463,10 @@ class LamaMPEInpainter(OfflineInpainter):
             'rel_pos': rel_pos_input,
             'direct': direct_input
         }
-        img_inpainted = self.session.run(None, ort_inputs)[0]
+        if self.backend == 'openvino':
+            img_inpainted = self.session(ort_inputs)[0]
+        else:
+            img_inpainted = self.session.run(None, ort_inputs)[0]
         
         # 后处理
         img_inpainted = np.transpose(img_inpainted[0], (1, 2, 0))  # [H, W, 3]
@@ -517,13 +538,26 @@ class LamaLargeInpainter(LamaMPEInpainter):
         
         # ✅ CPU或DirectML模式使用ONNX（DirectML不支持PyTorch的ComplexFloat复数算子，ONNX更稳定且支持DirectML GPU加速）
         if not device.startswith('cuda') and device != 'mps' and not force_torch:
+            onnx_path = self._get_file_path('lamalarge.onnx')
+            ckpt_path = self._get_file_path('lama_large_512px.ckpt')
+            
+            # 优先尝试使用原生 OpenVINO 进行 CPU 侧的极致加速（避免与 onnxruntime 发生包冲突）
+            try:
+                import openvino as ov
+                self.logger.info(f'检测到 OpenVINO 环境，正在使用 OpenVINO 原生推理加速（CPU）: {onnx_path}')
+                self.core = ov.Core()
+                self.ov_model = self.core.read_model(onnx_path)
+                self.session = self.core.compile_model(self.ov_model, "CPU")
+                self.backend = 'openvino'
+                return
+            except Exception as ov_exc:
+                self.logger.debug(f'未启用 OpenVINO 原生加速或加载失败（可忽略）: {ov_exc}')
+
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama Large ONNX inference. "
                     "Install with: pip install onnxruntime-gpu (or onnxruntime)"
                 )
-                onnx_path = self._get_file_path('lamalarge.onnx')
-                ckpt_path = self._get_file_path('lama_large_512px.ckpt')
                 
                 # 检查 ONNX 文件是否存在
                 if not os.path.isfile(onnx_path):
@@ -752,7 +786,10 @@ class LamaLargeInpainter(LamaMPEInpainter):
                 'image': img,
                 'mask': mask_input
             }
-            img_inpainted = self.session.run(None, ort_inputs)[0]
+            if self.backend == 'openvino':
+                img_inpainted = self.session(ort_inputs)[0]
+            else:
+                img_inpainted = self.session.run(None, ort_inputs)[0]
             
             # 立即释放输入数据
             del img, mask_input, ort_inputs

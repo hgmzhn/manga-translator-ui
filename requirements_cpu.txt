@@ -34,6 +34,11 @@ networkx==3.5
 numpy>=2.0,<2.3
 omegaconf==2.3.0
 onnxruntime==1.20.1
+
+# OpenVINO 极速 CPU 推理加速引擎 (用于原生 CPU 矢量化加速)
+openvino==2025.4.1
+openvino-telemetry>=2025.2.0
+
 openai==2.14.0
 curl_cffi>=0.7.0
 opencv-contrib-python>=4.10.0

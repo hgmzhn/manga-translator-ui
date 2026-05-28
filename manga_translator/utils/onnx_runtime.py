@@ -27,12 +27,36 @@ def is_onnx_gpu_disabled() -> bool:
 def import_onnxruntime(import_error_message: str = ""):
     """Import onnxruntime with a caller-provided error message."""
     try:
+        # Crucial for Windows: add OpenVINO libs directory to search path before importing ORT
+        if os.name == 'nt':
+            try:
+                import openvino
+                import ctypes
+                ov_path = Path(openvino.__file__).parent
+                libs_dir = ov_path / "libs"
+                if libs_dir.exists():
+                    # 1. Add to Python's DLL directory list
+                    try:
+                        os.add_dll_directory(str(libs_dir))
+                    except AttributeError:
+                        pass
+                    # 2. Set Win32 LoadLibrary search path
+                    try:
+                        ctypes.windll.kernel32.SetDllDirectoryW(str(libs_dir))
+                    except Exception:
+                        pass
+                    # 3. Prepend to environment PATH
+                    os.environ["PATH"] = str(libs_dir) + os.pathsep + os.environ.get("PATH", "")
+            except Exception:
+                pass
+
         import onnxruntime as ort  # type: ignore
     except Exception as exc:
         if import_error_message:
             raise ImportError(import_error_message) from exc
         raise
     return ort
+
 
 
 def create_session_options(
@@ -122,6 +146,16 @@ def build_execution_providers(
             logger.warning(f"GPU execution provider not available, fallback to CPU: {available_providers}")
 
     if include_cpu or not providers:
+        available_providers = []
+        try:
+            available_providers = ort.get_available_providers()
+        except Exception:
+            pass
+        if "OpenVINOExecutionProvider" in available_providers:
+            providers.append(("OpenVINOExecutionProvider", {
+                "device_type": "CPU",
+                "num_of_threads": 8
+            }))
         providers.append("CPUExecutionProvider")
 
     return providers
@@ -175,6 +209,8 @@ def create_inference_session(
         active_device = "cuda"
     elif "DmlExecutionProvider" in active_providers:
         active_device = "dml"
+    elif "OpenVINOExecutionProvider" in active_providers:
+        active_device = "openvino"
     else:
         active_device = "cpu"
     return session, active_device
