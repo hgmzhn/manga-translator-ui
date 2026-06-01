@@ -8,12 +8,11 @@ from PyQt6.QtWidgets import QMessageBox
 from services import get_render_parameter_service
 from widgets.themed_message_box import apply_message_box_style
 
+from .document_load_worker import DocumentLoadWorker
 from .session import DocumentLoadFailure, DocumentSnapshot
 
 from manga_translator.utils.path_manager import (
-    find_inpainted_path,
     find_json_path,
-    find_paint_overlay_path,
     find_work_image_path,
     resolve_original_image_path,
 )
@@ -56,7 +55,7 @@ class EditorControllerDocumentService:
     def file_service(self):
         return self.controller.file_service
 
-    def clear_editor_state(self, release_image_cache: bool = False) -> None:
+    def clear_editor_state(self, release_image_cache: bool = False, keep_document: bool = False) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)
         if loading_toast is not None:
             try:
@@ -68,8 +67,10 @@ class EditorControllerDocumentService:
         self.async_service.cancel_all_tasks()
         self.controller.inpaint_service.invalidate_inpaint_requests()
 
-        self.resource_manager.unload_image(release_from_cache=release_image_cache)
-        self.model.clear_document()
+        if not keep_document:
+            # keep_document=True: 切图场景,跳过 image_changed(None) 让旧画面留到新数据覆盖时
+            self.resource_manager.unload_image(release_from_cache=release_image_cache)
+            self.model.clear_document()
 
         toolbar = self.controller.get_toolbar()
         if toolbar is not None:
@@ -83,7 +84,9 @@ class EditorControllerDocumentService:
         self.controller._last_export_snapshot = None
         self.controller._log_memory_snapshot("after-clear-editor-state")
 
-        self.resource_manager.clear_cache()
+        if not keep_document:
+            # 切图时不清缓存:LRU 还要保留 QImage 让来回切换瞬时
+            self.resource_manager.clear_cache()
         render_parameter_service = get_render_parameter_service()
         render_parameter_service.clear_cache()
 
@@ -98,6 +101,15 @@ class EditorControllerDocumentService:
             except Exception:
                 pass
             delattr(self.controller, "_load_executor")
+
+        if release_image_cache:
+            prefetch_executor = getattr(self.controller, "_prefetch_executor", None)
+            if prefetch_executor is not None:
+                try:
+                    prefetch_executor.shutdown(wait=False)
+                except Exception:
+                    pass
+                delattr(self.controller, "_prefetch_executor")
 
         self.logger.debug("Editor state cleared and memory released")
 
@@ -121,37 +133,57 @@ class EditorControllerDocumentService:
             self.logger.error(f"Error reading translation map for {image_path}: {e}")
         return None
 
-    def _load_paint_overlay_array(self, overlay_path: str, target_size):
-        """加载 paint overlay 图层并对齐到底图尺寸，返回 RGBA uint8 numpy 数组。"""
-        import numpy as np
-        from PIL import Image
-
-        try:
-            with Image.open(overlay_path) as overlay_image:
-                overlay_image.load()
-                if overlay_image.mode != "RGBA":
-                    converted = overlay_image.convert("RGBA")
-                    overlay_image.close()
-                    overlay_image = converted
-                if target_size is not None and overlay_image.size != target_size:
-                    resized = overlay_image.resize(target_size, Image.Resampling.NEAREST)
-                    overlay_image.close()
-                    overlay_image = resized
-                array = np.array(overlay_image, dtype=np.uint8, copy=True)
-            if array.ndim != 3 or array.shape[2] != 4:
-                return None
-            return array
-        except Exception as e:
-            self.logger.error(f"Failed to load paint overlay: {overlay_path} ({e})")
-            return None
-
     def resolve_editor_image_paths(self, image_path: str) -> tuple[str, str]:
         source_path = self.find_source_from_translation_map(image_path)
         if not source_path:
             source_path = resolve_original_image_path(image_path)
 
-        display_image_path = find_work_image_path(source_path) or source_path
+        work_image_path = find_work_image_path(source_path)
+        if work_image_path and self._is_editor_base_stale(source_path):
+            self._delete_stale_editor_base(work_image_path)
+            work_image_path = None
+
+        display_image_path = work_image_path or source_path
         return os.path.normpath(source_path), os.path.normpath(display_image_path)
+
+    def _is_editor_base_stale(self, source_path: str) -> bool:
+        """editor_base 只在最近一次运行真的做了超分或上色时才有意义；
+        否则视为过期残留，避免编辑器加载到与当前 JSON 不匹配的旧底图。"""
+        import json as _json
+
+        json_path = find_json_path(source_path)
+        if not json_path:
+            # 没有 JSON 可参考 → 无法证明 editor_base 有效，按过期处理
+            return True
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+        except Exception as e:
+            self.logger.warning(f"Failed to read JSON for editor_base staleness check: {e}")
+            return False
+
+        image_data = None
+        if isinstance(data, dict):
+            key = os.path.abspath(source_path)
+            image_data = data.get(key)
+            if image_data is None and data:
+                image_data = next(iter(data.values()))
+        if not isinstance(image_data, dict):
+            return True
+
+        has_upscale = bool(image_data.get("upscale_ratio"))
+        colorizer = image_data.get("colorizer")
+        has_colorizer = bool(colorizer) and str(colorizer).lower() != "none"
+        return not (has_upscale or has_colorizer)
+
+    def _delete_stale_editor_base(self, work_image_path: str) -> None:
+        try:
+            os.remove(work_image_path)
+            self.logger.info(f"Removed stale editor_base image: {work_image_path}")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            self.logger.warning(f"Failed to remove stale editor_base image {work_image_path}: {e}")
 
     def load_image_and_regions(self, image_path: str) -> None:
         if self.controller.export_service.has_changes_since_last_export():
@@ -203,7 +235,8 @@ class EditorControllerDocumentService:
         )
 
     def do_load_image(self, image_path: str) -> None:
-        self.clear_editor_state()
+        # 切图:保留旧画面 + 旧 LRU 缓存,等新数据信号到达再覆盖,避免黑闪
+        self.clear_editor_state(keep_document=True)
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:
@@ -211,60 +244,6 @@ class EditorControllerDocumentService:
 
         if not hasattr(self.controller, "_load_executor"):
             self.controller._load_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-
-        def load_data():
-            try:
-                source_path, display_image_path = self.resolve_editor_image_paths(image_path)
-                image_resource = self.resource_manager.load_image(display_image_path)
-                image = image_resource.image
-
-                compare_image = image
-                if os.path.normpath(source_path) != os.path.normpath(display_image_path):
-                    try:
-                        compare_image = self.controller._load_detached_image_array(source_path, image.size)
-                    except Exception as compare_error:
-                        self.logger.warning(f"Error loading compare image: {compare_error}")
-
-                json_path = find_json_path(source_path)
-                regions = []
-                raw_mask = None
-                if json_path:
-                    regions, raw_mask, _ = self.file_service.load_translation_json(source_path)
-
-                inpainted_path = find_inpainted_path(source_path)
-                inpainted_image = None
-                if inpainted_path:
-                    try:
-                        inpainted_image = self.controller._load_detached_image_array(inpainted_path, image.size)
-                    except Exception as e:
-                        self.logger.error(f"Error loading inpainted image: {e}")
-                        inpainted_path = None
-
-                paint_overlay_path = find_paint_overlay_path(source_path)
-                paint_overlay_image = None
-                if paint_overlay_path:
-                    try:
-                        paint_overlay_image = self._load_paint_overlay_array(paint_overlay_path, image.size)
-                        if paint_overlay_image is None:
-                            paint_overlay_path = None
-                    except Exception as e:
-                        self.logger.error(f"Error loading paint overlay: {e}")
-                        paint_overlay_path = None
-
-                return DocumentSnapshot(
-                    source_path=source_path,
-                    image=image,
-                    compare_image=compare_image,
-                    regions=regions,
-                    raw_mask=raw_mask,
-                    inpainted_path=inpainted_path,
-                    inpainted_image=inpainted_image,
-                    paint_overlay_path=paint_overlay_path,
-                    paint_overlay_image=paint_overlay_image,
-                )
-            except Exception as e:
-                self.logger.error(f"Error loading image data: {e}", exc_info=True)
-                return DocumentLoadFailure(str(e))
 
         def on_load_complete(future):
             try:
@@ -274,7 +253,8 @@ class EditorControllerDocumentService:
                 self.logger.error(f"Load failed: {e}", exc_info=True)
                 self.controller._load_result_ready.emit(DocumentLoadFailure(str(e)))
 
-        future = self.controller._load_executor.submit(load_data)
+        worker = DocumentLoadWorker(self, image_path)
+        future = self.controller._load_executor.submit(worker.load)
         future.add_done_callback(on_load_complete)
 
     def apply_load_result(self, result: object) -> None:
@@ -306,11 +286,43 @@ class EditorControllerDocumentService:
             self.model.set_original_image_alpha(default_alpha)
 
         self.model.apply_document_snapshot(snapshot)
-        self.resource_manager.release_image_cache_except_current(force=True)
+        self.resource_manager.release_image_cache_except_current()
+        self.prefetch_images(getattr(self.controller, "_pending_editor_prefetch_paths", []))
         self.controller._log_memory_snapshot("after-apply-loaded-document")
 
         if snapshot.regions and snapshot.raw_mask is not None:
             self.async_service.submit_task(self.controller.inpaint_service.async_refine_and_inpaint())
+
+    def prefetch_images(self, image_paths: list[str]) -> None:
+        """后台预读相邻图片和 QImage，降低下一次切图等待。"""
+        paths = [path for path in image_paths if path]
+        if not paths:
+            return
+
+        executor = getattr(self.controller, "_prefetch_executor", None)
+        if executor is None:
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            self.controller._prefetch_executor = executor
+
+        executor.submit(self._prefetch_images_worker, paths)
+
+    def _prefetch_images_worker(self, image_paths: list[str]) -> None:
+        for image_path in image_paths:
+            try:
+                _, display_image_path = self.resolve_editor_image_paths(image_path)
+                resource = self.resource_manager.prefetch_image(display_image_path)
+                if getattr(resource, "qimage", None) is not None:
+                    continue
+
+                from PyQt6.QtGui import QImageReader
+
+                reader = QImageReader(resource.path)
+                reader.setAutoTransform(True)
+                qimage = reader.read()
+                if not qimage.isNull():
+                    resource.qimage = qimage
+            except Exception as e:
+                self.logger.debug("Editor image prefetch skipped for %s: %s", image_path, e)
 
     def handle_load_error(self, error_msg: str) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)

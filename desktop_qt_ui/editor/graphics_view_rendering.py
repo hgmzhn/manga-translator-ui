@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 
 import numpy as np
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import QTimer, pyqtSlot
 from services import get_render_parameter_service
 
 from . import text_renderer_backend
@@ -29,6 +29,18 @@ from .text_render_pipeline import (
 
 
 class GraphicsViewRenderingMixin:
+    def _schedule_render_update(self) -> None:
+        if getattr(self, "_render_update_immediate_once", False):
+            self._render_update_immediate_once = False
+            if self.render_debounce_timer.isActive():
+                self.render_debounce_timer.stop()
+            if not self._immediate_render_update_pending:
+                self._immediate_render_update_pending = True
+                QTimer.singleShot(0, self._perform_render_update)
+            return
+
+        self.render_debounce_timer.start()
+
     def on_regions_changed(self, regions):
         same_item_count = len(regions) == len(self._region_items)
         pending_indices = list(self._pending_geometry_edit_kinds.keys())
@@ -48,7 +60,7 @@ class GraphicsViewRenderingMixin:
         self._clear_pending_geometry_edits()
         self.render_coordinator.clear_text_render_cache()
         self.render_coordinator.clear_render_snapshots()
-        self.render_debounce_timer.start()
+        self._schedule_render_update()
 
     def _log_layout_failure(
         self,
@@ -121,10 +133,9 @@ class GraphicsViewRenderingMixin:
             if edit_kind is None:
                 edit_kind = self._consume_pending_geometry_edit(index)
 
-            if edit_kind == "white_frame":
-                override = self._build_dst_points_from_item(item)
-                self._recalculate_single_region_render_data(index, override_dst_points=override)
-            else:
+            # white_frame 编辑时 item.geo 在拖动中已经更新过，跳过 update_from_data。
+            # 其他编辑（rotate/move/shape/other）需要从 model 同步到 item。
+            if edit_kind != "white_frame":
                 region_for_item = region_data.copy()
                 if (
                     hasattr(item, "geo")
@@ -137,7 +148,10 @@ class GraphicsViewRenderingMixin:
                     except Exception:
                         pass
                 item.update_from_data(region_for_item)
-                self._recalculate_single_region_render_data(index)
+
+            # dst 永远由 calc_box_from_font(字号) 反算 + render_center 定位（snapshot 完成），
+            # 不再需要 override —— 白框只负责 UI 显示和提供渲染中心。
+            self._recalculate_single_region_render_data(index)
 
             self._update_single_region_text_visual(index)
             if item.scene() is not None:
@@ -178,38 +192,6 @@ class GraphicsViewRenderingMixin:
             return self._values_equal(model_wf, item_wf)
         except Exception:
             return False
-
-    def _build_dst_points_from_item(self, item):
-        wf = item.geo.white_frame_local
-        if wf is None or len(wf) != 4:
-            return None
-        left, top, right, bottom = wf
-        box_w = float(right - left)
-        box_h = float(bottom - top)
-        if box_w <= 0.0 or box_h <= 0.0:
-            return None
-
-        cx, cy = item.geo.center
-        angle = float(getattr(item.geo, "angle", 0.0) or 0.0)
-        theta = np.deg2rad(angle)
-        cos_t = np.cos(theta)
-        sin_t = np.sin(theta)
-        local_cx = (left + right) / 2.0
-        local_cy = (top + bottom) / 2.0
-        render_cx = float(cx + local_cx * cos_t - local_cy * sin_t)
-        render_cy = float(cy + local_cx * sin_t + local_cy * cos_t)
-        half_w = box_w / 2.0
-        half_h = box_h / 2.0
-
-        return np.array(
-            [[
-                [render_cx - half_w, render_cy - half_h],
-                [render_cx + half_w, render_cy - half_h],
-                [render_cx + half_w, render_cy + half_h],
-                [render_cx - half_w, render_cy + half_h],
-            ]],
-            dtype=np.float32,
-        )
 
     def _ensure_render_cache_size(self, index: int):
         self.render_coordinator.ensure_region_capacity(index)
@@ -365,10 +347,13 @@ class GraphicsViewRenderingMixin:
             clear_region_text(item)
 
     def _perform_render_update(self):
+        self._immediate_render_update_pending = False
         self.selection_manager.suppress_forward_sync(True)
+        self.setUpdatesEnabled(False)
         try:
             regions = self.model.get_regions()
             current_items = self._region_items
+            first_new_item_index = len(current_items)
 
             while len(current_items) > len(regions):
                 item = current_items.pop()
@@ -396,14 +381,18 @@ class GraphicsViewRenderingMixin:
                     item = current_items[i]
                     item.set_image_item(self._image_item)
                     item.region_index = i
+                    # 本轮刚创建的 item 已经用同一份 region_data 初始化过，避免重复
+                    # prepareGeometryChange/update/scene invalidation。
+                    if i >= first_new_item_index:
+                        continue
                     item.update_from_data(region_data)
-
             self.recalculate_render_data()
         except Exception as e:
             self.logger.error("Render update failed: %s", e, exc_info=True)
         finally:
             self.selection_manager.suppress_forward_sync(False)
             self.selection_manager.restore_selection_after_rebuild()
+            self.setUpdatesEnabled(True)
 
     def _update_text_visuals(self):
         try:
@@ -505,8 +494,8 @@ class GraphicsViewRenderingMixin:
                 dst_points_list.append(None)
                 continue
 
+            snapshot = snapshots[i] if i < len(snapshots) else None
             try:
-                snapshot = snapshots[i] if i < len(snapshots) else None
                 region_dict = snapshot.region_data if snapshot is not None else {}
                 region_params = build_region_specific_params(global_params_dict, text_block)
                 if region_dict.get("line_spacing") is not None:

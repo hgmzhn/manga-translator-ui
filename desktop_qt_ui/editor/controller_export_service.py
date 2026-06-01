@@ -141,19 +141,33 @@ class EditorControllerExportService:
                 self.controller._export_toast = toast_manager.show_info("正在导出...", duration=0)
 
             image_snapshot = self.controller._snapshot_image_for_export(image, "base image")
-            inpainted_snapshot = self.controller._snapshot_image_for_export(
-                self.model.get_inpainted_image(),
-                "inpainted image",
-            )
-            regions_snapshot = copy.deepcopy(regions)
-            mask_snapshot = None if mask is None else np.array(mask, copy=True)
-
             paint_overlay = self.model.get_paint_overlay_image()
             overlay_snapshot = None
             if paint_overlay is not None:
                 overlay_arr = np.asarray(paint_overlay)
                 if overlay_arr.ndim == 3 and overlay_arr.shape[2] == 4 and np.any(overlay_arr[..., 3]):
                     overlay_snapshot = overlay_arr.copy()
+
+            # 有画板涂层时，inpainted snapshot 就取「inpainted ⊕ 画板」合成图。
+            # 没有实时 inpainted 但磁盘上有旧 inpainted 时回退加载，
+            # 避免后端因拿不到 inpainted 而重跑修复、把画板涂层丢掉。
+            inpainted_base = self.model.get_inpainted_image()
+            if inpainted_base is None and overlay_snapshot is not None and source_path:
+                inpainted_base = self._load_existing_inpainted_for_compose(source_path)
+            if overlay_snapshot is not None and inpainted_base is not None:
+                composed = self.compose_image_with_overlay(inpainted_base, overlay_snapshot)
+                if composed is not None and composed is not inpainted_base:
+                    inpainted_base = composed
+            inpainted_snapshot = self.controller._snapshot_image_for_export(
+                inpainted_base,
+                "inpainted image",
+            )
+            regions_snapshot = copy.deepcopy(regions)
+            mask_snapshot = None if mask is None else np.array(mask, copy=True)
+
+            # 乐观更新：提交异步任务前先打快照，避免 Ctrl+Q 后立刻切图弹"未保存的编辑"。
+            # 失败时 success_callback 不会再次刷新快照，用户重新 Ctrl+Q 即可。
+            self.save_export_snapshot()
 
             return self.async_service.submit_task(
                 self.async_export_with_desktop_ui_service(
@@ -181,16 +195,19 @@ class EditorControllerExportService:
         render_box = region.get("render_box_rect_local")
         has_custom = bool(region.get("has_custom_white_frame", False))
 
+        # 解绑：与编辑器 snapshot 同步——用户手动白框存在时优先白框，
+        # 让导出和预览的渲染中心走同一条路。
+        if has_custom and isinstance(custom_box, (list, tuple)) and len(custom_box) == 4:
+            return custom_box
         if isinstance(render_box, (list, tuple)) and len(render_box) == 4:
             return render_box
-        if isinstance(custom_box, (list, tuple)) and len(custom_box) == 4 and has_custom:
-            return custom_box
         if isinstance(custom_box, (list, tuple)) and len(custom_box) == 4:
             return custom_box
         return None
 
     @classmethod
     def apply_white_frame_center(cls, region: dict) -> None:
+        """将 center 重算为白框世界中心，并同步平移 local 坐标以免漂移。"""
         wf_local = cls.resolve_effective_box_local(region)
         base_center = region.get("center")
         if not (
@@ -209,6 +226,21 @@ class EditorControllerExportService:
             rad = math.radians(angle)
             cos_a, sin_a = math.cos(rad), math.sin(rad)
             region["center"] = [cx + lx * cos_a - ly * sin_a, cy + lx * sin_a + ly * cos_a]
+            # 同步平移 local 坐标，以新 center 为原点，防止存/读漂移
+            if "white_frame_rect_local" in region:
+                wf = region["white_frame_rect_local"]
+                if isinstance(wf, (list, tuple)) and len(wf) == 4:
+                    region["white_frame_rect_local"] = [
+                        float(wf[0]) - lx, float(wf[1]) - ly,
+                        float(wf[2]) - lx, float(wf[3]) - ly,
+                    ]
+            if "render_box_rect_local" in region:
+                rb = region["render_box_rect_local"]
+                if isinstance(rb, (list, tuple)) and len(rb) == 4:
+                    region["render_box_rect_local"] = [
+                        float(rb[0]) - lx, float(rb[1]) - ly,
+                        float(rb[2]) - lx, float(rb[3]) - ly,
+                    ]
         except (TypeError, ValueError):
             return
 
@@ -329,6 +361,21 @@ class EditorControllerExportService:
             self.logger.warning(f"保存彩色画笔图层失败: {e}")
             return None
 
+    def _load_existing_inpainted_for_compose(self, source_path: str):
+        """无实时 inpainted 预览时，从磁盘加载旧 inpainted 作为画板合成底图。"""
+        try:
+            existing_path = find_inpainted_path(source_path)
+            if not existing_path or not os.path.exists(existing_path):
+                return None
+            from PIL import Image as _PILImage
+
+            with _PILImage.open(existing_path) as fp:
+                fp.load()
+                return fp.copy()
+        except Exception as e:
+            self.logger.warning(f"加载磁盘 inpainted 作为画板底图失败: {e}")
+            return None
+
     @staticmethod
     def compose_image_with_overlay(
         base_image: Optional[object],
@@ -381,9 +428,10 @@ class EditorControllerExportService:
         inpainted_image: Optional[object] = None,
     ) -> str:
         json_path = self.resolve_editor_json_path(source_path)
+        # 写盘的 region 保持 center=源区域中心、white_frame_rect_local 相对该中心。
+        # 给后端 load_text 渲染用的副本（_build_enhanced_regions）才需要把
+        # center 平移到白框中心；两条路径不能共用，否则下次编辑器加载会再叠加一次偏移。
         json_regions = [dict(region) for region in regions]
-        for region in json_regions:
-            self.apply_white_frame_center(region)
         export_service._save_regions_data_with_path(json_regions, json_path, source_path, mask, config_dict)
         self.save_current_inpainted_image(
             source_path,
@@ -394,13 +442,42 @@ class EditorControllerExportService:
         )
         return json_path
 
+    def _read_saved_export_dir(self, source_path: Optional[str]) -> Optional[str]:
+        """从该图片对应的 _translations.json 中读取主翻译流程记录的输出目录。"""
+        if not source_path:
+            return None
+        try:
+            json_path = find_json_path(source_path)
+            if not json_path or not os.path.exists(json_path):
+                return None
+            import json as _json
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            if not isinstance(data, dict) or not data:
+                return None
+            image_key = os.path.abspath(source_path)
+            image_data = data.get(image_key)
+            if not isinstance(image_data, dict):
+                image_data = next(iter(data.values()), None)
+            if not isinstance(image_data, dict):
+                return None
+            saved_dir = image_data.get("last_export_dir")
+            if isinstance(saved_dir, str) and saved_dir and os.path.isdir(saved_dir):
+                return saved_dir
+        except Exception as e:
+            self.logger.debug(f"Failed to read saved export dir for {source_path}: {e}")
+        return None
+
     def _build_output_path(self, config, source_path: Optional[str]) -> str:
         save_to_source_dir = getattr(config.cli, "save_to_source_dir", False) if hasattr(config, "cli") else False
         if save_to_source_dir and source_path:
             output_dir = os.path.join(os.path.dirname(source_path), "manga_translator_work", "result")
             os.makedirs(output_dir, exist_ok=True)
         else:
-            output_dir = getattr(config.app, "last_output_path", None) if hasattr(config, "app") else None
+            # 优先使用 JSON 中记录的目录（主翻译流程上次导出的位置），让编辑器导出回到原目录
+            output_dir = self._read_saved_export_dir(source_path)
+            if not output_dir:
+                output_dir = getattr(config.app, "last_output_path", None) if hasattr(config, "app") else None
             if not output_dir or not os.path.exists(output_dir):
                 output_dir = os.path.dirname(source_path) if source_path else os.getcwd()
 
@@ -492,13 +569,9 @@ class EditorControllerExportService:
             else:
                 self.logger.warning("Exporting without source image path, skipped JSON persistence")
 
-            # 在交给后端渲染前，先把彩色画笔图层合成到修复底图上，
-            # 这样后端在复用 inpainted 图时文字会叠在用户涂抹的结果之上。
+            # inpainted_image 已在 export_image() 入口完成「inpainted ⊕ 画板」合成，
+            # 直接交给后端复用即可。
             render_inpainted_image = inpainted_image
-            if paint_overlay is not None and inpainted_image is not None:
-                composed = self.compose_image_with_overlay(inpainted_image, paint_overlay)
-                if composed is not None and composed is not inpainted_image:
-                    render_inpainted_image = composed
 
             def progress_callback(_message):
                 return None

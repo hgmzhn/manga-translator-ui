@@ -69,6 +69,7 @@ class ConcurrentPipeline:
         self._lock = threading.Lock()
         self.translation_done = {}  # 翻译完成的ctx（包含翻译后的text_regions）
         self.inpaint_done = {}      # 修复完成的ctx（包含img_inpainted）
+        self.pending_redo = set()   # 翻译过滤后需要重做修复的图片名（用于协调入渲染队列的时机）
         
         # 存储基础ctx（检测+OCR的结果），供翻译和修复使用
         self.base_contexts = {}     # {image_name: ctx}
@@ -76,6 +77,7 @@ class ConcurrentPipeline:
         # 控制标志
         self.stop_workers = False
         self.detection_ocr_done = False  # 检测+OCR是否全部完成
+        self.translation_thread_done = False  # 翻译线程是否已结束（不会再投递 redo 修复任务）
         self.has_critical_error = False  # 是否发生严重错误
         self.critical_error_msg = None   # 严重错误信息
         self.critical_error_exception = None  # 原始异常对象
@@ -341,8 +343,10 @@ class ConcurrentPipeline:
                     
                     # 放入翻译队列和修复队列
                     if ctx.text_regions:
+                        # 保存原始 regions 引用集合,供翻译过滤后做差异检测
+                        ctx._initial_region_ids = {id(r) for r in ctx.text_regions}
                         self._enqueue_translation_task(ctx.image_name, config)
-                        self.inpaint_queue.put((ctx.image_name, config))
+                        self.inpaint_queue.put((ctx.image_name, config, False))
                         logger.info(f"[检测+OCR] {ctx.image_name} 已加入翻译队列和修复队列 (翻译队列大小: {self.translation_queue.qsize()})")
                     else:
                         # 无文本，直接标记完成并放入渲染队列
@@ -486,6 +490,7 @@ class ConcurrentPipeline:
         except PipelineAbortError:
             self.stop_workers = True
         finally:
+            self.translation_thread_done = True
             logger.info("[翻译线程] 停止")
     
     async def _process_translation_batch(self, batch: List[tuple]):
@@ -506,21 +511,46 @@ class ConcurrentPipeline:
             self._emit_status(f"[翻译] 批次完成 ({self.stats['translation']}/{self.total_images})")
             
             ready_to_render = 0
+            redo_tasks = []  # 锁外推送，避免锁内阻塞 queue.put
             for ctx, config in translated_batch:
+                # 计算翻译过滤是否剔除了 region（仅对成功翻译的 ctx 适用）
+                has_filtered = False
+                filtered_count = 0
+                if not getattr(ctx, 'translation_error', None):
+                    initial_ids = getattr(ctx, '_initial_region_ids', None)
+                    if initial_ids:
+                        final_ids = {id(r) for r in (ctx.text_regions or [])}
+                        filtered_ids = initial_ids - final_ids
+                        has_filtered = bool(filtered_ids)
+                        filtered_count = len(filtered_ids)
+
                 with self._lock:
                     self.translation_done[ctx.image_name] = ctx.text_regions
                     if ctx.image_name in self.base_contexts:
                         self.base_contexts[ctx.image_name].text_regions = ctx.text_regions
-                    
-                    # 检查修复是否也完成
-                    if ctx.image_name in self.inpaint_done:
+
+                    if has_filtered:
+                        # 翻译过滤掉了 region，标记待重做。首跑可能还没完成，也可能已完成。
+                        # 修复线程首跑分支会因 pending_redo 存在而跳过入渲染，
+                        # redo 任务被处理时再入渲染队列。
+                        self.pending_redo.add(ctx.image_name)
+                        redo_tasks.append((ctx.image_name, config))
+                        logger.info(f"[翻译] {ctx.image_name} 过滤掉 {filtered_count} 个 region，将触发修复重做")
+                    elif ctx.image_name in self.inpaint_done:
+                        # 无差异 + 修复首跑已完成 → 立即入渲染队列
                         self.render_queue.put((ctx, config))
                         ready_to_render += 1
                         logger.info(f"[翻译] {ctx.image_name} 翻译+修复都完成，立即加入渲染队列")
-            
+
+            # 锁外推送 redo 任务到修复队列
+            for image_name, config in redo_tasks:
+                self.inpaint_queue.put((image_name, config, True))
+
             if ready_to_render > 0:
                 logger.info(f"[翻译] 批次中 {ready_to_render}/{len(batch)} 张图片立即加入渲染队列")
-            else:
+            if redo_tasks:
+                logger.info(f"[翻译] 批次中 {len(redo_tasks)}/{len(batch)} 张图片触发了修复重做")
+            if ready_to_render == 0 and not redo_tasks:
                 logger.debug(f"[翻译] 批次中 0/{len(batch)} 张图片完成修复，等待修复完成后加入渲染队列")
             
         except PipelineAbortError:
@@ -582,6 +612,7 @@ class ConcurrentPipeline:
                 image_name = None
                 config = None
                 ctx = None
+                is_redo = False
                 try:
                     self._check_cancelled_or_raise("修复", f"已完成 {inpaint_count}/{self.total_images}")
 
@@ -589,67 +620,95 @@ class ConcurrentPipeline:
                         logger.warning(f"[修复] 检测到严重错误，停止修复 (已完成 {inpaint_count}/{self.total_images})")
                         break
                     
-                    # 检查是否完成所有任务
-                    if self.detection_ocr_done and self.inpaint_queue.empty():
+                    # 检查是否完成所有任务。
+                    # 翻译线程可能在首轮修复队列清空后才发现 region 被过滤，
+                    # 并投递 redo 修复任务；必须等翻译线程结束后才可退出。
+                    if (
+                        self.detection_ocr_done
+                        and self.translation_thread_done
+                        and self.inpaint_queue.empty()
+                    ):
                         await asyncio.sleep(0.5)
                         self._check_cancelled_or_raise("修复", f"已完成 {inpaint_count}/{self.total_images}")
-                        if self.inpaint_queue.empty():
+                        if self.translation_thread_done and self.inpaint_queue.empty():
                             logger.info(f"[修复线程] 所有任务已完成 ({inpaint_count}/{self.total_images})")
                             break
                     
                     # 尝试获取任务
                     try:
-                        image_name, config = self.inpaint_queue.get(timeout=1.0)
+                        image_name, config, is_redo = self.inpaint_queue.get(timeout=1.0)
                     except queue.Empty:
                         if self.has_critical_error:
                             logger.warning("[修复] 检测到严重错误，停止等待")
                             break
                         continue
-                    
+
                     with self._lock:
                         ctx = self.base_contexts.get(image_name)
                     if not ctx:
                         logger.error(f"[修复] 找不到 {image_name} 的基础上下文")
                         continue
-                    
-                    logger.info(f"[修复] 处理: {ctx.image_name}")
+
+                    if is_redo:
+                        logger.info(f"[修复] 重做(过滤后): {ctx.image_name} (剩余 regions: {len(ctx.text_regions) if ctx.text_regions else 0})")
+                        # 清除旧 mask 让 _run_mask_refinement 基于过滤后的 regions 重新生成
+                        ctx.mask = None
+                    else:
+                        logger.info(f"[修复] 处理: {ctx.image_name}")
 
                     if getattr(ctx, 'translation_error', None):
                         self._record_failed_image(ctx.image_name)
                         with self._lock:
                             self.inpaint_done[ctx.image_name] = True
+                            self.pending_redo.discard(ctx.image_name)
                             if ctx.image_name in self.translation_done:
                                 self.render_queue.put((ctx, config))
-                        self.stats['inpaint'] += 1
-                        inpaint_count += 1
-                        self._emit_status(f"[修复] 跳过失败文件 {inpaint_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
+                        if not is_redo:
+                            self.stats['inpaint'] += 1
+                            inpaint_count += 1
+                            self._emit_status(f"[修复] 跳过失败文件 {inpaint_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
                         continue
-                    
+
                     # Mask refinement
                     if ctx.mask is None and ctx.text_regions:
                         current_stage = 'mask-generation'
                         self._check_cancelled_or_raise("修复", f"处理 {os.path.basename(ctx.image_name)}")
                         ctx.mask = await self.translator._run_mask_refinement(config, ctx)
                         self._check_cancelled_or_raise("修复", f"处理 {os.path.basename(ctx.image_name)}")
-                    
+
                     # Inpainting
                     if ctx.text_regions:
                         current_stage = 'inpainting'
                         self._check_cancelled_or_raise("修复", f"处理 {os.path.basename(ctx.image_name)}")
                         ctx.img_inpainted = await self.translator._run_inpainting(config, ctx)
                         self._check_cancelled_or_raise("修复", f"处理 {os.path.basename(ctx.image_name)}")
-                    
-                    self.stats['inpaint'] += 1
-                    inpaint_count += 1
-                    # ✅ 发送状态日志
-                    self._emit_status(f"[修复] 完成 {inpaint_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
-                    
+
+                    if not is_redo:
+                        self.stats['inpaint'] += 1
+                        inpaint_count += 1
+                        self._emit_status(f"[修复] 完成 {inpaint_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
+                    else:
+                        self._emit_status(f"[修复] 重做完成: {os.path.basename(ctx.image_name)}")
+
                     # 标记修复完成
                     with self._lock:
                         self.inpaint_done[ctx.image_name] = True
-                        
-                        # 如果翻译也完成了，放入渲染队列
-                        if ctx.image_name in self.translation_done:
+
+                        if is_redo:
+                            # 重做后翻译必已完成，且差异已确认。无条件入渲染队列。
+                            self.pending_redo.discard(ctx.image_name)
+                            render_ctx = self.base_contexts.get(ctx.image_name)
+                            if render_ctx:
+                                # text_regions 此时已是翻译过滤后的版本（翻译线程已写回）
+                                self.render_queue.put((render_ctx, config))
+                                logger.info(f"[修复] {ctx.image_name} 重做完成，加入渲染队列")
+                            else:
+                                logger.error(f"[修复] 找不到 {ctx.image_name} 的基础上下文")
+                        elif ctx.image_name in self.pending_redo:
+                            # 翻译已确认有过滤，正在等 redo 任务被处理，首跑完成不入队
+                            logger.info(f"[修复] {ctx.image_name} 首跑完成，等待重做")
+                        elif ctx.image_name in self.translation_done:
+                            # 翻译已完成且无 region 被过滤，加入渲染队列
                             render_ctx = self.base_contexts.get(ctx.image_name)
                             if render_ctx:
                                 translated_regions = self.translation_done.get(ctx.image_name)
@@ -692,12 +751,22 @@ class ConcurrentPipeline:
                         self.inpaint_done[ctx.image_name] = True
                         if ctx.image_name in self.base_contexts:
                             self.base_contexts[ctx.image_name] = ctx
-                        if ctx.image_name in self.translation_done:
+                        if is_redo:
+                            # redo 失败：清除 pending_redo，直接推渲染队列
+                            self.pending_redo.discard(ctx.image_name)
                             self.render_queue.put((ctx, config))
+                        else:
+                            # 首跑失败：若已被翻译标为待重做，则让 redo 任务统一推渲染
+                            if (ctx.image_name not in self.pending_redo
+                                    and ctx.image_name in self.translation_done):
+                                self.render_queue.put((ctx, config))
 
-                    self.stats['inpaint'] += 1
-                    inpaint_count += 1
-                    self._emit_status(f"[修复] 跳过失败文件 {inpaint_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
+                    if not is_redo:
+                        self.stats['inpaint'] += 1
+                        inpaint_count += 1
+                        self._emit_status(f"[修复] 跳过失败文件 {inpaint_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
+                    else:
+                        self._emit_status(f"[修复] 重做失败: {os.path.basename(ctx.image_name)}")
                     continue
                 except PipelineAbortError:
                     logger.info("[修复] 因内部停止信号结束")
@@ -941,9 +1010,11 @@ class ConcurrentPipeline:
             self.stats[key] = 0
         self.translation_done.clear()
         self.inpaint_done.clear()
+        self.pending_redo.clear()
         self.base_contexts.clear()
         self.failed_images.clear()
         self.detection_ocr_done = False
+        self.translation_thread_done = False
         self.stop_workers = False
         self.has_critical_error = False
         self.critical_error_msg = None

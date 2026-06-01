@@ -85,6 +85,12 @@ class FileService:
                     if not region.get('target_lang'):
                         region['target_lang'] = default_target_lang
 
+            # 旧 JSON 兼容:缺 translation_raw 时用 translation 回填,
+            # 保证编辑器"替换前译文"框始终有值显示
+            for region in regions:
+                if 'translation_raw' not in region:
+                    region['translation_raw'] = region.get('translation', '')
+
             mask_data = image_data.get('mask_raw')
             if isinstance(mask_data, str):
                 try:

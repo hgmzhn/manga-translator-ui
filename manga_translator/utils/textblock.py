@@ -77,6 +77,7 @@ class TextBlock(object):
                  font_size: float = -1,
                  angle: float = 0,
                  translation: str = "",
+                 translation_raw: str = "",
                  fg_color: Tuple[float] = (0, 0, 0),
                  bg_color: Tuple[float] = (0, 0, 0),
                  line_spacing = 1.,
@@ -123,6 +124,9 @@ class TextBlock(object):
         self.layout_mode = layout_mode
 
         self.translation = translation
+        # 替换前译文(YAML 规则应用前的原始版本)。空时回填 translation,
+        # 保证字段永不为空 — 编辑器和导出可放心读取。
+        self.translation_raw = translation_raw if translation_raw else translation
 
         # Handle color from UI (hex string) or backend (RGB tuple)
         font_color_hex = kwargs.get('font_color')
@@ -352,6 +356,7 @@ class TextBlock(object):
             'texts': self.texts,
             'text': self.text,
             'translation': self.translation,
+            'translation_raw': self.translation_raw,
             'angle': self.angle,
             'font_size': self.font_size,  # 保存最终渲染的字体大小
             'fg_colors': fg_out,

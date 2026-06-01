@@ -786,6 +786,7 @@ class GraphicsViewInputMixin:
                 "text": "",
                 "texts": [""],
                 "translation": "",
+                "translation_raw": "",
                 "polygons": [image_points],
                 "lines": [image_points],
                 "white_frame_rect_local": white_frame_rect_local,

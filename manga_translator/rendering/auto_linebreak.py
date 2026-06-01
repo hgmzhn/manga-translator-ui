@@ -20,6 +20,7 @@ from .text_render import (
     get_char_offset_y,
     get_vertical_char_bitmap_width,
     get_string_width,
+    normalize_vertical_ellipsis_text,
     select_hyphenator,
 )
 from ..utils.textblock import LANGUAGE_ORIENTATION_PRESETS
@@ -153,6 +154,20 @@ def _vert_char_bitmap_width(font_size: int, cdpt: str) -> int:
         return font_size
 
 
+def _vert_char_metrics(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> Tuple[int, int]:
+    """一次取竖排进量和字形宽度，避免 layout 尺寸计算重复查同一字形。"""
+    try:
+        base = text_render._vertical_base(font_size, '　' if cdpt == '＿' else cdpt, letter_spacing)
+        bitmap = base.get('bitmap')
+        width = font_size if bitmap is None or bitmap.size == 0 else int(bitmap.shape[1])
+        return int(base.get('advance_y') or font_size), width
+    except Exception:
+        return (
+            _vert_char_advance(font_size, cdpt, letter_spacing=letter_spacing),
+            _vert_char_bitmap_width(font_size, cdpt),
+        )
+
+
 def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = None, letter_spacing: float = 1.0) -> Tuple[List[str], List[int]]:
     """
     竖排换行引擎，完全自包含。
@@ -166,6 +181,7 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
 
     返回 (line_text_list, line_height_list)
     """
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     text = _BR_RE.sub('\n', text)
 
     line_text_list: List[str] = []
@@ -224,6 +240,73 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
     return line_text_list, line_height_list
 
 
+def _layout_vertical_metrics(font_size: int, text: str, max_height: int, config: Any = None, letter_spacing: float = 1.0) -> Tuple[List[str], List[int], List[int]]:
+    """竖排换行 + 每列宽度，一次扫描完成尺寸测量。"""
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
+    text = _BR_RE.sub('\n', text)
+
+    line_text_list: List[str] = []
+    line_height_list: List[int] = []
+    line_width_list: List[int] = []
+
+    def append_line(line_text: str, line_height: int, line_width: int) -> None:
+        line_text_list.append(line_text)
+        line_height_list.append(line_height)
+        line_width_list.append(max(font_size, int(line_width)))
+
+    for paragraph in text.split('\n'):
+        if not paragraph:
+            append_line('', 0, font_size)
+            continue
+
+        current_line_text = ""
+        current_line_height = 0
+        current_line_width = font_size
+
+        for part in _H_BLOCK_RE.split(paragraph):
+            if not part:
+                continue
+
+            is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
+
+            if is_h:
+                content = part[3:-4]
+                if not content:
+                    continue
+                block_h = _h_block_height(font_size, content, letter_spacing=letter_spacing)
+                if current_line_height + block_h > max_height and current_line_text:
+                    append_line(current_line_text, current_line_height, current_line_width)
+                    current_line_text = part
+                    current_line_height = block_h
+                    current_line_width = font_size
+                else:
+                    current_line_text += part
+                    current_line_height += block_h
+                continue
+
+            for cdpt in part:
+                if not cdpt:
+                    continue
+                adv, width = _vert_char_metrics(font_size, cdpt, letter_spacing=letter_spacing)
+                if current_line_height + adv > max_height and current_line_text:
+                    append_line(current_line_text, current_line_height, current_line_width)
+                    current_line_text = cdpt
+                    current_line_height = adv
+                    current_line_width = max(font_size, width)
+                else:
+                    current_line_text += cdpt
+                    current_line_height += adv
+                    current_line_width = max(current_line_width, width)
+
+        if current_line_text:
+            append_line(current_line_text, current_line_height, current_line_width)
+
+    if not line_text_list:
+        append_line("", 0, font_size)
+
+    return line_text_list, line_height_list, line_width_list
+
+
 def _vert_line_width(line_text: str, font_size: int) -> int:
     """竖排单列的实际最大字形宽度，与 put_text_vertical 的 line_widths 逻辑一致。"""
     max_width = font_size
@@ -244,6 +327,7 @@ def _vert_line_width(line_text: str, font_size: int) -> int:
 
 def _vert_total_height(text: str, font_size: int, config: Any = None, letter_spacing: float = 1.0) -> int:
     """不换行时竖排文本的总高度，考虑 <H> 块。"""
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     text = _BR_RE.sub('', text)
     total = 0
     for part in _H_BLOCK_RE.split(text):

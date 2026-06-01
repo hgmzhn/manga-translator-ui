@@ -5,7 +5,7 @@
 
 import time
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Any, Dict
 
 import numpy as np
 from PIL import Image
@@ -21,7 +21,8 @@ class ImageResource:
     width: int
     height: int
     load_time: float = field(default_factory=time.time)
-    
+    qimage: Any = None  # QImage,后台线程预转避免主线程阻塞;Any 类型避免 core 层引入 Qt 依赖
+
     def release(self) -> None:
         """释放资源"""
         if self.image:
@@ -30,6 +31,7 @@ class ImageResource:
             except Exception:
                 pass
             self.image = None
+        self.qimage = None
     
     def __del__(self):
         """析构函数，确保资源释放"""

@@ -60,10 +60,12 @@ class RegionGeometryState:
 
     @property
     def white_frame_local(self) -> Optional[List[float]]:
-        if self._render_box_local is not None:
-            return self._render_box_local
+        # 解绑：用户手动白框优先于渲染框。
+        # 渲染框（render_box）只是字号反算的小框，不应该夺权白框 UI。
         if self.has_custom_white_frame and self._custom_white_frame_local is not None:
             return self._custom_white_frame_local
+        if self._render_box_local is not None:
+            return self._render_box_local
         return self._source_box_local
 
     @property

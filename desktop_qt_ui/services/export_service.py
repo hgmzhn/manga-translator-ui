@@ -372,7 +372,7 @@ class ExportService:
         # 使用图片的绝对路径作为键，与加载时保持一致
         image_key = os.path.abspath(image_path)
         self._save_regions_data_internal(regions_data, json_path, image_key, mask, config)
-    
+
     def _save_regions_data(self, regions_data: List[Dict[str, Any]], json_path: str, mask: Optional[np.ndarray] = None, config: Optional[Dict[str, Any]] = None):
         """保存区域数据到JSON文件，确保格式与TextBlock兼容（用于导出）"""
         # 使用文件名作为键（向后兼容）

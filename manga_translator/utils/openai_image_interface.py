@@ -19,6 +19,8 @@ _IMAGE_API_BACKEND_SILICONFLOW = "siliconflow"
 _IMAGE_API_BACKEND_VOLCENGINE = "volcengine"
 _IMAGE_API_BACKEND_DASHSCOPE = "dashscope"
 _IMAGE_API_BACKEND_XAI = "xai"
+_IMAGE_API_BACKEND_OPENROUTER = "openrouter"
+_OPENROUTER_DEFAULT_MAX_TOKENS = 2048
 
 
 async def request_openai_image_with_fallback(
@@ -279,6 +281,9 @@ async def request_openai_image_with_fallback(
                 }
             ],
         }
+        if _detect_image_api_backend(base_url) == _IMAGE_API_BACKEND_OPENROUTER:
+            request_json["modalities"] = ["image", "text"]
+            request_json["max_tokens"] = _OPENROUTER_DEFAULT_MAX_TOKENS
         if extra_request_params:
             request_json.update(extra_request_params)
 
@@ -347,6 +352,8 @@ def _build_candidate_interfaces(
     backend = _detect_image_api_backend(base_url or cache_key[0])
     if preferred_interface:
         default_order = [preferred_interface]
+    elif backend == _IMAGE_API_BACKEND_OPENROUTER:
+        default_order = ["chat/completions", "images/generations", "images/edits"]
     elif backend == _IMAGE_API_BACKEND_DASHSCOPE:
         default_order = ["images/generations", "chat/completions", "images/edits"]
     elif backend == _IMAGE_API_BACKEND_XAI:
@@ -381,6 +388,9 @@ def _detect_image_api_backend(base_url: str) -> str:
 
     if "siliconflow.cn" in combined:
         return _IMAGE_API_BACKEND_SILICONFLOW
+
+    if host == "openrouter.ai" or host.endswith(".openrouter.ai"):
+        return _IMAGE_API_BACKEND_OPENROUTER
 
     if host == "api.x.ai" or host.startswith("api.x.ai:"):
         return _IMAGE_API_BACKEND_XAI

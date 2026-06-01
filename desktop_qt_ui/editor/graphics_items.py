@@ -115,6 +115,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_handle_indices = None
         self._drag_start_pos = QPointF()
         self._drag_start_polygons: List[QPolygonF] = []
+        self._batch_drag_peers: list = []   # 批量移动时其他选中项的快照
         self._drag_start_rotation = 0.0
         self._drag_raw_rotation = 0.0
         self._drag_start_visual_center = QPointF()
@@ -134,8 +135,10 @@ class RegionTextItem(QGraphicsItemGroup):
         self._angle_label = None
         # 对齐辅助线（场景级别）
         self._guide_lines = []
+        self._spacing_labels: list = []
         # 吸附阈值（像素）
         self._snap_threshold = 1.0
+        self._spacing_snap_threshold = 5.0
 
         self._setup_pens()
 
@@ -499,6 +502,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_start_pivot_scene = QPointF()
         self._drag_raw_rotation = 0.0
         self._drag_last_angle_rad = 0.0
+        self._batch_drag_peers = []
 
     def _reset_interaction_state(self):
         self._interaction_mode = "none"
@@ -514,6 +518,61 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_start_white_handle_world = None
         if capture_text_pos:
             self._drag_start_text_item_pos = QPointF(self.text_item.pos())
+
+    def _capture_batch_drag_peers(self):
+        """批量移动：记录场景中其他选中 item 的初始状态，拖动时同步移动。"""
+        self._batch_drag_peers = []
+        sc = self.scene()
+        if sc is None:
+            return
+        for item in sc.items():
+            if not isinstance(item, RegionTextItem):
+                continue
+            if item is self or not item.isSelected():
+                continue
+            wf = item.geo.white_frame_local
+            if wf is None:
+                continue
+            self._batch_drag_peers.append({
+                "item": item,
+                "start_wf_local": list(wf),
+                "start_text_pos": QPointF(item.text_item.pos()),
+                "start_center": list(item.geo.center),
+                "old_rect": item.sceneBoundingRect(),
+            })
+
+    def _move_batch_peers(self, scene_dx: float, scene_dy: float):
+        """对批量 peers 应用相同的场景位移。"""
+        for peer in self._batch_drag_peers:
+            item = peer["item"]
+            if item.scene() is None:
+                continue
+            angle_rad = np.radians(item.rotation())
+            cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+            ldx = scene_dx * cos_a + scene_dy * sin_a
+            ldy = -scene_dx * sin_a + scene_dy * cos_a
+            wf = peer["start_wf_local"]
+            moved = [wf[0] + ldx, wf[1] + ldy, wf[2] + ldx, wf[3] + ldy]
+            item.prepareGeometryChange()
+            item._shape_path = None
+            item.geo.set_custom_white_frame_local(moved)
+            item.text_item.setPos(peer["start_text_pos"] + QPointF(ldx, ldy))
+            item.update()
+            item._invalidate_scene_rect(peer["old_rect"])
+
+    def _commit_batch_peers(self, event):
+        """提交批量 peers 的位置变更到模型。"""
+        for peer in self._batch_drag_peers:
+            item = peer["item"]
+            if item.scene() is None:
+                continue
+            patch = item.geo.to_region_data_patch()
+            new_data = build_white_frame_region_data(
+                item.region_data, patch, item.geo.white_frame_local,
+                old_white_frame_local=peer["start_wf_local"],
+                edit_mode="white_move",
+            )
+            item._emit_region_update(event, new_data)
 
     # ------------------------------------------------------------------
     # 旋转角度显示
@@ -712,19 +771,86 @@ class RegionTextItem(QGraphicsItemGroup):
             pen
         )
 
+    def _detect_spacing_snap(self, my_points: dict) -> tuple:
+        """智能间距吸附:检测与其它 item 对的等距关系。
+
+        对每对 (pa, pb),规范化使较小 far 的为"左/上"框,在两个轴上分别尝试
+        两个吸附候选:
+          1. 拖到右框远侧:my_near 对齐到 right_far + gap
+          2. 拖到左框近侧:my_far  对齐到 left_near - gap
+        """
+        scene = self.scene()
+        if scene is None:
+            return 0.0, 0.0, []
+
+        others: list[dict] = []
+        for item in scene.items():
+            if not isinstance(item, RegionTextItem):
+                continue
+            if item is self or item.isSelected():
+                continue
+            pts = item._get_white_frame_world_points()
+            if pts and all(pts.get(k) for k in ("left", "right", "top", "bottom")):
+                others.append(pts)
+        if len(others) < 2:
+            return 0.0, 0.0, []
+
+        threshold = self._spacing_snap_threshold
+        snap = [0.0, 0.0]   # [dx, dy]
+        guides: list = []
+
+        # 每个轴的元数据: (axis_index, ori, near_key, far_key, perp_key, abcd_keys)
+        axes = [
+            (0, "h", "left", "right", "y", ("x1", "x2", "x3", "x4")),
+            (1, "v", "top",  "bottom", "x", ("y1", "y2", "y3", "y4")),
+        ]
+
+        for axis_idx, ori, near_k, far_k, perp_k, abcd_keys in axes:
+            my_near = my_points.get(near_k)
+            my_far = my_points.get(far_k)
+            if not (my_near and my_far):
+                continue
+            comp = (lambda p: p.x()) if axis_idx == 0 else (lambda p: p.y())
+            perp = (lambda p: p.y()) if axis_idx == 0 else (lambda p: p.x())
+
+            for i, pa in enumerate(others):
+                for pb in others[i + 1:]:
+                    an, af = comp(pa[near_k]), comp(pa[far_k])
+                    bn, bf = comp(pb[near_k]), comp(pb[far_k])
+                    # 规范化:far 较小的为"左/上"框
+                    if af < bn:
+                        ln_, lf_, rn_, rf_ = an, af, bn, bf
+                    elif bf < an:
+                        ln_, lf_, rn_, rf_ = bn, bf, an, af
+                    else:
+                        continue
+                    gap = rn_ - lf_
+                    if gap < 4:
+                        continue
+                    candidates = [
+                        (rf_ + gap, my_near, (lf_, rn_, rf_, rf_ + gap)),
+                        (ln_ - gap, my_far,  (ln_ - gap, ln_, lf_, rn_)),
+                    ]
+                    for tgt, my_edge, abcd in candidates:
+                        if abs(comp(my_edge) - tgt) < threshold and abs(snap[axis_idx]) < 0.01:
+                            snap[axis_idx] = tgt - comp(my_edge)
+                            spec = {"kind": "spacing", "ori": ori, "label": f"{gap:.0f}", perp_k: perp(my_edge)}
+                            for key, value in zip(abcd_keys, abcd):
+                                spec[key] = value
+                            guides.append(spec)
+
+        return snap[0], snap[1], guides
+
     def _show_guide_lines(self, guide_specs: list, is_rotation: bool = False):
-        """在场景中绘制全屏的对齐/旋转辅助虚线。"""
+        """在场景中绘制全屏的对齐/旋转辅助虚线 + 间距标尺。"""
         self._clear_guide_lines()
         scene = self.scene()
         if scene is None or not guide_specs:
             return
 
         visible_rect = self._visible_scene_rect(scene)
-
-        # 根据可视区域对角线计算一个足够长的延伸距离
         extent = 2.0 * math.hypot(visible_rect.width(), visible_rect.height())
 
-        # 旋转时用橙黄色，平移吸附用青色
         if is_rotation:
             pen = QPen(QColor(255, 165, 0, 255), 1.5)
         else:
@@ -732,15 +858,59 @@ class RegionTextItem(QGraphicsItemGroup):
         pen.setCosmetic(True)
         pen.setStyle(Qt.PenStyle.DashLine)
 
+        # 间距标尺的画笔：亮橙色实线，粗 2px
+        sp_pen = QPen(QColor(255, 180, 60, 255), 2)
+        sp_pen.setCosmetic(True)
+
         for guide_spec in guide_specs:
-            line = self._build_guide_line(scene, visible_rect, extent, pen, guide_spec)
-            if line is None:
-                continue
-            line.setZValue(9999) # 确保层级最高
-            self._guide_lines.append(line)
+            if isinstance(guide_spec, dict) and guide_spec.get("kind") == "spacing":
+                ori = guide_spec.get("ori", "h")
+                label = guide_spec.get("label", "")
+                tick_half = 24.0  # 刻度线半长
+
+                if ori == "h":
+                    # 参考间距 (x1,x2) 和目标间距 (x3,x4) 各画一对竖线
+                    for xa, xb in [(guide_spec.get("x1"), guide_spec.get("x2")),
+                                   (guide_spec.get("x3"), guide_spec.get("x4"))]:
+                        if xa is not None and xb is not None:
+                            y = guide_spec.get("y", 0)
+                            ln = scene.addLine(xa, y - tick_half, xa, y + tick_half, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            ln = scene.addLine(xb, y - tick_half, xb, y + tick_half, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            # 标签放在两根刻度线中间上方
+                            lbl = QGraphicsSimpleTextItem(label)
+                            lbl.setPos((xa + xb) / 2.0 - 10, y - tick_half - 22)
+                            lbl.setZValue(9999)
+                            lbl.setBrush(QBrush(QColor(255, 180, 60)))
+                            f = lbl.font(); f.setPixelSize(16); f.setBold(True)
+                            lbl.setFont(f)
+                            scene.addItem(lbl); self._spacing_labels.append(lbl)
+                else:
+                    for ya, yb in [(guide_spec.get("y1"), guide_spec.get("y2")),
+                                   (guide_spec.get("y3"), guide_spec.get("y4"))]:
+                        if ya is not None and yb is not None:
+                            x = guide_spec.get("x", 0)
+                            ln = scene.addLine(x - tick_half, ya, x + tick_half, ya, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            ln = scene.addLine(x - tick_half, yb, x + tick_half, yb, sp_pen)
+                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            lbl = QGraphicsSimpleTextItem(label)
+                            lbl.setPos(x - tick_half - 34, (ya + yb) / 2.0 - 10)
+                            lbl.setZValue(9999)
+                            lbl.setBrush(QBrush(QColor(255, 180, 60)))
+                            f = lbl.font(); f.setPixelSize(16); f.setBold(True)
+                            lbl.setFont(f)
+                            scene.addItem(lbl); self._spacing_labels.append(lbl)
+            else:
+                line = self._build_guide_line(scene, visible_rect, extent, pen, guide_spec)
+                if line is None:
+                    continue
+                line.setZValue(9999)
+                self._guide_lines.append(line)
 
     def _clear_guide_lines(self):
-        """清除所有辅助线。"""
+        """清除所有辅助线和间距标签。"""
         scene = self.scene()
         for line in self._guide_lines:
             try:
@@ -749,6 +919,13 @@ class RegionTextItem(QGraphicsItemGroup):
             except (RuntimeError, AttributeError):
                 pass
         self._guide_lines.clear()
+        for label in self._spacing_labels:
+            try:
+                if scene is not None:
+                    scene.removeItem(label)
+            except (RuntimeError, AttributeError):
+                pass
+        self._spacing_labels.clear()
 
     # ------------------------------------------------------------------
     # 手柄命中检测
@@ -917,6 +1094,7 @@ class RegionTextItem(QGraphicsItemGroup):
                 self._drag_start_white_handle_world = self._white_handle_world_at_start()
             elif handle == "white_move":
                 self._capture_white_frame_drag_context(capture_text_pos=True)
+                self._capture_batch_drag_peers()
             elif handle == "rotate":
                 self.setTransformOriginPoint(QPointF(0, 0))
                 self._drag_start_pivot_scene = self.mapToScene(self._drag_start_center)
@@ -1162,23 +1340,27 @@ class RegionTextItem(QGraphicsItemGroup):
             left, top, right, bottom = self._drag_start_white_frame_local
             moved = [left + dx, top + dy, right + dx, bottom + dy]
 
-            # --- 吸附逻辑 ---
+            # --- 吸附：边缘 + 间距从同一位置独立计算，间距优先 ---
             my_points = self._get_white_frame_world_points_from_local(moved)
             targets = self._get_other_items_snap_targets()
+            guide_specs = []
+            edge_dx = edge_dy = 0.0
             if my_points and targets:
-                snap_dx_scene, snap_dy_scene, guide_specs = self._calculate_snap_offset(
-                    my_points, targets
-                )
-                if snap_dx_scene != 0.0 or snap_dy_scene != 0.0:
-                    snap_local_dx = snap_dx_scene * cos_a + snap_dy_scene * sin_a
-                    snap_local_dy = -snap_dx_scene * sin_a + snap_dy_scene * cos_a
-                    moved = [
-                        moved[0] + snap_local_dx, moved[1] + snap_local_dy,
-                        moved[2] + snap_local_dx, moved[3] + snap_local_dy,
-                    ]
-                    dx += snap_local_dx
-                    dy += snap_local_dy
-                    logger.debug(f"[RegionTextItem] snap: dx={snap_dx_scene:.1f} dy={snap_dy_scene:.1f}")
+                edge_dx, edge_dy, edge_guides = self._calculate_snap_offset(my_points, targets)
+                guide_specs.extend(edge_guides)
+            spacing_dx, spacing_dy, spacing_guides = self._detect_spacing_snap(my_points)
+            guide_specs.extend(spacing_guides)
+            if spacing_dx != 0.0 or spacing_dy != 0.0:
+                sldx = spacing_dx * cos_a + spacing_dy * sin_a
+                sldy = -spacing_dx * sin_a + spacing_dy * cos_a
+                moved = [moved[0]+sldx, moved[1]+sldy, moved[2]+sldx, moved[3]+sldy]
+                dx += sldx; dy += sldy
+            elif edge_dx != 0.0 or edge_dy != 0.0:
+                eldx = edge_dx * cos_a + edge_dy * sin_a
+                eldy = -edge_dx * sin_a + edge_dy * cos_a
+                moved = [moved[0]+eldx, moved[1]+eldy, moved[2]+eldx, moved[3]+eldy]
+                dx += eldx; dy += eldy
+            if guide_specs:
                 self._show_guide_lines(guide_specs)
             else:
                 self._clear_guide_lines()
@@ -1191,6 +1373,9 @@ class RegionTextItem(QGraphicsItemGroup):
             self.text_item.setPos(self._drag_start_text_item_pos + QPointF(dx, dy))
             self.update()
             self._invalidate_scene_rect(old_rect)
+
+            # 批量移动其他选中项
+            self._move_batch_peers(scene_delta.x(), scene_delta.y())
 
         except Exception as e:
             logger.error(f"[RegionTextItem] _handle_white_frame_move: {e}\n{traceback.format_exc()}")
@@ -1209,6 +1394,9 @@ class RegionTextItem(QGraphicsItemGroup):
             edit_mode=edit_mode,
         )
         self._emit_region_update(event, new_data)
+
+        # 同步提交其他选中项的位移
+        self._commit_batch_peers(event)
 
     def _white_handle_world_at_start(self):
         if self._drag_start_white_frame_local is None:

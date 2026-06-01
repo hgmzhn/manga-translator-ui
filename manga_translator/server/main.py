@@ -45,6 +45,8 @@ def _ensure_web_startup_files() -> None:
     from manga_translator.custom_api_params import ensure_custom_api_params_file
     from manga_translator.ocr.prompt_loader import ensure_ai_ocr_prompt_file
     from manga_translator.rendering.prompt_loader import ensure_ai_renderer_prompt_file
+    from manga_translator.rendering.text_replacements import ensure_text_replacements_exists
+    from manga_translator.utils.translation_template import ensure_translation_template_exists
     from manga_translator.utils.text_filter import ensure_filter_list_exists
 
     startup_files = [
@@ -53,6 +55,8 @@ def _ensure_web_startup_files() -> None:
         ("renderer_prompt", ensure_ai_renderer_prompt_file),
         ("colorizer_prompt", ensure_ai_colorizer_prompt_file),
         ("filter_list", ensure_filter_list_exists),
+        ("text_replacements", ensure_text_replacements_exists),
+        ("translation_template", ensure_translation_template_exists),
     ]
 
     for label, factory in startup_files:

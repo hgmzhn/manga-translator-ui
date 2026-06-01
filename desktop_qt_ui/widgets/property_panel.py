@@ -94,6 +94,7 @@ class PropertyPanel(QWidget):
     """
     # --- Define all required signals ---
     translated_text_modified = pyqtSignal(int, str)
+    translation_raw_modified = pyqtSignal(int, str)
     original_text_modified = pyqtSignal(int, str)
     ocr_requested = pyqtSignal()
     translation_requested = pyqtSignal()
@@ -440,10 +441,15 @@ class PropertyPanel(QWidget):
         self.translated_text_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.translated_text_box.setMinimumHeight(72)
         self.translated_text_box.setMaximumHeight(132)
-        
+
         self.original_text_label = QLabel(self._t("Original Text:"))
         text_layout.addWidget(self.original_text_label)
         text_layout.addWidget(self.original_text_box)
+        # 复选框:勾选时让"译文"框显示"替换前译文"(translation_raw),编辑会实时跑替换写回译文
+        self.translation_raw_checkbox = QCheckBox(self._t("Show Translation (Raw)"))
+        self.translation_raw_checkbox.setChecked(True)
+        self.translation_raw_checkbox.toggled.connect(self._on_translation_raw_mode_toggled)
+        text_layout.addWidget(self.translation_raw_checkbox)
         self.translated_text_label = QLabel(self._t("Translated Text:"))
         text_layout.addWidget(self.translated_text_label)
         text_layout.addWidget(self.translated_text_box)
@@ -894,6 +900,8 @@ class PropertyPanel(QWidget):
             self.direction_label.setText(self._t("Direction:"))
         if hasattr(self, 'original_text_label'):
             self.original_text_label.setText(self._t("Original Text:"))
+        if hasattr(self, 'translation_raw_checkbox'):
+            self.translation_raw_checkbox.setText(self._t("Show Translation (Raw)"))
         if hasattr(self, 'translated_text_label'):
             self.translated_text_label.setText(self._t("Translated Text:"))
         if hasattr(self, 'text_stats_label'):
@@ -1500,8 +1508,13 @@ class PropertyPanel(QWidget):
             if force or not self.translated_text_box.hasFocus():
                 import re
 
+                # 复选框选中 → 显示"替换前译文"(translation_raw),否则显示"译文"(translation)
+                show_raw = bool(getattr(self, 'translation_raw_checkbox', None)
+                                and self.translation_raw_checkbox.isChecked())
+                field_key = "translation_raw" if show_raw else "translation"
+                translation_text = region_data.get(field_key, "") or region_data.get("translation", "")
+
                 # 1. 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为 \n
-                translation_text = region_data.get("translation", "")
                 translation_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', translation_text, flags=re.IGNORECASE)
 
                 # 2. 将 <H> 标签替换为符号 ⇄ 显示在文本框中
@@ -1624,10 +1637,17 @@ class PropertyPanel(QWidget):
         # 3. 将 \n 转换回 AI 换行符 [BR]
         text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
 
-        # 检查是否有变化
+        # 按当前模式决定写入哪个字段
+        show_raw = bool(getattr(self, 'translation_raw_checkbox', None)
+                        and self.translation_raw_checkbox.isChecked())
         region_data = self.model.get_region_by_index(self.current_region_index)
-        if region_data and region_data.get("translation", "") != text_with_br:
-            self.translated_text_modified.emit(self.current_region_index, text_with_br)
+        if region_data:
+            field_key = "translation_raw" if show_raw else "translation"
+            if region_data.get(field_key, "") != text_with_br:
+                if show_raw:
+                    self.translation_raw_modified.emit(self.current_region_index, text_with_br)
+                else:
+                    self.translated_text_modified.emit(self.current_region_index, text_with_br)
     
     def _on_original_text_focus_out(self):
         """当原文文本框失去焦点时更新model"""
@@ -1670,7 +1690,22 @@ class PropertyPanel(QWidget):
             # 3. 将 \n 转换回 AI 换行符 [BR]（与 _on_translated_text_focus_out 保持一致）
             text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
 
-            self.translated_text_modified.emit(self.current_region_index, text_with_br)
+            # 复选框选中 → 当前编辑的是"替换前译文",走 raw 信号(controller 会跑替换更新 translation);
+            # 否则编辑的是"译文",走原信号
+            show_raw = bool(getattr(self, 'translation_raw_checkbox', None)
+                            and self.translation_raw_checkbox.isChecked())
+            if show_raw:
+                self.translation_raw_modified.emit(self.current_region_index, text_with_br)
+            else:
+                self.translated_text_modified.emit(self.current_region_index, text_with_br)
+
+    def _on_translation_raw_mode_toggled(self, checked: bool):
+        """复选框切换:重新刷新当前 region 的文本框内容(读取对应字段)。"""
+        if self.current_region_index == -1:
+            return
+        region_data = self.model.get_region_by_index(self.current_region_index)
+        if region_data:
+            self._update_display(region_data, self.current_region_index, force=True)
     
     def get_selected_ocr_model(self) -> str:
         """获取当前选择的OCR模型"""
@@ -1850,17 +1885,24 @@ class PropertyPanel(QWidget):
 
     def sync_active_tool_from_model(self, tool: str):
         """当 model 的 active_tool 变化时，UI 同步高亮对应按钮并切换标签页。"""
-        mapping = {
-            'select': (self.select_button, 0),
-            'brush': (self.brush_button, 0),
-            'eraser': (self.eraser_button, 0),
-            'paint': (getattr(self, 'paint_brush_button', None), 1),
-            'paint_erase': (getattr(self, 'paint_eraser_button', None), 1),
-        }
-        info = mapping.get(tool)
-        if not info:
-            return
-        button, tab_index = info
+        # 'select' 在蒙版页和画板页都有按钮，按当前所在标签页决定亮哪个，
+        # 避免在画板页点击「选择」时被强制切回蒙版页。
+        if tool == 'select':
+            if self.paint_tab_widget.currentIndex() == 1:
+                button, tab_index = self.paint_select_button, 1
+            else:
+                button, tab_index = self.select_button, 0
+        else:
+            mapping = {
+                'brush': (self.brush_button, 0),
+                'eraser': (self.eraser_button, 0),
+                'paint': (getattr(self, 'paint_brush_button', None), 1),
+                'paint_erase': (getattr(self, 'paint_eraser_button', None), 1),
+            }
+            info = mapping.get(tool)
+            if not info:
+                return
+            button, tab_index = info
         if button is None:
             return
         try:

@@ -1,6 +1,8 @@
 import json
+import logging
 import os
 import shutil
+import sys
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFontDatabase, QRawFont
@@ -31,10 +33,21 @@ from widgets.file_list_view import FileListView
 
 from main_view_parts.theme import THEME_OPTIONS, get_current_theme_colors
 
-_SETTINGS_TAB_LAYOUT_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "locales", "settings_tab_layout.json"
-)
+def _resolve_settings_tab_layout_file() -> str:
+    """打包/开发环境通用地定位 settings_tab_layout.json。
+
+    Why: 打包后 __file__ 落在 PYZ 归档里，dirname() 算不出真实路径；
+    GitHub Action 把 desktop_qt_ui/locales 复制到 _internal/desktop_qt_ui/locales/。
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, "desktop_qt_ui", "locales", "settings_tab_layout.json")
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "locales", "settings_tab_layout.json",
+    )
+
+
+_SETTINGS_TAB_LAYOUT_FILE = _resolve_settings_tab_layout_file()
 
 _PROMPT_EXTENSIONS = (".yaml", ".yml", ".json")
 _FONT_EXTENSIONS = (".ttf", ".otf", ".ttc")
@@ -49,7 +62,10 @@ def _load_reclassify_settings_layout():
         with open(_SETTINGS_TAB_LAYOUT_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data.get("tabs", [])
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "加载 settings_tab_layout.json 失败 (%s): %s", _SETTINGS_TAB_LAYOUT_FILE, exc
+        )
         return []
 
 

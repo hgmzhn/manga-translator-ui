@@ -182,11 +182,16 @@ class EditorView(QWidget):
 
         self.left_tab_widget.addTab(translation_widget, self._t("Editable Translation"))
         self.left_tab_widget.addTab(self.property_panel, self._t("Property Editor"))
+        self.left_tab_widget.currentChanged.connect(self._on_left_tab_changed)
 
         # 设置默认显示"属性编辑"标签页
         self.left_tab_widget.setCurrentIndex(1)
 
         return self.left_tab_widget
+
+    def _on_left_tab_changed(self, index: int):
+        if index == 0 and self.region_list_view is not None:
+            self.region_list_view.flush_pending_regions()
 
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）"""
@@ -258,12 +263,28 @@ class EditorView(QWidget):
 
         self.region_list_view.find_and_replace_in_all_translations(find_text, replace_text)
 
+    def _on_align_requested(self, mode: str):
+        """处理对齐按钮点击。"""
+        reference = self.toolbar.get_align_reference()
+        self.controller.align_regions(mode, reference)
+
+    def _on_distribute_requested(self, mode: str):
+        """处理分布按钮点击。"""
+        self.controller.distribute_regions(mode)
+
+    def _on_selection_changed_for_toolbar(self, selected_indices: list):
+        """根据选区数量更新对齐/分布按钮的启用状态。"""
+        count = len(selected_indices) if selected_indices else 0
+        self.toolbar.update_align_distribute_buttons(count)
+
     def _connect_signals(self):
         # --- Model to View ---
         self.model.regions_changed.connect(self.region_list_view.update_regions)
         self.model.selection_changed.connect(self.region_list_view.update_selection)
         # Connect model selection changes to the property panel
         self.model.selection_changed.connect(self.property_panel.on_selection_changed)
+        # Connect model selection changes to toolbar align/distribute button states
+        self.model.selection_changed.connect(self._on_selection_changed_for_toolbar)
         # Connect model brush size changes to the property panel
         self.model.brush_size_changed.connect(self.property_panel.sync_brush_size_from_model)
         # Connect model brush color changes to the property panel
@@ -297,6 +318,8 @@ class EditorView(QWidget):
         self.toolbar.fit_window_requested.connect(self.graphics_view.fit_to_window)
         self.toolbar.display_mode_changed.connect(self.controller.set_display_mode)
         self.toolbar.original_image_alpha_changed.connect(self.controller.set_original_image_alpha)
+        self.toolbar.align_requested.connect(self._on_align_requested)
+        self.toolbar.distribute_requested.connect(self._on_distribute_requested)
 
         # --- Model to Toolbar (同步滑块) ---
         self.model.original_image_alpha_changed.connect(self.toolbar.set_original_image_alpha_slider)
@@ -307,6 +330,7 @@ class EditorView(QWidget):
 
         # --- Property Panel (Left Panel) to Controller ---
         self.property_panel.translated_text_modified.connect(self.controller.update_translated_text)
+        self.property_panel.translation_raw_modified.connect(self.controller.update_translation_raw)
         self.property_panel.original_text_modified.connect(self.controller.update_original_text)
         self.property_panel.ocr_requested.connect(self.controller.run_ocr_for_selection)
         self.property_panel.translation_requested.connect(self.controller.run_translation_for_selection)
@@ -447,7 +471,7 @@ class EditorView(QWidget):
         if self.original_compare_view is None:
             return
 
-        self.original_compare_view.set_image(image)
+        self.original_compare_view.set_image_when_visible(image, self._compare_mode_enabled)
         if self._compare_mode_enabled:
             self._sync_compare_view_from_main()
 
@@ -464,4 +488,6 @@ class EditorView(QWidget):
         if self.compare_preview_container is not None:
             self.compare_preview_container.setVisible(self._compare_mode_enabled)
         if self._compare_mode_enabled:
+            if self.original_compare_view is not None:
+                self.original_compare_view.flush_pending_image(self.model.get_compare_image())
             self._sync_compare_view_from_main()

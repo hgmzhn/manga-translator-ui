@@ -1,15 +1,22 @@
 
-from PyQt6.QtCore import Qt, pyqtSignal
+import logging
+import os
+
+from PyQt6.QtCore import QByteArray, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QCursor, QIcon, QPainter, QPalette, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSlider,
     QToolButton,
     QWidget,
 )
 from services import get_i18n_manager
+from utils.resource_helper import resource_path
 from widgets.hover_hint import set_hover_hint
 
 
@@ -27,6 +34,8 @@ class EditorToolbar(QWidget):
     fit_window_requested = pyqtSignal()
     display_mode_changed = pyqtSignal(str)
     original_image_alpha_changed = pyqtSignal(int)
+    align_requested = pyqtSignal(str)
+    distribute_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -97,7 +106,7 @@ class EditorToolbar(QWidget):
         self.fit_window_button.setText(self._t("Fit to Window"))
         self.fit_window_button.setObjectName("editor_fit_window_button")
         layout.addWidget(self.fit_window_button)
-        
+
         layout.addWidget(self._create_separator())
 
         # --- Display Mode ---
@@ -138,7 +147,158 @@ class EditorToolbar(QWidget):
         self.original_image_alpha_slider.setMinimumWidth(80)
         layout.addWidget(self.original_image_alpha_slider)
 
+        layout.addWidget(self._create_separator())
+
+        # --- Align / Distribute ---
+        self._build_align_distribute_ui(layout)
+
         layout.addStretch() # Pushes everything to the left
+
+    # ------------------------------------------------------------------
+    # 对齐/分布 UI — 单行 PS 风格布局
+    # ------------------------------------------------------------------
+
+    _ICONS_DIR = resource_path(os.path.join("desktop_qt_ui", "styles", "icons"))
+
+    def _themed_icon(self, svg_name: str) -> QIcon:
+        """读 SVG 模板,把占位符颜色替换为主题色后渲染为 QIcon。
+
+        SVG 用 `#5599ff` 作参考线占位符,`#888888` 作矩形占位符。
+        线色取主题强调色,矩形色取主题文字色,跟主题切换。
+        """
+        pal = self.palette()
+        rect_color = pal.color(QPalette.ColorRole.Text).name()
+        accent = pal.color(QPalette.ColorRole.Highlight)
+        # accent 太暗/太亮时退回固定蓝
+        if accent.lightness() < 60 or accent.lightness() > 230:
+            line_color = "#5599ff"
+        else:
+            line_color = accent.name()
+        path = os.path.join(self._ICONS_DIR, svg_name)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                svg_text = f.read()
+        except OSError as exc:
+            logging.getLogger(__name__).warning("加载工具栏图标失败 (%s): %s", path, exc)
+            return QIcon()
+        svg_text = svg_text.replace("#5599ff", line_color).replace("#888888", rect_color)
+        renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
+        pixmap = QPixmap(28, 28)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        return QIcon(pixmap)
+
+    def _build_align_distribute_ui(self, layout: QHBoxLayout):
+        """构建对齐/分布按钮组：单行 PS 风格。"""
+        BTN_W = 28
+
+        def _make_icon_btn(icon, obj_name, tip):
+            btn = QPushButton()
+            btn.setIcon(icon)
+            btn.setObjectName(obj_name)
+            btn.setToolTip(tip)
+            btn.setFixedSize(QSize(BTN_W + 2, BTN_W + 2))
+            btn.setIconSize(QSize(BTN_W, BTN_W))
+            btn.setFlat(True)
+            btn.setStyleSheet("QPushButton { padding: 0px; border: none; background: transparent; }"
+                             "QPushButton:hover { background: rgba(128,128,128,0.2); }"
+                             "QPushButton:disabled { background: transparent; }")
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.setEnabled(False)
+            return btn
+
+        # 参照模式切换（独立放在外面）
+        self.align_ref_button = QToolButton()
+        self.align_ref_button.setText(self._t("Selection"))
+        self.align_ref_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.align_ref_button.setObjectName("editor_align_ref_button")
+        self.align_ref_button.setToolTip(self._t("Align reference: selection (bounding box) / canvas (whole image)"))
+        self._align_ref = "selection"
+        self._last_selection_count = 0
+        self.align_ref_button.clicked.connect(self._toggle_align_ref)
+        layout.addWidget(self.align_ref_button)
+        layout.addWidget(self._create_separator())
+
+        # 图标按钮用一个独立容器，内部间距统一为 2px，竖线分隔符嵌在其中
+        icon_container = QWidget()
+        icon_container.setObjectName("editor_align_icon_container")
+        icon_layout = QHBoxLayout(icon_container)
+        icon_layout.setContentsMargins(0, 0, 0, 0)
+        icon_layout.setSpacing(10)
+
+        # ── 第 1 组: 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
+        self.align_buttons: dict[str, QToolButton] = {}
+        group1 = [
+            ("left", self._t("Align Left")),
+            ("horizontal_center", self._t("Align Horizontal Center")),
+            ("right", self._t("Align Right")),
+        ]
+        for mode, tip in group1:
+            icon = self._themed_icon(f"align_{mode}.svg")
+            btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
+            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
+            self.align_buttons[mode] = btn
+            icon_layout.addWidget(btn)
+
+        icon = self._themed_icon("distribute_spacing_v.svg")
+        btn = _make_icon_btn(icon, "editor_dist_vertical_spacing", self._t("Distribute Vertical Spacing"))
+        btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
+        self._dist_v_btn = btn
+        icon_layout.addWidget(btn)
+
+        # ── 第 2 组: 顶对齐 / 垂直居中 / 底对齐 / 水平间距分布 ──
+        group2 = [
+            ("top", self._t("Align Top")),
+            ("vertical_center", self._t("Align Vertical Center")),
+            ("bottom", self._t("Align Bottom")),
+        ]
+        for mode, tip in group2:
+            icon = self._themed_icon(f"align_{mode}.svg")
+            btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
+            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
+            self.align_buttons[mode] = btn
+            icon_layout.addWidget(btn)
+
+        icon = self._themed_icon("distribute_spacing_h.svg")
+        btn = _make_icon_btn(icon, "editor_dist_horizontal_spacing", self._t("Distribute Horizontal Spacing"))
+        btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
+        self._dist_h_btn = btn
+        icon_layout.addWidget(btn)
+
+        # 将图标容器挂到主布局
+        layout.addWidget(icon_container)
+
+    def _on_dist_spacing(self, orientation: str):
+        """处理间距分布按钮点击（垂直/水平空白间隙均分）。"""
+        if orientation == "vertical":
+            self.distribute_requested.emit("spacing_v")
+        else:
+            self.distribute_requested.emit("spacing_h")
+
+    def _toggle_align_ref(self):
+        """切换对齐参照模式：选区 ↔ 画布。同时更新按钮启用状态。"""
+        if self._align_ref == "selection":
+            self._align_ref = "canvas"
+            self.align_ref_button.setText(self._t("Canvas"))
+        else:
+            self._align_ref = "selection"
+            self.align_ref_button.setText(self._t("Selection"))
+        self.update_align_distribute_buttons(self._last_selection_count)
+
+    def get_align_reference(self) -> str:
+        return self._align_ref
+
+    def update_align_distribute_buttons(self, selection_count: int):
+        """根据选中数量和参照模式更新按钮启用状态。更多按钮始终可用。"""
+        self._last_selection_count = selection_count
+        align_enabled = (selection_count >= 1 and self._align_ref == "canvas") or (selection_count >= 2)
+        dist_enabled = selection_count >= 3
+        for btn in self.align_buttons.values():
+            btn.setEnabled(align_enabled)
+        self._dist_v_btn.setEnabled(dist_enabled)
+        self._dist_h_btn.setEnabled(dist_enabled)
 
     def _create_separator(self):
         separator = QFrame()
@@ -147,8 +307,7 @@ class EditorToolbar(QWidget):
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setLineWidth(1)
         separator.setMidLineWidth(0)
-        separator.setFixedWidth(2)  # 分隔符可以固定宽度，因为它只是一条线
-        # 设置分隔符的最小高度，确保它垂直显示
+        separator.setFixedWidth(2)
         separator.setMinimumHeight(20)
         return separator
 

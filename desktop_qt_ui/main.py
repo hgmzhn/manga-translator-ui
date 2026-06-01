@@ -254,12 +254,16 @@ def main():
     
     logging.info(f"UI日志文件: {log_file_path}")
     
-    # --- 确保过滤列表 JSON 文件存在 ---
+    # --- 确保配置文件存在 ---
     try:
         from manga_translator.utils.text_filter import ensure_filter_list_exists
         ensure_filter_list_exists()
+        from manga_translator.rendering.text_replacements import ensure_text_replacements_exists
+        ensure_text_replacements_exists()
+        from manga_translator.utils.translation_template import ensure_translation_template_exists
+        ensure_translation_template_exists()
     except Exception as e:
-        logging.warning(f"创建过滤列表文件失败: {e}")
+        logging.warning(f"创建配置文件失败: {e}")
     
     # --- 崩溃捕获 (faulthandler) ---
     # 启用 faulthandler 以捕获 C++ 级别的崩溃 (Segmentation Fault 等)

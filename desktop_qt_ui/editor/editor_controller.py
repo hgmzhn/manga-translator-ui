@@ -31,6 +31,58 @@ from .session import DocumentSnapshot
 _UNSET = object()
 
 
+# 改变这些字段会影响字号反算的文字像素尺寸，需要同步刷新白框：
+# 保持白框中心不变，把宽高更新为 calc_box_from_font(新参数) 的结果。
+_FONT_AFFECTING_FIELDS = frozenset({
+    "translation", "text", "font_size", "font_path",
+    "letter_spacing", "line_spacing", "direction",
+    "stroke_width", "text_stroke_width",
+})
+
+
+def _sync_white_frame_size_for_font_change(region_data: dict) -> None:
+    """字体/译文/描边/字间距等属性改变后，把白框尺寸同步成字号反算尺寸。
+
+    保持白框中心不变；尺寸 = calc_box_from_font(font_size, translation, ...)。
+    标记 has_custom_white_frame=True 让其优先于 render_box 主导渲染中心。
+    """
+    try:
+        from manga_translator.rendering import calc_box_from_font
+
+        font_size = int(region_data.get("font_size") or 0)
+        translation = (region_data.get("translation") or "").strip()
+        if font_size <= 0 or not translation:
+            return
+
+        direction = region_data.get("direction", "h")
+        is_horizontal = direction in ("h", "horizontal", "hr")
+        line_spacing = float(region_data.get("line_spacing") or 1.0)
+        letter_spacing = float(region_data.get("letter_spacing") or 1.0)
+
+        w, h, _ = calc_box_from_font(
+            font_size, translation, is_horizontal, line_spacing,
+            None, None, center=None, angle=0, letter_spacing=letter_spacing,
+        )
+        if w <= 0 or h <= 0:
+            return
+
+        wf = region_data.get("white_frame_rect_local")
+        if isinstance(wf, (list, tuple)) and len(wf) == 4:
+            local_cx = (float(wf[0]) + float(wf[2])) / 2.0
+            local_cy = (float(wf[1]) + float(wf[3])) / 2.0
+        else:
+            local_cx = local_cy = 0.0
+
+        half_w, half_h = float(w) / 2.0, float(h) / 2.0
+        region_data["white_frame_rect_local"] = [
+            local_cx - half_w, local_cy - half_h,
+            local_cx + half_w, local_cy + half_h,
+        ]
+        region_data["has_custom_white_frame"] = True
+    except Exception:
+        return
+
+
 class EditorController(QObject):
     """
     编辑器控制器 (Controller)
@@ -433,6 +485,8 @@ class EditorController(QObject):
 
             new_region_data = old_region_data.copy()
             new_region_data["translation"] = text
+            # 译文批量更新时同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
+            new_region_data["translation_raw"] = text
             commands.append(
                 UpdateRegionCommand(
                     model=self.model,
@@ -561,6 +615,11 @@ class EditorController(QObject):
 
         new_region_data = old_region_data.copy()
         new_region_data[field_name] = value
+
+        # 字体/译文等属性改变 → 同步白框尺寸（保持白框中心），让 UI 立即跟上新字号。
+        if field_name in _FONT_AFFECTING_FIELDS:
+            _sync_white_frame_size_for_font_change(new_region_data)
+
         command = self._build_region_update_command(
             region_index=region_index,
             old_data=old_region_data,
@@ -643,12 +702,78 @@ class EditorController(QObject):
 
     @pyqtSlot(int, str)
     def update_translated_text(self, region_index: int, text: str):
-        self._update_region_field(
+        # 译文编辑:同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
+        self._update_translation_pair(
             region_index,
-            "translation",
-            text,
+            translation=text,
+            translation_raw=text,
             description=f"Update Translation Region {region_index}",
+            merge_key=f"region:{region_index}:translation",
         )
+
+    @pyqtSlot(int, str)
+    def update_translation_raw(self, region_index: int, raw_text: str):
+        """编辑替换前译文:实时跑 apply_replacements 同步到 translation 字段。"""
+        from manga_translator.rendering.text_replacements import apply_replacements
+
+        old_region_data = self._get_region_by_index(region_index)
+        if not old_region_data:
+            return
+
+        # 推 direction(参考 L57: ('h','horizontal','hr') 为横排,其它视为竖排)
+        direction_val = old_region_data.get("direction", "h")
+        direction = 0 if direction_val in ("h", "horizontal", "hr") else 1
+        try:
+            new_translation = apply_replacements(raw_text, direction)
+        except Exception as e:
+            # 替换规则编译失败等,回退用原文
+            self.logger.warning(f"apply_replacements failed for region {region_index}: {e}")
+            new_translation = raw_text
+
+        self._update_translation_pair(
+            region_index,
+            translation=new_translation,
+            translation_raw=raw_text,
+            description=f"Update Translation Raw Region {region_index}",
+            merge_key=f"region:{region_index}:translation_raw",
+        )
+
+    def _update_translation_pair(
+        self,
+        region_index: int,
+        *,
+        translation: str,
+        translation_raw: str,
+        description: str,
+        merge_key: str,
+    ) -> bool:
+        """同时更新 translation 和 translation_raw,共用一个 Undo Command(撤销时一起回滚)。"""
+        old_region_data = self._get_region_by_index(region_index)
+        if not old_region_data:
+            return False
+
+        old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
+
+        if (old_region_data.get("translation", "") == translation
+                and old_region_data.get("translation_raw", "") == translation_raw):
+            return False
+
+        new_region_data = old_region_data.copy()
+        new_region_data["translation"] = translation
+        new_region_data["translation_raw"] = translation_raw
+
+        # translation 是 _FONT_AFFECTING_FIELDS 成员,改动后同步白框尺寸
+        _sync_white_frame_size_for_font_change(new_region_data)
+
+        command = self._build_region_update_command(
+            region_index=region_index,
+            old_data=old_region_data,
+            new_data=new_region_data,
+            description=description,
+            merge_key=merge_key,
+        )
+        self.execute_command(command)
+        return True
 
     @pyqtSlot(int, str)
     def update_original_text(self, region_index: int, text: str):
@@ -826,6 +951,132 @@ class EditorController(QObject):
             description=f"Resize/Move/Rotate Region {region_index}"
         )
         self.execute_command(command)
+
+    # ------------------------------------------------------------------
+    # 对齐与分布
+    # ------------------------------------------------------------------
+
+    def align_regions(self, mode: str, reference: str) -> None:
+        """批量对齐选中的区域。
+
+        mode: top / vertical_center / bottom / left / horizontal_center / right
+        reference: "selection" | "canvas"
+        """
+        from .alignment_service import align_items
+
+        view = self.get_graphics_view()
+        if view is None:
+            return
+        items = [item for item in view._region_items if item.isSelected()]
+        if not items:
+            return
+
+        canvas_rect = None
+        if reference == "canvas":
+            r = view.get_image_scene_rect()
+            if r is not None:
+                canvas_rect = (r.left(), r.top(), r.right(), r.bottom())
+
+        results = align_items(items, mode, reference, canvas_rect)
+        if not results:
+            return
+
+        # 构建单条批量命令：修改 model center + 同��移动 item 白框和文字
+        regions = self.model.get_regions()
+        old_regions = [dict(r) for r in regions]
+        new_regions = [dict(r) for r in regions]
+        for idx, new_cx, new_cy in results:
+            new_regions[idx]["center"] = [new_cx, new_cy]
+
+        from .commands import MultiRegionUpdateCommand
+        mode_names = {
+            "top": "Top Align", "vertical_center": "Vertical Center",
+            "bottom": "Bottom Align", "left": "Left Align",
+            "horizontal_center": "Horizontal Center", "right": "Right Align",
+        }
+        cmd = MultiRegionUpdateCommand(self.model, old_regions, new_regions,
+                                       description=f"{mode_names.get(mode, 'Align')} ({reference})")
+        self.execute_command(cmd)
+
+        # 不依赖 debounce → 异步重建，仿照拖拽逻辑立刻移动 item 的白框和文字
+        self._sync_items_positions(results, items)
+
+    def _sync_items_positions(self, results, items):
+        """对齐后即时同步 item.center 到新位置（只动 center，不动 wf_local）。
+
+        白框在本地坐标相对 center 不变，只改 center 让整个 item 移到目标位置。
+        模型 center 已由 MultiRegionUpdateCommand 更新，这里仅刷新 Qt item 视觉。
+        """
+        from PyQt6.QtCore import QPointF
+
+        for idx, new_cx, new_cy in results:
+            item = None
+            for it in items:
+                if it.region_index == idx:
+                    item = it
+                    break
+            if item is None or item.scene() is None:
+                continue
+
+            old_pos = item.pos()
+            dx = new_cx - float(old_pos.x())
+            dy = new_cy - float(old_pos.y())
+            if abs(dx) < 0.01 and abs(dy) < 0.01:
+                continue
+
+            old_rect = item.sceneBoundingRect()
+            item.prepareGeometryChange()
+            item._shape_path = None
+            item.geo.center = [new_cx, new_cy]
+            item.visual_center = QPointF(new_cx, new_cy)
+            item.setPos(new_cx, new_cy)
+            item.update()
+            item._invalidate_scene_rect(old_rect)
+
+    def distribute_regions(self, mode: str) -> None:
+        """批量均分选中区域的间距。
+
+        mode: top / vertical_center / bottom / left / horizontal_center / right
+        """
+        view = self.get_graphics_view()
+        if view is None:
+            return
+        items = [item for item in view._region_items if item.isSelected()]
+
+        # 间距分布 vs 边缘分布
+        if mode in ("spacing_v", "spacing_h"):
+            if len(items) < 3:
+                return
+            from .alignment_service import distribute_spacing_items
+            orientation = "vertical" if mode == "spacing_v" else "horizontal"
+            results = distribute_spacing_items(items, orientation)
+            desc = "Distribute Spacing V" if mode == "spacing_v" else "Distribute Spacing H"
+        else:
+            from .alignment_service import distribute_items
+            if len(items) < 3:
+                return
+            results = distribute_items(items, mode)
+            mode_names = {
+                "top": "Top Distribute", "vertical_center": "Vertical Center Distribute",
+                "bottom": "Bottom Distribute", "left": "Left Distribute",
+                "horizontal_center": "Horizontal Center Distribute", "right": "Right Distribute",
+            }
+            desc = mode_names.get(mode, "Distribute")
+
+        if not results:
+            return
+
+        regions = self.model.get_regions()
+        old_regions = [dict(r) for r in regions]
+        new_regions = [dict(r) for r in regions]
+        for idx, new_cx, new_cy in results:
+            new_regions[idx]["center"] = [new_cx, new_cy]
+
+        from .commands import MultiRegionUpdateCommand
+        cmd = MultiRegionUpdateCommand(self.model, old_regions, new_regions, description=desc)
+        self.execute_command(cmd)
+
+        self._sync_items_positions(results, items)
 
     @pyqtSlot(int, str)
     def update_direction(self, region_index: int, direction_text: str):

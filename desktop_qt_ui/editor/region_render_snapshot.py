@@ -18,10 +18,12 @@ def _resolve_effective_box_local(data: dict):
     render_box = data.get("render_box_rect_local")
     has_custom = bool(data.get("has_custom_white_frame", False))
 
-    if _is_rect_like(render_box):
-        return render_box
+    # 解绑：用户手动设置过白框时，白框始终主导渲染中心；
+    # 不让 render_box（字号反算的小框）夺权。
     if has_custom and _is_rect_like(custom_box):
         return custom_box
+    if _is_rect_like(render_box):
+        return render_box
     if _is_rect_like(custom_box):
         return custom_box
     return None
