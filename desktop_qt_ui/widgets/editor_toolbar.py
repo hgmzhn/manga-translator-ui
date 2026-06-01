@@ -1,4 +1,5 @@
 
+import logging
 import os
 
 from PyQt6.QtCore import QByteArray, QSize, Qt, pyqtSignal
@@ -15,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from services import get_i18n_manager
+from utils.resource_helper import resource_path
 from widgets.hover_hint import set_hover_hint
 
 
@@ -156,7 +158,7 @@ class EditorToolbar(QWidget):
     # 对齐/分布 UI — 单行 PS 风格布局
     # ------------------------------------------------------------------
 
-    _ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "styles", "icons")
+    _ICONS_DIR = resource_path(os.path.join("desktop_qt_ui", "styles", "icons"))
 
     def _themed_icon(self, svg_name: str) -> QIcon:
         """读 SVG 模板,把占位符颜色替换为主题色后渲染为 QIcon。
@@ -176,7 +178,8 @@ class EditorToolbar(QWidget):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 svg_text = f.read()
-        except OSError:
+        except OSError as exc:
+            logging.getLogger(__name__).warning("加载工具栏图标失败 (%s): %s", path, exc)
             return QIcon()
         svg_text = svg_text.replace("#5599ff", line_color).replace("#888888", rect_color)
         renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))

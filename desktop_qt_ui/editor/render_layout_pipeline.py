@@ -67,13 +67,12 @@ def calculate_region_dst_points(
     region_font_path = region_params.get("font_path") or getattr(text_block, "font_path", "")
     text_renderer_backend.apply_font_for_render(region_font_path)
     # 编辑器尺寸计算与最终渲染保持一致，避免竖排内横排块出现白框/文字不一致
-    calc_config = Config(render=RenderConfig(**region_params))
     box_w, box_h, _ = calc_box_from_font(
         font_size,
         translation,
         is_horizontal,
         line_spacing,
-        calc_config,
+        config_obj,
         target_lang,
         center=None,
         angle=0,

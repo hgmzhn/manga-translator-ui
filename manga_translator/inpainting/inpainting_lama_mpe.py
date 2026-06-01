@@ -168,7 +168,7 @@ class LamaMPEInpainter(OfflineInpainter):
         # ✅ CPU或DirectML模式使用ONNX（DirectML不支持PyTorch的ComplexFloat复数算子，ONNX更稳定且支持DirectML GPU加速）
         if not device.startswith('cuda') and device != 'mps':
             onnx_path = self._get_file_path('lamampe.onnx')
-            
+
             # 优先尝试使用原生 OpenVINO 进行 CPU 侧的极致加速（避免 onnxruntime-directml 与 openvino-ep 的 DLL 冲突）
             try:
                 import openvino as ov
@@ -180,7 +180,7 @@ class LamaMPEInpainter(OfflineInpainter):
                 return
             except Exception as ov_exc:
                 self.logger.debug(f'未启用 OpenVINO 原生加速或加载失败（可忽略）: {ov_exc}')
-                
+
             try:
                 ort = import_onnxruntime(
                     "onnxruntime is required for Lama MPE ONNX inference. "
@@ -538,7 +538,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
         if not device.startswith('cuda') and device != 'mps' and not force_torch:
             onnx_path = self._get_file_path('lamalarge.onnx')
             ckpt_path = self._get_file_path('lama_large_512px.ckpt')
-            
+
             # 优先尝试使用原生 OpenVINO 进行 CPU 侧的极致加速（避免与 onnxruntime 发生包冲突）
             try:
                 import openvino as ov

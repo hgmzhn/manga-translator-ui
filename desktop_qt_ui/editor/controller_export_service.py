@@ -165,6 +165,10 @@ class EditorControllerExportService:
             regions_snapshot = copy.deepcopy(regions)
             mask_snapshot = None if mask is None else np.array(mask, copy=True)
 
+            # 乐观更新：提交异步任务前先打快照，避免 Ctrl+Q 后立刻切图弹"未保存的编辑"。
+            # 失败时 success_callback 不会再次刷新快照，用户重新 Ctrl+Q 即可。
+            self.save_export_snapshot()
+
             return self.async_service.submit_task(
                 self.async_export_with_desktop_ui_service(
                     image_snapshot,
@@ -438,13 +442,42 @@ class EditorControllerExportService:
         )
         return json_path
 
+    def _read_saved_export_dir(self, source_path: Optional[str]) -> Optional[str]:
+        """从该图片对应的 _translations.json 中读取主翻译流程记录的输出目录。"""
+        if not source_path:
+            return None
+        try:
+            json_path = find_json_path(source_path)
+            if not json_path or not os.path.exists(json_path):
+                return None
+            import json as _json
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            if not isinstance(data, dict) or not data:
+                return None
+            image_key = os.path.abspath(source_path)
+            image_data = data.get(image_key)
+            if not isinstance(image_data, dict):
+                image_data = next(iter(data.values()), None)
+            if not isinstance(image_data, dict):
+                return None
+            saved_dir = image_data.get("last_export_dir")
+            if isinstance(saved_dir, str) and saved_dir and os.path.isdir(saved_dir):
+                return saved_dir
+        except Exception as e:
+            self.logger.debug(f"Failed to read saved export dir for {source_path}: {e}")
+        return None
+
     def _build_output_path(self, config, source_path: Optional[str]) -> str:
         save_to_source_dir = getattr(config.cli, "save_to_source_dir", False) if hasattr(config, "cli") else False
         if save_to_source_dir and source_path:
             output_dir = os.path.join(os.path.dirname(source_path), "manga_translator_work", "result")
             os.makedirs(output_dir, exist_ok=True)
         else:
-            output_dir = getattr(config.app, "last_output_path", None) if hasattr(config, "app") else None
+            # 优先使用 JSON 中记录的目录（主翻译流程上次导出的位置），让编辑器导出回到原目录
+            output_dir = self._read_saved_export_dir(source_path)
+            if not output_dir:
+                output_dir = getattr(config.app, "last_output_path", None) if hasattr(config, "app") else None
             if not output_dir or not os.path.exists(output_dir):
                 output_dir = os.path.dirname(source_path) if source_path else os.getcwd()
 

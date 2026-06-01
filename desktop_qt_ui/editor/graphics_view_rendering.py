@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 
 import numpy as np
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import QTimer, pyqtSlot
 from services import get_render_parameter_service
 
 from . import text_renderer_backend
@@ -29,6 +29,18 @@ from .text_render_pipeline import (
 
 
 class GraphicsViewRenderingMixin:
+    def _schedule_render_update(self) -> None:
+        if getattr(self, "_render_update_immediate_once", False):
+            self._render_update_immediate_once = False
+            if self.render_debounce_timer.isActive():
+                self.render_debounce_timer.stop()
+            if not self._immediate_render_update_pending:
+                self._immediate_render_update_pending = True
+                QTimer.singleShot(0, self._perform_render_update)
+            return
+
+        self.render_debounce_timer.start()
+
     def on_regions_changed(self, regions):
         same_item_count = len(regions) == len(self._region_items)
         pending_indices = list(self._pending_geometry_edit_kinds.keys())
@@ -48,7 +60,7 @@ class GraphicsViewRenderingMixin:
         self._clear_pending_geometry_edits()
         self.render_coordinator.clear_text_render_cache()
         self.render_coordinator.clear_render_snapshots()
-        self.render_debounce_timer.start()
+        self._schedule_render_update()
 
     def _log_layout_failure(
         self,
@@ -335,10 +347,13 @@ class GraphicsViewRenderingMixin:
             clear_region_text(item)
 
     def _perform_render_update(self):
+        self._immediate_render_update_pending = False
         self.selection_manager.suppress_forward_sync(True)
+        self.setUpdatesEnabled(False)
         try:
             regions = self.model.get_regions()
             current_items = self._region_items
+            first_new_item_index = len(current_items)
 
             while len(current_items) > len(regions):
                 item = current_items.pop()
@@ -366,14 +381,18 @@ class GraphicsViewRenderingMixin:
                     item = current_items[i]
                     item.set_image_item(self._image_item)
                     item.region_index = i
+                    # 本轮刚创建的 item 已经用同一份 region_data 初始化过，避免重复
+                    # prepareGeometryChange/update/scene invalidation。
+                    if i >= first_new_item_index:
+                        continue
                     item.update_from_data(region_data)
-
             self.recalculate_render_data()
         except Exception as e:
             self.logger.error("Render update failed: %s", e, exc_info=True)
         finally:
             self.selection_manager.suppress_forward_sync(False)
             self.selection_manager.restore_selection_after_rebuild()
+            self.setUpdatesEnabled(True)
 
     def _update_text_visuals(self):
         try:
@@ -475,8 +494,8 @@ class GraphicsViewRenderingMixin:
                 dst_points_list.append(None)
                 continue
 
+            snapshot = snapshots[i] if i < len(snapshots) else None
             try:
-                snapshot = snapshots[i] if i < len(snapshots) else None
                 region_dict = snapshot.region_data if snapshot is not None else {}
                 region_params = build_region_specific_params(global_params_dict, text_block)
                 if region_dict.get("line_spacing") is not None:

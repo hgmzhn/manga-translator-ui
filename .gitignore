@@ -92,6 +92,8 @@ result/
 logs/
 
 # Ignore user config (这是用户自己的配置，防止推送到git)
+examples/text_replacements.yaml
+examples/translation_template.json
 examples/config.json
 examples/custom_api_params.json
 dict/ai_ocr_prompt.yaml

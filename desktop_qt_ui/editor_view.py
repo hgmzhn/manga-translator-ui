@@ -182,11 +182,16 @@ class EditorView(QWidget):
 
         self.left_tab_widget.addTab(translation_widget, self._t("Editable Translation"))
         self.left_tab_widget.addTab(self.property_panel, self._t("Property Editor"))
+        self.left_tab_widget.currentChanged.connect(self._on_left_tab_changed)
 
         # 设置默认显示"属性编辑"标签页
         self.left_tab_widget.setCurrentIndex(1)
 
         return self.left_tab_widget
+
+    def _on_left_tab_changed(self, index: int):
+        if index == 0 and self.region_list_view is not None:
+            self.region_list_view.flush_pending_regions()
 
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）"""
@@ -466,7 +471,7 @@ class EditorView(QWidget):
         if self.original_compare_view is None:
             return
 
-        self.original_compare_view.set_image(image)
+        self.original_compare_view.set_image_when_visible(image, self._compare_mode_enabled)
         if self._compare_mode_enabled:
             self._sync_compare_view_from_main()
 
@@ -483,4 +488,6 @@ class EditorView(QWidget):
         if self.compare_preview_container is not None:
             self.compare_preview_container.setVisible(self._compare_mode_enabled)
         if self._compare_mode_enabled:
+            if self.original_compare_view is not None:
+                self.original_compare_view.flush_pending_image(self.model.get_compare_image())
             self._sync_compare_view_from_main()

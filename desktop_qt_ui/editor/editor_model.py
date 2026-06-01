@@ -47,6 +47,7 @@ class EditorModel(QObject):
         return self.session.get_document_revision()
 
     def apply_document_snapshot(self, snapshot: DocumentSnapshot) -> None:
+        previous_selection = self.get_selection()
         self.session.load_document(snapshot)
         self.image_changed.emit(self.get_image())
         self.compare_image_changed.emit(self.get_compare_image())
@@ -55,7 +56,9 @@ class EditorModel(QObject):
         self.refined_mask_changed.emit(self.get_refined_mask())
         self.inpainted_image_changed.emit(self.get_inpainted_image())
         self.paint_overlay_changed.emit(self.get_paint_overlay_image())
-        self.selection_changed.emit(self.get_selection())
+        current_selection = self.get_selection()
+        if current_selection != previous_selection:
+            self.selection_changed.emit(current_selection)
 
     def clear_document(self) -> None:
         self.session.clear_document()

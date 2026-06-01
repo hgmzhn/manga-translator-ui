@@ -190,8 +190,9 @@ jobs:
         cp -r doc dist/manga-translator-cpu/_internal/
         mkdir -p dist/manga-translator-cpu/_internal/desktop_qt_ui
         cp -r desktop_qt_ui/locales dist/manga-translator-cpu/_internal/desktop_qt_ui/locales
+        cp -r desktop_qt_ui/styles dist/manga-translator-cpu/_internal/desktop_qt_ui/styles
         printf '%s\n' "$APP_VERSION" > dist/manga-translator-cpu/_internal/VERSION
-        
+
         cp -r examples dist/manga-translator-gpu/_internal/
         cp -r fonts dist/manga-translator-gpu/_internal/
         cp -r models_gpu dist/manga-translator-gpu/_internal/models
@@ -199,6 +200,7 @@ jobs:
         cp -r doc dist/manga-translator-gpu/_internal/
         mkdir -p dist/manga-translator-gpu/_internal/desktop_qt_ui
         cp -r desktop_qt_ui/locales dist/manga-translator-gpu/_internal/desktop_qt_ui/locales
+        cp -r desktop_qt_ui/styles dist/manga-translator-gpu/_internal/desktop_qt_ui/styles
         printf '%s\n' "$APP_VERSION" > dist/manga-translator-gpu/_internal/VERSION
 
     - name: Create Release Archives using 7-Zip with Splitting

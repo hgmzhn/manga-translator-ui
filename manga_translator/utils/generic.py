@@ -241,16 +241,21 @@ def normalize_pil_image(img: Image.Image, eager: bool = False, apply_exif: bool 
     统一处理 PIL Image 的方向信息，并按需立即加载像素数据。
     """
     if apply_exif:
-        try:
-            orientation = int(img.getexif().get(EXIF_ORIENTATION_TAG, 1) or 1)
-        except Exception:
-            orientation = 1
-        if orientation != 1:
-            normalized = ImageOps.exif_transpose(img)
-            normalized = _preserve_runtime_image_attrs(img, normalized)
-            if eager:
-                normalized.load()
-            return normalized
+        # Pillow 的 PNG getexif() 会触发整图解码；没有 EXIF 块时不要为了方向信息
+        # 提前付出这笔成本。JPEG/TIFF 仍然正常读取方向，带 EXIF 的其他格式也保留。
+        fmt = (getattr(img, 'format', '') or '').upper()
+        has_exif_payload = bool(getattr(img, 'info', {}).get('exif'))
+        if fmt in {'JPEG', 'JPG', 'TIFF'} or has_exif_payload:
+            try:
+                orientation = int(img.getexif().get(EXIF_ORIENTATION_TAG, 1) or 1)
+            except Exception:
+                orientation = 1
+            if orientation != 1:
+                normalized = ImageOps.exif_transpose(img)
+                normalized = _preserve_runtime_image_attrs(img, normalized)
+                if eager:
+                    normalized.load()
+                return normalized
     if eager:
         img.load()
     return img

@@ -360,7 +360,6 @@ class ConfigService(QObject):
             self.config_path = config_path
             self.logger.debug(f"加载配置: {os.path.basename(config_path)}")
             config_dict = self.current_config.model_dump()
-            config_dict = self._convert_config_for_ui(config_dict)
             self.config_changed.emit(config_dict)
             return True
             
@@ -517,7 +516,6 @@ class ConfigService(QObject):
 
         # 4. 通知所有监听者配置已更改
         config_dict = self.current_config.model_dump()
-        config_dict = self._convert_config_for_ui(config_dict)
         self.config_changed.emit(config_dict)
         self.logger.info("配置重载完成。")
 
@@ -555,22 +553,16 @@ class ConfigService(QObject):
             return False
     
     def _convert_config_for_ui(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """将配置转换为UI显示格式"""
-        # 转换超分倍数：None -> '不使用', int -> str
-        if 'upscale' in config_dict and 'upscale_ratio' in config_dict['upscale']:
-            ratio = config_dict['upscale']['upscale_ratio']
-            if ratio is None:
-                config_dict['upscale']['upscale_ratio'] = '不使用'
-            else:
-                config_dict['upscale']['upscale_ratio'] = str(ratio)
+        """已废弃: 历史上把 upscale_ratio 的 None 改成 '不使用' 字符串,
+        但下游 UI 全部按 `value is None` 判分支, 转换后反而错乱(mangajanai 落到 else=>'x4')。
+        现保留空实现仅作兼容, 实际不再做任何转换。"""
         return config_dict
-    
+
     def set_config(self, config: AppSettings) -> None:
         """设置配置并通知监听者"""
         self.current_config = config.model_copy(deep=True)
         self.logger.debug("配置已更新，正在通知监听者...")
         config_dict = self.current_config.model_dump()
-        config_dict = self._convert_config_for_ui(config_dict)
         self.config_changed.emit(config_dict)
     
     def update_config(self, updates: Dict[str, Any]) -> None:
@@ -589,7 +581,6 @@ class ConfigService(QObject):
         self.current_config = AppSettings.model_validate(new_config_dict)
         self.logger.debug("配置已更新，正在通知监听者...")
         config_dict = self.current_config.model_dump()
-        config_dict = self._convert_config_for_ui(config_dict)
         self.config_changed.emit(config_dict)
 
     def load_env_vars(self) -> Dict[str, str]:

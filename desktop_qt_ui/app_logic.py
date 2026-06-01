@@ -1671,9 +1671,9 @@ class MainAppLogic(QObject):
             self.config_service.set_config(new_config)
             self.config_service.save_config_file()
             
-            # 通知UI更新 - 使用转换后的配置字典
-            config_dict_for_ui = self.config_service._convert_config_for_ui(new_config.model_dump())
-            self.config_loaded.emit(config_dict_for_ui)
+            # 通知UI更新 - 与首次加载/重新加载保持一致，直接发原始 dump,
+            # 避免 None → '不使用' 这类有损转换让下游 UI 的 None 判定失效
+            self.config_loaded.emit(new_config.model_dump())
             
             self.logger.info(self._t("log_config_imported", path=file_path))
             QMessageBox.information(

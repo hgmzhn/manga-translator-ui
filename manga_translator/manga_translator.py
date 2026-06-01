@@ -401,6 +401,10 @@ class MangaTranslator:
         # 确保过滤列表文件存在
         try:
             ensure_filter_list_exists()
+            from .rendering.text_replacements import ensure_text_replacements_exists
+            ensure_text_replacements_exists()
+            from .utils.translation_template import ensure_translation_template_exists
+            ensure_translation_template_exists()
         except Exception:
             pass
 
@@ -681,6 +685,11 @@ class MangaTranslator:
         try:
             overwrite = save_info.get('overwrite', True)
             final_output_path = self._calculate_output_path(ctx.image_name, save_info)
+            # 记录本次输出目录，供 _save_text_to_file 写入 JSON，供编辑器后续导出时回写到同一位置
+            try:
+                ctx.final_output_dir = os.path.dirname(final_output_path)
+            except Exception:
+                pass
             success = self._save_translated_image(
                 ctx.result,
                 final_output_path,
@@ -908,6 +917,24 @@ class MangaTranslator:
                 data_to_save['mask_is_refined'] = mask_is_refined
             except Exception as e:
                 logger.error(f"Failed to encode mask to base64: {e}")
+
+        # 记录本次主翻译流程的输出目录，编辑器再次导出时回写到原目录
+        final_output_dir = getattr(ctx, 'final_output_dir', None)
+        if final_output_dir:
+            data_to_save['last_export_dir'] = final_output_dir
+        elif os.path.exists(text_output_file):
+            # 本轮没有写图（例如仅导出 JSON 模式），保留已有的 last_export_dir
+            try:
+                with open(text_output_file, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                if existing_data and len(existing_data.values()) > 0:
+                    existing_image_data = next(iter(existing_data.values()))
+                    if isinstance(existing_image_data, dict):
+                        preserved_dir = existing_image_data.get('last_export_dir')
+                        if preserved_dir:
+                            data_to_save['last_export_dir'] = preserved_dir
+            except Exception as e:
+                logger.debug(f"Failed to preserve last_export_dir from existing JSON {text_output_file}: {e}")
 
         data[image_key] = data_to_save
 
@@ -1553,8 +1580,6 @@ class MangaTranslator:
     async def _run_colorizer(self, config: Config, ctx: Context):
         current_time = time.time()
         self._model_usage_timestamps[("colorizer", config.colorizer.colorizer)] = current_time
-        colorizer_kwargs = dict(ctx)
-        colorizer_kwargs["colorizer_history_images"] = self._get_colorizer_history_images(config)
 
         result = await dispatch_colorization(
             config.colorizer.colorizer,
@@ -1563,7 +1588,7 @@ class MangaTranslator:
             device=self.device,
             image=ctx.input,
             config=config,
-            **colorizer_kwargs
+            colorizer_history_images=self._get_colorizer_history_images(config),
         )
         self._append_colorizer_history_image(config, result)
         return result

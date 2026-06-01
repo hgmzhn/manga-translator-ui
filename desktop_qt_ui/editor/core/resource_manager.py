@@ -199,6 +199,23 @@ class ResourceManager:
             self.logger.error(f"Failed to load image {image_path}: {e}")
             raise
 
+    def prefetch_image(self, image_path: str) -> ImageResource:
+        """预读图片资源到 LRU，不切换 current_image。"""
+        image_path = self._resolve_image_path(image_path)
+
+        if image_path in self._image_cache:
+            return self._image_cache[image_path]
+
+        image = open_pil_image(image_path, eager=False)
+        resource = ImageResource(
+            path=image_path,
+            image=image,
+            width=image.width,
+            height=image.height,
+        )
+        self._add_to_cache(image_path, resource)
+        return resource
+
     def load_detached_image(self, image_path: str) -> Image.Image:
         """加载辅助图片，不写入 current_image，也不污染缓存。"""
         image_path = self._resolve_image_path(image_path)

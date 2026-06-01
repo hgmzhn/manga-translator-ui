@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import numpy as np
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QPixmap, QTransform
 from PyQt6.QtWidgets import QGraphicsPixmapItem
 
-from .graphics_items import RegionTextItem, TransparentPixmapItem
-from .image_utils import build_display_image_frame, image_like_to_qimage
+from .graphics_items import RegionTextItem
+from .image_utils import image_like_to_qimage
 
 
 class GraphicsViewLayersMixin:
@@ -45,24 +44,10 @@ class GraphicsViewLayersMixin:
                 self.scene.removeItem(self._image_item)
                 self._image_item = None
 
-            if self._inpainted_image_item and self._inpainted_image_item.scene():
-                self.scene.removeItem(self._inpainted_image_item)
-                self._inpainted_image_item = None
+            self.overlay_layers.clear()
             self._q_image_ref = None
-            self._inpainted_q_image_ref = None
 
-            if self._paint_overlay_item and self._paint_overlay_item.scene():
-                self.scene.removeItem(self._paint_overlay_item)
-                self._paint_overlay_item = None
-            self._paint_overlay_q_image_ref = None
-
-            if self._raw_mask_item and self._raw_mask_item.scene():
-                self.scene.removeItem(self._raw_mask_item)
-                self._raw_mask_item = None
-
-            if self._refined_mask_item and self._refined_mask_item.scene():
-                self.scene.removeItem(self._refined_mask_item)
-                self._refined_mask_item = None
+            self.mask_layer.clear()
 
             if self._textbox_preview_item and self._textbox_preview_item.scene():
                 self.scene.removeItem(self._textbox_preview_item)
@@ -117,6 +102,7 @@ class GraphicsViewLayersMixin:
                     self.scene.removeItem(self._image_item)
                 self._image_item = None
                 self._q_image_ref = None
+                self._render_update_immediate_once = False
                 return
 
             # 3) 优先用 LRU 缓存的预转 QImage(主线程零阻塞)
@@ -154,151 +140,9 @@ class GraphicsViewLayersMixin:
             self._image_item.setOpacity(self.model.get_original_image_alpha())
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
             self._emit_view_state_changed()
-            self.on_regions_changed(self.model.get_regions())
+            self._render_update_immediate_once = True
         finally:
             self.setUpdatesEnabled(True)
-
-    def on_mask_data_changed(self, mask_type: str, mask_array: np.ndarray):
-        target_item = self._raw_mask_item if mask_type == "raw" else self._refined_mask_item
-
-        if mask_array is None or mask_array.size == 0:
-            if target_item:
-                target_item.setPixmap(QPixmap())
-            return
-
-        h, w = mask_array.shape[:2]
-        color_mask = np.zeros((h, w, 4), dtype=np.uint8)
-        color_mask[mask_array > 0] = [255, 0, 0, 128]
-        display_frame = build_display_image_frame(color_mask, max_pixels=self.MASK_PREVIEW_MAX_PIXELS)
-        if display_frame is None:
-            return
-        pixmap = QPixmap.fromImage(display_frame.qimage)
-
-        if target_item is None or target_item.scene() is None:
-            if mask_type == "raw":
-                if self._raw_mask_item and self._raw_mask_item.scene():
-                    self.scene.removeItem(self._raw_mask_item)
-                self._raw_mask_item = TransparentPixmapItem()
-                self._raw_mask_item.setPixmap(pixmap)
-                self._raw_mask_item.setZValue(10)
-                self.scene.addItem(self._raw_mask_item)
-                self._scale_mask_item(self._raw_mask_item)
-                self._raw_mask_item.setVisible(self.model.get_display_mask_type() == "raw")
-                target_item = self._raw_mask_item
-            else:
-                if self._refined_mask_item and self._refined_mask_item.scene():
-                    self.scene.removeItem(self._refined_mask_item)
-                self._refined_mask_item = TransparentPixmapItem()
-                self._refined_mask_item.setPixmap(pixmap)
-                self._refined_mask_item.setZValue(11)
-                self.scene.addItem(self._refined_mask_item)
-                self._scale_mask_item(self._refined_mask_item)
-                self._refined_mask_item.setVisible(self.model.get_display_mask_type() == "refined")
-                target_item = self._refined_mask_item
-        else:
-            target_item.setPixmap(pixmap)
-            self._scale_mask_item(target_item)
-
-        self.scene.update()
-        self.viewport().update()
-        self.update()
-
-        current_display_type = self.model.get_display_mask_type()
-        if mask_type == current_display_type and target_item:
-            target_item.setVisible(True)
-
-    def on_display_mask_type_changed(self, mask_type: str):
-        if mask_type == "raw" and self._raw_mask_item is None and self.model.get_raw_mask() is not None:
-            self.on_mask_data_changed("raw", self.model.get_raw_mask())
-
-        if mask_type == "refined" and self._refined_mask_item is None and self.model.get_refined_mask() is not None:
-            self.on_mask_data_changed("refined", self.model.get_refined_mask())
-
-        if self._raw_mask_item:
-            self._raw_mask_item.setVisible(mask_type == "raw")
-        if self._refined_mask_item:
-            self._refined_mask_item.setVisible(mask_type == "refined")
-
-        self.scene.update()
-        self.viewport().update()
-        self.update()
-        self.repaint()
-
-    def on_inpainted_image_changed(self, image):
-        if self._image_item is None:
-            return
-
-        if image is None:
-            if self._inpainted_image_item:
-                self._inpainted_image_item.setVisible(False)
-            self._inpainted_q_image_ref = None
-            return
-
-        try:
-            display_frame = build_display_image_frame(image, max_pixels=self.INPAINT_PREVIEW_MAX_PIXELS)
-            if display_frame is None:
-                raise ValueError("display frame is empty")
-            self._inpainted_q_image_ref = display_frame.qimage
-        except Exception as convert_error:
-            self.logger.warning("Failed to convert inpainted image to QImage: %s", convert_error)
-            self._inpainted_q_image_ref = None
-            if self._inpainted_image_item:
-                self._inpainted_image_item.setVisible(False)
-            return
-
-        pixmap = QPixmap.fromImage(self._inpainted_q_image_ref)
-        if self._inpainted_image_item is None:
-            self._inpainted_image_item = TransparentPixmapItem()
-            self._inpainted_image_item.setPixmap(pixmap)
-            self._inpainted_image_item.setZValue(1)
-            self._inpainted_image_item.setOpacity(1.0)
-            self.scene.addItem(self._inpainted_image_item)
-        else:
-            self._inpainted_image_item.setPixmap(pixmap)
-            self._inpainted_image_item.setOpacity(1.0)
-
-        self._scale_mask_item(self._inpainted_image_item)
-        self._inpainted_image_item.setVisible(True)
-
-    def on_paint_overlay_changed(self, overlay):
-        """彩色画笔图层数据变化时刷新对应 pixmap。"""
-        if self._image_item is None:
-            return
-
-        if overlay is None or getattr(overlay, "size", 0) == 0:
-            if self._paint_overlay_item is not None:
-                self._paint_overlay_item.setVisible(False)
-                self._paint_overlay_item.setPixmap(QPixmap())
-            self._paint_overlay_q_image_ref = None
-            return
-
-        try:
-            display_frame = build_display_image_frame(overlay, max_pixels=self.INPAINT_PREVIEW_MAX_PIXELS)
-            if display_frame is None:
-                raise ValueError("display frame is empty")
-            self._paint_overlay_q_image_ref = display_frame.qimage
-        except Exception as convert_error:
-            self.logger.warning("Failed to convert paint overlay to QImage: %s", convert_error)
-            self._paint_overlay_q_image_ref = None
-            if self._paint_overlay_item is not None:
-                self._paint_overlay_item.setVisible(False)
-            return
-
-        pixmap = QPixmap.fromImage(self._paint_overlay_q_image_ref)
-        if self._paint_overlay_item is None:
-            self._paint_overlay_item = TransparentPixmapItem()
-            self._paint_overlay_item.setPixmap(pixmap)
-            # 位于修复图之上、文字区域之下
-            self._paint_overlay_item.setZValue(5)
-            self._paint_overlay_item.setOpacity(1.0)
-            self.scene.addItem(self._paint_overlay_item)
-        else:
-            self._paint_overlay_item.setPixmap(pixmap)
-
-        self._scale_mask_item(self._paint_overlay_item)
-        self._paint_overlay_item.setVisible(True)
-        self.scene.update()
-        self.viewport().update()
 
     @pyqtSlot(float)
     def on_original_image_alpha_changed(self, alpha: float):

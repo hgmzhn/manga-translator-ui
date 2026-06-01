@@ -26,6 +26,343 @@ _DEFAULT_REPLACEMENTS_PATH = os.path.join(BASE_PATH, 'examples', 'text_replaceme
 _replacements_cache: Dict[str, Tuple[float, dict]] = {}
 
 
+_DEFAULT_REPLACEMENTS_YAML = r"""# 文本替换规则配置
+# 在渲染前应用到译文字段，按顺序执行
+# 支持三种分组：horizontal（横排时）、vertical（竖排时）、common（通用，始终执行）
+#
+# 每条规则格式：
+#   - pattern: "匹配模式"        # 必填，支持正则表达式
+#     replace: "替换内容"        # 必填，支持正则反向引用 \1 \2 等
+#     regex: true/false          # 可选，默认 false（字面替换），true 时 pattern 作为正则处理
+#     enabled: true/false        # 可选，默认 true，设为 false 可临时禁用该规则
+#     comment: "说明"            # 可选，备注
+#
+# 字面替换（regex: false 或省略）：直接逐字符匹配替换
+# 正则替换（regex: true）：pattern 按 Python re 语法解析
+
+# ═══════════════════════════════════════════════════════════════
+# 通用替换（无论横排竖排都执行，最先应用）
+# ═══════════════════════════════════════════════════════════════
+common:
+  - pattern: "・"
+    replace: "·"
+    comment: "统一中点符号"
+
+  - pattern: '\.{3}'
+    replace: '…'
+    regex: true
+    comment: "三个英文句号转换为一个省略号"
+
+  - pattern: '\s{2,}'
+    replace: ' '
+    regex: true
+    comment: "多余空格压缩为单个"
+
+  # - pattern: '第(\d+)话'
+  #   replace: '第\1話'
+  #   regex: true
+  #   enabled: false
+  #   comment: "示例：话→話"
+
+# ═══════════════════════════════════════════════════════════════
+# 横排替换（direction == 0 时执行，在 common 之后）
+# ═══════════════════════════════════════════════════════════════
+horizontal:
+  - pattern: "︰"
+    replace: "‥"
+  - pattern: "│"
+    replace: "─"
+  - pattern: "┃"
+    replace: "━"
+  - pattern: "║"
+    replace: "═"
+  - pattern: "︱"
+    replace: "—"
+  - pattern: "︲"
+    replace: "–"
+  - pattern: "︴"
+    replace: "_"
+  - pattern: "︵"
+    replace: "（"
+  - pattern: "︶"
+    replace: "）"
+  - pattern: "︷"
+    replace: "{"
+  - pattern: "︸"
+    replace: "}"
+  - pattern: "︹"
+    replace: "〔"
+  - pattern: "︺"
+    replace: "〕"
+  - pattern: "︻"
+    replace: "【"
+  - pattern: "︼"
+    replace: "】"
+  - pattern: "︽"
+    replace: "《"
+  - pattern: "︾"
+    replace: "》"
+  - pattern: "︿"
+    replace: "〈"
+  - pattern: "﹀"
+    replace: "〉"
+  - pattern: "﹁"
+    replace: "「"
+  - pattern: "﹂"
+    replace: "」"
+  - pattern: "﹃"
+    replace: "『"
+  - pattern: "﹄"
+    replace: "』"
+  - pattern: "﹅"
+    replace: "﹑"
+  - pattern: "﹇"
+    replace: "["
+  - pattern: "﹈"
+    replace: "]"
+  - pattern: "⋮"
+    replace: "…"
+  - pattern: "︙"
+    replace: "⋯"
+  - pattern: "≀"
+    replace: "~"
+  - pattern: "︕"
+    replace: "!"
+  - pattern: "︖"
+    replace: "?"
+  - pattern: "︒"
+    replace: "。"
+  - pattern: "︔"
+    replace: "；"
+  - pattern: "︓"
+    replace: "："
+  - pattern: "︐"
+    replace: "，"
+
+# ═══════════════════════════════════════════════════════════════
+# 竖排替换（direction == 1 时执行，在 common 之后）
+# ═══════════════════════════════════════════════════════════════
+vertical:
+  - pattern: "‥"
+    replace: "︰"
+  - pattern: "─"
+    replace: "│"
+  - pattern: "━"
+    replace: "┃"
+  - pattern: "═"
+    replace: "║"
+  - pattern: "—"
+    replace: "︱"
+  - pattern: "―"
+    replace: "|"
+  - pattern: "–"
+    replace: "︲"
+  - pattern: "_"
+    replace: "︴"
+  - pattern: "("
+    replace: "︵"
+  - pattern: ")"
+    replace: "︶"
+  - pattern: "（"
+    replace: "︵"
+  - pattern: "）"
+    replace: "︶"
+  - pattern: "{"
+    replace: "︷"
+  - pattern: "}"
+    replace: "︸"
+  - pattern: "〔"
+    replace: "︹"
+  - pattern: "〕"
+    replace: "︺"
+  - pattern: "【"
+    replace: "︻"
+  - pattern: "】"
+    replace: "︼"
+  - pattern: "《"
+    replace: "︽"
+  - pattern: "》"
+    replace: "︾"
+  - pattern: "〈"
+    replace: "︿"
+  - pattern: "〉"
+    replace: "﹀"
+  - pattern: "⟨"
+    replace: "︿"
+  - pattern: "⟩"
+    replace: "﹀"
+  - pattern: "⟪"
+    replace: "︿"
+  - pattern: "⟫"
+    replace: "﹀"
+  - pattern: "「"
+    replace: "﹁"
+  - pattern: "」"
+    replace: "﹂"
+  - pattern: "『"
+    replace: "﹃"
+  - pattern: "』"
+    replace: "﹄"
+  - pattern: "\""
+    replace: "﹂"
+  - pattern: "'"
+    replace: "﹂"
+  - pattern: "\u201C"
+    replace: "﹁"
+    comment: "左双引号"
+  - pattern: "\u201D"
+    replace: "﹂"
+    comment: "右双引号"
+  - pattern: "﹑"
+    replace: "﹅"
+  - pattern: "["
+    replace: "﹇"
+  - pattern: "]"
+    replace: "﹈"
+  - pattern: "⦅"
+    replace: "︵"
+  - pattern: "⦆"
+    replace: "︶"
+  - pattern: "❨"
+    replace: "︵"
+  - pattern: "❩"
+    replace: "︶"
+  - pattern: "❪"
+    replace: "︷"
+  - pattern: "❫"
+    replace: "︸"
+  - pattern: "❬"
+    replace: "﹇"
+  - pattern: "❭"
+    replace: "﹈"
+  - pattern: "❮"
+    replace: "︿"
+  - pattern: "❯"
+    replace: "﹀"
+  - pattern: "﹆"
+    replace: "﹆"
+    comment: "保持不变"
+  - pattern: "﹉"
+    replace: "﹉"
+    comment: "保持不变"
+  - pattern: "﹊"
+    replace: "﹊"
+    comment: "保持不变"
+  - pattern: "﹋"
+    replace: "﹋"
+    comment: "保持不变"
+  - pattern: "﹌"
+    replace: "﹌"
+    comment: "保持不变"
+  - pattern: "﹍"
+    replace: "﹍"
+    comment: "保持不变"
+  - pattern: "﹎"
+    replace: "﹎"
+    comment: "保持不变"
+  - pattern: "﹏"
+    replace: "﹏"
+    comment: "保持不变"
+  - pattern: "……"
+    replace: "︙"
+    comment: "六点变三点省略号"
+  - pattern: "…"
+    replace: "︙"
+  - pattern: "⋯"
+    replace: "︙"
+  - pattern: "⋰"
+    replace: "⋮"
+  - pattern: "⋱"
+    replace: "⋮"
+  - pattern: "″"
+    replace: "﹂"
+  - pattern: "‴"
+    replace: "﹂"
+  - pattern: "‶"
+    replace: "﹁"
+  - pattern: "ⷷ"
+    replace: "﹁"
+  - pattern: "〜"
+    replace: "︴"
+  - pattern: "～"
+    replace: "︴"
+  - pattern: "~"
+    replace: "≀"
+  - pattern: "〰"
+    replace: "︴"
+  - pattern: "!"
+    replace: "︕"
+  - pattern: "?"
+    replace: "︖"
+  - pattern: "؟"
+    replace: "︖"
+  - pattern: "¿"
+    replace: "︖"
+  - pattern: "¡"
+    replace: "︕"
+  - pattern: "."
+    replace: "︒"
+    enabled: false
+  - pattern: "。"
+    replace: "︒"
+  - pattern: ";"
+    replace: "︔"
+  - pattern: "；"
+    replace: "︔"
+  - pattern: ":"
+    replace: "︓"
+  - pattern: "："
+    replace: "︓"
+  - pattern: ","
+    replace: "︐"
+  - pattern: "，"
+    replace: "︐"
+  - pattern: "‚"
+    replace: "︐"
+  - pattern: "„"
+    replace: "︐"
+  - pattern: "-"
+    replace: "︲"
+  - pattern: "−"
+    replace: "︲"
+  - pattern: "・"
+    replace: "·"
+"""
+
+def invalidate_replacements_cache(file_path: Optional[str] = None) -> None:
+    """清理替换规则缓存，让后续渲染重新读取文件。"""
+    if file_path is None:
+        file_path = _DEFAULT_REPLACEMENTS_PATH
+    _replacements_cache.pop(file_path, None)
+
+
+def reset_text_replacements_to_default(file_path: Optional[str] = None) -> str:
+    """将文本替换规则配置写回内置默认模板。"""
+    if file_path is None:
+        file_path = _DEFAULT_REPLACEMENTS_PATH
+
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(_DEFAULT_REPLACEMENTS_YAML)
+    invalidate_replacements_cache(file_path)
+    return file_path
+
+
+def ensure_text_replacements_exists() -> str:
+    """确保文本替换规则配置文件存在，如果不存在则使用内置模板创建。"""
+    if os.path.exists(_DEFAULT_REPLACEMENTS_PATH):
+        return _DEFAULT_REPLACEMENTS_PATH
+    
+    try:
+        reset_text_replacements_to_default(_DEFAULT_REPLACEMENTS_PATH)
+        logger.info(f"已创建文本替换规则文件: {_DEFAULT_REPLACEMENTS_PATH}")
+    except Exception as e:
+        logger.error(f"创建文本替换规则文件失败: {e}")
+        
+    return _DEFAULT_REPLACEMENTS_PATH
+
+
+
 def _compile_rule(rule: dict) -> Optional[Tuple[re.Pattern, str]]:
     """编译单条替换规则为 (compiled_pattern, replace_string)"""
     pattern_str = rule.get('pattern')

@@ -6,6 +6,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QFileDialog
 from services import get_config_service, get_logger
 from widgets.folder_dialog import select_folders
+from widgets.file_list_view import natural_sort_key
 
 
 class EditorLogic(QObject):
@@ -66,6 +67,9 @@ class EditorLogic(QObject):
         if not files:
             return
         
+        # 统一进行自然排序
+        files = sorted(files, key=natural_sort_key)
+        
         # 使用新模型添加文件
         added_items = self.file_model.add_files(files)
         
@@ -102,7 +106,9 @@ class EditorLogic(QObject):
                 if 'manga_translator_work' in root:
                     continue
                     
-                for f in sorted(files):
+                dirs.sort(key=natural_sort_key)
+                
+                for f in sorted(files, key=natural_sort_key):
                     if os.path.splitext(f)[1].lower() in image_extensions:
                         file_path = os.path.join(root, f)
                         files_to_add.append(file_path)
@@ -247,6 +253,20 @@ class EditorLogic(QObject):
 
     # --- Image Loading Methods ---
 
+    def _adjacent_image_paths(self, resolved_path: str) -> List[str]:
+        norm_current = os.path.normcase(os.path.normpath(resolved_path))
+        file_paths = [item.path for item in self.file_model.files]
+        norm_paths = [os.path.normcase(os.path.normpath(path)) for path in file_paths]
+        if norm_current not in norm_paths:
+            return []
+
+        index = norm_paths.index(norm_current)
+        adjacent = []
+        for next_index in (index + 1, index - 1):
+            if 0 <= next_index < len(file_paths):
+                adjacent.append(file_paths[next_index])
+        return adjacent
+
     def load_file_lists(self, source_files: List[str], folder_tree: dict = None):
         """
         从主窗口接收文件列表（用于翻译完成后进入编辑器）
@@ -306,5 +326,5 @@ class EditorLogic(QObject):
         if file_item.file_type == FileType.UNTRANSLATED:
             self.logger.warning(f"未翻译的图片: {resolved_path}")
 
+        self.controller._pending_editor_prefetch_paths = self._adjacent_image_paths(resolved_path)
         self.controller.load_image_and_regions(resolved_path)
-

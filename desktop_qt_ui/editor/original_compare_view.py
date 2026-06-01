@@ -20,6 +20,8 @@ class OriginalCompareView(QGraphicsView):
         self._last_center_scene: QPointF | None = None
         self._last_scene_rect: QRectF | None = None
         self._last_transform = QTransform()
+        self._has_pending_image = False
+        self._pending_image = None
 
         self._setup_view()
 
@@ -81,6 +83,17 @@ class OriginalCompareView(QGraphicsView):
             self.sync_view_state(self._last_transform, self._last_center_scene)
         else:
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def set_image_when_visible(self, image, visible: bool):
+        self._has_pending_image = True
+        self._pending_image = image
+        if not visible:
+            return
+        self.flush_pending_image()
+
+    def flush_pending_image(self, fallback_image=None):
+        image = self._pending_image if self._has_pending_image else fallback_image
+        self.set_image(image)
 
     def sync_view_state(self, transform, center_scene):
         if transform is None or center_scene is None:

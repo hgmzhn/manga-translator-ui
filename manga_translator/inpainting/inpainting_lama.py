@@ -50,7 +50,7 @@ class LamaInpainter(LamaMPEInpainter):
         # ✅ CPU模式使用ONNX（解决虚拟内存泄漏）
         if not device.startswith('cuda') and device != 'mps':
             onnx_path = self._get_file_path('lamampe.onnx')
-            
+
             # 优先尝试使用原生 OpenVINO 进行 CPU 侧的极致加速
             try:
                 import openvino as ov

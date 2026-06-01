@@ -311,6 +311,7 @@
 - **AI 渲染提示词**：OpenAI Renderer / Gemini Renderer 使用的固定提示词文件
   - Qt 界面中点击"编辑"即可修改
   - 固定路径：`dict/ai_renderer_prompt.yaml`
+  - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
   - 文件格式：YAML，主键为 `ai_renderer_prompt`
   - 实际请求会自动组合：带编号框的清图 + 对应编号的翻译文本
   - 拟声词 / 音效也会按翻译结果一起发给 AI 渲染
@@ -457,6 +458,7 @@
 - **AI 上色提示词**：OpenAI Colorizer / Gemini Colorizer 使用的固定提示词文件
   - Qt 界面中点击"编辑"即可修改
   - 固定路径：`dict/ai_colorizer_prompt.yaml`
+  - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
   - 文件格式：YAML，主键为 `ai_colorizer_prompt`
 
 - **AI 上色并发数 (ai_colorizer_concurrency)**：OpenAI Colorizer / Gemini Colorizer 的最大并发请求数
@@ -488,6 +490,7 @@
 - **AI OCR 提示词**：OpenAI OCR / Gemini OCR 使用的固定提示词文件
   - Qt 界面中点击"编辑"即可修改
   - 固定路径：`dict/ai_ocr_prompt.yaml`
+  - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
   - 文件格式：YAML，主键为 `ai_ocr_prompt`
   - 不再通过配置项切换文件，也没有另存为
   - 如果本地还保留旧版 `dict/ai_ocr_prompt.json`，程序首次使用时会自动迁移到 YAML
@@ -676,18 +679,23 @@ glossary:
 
 **导出原文模版路径**：
 - 默认：`examples/translation_template.json`
+- 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 用于自定义导出原文的格式
 - 定义一组文本框的结构，程序会自动重复应用
 
 **过滤列表路径**：
 - 默认：`examples/filter_list.json`
+- 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 旧版兼容：`examples/filter_list.txt`（启动时会自动迁移到 JSON）
 - 用于跳过水印、广告等不需要翻译的文本
 
 **文本替换规则路径**：
 - 默认：`examples/text_replacements.yaml`
+- 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 用于翻译后、渲染前对译文执行自定义替换
 - 支持三个分组：`common`（通用）、`horizontal`（横排）、`vertical`（竖排）
+- **执行顺序**：首先执行 `common` 组，然后根据排版方向执行 `horizontal` 或 `vertical` 组。
+- **级联机制**：规则由上到下逐条执行；上一条规则替换出的新文字，若匹配后续规则，会被再次替换。
 - 每条规则格式：
   ```yaml
   - pattern: "匹配内容"
@@ -701,6 +709,7 @@ glossary:
 
 **自定义 API 参数路径**：
 - 默认：`examples/custom_api_params.json`
+- 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 用于翻译、AI OCR、AI 渲染、AI 上色的额外 API 参数
 - 推荐分组键：`translator`、`ocr`、`render`、`colorizer`
 - 可选共享键：`common`

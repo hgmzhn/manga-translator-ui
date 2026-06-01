@@ -5,6 +5,7 @@ import re
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from time import perf_counter
 from typing import Optional, Tuple
 
 import cv2
@@ -42,6 +43,11 @@ _VERTICAL_ALIGN_TOP_RIGHT = {'﹁', '﹃'}
 _VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'}
 _VERTICAL_ALIGN_TOP_CENTER = {'︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
 _VERTICAL_ALIGN_BOTTOM_CENTER = {'︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
+
+
+def _profile_add(profile_stats: Optional[dict], key: str, start_time: Optional[float]) -> None:
+    if profile_stats is not None and start_time is not None:
+        profile_stats[key] = profile_stats.get(key, 0.0) + (perf_counter() - start_time) * 1000.0
 
 _QT_FONT_PROBE_SIZE = 32.0
 _thread_state = threading.local()
@@ -104,19 +110,14 @@ def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     return cdpt, 0
 
 
-def _compact_period_run(match: re.Match[str]) -> str:
-    dots = match.group(0)
-    ellipsis_count, remainder = divmod(len(dots), 3)
-    return ('…' * ellipsis_count) + ('.' * remainder)
-
-
 def compact_special_symbols(text: str, *, convert_ascii_ellipsis: bool = True) -> str:
-    text = text or ''
-    if not convert_ascii_ellipsis:
-        return text
-    # Preserve author-entered spaces. Only normalize runs of ASCII periods so
-    # vertical rendering and explicit ellipsis compaction can share one path.
-    return re.sub(r'\.{3,}', _compact_period_run, text)
+    # 渲染层不再做字符替换，统一交给外部的 text_replacements.yaml 规则处理
+    return text or ''
+
+
+def normalize_vertical_ellipsis_text(text: str) -> str:
+    # 渲染层不再做字符替换，统一交给外部的 text_replacements.yaml 规则处理
+    return text or ''
 
 
 def auto_add_horizontal_tags(text: str) -> str:
@@ -240,6 +241,17 @@ def add_color(bw_char_map, color, stroke_char_map, stroke_color):
     out[:, :, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
     out[:, :, 3] = stroke_alpha_u8
     return out
+
+
+def _crop_and_color(canvas_text: np.ndarray, canvas_border: np.ndarray, fg, bg):
+    """按有效 alpha 区域裁剪后再上色，避免给大面积透明 padding 做无用合成。"""
+    combined = cv2.add(canvas_text, canvas_border)
+    x, y, w, h = cv2.boundingRect(combined)
+    if w == 0 or h == 0:
+        return None
+    text_crop = canvas_text[y:y + h, x:x + w]
+    border_crop = canvas_border[y:y + h, x:x + w]
+    return add_color(text_crop, fg, border_crop, bg)
 
 
 def _bootstrap_qt_fontdir_for_offscreen() -> None:
@@ -706,9 +718,9 @@ def _paste_bitmap(canvas: np.ndarray, bitmap_arr: np.ndarray, x: int, y: int, mo
     target = canvas[sy1:sy2, sx1:sx2]
     if mode == 'add':
         # 使用 cv2.add 避免 numpy uint8 加法溢出导致的脏斑点
-        canvas[sy1:sy2, sx1:sx2] = cv2.add(target, bitmap)
+        cv2.add(target, bitmap, dst=target)
     else:
-        canvas[sy1:sy2, sx1:sx2] = np.maximum(target, bitmap)
+        np.maximum(target, bitmap, out=target)
 
 
 def _paste_surface(canvas_text: np.ndarray, canvas_border: np.ndarray, surface: dict, x: int, y: int):
@@ -776,6 +788,46 @@ def _line_logical_width(line, text_length: int) -> float:
     return float(cursor_x[0] if isinstance(cursor_x, tuple) else cursor_x)
 
 
+def _sorted_glyph_positions(layout, reversed_direction: bool):
+    positions = [pos for run in layout.glyphRuns() for pos in run.positions()]
+    positions.sort(key=lambda p: p.x(), reverse=reversed_direction)
+    return positions
+
+
+def _horizontal_ellipsis_tracking_offsets(
+    text: str,
+    font_size: int,
+    letter_spacing: float,
+    positions: list,
+    reversed_direction: bool = False,
+) -> list:
+    if reversed_direction or _normalize_letter_spacing(letter_spacing) == 1.0 or '……' not in (text or ''):
+        return [0.0] * len(positions)
+    _, _, base_layout, _ = _horizontal_line(text, font_size, 1.0)
+    if base_layout is None:
+        return [0.0] * len(positions)
+    base_positions = _sorted_glyph_positions(base_layout, False)
+    limit = min(len(text), len(positions), len(base_positions))
+    offsets = [0.0] * len(positions)
+    idx = 0
+    while idx < limit:
+        if text[idx] != '…':
+            idx += 1
+            continue
+        run_start = idx
+        while idx < limit and text[idx] == '…':
+            idx += 1
+        if idx - run_start < 2:
+            continue
+        start_spaced_x = positions[run_start].x()
+        start_base_x = base_positions[run_start].x()
+        for run_idx in range(run_start + 1, idx):
+            spaced_delta = positions[run_idx].x() - start_spaced_x
+            base_delta = base_positions[run_idx].x() - start_base_x
+            offsets[run_idx] = spaced_delta - base_delta
+    return offsets
+
+
 def _line_metrics(text: str, font_size: int, letter_spacing: float = 1.0) -> dict:
     normalized, qfont, _, line = _horizontal_line(text, font_size, letter_spacing)
     metrics = QFontMetricsF(qfont)
@@ -802,20 +854,38 @@ def _get_fallback_glyph(glyph_id: int, run_font: QRawFont, char: str, font_size:
         return run_font, glyph_id
 
 
-def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio: float = 0.07, reversed_direction: bool = False, letter_spacing: float = 1.0):
+def _line_surface(
+    line_text: str,
+    font_size: int,
+    border_size: int,
+    stroke_ratio: float = 0.07,
+    reversed_direction: bool = False,
+    letter_spacing: float = 1.0,
+    profile_stats: Optional[dict] = None,
+):
+    stage_t0 = perf_counter() if profile_stats is not None else None
     normalized, _, layout, line = _horizontal_line(line_text, font_size, letter_spacing)
+    _profile_add(profile_stats, "tr_layout_ms", stage_t0)
     if not line_text or line is None:
         return None
     path = QPainterPath()
+    path.setFillRule(Qt.FillRule.WindingFill)
     # Qt/DirectWrite 把 family name 以 '[' 开头的字体归入同一字体集合，
     # 导致 shaping 时 character-to-glyph 映射返回错误的 glyph_id。
     # 修复：用 _glyph_spec 查字形路径（走 font_selection 直接加载的 QRawFont，
     # 绕开 Qt 字体数据库），位置（pos）仍从 QTextLayout 取。
-    all_positions = [pos for run in layout.glyphRuns() for pos in run.positions()]
     # glyphRuns() 返回的 run 顺序不保证与字符串字符顺序一致（混合脚本时
     # 如 CJK + ASCII 会分成多个 run，run 顺序不定），按 x 坐标排序以
     # 确保位置与字符的逻辑顺序匹配
-    all_positions.sort(key=lambda p: p.x(), reverse=reversed_direction)
+    stage_t0 = perf_counter() if profile_stats is not None else None
+    all_positions = _sorted_glyph_positions(layout, reversed_direction)
+    position_offsets = _horizontal_ellipsis_tracking_offsets(
+        normalized,
+        font_size,
+        letter_spacing,
+        all_positions,
+        reversed_direction,
+    )
     for idx, char in enumerate(normalized):
         if idx >= len(all_positions):
             break
@@ -826,15 +896,20 @@ def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio
             continue
         glyph_path = spec.raw_font.pathForGlyph(spec.glyph_id)
         if not glyph_path.isEmpty():
-            glyph_path.translate(pos.x(), pos.y())
+            offset_x = position_offsets[idx] if idx < len(position_offsets) else 0.0
+            glyph_path.translate(pos.x() - offset_x, pos.y())
             path.addPath(glyph_path)
+    _profile_add(profile_stats, "tr_path_ms", stage_t0)
                 
     if path.isEmpty():
         return None
+    stage_t0 = perf_counter() if profile_stats is not None else None
     fill_alpha, fill_left, fill_top = _rasterize_path(path)
+    _profile_add(profile_stats, "tr_raster_ms", stage_t0)
     if fill_alpha.size == 0:
         return None
     if border_size > 0:
+        stage_t0 = perf_counter() if profile_stats is not None else None
         stroke_px = max(int(stroke_ratio * font_size), 1)
         # 距离变换描边：贴合字形轮廓，比椭圆膨胀更精准
         pad = stroke_px + 1
@@ -855,9 +930,11 @@ def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio
         border_canvas = np.zeros((bottom - top, right - left), dtype=np.uint8)
         _paste_bitmap(text_canvas, fill_alpha, fill_left - left, fill_top - top)
         _paste_bitmap(border_canvas, border_alpha, border_left - left, border_top - top)
+        _profile_add(profile_stats, "tr_stroke_ms", stage_t0)
     else:
         left, top = fill_left, fill_top
         text_canvas, border_canvas = fill_alpha, np.zeros_like(fill_alpha)
+    stage_t0 = perf_counter() if profile_stats is not None else None
     cropped = _crop_pair(text_canvas, border_canvas)
     if cropped is None:
         return None
@@ -865,18 +942,28 @@ def _line_surface(line_text: str, font_size: int, border_size: int, stroke_ratio
     logical_width = _line_logical_width(line, len(normalized))
     origin_x = -logical_width if reversed_direction else 0.0
     ascent, height = float(line.ascent()), float(line.height())
-    return {
+    result = {
         'text': text_bitmap, 'border': border_bitmap, 'left_rel': left + x - origin_x,
         'right_rel': left + x - origin_x + w, 'top_rel': top + y - ascent, 'width': w, 'height': h,
         'logical_width': logical_width,
         'line_ascent': ascent, 'line_descent': float(line.descent()), 'line_height': height,
         'ink_top': float(top + y), 'ink_bottom': float(top + y + h),
     }
+    _profile_add(profile_stats, "tr_crop_ms", stage_t0)
+    return result
 
 
-def _block_surface(font_size: int, content: str, border_size: int, stroke_ratio: float = 0.07, rotate_90: bool = False, letter_spacing: float = 1.0):
+def _block_surface(
+    font_size: int,
+    content: str,
+    border_size: int,
+    stroke_ratio: float = 0.07,
+    rotate_90: bool = False,
+    letter_spacing: float = 1.0,
+    profile_stats: Optional[dict] = None,
+):
     content = _normalize_horizontal_block_content(content)
-    surface = _line_surface(content, font_size, border_size, stroke_ratio, False, letter_spacing)
+    surface = _line_surface(content, font_size, border_size, stroke_ratio, False, letter_spacing, profile_stats)
     if surface is None:
         return None
     text_bitmap, border_bitmap = surface['text'], surface['border']
@@ -907,7 +994,7 @@ def _bitmap_ink_rect(bitmap: Optional[np.ndarray]) -> Optional[Tuple[int, int, i
 
 
 def _is_vertical_ellipsis_char(cdpt: str) -> bool:
-    return cdpt in ('︙', '⋯', '…')
+    return cdpt in ('︙', '⋮', '⋯', '…')
 
 
 def _estimate_ellipsis_gap(bitmap_char: np.ndarray) -> Optional[float]:
@@ -1010,6 +1097,7 @@ def get_char_offset_y(font_size: int, cdpt: str, letter_spacing: float = 1.0):
 
 
 def get_string_height(font_size: int, text: str, letter_spacing: float = 1.0):
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     total = 0
     for part in _H_BLOCK_RE.split(re.sub(r'\s*(?:\[BR\]|<br>|【BR】)\s*', '', text or '', flags=re.IGNORECASE)):
         if not part:
@@ -1028,7 +1116,15 @@ def _vertical_border_bitmap(translated: str, font_size: int, stroke_ratio: float
     return cv2.rotate(bitmap, cv2.ROTATE_90_CLOCKWISE) if rot_degree == 90 else bitmap
 
 
-def _build_vertical_layout(font_size: int, line_text: str, border_size: int, stroke_ratio: float, letter_spacing: float, block_cache: dict) -> dict:
+def _build_vertical_layout(
+    font_size: int,
+    line_text: str,
+    border_size: int,
+    stroke_ratio: float,
+    letter_spacing: float,
+    block_cache: dict,
+    profile_stats: Optional[dict] = None,
+) -> dict:
     line_width, items = font_size, []
     for part in _H_BLOCK_RE.split(line_text):
         if not part:
@@ -1038,7 +1134,15 @@ def _build_vertical_layout(font_size: int, line_text: str, border_size: int, str
             key = (font_size, raw, border_size, round(float(stroke_ratio), 4), round(_normalize_letter_spacing(letter_spacing), 4))
             surface = block_cache.get(key)
             if surface is None:
-                surface = _block_surface(font_size, raw, border_size, stroke_ratio, should_rotate_horizontal_block_90(raw), letter_spacing)
+                surface = _block_surface(
+                    font_size,
+                    raw,
+                    border_size,
+                    stroke_ratio,
+                    should_rotate_horizontal_block_90(raw),
+                    letter_spacing,
+                    profile_stats,
+                )
                 block_cache[key] = surface
             if surface is not None:
                 line_width = max(line_width, int(surface['width']))
@@ -1089,7 +1193,24 @@ def put_char_horizontal(font_size: int, cdpt: str, pen_l: Tuple[int, int], canva
     return char_offset_x
 
 
-def put_text_horizontal(font_size: int, text: str, width: int, height: int, alignment: str, reversed_direction: bool, fg: Tuple[int, int, int], bg: Tuple[int, int, int], lang: str = 'en_US', hyphenate: bool = True, line_spacing: int = 0, config=None, region_count: int = 1, stroke_width: float = None, letter_spacing: float = 1.0):
+def put_text_horizontal(
+    font_size: int,
+    text: str,
+    width: int,
+    height: int,
+    alignment: str,
+    reversed_direction: bool,
+    fg: Tuple[int, int, int],
+    bg: Tuple[int, int, int],
+    lang: str = 'en_US',
+    hyphenate: bool = True,
+    line_spacing: int = 0,
+    config=None,
+    region_count: int = 1,
+    stroke_width: float = None,
+    letter_spacing: float = 1.0,
+    profile_stats: Optional[dict] = None,
+):
     text = compact_special_symbols(text, convert_ascii_ellipsis=False)
     if not text:
         return None
@@ -1101,7 +1222,7 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
     surfaces, metrics, tops, extents, logical_widths = [], [], [], [], []
     logical_y = min_ink_top = max_ink_bottom = 0.0
     for idx, line_text in enumerate(line_texts):
-        surface = _line_surface(line_text, font_size, bg_size, stroke_ratio, reversed_direction, letter_spacing)
+        surface = _line_surface(line_text, font_size, bg_size, stroke_ratio, reversed_direction, letter_spacing, profile_stats)
         frame = {'ascent': surface['line_ascent'], 'height': surface['line_height'], 'descent': surface['line_descent']} if surface else _line_metrics(line_text, font_size, letter_spacing)
         surfaces.append(surface)
         metrics.append(frame)
@@ -1120,6 +1241,7 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
     canvas_border = np.zeros_like(canvas_text)
     base_x = canvas_w - bg_size - 10 if reversed_direction else font_size + bg_size
     base_y = bg_size + max(0.0, -min_ink_top)
+    stage_t0 = perf_counter() if profile_stats is not None else None
     for i, surface in enumerate(surfaces):
         if surface is None:
             continue
@@ -1136,13 +1258,28 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
             pen_x = round(target_left - left)
         baseline_y = base_y + tops[i] + metrics[i]['ascent']
         _paste_surface(canvas_text, canvas_border, surface, pen_x + surface['left_rel'], baseline_y + surface['top_rel'])
-    combined = cv2.add(canvas_text, canvas_border)
-    x, y, w, h = cv2.boundingRect(combined)
-    return None if w == 0 or h == 0 else add_color(canvas_text, fg, np.clip(canvas_border, 0, 255), bg)[y:y+h, x:x+w]
+    _profile_add(profile_stats, "tr_paste_ms", stage_t0)
+    stage_t0 = perf_counter() if profile_stats is not None else None
+    result = _crop_and_color(canvas_text, canvas_border, fg, bg)
+    _profile_add(profile_stats, "tr_color_ms", stage_t0)
+    return result
 
 
-def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tuple[int, int, int], bg: Optional[Tuple[int, int, int]], line_spacing: int, config=None, region_count: int = 1, stroke_width: float = None, letter_spacing: float = 1.0):
-    text = compact_special_symbols(text).replace('…', '︙')
+def put_text_vertical(
+    font_size: int,
+    text: str,
+    h: int,
+    alignment: str,
+    fg: Tuple[int, int, int],
+    bg: Optional[Tuple[int, int, int]],
+    line_spacing: int,
+    config=None,
+    region_count: int = 1,
+    stroke_width: float = None,
+    letter_spacing: float = 1.0,
+    profile_stats: Optional[dict] = None,
+):
+    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     if not text:
         return None
     _ = (h, region_count)
@@ -1150,7 +1287,12 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
     bg_size = int(max(font_size * stroke_ratio, 1)) if bg is not None else 0
     spacing_x = int(font_size * 0.2 * (_normalize_line_spacing(line_spacing) or 1.0))
     block_cache = {}
-    layouts = [_build_vertical_layout(font_size, line, bg_size, stroke_ratio, letter_spacing, block_cache) for line in _convert_br_outside_h_tags(text).split('\n')]
+    stage_t0 = perf_counter() if profile_stats is not None else None
+    layouts = [
+        _build_vertical_layout(font_size, line, bg_size, stroke_ratio, letter_spacing, block_cache, profile_stats)
+        for line in _convert_br_outside_h_tags(text).split('\n')
+    ]
+    _profile_add(profile_stats, "tr_vertical_layout_ms", stage_t0)
     line_widths = [layout['width'] for layout in layouts]
     max_height = max((layout['height'] for layout in layouts), default=0)
     content_width = sum(line_widths) + spacing_x * max(0, len(line_widths) - 1)
@@ -1161,6 +1303,7 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
     for width in line_widths:
         columns.append((current_edge - width / 2.0, current_edge))
         current_edge -= width + spacing_x
+    stage_t0 = perf_counter() if profile_stats is not None else None
     for idx, layout in enumerate(layouts):
         line_width = layout['width']
         center_x, _ = columns[idx]
@@ -1177,11 +1320,17 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
             elif item['kind'] == 'char' and item['bitmap'] is not None:
                 draw_x = line_start_x + int(item['x'])
                 draw_y = line_origin_y + item['cursor_y'] + int(item['y'])
+                sub_t0 = perf_counter() if profile_stats is not None else None
                 border_bitmap = _vertical_border_bitmap(item['translated'], font_size, stroke_ratio, item['rot_degree']) if bg_size > 0 else None
+                _profile_add(profile_stats, "tr_vborder_ms", sub_t0)
+                sub_t0 = perf_counter() if profile_stats is not None else None
                 _paste_glyph_pair(canvas_text, canvas_border, item['bitmap'], draw_x, draw_y, border_bitmap)
-    combined = cv2.add(canvas_text, canvas_border)
-    x, y, w, h = cv2.boundingRect(combined)
-    return None if w == 0 or h == 0 else add_color(canvas_text, fg, np.clip(canvas_border, 0, 255), bg)[y:y+h, x:x+w]
+                _profile_add(profile_stats, "tr_vpaste_ms", sub_t0)
+    _profile_add(profile_stats, "tr_paste_ms", stage_t0)
+    stage_t0 = perf_counter() if profile_stats is not None else None
+    result = _crop_and_color(canvas_text, canvas_border, fg, bg)
+    _profile_add(profile_stats, "tr_color_ms", stage_t0)
+    return result
 
 
 def select_hyphenator(lang: str):
@@ -1207,3 +1356,8 @@ def calc_horizontal(font_size: int, text: str, max_width: int, max_height: int, 
 def calc_vertical(font_size: int, text: str, max_height: int, config=None, letter_spacing: float = 1.0):
     from .auto_linebreak import _calc_vertical_layout
     return _calc_vertical_layout(font_size, text, max_height, config, letter_spacing=letter_spacing)
+
+
+def calc_vertical_metrics(font_size: int, text: str, max_height: int, config=None, letter_spacing: float = 1.0):
+    from .auto_linebreak import _layout_vertical_metrics
+    return _layout_vertical_metrics(font_size, text, max_height, config, letter_spacing=letter_spacing)

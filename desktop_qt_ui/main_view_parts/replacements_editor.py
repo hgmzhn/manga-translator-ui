@@ -8,7 +8,7 @@ import sys
 from typing import Callable, Dict, List, Optional
 
 import yaml
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -66,6 +66,7 @@ class ReplacementsEditorPanel(QWidget):
     """替换规则编辑面板 - 表格 + 原始编辑双模式"""
 
     data_changed = pyqtSignal()
+    _AUTOSAVE_DELAY_MS = 600
 
     # 表格列索引
     COL_ENABLED = 0
@@ -83,6 +84,9 @@ class ReplacementsEditorPanel(QWidget):
         self._t = t_func or (lambda x, **kw: x)
         self._file_path = _get_replacements_path()
         self._modified = False
+        self._auto_save_timer = QTimer(self)
+        self._auto_save_timer.setSingleShot(True)
+        self._auto_save_timer.timeout.connect(self._on_auto_save_timeout)
         self._setup_ui()
         self._load_data()
 
@@ -123,9 +127,8 @@ class ReplacementsEditorPanel(QWidget):
         self._mode_button.setProperty("chipButton", True)
         self._mode_button.setCheckable(True)
 
-        self._save_button = QPushButton(self._t("Save"))
-        self._save_button.setProperty("chipButton", True)
-        self._save_button.setEnabled(False)
+        self._restore_default_button = QPushButton(self._t("Restore Default"))
+        self._restore_default_button.setProperty("chipButton", True)
 
         toolbar_layout.addWidget(self._add_button)
         toolbar_layout.addWidget(self._delete_button)
@@ -136,7 +139,7 @@ class ReplacementsEditorPanel(QWidget):
         toolbar_layout.addWidget(self._toggle_regex_button)
         toolbar_layout.addStretch()
         toolbar_layout.addWidget(self._mode_button)
-        toolbar_layout.addWidget(self._save_button)
+        toolbar_layout.addWidget(self._restore_default_button)
         layout.addWidget(toolbar)
 
         # --- 搜索 / 预设栏 ---
@@ -196,7 +199,7 @@ class ReplacementsEditorPanel(QWidget):
         raw_layout.setContentsMargins(0, 0, 0, 0)
         raw_layout.setSpacing(4)
 
-        raw_hint = QLabel(self._t("Edit raw YAML content directly. Save to apply changes."))
+        raw_hint = QLabel(self._t("Edit raw YAML content directly. Changes are saved automatically."))
         raw_hint.setObjectName("page_subtitle")
         raw_hint.setWordWrap(True)
         raw_layout.addWidget(raw_hint)
@@ -233,7 +236,7 @@ class ReplacementsEditorPanel(QWidget):
         self._toggle_enabled_button.clicked.connect(self._on_toggle_enabled)
         self._toggle_regex_button.clicked.connect(self._on_toggle_regex)
         self._mode_button.clicked.connect(self._on_toggle_mode)
-        self._save_button.clicked.connect(self._on_save)
+        self._restore_default_button.clicked.connect(self._on_restore_default)
         self._tab_widget.currentChanged.connect(self._on_tab_changed)
         self._raw_editor.textChanged.connect(self._on_raw_changed)
         self._search_input.textChanged.connect(self._on_search_changed)
@@ -342,8 +345,8 @@ class ReplacementsEditorPanel(QWidget):
         self._raw_editor.setPlainText(raw_content)
         self._raw_editor.blockSignals(False)
 
+        self._auto_save_timer.stop()
         self._modified = False
-        self._save_button.setEnabled(False)
         self._update_status()
 
     def _add_rule_to_table(self, table: QTableWidget, rule: dict):
@@ -574,6 +577,8 @@ class ReplacementsEditorPanel(QWidget):
         """切换表格/原始编辑模式"""
         if self._mode_button.isChecked():
             # 切换到原始模式
+            if self._modified:
+                self._save_current_content(show_errors=False)
             yaml_content = self._tables_to_yaml()
             self._raw_editor.blockSignals(True)
             self._raw_editor.setPlainText(yaml_content)
@@ -600,6 +605,9 @@ class ReplacementsEditorPanel(QWidget):
                 )
                 self._mode_button.setChecked(True)
                 return
+
+            if self._modified:
+                self._save_raw_content(raw_text, show_errors=False)
 
             for group_key, table in self._tables.items():
                 table.blockSignals(True)
@@ -660,44 +668,93 @@ class ReplacementsEditorPanel(QWidget):
 
     def _mark_modified(self):
         self._modified = True
-        self._save_button.setEnabled(True)
+        self._auto_save_timer.start(self._AUTOSAVE_DELAY_MS)
         self._update_status()
         self.data_changed.emit()
 
-    # ─── 保存 ───
+    # ─── 自动保存 / 恢复默认 ───
 
-    def _on_save(self):
-        """保存数据"""
+    def _on_auto_save_timeout(self):
+        """防抖自动保存当前编辑内容。"""
+        if self._modified:
+            self._save_current_content(show_errors=False)
+
+    def _save_current_content(self, show_errors: bool = False) -> bool:
+        """保存当前模式下的数据。"""
         if self._mode_stack.currentIndex() == 1:
-            raw_text = self._raw_editor.toPlainText()
-            try:
-                yaml.safe_load(raw_text)
-            except Exception as e:
+            return self._save_raw_content(self._raw_editor.toPlainText(), show_errors=show_errors)
+
+        return self._write_content(self._tables_to_yaml(), show_errors=show_errors)
+
+    def _save_raw_content(self, raw_text: str, show_errors: bool = False) -> bool:
+        """校验并保存原始 YAML 内容。"""
+        try:
+            yaml.safe_load(raw_text)
+        except Exception as e:
+            message = self._t("YAML syntax error, changes not saved.")
+            if show_errors:
                 QMessageBox.warning(
                     self, self._t("Save Error"),
-                    self._t("YAML syntax error, please fix before saving.") + f"\n\n{e}"
+                    message + f"\n\n{e}"
                 )
-                return
-            try:
-                os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
-                with open(self._file_path, 'w', encoding='utf-8') as f:
-                    f.write(raw_text)
-                self._modified = False
-                self._save_button.setEnabled(False)
-                self._set_status(self._t("Saved successfully"), "success")
-            except Exception as e:
-                self._set_status(f"{self._t('Save error')}: {e}", "error")
-        else:
-            yaml_content = self._tables_to_yaml()
-            try:
-                os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
-                with open(self._file_path, 'w', encoding='utf-8') as f:
-                    f.write(yaml_content)
-                self._modified = False
-                self._save_button.setEnabled(False)
-                self._set_status(self._t("Saved successfully"), "success")
-            except Exception as e:
-                self._set_status(f"{self._t('Save error')}: {e}", "error")
+            else:
+                self._set_status(message, "warning")
+            return False
+
+        return self._write_content(raw_text, show_errors=show_errors)
+
+    def _write_content(self, content: str, show_errors: bool = False) -> bool:
+        """写入替换规则文件。"""
+        try:
+            os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
+            with open(self._file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            self._invalidate_replacements_cache()
+            self._auto_save_timer.stop()
+            self._modified = False
+            self._set_status(self._t("Saved automatically"), "success")
+            return True
+        except Exception as e:
+            message = f"{self._t('Save error')}: {e}"
+            if show_errors:
+                QMessageBox.warning(self, self._t("Save Error"), message)
+            else:
+                self._set_status(message, "error")
+            return False
+
+    def _invalidate_replacements_cache(self):
+        """如果替换模块已加载，同步清理其缓存。"""
+        module = sys.modules.get("manga_translator.rendering.text_replacements")
+        if not module or not hasattr(module, "invalidate_replacements_cache"):
+            return
+        try:
+            module.invalidate_replacements_cache(self._file_path)
+        except Exception:
+            pass
+
+    def _on_restore_default(self):
+        """恢复到内置默认替换规则模板。"""
+        reply = QMessageBox.question(
+            self,
+            self._t("Restore Default"),
+            self._t("Restore replacement rules to the built-in defaults? Current custom rules will be overwritten."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            from manga_translator.rendering.text_replacements import reset_text_replacements_to_default
+
+            self._auto_save_timer.stop()
+            reset_text_replacements_to_default(self._file_path)
+            self._load_data()
+            self._apply_filter(self._current_table(), self._search_input.text())
+            self._set_status(self._t("Defaults restored"), "success")
+            self.data_changed.emit()
+        except Exception as e:
+            self._set_status(f"{self._t('Restore default failed')}: {e}", "error")
 
     def _tables_to_yaml(self) -> str:
         """从表格数据生成 YAML 字符串"""
@@ -786,7 +843,7 @@ class ReplacementsEditorPanel(QWidget):
         """刷新UI文本（语言切换）"""
         self._add_button.setText(self._t("Add Rule"))
         self._delete_button.setText(self._t("Delete"))
-        self._save_button.setText(self._t("Save"))
+        self._restore_default_button.setText(self._t("Restore Default"))
         self._select_all_button.setText(self._t("Select All"))
         self._on_selection_changed()  # 刷新启用/正则按钮文字
         if self._mode_button.isChecked():
@@ -806,7 +863,7 @@ class ReplacementsEditorPanel(QWidget):
             ])
         if hasattr(self, '_raw_hint_label'):
             self._raw_hint_label.setText(
-                self._t("Edit raw YAML content directly. Save to apply changes.")
+                self._t("Edit raw YAML content directly. Changes are saved automatically.")
             )
         if hasattr(self, '_search_label'):
             self._search_label.setText(self._t("Filter:"))

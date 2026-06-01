@@ -9,6 +9,8 @@ from .editor_model import EditorModel
 from .graphics_view_input import GraphicsViewInputMixin
 from .graphics_view_layers import GraphicsViewLayersMixin
 from .graphics_view_rendering import GraphicsViewRenderingMixin
+from .mask_layer import MaskLayer
+from .overlay_layer import OverlayLayerManager
 from .render_coordinator import RenderCoordinator
 from .selection_manager import SelectionManager
 
@@ -68,20 +70,20 @@ class GraphicsView(
         self.render_coordinator = RenderCoordinator()
 
         self.scene = QGraphicsScene(self)
+        # 编辑器频繁整批重建少量文本框；禁用 BSP 索引可避免 add/remove 时维护索引的额外开销。
+        self.scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
         self.setScene(self.scene)
 
         self._image_item: QGraphicsPixmapItem = None
-        self._raw_mask_item: QGraphicsPixmapItem = None
-        self._refined_mask_item: QGraphicsPixmapItem = None
-        self._inpainted_image_item: QGraphicsPixmapItem = None
-        self._paint_overlay_item: QGraphicsPixmapItem = None
         self._q_image_ref = None
-        self._inpainted_q_image_ref = None
-        self._paint_overlay_q_image_ref = None
         self._preview_item: QGraphicsPixmapItem = None
+        self.mask_layer = MaskLayer(self)
+        self.overlay_layers = OverlayLayerManager(self)
 
         self._region_items = []
         self._pending_geometry_edit_kinds: dict[int, str] = {}
+        self._immediate_render_update_pending = False
+        self._render_update_immediate_once = False
 
         self._active_tool = "select"
         self._brush_size = 30
@@ -175,11 +177,11 @@ class GraphicsView(
     def _connect_model_signals(self):
         self.model.image_changed.connect(self.on_image_changed)
         self.model.regions_changed.connect(self.on_regions_changed)
-        self.model.raw_mask_changed.connect(lambda mask: self.on_mask_data_changed("raw", mask))
-        self.model.refined_mask_changed.connect(lambda mask: self.on_mask_data_changed("refined", mask))
-        self.model.display_mask_type_changed.connect(self.on_display_mask_type_changed)
-        self.model.inpainted_image_changed.connect(self.on_inpainted_image_changed)
-        self.model.paint_overlay_changed.connect(self.on_paint_overlay_changed)
+        self.model.raw_mask_changed.connect(lambda mask: self.mask_layer.on_mask_data_changed("raw", mask))
+        self.model.refined_mask_changed.connect(lambda mask: self.mask_layer.on_mask_data_changed("refined", mask))
+        self.model.display_mask_type_changed.connect(self.mask_layer.on_display_mask_type_changed)
+        self.model.inpainted_image_changed.connect(self.overlay_layers.on_inpainted_image_changed)
+        self.model.paint_overlay_changed.connect(self.overlay_layers.on_paint_overlay_changed)
         self.model.region_display_mode_changed.connect(self.on_region_display_mode_changed)
         self.model.original_image_alpha_changed.connect(self.on_original_image_alpha_changed)
         self.model.region_style_updated.connect(self.on_region_style_updated)

@@ -226,28 +226,12 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
             base_height = base_font * len(normalized_lines) + spacing_y * max(0, len(normalized_lines) - 1)
             return base_width, base_height, len(normalized_lines)
     else:
-        lines, heights = text_render.calc_vertical(
+        lines, heights, line_widths = text_render.calc_vertical_metrics(
             base_font, text_for_calc,
             max_height=99999, config=config, letter_spacing=letter_spacing
         )
         if heights:
             spacing_x = int(base_font * 0.2 * line_spacing)
-
-            # 和后端渲染一致：计算每列的实际宽度
-            line_widths = []
-            for line_text in lines:
-                max_width = base_font
-                parts = re.split(r'(<H>.*?</H>)', line_text, flags=re.IGNORECASE | re.DOTALL)
-                for part in parts:
-                    if not part:
-                        continue
-                    is_horizontal_block = part.lower().startswith('<h>') and part.lower().endswith('</h>')
-                    if not is_horizontal_block:
-                        for c in part:
-                            char_width = text_render.get_vertical_char_bitmap_width(base_font, c)
-                            if char_width > max_width:
-                                max_width = char_width
-                line_widths.append(max_width)
 
             # 和后端渲染一致：sum(line_widths) + spacing
             base_width = sum(line_widths) + spacing_x * max(0, len(lines) - 1)

@@ -100,6 +100,58 @@ def _resize_rgba_premultiplied(array: np.ndarray, target_w: int, target_h: int, 
     return np.clip(resized, 0, 255).astype(np.uint8, copy=False)
 
 
+def build_mask_display_frame(
+    mask: Any,
+    *,
+    max_pixels: Optional[int] = None,
+    color: tuple[int, int, int] = (255, 0, 0),
+    alpha: int = 128,
+) -> Optional[DisplayImageFrame]:
+    """Build a premultiplied RGBA preview for a binary mask.
+
+    This keeps the expensive resize on a single alpha channel instead of a
+    full float32 RGBA frame.
+    """
+    if mask is None:
+        return None
+
+    mask_array = np.asarray(mask)
+    if mask_array.ndim == 3:
+        mask_array = mask_array[..., 0]
+    if mask_array.ndim != 2:
+        raise ValueError(f"Unsupported mask array shape: {mask_array.shape}")
+
+    source_height, source_width = mask_array.shape
+    preview_width, preview_height = _resolve_preview_size(source_width, source_height, max_pixels)
+
+    alpha_value = max(0, min(255, int(alpha)))
+    alpha_plane = np.zeros((source_height, source_width), dtype=np.uint8)
+    alpha_plane[mask_array > 0] = alpha_value
+
+    if (preview_width, preview_height) != (source_width, source_height):
+        interpolation = (
+            cv2.INTER_AREA
+            if preview_width < source_width or preview_height < source_height
+            else cv2.INTER_LINEAR
+        )
+        alpha_plane = cv2.resize(alpha_plane, (preview_width, preview_height), interpolation=interpolation)
+
+    alpha_plane = _ensure_uint8(alpha_plane, copy=False)
+    rgba = np.zeros((preview_height, preview_width, 4), dtype=np.uint8)
+    alpha_u16 = alpha_plane.astype(np.uint16, copy=False)[..., None]
+    rgb = np.array([max(0, min(255, int(value))) for value in color[:3]], dtype=np.uint16)
+    rgba[..., :3] = (alpha_u16 * rgb // 255).astype(np.uint8, copy=False)
+    rgba[..., 3] = alpha_plane
+
+    return DisplayImageFrame(
+        qimage=_qimage_from_array(rgba, premultiplied=True),
+        source_width=source_width,
+        source_height=source_height,
+        preview_width=preview_width,
+        preview_height=preview_height,
+    )
+
+
 def image_like_to_display_array(image: Any, *, copy: bool = False) -> Optional[np.ndarray]:
     if image is None:
         return None
