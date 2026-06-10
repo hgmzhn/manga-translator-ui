@@ -79,6 +79,7 @@ class RenderSettings(BaseModel):
     letter_spacing: Optional[float] = 1.0  # 字间距倍率，默认1.0
     font_size: Optional[int] = None
     auto_rotate_symbols: bool = True
+    auto_horizontal_alphanumeric: bool = True
     rtl: bool = True
     layout_mode: str = "smart_scaling"
     max_font_size: int = 0

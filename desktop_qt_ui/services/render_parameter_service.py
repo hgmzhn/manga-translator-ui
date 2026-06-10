@@ -67,7 +67,8 @@ class RenderParameters:
     # 渲染选项
     hyphenate: bool = True  # 是否启用连字符
     disable_font_border: bool = False  # 是否禁用字体边框
-    auto_rotate_symbols: bool = True # 竖排内横排
+    auto_rotate_symbols: bool = True # 标点符号合并
+    auto_horizontal_alphanumeric: bool = True # 字母数字横排
     
     def __post_init__(self):
         if self.shadow_offset is None:
@@ -483,6 +484,7 @@ class RenderParameterService:
             'font_scale_ratio': params.font_scale_ratio,
             'center_text_in_bubble': params.center_text_in_bubble,
             'auto_rotate_symbols': params.auto_rotate_symbols,
+            'auto_horizontal_alphanumeric': params.auto_horizontal_alphanumeric,
 
             # 添加元数据
             '_render_params_version': '1.0',

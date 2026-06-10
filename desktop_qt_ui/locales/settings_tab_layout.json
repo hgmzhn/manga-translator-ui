@@ -149,6 +149,7 @@
         "render.letter_spacing",
         "render.font_size",
         "render.auto_rotate_symbols",
+        "render.auto_horizontal_alphanumeric",
         "render.rtl",
         "render.layout_mode",
         "render.max_font_size",

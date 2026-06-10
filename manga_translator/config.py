@@ -198,7 +198,9 @@ class RenderConfig(BaseModel):
     rtl: bool = True
     """Right-to-left reading order for panel and text_region sorting,"""  
     auto_rotate_symbols: bool = False
-    """Automatically rotate symbols like '!!' or '??' in vertical text"""
+    """Automatically merge consecutive punctuation symbols like '!!' or '??' in vertical text"""
+    auto_horizontal_alphanumeric: bool = False
+    """Automatically add horizontal tags for letters and numbers in vertical text"""
     layout_mode: str = 'smart_scaling'
     """The layout mode to use for rendering. Options: 'smart_scaling', 'strict', 'balloon_fill'"""
     stroke_width: float = 0.07
