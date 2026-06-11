@@ -9,6 +9,7 @@ This document explains how to register, choose, and configure the most commonly 
 - [Model Selection Advice](#model-selection-advice)
 - [General API Setup Rules](#general-api-setup-rules)
 - [SiliconFlow API Setup](#siliconflow-api-setup)
+- [Atlas Cloud API Setup](#atlas-cloud-api-setup)
 - [DeepSeek API Setup](#deepseek-api-setup)
 - [Google Gemini API Setup](#google-gemini-api-setup)
 - [API OCR Setup (OpenAI OCR / Gemini OCR)](#api-ocr-setup-openai-ocr--gemini-ocr)
@@ -120,6 +121,7 @@ The `OpenAI` translator path can work with many providers because a large number
   - Example: `https://api.openai.com/v1`
   - Example: `https://api.deepseek.com/v1`
   - Example: `https://api.siliconflow.cn/v1`
+  - Example: `https://api.atlascloud.ai/v1`
 - Some providers use a different version suffix
   - Example: some Volcano Engine endpoints use `/v3`
 
@@ -219,6 +221,40 @@ If you want multimodal translation:
 Useful note:
 
 - You can browse the available models from the [SiliconFlow Model Plaza](https://cloud.siliconflow.cn/models)
+
+---
+
+## Atlas Cloud API Setup
+
+[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui) is a unified AI inference platform that exposes 100+ large language models (DeepSeek, Qwen, Claude, Gemini, GPT, and more) through a single OpenAI-compatible endpoint, billed per usage. A single key lets you reach many models without signing up with each vendor separately.
+
+Why it is convenient:
+
+- one key for many models, OpenAI-compatible, works out of the box
+- offers both text-only models (e.g. DeepSeek-V3) and multimodal models (e.g. Qwen3-VL, Gemini), so it works for both the `OpenAI` translator and the high-quality (multimodal) `OpenAI` translator
+
+### 1. Create an API key
+
+1. Visit [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui) and sign up
+2. Open the console and create a new API key on the API Keys page
+3. Copy and store the key safely
+
+### 2. Configure it in the app
+
+1. Open the app
+2. In `Basic Settings -> Translator`, choose `OpenAI` (or `High-Quality OpenAI` if you want a multimodal model)
+3. In `Advanced Settings`, fill in:
+   - `OpenAI API Key`: your Atlas Cloud API key
+   - `OpenAI API Base`: `https://api.atlascloud.ai/v1`
+   - `OpenAI Model`:
+     - `deepseek-ai/DeepSeek-V3-0324`: text-only, cost-effective, good default for the `OpenAI` translator
+     - `Qwen/Qwen3-VL-235B-A22B-Instruct`: multimodal, usable with `High-Quality OpenAI`
+     - `google/gemini-3.5-flash`: multimodal and fast
+     - browse the full list at the [Atlas Cloud model list](https://www.atlascloud.ai/models)
+
+Useful note:
+
+- This is equivalent to setting the environment variables `OPENAI_API_BASE=https://api.atlascloud.ai/v1`, `OPENAI_API_KEY=<your key>`, and `OPENAI_MODEL=deepseek-ai/DeepSeek-V3-0324`. Atlas Cloud also works for the `OpenAI` OCR / Colorizer / Renderer features, which use the same OpenAI-compatible interface.
 
 ---
 

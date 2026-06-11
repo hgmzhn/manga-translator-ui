@@ -9,6 +9,7 @@
 - [模型选择建议](#模型选择建议)
 - [通用 API 配置说明](#通用-api-配置说明)
 - [硅基流动 API 配置](#硅基流动-api-配置)
+- [Atlas Cloud API 配置](#atlas-cloud-api-配置)
 - [DeepSeek API 配置](#deepseek-api-配置)
 - [Google Gemini API 配置](#google-gemini-api-配置)
 - [API OCR 配置（OpenAI OCR / Gemini OCR）](#api-ocr-配置openai-ocr--gemini-ocr)
@@ -81,7 +82,7 @@ OpenAI 翻译器**几乎支持市面上所有模型**，因为几乎所有的 AI
 - **一般情况**：API 地址以 `/v1` 结尾
   - 例如：`https://api.openai.com/v1`
   - 例如：`https://api.deepseek.com/v1`
-  - 支持：DeepSeek、Groq、Together AI、OpenRouter、**硅基流动**、**火山引擎**等
+  - 支持：DeepSeek、Groq、Together AI、OpenRouter、**硅基流动**、**Atlas Cloud**、**火山引擎**等
 - **例外情况**：某些服务商可能使用其他版本号
   - 例如：火山引擎使用 `/v3` 结尾
 
@@ -126,6 +127,35 @@ OpenAI 翻译器**几乎支持市面上所有模型**，因为几乎所有的 AI
    - **API Key**：你的硅基流动 API Key
    - **Base URL**：`https://api.siliconflow.cn/v1`
    - **模型**：在 [模型广场](https://cloud.siliconflow.cn/models) 查看所有可用模型
+
+---
+
+## Atlas Cloud API 配置
+
+[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui) 是一个统一的 AI 推理平台，通过一个 OpenAI 兼容接口即可调用 100+ 大语言模型（DeepSeek、Qwen、Claude、Gemini、GPT 等），按量计费、无需为每家厂商单独申请 Key。
+
+> 💡 **优势**：单一 Key 即可访问众多模型，OpenAI 兼容、开箱即用；既有纯文字模型（如 DeepSeek-V3），也有多模态模型（如 Qwen3-VL、Gemini），可同时满足"普通翻译器"和"高质量翻译器"。
+
+### 1. 注册并创建 API Key
+
+1. 访问 [Atlas Cloud 官网](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui) 并注册账号
+2. 进入控制台，在 API Keys 页面创建一个新的 API Key
+3. 复制生成的 API Key 并妥善保存
+
+### 2. 配置到程序中
+
+1. 打开程序
+2. 在"基础设置"→"翻译器"中选择"OpenAI"（如需多模态可选"高质量翻译 OpenAI"）
+3. 在"高级设置"中填写：
+   - **API Key**：填入你的 Atlas Cloud API Key
+   - **Base URL**：`https://api.atlascloud.ai/v1`
+   - **模型**：
+     - `deepseek-ai/DeepSeek-V3-0324`：纯文字、性价比高，适合普通翻译器（默认推荐）
+     - `Qwen/Qwen3-VL-235B-A22B-Instruct`：多模态，可用于"高质量翻译 OpenAI"
+     - `google/gemini-3.5-flash`：多模态、速度快
+     - 完整可用模型见 [Atlas Cloud 模型列表](https://www.atlascloud.ai/models)
+
+> 💡 **提示**：上述配置等价于设置环境变量 `OPENAI_API_BASE=https://api.atlascloud.ai/v1`、`OPENAI_API_KEY=<你的 Key>`、`OPENAI_MODEL=deepseek-ai/DeepSeek-V3-0324`。Atlas Cloud 同样可用于 `OPENAI OCR / Colorizer / Renderer` 等所有走 OpenAI 兼容接口的功能。
 
 ---
 
