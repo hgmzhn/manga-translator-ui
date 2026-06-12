@@ -15,6 +15,13 @@
 
 </div>
 
+<p align="center">
+  <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui">
+    <img src="doc/images/atlas-cloud-logo.png" alt="Atlas Cloud" width="200">
+  </a>
+</p>
+
+> 🎁 **[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui)** 是一个全模态、OpenAI 兼容的 AI 推理平台——可作为本项目 `OpenAI` 翻译器的即插即用后端，用一个 Key 即可调用 DeepSeek、Qwen、GLM、Kimi、MiniMax 等 LLM，以及 Gemini、Qwen3-VL 等多模态模型用于"高质量翻译"，无需为每家厂商单独接入。配置方式见 [API 配置教程](doc/API_CONFIG.md#atlas-cloud-api-配置)，价格友好：[coding plan](https://www.atlascloud.ai/console/coding-plan)。
 
 **语言 / Language**: 简体中文 | [English](README_EN.md)
 

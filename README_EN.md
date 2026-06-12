@@ -15,6 +15,14 @@
 
 </div>
 
+<p align="center">
+  <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui">
+    <img src="doc/images/atlas-cloud-logo.png" alt="Atlas Cloud" width="200">
+  </a>
+</p>
+
+> 🎁 **[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=manga-translator-ui)** is a full-modal, OpenAI-compatible AI inference platform — plug it into this project's `OpenAI` translator as a drop-in backend and use one key to reach LLMs (DeepSeek, Qwen, GLM, Kimi, MiniMax …) as well as multimodal models (Gemini, Qwen3-VL …) for the high-quality translator, with no per-vendor setup. See the [API configuration guide](doc/en/API_CONFIG.md#atlas-cloud-api-setup); budget-friendly [coding plan](https://www.atlascloud.ai/console/coding-plan).
+
 **Language / 语言**: [简体中文](README.md) | English
 
 Translate text in manga images with one click. The app supports Japanese manga, Korean comics, Western comics, black-and-white pages, and color pages. It can automatically detect text, run OCR, translate, inpaint, typeset, and it includes a built-in visual editor for adjusting text boxes.
