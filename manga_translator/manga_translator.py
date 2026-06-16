@@ -811,15 +811,21 @@ class MangaTranslator:
 
         # 对竖排区域的 translation 应用 auto_add_horizontal_tags
         # 确保竖排内横排标记 <H> 写入 JSON
-        if config and hasattr(config, 'render') and getattr(config.render, 'auto_rotate_symbols', False):
-            from .rendering.text_render import auto_add_horizontal_tags
+        render_cfg = config.render if config and hasattr(config, 'render') else None
+        do_symbols = bool(render_cfg and getattr(render_cfg, 'auto_rotate_symbols', False))
+        do_alphanumeric = bool(render_cfg and getattr(render_cfg, 'auto_horizontal_alphanumeric', do_symbols))
+        if do_symbols or do_alphanumeric:
+            from .rendering.text_render import auto_add_horizontal_tags_alphanumeric, auto_add_horizontal_tags_symbols
             for region in regions_data:
                 direction = region.get('direction', '')
                 is_vertical = direction in ('v', 'vertical')
                 if 'horizontal' in region:
                     is_vertical = not region['horizontal']
                 if is_vertical and region.get('translation'):
-                    region['translation'] = auto_add_horizontal_tags(region['translation'])
+                    if do_symbols:
+                        region['translation'] = auto_add_horizontal_tags_symbols(region['translation'])
+                    if do_alphanumeric:
+                        region['translation'] = auto_add_horizontal_tags_alphanumeric(region['translation'])
 
         # 获取图片尺寸（优先使用保存的尺寸，兼容并发模式）
         if hasattr(ctx, 'original_size') and ctx.original_size:

@@ -79,6 +79,7 @@ class RenderSettings(BaseModel):
     letter_spacing: Optional[float] = 1.0  # 字间距倍率，默认1.0
     font_size: Optional[int] = None
     auto_rotate_symbols: bool = True
+    auto_horizontal_alphanumeric: bool = False
     rtl: bool = True
     layout_mode: str = "smart_scaling"
     max_font_size: int = 0
@@ -91,6 +92,18 @@ class RenderSettings(BaseModel):
     enable_template_alignment: bool = False  # 启用模板匹配对齐（替换翻译模式）- 直接提取翻译图文字
     paste_mask_dilation_pixels: int = 10  # 粘贴模式蒙版膨胀大小（像素），设为0禁用膨胀
     ai_renderer_concurrency: int = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_alphanumeric(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        
+        normalized = dict(data)
+        if "auto_horizontal_alphanumeric" not in normalized and "auto_rotate_symbols" in normalized:
+            normalized["auto_horizontal_alphanumeric"] = normalized["auto_rotate_symbols"]
+            
+        return normalized
 
     @model_validator(mode="after")
     def _validate_layout_mode(self):

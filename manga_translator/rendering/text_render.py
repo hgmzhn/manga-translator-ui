@@ -120,8 +120,23 @@ def normalize_vertical_ellipsis_text(text: str) -> str:
     return text or ''
 
 
-def auto_add_horizontal_tags(text: str) -> str:
-    if not text or '<H>' in text or '<h>' in text.lower():
+def auto_add_horizontal_tags_symbols(text: str) -> str:
+    """只处理标点符号合并：!! / !? / ！？ 等连续标点包裹为 <H> 标签。"""
+    if not text:
+        return text
+    seg = re.sub(r'[!?\uff01\uff1f]{2,4}', r'<H>\g<0></H>', text)
+    pair_re = re.compile(r'<H>([!?\uff01\uff1f]{2,4})</H>\s*(\r\n|\r|\n|\[BR\]|<br\s*/?>|【BR】)\s*<H>([!?\uff01\uff1f]{2,4})</H>', re.IGNORECASE)
+    while True:
+        updated = pair_re.sub(lambda m: f'<H>{m.group(1)}{m.group(2)}{m.group(3)}</H>', seg)
+        if updated == seg:
+            break
+        seg = updated
+    return seg
+
+
+def auto_add_horizontal_tags_alphanumeric(text: str) -> str:
+    """只处理字母和数字：为连续的英文/数字添加 <H> 横排标签。"""
+    if not text:
         return text
 
     br_tokens = []
@@ -141,15 +156,8 @@ def auto_add_horizontal_tags(text: str) -> str:
         return f'<H>{match.group(1)}</H>'
 
     seg = re.sub(fr'(?<![{word_chars}])([{word_chars}]{{2,}})(?![{word_chars}])', _wrap_word, seg)
-    seg = re.sub(r'[!?！？]{2,4}', r'<H>\g<0></H>', seg)
     for i, token in enumerate(br_tokens):
         seg = seg.replace(chr(0xE000 + i), token)
-    pair_re = re.compile(r'<H>([!?！？]{2,4})</H>\s*(\r\n|\r|\n|\[BR\]|<br\s*/?>|【BR】)\s*<H>([!?！？]{2,4})</H>', re.IGNORECASE)
-    while True:
-        updated = pair_re.sub(lambda m: f'{m.group(1)}{m.group(2)}{m.group(3)}', seg)
-        if updated == seg:
-            break
-        seg = updated
     merge_re = re.compile(
         r'<H>([a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19]+)</H>\s*(?:\r\n|\r|\n|\[BR\]|<br\s*/?>|【BR】)\s*<H>([a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19]+)</H>',
         re.IGNORECASE,
@@ -171,6 +179,15 @@ def auto_add_horizontal_tags(text: str) -> str:
         seg,
         flags=re.IGNORECASE | re.DOTALL,
     )
+
+
+def auto_add_horizontal_tags(text: str) -> str:
+    """向后兼容入口：同时执行标点合并 + 字母数字横排。"""
+    if not text or '<h>' in text.lower():
+        return text
+    text = auto_add_horizontal_tags_symbols(text)
+    text = auto_add_horizontal_tags_alphanumeric(text)
+    return text
 
 
 def _normalize_horizontal_block_content(content: str) -> str:
@@ -202,7 +219,7 @@ def _convert_br_outside_h_tags(text: str) -> str:
 
 def should_rotate_horizontal_block_90(content: str) -> bool:
     content = _normalize_horizontal_block_content(content).strip()
-    return bool(content and re.fullmatch(r'[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+(?:[ \t]+[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+)*', content))
+    return bool(content and len(content) > 2 and re.fullmatch(r'[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+(?:[ \t]+[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+)*', content))
 
 
 def add_color(bw_char_map, color, stroke_char_map, stroke_color):

@@ -103,6 +103,7 @@ def make_text_render_cache_key(text_block: TextBlock, dst_points: np.ndarray, re
         tuple(render_params.get("shadow_offset", [0.0, 0.0])),
         render_params.get("disable_font_border"),
         render_params.get("auto_rotate_symbols"),
+        render_params.get("auto_horizontal_alphanumeric"),
     )
 
 

@@ -198,7 +198,9 @@ class RenderConfig(BaseModel):
     rtl: bool = True
     """Right-to-left reading order for panel and text_region sorting,"""  
     auto_rotate_symbols: bool = False
-    """Automatically rotate symbols like '!!' or '??' in vertical text"""
+    """Automatically merge consecutive punctuation symbols like '!!' or '??' in vertical text"""
+    auto_horizontal_alphanumeric: bool = False
+    """Automatically add horizontal tags for letters and numbers in vertical text"""
     layout_mode: str = 'smart_scaling'
     """The layout mode to use for rendering. Options: 'smart_scaling', 'strict', 'balloon_fill'"""
     stroke_width: float = 0.07
@@ -211,6 +213,19 @@ class RenderConfig(BaseModel):
     """Maximum concurrent API requests for OpenAI/Gemini/Vertex renderers."""
     _font_color_fg = None
     _font_color_bg = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_alphanumeric(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        
+        normalized = dict(data)
+        if "auto_horizontal_alphanumeric" not in normalized and "auto_rotate_symbols" in normalized:
+            # Migration for compatibility: map legacy symbol flag into new alphanumeric flag
+            normalized["auto_horizontal_alphanumeric"] = normalized["auto_rotate_symbols"]
+            
+        return normalized
 
     @model_validator(mode="after")
     def _validate_layout_mode(self):

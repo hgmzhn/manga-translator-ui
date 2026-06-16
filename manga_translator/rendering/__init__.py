@@ -95,10 +95,19 @@ def _apply_vertical_horizontal_markup(text: str, *, render_horizontally: bool, c
     if not value or render_horizontally:
         return value
 
-    if not (config and hasattr(config, 'render') and getattr(config.render, 'auto_rotate_symbols', False)):
+    # 已有手动 <H> 标签时不再自动处理
+    if '<H>' in value or '<h>' in value.lower():
         return value
 
-    return text_render.auto_add_horizontal_tags(value)
+    render_cfg = config.render if config and hasattr(config, 'render') else None
+    do_symbols = bool(render_cfg and getattr(render_cfg, 'auto_rotate_symbols', False))
+    do_alphanumeric = bool(render_cfg and getattr(render_cfg, 'auto_horizontal_alphanumeric', do_symbols))
+
+    if do_symbols:
+        value = text_render.auto_add_horizontal_tags_symbols(value)
+    if do_alphanumeric:
+        value = text_render.auto_add_horizontal_tags_alphanumeric(value)
+    return value
 
 
 def _has_explicit_line_breaks(text: str) -> bool:
