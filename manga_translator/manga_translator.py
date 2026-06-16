@@ -822,10 +822,13 @@ class MangaTranslator:
                 if 'horizontal' in region:
                     is_vertical = not region['horizontal']
                 if is_vertical and region.get('translation'):
-                    if do_symbols:
-                        region['translation'] = auto_add_horizontal_tags_symbols(region['translation'])
-                    if do_alphanumeric:
-                        region['translation'] = auto_add_horizontal_tags_alphanumeric(region['translation'])
+                    # Check if the translation already has existing manual <H> tags to prevent double-wrapping
+                    has_tags = '<H>' in region['translation'] or '<h>' in region['translation'].lower()
+                    if not has_tags:
+                        if do_symbols:
+                            region['translation'] = auto_add_horizontal_tags_symbols(region['translation'])
+                        if do_alphanumeric:
+                            region['translation'] = auto_add_horizontal_tags_alphanumeric(region['translation'])
 
         # 获取图片尺寸（优先使用保存的尺寸，兼容并发模式）
         if hasattr(ctx, 'original_size') and ctx.original_size:
@@ -844,19 +847,26 @@ class MangaTranslator:
         }
 
         preserved_skip_font_scaling = getattr(ctx, 'skip_font_scaling', None)
-        if preserved_skip_font_scaling is None and os.path.exists(text_output_file):
+        preserved_skip_text_replacements = getattr(ctx, 'skip_text_replacements', None)
+        if (preserved_skip_font_scaling is None or preserved_skip_text_replacements is None) and os.path.exists(text_output_file):
             try:
                 with open(text_output_file, 'r', encoding='utf-8') as f:
                     existing_data = json.load(f)
                 if existing_data and len(existing_data.values()) > 0:
                     existing_image_data = next(iter(existing_data.values()))
-                    if isinstance(existing_image_data, dict) and 'skip_font_scaling' in existing_image_data:
-                        preserved_skip_font_scaling = _parse_skip_font_scaling_flag(
-                            existing_image_data.get('skip_font_scaling'),
-                            default=True,
-                        )
+                    if isinstance(existing_image_data, dict):
+                        if 'skip_font_scaling' in existing_image_data and preserved_skip_font_scaling is None:
+                            preserved_skip_font_scaling = _parse_skip_font_scaling_flag(
+                                existing_image_data.get('skip_font_scaling'),
+                                default=True,
+                            )
+                        if 'skip_text_replacements' in existing_image_data and preserved_skip_text_replacements is None:
+                            preserved_skip_text_replacements = _parse_skip_font_scaling_flag(
+                                existing_image_data.get('skip_text_replacements'),
+                                default=False,
+                            )
             except Exception as e:
-                logger.warning(f"Failed to preserve skip_font_scaling from existing JSON {text_output_file}: {e}")
+                logger.warning(f"Failed to preserve flags from existing JSON {text_output_file}: {e}")
 
         # 导出原文 / 仅翻译(JSON)：后续导入渲染应重新执行智能排版，不继承旧字号。
         if (self.template and self.save_text) or self.translate_json_only:
@@ -866,6 +876,9 @@ class MangaTranslator:
             data_to_save['skip_font_scaling'] = True
         elif preserved_skip_font_scaling is not None:
             data_to_save['skip_font_scaling'] = bool(preserved_skip_font_scaling)
+            
+        if preserved_skip_text_replacements is not None:
+            data_to_save['skip_text_replacements'] = bool(preserved_skip_text_replacements)
         
         # 添加超分和上色配置信息
         if config:

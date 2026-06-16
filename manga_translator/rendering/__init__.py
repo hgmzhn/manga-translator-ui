@@ -2144,7 +2144,9 @@ async def dispatch(
                 continue
             if not getattr(_region, 'translation_raw', ''):
                 _region.translation_raw = _region.translation
-            _direction = 1 if _region.vertical else 0
+            # Resolve the final rendering orientation (accounting for overrides like bubble_layout_english)
+            is_horizontal_render = _resolve_region_render_horizontal(_region)
+            _direction = 1 if not is_horizontal_render else 0
             _region.translation = apply_replacements(_region.translation, _direction, _repl_rules)
 
     for region_idx, (region, dst_points) in enumerate(tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions))):
