@@ -223,9 +223,32 @@ def _message_contains(error: Exception, markers: Iterable[str]) -> bool:
     return any(marker in message for marker in markers)
 
 
+def _is_bad_request_api_unavailable_error(error: Exception) -> bool:
+    return _message_contains(
+        error,
+        (
+            "api key not valid",
+            "api_key_invalid",
+            "invalid api key",
+            "invalid api_key",
+            "api key expired",
+            "api key has expired",
+            "api key revoked",
+            "invalid authentication",
+            "invalid credentials",
+            "permission denied",
+            "access denied",
+            "model not found",
+            "not found for api version",
+        ),
+    )
+
+
 def is_permanent_api_unavailable_error(error: Exception) -> bool:
     status_code = _extract_status_code(error)
-    if status_code in (400, 402, 404):
+    if status_code == 400:
+        return _is_bad_request_api_unavailable_error(error)
+    if status_code in (402, 404):
         return True
     return _message_contains(
         error,
