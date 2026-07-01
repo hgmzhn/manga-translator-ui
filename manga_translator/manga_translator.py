@@ -25,6 +25,7 @@ from .utils import (
     Context,
     ModelWrapper,
     TextBlock,
+    build_det_rearrange_plan,
     detect_bubbles_with_mangalens,
     dump_image,
     imwrite_unicode,
@@ -1662,6 +1663,7 @@ class MangaTranslator:
                 config.detector.yolo_obb_overlap_threshold,
                 config.detector.min_box_area_ratio,
                 self._result_path,
+                config.detector.det_rearrange_min_effective_short_side,
             )
         
             # 处理bbox调试图（如果检测器返回了）
@@ -2386,33 +2388,27 @@ class MangaTranslator:
             img_h, img_w = ctx.img_rgb.shape[:2]
             img_total_pixels = img_h * img_w
             
-            # 模拟检测器的切割逻辑，判断是否需要切割
-            h, w = img_h, img_w
-            if h < w:
-                h, w = w, h
+            rearrange_plan = build_det_rearrange_plan(
+                ctx.img_rgb,
+                tgt_size=config.detector.detection_size,
+                min_effective_short_side=config.detector.det_rearrange_min_effective_short_side,
+            )
+            require_rearrange = rearrange_plan is not None
             
-            asp_ratio = h / w
-            tgt_size = config.detector.detection_size
-            down_scale_ratio = h / tgt_size
-            require_rearrange = down_scale_ratio > 2.5 and asp_ratio > 3
-            
-            # 如果需要切割，计算切割块的大小
             if require_rearrange:
-                pw_num = max(int(np.floor(2 * tgt_size / w)), 2)
-                patch_size = pw_num * w
+                h = int(rearrange_plan['h'])
+                w = int(rearrange_plan['w'])
+                patch_size = int(rearrange_plan['patch_size'])
+                asp_ratio = h / w
                 
-                # 限制切割后块的最大长宽比（不超过 3:1）
-                # 注意：ph = pw_num * w，所以 ph/w = pw_num
+                # 限制面积过滤参考块的最大长宽比（不超过 3:1）。
+                # 检测切片可以更高以占满模型长边，但过滤阈值不能因此过度放大。
                 max_patch_aspect_ratio = 3.0
-                if pw_num > max_patch_aspect_ratio:
-                    # pw_num 太大，说明切割块太高，需要减小
-                    # 但是不能直接减小 pw_num，因为这是检测器的逻辑
-                    # 我们只是用来计算面积过滤的参考值
-                    # 所以这里使用限制后的 pw_num 来计算 tile_pixels
-                    adjusted_pw_num = max_patch_aspect_ratio
-                    adjusted_ph = adjusted_pw_num * w
+                patch_aspect_ratio = patch_size / w
+                if patch_aspect_ratio > max_patch_aspect_ratio:
+                    adjusted_ph = max_patch_aspect_ratio * w
                     tile_pixels = adjusted_ph * w
-                    logger.info(f'检测到极端长宽比图片 (长宽比={asp_ratio:.2f}), 限制面积过滤参考块长宽比: 原始切割块={patch_size}x{w} (长宽比={pw_num:.2f}), 过滤参考块={adjusted_ph:.0f}x{w} (长宽比={adjusted_pw_num:.2f}), 面积={tile_pixels:.0f}像素')
+                    logger.info(f'检测到极端长宽比图片 (长宽比={asp_ratio:.2f}), 限制面积过滤参考块长宽比: 实际切割块={patch_size}x{w} (长宽比={patch_aspect_ratio:.2f}), 过滤参考块={adjusted_ph:.0f}x{w} (长宽比={max_patch_aspect_ratio:.2f}), 面积={tile_pixels:.0f}像素')
                 else:
                     tile_pixels = patch_size * w
                     logger.info(f'检测到极端长宽比图片 (长宽比={asp_ratio:.2f}), 使用切割块面积 ({patch_size}x{w}={tile_pixels}像素) 进行过滤')

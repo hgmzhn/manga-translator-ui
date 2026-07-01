@@ -320,6 +320,13 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Default is usually `2048`
   - Larger values are more accurate but slower
 
+- **`Long Image Rearrange Min Short Side` (`det_rearrange_min_effective_short_side`)**: minimum effective short-side resolution preserved after long-image detection rearrange.
+  - Current UI location: `Settings` -> `Detection` -> `Long Image Rearrange Min Short Side`
+  - Default: `341`
+  - Only affects images that trigger long-image detection rearrange; it does not change normal image detection size
+  - Higher values keep text clearer after rearrange, but make detection slower
+  - Lower values are faster, but small text in narrow long images is more likely to blur and be missed
+
 - **`Text Threshold` (`text_threshold`)**: text detection confidence threshold.
   - Current UI location: `Settings` -> `Detection` -> `Text Threshold`
   - Range: `0-1`

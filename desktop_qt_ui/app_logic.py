@@ -1404,6 +1404,7 @@ class MainAppLogic(QObject):
                     "ocr_vl_custom_prompt": self._t("label_ocr_vl_custom_prompt"),
                     "detector": self._t("label_detector"),
                     "detection_size": self._t("label_detection_size"),
+                    "det_rearrange_min_effective_short_side": self._t("label_det_rearrange_min_effective_short_side"),
                     "text_threshold": self._t("label_text_threshold"),
                     "import_yolo_labels": self._t("label_import_yolo_labels"),
                     "use_yolo_obb": self._t("label_use_yolo_obb"),

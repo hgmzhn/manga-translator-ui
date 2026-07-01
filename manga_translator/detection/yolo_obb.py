@@ -254,6 +254,7 @@ class YOLOOBBDetector(OfflineDetector):
         verbose: bool = False,
         result_path_fn=None,
         rearrange_plan: Optional[dict] = None,
+        det_rearrange_min_effective_short_side: float = 341.0,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """使用与主检测器相同的切割逻辑进行检测"""
         if image is None or image.size == 0:
@@ -266,7 +267,11 @@ class YOLOOBBDetector(OfflineDetector):
             return self._empty_results()
 
         if rearrange_plan is None:
-            rearrange_plan = build_det_rearrange_plan(image, tgt_size=self.input_size)
+            rearrange_plan = build_det_rearrange_plan(
+                image,
+                tgt_size=self.input_size,
+                min_effective_short_side=det_rearrange_min_effective_short_side,
+            )
         if rearrange_plan is None:
             self.logger.warning("YOLO OBB统一切割: 当前图像不满足切割条件")
             return self._empty_results()
@@ -413,6 +418,7 @@ class YOLOOBBDetector(OfflineDetector):
         unclip_ratio: float,
         verbose: bool = False,
         result_path_fn=None,
+        det_rearrange_min_effective_short_side: float = 341.0,
     ):
         """
         执行检测推理（支持长图分割检测）
@@ -447,12 +453,22 @@ class YOLOOBBDetector(OfflineDetector):
         )
 
         img_shape = image.shape[:2]
-        rearrange_plan = build_det_rearrange_plan(image, tgt_size=self.input_size)
+        rearrange_plan = build_det_rearrange_plan(
+            image,
+            tgt_size=self.input_size,
+            min_effective_short_side=det_rearrange_min_effective_short_side,
+        )
 
         if rearrange_plan is not None:
             self.logger.info("YOLO OBB: 检测到长图，使用统一切割逻辑")
             boxes_corners, scores, class_ids = self._rearrange_detect_unified(
-                image, text_threshold, box_threshold, verbose, result_path_fn, rearrange_plan=rearrange_plan
+                image,
+                text_threshold,
+                box_threshold,
+                verbose,
+                result_path_fn,
+                rearrange_plan=rearrange_plan,
+                det_rearrange_min_effective_short_side=det_rearrange_min_effective_short_side,
             )
         else:
             try:

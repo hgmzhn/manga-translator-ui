@@ -153,7 +153,8 @@ class CRAFTDetector(OfflineDetector):
         del self.model
 
     async def _infer(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float,
-                     unclip_ratio: float, verbose: bool = False, result_path_fn=None):
+                     unclip_ratio: float, verbose: bool = False, result_path_fn=None,
+                     det_rearrange_min_effective_short_side: float = 341.0):
         
         img_resized, target_ratio, size_heatmap, pad_w, pad_h = imgproc.resize_aspect_ratio(image, detect_size, interpolation = cv2.INTER_CUBIC, mag_ratio = 1)
         ratio_h = ratio_w = 1 / target_ratio

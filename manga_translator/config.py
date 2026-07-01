@@ -336,6 +336,8 @@ class DetectorConfig(BaseModel):
     """"Text detector used for creating a text mask from an image, DO NOT use craft for manga, it\'s not designed for it"""
     detection_size: int = 2048
     """Size of image used for detection"""
+    det_rearrange_min_effective_short_side: int = 341
+    """Minimum effective short-side resolution preserved by long-image detection rearrange"""
     text_threshold: float = 0.5
     """Threshold for text detection"""
     import_yolo_labels: bool = False

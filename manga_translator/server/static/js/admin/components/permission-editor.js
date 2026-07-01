@@ -459,6 +459,7 @@ class PermissionEditor {
                 <h3>${this.t('label_detector', '文本检测器')}</h3>
                 ${this.createFormRow(this.t('label_detector', '文本检测器'), this.createSelect('detector', 'detector', opts.detector), '', 'detector', 'detector')}
                 ${this.createFormRow(this.t('label_detection_size', '检测大小'), this.createInput('detector', 'detection_size', 'number'), '', 'detector', 'detection_size')}
+                ${this.createFormRow(this.t('label_det_rearrange_min_effective_short_side', '长图重排最低有效短边'), this.createInput('detector', 'det_rearrange_min_effective_short_side', 'number'), '默认341，值越高文字越清晰但检测越慢', 'detector', 'det_rearrange_min_effective_short_side')}
                 ${this.createFormRow(this.t('label_text_threshold', '文本阈值'), this.createInput('detector', 'text_threshold', 'number'), '', 'detector', 'text_threshold')}
                 ${this.createFormRow(this.t('label_box_threshold', '边界框生成阈值'), this.createInput('detector', 'box_threshold', 'number'), '边界框生成阈值，默认0.5', 'detector', 'box_threshold')}
                 ${this.createFormRow(this.t('label_unclip_ratio', 'Unclip比例'), this.createInput('detector', 'unclip_ratio', 'number'), '文本骨架扩展比例，默认2.5', 'detector', 'unclip_ratio')}

@@ -11,7 +11,8 @@ class CommonDetector(InfererModule):
     supports_detection_rearrange = False
 
     async def detect(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float, unclip_ratio: float,
-                     verbose: bool = False, min_box_area_ratio: float = 0.0009, result_path_fn=None):
+                     verbose: bool = False, min_box_area_ratio: float = 0.0009, result_path_fn=None,
+                     det_rearrange_min_effective_short_side: float = 341.0):
         '''
         Returns textblock list and text mask.
         '''
@@ -19,7 +20,11 @@ class CommonDetector(InfererModule):
         # Apply filters
         img_h, img_w = image.shape[:2]
         minimum_image_size = 400
-        rearrange_before_border = self._should_rearrange_before_border(image, detect_size)
+        rearrange_before_border = self._should_rearrange_before_border(
+            image,
+            detect_size,
+            det_rearrange_min_effective_short_side,
+        )
         # Automatically add border if image too small (instead of simply resizing due to them more likely containing large fonts)
         add_border = min(img_w, img_h) < minimum_image_size and not rearrange_before_border
         if add_border:
@@ -27,7 +32,16 @@ class CommonDetector(InfererModule):
             image = self._add_border(image, minimum_image_size)
 
         # Run detection
-        textlines, raw_mask, mask = await self._detect(image, detect_size, text_threshold, box_threshold, unclip_ratio, verbose, result_path_fn)
+        textlines, raw_mask, mask = await self._detect(
+            image,
+            detect_size,
+            text_threshold,
+            box_threshold,
+            unclip_ratio,
+            verbose,
+            result_path_fn,
+            det_rearrange_min_effective_short_side,
+        )
         # 面积过滤已移至文本行合并后进行（基于合并后的大框）
 
         # Remove filters
@@ -36,17 +50,27 @@ class CommonDetector(InfererModule):
 
         return textlines, raw_mask, mask
 
-    def _should_rearrange_before_border(self, image: np.ndarray, detect_size: int) -> bool:
+    def _should_rearrange_before_border(
+        self,
+        image: np.ndarray,
+        detect_size: int,
+        det_rearrange_min_effective_short_side: float = 341.0,
+    ) -> bool:
         if not self.supports_detection_rearrange:
             return False
-        return build_det_rearrange_plan(image, tgt_size=self._get_rearrange_target_size(detect_size)) is not None
+        return build_det_rearrange_plan(
+            image,
+            tgt_size=self._get_rearrange_target_size(detect_size),
+            min_effective_short_side=det_rearrange_min_effective_short_side,
+        ) is not None
 
     def _get_rearrange_target_size(self, detect_size: int) -> int:
         return detect_size
 
     @abstractmethod
     async def _detect(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float,
-                      unclip_ratio: float, verbose: bool = False, result_path_fn=None) -> Tuple[List[Quadrilateral], np.ndarray, np.ndarray]:
+                      unclip_ratio: float, verbose: bool = False, result_path_fn=None,
+                      det_rearrange_min_effective_short_side: float = 341.0) -> Tuple[List[Quadrilateral], np.ndarray, np.ndarray]:
         pass
 
     def _add_border(self, image: np.ndarray, target_side_length: int):
@@ -109,5 +133,6 @@ class OfflineDetector(CommonDetector, ModelWrapper):
 
     @abstractmethod
     async def _infer(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float,
-                       unclip_ratio: float, verbose: bool = False, result_path_fn=None):
+                       unclip_ratio: float, verbose: bool = False, result_path_fn=None,
+                       det_rearrange_min_effective_short_side: float = 341.0):
         pass

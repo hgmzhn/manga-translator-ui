@@ -46,6 +46,7 @@ class OcrSettings(BaseModel):
 class DetectorSettings(BaseModel):
     detector: str = "default"
     detection_size: int = 2048
+    det_rearrange_min_effective_short_side: int = 341
     text_threshold: float = 0.5
     box_threshold: float = 0.5
     unclip_ratio: float = 2.5

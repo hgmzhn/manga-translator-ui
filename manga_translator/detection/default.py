@@ -58,7 +58,8 @@ class DefaultDetector(OfflineDetector):
         del self.model
 
     async def _infer(self, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float,
-                     unclip_ratio: float, verbose: bool = False, result_path_fn=None):
+                     unclip_ratio: float, verbose: bool = False, result_path_fn=None,
+                     det_rearrange_min_effective_short_side: float = 341.0):
         """
         Returns:
             textlines: List of detected text lines
@@ -75,7 +76,16 @@ class DefaultDetector(OfflineDetector):
             return [], np.zeros((100, 100), dtype=np.uint8), None
         
         # TODO: Move det_rearrange_forward to common.py and refactor
-        db, mask = det_rearrange_forward(image, det_batch_forward_default, detect_size, 4, device=self.device, verbose=verbose, result_path_fn=result_path_fn)
+        db, mask = det_rearrange_forward(
+            image,
+            det_batch_forward_default,
+            detect_size,
+            4,
+            device=self.device,
+            verbose=verbose,
+            result_path_fn=result_path_fn,
+            min_effective_short_side=det_rearrange_min_effective_short_side,
+        )
 
         if db is None:
             # rearrangement is not required, fallback to default forward

@@ -72,6 +72,7 @@
           "title": "Advanced"
         },
         "detector.detection_size",
+        "detector.det_rearrange_min_effective_short_side",
         "detector.text_threshold",
         "detector.box_threshold",
         "detector.unclip_ratio",
