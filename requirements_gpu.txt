@@ -55,6 +55,7 @@ pydensecrf @ git+https://github.com/lucasb-eyer/pydensecrf.git ; sys_platform !=
 # pydensecrf @ https://gh-proxy.com/https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.6/pydensecrf-1.0-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'
 PyHyphen==4.0.4
 PyQt6==6.9.1
+PyQt6-Fluent-Widgets==1.11.2
 python-dotenv==1.1.1
 rich==14.1.0
 safetensors==0.6.2

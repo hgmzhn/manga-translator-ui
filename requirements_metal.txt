@@ -66,6 +66,7 @@ pydensecrf @ https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pyden
 
 PyHyphen==4.0.4
 PyQt6==6.9.1
+PyQt6-Fluent-Widgets==1.11.2
 pytest==7.2.2
 python-dotenv==1.1.1
 rich==14.1.0

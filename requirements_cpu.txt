@@ -49,6 +49,7 @@ pyperclip==1.9.0
 pythainlp[nlpo3]==5.3.1
 PyHyphen==4.0.4
 PyQt6==6.9.1
+PyQt6-Fluent-Widgets==1.11.2
 pytest==7.2.2
 python-dotenv==1.1.1
 rich==14.1.0
