@@ -1,3 +1,6 @@
+# 文本文件统一以 LF 存储和检出，避免 Windows 工具把整文件改成 CRLF。
+* text=auto eol=lf
+
 # LFS 大文件管理
 models/* filter=lfs diff=lfs merge=lfs -text
 *.ckpt filter=lfs diff=lfs merge=lfs -text

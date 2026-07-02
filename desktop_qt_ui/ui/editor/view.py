@@ -9,65 +9,22 @@ from PyQt6.QtCore import QSize, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QSizePolicy,
-    QStackedWidget,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import CardWidget, FluentIcon as FIF, LineEdit, Pivot, PrimaryPushButton, PushButton, ToolButton
+from qfluentwidgets import CardWidget, FluentIcon as FIF, LineEdit, PrimaryPushButton, PushButton, ToolButton
 from services import get_i18n_manager
 from ui.widgets.editor_toolbar import EditorToolbar
 from ui.widgets.file_list_view import FileListView
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.property_panel import PropertyPanel
 from ui.widgets.region_list_view import RegionListView
+from ui.widgets.sidebar import PivotStack
 
 from .graphics_view import GraphicsView
 from .original_compare_view import OriginalCompareView
 from .shortcut_manager import EditorShortcutManager
-
-
-class FluentTabWidget(QWidget):
-    currentChanged = pyqtSignal(int)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._routes: list[str] = []
-        self._tabs: list[QWidget] = []
-        self.pivot = Pivot(self)
-        self.stack = QStackedWidget(self)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(self.pivot)
-        layout.addWidget(self.stack, 1)
-
-    def addTab(self, widget: QWidget, text: str):
-        index = len(self._tabs)
-        route = f"tab_{index}"
-        self._routes.append(route)
-        self._tabs.append(widget)
-        self.stack.addWidget(widget)
-        self.pivot.addItem(route, text, lambda checked=False, i=index: self.setCurrentIndex(i))
-        if index == 0:
-            self.setCurrentIndex(0)
-
-    def setCurrentIndex(self, index: int):
-        if not 0 <= index < len(self._tabs):
-            return
-        previous = self.stack.currentIndex()
-        self.stack.setCurrentIndex(index)
-        self.pivot.setCurrentItem(self._routes[index])
-        if previous != index:
-            self.currentChanged.emit(index)
-
-    def currentIndex(self) -> int:
-        return self.stack.currentIndex()
-
-    def setTabText(self, index: int, text: str):
-        if 0 <= index < len(self._routes):
-            self.pivot.setItemText(self._routes[index], text)
 
 
 class EditorView(QWidget):
@@ -87,7 +44,7 @@ class EditorView(QWidget):
         self._compare_mode_enabled = False
         self.toolbar: EditorToolbar | None = None
         self.main_splitter: QSplitter | None = None
-        self.left_tab_widget: FluentTabWidget | None = None
+        self.left_tab_widget: PivotStack | None = None
         self.find_input: LineEdit | None = None
         self.replace_input: LineEdit | None = None
         self.replace_all_button: PushButton | None = None
@@ -183,9 +140,7 @@ class EditorView(QWidget):
 
     def _create_left_panel(self) -> QWidget:
         """创建左侧的标签页，包含区域列表和属性面板"""
-        self.left_tab_widget = FluentTabWidget()
-        self.left_tab_widget.setFixedWidth(360)
-        self.left_tab_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.left_tab_widget = PivotStack(fixed_width=360)
         
         # 创建“可编辑译文”标签页
         translation_widget = CardWidget()
@@ -282,7 +237,9 @@ class EditorView(QWidget):
             return
 
         self.left_tab_widget.ensurePolished()
-        left_width = max(self.left_tab_widget.width(), self.left_tab_widget.sizeHint().width())
+        left_width = self.left_tab_widget.maximumWidth()
+        if left_width <= 0 or left_width >= 16777215:
+            left_width = self.left_tab_widget.sizeHint().width()
 
         right_width = 260
         if self.file_list is not None:

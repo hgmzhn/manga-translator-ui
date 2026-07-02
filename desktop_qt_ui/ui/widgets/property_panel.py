@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QSizePolicy,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -21,10 +20,8 @@ from qfluentwidgets import (
     DoubleSpinBox,
     FluentIcon as FIF,
     LineEdit,
-    Pivot,
     PrimaryPushButton,
     PushButton,
-    ScrollArea,
     Slider,
     StrongBodyLabel,
     TextEdit,
@@ -34,6 +31,7 @@ from services import get_config_service, get_i18n_manager
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
+from .sidebar import FluentScrollArea, PivotStack
 
 # from .collapsible_frame import CollapsibleFrame  # 不再使用折叠框
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
@@ -142,49 +140,6 @@ class CustomSlider(Slider):
         event.accept()
 
 
-class FluentTabWidget(QWidget):
-    currentChanged = pyqtSignal(int)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._routes: list[str] = []
-        self._tabs: list[QWidget] = []
-        self.pivot = Pivot(self)
-        self.stack = QStackedWidget(self)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(self.pivot)
-        layout.addWidget(self.stack, 1)
-
-    def addTab(self, widget: QWidget, text: str):
-        index = len(self._tabs)
-        route = f"tab_{index}"
-        self._routes.append(route)
-        self._tabs.append(widget)
-        self.stack.addWidget(widget)
-        self.pivot.addItem(route, text, lambda checked=False, i=index: self.setCurrentIndex(i))
-        if index == 0:
-            self.setCurrentIndex(0)
-
-    def setCurrentIndex(self, index: int):
-        if not 0 <= index < len(self._tabs):
-            return
-        previous = self.stack.currentIndex()
-        self.stack.setCurrentIndex(index)
-        self.pivot.setCurrentItem(self._routes[index])
-        if previous != index:
-            self.currentChanged.emit(index)
-
-    def currentIndex(self) -> int:
-        return self.stack.currentIndex()
-
-    def setTabText(self, index: int, text: str):
-        if 0 <= index < len(self._routes):
-            self.pivot.setItemText(self._routes[index], text)
-
-
 class PropertyPanel(QWidget):
     """
     左侧属性面板，功能完整版。
@@ -224,6 +179,8 @@ class PropertyPanel(QWidget):
         self.app_logic = app_logic
         self.config_service = get_config_service()
         self.i18n = get_i18n_manager()
+        self.scroll_area: FluentScrollArea | None = None
+        self.content_widget: QWidget | None = None
 
         self._init_ui()
         self._connect_signals()
@@ -245,12 +202,12 @@ class PropertyPanel(QWidget):
         self.setLayout(main_layout)
         
         # 创建滚动区域
-        scroll_area = ScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(ScrollArea.Shape.NoFrame)
+        scroll_area = FluentScrollArea()
+        self.scroll_area = scroll_area
         
         # 创建内容容器
         content_widget = QWidget()
+        self.content_widget = content_widget
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(4, 2, 8, 2)
         content_layout.setSpacing(10)
@@ -268,6 +225,7 @@ class PropertyPanel(QWidget):
         # 将内容容器放入滚动区域
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
+        self.sync_sidebar_layout()
 
         # 不再使用语法高亮器,改用符号替换
         # self.highlighter = HorizontalTagHighlighter(self.translated_text_box.document())
@@ -281,6 +239,13 @@ class PropertyPanel(QWidget):
         group.addSettingCard(card)
         if hasattr(group, "sync_content_height"):
             QTimer.singleShot(0, group.sync_content_height)
+        QTimer.singleShot(0, self.sync_sidebar_layout)
+
+    def sync_sidebar_layout(self):
+        for group in self.findChildren(PanelSettingCardGroup):
+            group.sync_content_height()
+        if self.scroll_area is not None:
+            self.scroll_area.sync_layout()
 
     def _set_group_title(self, group: PanelSettingCardGroup, title: str):
         group.titleLabel.setText(title)
@@ -320,7 +285,7 @@ class PropertyPanel(QWidget):
         frame_layout.setContentsMargins(6, 8, 6, 6)
         frame_layout.setSpacing(6)
 
-        self.paint_tab_widget = FluentTabWidget(self.mask_edit_frame)
+        self.paint_tab_widget = PivotStack(self.mask_edit_frame)
 
         # 选择按钮组（两个 tab 共享同一个按钮组，保持互斥）
         self.mask_tool_group = QButtonGroup(self)
@@ -1063,6 +1028,7 @@ class PropertyPanel(QWidget):
         # 刷新下拉菜单（重新填充以使用新的翻译）
         self._refresh_combo_boxes()
         self._refresh_style_preset_combo()
+        self.sync_sidebar_layout()
     
     def _refresh_combo_boxes(self):
         """刷新所有下拉菜单的选项"""
@@ -2102,4 +2068,3 @@ class PropertyPanel(QWidget):
         self.app_logic.update_single_config('translator.target_lang', lang_code)
         # 同时更新翻译服务的目标语言
         self.app_logic.translation_service.set_target_language(lang_code)
-
