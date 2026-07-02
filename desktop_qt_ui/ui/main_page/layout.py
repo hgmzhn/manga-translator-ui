@@ -6,24 +6,19 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
-    QListWidget,
     QListWidgetItem,
     QMessageBox,
 )
+from qfluentwidgets import ListWidget as QListWidget
 
-from ui.theme import THEME_OPTIONS, get_current_theme_colors
+from theme_registry import THEME_OPTIONS
+from ui.theme import get_current_theme_colors
 from utils.resource_helper import resource_path
 
 _CURRENT_ASSET_PREFIX = "* "
 _PROMPT_EXTENSIONS = (".yaml", ".yml", ".json", ".txt")
 _FONT_EXTENSIONS = (".ttf", ".otf", ".ttc")
 _FONT_PREVIEW_PIXMAP_CACHE: dict[tuple, QPixmap] = {}
-
-
-def _font_preview_style(size: int) -> str:
-    """字体预览文本回退样式。正常预览会直接渲染为 pixmap。"""
-    text_color = get_current_theme_colors()["text_primary"]
-    return f"font-size: {size}pt; color: {text_color};"
 
 
 def _render_font_preview_pixmap(font_path: str | None, text: str, size: int) -> QPixmap | None:
@@ -775,7 +770,6 @@ def _update_font_preview(self):
         
         pixmap = _render_font_preview_pixmap(font_path, text, size)
         if pixmap is not None and not pixmap.isNull():
-            lbl.setStyleSheet("background: transparent;")
             lbl.setText("")
             lbl.setPixmap(pixmap)
             lbl.setMinimumSize(pixmap.size())
@@ -784,7 +778,6 @@ def _update_font_preview(self):
         lbl.clear()
         lbl.setMinimumSize(0, 0)
         lbl.setText(text)
-        lbl.setStyleSheet(_font_preview_style(size))
         fallback_font = self.font()
         fallback_font.setPointSize(size)
         lbl.setFont(fallback_font)

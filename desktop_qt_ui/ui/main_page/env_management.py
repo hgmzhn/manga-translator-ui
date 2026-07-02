@@ -797,7 +797,7 @@ def _is_test_item_configured(test_target: str, api_key: str | None, api_base: st
 
 
 def _get_current_translator_key(self) -> str:
-    combo = getattr(self, "env_translation_feature_combo", None) or self.findChild(QComboBox, "translator.translator")
+    combo = getattr(self, "env_translation_feature_combo", None) or getattr(self, "translator_combo", None)
     if combo is not None:
         data = combo.currentData() if hasattr(combo, "currentData") else None
         if data:

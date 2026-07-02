@@ -3,25 +3,22 @@ Theme runtime helpers.
 
 This module owns:
 - current theme tracking
-- palette generation
-- theme application helpers
-- lightweight repolish helpers for local widget stylesheets
+- qfluentwidgets theme application helpers
 """
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QPalette
-from PyQt6.QtWidgets import QApplication, QToolTip, QWidget
-from theme_registry import AVAILABLE_THEMES, DEFAULT_THEME, THEME_OPTIONS
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QApplication, QWidget
 
+from theme_registry import AVAILABLE_THEMES, DEFAULT_THEME
 from ui.theme_tokens import (
-    DARK_THEMES,
     _ACCENT_BASES,
     _DARK_THEME_BASES,
     _THEME_PROFILES,
     _THEME_TOKEN_OVERRIDES,
     _THEMES,
+    DARK_THEMES,
 )
 
 
@@ -150,34 +147,6 @@ _VALID_THEMES = set(AVAILABLE_THEMES)
 _CURRENT_THEME = "light"
 
 
-def _to_qcolor(value: str) -> QColor:
-    """Parse Qt-safe colors, including CSS-like rgb()/rgba() strings."""
-    color = QColor(value)
-    if color.isValid():
-        return color
-
-    normalized = value.strip().lower()
-    if normalized.startswith("rgba(") and normalized.endswith(")"):
-        parts = [part.strip() for part in normalized[5:-1].split(",")]
-        if len(parts) == 4:
-            red = int(float(parts[0]))
-            green = int(float(parts[1]))
-            blue = int(float(parts[2]))
-            alpha_raw = float(parts[3])
-            alpha = int(round(alpha_raw * 255)) if alpha_raw <= 1 else int(round(alpha_raw))
-            return QColor(red, green, blue, max(0, min(255, alpha)))
-
-    if normalized.startswith("rgb(") and normalized.endswith(")"):
-        parts = [part.strip() for part in normalized[4:-1].split(",")]
-        if len(parts) == 3:
-            red = int(float(parts[0]))
-            green = int(float(parts[1]))
-            blue = int(float(parts[2]))
-            return QColor(red, green, blue)
-
-    return QColor("#000000")
-
-
 def set_current_theme(theme: str) -> None:
     global _CURRENT_THEME
     normalized_theme = normalize_theme(theme)
@@ -194,78 +163,6 @@ def get_current_theme_colors() -> dict:
 def is_dark_theme(theme: str | None = None) -> bool:
     active_theme = normalize_theme(theme or _CURRENT_THEME)
     return active_theme in DARK_THEMES
-
-
-def build_theme_palette(theme: str) -> QPalette:
-    c = get_theme_colors(theme)
-    palette = QPalette()
-
-    active_roles = {
-        QPalette.ColorRole.Window: c["bg_window_shell"],
-        QPalette.ColorRole.WindowText: c["text_primary"],
-        QPalette.ColorRole.Base: c["bg_input"],
-        QPalette.ColorRole.AlternateBase: c["bg_surface_soft"],
-        QPalette.ColorRole.ToolTipBase: c["bg_dropdown"],
-        QPalette.ColorRole.ToolTipText: c["text_accent"],
-        QPalette.ColorRole.Text: c["text_primary"],
-        QPalette.ColorRole.Button: c["bg_surface_raised"],
-        QPalette.ColorRole.ButtonText: c["text_accent"],
-        QPalette.ColorRole.BrightText: c["text_bright"],
-        QPalette.ColorRole.Light: c["bg_gradient_end"],
-        QPalette.ColorRole.Midlight: c["border_input_hover"],
-        QPalette.ColorRole.Dark: c["bg_gradient_start"],
-        QPalette.ColorRole.Mid: c["border_list"],
-        QPalette.ColorRole.Shadow: c["bg_gradient_start"],
-        QPalette.ColorRole.Highlight: c["cta_gradient_start"],
-        QPalette.ColorRole.HighlightedText: c["cta_text"],
-        QPalette.ColorRole.Link: c["divider_accent_start"],
-        QPalette.ColorRole.LinkVisited: c["divider_accent_end"],
-        QPalette.ColorRole.PlaceholderText: c["text_muted"],
-    }
-
-    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
-        for role, value in active_roles.items():
-            palette.setColor(group, role, _to_qcolor(value))
-
-    disabled_roles = {
-        QPalette.ColorRole.WindowText: c["text_disabled"],
-        QPalette.ColorRole.Text: c["text_disabled"],
-        QPalette.ColorRole.ButtonText: c["text_disabled"],
-        QPalette.ColorRole.PlaceholderText: c["text_disabled"],
-        QPalette.ColorRole.Button: c["btn_disabled_bg"],
-        QPalette.ColorRole.Base: c["bg_input"],
-        QPalette.ColorRole.Highlight: c["btn_disabled_border"],
-        QPalette.ColorRole.HighlightedText: c["text_muted"],
-    }
-    for role, value in disabled_roles.items():
-        palette.setColor(QPalette.ColorGroup.Disabled, role, _to_qcolor(value))
-
-    accent_role = getattr(QPalette.ColorRole, "Accent", None)
-    if accent_role is not None:
-        for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
-            palette.setColor(group, accent_role, _to_qcolor(c["cta_gradient_start"]))
-        palette.setColor(QPalette.ColorGroup.Disabled, accent_role, _to_qcolor(c["btn_disabled_border"]))
-
-    return palette
-
-
-def repolish_widget(widget: QWidget) -> None:
-    try:
-        style = widget.style()
-        if style is not None:
-            style.unpolish(widget)
-            style.polish(widget)
-        widget.update()
-    except RuntimeError:
-        return
-
-
-def apply_widget_stylesheet(widget: QWidget, stylesheet: str) -> None:
-    """Apply a local stylesheet without walking the entire widget tree."""
-    widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-    if widget.styleSheet() != stylesheet:
-        widget.setStyleSheet(stylesheet)
-    repolish_widget(widget)
 
 
 def apply_native_title_bar_theme(widget: QWidget, theme: str | None = None, logger=None) -> None:
@@ -292,7 +189,6 @@ def apply_native_title_bar_theme(widget: QWidget, theme: str | None = None, logg
 
         DWMWA_USE_IMMERSIVE_DARK_MODE = 20
         DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
-        DWMWA_BORDER_COLOR = 34
         DWMWA_CAPTION_COLOR = 35
         DWMWA_TEXT_COLOR = 36
         SWP_NOSIZE = 0x0001
@@ -355,8 +251,3 @@ def apply_application_theme(theme: str, app: QApplication | None = None) -> None
     setTheme(Theme.DARK if is_dark_theme(resolved_theme) else Theme.LIGHT)
     theme_colors = get_theme_colors(resolved_theme)
     setThemeColor(theme_colors.get("btn_primary_bg") or theme_colors.get("cta_gradient_start"))
-    palette = build_theme_palette(resolved_theme)
-    app.setPalette(palette)
-    app.setStyleSheet("")
-    QToolTip.setPalette(palette)
-    QToolTip.setFont(app.font())

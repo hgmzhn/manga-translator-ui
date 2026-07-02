@@ -117,7 +117,6 @@ def create_translation_page(self) -> QWidget:
     task_layout.addWidget(self.workflow_mode_combo)
 
     self.start_button = PrimaryPushButton(self._t("Start Translation"))
-    self.start_button.setProperty("translationState", "ready")
     self.start_button.setFixedHeight(44)
     task_layout.addWidget(self.start_button)
     page_layout.addWidget(self.translation_task_card)

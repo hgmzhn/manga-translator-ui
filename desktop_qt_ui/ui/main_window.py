@@ -51,7 +51,7 @@ class MainWindow(MSFluentWindow):
 
         self._setup_logic_and_models()
         self._setup_ui()
-        self._load_stylesheet()  # 加载样式表
+        self._load_theme()
         self._connect_signals()
 
         self.app_logic.initialize()
@@ -106,7 +106,6 @@ class MainWindow(MSFluentWindow):
         self._create_ui_actions()
 
         self.main_view = MainView(self.app_logic, self)
-        self.main_view.setObjectName("main_view_controller")
 
         # 设置 app_logic 对 main_view 的引用，用于更新进度条
         self.app_logic.main_view = self.main_view
@@ -205,8 +204,8 @@ class MainWindow(MSFluentWindow):
             self.theme_actions[theme_key] = action
             setattr(self, f"{theme_key}_theme_action", action)
 
-    def _load_stylesheet(self):
-        """加载样式表，根据配置选择主题"""
+    def _load_theme(self):
+        """根据配置初始化 qfluentwidgets 主题。"""
         from services import get_config_service
         config_service = get_config_service()
         config = config_service.get_config()

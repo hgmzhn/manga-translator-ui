@@ -10,14 +10,16 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QSizePolicy,
-    QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, LineEdit as FluentLineEdit, PushButton as QPushButton
-from utils.resource_helper import resource_path
-from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
+from qfluentwidgets import BodyLabel, CardWidget
+from qfluentwidgets import LineEdit as FluentLineEdit
+from qfluentwidgets import PushButton as QPushButton
+
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
+from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
+from utils.resource_helper import resource_path
 
 
 class QLineEdit(FluentLineEdit):
@@ -583,13 +585,13 @@ def _finalize_settings_ui(self):
             
             # 从配置中读取初始状态
             config = self.config_service.get_config()
-            unload_models_checkbox.setCheckedNoSignal(config.app.unload_models_after_translation)
+            unload_models_checkbox.setCheckedSilently(config.app.unload_models_after_translation)
             
             # 连接信号
-            unload_models_checkbox.stateChanged.connect(
-                lambda state: self.controller.update_single_config(
+            unload_models_checkbox.checkedChanged.connect(
+                lambda checked: self.controller.update_single_config(
                     'app.unload_models_after_translation', 
-                    bool(state)
+                    bool(checked)
                 )
             )
             
@@ -747,8 +749,7 @@ def _on_numeric_input_changed(self, text, full_key, value_type):
 
 def _update_upscale_ratio_options(self, upscaler):
     """当 upscaler 变化时，更新 upscale_ratio 下拉框的选项"""
-    # 查找 upscale_ratio_dynamic widget
-    upscale_ratio_widget = self.findChild(QComboBox, "upscale_ratio_dynamic")
+    upscale_ratio_widget = getattr(self, "upscale_ratio_combo", None)
     if not upscale_ratio_widget:
         return
     
@@ -873,7 +874,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             hbox.setContentsMargins(0, 0, 0, 0)
             
             checkbox = ToggleSwitch(checked=value)
-            checkbox.stateChanged.connect(lambda state, k=full_key: self._on_setting_changed(bool(state), k, None))
+            checkbox.checkedChanged.connect(lambda checked, k=full_key: self._on_setting_changed(bool(checked), k, None))
             
             open_btn = QPushButton(self._t("btn_open_filter_list"))
             open_btn.clicked.connect(self._open_filter_list)
@@ -974,7 +975,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
                 container_layout.setContentsMargins(0, 0, 0, 0)
                 
                 checkbox = ToggleSwitch(checked=value)
-                checkbox.stateChanged.connect(lambda state, k=full_key: self._on_setting_changed(bool(state), k, None))
+                checkbox.checkedChanged.connect(lambda checked, k=full_key: self._on_setting_changed(bool(checked), k, None))
                 
                 open_file_button = QPushButton(self._t("Edit"))
                 open_file_button.setFixedWidth(100)
@@ -987,12 +988,12 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
                 widget = container
             else:
                 widget = ToggleSwitch(checked=value)
-                widget.stateChanged.connect(lambda state, k=full_key: self._on_setting_changed(bool(state), k, None))
+                widget.checkedChanged.connect(lambda checked, k=full_key: self._on_setting_changed(bool(checked), k, None))
 
         # 特殊处理：upscale_ratio 动态下拉框（必须在 int/float 判断之前）
         elif full_key == "upscale.upscale_ratio":
             widget = QComboBox()
-            widget.setObjectName("upscale_ratio_dynamic")
+            self.upscale_ratio_combo = widget
             widget.setMinimumWidth(100)  # 设置最小宽度，让选项显示更完整
             
             # 获取当前的 upscaler 值来决定显示什么选项
@@ -1088,7 +1089,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         elif (isinstance(value, str) or value is None) and (options or display_map):
             widget = QComboBox()
             if key == "translator":
-                widget.setObjectName("translator.translator")
+                self.translator_combo = widget
                 widget.setMinimumWidth(180)  # 设置翻译器下拉框最小宽度
             elif full_key == "ocr.ocr_vl_language_hint":
                 widget.setMinimumWidth(260)  # OCR语言全称较长，避免被截断

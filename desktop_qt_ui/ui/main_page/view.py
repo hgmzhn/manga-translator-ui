@@ -122,7 +122,6 @@ class MainView(QWidget):
         self.layout = QVBoxLayout(self)
         self.env_var_changed.connect(self.controller.save_env_var)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.setObjectName("main_view_controller")
         self._navigation_switcher = None
 
         self.translation_page = self._create_translation_page()

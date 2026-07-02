@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QStackedWidget,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -27,7 +26,6 @@ from qfluentwidgets import (
     PrimaryPushButton,
     RoundMenu,
     SegmentedWidget,
-    TableWidget,
     TitleLabel,
 )
 from qfluentwidgets import (
@@ -44,6 +42,9 @@ from qfluentwidgets import (
 )
 from qfluentwidgets import (
     ScrollArea as QScrollArea,
+)
+from qfluentwidgets import (
+    TableWidget as QTableWidget,
 )
 
 from ui.theme import (
@@ -85,7 +86,7 @@ def _divider() -> QFrame:
 
 def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     """生成一个只读的 original → translation 表。"""
-    table = TableWidget()
+    table = QTableWidget()
     table.setRowCount(len(entries))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Original"), _current_t("Translation")])
@@ -176,7 +177,7 @@ def _get_person_glossary_row(table: QTableWidget, row: int) -> Dict[str, Any]:
 
 
 def _make_person_glossary_table(entries: List[Dict[str, Any]], editable: bool = False) -> QTableWidget:
-    table = TableWidget()
+    table = QTableWidget()
     table.setRowCount(len(entries))
     table.setColumnCount(4)
     table.setHorizontalHeaderLabels([
@@ -239,7 +240,7 @@ def _normalize_reference_images(raw_items: Any) -> List[Dict[str, str]]:
 
 
 def _make_reference_images_table(entries: List[Dict[str, str]], editable: bool = False) -> QTableWidget:
-    table = TableWidget()
+    table = QTableWidget()
     table.setRowCount(len(entries))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Path"), _current_t("Description")])
@@ -620,7 +621,7 @@ class PromptPreviewPanel(QWidget):
 # ─────────────────────────────────────────────────────────
 def _make_editable_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     """生成一个可编辑的 original → translation 表。"""
-    table = TableWidget()
+    table = QTableWidget()
     table.setRowCount(len(entries))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Original"), _current_t("Translation")])
@@ -958,7 +959,6 @@ class PromptEditorDialog(QDialog):
         """创建带操作栏的容器 Widget，返回 (container, body_layout)。"""
         icon, label = self._SECTION_META.get(key, ("📌", key))
         container = CardWidget()
-        container.setProperty("sectionKey", key)
         outer = QVBoxLayout(container)
         outer.setContentsMargins(12, 10, 12, 10)
         outer.setSpacing(6)
@@ -1271,6 +1271,12 @@ class PromptEditorDialog(QDialog):
     def _section_order_snapshot(self) -> List[str]:
         return [key for key, _ in self._section_containers]
 
+    def _section_key_for_container(self, container: QWidget) -> str:
+        for key, registered_container in self._section_containers:
+            if registered_container is container:
+                return key
+        return "<unknown>"
+
     def _layout_section_order_snapshot(self) -> List[str]:
         order: List[str] = []
         layout = getattr(self, "_template_sections_layout", None)
@@ -1281,11 +1287,11 @@ class PromptEditorDialog(QDialog):
             widget = item.widget() if item is not None else None
             if widget is None:
                 continue
-            order.append(str(widget.property("sectionKey") or "<unknown>"))
+            order.append(self._section_key_for_container(widget))
         return order
 
     def _request_move_section(self, container: QWidget, direction: int):
-        key = str(container.property("sectionKey") or "<unknown>")
+        key = self._section_key_for_container(container)
         logger.info(
             "Prompt editor move button clicked: file=%s key=%s direction=%s order=%s layout=%s",
             self._file_path,
@@ -1646,4 +1652,3 @@ class PromptEditorDialog(QDialog):
             # 简单比较自由编辑内容
             return self._was_saved or self._free_editor.toPlainText() != self._original_content
         return self._was_saved or self._free_editor.toPlainText() != self._original_content
-

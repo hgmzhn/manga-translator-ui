@@ -3,8 +3,11 @@ import logging
 import os
 from typing import Callable, Dict, List, Optional
 
-from PyQt6.QtGui import QAction
+from manga_translator.colorization.prompt_loader import (
+    load_ai_colorizer_prompt_template,
+)
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -12,21 +15,33 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QStackedWidget,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PrimaryPushButton, PushButton, RoundMenu, ScrollArea, SegmentedWidget, TableWidget, TitleLabel
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    CardWidget,
+    PrimaryPushButton,
+    PushButton,
+    RoundMenu,
+    ScrollArea,
+    SegmentedWidget,
+    TitleLabel,
+)
+from qfluentwidgets import (
+    PlainTextEdit as QPlainTextEdit,
+)
+from qfluentwidgets import (
+    TableWidget as QTableWidget,
+)
+
+from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 from ui.theme import (
     monospace_font as _monospace_font,
 )
 from ui.widgets.hover_hint import install_hover_hint
-from ui.secondary_pages.themed_text_input_dialog import themed_get_text
-
-from manga_translator.colorization.prompt_loader import (
-    load_ai_colorizer_prompt_template,
-)
 
 logger = logging.getLogger("manga_translator")
 
@@ -79,8 +94,8 @@ def _divider() -> QFrame:
     return line
 
 
-def _styled_text_edit(text: str = "", read_only: bool = False) -> PlainTextEdit:
-    editor = PlainTextEdit()
+def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit:
+    editor = QPlainTextEdit()
     editor.setPlainText(text)
     editor.setReadOnly(read_only)
     editor.setFont(_monospace_font())
@@ -94,7 +109,7 @@ def _make_reference_images_table(
     t_func: Callable = lambda x: x,
 ) -> QTableWidget:
     rows = entries or []
-    table = TableWidget()
+    table = QTableWidget()
     table.setRowCount(len(rows))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([t_func("Path"), t_func("Description")])
@@ -269,7 +284,6 @@ class AIColorizerPromptEditorDialog(QDialog):
 
     def _make_section_container(self, key: str) -> tuple[QWidget, QVBoxLayout]:
         container = CardWidget()
-        container.setProperty("sectionKey", key)
 
         outer = QVBoxLayout(container)
         outer.setContentsMargins(14, 12, 14, 12)
@@ -405,6 +419,12 @@ class AIColorizerPromptEditorDialog(QDialog):
     def _section_order_snapshot(self) -> List[str]:
         return [key for key, _ in self._section_containers]
 
+    def _section_key_for_container(self, container: QWidget) -> str:
+        for key, registered_container in self._section_containers:
+            if registered_container is container:
+                return key
+        return "<unknown>"
+
     def _layout_section_order_snapshot(self) -> List[str]:
         order: List[str] = []
         layout = getattr(self, "_template_sections_layout", None)
@@ -415,11 +435,11 @@ class AIColorizerPromptEditorDialog(QDialog):
             widget = item.widget() if item is not None else None
             if widget is None:
                 continue
-            order.append(str(widget.property("sectionKey") or "<unknown>"))
+            order.append(self._section_key_for_container(widget))
         return order
 
     def _request_move_section(self, container: QWidget, direction: int):
-        key = str(container.property("sectionKey") or "<unknown>")
+        key = self._section_key_for_container(container)
         logger.info(
             "AI colorizer prompt move button clicked: file=%s key=%s direction=%s order=%s layout=%s",
             self._file_path,
