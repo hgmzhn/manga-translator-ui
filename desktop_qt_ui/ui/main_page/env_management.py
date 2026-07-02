@@ -29,8 +29,8 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import BodyLabel, CardWidget, PushButton
 from qfluentwidgets import LineEdit as FluentLineEdit
 
+from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
-from utils.resource_helper import resource_path
 
 
 class QLineEdit(FluentLineEdit):
@@ -98,8 +98,7 @@ def _is_secret_env_key(key: str) -> bool:
 
 def _make_secret_visibility_icon(hidden: bool):
     filename = "eye_off.svg" if hidden else "eye.svg"
-    icon_path = resource_path(os.path.join("desktop_qt_ui", "ui", "icons", filename))
-    return QIcon(icon_path)
+    return themed_fluent_svg_icon(filename)
 
 
 def _create_env_line_edit(self, key: str, value: str):

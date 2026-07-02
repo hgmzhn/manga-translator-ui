@@ -470,6 +470,8 @@ class EditorView(QWidget):
         from ui.widgets.color_picker import ColorPickerWidget
 
         theme = theme or get_current_theme()
+        if self.toolbar is not None:
+            self.toolbar.refresh_theme()
         if self.graphics_view is not None:
             self.graphics_view.apply_theme(theme)
         if self.original_compare_view is not None:

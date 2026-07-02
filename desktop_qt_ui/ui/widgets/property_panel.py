@@ -26,6 +26,7 @@ from qfluentwidgets import (
     StrongBodyLabel,
     TextEdit,
     ToolButton,
+    TogglePushButton,
 )
 from services import get_config_service, get_i18n_manager
 
@@ -301,20 +302,17 @@ class PropertyPanel(QWidget):
         mask_tools_layout.setContentsMargins(0, 0, 0, 0)
         mask_tools_layout.setSpacing(6)
 
-        self.brush_button = PushButton()
+        self.brush_button = TogglePushButton()
         self.brush_button.setText(self._t("Brush"))
         self.brush_button.setIcon(FIF.BRUSH)
-        self.brush_button.setCheckable(True)
         set_hover_hint(self.brush_button, self._t("Brush Tool") + " (W)")
-        self.eraser_button = PushButton()
+        self.eraser_button = TogglePushButton()
         self.eraser_button.setText(self._t("Eraser"))
         self.eraser_button.setIcon(FIF.ERASE_TOOL)
-        self.eraser_button.setCheckable(True)
         set_hover_hint(self.eraser_button, self._t("Eraser Tool") + " (E)")
-        self.select_button = PushButton()
+        self.select_button = TogglePushButton()
         self.select_button.setText(self._t("No Selection"))
         self.select_button.setIcon(FIF.CLEAR_SELECTION)
-        self.select_button.setCheckable(True)
         set_hover_hint(self.select_button, self._t("Selection Tool") + " (Q)")
 
         self.mask_tool_group.addButton(self.select_button, 0)
@@ -364,22 +362,19 @@ class PropertyPanel(QWidget):
         paint_tools_layout.setContentsMargins(0, 0, 0, 0)
         paint_tools_layout.setSpacing(6)
 
-        self.paint_select_button = PushButton()
+        self.paint_select_button = TogglePushButton()
         self.paint_select_button.setText(self._t("No Selection"))
         self.paint_select_button.setIcon(FIF.CLEAR_SELECTION)
-        self.paint_select_button.setCheckable(True)
         set_hover_hint(self.paint_select_button, self._t("Selection Tool") + " (Q)")
 
-        self.paint_brush_button = PushButton()
+        self.paint_brush_button = TogglePushButton()
         self.paint_brush_button.setText(self._t("Brush"))
         self.paint_brush_button.setIcon(FIF.BRUSH)
-        self.paint_brush_button.setCheckable(True)
         set_hover_hint(self.paint_brush_button, self._t("Brush Tool"))
 
-        self.paint_eraser_button = PushButton()
+        self.paint_eraser_button = TogglePushButton()
         self.paint_eraser_button.setText(self._t("Eraser"))
         self.paint_eraser_button.setIcon(FIF.ERASE_TOOL)
-        self.paint_eraser_button.setCheckable(True)
         set_hover_hint(self.paint_eraser_button, self._t("Eraser Tool"))
 
         # 复用同一个互斥按钮组，保证和蒙版页工具互相切换时正确取消选中

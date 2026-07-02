@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import ComboBox, FluentIcon as FIF, PushButton, ScrollArea, Slider, ToolButton
 from services import get_i18n_manager
+from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
 
 
@@ -32,6 +33,7 @@ class EditorToolbar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.i18n = get_i18n_manager()
+        self._themed_icon_buttons: list[tuple[ToolButton, str]] = []
         self._init_ui()
         self._connect_signals()
     
@@ -161,13 +163,14 @@ class EditorToolbar(QWidget):
         """构建对齐/分布按钮组：单行 PS 风格。"""
         BTN_W = 28
 
-        def _make_icon_btn(icon, tip):
+        def _make_icon_btn(icon_file: str, tip: str):
             btn = ToolButton()
-            btn.setIcon(icon)
+            btn.setIcon(themed_fluent_svg_icon(icon_file))
             btn.setToolTip(tip)
             btn.setFixedSize(QSize(BTN_W + 2, BTN_W + 2))
             btn.setIconSize(QSize(BTN_W, BTN_W))
             btn.setEnabled(False)
+            self._themed_icon_buttons.append((btn, icon_file))
             return btn
 
         # 参照模式切换（独立放在外面）
@@ -190,34 +193,34 @@ class EditorToolbar(QWidget):
         # ── 第 1 组: 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
         self.align_buttons: dict[str, ToolButton] = {}
         group1 = [
-            ("left", FIF.LEFT_ARROW, self._t("Align Left")),
-            ("horizontal_center", FIF.ALIGNMENT, self._t("Align Horizontal Center")),
-            ("right", FIF.RIGHT_ARROW, self._t("Align Right")),
+            ("left", "align_left.svg", self._t("Align Left")),
+            ("horizontal_center", "align_horizontal_center.svg", self._t("Align Horizontal Center")),
+            ("right", "align_right.svg", self._t("Align Right")),
         ]
-        for mode, icon, tip in group1:
-            btn = _make_icon_btn(icon, tip)
+        for mode, icon_file, tip in group1:
+            btn = _make_icon_btn(icon_file, tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
             icon_layout.addWidget(btn)
 
-        btn = _make_icon_btn(FIF.MOVE, self._t("Distribute Vertical Spacing"))
+        btn = _make_icon_btn("distribute_spacing_v.svg", self._t("Distribute Vertical Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
         self._dist_v_btn = btn
         icon_layout.addWidget(btn)
 
         # ── 第 2 组: 顶对齐 / 垂直居中 / 底对齐 / 水平间距分布 ──
         group2 = [
-            ("top", FIF.UP, self._t("Align Top")),
-            ("vertical_center", FIF.LAYOUT, self._t("Align Vertical Center")),
-            ("bottom", FIF.DOWN, self._t("Align Bottom")),
+            ("top", "align_top.svg", self._t("Align Top")),
+            ("vertical_center", "align_vertical_center.svg", self._t("Align Vertical Center")),
+            ("bottom", "align_bottom.svg", self._t("Align Bottom")),
         ]
-        for mode, icon, tip in group2:
-            btn = _make_icon_btn(icon, tip)
+        for mode, icon_file, tip in group2:
+            btn = _make_icon_btn(icon_file, tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
             icon_layout.addWidget(btn)
 
-        btn = _make_icon_btn(FIF.MORE, self._t("Distribute Horizontal Spacing"))
+        btn = _make_icon_btn("distribute_spacing_h.svg", self._t("Distribute Horizontal Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
         self._dist_h_btn = btn
         icon_layout.addWidget(btn)
@@ -344,3 +347,7 @@ class EditorToolbar(QWidget):
             self.display_mode_label.setText(self._t("Display Mode:"))
         if hasattr(self, 'opacity_label'):
             self.opacity_label.setText(self._t("Original Image Opacity:"))
+
+    def refresh_theme(self):
+        for button, icon_file in self._themed_icon_buttons:
+            button.setIcon(themed_fluent_svg_icon(icon_file))

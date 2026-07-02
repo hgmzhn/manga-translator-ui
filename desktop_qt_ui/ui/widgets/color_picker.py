@@ -1,8 +1,9 @@
 
 import logging
+import re
 
 from ui.theme import get_current_theme_colors
-from PyQt6.QtCore import QRect, QRegularExpression, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, QRegularExpression, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QCursor,
@@ -12,9 +13,11 @@ from PyQt6.QtGui import (
     QIntValidator,
     QLinearGradient,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
     QRegularExpressionValidator,
+    QRegion,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -24,19 +27,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
-    Action,
-    BodyLabel,
     CaptionLabel,
     CardWidget,
-    ColorPickerButton,
+    Flyout,
+    FlyoutAnimationType,
+    FlyoutViewBase,
     LineEdit,
-    PrimaryPushButton,
-    PushButton,
-    DropDownToolButton,
-    FluentIcon as FIF,
-    RoundMenu,
+    ToolButton,
 )
-from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
+from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
 
 logger = logging.getLogger('manga_translator')
@@ -213,15 +212,114 @@ class ScreenColorPicker(QWidget):
             self.close()
 
 
-class _ColorSwatchButton(ColorPickerButton):
-    """Fluent color swatch whose click is handled by ColorPickerWidget."""
+class _ColorEntryButton(QWidget):
+    """Compact color entry with current swatch and dropdown chevron."""
 
-    def __init__(self, color: QColor, title: str, parent=None):
-        super().__init__(color, title, parent, enableAlpha=False)
-        try:
-            self.clicked.disconnect()
-        except TypeError:
-            pass
+    clicked = pyqtSignal()
+
+    def __init__(self, color: QColor, parent=None):
+        super().__init__(parent)
+        self._color = QColor(color)
+        self._hovered = False
+        self._pressed = False
+        self._checked = False
+        self.setFixedSize(82, 40)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def setColor(self, color: QColor):
+        if self._color != color:
+            self._color = QColor(color)
+            self.update()
+
+    def setChecked(self, checked: bool):
+        if self._checked != checked:
+            self._checked = checked
+            self.update()
+
+    def paintEvent(self, _event):
+        c = get_current_theme_colors()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        enabled = self.isEnabled()
+        if not enabled:
+            bg = _theme_color(c, "btn_disabled_bg", "#F5F5F5")
+            border_color = _theme_color(c, "btn_disabled_border", "rgba(0, 0, 0, 0.04)")
+        else:
+            bg = _theme_color(c, "bg_input", "#FFFFFF")
+            if self._checked:
+                bg = _theme_color(c, "btn_soft_checked_bg", "rgba(59, 130, 246, 0.10)")
+            elif self._pressed:
+                bg = _theme_color(c, "btn_soft_pressed", "#E5E5E5")
+            elif self._hovered:
+                bg = _theme_color(c, "btn_soft_hover", "#EFEFEF")
+            border_color = _theme_color(
+                c,
+                "btn_soft_checked_border" if self._checked else "border_input",
+                "rgba(59, 130, 246, 0.40)" if self._checked else "#d1d1d1",
+            )
+
+        outer = self.rect().adjusted(1, 1, -1, -1)
+        p.setBrush(bg)
+        p.setPen(QPen(border_color, 1))
+        p.drawRoundedRect(outer, 7, 7)
+
+        swatch = QRect(9, 7, 32, 26)
+        swatch_color = QColor(self._color)
+        if not enabled:
+            swatch_color.setAlpha(70)
+        p.setBrush(swatch_color)
+        if enabled:
+            border = QColor("#111111") if _is_light_color(self._color) else QColor("#f5f5f5")
+            border.setAlpha(150)
+        else:
+            border = _theme_color(c, "text_disabled", "rgba(138, 146, 156, 0.50)")
+        p.setPen(QPen(border, 1))
+        p.drawRoundedRect(swatch, 5, 5)
+
+        arrow_color = _theme_color(c, "text_secondary", "#5F6872")
+        if not enabled:
+            arrow_color = _theme_color(c, "text_disabled", "rgba(138, 146, 156, 0.50)")
+        p.setPen(QPen(arrow_color, 1.8))
+        p.drawLine(58, 17, 63, 22)
+        p.drawLine(63, 22, 68, 17)
+        p.end()
+
+    def enterEvent(self, event):
+        if not self.isEnabled():
+            super().enterEvent(event)
+            return
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._pressed = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if self.isEnabled() and event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = True
+            self.update()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        was_pressed = self._pressed
+        self._pressed = False
+        self.update()
+        if was_pressed and event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.EnabledChange:
+            self._hovered = False
+            self._pressed = False
+            self.setCursor(Qt.CursorShape.PointingHandCursor if self.isEnabled() else Qt.CursorShape.ArrowCursor)
+            self.update()
+        super().changeEvent(event)
 
 
 class _PaletteSwatch(QWidget):
@@ -259,13 +357,45 @@ class _PaletteSwatch(QWidget):
         p.drawRoundedRect(rect, 5, 5)
 
         if self._selected:
-            p.setPen(QPen(QColor(get_current_theme_colors().get("btn_primary_bg", "#0F6CBD")), 2))
+            p.setPen(QPen(_theme_color(get_current_theme_colors(), "btn_primary_bg", "#0F6CBD"), 2))
             p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 6, 6)
         p.end()
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.hex_color)
+
+
+class _CurrentColorPreview(QWidget):
+    """Large current-color chip shown in the custom color section."""
+
+    def __init__(self, color: QColor, parent=None):
+        super().__init__(parent)
+        self._color = QColor(color)
+        self.setFixedSize(54, 54)
+
+    def set_color(self, color: QColor):
+        if self._color != color:
+            self._color = QColor(color)
+            self.update()
+
+    def paintEvent(self, _event):
+        c = get_current_theme_colors()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        outer = self.rect().adjusted(1, 1, -1, -1)
+        p.setBrush(_theme_color(c, "bg_surface_soft", "#F7F7F7"))
+        p.setPen(QPen(_theme_color(c, "border_input", "#d1d1d1"), 1))
+        p.drawRoundedRect(outer, 8, 8)
+
+        inner = outer.adjusted(7, 7, -7, -7)
+        p.setBrush(self._color)
+        border = QColor("#111111") if _is_light_color(self._color) else QColor("#f5f5f5")
+        border.setAlpha(170)
+        p.setPen(QPen(border, 1))
+        p.drawRoundedRect(inner, 6, 6)
+        p.end()
 
 
 class _ColorField(QWidget):
@@ -334,16 +464,22 @@ class _ColorField(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(1, 1, -2, -2)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect), 7, 7)
+        p.save()
+        p.setClipPath(path)
         p.drawImage(rect, self._base_image(rect.width(), rect.height()))
         # HSV 的 V 是 RGB 线性缩放，等价于叠加 alpha=(1-V) 的黑色
         if self._value < 1.0:
             p.fillRect(rect, QColor(0, 0, 0, round((1.0 - self._value) * 255)))
-        p.setPen(QPen(QColor(c.get("border_input", "#d1d1d1")), 1))
+        p.restore()
+        p.setPen(QPen(_theme_color(c, "border_input", "#d1d1d1"), 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(rect, 7, 7)
 
-        x = rect.left() + self._hue * rect.width()
-        y = rect.top() + (1.0 - self._saturation) * rect.height()
+        marker_radius = 6
+        x = max(rect.left() + marker_radius, min(rect.right() - marker_radius, rect.left() + self._hue * rect.width()))
+        y = max(rect.top() + marker_radius, min(rect.bottom() - marker_radius, rect.top() + (1.0 - self._saturation) * rect.height()))
         p.setPen(QPen(QColor(0, 0, 0, 180), 3))
         p.drawEllipse(int(x) - 6, int(y) - 6, 12, 12)
         p.setPen(QPen(QColor(255, 255, 255, 230), 2))
@@ -395,7 +531,7 @@ class _BrightnessSlider(QWidget):
 
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(QPen(QColor(c.get("border_input", "#d1d1d1")), 1))
+        p.setPen(QPen(_theme_color(c, "border_input", "#d1d1d1"), 1))
         p.setBrush(gradient)
         p.drawRoundedRect(rect, 5, 5)
 
@@ -415,12 +551,16 @@ class _BrightnessSlider(QWidget):
             self._set_from_pos(ev.position())
 
 
-class _ColorPaletteDialog(FluentSecondaryDialog):
-    """Focused replacement for the stock color dialog used in the editor panel."""
+class _ColorPaletteView(FlyoutViewBase):
+    """Button-anchored color palette content hosted by qfluentwidgets Flyout."""
 
-    saved_color = pyqtSignal(QColor)
+    color_changed = pyqtSignal(QColor)
+    screen_pick_requested = pyqtSignal()
 
-    SCREEN_PICK = 100
+    SWATCH_COLUMNS = 10
+    SWATCH_SIZE = 26
+    SWATCH_SPACING = 7
+    H_MARGIN = 16
 
     _PRESETS = [
         "#000000", "#1F1F1F", "#4A4A4A", "#808080", "#C8C8C8", "#FFFFFF",
@@ -441,11 +581,10 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
         self._updating_inputs = False
         self._title = title
         self.setWindowTitle(title)
-        self.setModal(True)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(self._preferred_dialog_width())
         self._init_ui(saved_colors)
         self._apply_dialog_theme()
-        self._set_selected_color(self._selected)
+        self._set_selected_color(self._selected, emit=False)
 
     @property
     def color(self) -> QColor:
@@ -453,12 +592,8 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
 
     def _init_ui(self, saved_colors: list[str]):
         root = QVBoxLayout(self)
-        root.setSpacing(10)
-        root.setContentsMargins(34, 24, 34, 18)
-
-        title = BodyLabel(self._title, self)
-        title.setObjectName("colorPickerTitle")
-        root.addWidget(title)
+        root.setSpacing(8)
+        root.setContentsMargins(self.H_MARGIN, 14, self.H_MARGIN, 14)
 
         root.addWidget(CaptionLabel(self._t("Palette"), self))
         self.color_field = _ColorField(self)
@@ -470,20 +605,53 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
 
         root.addWidget(CaptionLabel(self._t("Custom"), self))
         input_row = QHBoxLayout()
-        input_row.setSpacing(6)
+        input_row.setSpacing(14)
+
+        self.current_preview = _CurrentColorPreview(self._selected, self)
+        input_row.addWidget(self.current_preview)
+
+        input_fields = QVBoxLayout()
+        input_fields.setContentsMargins(0, 0, 0, 0)
+        input_fields.setSpacing(8)
+
+        hex_row = QHBoxLayout()
+        hex_row.setContentsMargins(0, 0, 0, 0)
+        hex_row.setSpacing(8)
+        hex_label = CaptionLabel("HEX", self)
+        hex_label.setFixedWidth(34)
 
         self.hex_input = LineEdit(self)
-        self.hex_input.setFixedWidth(92)
+        self.hex_input.setFixedWidth(148)
         self.hex_input.setPlaceholderText("#000000")
         self.hex_input.setValidator(QRegularExpressionValidator(QRegularExpression("^#?[0-9A-Fa-f]{0,6}$"), self))
-        input_row.addWidget(self.hex_input)
+        hex_row.addWidget(hex_label)
+        hex_row.addWidget(self.hex_input)
+        self.screen_button = ToolButton(_create_eyedropper_icon(), self)
+        self.screen_button.setFixedSize(32, 32)
+        self.screen_button.setIconSize(QSize(16, 16))
+        set_hover_hint(self.screen_button, self._t("Pick screen color"))
+        hex_row.addWidget(self.screen_button)
+        hex_row.addStretch(1)
+
+        rgb_row = QHBoxLayout()
+        rgb_row.setContentsMargins(0, 0, 0, 0)
+        rgb_row.setSpacing(8)
+        rgb_label = CaptionLabel("RGB", self)
+        rgb_label.setFixedWidth(34)
 
         self.r_input = self._make_channel_input("R")
         self.g_input = self._make_channel_input("G")
         self.b_input = self._make_channel_input("B")
-        input_row.addWidget(self.r_input)
-        input_row.addWidget(self.g_input)
-        input_row.addWidget(self.b_input)
+        rgb_row.addWidget(rgb_label)
+        rgb_row.addWidget(self.r_input)
+        rgb_row.addWidget(self.g_input)
+        rgb_row.addWidget(self.b_input)
+        rgb_row.addStretch(1)
+
+        input_fields.addLayout(hex_row)
+        input_fields.addLayout(rgb_row)
+        input_row.addLayout(input_fields)
+        input_row.addStretch(1)
         root.addLayout(input_row)
 
         self._add_swatch_section(root, self._t("Common"), self._PRESETS)
@@ -492,52 +660,45 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
         self._recent_layout = self._make_swatch_grid(recent[:20], recent=True)
         root.addLayout(self._recent_layout)
 
-        button_row = QHBoxLayout()
-        button_row.setSpacing(8)
-        self.screen_button = PushButton(self._t("Screen"), self)
-        self.screen_button.setIcon(FIF.PALETTE)
-        self.save_button = PushButton(self._t("Save"), self)
-        self.save_button.setIcon(FIF.SAVE)
-        self.cancel_button = PushButton(self._t("Cancel"), self)
-        self.ok_button = PrimaryPushButton(self._t("OK"), self)
-        button_row.addWidget(self.screen_button)
-        button_row.addWidget(self.save_button)
-        button_row.addStretch()
-        button_row.addWidget(self.cancel_button)
-        button_row.addWidget(self.ok_button)
-        root.addLayout(button_row)
-
         self.color_field.color_changed.connect(self._on_field_color_changed)
         self.brightness_slider.value_changed.connect(self._on_brightness_changed)
         self.hex_input.textChanged.connect(self._on_hex_changed)
         self.r_input.textChanged.connect(self._on_rgb_changed)
         self.g_input.textChanged.connect(self._on_rgb_changed)
         self.b_input.textChanged.connect(self._on_rgb_changed)
-        self.screen_button.clicked.connect(lambda: self.done(self.SCREEN_PICK))
-        self.save_button.clicked.connect(self._save_current_color)
-        self.cancel_button.clicked.connect(self.reject)
-        self.ok_button.clicked.connect(self.accept)
+        self.screen_button.clicked.connect(self.screen_pick_requested.emit)
+
+    def addWidget(self, widget: QWidget, stretch=0, align=Qt.AlignmentFlag.AlignLeft):
+        self.layout().addWidget(widget, stretch, align)
 
     def _add_swatch_section(self, root: QVBoxLayout, label: str, colors: list[str]):
         root.addWidget(CaptionLabel(label, self))
         root.addLayout(self._make_swatch_grid(colors))
 
+    def _preferred_dialog_width(self) -> int:
+        swatch_width = self.SWATCH_COLUMNS * self.SWATCH_SIZE + (self.SWATCH_COLUMNS - 1) * self.SWATCH_SPACING
+        return self.H_MARGIN * 2 + swatch_width
+
     def _make_swatch_grid(self, colors: list[str], recent: bool = False) -> QGridLayout:
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(7)
-        grid.setVerticalSpacing(7)
+        grid.setHorizontalSpacing(self.SWATCH_SPACING)
+        grid.setVerticalSpacing(self.SWATCH_SPACING)
+        for column in range(self.SWATCH_COLUMNS):
+            grid.setColumnMinimumWidth(column, self.SWATCH_SIZE)
         self._fill_swatch_grid(grid, colors, recent=recent)
         return grid
 
     def _fill_swatch_grid(self, grid: QGridLayout, colors: list[str], recent: bool = False):
         for i, color in enumerate(colors):
+            row = i // self.SWATCH_COLUMNS
+            column = i % self.SWATCH_COLUMNS
             swatch = _PaletteSwatch(color, self)
             swatch.clicked.connect(self._on_swatch_clicked)
             self._swatches.append(swatch)
             if recent:
                 self._recent_swatches.append(swatch)
-            grid.addWidget(swatch, i // 10, i % 10)
+            grid.addWidget(swatch, row, column)
 
     def _refresh_recent_swatches(self):
         if self._recent_layout is None:
@@ -553,7 +714,7 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
                 self._recent_swatches.remove(widget)
             widget.deleteLater()
         self._fill_swatch_grid(self._recent_layout, self._saved_colors[:20], recent=True)
-        self._set_selected_color(self._selected)
+        self._set_selected_color(self._selected, emit=False)
 
     def _make_channel_input(self, label: str) -> LineEdit:
         widget = LineEdit(self)
@@ -570,14 +731,6 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
 
     def _on_brightness_changed(self, value: float):
         self.color_field.set_brightness(value)
-
-    def _save_current_color(self):
-        hex_color = self._selected.name().upper()
-        self._saved_colors = [c for c in self._saved_colors if c.upper() != hex_color]
-        self._saved_colors.insert(0, hex_color)
-        self._saved_colors = self._saved_colors[:20]
-        self._refresh_recent_swatches()
-        self.saved_color.emit(QColor(self._selected))
 
     def _on_hex_changed(self, text: str):
         if self._updating_inputs:
@@ -597,11 +750,19 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
             values.append(max(0, min(255, int(text))))
         self._set_selected_color(QColor(*values), source="rgb")
 
-    def _set_selected_color(self, color: QColor, source: str | None = None):
+    def _set_selected_color(self, color: QColor, source: str | None = None, emit: bool = True):
         if not color.isValid():
             return
         self._selected = QColor(color)
         hex_color = self._selected.name().upper()
+        rgb_text = self._t(
+            "RGB: {r},{g},{b}",
+            r=self._selected.red(),
+            g=self._selected.green(),
+            b=self._selected.blue(),
+        )
+        self.current_preview.set_color(self._selected)
+        set_hover_hint(self.current_preview, f"{hex_color} | {rgb_text}")
         if source != "field":
             self.color_field.set_color(self._selected)
         if source != "brightness":
@@ -619,13 +780,14 @@ class _ColorPaletteDialog(FluentSecondaryDialog):
                 self.b_input.setText(str(self._selected.blue()))
         finally:
             self._updating_inputs = False
+        if emit:
+            self.color_changed.emit(QColor(self._selected))
 
     def _apply_dialog_theme(self):
         c = get_current_theme_colors()
         self.setStyleSheet(self.styleSheet() + f"""
-            #colorPickerTitle {{
+            _ColorPaletteView {{
                 color: {c.get("text_primary", "#1f1f1f")};
-                font-weight: 600;
             }}
         """)
 
@@ -639,9 +801,6 @@ class ColorPickerWidget(CardWidget):
 
     color_changed = pyqtSignal(str)  # 颜色变化时发出 hex 颜色值
 
-    # 类级别的颜色剪贴板，所有实例共享
-    _color_clipboard = None
-
     def __init__(self, dialog_title="Select color", default_color="#000000",
                  config_key="saved_colors", config_service=None, i18n_func=None,
                  parent=None):
@@ -653,6 +812,10 @@ class ColorPickerWidget(CardWidget):
         self._config_key = config_key
         self._config_service = config_service
         self._t = i18n_func or (lambda s, **kw: s)
+        self._flyout = None
+        self._palette_view = None
+        self._pending_palette_color = None
+        self._ignore_next_color_click = False
 
         self._saved_colors = []
         self._load_saved_colors()
@@ -663,29 +826,18 @@ class ColorPickerWidget(CardWidget):
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # 主颜色按钮
-        self.color_button = _ColorSwatchButton(
+        self.color_button = _ColorEntryButton(
             QColor(self._current_color),
-            self._t(self._dialog_title),
             self,
         )
-        self.color_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.color_button.setFixedSize(42, 32)
         set_hover_hint(self.color_button, self._t("Click to select color"))
         layout.addWidget(self.color_button, 0)
 
-        # ★ 常用颜色按钮
-        self.saved_colors_button = DropDownToolButton(FIF.PALETTE, self)
-        set_hover_hint(self.saved_colors_button, self._t("Saved colors menu"))
-        self.saved_colors_button.setFixedSize(36, 32)
-        layout.addWidget(self.saved_colors_button, 0)
-
         self._apply_component_theme()
         self._update_color_tooltips(self._current_color)
-        self._rebuild_saved_colors_menu()
 
     def _connect_signals(self):
         self.color_button.clicked.connect(self._on_color_clicked)
@@ -715,7 +867,6 @@ class ColorPickerWidget(CardWidget):
         """主题切换时刷新组件自身和常用颜色菜单样式。"""
         self._apply_component_theme()
         self._update_color_tooltips(self._current_color)
-        self._rebuild_saved_colors_menu()
 
     def _apply_component_theme(self):
         color = QColor(self._current_color)
@@ -726,40 +877,106 @@ class ColorPickerWidget(CardWidget):
     # ── 颜色对话框 ───────────────────────────────────────────────
 
     def _on_color_clicked(self):
-        current = QColor(self._current_color) if self._current_color else QColor("black")
+        if self._ignore_next_color_click:
+            self._ignore_next_color_click = False
+            return
+        if self._flyout is not None:
+            self._close_color_flyout()
+            return
+        self._open_color_flyout()
 
-        dialog = _ColorPaletteDialog(
+    def _open_color_flyout(self, initial_color: QColor | None = None):
+        if initial_color is not None and initial_color.isValid():
+            current = QColor(initial_color)
+        else:
+            current = QColor(self._current_color) if self._current_color else QColor("black")
+        if self._flyout is not None:
+            self._close_color_flyout()
+            if initial_color is None:
+                return
+
+        view = _ColorPaletteView(
             current,
             self._saved_colors,
             self._t(self._dialog_title),
             self._t,
             self.window(),
         )
-        dialog.saved_color.connect(lambda color: self._remember_color(color.name()))
+        self._palette_view = view
+        self._pending_palette_color = None
+        view.color_changed.connect(self._on_palette_color_changed)
+        view.screen_pick_requested.connect(self._on_palette_screen_pick_requested)
 
-        result = dialog.exec()
-        if result == DialogCode.Accepted:
-            hex_color = dialog.color.name()
-            self._apply_color(hex_color)
-            self._remember_color(hex_color)
-        elif result == _ColorPaletteDialog.SCREEN_PICK:
-            self._launch_screen_pick()
+        self._flyout = _show_color_flyout_above_target(
+            view,
+            target=self.color_button,
+            parent=self.window(),
+        )
+        self.color_button.setChecked(True)
+        self._flyout.closed.connect(self._on_palette_flyout_closed)
 
-    def _launch_screen_pick(self):
+    def _close_color_flyout(self):
+        if self._flyout is not None:
+            self._flyout.close()
+        else:
+            self.color_button.setChecked(False)
+
+    def _on_palette_color_changed(self, color: QColor):
+        hex_color = color.name()
+        self._pending_palette_color = hex_color
+        self._apply_color(hex_color)
+
+    def _on_palette_screen_pick_requested(self):
+        self._close_color_flyout()
+        self._launch_screen_pick(reopen_dialog=True)
+
+    def _on_palette_flyout_closed(self):
+        if self._should_suppress_next_color_click():
+            self._suppress_next_color_click()
+        if self._pending_palette_color:
+            self._remember_color(self._pending_palette_color)
+        self._pending_palette_color = None
+        self._flyout = None
+        self._palette_view = None
+        self.color_button.setChecked(False)
+
+    def _should_suppress_next_color_click(self) -> bool:
+        if not (QApplication.mouseButtons() & Qt.MouseButton.LeftButton):
+            return False
+        return self.color_button.rect().contains(self.color_button.mapFromGlobal(QCursor.pos()))
+
+    def _suppress_next_color_click(self):
+        self._ignore_next_color_click = True
+        QTimer.singleShot(0, self._clear_suppressed_color_click_after_release)
+
+    def _clear_suppressed_color_click_after_release(self):
+        if not self._ignore_next_color_click:
+            return
+        if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+            QTimer.singleShot(30, self._clear_suppressed_color_click_after_release)
+            return
+        self._ignore_next_color_click = False
+
+    def _launch_screen_pick(self, reopen_dialog: bool = False):
         """Start the custom full-screen picker from the Fluent color menu."""
-        QTimer.singleShot(150, self._do_screen_pick)
+        QTimer.singleShot(150, lambda: self._do_screen_pick(reopen_dialog=reopen_dialog))
 
-    def _do_screen_pick(self):
+    def _do_screen_pick(self, reopen_dialog: bool = False):
         picker = ScreenColorPicker()
 
         def on_picked(color):
             hex_color = color.name()
             self._apply_color(hex_color)
             self._remember_color(hex_color)
+            if reopen_dialog:
+                QTimer.singleShot(150, lambda: self._open_color_flyout(QColor(hex_color)))
 
         def on_cancel():
-            self.activateWindow()
-            self.raise_()
+            if reopen_dialog:
+                QTimer.singleShot(150, self._open_color_flyout)
+            else:
+                self.activateWindow()
+                self.raise_()
 
         picker.color_picked.connect(on_picked)
         picker.canceled.connect(on_cancel)
@@ -769,36 +986,19 @@ class ColorPickerWidget(CardWidget):
 
     def _apply_color(self, hex_color: str):
         """应用颜色并发射信号。"""
+        hex_color = _normalize_hex(hex_color) or hex_color
         self.set_color(hex_color)
         self.color_changed.emit(hex_color)
 
     def _remember_color(self, hex_color: str):
         """保存最近使用颜色并刷新菜单。"""
-        if hex_color not in self._saved_colors:
-            self._saved_colors.insert(0, hex_color)
-            if len(self._saved_colors) > 20:
-                self._saved_colors = self._saved_colors[:20]
-            self._persist_saved_colors()
-            self._rebuild_saved_colors_menu()
-
-    # ── 复制 / 粘贴 ──────────────────────────────────────────────
-
-    def _on_copy(self):
-        if self._current_color:
-            ColorPickerWidget._color_clipboard = self._current_color
-            for widget in self._all_instances():
-                widget._rebuild_saved_colors_menu()
-
-    def _on_paste(self):
-        if ColorPickerWidget._color_clipboard:
-            self._apply_color(ColorPickerWidget._color_clipboard)
-
-    def _all_instances(self):
-        """获取同一父层级中所有 ColorPickerWidget 实例。"""
-        top = self.window()
-        if top:
-            return top.findChildren(ColorPickerWidget)
-        return [self]
+        normalized = _normalize_hex(hex_color)
+        if not normalized:
+            return
+        self._saved_colors = [c for c in self._saved_colors if _normalize_hex(c) != normalized]
+        self._saved_colors.insert(0, normalized)
+        self._saved_colors = self._saved_colors[:20]
+        self._persist_saved_colors()
 
     # ── RGB 标签 ──────────────────────────────────────────────────
 
@@ -808,70 +1008,8 @@ class ColorPickerWidget(CardWidget):
             rgb_text = f"{c.red()},{c.green()},{c.blue()}"
             tooltip = f"{c.name().upper()} | RGB: {rgb_text}"
             set_hover_hint(self.color_button, tooltip)
-            set_hover_hint(self.saved_colors_button, tooltip)
         except Exception:
             set_hover_hint(self.color_button, self._t("Click to select color"))
-            set_hover_hint(self.saved_colors_button, self._t("Saved colors menu"))
-
-    # ── 常用颜色菜单 ─────────────────────────────────────────────
-
-    def _rebuild_saved_colors_menu(self):
-        menu = RoundMenu(parent=self)
-
-        current_color = QColor(self._current_color) if self._current_color else QColor()
-        if current_color.isValid():
-            current_action = Action(self)
-            current_action.setEnabled(False)
-            current_action.setIcon(self._create_color_icon(current_color.name()))
-            current_action.setText(
-                f"{current_color.name().upper()}  (R:{current_color.red()} G:{current_color.green()} B:{current_color.blue()})"
-            )
-            menu.addAction(current_action)
-            menu.addSeparator()
-
-        copy_action = Action(FIF.COPY, self._t("Copy current color"), self)
-        copy_action.triggered.connect(self._on_copy)
-        menu.addAction(copy_action)
-
-        paste_action = Action(FIF.PASTE, self._t("Paste copied color"), self)
-        paste_action.setEnabled(ColorPickerWidget._color_clipboard is not None)
-        paste_action.triggered.connect(self._on_paste)
-        menu.addAction(paste_action)
-
-        pick_action = Action(FIF.PALETTE, self._t("Pick screen color"), self)
-        pick_action.triggered.connect(self._launch_screen_pick)
-        menu.addAction(pick_action)
-        menu.addSeparator()
-
-        if self._saved_colors:
-            for color_hex in self._saved_colors:
-                action = Action(self)
-                action.setIcon(self._create_color_icon(color_hex))
-                c = QColor(color_hex)
-                action.setText(f"{color_hex}  (R:{c.red()} G:{c.green()} B:{c.blue()})")
-                action.triggered.connect(lambda checked, ch=color_hex: self._apply_color(ch))
-                menu.addAction(action)
-            menu.addSeparator()
-
-        save_action = Action(FIF.SAVE, self._t("Save current color"), self)
-        save_action.triggered.connect(self._save_current_color)
-        menu.addAction(save_action)
-
-        if self._saved_colors:
-            clear_action = Action(FIF.DELETE, self._t("Clear saved colors"), self)
-            clear_action.triggered.connect(self._clear_saved_colors)
-            menu.addAction(clear_action)
-
-        self.saved_colors_button.setMenu(menu)
-
-    def _save_current_color(self):
-        if self._current_color:
-            self._remember_color(self._current_color)
-
-    def _clear_saved_colors(self):
-        self._saved_colors = []
-        self._persist_saved_colors()
-        self._rebuild_saved_colors_menu()
 
     # ── 持久化 ────────────────────────────────────────────────────
 
@@ -882,7 +1020,12 @@ class ColorPickerWidget(CardWidget):
             config = self._config_service.get_config()
             colors = getattr(config.app, self._config_key, None)
             if colors:
-                self._saved_colors = list(colors)
+                normalized_colors = []
+                for color in colors:
+                    normalized = _normalize_hex(color)
+                    if normalized and normalized not in normalized_colors:
+                        normalized_colors.append(normalized)
+                self._saved_colors = normalized_colors[:20]
             else:
                 self._saved_colors = []
         except Exception as e:
@@ -902,18 +1045,50 @@ class ColorPickerWidget(CardWidget):
         except Exception as e:
             logger.error(f"保存颜色失败 ({self._config_key}): {e}")
 
-    # ── 工具方法 ──────────────────────────────────────────────────
+_CSS_RGB_RE = re.compile(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([0-9.]+))?\s*\)")
 
-    @staticmethod
-    def _create_color_icon(hex_color: str) -> QIcon:
-        c = get_current_theme_colors()
-        pixmap = QPixmap(16, 16)
-        pixmap.fill(QColor(hex_color))
-        painter = QPainter(pixmap)
-        painter.setPen(QColor(c["border_input"]))
-        painter.drawRect(0, 0, 15, 15)
-        painter.end()
-        return QIcon(pixmap)
+
+def _show_color_flyout_above_target(view: FlyoutViewBase, target: QWidget, parent=None) -> Flyout:
+    flyout = Flyout(view, parent)
+    # Keep the Fluent flyout animation, but remove the transparent shadow margin
+    # from the mouse hit area so the popup only catches clicks on its content.
+    flyout.hBoxLayout.setContentsMargins(0, 0, 0, 0)
+    flyout.view.setGraphicsEffect(None)
+    flyout.show()
+    flyout.adjustSize()
+    _apply_flyout_content_mask(flyout)
+
+    size = flyout.sizeHint()
+    target_pos = target.mapToGlobal(QPoint(0, 0))
+    x = target_pos.x() + target.width() // 2 - size.width() // 2
+    y = target_pos.y() - size.height() - 6
+    flyout.exec(QPoint(x, y), FlyoutAnimationType.PULL_UP)
+    return flyout
+
+
+def _apply_flyout_content_mask(flyout: Flyout):
+    content_rect = flyout.view.geometry()
+    if content_rect.isValid():
+        flyout.setMask(QRegion(content_rect))
+
+
+def _theme_color(colors: dict, key: str, fallback: str) -> QColor:
+    return _parse_color(colors.get(key, fallback), fallback)
+
+
+def _parse_color(value, fallback: str) -> QColor:
+    color = QColor(value if value is not None else fallback)
+    if color.isValid():
+        return color
+
+    match = _CSS_RGB_RE.fullmatch(str(value or fallback).strip())
+    if not match:
+        return QColor(fallback)
+
+    red, green, blue = (max(0, min(255, int(match.group(i)))) for i in range(1, 4))
+    alpha_text = match.group(4)
+    alpha = 255 if alpha_text is None else max(0, min(255, round(float(alpha_text) * 255)))
+    return QColor(red, green, blue, alpha)
 
 
 def _normalize_hex(value: str | None) -> str | None:
@@ -929,6 +1104,10 @@ def _normalize_hex(value: str | None) -> str | None:
     except ValueError:
         return None
     return f"#{text.upper()}"
+
+
+def _create_eyedropper_icon() -> QIcon:
+    return themed_fluent_svg_icon("ic_fluent_eyedropper_24_regular.svg")
 
 
 def _is_light_color(color: QColor) -> bool:
