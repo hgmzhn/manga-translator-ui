@@ -2,18 +2,18 @@ import os
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog,
     QHBoxLayout,
     QVBoxLayout,
 )
 from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PrimaryPushButton, PushButton, TitleLabel
+from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.secondary_pages.themed_message_box import themed_critical
 from ui.theme import (
     monospace_font as _monospace_font,
 )
 
 
-class SimplePromptEditorDialog(QDialog):
+class SimplePromptEditorDialog(FluentSecondaryDialog):
     def __init__(
         self,
         file_path: str,

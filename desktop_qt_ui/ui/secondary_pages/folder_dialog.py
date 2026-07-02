@@ -28,7 +28,6 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
     QFileIconProvider,
     QHBoxLayout,
     QHeaderView,
@@ -54,6 +53,7 @@ from qfluentwidgets import ScrollArea as QScrollArea
 from qfluentwidgets import ToolButton as QToolButton
 
 from services import get_i18n_manager
+from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
 from ui.theme import get_current_theme_colors
 from ui.widgets.hover_hint import set_hover_hint
 from utils.resource_helper import resource_path
@@ -382,7 +382,7 @@ class ShortcutFavoriteDelegate(QStyledItemDelegate):
         return super().editorEvent(event, model, option, index)
 
 
-class FolderDialog(QDialog):
+class FolderDialog(FluentSecondaryDialog):
     """现代化文件夹选择对话框"""
 
     def __init__(self, parent=None, start_dir: str = "", multi_select: bool = True, config_service=None):
@@ -1431,6 +1431,6 @@ def select_folders(parent=None, start_dir: str = "", multi_select: bool = True, 
         选中的文件夹路径列表，如果取消则返回 None
     """
     dialog = FolderDialog(parent, start_dir, multi_select, config_service)
-    if dialog.exec() == QDialog.DialogCode.Accepted:
+    if dialog.exec() == DialogCode.Accepted:
         return dialog.get_selected_folders()
     return None

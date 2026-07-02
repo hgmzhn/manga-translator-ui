@@ -4,12 +4,12 @@ from typing import Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog,
     QHBoxLayout,
     QListWidgetItem,
     QVBoxLayout,
 )
 from qfluentwidgets import BodyLabel, LineEdit, ListWidget, PrimaryPushButton, PushButton
+from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
 
 
 def _default_t(text: str, **kwargs) -> str:
@@ -18,7 +18,7 @@ def _default_t(text: str, **kwargs) -> str:
     return text
 
 
-class ModelSelectorDialog(QDialog):
+class ModelSelectorDialog(FluentSecondaryDialog):
     """带搜索功能的模型选择对话框"""
 
     model_selected = pyqtSignal(str)
@@ -123,4 +123,4 @@ class ModelSelectorDialog(QDialog):
     ) -> tuple[str | None, bool]:
         dialog = ModelSelectorDialog(models, title, prompt, parent=parent, t_func=t_func)
         result = dialog.exec()
-        return dialog.get_selected_model(), result == QDialog.DialogCode.Accepted
+        return dialog.get_selected_model(), result == DialogCode.Accepted

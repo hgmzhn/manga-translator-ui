@@ -3,13 +3,13 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog,
     QHBoxLayout,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, ComboBox, LineEdit, PlainTextEdit, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, TitleLabel
+from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.theme import (
     monospace_font as _monospace_font,
 )
@@ -242,7 +242,7 @@ class CustomApiParamRow(CardWidget):
         return key, value
 
 
-class CustomApiParamsEditorDialog(QDialog):
+class CustomApiParamsEditorDialog(FluentSecondaryDialog):
     def __init__(self, file_path: str, t_func: Callable[..., str] | None = None, parent=None):
         super().__init__(parent)
         self._t = t_func or _identity_translate

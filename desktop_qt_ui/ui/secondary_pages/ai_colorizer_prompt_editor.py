@@ -9,7 +9,6 @@ from manga_translator.colorization.prompt_loader import (
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -37,6 +36,7 @@ from qfluentwidgets import (
     TableWidget as QTableWidget,
 )
 
+from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 from ui.theme import (
     monospace_font as _monospace_font,
@@ -161,7 +161,7 @@ class _SegmentedTabWidget(QWidget):
         self.currentChanged.emit(index)
 
 
-class AIColorizerPromptEditorDialog(QDialog):
+class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
     _SECTION_META = {
         "prompt_text": "Prompt Text",
         "colorization_rules": "Colorization Rules",

@@ -3,13 +3,13 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog,
     QHBoxLayout,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PrimaryPushButton, PushButton, SegmentedWidget, TitleLabel
+from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.theme import (
     monospace_font as _monospace_font,
 )
@@ -75,7 +75,7 @@ class _SegmentedTabWidget(QWidget):
         self.currentChanged.emit(index)
 
 
-class FilterListEditorDialog(QDialog):
+class FilterListEditorDialog(FluentSecondaryDialog):
     def __init__(self, file_path: str | None = None, t_func: Callable[[str], str] | None = None, parent=None):
         super().__init__(parent)
         self._t = t_func or (lambda text, **kwargs: text.format(**kwargs) if kwargs else text)

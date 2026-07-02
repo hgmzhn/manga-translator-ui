@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from PyQt6.QtGui import QShowEvent
-from PyQt6.QtWidgets import QDialog
 from qfluentwidgets import Dialog, LineEdit
+
+from ui.secondary_pages.fluent_dialog import DialogCode
 
 
 class ThemedTextInputDialog(Dialog):
@@ -19,7 +20,7 @@ class ThemedTextInputDialog(Dialog):
     ):
         super().__init__(title, label, parent)
         self.setWindowTitle(title)
-        self.setTitleBarVisible(True)
+        self.setTitleBarVisible(False)
         self.setModal(True)
 
         self.line_edit = LineEdit(self)
@@ -66,5 +67,5 @@ def themed_get_text(
         cancel_text=cancel_text,
         placeholder=placeholder,
     )
-    accepted = dialog.exec() == QDialog.DialogCode.Accepted
+    accepted = dialog.exec() == DialogCode.Accepted
     return dialog.text_value(), accepted

@@ -921,6 +921,7 @@ def _run_api_batch_test(self, items: list[dict]):
         self,
         self._t("API Batch Test"),
         self._t("Testing API channels", count=len(items), concurrency=concurrency),
+        self._t("Cancel"),
     )
     progress.show()
 
@@ -978,6 +979,8 @@ def _run_api_batch_test(self, items: list[dict]):
 
     def on_finished(results):
         progress.close()
+        if progress.wasCanceled():
+            return
         _show_api_batch_test_results(self, results)
 
     thread = BatchTestThread()
@@ -1040,6 +1043,7 @@ def on_test_api_clicked(self, key: str):
         self,
         self._t("Testing"),
         self._t("Testing API connection, please wait..."),
+        self._t("Cancel"),
     )
     progress.show()
 
@@ -1065,6 +1069,8 @@ def on_test_api_clicked(self, key: str):
 
     def on_test_finished(success, message):
         progress.close()
+        if progress.wasCanceled():
+            return
         if status_endpoint is not None:
             if success:
                 record_api_success(status_endpoint)
@@ -1112,6 +1118,7 @@ def on_get_models_clicked(self, key: str):
         self,
         self._t("Get Models"),
         self._t("Fetching models, please wait..."),
+        self._t("Cancel"),
     )
     progress.show()
 
@@ -1137,6 +1144,8 @@ def on_get_models_clicked(self, key: str):
 
     def on_get_models_finished(success, models, message):
         progress.close()
+        if progress.wasCanceled():
+            return
         if success:
             if models:
                 selected_model, ok = ModelSelectorDialog.get_model(

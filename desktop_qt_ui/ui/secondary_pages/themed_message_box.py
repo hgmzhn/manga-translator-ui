@@ -102,6 +102,7 @@ def _exec_fluent_dialog(
     default_button: QMessageBox.StandardButton = QMessageBox.StandardButton.NoButton,
 ) -> QMessageBox.StandardButton:
     accept_button, reject_button = _configure_dialog_buttons(dialog, buttons, default_button)
+    dialog.setTitleBarVisible(False)
     dialog.setContentCopyable(True)
     result = dialog.exec()
     if result == Dialog.DialogCode.Accepted:
@@ -137,7 +138,6 @@ def show_error_dialog(
     content = "\n\n".join(part for part in (summary, _wrap_dialog_text(detail_text)) if part)
 
     dialog = Dialog(str(window_title or ""), content or " ", dialog_parent)
-    dialog.setTitleBarVisible(True)
     dialog.setContentCopyable(True)
 
     if len(detail_text) > 900:
@@ -169,7 +169,6 @@ def _show_message_box(
         dialog = MessageBox(str(title or ""), content or " ", dialog_parent)
     else:
         dialog = Dialog(str(title or ""), content or " ")
-        dialog.setTitleBarVisible(True)
     return _exec_fluent_dialog(dialog, buttons, default_button)
 
 

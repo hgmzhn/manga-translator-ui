@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog
-from qfluentwidgets import Dialog, IndeterminateProgressBar, ProgressBar
+from qfluentwidgets import (
+    Dialog,
+    FluentIcon as FIF,
+    IndeterminateProgressBar,
+    ProgressBar,
+    TransparentToolButton,
+)
 
 
 class ThemedProgressDialog(Dialog):
@@ -15,23 +20,26 @@ class ThemedProgressDialog(Dialog):
 
         self.setModal(True)
         self.setWindowModality(Qt.WindowModality.WindowModal)
-        self.setTitleBarVisible(True)
+        self.setTitleBarVisible(False)
         self.setMinimumWidth(420)
+
+        self.close_button = TransparentToolButton(FIF.CLOSE, self)
+        self.close_button.setFixedSize(32, 32)
+        self.close_button.clicked.connect(self.cancel)
+        self.close_button.setVisible(bool(cancel_button_text))
+        if cancel_button_text:
+            self.close_button.setToolTip(cancel_button_text)
 
         self.progress_bar = IndeterminateProgressBar(self, start=True)
         self.progress_bar.setFixedHeight(4)
         self.textLayout.addWidget(self.progress_bar)
 
         self.yesButton.hide()
-        if cancel_button_text:
-            self.cancelButton.setText(cancel_button_text)
-            self.cancelButton.clicked.disconnect()
-            self.cancelButton.clicked.connect(self.cancel)
-        else:
-            self.cancelButton.hide()
-            self.buttonGroup.hide()
+        self.cancelButton.hide()
+        self.buttonGroup.hide()
 
-        self.setFixedSize(460, 190 if cancel_button_text else 150)
+        self.setFixedSize(460, 150)
+        self._sync_close_button_geometry()
 
     def setWindowTitle(self, title: str):
         super().setWindowTitle(title)
@@ -48,14 +56,12 @@ class ThemedProgressDialog(Dialog):
         return self.contentLabel.text()
 
     def setCancelButtonText(self, text: str):
-        self.cancelButton.show()
-        self.buttonGroup.show()
-        self.cancelButton.setText(text)
+        self.close_button.setVisible(True)
+        self.close_button.setToolTip(text)
 
     def setCancelButton(self, button):
         if button is None:
-            self.cancelButton.hide()
-            self.buttonGroup.hide()
+            self.close_button.hide()
 
     def setMinimumDuration(self, duration: int):
         del duration
@@ -93,8 +99,16 @@ class ThemedProgressDialog(Dialog):
     def wasCanceled(self) -> bool:
         return self._was_canceled
 
+    def _sync_close_button_geometry(self):
+        self.close_button.move(self.width() - self.close_button.width() - 12, 10)
+        self.close_button.raise_()
 
-def apply_progress_dialog_style(dialog: QDialog) -> QDialog:
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_close_button_geometry()
+
+
+def apply_progress_dialog_style(dialog: Dialog) -> Dialog:
     return dialog
 
 

@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -47,6 +46,7 @@ from qfluentwidgets import (
     TableWidget as QTableWidget,
 )
 
+from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
 from ui.theme import (
     monospace_font as _monospace_font,
 )
@@ -678,7 +678,7 @@ _GLOSSARY_CATEGORY_ICONS = {
 }
 
 
-class PersonGlossaryEntryDialog(QDialog):
+class PersonGlossaryEntryDialog(FluentSecondaryDialog):
     def __init__(
         self,
         entry: Optional[Dict[str, Any]] = None,
@@ -785,7 +785,7 @@ class PersonGlossaryEntryDialog(QDialog):
         return self._current_category()
 
 
-class PromptEditorDialog(QDialog):
+class PromptEditorDialog(FluentSecondaryDialog):
     """
     弹窗式编辑器，支持两种模式：
     - 模板编辑 (Tab 1): 结构化表单编辑各字段
@@ -1233,7 +1233,7 @@ class PromptEditorDialog(QDialog):
             t_func=self._t,
             parent=self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if dialog.exec() != DialogCode.Accepted:
             return
         self._apply_person_glossary_result(category, table, None, dialog)
 
@@ -1253,7 +1253,7 @@ class PromptEditorDialog(QDialog):
             t_func=self._t,
             parent=self,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if dialog.exec() != DialogCode.Accepted:
             return
         self._apply_person_glossary_result(category, table, row, dialog)
 
