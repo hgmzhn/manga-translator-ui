@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 from PyQt6.QtCore import QPointF, Qt, pyqtSlot
 from PyQt6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QGraphicsView, QMenu
+from PyQt6.QtWidgets import QGraphicsView
+from qfluentwidgets import Action, RoundMenu
 from services import get_config_service
 
 from .graphics_items import RegionTextItem
@@ -568,24 +569,29 @@ class GraphicsViewInputMixin:
     def contextMenuEvent(self, event):
         selected_regions = self.model.get_selection()
         selection_count = len(selected_regions)
-        menu = QMenu(self)
+        menu = RoundMenu(parent=self)
+
+        def add_item(text: str, slot):
+            action = Action(text, self)
+            action.triggered.connect(slot)
+            menu.addAction(action)
 
         if selection_count > 0:
-            menu.addAction("🔍 OCR识别选中项", self._ocr_selected_regions)
-            menu.addAction("🌐 翻译选中项", self._translate_selected_regions)
+            add_item("🔍 OCR识别选中项", self._ocr_selected_regions)
+            add_item("🌐 翻译选中项", self._translate_selected_regions)
             menu.addSeparator()
 
             if selection_count == 1:
-                menu.addAction("📋 复制区域", self._copy_selected_region)
-                menu.addAction("🎨 粘贴样式", self._paste_region_style)
+                add_item("📋 复制区域", self._copy_selected_region)
+                add_item("🎨 粘贴样式", self._paste_region_style)
                 menu.addSeparator()
 
-            menu.addAction(f"🗑️ 删除选中的 {selection_count} 个区域", self._delete_selected_regions)
+            add_item(f"🗑️ 删除选中的 {selection_count} 个区域", self._delete_selected_regions)
         else:
-            menu.addAction("➕ 添加文本框", self._add_text_box)
-            menu.addAction("📋 粘贴区域", self._paste_region)
+            add_item("➕ 添加文本框", self._add_text_box)
+            add_item("📋 粘贴区域", self._paste_region)
             menu.addSeparator()
-            menu.addAction("🔄 刷新视图", self._refresh_view)
+            add_item("🔄 刷新视图", self._refresh_view)
 
         menu.exec(event.globalPos())
 

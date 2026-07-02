@@ -1,27 +1,34 @@
 
 import logging
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIntValidator, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
-    QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QPushButton,
     QSizePolicy,
-    QSlider,
-    QStyle,
-    QTabWidget,
-    QTextEdit,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
+)
+from qfluentwidgets import (
+    CardWidget,
+    CheckBox,
+    ComboBox,
+    DoubleSpinBox,
+    FluentIcon as FIF,
+    LineEdit,
+    Pivot,
+    PrimaryPushButton,
+    PushButton,
+    ScrollArea,
+    Slider,
+    StrongBodyLabel,
+    TextEdit,
+    ToolButton,
 )
 from services import get_config_service, get_i18n_manager
 
@@ -32,6 +39,53 @@ from .hover_hint import set_hover_hint
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 
 logger = logging.getLogger('manga_translator')
+
+
+class PanelSettingCardGroup(QWidget):
+    """Fluent card group for complex editor forms."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.titleLabel = StrongBodyLabel(title, self)
+        self.vBoxLayout = QVBoxLayout(self)
+        self.vBoxLayout.setContentsMargins(0, 0, 0, 0)
+        self.vBoxLayout.setSpacing(8)
+        self.vBoxLayout.addWidget(self.titleLabel)
+        self._card: CardWidget | None = None
+        self._syncing_height = False
+
+    def addSettingCard(self, card):
+        card.setParent(self)
+        self._card = card
+        self.vBoxLayout.addWidget(card)
+        QTimer.singleShot(0, self.sync_content_height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.sync_content_height)
+
+    def sync_content_height(self):
+        if self._syncing_height:
+            return
+        if self._card is None:
+            return
+
+        card_layout = self._card.layout()
+        card_height = (
+            card_layout.totalSizeHint().height()
+            if card_layout is not None
+            else self._card.sizeHint().height()
+        )
+        title_height = self.titleLabel.sizeHint().height()
+        height = max(title_height + card_height + self.vBoxLayout.spacing(), 1)
+        if height == self.height() and height == self.minimumHeight() and height == self.maximumHeight():
+            return
+        self._syncing_height = True
+        try:
+            self.setFixedHeight(height)
+            self.updateGeometry()
+        finally:
+            self._syncing_height = False
 
 
 def convert_arrows_to_tags(raw_text: str) -> str:
@@ -70,7 +124,7 @@ def convert_arrows_to_tags(raw_text: str) -> str:
     return text_with_tags
 
 
-class CustomSlider(QSlider):
+class CustomSlider(Slider):
     """自定义滑块，鼠标滚轮滚动一次数字变1"""
 
     def wheelEvent(self, event: QWheelEvent):
@@ -86,6 +140,49 @@ class CustomSlider(QSlider):
 
         # 接受事件，防止传递给父控件
         event.accept()
+
+
+class FluentTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._routes: list[str] = []
+        self._tabs: list[QWidget] = []
+        self.pivot = Pivot(self)
+        self.stack = QStackedWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self.pivot)
+        layout.addWidget(self.stack, 1)
+
+    def addTab(self, widget: QWidget, text: str):
+        index = len(self._tabs)
+        route = f"tab_{index}"
+        self._routes.append(route)
+        self._tabs.append(widget)
+        self.stack.addWidget(widget)
+        self.pivot.addItem(route, text, lambda checked=False, i=index: self.setCurrentIndex(i))
+        if index == 0:
+            self.setCurrentIndex(0)
+
+    def setCurrentIndex(self, index: int):
+        if not 0 <= index < len(self._tabs):
+            return
+        previous = self.stack.currentIndex()
+        self.stack.setCurrentIndex(index)
+        self.pivot.setCurrentItem(self._routes[index])
+        if previous != index:
+            self.currentChanged.emit(index)
+
+    def currentIndex(self) -> int:
+        return self.stack.currentIndex()
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._routes):
+            self.pivot.setItemText(self._routes[index], text)
 
 
 class PropertyPanel(QWidget):
@@ -148,17 +245,14 @@ class PropertyPanel(QWidget):
         self.setLayout(main_layout)
         
         # 创建滚动区域
-        from PyQt6.QtWidgets import QScrollArea
-        scroll_area = QScrollArea()
-        scroll_area.setObjectName("editor_property_scroll")
+        scroll_area = ScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setFrameShape(ScrollArea.Shape.NoFrame)
         
         # 创建内容容器
         content_widget = QWidget()
-        content_widget.setObjectName("editor_property_content")
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(0, 2, 4, 2)
+        content_layout.setContentsMargins(4, 2, 8, 2)
         content_layout.setSpacing(10)
         content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
@@ -178,16 +272,30 @@ class PropertyPanel(QWidget):
         # 不再使用语法高亮器,改用符号替换
         # self.highlighter = HorizontalTagHighlighter(self.translated_text_box.document())
 
+    def _make_group(self, title: str) -> tuple[PanelSettingCardGroup, CardWidget]:
+        group = PanelSettingCardGroup(title, self)
+        card = CardWidget(group)
+        return group, card
+
+    def _finish_group(self, group: PanelSettingCardGroup, card: CardWidget):
+        group.addSettingCard(card)
+        if hasattr(group, "sync_content_height"):
+            QTimer.singleShot(0, group.sync_content_height)
+
+    def _set_group_title(self, group: PanelSettingCardGroup, title: str):
+        group.titleLabel.setText(title)
+        group.titleLabel.adjustSize()
+        group.sync_content_height()
+
     def _set_selection_controls_blocked(self, blocked: bool):
         """统一阻止/恢复与区域样式相关控件信号，避免切换选区时误写回。"""
         for child in self.findChildren(QWidget):
-            if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider, QAbstractSpinBox)):
+            if isinstance(child, (LineEdit, TextEdit, ComboBox, Slider, QAbstractSpinBox)):
                 child.blockSignals(blocked)
 
     def _create_region_info_section(self, layout):
-        self.info_group = QGroupBox(self._t("Region Info"))
-        self.info_group.setObjectName("editor_info_group")
-        info_layout = QFormLayout(self.info_group)
+        self.info_group, info_card = self._make_group(self._t("Region Info"))
+        info_layout = QFormLayout(info_card)
         info_layout.setContentsMargins(8, 8, 8, 6)
         info_layout.setHorizontalSpacing(10)
         info_layout.setVerticalSpacing(6)
@@ -203,17 +311,16 @@ class PropertyPanel(QWidget):
         info_layout.addRow(self.bbox_row_label, self.bbox_label)
         info_layout.addRow(self.size_row_label, self.size_label)
         info_layout.addRow(self.angle_row_label, self.angle_label)
+        self._finish_group(self.info_group, info_card)
         layout.addWidget(self.info_group)
 
     def _create_mask_edit_section(self, layout):
-        self.mask_edit_frame = QGroupBox(self._t("Mask Editing"))
-        self.mask_edit_frame.setObjectName("editor_mask_group")
-        frame_layout = QVBoxLayout(self.mask_edit_frame)
+        self.mask_edit_frame, mask_card = self._make_group(self._t("Mask Editing"))
+        frame_layout = QVBoxLayout(mask_card)
         frame_layout.setContentsMargins(6, 8, 6, 6)
         frame_layout.setSpacing(6)
 
-        self.paint_tab_widget = QTabWidget(self.mask_edit_frame)
-        self.paint_tab_widget.setObjectName("editor_paint_tabs")
+        self.paint_tab_widget = FluentTabWidget(self.mask_edit_frame)
 
         # 选择按钮组（两个 tab 共享同一个按钮组，保持互斥）
         self.mask_tool_group = QButtonGroup(self)
@@ -221,7 +328,6 @@ class PropertyPanel(QWidget):
 
         # ======= Tab 1：蒙版 =======
         mask_tab = QWidget()
-        mask_tab.setObjectName("editor_mask_tab")
         mask_layout = QVBoxLayout(mask_tab)
         mask_layout.setContentsMargins(6, 8, 6, 6)
         mask_layout.setSpacing(8)
@@ -230,22 +336,19 @@ class PropertyPanel(QWidget):
         mask_tools_layout.setContentsMargins(0, 0, 0, 0)
         mask_tools_layout.setSpacing(6)
 
-        self.brush_button = QPushButton(self._t("Brush"))
-        self.brush_button.setObjectName("editor_mask_brush_button")
-        self.brush_button.setProperty("editorToolButton", True)
-        self.brush_button.setProperty("softAction", True)
+        self.brush_button = PushButton()
+        self.brush_button.setText(self._t("Brush"))
+        self.brush_button.setIcon(FIF.BRUSH)
         self.brush_button.setCheckable(True)
         set_hover_hint(self.brush_button, self._t("Brush Tool") + " (W)")
-        self.eraser_button = QPushButton(self._t("Eraser"))
-        self.eraser_button.setObjectName("editor_mask_eraser_button")
-        self.eraser_button.setProperty("editorToolButton", True)
-        self.eraser_button.setProperty("softAction", True)
+        self.eraser_button = PushButton()
+        self.eraser_button.setText(self._t("Eraser"))
+        self.eraser_button.setIcon(FIF.ERASE_TOOL)
         self.eraser_button.setCheckable(True)
         set_hover_hint(self.eraser_button, self._t("Eraser Tool") + " (E)")
-        self.select_button = QPushButton(self._t("No Selection"))
-        self.select_button.setObjectName("editor_mask_select_button")
-        self.select_button.setProperty("editorToolButton", True)
-        self.select_button.setProperty("softAction", True)
+        self.select_button = PushButton()
+        self.select_button.setText(self._t("No Selection"))
+        self.select_button.setIcon(FIF.CLEAR_SELECTION)
         self.select_button.setCheckable(True)
         set_hover_hint(self.select_button, self._t("Selection Tool") + " (Q)")
 
@@ -266,11 +369,9 @@ class PropertyPanel(QWidget):
         brush_size_layout.setSpacing(6)
         self.brush_size_title_label = QLabel(self._t("Brush Size:"))
         brush_size_layout.addWidget(self.brush_size_title_label)
-        self.brush_size_slider = QSlider(Qt.Orientation.Horizontal)
-        self.brush_size_slider.setObjectName("editor_brush_size_slider")
+        self.brush_size_slider = Slider(Qt.Orientation.Horizontal)
         self.brush_size_slider.setRange(5, 200)
         self.brush_size_value_label = QLabel("30")
-        self.brush_size_value_label.setObjectName("editor_brush_size_value_label")
         self.brush_size_value_label.setFixedWidth(28)
         self.brush_size_value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.brush_size_slider.setValue(30)
@@ -278,19 +379,18 @@ class PropertyPanel(QWidget):
         brush_size_layout.addWidget(self.brush_size_value_label)
         mask_layout.addLayout(brush_size_layout)
 
-        self.show_refined_mask_checkbox = QCheckBox(self._t("Show Refined Mask"))
+        self.show_refined_mask_checkbox = CheckBox(self._t("Show Refined Mask"))
         self.show_refined_mask_checkbox.setChecked(False)
         mask_layout.addWidget(self.show_refined_mask_checkbox)
 
-        self.clear_all_masks_button = QPushButton(self._t("Clear All Masks"))
-        self.clear_all_masks_button.setObjectName("editor_clear_masks_button")
-        self.clear_all_masks_button.setProperty("softAction", True)
+        self.clear_all_masks_button = PushButton()
+        self.clear_all_masks_button.setText(self._t("Clear All Masks"))
+        self.clear_all_masks_button.setIcon(FIF.BROOM)
         mask_layout.addWidget(self.clear_all_masks_button)
         mask_layout.addStretch()
 
         # ======= Tab 2：画笔（彩色涂鸦） =======
         paint_tab = QWidget()
-        paint_tab.setObjectName("editor_paint_tab")
         paint_layout = QVBoxLayout(paint_tab)
         paint_layout.setContentsMargins(6, 8, 6, 6)
         paint_layout.setSpacing(8)
@@ -299,24 +399,21 @@ class PropertyPanel(QWidget):
         paint_tools_layout.setContentsMargins(0, 0, 0, 0)
         paint_tools_layout.setSpacing(6)
 
-        self.paint_select_button = QPushButton(self._t("No Selection"))
-        self.paint_select_button.setObjectName("editor_paint_select_button")
-        self.paint_select_button.setProperty("editorToolButton", True)
-        self.paint_select_button.setProperty("softAction", True)
+        self.paint_select_button = PushButton()
+        self.paint_select_button.setText(self._t("No Selection"))
+        self.paint_select_button.setIcon(FIF.CLEAR_SELECTION)
         self.paint_select_button.setCheckable(True)
         set_hover_hint(self.paint_select_button, self._t("Selection Tool") + " (Q)")
 
-        self.paint_brush_button = QPushButton(self._t("Brush"))
-        self.paint_brush_button.setObjectName("editor_paint_brush_button")
-        self.paint_brush_button.setProperty("editorToolButton", True)
-        self.paint_brush_button.setProperty("softAction", True)
+        self.paint_brush_button = PushButton()
+        self.paint_brush_button.setText(self._t("Brush"))
+        self.paint_brush_button.setIcon(FIF.BRUSH)
         self.paint_brush_button.setCheckable(True)
         set_hover_hint(self.paint_brush_button, self._t("Brush Tool"))
 
-        self.paint_eraser_button = QPushButton(self._t("Eraser"))
-        self.paint_eraser_button.setObjectName("editor_paint_eraser_button")
-        self.paint_eraser_button.setProperty("editorToolButton", True)
-        self.paint_eraser_button.setProperty("softAction", True)
+        self.paint_eraser_button = PushButton()
+        self.paint_eraser_button.setText(self._t("Eraser"))
+        self.paint_eraser_button.setIcon(FIF.ERASE_TOOL)
         self.paint_eraser_button.setCheckable(True)
         set_hover_hint(self.paint_eraser_button, self._t("Eraser Tool"))
 
@@ -338,12 +435,10 @@ class PropertyPanel(QWidget):
         paint_size_layout.setSpacing(6)
         self.paint_size_title_label = QLabel(self._t("Brush Size:"))
         paint_size_layout.addWidget(self.paint_size_title_label)
-        self.paint_size_slider = QSlider(Qt.Orientation.Horizontal)
-        self.paint_size_slider.setObjectName("editor_paint_size_slider")
+        self.paint_size_slider = Slider(Qt.Orientation.Horizontal)
         self.paint_size_slider.setRange(5, 200)
         self.paint_size_slider.setValue(30)
         self.paint_size_value_label = QLabel("30")
-        self.paint_size_value_label.setObjectName("editor_paint_size_value_label")
         self.paint_size_value_label.setFixedWidth(28)
         self.paint_size_value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         paint_size_layout.addWidget(self.paint_size_slider)
@@ -368,21 +463,21 @@ class PropertyPanel(QWidget):
         color_row.addStretch()
         paint_layout.addLayout(color_row)
 
-        self.clear_paint_overlay_button = QPushButton(self._t("Clear Paint Layer"))
-        self.clear_paint_overlay_button.setObjectName("editor_clear_paint_button")
-        self.clear_paint_overlay_button.setProperty("softAction", True)
+        self.clear_paint_overlay_button = PushButton()
+        self.clear_paint_overlay_button.setText(self._t("Clear Paint Layer"))
+        self.clear_paint_overlay_button.setIcon(FIF.BROOM)
         paint_layout.addWidget(self.clear_paint_overlay_button)
         paint_layout.addStretch()
 
         self.paint_tab_widget.addTab(mask_tab, self._t("Mask"))
         self.paint_tab_widget.addTab(paint_tab, self._t("Paint"))
         frame_layout.addWidget(self.paint_tab_widget)
+        self._finish_group(self.mask_edit_frame, mask_card)
         layout.addWidget(self.mask_edit_frame)
 
     def _create_text_section(self, layout):
-        self.text_edit_frame = QGroupBox(self._t("Text Content"))
-        self.text_edit_frame.setObjectName("editor_text_group")
-        text_layout = QVBoxLayout(self.text_edit_frame)
+        self.text_edit_frame, text_card = self._make_group(self._t("Text Content"))
+        text_layout = QVBoxLayout(text_card)
         text_layout.setContentsMargins(8, 8, 8, 6)
         text_layout.setSpacing(8)
         ocr_trans_config_layout = QFormLayout()
@@ -390,23 +485,19 @@ class PropertyPanel(QWidget):
         ocr_trans_config_layout.setHorizontalSpacing(8)
         ocr_trans_config_layout.setVerticalSpacing(8)
         ocr_trans_config_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
-        self.ocr_model_combo = QComboBox()
-        self.ocr_model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.ocr_model_combo.setMinimumContentsLength(8)
-        self.translator_combo = QComboBox()
-        self.translator_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.translator_combo.setMinimumContentsLength(8)
+        self.ocr_model_combo = ComboBox()
+        self.ocr_model_combo.setMinimumWidth(110)
+        self.translator_combo = ComboBox()
         self.translator_combo.setMinimumWidth(110)
-        self.target_language_combo = QComboBox()
-        self.target_language_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.target_language_combo.setMinimumContentsLength(8)
+        self.target_language_combo = ComboBox()
+        self.target_language_combo.setMinimumWidth(110)
         ocr_row = QHBoxLayout()
         ocr_row.setContentsMargins(0, 0, 0, 0)
         ocr_row.setSpacing(6)
         ocr_row.addWidget(self.ocr_model_combo)
-        self.ocr_button = QPushButton(self._t("Recognize"))
-        self.ocr_button.setObjectName("editor_recognize_button")
-        self.ocr_button.setProperty("softAction", True)
+        self.ocr_button = PushButton()
+        self.ocr_button.setText(self._t("Recognize"))
+        self.ocr_button.setIcon(FIF.ROBOT)
         self.ocr_button.setMinimumWidth(72)
         self.ocr_button.setMaximumWidth(92)
         ocr_row.addWidget(self.ocr_button)
@@ -414,9 +505,9 @@ class PropertyPanel(QWidget):
         translator_row.setContentsMargins(0, 0, 0, 0)
         translator_row.setSpacing(6)
         translator_row.addWidget(self.translator_combo)
-        self.translate_button = QPushButton(self._t("Translate"))
-        self.translate_button.setObjectName("editor_translate_button")
-        self.translate_button.setProperty("softAction", True)
+        self.translate_button = PrimaryPushButton()
+        self.translate_button.setText(self._t("Translate"))
+        self.translate_button.setIcon(FIF.LANGUAGE)
         self.translate_button.setMinimumWidth(80)
         self.translate_button.setMaximumWidth(108)
         translator_row.addWidget(self.translate_button)
@@ -428,15 +519,14 @@ class PropertyPanel(QWidget):
         text_layout.addLayout(ocr_trans_config_layout)
         
         # 原文文本框
-        self.original_text_box = QTextEdit()
+        self.original_text_box = TextEdit()
         self.original_text_box.setUndoRedoEnabled(True)
         self.original_text_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.original_text_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.original_text_box.setMinimumHeight(72)
         self.original_text_box.setMaximumHeight(132)
         
-        self.translated_text_box = QTextEdit()
-        self.translated_text_box.setObjectName("translationEdit")
+        self.translated_text_box = TextEdit()
         self.translated_text_box.setUndoRedoEnabled(True)
         self.translated_text_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.translated_text_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -447,7 +537,7 @@ class PropertyPanel(QWidget):
         text_layout.addWidget(self.original_text_label)
         text_layout.addWidget(self.original_text_box)
         # 复选框:勾选时让"译文"框显示"替换前译文"(translation_raw),编辑会实时跑替换写回译文
-        self.translation_raw_checkbox = QCheckBox(self._t("Show Translation (Raw)"))
+        self.translation_raw_checkbox = CheckBox(self._t("Show Translation (Raw)"))
         self.translation_raw_checkbox.setChecked(True)
         self.translation_raw_checkbox.toggled.connect(self._on_translation_raw_mode_toggled)
         text_layout.addWidget(self.translation_raw_checkbox)
@@ -457,14 +547,17 @@ class PropertyPanel(QWidget):
         insert_buttons_layout = QHBoxLayout()
         insert_buttons_layout.setContentsMargins(0, 0, 0, 0)
         insert_buttons_layout.setSpacing(6)
-        self.insert_placeholder_button = QPushButton(self._t("Placeholder"))
-        self.insert_placeholder_button.setProperty("chipButton", True)
+        self.insert_placeholder_button = PushButton()
+        self.insert_placeholder_button.setText(self._t("Placeholder"))
+        self.insert_placeholder_button.setIcon(FIF.ADD)
         set_hover_hint(self.insert_placeholder_button, self._t("Insert placeholder ＿"))
-        self.insert_newline_button = QPushButton(self._t("Newline↵"))
-        self.insert_newline_button.setProperty("chipButton", True)
+        self.insert_newline_button = PushButton()
+        self.insert_newline_button.setText(self._t("Newline↵"))
+        self.insert_newline_button.setIcon(FIF.RETURN)
         set_hover_hint(self.insert_newline_button, self._t("Insert newline"))
-        self.mark_horizontal_button = QPushButton(self._t("Horizontal⇄"))
-        self.mark_horizontal_button.setProperty("chipButton", True)
+        self.mark_horizontal_button = PushButton()
+        self.mark_horizontal_button.setText(self._t("Horizontal⇄"))
+        self.mark_horizontal_button.setIcon(FIF.ALIGNMENT)
         set_hover_hint(self.mark_horizontal_button, self._t("Mark selected text as horizontal display"))
         for button in (self.insert_placeholder_button, self.insert_newline_button, self.mark_horizontal_button):
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -474,12 +567,12 @@ class PropertyPanel(QWidget):
         text_layout.addLayout(insert_buttons_layout)
         self.text_stats_label = QLabel(self._t("Character count: 0"))
         text_layout.addWidget(self.text_stats_label)
+        self._finish_group(self.text_edit_frame, text_card)
         layout.addWidget(self.text_edit_frame)
 
     def _create_style_section(self, layout):
-        self.style_edit_frame = QGroupBox(self._t("Style Settings"))
-        self.style_edit_frame.setObjectName("editor_style_group")
-        style_layout = QFormLayout(self.style_edit_frame)
+        self.style_edit_frame, style_card = self._make_group(self._t("Style Settings"))
+        style_layout = QFormLayout(style_card)
         style_layout.setContentsMargins(8, 8, 8, 6)
         style_layout.setHorizontalSpacing(8)
         style_layout.setVerticalSpacing(8)
@@ -488,21 +581,15 @@ class PropertyPanel(QWidget):
         preset_layout = QHBoxLayout(preset_widget)
         preset_layout.setContentsMargins(0, 0, 0, 0)
         preset_layout.setSpacing(4)
-        self.style_preset_combo = QComboBox()
-        self.style_preset_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.style_preset_combo.setMinimumContentsLength(12)
+        self.style_preset_combo = ComboBox()
+        self.style_preset_combo.setMinimumWidth(140)
         self.style_preset_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         preset_layout.addWidget(self.style_preset_combo, 1)
-        self.save_style_preset_button = QPushButton()
-        self.save_style_preset_button.setObjectName("editor_style_preset_save_button")
-        self.save_style_preset_button.setProperty("chipButton", True)
+        self.save_style_preset_button = ToolButton()
         self.save_style_preset_button.setFixedSize(30, 30)
         self.save_style_preset_button.setIconSize(QSize(16, 16))
         preset_layout.addWidget(self.save_style_preset_button)
-        self.delete_style_preset_button = QPushButton()
-        self.delete_style_preset_button.setObjectName("editor_style_preset_delete_button")
-        self.delete_style_preset_button.setProperty("chipButton", True)
-        self.delete_style_preset_button.setProperty("variant", "danger")
+        self.delete_style_preset_button = ToolButton()
         self.delete_style_preset_button.setFixedSize(30, 30)
         self.delete_style_preset_button.setIconSize(QSize(16, 16))
         preset_layout.addWidget(self.delete_style_preset_button)
@@ -518,7 +605,7 @@ class PropertyPanel(QWidget):
         self._refresh_style_preset_combo()
         
         # Font family selector with refresh capability
-        class RefreshableComboBox(QComboBox):
+        class RefreshableComboBox(ComboBox):
             """可刷新的下拉框，在下拉时自动刷新字体列表"""
             def __init__(self, parent_widget, parent=None):
                 super().__init__(parent)
@@ -548,7 +635,7 @@ class PropertyPanel(QWidget):
                         # 外部字体不在 fonts 目录时，保留并恢复当前项
                         if restored_index < 0:
                             display_name = os.path.splitext(current_filename)[0] or current_text or current_data
-                            self.addItem(display_name, current_data)
+                            self.addItem(display_name, userData=current_data)
                             restored_index = self.count() - 1
                     elif current_text:
                         restored_index = self.findText(current_text)
@@ -560,9 +647,7 @@ class PropertyPanel(QWidget):
                 super().showPopup()
         
         self.font_family_combo = RefreshableComboBox(self)
-        self.font_family_combo.setEditable(False)
-        self.font_family_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.font_family_combo.setMinimumContentsLength(10)
+        self.font_family_combo.setMinimumWidth(120)
         self._populate_font_list()
         self.font_label = QLabel(self._t("Font:"))
         style_layout.addRow(self.font_label, self.font_family_combo)
@@ -571,12 +656,11 @@ class PropertyPanel(QWidget):
         font_size_layout = QHBoxLayout()
         font_size_layout.setContentsMargins(0, 0, 0, 0)
         font_size_layout.setSpacing(6)
-        self.font_size_input = QLineEdit()
+        self.font_size_input = LineEdit()
         self.font_size_input.setValidator(QIntValidator(8, 1000, self))
         self.font_size_input.setFixedWidth(64)
         font_size_layout.addWidget(self.font_size_input)
         self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
-        self.font_size_slider.setObjectName("editor_font_size_slider")
         self.font_size_slider.setRange(8, 150)
         self.font_size_label = QLabel(self._t("Font Size:"))
         style_layout.addRow(self.font_size_label, font_size_layout)
@@ -609,7 +693,7 @@ class PropertyPanel(QWidget):
         # Stroke width (描边宽度)
         stroke_width_layout = QHBoxLayout()
         stroke_width_layout.setContentsMargins(0, 0, 0, 0)
-        self.stroke_width_spinbox = QDoubleSpinBox()
+        self.stroke_width_spinbox = DoubleSpinBox()
         self.stroke_width_spinbox.setRange(0.0, 1.0)
         self.stroke_width_spinbox.setSingleStep(0.01)
         self.stroke_width_spinbox.setDecimals(2)
@@ -622,7 +706,7 @@ class PropertyPanel(QWidget):
         # Line spacing (行间距倍率)
         line_spacing_layout = QHBoxLayout()
         line_spacing_layout.setContentsMargins(0, 0, 0, 0)
-        self.line_spacing_spinbox = QDoubleSpinBox()
+        self.line_spacing_spinbox = DoubleSpinBox()
         self.line_spacing_spinbox.setRange(0.1, 5.0)
         self.line_spacing_spinbox.setSingleStep(0.1)
         self.line_spacing_spinbox.setDecimals(1)
@@ -634,7 +718,7 @@ class PropertyPanel(QWidget):
 
         letter_spacing_layout = QHBoxLayout()
         letter_spacing_layout.setContentsMargins(0, 0, 0, 0)
-        self.letter_spacing_spinbox = QDoubleSpinBox()
+        self.letter_spacing_spinbox = DoubleSpinBox()
         self.letter_spacing_spinbox.setRange(0.1, 5.0)
         self.letter_spacing_spinbox.setSingleStep(0.1)
         self.letter_spacing_spinbox.setDecimals(1)
@@ -646,7 +730,7 @@ class PropertyPanel(QWidget):
 
         angle_layout = QHBoxLayout()
         angle_layout.setContentsMargins(0, 0, 0, 0)
-        self.angle_spinbox = QDoubleSpinBox()
+        self.angle_spinbox = DoubleSpinBox()
         self.angle_spinbox.setRange(-9999.0, 9999.0)
         self.angle_spinbox.setSingleStep(1.0)
         self.angle_spinbox.setDecimals(1)
@@ -659,17 +743,16 @@ class PropertyPanel(QWidget):
         style_layout.addRow(self.angle_style_label, angle_layout)
         
         # Alignment and direction
-        self.alignment_combo = QComboBox()
-        self.direction_combo = QComboBox()
-        self.alignment_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.alignment_combo.setMinimumContentsLength(6)
-        self.direction_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.direction_combo.setMinimumContentsLength(6)
+        self.alignment_combo = ComboBox()
+        self.direction_combo = ComboBox()
+        self.alignment_combo.setMinimumWidth(96)
+        self.direction_combo.setMinimumWidth(96)
         self.alignment_label = QLabel(self._t("Alignment:"))
         self.direction_label = QLabel(self._t("Direction:"))
         style_layout.addRow(self.alignment_label, self.alignment_combo)
         style_layout.addRow(self.direction_label, self.direction_combo)
         
+        self._finish_group(self.style_edit_frame, style_card)
         layout.addWidget(self.style_edit_frame)
     
     def _populate_font_list(self):
@@ -696,31 +779,31 @@ class PropertyPanel(QWidget):
 
         # Add font files
         for display_name, filename in font_files:
-            self.font_family_combo.addItem(display_name, filename)
+            self.font_family_combo.addItem(display_name, userData=filename)
 
     def _create_action_section(self, layout):
-        self.action_frame = QGroupBox(self._t("Actions"))
-        self.action_frame.setObjectName("editor_action_group")
-        action_layout = QHBoxLayout(self.action_frame)
+        self.action_frame, action_card = self._make_group(self._t("Actions"))
+        action_layout = QHBoxLayout(action_card)
         action_layout.setContentsMargins(8, 8, 8, 6)
         action_layout.setSpacing(6)
-        self.copy_button = QPushButton(self._t("Copy"))
-        self.copy_button.setObjectName("editor_copy_action_button")
-        self.copy_button.setProperty("softAction", True)
+        self.copy_button = PushButton()
+        self.copy_button.setText(self._t("Copy"))
+        self.copy_button.setIcon(FIF.COPY)
         set_hover_hint(self.copy_button, self._t("Copy") + " (Ctrl+C)")
-        self.paste_button = QPushButton(self._t("Paste"))
-        self.paste_button.setObjectName("editor_paste_action_button")
-        self.paste_button.setProperty("softAction", True)
+        self.paste_button = PushButton()
+        self.paste_button.setText(self._t("Paste"))
+        self.paste_button.setIcon(FIF.PASTE)
         set_hover_hint(self.paste_button, self._t("Paste") + " (Ctrl+V)")
-        self.delete_button = QPushButton(self._t("Delete"))
-        self.delete_button.setObjectName("editor_delete_action_button")
-        self.delete_button.setProperty("variant", "danger")
+        self.delete_button = PushButton()
+        self.delete_button.setText(self._t("Delete"))
+        self.delete_button.setIcon(FIF.DELETE)
         set_hover_hint(self.delete_button, self._t("Delete") + " (Del)")
         action_layout.addWidget(self.copy_button)
         action_layout.addWidget(self.paste_button)
         action_layout.addWidget(self.delete_button)
         # 添加弹性空间，将按钮推向左侧，使它们更紧凑
         action_layout.addStretch()
+        self._finish_group(self.action_frame, action_card)
         layout.addWidget(self.action_frame)
     
     def _connect_signals(self):
@@ -853,15 +936,15 @@ class PropertyPanel(QWidget):
         """刷新所有UI文本（用于语言切换）"""
         # 刷新分组框标题
         if hasattr(self, 'info_group'):
-            self.info_group.setTitle(self._t("Region Info"))
+            self._set_group_title(self.info_group, self._t("Region Info"))
         if hasattr(self, 'mask_edit_frame'):
-            self.mask_edit_frame.setTitle(self._t("Mask Editing"))
+            self._set_group_title(self.mask_edit_frame, self._t("Mask Editing"))
         if hasattr(self, 'text_edit_frame'):
-            self.text_edit_frame.setTitle(self._t("Text Content"))
+            self._set_group_title(self.text_edit_frame, self._t("Text Content"))
         if hasattr(self, 'style_edit_frame'):
-            self.style_edit_frame.setTitle(self._t("Style Settings"))
+            self._set_group_title(self.style_edit_frame, self._t("Style Settings"))
         if hasattr(self, 'action_frame'):
-            self.action_frame.setTitle(self._t("Actions"))
+            self._set_group_title(self.action_frame, self._t("Actions"))
         
         # 刷新标签
         if hasattr(self, 'index_row_label'):
@@ -1049,9 +1132,9 @@ class PropertyPanel(QWidget):
         self.style_preset_combo.blockSignals(True)
         try:
             self.style_preset_combo.clear()
-            self.style_preset_combo.addItem(self._t("Select saved style"), None)
+            self.style_preset_combo.addItem(self._t("Select saved style"), userData=None)
             for name in presets.keys():
-                self.style_preset_combo.addItem(name, name)
+                self.style_preset_combo.addItem(name, userData=name)
 
             if current_name in presets:
                 target_index = self.style_preset_combo.findData(current_name)
@@ -1122,17 +1205,13 @@ class PropertyPanel(QWidget):
     def _refresh_style_preset_action_buttons(self):
         if hasattr(self, "save_style_preset_button"):
             self.save_style_preset_button.setText("")
-            self.save_style_preset_button.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
-            )
+            self.save_style_preset_button.setIcon(FIF.SAVE)
             set_hover_hint(self.save_style_preset_button, self._t("Save current style combination"))
             self.save_style_preset_button.setAccessibleName(self._t("Save Style"))
 
         if hasattr(self, "delete_style_preset_button"):
             self.delete_style_preset_button.setText("")
-            self.delete_style_preset_button.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-            )
+            self.delete_style_preset_button.setIcon(FIF.DELETE)
             set_hover_hint(self.delete_style_preset_button, self._t("Delete selected saved style"))
             self.delete_style_preset_button.setAccessibleName(self._t("Delete Style"))
 
@@ -1196,7 +1275,7 @@ class PropertyPanel(QWidget):
 
         if target_index < 0:
             display_name = os.path.splitext(font_filename)[0] or font_filename
-            self.font_family_combo.addItem(display_name, font_value)
+            self.font_family_combo.addItem(display_name, userData=font_value)
             target_index = self.font_family_combo.count() - 1
 
         self.font_family_combo.setCurrentIndex(target_index)

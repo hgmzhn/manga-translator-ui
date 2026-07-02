@@ -1,34 +1,95 @@
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QScrollArea,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, CardWidget, ScrollArea, SegmentedWidget, TitleLabel
+
+
+class _SegmentedTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, route_prefix: str, parent=None):
+        super().__init__(parent)
+        self._routes: list[str] = []
+        self._route_prefix = route_prefix
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.segmented_widget = SegmentedWidget(self)
+        self.stack = QStackedWidget(self)
+        layout.addWidget(self.segmented_widget)
+        layout.addWidget(self.stack, 1)
+
+        self.segmented_widget.currentItemChanged.connect(self._sync_current_route)
+
+    def addTab(self, widget: QWidget, text: str) -> int:
+        index = self.stack.addWidget(widget)
+        route_key = f"{self._route_prefix}_{index}"
+        self._routes.append(route_key)
+        self.segmented_widget.addItem(route_key, text)
+        if index == 0:
+            self.segmented_widget.setCurrentItem(route_key)
+            self.stack.setCurrentIndex(index)
+        return index
+
+    def count(self) -> int:
+        return self.stack.count()
+
+    def currentIndex(self) -> int:
+        return self.stack.currentIndex()
+
+    def setCurrentIndex(self, index: int):
+        if 0 <= index < len(self._routes):
+            self.segmented_widget.setCurrentItem(self._routes[index])
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._routes):
+            self.segmented_widget.setItemText(self._routes[index], text)
+
+    def widget(self, index: int) -> QWidget | None:
+        return self.stack.widget(index)
+
+    def _sync_current_route(self, route_key: str):
+        if route_key not in self._routes:
+            return
+        index = self._routes.index(route_key)
+        self.stack.setCurrentIndex(index)
+        self.currentChanged.emit(index)
+
+
+def _create_scroll_page(container: QWidget) -> tuple[QWidget, QVBoxLayout]:
+    page = QWidget()
+    page_layout = QVBoxLayout(page)
+    page_layout.setContentsMargins(0, 0, 0, 0)
+
+    scroll = ScrollArea()
+    scroll.setWidgetResizable(True)
+    page_layout.addWidget(scroll)
+
+    container_layout = QVBoxLayout(container)
+    container_layout.setContentsMargins(16, 14, 16, 14)
+    container_layout.setSpacing(12)
+    scroll.setWidget(container)
+    return page, container_layout
+
 
 def create_env_page(self) -> QWidget:
     page = QWidget()
-    page.setObjectName("content_page_env")
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(18, 16, 18, 14)
     page_layout.setSpacing(12)
 
-    # --- Header Card ---
-    header_card = QWidget()
-    header_card.setObjectName("header_card")
+    header_card = CardWidget()
     header_layout = QVBoxLayout(header_card)
-    header_layout.setContentsMargins(12, 4, 12, 4)
+    header_layout.setContentsMargins(16, 12, 16, 12)
     header_layout.setSpacing(8)
 
     title_col = QVBoxLayout()
     title_col.setSpacing(2)
-    self.env_page_title_label = QLabel(self._t("API Management"))
-    self.env_page_title_label.setObjectName("page_title")
-    self.env_page_subtitle_label = QLabel(
+    self.env_page_title_label = TitleLabel(self._t("API Management"))
+    self.env_page_subtitle_label = BodyLabel(
         self._t("Manage API keys and environment variables for each translator")
     )
-    self.env_page_subtitle_label.setObjectName("page_subtitle")
     self.env_page_subtitle_label.setWordWrap(True)
     title_col.addWidget(self.env_page_title_label)
     title_col.addWidget(self.env_page_subtitle_label)
@@ -40,81 +101,30 @@ def create_env_page(self) -> QWidget:
 
     page_layout.addWidget(header_card)
 
-    # --- Native QTabWidget Setup ---
-    self.env_tab_widget = QTabWidget()
-    self.env_tab_widget.setObjectName("settings_tab_widget")
-    
-    # 1. Translation Tab Content
-    self.env_translation_page = QWidget()
-    self.env_translation_layout = QVBoxLayout(self.env_translation_page)
-    self.env_translation_layout.setContentsMargins(0, 0, 0, 0)
-    
-    env_scroll = QScrollArea()
-    env_scroll.setWidgetResizable(True)
-    env_scroll.setObjectName("settings_scroll_area")
-    
+    self.env_tab_widget = _SegmentedTabWidget("env_tab")
+
     self.env_group_container = QWidget()
-    self.env_group_container.setObjectName("settings_scroll_content")
-    self.env_group_container_layout = QVBoxLayout(self.env_group_container)
-    self.env_group_container_layout.setContentsMargins(0, 0, 0, 0)
-    self.env_group_container_layout.setSpacing(12)
-    env_scroll.setWidget(self.env_group_container)
-    self.env_translation_layout.addWidget(env_scroll)
-    
-    # 2. OCR Tab Content
-    self.env_ocr_page = QWidget()
-    self.env_ocr_layout = QVBoxLayout(self.env_ocr_page)
-    self.env_ocr_layout.setContentsMargins(0, 0, 0, 0)
-    
-    ocr_scroll = QScrollArea()
-    ocr_scroll.setWidgetResizable(True)
-    ocr_scroll.setObjectName("settings_scroll_area")
+    self.env_translation_page, self.env_group_container_layout = _create_scroll_page(
+        self.env_group_container
+    )
+    self.env_translation_layout = self.env_translation_page.layout()
+
     self.ocr_container = QWidget()
-    self.ocr_container.setObjectName("settings_scroll_content")
-    self.ocr_container_layout = QVBoxLayout(self.ocr_container)
-    self.ocr_container_layout.setContentsMargins(0, 0, 0, 0)
-    self.ocr_container_layout.setSpacing(12)
-    ocr_scroll.setWidget(self.ocr_container)
-    self.env_ocr_layout.addWidget(ocr_scroll)
-    
-    # 3. Colorization Tab Content
-    self.env_color_page = QWidget()
-    self.env_color_layout = QVBoxLayout(self.env_color_page)
-    self.env_color_layout.setContentsMargins(0, 0, 0, 0)
-    
-    color_scroll = QScrollArea()
-    color_scroll.setWidgetResizable(True)
-    color_scroll.setObjectName("settings_scroll_area")
+    self.env_ocr_page, self.ocr_container_layout = _create_scroll_page(self.ocr_container)
+    self.env_ocr_layout = self.env_ocr_page.layout()
+
     self.color_container = QWidget()
-    self.color_container.setObjectName("settings_scroll_content")
-    self.color_container_layout = QVBoxLayout(self.color_container)
-    self.color_container_layout.setContentsMargins(0, 0, 0, 0)
-    self.color_container_layout.setSpacing(12)
-    color_scroll.setWidget(self.color_container)
-    self.env_color_layout.addWidget(color_scroll)
-    
-    # 4. Render Tab Content
-    self.env_render_page = QWidget()
-    self.env_render_layout = QVBoxLayout(self.env_render_page)
-    self.env_render_layout.setContentsMargins(0, 0, 0, 0)
-    
-    render_scroll = QScrollArea()
-    render_scroll.setWidgetResizable(True)
-    render_scroll.setObjectName("settings_scroll_area")
+    self.env_color_page, self.color_container_layout = _create_scroll_page(self.color_container)
+    self.env_color_layout = self.env_color_page.layout()
+
     self.render_container = QWidget()
-    self.render_container.setObjectName("settings_scroll_content")
-    self.render_container_layout = QVBoxLayout(self.render_container)
-    self.render_container_layout.setContentsMargins(0, 0, 0, 0)
-    self.render_container_layout.setSpacing(12)
-    render_scroll.setWidget(self.render_container)
-    self.env_render_layout.addWidget(render_scroll)
-    
+    self.env_render_page, self.render_container_layout = _create_scroll_page(self.render_container)
+    self.env_render_layout = self.env_render_page.layout()
+
     self.env_tab_widget.addTab(self.env_translation_page, self._t("Translation"))
     self.env_tab_widget.addTab(self.env_ocr_page, self._t("OCR"))
     self.env_tab_widget.addTab(self.env_color_page, self._t("Colorization"))
     self.env_tab_widget.addTab(self.env_render_page, self._t("Render"))
-    
+
     page_layout.addWidget(self.env_tab_widget, 1)
     return page
-
-

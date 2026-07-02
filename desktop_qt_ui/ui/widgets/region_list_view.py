@@ -1,17 +1,14 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame,
-    QLabel,
-    QListWidget,
     QListWidgetItem,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
+from qfluentwidgets import BodyLabel, CardWidget, ListWidget, TextEdit
 
 
-class RegionListView(QListWidget):
+class RegionListView(ListWidget):
     """
     显示和管理当前图片中所有文本区域的列表。
     """
@@ -52,26 +49,21 @@ class RegionListView(QListWidget):
                 original_text = region.get('text', '')
                 translated_text = region.get('translation', '')
 
-                item_container = QWidget()
+                item_container = CardWidget()
                 layout = QVBoxLayout(item_container)
-                layout.setContentsMargins(5, 5, 5, 5)
-                layout.setSpacing(3)
+                layout.setContentsMargins(8, 8, 8, 8)
+                layout.setSpacing(6)
 
-                original_label = QLabel(f"<b>{i+1}:</b> {original_text}")
+                original_label = BodyLabel(f"{i+1}: {original_text}")
                 original_label.setWordWrap(True)
 
-                translated_edit = QTextEdit(translated_text)
+                translated_edit = TextEdit()
+                translated_edit.setPlainText(translated_text)
                 translated_edit.setPlaceholderText("译文")
                 translated_edit.setFixedHeight(60)
-                translated_edit.setObjectName("translated_edit")
-
-                separator = QFrame()
-                separator.setFrameShape(QFrame.Shape.HLine)
-                separator.setFrameShadow(QFrame.Shadow.Sunken)
 
                 layout.addWidget(original_label)
                 layout.addWidget(translated_edit)
-                layout.addWidget(separator)
 
                 item = QListWidgetItem(self)
                 item.setSizeHint(item_container.sizeHint())
@@ -91,7 +83,7 @@ class RegionListView(QListWidget):
             item_index = item.data(Qt.ItemDataRole.UserRole)
             widget = self.itemWidget(item)
             if widget:
-                translated_edit = widget.findChild(QTextEdit, "translated_edit")
+                translated_edit = widget.findChild(TextEdit)
                 if translated_edit:
                     translations[item_index] = translated_edit.toPlainText()
         return translations
@@ -102,7 +94,7 @@ class RegionListView(QListWidget):
             item = self.item(i)
             widget = self.itemWidget(item)
             if widget:
-                translated_edit = widget.findChild(QTextEdit, "translated_edit")
+                translated_edit = widget.findChild(TextEdit)
                 if translated_edit:
                     current_text = translated_edit.toPlainText()
                     new_text = current_text.replace(find_text, replace_text)

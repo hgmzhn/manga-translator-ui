@@ -4,18 +4,17 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QObject, QSize, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QImage, QPalette, QPixmap
+from PyQt6.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QFontMetrics, QImage, QPalette, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QStyle,
-    QTreeWidget,
+    QSizePolicy,
     QTreeWidgetItem,
     QWidget,
 )
+from qfluentwidgets import BodyLabel, CardWidget, FluentIcon as FIF, ToolButton, TreeWidget
 
 from manga_translator.utils import open_pil_image
 
@@ -78,9 +77,10 @@ def _load_thumbnail_worker(file_path: str) -> tuple[str, Optional[QPixmap]]:
         return (file_path, None)
 
 
-class FileItemWidget(QWidget):
+class FileItemWidget(CardWidget):
     """自定义列表项，用于显示缩略图、文件名和移除按钮"""
     remove_requested = pyqtSignal(str)
+    ROW_HEIGHT = 58
     
     # MAX Cache Size
     MAX_CACHE_SIZE = 200
@@ -96,8 +96,10 @@ class FileItemWidget(QWidget):
         self.file_path = file_path
         self.is_folder = is_folder
         self._thumbnail_loading = False
-        self.setObjectName("file_item_root")
-        self.setProperty("fileKind", "folder" if is_folder else "file")
+        self._display_name = os.path.basename(file_path)
+        self.setBorderRadius(8)
+        self.setFixedHeight(self.ROW_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # 注册实例
         if not is_folder and not os.path.isdir(file_path):
@@ -106,26 +108,20 @@ class FileItemWidget(QWidget):
             FileItemWidget._active_instances[file_path].append(self)
 
         self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(5, 5, 5, 5)
+        self.layout.setContentsMargins(10, 8, 8, 8)
         self.layout.setSpacing(10)
 
         # Thumbnail
-        self.thumbnail_label = QLabel()
-        self.thumbnail_label.setObjectName("file_item_thumbnail")
+        self.thumbnail_label = QLabel(self)
         self.thumbnail_label.setFixedSize(40, 40)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout.addWidget(self.thumbnail_label)
 
         if is_folder or os.path.isdir(self.file_path):
-            style = QApplication.style()
-            icon = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
-            self.thumbnail_label.setPixmap(icon.pixmap(QSize(40,40)))
+            self.thumbnail_label.setPixmap(FIF.FOLDER.icon().pixmap(QSize(32, 32)))
         elif self._is_archive_file(self.file_path):
             # 压缩包/文档文件显示特殊图标
-            self.setProperty("fileKind", "archive")
-            style = QApplication.style()
-            icon = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
-            self.thumbnail_label.setPixmap(icon.pixmap(QSize(40,40)))
+            self.thumbnail_label.setPixmap(FIF.ZIP_FOLDER.icon().pixmap(QSize(32, 32)))
         else:
             # 连接全局信号（只连接一次）
             if not hasattr(FileItemWidget, '_signals_connected'):
@@ -134,21 +130,33 @@ class FileItemWidget(QWidget):
             self._load_thumbnail()
 
         # File Name
-        display_name = os.path.basename(file_path)
-        self.base_display_name = display_name  # 保存基础名称
+        self.base_display_name = self._display_name  # 保存基础名称
         
-        self.name_label = QLabel(display_name)
-        self.name_label.setObjectName("file_item_name_label")
-        self.name_label.setWordWrap(True)
+        self.name_label = BodyLabel(self._display_name, self)
+        self.name_label.setWordWrap(False)
+        self.name_label.setMinimumWidth(0)
+        self.name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.name_label.setToolTip(file_path)
         self.layout.addWidget(self.name_label, 1)  # Stretch factor
 
         # Remove Button
-        self.remove_button = QPushButton("✕")
-        self.remove_button.setObjectName("file_item_remove_button")
-        self.remove_button.setFixedSize(20, 20)
+        self.remove_button = ToolButton(FIF.CLOSE, self)
+        self.remove_button.setFixedSize(34, 34)
+        self.remove_button.setIconSize(QSize(16, 16))
+        self.remove_button.setToolTip("Remove")
         self.remove_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # 防止获取焦点
         self.remove_button.clicked.connect(self._emit_remove_request)
         self.layout.addWidget(self.remove_button)
+        QTimer.singleShot(0, self._update_elided_name)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elided_name()
+
+    def _update_elided_name(self):
+        available_width = max(24, self.name_label.width())
+        metrics = QFontMetrics(self.name_label.font())
+        self.name_label.setText(metrics.elidedText(self._display_name, Qt.TextElideMode.ElideMiddle, available_width))
     
     def __del__(self):
         """析构时从活动实例列表中移除"""
@@ -170,8 +178,8 @@ class FileItemWidget(QWidget):
     def update_file_count(self, count: int):
         """更新文件夹显示的文件数量"""
         if self.is_folder:
-            display_name = f"{self.base_display_name} ({count}个文件)"
-            self.name_label.setText(display_name)
+            self._display_name = f"{self.base_display_name} ({count}个文件)"
+            self._update_elided_name()
 
     def _load_thumbnail(self):
         """异步加载缩略图，使用缓存机制"""
@@ -251,12 +259,13 @@ class FileItemWidget(QWidget):
             del cls._thumbnail_cache[file_path]
 
 
-class FileListView(QTreeWidget):
+class FileListView(TreeWidget):
     """显示文件列表的自定义控件（支持文件夹分组）"""
     file_remove_requested = pyqtSignal(str)
     file_selected = pyqtSignal(str)
     files_dropped = pyqtSignal(list)  # 新增：拖放文件信号
     _folders_scanned = pyqtSignal(list)  # 内部信号：文件夹扫描完成
+    _ROW_HEIGHT = FileItemWidget.ROW_HEIGHT + 8
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -268,8 +277,15 @@ class FileListView(QTreeWidget):
         
         # 设置树形控件属性
         self.setHeaderHidden(True)  # 隐藏标题栏
-        self.setIndentation(20)  # 设置缩进
+        self.setColumnCount(1)
+        self.setIndentation(12)  # 设置缩进
+        self.setRootIsDecorated(False)
         self.setAnimated(True)  # 启用展开/折叠动画
+        self.setBorderRadius(8)
+        self.setUniformRowHeights(True)
+        self.header().setStretchLastSection(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
         
         # 启用拖放
         self.setAcceptDrops(True)
@@ -283,6 +299,50 @@ class FileListView(QTreeWidget):
         
         # 连接内部信号（确保在主线程中处理）
         self._folders_scanned.connect(self._on_folders_scanned)
+
+    def _refresh_root_decoration(self):
+        has_top_level_folder = False
+        for index in range(self.topLevelItemCount()):
+            path = self.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(path, str) and os.path.isdir(path):
+                has_top_level_folder = True
+                break
+        self.setRootIsDecorated(has_top_level_folder)
+        QTimer.singleShot(0, self._sync_item_widget_widths)
+
+    def setItemWidget(self, item: QTreeWidgetItem, column: int, widget: QWidget):
+        if isinstance(widget, FileItemWidget):
+            item.setSizeHint(column, QSize(0, self._ROW_HEIGHT))
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            widget.setFixedHeight(FileItemWidget.ROW_HEIGHT)
+        super().setItemWidget(item, column, widget)
+        QTimer.singleShot(0, self._refresh_root_decoration)
+
+    def _finalize_folder_item(self, folder_item: QTreeWidgetItem):
+        folder_item.setExpanded(False)
+        self._refresh_root_decoration()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_item_widget_widths()
+
+    def _sync_item_widget_widths(self):
+        viewport_width = max(120, self.viewport().width() - 6)
+        self.setColumnWidth(0, viewport_width)
+
+        def sync_item(item: QTreeWidgetItem, depth: int = 0):
+            widget = self.itemWidget(item, 0)
+            if isinstance(widget, FileItemWidget):
+                rect = self.visualItemRect(item)
+                left = rect.left() if rect.isValid() else depth * self.indentation()
+                width = max(120, self.viewport().width() - left - 10)
+                widget.setFixedWidth(width)
+                widget._update_elided_name()
+            for index in range(item.childCount()):
+                sync_item(item.child(index), depth + 1)
+
+        for index in range(self.topLevelItemCount()):
+            sync_item(self.topLevelItem(index))
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -450,6 +510,7 @@ class FileListView(QTreeWidget):
         # 更新文件数量
         file_count = self._count_files_in_tree(folder_item)
         folder_widget.update_file_count(file_count)
+        self._finalize_folder_item(folder_item)
     
     def _populate_folder_tree_from_data(self, parent_item: QTreeWidgetItem, folder_path: str, folder_data: dict):
         """从扫描的数据填充文件夹树（在主线程中执行）"""
@@ -553,6 +614,7 @@ class FileListView(QTreeWidget):
         # 更新文件数量
         file_count = self._count_files_in_tree(folder_item)
         folder_widget.update_file_count(file_count)
+        self._finalize_folder_item(folder_item)
     
     def add_files_with_tree(self, file_paths: List[str], folder_map: dict = None):
         """
@@ -695,6 +757,7 @@ class FileListView(QTreeWidget):
             for child_folder in hierarchy.get(folder_path, []):
                 file_count += self._count_files_in_hierarchy(child_folder, hierarchy, folder_groups)
             folder_widget.update_file_count(file_count)
+            self._finalize_folder_item(folder_item)
     
     def _count_files_in_hierarchy(self, folder_path: str, hierarchy: dict, folder_groups: dict) -> int:
         """递归统计文件夹及其子文件夹中的文件数量"""
@@ -742,6 +805,7 @@ class FileListView(QTreeWidget):
         
         # 更新文件数量显示
         folder_widget.update_file_count(len(file_list))
+        self._finalize_folder_item(folder_item)
     
     def _add_folder_tree(self, folder_path: str):
         """添加文件夹及其完整的树形结构"""
@@ -768,6 +832,7 @@ class FileListView(QTreeWidget):
         # 更新文件数量显示
         file_count = self._count_files_recursive(folder_path)
         folder_widget.update_file_count(file_count)
+        self._finalize_folder_item(folder_item)
     
     def _count_files_recursive(self, folder_path: str) -> int:
         """递归统计文件夹中的图片文件数量"""
@@ -888,6 +953,7 @@ class FileListView(QTreeWidget):
             
             # 更新文件夹显示的文件数
             self._update_folder_count(folder_item)
+            self._finalize_folder_item(folder_item)
         except Exception as e:
             print(f"Error loading files from folder {folder_path}: {e}")
     
@@ -929,6 +995,7 @@ class FileListView(QTreeWidget):
         
         # 更新文件夹显示的文件数
         self._update_folder_count(folder_item)
+        self._finalize_folder_item(folder_item)
 
     def _add_file_to_folder(self, file_path: str, parent_item: QTreeWidgetItem):
         """将文件添加到文件夹节点下"""
@@ -957,6 +1024,7 @@ class FileListView(QTreeWidget):
         
         self.addTopLevelItem(file_item)
         self.setItemWidget(file_item, 0, file_widget)
+        self._refresh_root_decoration()
 
     def remove_file(self, file_path: str):
         """移除指定文件或文件夹"""

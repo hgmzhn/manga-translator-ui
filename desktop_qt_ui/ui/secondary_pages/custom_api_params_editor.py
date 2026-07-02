@@ -4,26 +4,15 @@ from typing import Any, Callable
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
-    QFrame,
     QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListView,
-    QPlainTextEdit,
-    QPushButton,
-    QScrollArea,
     QStackedWidget,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-from ui.styles import (
+from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, ComboBox, LineEdit, PlainTextEdit, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, TitleLabel
+from ui.theme import (
     monospace_font as _monospace_font,
-    secondary_editor_dialog_stylesheet as _dialog_stylesheet,
-    status_stylesheet as _status_stylesheet,
 )
-from ui.theme import apply_widget_stylesheet
-from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 
 from manga_translator.custom_api_params import (
     CUSTOM_API_PARAM_SECTIONS,
@@ -53,21 +42,47 @@ def _infer_type(value: Any) -> str:
     return "json"
 
 
-def _create_combo_popup_view(parent: QWidget | None = None) -> QListView:
-    view = QListView(parent)
-    view.setObjectName("combo_popup_view")
-    view.setUniformItemSizes(True)
-    view.setAlternatingRowColors(False)
-    return view
+class _SegmentedTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._keys: list[str] = []
+        self._segmented = SegmentedWidget(self)
+        self._stack = QStackedWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._segmented)
+        layout.addWidget(self._stack, 1)
+
+    def addTab(self, widget: QWidget, text: str):
+        index = len(self._keys)
+        key = f"tab_{index}"
+        self._keys.append(key)
+        self._stack.addWidget(widget)
+        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
+        if index == 0:
+            self.setCurrentIndex(0)
+
+    def currentIndex(self) -> int:
+        return self._stack.currentIndex()
+
+    def setCurrentIndex(self, index: int):
+        if index < 0 or index >= len(self._keys):
+            return
+        self._stack.setCurrentIndex(index)
+        self._segmented.setCurrentItem(self._keys[index])
+        self.currentChanged.emit(index)
 
 
-class CustomApiParamRow(QWidget):
+class CustomApiParamRow(CardWidget):
     remove_requested = pyqtSignal(QWidget)
 
     def __init__(self, t_func: Callable[..., str] | None = None, parent=None):
         super().__init__(parent)
         self._t = t_func or _identity_translate
-        self.setObjectName("param_row")
         self._is_placeholder_row = True
         self._setup_ui()
 
@@ -78,9 +93,8 @@ class CustomApiParamRow(QWidget):
 
         key_col = QVBoxLayout()
         key_col.setSpacing(6)
-        key_label = QLabel(self._t("Key"))
-        key_label.setObjectName("section_label")
-        self.key_input = QLineEdit()
+        key_label = BodyLabel(self._t("Key"))
+        self.key_input = LineEdit()
         self.key_input.setPlaceholderText("temperature")
         self.key_input.setMinimumWidth(180)
         key_col.addWidget(key_label)
@@ -89,10 +103,8 @@ class CustomApiParamRow(QWidget):
 
         type_col = QVBoxLayout()
         type_col.setSpacing(6)
-        type_label = QLabel(self._t("Type"))
-        type_label.setObjectName("section_label")
-        self.type_combo = QComboBox()
-        self.type_combo.setView(_create_combo_popup_view(self.type_combo))
+        type_label = BodyLabel(self._t("Type"))
+        self.type_combo = ComboBox()
         self.type_combo.setMinimumWidth(118)
         for label, value in [
             (self._t("String"), "string"),
@@ -101,34 +113,31 @@ class CustomApiParamRow(QWidget):
             (self._t("Null"), "null"),
             ("JSON", "json"),
         ]:
-            self.type_combo.addItem(label, value)
+            self.type_combo.addItem(label, userData=value)
         type_col.addWidget(type_label)
         type_col.addWidget(self.type_combo)
         layout.addLayout(type_col, 2)
 
         value_col = QVBoxLayout()
         value_col.setSpacing(6)
-        value_label = QLabel(self._t("Value"))
-        value_label.setObjectName("section_label")
+        value_label = BodyLabel(self._t("Value"))
         self.value_stack = QStackedWidget()
 
-        self.string_input = QLineEdit()
+        self.string_input = LineEdit()
         self.string_input.setPlaceholderText("gpt-4o-mini")
 
-        self.number_input = QLineEdit()
+        self.number_input = LineEdit()
         self.number_input.setPlaceholderText("0.2")
         self.number_input.setFont(_monospace_font(10))
 
-        self.boolean_input = QComboBox()
-        self.boolean_input.setView(_create_combo_popup_view(self.boolean_input))
-        self.boolean_input.addItem("true", True)
-        self.boolean_input.addItem("false", False)
+        self.boolean_input = ComboBox()
+        self.boolean_input.addItem("true", userData=True)
+        self.boolean_input.addItem("false", userData=False)
 
-        self.null_label = QLabel("null")
-        self.null_label.setObjectName("null_value_label")
+        self.null_label = CaptionLabel("null")
         self.null_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.json_input = QLineEdit()
+        self.json_input = LineEdit()
         self.json_input.setPlaceholderText('{"type": "json"}')
         self.json_input.setFont(_monospace_font(10))
 
@@ -144,9 +153,8 @@ class CustomApiParamRow(QWidget):
 
         remove_col = QVBoxLayout()
         remove_col.setSpacing(6)
-        remove_col.addWidget(QLabel(""))
-        self.remove_button = QPushButton(self._t("Delete"))
-        self.remove_button.setProperty("variant", "danger")
+        remove_col.addWidget(CaptionLabel(""))
+        self.remove_button = PushButton(self._t("Delete"))
         self.remove_button.setFixedWidth(80)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
         remove_col.addWidget(self.remove_button)
@@ -240,7 +248,7 @@ class CustomApiParamsEditorDialog(QDialog):
         self._t = t_func or _identity_translate
         self._file_path = file_path
         self._original_content = ""
-        self.section_tabs: QTabWidget | None = None
+        self.section_tabs: _SegmentedTabWidget | None = None
         self.section_layouts: dict[str, QVBoxLayout] = {}
         self.section_contents: dict[str, QWidget] = {}
         self._setup_ui()
@@ -250,48 +258,38 @@ class CustomApiParamsEditorDialog(QDialog):
         self.setWindowTitle(self._t("Edit Custom API Params"))
         self.setMinimumSize(880, 620)
         self.resize(980, 720)
-        apply_widget_stylesheet(self, _dialog_stylesheet())
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
-        title = QLabel(self._t("Edit Custom API Params"))
-        title.setObjectName("dialog_title")
-        subtitle = QLabel(
+        title = TitleLabel(self._t("Edit Custom API Params"))
+        subtitle = BodyLabel(
             self._t("Edit custom API request parameters passed directly to the translator backend.")
         )
-        subtitle.setObjectName("dialog_subtitle")
         subtitle.setWordWrap(True)
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        divider = QFrame()
-        divider.setObjectName("divider")
-        divider.setFrameShape(QFrame.Shape.HLine)
-        root.addWidget(divider)
-
-        self.tabs = QTabWidget()
+        self.tabs = _SegmentedTabWidget()
         root.addWidget(self.tabs, 1)
 
         self._build_params_tab()
         self._build_raw_tab()
 
-        self.status_label = QLabel("")
-        self.status_label.setObjectName("hint_label")
+        self.status_label = CaptionLabel("")
         root.addWidget(self.status_label)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
 
-        self.refresh_button = QPushButton(self._t("Refresh"))
+        self.refresh_button = PushButton(self._t("Refresh"))
         self.refresh_button.clicked.connect(self._load_from_disk)
 
-        self.cancel_button = QPushButton(self._t("Cancel"))
+        self.cancel_button = PushButton(self._t("Cancel"))
         self.cancel_button.clicked.connect(self.reject)
 
-        self.save_button = QPushButton(self._t("Save"))
-        self.save_button.setProperty("variant", "accent")
+        self.save_button = PrimaryPushButton(self._t("Save"))
         self.save_button.clicked.connect(self._save)
 
         button_row.addWidget(self.refresh_button)
@@ -305,40 +303,35 @@ class CustomApiParamsEditorDialog(QDialog):
         page_layout.setContentsMargins(8, 8, 8, 8)
         page_layout.setSpacing(8)
 
-        card = QWidget()
-        card.setObjectName("path_card")
+        card = CardWidget()
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(14, 12, 14, 12)
         card_layout.setSpacing(4)
 
-        title = QLabel(self._t("Grouped API Params"))
-        title.setObjectName("section_label")
-        hint = QLabel(
+        title = BodyLabel(self._t("Grouped API Params"))
+        hint = CaptionLabel(
             self._t(
                 "Parameters in each group are sent only to the matching AI backend. "
                 "Raw top-level keys are treated as common params."
             )
         )
-        hint.setObjectName("hint_label")
         hint.setWordWrap(True)
 
         card_layout.addWidget(title)
         card_layout.addWidget(hint)
         page_layout.addWidget(card)
 
-        self.section_tabs = QTabWidget()
+        self.section_tabs = _SegmentedTabWidget()
         for section in CUSTOM_API_PARAM_SECTIONS:
             section_page = QWidget()
             section_page_layout = QVBoxLayout(section_page)
             section_page_layout.setContentsMargins(0, 0, 0, 0)
             section_page_layout.setSpacing(8)
 
-            scroll = QScrollArea()
+            scroll = ScrollArea()
             scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QFrame.Shape.NoFrame)
 
             content = QWidget()
-            content.setObjectName("section_content")
 
             layout = QVBoxLayout(content)
             layout.setContentsMargins(0, 0, 0, 0)
@@ -349,7 +342,7 @@ class CustomApiParamsEditorDialog(QDialog):
 
             add_row = QHBoxLayout()
             add_row.addStretch(1)
-            add_button = QPushButton("+ " + self._t("Add Row"))
+            add_button = PushButton("+ " + self._t("Add Row"))
             add_button.clicked.connect(lambda _=False, s=section: self._append_row(s))
             add_row.addWidget(add_button)
 
@@ -369,11 +362,10 @@ class CustomApiParamsEditorDialog(QDialog):
         page_layout.setContentsMargins(8, 8, 8, 8)
         page_layout.setSpacing(8)
 
-        hint = QLabel(self._t("Edit the raw file content directly"))
-        hint.setObjectName("hint_label")
+        hint = CaptionLabel(self._t("Edit the raw file content directly"))
         page_layout.addWidget(hint)
 
-        self.raw_editor = QPlainTextEdit()
+        self.raw_editor = PlainTextEdit()
         self.raw_editor.setFont(_monospace_font())
         self.raw_editor.setTabStopDistance(28)
         page_layout.addWidget(self.raw_editor, 1)
@@ -394,7 +386,6 @@ class CustomApiParamsEditorDialog(QDialog):
         return section
 
     def _insert_row_widget(self, section: str, row: CustomApiParamRow):
-        row.setProperty("section_name", section)
         row.remove_requested.connect(self._remove_row)
         layout = self.section_layouts[section]
         insert_index = max(layout.count() - 1, 0)
@@ -493,7 +484,7 @@ class CustomApiParamsEditorDialog(QDialog):
         return parsed
 
     def _set_status(self, message: str, kind: str = "default"):
-        self.status_label.setStyleSheet(_status_stylesheet(kind))
+        del kind
         self.status_label.setText(message)
 
     def _save(self):

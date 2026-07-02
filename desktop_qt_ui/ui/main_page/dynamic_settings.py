@@ -9,16 +9,27 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
+from qfluentwidgets import BodyLabel, CardWidget, LineEdit as FluentLineEdit, PushButton as QPushButton
 from utils.resource_helper import resource_path
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
+
+
+class QLineEdit(FluentLineEdit):
+    """Fluent LineEdit with the PyQt constructor forms used by existing settings code."""
+
+    def __init__(self, text: str | QWidget | None = "", parent: QWidget | None = None):
+        if isinstance(text, QWidget) and parent is None:
+            parent = text
+            text = ""
+        super().__init__(parent)
+        if text:
+            self.setText(str(text))
 
 
 API_GROUP_SPECS = {
@@ -85,9 +96,7 @@ def _selected_api_group_keys(config) -> dict[str, list[str]]:
 
 
 def _add_empty_api_hint(self, layout, row: int, translation_key: str) -> int:
-    notice = QFrame()
-    notice.setObjectName("api_empty_state")
-    notice.setFrameShape(QFrame.Shape.NoFrame)
+    notice = CardWidget()
     notice.setMinimumHeight(120)
     notice.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -96,8 +105,7 @@ def _add_empty_api_hint(self, layout, row: int, translation_key: str) -> int:
     notice_layout.setSpacing(0)
     notice_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-    text = QLabel(self._t(translation_key))
-    text.setObjectName("api_empty_state_text")
+    text = BodyLabel(self._t(translation_key))
     text.setAlignment(Qt.AlignmentFlag.AlignCenter)
     text.setWordWrap(True)
     text.setMinimumHeight(56)
@@ -360,7 +368,6 @@ def _create_fixed_prompt_editor_row(self, parent_layout, full_key: str):
 
     label_text = spec["label"]
     label = QLabel(f"{label_text}:")
-    label.setObjectName("settings_form_label")
     label.setMinimumWidth(120)
 
     container = QWidget()
@@ -439,7 +446,6 @@ def _resolve_config_value(config: dict, full_key: str):
 
 def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False):
     row = QWidget()
-    row.setObjectName("settings_divider_sub" if is_sub else "settings_divider_primary")
     row_layout = QHBoxLayout(row)
 
     if is_sub:
@@ -447,15 +453,12 @@ def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False)
         row_layout.setSpacing(8)
 
         dot_label = QLabel("◆")
-        dot_label.setObjectName("settings_divider_dot")
         dot_label.setFixedWidth(14)
 
         title_label = QLabel(title)
-        title_label.setObjectName("settings_divider_sub_title")
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setObjectName("settings_divider_sub_line")
 
         row_layout.addWidget(dot_label)
         row_layout.addWidget(title_label)
@@ -465,11 +468,9 @@ def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False)
         row_layout.setSpacing(10)
 
         title_label = QLabel(title.upper())
-        title_label.setObjectName("settings_divider_title")
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setObjectName("settings_divider_line")
 
         row_layout.addWidget(title_label)
         row_layout.addWidget(line, 1)
@@ -579,7 +580,6 @@ def _finalize_settings_ui(self):
         if cli_layout is not None and isinstance(cli_layout, QFormLayout):
             # 创建滑块开关
             unload_models_checkbox = ToggleSwitch()
-            unload_models_checkbox.setObjectName("app.unload_models_after_translation")
             
             # 从配置中读取初始状态
             config = self.config_service.get_config()
@@ -615,7 +615,6 @@ def _finalize_settings_ui(self):
                 
     # --- 全局 API Preset Toolbar ---
     preset_label = QLabel(self._t("Preset:"))
-    preset_label.setObjectName("row_label")
     self.preset_combo = QComboBox()
     self.preset_combo.setMinimumWidth(180)
     self.preset_combo.setEditable(False)
@@ -628,12 +627,9 @@ def _finalize_settings_ui(self):
 
     self.add_preset_button = QPushButton("+")
     self.add_preset_button.setFixedWidth(36)
-    self.add_preset_button.setProperty("chipButton", True)
     set_hover_hint(self.add_preset_button, self._t("Add new preset"))
 
     self.delete_preset_button = QPushButton(self._t("Delete"))
-    self.delete_preset_button.setProperty("chipButton", True)
-    self.delete_preset_button.setProperty("variant", "danger")
     set_hover_hint(self.delete_preset_button, self._t("Delete selected preset"))
 
     self.env_preset_layout.addWidget(preset_label)
@@ -850,7 +846,6 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         if self.controller.get_display_mapping('labels') and self.controller.get_display_mapping('labels').get(key):
             label_text = self.controller.get_display_mapping('labels').get(key)
         label = QLabel(f"{label_text}:")
-        label.setObjectName("settings_form_label")
         label.setMinimumWidth(120)
         widget = None
 

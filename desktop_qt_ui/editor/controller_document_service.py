@@ -4,18 +4,18 @@ import concurrent.futures
 import os
 from typing import TYPE_CHECKING, Optional
 
-from PyQt6.QtWidgets import QMessageBox
-from services import get_render_parameter_service
-from ui.secondary_pages.themed_message_box import apply_message_box_style
-
-from .document_load_worker import DocumentLoadWorker
-from .session import DocumentLoadFailure, DocumentSnapshot
-
 from manga_translator.utils.path_manager import (
     find_json_path,
     find_work_image_path,
     resolve_original_image_path,
 )
+from PyQt6.QtWidgets import QApplication
+from qfluentwidgets import Dialog, PushButton
+
+from services import get_render_parameter_service
+
+from .document_load_worker import DocumentLoadWorker
+from .session import DocumentLoadFailure, DocumentSnapshot
 
 if TYPE_CHECKING:
     from .editor_controller import EditorController
@@ -187,23 +187,25 @@ class EditorControllerDocumentService:
 
     def load_image_and_regions(self, image_path: str) -> None:
         if self.controller.export_service.has_changes_since_last_export():
-            msg_box = QMessageBox(None)
-            msg_box.setWindowTitle("未保存的编辑")
-            msg_box.setText("当前图片有未保存的编辑")
-            msg_box.setInformativeText("导出图片时会同时保存 JSON。")
+            dialog_parent = self.view if self.view is not None else QApplication.activeWindow()
+            dialog = Dialog(
+                "未保存的编辑",
+                "当前图片有未保存的编辑\n\n导出图片时会同时保存 JSON。",
+                dialog_parent,
+            )
+            dialog.setTitleBarVisible(True)
+            dialog.yesButton.setText("导出图片")
+            dialog.cancelButton.setText("取消")
+            discard_button = PushButton("不保存", dialog.buttonGroup)
+            dialog.buttonLayout.insertWidget(1, discard_button, 1)
+            selected_action = {"value": "export"}
+            discard_button.clicked.connect(lambda: selected_action.update(value="discard"))
+            discard_button.clicked.connect(dialog.accept)
+            dialog.setFixedSize(max(dialog.width(), 460), max(dialog.height(), 220))
 
-            export_btn = msg_box.addButton("导出图片", QMessageBox.ButtonRole.YesRole)
-            cancel_btn = msg_box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-            msg_box.addButton("不保存", QMessageBox.ButtonRole.NoRole)
-
-            msg_box.setDefaultButton(cancel_btn)
-            apply_message_box_style(msg_box)
-            msg_box.exec()
-
-            clicked_button = msg_box.clickedButton()
-            if clicked_button == cancel_btn:
+            if dialog.exec() != Dialog.DialogCode.Accepted:
                 return
-            if clicked_button == export_btn:
+            if selected_action["value"] == "export":
                 export_future = self.controller.export_image()
                 if export_future is None:
                     self.logger.warning("Export request was not scheduled; aborted deferred image load.")

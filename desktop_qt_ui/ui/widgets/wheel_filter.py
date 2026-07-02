@@ -1,14 +1,40 @@
 """
 滚轮事件过滤器
-解决Qt控件（如QComboBox、QSpinBox等）捕获滚轮事件导致页面无法滚动的问题
+解决下拉框、数字输入框等控件捕获滚轮事件导致页面无法滚动的问题
 """
 
 from PyQt6.QtCore import QEvent, QObject
-from PyQt6.QtWidgets import QComboBox, QDoubleSpinBox, QSpinBox
+from qfluentwidgets import ComboBox, DoubleSpinBox, SpinBox
 
 
-class NoWheelComboBox(QComboBox):
+class NoWheelComboBox(ComboBox):
     """禁用滚轮事件的下拉框"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._editable = False
+
+    def addItem(self, text: str, userData=None):
+        super().addItem(text, userData=userData)
+
+    def insertItem(self, index: int, text: str, userData=None):
+        super().insertItem(index, text, userData=userData)
+
+    def setEditable(self, editable: bool):
+        self._editable = bool(editable)
+
+    def isEditable(self) -> bool:
+        return self._editable
+
+    def mouseReleaseEvent(self, event):
+        super(ComboBox, self).mouseReleaseEvent(event)
+        self.showPopup()
+
+    def showPopup(self):
+        self._toggleComboMenu()
+
+    def hidePopup(self):
+        self._closeComboMenu()
     
     def wheelEvent(self, event):
         """完全忽略滚轮事件"""
@@ -28,7 +54,7 @@ class WheelEventFilter(QObject):
         """
         if event.type() == QEvent.Type.Wheel:
             # 检查是否是需要特殊处理的控件
-            if isinstance(obj, (QComboBox, QSpinBox, QDoubleSpinBox)):
+            if isinstance(obj, (ComboBox, SpinBox, DoubleSpinBox)):
                 # 完全忽略滚轮事件，无论是否有焦点
                 event.ignore()
                 return True
@@ -48,21 +74,21 @@ def install_wheel_filter(widget):
     
     # 递归为所有子控件安装过滤器
     def install_recursive(w):
-        if isinstance(w, (QComboBox, QSpinBox, QDoubleSpinBox)):
+        if isinstance(w, (ComboBox, SpinBox, DoubleSpinBox)):
             w.installEventFilter(wheel_filter)
             # 禁用控件的焦点策略为滚轮焦点
             w.setFocusPolicy(w.focusPolicy() & ~0x0008)  # 移除 WheelFocus
         
         # 递归处理子控件
-        for child in w.findChildren(QComboBox):
+        for child in w.findChildren(ComboBox):
             child.installEventFilter(wheel_filter)
             child.setFocusPolicy(child.focusPolicy() & ~0x0008)
         
-        for child in w.findChildren(QSpinBox):
+        for child in w.findChildren(SpinBox):
             child.installEventFilter(wheel_filter)
             child.setFocusPolicy(child.focusPolicy() & ~0x0008)
         
-        for child in w.findChildren(QDoubleSpinBox):
+        for child in w.findChildren(DoubleSpinBox):
             child.installEventFilter(wheel_filter)
             child.setFocusPolicy(child.focusPolicy() & ~0x0008)
     

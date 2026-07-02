@@ -1,23 +1,18 @@
 import json
 from typing import Any, Callable
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
-    QFrame,
     QHBoxLayout,
-    QLabel,
-    QPlainTextEdit,
-    QPushButton,
-    QTabWidget,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
-from ui.styles import (
+from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PrimaryPushButton, PushButton, SegmentedWidget, TitleLabel
+from ui.theme import (
     monospace_font as _monospace_font,
-    secondary_editor_dialog_stylesheet as _dialog_stylesheet,
-    status_stylesheet as _status_stylesheet,
 )
-from ui.theme import apply_widget_stylesheet
 
 from manga_translator.utils.text_filter import (
     ensure_filter_list_exists,
@@ -45,6 +40,41 @@ def _sanitize_rule_values(values: Any) -> list[str]:
     return rules
 
 
+class _SegmentedTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._keys: list[str] = []
+        self._segmented = SegmentedWidget(self)
+        self._stack = QStackedWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._segmented)
+        layout.addWidget(self._stack, 1)
+
+    def addTab(self, widget: QWidget, text: str):
+        index = len(self._keys)
+        key = f"tab_{index}"
+        self._keys.append(key)
+        self._stack.addWidget(widget)
+        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
+        if index == 0:
+            self.setCurrentIndex(0)
+
+    def currentIndex(self) -> int:
+        return self._stack.currentIndex()
+
+    def setCurrentIndex(self, index: int):
+        if index < 0 or index >= len(self._keys):
+            return
+        self._stack.setCurrentIndex(index)
+        self._segmented.setCurrentItem(self._keys[index])
+        self.currentChanged.emit(index)
+
+
 class FilterListEditorDialog(QDialog):
     def __init__(self, file_path: str | None = None, t_func: Callable[[str], str] | None = None, parent=None):
         super().__init__(parent)
@@ -59,46 +89,36 @@ class FilterListEditorDialog(QDialog):
         self.setWindowTitle(self._t("Edit Filter List"))
         self.setMinimumSize(880, 620)
         self.resize(980, 720)
-        apply_widget_stylesheet(self, _dialog_stylesheet())
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
-        title = QLabel(self._t("Edit Filter List"))
-        title.setObjectName("dialog_title")
-        subtitle = QLabel(self._t("Edit OCR text filter rules skipped during translation."))
-        subtitle.setObjectName("dialog_subtitle")
+        title = TitleLabel(self._t("Edit Filter List"))
+        subtitle = BodyLabel(self._t("Edit OCR text filter rules skipped during translation."))
         subtitle.setWordWrap(True)
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        divider = QFrame()
-        divider.setObjectName("divider")
-        divider.setFrameShape(QFrame.Shape.HLine)
-        root.addWidget(divider)
-
-        self.tabs = QTabWidget()
+        self.tabs = _SegmentedTabWidget()
         root.addWidget(self.tabs, 1)
 
         self._build_rules_tab()
         self._build_raw_tab()
 
-        self.status_label = QLabel("")
-        self.status_label.setObjectName("hint_label")
+        self.status_label = CaptionLabel("")
         root.addWidget(self.status_label)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
 
-        self.refresh_button = QPushButton(self._t("Refresh"))
+        self.refresh_button = PushButton(self._t("Refresh"))
         self.refresh_button.clicked.connect(self._load_from_disk)
 
-        self.cancel_button = QPushButton(self._t("Cancel"))
+        self.cancel_button = PushButton(self._t("Cancel"))
         self.cancel_button.clicked.connect(self.reject)
 
-        self.save_button = QPushButton(self._t("Save"))
-        self.save_button.setProperty("variant", "accent")
+        self.save_button = PrimaryPushButton(self._t("Save"))
         self.save_button.clicked.connect(self._save)
 
         button_row.addWidget(self.refresh_button)
@@ -127,19 +147,16 @@ class FilterListEditorDialog(QDialog):
         self.tabs.addTab(page, self._t("Filter Rules"))
 
     def _build_rules_card(self, title_text: str, hint_text: str, mode: str) -> QWidget:
-        card = QWidget()
-        card.setObjectName("section_card")
+        card = CardWidget()
         layout = QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(6)
 
-        title = QLabel(title_text)
-        title.setObjectName("section_label")
-        hint = QLabel(hint_text)
-        hint.setObjectName("hint_label")
+        title = BodyLabel(title_text)
+        hint = CaptionLabel(hint_text)
         hint.setWordWrap(True)
 
-        editor = QPlainTextEdit()
+        editor = PlainTextEdit()
         editor.setFont(_monospace_font())
         editor.setTabStopDistance(28)
         editor.setPlaceholderText(self._t("One rule per line"))
@@ -160,11 +177,10 @@ class FilterListEditorDialog(QDialog):
         page_layout.setContentsMargins(8, 8, 8, 8)
         page_layout.setSpacing(8)
 
-        hint = QLabel(self._t("Edit the raw file content directly"))
-        hint.setObjectName("hint_label")
+        hint = CaptionLabel(self._t("Edit the raw file content directly"))
         page_layout.addWidget(hint)
 
-        self.raw_editor = QPlainTextEdit()
+        self.raw_editor = PlainTextEdit()
         self.raw_editor.setFont(_monospace_font())
         self.raw_editor.setTabStopDistance(28)
         page_layout.addWidget(self.raw_editor, 1)
@@ -172,7 +188,7 @@ class FilterListEditorDialog(QDialog):
         self.tabs.addTab(page, self._t("Raw Edit"))
 
     def _set_status(self, message: str, kind: str = "default"):
-        self.status_label.setStyleSheet(_status_stylesheet(kind))
+        del kind
         self.status_label.setText(message)
 
     def _load_from_disk(self):

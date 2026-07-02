@@ -1,22 +1,14 @@
 
-import logging
-import os
-
-from PyQt6.QtCore import QByteArray, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QCursor, QIcon, QPainter, QPalette, QPixmap
-from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QSlider,
-    QToolButton,
+    QSizePolicy,
     QWidget,
 )
+from qfluentwidgets import ComboBox, FluentIcon as FIF, PushButton, ScrollArea, Slider, ToolButton
 from services import get_i18n_manager
-from utils.resource_helper import resource_path
 from ui.widgets.hover_hint import set_hover_hint
 
 
@@ -50,46 +42,55 @@ class EditorToolbar(QWidget):
         return key
 
     def _init_ui(self):
-        layout = QHBoxLayout(self)
+        outer_layout = QHBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        self.scroll_area = ScrollArea(self)
+        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area.setFrameShape(ScrollArea.Shape.NoFrame)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        outer_layout.addWidget(self.scroll_area)
+
+        self.content_widget = QWidget()
+        layout = QHBoxLayout(self.content_widget)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
         # --- File Actions ---
-        self.back_button = QToolButton()
-        self.back_button.setText(self._t("Back"))
+        self.back_button = ToolButton()
+        self.back_button.setIcon(FIF.RETURN)
         set_hover_hint(self.back_button, self._t("Back to Main"))
-        self.back_button.setObjectName("editor_back_button")
         layout.addWidget(self.back_button)
 
-        self.export_button = QToolButton()
+        self.export_button = PushButton()
+        self.export_button.setIcon(FIF.IMAGE_EXPORT)
         self.export_button.setText(self._t("Export Image"))
         set_hover_hint(self.export_button, self._t("Export current rendered image") + " (Ctrl+Q)")
-        self.export_button.setObjectName("editor_export_button")
         layout.addWidget(self.export_button)
 
         layout.addWidget(self._create_separator())
 
         # --- Edit Actions ---
-        self.undo_button = QToolButton()
-        self.undo_button.setText(self._t("Undo"))
+        self.undo_button = ToolButton()
+        self.undo_button.setIcon(FIF.LEFT_ARROW)
         self.undo_button.setEnabled(False)
         set_hover_hint(self.undo_button, self._t("Undo last operation") + " (Ctrl+Z)")
-        self.undo_button.setObjectName("editor_undo_button")
         layout.addWidget(self.undo_button)
 
-        self.redo_button = QToolButton()
-        self.redo_button.setText(self._t("Redo"))
+        self.redo_button = ToolButton()
+        self.redo_button.setIcon(FIF.RIGHT_ARROW)
         self.redo_button.setEnabled(False)
         set_hover_hint(self.redo_button, self._t("Redo last undone operation") + " (Ctrl+Y)")
-        self.redo_button.setObjectName("editor_redo_button")
         layout.addWidget(self.redo_button)
 
         layout.addWidget(self._create_separator())
 
         # --- View Actions ---
-        self.zoom_out_button = QToolButton()
-        self.zoom_out_button.setText(self._t("Zoom Out (-)"))
-        self.zoom_out_button.setObjectName("editor_zoom_out_button")
+        self.zoom_out_button = ToolButton()
+        self.zoom_out_button.setIcon(FIF.ZOOM_OUT)
+        set_hover_hint(self.zoom_out_button, self._t("Zoom Out (-)"))
         layout.addWidget(self.zoom_out_button)
 
         self.zoom_label = QLabel("100%")
@@ -97,14 +98,14 @@ class EditorToolbar(QWidget):
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.zoom_label)
 
-        self.zoom_in_button = QToolButton()
-        self.zoom_in_button.setText(self._t("Zoom In (+)"))
-        self.zoom_in_button.setObjectName("editor_zoom_in_button")
+        self.zoom_in_button = ToolButton()
+        self.zoom_in_button.setIcon(FIF.ZOOM_IN)
+        set_hover_hint(self.zoom_in_button, self._t("Zoom In (+)"))
         layout.addWidget(self.zoom_in_button)
 
-        self.fit_window_button = QToolButton()
-        self.fit_window_button.setText(self._t("Fit to Window"))
-        self.fit_window_button.setObjectName("editor_fit_window_button")
+        self.fit_window_button = ToolButton()
+        self.fit_window_button.setIcon(FIF.FIT_PAGE)
+        set_hover_hint(self.fit_window_button, self._t("Fit to Window"))
         layout.addWidget(self.fit_window_button)
 
         layout.addWidget(self._create_separator())
@@ -112,7 +113,6 @@ class EditorToolbar(QWidget):
         # --- Display Mode ---
         # 创建一个容器来包装显示模式控件，确保它们作为一个整体
         display_mode_container = QWidget()
-        display_mode_container.setObjectName("editor_display_mode_container")
         display_mode_layout = QHBoxLayout(display_mode_container)
         display_mode_layout.setContentsMargins(0, 0, 0, 0)
         display_mode_layout.setSpacing(5)
@@ -120,8 +120,7 @@ class EditorToolbar(QWidget):
         self.display_mode_label = QLabel(self._t("Display Mode:"))
         display_mode_layout.addWidget(self.display_mode_label)
         
-        self.display_mode_combo = QComboBox()
-        self.display_mode_combo.setObjectName("editor_display_mode_combo")
+        self.display_mode_combo = ComboBox()
         self._populate_display_mode_items()
         # 需要容纳新增的“原图对比”模式
         self.display_mode_combo.setFixedWidth(180)
@@ -131,7 +130,6 @@ class EditorToolbar(QWidget):
         display_mode_layout.addWidget(self._create_separator())
         
         # 设置容器的尺寸策略，防止被压缩
-        from PyQt6.QtWidgets import QSizePolicy
         display_mode_container.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         
         # 将整个容器添加到主布局
@@ -139,8 +137,7 @@ class EditorToolbar(QWidget):
 
         self.opacity_label = QLabel(self._t("Original Image Opacity:"))
         layout.addWidget(self.opacity_label)
-        self.original_image_alpha_slider = QSlider(Qt.Orientation.Horizontal)
-        self.original_image_alpha_slider.setObjectName("editor_opacity_slider")
+        self.original_image_alpha_slider = Slider(Qt.Orientation.Horizontal)
         self.original_image_alpha_slider.setRange(0, 100)
         self.original_image_alpha_slider.setValue(0) # Default to 0 (fully transparent, show inpainted)
         # 设置滑块自适应，较小的最小宽度
@@ -153,67 +150,30 @@ class EditorToolbar(QWidget):
         self._build_align_distribute_ui(layout)
 
         layout.addStretch() # Pushes everything to the left
+        self.content_widget.setMinimumWidth(self.content_widget.sizeHint().width())
+        self.scroll_area.setWidget(self.content_widget)
 
     # ------------------------------------------------------------------
     # 对齐/分布 UI — 单行 PS 风格布局
     # ------------------------------------------------------------------
 
-    _ICONS_DIR = resource_path(os.path.join("desktop_qt_ui", "ui", "icons"))
-
-    def _themed_icon(self, svg_name: str) -> QIcon:
-        """读 SVG 模板,把占位符颜色替换为主题色后渲染为 QIcon。
-
-        SVG 用 `#5599ff` 作参考线占位符,`#888888` 作矩形占位符。
-        线色取主题强调色,矩形色取主题文字色,跟主题切换。
-        """
-        pal = self.palette()
-        rect_color = pal.color(QPalette.ColorRole.Text).name()
-        accent = pal.color(QPalette.ColorRole.Highlight)
-        # accent 太暗/太亮时退回固定蓝
-        if accent.lightness() < 60 or accent.lightness() > 230:
-            line_color = "#5599ff"
-        else:
-            line_color = accent.name()
-        path = os.path.join(self._ICONS_DIR, svg_name)
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                svg_text = f.read()
-        except OSError as exc:
-            logging.getLogger(__name__).warning("加载工具栏图标失败 (%s): %s", path, exc)
-            return QIcon()
-        svg_text = svg_text.replace("#5599ff", line_color).replace("#888888", rect_color)
-        renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
-        pixmap = QPixmap(28, 28)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        renderer.render(painter)
-        painter.end()
-        return QIcon(pixmap)
-
     def _build_align_distribute_ui(self, layout: QHBoxLayout):
         """构建对齐/分布按钮组：单行 PS 风格。"""
         BTN_W = 28
 
-        def _make_icon_btn(icon, obj_name, tip):
-            btn = QPushButton()
+        def _make_icon_btn(icon, tip):
+            btn = ToolButton()
             btn.setIcon(icon)
-            btn.setObjectName(obj_name)
             btn.setToolTip(tip)
             btn.setFixedSize(QSize(BTN_W + 2, BTN_W + 2))
             btn.setIconSize(QSize(BTN_W, BTN_W))
-            btn.setFlat(True)
-            btn.setStyleSheet("QPushButton { padding: 0px; border: none; background: transparent; }"
-                             "QPushButton:hover { background: rgba(128,128,128,0.2); }"
-                             "QPushButton:disabled { background: transparent; }")
-            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             btn.setEnabled(False)
             return btn
 
         # 参照模式切换（独立放在外面）
-        self.align_ref_button = QToolButton()
+        self.align_ref_button = PushButton()
         self.align_ref_button.setText(self._t("Selection"))
-        self.align_ref_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.align_ref_button.setObjectName("editor_align_ref_button")
+        self.align_ref_button.setIcon(FIF.LAYOUT)
         self.align_ref_button.setToolTip(self._t("Align reference: selection (bounding box) / canvas (whole image)"))
         self._align_ref = "selection"
         self._last_selection_count = 0
@@ -223,46 +183,41 @@ class EditorToolbar(QWidget):
 
         # 图标按钮用一个独立容器，内部间距统一为 2px，竖线分隔符嵌在其中
         icon_container = QWidget()
-        icon_container.setObjectName("editor_align_icon_container")
         icon_layout = QHBoxLayout(icon_container)
         icon_layout.setContentsMargins(0, 0, 0, 0)
         icon_layout.setSpacing(10)
 
         # ── 第 1 组: 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
-        self.align_buttons: dict[str, QToolButton] = {}
+        self.align_buttons: dict[str, ToolButton] = {}
         group1 = [
-            ("left", self._t("Align Left")),
-            ("horizontal_center", self._t("Align Horizontal Center")),
-            ("right", self._t("Align Right")),
+            ("left", FIF.LEFT_ARROW, self._t("Align Left")),
+            ("horizontal_center", FIF.ALIGNMENT, self._t("Align Horizontal Center")),
+            ("right", FIF.RIGHT_ARROW, self._t("Align Right")),
         ]
-        for mode, tip in group1:
-            icon = self._themed_icon(f"align_{mode}.svg")
-            btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
+        for mode, icon, tip in group1:
+            btn = _make_icon_btn(icon, tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
             icon_layout.addWidget(btn)
 
-        icon = self._themed_icon("distribute_spacing_v.svg")
-        btn = _make_icon_btn(icon, "editor_dist_vertical_spacing", self._t("Distribute Vertical Spacing"))
+        btn = _make_icon_btn(FIF.MOVE, self._t("Distribute Vertical Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
         self._dist_v_btn = btn
         icon_layout.addWidget(btn)
 
         # ── 第 2 组: 顶对齐 / 垂直居中 / 底对齐 / 水平间距分布 ──
         group2 = [
-            ("top", self._t("Align Top")),
-            ("vertical_center", self._t("Align Vertical Center")),
-            ("bottom", self._t("Align Bottom")),
+            ("top", FIF.UP, self._t("Align Top")),
+            ("vertical_center", FIF.LAYOUT, self._t("Align Vertical Center")),
+            ("bottom", FIF.DOWN, self._t("Align Bottom")),
         ]
-        for mode, tip in group2:
-            icon = self._themed_icon(f"align_{mode}.svg")
-            btn = _make_icon_btn(icon, f"editor_align_{mode}", tip)
+        for mode, icon, tip in group2:
+            btn = _make_icon_btn(icon, tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
             icon_layout.addWidget(btn)
 
-        icon = self._themed_icon("distribute_spacing_h.svg")
-        btn = _make_icon_btn(icon, "editor_dist_horizontal_spacing", self._t("Distribute Horizontal Spacing"))
+        btn = _make_icon_btn(FIF.MORE, self._t("Distribute Horizontal Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
         self._dist_h_btn = btn
         icon_layout.addWidget(btn)
@@ -302,7 +257,6 @@ class EditorToolbar(QWidget):
 
     def _create_separator(self):
         separator = QFrame()
-        separator.setObjectName("editor_toolbar_separator")
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setLineWidth(1)
@@ -334,7 +288,7 @@ class EditorToolbar(QWidget):
     def _populate_display_mode_items(self, selected_mode: str | None = None):
         self.display_mode_combo.clear()
         for mode, text_key in self._display_mode_definitions():
-            self.display_mode_combo.addItem(self._t(text_key), mode)
+            self.display_mode_combo.addItem(self._t(text_key), userData=mode)
 
         target_mode = selected_mode or "full"
         mode_index = self.display_mode_combo.findData(target_mode)
@@ -370,17 +324,14 @@ class EditorToolbar(QWidget):
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）"""
         # 刷新按钮文本
-        self.back_button.setText(self._t("Back"))
         set_hover_hint(self.back_button, self._t("Back to Main"))
         self.export_button.setText(self._t("Export Image"))
         set_hover_hint(self.export_button, self._t("Export current rendered image") + " (Ctrl+Q)")
-        self.undo_button.setText(self._t("Undo"))
         set_hover_hint(self.undo_button, self._t("Undo last operation") + " (Ctrl+Z)")
-        self.redo_button.setText(self._t("Redo"))
         set_hover_hint(self.redo_button, self._t("Redo last undone operation") + " (Ctrl+Y)")
-        self.zoom_out_button.setText(self._t("Zoom Out (-)"))
-        self.zoom_in_button.setText(self._t("Zoom In (+)"))
-        self.fit_window_button.setText(self._t("Fit to Window"))
+        set_hover_hint(self.zoom_out_button, self._t("Zoom Out (-)"))
+        set_hover_hint(self.zoom_in_button, self._t("Zoom In (+)"))
+        set_hover_hint(self.fit_window_button, self._t("Fit to Window"))
         
         # 刷新下拉菜单
         current_mode = self.display_mode_combo.currentData()

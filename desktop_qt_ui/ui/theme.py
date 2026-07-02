@@ -11,7 +11,7 @@ This module owns:
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtWidgets import QApplication, QToolTip, QWidget
 from theme_registry import AVAILABLE_THEMES, DEFAULT_THEME, THEME_OPTIONS
 
@@ -27,6 +27,12 @@ from ui.theme_tokens import (
 
 def normalize_theme(theme: str) -> str:
     return theme if theme in _THEME_PROFILES else DEFAULT_THEME
+
+
+def monospace_font(size: int = 11) -> QFont:
+    font = QFont("Consolas", size)
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    return font
 
 
 def resolve_theme_variant(theme: str) -> tuple[str, str]:
@@ -344,10 +350,13 @@ def apply_application_theme(theme: str, app: QApplication | None = None) -> None
     resolved_theme = normalize_theme(theme)
 
     set_current_theme(resolved_theme)
+    from qfluentwidgets import Theme, setTheme, setThemeColor
+
+    setTheme(Theme.DARK if is_dark_theme(resolved_theme) else Theme.LIGHT)
+    theme_colors = get_theme_colors(resolved_theme)
+    setThemeColor(theme_colors.get("btn_primary_bg") or theme_colors.get("cta_gradient_start"))
     palette = build_theme_palette(resolved_theme)
     app.setPalette(palette)
-    from ui.styles import generate_application_stylesheet
-
-    app.setStyleSheet(generate_application_stylesheet(resolved_theme))
+    app.setStyleSheet("")
     QToolTip.setPalette(palette)
     QToolTip.setFont(app.font())

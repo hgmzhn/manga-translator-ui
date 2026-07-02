@@ -13,21 +13,23 @@ from PyQt6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
-    QLabel,
-    QLineEdit,
     QMessageBox,
-    QPlainTextEdit,
-    QPushButton,
     QStackedWidget,
-    QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-from ui.styles import monospace_font, table_stylesheet
+from qfluentwidgets import (
+    CaptionLabel,
+    LineEdit as QLineEdit,
+    PlainTextEdit as QPlainTextEdit,
+    PushButton as QPushButton,
+    SegmentedWidget,
+    TableWidget as QTableWidget,
+)
+from ui.secondary_pages.themed_message_box import themed_question, themed_warning
 
-from ui.theme import get_current_theme_colors
+from ui.theme import get_current_theme_colors, monospace_font
 
 
 def _get_replacements_path() -> str:
@@ -58,6 +60,45 @@ class YamlHighlighter(QSyntaxHighlighter):
             fmt.setForeground(QColor(colors.get("cta_gradient_start", "#4a90d9")))
             fmt.setFontWeight(QFont.Weight.Bold)
             self.setFormat(0, colon_idx, fmt)
+
+
+class _SegmentedTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._keys: list[str] = []
+        self._segmented = SegmentedWidget(self)
+        self._stack = QStackedWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._segmented)
+        layout.addWidget(self._stack, 1)
+
+    def addTab(self, widget: QWidget, text: str):
+        index = len(self._keys)
+        key = f"tab_{index}"
+        self._keys.append(key)
+        self._stack.addWidget(widget)
+        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
+        if index == 0:
+            self.setCurrentIndex(0)
+
+    def currentIndex(self) -> int:
+        return self._stack.currentIndex()
+
+    def setCurrentIndex(self, index: int):
+        if index < 0 or index >= len(self._keys):
+            return
+        self._stack.setCurrentIndex(index)
+        self._segmented.setCurrentItem(self._keys[index])
+        self.currentChanged.emit(index)
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._keys):
+            self._segmented.setItemText(self._keys[index], text)
 
 
 class ReplacementsEditorPanel(QWidget):
@@ -95,39 +136,28 @@ class ReplacementsEditorPanel(QWidget):
 
         # --- 顶部工具栏 ---
         toolbar = QWidget()
-        toolbar.setObjectName("replacements_toolbar")
         toolbar_layout = QHBoxLayout(toolbar)
         toolbar_layout.setContentsMargins(0, 0, 0, 0)
         toolbar_layout.setSpacing(8)
 
         self._add_button = QPushButton(self._t("Add Rule"))
-        self._add_button.setProperty("chipButton", True)
         self._delete_button = QPushButton(self._t("Delete"))
-        self._delete_button.setProperty("chipButton", True)
-        self._delete_button.setProperty("variant", "danger")
         self._move_up_button = QPushButton("↑")
-        self._move_up_button.setProperty("chipButton", True)
         self._move_up_button.setFixedWidth(32)
         self._move_down_button = QPushButton("↓")
-        self._move_down_button.setProperty("chipButton", True)
         self._move_down_button.setFixedWidth(32)
 
         self._select_all_button = QPushButton(self._t("Select All"))
-        self._select_all_button.setProperty("chipButton", True)
 
         # 启用/禁用 + 正则切换按钮（根据选中行状态动态变化）
         self._toggle_enabled_button = QPushButton(self._t("Enable"))
-        self._toggle_enabled_button.setProperty("chipButton", True)
         self._toggle_regex_button = QPushButton(self._t("Regex"))
-        self._toggle_regex_button.setProperty("chipButton", True)
 
         # 模式切换按钮
         self._mode_button = QPushButton(self._t("Raw Edit"))
-        self._mode_button.setProperty("chipButton", True)
         self._mode_button.setCheckable(True)
 
         self._restore_default_button = QPushButton(self._t("Restore Default"))
-        self._restore_default_button.setProperty("chipButton", True)
 
         toolbar_layout.addWidget(self._add_button)
         toolbar_layout.addWidget(self._delete_button)
@@ -143,20 +173,17 @@ class ReplacementsEditorPanel(QWidget):
 
         # --- 搜索 / 预设栏 ---
         filter_row = QWidget()
-        filter_row.setObjectName("replacements_filter_row")
         filter_row_layout = QHBoxLayout(filter_row)
         filter_row_layout.setContentsMargins(0, 0, 0, 0)
         filter_row_layout.setSpacing(8)
 
-        self._search_label = QLabel(self._t("Filter:"))
+        self._search_label = CaptionLabel(self._t("Filter:"))
         self._search_input = QLineEdit()
-        self._search_input.setObjectName("replacements_search")
         self._search_input.setPlaceholderText(self._t("Type to filter by pattern / replace / comment..."))
         self._search_input.setClearButtonEnabled(True)
 
         # 预设按钮位（接口预留：将来通过 register_preset_button 加按钮，目前为空隐藏）
         self._preset_slot = QWidget()
-        self._preset_slot.setObjectName("replacements_preset_slot")
         self._preset_slot_layout = QHBoxLayout(self._preset_slot)
         self._preset_slot_layout.setContentsMargins(0, 0, 0, 0)
         self._preset_slot_layout.setSpacing(6)
@@ -176,8 +203,7 @@ class ReplacementsEditorPanel(QWidget):
         table_layout.setContentsMargins(0, 0, 0, 0)
         table_layout.setSpacing(0)
 
-        self._tab_widget = QTabWidget()
-        self._tab_widget.setObjectName("replacements_tabs")
+        self._tab_widget = _SegmentedTabWidget()
 
         self._tables: Dict[str, QTableWidget] = {}
         for group_key, group_label in [
@@ -198,14 +224,12 @@ class ReplacementsEditorPanel(QWidget):
         raw_layout.setContentsMargins(0, 0, 0, 0)
         raw_layout.setSpacing(4)
 
-        raw_hint = QLabel(self._t("Edit raw YAML content directly. Changes are saved automatically."))
-        raw_hint.setObjectName("page_subtitle")
+        raw_hint = CaptionLabel(self._t("Edit raw YAML content directly. Changes are saved automatically."))
         raw_hint.setWordWrap(True)
         raw_layout.addWidget(raw_hint)
         self._raw_hint_label = raw_hint
 
         self._raw_editor = QPlainTextEdit()
-        self._raw_editor.setObjectName("replacements_raw_editor")
         self._raw_editor.setFont(monospace_font(10))
         self._raw_editor.setTabStopDistance(20)
         self._raw_editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -220,8 +244,7 @@ class ReplacementsEditorPanel(QWidget):
         status_layout = QHBoxLayout(status_row)
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(12)
-        self._status_label = QLabel("")
-        self._status_label.setObjectName("page_subtitle")
+        self._status_label = CaptionLabel("")
         status_layout.addWidget(self._status_label)
         status_layout.addStretch()
         layout.addWidget(status_row)
@@ -254,9 +277,6 @@ class ReplacementsEditorPanel(QWidget):
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-
-        table.setStyleSheet(table_stylesheet(editable=True))
-        table.setObjectName("replacements_table")
 
         header = table.horizontalHeader()
         header.setSectionResizeMode(self.COL_ENABLED, QHeaderView.ResizeMode.Fixed)
@@ -569,7 +589,7 @@ class ReplacementsEditorPanel(QWidget):
                 if not isinstance(data, dict):
                     raise ValueError("YAML root must be a dict")
             except Exception as e:
-                QMessageBox.warning(
+                themed_warning(
                     self, self._t("Parse Error"),
                     self._t("YAML syntax error, cannot switch to table view.") + f"\n\n{e}"
                 )
@@ -663,7 +683,7 @@ class ReplacementsEditorPanel(QWidget):
         except Exception as e:
             message = self._t("YAML syntax error, changes not saved.")
             if show_errors:
-                QMessageBox.warning(
+                themed_warning(
                     self, self._t("Save Error"),
                     message + f"\n\n{e}"
                 )
@@ -687,7 +707,7 @@ class ReplacementsEditorPanel(QWidget):
         except Exception as e:
             message = f"{self._t('Save error')}: {e}"
             if show_errors:
-                QMessageBox.warning(self, self._t("Save Error"), message)
+                themed_warning(self, self._t("Save Error"), message)
             else:
                 self._set_status(message, "error")
             return False
@@ -704,7 +724,7 @@ class ReplacementsEditorPanel(QWidget):
 
     def _on_restore_default(self):
         """恢复到内置默认替换规则模板。"""
-        reply = QMessageBox.question(
+        reply = themed_question(
             self,
             self._t("Restore Default"),
             self._t("Restore replacement rules to the built-in defaults? Current custom rules will be overwritten."),
@@ -793,7 +813,6 @@ class ReplacementsEditorPanel(QWidget):
         callback 签名应为 () -> None。返回创建的 QPushButton 以便外部进一步定制。
         """
         btn = QPushButton(label)
-        btn.setProperty("chipButton", True)
         btn.clicked.connect(callback)
         self._preset_slot_layout.addWidget(btn)
         return btn

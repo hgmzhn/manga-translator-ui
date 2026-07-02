@@ -5,25 +5,69 @@ from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
 from ui.theme import get_current_theme
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QSize, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QLineEdit,
-    QPushButton,
+    QSizePolicy,
+    QStackedWidget,
     QSplitter,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+from qfluentwidgets import CardWidget, FluentIcon as FIF, LineEdit, Pivot, PrimaryPushButton, PushButton, ToolButton
 from services import get_i18n_manager
 from ui.widgets.editor_toolbar import EditorToolbar
 from ui.widgets.file_list_view import FileListView
+from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.property_panel import PropertyPanel
 from ui.widgets.region_list_view import RegionListView
 
 from .graphics_view import GraphicsView
 from .original_compare_view import OriginalCompareView
 from .shortcut_manager import EditorShortcutManager
+
+
+class FluentTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._routes: list[str] = []
+        self._tabs: list[QWidget] = []
+        self.pivot = Pivot(self)
+        self.stack = QStackedWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self.pivot)
+        layout.addWidget(self.stack, 1)
+
+    def addTab(self, widget: QWidget, text: str):
+        index = len(self._tabs)
+        route = f"tab_{index}"
+        self._routes.append(route)
+        self._tabs.append(widget)
+        self.stack.addWidget(widget)
+        self.pivot.addItem(route, text, lambda checked=False, i=index: self.setCurrentIndex(i))
+        if index == 0:
+            self.setCurrentIndex(0)
+
+    def setCurrentIndex(self, index: int):
+        if not 0 <= index < len(self._tabs):
+            return
+        previous = self.stack.currentIndex()
+        self.stack.setCurrentIndex(index)
+        self.pivot.setCurrentItem(self._routes[index])
+        if previous != index:
+            self.currentChanged.emit(index)
+
+    def currentIndex(self) -> int:
+        return self.stack.currentIndex()
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._routes):
+            self.pivot.setItemText(self._routes[index], text)
 
 
 class EditorView(QWidget):
@@ -43,26 +87,24 @@ class EditorView(QWidget):
         self._compare_mode_enabled = False
         self.toolbar: EditorToolbar | None = None
         self.main_splitter: QSplitter | None = None
-        self.left_tab_widget: QTabWidget | None = None
-        self.find_input: QLineEdit | None = None
-        self.replace_input: QLineEdit | None = None
-        self.replace_all_button: QPushButton | None = None
-        self.apply_translations_button: QPushButton | None = None
+        self.left_tab_widget: FluentTabWidget | None = None
+        self.find_input: LineEdit | None = None
+        self.replace_input: LineEdit | None = None
+        self.replace_all_button: PushButton | None = None
+        self.apply_translations_button: PrimaryPushButton | None = None
         self.region_list_view: RegionListView | None = None
         self.property_panel: PropertyPanel | None = None
         self.compare_preview_container: QWidget | None = None
         self.original_compare_view: OriginalCompareView | None = None
         self.edit_canvas_container: QWidget | None = None
         self.graphics_view: GraphicsView | None = None
-        self.add_files_button: QPushButton | None = None
-        self.add_folder_button: QPushButton | None = None
-        self.clear_list_button: QPushButton | None = None
+        self.add_files_button: PushButton | None = None
+        self.add_folder_button: PushButton | None = None
+        self.clear_list_button: PushButton | None = None
         self.file_list: FileListView | None = None
 
         # 设置controller的view引用，用于更新UI状态
         self.controller.set_view(self)
-
-        self.setObjectName("editor_view_root")
 
         # 主布局变为垂直，以容纳顶栏
         self.layout = QVBoxLayout(self)
@@ -71,13 +113,11 @@ class EditorView(QWidget):
 
         # 1. 顶部工具栏
         self.toolbar = EditorToolbar(self)
-        self.toolbar.setObjectName("editor_toolbar")
-        self.toolbar.setFixedHeight(40)
+        self.toolbar.setFixedHeight(48)
         self.layout.addWidget(self.toolbar)
 
         # 2. 主内容分割器
         main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        main_splitter.setObjectName("editor_main_splitter")
         main_splitter.setHandleWidth(6)
         self.main_splitter = main_splitter
         self.layout.addWidget(main_splitter)
@@ -143,43 +183,42 @@ class EditorView(QWidget):
 
     def _create_left_panel(self) -> QWidget:
         """创建左侧的标签页，包含区域列表和属性面板"""
-        self.left_tab_widget = QTabWidget()
-        self.left_tab_widget.setObjectName("editor_left_tabs")
-        self.left_tab_widget.setMinimumWidth(292)
-        self.left_tab_widget.setMaximumWidth(340)
+        self.left_tab_widget = FluentTabWidget()
+        self.left_tab_widget.setFixedWidth(360)
+        self.left_tab_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         
         # 创建“可编辑译文”标签页
-        translation_widget = QWidget()
-        translation_widget.setObjectName("editor_translation_page")
+        translation_widget = CardWidget()
         translation_layout = QVBoxLayout(translation_widget)
-        translation_layout.setContentsMargins(0, 0, 0, 0)
+        translation_layout.setContentsMargins(10, 10, 10, 10)
+        translation_layout.setSpacing(8)
 
         # --- 查找和替换 ---
         replace_widget = QWidget()
-        replace_widget.setObjectName("editor_search_bar")
         replace_layout = QHBoxLayout(replace_widget)
-        replace_layout.setContentsMargins(5, 5, 5, 5)
-        self.find_input = QLineEdit()
+        replace_layout.setContentsMargins(0, 0, 0, 0)
+        replace_layout.setSpacing(6)
+        self.find_input = LineEdit()
         self.find_input.setPlaceholderText(self._t("Find"))
-        self.replace_input = QLineEdit()
+        self.replace_input = LineEdit()
         self.replace_input.setPlaceholderText(self._t("Replace with"))
-        self.replace_all_button = QPushButton(self._t("Replace All"))
-        self.replace_all_button.setProperty("chipButton", True)
+        self.replace_all_button = PushButton()
+        self.replace_all_button.setText(self._t("Replace All"))
+        self.replace_all_button.setIcon(FIF.SYNC)
         replace_layout.addWidget(self.find_input)
         replace_layout.addWidget(self.replace_input)
         replace_layout.addWidget(self.replace_all_button)
         
-        self.apply_translations_button = QPushButton(self._t("Apply All Translation Changes"))
-        self.apply_translations_button.setObjectName("editor_apply_button")
+        self.apply_translations_button = PrimaryPushButton()
+        self.apply_translations_button.setText(self._t("Apply All Translation Changes"))
+        self.apply_translations_button.setIcon(FIF.ACCEPT)
         self.region_list_view = RegionListView(self)
-        self.region_list_view.setObjectName("editor_region_list")
         
         translation_layout.addWidget(replace_widget)
         translation_layout.addWidget(self.apply_translations_button)
         translation_layout.addWidget(self.region_list_view)
 
         self.property_panel = PropertyPanel(self.model, self.app_logic, self)
-        self.property_panel.setObjectName("editor_property_panel")
 
         self.left_tab_widget.addTab(translation_widget, self._t("Editable Translation"))
         self.left_tab_widget.addTab(self.property_panel, self._t("Property Editor"))
@@ -227,11 +266,11 @@ class EditorView(QWidget):
         
         # 刷新右侧文件列表按钮
         if self.add_files_button is not None:
-            self.add_files_button.setText(self._t("Add Files"))
+            set_hover_hint(self.add_files_button, self._t("Add Files"))
         if self.add_folder_button is not None:
-            self.add_folder_button.setText(self._t("Add Folder"))
+            set_hover_hint(self.add_folder_button, self._t("Add Folder"))
         if self.clear_list_button is not None:
-            self.clear_list_button.setText(self._t("Clear List"))
+            set_hover_hint(self.clear_list_button, self._t("Clear List"))
         
         # 文件项文本不需要重建，语言切换时只需重绘空列表占位提示。
         if self.file_list is not None:
@@ -243,11 +282,12 @@ class EditorView(QWidget):
             return
 
         self.left_tab_widget.ensurePolished()
-        left_width = self.left_tab_widget.sizeHint().width()
-        left_width = max(self.left_tab_widget.minimumWidth(), left_width)
-        left_width = min(self.left_tab_widget.maximumWidth(), left_width)
+        left_width = max(self.left_tab_widget.width(), self.left_tab_widget.sizeHint().width())
 
-        self.main_splitter.setSizes([left_width, 860, 236])
+        right_width = 260
+        if self.file_list is not None:
+            self.file_list.setMinimumWidth(0)
+        self.main_splitter.setSizes([left_width, 860, right_width])
     
     def _on_apply_changes_clicked(self):
         """应用所有在列表中修改的译文"""
@@ -366,30 +406,25 @@ class EditorView(QWidget):
     def _create_center_panel(self) -> QWidget:
         """创建中心画布区域"""
         center_widget = QWidget()
-        center_widget.setObjectName("editor_center_panel")
         center_layout = QHBoxLayout(center_widget)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(6)
 
         self.compare_preview_container = QWidget()
-        self.compare_preview_container.setObjectName("editor_compare_preview_container")
         compare_layout = QVBoxLayout(self.compare_preview_container)
         compare_layout.setContentsMargins(0, 0, 0, 0)
         compare_layout.setSpacing(0)
         self.original_compare_view = OriginalCompareView(parent=self)
-        self.original_compare_view.setObjectName("editor_original_compare_view")
         compare_layout.addWidget(self.original_compare_view)
         self.compare_preview_container.hide()
 
         self.edit_canvas_container = QWidget()
-        self.edit_canvas_container.setObjectName("editor_edit_canvas_container")
         edit_canvas_layout = QVBoxLayout(self.edit_canvas_container)
         edit_canvas_layout.setContentsMargins(0, 0, 0, 0)
         edit_canvas_layout.setSpacing(0)
 
         # 画布（滚动条已在 GraphicsView 中配置）
         self.graphics_view = GraphicsView(self.model, controller=self.controller, parent=self)
-        self.graphics_view.setObjectName("editor_graphics_view")
         self.original_compare_view.set_source_view(self.graphics_view)
         edit_canvas_layout.addWidget(self.graphics_view)
 
@@ -401,31 +436,52 @@ class EditorView(QWidget):
     def _create_right_panel(self) -> QWidget:
         """创建右侧的文件列表面板"""
         right_panel = QWidget()
-        right_panel.setObjectName("editor_right_panel")
+        right_panel.setMinimumWidth(220)
+        right_panel.setMaximumWidth(300)
+        right_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(8, 8, 8, 8)
-        right_layout.setSpacing(6)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
 
         # 文件操作按钮
-        file_button_widget = QWidget()
-        file_button_widget.setObjectName("editor_file_actions")
+        file_button_widget = CardWidget()
+        file_button_widget.setFixedHeight(64)
         file_buttons_layout = QHBoxLayout(file_button_widget)
-        file_buttons_layout.setContentsMargins(0,0,0,0)
-        self.add_files_button = QPushButton(self._t("Add Files"))
-        self.add_folder_button = QPushButton(self._t("Add Folder"))
-        self.clear_list_button = QPushButton(self._t("Clear List"))
-        self.add_files_button.setProperty("chipButton", True)
-        self.add_folder_button.setProperty("chipButton", True)
-        self.clear_list_button.setProperty("chipButton", True)
+        file_buttons_layout.setContentsMargins(12, 10, 12, 10)
+        file_buttons_layout.setSpacing(10)
+        file_action_size = QSize(48, 40)
+        file_action_icon_size = QSize(22, 22)
+
+        self.add_files_button = ToolButton()
+        self.add_files_button.setIcon(FIF.ADD)
+        self.add_files_button.setFixedSize(file_action_size)
+        self.add_files_button.setIconSize(file_action_icon_size)
+        set_hover_hint(self.add_files_button, self._t("Add Files"))
+        self.add_folder_button = ToolButton()
+        self.add_folder_button.setIcon(FIF.FOLDER_ADD)
+        self.add_folder_button.setFixedSize(file_action_size)
+        self.add_folder_button.setIconSize(file_action_icon_size)
+        set_hover_hint(self.add_folder_button, self._t("Add Folder"))
+        self.clear_list_button = ToolButton()
+        self.clear_list_button.setIcon(FIF.DELETE)
+        self.clear_list_button.setFixedSize(file_action_size)
+        self.clear_list_button.setIconSize(file_action_icon_size)
+        set_hover_hint(self.clear_list_button, self._t("Clear List"))
+        file_buttons_layout.addStretch()
         file_buttons_layout.addWidget(self.add_files_button)
         file_buttons_layout.addWidget(self.add_folder_button)
         file_buttons_layout.addWidget(self.clear_list_button)
+        file_buttons_layout.addStretch()
         right_layout.addWidget(file_button_widget)
 
         # 文件列表
+        file_list_card = CardWidget()
+        file_list_layout = QVBoxLayout(file_list_card)
+        file_list_layout.setContentsMargins(8, 8, 8, 8)
+        file_list_layout.setSpacing(0)
         self.file_list = FileListView(None, self)
-        self.file_list.setObjectName("editor_file_list")
-        right_layout.addWidget(self.file_list)
+        file_list_layout.addWidget(self.file_list)
+        right_layout.addWidget(file_list_card, 1)
         
         return right_panel
 
@@ -453,13 +509,10 @@ class EditorView(QWidget):
         self.file_list.add_files_from_tree(folder_tree)
 
     def _apply_editor_style(self, theme: str | None = None):
-        """编辑器局部样式：根据主题应用配色，与主页风格统一。"""
-        from ui.styles import generate_editor_style
-        from ui.theme import apply_widget_stylesheet
+        """刷新画布和自定义颜色控件的主题。"""
         from ui.widgets.color_picker import ColorPickerWidget
 
         theme = theme or get_current_theme()
-        apply_widget_stylesheet(self, generate_editor_style(theme))
         if self.graphics_view is not None:
             self.graphics_view.apply_theme(theme)
         if self.original_compare_view is not None:

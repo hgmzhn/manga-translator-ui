@@ -19,7 +19,15 @@ os.environ.setdefault('PYTORCH_ALLOC_CONF', 'expandable_segments:True')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # 将项目根目录添加到 sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(project_root)
+
+# 让运行时模块在导入阶段也读取桌面端实际使用的 .env。
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    env_dir = os.path.dirname(sys.executable)
+else:
+    env_dir = project_root
+os.environ.setdefault('MANGA_TRANSLATOR_ENV_PATH', os.path.join(env_dir, '.env'))
 
 # 修复PyInstaller打包后onnxruntime的DLL加载问题
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):

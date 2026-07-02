@@ -3,21 +3,26 @@ import logging
 import os
 import sys
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFormLayout,
-    QFrame,
     QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
     QSplitter,
-    QTabWidget,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
-
-from theme_registry import THEME_OPTIONS
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    CaptionLabel,
+    HorizontalSeparator,
+    PushButton,
+    ScrollArea,
+    SegmentedWidget,
+    StrongBodyLabel,
+    TitleLabel,
+)
 
 
 def _resolve_settings_tab_layout_file() -> str:
@@ -45,37 +50,85 @@ def _load_reclassify_settings_layout():
         )
         return []
 
+
+class _SegmentedTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, route_prefix: str, parent=None):
+        super().__init__(parent)
+        self._routes: list[str] = []
+        self._route_prefix = route_prefix
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.segmented_widget = SegmentedWidget(self)
+        self.stack = QStackedWidget(self)
+        layout.addWidget(self.segmented_widget)
+        layout.addWidget(self.stack, 1)
+
+        self.segmented_widget.currentItemChanged.connect(self._sync_current_route)
+
+    def addTab(self, widget: QWidget, text: str) -> int:
+        index = self.stack.addWidget(widget)
+        route_key = f"{self._route_prefix}_{index}"
+        self._routes.append(route_key)
+        self.segmented_widget.addItem(route_key, text)
+        if index == 0:
+            self.segmented_widget.setCurrentItem(route_key)
+            self.stack.setCurrentIndex(index)
+        return index
+
+    def count(self) -> int:
+        return self.stack.count()
+
+    def currentIndex(self) -> int:
+        return self.stack.currentIndex()
+
+    def setCurrentIndex(self, index: int):
+        if 0 <= index < len(self._routes):
+            self.segmented_widget.setCurrentItem(self._routes[index])
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._routes):
+            self.segmented_widget.setItemText(self._routes[index], text)
+
+    def widget(self, index: int) -> QWidget | None:
+        return self.stack.widget(index)
+
+    def _sync_current_route(self, route_key: str):
+        if route_key not in self._routes:
+            return
+        index = self._routes.index(route_key)
+        self.stack.setCurrentIndex(index)
+        self.currentChanged.emit(index)
+
+
 def create_settings_page(self) -> QWidget:
     page = QWidget()
-    page.setObjectName("content_page_settings")
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(18, 16, 18, 14)
     page_layout.setSpacing(12)
 
-    # Header card with title + config IO buttons
-    header_card = QWidget()
-    header_card.setObjectName("header_card")
+    header_card = CardWidget()
     header_layout = QHBoxLayout(header_card)
-    header_layout.setContentsMargins(12, 4, 12, 4)
+    header_layout.setContentsMargins(16, 12, 16, 12)
     header_layout.setSpacing(8)
 
     title_col = QVBoxLayout()
     title_col.setSpacing(2)
-    self.settings_page_title = QLabel(self._t("Settings Page Title"))
-    self.settings_page_title.setObjectName("page_title")
-    self.settings_page_subtitle = QLabel(
+    self.settings_page_title = TitleLabel(self._t("Settings Page Title"))
+    self.settings_page_subtitle = BodyLabel(
         self._t("Settings Page Subtitle")
     )
-    self.settings_page_subtitle.setObjectName("page_subtitle")
     self.settings_page_subtitle.setWordWrap(True)
     title_col.addWidget(self.settings_page_title)
     title_col.addWidget(self.settings_page_subtitle)
     header_layout.addLayout(title_col, 1)
 
-    self.export_config_button = QPushButton(self._t("Export Config"))
-    self.import_config_button = QPushButton(self._t("Import Config"))
-    self.export_config_button.setProperty("chipButton", True)
-    self.import_config_button.setProperty("chipButton", True)
+    self.export_config_button = PushButton(self._t("Export Config"))
+    self.import_config_button = PushButton(self._t("Import Config"))
     header_layout.addWidget(self.export_config_button)
     header_layout.addWidget(self.import_config_button)
     page_layout.addWidget(header_card)
@@ -83,44 +136,32 @@ def create_settings_page(self) -> QWidget:
     self.export_config_button.clicked.connect(self.controller.export_config)
     self.import_config_button.clicked.connect(self.controller.import_config)
 
-    # --- 主体区域：左侧 tabs + 右侧描述面板 ---
     settings_body_splitter = QSplitter(Qt.Orientation.Horizontal)
-    settings_body_splitter.setObjectName("settings_body_splitter")
     page_layout.addWidget(settings_body_splitter, 1)
 
-    self.settings_tabs = QTabWidget()
-    self.settings_tabs.setObjectName("settings_tabs")
+    self.settings_tabs = _SegmentedTabWidget("settings_tab")
     settings_body_splitter.addWidget(self.settings_tabs)
 
-    # 右侧描述面板
-    desc_panel = QWidget()
-    desc_panel.setObjectName("settings_desc_panel")
+    desc_panel = CardWidget()
     desc_panel_layout = QVBoxLayout(desc_panel)
     desc_panel_layout.setContentsMargins(16, 16, 16, 16)
     desc_panel_layout.setSpacing(12)
 
-    self.settings_desc_header_label = QLabel(self._t("Settings Desc Header"))
-    self.settings_desc_header_label.setObjectName("settings_desc_header")
+    self.settings_desc_header_label = StrongBodyLabel(self._t("Settings Desc Header"))
     desc_panel_layout.addWidget(self.settings_desc_header_label)
 
-    desc_divider = QFrame()
-    desc_divider.setFrameShape(QFrame.Shape.HLine)
-    desc_divider.setObjectName("settings_desc_divider")
-    desc_panel_layout.addWidget(desc_divider)
+    desc_panel_layout.addWidget(HorizontalSeparator())
 
-    self.settings_desc_name = QLabel("")
-    self.settings_desc_name.setObjectName("settings_desc_name")
+    self.settings_desc_name = StrongBodyLabel("")
     self.settings_desc_name.setWordWrap(True)
     desc_panel_layout.addWidget(self.settings_desc_name)
 
-    self.settings_desc_key = QLabel("")
-    self.settings_desc_key.setObjectName("settings_desc_key")
+    self.settings_desc_key = CaptionLabel("")
     self.settings_desc_key.setWordWrap(True)
     self.settings_desc_key.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     desc_panel_layout.addWidget(self.settings_desc_key)
 
-    self.settings_desc_text = QLabel(self._t("Settings Desc Placeholder"))
-    self.settings_desc_text.setObjectName("settings_desc_text")
+    self.settings_desc_text = BodyLabel(self._t("Settings Desc Placeholder"))
     self.settings_desc_text.setWordWrap(True)
     self.settings_desc_text.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     desc_panel_layout.addWidget(self.settings_desc_text, 1)
@@ -148,11 +189,9 @@ def create_settings_page(self) -> QWidget:
             tab_layout = QVBoxLayout(tab_content_widget)
             tab_layout.setContentsMargins(0, 0, 0, 0)
 
-            scroll = QScrollArea()
+            scroll = ScrollArea()
             scroll.setWidgetResizable(True)
-            scroll.setObjectName("settings_scroll_area")
             scroll_content = QWidget()
-            scroll_content.setObjectName("settings_scroll_content")
             scroll.setWidget(scroll_content)
 
             form = QFormLayout(scroll_content)
@@ -179,7 +218,7 @@ def create_settings_page(self) -> QWidget:
             tab_layout = QVBoxLayout(tab_content_widget)
             tab_layout.setContentsMargins(0, 0, 0, 0)
 
-            scroll = QScrollArea()
+            scroll = ScrollArea()
             scroll.setWidgetResizable(True)
             scroll_content = QWidget()
             scroll.setWidget(scroll_content)
@@ -190,6 +229,7 @@ def create_settings_page(self) -> QWidget:
             form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             form.setHorizontalSpacing(10)
             form.setVerticalSpacing(8)
+            form.setContentsMargins(16, 14, 16, 14)
 
             tab_layout.addWidget(scroll)
             self.settings_tabs.addTab(tab_content_widget, tab_display_name)
@@ -199,5 +239,3 @@ def create_settings_page(self) -> QWidget:
     self._populate_theme_combo()
     self._populate_language_combo()
     return page
-
-

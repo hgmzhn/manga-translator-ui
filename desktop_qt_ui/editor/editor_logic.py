@@ -58,9 +58,7 @@ class EditorLogic(QObject):
         )
 
         if folders:
-            # 扫描文件夹，添加所有图片文件路径
-            for folder_path in folders:
-                self.add_folder(folder_path)
+            self.add_folders(folders)
 
     def add_files(self, files: List[str]):
         """添加文件到列表"""
@@ -90,39 +88,43 @@ class EditorLogic(QObject):
 
     def add_folder(self, folder_path: str):
         """添加文件夹到列表"""
-        if not folder_path or not os.path.isdir(folder_path):
+        self.add_folders([folder_path])
+
+    def add_folders(self, folder_paths: List[str]):
+        """添加一个或多个文件夹，并在 UI 中保留文件夹分组。"""
+        folders = [
+            os.path.normpath(path)
+            for path in folder_paths
+            if path and os.path.isdir(path)
+        ]
+        if not folders:
             return
         
         # 检查是否是第一次添加文件
         is_first_add = len(self.file_model.files) == 0
         
-        # 扫描文件夹中的所有图片
-        image_extensions = SUPPORTED_IMAGE_EXTENSIONS
-        files_to_add = []
+        all_files_to_add = []
+        scanned_tree = {}
         
-        try:
-            for root, dirs, files in os.walk(folder_path):
-                # 跳过 manga_translator_work 目录
-                if 'manga_translator_work' in root:
-                    continue
-                    
-                dirs.sort(key=natural_sort_key)
-                
-                for f in sorted(files, key=natural_sort_key):
-                    if os.path.splitext(f)[1].lower() in image_extensions:
-                        file_path = os.path.join(root, f)
-                        files_to_add.append(file_path)
-        except OSError as e:
-            self.logger.error(f"扫描文件夹失败: {e}")
-            return
+        for folder_path in folders:
+            if folder_path in self.folder_tree:
+                continue
+            try:
+                folder_files, folder_tree = self._scan_folder_for_editor(folder_path)
+            except OSError as e:
+                self.logger.error(f"扫描文件夹失败: {e}")
+                continue
+            if folder_files:
+                all_files_to_add.extend(folder_files)
+                scanned_tree.update(folder_tree)
         
-        if files_to_add:
-            # 添加文件
-            added_items = self.file_model.add_files(files_to_add)
+        if all_files_to_add:
+            added_items = self.file_model.add_files(all_files_to_add)
+            self.folder_tree.update(scanned_tree)
             
             # 发射信号更新UI
             file_paths = [item.path for item in self.file_model.files]
-            self.file_list_changed.emit(file_paths)
+            self.file_list_with_tree_changed.emit(file_paths, self.folder_tree)
             
             # 如果是第一次添加，自动加载第一个图片
             if is_first_add and added_items:
@@ -130,6 +132,40 @@ class EditorLogic(QObject):
                     self.load_image_into_editor(added_items[0].path)
                 except Exception:
                     pass  # 静默失败，避免崩溃
+
+    def _scan_folder_for_editor(self, folder_path: str) -> tuple[list[str], dict]:
+        """扫描文件夹，返回平铺文件列表和 FileListView 需要的树结构。"""
+        image_extensions = SUPPORTED_IMAGE_EXTENSIONS
+        tree: dict[str, dict] = {}
+        files_to_add: list[str] = []
+
+        def scan(current_folder: str) -> tuple[list[str], list[str]]:
+            direct_files: list[str] = []
+            direct_subfolders: list[str] = []
+            try:
+                entries = sorted(os.listdir(current_folder), key=natural_sort_key)
+            except OSError:
+                raise
+
+            for entry in entries:
+                if entry == 'manga_translator_work':
+                    continue
+                entry_path = os.path.join(current_folder, entry)
+                if os.path.isdir(entry_path):
+                    direct_subfolders.append(entry_path)
+                    scan(entry_path)
+                elif os.path.splitext(entry)[1].lower() in image_extensions:
+                    direct_files.append(entry_path)
+                    files_to_add.append(entry_path)
+
+            tree[current_folder] = {
+                'files': direct_files,
+                'subfolders': direct_subfolders,
+            }
+            return direct_files, direct_subfolders
+
+        scan(folder_path)
+        return files_to_add, tree
 
     @pyqtSlot(list)
     def add_files_from_paths(self, paths: List[str]):
@@ -140,15 +176,18 @@ class EditorLogic(QObject):
             paths: 拖放的文件或文件夹路径列表
         """
         files_to_add = []
+        folders_to_add = []
         for path in paths:
             if os.path.isfile(path):
                 # 验证是否是图片文件
                 if os.path.splitext(path)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS:
                     files_to_add.append(path)
             elif os.path.isdir(path):
-                # 添加文件夹中的所有图片
-                self.add_folder(path)
+                folders_to_add.append(path)
         
+        if folders_to_add:
+            self.add_folders(folders_to_add)
+
         # 添加单独的文件
         if files_to_add:
             self.add_files(files_to_add)

@@ -9,39 +9,46 @@ from typing import Any, Callable, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox,
     QDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
-    QLineEdit,
-    QPlainTextEdit,
-    QPushButton,
-    QScrollArea,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-from ui.styles import (
-    add_section_button_stylesheet as _add_section_button_style,
-    body_label_stylesheet as _body_label_style,
-    dim_label_stylesheet as _dim_label_style,
-    divider_stylesheet as _divider_style,
-    line_edit_stylesheet as _line_edit_style,
-    menu_stylesheet as _menu_style,
-    monospace_font as _monospace_font,
-    prompt_card_stylesheet as _prompt_card_style,
-    secondary_editor_dialog_stylesheet as _dialog_style,
-    section_label_stylesheet as _section_label_style,
-    status_stylesheet as _status_style,
-    table_stylesheet as _table_style,
-    text_edit_stylesheet as _text_edit_style,
-    title_stylesheet as _title_style,
+from qfluentwidgets import (
+    Action,
+    BodyLabel,
+    CaptionLabel,
+    CardWidget,
+    PrimaryPushButton,
+    RoundMenu,
+    SegmentedWidget,
+    TableWidget,
+    TitleLabel,
 )
-from ui.theme import apply_widget_stylesheet, repolish_widget
+from qfluentwidgets import (
+    ComboBox as QComboBox,
+)
+from qfluentwidgets import (
+    LineEdit as QLineEdit,
+)
+from qfluentwidgets import (
+    PlainTextEdit as QPlainTextEdit,
+)
+from qfluentwidgets import (
+    PushButton as QPushButton,
+)
+from qfluentwidgets import (
+    ScrollArea as QScrollArea,
+)
+
+from ui.theme import (
+    monospace_font as _monospace_font,
+)
 from ui.widgets.hover_hint import install_hover_hint
 
 logger = logging.getLogger("manga_translator")
@@ -51,38 +58,36 @@ def _current_t(text):
     return text
 
 
-def _section_label(text: str) -> QLabel:
+def _section_label(text: str) -> BodyLabel:
     """可复用的小标题 Label。"""
-    lbl = QLabel(text)
-    lbl.setStyleSheet(_section_label_style())
+    lbl = BodyLabel(text)
     return lbl
 
 
-def _dim_label(text: str) -> QLabel:
-    lbl = QLabel(text)
+def _dim_label(text: str) -> CaptionLabel:
+    lbl = CaptionLabel(text)
     lbl.setWordWrap(True)
-    lbl.setStyleSheet(_dim_label_style())
     return lbl
 
 
-def _body_label(text: str) -> QLabel:
-    lbl = QLabel(text)
+def _body_label(text: str) -> BodyLabel:
+    lbl = BodyLabel(text)
     lbl.setWordWrap(True)
     lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-    lbl.setStyleSheet(_body_label_style())
     return lbl
 
 
 def _divider() -> QFrame:
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
-    line.setStyleSheet(_divider_style())
     return line
 
 
 def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     """生成一个只读的 original → translation 表。"""
-    table = QTableWidget(len(entries), 2)
+    table = TableWidget()
+    table.setRowCount(len(entries))
+    table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Original"), _current_t("Translation")])
     table.horizontalHeader().setStretchLastSection(True)
     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -90,7 +95,6 @@ def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.setAlternatingRowColors(True)
-    table.setStyleSheet(_table_style())
 
     for row, entry in enumerate(entries):
         table.setItem(row, 0, QTableWidgetItem(entry.get("original", "")))
@@ -172,7 +176,9 @@ def _get_person_glossary_row(table: QTableWidget, row: int) -> Dict[str, Any]:
 
 
 def _make_person_glossary_table(entries: List[Dict[str, Any]], editable: bool = False) -> QTableWidget:
-    table = QTableWidget(len(entries), 4)
+    table = TableWidget()
+    table.setRowCount(len(entries))
+    table.setColumnCount(4)
     table.setHorizontalHeaderLabels([
         _current_t("Original"),
         _current_t("Translation"),
@@ -187,7 +193,6 @@ def _make_person_glossary_table(entries: List[Dict[str, Any]], editable: bool = 
     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.setAlternatingRowColors(True)
-    table.setStyleSheet(_table_style(editable=editable))
 
     for row, entry in enumerate(entries):
         _set_person_glossary_row(table, row, entry)
@@ -234,7 +239,9 @@ def _normalize_reference_images(raw_items: Any) -> List[Dict[str, str]]:
 
 
 def _make_reference_images_table(entries: List[Dict[str, str]], editable: bool = False) -> QTableWidget:
-    table = QTableWidget(len(entries), 2)
+    table = TableWidget()
+    table.setRowCount(len(entries))
+    table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Path"), _current_t("Description")])
     table.horizontalHeader().setStretchLastSection(True)
     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -242,7 +249,6 @@ def _make_reference_images_table(entries: List[Dict[str, str]], editable: bool =
     table.verticalHeader().setVisible(False)
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.setAlternatingRowColors(True)
-    table.setStyleSheet(_table_style(editable=editable))
     if not editable:
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
@@ -263,6 +269,56 @@ def _is_colorizer_structured(data: Any) -> bool:
         key in data
         for key in ("ai_colorizer_prompt", "colorization_rules", "reference_images")
     )
+
+
+class _SegmentedTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._keys: list[str] = []
+        self._pages: list[QWidget] = []
+        self._segmented = SegmentedWidget(self)
+        self._stack = QStackedWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._segmented)
+        layout.addWidget(self._stack, 1)
+
+    def addTab(self, widget: QWidget, text: str):
+        index = len(self._keys)
+        key = f"tab_{index}"
+        self._keys.append(key)
+        self._pages.append(widget)
+        self._stack.addWidget(widget)
+        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
+        if index == 0:
+            self.setCurrentIndex(0)
+
+    def currentIndex(self) -> int:
+        return self._stack.currentIndex()
+
+    def setCurrentIndex(self, index: int):
+        if index < 0 or index >= len(self._keys):
+            return
+        self._stack.setCurrentIndex(index)
+        self._segmented.setCurrentItem(self._keys[index])
+        self.currentChanged.emit(index)
+
+    def setCurrentWidget(self, widget: QWidget):
+        self.setCurrentIndex(self.indexOf(widget))
+
+    def indexOf(self, widget: QWidget) -> int:
+        try:
+            return self._pages.index(widget)
+        except ValueError:
+            return -1
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._keys):
+            self._segmented.setItemText(self._keys[index], text)
 
 
 # ─────────────────────────────────────────────────────────
@@ -290,22 +346,17 @@ class PromptPreviewPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # 外框容器 (card 样式)
-        self._card = QWidget()
-        self._card.setObjectName("prompt_preview_card")
-        self._card.setStyleSheet(_prompt_card_style())
+        self._card = CardWidget()
         card_layout = QVBoxLayout(self._card)
         card_layout.setContentsMargins(14, 12, 14, 12)
         card_layout.setSpacing(8)
 
         # Title row
         title_row = QHBoxLayout()
-        self._title_label = QLabel(self._t("Prompt Preview"))
-        self._title_label.setStyleSheet(_title_style(14))
+        self._title_label = TitleLabel(self._t("Prompt Preview"))
         title_row.addWidget(self._title_label, 1)
 
         self._edit_btn = QPushButton(self._t("Edit"))
-        self._edit_btn.setProperty("chipButton", True)
         self._edit_btn.setFixedWidth(72)
         self._edit_btn.clicked.connect(self._on_edit_clicked)
         self._edit_btn.setEnabled(False)
@@ -321,9 +372,7 @@ class PromptPreviewPanel(QWidget):
         # Scroll area for content
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setObjectName("editor_scroll")
         self._content_widget = QWidget()
-        self._content_widget.setObjectName("editor_scroll_content")
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(0, 4, 0, 4)
         self._content_layout.setSpacing(8)
@@ -334,9 +383,6 @@ class PromptPreviewPanel(QWidget):
 
     def apply_theme(self):
         """主题切换后重建本面板的局部样式。"""
-        self._card.setStyleSheet(_prompt_card_style())
-        self._title_label.setStyleSheet(_title_style(14))
-        self._filename_label.setStyleSheet(_dim_label_style())
         if self._current_path:
             self.load_file(self._current_path)
 
@@ -483,7 +529,7 @@ class PromptPreviewPanel(QWidget):
                 layout.addWidget(_divider())
             else:
                 # 用 tab widget 按分类展示
-                tabs = QTabWidget()
+                tabs = _SegmentedTabWidget()
 
                 category_icons = {
                     "Person": "👤",
@@ -534,10 +580,10 @@ class PromptPreviewPanel(QWidget):
         except Exception as e:
             raw = self._t("Error reading file: {error}", error=e)
 
-        text_edit = QPlainTextEdit(raw)
+        text_edit = QPlainTextEdit()
+        text_edit.setPlainText(raw)
         text_edit.setReadOnly(True)
         text_edit.setFont(_monospace_font())
-        text_edit.setStyleSheet(_text_edit_style())
         layout.addWidget(text_edit, 1)
 
     # ─── 编辑按钮 ──────────────────────────────────────
@@ -574,14 +620,15 @@ class PromptPreviewPanel(QWidget):
 # ─────────────────────────────────────────────────────────
 def _make_editable_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     """生成一个可编辑的 original → translation 表。"""
-    table = QTableWidget(len(entries), 2)
+    table = TableWidget()
+    table.setRowCount(len(entries))
+    table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Original"), _current_t("Translation")])
     table.horizontalHeader().setStretchLastSection(True)
     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
     table.verticalHeader().setVisible(False)
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.setAlternatingRowColors(True)
-    table.setStyleSheet(_table_style(editable=True))
 
     for row, entry in enumerate(entries):
         table.setItem(row, 0, QTableWidgetItem(entry.get("original", "")))
@@ -612,10 +659,10 @@ def _get_basic_glossary_row(table: QTableWidget, row: int) -> Dict[str, str]:
 
 def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit:
     """统一风格的文本编辑框。"""
-    te = QPlainTextEdit(text)
+    te = QPlainTextEdit()
+    te.setPlainText(text)
     te.setReadOnly(read_only)
     te.setFont(_monospace_font())
-    te.setStyleSheet(_text_edit_style())
     te.setTabStopDistance(28)
     return te
 
@@ -650,21 +697,19 @@ class PersonGlossaryEntryDialog(QDialog):
     def _setup_ui(self):
         self.setMinimumSize(520, 420)
         self.resize(560, 460)
-        apply_widget_stylesheet(self, _dialog_style())
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
-        self._title_label = QLabel("")
-        self._title_label.setStyleSheet(_title_style(15))
+        self._title_label = TitleLabel("")
         root.addWidget(self._title_label)
         root.addWidget(_divider())
 
         root.addWidget(_dim_label(self._t("Category")))
         self._category_combo = QComboBox()
         for item in self._available_categories:
-            self._category_combo.addItem(self._t(item), item)
+            self._category_combo.addItem(self._t(item), userData=item)
         combo_index = self._category_combo.findData(self._category)
         if combo_index >= 0:
             self._category_combo.setCurrentIndex(combo_index)
@@ -672,13 +717,13 @@ class PersonGlossaryEntryDialog(QDialog):
         root.addWidget(self._category_combo)
 
         root.addWidget(_dim_label(self._t("Original")))
-        self._original_edit = QLineEdit(self._entry.get("original", ""))
-        self._original_edit.setStyleSheet(_line_edit_style())
+        self._original_edit = QLineEdit()
+        self._original_edit.setText(self._entry.get("original", ""))
         root.addWidget(self._original_edit)
 
         root.addWidget(_dim_label(self._t("Translation")))
-        self._translation_edit = QLineEdit(self._entry.get("translation", ""))
-        self._translation_edit.setStyleSheet(_line_edit_style())
+        self._translation_edit = QLineEdit()
+        self._translation_edit.setText(self._entry.get("translation", ""))
         root.addWidget(self._translation_edit)
 
         self._person_fields = QWidget()
@@ -687,8 +732,8 @@ class PersonGlossaryEntryDialog(QDialog):
         person_layout.setSpacing(10)
 
         person_layout.addWidget(_dim_label(self._t("Nicknames")))
-        self._nicknames_edit = QLineEdit(", ".join(self._entry.get("nicknames", [])))
-        self._nicknames_edit.setStyleSheet(_line_edit_style())
+        self._nicknames_edit = QLineEdit()
+        self._nicknames_edit.setText(", ".join(self._entry.get("nicknames", [])))
         person_layout.addWidget(self._nicknames_edit)
 
         person_layout.addWidget(_dim_label(self._t("Introduction")))
@@ -702,12 +747,10 @@ class PersonGlossaryEntryDialog(QDialog):
 
         cancel_btn = QPushButton(self._t("Cancel"))
         cancel_btn.setFixedWidth(100)
-        cancel_btn.setProperty("chipButton", True)
         cancel_btn.clicked.connect(self.reject)
 
-        save_btn = QPushButton(self._t("Save"))
+        save_btn = PrimaryPushButton(self._t("Save"))
         save_btn.setFixedWidth(100)
-        save_btn.setProperty("variant", "accent")
         save_btn.clicked.connect(self.accept)
 
         btn_row.addWidget(cancel_btn)
@@ -769,7 +812,7 @@ class PromptEditorDialog(QDialog):
         self._term_table: Optional[QTableWidget] = None
         self._title_edit = None
         self._glossary_tables: Dict[str, QTableWidget] = {}
-        self._glossary_tab_widget: Optional[QTabWidget] = None
+        self._glossary_tab_widget: Optional[_SegmentedTabWidget] = None
         self._glossary_tab_pages: Dict[str, QWidget] = {}
 
         self._setup_ui()
@@ -780,7 +823,6 @@ class PromptEditorDialog(QDialog):
         self.setWindowTitle(self._t("Edit Prompt") + f" – {os.path.basename(self._file_path)}")
         self.setMinimumSize(820, 580)
         self.resize(1000, 700)
-        apply_widget_stylesheet(self, _dialog_style())
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
@@ -788,15 +830,14 @@ class PromptEditorDialog(QDialog):
 
         # Header
         hdr = QHBoxLayout()
-        title = QLabel(self._t("Edit Prompt"))
-        title.setStyleSheet(_title_style(16))
+        title = TitleLabel(self._t("Edit Prompt"))
         hdr.addWidget(title, 1)
         hdr.addWidget(_dim_label(os.path.basename(self._file_path)))
         root.addLayout(hdr)
         root.addWidget(_divider())
 
         # Tabs
-        self._tabs = QTabWidget()
+        self._tabs = _SegmentedTabWidget()
         root.addWidget(self._tabs, 1)
 
         # Status
@@ -808,12 +849,10 @@ class PromptEditorDialog(QDialog):
         btn_row.addStretch()
         self._cancel_btn = QPushButton(self._t("Cancel"))
         self._cancel_btn.setFixedWidth(100)
-        self._cancel_btn.setProperty("chipButton", True)
         self._cancel_btn.clicked.connect(self.reject)
 
-        self._save_btn = QPushButton(self._t("Save"))
+        self._save_btn = PrimaryPushButton(self._t("Save"))
         self._save_btn.setFixedWidth(100)
-        self._save_btn.setProperty("variant", "accent")
         self._save_btn.clicked.connect(self._save)
 
         btn_row.addWidget(self._cancel_btn)
@@ -828,7 +867,6 @@ class PromptEditorDialog(QDialog):
         except Exception as e:
             self._original_content = ""
             self._status.setText(self._t("Error: {error}", error=e))
-            self._status.setStyleSheet(_status_style("error"))
 
         # 尝试解析
         self._data = PromptPreviewPanel._try_load(self._file_path)
@@ -841,16 +879,13 @@ class PromptEditorDialog(QDialog):
 
         self._build_free_tab()
         self._status.setText(self._t("Loaded successfully"))
-        self._status.setStyleSheet(_status_style("default"))
 
     # ─── 模板编辑 Tab ──────────────────────────────────
     def _build_template_tab(self):
         page = QWidget()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setObjectName("editor_scroll")
         content = QWidget()
-        content.setObjectName("editor_scroll_content")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(10)
@@ -899,8 +934,6 @@ class PromptEditorDialog(QDialog):
 
         # ── "+ 添加字段" 按钮 ──
         self._add_section_btn = QPushButton("＋ " + self._t("Add Section"))
-        self._add_section_btn.setProperty("chipButton", True)
-        self._add_section_btn.setStyleSheet(_add_section_button_style())
         self._add_section_btn.clicked.connect(self._show_add_section_menu)
         layout.addWidget(self._add_section_btn)
 
@@ -924,12 +957,11 @@ class PromptEditorDialog(QDialog):
     def _make_section_container(self, key: str) -> tuple:
         """创建带操作栏的容器 Widget，返回 (container, body_layout)。"""
         icon, label = self._SECTION_META.get(key, ("📌", key))
-        container = QWidget()
+        container = CardWidget()
         container.setProperty("sectionKey", key)
-        container.setObjectName("section_content")
         outer = QVBoxLayout(container)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(4)
+        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setSpacing(6)
 
         # 标题行
         header = QHBoxLayout()
@@ -939,21 +971,16 @@ class PromptEditorDialog(QDialog):
         header.addStretch()
 
         btn_up = QPushButton("▲")
-        btn_up.setProperty("sectionIconButton", True)
         btn_up.setFixedSize(28, 24)
         btn_up.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, -1))
         install_hover_hint(btn_up, self._t("Move Up"))
 
         btn_down = QPushButton("▼")
-        btn_down.setProperty("sectionIconButton", True)
         btn_down.setFixedSize(28, 24)
         btn_down.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, 1))
         install_hover_hint(btn_down, self._t("Move Down"))
 
         btn_del = QPushButton("×")
-        btn_del.setProperty("variant", "danger")
-        btn_del.setProperty("sectionIconButton", True)
-        repolish_widget(btn_del)
         btn_del.setFixedSize(28, 24)
         btn_del.clicked.connect(lambda: self._remove_section(container, key))
         install_hover_hint(btn_del, self._t("Delete"))
@@ -1007,8 +1034,8 @@ class PromptEditorDialog(QDialog):
         layout.addWidget(self._system_prompt_edit)
 
     def _fill_project_title(self, layout: QVBoxLayout, title: str = ""):
-        self._title_edit = QLineEdit(title)
-        self._title_edit.setStyleSheet(_line_edit_style())
+        self._title_edit = QLineEdit()
+        self._title_edit.setText(title)
         layout.addWidget(self._title_edit)
 
     def _fill_terminology(self, layout: QVBoxLayout, term: dict = None):
@@ -1021,18 +1048,12 @@ class PromptEditorDialog(QDialog):
 
         btn_row = QHBoxLayout()
         add_btn = QPushButton("+ " + self._t("Add Row"))
-        add_btn.setProperty("chipButton", True)
         add_btn.clicked.connect(lambda: self._add_table_row(self._term_table, 2))
         up_btn = QPushButton("↑ " + self._t("Move Up"))
-        up_btn.setProperty("chipButton", True)
         up_btn.clicked.connect(lambda: self._move_table_row(self._term_table, -1))
         down_btn = QPushButton("↓ " + self._t("Move Down"))
-        down_btn.setProperty("chipButton", True)
         down_btn.clicked.connect(lambda: self._move_table_row(self._term_table, 1))
         del_btn = QPushButton("- " + self._t("Delete Row"))
-        del_btn.setProperty("chipButton", True)
-        del_btn.setProperty("variant", "danger")
-        repolish_widget(del_btn)
         del_btn.clicked.connect(lambda: self._del_table_row(self._term_table))
         btn_row.addWidget(add_btn)
         btn_row.addWidget(up_btn)
@@ -1059,7 +1080,7 @@ class PromptEditorDialog(QDialog):
         if glossary is None:
             glossary = {}
 
-        glossary_tabs = QTabWidget()
+        glossary_tabs = _SegmentedTabWidget()
         glossary_tabs.setMinimumHeight(220)
         self._glossary_tab_widget = glossary_tabs
         self._glossary_tables = {}
@@ -1120,12 +1141,10 @@ class PromptEditorDialog(QDialog):
 
         g_btn_row = QHBoxLayout()
         add_btn = QPushButton("+ " + self._t("Add Row"))
-        add_btn.setProperty("chipButton", True)
         g_btn_row.addWidget(add_btn)
         if cat_key == "Person":
             add_btn.clicked.connect(lambda checked=False, category=cat_key, t=tbl: self._add_person_glossary_row(category, t))
             edit_btn = QPushButton(self._t("Edit"))
-            edit_btn.setProperty("chipButton", True)
             edit_btn.clicked.connect(
                 lambda checked=False, category=cat_key, t=tbl: self._edit_selected_person_glossary_row(category, t)
             )
@@ -1135,17 +1154,12 @@ class PromptEditorDialog(QDialog):
                 lambda checked=False, category=cat_key, t=tbl: self._add_basic_glossary_row(category, t)
             )
         move_up_btn = QPushButton("↑ " + self._t("Move Up"))
-        move_up_btn.setProperty("chipButton", True)
         move_up_btn.clicked.connect(lambda checked=False, t=tbl: self._move_table_row(t, -1))
         g_btn_row.addWidget(move_up_btn)
         move_down_btn = QPushButton("↓ " + self._t("Move Down"))
-        move_down_btn.setProperty("chipButton", True)
         move_down_btn.clicked.connect(lambda checked=False, t=tbl: self._move_table_row(t, 1))
         g_btn_row.addWidget(move_down_btn)
         del_btn = QPushButton("- " + self._t("Delete Row"))
-        del_btn.setProperty("chipButton", True)
-        del_btn.setProperty("variant", "danger")
-        repolish_widget(del_btn)
         del_btn.clicked.connect(lambda checked=False, category=cat_key, t=tbl: self._delete_glossary_row(category, t))
         g_btn_row.addWidget(del_btn)
         g_btn_row.addStretch()
@@ -1267,7 +1281,7 @@ class PromptEditorDialog(QDialog):
             widget = item.widget() if item is not None else None
             if widget is None:
                 continue
-            order.append(str(widget.property("sectionKey") or widget.objectName() or "<unknown>"))
+            order.append(str(widget.property("sectionKey") or "<unknown>"))
         return order
 
     def _request_move_section(self, container: QWidget, direction: int):
@@ -1388,21 +1402,18 @@ class PromptEditorDialog(QDialog):
         return {k for k, _ in self._section_containers}
 
     def _show_add_section_menu(self):
-        from PyQt6.QtGui import QAction
-        from PyQt6.QtWidgets import QMenu
-        menu = QMenu(self)
-        menu.setStyleSheet(_menu_style())
+        menu = RoundMenu(parent=self)
         existing = self._get_existing_sections()
         has_items = False
         for key, icon, label in self._SECTION_DEFS:
             if key not in existing:
-                action = QAction(f"{icon}  {self._t(label)}", self)
+                action = Action(f"{icon}  {self._t(label)}", self)
                 action.triggered.connect(lambda checked=False, k=key: self._on_add_section(k))
                 menu.addAction(action)
                 has_items = True
 
         if not has_items:
-            action = QAction(self._t("All sections added"), self)
+            action = Action(self._t("All sections added"), self)
             action.setEnabled(False)
             menu.addAction(action)
 
@@ -1593,7 +1604,6 @@ class PromptEditorDialog(QDialog):
                     content = json.dumps(data, indent=2, ensure_ascii=False)
             except Exception as e:
                 self._status.setText(f"❌ {self._t('Serialize Error')}: {e}")
-                self._status.setStyleSheet(_status_style("error"))
                 return
         else:
             # 自由编辑
@@ -1606,7 +1616,6 @@ class PromptEditorDialog(QDialog):
                     json.loads(content)
                 except json.JSONDecodeError as e:
                     self._status.setText(f"❌ JSON {self._t('Format Error')}: {e}")
-                    self._status.setStyleSheet(_status_style("error"))
                     return
             elif ext in (".yaml", ".yml"):
                 try:
@@ -1616,7 +1625,6 @@ class PromptEditorDialog(QDialog):
                     pass
                 except Exception as e:
                     self._status.setText(f"❌ YAML {self._t('Format Error')}: {e}")
-                    self._status.setStyleSheet(_status_style("error"))
                     return
 
         # 写入文件
@@ -1624,7 +1632,6 @@ class PromptEditorDialog(QDialog):
             with open(self._file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             self._status.setText(f"✅ {self._t('Saved successfully')}")
-            self._status.setStyleSheet(_status_style("success"))
             self._was_saved = True
             self._original_content = content
             # 同步另一个 tab
@@ -1633,7 +1640,6 @@ class PromptEditorDialog(QDialog):
             self.accept()
         except Exception as e:
             self._status.setText(f"❌ {self._t('Save failed')}: {e}")
-            self._status.setStyleSheet(_status_style("error"))
 
     def get_was_modified(self) -> bool:
         if self._is_structured:

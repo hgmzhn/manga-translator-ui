@@ -1,18 +1,23 @@
 
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtWidgets import (
+    QVBoxLayout,
+    QWidget,
+)
+from qfluentwidgets import BodyLabel, CardWidget, ProgressBar
+
+from services import get_config_service, get_i18n_manager
 from ui.main_page import dynamic_settings as main_view_dynamic
 from ui.main_page import env_management as main_view_env
 from ui.main_page import layout as layout_parts
 from ui.main_page import runtime as main_view_runtime
-from ui.styles import generate_main_view_style
-from ui.theme import apply_widget_stylesheet, get_current_theme
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QSplitter,
-    QWidget,
-)
-from services import get_config_service, get_i18n_manager
-from utils.app_version import format_version_label, get_app_version
+from ui.main_page.pages.env_page import create_env_page
+from ui.main_page.pages.font_page import create_font_page
+from ui.main_page.pages.prompt_page import create_prompt_page
+from ui.main_page.pages.replacements_page import create_replacements_page
+from ui.main_page.pages.settings_page import create_settings_page
+from ui.main_page.pages.translation_page import create_translation_page
+from utils.app_version import get_app_version
 
 
 class MainView(QWidget):
@@ -39,18 +44,11 @@ class MainView(QWidget):
     _update_upscale_ratio_options = main_view_dynamic._update_upscale_ratio_options
     _create_param_widgets = main_view_dynamic._create_param_widgets
 
-    _create_left_sidebar = layout_parts.create_left_sidebar
-    _refresh_api_status_sidebar = layout_parts.refresh_api_status_sidebar
-    _create_translation_page = layout_parts.create_translation_page
-    _create_settings_page = layout_parts.create_settings_page
-    _create_env_page = layout_parts.create_env_page
-    _create_prompt_page = layout_parts.create_prompt_page
-    _create_font_page = layout_parts.create_font_page
-    _create_right_panel = layout_parts.create_right_panel
-    _switch_content_page = layout_parts.switch_content_page
-    _on_nav_prompt_clicked = layout_parts.on_nav_prompt_clicked
-    _on_nav_editor_clicked = layout_parts.on_nav_editor_clicked
-    _on_nav_font_clicked = layout_parts.on_nav_font_clicked
+    _create_translation_page = create_translation_page
+    _create_settings_page = create_settings_page
+    _create_env_page = create_env_page
+    _create_prompt_page = create_prompt_page
+    _create_font_page = create_font_page
     _populate_theme_combo = layout_parts.populate_theme_combo
     _populate_language_combo = layout_parts.populate_language_combo
     _on_theme_combo_changed = layout_parts.on_theme_combo_changed
@@ -71,9 +69,7 @@ class MainView(QWidget):
     _update_font_preview = layout_parts._update_font_preview
     _refresh_font_preview_styles = layout_parts.refresh_font_preview_styles
 
-    _create_replacements_page = layout_parts.create_replacements_page
-    _on_nav_replacements_clicked = layout_parts.on_nav_replacements_clicked
-
+    _create_replacements_page = create_replacements_page
     update_progress = main_view_runtime.update_progress
     reset_progress = main_view_runtime.reset_progress
 
@@ -105,6 +101,13 @@ class MainView(QWidget):
     _update_workflow_mode_description = main_view_runtime.update_workflow_mode_description
     update_start_button_text = main_view_runtime.update_start_button_text
 
+    def set_navigation_switcher(self, switcher):
+        self._navigation_switcher = switcher
+
+    def _switch_content_page(self, page_key: str):
+        if callable(getattr(self, "_navigation_switcher", None)):
+            self._navigation_switcher(page_key)
+
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -116,31 +119,28 @@ class MainView(QWidget):
         self._env_debounce_timer.setSingleShot(True)
         self._env_debounce_timer.setInterval(500) # 500ms debounce delay
 
-        self.layout = QHBoxLayout(self)
+        self.layout = QVBoxLayout(self)
         self.env_var_changed.connect(self.controller.save_env_var)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.setObjectName("main_view_root")
-        
-        # --- 创建主分割器 (左右) ---
-        main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        main_splitter.setObjectName("main_view_splitter")
-        self.layout.addWidget(main_splitter)
+        self.setObjectName("main_view_controller")
+        self._navigation_switcher = None
 
-        # --- 左侧侧边栏 ---
-        left_panel = self._create_left_sidebar()
-
-        # --- 右侧面板 ---
-        right_panel = self._create_right_panel()
-
-        # --- 组合布局 ---
-        main_splitter.addWidget(left_panel)
-        main_splitter.addWidget(right_panel)
-        main_splitter.setStretchFactor(0, 0) # 侧边栏固定为主
-        main_splitter.setStretchFactor(1, 1) # 内容区可拉伸
-        main_splitter.setCollapsible(0, False) # 侧边栏不折叠
-        main_splitter.setCollapsible(1, True) # 内容区可以折叠
-        main_splitter.setSizes([220, 1060]) # 设置初始比例
-        main_splitter.setHandleWidth(6) # 设置分隔条宽度
+        self.translation_page = self._create_translation_page()
+        self.translation_interface = self._create_translation_interface(self.translation_page)
+        self.settings_page = self._create_settings_page()
+        self.env_page = self._create_env_page()
+        self.prompt_page = self._create_prompt_page()
+        self.font_page = self._create_font_page()
+        self.replacements_page = self._create_replacements_page()
+        self.page_widgets = {
+            "translation": self.translation_interface,
+            "settings": self.settings_page,
+            "env": self.env_page,
+            "prompts": self.prompt_page,
+            "fonts": self.font_page,
+            "replacements": self.replacements_page,
+        }
+        self.layout.addWidget(self.translation_interface)
 
         # 不在这里调用 _create_dynamic_settings，等待 app_logic.initialize 发送 config_loaded 信号
         # self._create_dynamic_settings()  # 删除这行，避免重复创建
@@ -150,12 +150,35 @@ class MainView(QWidget):
         self.controller.state_manager.current_config_changed.connect(self.update_start_button_text)
         QTimer.singleShot(100, self.update_start_button_text) # Set initial text
         QTimer.singleShot(100, self._sync_workflow_mode_from_config) # Sync workflow mode dropdown
-        self._api_status_timer = QTimer(self)
-        self._api_status_timer.setInterval(2000)
-        self._api_status_timer.timeout.connect(self._refresh_api_status_sidebar)
-        self._api_status_timer.start()
-        QTimer.singleShot(200, self._refresh_api_status_sidebar)
-        self._apply_reference_ui_style()
+        self.apply_fluent_theme()
+
+    def _create_translation_interface(self, translation_page: QWidget) -> QWidget:
+        interface = QWidget()
+        interface.setObjectName("main_translation_interface")
+        layout = QVBoxLayout(interface)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addWidget(translation_page, 1)
+
+        progress_card = CardWidget()
+        progress_layout = QVBoxLayout(progress_card)
+        progress_layout.setContentsMargins(16, 12, 16, 12)
+        progress_layout.setSpacing(8)
+
+        self.progress_bar = ProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("0/0 (0%)")
+        self.progress_bar.setFixedHeight(25)
+        progress_layout.addWidget(self.progress_bar)
+
+        self.progress_info_label = BodyLabel("")
+        self.progress_info_label.setWordWrap(True)
+        progress_layout.addWidget(self.progress_info_label)
+        layout.addWidget(progress_card, 0)
+        return interface
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -163,9 +186,8 @@ class MainView(QWidget):
             return self.i18n.translate(key, **kwargs)
         return key
 
-    def _apply_reference_ui_style(self, theme: str | None = None):
-        theme = theme or get_current_theme()
-        apply_widget_stylesheet(self, generate_main_view_style(theme))
+    def apply_fluent_theme(self, theme: str | None = None):
+        del theme
         if hasattr(self, "prompt_preview_panel") and self.prompt_preview_panel:
             self.prompt_preview_panel.apply_theme()
         if hasattr(self, "_refresh_font_preview_styles"):
@@ -196,39 +218,6 @@ class MainView(QWidget):
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）。"""
         self.refresh_tab_titles()
-
-        if hasattr(self, "sidebar_brand_label"):
-            self.sidebar_brand_label.setText(self._t("Manga Translator"))
-        if hasattr(self, "sidebar_version_label"):
-            version_text = format_version_label(self.app_version)
-            self.sidebar_version_label.setText(version_text)
-            self.sidebar_version_label.setVisible(bool(version_text))
-        if hasattr(self, "sidebar_start_label"):
-            self.sidebar_start_label.setText(self._t("Start Translation"))
-        if hasattr(self, "sidebar_settings_label"):
-            self.sidebar_settings_label.setText(self._t("Settings"))
-        if hasattr(self, "sidebar_tools_label"):
-            self.sidebar_tools_label.setText(self._t("Data Management"))
-        if hasattr(self, "sidebar_editor_label"):
-            self.sidebar_editor_label.setText(self._t("Editor"))
-        if hasattr(self, "sidebar_api_status_title"):
-            self.sidebar_api_status_title.setText(self._t("API Status"))
-        if hasattr(self, "sidebar_api_status_label"):
-            self._refresh_api_status_sidebar()
-        if hasattr(self, "nav_translation_button"):
-            self.nav_translation_button.setText(self._t("Translation Interface"))
-        if hasattr(self, "nav_editor_button"):
-            self.nav_editor_button.setText(self._t("Editor View"))
-        if hasattr(self, "nav_settings_button"):
-            self.nav_settings_button.setText(self._t("Settings"))
-        if hasattr(self, "nav_env_button"):
-            self.nav_env_button.setText(self._t("API Management"))
-        if hasattr(self, "nav_prompt_button"):
-            self.nav_prompt_button.setText(self._t("Prompt Management"))
-        if hasattr(self, "nav_font_button"):
-            self.nav_font_button.setText(self._t("Font Management"))
-        if hasattr(self, "nav_replacements_button"):
-            self.nav_replacements_button.setText(self._t("Replacement Rules"))
 
         if hasattr(self, "theme_label"):
             self.theme_label.setText(self._t("Theme:"))

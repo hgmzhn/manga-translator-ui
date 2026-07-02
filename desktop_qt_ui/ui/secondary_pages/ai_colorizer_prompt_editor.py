@@ -4,34 +4,26 @@ import os
 from typing import Callable, Dict, List, Optional
 
 from PyQt6.QtGui import QAction
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
-    QLabel,
-    QMenu,
-    QPlainTextEdit,
-    QPushButton,
-    QScrollArea,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-from ui.styles import (
+from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PrimaryPushButton, PushButton, RoundMenu, ScrollArea, SegmentedWidget, TableWidget, TitleLabel
+from ui.theme import (
     monospace_font as _monospace_font,
-    secondary_editor_dialog_stylesheet as _dialog_stylesheet,
 )
 from ui.widgets.hover_hint import install_hover_hint
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 
-from ui.theme import (
-    apply_widget_stylesheet,
-    repolish_widget,
-)
 from manga_translator.colorization.prompt_loader import (
     load_ai_colorizer_prompt_template,
 )
@@ -70,30 +62,27 @@ def is_ai_colorizer_prompt_file(file_path: str) -> bool:
     return is_ai_colorizer_prompt_data(data)
 
 
-def _section_label(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setObjectName("section_label")
+def _section_label(text: str) -> BodyLabel:
+    label = BodyLabel(text)
     return label
 
 
-def _dim_label(text: str) -> QLabel:
-    label = QLabel(text)
+def _dim_label(text: str) -> CaptionLabel:
+    label = CaptionLabel(text)
     label.setWordWrap(True)
-    label.setObjectName("hint_label")
     return label
 
 
 def _divider() -> QFrame:
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
-    line.setObjectName("divider")
     return line
 
 
-def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit:
-    editor = QPlainTextEdit(text)
+def _styled_text_edit(text: str = "", read_only: bool = False) -> PlainTextEdit:
+    editor = PlainTextEdit()
+    editor.setPlainText(text)
     editor.setReadOnly(read_only)
-    editor.setObjectName("monospace_editor")
     editor.setFont(_monospace_font())
     editor.setTabStopDistance(28)
     return editor
@@ -105,8 +94,9 @@ def _make_reference_images_table(
     t_func: Callable = lambda x: x,
 ) -> QTableWidget:
     rows = entries or []
-    table = QTableWidget(len(rows), 2)
-    table.setObjectName("reference_images_table")
+    table = TableWidget()
+    table.setRowCount(len(rows))
+    table.setColumnCount(2)
     table.setHorizontalHeaderLabels([t_func("Path"), t_func("Description")])
     table.horizontalHeader().setStretchLastSection(True)
     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -119,6 +109,41 @@ def _make_reference_images_table(
         table.setItem(row, 0, QTableWidgetItem(entry.get("path", "")))
         table.setItem(row, 1, QTableWidgetItem(entry.get("description", "")))
     return table
+
+
+class _SegmentedTabWidget(QWidget):
+    currentChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._keys: list[str] = []
+        self._segmented = SegmentedWidget(self)
+        self._stack = QStackedWidget(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._segmented)
+        layout.addWidget(self._stack, 1)
+
+    def addTab(self, widget: QWidget, text: str):
+        index = len(self._keys)
+        key = f"tab_{index}"
+        self._keys.append(key)
+        self._stack.addWidget(widget)
+        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
+        if index == 0:
+            self.setCurrentIndex(0)
+
+    def currentIndex(self) -> int:
+        return self._stack.currentIndex()
+
+    def setCurrentIndex(self, index: int):
+        if index < 0 or index >= len(self._keys):
+            return
+        self._stack.setCurrentIndex(index)
+        self._segmented.setCurrentItem(self._keys[index])
+        self.currentChanged.emit(index)
 
 
 class AIColorizerPromptEditorDialog(QDialog):
@@ -149,41 +174,34 @@ class AIColorizerPromptEditorDialog(QDialog):
         self.setMinimumSize(820, 580)
         self.resize(980, 680)
         self.setModal(True)
-        apply_widget_stylesheet(self, _dialog_stylesheet())
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
         header = QHBoxLayout()
-        title = QLabel(self._t("Edit Prompt"))
-        title.setObjectName("dialog_title")
+        title = TitleLabel(self._t("Edit Prompt"))
         header.addWidget(title, 1)
         file_label = _dim_label(os.path.basename(self._file_path))
-        file_label.setObjectName("dialog_subtitle")
         header.addWidget(file_label)
         root.addLayout(header)
         root.addWidget(_divider())
 
-        self._tabs = QTabWidget()
+        self._tabs = _SegmentedTabWidget()
         root.addWidget(self._tabs, 1)
 
         self._status = _dim_label("")
-        self._status.setObjectName("status_label")
-        self._status.setProperty("statusState", "default")
         root.addWidget(self._status)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
 
-        cancel_btn = QPushButton(self._t("Cancel"))
+        cancel_btn = PushButton(self._t("Cancel"))
         cancel_btn.setFixedWidth(100)
-        cancel_btn.setProperty("chipButton", True)
         cancel_btn.clicked.connect(self.reject)
 
-        save_btn = QPushButton(self._t("Save"))
+        save_btn = PrimaryPushButton(self._t("Save"))
         save_btn.setFixedWidth(100)
-        save_btn.setProperty("variant", "accent")
         save_btn.clicked.connect(self._save)
 
         buttons.addWidget(cancel_btn)
@@ -205,12 +223,10 @@ class AIColorizerPromptEditorDialog(QDialog):
 
     def _build_template_tab(self):
         page = QWidget()
-        scroll = QScrollArea()
+        scroll = ScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setObjectName("editor_scroll")
 
         content = QWidget()
-        content.setObjectName("editor_scroll_content")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(10)
@@ -230,9 +246,7 @@ class AIColorizerPromptEditorDialog(QDialog):
             images=self._data.get("reference_images", []),
         )
 
-        self._add_section_btn = QPushButton("+ " + self._t("Add Section"))
-        self._add_section_btn.setProperty("chipButton", True)
-        self._add_section_btn.setObjectName("add_section_button")
+        self._add_section_btn = PushButton("+ " + self._t("Add Section"))
         self._add_section_btn.clicked.connect(self._show_add_section_menu)
         layout.addWidget(self._add_section_btn)
         layout.addStretch()
@@ -254,9 +268,8 @@ class AIColorizerPromptEditorDialog(QDialog):
         self._tabs.addTab(page, self._t("Raw Edit"))
 
     def _make_section_container(self, key: str) -> tuple[QWidget, QVBoxLayout]:
-        container = QWidget()
+        container = CardWidget()
         container.setProperty("sectionKey", key)
-        container.setObjectName("section_card")
 
         outer = QVBoxLayout(container)
         outer.setContentsMargins(14, 12, 14, 12)
@@ -267,22 +280,17 @@ class AIColorizerPromptEditorDialog(QDialog):
         header.addWidget(_section_label(self._t(self._SECTION_META.get(key, key))))
         header.addStretch()
 
-        btn_up = QPushButton("▲")
-        btn_up.setProperty("sectionIconButton", True)
+        btn_up = PushButton("▲")
         btn_up.setFixedSize(28, 24)
         btn_up.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, -1))
         install_hover_hint(btn_up, self._t("Move Up"))
 
-        btn_down = QPushButton("▼")
-        btn_down.setProperty("sectionIconButton", True)
+        btn_down = PushButton("▼")
         btn_down.setFixedSize(28, 24)
         btn_down.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, 1))
         install_hover_hint(btn_down, self._t("Move Down"))
 
-        btn_delete = QPushButton("×")
-        btn_delete.setProperty("variant", "danger")
-        btn_delete.setProperty("sectionIconButton", True)
-        repolish_widget(btn_delete)
+        btn_delete = PushButton("×")
         btn_delete.setFixedSize(28, 24)
         btn_delete.clicked.connect(lambda: self._remove_section(container, key))
         install_hover_hint(btn_delete, self._t("Delete"))
@@ -337,14 +345,10 @@ class AIColorizerPromptEditorDialog(QDialog):
         layout.addWidget(self._reference_images_table)
 
         row_buttons = QHBoxLayout()
-        add_btn = QPushButton("+ " + self._t("Add Reference Image"))
-        add_btn.setProperty("chipButton", True)
+        add_btn = PushButton("+ " + self._t("Add Reference Image"))
         add_btn.clicked.connect(self._prompt_and_add_reference_image)
 
-        del_btn = QPushButton("- " + self._t("Delete Row"))
-        del_btn.setProperty("chipButton", True)
-        del_btn.setProperty("variant", "danger")
-        repolish_widget(del_btn)
+        del_btn = PushButton("- " + self._t("Delete Row"))
         del_btn.clicked.connect(lambda: self._del_table_row(self._reference_images_table))
 
         row_buttons.addWidget(add_btn)
@@ -411,7 +415,7 @@ class AIColorizerPromptEditorDialog(QDialog):
             widget = item.widget() if item is not None else None
             if widget is None:
                 continue
-            order.append(str(widget.property("sectionKey") or widget.objectName() or "<unknown>"))
+            order.append(str(widget.property("sectionKey") or "<unknown>"))
         return order
 
     def _request_move_section(self, container: QWidget, direction: int):
@@ -507,7 +511,7 @@ class AIColorizerPromptEditorDialog(QDialog):
             self._reference_images_table = None
 
     def _show_add_section_menu(self):
-        menu = QMenu(self)
+        menu = RoundMenu(parent=self)
         existing = {key for key, _ in self._section_containers}
         has_items = False
         for key, label in self._SECTION_META.items():
@@ -569,8 +573,7 @@ class AIColorizerPromptEditorDialog(QDialog):
 
     def _set_status(self, text: str, state: str = "default"):
         self._status.setText(text)
-        self._status.setProperty("statusState", state)
-        repolish_widget(self._status)
+        del state
 
     def _serialize_structured(self, data: Dict[str, object]) -> str:
         ext = os.path.splitext(self._file_path)[1].lower()

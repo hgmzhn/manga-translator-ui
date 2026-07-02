@@ -2,32 +2,14 @@ from __future__ import annotations
 
 from typing import Callable
 
-from ui.theme import (
-    apply_native_title_bar_theme,
-    apply_widget_stylesheet,
-    get_current_theme,
-)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QApplication,
     QDialog,
     QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
     QListWidgetItem,
-    QPushButton,
     QVBoxLayout,
 )
-from ui.styles import generate_application_stylesheet, model_selector_dialog_stylesheet
-
-
-def _global_dialog_stylesheet(extra_stylesheet: str = "") -> str:
-    app = QApplication.instance()
-    base_stylesheet = app.styleSheet() if app is not None else generate_application_stylesheet(get_current_theme())
-    if not extra_stylesheet:
-        return base_stylesheet
-    return f"{base_stylesheet}\n{extra_stylesheet}"
+from qfluentwidgets import BodyLabel, LineEdit, ListWidget, PrimaryPushButton, PushButton
 
 
 def _default_t(text: str, **kwargs) -> str:
@@ -54,36 +36,30 @@ class ModelSelectorDialog(QDialog):
         self.selected_model = None
         self._t = t_func or _default_t
 
-        self.setObjectName("modelSelectorDialog")
         self.setWindowTitle(title)
         self.setMinimumWidth(520)
         self.setMinimumHeight(420)
         self.setModal(True)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
 
         self._setup_ui(prompt)
         self._populate_list()
-        apply_widget_stylesheet(self, _global_dialog_stylesheet(model_selector_dialog_stylesheet()))
-        QTimer.singleShot(0, lambda: apply_native_title_bar_theme(self, get_current_theme()))
 
     def _setup_ui(self, prompt: str):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
 
-        prompt_label = QLabel(prompt)
-        prompt_label.setObjectName("promptLabel")
+        prompt_label = BodyLabel(prompt)
+        prompt_label.setWordWrap(True)
         layout.addWidget(prompt_label)
 
-        self.search_input = QLineEdit()
-        self.search_input.setObjectName("searchInput")
+        self.search_input = LineEdit()
         self.search_input.setPlaceholderText(self._t("Search models..."))
         self.search_input.textChanged.connect(self._on_search_text_changed)
         layout.addWidget(self.search_input)
 
-        self.model_list = QListWidget()
-        self.model_list.setObjectName("modelList")
+        self.model_list = ListWidget()
         self.model_list.setAlternatingRowColors(False)
         self.model_list.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.model_list, 1)
@@ -92,13 +68,12 @@ class ModelSelectorDialog(QDialog):
         button_layout.setSpacing(10)
         button_layout.addStretch()
 
-        self.ok_button = QPushButton(self._t("OK"))
-        self.ok_button.setProperty("variant", "accent")
+        self.ok_button = PrimaryPushButton(self._t("OK"))
         self.ok_button.setFixedSize(112, 38)
         self.ok_button.clicked.connect(self._on_ok_clicked)
         self.ok_button.setEnabled(False)
 
-        cancel_button = QPushButton(self._t("Cancel"))
+        cancel_button = PushButton(self._t("Cancel"))
         cancel_button.setFixedSize(112, 38)
         cancel_button.clicked.connect(self.reject)
 

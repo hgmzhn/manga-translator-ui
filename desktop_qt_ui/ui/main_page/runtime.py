@@ -1,18 +1,11 @@
 from PyQt6.QtCore import QTimer
 
-from ui.theme import repolish_widget
-
-
 def _set_progress_state(self, state: str):
-    if hasattr(self, "progress_bar"):
-        self.progress_bar.setProperty("progressState", state)
-        repolish_widget(self.progress_bar)
+    return
 
 
 def _set_start_button_state(self, state: str):
-    if hasattr(self, "start_button"):
-        self.start_button.setProperty("translationState", state)
-        repolish_widget(self.start_button)
+    return
 
 
 def update_workflow_mode_description(self, index: int | None = None):

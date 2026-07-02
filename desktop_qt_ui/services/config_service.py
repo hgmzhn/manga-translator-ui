@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from core.config_models import AppSettings
-from dotenv import dotenv_values, load_dotenv
-
 from manga_translator.colorization.prompt_loader import ensure_ai_colorizer_prompt_file
 from manga_translator.custom_api_params import (
     ensure_custom_api_params_file,
@@ -24,6 +22,13 @@ from manga_translator.api_key_rotation import (
     env_has_any_indexed_value,
     get_rotation_env_keys,
     get_rotation_slot_count,
+)
+from manga_translator.utils.dotenv_utils import (
+    APP_DOTENV_PATH_ENV,
+    load_app_dotenv,
+    read_dotenv_file,
+    update_dotenv_file,
+    write_dotenv_file,
 )
 from manga_translator.utils.openai_compat import is_openai_api_key_optional
 
@@ -142,6 +147,7 @@ class ConfigService(QObject):
             self.env_path = os.path.join(exe_dir, ".env")
         else:
             self.env_path = os.path.join(self.root_dir, ".env")
+        os.environ[APP_DOTENV_PATH_ENV] = self.env_path
 
         # Use get_default_config_path() for PyInstaller compatibility
         # Temporarily set a placeholder, will be properly set after initialization
@@ -531,7 +537,7 @@ class ConfigService(QObject):
         self.logger.info("正在强制重新加载配置...")
         
         # 1. 重新加载 .env 文件到 os.environ。翻译引擎会自动从此读取。
-        load_dotenv(self.env_path, override=True)
+        load_app_dotenv(self.env_path, override=True)
         self.logger.info(f".env 文件已从 {self.env_path} 重新加载，环境变量已更新。")
 
         # 2. 重新创建 AppSettings 对象 (用于UI设置)
@@ -612,54 +618,21 @@ class ConfigService(QObject):
     def load_env_vars(self) -> Dict[str, str]:
         """加载环境变量"""
         try:
-            if os.path.exists(self.env_path):
-                return dotenv_values(self.env_path)
-            else:
-                return {}
+            return read_dotenv_file(self.env_path)
         except Exception as e:
             self.logger.error(f"加载环境变量失败: {e}")
             return {}
     
     def save_env_var(self, key: str, value: str) -> bool:
-        """保存单个环境变量 - 统一使用双引号包裹值"""
+        """保存单个环境变量 - 使用 python-dotenv 兼容格式"""
         try:
             # 去除首尾空格
             value = value.strip()
-            
-            # 转义双引号和反斜杠，然后用双引号包裹
-            escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
-            formatted_line = f'{key}="{escaped_value}"\n'
-            
-            if not os.path.exists(self.env_path):
-                os.makedirs(os.path.dirname(self.env_path), exist_ok=True)
-                with open(self.env_path, 'w', encoding='utf-8') as f:
-                    f.write(formatted_line)
-            else:
-                # 手动读取、更新、写入
-                lines = []
-                key_found = False
-                with open(self.env_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                
-                # 更新或添加键值对
-                with open(self.env_path, 'w', encoding='utf-8') as f:
-                    for line in lines:
-                        stripped = line.strip()
-                        if stripped and not stripped.startswith('#'):
-                            if '=' in stripped:
-                                existing_key = stripped.split('=', 1)[0].strip()
-                                if existing_key == key:
-                                    f.write(formatted_line)
-                                    key_found = True
-                                    continue
-                        f.write(line)
-                    
-                    # 如果键不存在，追加到文件末尾
-                    if not key_found:
-                        f.write(formatted_line)
+
+            update_dotenv_file(self.env_path, key, value, drop_invalid=True)
             
             # 重新加载环境变量到os.environ，使其立即生效
-            load_dotenv(self.env_path, override=True)
+            load_app_dotenv(self.env_path, override=True)
             return True
 
         except Exception as e:
@@ -690,16 +663,14 @@ class ConfigService(QObject):
             os.makedirs(os.path.dirname(self.env_path), exist_ok=True)
             
             # 写入新的.env文件
-            with open(self.env_path, 'w', encoding='utf-8') as f:
-                for key, value in env_vars.items():
-                    # 去除首尾空格
-                    value = value.strip()
-                    # 转义双引号和反斜杠，然后用双引号包裹
-                    escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
-                    f.write(f'{key}="{escaped_value}"\n')
+            normalized_env_vars = {
+                key: ("" if value is None else str(value).strip())
+                for key, value in env_vars.items()
+            }
+            write_dotenv_file(self.env_path, normalized_env_vars)
             
             # 重新加载环境变量到os.environ，使其立即生效
-            load_dotenv(self.env_path, override=True)
+            load_app_dotenv(self.env_path, override=True)
             
             # 清除缓存
             self._env_cache = None

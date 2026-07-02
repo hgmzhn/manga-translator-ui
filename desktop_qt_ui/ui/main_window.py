@@ -1,8 +1,10 @@
-from app_logic import MainAppLogic
-from ui.main_page.view import MainView
 from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, pyqtSlot
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget
+from PyQt6.QtWidgets import QApplication
+from qfluentwidgets import FluentIcon as FIF
+from qfluentwidgets import MSFluentWindow, NavigationItemPosition
+
+from app_logic import MainAppLogic
 from services import (
     ServiceManager,
     get_config_service,
@@ -11,11 +13,12 @@ from services import (
     get_state_manager,
 )
 from theme_registry import THEME_OPTIONS
-from utils.app_version import format_app_title, get_app_version
+from ui.main_page.view import MainView
 from ui.secondary_pages.themed_message_box import show_error_dialog
+from utils.app_version import format_app_title, get_app_version
 
 
-class MainWindow(QMainWindow):
+class MainWindow(MSFluentWindow):
     """
     应用主窗口，继承自 QMainWindow。
     负责承载所有UI组件、菜单栏、工具栏等。
@@ -101,20 +104,60 @@ class MainWindow(QMainWindow):
         """初始化UI组件"""
         # 不显示顶部菜单栏，菜单功能统一整合到设置区域
         self._create_ui_actions()
-        self.menuBar().hide()
-
-        # --- 中心布局 (QStackedWidget) ---
-        self.stacked_widget = QStackedWidget()
-        self.setCentralWidget(self.stacked_widget)
 
         self.main_view = MainView(self.app_logic, self)
+        self.main_view.setObjectName("main_view_controller")
 
         # 设置 app_logic 对 main_view 的引用，用于更新进度条
         self.app_logic.main_view = self.main_view
 
-        self.stacked_widget.addWidget(self.main_view)
+        self.stacked_widget = self.stackedWidget
+        self._main_navigation_items = {}
+        self._register_main_interfaces()
+        self._ensure_editor_initialized()
+        self.stacked_widget.currentChanged.connect(self._on_fluent_page_changed)
 
-        self.stacked_widget.setCurrentWidget(self.main_view)
+    def _register_main_interfaces(self):
+        pages = [
+            ("translation", self.main_view.translation_interface, FIF.HOME, self._t("Translation Interface")),
+            ("settings", self.main_view.settings_page, FIF.SETTING, self._t("Settings")),
+            ("env", self.main_view.env_page, FIF.CONNECT, self._t("API Management")),
+            ("prompts", self.main_view.prompt_page, FIF.DOCUMENT, self._t("Prompt Management")),
+            ("fonts", self.main_view.font_page, FIF.FONT, self._t("Font Management")),
+            ("replacements", self.main_view.replacements_page, FIF.EDIT, self._t("Replacement Rules")),
+        ]
+        for key, page, icon, text in pages:
+            page.setObjectName(f"main_{key}_page")
+            self._main_navigation_items[key] = self.addSubInterface(page, icon, text)
+
+        self._main_pages_by_widget = {page: key for key, page, _icon, _text in pages}
+        self.main_view.set_navigation_switcher(self._switch_main_page)
+        self.switchTo(self.main_view.translation_interface)
+
+    def _switch_main_page(self, page_key: str):
+        page = self.main_view.page_widgets.get(page_key) if hasattr(self.main_view, "page_widgets") else None
+        if page is not None:
+            self.switchTo(page)
+            self._on_main_page_activated(page_key)
+
+    def _on_fluent_page_changed(self, index: int):
+        widget = self.stacked_widget.widget(index)
+        page_key = getattr(self, "_main_pages_by_widget", {}).get(widget)
+        if page_key:
+            self._on_main_page_activated(page_key)
+
+    def _on_main_page_activated(self, page_key: str):
+        if page_key == "settings" and not getattr(self.main_view, "_settings_ui_ready", False):
+            self.main_view.set_parameters(self.config_service.get_config().model_dump())
+        elif page_key == "env":
+            self.main_view._refresh_env_api_groups()
+        elif page_key == "prompts":
+            self.main_view._refresh_prompt_manager()
+        elif page_key == "fonts":
+            self.main_view._refresh_font_manager()
+        elif page_key == "replacements":
+            if hasattr(self.main_view, "replacements_editor_panel"):
+                self.main_view.replacements_editor_panel.refresh()
 
     def _ensure_editor_initialized(self):
         if self.editor_view is not None:
@@ -135,10 +178,16 @@ class MainWindow(QMainWindow):
             self.editor_logic,
             self,
         )
-        self.stacked_widget.addWidget(self.editor_view)
+        self.editor_view.setObjectName("editor_page")
+        self.addSubInterface(
+            self.editor_view,
+            FIF.EDIT,
+            self._t("Editor View"),
+            position=NavigationItemPosition.BOTTOM,
+        )
 
         self.app_logic.config_loaded.connect(self.editor_view.property_panel.repopulate_options)
-        self.editor_view.back_to_main_requested.connect(lambda: self.stacked_widget.setCurrentWidget(self.main_view))
+        self.editor_view.back_to_main_requested.connect(lambda: self.switchTo(self.main_view.translation_interface))
 
         self.editor_view._apply_editor_style(self.current_applied_theme)
         self.editor_view.property_panel.repopulate_options()
@@ -183,16 +232,14 @@ class MainWindow(QMainWindow):
         # 记录当前实际应用的主题
         self.current_applied_theme = theme
         
-        from ui.theme import apply_application_theme, build_theme_palette
+        app = QApplication.instance()
+        from ui.theme import apply_application_theme
 
-        apply_application_theme(theme, QApplication.instance())
-        palette = build_theme_palette(theme)
-        self.setPalette(palette)
-        self.setStyleSheet("")
+        apply_application_theme(theme, app)
 
-        # 通知各视图应用对应主题的内联样式
+        # 通知各视图刷新局部 Fluent 主题状态
         if hasattr(self, 'main_view') and self.main_view:
-            self.main_view._apply_reference_ui_style(theme)
+            self.main_view.apply_fluent_theme(theme)
             self.main_view.update()
         if hasattr(self, 'editor_view') and self.editor_view:
             self.editor_view._apply_editor_style(theme)
@@ -319,7 +366,7 @@ class MainWindow(QMainWindow):
         # self.main_view.enter_editor_button.clicked.connect(self.enter_editor_mode) # Example for a dedicated button
 
         # --- View Switching Connections ---
-        self.main_view_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.main_view))
+        self.main_view_action.triggered.connect(lambda: self.switchTo(self.main_view.translation_interface))
         self.editor_view_action.triggered.connect(self.switch_to_editor_view)
 
         # --- 撤销/重做延迟转发到编辑器controller ---
@@ -427,6 +474,7 @@ class MainWindow(QMainWindow):
         # 刷新主视图的所有文本
         if hasattr(self, 'main_view') and self.main_view:
             self.main_view.refresh_ui_texts()
+            self._refresh_navigation_texts()
         
         # 刷新编辑器视图的所有文本（如果存在）
         if hasattr(self, 'editor_view') and self.editor_view:
@@ -538,7 +586,7 @@ class MainWindow(QMainWindow):
         self._ensure_editor_initialized()
         if self.editor_view and self.editor_view.property_panel:
             self.editor_view.property_panel.repopulate_options()
-        self.stacked_widget.setCurrentWidget(self.editor_view)
+        self.switchTo(self.editor_view)
 
     def enter_editor_mode(self, file_to_load: str = None, files_to_load: list = None):
         """
@@ -575,11 +623,25 @@ class MainWindow(QMainWindow):
                 elif expanded_files:
                     self.editor_logic.load_image_into_editor(expanded_files[0])
 
-            self.stacked_widget.setCurrentWidget(self.editor_view)
+            self.switchTo(self.editor_view)
         except Exception as e:
             self.logger.error(f"enter_editor_mode 发生异常: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
+
+    def _refresh_navigation_texts(self):
+        nav_labels = {
+            "translation": self._t("Translation Interface"),
+            "settings": self._t("Settings"),
+            "env": self._t("API Management"),
+            "prompts": self._t("Prompt Management"),
+            "fonts": self._t("Font Management"),
+            "replacements": self._t("Replacement Rules"),
+        }
+        for key, text in nav_labels.items():
+            item = getattr(self, "_main_navigation_items", {}).get(key)
+            if item is not None and hasattr(item, "setText"):
+                item.setText(text)
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""

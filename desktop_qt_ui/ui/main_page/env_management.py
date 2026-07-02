@@ -3,14 +3,9 @@ import re
 import textwrap
 from functools import partial
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
-from PyQt6.QtGui import QIcon
-from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
-from utils.resource_helper import resource_path
 from manga_translator.api_key_rotation import (
-    APIEndpoint,
     ROTATION_STRATEGIES,
+    APIEndpoint,
     get_indexed_env_key,
     get_rotation_slot_count,
     get_strategy_env_key,
@@ -20,6 +15,40 @@ from manga_translator.api_key_rotation import (
     record_api_success,
 )
 from manga_translator.utils.openai_compat import is_openai_api_key_optional
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
+from qfluentwidgets import BodyLabel, CardWidget, PushButton
+from qfluentwidgets import LineEdit as FluentLineEdit
+
+from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
+from utils.resource_helper import resource_path
+
+
+class QLineEdit(FluentLineEdit):
+    """Fluent LineEdit with the PyQt constructor forms used by env editors."""
+
+    def __init__(self, text: str | QWidget | None = "", parent: QWidget | None = None):
+        if isinstance(text, QWidget) and parent is None:
+            parent = text
+            text = ""
+        super().__init__(parent)
+        if text:
+            self.setText(str(text))
+
+    def addAction(self, action, position=FluentLineEdit.ActionPosition.TrailingPosition):
+        if isinstance(action, QIcon):
+            action = QAction(action, "", self)
+        super().addAction(action, position)
+        return action
 
 
 def _get_env_widget_value(widget) -> str:
@@ -100,17 +129,13 @@ def _create_env_line_edit(self, key: str, value: str):
 
 
 def _add_env_action_button(self, layout, row: int, env_key: str, action_key: str) -> None:
-    from PyQt6.QtWidgets import QPushButton
-
     if _is_secret_env_key(action_key):
-        test_button = QPushButton(self._t("Test"))
-        test_button.setProperty("chipButton", True)
+        test_button = PushButton(self._t("Test"))
         test_button.setFixedWidth(60)
         test_button.clicked.connect(partial(self._on_test_api_clicked, env_key))
         layout.addWidget(test_button, row, 2)
     elif "MODEL" in action_key:
-        get_models_button = QPushButton(self._t("Get Models"))
-        get_models_button.setProperty("chipButton", True)
+        get_models_button = PushButton(self._t("Get Models"))
         get_models_button.setFixedWidth(100)
         get_models_button.clicked.connect(partial(self._on_get_models_clicked, env_key))
         layout.addWidget(get_models_button, row, 2)
@@ -150,8 +175,6 @@ def create_api_rotation_widgets(
     current_values: dict,
 ):
     """Create a provider API rotation editor backed by .env keys."""
-    from PyQt6.QtWidgets import QPushButton
-
     if not hasattr(self, "env_layout"):
         return
 
@@ -184,31 +207,24 @@ def create_api_rotation_widgets(
     def add_slot(index: int):
         nonlocal row
 
-        slot_card = QFrame()
-        slot_card.setObjectName("api_slot_card")
-        slot_card.setFrameShape(QFrame.Shape.NoFrame)
+        slot_card = CardWidget()
 
         slot_card_layout = QVBoxLayout(slot_card)
         slot_card_layout.setContentsMargins(12, 10, 12, 12)
         slot_card_layout.setSpacing(10)
 
         header_widget = QWidget()
-        header_widget.setObjectName("api_slot_header")
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
 
-        slot_badge = QLabel(f"{index:02d}")
-        slot_badge.setObjectName("api_slot_badge")
+        slot_badge = BodyLabel(f"{index:02d}")
         slot_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         slot_badge.setFixedSize(28, 22)
 
-        slot_label = QLabel(self._t("API slot {index}", index="").strip())
-        slot_label.setObjectName("api_slot_title")
-        slot_label.setProperty("rowLabel", True)
+        slot_label = BodyLabel(self._t("API slot {index}", index="").strip())
 
         slot_line = QFrame()
-        slot_line.setObjectName("api_slot_divider")
         slot_line.setFrameShape(QFrame.Shape.HLine)
         slot_line.setFrameShadow(QFrame.Shadow.Plain)
 
@@ -233,7 +249,6 @@ def create_api_rotation_widgets(
                 continue
             value = current_values.get(key, "")
             label = QLabel(f"{_display_env_label(self, base_key, index, include_index=False)}:")
-            label.setObjectName("api_slot_field_label")
             widget, display_widget = _create_env_line_edit(self, base_key, value)
             widget.textChanged.connect(partial(self._debounced_save_env_var, key))
             widget.editingFinished.connect(partial(self._flush_env_var_immediately, key))
@@ -249,9 +264,7 @@ def create_api_rotation_widgets(
     for slot_index in range(1, slot_count + 1):
         add_slot(slot_index)
 
-    add_button = QPushButton(self._t("+ Add API slot"))
-    add_button.setObjectName("api_slot_add_button")
-    add_button.setProperty("chipButton", True)
+    add_button = PushButton(self._t("+ Add API slot"))
 
     def add_next_slot():
         nonlocal row
@@ -399,8 +412,6 @@ def _populate_api_feature_selector(self, label, combo, label_key: str, setting_k
 
 def create_api_feature_selector_row(self, section_key: str):
     """Create the feature selector row inside an API Management tab form."""
-    from PyQt6.QtWidgets import QPushButton
-
     spec = API_FEATURE_SELECTOR_BY_SECTION.get(section_key)
     if not spec or not hasattr(self, "env_layout"):
         return
@@ -408,15 +419,13 @@ def create_api_feature_selector_row(self, section_key: str):
     row = self.env_layout.rowCount()
 
     label = QLabel(f"{self._t(label_key)}:")
-    label.setObjectName("settings_form_label")
     combo = QComboBox()
     combo.setMinimumWidth(260)
-    combo.setProperty("apiFeatureSettingKey", setting_key)
-    combo.setProperty("apiFeatureOptionsKey", options_key)
+    combo._api_feature_setting_key = setting_key
+    combo._api_feature_options_key = options_key
     combo.currentIndexChanged.connect(lambda _idx, widget=combo: self._on_api_feature_combo_changed(widget))
 
-    test_button = QPushButton(self._t("Test Current Tab"))
-    test_button.setProperty("chipButton", True)
+    test_button = PushButton(self._t("Test Current Tab"))
     test_button.clicked.connect(lambda _checked=False, key=section_key: self._on_test_current_api_section_clicked(key))
 
     setattr(self, label_attr, label)
@@ -441,15 +450,13 @@ def on_api_feature_combo_changed(self, combo):
     """Handle feature selector changes inside API Management tabs."""
     if combo is None:
         return
-    setting_key = combo.property("apiFeatureSettingKey")
+    setting_key = getattr(combo, "_api_feature_setting_key", None)
     value = combo.currentData()
     if not setting_key or value is None:
         return
     self.setting_changed.emit(str(setting_key), str(value))
     QTimer.singleShot(100, lambda: self._refresh_env_api_groups())
     QTimer.singleShot(120, lambda: refresh_api_feature_selectors(self))
-    if hasattr(self, "_refresh_api_status_sidebar"):
-        QTimer.singleShot(150, self._refresh_api_status_sidebar)
 
 
 def _detect_test_target(env_key: str, translator_key: str) -> str:
@@ -601,6 +608,7 @@ def _format_test_connection_error(api_type: str, message: str) -> str:
 
 def _show_api_error_dialog(parent, title: str, heading: str, details: str) -> None:
     from PyQt6.QtWidgets import QMessageBox
+
     from ui.secondary_pages.themed_message_box import show_error_dialog
 
     show_error_dialog(parent, title, heading, details, icon=QMessageBox.Icon.Critical)
@@ -608,6 +616,7 @@ def _show_api_error_dialog(parent, title: str, heading: str, details: str) -> No
 
 def _show_api_success_dialog(parent, title: str, heading: str, details: str) -> None:
     from PyQt6.QtWidgets import QMessageBox
+
     from ui.secondary_pages.themed_message_box import show_error_dialog
 
     show_error_dialog(parent, title, heading, details, icon=QMessageBox.Icon.Information)
@@ -874,6 +883,7 @@ def _format_api_batch_result_text(self, results: list[dict]) -> str:
 
 def _show_api_batch_test_results(self, results: list[dict]) -> None:
     from PyQt6.QtWidgets import QMessageBox
+
     from ui.secondary_pages.themed_message_box import show_error_dialog
 
     available = sum(1 for item in results if item.get("success"))
@@ -897,9 +907,10 @@ def _run_api_batch_test(self, items: list[dict]):
     import asyncio
 
     from PyQt6.QtCore import QThread
-    from utils.asyncio_cleanup import shutdown_event_loop
-    from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
+
     from ui.secondary_pages.themed_message_box import themed_information
+    from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
+    from utils.asyncio_cleanup import shutdown_event_loop
 
     if not items:
         themed_information(self, self._t("API Batch Test"), self._t("No API channels to test"))
@@ -967,8 +978,6 @@ def _run_api_batch_test(self, items: list[dict]):
 
     def on_finished(results):
         progress.close()
-        if hasattr(self, "_refresh_api_status_sidebar"):
-            self._refresh_api_status_sidebar()
         _show_api_batch_test_results(self, results)
 
     thread = BatchTestThread()
@@ -998,7 +1007,9 @@ def on_open_custom_api_params_file(self):
         return
 
     try:
-        from ui.secondary_pages.custom_api_params_editor import CustomApiParamsEditorDialog
+        from ui.secondary_pages.custom_api_params_editor import (
+            CustomApiParamsEditorDialog,
+        )
 
         dialog = CustomApiParamsEditorDialog(config_path, t_func=self._t, parent=self)
         dialog.exec()
@@ -1014,8 +1025,9 @@ def on_test_api_clicked(self, key: str):
     import asyncio
 
     from PyQt6.QtCore import QThread
-    from utils.asyncio_cleanup import shutdown_event_loop
+
     from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
+    from utils.asyncio_cleanup import shutdown_event_loop
 
     if key not in self.env_widgets:
         return
@@ -1058,8 +1070,6 @@ def on_test_api_clicked(self, key: str):
                 record_api_success(status_endpoint)
             else:
                 record_api_failure(status_endpoint, Exception(str(message or "")))
-            if hasattr(self, "_refresh_api_status_sidebar"):
-                self._refresh_api_status_sidebar()
         if success:
             success_details = _wrap_error_text(message) if message else self._t("API connection test successful!")
             _show_api_success_dialog(
@@ -1090,10 +1100,10 @@ def on_get_models_clicked(self, key: str):
 
     from PyQt6.QtCore import QThread
     from PyQt6.QtWidgets import QMessageBox
-    from utils.asyncio_cleanup import shutdown_event_loop
-    from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
 
     from ui.secondary_pages.model_selector_dialog import ModelSelectorDialog
+    from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
+    from utils.asyncio_cleanup import shutdown_event_loop
 
     translator_key = _get_current_translator_key(self)
     model_api_type, api_key, api_base, _ = _resolve_api_context(self, key, translator_key)
@@ -1193,6 +1203,7 @@ def refresh_preset_list(self):
 def on_add_preset_clicked(self):
     """添加新预设。"""
     from PyQt6.QtWidgets import QMessageBox
+
     from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 
     preset_name, ok = themed_get_text(
@@ -1289,8 +1300,6 @@ def on_preset_changed(self, new_preset_name: str):
             widget.blockSignals(False)
         self._refresh_env_api_groups()
         self._refresh_api_feature_selectors()
-        if hasattr(self, "_refresh_api_status_sidebar"):
-            self._refresh_api_status_sidebar()
 
 
 def update_output_path_display(self, path: str):
