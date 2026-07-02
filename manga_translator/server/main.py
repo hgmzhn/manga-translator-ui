@@ -96,11 +96,12 @@ logger = logging.getLogger('manga_translator.server')
 os.environ['MANGA_TRANSLATOR_WEB_SERVER'] = 'true'
 
 # 启动时加载 .env 文件
-from dotenv import load_dotenv
+from manga_translator.utils.dotenv_utils import APP_DOTENV_PATH_ENV, load_app_dotenv
 
 env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+os.environ[APP_DOTENV_PATH_ENV] = env_path
 if os.path.exists(env_path):
-    load_dotenv(env_path)
+    load_app_dotenv(env_path, override=False)
     print(f"[INFO] Loaded environment variables from: {env_path}")
     # 打印已加载的 API Keys（不显示值）
     loaded_keys = [k for k in os.environ.keys() if 'API' in k or 'KEY' in k or 'TOKEN' in k]

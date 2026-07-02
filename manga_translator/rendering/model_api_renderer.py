@@ -15,6 +15,7 @@ from ..custom_api_params import (
 from ..api_key_rotation import run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..utils import TextBlock, get_logger
+from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.ai_image_preprocess import (
     normalize_ai_image,
     prepare_square_ai_image,
@@ -83,17 +84,13 @@ class BaseAPIRenderer:
         is_web_server = os.getenv("MANGA_TRANSLATOR_WEB_SERVER", "false").lower() == "true"
         if not is_web_server:
             try:
-                from dotenv import load_dotenv
-
-                load_dotenv(override=True)
+                load_app_dotenv(override=True)
             except Exception:
                 pass
 
     def _read_runtime_config(self, runtime_config=None):
         try:
-            from dotenv import load_dotenv
-
-            load_dotenv(override=True)
+            load_app_dotenv(override=True)
         except Exception:
             pass
 

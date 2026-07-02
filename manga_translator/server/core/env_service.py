@@ -6,9 +6,15 @@
 
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Dict, Optional
+
+from manga_translator.utils.dotenv_utils import (
+    normalize_env_value,
+    read_dotenv_file,
+    validate_env_key,
+    write_dotenv_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,18 +66,7 @@ class EnvService:
             env_vars = self.env_vars
         
         try:
-            env_path = Path(self.env_file)
-            
-            # 构建 .env 文件内容
-            lines = []
-            for key, value in env_vars.items():
-                # 统一使用双引号包裹所有值，确保 python-dotenv 正确解析
-                # 转义双引号和反斜杠
-                value = value.replace('\\', '\\\\').replace('"', '\\"')
-                lines.append(f'{key}="{value}"')
-            
-            # 写入文件
-            env_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+            write_dotenv_file(self.env_file, env_vars)
             
             logger.info(f"Saved {len(env_vars)} environment variable(s) to {self.env_file}")
             return True
@@ -138,6 +133,9 @@ class EnvService:
             bool: 更新是否成功
         """
         try:
+            key = validate_env_key(key)
+            value = normalize_env_value(value)
+
             # 更新内存中的值
             self.env_vars[key] = value
             
@@ -204,33 +202,9 @@ class EnvService:
                 logger.warning(f".env file not found at {self.env_file}")
                 return self.env_vars
             
-            # 读取文件内容
-            content = env_path.read_text(encoding='utf-8')
-            
-            # 解析每一行
-            for line_num, line in enumerate(content.splitlines(), 1):
-                try:
-                    # 去除首尾空白
-                    line = line.strip()
-                    
-                    # 跳过空行和注释
-                    if not line or line.startswith('#'):
-                        continue
-                    
-                    # 解析键值对
-                    key, value = self._parse_line(line)
-                    
-                    if key:
-                        # 保存到内存
-                        self.env_vars[key] = value
-                        
-                        # 设置系统环境变量
-                        os.environ[key] = value
-                
-                except Exception as e:
-                    # 格式错误容错：记录错误但继续处理其他行
-                    logger.warning(f"Failed to parse line {line_num} in .env file: {line} - {e}")
-                    continue
+            self.env_vars = read_dotenv_file(env_path)
+            for key, value in self.env_vars.items():
+                os.environ[key] = value
             
             logger.info(f"Loaded {len(self.env_vars)} environment variable(s) from {self.env_file}")
             return self.env_vars
@@ -238,47 +212,6 @@ class EnvService:
         except Exception as e:
             logger.error(f"Failed to load .env file: {e}")
             return self.env_vars
-    
-    def _parse_line(self, line: str) -> tuple[Optional[str], str]:
-        """
-        解析 .env 文件的一行
-        
-        Args:
-            line: 要解析的行
-        
-        Returns:
-            tuple[Optional[str], str]: (键, 值) 元组，如果解析失败返回 (None, '')
-        """
-        # 查找第一个等号
-        if '=' not in line:
-            raise ValueError("Line does not contain '='")
-        
-        key, _, value = line.partition('=')
-        key = key.strip()
-        value = value.strip()
-        
-        # 验证键名（只允许字母、数字和下划线）
-        if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', key):
-            raise ValueError(f"Invalid key name: {key}")
-        
-        # 处理引号包裹的值
-        if value:
-            # 单引号
-            if value.startswith("'") and value.endswith("'") and len(value) >= 2:
-                value = value[1:-1]
-                # 处理转义的单引号
-                value = value.replace("\\'", "'")
-            # 双引号
-            elif value.startswith('"') and value.endswith('"') and len(value) >= 2:
-                value = value[1:-1]
-                # 处理转义字符
-                value = value.replace('\\"', '"')
-                value = value.replace('\\n', '\n')
-                value = value.replace('\\r', '\r')
-                value = value.replace('\\t', '\t')
-                value = value.replace('\\\\', '\\')
-        
-        return key, value
     
     def _mask_value(self, value: str) -> str:
         """

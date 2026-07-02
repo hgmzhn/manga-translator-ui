@@ -1,8 +1,9 @@
 import colorama
-from dotenv import load_dotenv
+
+from .utils.dotenv_utils import load_app_dotenv
 
 colorama.init(autoreset=True)
-load_dotenv()
+load_app_dotenv(override=False)
 
 # 延迟导入，避免在 --help 时加载大型库
 def __getattr__(name):

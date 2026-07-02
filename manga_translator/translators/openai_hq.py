@@ -11,6 +11,7 @@ from PIL import Image
 
 from ..api_key_rotation import APIRotationExhaustedError, run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
+from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.image_modes import normalize_rgb_image
 from .common import (
     VALID_LANGUAGES,
@@ -78,8 +79,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         # Web环境下不重新加载，避免覆盖用户临时设置的环境变量
         is_web_server = os.getenv('MANGA_TRANSLATOR_WEB_SERVER', 'false').lower() == 'true'
         if not is_web_server:
-            from dotenv import load_dotenv
-            load_dotenv(override=True)
+            load_app_dotenv(override=True)
         
         self.api_key = os.getenv('OPENAI_API_KEY', OPENAI_API_KEY)
         self.base_url = os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1')

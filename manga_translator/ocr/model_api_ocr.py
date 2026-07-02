@@ -19,6 +19,7 @@ from ..custom_api_params import (
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..api_key_rotation import run_with_api_candidates
 from ..utils import Quadrilateral
+from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.generic import AvgMeter
 from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineOCR
@@ -92,9 +93,7 @@ class BaseAPIOCR(OfflineOCR):
         is_web_server = os.getenv("MANGA_TRANSLATOR_WEB_SERVER", "false").lower() == "true"
         if not is_web_server:
             try:
-                from dotenv import load_dotenv
-
-                load_dotenv(override=True)
+                load_app_dotenv(override=True)
             except Exception:
                 pass
 
@@ -118,9 +117,7 @@ class BaseAPIOCR(OfflineOCR):
 
     def _read_runtime_config(self, runtime_config=None):
         try:
-            from dotenv import load_dotenv
-
-            load_dotenv(override=True)
+            load_app_dotenv(override=True)
         except Exception:
             pass
 

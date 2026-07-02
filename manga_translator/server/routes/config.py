@@ -108,13 +108,10 @@ WEB_API_ENV_KEYS = {
 
 
 def _load_server_web_env_vars() -> dict:
-    from dotenv import dotenv_values
+    from manga_translator.utils.dotenv_utils import read_dotenv_file
 
     env_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
-    if not os.path.exists(env_path):
-        return {}
-
-    env_vars = dotenv_values(env_path)
+    env_vars = read_dotenv_file(env_path)
     return {
         key: value for key, value in env_vars.items()
         if key in WEB_API_ENV_KEYS and value
@@ -936,10 +933,10 @@ async def get_effective_user_env_vars(session: Session = Depends(require_auth)):
 @router.post("/env")
 async def save_user_env_vars(env_vars: dict, session: Session = Depends(require_auth)):
     """Save user's environment variables"""
-    from dotenv import load_dotenv
     from fastapi import HTTPException
 
     from manga_translator.server.core.env_service import EnvService
+    from manga_translator.utils.dotenv_utils import APP_DOTENV_PATH_ENV, load_app_dotenv
     
     policy = get_effective_api_key_policy(session.username, admin_settings)
     if not policy.get('show_env_editor', False):
@@ -959,6 +956,7 @@ async def save_user_env_vars(env_vars: dict, session: Session = Depends(require_
     
     # Save to server .env file using EnvService for consistent formatting
     env_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
+    os.environ[APP_DOTENV_PATH_ENV] = env_path
     try:
         env_service = EnvService(env_path)
         
@@ -966,7 +964,7 @@ async def save_user_env_vars(env_vars: dict, session: Session = Depends(require_
             env_service.update_env_var(key, value)
         
         # 重新加载 .env 文件确保所有变量都是最新的
-        load_dotenv(env_path, override=True)
+        load_app_dotenv(env_path, override=True)
         
         return {"success": True, "saved_to_server": True}
     except Exception as e:
