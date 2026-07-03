@@ -6,10 +6,8 @@ from typing import Callable, Dict, List, Optional
 from manga_translator.colorization.prompt_loader import (
     load_ai_colorizer_prompt_template,
 )
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QTableWidgetItem,
@@ -19,15 +17,19 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import (
     Action,
     BodyLabel,
-    CaptionLabel,
     CardWidget,
+    CaptionLabel,
+    FluentIcon as FIF,
+    HorizontalSeparator,
     PrimaryPushButton,
     PopUpAniStackedWidget,
     PushButton,
     RoundMenu,
     ScrollArea,
     SegmentedWidget,
+    SimpleCardWidget,
     TitleLabel,
+    ToolButton,
 )
 from qfluentwidgets import (
     PlainTextEdit as QPlainTextEdit,
@@ -88,30 +90,17 @@ def _dim_label(text: str) -> CaptionLabel:
     return label
 
 
-def _divider() -> QFrame:
-    line = QFrame()
-    line.setFrameShape(QFrame.Shape.HLine)
-    return line
-
-
-def _fluent_scroll(parent=None) -> ScrollArea:
-    scroll = ScrollArea(parent)
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setAutoFillBackground(False)
-    scroll.viewport().setAutoFillBackground(False)
-    scroll.enableTransparentBackground()
-    return scroll
+def _divider() -> HorizontalSeparator:
+    return HorizontalSeparator()
 
 
 def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit:
     editor = QPlainTextEdit()
-    editor.setAutoFillBackground(False)
-    editor.viewport().setAutoFillBackground(False)
     editor.setPlainText(text)
     editor.setReadOnly(read_only)
     editor.setFont(_monospace_font())
     editor.setTabStopDistance(28)
+    editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
     return editor
 
 
@@ -122,6 +111,8 @@ def _make_reference_images_table(
 ) -> QTableWidget:
     rows = entries or []
     table = QTableWidget()
+    table.setBorderVisible(True)
+    table.setBorderRadius(8)
     table.setRowCount(len(rows))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([t_func("Path"), t_func("Description")])
@@ -171,13 +162,16 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
-        header = QHBoxLayout()
-        title = TitleLabel(self._t("Edit Prompt"))
+        header_card = CardWidget(self)
+        header = QHBoxLayout(header_card)
+        header.setContentsMargins(16, 12, 16, 12)
+        header.setSpacing(10)
+        title = TitleLabel(self._t("Edit Prompt"), header_card)
         header.addWidget(title, 1)
         file_label = _dim_label(os.path.basename(self._file_path))
+        file_label.setParent(header_card)
         header.addWidget(file_label)
-        root.addLayout(header)
-        root.addWidget(_divider())
+        root.addWidget(header_card)
 
         self._tab_segmented = SegmentedWidget(self)
         self._tab_stack = PopUpAniStackedWidget(self)
@@ -191,10 +185,12 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         buttons.addStretch()
 
         cancel_btn = PushButton(self._t("Cancel"))
+        cancel_btn.setIcon(FIF.CANCEL)
         cancel_btn.setFixedWidth(100)
         cancel_btn.clicked.connect(self.reject)
 
         save_btn = PrimaryPushButton(self._t("Save"))
+        save_btn.setIcon(FIF.SAVE)
         save_btn.setFixedWidth(100)
         save_btn.clicked.connect(self._save)
 
@@ -216,10 +212,12 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         self._set_status(self._t("Loaded successfully"), "default")
 
     def _build_template_tab(self):
-        page = _fluent_scroll(self)
+        page = ScrollArea(self._tab_stack)
+        page.setWidgetResizable(True)
+        page.setFrameShape(ScrollArea.Shape.NoFrame)
         content = QWidget(page)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
         self._template_layout = layout
@@ -237,19 +235,21 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
             images=self._data.get("reference_images", []),
         )
 
-        self._add_section_btn = PushButton("+ " + self._t("Add Section"))
+        self._add_section_btn = PushButton(self._t("Add Section"))
+        self._add_section_btn.setIcon(FIF.ADD)
         self._add_section_btn.clicked.connect(self._show_add_section_menu)
         layout.addWidget(self._add_section_btn)
         layout.addStretch()
 
         page.setWidget(content)
+        page.enableTransparentBackground()
         route_key = "template_edit"
         page_index = self._tab_stack.count()
         self._tab_stack.addWidget(page)
         self._tab_segmented.addItem(
             route_key,
             self._t("Template Edit"),
-            onClick=lambda: (
+            onClick=lambda checked=False: (
                 self._tab_stack.setCurrentIndex(page_index),
                 self._tab_segmented.setCurrentItem(route_key),
             ),
@@ -258,7 +258,7 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         self._tab_segmented.setCurrentItem(route_key)
 
     def _build_raw_tab(self):
-        page = QWidget(self._tab_stack)
+        page = SimpleCardWidget(self._tab_stack)
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(12, 10, 12, 10)
         page_layout.setSpacing(6)
@@ -271,7 +271,7 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         self._tab_segmented.addItem(
             route_key,
             self._t("Raw Edit"),
-            onClick=lambda: (
+            onClick=lambda checked=False: (
                 self._tab_stack.setCurrentIndex(page_index),
                 self._tab_segmented.setCurrentItem(route_key),
             ),
@@ -281,7 +281,7 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
             self._tab_segmented.setCurrentItem(route_key)
 
     def _make_section_container(self, key: str) -> tuple[QWidget, QVBoxLayout]:
-        container = CardWidget()
+        container = SimpleCardWidget(self)
 
         outer = QVBoxLayout(container)
         outer.setContentsMargins(14, 12, 14, 12)
@@ -292,18 +292,21 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         header.addWidget(_section_label(self._t(self._SECTION_META.get(key, key))))
         header.addStretch()
 
-        btn_up = PushButton("▲")
-        btn_up.setFixedSize(28, 24)
+        btn_up = ToolButton(container)
+        btn_up.setIcon(FIF.UP)
+        btn_up.setFixedSize(28, 28)
         btn_up.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, -1))
         install_hover_hint(btn_up, self._t("Move Up"))
 
-        btn_down = PushButton("▼")
-        btn_down.setFixedSize(28, 24)
+        btn_down = ToolButton(container)
+        btn_down.setIcon(FIF.DOWN)
+        btn_down.setFixedSize(28, 28)
         btn_down.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, 1))
         install_hover_hint(btn_down, self._t("Move Down"))
 
-        btn_delete = PushButton("×")
-        btn_delete.setFixedSize(28, 24)
+        btn_delete = ToolButton(container)
+        btn_delete.setIcon(FIF.DELETE)
+        btn_delete.setFixedSize(28, 28)
         btn_delete.clicked.connect(lambda: self._remove_section(container, key))
         install_hover_hint(btn_delete, self._t("Delete"))
         container._move_up_button = btn_up
@@ -357,10 +360,12 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         layout.addWidget(self._reference_images_table)
 
         row_buttons = QHBoxLayout()
-        add_btn = PushButton("+ " + self._t("Add Reference Image"))
+        add_btn = PushButton(self._t("Add Reference Image"))
+        add_btn.setIcon(FIF.ADD_TO)
         add_btn.clicked.connect(self._prompt_and_add_reference_image)
 
-        del_btn = PushButton("- " + self._t("Delete Row"))
+        del_btn = PushButton(self._t("Delete Row"))
+        del_btn.setIcon(FIF.DELETE)
         del_btn.clicked.connect(lambda: self._del_table_row(self._reference_images_table))
 
         row_buttons.addWidget(add_btn)

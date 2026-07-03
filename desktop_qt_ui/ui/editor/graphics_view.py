@@ -1,9 +1,8 @@
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QTransform
-from PyQt6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+from PyQt6.QtGui import QColor, QPainter, QPalette, QTransform
+from PyQt6.QtWidgets import QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+from qfluentwidgets import isDarkTheme
 from services import get_logger
-
-from ui.theme import get_current_theme, get_theme_colors
 
 from editor.editor_model import EditorModel
 from editor.render_coordinator import RenderCoordinator
@@ -14,6 +13,11 @@ from .graphics_view_rendering import GraphicsViewRenderingMixin
 from .mask_layer import MaskLayer
 from .overlay_layer import OverlayLayerManager
 from .selection_manager import SelectionManager
+
+
+def _canvas_background_color(theme: str | None = None) -> QColor:
+    is_dark = str(theme or "").lower() == "dark" if theme is not None else isDarkTheme()
+    return QColor("#1A1C20" if is_dark else "#F7F7F7")
 
 
 class GraphicsView(
@@ -163,15 +167,21 @@ class GraphicsView(
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setFrameShape(QFrame.Shape.NoFrame)
 
         self.apply_theme()
         self.selection_manager = SelectionManager(self.model, self.scene, lambda: self._region_items)
 
     def apply_theme(self, theme: str | None = None):
-        colors = get_theme_colors(theme or get_current_theme())
-        canvas_color = QColor(colors["bg_canvas"])
+        canvas_color = _canvas_background_color(theme)
         self.scene.setBackgroundBrush(canvas_color)
         self.setBackgroundBrush(canvas_color)
+        self.setAutoFillBackground(True)
+        palette = self.viewport().palette()
+        palette.setColor(QPalette.ColorRole.Base, canvas_color)
+        palette.setColor(QPalette.ColorRole.Window, canvas_color)
+        self.viewport().setPalette(palette)
+        self.viewport().setAutoFillBackground(True)
         self.scene.update()
         self.viewport().update()
 

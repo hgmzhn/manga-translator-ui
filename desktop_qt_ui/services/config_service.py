@@ -25,6 +25,7 @@ from manga_translator.api_key_rotation import (
 )
 from manga_translator.utils.dotenv_utils import (
     APP_DOTENV_PATH_ENV,
+    delete_dotenv_keys,
     load_app_dotenv,
     read_dotenv_file,
     update_dotenv_file,
@@ -654,6 +655,19 @@ class ConfigService(QObject):
             self.logger.error(f"批量保存环境变量失败: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+            return False
+
+    def delete_env_vars(self, keys: list[str] | tuple[str, ...] | set[str]) -> bool:
+        """删除多个环境变量，并立即同步到运行环境。"""
+        try:
+            delete_dotenv_keys(self.env_path, keys, drop_invalid=True)
+            for key in keys:
+                os.environ.pop(str(key), None)
+            load_app_dotenv(self.env_path, override=True)
+            self._env_cache = None
+            return True
+        except Exception as e:
+            self.logger.error(f"删除环境变量失败: {e}")
             return False
     
     def replace_env_file(self, env_vars: Dict[str, str]) -> bool:

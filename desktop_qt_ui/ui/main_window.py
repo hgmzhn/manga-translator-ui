@@ -88,8 +88,8 @@ class MainWindow(MSFluentWindow):
             else:
                 initial_theme = config.app.theme_user_preference
 
-        from ui.theme import set_current_theme
-        set_current_theme(initial_theme)
+        from ui.theme import apply_application_theme
+        apply_application_theme(initial_theme, QApplication.instance())
         self.current_applied_theme = initial_theme
 
         # --- Logic Controllers ---
@@ -357,7 +357,7 @@ class MainWindow(MSFluentWindow):
         self.main_view.setting_changed.connect(self.app_logic.update_single_config)
         self.main_view.editor_view_requested.connect(self.switch_to_editor_view)
         self.main_view.theme_change_requested.connect(self._change_theme)
-        self.main_view.language_change_requested.connect(self._change_language)
+        self.main_view.language_change_requested.connect(self._change_language, type=Qt.ConnectionType.QueuedConnection)
 
         # --- View to Coordinator Connections ---
         self.main_view.file_list.file_selected.connect(self.on_file_selected_from_main_list)
@@ -433,7 +433,7 @@ class MainWindow(MSFluentWindow):
             config.app.ui_language = locale_code
             self.config_service.set_config(config)
             self.config_service.save_config_file()
-            
+
             # 刷新UI文本
             self._refresh_ui_texts()
             self.logger.info(f"语言已切换到: {locale_code}")

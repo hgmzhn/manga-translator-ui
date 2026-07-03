@@ -12,6 +12,7 @@ class FluentScrollArea(ScrollArea):
         self.setFrameShape(ScrollArea.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.enableTransparentBackground()
 
     def setWidget(self, widget: QWidget):
         widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)

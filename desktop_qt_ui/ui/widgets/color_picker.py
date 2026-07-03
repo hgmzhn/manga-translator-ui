@@ -1,8 +1,6 @@
 
 import logging
-import re
 
-from ui.theme import get_current_theme_colors
 from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, QRegularExpression, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
@@ -14,7 +12,6 @@ from PyQt6.QtGui import (
     QLinearGradient,
     QPainter,
     QPainterPath,
-    QPalette,
     QPen,
     QPixmap,
     QRegularExpressionValidator,
@@ -37,6 +34,7 @@ from qfluentwidgets import (
     LineEdit,
     ToolButton,
     isDarkTheme,
+    themeColor,
 )
 from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
@@ -247,13 +245,12 @@ class _ColorEntryButton(DropDownPushButton):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        c = get_current_theme_colors()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         enabled = self.isEnabled()
         if self._checked and enabled:
-            active_border = _theme_color(c, "btn_soft_checked_border", "rgba(59, 130, 246, 0.45)")
+            active_border = _fluent_accent_color(115)
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.setPen(QPen(active_border, 1))
             p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 5, 5)
@@ -315,7 +312,7 @@ class _PaletteSwatch(QWidget):
         p.drawRoundedRect(rect, 5, 5)
 
         if self._selected:
-            p.setPen(QPen(_theme_color(get_current_theme_colors(), "btn_primary_bg", "#0F6CBD"), 2))
+            p.setPen(QPen(_fluent_accent_color(), 2))
             p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 6, 6)
         p.end()
 
@@ -338,13 +335,12 @@ class _CurrentColorPreview(QWidget):
             self.update()
 
     def paintEvent(self, _event):
-        c = get_current_theme_colors()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         outer = self.rect().adjusted(1, 1, -1, -1)
-        p.setBrush(_theme_or_palette_color(self, c, "bg_surface_soft", QPalette.ColorRole.Window))
-        p.setPen(QPen(_theme_or_palette_color(self, c, "border_input", QPalette.ColorRole.Mid), 1))
+        p.setBrush(_fluent_surface_color())
+        p.setPen(QPen(_fluent_border_color(), 1))
         p.drawRoundedRect(outer, 8, 8)
 
         inner = outer.adjusted(7, 7, -7, -7)
@@ -418,7 +414,6 @@ class _ColorField(QWidget):
         return image
 
     def paintEvent(self, _event):
-        c = get_current_theme_colors()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(1, 1, -2, -2)
@@ -431,7 +426,7 @@ class _ColorField(QWidget):
         if self._value < 1.0:
             p.fillRect(rect, QColor(0, 0, 0, round((1.0 - self._value) * 255)))
         p.restore()
-        p.setPen(QPen(_theme_color(c, "border_input", "#d1d1d1"), 1))
+        p.setPen(QPen(_fluent_border_color(), 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(rect, 7, 7)
 
@@ -480,7 +475,6 @@ class _BrightnessSlider(QWidget):
         self.value_changed.emit(self._value)
 
     def paintEvent(self, _event):
-        c = get_current_theme_colors()
         rect = self.rect().adjusted(3, 8, -3, -8)
         end_color = QColor.fromHsvF(self._hue, self._saturation, 1.0)
         gradient = QLinearGradient(rect.left(), 0, rect.right(), 0)
@@ -489,7 +483,7 @@ class _BrightnessSlider(QWidget):
 
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(QPen(_theme_color(c, "border_input", "#d1d1d1"), 1))
+        p.setPen(QPen(_fluent_border_color(), 1))
         p.setBrush(gradient)
         p.drawRoundedRect(rect, 5, 5)
 
@@ -541,7 +535,6 @@ class _ColorPaletteView(FlyoutViewBase):
         self.setWindowTitle(title)
         self.setMinimumWidth(self._preferred_dialog_width())
         self._init_ui(saved_colors)
-        self._apply_dialog_theme()
         self._set_selected_color(self._selected, emit=False)
 
     @property
@@ -740,15 +733,6 @@ class _ColorPaletteView(FlyoutViewBase):
             self._updating_inputs = False
         if emit:
             self.color_changed.emit(QColor(self._selected))
-
-    def _apply_dialog_theme(self):
-        c = get_current_theme_colors()
-        self.setStyleSheet(self.styleSheet() + f"""
-            _ColorPaletteView {{
-                color: {c.get("text_primary", "#1f1f1f")};
-            }}
-        """)
-
 
 # ═══════════════════════════════════════════════════════════════
 #  ColorPickerWidget
@@ -1013,9 +997,6 @@ class ColorPickerWidget(QWidget):
         except Exception as e:
             logger.error(f"保存颜色失败 ({self._config_key}): {e}")
 
-_CSS_RGB_RE = re.compile(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([0-9.]+))?\s*\)")
-
-
 def _show_color_flyout_above_target(view: FlyoutViewBase, target: QWidget, parent=None) -> Flyout:
     flyout = Flyout(view, parent)
     # Keep the Fluent flyout animation, but remove the transparent shadow margin
@@ -1040,34 +1021,6 @@ def _apply_flyout_content_mask(flyout: Flyout):
         flyout.setMask(QRegion(content_rect))
 
 
-def _theme_color(colors: dict, key: str, fallback: str) -> QColor:
-    return _parse_color(colors.get(key, fallback), fallback)
-
-
-def _theme_or_palette_color(widget: QWidget, colors: dict, key: str, role: QPalette.ColorRole) -> QColor:
-    value = colors.get(key)
-    if value is not None:
-        color = _parse_color(value, "")
-        if color.isValid():
-            return color
-    return widget.palette().color(role)
-
-
-def _parse_color(value, fallback: str) -> QColor:
-    color = QColor(value if value is not None else fallback)
-    if color.isValid():
-        return color
-
-    match = _CSS_RGB_RE.fullmatch(str(value or fallback).strip())
-    if not match:
-        return QColor(fallback)
-
-    red, green, blue = (max(0, min(255, int(match.group(i)))) for i in range(1, 4))
-    alpha_text = match.group(4)
-    alpha = 255 if alpha_text is None else max(0, min(255, round(float(alpha_text) * 255)))
-    return QColor(red, green, blue, alpha)
-
-
 def _normalize_hex(value: str | None) -> str | None:
     if not value:
         return None
@@ -1089,6 +1042,20 @@ def _create_eyedropper_icon() -> QIcon:
 
 def _is_light_color(color: QColor) -> bool:
     return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 175
+
+
+def _fluent_accent_color(alpha: int = 255) -> QColor:
+    color = QColor(themeColor())
+    color.setAlpha(max(0, min(255, alpha)))
+    return color
+
+
+def _fluent_surface_color() -> QColor:
+    return QColor(43, 43, 43) if isDarkTheme() else QColor(255, 255, 255)
+
+
+def _fluent_border_color() -> QColor:
+    return QColor(255, 255, 255, 38) if isDarkTheme() else QColor(0, 0, 0, 34)
 
 
 def _fluent_disabled_foreground() -> QColor:

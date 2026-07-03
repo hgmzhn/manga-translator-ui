@@ -4,6 +4,7 @@ import textwrap
 from functools import partial
 
 from manga_translator.api_key_rotation import (
+    MAX_ROTATION_SLOTS,
     ROTATION_STRATEGIES,
     APIEndpoint,
     get_indexed_env_key,
@@ -24,11 +25,13 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, HorizontalSeparator, PushButton, StrongBodyLabel
+from qfluentwidgets import BodyLabel, CaptionLabel, FluentIcon as FIF, HorizontalSeparator, PushButton, SimpleCardWidget, StrongBodyLabel, ToolButton
 from qfluentwidgets import LineEdit as FluentLineEdit
 
 from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
+
+API_ROTATION_UI_MAX_SLOTS = min(10, MAX_ROTATION_SLOTS)
 
 
 class QLineEdit(FluentLineEdit):
@@ -177,7 +180,12 @@ def create_api_rotation_widgets(
 
     layout = self.env_layout
     slot_keys = (api_key_env, model_env, api_base_env)
-    slot_count = get_rotation_slot_count(current_values, slot_keys)
+    slot_count = get_rotation_slot_count(
+        current_values,
+        slot_keys,
+        default=1,
+        maximum=API_ROTATION_UI_MAX_SLOTS,
+    )
     strategy_key = get_strategy_env_key(api_key_env)
     row = layout.rowCount()
 
@@ -204,7 +212,7 @@ def create_api_rotation_widgets(
     def add_slot(index: int):
         nonlocal row
 
-        slot_card = CardWidget()
+        slot_card = SimpleCardWidget()
 
         slot_card_layout = QVBoxLayout(slot_card)
         slot_card_layout.setContentsMargins(12, 10, 12, 12)
@@ -218,10 +226,22 @@ def create_api_rotation_widgets(
         slot_badge.setFixedSize(28, 22)
 
         slot_label = StrongBodyLabel(self._t("API slot {index}", index="").strip())
+        delete_button = ToolButton()
+        delete_button.setIcon(FIF.REMOVE)
+        delete_button.setToolTip(self._t("Delete"))
+        delete_button.setFixedSize(32, 32)
+        delete_button.clicked.connect(
+            lambda _checked=False, slot_index=index: _delete_api_rotation_slot(
+                self,
+                slot_keys,
+                slot_index,
+            )
+        )
 
         header_layout.addWidget(slot_badge)
         header_layout.addWidget(slot_label)
         header_layout.addWidget(HorizontalSeparator(), 1)
+        header_layout.addWidget(delete_button)
         slot_card_layout.addLayout(header_layout)
 
         slot_grid = QGridLayout()
@@ -258,18 +278,65 @@ def create_api_rotation_widgets(
     add_button = PushButton(self._t("+ Add API slot"))
 
     def add_next_slot():
-        nonlocal row
-        layout.removeWidget(add_button)
-        row = max(0, row - 1)
-        existing_values = {key: _get_env_widget_value(pair[1]) for key, pair in self.env_widgets.items()}
-        next_index = get_rotation_slot_count(existing_values, slot_keys) + 1
-        add_slot(next_index)
+        next_index = slot_count + 1
+        if next_index > API_ROTATION_UI_MAX_SLOTS:
+            add_button.hide()
+            return
+
+        flush_all_pending_env_vars(self)
+        for base_key in slot_keys:
+            key = get_indexed_env_key(base_key, next_index)
+            if key:
+                self.controller.config_service.save_env_var(key, "")
+
+        self._env_api_groups_signature = None
+        self._refresh_env_api_groups(force=True)
+        self._refresh_api_feature_selectors()
+
+    if slot_count < API_ROTATION_UI_MAX_SLOTS:
+        add_button.clicked.connect(add_next_slot)
         layout.addWidget(add_button, row, 0, 1, 3, Qt.AlignmentFlag.AlignLeft)
         row += 1
 
-    add_button.clicked.connect(add_next_slot)
-    layout.addWidget(add_button, row, 0, 1, 3, Qt.AlignmentFlag.AlignLeft)
-    row += 1
+
+def _delete_api_rotation_slot(self, slot_keys: tuple[str, str, str], slot_index: int):
+    """Delete an API slot and compact later slots so cards stay consecutive."""
+    flush_all_pending_env_vars(self)
+
+    config_service = self.controller.config_service
+    current_values = config_service.load_env_vars()
+    slot_count = get_rotation_slot_count(
+        current_values,
+        slot_keys,
+        default=1,
+        maximum=API_ROTATION_UI_MAX_SLOTS,
+    )
+    slot_index = max(1, min(int(slot_index), slot_count))
+
+    for index in range(slot_index, slot_count):
+        for base_key in slot_keys:
+            target_key = get_indexed_env_key(base_key, index)
+            source_key = get_indexed_env_key(base_key, index + 1)
+            if not target_key or not source_key:
+                continue
+            source_value = str(current_values.get(source_key, "") or "")
+            if source_value:
+                config_service.save_env_var(target_key, source_value)
+            else:
+                config_service.delete_env_vars([target_key])
+
+    delete_keys = [
+        key
+        for base_key in slot_keys
+        for key in [get_indexed_env_key(base_key, slot_count)]
+        if key
+    ]
+    if delete_keys:
+        config_service.delete_env_vars(delete_keys)
+
+    self._env_api_groups_signature = None
+    self._refresh_env_api_groups(force=True)
+    self._refresh_api_feature_selectors()
 
 
 def get_env_default_placeholder(self, key: str) -> str:

@@ -26,6 +26,7 @@ from qfluentwidgets import (
     PushButton,
     SegmentedWidget,
     Slider,
+    SimpleCardWidget,
     StrongBodyLabel,
     TextEdit,
     ToolButton,
@@ -231,10 +232,10 @@ class PropertyPanel(QWidget):
         self.scroll_area = scroll_area
         
         # 创建内容容器
-        content_widget = QWidget()
+        content_widget = QWidget(scroll_area)
         self.content_widget = content_widget
         content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(4, 2, 8, 2)
+        content_layout.setContentsMargins(8, 8, 8, 8)
         content_layout.setSpacing(10)
         content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
@@ -249,6 +250,7 @@ class PropertyPanel(QWidget):
         
         # 将内容容器放入滚动区域
         scroll_area.setWidget(content_widget)
+        scroll_area.enableTransparentBackground()
         main_layout.addWidget(scroll_area)
         self.sync_sidebar_layout()
 
@@ -257,7 +259,7 @@ class PropertyPanel(QWidget):
 
     def _make_group(self, title: str) -> tuple[PanelSettingCardGroup, CardWidget]:
         group = PanelSettingCardGroup(title, self)
-        card = CardWidget(group)
+        card = SimpleCardWidget(group)
         return group, card
 
     def _finish_group(self, group: PanelSettingCardGroup, card: CardWidget):
@@ -314,15 +316,13 @@ class PropertyPanel(QWidget):
         self.paint_segmented_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.paint_stack = PopUpAniStackedWidget(mask_card)
         self.paint_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.paint_stack.setAutoFillBackground(False)
 
         # 选择按钮组（两个 tab 共享同一个按钮组，保持互斥）
         self.mask_tool_group = QButtonGroup(self)
         self.mask_tool_group.setExclusive(True)
 
         # ======= Tab 1：蒙版 =======
-        mask_tab = QWidget()
-        mask_tab.setAutoFillBackground(False)
+        mask_tab = SimpleCardWidget(self.paint_stack)
         mask_layout = QVBoxLayout(mask_tab)
         mask_layout.setContentsMargins(6, 8, 6, 6)
         mask_layout.setSpacing(8)
@@ -382,8 +382,7 @@ class PropertyPanel(QWidget):
         mask_layout.addStretch()
 
         # ======= Tab 2：画笔（彩色涂鸦） =======
-        paint_tab = QWidget()
-        paint_tab.setAutoFillBackground(False)
+        paint_tab = SimpleCardWidget(self.paint_stack)
         paint_layout = QVBoxLayout(paint_tab)
         paint_layout.setContentsMargins(6, 8, 6, 6)
         paint_layout.setSpacing(8)

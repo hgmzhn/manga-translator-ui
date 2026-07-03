@@ -1,7 +1,7 @@
-from ui.theme import get_current_theme_colors
 from PyQt6.QtCore import QObject, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPen
 from PyQt6.QtWidgets import QGraphicsRectItem
+from qfluentwidgets import themeColor
 from services import get_logger
 
 
@@ -98,9 +98,10 @@ class SelectionManager(QObject):
                 self._box_select_rect_item = None
 
         if need_create:
-            colors = get_current_theme_colors()
-            accent = QColor(colors["cta_gradient_start"])
-            fill = QColor(colors["cta_gradient_start"])
+            accent = themeColor().toRgb()
+            if not accent.isValid():
+                accent = QColor("#0F6CBD")
+            fill = QColor(accent)
             accent.setAlpha(190)
             fill.setAlpha(36)
             pen = QPen(accent)

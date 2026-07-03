@@ -1,8 +1,13 @@
-from ui.theme import get_current_theme, get_theme_colors
 from editor.image_utils import build_display_image_frame
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPixmap, QTransform
-from PyQt6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+from PyQt6.QtGui import QColor, QPainter, QPalette, QPixmap, QTransform
+from PyQt6.QtWidgets import QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+from qfluentwidgets import isDarkTheme
+
+
+def _canvas_background_color(theme: str | None = None) -> QColor:
+    is_dark = str(theme or "").lower() == "dark" if theme is not None else isDarkTheme()
+    return QColor("#1A1C20" if is_dark else "#F7F7F7")
 
 
 class OriginalCompareView(QGraphicsView):
@@ -34,13 +39,19 @@ class OriginalCompareView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self.apply_theme()
 
     def apply_theme(self, theme: str | None = None):
-        colors = get_theme_colors(theme or get_current_theme())
-        canvas_color = QColor(colors["bg_canvas"])
+        canvas_color = _canvas_background_color(theme)
         self.scene.setBackgroundBrush(canvas_color)
         self.setBackgroundBrush(canvas_color)
+        self.setAutoFillBackground(True)
+        palette = self.viewport().palette()
+        palette.setColor(QPalette.ColorRole.Base, canvas_color)
+        palette.setColor(QPalette.ColorRole.Window, canvas_color)
+        self.viewport().setPalette(palette)
+        self.viewport().setAutoFillBackground(True)
         self.scene.update()
         self.viewport().update()
 

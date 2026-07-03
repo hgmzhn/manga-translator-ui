@@ -3,7 +3,7 @@ from __future__ import annotations
 import textwrap
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from qfluentwidgets import Dialog, MessageBox, PlainTextEdit
+from qfluentwidgets import Dialog, FluentIcon as FIF, MessageBox, PlainTextEdit
 
 _INSTALLED = False
 
@@ -36,6 +36,14 @@ _BUTTON_LABELS = {
     QMessageBox.StandardButton.No: "No",
     QMessageBox.StandardButton.Cancel: "Cancel",
     QMessageBox.StandardButton.Close: "Close",
+}
+
+_BUTTON_ICONS = {
+    QMessageBox.StandardButton.Ok: FIF.ACCEPT,
+    QMessageBox.StandardButton.Yes: FIF.ACCEPT,
+    QMessageBox.StandardButton.No: FIF.CANCEL,
+    QMessageBox.StandardButton.Cancel: FIF.CANCEL,
+    QMessageBox.StandardButton.Close: FIF.CLOSE,
 }
 
 
@@ -83,11 +91,13 @@ def _configure_dialog_buttons(
 ) -> tuple[QMessageBox.StandardButton, QMessageBox.StandardButton]:
     accept_button, reject_button = _resolve_dialog_buttons(buttons)
     dialog.yesButton.setText(_button_text(accept_button))
+    dialog.yesButton.setIcon(_BUTTON_ICONS.get(accept_button, FIF.ACCEPT))
 
     if reject_button == QMessageBox.StandardButton.NoButton:
         dialog.hideCancelButton()
     else:
         dialog.cancelButton.setText(_button_text(reject_button))
+        dialog.cancelButton.setIcon(_BUTTON_ICONS.get(reject_button, FIF.CANCEL))
 
     if default_button == reject_button and reject_button != QMessageBox.StandardButton.NoButton:
         dialog.cancelButton.setFocus()

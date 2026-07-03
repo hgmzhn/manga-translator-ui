@@ -67,15 +67,12 @@ class EditorToolbar(CardWidget):
         self.scroll_area.setFrameShape(SingleDirectionScrollArea.Shape.NoFrame)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.scroll_area.setAutoFillBackground(False)
-        self.scroll_area.viewport().setAutoFillBackground(False)
+        self.scroll_area.enableTransparentBackground()
         outer_layout.addWidget(self.scroll_area)
 
-        self.content_widget = QWidget()
-        self.content_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.content_widget.setAutoFillBackground(False)
+        self.content_widget = QWidget(self.scroll_area)
         layout = QHBoxLayout(self.content_widget)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(10)
 
         # --- File Actions ---
@@ -370,4 +367,3 @@ class EditorToolbar(CardWidget):
     def refresh_theme(self):
         for button, icon_file in self._themed_icon_buttons:
             button.setIcon(themed_fluent_svg_icon(icon_file))
-        self.scroll_area.enableTransparentBackground()

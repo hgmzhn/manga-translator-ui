@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QVBoxLayout,
 )
-from qfluentwidgets import BodyLabel, LineEdit, ListWidget, PrimaryPushButton, PushButton
+from qfluentwidgets import BodyLabel, FluentIcon as FIF, LineEdit, ListWidget, PrimaryPushButton, PushButton
 from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
 
 
@@ -69,11 +69,13 @@ class ModelSelectorDialog(FluentSecondaryDialog):
         button_layout.addStretch()
 
         self.ok_button = PrimaryPushButton(self._t("OK"))
+        self.ok_button.setIcon(FIF.ACCEPT)
         self.ok_button.setFixedSize(112, 38)
         self.ok_button.clicked.connect(self._on_ok_clicked)
         self.ok_button.setEnabled(False)
 
         cancel_button = PushButton(self._t("Cancel"))
+        cancel_button.setIcon(FIF.CANCEL)
         cancel_button.setFixedSize(112, 38)
         cancel_button.clicked.connect(self.reject)
 

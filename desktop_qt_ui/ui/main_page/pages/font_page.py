@@ -4,6 +4,7 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    HeaderCardWidget,
     HorizontalSeparator,
     LineEdit,
     ListWidget,
@@ -14,22 +15,6 @@ from qfluentwidgets import (
     StrongBodyLabel,
     TitleLabel,
 )
-
-
-class _TitledCard(CardWidget):
-    def __init__(self, title: str = "", parent=None):
-        super().__init__(parent)
-        self._title = title
-        self.title_label = StrongBodyLabel(title, self)
-        self.title_label.setVisible(bool(title))
-
-    def setTitle(self, title: str):
-        self._title = title
-        self.title_label.setText(title)
-        self.title_label.setVisible(bool(title))
-
-    def title(self) -> str:
-        return self._title
 
 
 def create_font_page(self) -> QWidget:
@@ -51,11 +36,11 @@ def create_font_page(self) -> QWidget:
     header_layout.addWidget(self.font_page_subtitle_label)
     page_layout.addWidget(header_card)
 
-    self.font_card = _TitledCard(self._t("Font List"))
-    font_card_layout = QVBoxLayout(self.font_card)
-    font_card_layout.setContentsMargins(16, 14, 16, 16)
+    self.font_card = HeaderCardWidget(self._t("Font List"))
+    font_card_layout = QVBoxLayout()
+    font_card_layout.setContentsMargins(0, 0, 0, 0)
     font_card_layout.setSpacing(10)
-    font_card_layout.addWidget(self.font_card.title_label)
+    self.font_card.viewLayout.addLayout(font_card_layout)
 
     button_row = QWidget()
     button_row_layout = QHBoxLayout(button_row)
@@ -83,12 +68,12 @@ def create_font_page(self) -> QWidget:
 
     page_layout.addWidget(self.font_card, 1)
 
-    self.font_preview_card = _TitledCard(self._t("Font Preview"))
+    self.font_preview_card = HeaderCardWidget(self._t("Font Preview"))
     self.font_preview_card.setFixedHeight(320)
-    preview_card_layout = QVBoxLayout(self.font_preview_card)
-    preview_card_layout.setContentsMargins(16, 14, 16, 16)
+    preview_card_layout = QVBoxLayout()
+    preview_card_layout.setContentsMargins(0, 0, 0, 0)
     preview_card_layout.setSpacing(8)
-    preview_card_layout.addWidget(self.font_preview_card.title_label)
+    self.font_preview_card.viewLayout.addLayout(preview_card_layout)
 
     header_row = QHBoxLayout()
     header_row.setSpacing(10)
@@ -118,10 +103,8 @@ def create_font_page(self) -> QWidget:
 
     self.font_preview_scroll = ScrollArea()
     self.font_preview_scroll.setWidgetResizable(True)
-    self.font_preview_scroll.enableTransparentBackground()
-    self.font_preview_scroll.viewport().setAutoFillBackground(False)
 
-    scroll_content = QWidget()
+    scroll_content = QWidget(self.font_preview_scroll)
     self.scroll_content_layout = QVBoxLayout(scroll_content)
     self.scroll_content_layout.setContentsMargins(0, 4, 0, 4)
     self.scroll_content_layout.setSpacing(10)
@@ -129,7 +112,6 @@ def create_font_page(self) -> QWidget:
     self.font_preview_labels = []
     for _ in range(3):
         lbl = BodyLabel()
-        lbl.setAutoFillBackground(False)
         lbl.setWordWrap(False)
         lbl.setScaledContents(False)
         self.scroll_content_layout.addWidget(lbl)
@@ -137,6 +119,7 @@ def create_font_page(self) -> QWidget:
 
     self.scroll_content_layout.addStretch()
     self.font_preview_scroll.setWidget(scroll_content)
+    self.font_preview_scroll.enableTransparentBackground()
     preview_card_layout.addWidget(self.font_preview_scroll, 1)
 
     self._current_preview_font_path = None

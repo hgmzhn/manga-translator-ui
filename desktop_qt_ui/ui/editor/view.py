@@ -4,7 +4,6 @@ from typing import Any
 from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
-from ui.theme import get_current_theme
 from PyQt6.QtCore import QSize, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -21,6 +20,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     SegmentedWidget,
+    SimpleCardWidget,
     ToolButton,
 )
 from services import get_i18n_manager
@@ -155,11 +155,11 @@ class EditorView(QWidget):
 
     def _create_left_panel(self) -> QWidget:
         """创建左侧的标签页，包含区域列表和属性面板"""
-        left_panel = QWidget(self)
+        left_panel = SimpleCardWidget(self)
         left_panel.setFixedWidth(360)
         left_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(8)
 
         self.left_panel_widget = left_panel
@@ -171,16 +171,16 @@ class EditorView(QWidget):
         left_layout.addWidget(self.left_stack, 1)
         
         # 创建“可编辑译文”标签页
-        translation_widget = QWidget(left_panel)
+        translation_widget = SimpleCardWidget(left_panel)
         translation_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         translation_layout = QVBoxLayout(translation_widget)
-        translation_layout.setContentsMargins(4, 2, 4, 0)
+        translation_layout.setContentsMargins(8, 8, 8, 8)
         translation_layout.setSpacing(8)
 
         # --- 查找和替换 ---
-        replace_widget = QWidget()
+        replace_widget = SimpleCardWidget(translation_widget)
         replace_layout = QHBoxLayout(replace_widget)
-        replace_layout.setContentsMargins(0, 0, 0, 0)
+        replace_layout.setContentsMargins(8, 8, 8, 8)
         replace_layout.setSpacing(6)
         self.find_input = LineEdit()
         self.find_input.setPlaceholderText(self._t("Find"))
@@ -539,7 +539,6 @@ class EditorView(QWidget):
         """刷新画布和自定义颜色控件的主题。"""
         from ui.widgets.color_picker import ColorPickerWidget
 
-        theme = theme or get_current_theme()
         if self.toolbar is not None:
             self.toolbar.refresh_theme()
         if self.graphics_view is not None:

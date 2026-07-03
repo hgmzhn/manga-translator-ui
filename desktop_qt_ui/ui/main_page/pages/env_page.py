@@ -5,8 +5,9 @@ from qfluentwidgets import BodyLabel, CardWidget, PopUpAniStackedWidget, ScrollA
 def _create_scroll_page() -> tuple[ScrollArea, QWidget, QVBoxLayout]:
     scroll = ScrollArea()
     scroll.setWidgetResizable(True)
+    scroll.setFrameShape(ScrollArea.Shape.NoFrame)
 
-    container = QWidget()
+    container = QWidget(scroll)
     container_layout = QVBoxLayout(container)
     container_layout.setContentsMargins(0, 0, 0, 0)
     container_layout.setSpacing(12)
@@ -21,7 +22,7 @@ def create_env_page(self) -> QWidget:
     page_layout.setContentsMargins(18, 16, 18, 14)
     page_layout.setSpacing(12)
 
-    header_card = CardWidget()
+    header_card = CardWidget(page)
     header_layout = QVBoxLayout(header_card)
     header_layout.setContentsMargins(16, 12, 16, 12)
     header_layout.setSpacing(8)
@@ -43,7 +44,7 @@ def create_env_page(self) -> QWidget:
 
     page_layout.addWidget(header_card)
 
-    env_tabs_panel = QWidget()
+    env_tabs_panel = QWidget(page)
     env_tabs_layout = QVBoxLayout(env_tabs_panel)
     env_tabs_layout.setContentsMargins(0, 0, 0, 0)
     env_tabs_layout.setSpacing(8)

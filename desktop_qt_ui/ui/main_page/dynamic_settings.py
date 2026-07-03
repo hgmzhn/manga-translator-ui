@@ -11,9 +11,9 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     BodyLabel,
-    CardWidget,
     CaptionLabel,
     HorizontalSeparator,
+    SimpleCardWidget,
     StrongBodyLabel,
     themeColor,
 )
@@ -24,6 +24,25 @@ from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 from utils.resource_helper import resource_path
+
+
+def _close_combo_popups_before_delete(widget: QWidget):
+    for candidate in [widget, *widget.findChildren(QWidget)]:
+        drop_menu = getattr(candidate, "dropMenu", None)
+        if drop_menu is None:
+            continue
+        try:
+            candidate.hidePopup()
+        except Exception:
+            pass
+
+
+def _delete_later_safely(widget: QWidget):
+    _close_combo_popups_before_delete(widget)
+    cleanup_event_filters = getattr(widget, "_cleanup_event_filters", None)
+    if callable(cleanup_event_filters):
+        cleanup_event_filters()
+    widget.deleteLater()
 
 
 class QLineEdit(FluentLineEdit):
@@ -52,14 +71,6 @@ API_GROUP_SPECS = {
 SIMPLE_API_GROUP_SPECS = {
     "translator_sakura": ("SAKURA_API_BASE", "SAKURA_DICT_PATH"),
 }
-
-API_SECTION_TITLE_KEYS = {
-    "translation": "Translation",
-    "ocr": "OCR",
-    "color": "Colorization",
-    "render": "Render",
-}
-
 
 def _normalize_selected_value(value) -> str:
     raw = getattr(value, "value", value)
@@ -109,7 +120,7 @@ def _selected_api_group_keys(config) -> dict[str, list[str]]:
 
 
 def _add_empty_api_hint(self, layout, row: int, translation_key: str) -> int:
-    notice = CardWidget()
+    notice = SimpleCardWidget()
     notice.setMinimumHeight(120)
     notice.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -138,19 +149,14 @@ def _add_api_section_panel(
     current_env_values: dict,
     empty_hint_key: str,
 ):
-    section_card = CardWidget()
+    section_card = SimpleCardWidget()
+    section_card.setSizePolicy(
+        QSizePolicy.Policy.Expanding,
+        QSizePolicy.Policy.Expanding if not group_keys else QSizePolicy.Policy.Preferred,
+    )
     section_card_layout = QVBoxLayout(section_card)
     section_card_layout.setContentsMargins(16, 14, 16, 16)
     section_card_layout.setSpacing(12)
-
-    title_layout = QHBoxLayout()
-    title_layout.setSpacing(10)
-
-    title_key = API_SECTION_TITLE_KEYS.get(section_key, section_key.title())
-    section_title = StrongBodyLabel(self._t(title_key))
-    title_layout.addWidget(section_title)
-    title_layout.addWidget(HorizontalSeparator(), 1)
-    section_card_layout.addLayout(title_layout)
 
     self.env_layout = QGridLayout()
     self.env_layout.setColumnStretch(1, 1)
@@ -187,10 +193,10 @@ def _clear_layout_widgets(layout):
     while layout.count():
         child = layout.takeAt(0)
         if child.widget():
-            child.widget().deleteLater()
+            _delete_later_safely(child.widget())
 
 
-def _refresh_env_api_groups(self):
+def _refresh_env_api_groups(self, *, force: bool = False):
     if not all(
         hasattr(self, attr)
         for attr in (
@@ -202,6 +208,22 @@ def _refresh_env_api_groups(self):
     ):
         return
 
+    active_api_groups = _selected_api_group_keys(self.controller.config_service.get_config())
+    current_env_values = self.controller.config_service.load_env_vars()
+    signature = json.dumps(
+        {
+            "groups": active_api_groups,
+            "env": current_env_values,
+            "preset": self.controller.config_service.get_current_preset(),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    if not force and getattr(self, "_env_api_groups_signature", None) == signature:
+        return
+
+    self._env_api_groups_signature = signature
     self.env_widgets.clear()
     for layout in [
         self.env_group_container_layout,
@@ -210,9 +232,6 @@ def _refresh_env_api_groups(self):
         self.render_container_layout,
     ]:
         _clear_layout_widgets(layout)
-
-    active_api_groups = _selected_api_group_keys(self.controller.config_service.get_config())
-    current_env_values = self.controller.config_service.load_env_vars()
 
     _add_api_section_panel(
         self,
@@ -267,7 +286,12 @@ def _get_setting_description(view, full_key: str) -> str:
 
 
 def _append_settings_row(parent_layout, row: QWidget):
-    parent_layout.addWidget(row)
+    insert_at = parent_layout.count()
+    if insert_at:
+        last_item = parent_layout.itemAt(insert_at - 1)
+        if last_item and last_item.spacerItem():
+            insert_at -= 1
+    parent_layout.insertWidget(insert_at, row)
 
 
 def _insert_settings_row(parent_layout, index: int, row: QWidget):
@@ -400,8 +424,6 @@ def _create_fixed_prompt_editor_row(self, parent_layout, full_key: str):
         return False
 
     label_text = spec["label"]
-    label = BodyLabel(f"{label_text}:")
-    label.setMinimumWidth(120)
 
     edit_button = QPushButton(self._t("Edit"))
     edit_button.setFixedWidth(120)
@@ -412,7 +434,7 @@ def _create_fixed_prompt_editor_row(self, parent_layout, full_key: str):
     elif full_key == "render.ai_renderer_prompt_path":
         edit_button.clicked.connect(self._open_ai_renderer_prompt_editor)
 
-    row = _ClickableRow(self, full_key, label, [edit_button])
+    row = _ClickableRow(self, full_key, label_text, [edit_button])
     _append_settings_row(parent_layout, row)
     return True
 
@@ -442,7 +464,7 @@ def set_parameters(self, config: dict):
         while layout.count():
             child = layout.takeAt(0)
             if child.widget():
-                child.widget().deleteLater()
+                _delete_later_safely(child.widget())
 
     if getattr(self, "_settings_tabs_use_reclassify", False):
         _populate_settings_by_reclassify_layout(self, config)
@@ -491,7 +513,6 @@ def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False)
         row_layout.setSpacing(10)
 
         title_label = StrongBodyLabel(title.upper())
-
         row_layout.addWidget(title_label)
         row_layout.addWidget(HorizontalSeparator(), 1)
 
@@ -612,8 +633,12 @@ def _finalize_settings_ui(self):
             label_text = self._t("label_unload_models_after_translation")
             if not label_text or label_text == "label_unload_models_after_translation":
                 label_text = "Unload Models After Translation"
-            unload_models_label = BodyLabel(f"{label_text}:")
-            row = _ClickableRow(self, 'app.unload_models_after_translation', unload_models_label, unload_models_checkbox)
+            row = _ClickableRow(
+                self,
+                "app.unload_models_after_translation",
+                label_text,
+                unload_models_checkbox,
+            )
             
             # 插入到最上面（索引0）
             _insert_settings_row(cli_layout, 0, row)
@@ -658,7 +683,7 @@ def _finalize_settings_ui(self):
     self.delete_preset_button.clicked.connect(self._on_delete_preset_clicked)
     self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
     
-    _refresh_env_api_groups(self)
+    _refresh_env_api_groups(self, force=True)
     self._refresh_api_feature_selectors()
 
     self._refresh_prompt_manager()
@@ -673,6 +698,7 @@ def _create_dynamic_settings(self):
         self.set_parameters(config)
     except Exception as e:
         print(f"Error creating dynamic settings: {e}")
+
 
 def _on_setting_changed(self, value, full_key, display_map=None):
     """A slot to handle when any setting widget is changed by the user."""
@@ -859,8 +885,6 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             label_text = translated if translated != "label_unload_models_after_translation" else "Unload Models After Translation"
         if self.controller.get_display_mapping('labels') and self.controller.get_display_mapping('labels').get(key):
             label_text = self.controller.get_display_mapping('labels').get(key)
-        label = BodyLabel(f"{label_text}:")
-        label.setMinimumWidth(120)
         widget = None
 
         options = self.controller.get_options_for_key(key)
@@ -868,14 +892,12 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
 
         if full_key == "app.theme":
             widget = QComboBox()
-            self.theme_label = label
             self.theme_combo = widget
             widget.currentIndexChanged.connect(self._on_theme_combo_changed)
             self._populate_theme_combo()
 
         elif full_key == "app.ui_language":
             widget = QComboBox()
-            self.language_label = label
             self.language_combo = widget
             widget.currentIndexChanged.connect(self._on_language_combo_changed)
             self._populate_language_combo()
@@ -1107,23 +1129,28 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
         
         if widget is not None:
-            row = _ClickableRow(self, full_key, label, widget)
+            row = _ClickableRow(self, full_key, label_text, widget)
+            if full_key == "app.theme":
+                self.theme_label = row
+            elif full_key == "app.ui_language":
+                self.language_label = row
             _append_settings_row(parent_layout, row)
             added_rows += 1
 
     return added_rows
 
 
-class _ClickableRow(QWidget):
-    """整行可点击的轻量设置行，包含 label 和控件。"""
+class _ClickableRow(SimpleCardWidget):
+    """Fluent setting row that keeps the existing description-panel behavior."""
 
-    def __init__(self, view, full_key: str, label: BodyLabel, widget: QWidget | list[QWidget] | tuple[QWidget, ...]):
+    def __init__(self, view, full_key: str, title: str, widget: QWidget | list[QWidget] | tuple[QWidget, ...]):
         super().__init__()
         self._view = view
         self._full_key = full_key
-        self._label = label
+        self._title = str(title or "").rstrip(":：")
         self._widgets = list(widget) if isinstance(widget, (list, tuple)) else [widget]
         self._selected = False
+        self._event_filter_targets: list[QWidget] = []
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -1132,29 +1159,39 @@ class _ClickableRow(QWidget):
         row_layout.setContentsMargins(12, 8, 12, 8)
         row_layout.setSpacing(14)
 
-        label.setMinimumWidth(120)
-        row_layout.addWidget(label)
+        self._title_label = BodyLabel(f"{self._title}:")
+        self._title_label.setMinimumWidth(120)
+        row_layout.addWidget(self._title_label)
 
         for index, control in enumerate(self._widgets):
-            if isinstance(control, ToggleSwitch):
-                row_layout.addWidget(control)
-            else:
-                stretch = 1 if len(self._widgets) == 1 or index == 0 else 0
-                row_layout.addWidget(control, stretch)
+            if not isinstance(control, ToggleSwitch):
+                control.setSizePolicy(QSizePolicy.Policy.Expanding if index == 0 else QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            row_layout.addWidget(control, 1 if len(self._widgets) == 1 or index == 0 else 0)
 
         if len(self._widgets) > 1 or any(isinstance(control, ToggleSwitch) for control in self._widgets):
             row_layout.addStretch(1)
 
-        # 给所有子控件安装事件过滤器，点击子控件时也触发行高亮
         for control in self._widgets:
             self._install_child_event_filter(control)
-        label.installEventFilter(self)
+        self._install_row_event_filter(self._title_label)
 
     def _install_child_event_filter(self, widget):
-        """递归给所有子控件安装事件过滤器"""
-        widget.installEventFilter(self)
+        self._install_row_event_filter(widget)
         for child in widget.findChildren(QWidget):
-            child.installEventFilter(self)
+            self._install_row_event_filter(child)
+
+    def _install_row_event_filter(self, widget: QWidget):
+        widget.installEventFilter(self)
+        self._event_filter_targets.append(widget)
+
+    def _cleanup_event_filters(self):
+        targets = list(getattr(self, "_event_filter_targets", []))
+        self._event_filter_targets = []
+        for widget in targets:
+            try:
+                widget.removeEventFilter(self)
+            except RuntimeError:
+                pass
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
@@ -1165,42 +1202,40 @@ class _ClickableRow(QWidget):
     def _activate(self):
         """激活此行：更新描述面板和当前行标记。"""
         desc = _get_setting_description(self._view, self._full_key)
-        label_text = self._label.text().rstrip(':：')
         if hasattr(self._view, '_show_setting_description'):
-            self._view._show_setting_description(self._full_key, label_text, desc)
+            self._view._show_setting_description(self._full_key, self._title, desc)
 
-        for old in getattr(self._view, '_highlighted_rows', []):
+        for old in getattr(self._view, "_highlighted_rows", []):
             try:
                 old._set_selected(False)
-            except (RuntimeError, AttributeError):
+            except (AttributeError, RuntimeError):
                 pass
         self._set_selected(True)
         self._view._highlighted_rows = [self]
+
+    def setText(self, text: str):
+        self._title = str(text or "").rstrip(":：")
+        self._title_label.setText(f"{self._title}:")
+
+    def _set_selected(self, selected: bool):
+        self._selected = selected
+        self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._activate()
         super().mouseReleaseEvent(event)
 
-    def _set_selected(self, selected: bool):
-        self._selected = selected
-        self.update()
-
     def paintEvent(self, event):
-        if self._selected:
-            from PyQt6.QtCore import QRectF
-            from PyQt6.QtGui import QPainter, QPainterPath
-
-            accent = themeColor().toRgb()
-            fill = themeColor().toRgb()
-            accent.setAlpha(210)
-            fill.setAlpha(28)
-
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 6, 6)
-            painter.fillPath(path, fill)
-            painter.fillRect(0, 7, 3, max(1, self.height() - 14), accent)
-            painter.end()
         super().paintEvent(event)
+        if not self._selected:
+            return
+
+        from PyQt6.QtGui import QPainter
+
+        accent = themeColor().toRgb()
+        accent.setAlpha(220)
+
+        painter = QPainter(self)
+        painter.fillRect(0, 7, 3, max(1, self.height() - 14), accent)
+        painter.end()

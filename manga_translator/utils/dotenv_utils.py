@@ -133,3 +133,39 @@ def update_dotenv_file(
         lines.append(line_out)
 
     env_path.write_text("".join(lines), encoding="utf-8")
+
+
+def delete_dotenv_keys(
+    path: PathLike,
+    keys: set[str] | list[str] | tuple[str, ...],
+    *,
+    drop_invalid: bool = False,
+) -> None:
+    """Delete keys from a .env file while preserving other parseable lines."""
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    normalized_keys = {validate_env_key(key) for key in keys}
+    if not normalized_keys:
+        return
+
+    lines: list[str] = []
+    with env_path.open("r", encoding="utf-8") as source:
+        for mapping in parse_stream(source):
+            original = mapping.original.string
+            mapping_key: Optional[str] = mapping.key
+
+            if mapping.error:
+                match = _ENV_ASSIGNMENT_RE.match(original)
+                mapping_key = match.group("key") if match else None
+
+            if mapping_key in normalized_keys:
+                continue
+
+            if mapping.error and drop_invalid:
+                continue
+
+            lines.append(original)
+
+    env_path.write_text("".join(lines), encoding="utf-8")

@@ -1,16 +1,14 @@
 import os
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFontDatabase
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
 )
-from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PrimaryPushButton, PushButton, TitleLabel
+from qfluentwidgets import BodyLabel, CaptionLabel, FluentIcon as FIF, PlainTextEdit, PrimaryPushButton, PushButton, SimpleCardWidget, TitleLabel
 from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.secondary_pages.themed_message_box import themed_critical
-from ui.theme import (
-    monospace_font as _monospace_font,
-)
 
 
 class SimplePromptEditorDialog(FluentSecondaryDialog):
@@ -61,7 +59,7 @@ class SimplePromptEditorDialog(FluentSecondaryDialog):
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        card = CardWidget()
+        card = SimpleCardWidget(self)
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(14, 14, 14, 14)
         card_layout.setSpacing(8)
@@ -73,8 +71,8 @@ class SimplePromptEditorDialog(FluentSecondaryDialog):
         hint.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         card_layout.addWidget(hint)
 
-        self.editor = PlainTextEdit(self)
-        self.editor.setFont(_monospace_font())
+        self.editor = PlainTextEdit(card)
+        self.editor.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         card_layout.addWidget(self.editor, 1)
 
         root.addWidget(card, 1)
@@ -86,9 +84,11 @@ class SimplePromptEditorDialog(FluentSecondaryDialog):
         button_row.addStretch(1)
 
         self.cancel_button = PushButton(self._t("Cancel"))
+        self.cancel_button.setIcon(FIF.CANCEL)
         self.cancel_button.clicked.connect(self.reject)
 
         self.save_button = PrimaryPushButton(self._t("Save"))
+        self.save_button.setIcon(FIF.SAVE)
         self.save_button.clicked.connect(self._save)
 
         button_row.addWidget(self.cancel_button)

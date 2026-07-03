@@ -3,30 +3,14 @@ from qfluentwidgets import (
     BodyLabel,
     CardWidget,
     ComboBox,
+    HeaderCardWidget,
     LineEdit,
     PrimaryPushButton,
     PushButton,
-    StrongBodyLabel,
     TitleLabel,
 )
 
 from ui.widgets.file_list_view import FileListView
-
-
-class _TitledCard(CardWidget):
-    def __init__(self, title: str = "", parent=None):
-        super().__init__(parent)
-        self._title = title
-        self.title_label = StrongBodyLabel(title, self)
-        self.title_label.setVisible(bool(title))
-
-    def setTitle(self, title: str):
-        self._title = title
-        self.title_label.setText(title)
-        self.title_label.setVisible(bool(title))
-
-    def title(self) -> str:
-        return self._title
 
 
 def create_translation_page(self) -> QWidget:
@@ -48,7 +32,7 @@ def create_translation_page(self) -> QWidget:
     header_layout.addWidget(self.translation_page_subtitle)
     page_layout.addWidget(header_card)
 
-    self.translation_input_card = _TitledCard("")
+    self.translation_input_card = CardWidget()
     input_layout = QVBoxLayout(self.translation_input_card)
     input_layout.setContentsMargins(16, 14, 16, 16)
     input_layout.setSpacing(10)
@@ -70,11 +54,11 @@ def create_translation_page(self) -> QWidget:
     input_layout.addWidget(self.file_list, 1)
     page_layout.addWidget(self.translation_input_card, 1)
 
-    self.translation_task_card = _TitledCard(self._t("Translation Task"))
-    task_layout = QVBoxLayout(self.translation_task_card)
-    task_layout.setContentsMargins(16, 14, 16, 16)
+    self.translation_task_card = HeaderCardWidget(self._t("Translation Task"))
+    task_layout = QVBoxLayout()
+    task_layout.setContentsMargins(0, 0, 0, 0)
     task_layout.setSpacing(10)
-    task_layout.addWidget(self.translation_task_card.title_label)
+    self.translation_task_card.viewLayout.addLayout(task_layout)
 
     self.output_folder_label = BodyLabel(self._t("Output Directory:"))
     task_layout.addWidget(self.output_folder_label)

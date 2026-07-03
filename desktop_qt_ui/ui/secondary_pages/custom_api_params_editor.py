@@ -2,12 +2,8 @@ import json
 from typing import Any, Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QVBoxLayout,
-    QWidget,
-)
-from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, ComboBox, LineEdit, PlainTextEdit, PopUpAniStackedWidget, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, TitleLabel
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, FluentIcon as FIF, LineEdit, PlainTextEdit, PopUpAniStackedWidget, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, SimpleCardWidget, TitleLabel
 from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.theme import (
     monospace_font as _monospace_font,
@@ -41,17 +37,15 @@ def _infer_type(value: Any) -> str:
     return "json"
 
 
-def _layout_host(parent=None) -> QWidget:
-    return QWidget(parent)
-
-
 def _fluent_scroll(parent=None) -> ScrollArea:
     scroll = ScrollArea(parent)
     scroll.setWidgetResizable(True)
+    scroll.setFrameShape(ScrollArea.Shape.NoFrame)
+    scroll.enableTransparentBackground()
     return scroll
 
 
-class CustomApiParamRow(CardWidget):
+class CustomApiParamRow(SimpleCardWidget):
     remove_requested = pyqtSignal(QWidget)
 
     def __init__(self, t_func: Callable[..., str] | None = None, parent=None):
@@ -70,7 +64,6 @@ class CustomApiParamRow(CardWidget):
         key_label = BodyLabel(self._t("Key"))
         self.key_input = LineEdit()
         self.key_input.setPlaceholderText("temperature")
-        self.key_input.setMinimumWidth(180)
         key_col.addWidget(key_label)
         key_col.addWidget(self.key_input)
         layout.addLayout(key_col, 3)
@@ -79,7 +72,6 @@ class CustomApiParamRow(CardWidget):
         type_col.setSpacing(6)
         type_label = BodyLabel(self._t("Type"))
         self.type_combo = ComboBox()
-        self.type_combo.setMinimumWidth(118)
         for label, value in [
             (self._t("String"), "string"),
             (self._t("Number"), "number"),
@@ -95,7 +87,7 @@ class CustomApiParamRow(CardWidget):
         value_col = QVBoxLayout()
         value_col.setSpacing(6)
         value_label = BodyLabel(self._t("Value"))
-        self.value_stack = PopUpAniStackedWidget()
+        self.value_stack = PopUpAniStackedWidget(self)
 
         self.string_input = LineEdit()
         self.string_input.setPlaceholderText("gpt-4o-mini")
@@ -115,11 +107,15 @@ class CustomApiParamRow(CardWidget):
         self.json_input.setPlaceholderText('{"type": "json"}')
         self.json_input.setFont(_monospace_font(10))
 
-        self.value_stack.addWidget(self.string_input)
-        self.value_stack.addWidget(self.number_input)
-        self.value_stack.addWidget(self.boolean_input)
-        self.value_stack.addWidget(self.null_label)
-        self.value_stack.addWidget(self.json_input)
+        self._value_pages = {
+            "string": self.string_input,
+            "number": self.number_input,
+            "boolean": self.boolean_input,
+            "null": self.null_label,
+            "json": self.json_input,
+        }
+        for editor in self._value_pages.values():
+            self.value_stack.addWidget(editor)
 
         value_col.addWidget(value_label)
         value_col.addWidget(self.value_stack)
@@ -129,7 +125,7 @@ class CustomApiParamRow(CardWidget):
         remove_col.setSpacing(6)
         remove_col.addWidget(CaptionLabel(""))
         self.remove_button = PushButton(self._t("Delete"))
-        self.remove_button.setFixedWidth(80)
+        self.remove_button.setIcon(FIF.DELETE)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
         remove_col.addWidget(self.remove_button)
         remove_col.addStretch(1)
@@ -146,14 +142,8 @@ class CustomApiParamRow(CardWidget):
 
     def _sync_type_editor(self):
         current_type = self.type_combo.currentData()
-        index_map = {
-            "string": 0,
-            "number": 1,
-            "boolean": 2,
-            "null": 3,
-            "json": 4,
-        }
-        self.value_stack.setCurrentIndex(index_map.get(current_type, 0))
+        editor = self._value_pages.get(current_type, self.string_input)
+        self.value_stack.setCurrentIndex(self.value_stack.indexOf(editor))
 
     def _mark_user_edited(self, *args):
         del args
@@ -238,13 +228,20 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
-        title = TitleLabel(self._t("Edit Custom API Params"))
+        header_card = SimpleCardWidget(self)
+        header_layout = QVBoxLayout(header_card)
+        header_layout.setContentsMargins(16, 12, 16, 12)
+        header_layout.setSpacing(4)
+
+        title = TitleLabel(self._t("Edit Custom API Params"), header_card)
         subtitle = BodyLabel(
-            self._t("Edit custom API request parameters passed directly to the translator backend.")
+            self._t("Edit custom API request parameters passed directly to the translator backend."),
+            header_card,
         )
         subtitle.setWordWrap(True)
-        root.addWidget(title)
-        root.addWidget(subtitle)
+        header_layout.addWidget(title)
+        header_layout.addWidget(subtitle)
+        root.addWidget(header_card)
 
         self.tab_segmented = SegmentedWidget(self)
         self.tab_stack = PopUpAniStackedWidget(self)
@@ -261,12 +258,15 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         button_row.addStretch(1)
 
         self.refresh_button = PushButton(self._t("Refresh"))
+        self.refresh_button.setIcon(FIF.SYNC)
         self.refresh_button.clicked.connect(self._load_from_disk)
 
         self.cancel_button = PushButton(self._t("Cancel"))
+        self.cancel_button.setIcon(FIF.CANCEL)
         self.cancel_button.clicked.connect(self.reject)
 
         self.save_button = PrimaryPushButton(self._t("Save"))
+        self.save_button.setIcon(FIF.SAVE)
         self.save_button.clicked.connect(self._save)
 
         button_row.addWidget(self.refresh_button)
@@ -275,51 +275,48 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         root.addLayout(button_row)
 
     def _build_params_tab(self):
-        page = _layout_host(self)
+        page = SimpleCardWidget(self.tab_stack)
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(8, 8, 8, 8)
+        page_layout.setContentsMargins(14, 12, 14, 14)
         page_layout.setSpacing(8)
 
-        card = CardWidget()
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 12, 14, 12)
-        card_layout.setSpacing(4)
-
-        title = BodyLabel(self._t("Grouped API Params"))
+        title = BodyLabel(self._t("Grouped API Params"), page)
         hint = CaptionLabel(
             self._t(
                 "Parameters in each group are sent only to the matching AI backend. "
                 "Raw top-level keys are treated as common params."
-            )
+            ),
+            page,
         )
         hint.setWordWrap(True)
 
-        card_layout.addWidget(title)
-        card_layout.addWidget(hint)
-        page_layout.addWidget(card)
+        page_layout.addWidget(title)
+        page_layout.addWidget(hint)
 
         self.section_segmented = SegmentedWidget(page)
         self.section_stack = PopUpAniStackedWidget(page)
         for section in CUSTOM_API_PARAM_SECTIONS:
-            section_page = _layout_host(self.section_stack)
+            section_page = SimpleCardWidget(self.section_stack)
             section_page_layout = QVBoxLayout(section_page)
-            section_page_layout.setContentsMargins(0, 0, 0, 0)
+            section_page_layout.setContentsMargins(12, 12, 12, 12)
             section_page_layout.setSpacing(8)
 
             scroll = _fluent_scroll(section_page)
 
-            content = _layout_host(scroll)
+            content = QWidget(scroll)
 
             layout = QVBoxLayout(content)
-            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setContentsMargins(0, 4, 0, 4)
             layout.setSpacing(10)
             layout.addStretch(1)
 
             scroll.setWidget(content)
+            scroll.enableTransparentBackground()
 
             add_row = QHBoxLayout()
             add_row.addStretch(1)
-            add_button = PushButton("+ " + self._t("Add Row"))
+            add_button = PushButton(self._t("Add Row"), section_page)
+            add_button.setIcon(FIF.ADD)
             add_button.clicked.connect(lambda _=False, s=section: self._append_row(s))
             add_row.addWidget(add_button)
 
@@ -333,7 +330,7 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
             self.section_segmented.addItem(
                 section,
                 self._section_title(section),
-                onClick=lambda route_key=section, index=section_index: (
+                onClick=lambda checked=False, route_key=section, index=section_index: (
                     self.section_stack.setCurrentIndex(index),
                     self.section_segmented.setCurrentItem(route_key),
                 ),
@@ -351,7 +348,7 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         self.tab_segmented.addItem(
             route_key,
             self._t("Template Edit"),
-            onClick=lambda: (
+            onClick=lambda checked=False: (
                 self.tab_stack.setCurrentIndex(page_index),
                 self.tab_segmented.setCurrentItem(route_key),
             ),
@@ -360,17 +357,18 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         self.tab_segmented.setCurrentItem(route_key)
 
     def _build_raw_tab(self):
-        page = CardWidget()
+        page = SimpleCardWidget(self.tab_stack)
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(12, 10, 12, 10)
         page_layout.setSpacing(8)
 
-        hint = CaptionLabel(self._t("Edit the raw file content directly"))
+        hint = CaptionLabel(self._t("Edit the raw file content directly"), page)
         page_layout.addWidget(hint)
 
-        self.raw_editor = PlainTextEdit()
+        self.raw_editor = PlainTextEdit(page)
         self.raw_editor.setFont(_monospace_font())
         self.raw_editor.setTabStopDistance(28)
+        self.raw_editor.setLineWrapMode(PlainTextEdit.LineWrapMode.NoWrap)
         page_layout.addWidget(self.raw_editor, 1)
 
         route_key = "raw_edit"
@@ -379,7 +377,7 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         self.tab_segmented.addItem(
             route_key,
             self._t("Raw Edit"),
-            onClick=lambda: (
+            onClick=lambda checked=False: (
                 self.tab_stack.setCurrentIndex(page_index),
                 self.tab_segmented.setCurrentItem(route_key),
             ),

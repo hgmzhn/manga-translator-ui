@@ -2,69 +2,40 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
-    CardWidget,
+    FluentIcon as FIF,
+    HeaderCardWidget,
     ListWidget,
     PrimaryPushButton,
     PushButton,
-    StrongBodyLabel,
     TitleLabel,
 )
 
 from ui.secondary_pages.prompt_preview import PromptPreviewPanel
 
 
-class _TitledCard(CardWidget):
-    def __init__(self, title: str = "", parent=None):
-        super().__init__(parent)
-        self._title = title
-        self.title_label = StrongBodyLabel(title, self)
-        self.title_label.setVisible(bool(title))
-
-    def setTitle(self, title: str):
-        self._title = title
-        self.title_label.setText(title)
-        self.title_label.setVisible(bool(title))
-
-    def title(self) -> str:
-        return self._title
-
-
 def create_prompt_page(self) -> QWidget:
     page = QWidget()
-    page.setAutoFillBackground(False)
-    page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(18, 16, 18, 14)
     page_layout.setSpacing(12)
 
-    header = QWidget(page)
-    header.setAutoFillBackground(False)
-    header.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-    header_layout = QVBoxLayout(header)
-    header_layout.setContentsMargins(0, 0, 0, 0)
-    header_layout.setSpacing(4)
     self.prompt_page_title_label = TitleLabel(self._t("Prompt Management"))
     self.prompt_page_subtitle_label = BodyLabel(
         self._t("Manage and apply prompt files for translation")
     )
     self.prompt_page_subtitle_label.setWordWrap(True)
-    header_layout.addWidget(self.prompt_page_title_label)
-    header_layout.addWidget(self.prompt_page_subtitle_label)
-    page_layout.addWidget(header)
+    page_layout.addWidget(self.prompt_page_title_label)
+    page_layout.addWidget(self.prompt_page_subtitle_label)
 
     prompt_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-    self.prompt_card = _TitledCard(self._t("Prompt List"))
-    prompt_card_layout = QVBoxLayout(self.prompt_card)
-    prompt_card_layout.setContentsMargins(16, 14, 16, 16)
+    self.prompt_card = HeaderCardWidget(self._t("Prompt List"))
+    prompt_card_layout = QVBoxLayout()
+    prompt_card_layout.setContentsMargins(0, 0, 0, 0)
     prompt_card_layout.setSpacing(10)
-    prompt_card_layout.addWidget(self.prompt_card.title_label)
+    self.prompt_card.viewLayout.addLayout(prompt_card_layout)
 
-    button_row = QWidget()
-    button_row.setAutoFillBackground(False)
-    button_row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-    button_row_layout = QHBoxLayout(button_row)
-    button_row_layout.setContentsMargins(0, 0, 0, 0)
+    button_row_layout = QHBoxLayout()
     button_row_layout.setSpacing(8)
     self.prompt_new_button = PushButton(self._t("New"))
     self.prompt_copy_button = PushButton(self._t("Copy"))
@@ -73,6 +44,13 @@ def create_prompt_page(self) -> QWidget:
     self.prompt_refresh_button = PushButton(self._t("Refresh"))
     self.prompt_open_dir_button = PushButton(self._t("Open Directory"))
     self.prompt_apply_button = PrimaryPushButton(self._t("Apply Selected Prompt"))
+    self.prompt_new_button.setIcon(FIF.ADD)
+    self.prompt_copy_button.setIcon(FIF.COPY)
+    self.prompt_rename_button.setIcon(FIF.EDIT)
+    self.prompt_delete_button.setIcon(FIF.DELETE)
+    self.prompt_refresh_button.setIcon(FIF.SYNC)
+    self.prompt_open_dir_button.setIcon(FIF.FOLDER)
+    self.prompt_apply_button.setIcon(FIF.ACCEPT)
     button_row_layout.addWidget(self.prompt_new_button)
     button_row_layout.addWidget(self.prompt_copy_button)
     button_row_layout.addWidget(self.prompt_rename_button)
@@ -81,7 +59,7 @@ def create_prompt_page(self) -> QWidget:
     button_row_layout.addWidget(self.prompt_open_dir_button)
     button_row_layout.addWidget(self.prompt_apply_button)
     button_row_layout.addStretch()
-    prompt_card_layout.addWidget(button_row)
+    prompt_card_layout.addLayout(button_row_layout)
 
     self.prompt_list_widget = ListWidget()
     prompt_card_layout.addWidget(self.prompt_list_widget)

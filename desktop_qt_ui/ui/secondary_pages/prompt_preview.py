@@ -8,8 +8,8 @@ import os
 from typing import Any, Callable, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFontDatabase
 from PyQt6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QTableWidgetItem,
@@ -21,11 +21,15 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    FluentIcon as FIF,
+    HorizontalSeparator,
     PopUpAniStackedWidget,
     PrimaryPushButton,
     RoundMenu,
     SegmentedWidget,
+    SimpleCardWidget,
     TitleLabel,
+    ToolButton,
 )
 from qfluentwidgets import (
     ComboBox as QComboBox,
@@ -47,9 +51,6 @@ from qfluentwidgets import (
 )
 
 from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
-from ui.theme import (
-    monospace_font as _monospace_font,
-)
 from ui.widgets.hover_hint import install_hover_hint
 
 logger = logging.getLogger("manga_translator")
@@ -78,25 +79,15 @@ def _body_label(text: str) -> BodyLabel:
     return lbl
 
 
-def _divider() -> QFrame:
-    line = QFrame()
-    line.setFrameShape(QFrame.Shape.HLine)
-    return line
-
-
-def _fluent_scroll(parent=None) -> QScrollArea:
-    scroll = QScrollArea(parent)
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setAutoFillBackground(False)
-    scroll.viewport().setAutoFillBackground(False)
-    scroll.enableTransparentBackground()
-    return scroll
+def _divider() -> HorizontalSeparator:
+    return HorizontalSeparator()
 
 
 def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     """生成一个只读的 original → translation 表。"""
     table = QTableWidget()
+    table.setBorderVisible(True)
+    table.setBorderRadius(8)
     table.setRowCount(len(entries))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Original"), _current_t("Translation")])
@@ -188,6 +179,8 @@ def _get_person_glossary_row(table: QTableWidget, row: int) -> Dict[str, Any]:
 
 def _make_person_glossary_table(entries: List[Dict[str, Any]], editable: bool = False) -> QTableWidget:
     table = QTableWidget()
+    table.setBorderVisible(True)
+    table.setBorderRadius(8)
     table.setRowCount(len(entries))
     table.setColumnCount(4)
     table.setHorizontalHeaderLabels([
@@ -251,6 +244,8 @@ def _normalize_reference_images(raw_items: Any) -> List[Dict[str, str]]:
 
 def _make_reference_images_table(entries: List[Dict[str, str]], editable: bool = False) -> QTableWidget:
     table = QTableWidget()
+    table.setBorderVisible(True)
+    table.setBorderRadius(8)
     table.setRowCount(len(entries))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Path"), _current_t("Description")])
@@ -285,7 +280,7 @@ def _is_colorizer_structured(data: Any) -> bool:
 # ─────────────────────────────────────────────────────────
 # PromptPreviewPanel  (右侧结构化预览)
 # ─────────────────────────────────────────────────────────
-class PromptPreviewPanel(QWidget):
+class PromptPreviewPanel(CardWidget):
     """
     右侧预览面板。
     - 如果 prompt 文件符合已知格式（有 glossary / project_data），展示结构化预览
@@ -303,12 +298,7 @@ class PromptPreviewPanel(QWidget):
 
     # ─── UI 搭建 ───────────────────────────────────────
     def _setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        self._card = CardWidget()
-        card_layout = QVBoxLayout(self._card)
+        card_layout = QVBoxLayout(self)
         card_layout.setContentsMargins(14, 12, 14, 12)
         card_layout.setSpacing(8)
 
@@ -318,7 +308,8 @@ class PromptPreviewPanel(QWidget):
         title_row.addWidget(self._title_label, 1)
 
         self._edit_btn = QPushButton(self._t("Edit"))
-        self._edit_btn.setFixedWidth(72)
+        self._edit_btn.setIcon(FIF.EDIT)
+        self._edit_btn.setMinimumWidth(88)
         self._edit_btn.clicked.connect(self._on_edit_clicked)
         self._edit_btn.setEnabled(False)
         title_row.addWidget(self._edit_btn)
@@ -331,15 +322,16 @@ class PromptPreviewPanel(QWidget):
         card_layout.addWidget(self._filename_label)
 
         # Scroll area for content
-        scroll = _fluent_scroll(self._card)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._content_widget = QWidget(scroll)
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(0, 4, 0, 4)
         self._content_layout.setSpacing(8)
         scroll.setWidget(self._content_widget)
+        scroll.enableTransparentBackground()
         card_layout.addWidget(scroll, 1)
-
-        root.addWidget(self._card)
 
     def apply_theme(self):
         """主题切换后重建本面板的局部样式。"""
@@ -488,9 +480,9 @@ class PromptPreviewPanel(QWidget):
                 layout.addWidget(_dim_label(self._t("No glossary entries")))
                 layout.addWidget(_divider())
             else:
-                glossary_tab_container = QWidget()
+                glossary_tab_container = CardWidget(self._content_widget)
                 glossary_tab_layout = QVBoxLayout(glossary_tab_container)
-                glossary_tab_layout.setContentsMargins(0, 0, 0, 0)
+                glossary_tab_layout.setContentsMargins(10, 10, 10, 10)
                 glossary_tab_layout.setSpacing(8)
                 glossary_segmented = SegmentedWidget(glossary_tab_container)
                 glossary_stack = PopUpAniStackedWidget(glossary_tab_container)
@@ -511,7 +503,7 @@ class PromptPreviewPanel(QWidget):
                     if not isinstance(entries, list) or not entries:
                         continue
                     icon = category_icons.get(cat_key, "")
-                    tab_page = QWidget(glossary_stack)
+                    tab_page = SimpleCardWidget(glossary_stack)
                     tab_lay = QVBoxLayout(tab_page)
                     tab_lay.setContentsMargins(4, 4, 4, 4)
                     tab_lay.addWidget(_make_person_glossary_table(entries) if cat_key == "Person" else _make_glossary_table(entries))
@@ -521,7 +513,7 @@ class PromptPreviewPanel(QWidget):
                     glossary_segmented.addItem(
                         route_key,
                         f"{icon} {self._t(cat_key)} ({len(entries)})",
-                        onClick=lambda key=route_key, index=page_index: (
+                        onClick=lambda checked=False, key=route_key, index=page_index: (
                             glossary_stack.setCurrentIndex(index),
                             glossary_segmented.setCurrentItem(key),
                         ),
@@ -537,7 +529,7 @@ class PromptPreviewPanel(QWidget):
                         continue
                     if not isinstance(entries, list) or not entries:
                         continue
-                    tab_page = QWidget(glossary_stack)
+                    tab_page = SimpleCardWidget(glossary_stack)
                     tab_lay = QVBoxLayout(tab_page)
                     tab_lay.setContentsMargins(4, 4, 4, 4)
                     tab_lay.addWidget(_make_person_glossary_table(entries) if cat_key == "Person" else _make_glossary_table(entries))
@@ -547,7 +539,7 @@ class PromptPreviewPanel(QWidget):
                     glossary_segmented.addItem(
                         route_key,
                         f"{cat_key} ({len(entries)})",
-                        onClick=lambda key=route_key, index=page_index: (
+                        onClick=lambda checked=False, key=route_key, index=page_index: (
                             glossary_stack.setCurrentIndex(index),
                             glossary_segmented.setCurrentItem(key),
                         ),
@@ -565,9 +557,9 @@ class PromptPreviewPanel(QWidget):
     # ─── 原始文本渲染 ──────────────────────────────────
     def _render_raw(self, file_path: str):
         layout = self._content_layout
-        raw_panel = QWidget(self._content_widget)
-        raw_layout = QVBoxLayout(raw_panel)
-        raw_layout.setContentsMargins(12, 10, 12, 10)
+        raw_card = SimpleCardWidget(self._content_widget)
+        raw_layout = QVBoxLayout(raw_card)
+        raw_layout.setContentsMargins(12, 10, 12, 12)
         raw_layout.setSpacing(8)
         raw_layout.addWidget(_dim_label(self._t("Unrecognized format – showing raw content")))
         try:
@@ -578,7 +570,7 @@ class PromptPreviewPanel(QWidget):
 
         text_edit = _styled_text_edit(raw, read_only=True)
         raw_layout.addWidget(text_edit, 1)
-        layout.addWidget(raw_panel, 1)
+        layout.addWidget(raw_card, 1)
 
     # ─── 编辑按钮 ──────────────────────────────────────
     def _on_edit_clicked(self):
@@ -615,6 +607,8 @@ class PromptPreviewPanel(QWidget):
 def _make_editable_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     """生成一个可编辑的 original → translation 表。"""
     table = QTableWidget()
+    table.setBorderVisible(True)
+    table.setBorderRadius(8)
     table.setRowCount(len(entries))
     table.setColumnCount(2)
     table.setHorizontalHeaderLabels([_current_t("Original"), _current_t("Translation")])
@@ -654,12 +648,11 @@ def _get_basic_glossary_row(table: QTableWidget, row: int) -> Dict[str, str]:
 def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit:
     """统一风格的文本编辑框。"""
     te = QPlainTextEdit()
-    te.setAutoFillBackground(False)
-    te.viewport().setAutoFillBackground(False)
     te.setPlainText(text)
     te.setReadOnly(read_only)
-    te.setFont(_monospace_font())
+    te.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
     te.setTabStopDistance(28)
+    te.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
     return te
 
 _GLOSSARY_CATEGORIES = ["Person", "Location", "Org", "Item", "Skill", "Creature"]
@@ -722,9 +715,9 @@ class PersonGlossaryEntryDialog(FluentSecondaryDialog):
         self._translation_edit.setText(self._entry.get("translation", ""))
         root.addWidget(self._translation_edit)
 
-        self._person_fields = QWidget()
+        self._person_fields = CardWidget(self)
         person_layout = QVBoxLayout(self._person_fields)
-        person_layout.setContentsMargins(0, 0, 0, 0)
+        person_layout.setContentsMargins(12, 10, 12, 12)
         person_layout.setSpacing(10)
 
         person_layout.addWidget(_dim_label(self._t("Nicknames")))
@@ -742,10 +735,12 @@ class PersonGlossaryEntryDialog(FluentSecondaryDialog):
         btn_row.addStretch()
 
         cancel_btn = QPushButton(self._t("Cancel"))
+        cancel_btn.setIcon(FIF.CANCEL)
         cancel_btn.setFixedWidth(100)
         cancel_btn.clicked.connect(self.reject)
 
         save_btn = PrimaryPushButton(self._t("Save"))
+        save_btn.setIcon(FIF.SAVE)
         save_btn.setFixedWidth(100)
         save_btn.clicked.connect(self.accept)
 
@@ -826,12 +821,16 @@ class PromptEditorDialog(FluentSecondaryDialog):
         root.setSpacing(10)
 
         # Header
-        hdr = QHBoxLayout()
-        title = TitleLabel(self._t("Edit Prompt"))
+        header_card = CardWidget(self)
+        hdr = QHBoxLayout(header_card)
+        hdr.setContentsMargins(16, 12, 16, 12)
+        hdr.setSpacing(10)
+        title = TitleLabel(self._t("Edit Prompt"), header_card)
         hdr.addWidget(title, 1)
-        hdr.addWidget(_dim_label(os.path.basename(self._file_path)))
-        root.addLayout(hdr)
-        root.addWidget(_divider())
+        file_label = _dim_label(os.path.basename(self._file_path))
+        file_label.setParent(header_card)
+        hdr.addWidget(file_label)
+        root.addWidget(header_card)
 
         # Tabs
         self._tab_segmented = SegmentedWidget(self)
@@ -847,10 +846,12 @@ class PromptEditorDialog(FluentSecondaryDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._cancel_btn = QPushButton(self._t("Cancel"))
+        self._cancel_btn.setIcon(FIF.CANCEL)
         self._cancel_btn.setFixedWidth(100)
         self._cancel_btn.clicked.connect(self.reject)
 
         self._save_btn = PrimaryPushButton(self._t("Save"))
+        self._save_btn.setIcon(FIF.SAVE)
         self._save_btn.setFixedWidth(100)
         self._save_btn.clicked.connect(self._save)
 
@@ -881,10 +882,12 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
     # ─── 模板编辑 Tab ──────────────────────────────────
     def _build_template_tab(self):
-        page = _fluent_scroll(self)
+        page = QScrollArea(self._tab_stack)
+        page.setWidgetResizable(True)
+        page.setFrameShape(QScrollArea.Shape.NoFrame)
         content = QWidget(page)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
         # 保存 layout 引用，供动态添加字段用
@@ -930,19 +933,21 @@ class PromptEditorDialog(FluentSecondaryDialog):
             self._insert_section("glossary", glossary=glossary)
 
         # ── "+ 添加字段" 按钮 ──
-        self._add_section_btn = QPushButton("＋ " + self._t("Add Section"))
+        self._add_section_btn = QPushButton(self._t("Add Section"))
+        self._add_section_btn.setIcon(FIF.ADD)
         self._add_section_btn.clicked.connect(self._show_add_section_menu)
         layout.addWidget(self._add_section_btn)
 
         layout.addStretch()
         page.setWidget(content)
+        page.enableTransparentBackground()
         route_key = "template_edit"
         page_index = self._tab_stack.count()
         self._tab_stack.addWidget(page)
         self._tab_segmented.addItem(
             route_key,
             "📝 " + self._t("Template Edit"),
-            onClick=lambda: (
+            onClick=lambda checked=False: (
                 self._tab_stack.setCurrentIndex(page_index),
                 self._tab_segmented.setCurrentItem(route_key),
             ),
@@ -963,7 +968,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
     def _make_section_container(self, key: str) -> tuple:
         """创建带操作栏的容器 Widget，返回 (container, body_layout)。"""
         icon, label = self._SECTION_META.get(key, ("📌", key))
-        container = CardWidget()
+        container = SimpleCardWidget(self)
         outer = QVBoxLayout(container)
         outer.setContentsMargins(12, 10, 12, 10)
         outer.setSpacing(6)
@@ -975,18 +980,21 @@ class PromptEditorDialog(FluentSecondaryDialog):
         header.addWidget(title_lbl)
         header.addStretch()
 
-        btn_up = QPushButton("▲")
-        btn_up.setFixedSize(28, 24)
+        btn_up = ToolButton(container)
+        btn_up.setIcon(FIF.UP)
+        btn_up.setFixedSize(28, 28)
         btn_up.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, -1))
         install_hover_hint(btn_up, self._t("Move Up"))
 
-        btn_down = QPushButton("▼")
-        btn_down.setFixedSize(28, 24)
+        btn_down = ToolButton(container)
+        btn_down.setIcon(FIF.DOWN)
+        btn_down.setFixedSize(28, 28)
         btn_down.clicked.connect(lambda checked=False, c=container: self._request_move_section(c, 1))
         install_hover_hint(btn_down, self._t("Move Down"))
 
-        btn_del = QPushButton("×")
-        btn_del.setFixedSize(28, 24)
+        btn_del = ToolButton(container)
+        btn_del.setIcon(FIF.DELETE)
+        btn_del.setFixedSize(28, 28)
         btn_del.clicked.connect(lambda: self._remove_section(container, key))
         install_hover_hint(btn_del, self._t("Delete"))
         container._move_up_button = btn_up
@@ -1052,13 +1060,17 @@ class PromptEditorDialog(FluentSecondaryDialog):
         layout.addWidget(self._term_table)
 
         btn_row = QHBoxLayout()
-        add_btn = QPushButton("+ " + self._t("Add Row"))
+        add_btn = QPushButton(self._t("Add Row"))
+        add_btn.setIcon(FIF.ADD)
         add_btn.clicked.connect(lambda: self._add_table_row(self._term_table, 2))
-        up_btn = QPushButton("↑ " + self._t("Move Up"))
+        up_btn = QPushButton(self._t("Move Up"))
+        up_btn.setIcon(FIF.UP)
         up_btn.clicked.connect(lambda: self._move_table_row(self._term_table, -1))
-        down_btn = QPushButton("↓ " + self._t("Move Down"))
+        down_btn = QPushButton(self._t("Move Down"))
+        down_btn.setIcon(FIF.DOWN)
         down_btn.clicked.connect(lambda: self._move_table_row(self._term_table, 1))
-        del_btn = QPushButton("- " + self._t("Delete Row"))
+        del_btn = QPushButton(self._t("Delete Row"))
+        del_btn.setIcon(FIF.DELETE)
         del_btn.clicked.connect(lambda: self._del_table_row(self._term_table))
         btn_row.addWidget(add_btn)
         btn_row.addWidget(up_btn)
@@ -1085,9 +1097,9 @@ class PromptEditorDialog(FluentSecondaryDialog):
         if glossary is None:
             glossary = {}
 
-        glossary_tabs = QWidget()
+        glossary_tabs = SimpleCardWidget(self)
         glossary_tabs_layout = QVBoxLayout(glossary_tabs)
-        glossary_tabs_layout.setContentsMargins(0, 0, 0, 0)
+        glossary_tabs_layout.setContentsMargins(10, 10, 10, 10)
         glossary_tabs_layout.setSpacing(8)
         self._glossary_tab_segmented = SegmentedWidget(glossary_tabs)
         self._glossary_tab_stack = PopUpAniStackedWidget(glossary_tabs)
@@ -1131,7 +1143,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
             return self._glossary_tables[cat_key]
 
         normalized_entries = entries if isinstance(entries, list) else []
-        tab_page = QWidget(self._glossary_tab_stack)
+        tab_page = SimpleCardWidget(self._glossary_tab_stack)
         tab_lay = QVBoxLayout(tab_page)
         tab_lay.setContentsMargins(6, 6, 6, 6)
         tab_lay.setSpacing(6)
@@ -1151,11 +1163,13 @@ class PromptEditorDialog(FluentSecondaryDialog):
         tab_lay.addWidget(tbl)
 
         g_btn_row = QHBoxLayout()
-        add_btn = QPushButton("+ " + self._t("Add Row"))
+        add_btn = QPushButton(self._t("Add Row"))
+        add_btn.setIcon(FIF.ADD)
         g_btn_row.addWidget(add_btn)
         if cat_key == "Person":
             add_btn.clicked.connect(lambda checked=False, category=cat_key, t=tbl: self._add_person_glossary_row(category, t))
             edit_btn = QPushButton(self._t("Edit"))
+            edit_btn.setIcon(FIF.EDIT)
             edit_btn.clicked.connect(
                 lambda checked=False, category=cat_key, t=tbl: self._edit_selected_person_glossary_row(category, t)
             )
@@ -1164,13 +1178,16 @@ class PromptEditorDialog(FluentSecondaryDialog):
             add_btn.clicked.connect(
                 lambda checked=False, category=cat_key, t=tbl: self._add_basic_glossary_row(category, t)
             )
-        move_up_btn = QPushButton("↑ " + self._t("Move Up"))
+        move_up_btn = QPushButton(self._t("Move Up"))
+        move_up_btn.setIcon(FIF.UP)
         move_up_btn.clicked.connect(lambda checked=False, t=tbl: self._move_table_row(t, -1))
         g_btn_row.addWidget(move_up_btn)
-        move_down_btn = QPushButton("↓ " + self._t("Move Down"))
+        move_down_btn = QPushButton(self._t("Move Down"))
+        move_down_btn.setIcon(FIF.DOWN)
         move_down_btn.clicked.connect(lambda checked=False, t=tbl: self._move_table_row(t, 1))
         g_btn_row.addWidget(move_down_btn)
-        del_btn = QPushButton("- " + self._t("Delete Row"))
+        del_btn = QPushButton(self._t("Delete Row"))
+        del_btn.setIcon(FIF.DELETE)
         del_btn.clicked.connect(lambda checked=False, category=cat_key, t=tbl: self._delete_glossary_row(category, t))
         g_btn_row.addWidget(del_btn)
         g_btn_row.addStretch()
@@ -1182,7 +1199,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
         self._glossary_tab_segmented.addItem(
             route_key,
             self._glossary_tab_title(cat_key, tbl.rowCount()),
-            onClick=lambda key=route_key, index=page_index: (
+            onClick=lambda checked=False, key=route_key, index=page_index: (
                 self._glossary_tab_stack.setCurrentIndex(index),
                 self._glossary_tab_segmented.setCurrentItem(key),
             ),
@@ -1460,7 +1477,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
     # ─── 自由编辑 Tab ──────────────────────────────────
     def _build_free_tab(self):
-        page = QWidget(self._tab_stack)
+        page = SimpleCardWidget(self._tab_stack)
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(12, 10, 12, 10)
         page_layout.setSpacing(6)
@@ -1473,7 +1490,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
         self._tab_segmented.addItem(
             route_key,
             "📄 " + self._t("Raw Edit"),
-            onClick=lambda: (
+            onClick=lambda checked=False: (
                 self._tab_stack.setCurrentIndex(page_index),
                 self._tab_segmented.setCurrentItem(route_key),
             ),

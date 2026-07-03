@@ -2,17 +2,18 @@ import os
 import shutil
 
 from PIL import Image, ImageDraw, ImageFont
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush, QColor, QImage, QPixmap
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QBrush, QColor, QImage, QPalette, QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QListWidgetItem,
     QMessageBox,
 )
 from qfluentwidgets import ListWidget as QListWidget
+from qfluentwidgets import themeColor
 
 from theme_registry import THEME_OPTIONS
-from ui.theme import get_current_theme_colors
 from utils.resource_helper import resource_path
 
 _CURRENT_ASSET_PREFIX = "* "
@@ -21,18 +22,24 @@ _FONT_EXTENSIONS = (".ttf", ".otf", ".ttc")
 _FONT_PREVIEW_PIXMAP_CACHE: dict[tuple, QPixmap] = {}
 
 
+def _palette_color(role: QPalette.ColorRole, fallback: str) -> QColor:
+    app = QApplication.instance()
+    color = app.palette().color(role) if app is not None else QColor(fallback)
+    return QColor(color) if color.isValid() else QColor(fallback)
+
+
 def _render_font_preview_pixmap(font_path: str | None, text: str, size: int) -> QPixmap | None:
     """Render preview text directly from the font file without Qt family matching."""
     if not font_path or not os.path.isfile(font_path):
         return None
 
     norm_path = os.path.normpath(font_path)
-    text_color = get_current_theme_colors()["text_primary"]
+    text_color = _palette_color(QPalette.ColorRole.Text, "#1F2933")
     try:
         mtime = os.path.getmtime(norm_path)
     except OSError:
         mtime = 0.0
-    cache_key = (norm_path, mtime, text, int(size), text_color)
+    cache_key = (norm_path, mtime, text, int(size), text_color.rgba())
     cached = _FONT_PREVIEW_PIXMAP_CACHE.get(cache_key)
     if cached is not None:
         return QPixmap(cached)
@@ -69,7 +76,7 @@ def _render_font_preview_pixmap(font_path: str | None, text: str, size: int) -> 
     width = max(1, min(width, 4096))
     height = max(1, min(height, 2048))
 
-    qcolor = QColor(text_color)
+    qcolor = text_color
     fill = (
         qcolor.red() if qcolor.isValid() else 31,
         qcolor.green() if qcolor.isValid() else 41,
@@ -144,9 +151,9 @@ def _create_asset_list_item(self, filename: str, *, is_current: bool, tooltip_te
         font = item.font()
         font.setBold(True)
         item.setFont(font)
-        success_color = get_current_theme_colors().get("success_color")
-        if success_color:
-            item.setForeground(QBrush(QColor(success_color)))
+        accent_color = themeColor().toRgb()
+        if accent_color.isValid():
+            item.setForeground(QBrush(accent_color))
         if tooltip_text:
             item.setToolTip(tooltip_text)
     return item
@@ -221,6 +228,21 @@ def on_language_combo_changed(self, index: int):
     if index < 0 or not hasattr(self, "language_combo"):
         return
     locale_code = self.language_combo.itemData(index)
+    if locale_code:
+        drop_menu = getattr(self.language_combo, "dropMenu", None)
+        if drop_menu is not None:
+            self.language_combo.hidePopup()
+        self._pending_language_change_locale = locale_code
+        if getattr(self, "_language_change_emit_scheduled", False):
+            return
+        self._language_change_emit_scheduled = True
+        QTimer.singleShot(0, lambda view=self: _emit_pending_language_change(view))
+
+
+def _emit_pending_language_change(self):
+    locale_code = getattr(self, "_pending_language_change_locale", None)
+    self._pending_language_change_locale = None
+    self._language_change_emit_scheduled = False
     if locale_code:
         self.language_change_requested.emit(locale_code)
 

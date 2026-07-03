@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog
+from qfluentwidgets import FluentStyleSheet
 from qframelesswindow import FramelessDialog
-
-from ui.theme import get_current_theme_colors
 
 
 class FluentSecondaryDialog(FramelessDialog):
@@ -19,16 +18,7 @@ class FluentSecondaryDialog(FramelessDialog):
         self.apply_fluent_dialog_style()
 
     def apply_fluent_dialog_style(self):
-        colors = get_current_theme_colors()
-        self.setStyleSheet(
-            self.styleSheet()
-            + f"""
-            FluentSecondaryDialog {{
-                background: {colors.get("bg_window_shell", "#FFFFFF")};
-                color: {colors.get("text_primary", "#1F2933")};
-            }}
-            """
-        )
+        FluentStyleSheet.DIALOG.apply(self)
 
 
 DialogCode = QDialog.DialogCode

@@ -9,7 +9,7 @@ from typing import Callable, Dict
 
 import yaml
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
+from PyQt6.QtGui import QFont, QFontDatabase, QSyntaxHighlighter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -21,16 +21,16 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import (
     CardWidget,
     CaptionLabel,
+    FluentIcon as FIF,
     LineEdit as QLineEdit,
     PlainTextEdit as QPlainTextEdit,
     PopUpAniStackedWidget,
     PushButton as QPushButton,
     SegmentedWidget,
+    SimpleCardWidget,
     TableWidget as QTableWidget,
 )
 from ui.secondary_pages.themed_message_box import themed_question, themed_warning
-
-from ui.theme import get_current_theme_colors, monospace_font
 
 
 def _get_replacements_path() -> str:
@@ -40,19 +40,14 @@ def _get_replacements_path() -> str:
     return ensure_text_replacements_exists()
 
 
-def _theme_color(token: str) -> QColor:
-    value = get_current_theme_colors()[token].strip()
-    if value.startswith("rgba(") and value.endswith(")"):
-        parts = [part.strip() for part in value[5:-1].split(",")]
-        red, green, blue = (int(float(part)) for part in parts[:3])
-        alpha_value = float(parts[3])
-        alpha = round(alpha_value * 255) if alpha_value <= 1 else round(alpha_value)
-        return QColor(red, green, blue, max(0, min(255, alpha)))
-    return QColor(value)
-
-
-def _layout_host(parent=None) -> QWidget:
-    return QWidget(parent)
+def _fixed_width_font(size: int = 11) -> QFont:
+    try:
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+    except Exception:
+        font = QFont("Consolas")
+    font.setPointSize(size)
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    return font
 
 
 class YamlHighlighter(QSyntaxHighlighter):
@@ -62,7 +57,6 @@ class YamlHighlighter(QSyntaxHighlighter):
         # 注释
         if text.lstrip().startswith('#'):
             fmt = QTextCharFormat()
-            fmt.setForeground(_theme_color("text_secondary"))
             fmt.setFontItalic(True)
             self.setFormat(0, len(text), fmt)
             return
@@ -71,7 +65,6 @@ class YamlHighlighter(QSyntaxHighlighter):
         colon_idx = text.find(':')
         if colon_idx > 0 and not text.lstrip().startswith('-'):
             fmt = QTextCharFormat()
-            fmt.setForeground(_theme_color("cta_gradient_start"))
             fmt.setFontWeight(QFont.Weight.Bold)
             self.setFormat(0, colon_idx, fmt)
 
@@ -111,25 +104,33 @@ class ReplacementsEditorPanel(CardWidget):
         layout.setSpacing(10)
 
         # --- 顶部工具栏 ---
-        toolbar = _layout_host(self)
+        toolbar = SimpleCardWidget(self)
         toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        toolbar_layout.setContentsMargins(10, 8, 10, 8)
         toolbar_layout.setSpacing(8)
 
         self._add_button = QPushButton(self._t("Add Rule"))
+        self._add_button.setIcon(FIF.ADD)
         self._delete_button = QPushButton(self._t("Delete"))
+        self._delete_button.setIcon(FIF.DELETE)
         self._move_up_button = QPushButton("↑")
+        self._move_up_button.setIcon(FIF.UP)
         self._move_up_button.setFixedWidth(32)
         self._move_down_button = QPushButton("↓")
+        self._move_down_button.setIcon(FIF.DOWN)
         self._move_down_button.setFixedWidth(32)
 
         self._select_all_button = QPushButton(self._t("Select All"))
+        self._select_all_button.setIcon(FIF.CHECKBOX)
 
         # 启用/禁用 + 正则切换按钮（根据选中行状态动态变化）
         self._toggle_enabled_button = QPushButton(self._t("Enable"))
+        self._toggle_enabled_button.setIcon(FIF.ACCEPT)
         self._toggle_regex_button = QPushButton(self._t("Regex"))
+        self._toggle_regex_button.setIcon(FIF.CODE)
 
         self._restore_default_button = QPushButton(self._t("Restore Default"))
+        self._restore_default_button.setIcon(FIF.SYNC)
 
         toolbar_layout.addWidget(self._add_button)
         toolbar_layout.addWidget(self._delete_button)
@@ -143,9 +144,9 @@ class ReplacementsEditorPanel(CardWidget):
         layout.addWidget(toolbar)
 
         # --- 搜索 / 预设栏 ---
-        filter_row = _layout_host(self)
+        filter_row = SimpleCardWidget(self)
         filter_row_layout = QHBoxLayout(filter_row)
-        filter_row_layout.setContentsMargins(0, 0, 0, 0)
+        filter_row_layout.setContentsMargins(10, 8, 10, 8)
         filter_row_layout.setSpacing(8)
 
         self._search_label = CaptionLabel(self._t("Filter:"))
@@ -154,7 +155,7 @@ class ReplacementsEditorPanel(CardWidget):
         self._search_input.setClearButtonEnabled(True)
 
         # 预设按钮位（接口预留：将来通过 register_preset_button 加按钮，目前为空隐藏）
-        self._preset_slot = _layout_host(filter_row)
+        self._preset_slot = QWidget(filter_row)
         self._preset_slot_layout = QHBoxLayout(self._preset_slot)
         self._preset_slot_layout.setContentsMargins(0, 0, 0, 0)
         self._preset_slot_layout.setSpacing(6)
@@ -168,16 +169,16 @@ class ReplacementsEditorPanel(CardWidget):
         # --- 双模式切换容器 ---
         self._mode_segmented = SegmentedWidget(self)
         self._mode_stack = PopUpAniStackedWidget(self)
+        self._mode_pages: Dict[str, QWidget] = {}
 
         # === 模式1: 表格模式 ===
-        table_container = _layout_host(self._mode_stack)
+        table_container = SimpleCardWidget(self._mode_stack)
         table_layout = QVBoxLayout(table_container)
-        table_layout.setContentsMargins(0, 0, 0, 0)
-        table_layout.setSpacing(0)
+        table_layout.setContentsMargins(10, 10, 10, 10)
+        table_layout.setSpacing(8)
 
         self._group_segmented = SegmentedWidget(table_container)
         self._group_stack = PopUpAniStackedWidget(table_container)
-        self._group_order = ["common", "horizontal", "vertical"]
         self._current_group_route = "common"
 
         self._tables: Dict[str, QTableWidget] = {}
@@ -188,32 +189,24 @@ class ReplacementsEditorPanel(CardWidget):
         ]:
             table = self._create_table()
             self._tables[group_key] = table
-            group_index = self._group_stack.count()
             self._group_stack.addWidget(table)
             self._group_segmented.addItem(
                 group_key,
                 group_label,
-                onClick=lambda route_key=group_key, index=group_index: (
-                    self._group_stack.setCurrentIndex(index),
-                    self._group_segmented.setCurrentItem(route_key),
-                    setattr(self, "_current_group_route", route_key),
-                    self._on_tab_changed(index),
-                ),
+                onClick=lambda checked=False, route_key=group_key: self._set_group(route_key),
             )
-            if group_index == 0:
-                self._group_stack.setCurrentIndex(group_index)
-                self._group_segmented.setCurrentItem(group_key)
+        self._set_group("common", update=False)
 
         table_layout.addWidget(self._group_segmented)
         table_layout.addWidget(self._group_stack, 1)
-        table_page_index = self._mode_stack.count()
         self._mode_stack.addWidget(table_container)
+        self._mode_pages["table_view"] = table_container
 
         # === 模式2: 原始 YAML 编辑 ===
-        raw_container = _layout_host(self._mode_stack)
+        raw_container = SimpleCardWidget(self._mode_stack)
         raw_layout = QVBoxLayout(raw_container)
-        raw_layout.setContentsMargins(0, 0, 0, 0)
-        raw_layout.setSpacing(4)
+        raw_layout.setContentsMargins(10, 10, 10, 10)
+        raw_layout.setSpacing(8)
 
         raw_hint = CaptionLabel(self._t("Edit raw YAML content directly. Changes are saved automatically."))
         raw_hint.setWordWrap(True)
@@ -221,38 +214,34 @@ class ReplacementsEditorPanel(CardWidget):
         self._raw_hint_label = raw_hint
 
         self._raw_editor = QPlainTextEdit()
-        self._raw_editor.setFont(monospace_font(10))
+        self._raw_editor.setFont(_fixed_width_font(10))
         self._raw_editor.setTabStopDistance(20)
         self._raw_editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self._highlighter = YamlHighlighter(self._raw_editor.document())
         raw_layout.addWidget(self._raw_editor, 1)
 
-        raw_page_index = self._mode_stack.count()
         self._mode_stack.addWidget(raw_container)
-        self._mode_page_indexes = {
-            "table_view": table_page_index,
-            "raw_edit": raw_page_index,
-        }
+        self._mode_pages["raw_edit"] = raw_container
         self._mode_segmented.addItem(
             "table_view",
             self._t("Table View"),
-            onClick=lambda: self._set_mode("table_view"),
+            onClick=lambda checked=False: self._set_mode("table_view"),
         )
         self._mode_segmented.addItem(
             "raw_edit",
             self._t("Raw Edit"),
-            onClick=lambda: self._set_mode("raw_edit"),
+            onClick=lambda checked=False: self._set_mode("raw_edit"),
         )
-        self._mode_stack.setCurrentIndex(table_page_index)
+        self._show_mode_page("table_view")
         self._mode_segmented.setCurrentItem("table_view")
 
         layout.addWidget(self._mode_segmented)
         layout.addWidget(self._mode_stack, 1)
 
         # --- 状态栏 ---
-        status_row = _layout_host(self)
+        status_row = SimpleCardWidget(self)
         status_layout = QHBoxLayout(status_row)
-        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setContentsMargins(10, 8, 10, 8)
         status_layout.setSpacing(12)
         self._status_label = CaptionLabel("")
         status_layout.addWidget(self._status_label)
@@ -306,10 +295,22 @@ class ReplacementsEditorPanel(CardWidget):
     def _current_group_key(self) -> str:
         if self._current_group_route in self._tables:
             return self._current_group_route
-        index = self._group_stack.currentIndex()
-        if 0 <= index < len(self._group_order):
-            return self._group_order[index]
         return "common"
+
+    def _set_group(self, route_key: str, update: bool = True):
+        if route_key not in self._tables:
+            return
+
+        self._current_group_route = route_key
+        self._group_stack.setCurrentWidget(self._tables[route_key])
+        self._group_segmented.setCurrentItem(route_key)
+        if update:
+            self._on_tab_changed(self._group_stack.currentIndex())
+
+    def _show_mode_page(self, route_key: str):
+        page = self._mode_pages.get(route_key)
+        if page:
+            self._mode_stack.setCurrentWidget(page)
 
     # ─── 数据加载 ───
 
@@ -383,11 +384,11 @@ class ReplacementsEditorPanel(CardWidget):
 
     def _set_row_dimmed(self, table: QTableWidget, row: int, dimmed: bool):
         """设置行的灰显状态"""
-        color = _theme_color("text_disabled") if dimmed else _theme_color("text_primary")
+        del dimmed
         for col in range(table.columnCount()):
             item = table.item(row, col)
             if item:
-                item.setForeground(color)
+                item.setForeground(QTableWidgetItem().foreground())
 
     # ─── 操作 ───
 
@@ -605,7 +606,7 @@ class ReplacementsEditorPanel(CardWidget):
         self._raw_editor.blockSignals(False)
 
         self._mode_route = "raw_edit"
-        self._mode_stack.setCurrentIndex(self._mode_page_indexes["raw_edit"])
+        self._show_mode_page("raw_edit")
         self._mode_segmented.setCurrentItem("raw_edit")
         self._set_table_controls_enabled(False)
         self._update_status()
@@ -622,7 +623,7 @@ class ReplacementsEditorPanel(CardWidget):
                 self._t("YAML syntax error, cannot switch to table view.") + f"\n\n{e}"
             )
             self._mode_segmented.setCurrentItem("raw_edit")
-            self._mode_stack.setCurrentIndex(self._mode_page_indexes["raw_edit"])
+            self._show_mode_page("raw_edit")
             self._mode_route = "raw_edit"
             self._set_table_controls_enabled(False)
             self._update_status()
@@ -642,7 +643,7 @@ class ReplacementsEditorPanel(CardWidget):
             table.blockSignals(False)
 
         self._mode_route = "table_view"
-        self._mode_stack.setCurrentIndex(self._mode_page_indexes["table_view"])
+        self._show_mode_page("table_view")
         self._mode_segmented.setCurrentItem("table_view")
         self._set_table_controls_enabled(True)
         self._apply_filter(self._current_table(), self._search_input.text())

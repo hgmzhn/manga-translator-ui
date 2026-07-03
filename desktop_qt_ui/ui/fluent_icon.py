@@ -2,9 +2,9 @@ import os
 
 from PyQt6.QtCore import QRect, Qt
 from PyQt6.QtGui import QColor, QIcon, QIconEngine, QImage, QPainter, QPixmap
+from qfluentwidgets import isDarkTheme, themeColor
 from qfluentwidgets.common.icon import drawSvgIcon, writeSvg
 
-from ui.theme import get_current_theme_colors
 from utils.resource_helper import resource_path
 
 
@@ -15,8 +15,7 @@ class _ThemedFluentSvgIconEngine(QIconEngine):
         self.color_token = color_token
 
     def paint(self, painter: QPainter, rect, mode, state):
-        colors = get_current_theme_colors()
-        color = QColor(colors.get(self.color_token, "#1f1f1f")).name()
+        color = _resolve_icon_color(self.color_token).name()
         svg = writeSvg(self.icon_path, fill=color)
         if not svg:
             QIcon(self.icon_path).paint(painter, rect, Qt.AlignmentFlag.AlignCenter, mode, state)
@@ -48,3 +47,14 @@ class _ThemedFluentSvgIconEngine(QIconEngine):
 def themed_fluent_svg_icon(filename: str, color_token: str = "text_primary") -> QIcon:
     icon_path = resource_path(os.path.join("desktop_qt_ui", "ui", "icons", filename))
     return QIcon(_ThemedFluentSvgIconEngine(icon_path, color_token))
+
+
+def _resolve_icon_color(color_role: str) -> QColor:
+    role = (color_role or "").lower()
+    if role in {"accent", "primary", "theme", "theme_color", "btn_primary_bg"}:
+        return QColor(themeColor())
+    if role in {"muted", "secondary", "text_secondary", "text_muted"}:
+        return QColor(255, 255, 255, 179) if isDarkTheme() else QColor(0, 0, 0, 153)
+    if role in {"disabled", "text_disabled"}:
+        return QColor(255, 255, 255, 92) if isDarkTheme() else QColor(0, 0, 0, 92)
+    return QColor(255, 255, 255) if isDarkTheme() else QColor(31, 31, 31)

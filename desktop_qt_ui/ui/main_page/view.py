@@ -222,6 +222,55 @@ class MainView(QWidget):
         for route_key, title_key in zip(routes, tab_titles):
             self.settings_tabs.setItemText(route_key, self._t(title_key))
 
+    def _translated_setting_label(self, full_key: str) -> str:
+        key = str(full_key or "").rsplit(".", 1)[-1]
+        if full_key == "app.theme":
+            return self._t("Theme:").rstrip(":：")
+        if full_key == "app.ui_language":
+            return self._t("Language:").rstrip(":：")
+        if full_key == "app.unload_models_after_translation":
+            translated = self._t("label_unload_models_after_translation")
+            return translated if translated != "label_unload_models_after_translation" else "Unload Models After Translation"
+
+        fixed_prompt_spec = main_view_dynamic._get_fixed_prompt_editor_spec(self, full_key)
+        if fixed_prompt_spec:
+            return fixed_prompt_spec["label"]
+
+        labels = self.controller.get_display_mapping("labels") if self.controller else None
+        if labels and labels.get(key):
+            return labels[key]
+        return key
+
+    def _refresh_dynamic_setting_texts(self):
+        """Refresh dynamic settings labels in place during language switch."""
+        for panel in getattr(self, "tab_frames", {}).values():
+            layout = panel.layout() if panel is not None else None
+            if layout is None:
+                continue
+            for index in range(layout.count()):
+                widget = layout.itemAt(index).widget()
+                full_key = getattr(widget, "_full_key", None)
+                if not full_key or not hasattr(widget, "setText"):
+                    continue
+                widget.setText(self._translated_setting_label(full_key))
+                if full_key in {
+                    "ocr.ai_ocr_prompt_path",
+                    "colorizer.ai_colorizer_prompt_path",
+                    "render.ai_renderer_prompt_path",
+                }:
+                    for child in getattr(widget, "_widgets", []):
+                        if hasattr(child, "setText"):
+                            child.setText(self._t("Edit"))
+
+        highlighted_rows = list(getattr(self, "_highlighted_rows", []))
+        if highlighted_rows:
+            row = highlighted_rows[-1]
+            if hasattr(row, "_activate"):
+                try:
+                    row._activate()
+                except RuntimeError:
+                    pass
+
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）。"""
         self.refresh_tab_titles()
@@ -231,11 +280,10 @@ class MainView(QWidget):
         if hasattr(self, "language_label"):
             self.language_label.setText(self._t("Language:"))
         self._populate_theme_combo()
-        self._populate_language_combo()
 
         if hasattr(self, "translation_page_title"):
             self.translation_page_title.setText(self._t("Translation Interface"))
-        if hasattr(self, "translation_input_card"):
+        if hasattr(self, "translation_input_card") and hasattr(self.translation_input_card, "setTitle"):
             self.translation_input_card.setTitle("")
         if hasattr(self, "translation_task_card"):
             self.translation_task_card.setTitle(self._t("Translation Task"))
@@ -302,6 +350,7 @@ class MainView(QWidget):
             self.settings_desc_key.setText("")
         if hasattr(self, "settings_desc_text"):
             self.settings_desc_text.setText(self._t("Settings Desc Placeholder"))
+        self._refresh_dynamic_setting_texts()
 
         if hasattr(self, "env_page_title_label"):
             self.env_page_title_label.setText(self._t("API Management"))
@@ -373,24 +422,18 @@ class MainView(QWidget):
         if hasattr(self, "replacements_editor_panel"):
             self.replacements_editor_panel.refresh_ui_texts()
 
-        self._clear_dynamic_settings()
-        self._create_dynamic_settings()
-        if hasattr(self, "prompt_list_widget"):
-            self._refresh_prompt_manager()
-        if hasattr(self, "font_list_widget"):
-            self._refresh_font_manager()
-
     def _clear_dynamic_settings(self):
         """清理所有动态创建的设置控件。"""
         self._settings_ui_ready = False
         self._settings_rendered_signature = None
         self._settings_pending_signature = None
+        self._env_api_groups_signature = None
 
         if hasattr(self, "env_group_container_layout"):
             while self.env_group_container_layout.count():
                 item = self.env_group_container_layout.takeAt(0)
                 if item.widget():
-                    item.widget().deleteLater()
+                    main_view_dynamic._delete_later_safely(item.widget())
 
         for panel in getattr(self, "tab_frames", {}).values():
             if panel and panel.layout():
@@ -398,7 +441,7 @@ class MainView(QWidget):
                 while layout.count():
                     item = layout.takeAt(0)
                     if item.widget():
-                        item.widget().deleteLater()
+                        main_view_dynamic._delete_later_safely(item.widget())
 
     @pyqtSlot(bool)
     def on_translation_state_changed(self, is_translating: bool):

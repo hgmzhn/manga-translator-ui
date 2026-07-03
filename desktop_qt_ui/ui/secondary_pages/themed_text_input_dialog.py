@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtGui import QShowEvent
-from qfluentwidgets import Dialog, LineEdit
+from qfluentwidgets import Dialog, FluentIcon as FIF, LineEdit
 
 from ui.secondary_pages.fluent_dialog import DialogCode
 
@@ -30,7 +30,9 @@ class ThemedTextInputDialog(Dialog):
         self.textLayout.addWidget(self.line_edit)
 
         self.yesButton.setText(ok_text)
+        self.yesButton.setIcon(FIF.ACCEPT)
         self.cancelButton.setText(cancel_text)
+        self.cancelButton.setIcon(FIF.CANCEL)
         self.yesButton.clicked.disconnect()
         self.cancelButton.clicked.disconnect()
         self.yesButton.clicked.connect(self.accept)

@@ -28,7 +28,7 @@ ROTATION_STRATEGIES = {
 }
 
 _STATUS_RE = re.compile(r"\b(400|402|404|429)\b")
-_INDEXED_ENV_RE = re.compile(r"^(?P<base>.+)_(?P<index>[2-9]\d*)$")
+_INDEXED_ENV_RE = re.compile(r"^(?P<base>.+)_(?P<index>[1-9]\d*)$")
 _STATUS_LOCK = threading.RLock()
 _API_STATUS: dict[str, dict[str, Any]] = {}
 _ROUND_ROBIN_CURSORS: dict[str, int] = {}

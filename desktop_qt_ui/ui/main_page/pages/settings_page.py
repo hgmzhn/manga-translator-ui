@@ -9,7 +9,17 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, HorizontalSeparator, PopUpAniStackedWidget, PushButton, ScrollArea, SegmentedWidget, StrongBodyLabel, TitleLabel
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    HorizontalSeparator,
+    PushButton,
+    ScrollArea,
+    SegmentedWidget,
+    SimpleCardWidget,
+    StrongBodyLabel,
+    TitleLabel,
+)
 
 
 def _resolve_settings_tab_layout_file() -> str:
@@ -52,23 +62,19 @@ def _create_settings_tab_page() -> tuple[QWidget, QWidget]:
     tab_layout.setContentsMargins(0, 0, 0, 0)
     tab_layout.setSpacing(0)
 
-    scroll = ScrollArea()
+    scroll = ScrollArea(tab_content_widget)
     scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     tab_layout.addWidget(scroll)
 
-    scroll_content = QWidget()
-    scroll_content_layout = QVBoxLayout(scroll_content)
-    scroll_content_layout.setContentsMargins(16, 14, 16, 16)
-    scroll_content_layout.setSpacing(8)
-
-    settings_rows_widget = QWidget(scroll_content)
+    settings_rows_widget = QWidget(scroll)
     settings_rows_layout = QVBoxLayout(settings_rows_widget)
     settings_rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
     settings_rows_layout.setSpacing(8)
-    settings_rows_layout.setContentsMargins(0, 0, 0, 0)
-    scroll_content_layout.addWidget(settings_rows_widget, 1)
+    settings_rows_layout.setContentsMargins(0, 8, 10, 8)
+    settings_rows_layout.addStretch(1)
 
-    scroll.setWidget(scroll_content)
+    scroll.setWidget(settings_rows_widget)
     scroll.enableTransparentBackground()
     return tab_content_widget, settings_rows_widget
 
@@ -77,12 +83,12 @@ def create_settings_page(self) -> QWidget:
     page = QWidget()
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(18, 16, 18, 14)
-    page_layout.setSpacing(12)
+    page_layout.setSpacing(14)
 
-    header_card = CardWidget()
-    header_layout = QHBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 12, 16, 12)
-    header_layout.setSpacing(8)
+    header = QWidget(page)
+    header_layout = QHBoxLayout(header)
+    header_layout.setContentsMargins(0, 0, 0, 0)
+    header_layout.setSpacing(10)
 
     title_col = QVBoxLayout()
     title_col.setSpacing(2)
@@ -99,41 +105,43 @@ def create_settings_page(self) -> QWidget:
     self.import_config_button = PushButton(self._t("Import Config"))
     header_layout.addWidget(self.export_config_button)
     header_layout.addWidget(self.import_config_button)
-    page_layout.addWidget(header_card)
+    page_layout.addWidget(header)
 
     self.export_config_button.clicked.connect(self.controller.export_config)
     self.import_config_button.clicked.connect(self.controller.import_config)
 
-    settings_body = QWidget()
+    settings_body = QWidget(page)
     settings_body_layout = QHBoxLayout(settings_body)
-    settings_body_layout.setContentsMargins(12, 12, 12, 12)
-    settings_body_layout.setSpacing(12)
+    settings_body_layout.setContentsMargins(0, 0, 0, 0)
+    settings_body_layout.setSpacing(14)
     page_layout.addWidget(settings_body, 1)
 
-    settings_tabs_panel = QWidget()
+    settings_tabs_panel = QWidget(settings_body)
     settings_tabs_layout = QVBoxLayout(settings_tabs_panel)
     settings_tabs_layout.setContentsMargins(0, 0, 0, 0)
-    settings_tabs_layout.setSpacing(8)
+    settings_tabs_layout.setSpacing(10)
 
     self.settings_tabs = SegmentedWidget(settings_tabs_panel)
-    self.settings_stack = PopUpAniStackedWidget(settings_tabs_panel)
+    self.settings_pages_panel = QWidget(settings_tabs_panel)
+    self.settings_pages_layout = QVBoxLayout(self.settings_pages_panel)
+    self.settings_pages_layout.setContentsMargins(0, 0, 0, 0)
+    self.settings_pages_layout.setSpacing(0)
     self.settings_tab_routes = []
     self.settings_tab_route_indexes = {}
     self.settings_tab_route_widgets = {}
     settings_tabs_layout.addWidget(self.settings_tabs)
-    settings_tabs_layout.addWidget(self.settings_stack, 1)
+    settings_tabs_layout.addWidget(self.settings_pages_panel, 1)
 
     def switch_settings_tab(route_key: str):
-        widget = self.settings_tab_route_widgets.get(route_key)
-        if widget is not None:
-            self.settings_stack.setCurrentWidget(widget)
+        for current_route, widget in self.settings_tab_route_widgets.items():
+            widget.setVisible(current_route == route_key)
 
     self.settings_tabs.currentItemChanged.connect(switch_settings_tab)
     settings_body_layout.addWidget(settings_tabs_panel, 3)
 
-    desc_panel = QWidget()
+    desc_panel = QWidget(settings_body)
     desc_panel_layout = QVBoxLayout(desc_panel)
-    desc_panel_layout.setContentsMargins(16, 16, 16, 16)
+    desc_panel_layout.setContentsMargins(10, 8, 0, 8)
     desc_panel_layout.setSpacing(12)
 
     self.settings_desc_header_label = StrongBodyLabel(self._t("Settings Desc Header"))
@@ -164,15 +172,15 @@ def create_settings_page(self) -> QWidget:
     self.settings_tab_title_key_by_route = {}
 
     def add_settings_tab(route_key: str, widget: QWidget, text: str):
-        index = self.settings_stack.count()
-        self.settings_stack.addWidget(widget)
+        index = len(self.settings_tab_routes)
+        self.settings_pages_layout.addWidget(widget)
+        widget.setVisible(index == 0)
         self.settings_tab_routes.append(route_key)
         self.settings_tab_route_indexes[route_key] = index
         self.settings_tab_route_widgets[route_key] = widget
         self.settings_tabs.addItem(route_key, text)
         if index == 0:
             self.settings_tabs.setCurrentItem(route_key)
-            self.settings_stack.setCurrentWidget(widget)
 
     if self._settings_tabs_use_reclassify:
         for tab in self.settings_tab_layout:
