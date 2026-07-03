@@ -189,6 +189,8 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
    pip install -r requirements_gpu.txt
    
    # AMD GPU（仅 RX 7000/9000 系列）
+   # Linux 需先装 ROCm 版 PyTorch（requirements_amd.txt 不含 torch，Windows 由安装脚本单独装）
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm7.2
    pip install -r requirements_amd.txt
    
    # CPU 版本

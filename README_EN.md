@@ -197,6 +197,9 @@ Best for developers or users who want full customization.
    pip install -r requirements_gpu.txt
 
    # AMD GPU (RX 7000 / 9000 only)
+   # On Linux, install the ROCm PyTorch build first (requirements_amd.txt has no torch;
+   # the Windows install script installs it separately)
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm7.2
    pip install -r requirements_amd.txt
 
    # CPU build
