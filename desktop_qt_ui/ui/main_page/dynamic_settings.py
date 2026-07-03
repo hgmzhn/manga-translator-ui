@@ -2,17 +2,21 @@ import json
 import os
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QFormLayout,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    CaptionLabel,
+    HorizontalSeparator,
+    StrongBodyLabel,
+    themeColor,
+)
 from qfluentwidgets import LineEdit as FluentLineEdit
 from qfluentwidgets import PushButton as QPushButton
 
@@ -47,6 +51,13 @@ API_GROUP_SPECS = {
 
 SIMPLE_API_GROUP_SPECS = {
     "translator_sakura": ("SAKURA_API_BASE", "SAKURA_DICT_PATH"),
+}
+
+API_SECTION_TITLE_KEYS = {
+    "translation": "Translation",
+    "ocr": "OCR",
+    "color": "Colorization",
+    "render": "Render",
 }
 
 
@@ -127,10 +138,21 @@ def _add_api_section_panel(
     current_env_values: dict,
     empty_hint_key: str,
 ):
-    env_input_widget = QWidget()
-    if not group_keys:
-        env_input_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    self.env_layout = QGridLayout(env_input_widget)
+    section_card = CardWidget()
+    section_card_layout = QVBoxLayout(section_card)
+    section_card_layout.setContentsMargins(16, 14, 16, 16)
+    section_card_layout.setSpacing(12)
+
+    title_layout = QHBoxLayout()
+    title_layout.setSpacing(10)
+
+    title_key = API_SECTION_TITLE_KEYS.get(section_key, section_key.title())
+    section_title = StrongBodyLabel(self._t(title_key))
+    title_layout.addWidget(section_title)
+    title_layout.addWidget(HorizontalSeparator(), 1)
+    section_card_layout.addLayout(title_layout)
+
+    self.env_layout = QGridLayout()
     self.env_layout.setColumnStretch(1, 1)
     self.env_layout.setColumnStretch(2, 0)
     self.env_layout.setHorizontalSpacing(12)
@@ -157,7 +179,8 @@ def _add_api_section_panel(
     else:
         _add_empty_api_hint(self, self.env_layout, self.env_layout.rowCount(), empty_hint_key)
 
-    container_layout.addWidget(env_input_widget, 1 if not group_keys else 0)
+    section_card_layout.addLayout(self.env_layout, 1 if not group_keys else 0)
+    container_layout.addWidget(section_card, 1 if not group_keys else 0)
 
 
 def _clear_layout_widgets(layout):
@@ -241,6 +264,14 @@ def _get_setting_description(view, full_key: str) -> str:
         if result != desc_key:
             return result
     return ""
+
+
+def _append_settings_row(parent_layout, row: QWidget):
+    parent_layout.addWidget(row)
+
+
+def _insert_settings_row(parent_layout, index: int, row: QWidget):
+    parent_layout.insertWidget(index, row)
 
 
 
@@ -369,12 +400,8 @@ def _create_fixed_prompt_editor_row(self, parent_layout, full_key: str):
         return False
 
     label_text = spec["label"]
-    label = QLabel(f"{label_text}:")
+    label = BodyLabel(f"{label_text}:")
     label.setMinimumWidth(120)
-
-    container = QWidget()
-    hbox = QHBoxLayout(container)
-    hbox.setContentsMargins(0, 0, 0, 0)
 
     edit_button = QPushButton(self._t("Edit"))
     edit_button.setFixedWidth(120)
@@ -385,11 +412,8 @@ def _create_fixed_prompt_editor_row(self, parent_layout, full_key: str):
     elif full_key == "render.ai_renderer_prompt_path":
         edit_button.clicked.connect(self._open_ai_renderer_prompt_editor)
 
-    hbox.addWidget(edit_button)
-    hbox.addStretch(1)
-
-    row = _ClickableRow(self, full_key, label, container)
-    parent_layout.addRow(row)
+    row = _ClickableRow(self, full_key, label, [edit_button])
+    _append_settings_row(parent_layout, row)
     return True
 
 @pyqtSlot(dict)
@@ -451,33 +475,27 @@ def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False)
     row_layout = QHBoxLayout(row)
 
     if is_sub:
-        row_layout.setContentsMargins(24, 10, 0, 4)
+        row_layout.setContentsMargins(16, 8, 8, 4)
         row_layout.setSpacing(8)
 
-        dot_label = QLabel("◆")
+        dot_label = CaptionLabel("◆")
         dot_label.setFixedWidth(14)
 
-        title_label = QLabel(title)
-
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
+        title_label = BodyLabel(title)
 
         row_layout.addWidget(dot_label)
         row_layout.addWidget(title_label)
-        row_layout.addWidget(line, 1)
+        row_layout.addWidget(HorizontalSeparator(), 1)
     else:
-        row_layout.setContentsMargins(0, 18, 0, 6)
+        row_layout.setContentsMargins(4, 18, 4, 6)
         row_layout.setSpacing(10)
 
-        title_label = QLabel(title.upper())
-
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
+        title_label = StrongBodyLabel(title.upper())
 
         row_layout.addWidget(title_label)
-        row_layout.addWidget(line, 1)
+        row_layout.addWidget(HorizontalSeparator(), 1)
 
-    parent_layout.addRow(row)
+    _append_settings_row(parent_layout, row)
 
 
 def _create_widget_from_full_key(self, config: dict, full_key: str, parent_layout):
@@ -492,15 +510,10 @@ def _create_widget_from_full_key(self, config: dict, full_key: str, parent_layou
     if not exists:
         return False
 
-    before = parent_layout.rowCount() if isinstance(parent_layout, QFormLayout) else -1
     if "." in full_key:
         section, key = full_key.split(".", 1)
-        self._create_param_widgets({key: value}, parent_layout, section)
-    else:
-        self._create_param_widgets({full_key: value}, parent_layout, "")
-    if isinstance(parent_layout, QFormLayout):
-        return parent_layout.rowCount() > before
-    return True
+        return bool(self._create_param_widgets({key: value}, parent_layout, section))
+    return bool(self._create_param_widgets({full_key: value}, parent_layout, ""))
 
 
 def _populate_settings_by_reclassify_layout(self, config: dict):
@@ -512,7 +525,7 @@ def _populate_settings_by_reclassify_layout(self, config: dict):
             continue
 
         panel_layout = panel.layout()
-        if panel_layout is None or not isinstance(panel_layout, QFormLayout):
+        if panel_layout is None:
             continue
 
         has_primary_divider = False
@@ -579,7 +592,7 @@ def _finalize_settings_ui(self):
     cli_panel = self.tab_frames.get("Basic Settings")
     if cli_panel and not getattr(self, "_settings_tabs_use_reclassify", False):
         cli_layout = cli_panel.layout()
-        if cli_layout is not None and isinstance(cli_layout, QFormLayout):
+        if cli_layout is not None:
             # 创建滑块开关
             unload_models_checkbox = ToggleSwitch()
             
@@ -599,24 +612,23 @@ def _finalize_settings_ui(self):
             label_text = self._t("label_unload_models_after_translation")
             if not label_text or label_text == "label_unload_models_after_translation":
                 label_text = "Unload Models After Translation"
-            unload_models_label = QLabel(f"{label_text}:")
+            unload_models_label = BodyLabel(f"{label_text}:")
+            row = _ClickableRow(self, 'app.unload_models_after_translation', unload_models_label, unload_models_checkbox)
             
             # 插入到最上面（索引0）
-            cli_layout.insertRow(0, unload_models_label, unload_models_checkbox)
+            _insert_settings_row(cli_layout, 0, row)
     
     if hasattr(self, "env_tab_widget"):
         # Update tab text matching locale dynamically if needed
-        self.env_tab_widget.setTabText(0, self._t("Translation"))
-        self.env_tab_widget.setTabText(1, self._t("OCR"))
-        self.env_tab_widget.setTabText(2, self._t("Colorization"))
-        self.env_tab_widget.setTabText(3, self._t("Render"))
+        for route_key, title_key in getattr(self, "env_tab_title_keys", {}).items():
+            self.env_tab_widget.setItemText(route_key, self._t(title_key))
 
     # Clear containers
     for layout in [self.env_preset_layout, self.env_group_container_layout, self.ocr_container_layout, self.color_container_layout, self.render_container_layout]:
         _clear_layout_widgets(layout)
                 
     # --- 全局 API Preset Toolbar ---
-    preset_label = QLabel(self._t("Preset:"))
+    preset_label = BodyLabel(self._t("Preset:"))
     self.preset_combo = QComboBox()
     self.preset_combo.setMinimumWidth(180)
     self.preset_combo.setEditable(False)
@@ -823,8 +835,9 @@ def _update_upscale_ratio_options(self, upscaler):
 
 def _create_param_widgets(self, data, parent_layout, prefix=""):
     if not isinstance(data, dict):
-        return
+        return 0
 
+    added_rows = 0
     for key, value in data.items():
         full_key = f"{prefix}.{key}" if prefix else key
 
@@ -846,7 +859,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             label_text = translated if translated != "label_unload_models_after_translation" else "Unload Models After Translation"
         if self.controller.get_display_mapping('labels') and self.controller.get_display_mapping('labels').get(key):
             label_text = self.controller.get_display_mapping('labels').get(key)
-        label = QLabel(f"{label_text}:")
+        label = BodyLabel(f"{label_text}:")
         label.setMinimumWidth(120)
         widget = None
 
@@ -869,26 +882,14 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
 
         elif full_key == "filter_text_enabled":
             # 特殊处理：过滤列表开关 + 编辑过滤列表按钮
-            container = QWidget()
-            hbox = QHBoxLayout(container)
-            hbox.setContentsMargins(0, 0, 0, 0)
-            
             checkbox = ToggleSwitch(checked=value)
             checkbox.checkedChanged.connect(lambda checked, k=full_key: self._on_setting_changed(bool(checked), k, None))
             
             open_btn = QPushButton(self._t("btn_open_filter_list"))
             open_btn.clicked.connect(self._open_filter_list)
-            
-            hbox.addWidget(checkbox)
-            hbox.addWidget(open_btn)
-            hbox.addStretch()
-            widget = container
+            widget = [checkbox, open_btn]
 
         elif full_key == "render.font_path":
-            container = QWidget()
-            hbox = QHBoxLayout(container)
-            hbox.setContentsMargins(0, 0, 0, 0)
-            
             # 创建自定义ComboBox,在下拉时刷新字体列表
             class RefreshableComboBox(QComboBox):
                 def showPopup(self):
@@ -923,15 +924,9 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             combo.currentTextChanged.connect(lambda text, k=full_key: self._on_setting_changed(text, k, None))
             button = QPushButton(self._t("Open Directory"))
             button.clicked.connect(self.controller.open_font_directory)
-            hbox.addWidget(combo)
-            hbox.addWidget(button)
-            widget = container
+            widget = [combo, button]
 
         elif full_key == "translator.high_quality_prompt_path":
-            container = QWidget()
-            hbox = QHBoxLayout(container)
-            hbox.setContentsMargins(0, 0, 0, 0)
-            
             # 创建自定义ComboBox,在下拉时刷新提示词列表
             class RefreshablePromptComboBox(QComboBox):
                 def __init__(self, controller_ref, parent=None):
@@ -963,29 +958,18 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             combo.currentTextChanged.connect(lambda text, k=full_key: self._on_setting_changed(os.path.join('dict', text).replace('\\', '/') if text else None, k, None))
             button = QPushButton(self._t("Open Directory"))
             button.clicked.connect(self.controller.open_dict_directory)
-            hbox.addWidget(combo)
-            hbox.addWidget(button)
-            widget = container
+            widget = [combo, button]
 
         elif isinstance(value, bool):
             # 特殊处理：use_custom_api_params 需要添加"打开文件"按钮
             if full_key == "use_custom_api_params":
-                container = QWidget()
-                container_layout = QHBoxLayout(container)
-                container_layout.setContentsMargins(0, 0, 0, 0)
-                
                 checkbox = ToggleSwitch(checked=value)
                 checkbox.checkedChanged.connect(lambda checked, k=full_key: self._on_setting_changed(bool(checked), k, None))
                 
                 open_file_button = QPushButton(self._t("Edit"))
                 open_file_button.setFixedWidth(100)
                 open_file_button.clicked.connect(self._on_open_custom_api_params_file)
-                
-                container_layout.addWidget(checkbox)
-                container_layout.addWidget(open_file_button)
-                container_layout.addStretch()
-                
-                widget = container
+                widget = [checkbox, open_file_button]
             else:
                 widget = ToggleSwitch(checked=value)
                 widget.checkedChanged.connect(lambda checked, k=full_key: self._on_setting_changed(bool(checked), k, None))
@@ -1123,40 +1107,47 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
         
         if widget is not None:
-            # 使用 ClickableRow 包装 label + widget，整行可点击、可高亮
             row = _ClickableRow(self, full_key, label, widget)
-            parent_layout.addRow(row)
+            _append_settings_row(parent_layout, row)
+            added_rows += 1
+
+    return added_rows
 
 
 class _ClickableRow(QWidget):
-    """整行可点击、可高亮的设置行，包含 label 和控件。"""
+    """整行可点击的轻量设置行，包含 label 和控件。"""
 
-    def __init__(self, view, full_key: str, label: QLabel, widget: QWidget):
+    def __init__(self, view, full_key: str, label: BodyLabel, widget: QWidget | list[QWidget] | tuple[QWidget, ...]):
         super().__init__()
         self._view = view
         self._full_key = full_key
         self._label = label
+        self._widgets = list(widget) if isinstance(widget, (list, tuple)) else [widget]
         self._selected = False
 
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         row_layout = QHBoxLayout(self)
-        row_layout.setContentsMargins(8, 4, 8, 4)
-        row_layout.setSpacing(12)
+        row_layout.setContentsMargins(12, 8, 12, 8)
+        row_layout.setSpacing(14)
 
         label.setMinimumWidth(120)
         row_layout.addWidget(label)
 
-        if isinstance(widget, ToggleSwitch):
-            row_layout.addWidget(widget)
+        for index, control in enumerate(self._widgets):
+            if isinstance(control, ToggleSwitch):
+                row_layout.addWidget(control)
+            else:
+                stretch = 1 if len(self._widgets) == 1 or index == 0 else 0
+                row_layout.addWidget(control, stretch)
+
+        if len(self._widgets) > 1 or any(isinstance(control, ToggleSwitch) for control in self._widgets):
             row_layout.addStretch(1)
-        elif isinstance(widget, QWidget):
-            row_layout.addWidget(widget, 1)
 
         # 给所有子控件安装事件过滤器，点击子控件时也触发行高亮
-        self._install_child_event_filter(widget)
+        for control in self._widgets:
+            self._install_child_event_filter(control)
         label.installEventFilter(self)
 
     def _install_child_event_filter(self, widget):
@@ -1172,13 +1163,12 @@ class _ClickableRow(QWidget):
         return False  # 不消费事件，让子控件正常工作
 
     def _activate(self):
-        """激活此行：更新描述面板 + 高亮"""
+        """激活此行：更新描述面板和当前行标记。"""
         desc = _get_setting_description(self._view, self._full_key)
         label_text = self._label.text().rstrip(':：')
         if hasattr(self._view, '_show_setting_description'):
             self._view._show_setting_description(self._full_key, label_text, desc)
 
-        # 取消之前高亮的行
         for old in getattr(self._view, '_highlighted_rows', []):
             try:
                 old._set_selected(False)
@@ -1200,10 +1190,17 @@ class _ClickableRow(QWidget):
         if self._selected:
             from PyQt6.QtCore import QRectF
             from PyQt6.QtGui import QPainter, QPainterPath
-            p = QPainter(self)
-            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            accent = themeColor().toRgb()
+            fill = themeColor().toRgb()
+            accent.setAlpha(210)
+            fill.setAlpha(28)
+
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             path = QPainterPath()
             path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 6, 6)
-            p.fillPath(path, QColor(50, 90, 140, 64))
-            p.end()
+            painter.fillPath(path, fill)
+            painter.fillRect(0, 7, 3, max(1, self.height() - 14), accent)
+            painter.end()
         super().paintEvent(event)

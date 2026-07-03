@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
-    QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -22,6 +21,7 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    PopUpAniStackedWidget,
     PrimaryPushButton,
     RoundMenu,
     SegmentedWidget,
@@ -82,6 +82,16 @@ def _divider() -> QFrame:
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
     return line
+
+
+def _fluent_scroll(parent=None) -> QScrollArea:
+    scroll = QScrollArea(parent)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setAutoFillBackground(False)
+    scroll.viewport().setAutoFillBackground(False)
+    scroll.enableTransparentBackground()
+    return scroll
 
 
 def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
@@ -272,56 +282,6 @@ def _is_colorizer_structured(data: Any) -> bool:
     )
 
 
-class _SegmentedTabWidget(QWidget):
-    currentChanged = pyqtSignal(int)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._keys: list[str] = []
-        self._pages: list[QWidget] = []
-        self._segmented = SegmentedWidget(self)
-        self._stack = QStackedWidget(self)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(self._segmented)
-        layout.addWidget(self._stack, 1)
-
-    def addTab(self, widget: QWidget, text: str):
-        index = len(self._keys)
-        key = f"tab_{index}"
-        self._keys.append(key)
-        self._pages.append(widget)
-        self._stack.addWidget(widget)
-        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
-        if index == 0:
-            self.setCurrentIndex(0)
-
-    def currentIndex(self) -> int:
-        return self._stack.currentIndex()
-
-    def setCurrentIndex(self, index: int):
-        if index < 0 or index >= len(self._keys):
-            return
-        self._stack.setCurrentIndex(index)
-        self._segmented.setCurrentItem(self._keys[index])
-        self.currentChanged.emit(index)
-
-    def setCurrentWidget(self, widget: QWidget):
-        self.setCurrentIndex(self.indexOf(widget))
-
-    def indexOf(self, widget: QWidget) -> int:
-        try:
-            return self._pages.index(widget)
-        except ValueError:
-            return -1
-
-    def setTabText(self, index: int, text: str):
-        if 0 <= index < len(self._keys):
-            self._segmented.setItemText(self._keys[index], text)
-
-
 # ─────────────────────────────────────────────────────────
 # PromptPreviewPanel  (右侧结构化预览)
 # ─────────────────────────────────────────────────────────
@@ -371,9 +331,8 @@ class PromptPreviewPanel(QWidget):
         card_layout.addWidget(self._filename_label)
 
         # Scroll area for content
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        self._content_widget = QWidget()
+        scroll = _fluent_scroll(self._card)
+        self._content_widget = QWidget(scroll)
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(0, 4, 0, 4)
         self._content_layout.setSpacing(8)
@@ -529,8 +488,14 @@ class PromptPreviewPanel(QWidget):
                 layout.addWidget(_dim_label(self._t("No glossary entries")))
                 layout.addWidget(_divider())
             else:
-                # 用 tab widget 按分类展示
-                tabs = _SegmentedTabWidget()
+                glossary_tab_container = QWidget()
+                glossary_tab_layout = QVBoxLayout(glossary_tab_container)
+                glossary_tab_layout.setContentsMargins(0, 0, 0, 0)
+                glossary_tab_layout.setSpacing(8)
+                glossary_segmented = SegmentedWidget(glossary_tab_container)
+                glossary_stack = PopUpAniStackedWidget(glossary_tab_container)
+                glossary_tab_layout.addWidget(glossary_segmented)
+                glossary_tab_layout.addWidget(glossary_stack, 1)
 
                 category_icons = {
                     "Person": "👤",
@@ -546,11 +511,24 @@ class PromptPreviewPanel(QWidget):
                     if not isinstance(entries, list) or not entries:
                         continue
                     icon = category_icons.get(cat_key, "")
-                    tab_page = QWidget()
+                    tab_page = QWidget(glossary_stack)
                     tab_lay = QVBoxLayout(tab_page)
                     tab_lay.setContentsMargins(4, 4, 4, 4)
                     tab_lay.addWidget(_make_person_glossary_table(entries) if cat_key == "Person" else _make_glossary_table(entries))
-                    tabs.addTab(tab_page, f"{icon} {self._t(cat_key)} ({len(entries)})")
+                    route_key = f"glossary_{cat_key}"
+                    page_index = glossary_stack.count()
+                    glossary_stack.addWidget(tab_page)
+                    glossary_segmented.addItem(
+                        route_key,
+                        f"{icon} {self._t(cat_key)} ({len(entries)})",
+                        onClick=lambda key=route_key, index=page_index: (
+                            glossary_stack.setCurrentIndex(index),
+                            glossary_segmented.setCurrentItem(key),
+                        ),
+                    )
+                    if page_index == 0:
+                        glossary_stack.setCurrentIndex(page_index)
+                        glossary_segmented.setCurrentItem(route_key)
 
                 # 处理非标准分类
                 standard_keys = {"Person", "Location", "Org", "Item", "Skill", "Creature"}
@@ -559,14 +537,27 @@ class PromptPreviewPanel(QWidget):
                         continue
                     if not isinstance(entries, list) or not entries:
                         continue
-                    tab_page = QWidget()
+                    tab_page = QWidget(glossary_stack)
                     tab_lay = QVBoxLayout(tab_page)
                     tab_lay.setContentsMargins(4, 4, 4, 4)
                     tab_lay.addWidget(_make_person_glossary_table(entries) if cat_key == "Person" else _make_glossary_table(entries))
-                    tabs.addTab(tab_page, f"{cat_key} ({len(entries)})")
+                    route_key = f"glossary_{cat_key}"
+                    page_index = glossary_stack.count()
+                    glossary_stack.addWidget(tab_page)
+                    glossary_segmented.addItem(
+                        route_key,
+                        f"{cat_key} ({len(entries)})",
+                        onClick=lambda key=route_key, index=page_index: (
+                            glossary_stack.setCurrentIndex(index),
+                            glossary_segmented.setCurrentItem(key),
+                        ),
+                    )
+                    if page_index == 0:
+                        glossary_stack.setCurrentIndex(page_index)
+                        glossary_segmented.setCurrentItem(route_key)
 
-                tabs.setMinimumHeight(200)
-                layout.addWidget(tabs)
+                glossary_tab_container.setMinimumHeight(200)
+                layout.addWidget(glossary_tab_container)
                 layout.addWidget(_divider())
 
         layout.addStretch()
@@ -574,18 +565,20 @@ class PromptPreviewPanel(QWidget):
     # ─── 原始文本渲染 ──────────────────────────────────
     def _render_raw(self, file_path: str):
         layout = self._content_layout
-        layout.addWidget(_dim_label(self._t("Unrecognized format – showing raw content")))
+        raw_panel = QWidget(self._content_widget)
+        raw_layout = QVBoxLayout(raw_panel)
+        raw_layout.setContentsMargins(12, 10, 12, 10)
+        raw_layout.setSpacing(8)
+        raw_layout.addWidget(_dim_label(self._t("Unrecognized format – showing raw content")))
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 raw = f.read()
         except Exception as e:
             raw = self._t("Error reading file: {error}", error=e)
 
-        text_edit = QPlainTextEdit()
-        text_edit.setPlainText(raw)
-        text_edit.setReadOnly(True)
-        text_edit.setFont(_monospace_font())
-        layout.addWidget(text_edit, 1)
+        text_edit = _styled_text_edit(raw, read_only=True)
+        raw_layout.addWidget(text_edit, 1)
+        layout.addWidget(raw_panel, 1)
 
     # ─── 编辑按钮 ──────────────────────────────────────
     def _on_edit_clicked(self):
@@ -661,6 +654,8 @@ def _get_basic_glossary_row(table: QTableWidget, row: int) -> Dict[str, str]:
 def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit:
     """统一风格的文本编辑框。"""
     te = QPlainTextEdit()
+    te.setAutoFillBackground(False)
+    te.viewport().setAutoFillBackground(False)
     te.setPlainText(text)
     te.setReadOnly(read_only)
     te.setFont(_monospace_font())
@@ -813,7 +808,8 @@ class PromptEditorDialog(FluentSecondaryDialog):
         self._term_table: Optional[QTableWidget] = None
         self._title_edit = None
         self._glossary_tables: Dict[str, QTableWidget] = {}
-        self._glossary_tab_widget: Optional[_SegmentedTabWidget] = None
+        self._glossary_tab_segmented: Optional[SegmentedWidget] = None
+        self._glossary_tab_stack: Optional[PopUpAniStackedWidget] = None
         self._glossary_tab_pages: Dict[str, QWidget] = {}
 
         self._setup_ui()
@@ -838,8 +834,10 @@ class PromptEditorDialog(FluentSecondaryDialog):
         root.addWidget(_divider())
 
         # Tabs
-        self._tabs = _SegmentedTabWidget()
-        root.addWidget(self._tabs, 1)
+        self._tab_segmented = SegmentedWidget(self)
+        self._tab_stack = PopUpAniStackedWidget(self)
+        root.addWidget(self._tab_segmented)
+        root.addWidget(self._tab_stack, 1)
 
         # Status
         self._status = _dim_label("")
@@ -883,10 +881,8 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
     # ─── 模板编辑 Tab ──────────────────────────────────
     def _build_template_tab(self):
-        page = QWidget()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        content = QWidget()
+        page = _fluent_scroll(self)
+        content = QWidget(page)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(10)
@@ -939,11 +935,20 @@ class PromptEditorDialog(FluentSecondaryDialog):
         layout.addWidget(self._add_section_btn)
 
         layout.addStretch()
-        scroll.setWidget(content)
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.addWidget(scroll)
-        self._tabs.addTab(page, "📝 " + self._t("Template Edit"))
+        page.setWidget(content)
+        route_key = "template_edit"
+        page_index = self._tab_stack.count()
+        self._tab_stack.addWidget(page)
+        self._tab_segmented.addItem(
+            route_key,
+            "📝 " + self._t("Template Edit"),
+            onClick=lambda: (
+                self._tab_stack.setCurrentIndex(page_index),
+                self._tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        self._tab_stack.setCurrentIndex(page_index)
+        self._tab_segmented.setCurrentItem(route_key)
 
     # ─── 容器创建 & 操作栏 ─────────────────────────────
     _SECTION_META = {
@@ -1080,9 +1085,15 @@ class PromptEditorDialog(FluentSecondaryDialog):
         if glossary is None:
             glossary = {}
 
-        glossary_tabs = _SegmentedTabWidget()
+        glossary_tabs = QWidget()
+        glossary_tabs_layout = QVBoxLayout(glossary_tabs)
+        glossary_tabs_layout.setContentsMargins(0, 0, 0, 0)
+        glossary_tabs_layout.setSpacing(8)
+        self._glossary_tab_segmented = SegmentedWidget(glossary_tabs)
+        self._glossary_tab_stack = PopUpAniStackedWidget(glossary_tabs)
+        glossary_tabs_layout.addWidget(self._glossary_tab_segmented)
+        glossary_tabs_layout.addWidget(self._glossary_tab_stack, 1)
         glossary_tabs.setMinimumHeight(220)
-        self._glossary_tab_widget = glossary_tabs
         self._glossary_tables = {}
         self._glossary_tab_pages = {}
 
@@ -1113,14 +1124,14 @@ class PromptEditorDialog(FluentSecondaryDialog):
         return categories
 
     def _add_glossary_category_tab(self, cat_key: str, entries: Optional[List[Dict[str, Any]]] = None) -> QTableWidget:
-        if self._glossary_tab_widget is None:
+        if self._glossary_tab_segmented is None or self._glossary_tab_stack is None:
             raise RuntimeError("Glossary tab widget is not initialized")
 
         if cat_key in self._glossary_tables:
             return self._glossary_tables[cat_key]
 
         normalized_entries = entries if isinstance(entries, list) else []
-        tab_page = QWidget()
+        tab_page = QWidget(self._glossary_tab_stack)
         tab_lay = QVBoxLayout(tab_page)
         tab_lay.setContentsMargins(6, 6, 6, 6)
         tab_lay.setSpacing(6)
@@ -1165,7 +1176,20 @@ class PromptEditorDialog(FluentSecondaryDialog):
         g_btn_row.addStretch()
         tab_lay.addLayout(g_btn_row)
 
-        self._glossary_tab_widget.addTab(tab_page, self._glossary_tab_title(cat_key, tbl.rowCount()))
+        route_key = f"glossary_{cat_key}"
+        page_index = self._glossary_tab_stack.count()
+        self._glossary_tab_stack.addWidget(tab_page)
+        self._glossary_tab_segmented.addItem(
+            route_key,
+            self._glossary_tab_title(cat_key, tbl.rowCount()),
+            onClick=lambda key=route_key, index=page_index: (
+                self._glossary_tab_stack.setCurrentIndex(index),
+                self._glossary_tab_segmented.setCurrentItem(key),
+            ),
+        )
+        if page_index == 0:
+            self._glossary_tab_stack.setCurrentIndex(page_index)
+            self._glossary_tab_segmented.setCurrentItem(route_key)
         return tbl
 
     def _ensure_glossary_category_tab(self, cat_key: str) -> QTableWidget:
@@ -1176,13 +1200,14 @@ class PromptEditorDialog(FluentSecondaryDialog):
         return table
 
     def _refresh_glossary_tab_titles(self):
-        if self._glossary_tab_widget is None:
+        if self._glossary_tab_segmented is None:
             return
-        for cat_key, page in self._glossary_tab_pages.items():
-            index = self._glossary_tab_widget.indexOf(page)
-            if index >= 0:
-                row_count = self._glossary_tables.get(cat_key).rowCount() if cat_key in self._glossary_tables else 0
-                self._glossary_tab_widget.setTabText(index, self._glossary_tab_title(cat_key, row_count))
+        for cat_key in self._glossary_tab_pages:
+            row_count = self._glossary_tables.get(cat_key).rowCount() if cat_key in self._glossary_tables else 0
+            self._glossary_tab_segmented.setItemText(
+                f"glossary_{cat_key}",
+                self._glossary_tab_title(cat_key, row_count),
+            )
 
     def _delete_glossary_row(self, category: str, table: QTableWidget):
         self._del_table_row(table)
@@ -1220,8 +1245,9 @@ class PromptEditorDialog(FluentSecondaryDialog):
                 source_table.removeRow(source_row)
 
             page = self._glossary_tab_pages.get(target_category)
-            if page is not None and self._glossary_tab_widget is not None:
-                self._glossary_tab_widget.setCurrentWidget(page)
+            if page is not None and self._glossary_tab_stack is not None and self._glossary_tab_segmented is not None:
+                self._glossary_tab_stack.setCurrentWidget(page)
+                self._glossary_tab_segmented.setCurrentItem(f"glossary_{target_category}")
             target_table.selectRow(target_row)
 
         self._refresh_glossary_tab_titles()
@@ -1318,8 +1344,8 @@ class PromptEditorDialog(FluentSecondaryDialog):
         self._refresh_section_move_buttons()
         layout.invalidate()
         layout.activate()
-        if self._tabs is not None:
-            self._tabs.update()
+        if self._tab_stack is not None:
+            self._tab_stack.update()
         logger.info(
             "Prompt editor reflow end: file=%s order=%s layout_after=%s",
             self._file_path,
@@ -1391,7 +1417,8 @@ class PromptEditorDialog(FluentSecondaryDialog):
             self._rules_edit = None
         elif key == "glossary":
             self._glossary_tables.clear()
-            self._glossary_tab_widget = None
+            self._glossary_tab_segmented = None
+            self._glossary_tab_stack = None
             self._glossary_tab_pages.clear()
 
     # ─── 添加字段菜单 ──────────────────────────────────
@@ -1433,14 +1460,27 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
     # ─── 自由编辑 Tab ──────────────────────────────────
     def _build_free_tab(self):
-        page = QWidget()
+        page = QWidget(self._tab_stack)
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(8, 8, 8, 8)
+        page_layout.setContentsMargins(12, 10, 12, 10)
         page_layout.setSpacing(6)
         page_layout.addWidget(_dim_label(self._t("Edit the raw file content directly")))
         self._free_editor = _styled_text_edit(self._original_content)
         page_layout.addWidget(self._free_editor, 1)
-        self._tabs.addTab(page, "📄 " + self._t("Raw Edit"))
+        route_key = "raw_edit"
+        page_index = self._tab_stack.count()
+        self._tab_stack.addWidget(page)
+        self._tab_segmented.addItem(
+            route_key,
+            "📄 " + self._t("Raw Edit"),
+            onClick=lambda: (
+                self._tab_stack.setCurrentIndex(page_index),
+                self._tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        if page_index == 0:
+            self._tab_stack.setCurrentIndex(page_index)
+            self._tab_segmented.setCurrentItem(route_key)
 
     # ─── 表格行增删 ────────────────────────────────────
     @staticmethod
@@ -1592,7 +1632,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
     # ─── 保存 ──────────────────────────────────────────
     def _save(self):
-        current_tab = self._tabs.currentIndex()
+        current_tab = self._tab_stack.currentIndex()
 
         # 判断用哪个 Tab 的内容
         if self._is_structured and current_tab == 0:

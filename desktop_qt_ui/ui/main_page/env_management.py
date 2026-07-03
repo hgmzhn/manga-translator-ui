@@ -19,14 +19,12 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
-    QLabel,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, PushButton
+from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, HorizontalSeparator, PushButton, StrongBodyLabel
 from qfluentwidgets import LineEdit as FluentLineEdit
 
 from ui.fluent_icon import themed_fluent_svg_icon
@@ -150,7 +148,7 @@ def create_env_widgets(self, keys: list, current_values: dict):
         value = current_values.get(key, "")
 
         label_text = _display_env_label(self, key)
-        label = QLabel(f"{label_text}:")
+        label = BodyLabel(f"{label_text}:")
         widget, display_widget = _create_env_line_edit(self, key, value)
         widget.textChanged.connect(partial(self._debounced_save_env_var, key))
         widget.editingFinished.connect(partial(self._flush_env_var_immediately, key))
@@ -184,7 +182,7 @@ def create_api_rotation_widgets(
     row = layout.rowCount()
 
     if strategy_key:
-        strategy_label = QLabel(self._t("API rotation strategy:"))
+        strategy_label = BodyLabel(self._t("API rotation strategy:"))
         strategy_combo = QComboBox()
         for value in ROTATION_STRATEGIES:
             strategy_combo.addItem(self._t(f"api_rotation_strategy_{value}"), value)
@@ -212,25 +210,19 @@ def create_api_rotation_widgets(
         slot_card_layout.setContentsMargins(12, 10, 12, 12)
         slot_card_layout.setSpacing(10)
 
-        header_widget = QWidget()
-        header_layout = QHBoxLayout(header_widget)
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
 
-        slot_badge = BodyLabel(f"{index:02d}")
+        slot_badge = CaptionLabel(f"{index:02d}")
         slot_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         slot_badge.setFixedSize(28, 22)
 
-        slot_label = BodyLabel(self._t("API slot {index}", index="").strip())
-
-        slot_line = QFrame()
-        slot_line.setFrameShape(QFrame.Shape.HLine)
-        slot_line.setFrameShadow(QFrame.Shadow.Plain)
+        slot_label = StrongBodyLabel(self._t("API slot {index}", index="").strip())
 
         header_layout.addWidget(slot_badge)
         header_layout.addWidget(slot_label)
-        header_layout.addWidget(slot_line, 1)
-        slot_card_layout.addWidget(header_widget)
+        header_layout.addWidget(HorizontalSeparator(), 1)
+        slot_card_layout.addLayout(header_layout)
 
         slot_grid = QGridLayout()
         slot_grid.setColumnStretch(1, 1)
@@ -247,7 +239,7 @@ def create_api_rotation_widgets(
             if not key:
                 continue
             value = current_values.get(key, "")
-            label = QLabel(f"{_display_env_label(self, base_key, index, include_index=False)}:")
+            label = BodyLabel(f"{_display_env_label(self, base_key, index, include_index=False)}:")
             widget, display_widget = _create_env_line_edit(self, base_key, value)
             widget.textChanged.connect(partial(self._debounced_save_env_var, key))
             widget.editingFinished.connect(partial(self._flush_env_var_immediately, key))
@@ -417,7 +409,7 @@ def create_api_feature_selector_row(self, section_key: str):
     label_attr, combo_attr, label_key, setting_key, options_key = spec
     row = self.env_layout.rowCount()
 
-    label = QLabel(f"{self._t(label_key)}:")
+    label = BodyLabel(f"{self._t(label_key)}:")
     combo = QComboBox()
     combo.setMinimumWidth(260)
     combo._api_feature_setting_key = setting_key

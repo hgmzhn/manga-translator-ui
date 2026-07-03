@@ -189,8 +189,12 @@ class MainView(QWidget):
         del theme
         if hasattr(self, "prompt_preview_panel") and self.prompt_preview_panel:
             self.prompt_preview_panel.apply_theme()
+        if hasattr(self, "replacements_editor_panel") and self.replacements_editor_panel:
+            self.replacements_editor_panel.apply_theme()
         if hasattr(self, "_refresh_font_preview_styles"):
             self._refresh_font_preview_styles()
+        if hasattr(self, "settings_page") and self.settings_page:
+            self.settings_page.update()
 
     @pyqtSlot(dict)
     def set_parameters(self, config: dict):
@@ -207,12 +211,16 @@ class MainView(QWidget):
 
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）。"""
-        tab_titles = getattr(self, "settings_tab_title_keys", None)
-        if not tab_titles:
-            tab_titles = ["Application Settings", "Basic Settings", "Advanced Settings", "Options"]
-        for i, title_key in enumerate(tab_titles):
-            if i < self.settings_tabs.count():
-                self.settings_tabs.setTabText(i, self._t(title_key))
+        tab_title_by_route = getattr(self, "settings_tab_title_key_by_route", None)
+        if tab_title_by_route:
+            for route_key, title_key in tab_title_by_route.items():
+                self.settings_tabs.setItemText(route_key, self._t(title_key))
+            return
+
+        tab_titles = ["Application Settings", "Basic Settings", "Advanced Settings", "Options"]
+        routes = getattr(self, "settings_tab_routes", [])
+        for route_key, title_key in zip(routes, tab_titles):
+            self.settings_tabs.setItemText(route_key, self._t(title_key))
 
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）。"""
@@ -302,10 +310,8 @@ class MainView(QWidget):
                 self._t("Manage API keys and environment variables for each translator")
             )
         if hasattr(self, "env_tab_widget"):
-            self.env_tab_widget.setTabText(0, self._t("Translation"))
-            self.env_tab_widget.setTabText(1, self._t("OCR"))
-            self.env_tab_widget.setTabText(2, self._t("Colorization"))
-            self.env_tab_widget.setTabText(3, self._t("Render"))
+            for route_key, title_key in getattr(self, "env_tab_title_keys", {}).items():
+                self.env_tab_widget.setItemText(route_key, self._t(title_key))
         if hasattr(self, "_refresh_api_feature_selectors"):
             self._refresh_api_feature_selectors()
 

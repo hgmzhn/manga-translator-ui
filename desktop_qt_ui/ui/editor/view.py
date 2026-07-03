@@ -13,14 +13,22 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import CardWidget, FluentIcon as FIF, LineEdit, PrimaryPushButton, PushButton, ToolButton
+from qfluentwidgets import (
+    CardWidget,
+    FluentIcon as FIF,
+    LineEdit,
+    PopUpAniStackedWidget,
+    PrimaryPushButton,
+    PushButton,
+    SegmentedWidget,
+    ToolButton,
+)
 from services import get_i18n_manager
 from ui.widgets.editor_toolbar import EditorToolbar
 from ui.widgets.file_list_view import FileListView
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.property_panel import PropertyPanel
 from ui.widgets.region_list_view import RegionListView
-from ui.widgets.sidebar import PivotStack
 
 from .graphics_view import GraphicsView
 from .original_compare_view import OriginalCompareView
@@ -31,6 +39,9 @@ class EditorView(QWidget):
     """
     编辑器主视图，包含文件列表、画布和属性面板。
     """
+    LEFT_TRANSLATION_ROUTE = "editor_left_translation"
+    LEFT_PROPERTY_ROUTE = "editor_left_property"
+
     # --- 定义信号 ---
     back_to_main_requested = pyqtSignal()
     
@@ -44,7 +55,11 @@ class EditorView(QWidget):
         self._compare_mode_enabled = False
         self.toolbar: EditorToolbar | None = None
         self.main_splitter: QSplitter | None = None
-        self.left_tab_widget: PivotStack | None = None
+        self.left_panel_widget: QWidget | None = None
+        self.left_segmented_widget: SegmentedWidget | None = None
+        self.left_stack: PopUpAniStackedWidget | None = None
+        self._left_route_indexes: dict[str, int] = {}
+        self._updating_left_route = False
         self.find_input: LineEdit | None = None
         self.replace_input: LineEdit | None = None
         self.replace_all_button: PushButton | None = None
@@ -70,7 +85,7 @@ class EditorView(QWidget):
 
         # 1. 顶部工具栏
         self.toolbar = EditorToolbar(self)
-        self.toolbar.setFixedHeight(48)
+        self.toolbar.setFixedHeight(56)
         self.layout.addWidget(self.toolbar)
 
         # 2. 主内容分割器
@@ -140,12 +155,26 @@ class EditorView(QWidget):
 
     def _create_left_panel(self) -> QWidget:
         """创建左侧的标签页，包含区域列表和属性面板"""
-        self.left_tab_widget = PivotStack(fixed_width=360)
+        left_panel = QWidget(self)
+        left_panel.setFixedWidth(360)
+        left_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
+
+        self.left_panel_widget = left_panel
+        self.left_segmented_widget = SegmentedWidget(left_panel)
+        self.left_segmented_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.left_stack = PopUpAniStackedWidget(left_panel)
+        self.left_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        left_layout.addWidget(self.left_segmented_widget)
+        left_layout.addWidget(self.left_stack, 1)
         
         # 创建“可编辑译文”标签页
-        translation_widget = CardWidget()
+        translation_widget = QWidget(left_panel)
+        translation_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         translation_layout = QVBoxLayout(translation_widget)
-        translation_layout.setContentsMargins(10, 10, 10, 10)
+        translation_layout.setContentsMargins(4, 2, 4, 0)
         translation_layout.setSpacing(8)
 
         # --- 查找和替换 ---
@@ -175,26 +204,67 @@ class EditorView(QWidget):
 
         self.property_panel = PropertyPanel(self.model, self.app_logic, self)
 
-        self.left_tab_widget.addTab(translation_widget, self._t("Editable Translation"))
-        self.left_tab_widget.addTab(self.property_panel, self._t("Property Editor"))
-        self.left_tab_widget.currentChanged.connect(self._on_left_tab_changed)
+        self._add_left_page(self.LEFT_TRANSLATION_ROUTE, translation_widget, self._t("Editable Translation"))
+        self._add_left_page(self.LEFT_PROPERTY_ROUTE, self.property_panel, self._t("Property Editor"))
+        self.left_segmented_widget.currentItemChanged.connect(self._on_left_route_changed)
 
         # 设置默认显示"属性编辑"标签页
-        self.left_tab_widget.setCurrentIndex(1)
+        self._set_left_route(self.LEFT_PROPERTY_ROUTE, emit_changed=False)
 
-        return self.left_tab_widget
+        return left_panel
 
-    def _on_left_tab_changed(self, index: int):
+    def _add_left_page(self, route_key: str, widget: QWidget, text: str):
+        if self.left_stack is None or self.left_segmented_widget is None:
+            return
+
+        index = self.left_stack.count()
+        self.left_stack.addWidget(widget)
+        self._left_route_indexes[route_key] = index
+        self.left_segmented_widget.addItem(route_key, text)
+
+    def _set_left_route(self, route_key: str, emit_changed: bool = True):
+        if self.left_stack is None or self.left_segmented_widget is None:
+            return
+
+        index = self._left_route_indexes.get(route_key)
+        if index is None:
+            return
+
+        previous = self.left_stack.currentIndex()
+        self._updating_left_route = True
+        try:
+            self.left_stack.setCurrentIndex(index)
+            self.left_segmented_widget.setCurrentItem(route_key)
+        finally:
+            self._updating_left_route = False
+
+        if emit_changed and previous != index:
+            self._on_left_route_index_changed(index)
+
+    def _on_left_route_changed(self, route_key: str):
+        if self._updating_left_route or self.left_stack is None:
+            return
+
+        index = self._left_route_indexes.get(route_key)
+        if index is None:
+            return
+
+        previous = self.left_stack.currentIndex()
+        self.left_stack.setCurrentIndex(index)
+        if previous != index:
+            self._on_left_route_index_changed(index)
+
+    def _on_left_route_index_changed(self, index: int):
         if index == 0 and self.region_list_view is not None:
             self.region_list_view.flush_pending_regions()
 
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）"""
-        if self.left_tab_widget is None:
+        if self.left_segmented_widget is None:
             return
 
-        self.left_tab_widget.setTabText(0, self._t("Editable Translation"))
-        self.left_tab_widget.setTabText(1, self._t("Property Editor"))
+        self.left_segmented_widget.setItemText(self.LEFT_TRANSLATION_ROUTE, self._t("Editable Translation"))
+        self.left_segmented_widget.setItemText(self.LEFT_PROPERTY_ROUTE, self._t("Property Editor"))
     
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）"""
@@ -233,13 +303,13 @@ class EditorView(QWidget):
 
     def _apply_initial_splitter_sizes(self):
         """用左栏的实际 sizeHint 作为初始宽度，而不是写死常量。"""
-        if self.main_splitter is None or self.left_tab_widget is None:
+        if self.main_splitter is None or self.left_panel_widget is None:
             return
 
-        self.left_tab_widget.ensurePolished()
-        left_width = self.left_tab_widget.maximumWidth()
+        self.left_panel_widget.ensurePolished()
+        left_width = self.left_panel_widget.maximumWidth()
         if left_width <= 0 or left_width >= 16777215:
-            left_width = self.left_tab_widget.sizeHint().width()
+            left_width = self.left_panel_widget.sizeHint().width()
 
         right_width = 260
         if self.file_list is not None:

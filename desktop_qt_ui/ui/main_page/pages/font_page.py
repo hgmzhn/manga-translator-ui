@@ -118,6 +118,8 @@ def create_font_page(self) -> QWidget:
 
     self.font_preview_scroll = ScrollArea()
     self.font_preview_scroll.setWidgetResizable(True)
+    self.font_preview_scroll.enableTransparentBackground()
+    self.font_preview_scroll.viewport().setAutoFillBackground(False)
 
     scroll_content = QWidget()
     self.scroll_content_layout = QVBoxLayout(scroll_content)
@@ -127,6 +129,7 @@ def create_font_page(self) -> QWidget:
     self.font_preview_labels = []
     for _ in range(3):
         lbl = BodyLabel()
+        lbl.setAutoFillBackground(False)
         lbl.setWordWrap(False)
         lbl.setScaledContents(False)
         self.scroll_content_layout.addWidget(lbl)

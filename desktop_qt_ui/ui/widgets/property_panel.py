@@ -2,26 +2,29 @@
 import logging
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIntValidator, QWheelEvent
+from PyQt6.QtGui import QColor, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
     QFormLayout,
     QHBoxLayout,
-    QLabel,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
+    BodyLabel,
     CardWidget,
+    CaptionLabel,
     CheckBox,
+    CompactDoubleSpinBox,
+    CompactSpinBox,
     ComboBox,
-    DoubleSpinBox,
     FluentIcon as FIF,
-    LineEdit,
+    PopUpAniStackedWidget,
     PrimaryPushButton,
     PushButton,
+    SegmentedWidget,
     Slider,
     StrongBodyLabel,
     TextEdit,
@@ -32,7 +35,7 @@ from services import get_config_service, get_i18n_manager
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
-from .sidebar import FluentScrollArea, PivotStack
+from .sidebar import FluentScrollArea
 
 # from .collapsible_frame import CollapsibleFrame  # 不再使用折叠框
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
@@ -141,10 +144,27 @@ class CustomSlider(Slider):
         event.accept()
 
 
+def _compact_double_spin_box() -> CompactDoubleSpinBox:
+    spin_box = CompactDoubleSpinBox()
+    spin_box.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+    spin_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    return spin_box
+
+
+def _compact_spin_box() -> CompactSpinBox:
+    spin_box = CompactSpinBox()
+    spin_box.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+    spin_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    return spin_box
+
+
 class PropertyPanel(QWidget):
     """
     左侧属性面板，功能完整版。
     """
+    MASK_ROUTE = "property_mask_page"
+    PAINT_ROUTE = "property_paint_page"
+
     # --- Define all required signals ---
     translated_text_modified = pyqtSignal(int, str)
     translation_raw_modified = pyqtSignal(int, str)
@@ -182,6 +202,10 @@ class PropertyPanel(QWidget):
         self.i18n = get_i18n_manager()
         self.scroll_area: FluentScrollArea | None = None
         self.content_widget: QWidget | None = None
+        self.paint_segmented_widget: SegmentedWidget | None = None
+        self.paint_stack: PopUpAniStackedWidget | None = None
+        self._paint_route_indexes: dict[str, int] = {}
+        self._updating_paint_route = False
 
         self._init_ui()
         self._connect_signals()
@@ -256,7 +280,7 @@ class PropertyPanel(QWidget):
     def _set_selection_controls_blocked(self, blocked: bool):
         """统一阻止/恢复与区域样式相关控件信号，避免切换选区时误写回。"""
         for child in self.findChildren(QWidget):
-            if isinstance(child, (LineEdit, TextEdit, ComboBox, Slider, QAbstractSpinBox)):
+            if isinstance(child, (TextEdit, ComboBox, Slider, QAbstractSpinBox)):
                 child.blockSignals(blocked)
 
     def _create_region_info_section(self, layout):
@@ -265,14 +289,14 @@ class PropertyPanel(QWidget):
         info_layout.setContentsMargins(8, 8, 8, 6)
         info_layout.setHorizontalSpacing(10)
         info_layout.setVerticalSpacing(6)
-        self.index_label = QLabel("-")
-        self.bbox_label = QLabel("-")
-        self.size_label = QLabel("-")
-        self.angle_label = QLabel("-")
-        self.index_row_label = QLabel(self._t("Index:"))
-        self.bbox_row_label = QLabel(self._t("Position:"))
-        self.size_row_label = QLabel(self._t("Size:"))
-        self.angle_row_label = QLabel(self._t("Angle:"))
+        self.index_label = CaptionLabel("-")
+        self.bbox_label = CaptionLabel("-")
+        self.size_label = CaptionLabel("-")
+        self.angle_label = CaptionLabel("-")
+        self.index_row_label = BodyLabel(self._t("Index:"))
+        self.bbox_row_label = BodyLabel(self._t("Position:"))
+        self.size_row_label = BodyLabel(self._t("Size:"))
+        self.angle_row_label = BodyLabel(self._t("Angle:"))
         info_layout.addRow(self.index_row_label, self.index_label)
         info_layout.addRow(self.bbox_row_label, self.bbox_label)
         info_layout.addRow(self.size_row_label, self.size_label)
@@ -286,7 +310,11 @@ class PropertyPanel(QWidget):
         frame_layout.setContentsMargins(6, 8, 6, 6)
         frame_layout.setSpacing(6)
 
-        self.paint_tab_widget = PivotStack(self.mask_edit_frame)
+        self.paint_segmented_widget = SegmentedWidget(mask_card)
+        self.paint_segmented_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.paint_stack = PopUpAniStackedWidget(mask_card)
+        self.paint_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.paint_stack.setAutoFillBackground(False)
 
         # 选择按钮组（两个 tab 共享同一个按钮组，保持互斥）
         self.mask_tool_group = QButtonGroup(self)
@@ -294,6 +322,7 @@ class PropertyPanel(QWidget):
 
         # ======= Tab 1：蒙版 =======
         mask_tab = QWidget()
+        mask_tab.setAutoFillBackground(False)
         mask_layout = QVBoxLayout(mask_tab)
         mask_layout.setContentsMargins(6, 8, 6, 6)
         mask_layout.setSpacing(8)
@@ -330,11 +359,11 @@ class PropertyPanel(QWidget):
         brush_size_layout = QHBoxLayout()
         brush_size_layout.setContentsMargins(0, 0, 0, 0)
         brush_size_layout.setSpacing(6)
-        self.brush_size_title_label = QLabel(self._t("Brush Size:"))
+        self.brush_size_title_label = BodyLabel(self._t("Brush Size:"))
         brush_size_layout.addWidget(self.brush_size_title_label)
         self.brush_size_slider = Slider(Qt.Orientation.Horizontal)
         self.brush_size_slider.setRange(5, 200)
-        self.brush_size_value_label = QLabel("30")
+        self.brush_size_value_label = CaptionLabel("30")
         self.brush_size_value_label.setFixedWidth(28)
         self.brush_size_value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.brush_size_slider.setValue(30)
@@ -354,6 +383,7 @@ class PropertyPanel(QWidget):
 
         # ======= Tab 2：画笔（彩色涂鸦） =======
         paint_tab = QWidget()
+        paint_tab.setAutoFillBackground(False)
         paint_layout = QVBoxLayout(paint_tab)
         paint_layout.setContentsMargins(6, 8, 6, 6)
         paint_layout.setSpacing(8)
@@ -393,12 +423,12 @@ class PropertyPanel(QWidget):
         paint_size_layout = QHBoxLayout()
         paint_size_layout.setContentsMargins(0, 0, 0, 0)
         paint_size_layout.setSpacing(6)
-        self.paint_size_title_label = QLabel(self._t("Brush Size:"))
+        self.paint_size_title_label = BodyLabel(self._t("Brush Size:"))
         paint_size_layout.addWidget(self.paint_size_title_label)
         self.paint_size_slider = Slider(Qt.Orientation.Horizontal)
         self.paint_size_slider.setRange(5, 200)
         self.paint_size_slider.setValue(30)
-        self.paint_size_value_label = QLabel("30")
+        self.paint_size_value_label = CaptionLabel("30")
         self.paint_size_value_label.setFixedWidth(28)
         self.paint_size_value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         paint_size_layout.addWidget(self.paint_size_slider)
@@ -409,7 +439,7 @@ class PropertyPanel(QWidget):
         color_row = QHBoxLayout()
         color_row.setContentsMargins(0, 0, 0, 0)
         color_row.setSpacing(6)
-        self.paint_color_label = QLabel(self._t("Brush Color:"))
+        self.paint_color_label = BodyLabel(self._t("Brush Color:"))
         color_row.addWidget(self.paint_color_label)
         self.paint_color_picker = ColorPickerWidget(
             dialog_title="Select brush color",
@@ -418,7 +448,6 @@ class PropertyPanel(QWidget):
             config_service=self.config_service,
             i18n_func=self._t,
         )
-        self.paint_color_picker.setFixedWidth(96)
         color_row.addWidget(self.paint_color_picker)
         color_row.addStretch()
         paint_layout.addLayout(color_row)
@@ -429,11 +458,64 @@ class PropertyPanel(QWidget):
         paint_layout.addWidget(self.clear_paint_overlay_button)
         paint_layout.addStretch()
 
-        self.paint_tab_widget.addTab(mask_tab, self._t("Mask"))
-        self.paint_tab_widget.addTab(paint_tab, self._t("Paint"))
-        frame_layout.addWidget(self.paint_tab_widget)
+        self._add_paint_page(self.MASK_ROUTE, mask_tab, self._t("Mask"))
+        self._add_paint_page(self.PAINT_ROUTE, paint_tab, self._t("Paint"))
+        self._set_paint_route(self.MASK_ROUTE, emit_changed=False)
+        frame_layout.addWidget(self.paint_segmented_widget)
+        frame_layout.addWidget(self.paint_stack)
         self._finish_group(self.mask_edit_frame, mask_card)
         layout.addWidget(self.mask_edit_frame)
+
+    def _add_paint_page(self, route_key: str, widget: QWidget, text: str):
+        if self.paint_stack is None or self.paint_segmented_widget is None:
+            return
+
+        index = self.paint_stack.count()
+        self.paint_stack.addWidget(widget)
+        self._paint_route_indexes[route_key] = index
+        self.paint_segmented_widget.addItem(route_key, text)
+
+    def _set_paint_route(self, route_key: str, emit_changed: bool = True):
+        if self.paint_stack is None or self.paint_segmented_widget is None:
+            return
+
+        index = self._paint_route_indexes.get(route_key)
+        if index is None:
+            return
+
+        previous = self.paint_stack.currentIndex()
+        self._updating_paint_route = True
+        try:
+            self.paint_stack.setCurrentIndex(index)
+            self.paint_segmented_widget.setCurrentItem(route_key)
+        finally:
+            self._updating_paint_route = False
+
+        if emit_changed and previous != index:
+            self._on_paint_tab_changed(index)
+        self.sync_sidebar_layout()
+
+    def _on_paint_route_changed(self, route_key: str):
+        if self._updating_paint_route or self.paint_stack is None:
+            return
+
+        index = self._paint_route_indexes.get(route_key)
+        if index is None:
+            return
+
+        previous = self.paint_stack.currentIndex()
+        self.paint_stack.setCurrentIndex(index)
+        if previous != index:
+            self._on_paint_tab_changed(index)
+        self.sync_sidebar_layout()
+
+    def _paint_current_index(self) -> int:
+        if self.paint_stack is None:
+            return 0
+        return self.paint_stack.currentIndex()
+
+    def _paint_route_for_index(self, index: int) -> str:
+        return self.PAINT_ROUTE if index == 1 else self.MASK_ROUTE
 
     def _create_text_section(self, layout):
         self.text_edit_frame, text_card = self._make_group(self._t("Text Content"))
@@ -471,9 +553,10 @@ class PropertyPanel(QWidget):
         self.translate_button.setMinimumWidth(80)
         self.translate_button.setMaximumWidth(108)
         translator_row.addWidget(self.translate_button)
-        self.translator_row_label = QLabel(self._t("Translator:"))
-        self.target_lang_row_label = QLabel(self._t("Target Language:"))
-        ocr_trans_config_layout.addRow(self._t("OCR Model:"), ocr_row)
+        self.ocr_model_row_label = BodyLabel(self._t("OCR Model:"))
+        self.translator_row_label = BodyLabel(self._t("Translator:"))
+        self.target_lang_row_label = BodyLabel(self._t("Target Language:"))
+        ocr_trans_config_layout.addRow(self.ocr_model_row_label, ocr_row)
         ocr_trans_config_layout.addRow(self.translator_row_label, translator_row)
         ocr_trans_config_layout.addRow(self.target_lang_row_label, self.target_language_combo)
         text_layout.addLayout(ocr_trans_config_layout)
@@ -493,7 +576,7 @@ class PropertyPanel(QWidget):
         self.translated_text_box.setMinimumHeight(72)
         self.translated_text_box.setMaximumHeight(132)
 
-        self.original_text_label = QLabel(self._t("Original Text:"))
+        self.original_text_label = BodyLabel(self._t("Original Text:"))
         text_layout.addWidget(self.original_text_label)
         text_layout.addWidget(self.original_text_box)
         # 复选框:勾选时让"译文"框显示"替换前译文"(translation_raw),编辑会实时跑替换写回译文
@@ -501,7 +584,7 @@ class PropertyPanel(QWidget):
         self.translation_raw_checkbox.setChecked(True)
         self.translation_raw_checkbox.toggled.connect(self._on_translation_raw_mode_toggled)
         text_layout.addWidget(self.translation_raw_checkbox)
-        self.translated_text_label = QLabel(self._t("Translated Text:"))
+        self.translated_text_label = BodyLabel(self._t("Translated Text:"))
         text_layout.addWidget(self.translated_text_label)
         text_layout.addWidget(self.translated_text_box)
         insert_buttons_layout = QHBoxLayout()
@@ -525,7 +608,7 @@ class PropertyPanel(QWidget):
         insert_buttons_layout.addWidget(self.insert_newline_button)
         insert_buttons_layout.addWidget(self.mark_horizontal_button)
         text_layout.addLayout(insert_buttons_layout)
-        self.text_stats_label = QLabel(self._t("Character count: 0"))
+        self.text_stats_label = CaptionLabel(self._t("Character count: 0"))
         text_layout.addWidget(self.text_stats_label)
         self._finish_group(self.text_edit_frame, text_card)
         layout.addWidget(self.text_edit_frame)
@@ -554,7 +637,7 @@ class PropertyPanel(QWidget):
         self.delete_style_preset_button.setIconSize(QSize(16, 16))
         preset_layout.addWidget(self.delete_style_preset_button)
         self._refresh_style_preset_action_buttons()
-        self.style_preset_label = QLabel(self._t("Style Preset:"))
+        self.style_preset_label = BodyLabel(self._t("Style Preset:"))
         style_preset_row = QWidget()
         style_preset_row_layout = QHBoxLayout(style_preset_row)
         style_preset_row_layout.setContentsMargins(0, 0, 0, 0)
@@ -609,22 +692,18 @@ class PropertyPanel(QWidget):
         self.font_family_combo = RefreshableComboBox(self)
         self.font_family_combo.setMinimumWidth(120)
         self._populate_font_list()
-        self.font_label = QLabel(self._t("Font:"))
+        self.font_label = BodyLabel(self._t("Font:"))
         style_layout.addRow(self.font_label, self.font_family_combo)
         
         # Font size
-        font_size_layout = QHBoxLayout()
-        font_size_layout.setContentsMargins(0, 0, 0, 0)
-        font_size_layout.setSpacing(6)
-        self.font_size_input = LineEdit()
-        self.font_size_input.setValidator(QIntValidator(8, 1000, self))
-        self.font_size_input.setFixedWidth(64)
-        font_size_layout.addWidget(self.font_size_input)
+        self.font_size_input = _compact_spin_box()
+        self.font_size_input.setRange(8, 1000)
+        self.font_size_input.setKeyboardTracking(False)
         self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
         self.font_size_slider.setRange(8, 150)
-        self.font_size_label = QLabel(self._t("Font Size:"))
-        style_layout.addRow(self.font_size_label, font_size_layout)
-        style_layout.addRow("", self.font_size_slider)
+        self.font_size_label = BodyLabel(self._t("Font Size:"))
+        style_layout.addRow(self.font_size_label, self.font_size_input)
+        style_layout.addRow(CaptionLabel(""), self.font_size_slider)
         
         # Font color
         self.font_color_picker = ColorPickerWidget(
@@ -634,8 +713,7 @@ class PropertyPanel(QWidget):
             config_service=self.config_service,
             i18n_func=self._t,
         )
-        self.font_color_picker.setFixedWidth(96)
-        self.font_color_label = QLabel(self._t("Font Color:"))
+        self.font_color_label = BodyLabel(self._t("Font Color:"))
         style_layout.addRow(self.font_color_label, self.font_color_picker)
 
         # Stroke color (描边颜色)
@@ -646,69 +724,52 @@ class PropertyPanel(QWidget):
             config_service=self.config_service,
             i18n_func=self._t,
         )
-        self.stroke_color_picker.setFixedWidth(96)
-        self.stroke_color_label = QLabel(self._t("Stroke Color:"))
+        self.stroke_color_label = BodyLabel(self._t("Stroke Color:"))
         style_layout.addRow(self.stroke_color_label, self.stroke_color_picker)
 
         # Stroke width (描边宽度)
-        stroke_width_layout = QHBoxLayout()
-        stroke_width_layout.setContentsMargins(0, 0, 0, 0)
-        self.stroke_width_spinbox = DoubleSpinBox()
+        self.stroke_width_spinbox = _compact_double_spin_box()
         self.stroke_width_spinbox.setRange(0.0, 1.0)
         self.stroke_width_spinbox.setSingleStep(0.01)
         self.stroke_width_spinbox.setDecimals(2)
         self.stroke_width_spinbox.setValue(0.07)
-        self.stroke_width_spinbox.setMaximumWidth(96)
-        stroke_width_layout.addWidget(self.stroke_width_spinbox)
-        self.stroke_width_label = QLabel(self._t("Stroke Width:"))
-        style_layout.addRow(self.stroke_width_label, stroke_width_layout)
+        self.stroke_width_label = BodyLabel(self._t("Stroke Width:"))
+        style_layout.addRow(self.stroke_width_label, self.stroke_width_spinbox)
         
         # Line spacing (行间距倍率)
-        line_spacing_layout = QHBoxLayout()
-        line_spacing_layout.setContentsMargins(0, 0, 0, 0)
-        self.line_spacing_spinbox = DoubleSpinBox()
+        self.line_spacing_spinbox = _compact_double_spin_box()
         self.line_spacing_spinbox.setRange(0.1, 5.0)
         self.line_spacing_spinbox.setSingleStep(0.1)
         self.line_spacing_spinbox.setDecimals(1)
         self.line_spacing_spinbox.setValue(1.0)
-        self.line_spacing_spinbox.setMaximumWidth(96)
-        line_spacing_layout.addWidget(self.line_spacing_spinbox)
-        self.line_spacing_label = QLabel(self._t("Line Spacing:"))
-        style_layout.addRow(self.line_spacing_label, line_spacing_layout)
+        self.line_spacing_label = BodyLabel(self._t("Line Spacing:"))
+        style_layout.addRow(self.line_spacing_label, self.line_spacing_spinbox)
 
-        letter_spacing_layout = QHBoxLayout()
-        letter_spacing_layout.setContentsMargins(0, 0, 0, 0)
-        self.letter_spacing_spinbox = DoubleSpinBox()
+        self.letter_spacing_spinbox = _compact_double_spin_box()
         self.letter_spacing_spinbox.setRange(0.1, 5.0)
         self.letter_spacing_spinbox.setSingleStep(0.1)
         self.letter_spacing_spinbox.setDecimals(1)
         self.letter_spacing_spinbox.setValue(1.0)
-        self.letter_spacing_spinbox.setMaximumWidth(96)
-        letter_spacing_layout.addWidget(self.letter_spacing_spinbox)
-        self.letter_spacing_label = QLabel(self._t("Letter Spacing:"))
-        style_layout.addRow(self.letter_spacing_label, letter_spacing_layout)
+        self.letter_spacing_label = BodyLabel(self._t("Letter Spacing:"))
+        style_layout.addRow(self.letter_spacing_label, self.letter_spacing_spinbox)
 
-        angle_layout = QHBoxLayout()
-        angle_layout.setContentsMargins(0, 0, 0, 0)
-        self.angle_spinbox = DoubleSpinBox()
+        self.angle_spinbox = _compact_double_spin_box()
         self.angle_spinbox.setRange(-9999.0, 9999.0)
         self.angle_spinbox.setSingleStep(1.0)
         self.angle_spinbox.setDecimals(1)
         self.angle_spinbox.setKeyboardTracking(False)
         self.angle_spinbox.setSuffix("°")
         self.angle_spinbox.setValue(0.0)
-        self.angle_spinbox.setMaximumWidth(110)
-        angle_layout.addWidget(self.angle_spinbox)
-        self.angle_style_label = QLabel(self._t("Angle:"))
-        style_layout.addRow(self.angle_style_label, angle_layout)
+        self.angle_style_label = BodyLabel(self._t("Angle:"))
+        style_layout.addRow(self.angle_style_label, self.angle_spinbox)
         
         # Alignment and direction
         self.alignment_combo = ComboBox()
         self.direction_combo = ComboBox()
         self.alignment_combo.setMinimumWidth(96)
         self.direction_combo.setMinimumWidth(96)
-        self.alignment_label = QLabel(self._t("Alignment:"))
-        self.direction_label = QLabel(self._t("Direction:"))
+        self.alignment_label = BodyLabel(self._t("Alignment:"))
+        self.direction_label = BodyLabel(self._t("Direction:"))
         style_layout.addRow(self.alignment_label, self.alignment_combo)
         style_layout.addRow(self.direction_label, self.direction_combo)
         
@@ -777,11 +838,11 @@ class PropertyPanel(QWidget):
         # Paint overlay
         self.paint_color_picker.color_changed.connect(self._on_paint_color_changed)
         self.clear_paint_overlay_button.clicked.connect(self.clear_paint_overlay_requested.emit)
-        self.paint_tab_widget.currentChanged.connect(self._on_paint_tab_changed)
+        self.paint_segmented_widget.currentItemChanged.connect(self._on_paint_route_changed)
 
         # Style
         self.font_family_combo.currentIndexChanged.connect(self._on_font_family_changed)
-        self.font_size_input.editingFinished.connect(self._on_font_size_editing_finished)
+        self.font_size_input.valueChanged.connect(self._on_font_size_input_changed)
         self.font_size_slider.valueChanged.connect(self._on_font_size_slider_changed)
         self.font_color_picker.color_changed.connect(self._on_font_color_changed)
         self.stroke_color_picker.color_changed.connect(self._on_stroke_color_changed)
@@ -917,6 +978,8 @@ class PropertyPanel(QWidget):
             self.angle_row_label.setText(self._t("Angle:"))
         if hasattr(self, 'brush_size_title_label'):
             self.brush_size_title_label.setText(self._t("Brush Size:"))
+        if hasattr(self, 'ocr_model_row_label'):
+            self.ocr_model_row_label.setText(self._t("OCR Model:"))
         if hasattr(self, 'translator_row_label'):
             self.translator_row_label.setText(self._t("Translator:"))
         if hasattr(self, 'target_lang_row_label'):
@@ -988,9 +1051,9 @@ class PropertyPanel(QWidget):
             self.paint_color_label.setText(self._t("Brush Color:"))
         if hasattr(self, 'paint_color_picker'):
             self.paint_color_picker.refresh_ui_texts()
-        if hasattr(self, 'paint_tab_widget'):
-            self.paint_tab_widget.setTabText(0, self._t("Mask"))
-            self.paint_tab_widget.setTabText(1, self._t("Paint"))
+        if hasattr(self, 'paint_segmented_widget'):
+            self.paint_segmented_widget.setItemText(self.MASK_ROUTE, self._t("Mask"))
+            self.paint_segmented_widget.setItemText(self.PAINT_ROUTE, self._t("Paint"))
         if hasattr(self, 'clear_paint_overlay_button'):
             self.clear_paint_overlay_button.setText(self._t("Clear Paint Layer"))
         if hasattr(self, 'insert_placeholder_button'):
@@ -1505,7 +1568,7 @@ class PropertyPanel(QWidget):
         try:
             self.original_text_box.clear()
             self.translated_text_box.clear()
-            self.font_size_input.clear()
+            self.font_size_input.setValue(12)
             self.stroke_width_spinbox.setValue(0.07)  # 重置为默认值
             self.line_spacing_spinbox.setValue(1.0)  # 重置为默认值
             self.letter_spacing_spinbox.setValue(1.0)  # 重置为默认值
@@ -1573,8 +1636,9 @@ class PropertyPanel(QWidget):
                 display_text = display_text.replace('\n', '↵')
                 self.translated_text_box.setText(display_text)
             
-            self.font_size_input.setText(str(region_data.get("font_size", "")))
-            self.font_size_slider.setValue(region_data.get("font_size", 12))
+            font_size = int(region_data.get("font_size", 12) or 12)
+            self.font_size_input.setValue(font_size)
+            self.font_size_slider.setValue(font_size)
             
             default_color = self.config_service.get_config().render.font_color or "#000000"
             color_hex = default_color
@@ -1772,22 +1836,17 @@ class PropertyPanel(QWidget):
         if hasattr(self, 'lang_name_to_code'):
             return self.lang_name_to_code.get(display_name, display_name)
         return display_name
-    def _on_font_size_editing_finished(self):
+    def _on_font_size_input_changed(self, value: int):
         if self.block_updates:
             return
-        text = self.font_size_input.text()
-        if text.isdigit():
-            value = int(text)
-            value = max(8, min(1000, value))
-            self.font_size_input.setText(str(value))
-            if self.font_size_slider.minimum() <= value <= self.font_size_slider.maximum():
-                if self.font_size_slider.value() != value:
-                    self.font_size_slider.setValue(value)
-            
-            # 支持多选批量设置
-            selected_indices = self.model.get_selection()
-            for region_index in selected_indices:
-                self.font_size_changed.emit(region_index, value)
+        value = max(8, min(1000, int(value)))
+        if self.font_size_slider.minimum() <= value <= self.font_size_slider.maximum():
+            if self.font_size_slider.value() != value:
+                self.font_size_slider.setValue(value)
+
+        selected_indices = self.model.get_selection()
+        for region_index in selected_indices:
+            self.font_size_changed.emit(region_index, value)
 
     def _on_font_size_slider_changed(self, value): 
         if self.block_updates:
@@ -1795,7 +1854,8 @@ class PropertyPanel(QWidget):
         # 支持多选批量设置
         selected_indices = self.model.get_selection()
         if selected_indices:
-            self.font_size_input.setText(str(value))
+            if self.font_size_input.value() != value:
+                self.font_size_input.setValue(value)
             for region_index in selected_indices:
                 self.font_size_changed.emit(region_index, value)
     def _on_font_family_changed(self, index):
@@ -1937,7 +1997,7 @@ class PropertyPanel(QWidget):
         # 'select' 在蒙版页和画板页都有按钮，按当前所在标签页决定亮哪个，
         # 避免在画板页点击「选择」时被强制切回蒙版页。
         if tool == 'select':
-            if self.paint_tab_widget.currentIndex() == 1:
+            if self._paint_current_index() == 1:
                 button, tab_index = self.paint_select_button, 1
             else:
                 button, tab_index = self.select_button, 0
@@ -1956,13 +2016,16 @@ class PropertyPanel(QWidget):
             return
         try:
             self.mask_tool_group.blockSignals(True)
-            self.paint_tab_widget.blockSignals(True)
+            if self.paint_segmented_widget is not None:
+                self.paint_segmented_widget.blockSignals(True)
             button.setChecked(True)
-            if self.paint_tab_widget.currentIndex() != tab_index:
-                self.paint_tab_widget.setCurrentIndex(tab_index)
+            if self._paint_current_index() != tab_index:
+                self._set_paint_route(self._paint_route_for_index(tab_index), emit_changed=False)
         finally:
             self.mask_tool_group.blockSignals(False)
-            self.paint_tab_widget.blockSignals(False)
+            if self.paint_segmented_widget is not None:
+                self.paint_segmented_widget.blockSignals(False)
+        self.sync_sidebar_layout()
 
     def _on_alignment_changed(self, text: str):
         if self.block_updates:

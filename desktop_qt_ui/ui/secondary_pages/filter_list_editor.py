@@ -1,14 +1,12 @@
 import json
 from typing import Any, Callable
 
-from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PrimaryPushButton, PushButton, SegmentedWidget, TitleLabel
+from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, PlainTextEdit, PopUpAniStackedWidget, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, TitleLabel
 from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.theme import (
     monospace_font as _monospace_font,
@@ -40,39 +38,14 @@ def _sanitize_rule_values(values: Any) -> list[str]:
     return rules
 
 
-class _SegmentedTabWidget(QWidget):
-    currentChanged = pyqtSignal(int)
+def _layout_host(parent=None) -> QWidget:
+    return QWidget(parent)
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._keys: list[str] = []
-        self._segmented = SegmentedWidget(self)
-        self._stack = QStackedWidget(self)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(self._segmented)
-        layout.addWidget(self._stack, 1)
-
-    def addTab(self, widget: QWidget, text: str):
-        index = len(self._keys)
-        key = f"tab_{index}"
-        self._keys.append(key)
-        self._stack.addWidget(widget)
-        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
-        if index == 0:
-            self.setCurrentIndex(0)
-
-    def currentIndex(self) -> int:
-        return self._stack.currentIndex()
-
-    def setCurrentIndex(self, index: int):
-        if index < 0 or index >= len(self._keys):
-            return
-        self._stack.setCurrentIndex(index)
-        self._segmented.setCurrentItem(self._keys[index])
-        self.currentChanged.emit(index)
+def _fluent_scroll(parent=None) -> ScrollArea:
+    scroll = ScrollArea(parent)
+    scroll.setWidgetResizable(True)
+    return scroll
 
 
 class FilterListEditorDialog(FluentSecondaryDialog):
@@ -100,8 +73,10 @@ class FilterListEditorDialog(FluentSecondaryDialog):
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        self.tabs = _SegmentedTabWidget()
-        root.addWidget(self.tabs, 1)
+        self.tab_segmented = SegmentedWidget(self)
+        self.tab_stack = PopUpAniStackedWidget(self)
+        root.addWidget(self.tab_segmented)
+        root.addWidget(self.tab_stack, 1)
 
         self._build_rules_tab()
         self._build_raw_tab()
@@ -127,9 +102,10 @@ class FilterListEditorDialog(FluentSecondaryDialog):
         root.addLayout(button_row)
 
     def _build_rules_tab(self):
-        page = QWidget()
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(8, 8, 8, 8)
+        page = _fluent_scroll(self)
+        content = _layout_host(page)
+        page_layout = QVBoxLayout(content)
+        page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(10)
 
         page_layout.addWidget(self._build_rules_card(
@@ -143,8 +119,21 @@ class FilterListEditorDialog(FluentSecondaryDialog):
             "exact",
         ))
         page_layout.addStretch(1)
+        page.setWidget(content)
 
-        self.tabs.addTab(page, self._t("Filter Rules"))
+        route_key = "filter_rules"
+        page_index = self.tab_stack.count()
+        self.tab_stack.addWidget(page)
+        self.tab_segmented.addItem(
+            route_key,
+            self._t("Filter Rules"),
+            onClick=lambda: (
+                self.tab_stack.setCurrentIndex(page_index),
+                self.tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        self.tab_stack.setCurrentIndex(page_index)
+        self.tab_segmented.setCurrentItem(route_key)
 
     def _build_rules_card(self, title_text: str, hint_text: str, mode: str) -> QWidget:
         card = CardWidget()
@@ -172,9 +161,9 @@ class FilterListEditorDialog(FluentSecondaryDialog):
         return card
 
     def _build_raw_tab(self):
-        page = QWidget()
+        page = CardWidget()
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(8, 8, 8, 8)
+        page_layout.setContentsMargins(12, 10, 12, 10)
         page_layout.setSpacing(8)
 
         hint = CaptionLabel(self._t("Edit the raw file content directly"))
@@ -185,7 +174,20 @@ class FilterListEditorDialog(FluentSecondaryDialog):
         self.raw_editor.setTabStopDistance(28)
         page_layout.addWidget(self.raw_editor, 1)
 
-        self.tabs.addTab(page, self._t("Raw Edit"))
+        route_key = "raw_edit"
+        page_index = self.tab_stack.count()
+        self.tab_stack.addWidget(page)
+        self.tab_segmented.addItem(
+            route_key,
+            self._t("Raw Edit"),
+            onClick=lambda: (
+                self.tab_stack.setCurrentIndex(page_index),
+                self.tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        if page_index == 0:
+            self.tab_stack.setCurrentIndex(page_index)
+            self.tab_segmented.setCurrentItem(route_key)
 
     def _set_status(self, message: str, kind: str = "default"):
         del kind
@@ -239,7 +241,7 @@ class FilterListEditorDialog(FluentSecondaryDialog):
 
     def _save(self):
         try:
-            if self.tabs.currentIndex() == 0:
+            if self.tab_stack.currentIndex() == 0:
                 data = self._collect_structured_data()
             else:
                 data = self._collect_raw_data()

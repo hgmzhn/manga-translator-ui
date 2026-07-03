@@ -6,23 +6,23 @@ from typing import Callable, Dict, List, Optional
 from manga_translator.colorization.prompt_loader import (
     load_ai_colorizer_prompt_template,
 )
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
-    QStackedWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     CaptionLabel,
     CardWidget,
     PrimaryPushButton,
+    PopUpAniStackedWidget,
     PushButton,
     RoundMenu,
     ScrollArea,
@@ -94,8 +94,20 @@ def _divider() -> QFrame:
     return line
 
 
+def _fluent_scroll(parent=None) -> ScrollArea:
+    scroll = ScrollArea(parent)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setAutoFillBackground(False)
+    scroll.viewport().setAutoFillBackground(False)
+    scroll.enableTransparentBackground()
+    return scroll
+
+
 def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit:
     editor = QPlainTextEdit()
+    editor.setAutoFillBackground(False)
+    editor.viewport().setAutoFillBackground(False)
     editor.setPlainText(text)
     editor.setReadOnly(read_only)
     editor.setFont(_monospace_font())
@@ -124,41 +136,6 @@ def _make_reference_images_table(
         table.setItem(row, 0, QTableWidgetItem(entry.get("path", "")))
         table.setItem(row, 1, QTableWidgetItem(entry.get("description", "")))
     return table
-
-
-class _SegmentedTabWidget(QWidget):
-    currentChanged = pyqtSignal(int)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._keys: list[str] = []
-        self._segmented = SegmentedWidget(self)
-        self._stack = QStackedWidget(self)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(self._segmented)
-        layout.addWidget(self._stack, 1)
-
-    def addTab(self, widget: QWidget, text: str):
-        index = len(self._keys)
-        key = f"tab_{index}"
-        self._keys.append(key)
-        self._stack.addWidget(widget)
-        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
-        if index == 0:
-            self.setCurrentIndex(0)
-
-    def currentIndex(self) -> int:
-        return self._stack.currentIndex()
-
-    def setCurrentIndex(self, index: int):
-        if index < 0 or index >= len(self._keys):
-            return
-        self._stack.setCurrentIndex(index)
-        self._segmented.setCurrentItem(self._keys[index])
-        self.currentChanged.emit(index)
 
 
 class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
@@ -202,8 +179,10 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         root.addLayout(header)
         root.addWidget(_divider())
 
-        self._tabs = _SegmentedTabWidget()
-        root.addWidget(self._tabs, 1)
+        self._tab_segmented = SegmentedWidget(self)
+        self._tab_stack = PopUpAniStackedWidget(self)
+        root.addWidget(self._tab_segmented)
+        root.addWidget(self._tab_stack, 1)
 
         self._status = _dim_label("")
         root.addWidget(self._status)
@@ -237,11 +216,8 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         self._set_status(self._t("Loaded successfully"), "default")
 
     def _build_template_tab(self):
-        page = QWidget()
-        scroll = ScrollArea()
-        scroll.setWidgetResizable(True)
-
-        content = QWidget()
+        page = _fluent_scroll(self)
+        content = QWidget(page)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(10)
@@ -266,21 +242,43 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         layout.addWidget(self._add_section_btn)
         layout.addStretch()
 
-        scroll.setWidget(content)
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.addWidget(scroll)
-        self._tabs.addTab(page, self._t("Template Edit"))
+        page.setWidget(content)
+        route_key = "template_edit"
+        page_index = self._tab_stack.count()
+        self._tab_stack.addWidget(page)
+        self._tab_segmented.addItem(
+            route_key,
+            self._t("Template Edit"),
+            onClick=lambda: (
+                self._tab_stack.setCurrentIndex(page_index),
+                self._tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        self._tab_stack.setCurrentIndex(page_index)
+        self._tab_segmented.setCurrentItem(route_key)
 
     def _build_raw_tab(self):
-        page = QWidget()
+        page = QWidget(self._tab_stack)
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(8, 8, 8, 8)
+        page_layout.setContentsMargins(12, 10, 12, 10)
         page_layout.setSpacing(6)
         page_layout.addWidget(_dim_label(self._t("Edit the raw file content directly")))
         self._free_editor = _styled_text_edit(self._original_content)
         page_layout.addWidget(self._free_editor, 1)
-        self._tabs.addTab(page, self._t("Raw Edit"))
+        route_key = "raw_edit"
+        page_index = self._tab_stack.count()
+        self._tab_stack.addWidget(page)
+        self._tab_segmented.addItem(
+            route_key,
+            self._t("Raw Edit"),
+            onClick=lambda: (
+                self._tab_stack.setCurrentIndex(page_index),
+                self._tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        if page_index == 0:
+            self._tab_stack.setCurrentIndex(page_index)
+            self._tab_segmented.setCurrentItem(route_key)
 
     def _make_section_container(self, key: str) -> tuple[QWidget, QVBoxLayout]:
         container = CardWidget()
@@ -507,8 +505,8 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         self._refresh_section_move_buttons()
         layout.invalidate()
         layout.activate()
-        if self._tabs is not None:
-            self._tabs.update()
+        if self._tab_stack is not None:
+            self._tab_stack.update()
         logger.info(
             "AI colorizer prompt reflow end: file=%s order=%s layout_after=%s",
             self._file_path,
@@ -537,13 +535,13 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         for key, label in self._SECTION_META.items():
             if key in existing:
                 continue
-            action = QAction(self._t(label), self)
+            action = Action(self._t(label), self)
             action.triggered.connect(lambda checked=False, section_key=key: self._insert_section(section_key))
             menu.addAction(action)
             has_items = True
 
         if not has_items:
-            action = QAction(self._t("All sections added"), self)
+            action = Action(self._t("All sections added"), self)
             action.setEnabled(False)
             menu.addAction(action)
 
@@ -625,7 +623,7 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         return None
 
     def _save(self):
-        current_tab = self._tabs.currentIndex()
+        current_tab = self._tab_stack.currentIndex()
         if current_tab == 0:
             try:
                 content = self._serialize_structured(self._collect_template_data())

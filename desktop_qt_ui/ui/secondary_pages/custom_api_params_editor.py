@@ -4,11 +4,10 @@ from typing import Any, Callable
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, ComboBox, LineEdit, PlainTextEdit, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, TitleLabel
+from qfluentwidgets import BodyLabel, CardWidget, CaptionLabel, ComboBox, LineEdit, PlainTextEdit, PopUpAniStackedWidget, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, TitleLabel
 from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.theme import (
     monospace_font as _monospace_font,
@@ -42,39 +41,14 @@ def _infer_type(value: Any) -> str:
     return "json"
 
 
-class _SegmentedTabWidget(QWidget):
-    currentChanged = pyqtSignal(int)
+def _layout_host(parent=None) -> QWidget:
+    return QWidget(parent)
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._keys: list[str] = []
-        self._segmented = SegmentedWidget(self)
-        self._stack = QStackedWidget(self)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        layout.addWidget(self._segmented)
-        layout.addWidget(self._stack, 1)
-
-    def addTab(self, widget: QWidget, text: str):
-        index = len(self._keys)
-        key = f"tab_{index}"
-        self._keys.append(key)
-        self._stack.addWidget(widget)
-        self._segmented.addItem(key, text, onClick=lambda i=index: self.setCurrentIndex(i))
-        if index == 0:
-            self.setCurrentIndex(0)
-
-    def currentIndex(self) -> int:
-        return self._stack.currentIndex()
-
-    def setCurrentIndex(self, index: int):
-        if index < 0 or index >= len(self._keys):
-            return
-        self._stack.setCurrentIndex(index)
-        self._segmented.setCurrentItem(self._keys[index])
-        self.currentChanged.emit(index)
+def _fluent_scroll(parent=None) -> ScrollArea:
+    scroll = ScrollArea(parent)
+    scroll.setWidgetResizable(True)
+    return scroll
 
 
 class CustomApiParamRow(CardWidget):
@@ -121,7 +95,7 @@ class CustomApiParamRow(CardWidget):
         value_col = QVBoxLayout()
         value_col.setSpacing(6)
         value_label = BodyLabel(self._t("Value"))
-        self.value_stack = QStackedWidget()
+        self.value_stack = PopUpAniStackedWidget()
 
         self.string_input = LineEdit()
         self.string_input.setPlaceholderText("gpt-4o-mini")
@@ -248,7 +222,8 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         self._t = t_func or _identity_translate
         self._file_path = file_path
         self._original_content = ""
-        self.section_tabs: _SegmentedTabWidget | None = None
+        self.section_segmented: SegmentedWidget | None = None
+        self.section_stack: PopUpAniStackedWidget | None = None
         self.section_layouts: dict[str, QVBoxLayout] = {}
         self.section_contents: dict[str, QWidget] = {}
         self._setup_ui()
@@ -271,8 +246,10 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         root.addWidget(title)
         root.addWidget(subtitle)
 
-        self.tabs = _SegmentedTabWidget()
-        root.addWidget(self.tabs, 1)
+        self.tab_segmented = SegmentedWidget(self)
+        self.tab_stack = PopUpAniStackedWidget(self)
+        root.addWidget(self.tab_segmented)
+        root.addWidget(self.tab_stack, 1)
 
         self._build_params_tab()
         self._build_raw_tab()
@@ -298,7 +275,7 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         root.addLayout(button_row)
 
     def _build_params_tab(self):
-        page = QWidget()
+        page = _layout_host(self)
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(8, 8, 8, 8)
         page_layout.setSpacing(8)
@@ -321,17 +298,17 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         card_layout.addWidget(hint)
         page_layout.addWidget(card)
 
-        self.section_tabs = _SegmentedTabWidget()
+        self.section_segmented = SegmentedWidget(page)
+        self.section_stack = PopUpAniStackedWidget(page)
         for section in CUSTOM_API_PARAM_SECTIONS:
-            section_page = QWidget()
+            section_page = _layout_host(self.section_stack)
             section_page_layout = QVBoxLayout(section_page)
             section_page_layout.setContentsMargins(0, 0, 0, 0)
             section_page_layout.setSpacing(8)
 
-            scroll = ScrollArea()
-            scroll.setWidgetResizable(True)
+            scroll = _fluent_scroll(section_page)
 
-            content = QWidget()
+            content = _layout_host(scroll)
 
             layout = QVBoxLayout(content)
             layout.setContentsMargins(0, 0, 0, 0)
@@ -351,15 +328,41 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
 
             self.section_contents[section] = content
             self.section_layouts[section] = layout
-            self.section_tabs.addTab(section_page, self._section_title(section))
+            section_index = self.section_stack.count()
+            self.section_stack.addWidget(section_page)
+            self.section_segmented.addItem(
+                section,
+                self._section_title(section),
+                onClick=lambda route_key=section, index=section_index: (
+                    self.section_stack.setCurrentIndex(index),
+                    self.section_segmented.setCurrentItem(route_key),
+                ),
+            )
+            if section_index == 0:
+                self.section_stack.setCurrentIndex(section_index)
+                self.section_segmented.setCurrentItem(section)
 
-        page_layout.addWidget(self.section_tabs, 1)
-        self.tabs.addTab(page, self._t("Template Edit"))
+        page_layout.addWidget(self.section_segmented)
+        page_layout.addWidget(self.section_stack, 1)
+
+        route_key = "template_edit"
+        page_index = self.tab_stack.count()
+        self.tab_stack.addWidget(page)
+        self.tab_segmented.addItem(
+            route_key,
+            self._t("Template Edit"),
+            onClick=lambda: (
+                self.tab_stack.setCurrentIndex(page_index),
+                self.tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        self.tab_stack.setCurrentIndex(page_index)
+        self.tab_segmented.setCurrentItem(route_key)
 
     def _build_raw_tab(self):
-        page = QWidget()
+        page = CardWidget()
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(8, 8, 8, 8)
+        page_layout.setContentsMargins(12, 10, 12, 10)
         page_layout.setSpacing(8)
 
         hint = CaptionLabel(self._t("Edit the raw file content directly"))
@@ -370,7 +373,20 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         self.raw_editor.setTabStopDistance(28)
         page_layout.addWidget(self.raw_editor, 1)
 
-        self.tabs.addTab(page, self._t("Raw Edit"))
+        route_key = "raw_edit"
+        page_index = self.tab_stack.count()
+        self.tab_stack.addWidget(page)
+        self.tab_segmented.addItem(
+            route_key,
+            self._t("Raw Edit"),
+            onClick=lambda: (
+                self.tab_stack.setCurrentIndex(page_index),
+                self.tab_segmented.setCurrentItem(route_key),
+            ),
+        )
+        if page_index == 0:
+            self.tab_stack.setCurrentIndex(page_index)
+            self.tab_segmented.setCurrentItem(route_key)
 
     def _section_title(self, section: str) -> str:
         if section == "common":
@@ -489,7 +505,7 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
 
     def _save(self):
         try:
-            if self.tabs.currentIndex() == 0:
+            if self.tab_stack.currentIndex() == 0:
                 data = self._collect_structured_data()
             else:
                 data = self._collect_raw_data()

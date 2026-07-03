@@ -1,19 +1,27 @@
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
-    QLabel,
     QSizePolicy,
     QWidget,
 )
-from qfluentwidgets import ComboBox, FluentIcon as FIF, PushButton, ScrollArea, Slider, ToolButton
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    ComboBox,
+    FluentIcon as FIF,
+    PushButton,
+    SingleDirectionScrollArea,
+    Slider,
+    ToolButton,
+    VerticalSeparator,
+)
 from services import get_i18n_manager
 from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
 
 
-class EditorToolbar(QWidget):
+class EditorToolbar(CardWidget):
     """
     编辑器顶部工具栏，包含返回、导出、撤销/重做、缩放、视图模式等全局操作。
     """
@@ -34,6 +42,7 @@ class EditorToolbar(QWidget):
         super().__init__(parent)
         self.i18n = get_i18n_manager()
         self._themed_icon_buttons: list[tuple[ToolButton, str]] = []
+        self.content_widget: QWidget | None = None
         self._init_ui()
         self._connect_signals()
     
@@ -44,20 +53,29 @@ class EditorToolbar(QWidget):
         return key
 
     def _init_ui(self):
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(54)
+
         outer_layout = QHBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setContentsMargins(6, 4, 6, 4)
         outer_layout.setSpacing(0)
 
-        self.scroll_area = ScrollArea(self)
+        self.scroll_area = SingleDirectionScrollArea(self, Qt.Orientation.Horizontal)
+        self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.scroll_area.setMinimumHeight(44)
         self.scroll_area.setWidgetResizable(False)
-        self.scroll_area.setFrameShape(ScrollArea.Shape.NoFrame)
+        self.scroll_area.setFrameShape(SingleDirectionScrollArea.Shape.NoFrame)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setAutoFillBackground(False)
+        self.scroll_area.viewport().setAutoFillBackground(False)
         outer_layout.addWidget(self.scroll_area)
 
         self.content_widget = QWidget()
+        self.content_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.content_widget.setAutoFillBackground(False)
         layout = QHBoxLayout(self.content_widget)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(10)
 
         # --- File Actions ---
@@ -95,7 +113,7 @@ class EditorToolbar(QWidget):
         set_hover_hint(self.zoom_out_button, self._t("Zoom Out (-)"))
         layout.addWidget(self.zoom_out_button)
 
-        self.zoom_label = QLabel("100%")
+        self.zoom_label = BodyLabel("100%")
         self.zoom_label.setMinimumWidth(40)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.zoom_label)
@@ -112,32 +130,17 @@ class EditorToolbar(QWidget):
 
         layout.addWidget(self._create_separator())
 
-        # --- Display Mode ---
-        # 创建一个容器来包装显示模式控件，确保它们作为一个整体
-        display_mode_container = QWidget()
-        display_mode_layout = QHBoxLayout(display_mode_container)
-        display_mode_layout.setContentsMargins(0, 0, 0, 0)
-        display_mode_layout.setSpacing(5)
-        
-        self.display_mode_label = QLabel(self._t("Display Mode:"))
-        display_mode_layout.addWidget(self.display_mode_label)
+        self.display_mode_label = BodyLabel(self._t("Display Mode:"))
+        layout.addWidget(self.display_mode_label)
         
         self.display_mode_combo = ComboBox()
         self._populate_display_mode_items()
         # 需要容纳新增的“原图对比”模式
         self.display_mode_combo.setFixedWidth(180)
-        display_mode_layout.addWidget(self.display_mode_combo)
-        
-        # 添加分隔符到容器内
-        display_mode_layout.addWidget(self._create_separator())
-        
-        # 设置容器的尺寸策略，防止被压缩
-        display_mode_container.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        
-        # 将整个容器添加到主布局
-        layout.addWidget(display_mode_container, 0)
+        layout.addWidget(self.display_mode_combo)
+        layout.addWidget(self._create_separator())
 
-        self.opacity_label = QLabel(self._t("Original Image Opacity:"))
+        self.opacity_label = BodyLabel(self._t("Original Image Opacity:"))
         layout.addWidget(self.opacity_label)
         self.original_image_alpha_slider = Slider(Qt.Orientation.Horizontal)
         self.original_image_alpha_slider.setRange(0, 100)
@@ -152,8 +155,10 @@ class EditorToolbar(QWidget):
         self._build_align_distribute_ui(layout)
 
         layout.addStretch() # Pushes everything to the left
-        self.content_widget.setMinimumWidth(self.content_widget.sizeHint().width())
+        self.content_widget.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.scroll_area.setWidget(self.content_widget)
+        self.scroll_area.enableTransparentBackground()
+        self._sync_content_width()
 
     # ------------------------------------------------------------------
     # 对齐/分布 UI — 单行 PS 风格布局
@@ -184,12 +189,6 @@ class EditorToolbar(QWidget):
         layout.addWidget(self.align_ref_button)
         layout.addWidget(self._create_separator())
 
-        # 图标按钮用一个独立容器，内部间距统一为 2px，竖线分隔符嵌在其中
-        icon_container = QWidget()
-        icon_layout = QHBoxLayout(icon_container)
-        icon_layout.setContentsMargins(0, 0, 0, 0)
-        icon_layout.setSpacing(10)
-
         # ── 第 1 组: 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
         self.align_buttons: dict[str, ToolButton] = {}
         group1 = [
@@ -201,12 +200,12 @@ class EditorToolbar(QWidget):
             btn = _make_icon_btn(icon_file, tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
-            icon_layout.addWidget(btn)
+            layout.addWidget(btn)
 
         btn = _make_icon_btn("distribute_spacing_v.svg", self._t("Distribute Vertical Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
         self._dist_v_btn = btn
-        icon_layout.addWidget(btn)
+        layout.addWidget(btn)
 
         # ── 第 2 组: 顶对齐 / 垂直居中 / 底对齐 / 水平间距分布 ──
         group2 = [
@@ -218,15 +217,12 @@ class EditorToolbar(QWidget):
             btn = _make_icon_btn(icon_file, tip)
             btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
             self.align_buttons[mode] = btn
-            icon_layout.addWidget(btn)
+            layout.addWidget(btn)
 
         btn = _make_icon_btn("distribute_spacing_h.svg", self._t("Distribute Horizontal Spacing"))
         btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
         self._dist_h_btn = btn
-        icon_layout.addWidget(btn)
-
-        # 将图标容器挂到主布局
-        layout.addWidget(icon_container)
+        layout.addWidget(btn)
 
     def _on_dist_spacing(self, orientation: str):
         """处理间距分布按钮点击（垂直/水平空白间隙均分）。"""
@@ -259,14 +255,36 @@ class EditorToolbar(QWidget):
         self._dist_h_btn.setEnabled(dist_enabled)
 
     def _create_separator(self):
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setLineWidth(1)
-        separator.setMidLineWidth(0)
-        separator.setFixedWidth(2)
-        separator.setMinimumHeight(20)
+        separator = VerticalSeparator()
+        separator.setFixedHeight(24)
         return separator
+
+    def _sync_content_width(self):
+        """Keep the scroll area's inner widget as wide as its controls need."""
+        if self.content_widget is None:
+            return
+
+        content_layout = self.content_widget.layout()
+        if content_layout is not None:
+            content_layout.activate()
+            content_width = content_layout.sizeHint().width()
+        else:
+            content_width = self.content_widget.sizeHint().width()
+
+        self.content_widget.setMinimumWidth(content_width)
+        viewport_width = self.scroll_area.viewport().width() if hasattr(self, "scroll_area") else 0
+        self.content_widget.resize(
+            max(content_width, viewport_width),
+            max(self.content_widget.sizeHint().height(), self.scroll_area.viewport().height()),
+        )
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._sync_content_width)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_content_width()
 
     def _connect_signals(self):
         self.back_button.clicked.connect(self.back_requested)
@@ -347,7 +365,9 @@ class EditorToolbar(QWidget):
             self.display_mode_label.setText(self._t("Display Mode:"))
         if hasattr(self, 'opacity_label'):
             self.opacity_label.setText(self._t("Original Image Opacity:"))
+        self._sync_content_width()
 
     def refresh_theme(self):
         for button, icon_file in self._themed_icon_buttons:
             button.setIcon(themed_fluent_svg_icon(icon_file))
+        self.scroll_area.enableTransparentBackground()

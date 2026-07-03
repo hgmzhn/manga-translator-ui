@@ -31,13 +31,17 @@ class _TitledCard(CardWidget):
 
 def create_prompt_page(self) -> QWidget:
     page = QWidget()
+    page.setAutoFillBackground(False)
+    page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(18, 16, 18, 14)
     page_layout.setSpacing(12)
 
-    header_card = CardWidget()
-    header_layout = QVBoxLayout(header_card)
-    header_layout.setContentsMargins(16, 12, 16, 12)
+    header = QWidget(page)
+    header.setAutoFillBackground(False)
+    header.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    header_layout = QVBoxLayout(header)
+    header_layout.setContentsMargins(0, 0, 0, 0)
     header_layout.setSpacing(4)
     self.prompt_page_title_label = TitleLabel(self._t("Prompt Management"))
     self.prompt_page_subtitle_label = BodyLabel(
@@ -46,14 +50,9 @@ def create_prompt_page(self) -> QWidget:
     self.prompt_page_subtitle_label.setWordWrap(True)
     header_layout.addWidget(self.prompt_page_title_label)
     header_layout.addWidget(self.prompt_page_subtitle_label)
-    page_layout.addWidget(header_card)
+    page_layout.addWidget(header)
 
     prompt_splitter = QSplitter(Qt.Orientation.Horizontal)
-
-    left_widget = QWidget()
-    left_layout = QVBoxLayout(left_widget)
-    left_layout.setContentsMargins(0, 0, 0, 0)
-    left_layout.setSpacing(0)
 
     self.prompt_card = _TitledCard(self._t("Prompt List"))
     prompt_card_layout = QVBoxLayout(self.prompt_card)
@@ -62,6 +61,8 @@ def create_prompt_page(self) -> QWidget:
     prompt_card_layout.addWidget(self.prompt_card.title_label)
 
     button_row = QWidget()
+    button_row.setAutoFillBackground(False)
+    button_row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     button_row_layout = QHBoxLayout(button_row)
     button_row_layout.setContentsMargins(0, 0, 0, 0)
     button_row_layout.setSpacing(8)
@@ -88,9 +89,8 @@ def create_prompt_page(self) -> QWidget:
     self.prompt_status_label = BodyLabel("")
     self.prompt_status_label.setWordWrap(True)
     prompt_card_layout.addWidget(self.prompt_status_label)
-    left_layout.addWidget(self.prompt_card, 1)
 
-    prompt_splitter.addWidget(left_widget)
+    prompt_splitter.addWidget(self.prompt_card)
 
     self.prompt_preview_panel = PromptPreviewPanel(t_func=self._t, parent=self)
     prompt_splitter.addWidget(self.prompt_preview_panel)

@@ -22,6 +22,7 @@ from PyQt6.QtGui import (
     QFileSystemModel,
     QIcon,
     QPainter,
+    QPalette,
     QPen,
     QStandardItem,
     QStandardItemModel,
@@ -35,7 +36,6 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStyle,
     QStyledItemDelegate,
-    QTreeView,
     QVBoxLayout,
     QWidget,
 )
@@ -44,8 +44,10 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    FluentStyleSheet,
     PrimaryPushButton,
     RoundMenu,
+    TreeView,
 )
 from qfluentwidgets import LineEdit as QLineEdit
 from qfluentwidgets import PushButton as QPushButton
@@ -401,9 +403,17 @@ class FolderDialog(FluentSecondaryDialog):
         self.setMinimumSize(1000, 650)
         self.resize(1000, 650)
         
-        # 设置对话框使用系统调色板背景
+        # 设置对话框使用当前主题调色板背景
         palette = self.palette()
-        self.setAutoFillBackground(True)
+        palette.setColor(
+            QPalette.ColorRole.Window,
+            self._to_qcolor(self._dialog_bg_color, palette.color(QPalette.ColorRole.Window).name()),
+        )
+        palette.setColor(
+            QPalette.ColorRole.WindowText,
+            self._to_qcolor(self._text_color, palette.color(QPalette.ColorRole.WindowText).name()),
+        )
+        self.setAutoFillBackground(False)
         self.setPalette(palette)
 
         # 初始化文件系统模型
@@ -493,6 +503,84 @@ class FolderDialog(FluentSecondaryDialog):
         self._radius_md = 10
         self._radius_lg = 12
 
+    def _theme_plain_container(self, widget: QWidget):
+        """Keep intermediary containers from painting their own native background."""
+        widget.setAutoFillBackground(False)
+        widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+
+    def _to_qcolor(self, value: str, fallback: str) -> QColor:
+        """Convert theme token strings, including rgb/rgba CSS values, to QColor."""
+        color = QColor(value)
+        if color.isValid():
+            return color
+
+        raw = (value or "").strip()
+        if raw.startswith("rgb(") or raw.startswith("rgba("):
+            values = raw[raw.find("(") + 1: raw.rfind(")")].split(",")
+            try:
+                red = int(float(values[0].strip()))
+                green = int(float(values[1].strip()))
+                blue = int(float(values[2].strip()))
+                parsed = QColor(red, green, blue)
+                if len(values) > 3:
+                    alpha = float(values[3].strip())
+                    parsed.setAlphaF(alpha if alpha <= 1 else alpha / 255)
+                return parsed
+            except (IndexError, ValueError):
+                pass
+
+        return QColor(fallback)
+
+    def _theme_tree_view(self, tree: TreeView):
+        """Apply dialog theme colors to model/view trees that otherwise use native Base."""
+        FluentStyleSheet.TREE_VIEW.apply(tree)
+
+        palette = tree.palette()
+        base = self._to_qcolor(self._card_bg_color, palette.color(QPalette.ColorRole.Base).name())
+        soft_base = self._to_qcolor(self._card_soft_bg_color, self._card_bg_color)
+        text = self._to_qcolor(self._text_color, "#1F2933")
+        muted_text = self._to_qcolor(self._muted_text_color, "#6B7280")
+        selection = self._to_qcolor(self._selection_bg_color, "#DDEBFF")
+        selection_text = self._to_qcolor(self._selection_text_color, self._text_color)
+        border = self._to_qcolor(self._panel_border_color, "#D0D7DE")
+
+        for role, color in (
+            (QPalette.ColorRole.Window, base),
+            (QPalette.ColorRole.Base, base),
+            (QPalette.ColorRole.AlternateBase, soft_base),
+            (QPalette.ColorRole.Text, text),
+            (QPalette.ColorRole.WindowText, text),
+            (QPalette.ColorRole.ButtonText, text),
+            (QPalette.ColorRole.PlaceholderText, muted_text),
+            (QPalette.ColorRole.Highlight, selection),
+            (QPalette.ColorRole.HighlightedText, selection_text),
+            (QPalette.ColorRole.Mid, border),
+        ):
+            palette.setColor(role, color)
+
+        tree.setPalette(palette)
+        tree.setBackgroundRole(QPalette.ColorRole.Base)
+        tree.setAutoFillBackground(False)
+        tree.setFrameShape(TreeView.Shape.NoFrame)
+        tree.setAlternatingRowColors(False)
+
+        viewport = tree.viewport()
+        viewport.setPalette(palette)
+        viewport.setBackgroundRole(QPalette.ColorRole.Base)
+        viewport.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        viewport.setAutoFillBackground(True)
+
+        header = tree.header()
+        if header is not None:
+            header.setPalette(palette)
+            header.setBackgroundRole(QPalette.ColorRole.Base)
+            header.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+            header.setAutoFillBackground(True)
+            header.viewport().setPalette(palette)
+            header.viewport().setBackgroundRole(QPalette.ColorRole.Base)
+            header.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+            header.viewport().setAutoFillBackground(True)
+
     def _init_ui(self):
         """初始化UI"""
         layout = QVBoxLayout(self)
@@ -501,6 +589,7 @@ class FolderDialog(FluentSecondaryDialog):
 
         # 创建工具栏区域（后退/前进/上级目录）
         toolbar_widget = QWidget()
+        self._theme_plain_container(toolbar_widget)
         toolbar_layout = QHBoxLayout(toolbar_widget)
         toolbar_layout.setContentsMargins(0, 0, 0, 0)
         toolbar_layout.setSpacing(4)
@@ -555,9 +644,12 @@ class FolderDialog(FluentSecondaryDialog):
         self.breadcrumb_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.breadcrumb_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.breadcrumb_scroll.setMaximumHeight(35)
+        self.breadcrumb_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.breadcrumb_scroll.enableTransparentBackground()
 
         # 面包屑容器
         self.breadcrumb_widget = QWidget()
+        self._theme_plain_container(self.breadcrumb_widget)
         self.breadcrumb_layout = QHBoxLayout(self.breadcrumb_widget)
         self.breadcrumb_layout.setContentsMargins(0, 0, 0, 0)
         self.breadcrumb_layout.setSpacing(0)
@@ -578,18 +670,21 @@ class FolderDialog(FluentSecondaryDialog):
 
         # 创建一个容器来包含面包屑和输入框，它们互斥显示
         self.address_container = QWidget()
+        self._theme_plain_container(self.address_container)
         address_container_layout = QVBoxLayout(self.address_container)
         address_container_layout.setContentsMargins(0, 0, 0, 0)
         address_container_layout.setSpacing(0)
         
         # 面包屑容器
         self.breadcrumb_container = QWidget()
+        self._theme_plain_container(self.breadcrumb_container)
         breadcrumb_container_layout = QVBoxLayout(self.breadcrumb_container)
         breadcrumb_container_layout.setContentsMargins(0, 0, 0, 0)
         breadcrumb_container_layout.addWidget(address_widget)
         
         # 输入框容器
         self.path_edit_container = QWidget()
+        self._theme_plain_container(self.path_edit_container)
         path_edit_layout = QVBoxLayout(self.path_edit_container)
         path_edit_layout.setContentsMargins(0, 0, 0, 0)
         path_edit_layout.addWidget(self.path_edit)
@@ -605,16 +700,18 @@ class FolderDialog(FluentSecondaryDialog):
 
         # 主内容区域：左侧快捷栏 + 右侧文件夹树
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._theme_plain_container(splitter)
 
         # 左侧快捷栏
         shortcuts_widget = self._create_shortcuts_panel()
         splitter.addWidget(shortcuts_widget)
 
         # 右侧文件夹树形视图
-        self.folder_tree = QTreeView()
+        self.folder_tree = TreeView()
         self.folder_tree.setMouseTracking(True)
         self.folder_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.folder_tree.setModel(self.proxy_model)
+        self._theme_tree_view(self.folder_tree)
 
         # 仅显示两列：名称、修改日期
         self.folder_tree.showColumn(0)  # Name
@@ -697,13 +794,14 @@ class FolderDialog(FluentSecondaryDialog):
         layout.setSpacing(0)
 
         # 创建树形视图
-        self.shortcuts_tree = QTreeView()
+        self.shortcuts_tree = TreeView()
         self.shortcuts_tree.setMouseTracking(True)
         self.shortcuts_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.shortcuts_tree.setHeaderHidden(True)
         self.shortcuts_tree.setIndentation(12)
         self.shortcuts_tree.setAnimated(True)
         self.shortcuts_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._theme_tree_view(self.shortcuts_tree)
 
         self.shortcuts_tree_model = QStandardItemModel()
         self.shortcuts_tree.setModel(self.shortcuts_tree_model)

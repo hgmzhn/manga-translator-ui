@@ -14,6 +14,7 @@ from PyQt6.QtGui import (
     QLinearGradient,
     QPainter,
     QPainterPath,
+    QPalette,
     QPen,
     QPixmap,
     QRegularExpressionValidator,
@@ -23,17 +24,19 @@ from PyQt6.QtWidgets import (
     QApplication,
     QGridLayout,
     QHBoxLayout,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 from qfluentwidgets import (
     CaptionLabel,
-    CardWidget,
+    DropDownPushButton,
     Flyout,
     FlyoutAnimationType,
     FlyoutViewBase,
     LineEdit,
     ToolButton,
+    isDarkTheme,
 )
 from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
@@ -212,19 +215,25 @@ class ScreenColorPicker(QWidget):
             self.close()
 
 
-class _ColorEntryButton(QWidget):
+class _ColorEntryButton(DropDownPushButton):
     """Compact color entry with current swatch and dropdown chevron."""
 
-    clicked = pyqtSignal()
+    DEFAULT_SIZE = QSize(82, 33)
 
     def __init__(self, color: QColor, parent=None):
         super().__init__(parent)
         self._color = QColor(color)
-        self._hovered = False
-        self._pressed = False
         self._checked = False
-        self.setFixedSize(82, 40)
+        self.setText("")
+        self.setMinimumSize(self.DEFAULT_SIZE)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def sizeHint(self) -> QSize:
+        return QSize(max(self.DEFAULT_SIZE.width(), self.minimumWidth()), self.DEFAULT_SIZE.height())
+
+    def minimumSizeHint(self) -> QSize:
+        return self.DEFAULT_SIZE
 
     def setColor(self, color: QColor):
         if self._color != color:
@@ -236,35 +245,21 @@ class _ColorEntryButton(QWidget):
             self._checked = checked
             self.update()
 
-    def paintEvent(self, _event):
+    def paintEvent(self, event):
+        super().paintEvent(event)
         c = get_current_theme_colors()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         enabled = self.isEnabled()
-        if not enabled:
-            bg = _theme_color(c, "btn_disabled_bg", "#F5F5F5")
-            border_color = _theme_color(c, "btn_disabled_border", "rgba(0, 0, 0, 0.04)")
-        else:
-            bg = _theme_color(c, "bg_input", "#FFFFFF")
-            if self._checked:
-                bg = _theme_color(c, "btn_soft_checked_bg", "rgba(59, 130, 246, 0.10)")
-            elif self._pressed:
-                bg = _theme_color(c, "btn_soft_pressed", "#E5E5E5")
-            elif self._hovered:
-                bg = _theme_color(c, "btn_soft_hover", "#EFEFEF")
-            border_color = _theme_color(
-                c,
-                "btn_soft_checked_border" if self._checked else "border_input",
-                "rgba(59, 130, 246, 0.40)" if self._checked else "#d1d1d1",
-            )
+        if self._checked and enabled:
+            active_border = _theme_color(c, "btn_soft_checked_border", "rgba(59, 130, 246, 0.45)")
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(active_border, 1))
+            p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 5, 5)
 
-        outer = self.rect().adjusted(1, 1, -1, -1)
-        p.setBrush(bg)
-        p.setPen(QPen(border_color, 1))
-        p.drawRoundedRect(outer, 7, 7)
-
-        swatch = QRect(9, 7, 32, 26)
+        swatch_height = min(22, max(16, self.height() - 10))
+        swatch = QRect(9, (self.height() - swatch_height) // 2, 32, swatch_height)
         swatch_color = QColor(self._color)
         if not enabled:
             swatch_color.setAlpha(70)
@@ -273,50 +268,13 @@ class _ColorEntryButton(QWidget):
             border = QColor("#111111") if _is_light_color(self._color) else QColor("#f5f5f5")
             border.setAlpha(150)
         else:
-            border = _theme_color(c, "text_disabled", "rgba(138, 146, 156, 0.50)")
+            border = _fluent_disabled_foreground()
         p.setPen(QPen(border, 1))
         p.drawRoundedRect(swatch, 5, 5)
-
-        arrow_color = _theme_color(c, "text_secondary", "#5F6872")
-        if not enabled:
-            arrow_color = _theme_color(c, "text_disabled", "rgba(138, 146, 156, 0.50)")
-        p.setPen(QPen(arrow_color, 1.8))
-        p.drawLine(58, 17, 63, 22)
-        p.drawLine(63, 22, 68, 17)
         p.end()
-
-    def enterEvent(self, event):
-        if not self.isEnabled():
-            super().enterEvent(event)
-            return
-        self._hovered = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._hovered = False
-        self._pressed = False
-        self.update()
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event):
-        if self.isEnabled() and event.button() == Qt.MouseButton.LeftButton:
-            self._pressed = True
-            self.update()
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        was_pressed = self._pressed
-        self._pressed = False
-        self.update()
-        if was_pressed and event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
-            self.clicked.emit()
-        super().mouseReleaseEvent(event)
 
     def changeEvent(self, event):
         if event.type() == QEvent.Type.EnabledChange:
-            self._hovered = False
-            self._pressed = False
             self.setCursor(Qt.CursorShape.PointingHandCursor if self.isEnabled() else Qt.CursorShape.ArrowCursor)
             self.update()
         super().changeEvent(event)
@@ -385,8 +343,8 @@ class _CurrentColorPreview(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         outer = self.rect().adjusted(1, 1, -1, -1)
-        p.setBrush(_theme_color(c, "bg_surface_soft", "#F7F7F7"))
-        p.setPen(QPen(_theme_color(c, "border_input", "#d1d1d1"), 1))
+        p.setBrush(_theme_or_palette_color(self, c, "bg_surface_soft", QPalette.ColorRole.Window))
+        p.setPen(QPen(_theme_or_palette_color(self, c, "border_input", QPalette.ColorRole.Mid), 1))
         p.drawRoundedRect(outer, 8, 8)
 
         inner = outer.adjusted(7, 7, -7, -7)
@@ -796,7 +754,7 @@ class _ColorPaletteView(FlyoutViewBase):
 #  ColorPickerWidget
 # ═══════════════════════════════════════════════════════════════
 
-class ColorPickerWidget(CardWidget):
+class ColorPickerWidget(QWidget):
     """可复用的颜色选择器组件，包含颜色按钮和常用颜色菜单。"""
 
     color_changed = pyqtSignal(str)  # 颜色变化时发出 hex 颜色值
@@ -805,7 +763,6 @@ class ColorPickerWidget(CardWidget):
                  config_key="saved_colors", config_service=None, i18n_func=None,
                  parent=None):
         super().__init__(parent)
-        self.setBorderRadius(8)
         self._dialog_title = dialog_title
         self._default_color = default_color
         self._current_color = default_color
@@ -818,9 +775,20 @@ class ColorPickerWidget(CardWidget):
         self._ignore_next_color_click = False
 
         self._saved_colors = []
+        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self._load_saved_colors()
         self._init_ui()
         self._connect_signals()
+
+    def sizeHint(self) -> QSize:
+        if hasattr(self, "color_button"):
+            return self.color_button.sizeHint()
+        return _ColorEntryButton.DEFAULT_SIZE
+
+    def minimumSizeHint(self) -> QSize:
+        if hasattr(self, "color_button"):
+            return self.color_button.minimumSizeHint()
+        return _ColorEntryButton.DEFAULT_SIZE
 
     # ── UI ────────────────────────────────────────────────────────
 
@@ -834,7 +802,7 @@ class ColorPickerWidget(CardWidget):
             self,
         )
         set_hover_hint(self.color_button, self._t("Click to select color"))
-        layout.addWidget(self.color_button, 0)
+        layout.addWidget(self.color_button, 1)
 
         self._apply_component_theme()
         self._update_color_tooltips(self._current_color)
@@ -1076,6 +1044,15 @@ def _theme_color(colors: dict, key: str, fallback: str) -> QColor:
     return _parse_color(colors.get(key, fallback), fallback)
 
 
+def _theme_or_palette_color(widget: QWidget, colors: dict, key: str, role: QPalette.ColorRole) -> QColor:
+    value = colors.get(key)
+    if value is not None:
+        color = _parse_color(value, "")
+        if color.isValid():
+            return color
+    return widget.palette().color(role)
+
+
 def _parse_color(value, fallback: str) -> QColor:
     color = QColor(value if value is not None else fallback)
     if color.isValid():
@@ -1112,3 +1089,7 @@ def _create_eyedropper_icon() -> QIcon:
 
 def _is_light_color(color: QColor) -> bool:
     return (color.red() * 0.299 + color.green() * 0.587 + color.blue() * 0.114) > 175
+
+
+def _fluent_disabled_foreground() -> QColor:
+    return QColor(255, 255, 255, 92) if isDarkTheme() else QColor(0, 0, 0, 92)
