@@ -92,7 +92,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='../doc/images/icon.ico',
+    icon='../desktop_qt_ui/ui/icons/icon.ico',
 )
 coll = COLLECT(
     exe,

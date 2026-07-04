@@ -46,6 +46,7 @@ manga_translator/server/server_config.json
 
 # Temporary files
 *.tmp
+*.bak
 *.log
 tmp/
 .cache/

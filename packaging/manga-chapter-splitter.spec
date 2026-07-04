@@ -61,5 +61,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='../doc/images/icon.ico' if os.path.exists('../doc/images/icon.ico') else None,
+    icon='../desktop_qt_ui/ui/icons/icon.ico' if os.path.exists('../desktop_qt_ui/ui/icons/icon.ico') else None,
 )

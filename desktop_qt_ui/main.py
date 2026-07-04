@@ -346,11 +346,11 @@ def main():
         icon_candidates.extend([
             os.path.join('doc', 'images', 'icon.icns'),
             os.path.join('doc', 'images', 'icon.png'),
-            os.path.join('doc', 'images', 'icon.ico'),
+            os.path.join('desktop_qt_ui', 'ui', 'icons', 'icon.ico'),
         ])
     else:
         icon_candidates.extend([
-            os.path.join('doc', 'images', 'icon.ico'),
+            os.path.join('desktop_qt_ui', 'ui', 'icons', 'icon.ico'),
             os.path.join('doc', 'images', 'icon.png'),
         ])
 
@@ -373,11 +373,11 @@ def main():
 
     if sys.platform == 'win32':
         native_windows_icon_path = next(
-            iter_existing_resource_paths([os.path.join('doc', 'images', 'icon.ico')]),
+            iter_existing_resource_paths([os.path.join('desktop_qt_ui', 'ui', 'icons', 'icon.ico')]),
             None,
         )
         if not native_windows_icon_path:
-            logging.warning("Windows 原生窗口图标未找到：doc/images/icon.ico")
+            logging.warning("Windows 原生窗口图标未找到：desktop_qt_ui/ui/icons/icon.ico")
 
     # 2. 初始化所有服务
     # 设置正确的根目录：打包后指向_internal，开发时指向项目根目录

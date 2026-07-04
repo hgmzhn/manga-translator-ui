@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import textwrap
 
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from qfluentwidgets import Dialog, FluentIcon as FIF, MessageBox, PlainTextEdit
 
@@ -45,6 +46,13 @@ _BUTTON_ICONS = {
     QMessageBox.StandardButton.Cancel: FIF.CANCEL,
     QMessageBox.StandardButton.Close: FIF.CLOSE,
 }
+
+
+def _button_icon(button: QMessageBox.StandardButton, fallback=FIF.ACCEPT) -> QIcon:
+    icon = _BUTTON_ICONS.get(button, fallback)
+    if isinstance(icon, QIcon):
+        return icon
+    return icon.icon()
 
 
 def _button_text(button: QMessageBox.StandardButton) -> str:
@@ -91,13 +99,13 @@ def _configure_dialog_buttons(
 ) -> tuple[QMessageBox.StandardButton, QMessageBox.StandardButton]:
     accept_button, reject_button = _resolve_dialog_buttons(buttons)
     dialog.yesButton.setText(_button_text(accept_button))
-    dialog.yesButton.setIcon(_BUTTON_ICONS.get(accept_button, FIF.ACCEPT))
+    dialog.yesButton.setIcon(_button_icon(accept_button, FIF.ACCEPT))
 
     if reject_button == QMessageBox.StandardButton.NoButton:
         dialog.hideCancelButton()
     else:
         dialog.cancelButton.setText(_button_text(reject_button))
-        dialog.cancelButton.setIcon(_BUTTON_ICONS.get(reject_button, FIF.CANCEL))
+        dialog.cancelButton.setIcon(_button_icon(reject_button, FIF.CANCEL))
 
     if default_button == reject_button and reject_button != QMessageBox.StandardButton.NoButton:
         dialog.cancelButton.setFocus()
