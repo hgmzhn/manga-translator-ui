@@ -30,9 +30,9 @@ class ThemedTextInputDialog(Dialog):
         self.textLayout.addWidget(self.line_edit)
 
         self.yesButton.setText(ok_text)
-        self.yesButton.setIcon(FIF.ACCEPT)
+        self.yesButton.setIcon(FIF.ACCEPT.icon())
         self.cancelButton.setText(cancel_text)
-        self.cancelButton.setIcon(FIF.CANCEL)
+        self.cancelButton.setIcon(FIF.CANCEL.icon())
         self.yesButton.clicked.disconnect()
         self.cancelButton.clicked.disconnect()
         self.yesButton.clicked.connect(self.accept)
