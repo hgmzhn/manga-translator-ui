@@ -27,6 +27,7 @@ from ..utils import (
 )
 from . import text_render, text_render_hq
 from .auto_linebreak import solve_no_br_layout, should_force_no_wrap_single_region
+from .text_replacement_layout import prepare_text_replacements_for_layout, sync_translation_raw_from_layout
 from .text_render_eng import apply_manga2eng_line_breaks
 
 logger = get_logger('render')
@@ -1242,7 +1243,15 @@ def _binary_search_font_for_bubble_mask(
     return best_font, best_dst_points
 
 
-def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock'], config: Config, original_img: np.ndarray = None, return_debug_img: bool = False, skip_font_scaling: bool = False):
+def resize_regions_to_font_size(
+    img: np.ndarray,
+    text_regions: List['TextBlock'],
+    config: Config,
+    original_img: np.ndarray = None,
+    return_debug_img: bool = False,
+    skip_font_scaling: bool = False,
+    skip_text_replacements: bool = False,
+):
     """
     Resize text regions based on layout mode.
 
@@ -1349,6 +1358,13 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                 continue
 
             _apply_default_english_case_preferences(region, config)
+            prepare_text_replacements_for_layout(
+                [region],
+                config,
+                resolve_render_horizontal=_resolve_region_render_horizontal,
+                apply_vertical_horizontal_markup=_apply_vertical_horizontal_markup,
+                skip_text_replacements=skip_text_replacements,
+            )
 
             # 判断是否需要气泡内居中：开启设置 且 区域确实在检测到的气泡内
             apply_bubble_centering = config.render.center_text_in_bubble
@@ -1566,6 +1582,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                             original_img=None,
                             return_debug_img=False,
                             skip_font_scaling=skip_font_scaling,
+                            skip_text_replacements=skip_text_replacements,
                         )
                         if isinstance(smart_result, list) and len(smart_result) > 0:
                             chosen_dst_points = smart_result[0]
@@ -2015,26 +2032,33 @@ async def dispatch(
         Renderer.openai_renderer,
         Renderer.gemini_renderer,
     ):
-        if not skip_text_replacements:
-            from .text_replacements import apply_replacements, load_replacements
-            _repl_rules = load_replacements()
-            for _region in text_regions:
-                if not _region.translation:
-                    continue
-                if not getattr(_region, 'translation_raw', ''):
-                    _region.translation_raw = _region.translation
-                _direction = 1 if _region.vertical else 0
-                _region.translation = apply_replacements(_region.translation, _direction, _repl_rules)
-
+        prepare_text_replacements_for_layout(
+            text_regions,
+            config,
+            resolve_render_horizontal=_resolve_region_render_horizontal,
+            apply_vertical_horizontal_markup=_apply_vertical_horizontal_markup,
+            skip_text_replacements=skip_text_replacements,
+        )
         from .model_api_renderer import dispatch_api_rendering
 
-        return await dispatch_api_rendering(img=img, text_regions=text_regions, config=config)
+        result = await dispatch_api_rendering(img=img, text_regions=text_regions, config=config)
+        sync_translation_raw_from_layout(text_regions)
+        return result
 
     # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
     text_render.set_font(text_render.DEFAULT_FONT)
     text_regions = list(filter(lambda region: region.translation, text_regions))
 
-    result = resize_regions_to_font_size(img, text_regions, config, original_img, return_debug_img, skip_font_scaling=skip_font_scaling)
+    result = resize_regions_to_font_size(
+        img,
+        text_regions,
+        config,
+        original_img,
+        return_debug_img,
+        skip_font_scaling=skip_font_scaling,
+        skip_text_replacements=skip_text_replacements,
+    )
+    sync_translation_raw_from_layout(text_regions)
 
     # Handle return value (may be tuple if debug image is included)
     if return_debug_img and isinstance(result, tuple):
@@ -2042,20 +2066,6 @@ async def dispatch(
     else:
         dst_points_list = result
         debug_img = None
-
-    if not skip_text_replacements:
-        # [BR]/<H> 标记已加完,在画字之前备份 translation_raw + 跑替换规则。
-        # apply_replacements 内部 protect 了 [BR]/<H>/<br>/【BR】,字符替换不会破坏标记;
-        # 画字用替换后的字符串 → 图上字符也经过规则替换;raw 是替换前 + 含完整标记。
-        from .text_replacements import apply_replacements, load_replacements
-        _repl_rules = load_replacements()
-        for _region in text_regions:
-            if not _region.translation:
-                continue
-            if not getattr(_region, 'translation_raw', ''):
-                _region.translation_raw = _region.translation
-            _direction = 1 if _region.vertical else 0
-            _region.translation = apply_replacements(_region.translation, _direction, _repl_rules)
 
     for region_idx, (region, dst_points) in enumerate(tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions))):
         # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
