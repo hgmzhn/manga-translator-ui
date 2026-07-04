@@ -4,8 +4,8 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QFontMetrics, QImage, QPalette, QPixmap
+from PyQt6.QtCore import QObject, QRectF, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor, QFontMetrics, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, FluentIcon as FIF, ToolButton, TreeWidget
+from qfluentwidgets import BodyLabel, CardWidget, FluentIcon as FIF, StrongBodyLabel, ToolButton, TreeWidget, isDarkTheme
 
 from manga_translator.utils import open_pil_image
 
@@ -266,6 +266,7 @@ class FileListView(TreeWidget):
     files_dropped = pyqtSignal(list)  # 新增：拖放文件信号
     _folders_scanned = pyqtSignal(list)  # 内部信号：文件夹扫描完成
     _ROW_HEIGHT = FileItemWidget.ROW_HEIGHT + 8
+    _EMPTY_STATE_MARGIN = 16
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -300,6 +301,16 @@ class FileListView(TreeWidget):
         # 连接内部信号（确保在主线程中处理）
         self._folders_scanned.connect(self._on_folders_scanned)
 
+        self.empty_hint_label = StrongBodyLabel(self._empty_state_text(), self.viewport())
+        self.empty_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_hint_label.setWordWrap(True)
+        self.empty_hint_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.empty_hint_label.setTextColor(
+            QColor(0, 0, 0, 130),
+            QColor(255, 255, 255, 150),
+        )
+        self._sync_empty_state_overlay()
+
     def _refresh_root_decoration(self):
         has_top_level_folder = False
         for index in range(self.topLevelItemCount()):
@@ -316,6 +327,7 @@ class FileListView(TreeWidget):
             widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             widget.setFixedHeight(FileItemWidget.ROW_HEIGHT)
         super().setItemWidget(item, column, widget)
+        self._sync_empty_state_overlay()
         QTimer.singleShot(0, self._refresh_root_decoration)
 
     def _finalize_folder_item(self, folder_item: QTreeWidgetItem):
@@ -325,6 +337,7 @@ class FileListView(TreeWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._sync_item_widget_widths()
+        self._sync_empty_state_overlay()
 
     def _sync_item_widget_widths(self):
         viewport_width = max(120, self.viewport().width() - 6)
@@ -352,50 +365,48 @@ class FileListView(TreeWidget):
     
     def refresh_empty_state_text(self):
         """重绘空列表占位提示文本（用于语言切换）。"""
+        self.empty_hint_label.setText(self._empty_state_text())
+        self._sync_empty_state_overlay()
         self.viewport().update()
         self.update()
+
+    def _empty_state_text(self) -> str:
+        return self._t("Drag and drop files or folders here\nor click the buttons above to add")
+
+    def _empty_state_color(self) -> QColor:
+        return QColor(255, 255, 255, 110) if isDarkTheme() else QColor(0, 0, 0, 105)
+
+    def _empty_state_rect(self):
+        return self.viewport().rect().adjusted(
+            self._EMPTY_STATE_MARGIN,
+            self._EMPTY_STATE_MARGIN,
+            -self._EMPTY_STATE_MARGIN,
+            -self._EMPTY_STATE_MARGIN,
+        )
+
+    def _sync_empty_state_overlay(self):
+        is_empty = self.topLevelItemCount() == 0
+        self.empty_hint_label.setVisible(is_empty)
+        if not is_empty:
+            return
+        self.empty_hint_label.setGeometry(self._empty_state_rect())
+        self.empty_hint_label.raise_()
 
     def paintEvent(self, event):
         """重写绘制事件，在列表为空时显示提示"""
         super().paintEvent(event)
-        
-        # 只在列表为空时显示提示
-        if self.topLevelItemCount() == 0:
-            from PyQt6.QtCore import Qt, QRectF
-            from PyQt6.QtGui import QFont, QPainter, QPen, QPalette
-            
-            painter = QPainter(self.viewport())
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            
-            rect = self.viewport().rect()
-            # Draw a beautiful dashed rounded rectangle
-            margin = 16
-            draw_rect = QRectF(rect.adjusted(margin, margin, -margin, -margin))
-            
-            # Get color from palette
-            color = self.palette().color(QPalette.ColorRole.PlaceholderText)
-            
-            # Draw dashed border
-            pen = QPen(color, 1.5, Qt.PenStyle.DashLine)
-            pen.setDashPattern([6, 4])
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(draw_rect, 12, 12)
-            
-            # Draw Icon and Text
-            painter.setPen(color)
-            
-            # Draw Text centered
-            font_text = QFont()
-            font_text.setPointSize(10)
-            font_text.setBold(True)
-            painter.setFont(font_text)
-            text_rect = QRectF(draw_rect.left(), draw_rect.top(), draw_rect.width(), draw_rect.height())
-            
-            text = self._t("Drag and drop files or folders here\nor click the buttons above to add")
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
-            
-            painter.end()
+        if self.topLevelItemCount() != 0:
+            return
+
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pen = QPen(self._empty_state_color(), 1.5, Qt.PenStyle.DashLine)
+        pen.setDashPattern([6, 4])
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(QRectF(self._empty_state_rect()), 12, 12)
+        painter.end()
 
     def _on_selection_changed(self):
         """处理选择变化"""
@@ -1097,6 +1108,9 @@ class FileListView(TreeWidget):
                 self.itemSelectionChanged.connect(self._on_selection_changed)
             except Exception:
                 pass
+        self._refresh_root_decoration()
+        self._sync_empty_state_overlay()
+        self.viewport().update()
     
     def _remove_folder_nodes_recursive(self, item: QTreeWidgetItem):
         """递归移除文件夹节点的所有子文件夹引用"""
@@ -1180,6 +1194,7 @@ class FileListView(TreeWidget):
             FileItemWidget.clear_thumbnail_cache()
         
         # 触发重绘以显示占位提示
+        self._sync_empty_state_overlay()
         self.viewport().update()
 
     # 拖放事件处理

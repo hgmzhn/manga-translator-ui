@@ -1,10 +1,11 @@
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
+    QHBoxLayout,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, ProgressBar
+from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, ProgressBar
 
 from services import get_config_service, get_i18n_manager
 from ui.main_page import dynamic_settings as main_view_dynamic
@@ -164,18 +165,26 @@ class MainView(QWidget):
         progress_layout.setContentsMargins(16, 12, 16, 12)
         progress_layout.setSpacing(8)
 
+        progress_header = QWidget()
+        progress_header_layout = QHBoxLayout(progress_header)
+        progress_header_layout.setContentsMargins(0, 0, 0, 0)
+        progress_header_layout.setSpacing(8)
+
+        self.progress_info_label = BodyLabel("")
+        self.progress_info_label.setWordWrap(True)
+        progress_header_layout.addWidget(self.progress_info_label, 1)
+
+        self.progress_count_label = CaptionLabel("0/0 (0%)")
+        self.progress_count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        progress_header_layout.addWidget(self.progress_count_label)
+        progress_layout.addWidget(progress_header)
+
         self.progress_bar = ProgressBar()
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("0/0 (0%)")
-        self.progress_bar.setFixedHeight(25)
+        self.progress_bar.setFixedHeight(6)
         progress_layout.addWidget(self.progress_bar)
-
-        self.progress_info_label = BodyLabel("")
-        self.progress_info_label.setWordWrap(True)
-        progress_layout.addWidget(self.progress_info_label)
         layout.addWidget(progress_card, 0)
         return interface
     
@@ -195,6 +204,8 @@ class MainView(QWidget):
             self._refresh_font_preview_styles()
         if hasattr(self, "settings_page") and self.settings_page:
             self.settings_page.update()
+        self.file_list.refresh_empty_state_text()
+        self.progress_bar.update()
 
     @pyqtSlot(dict)
     def set_parameters(self, config: dict):

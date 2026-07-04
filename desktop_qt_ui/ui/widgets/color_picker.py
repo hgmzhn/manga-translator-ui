@@ -68,11 +68,14 @@ class ScreenColorPicker(QWidget):
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.BlankCursor)
 
         self._color = QColor(0, 0, 0)
         self._mpos = QCursor.pos()
+        self._overlay_rect = QRect()
         self._shot: QPixmap | None = None
         self._img = None
         self._dpr = 1.0
@@ -88,6 +91,7 @@ class ScreenColorPicker(QWidget):
         self._img = self._shot.toImage()
         self._dpr = self._shot.devicePixelRatio()
         self.setGeometry(geo)
+        self._update_cursor_state(QCursor.pos(), repaint=False)
         self.show()
         self.activateWindow()
         self.raise_()
@@ -104,13 +108,14 @@ class ScreenColorPicker(QWidget):
 
     # ── 绘制 ──────────────────────────────────────────────────
 
-    def paintEvent(self, _event):
+    def paintEvent(self, event):
         if self._shot is None:
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setClipRegion(event.region())
         p.drawPixmap(self.rect(), self._shot)
-        p.fillRect(self.rect(), QColor(0, 0, 0, 15))
+        p.fillRect(event.rect(), QColor(0, 0, 0, 15))
 
         loc = self.mapFromGlobal(self._mpos)
         cx, cy = loc.x(), loc.y()
@@ -138,6 +143,11 @@ class ScreenColorPicker(QWidget):
         bx = cx + off if cx + off + pw <= self.width() else cx - off - pw
         by = cy + off if cy + off + ph <= self.height() else cy - off - ph
         return QRect(max(bx, 0), max(by, 0), pw, ph)
+
+    def _cursor_overlay_rect(self, cx, cy) -> QRect:
+        cross_rect = QRect(cx - 28, cy - 28, 56, 56)
+        panel_rect = self._panel_rect(cx, cy).adjusted(-2, -2, 2, 2)
+        return cross_rect.united(panel_rect).intersected(self.rect())
 
     def _draw_panel(self, p, cx, cy):
         n, s = self.MAG_N, self.MAG_S
@@ -193,11 +203,22 @@ class ScreenColorPicker(QWidget):
 
     # ── 事件 ──────────────────────────────────────────────────
 
-    def mouseMoveEvent(self, ev):
-        self._mpos = ev.globalPosition().toPoint()
-        loc = self.mapFromGlobal(self._mpos)
+    def _update_cursor_state(self, global_pos: QPoint, repaint: bool = True):
+        if repaint and global_pos == self._mpos:
+            return
+
+        old_rect = QRect(self._overlay_rect)
+        self._mpos = global_pos
+        loc = self.mapFromGlobal(global_pos)
         self._color = self._px_color(loc.x(), loc.y())
-        self.update()
+        self._overlay_rect = self._cursor_overlay_rect(loc.x(), loc.y())
+
+        if repaint:
+            dirty_rect = old_rect.united(self._overlay_rect).adjusted(-2, -2, 2, 2)
+            self.update(dirty_rect.intersected(self.rect()))
+
+    def mouseMoveEvent(self, ev):
+        self._update_cursor_state(ev.globalPosition().toPoint())
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.MouseButton.LeftButton:
@@ -386,8 +407,12 @@ class _ColorField(QWidget):
         rect = self.rect().adjusted(1, 1, -2, -2)
         x = max(rect.left(), min(rect.right(), int(pos.x())))
         y = max(rect.top(), min(rect.bottom(), int(pos.y())))
-        self._hue = (x - rect.left()) / max(1, rect.width())
-        self._saturation = 1.0 - (y - rect.top()) / max(1, rect.height())
+        hue = (x - rect.left()) / max(1, rect.width())
+        saturation = 1.0 - (y - rect.top()) / max(1, rect.height())
+        if hue == self._hue and saturation == self._saturation:
+            return
+        self._hue = hue
+        self._saturation = saturation
         self.update()
         self.color_changed.emit(self._current_color())
 
@@ -470,7 +495,10 @@ class _BrightnessSlider(QWidget):
 
     def _set_from_pos(self, pos):
         rect = self.rect().adjusted(3, 8, -3, -8)
-        self._value = (max(rect.left(), min(rect.right(), int(pos.x()))) - rect.left()) / max(1, rect.width())
+        value = (max(rect.left(), min(rect.right(), int(pos.x()))) - rect.left()) / max(1, rect.width())
+        if value == self._value:
+            return
+        self._value = value
         self.update()
         self.value_changed.emit(self._value)
 
@@ -704,8 +732,11 @@ class _ColorPaletteView(FlyoutViewBase):
     def _set_selected_color(self, color: QColor, source: str | None = None, emit: bool = True):
         if not color.isValid():
             return
-        self._selected = QColor(color)
-        hex_color = self._selected.name().upper()
+        next_color = QColor(color)
+        hex_color = next_color.name().upper()
+        if emit and hex_color == self._selected.name().upper():
+            return
+        self._selected = next_color
         rgb_text = self._t(
             "RGB: {r},{g},{b}",
             r=self._selected.red(),

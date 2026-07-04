@@ -545,6 +545,8 @@ class EditorView(QWidget):
             self.graphics_view.apply_theme(theme)
         if self.original_compare_view is not None:
             self.original_compare_view.apply_theme(theme)
+        if self.file_list is not None:
+            self.file_list.refresh_empty_state_text()
         for picker in self.findChildren(ColorPickerWidget):
             picker.refresh_theme()
 
