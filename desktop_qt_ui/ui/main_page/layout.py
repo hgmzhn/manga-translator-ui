@@ -256,6 +256,14 @@ def refresh_prompt_manager(self):
     current_item = self.prompt_list_widget.currentItem()
     current_filename = _get_asset_item_filename(current_item)
     preferred_filename = current_filename or selected_filename
+    signature = (tuple(prompt_files), selected_filename)
+
+    if (
+        getattr(self, "_prompt_manager_signature", None) == signature
+        and self.prompt_list_widget.count() == len(prompt_files)
+    ):
+        _set_prompt_status(self, "Found {count} prompt files.", count=len(prompt_files))
+        return
 
     self.prompt_list_widget.blockSignals(True)
     self.prompt_list_widget.clear()
@@ -276,6 +284,7 @@ def refresh_prompt_manager(self):
     else:
         self.prompt_list_widget.clearSelection()
 
+    self._prompt_manager_signature = signature
     if not self.prompt_list_widget.currentItem() and hasattr(self, "prompt_preview_panel"):
         self.prompt_preview_panel.clear()
     _set_prompt_status(self, "Found {count} prompt files.", count=len(prompt_files))
