@@ -4,7 +4,7 @@ import textwrap
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from qfluentwidgets import Dialog, FluentIcon as FIF, MessageBox, PlainTextEdit
+from qfluentwidgets import Dialog, FluentIcon as FIF, PlainTextEdit
 
 _INSTALLED = False
 
@@ -93,7 +93,7 @@ def _resolve_dialog_buttons(
 
 
 def _configure_dialog_buttons(
-    dialog: Dialog | MessageBox,
+    dialog: Dialog,
     buttons: QMessageBox.StandardButton,
     default_button: QMessageBox.StandardButton = QMessageBox.StandardButton.NoButton,
 ) -> tuple[QMessageBox.StandardButton, QMessageBox.StandardButton]:
@@ -115,7 +115,7 @@ def _configure_dialog_buttons(
 
 
 def _exec_fluent_dialog(
-    dialog: Dialog | MessageBox,
+    dialog: Dialog,
     buttons: QMessageBox.StandardButton,
     default_button: QMessageBox.StandardButton = QMessageBox.StandardButton.NoButton,
 ) -> QMessageBox.StandardButton:
@@ -183,10 +183,7 @@ def _show_message_box(
     del icon
     dialog_parent = _dialog_parent(parent)
     content = _wrap_dialog_text(text, width=72)
-    if dialog_parent is not None:
-        dialog = MessageBox(str(title or ""), content or " ", dialog_parent)
-    else:
-        dialog = Dialog(str(title or ""), content or " ")
+    dialog = Dialog(str(title or ""), content or " ", dialog_parent)
     return _exec_fluent_dialog(dialog, buttons, default_button)
 
 
