@@ -856,11 +856,17 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
                 else:
                     continue
             else:  # Vertical
-                lines, heights = text_render.calc_vertical(target_font_size, text_for_calc, max_height=99999, letter_spacing=letter_spacing_multiplier)
+                lines, heights, line_widths = text_render.calc_vertical_metrics(
+                    target_font_size,
+                    text_for_calc,
+                    max_height=99999,
+                    config=config,
+                    letter_spacing=letter_spacing_multiplier,
+                )
                 if heights:
                     spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
                     required_height = max(heights)
-                    required_width = target_font_size * len(lines) + spacing_x * max(0, len(lines) - 1)
+                    required_width = sum(line_widths) + spacing_x * max(0, len(lines) - 1)
                 else:
                     continue
             
@@ -1926,14 +1932,17 @@ def resize_regions_to_font_size(
                             required_width = final_total_width / n if n > 0 else final_total_width
                             required_height = n * target_font_size + max(0, n - 1) * final_spacing_y
                         else:
-                            final_total_height = text_render.get_string_height(
+                            required_width, required_height, n = calc_box_from_font(
                                 target_font_size,
                                 region.translation,
+                                False,
+                                line_spacing_multiplier,
+                                config,
+                                region.target_lang,
+                                center=None,
+                                angle=0,
                                 letter_spacing=letter_spacing_multiplier,
                             )
-                            final_spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
-                            required_height = final_total_height / n if n > 0 else final_total_height
-                            required_width = n * target_font_size + max(0, n - 1) * final_spacing_x
 
                         # 用新的required重新计算框扩大
                         width_scale_factor = required_width / bubble_width if bubble_width > 0 and required_width > bubble_width else 1.0
@@ -2407,4 +2416,3 @@ def render(
         logger.warning(f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). Text: '{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
     
     return img
-

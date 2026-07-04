@@ -8,6 +8,7 @@
 
 每条规则支持字面替换和正则替换（regex: true）
 """
+import hashlib
 import logging
 import os
 import re
@@ -52,11 +53,6 @@ common:
     replace: '…'
     regex: true
     comment: "三个英文句号转换为一个省略号"
-
-  - pattern: '\s{2,}'
-    replace: ' '
-    regex: true
-    comment: "多余空格压缩为单个"
 
   # - pattern: '第(\d+)话'
   #   replace: '第\1話'
@@ -143,6 +139,11 @@ horizontal:
 # 竖排替换（direction == 1 时执行，在 common 之后）
 # ═══════════════════════════════════════════════════════════════
 vertical:
+  - pattern: '\s{2,}'
+    replace: ' '
+    regex: true
+    comment: "竖排多余空白压缩为单个"
+
   - pattern: "‥"
     replace: "︰"
   - pattern: "─"
@@ -151,42 +152,8 @@ vertical:
     replace: "┃"
   - pattern: "═"
     replace: "║"
-  - pattern: "—"
-    replace: "︱"
   - pattern: "―"
     replace: "|"
-  - pattern: "–"
-    replace: "︲"
-  - pattern: "_"
-    replace: "︴"
-  - pattern: "("
-    replace: "︵"
-  - pattern: ")"
-    replace: "︶"
-  - pattern: "（"
-    replace: "︵"
-  - pattern: "）"
-    replace: "︶"
-  - pattern: "{"
-    replace: "︷"
-  - pattern: "}"
-    replace: "︸"
-  - pattern: "〔"
-    replace: "︹"
-  - pattern: "〕"
-    replace: "︺"
-  - pattern: "【"
-    replace: "︻"
-  - pattern: "】"
-    replace: "︼"
-  - pattern: "《"
-    replace: "︽"
-  - pattern: "》"
-    replace: "︾"
-  - pattern: "〈"
-    replace: "︿"
-  - pattern: "〉"
-    replace: "﹀"
   - pattern: "⟨"
     replace: "︿"
   - pattern: "⟩"
@@ -195,30 +162,8 @@ vertical:
     replace: "︿"
   - pattern: "⟫"
     replace: "﹀"
-  - pattern: "「"
-    replace: "﹁"
-  - pattern: "」"
-    replace: "﹂"
-  - pattern: "『"
-    replace: "﹃"
-  - pattern: "』"
-    replace: "﹄"
-  - pattern: "\""
-    replace: "﹂"
-  - pattern: "'"
-    replace: "﹂"
-  - pattern: "\u201C"
-    replace: "﹁"
-    comment: "左双引号"
-  - pattern: "\u201D"
-    replace: "﹂"
-    comment: "右双引号"
   - pattern: "﹑"
     replace: "﹅"
-  - pattern: "["
-    replace: "﹇"
-  - pattern: "]"
-    replace: "﹈"
   - pattern: "⦅"
     replace: "︵"
   - pattern: "⦆"
@@ -239,95 +184,53 @@ vertical:
     replace: "︿"
   - pattern: "❯"
     replace: "﹀"
-  - pattern: "﹆"
-    replace: "﹆"
-    comment: "保持不变"
-  - pattern: "﹉"
-    replace: "﹉"
-    comment: "保持不变"
-  - pattern: "﹊"
-    replace: "﹊"
-    comment: "保持不变"
-  - pattern: "﹋"
-    replace: "﹋"
-    comment: "保持不变"
-  - pattern: "﹌"
-    replace: "﹌"
-    comment: "保持不变"
-  - pattern: "﹍"
-    replace: "﹍"
-    comment: "保持不变"
-  - pattern: "﹎"
-    replace: "﹎"
-    comment: "保持不变"
-  - pattern: "﹏"
-    replace: "﹏"
-    comment: "保持不变"
-  - pattern: "……"
-    replace: "︙"
-    comment: "六点变三点省略号"
-  - pattern: "…"
-    replace: "︙"
-  - pattern: "⋯"
-    replace: "︙"
   - pattern: "⋰"
     replace: "⋮"
   - pattern: "⋱"
     replace: "⋮"
-  - pattern: "″"
-    replace: "﹂"
-  - pattern: "‴"
-    replace: "﹂"
-  - pattern: "‶"
-    replace: "﹁"
-  - pattern: "ⷷ"
-    replace: "﹁"
   - pattern: "〜"
     replace: "︴"
-  - pattern: "～"
-    replace: "︴"
-  - pattern: "~"
-    replace: "≀"
   - pattern: "〰"
     replace: "︴"
-  - pattern: "!"
-    replace: "︕"
-  - pattern: "?"
-    replace: "︖"
   - pattern: "؟"
     replace: "︖"
   - pattern: "¿"
     replace: "︖"
   - pattern: "¡"
     replace: "︕"
-  - pattern: "."
-    replace: "︒"
-    enabled: false
   - pattern: "。"
     replace: "︒"
-  - pattern: ";"
-    replace: "︔"
   - pattern: "；"
     replace: "︔"
-  - pattern: ":"
-    replace: "︓"
   - pattern: "："
     replace: "︓"
-  - pattern: ","
-    replace: "︐"
   - pattern: "，"
     replace: "︐"
   - pattern: "‚"
     replace: "︐"
   - pattern: "„"
     replace: "︐"
-  - pattern: "-"
-    replace: "︲"
   - pattern: "−"
     replace: "︲"
   - pattern: "・"
     replace: "·"
 """
+
+_LEGACY_DEFAULT_REPLACEMENTS_HASHES = {
+    # 旧版内置默认模板（common 中压缩空白，包含无效的“保持不变”规则）
+    "ceba4914b4c7bd239bc5a48be1b3755ed0d7ef7c496cc5eb0b4c4cbb76ca2702",
+    # 旧版 examples/text_replacements.yaml（由表格编辑器保存后的默认模板格式）
+    "481f39ff205c61a6604f5e0d6b5a186462a6bc118ab74d7be037be3007267d94",
+}
+
+
+def _template_hash(content: str) -> str:
+    normalized = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _is_legacy_default_template(content: str) -> bool:
+    return _template_hash(content) in _LEGACY_DEFAULT_REPLACEMENTS_HASHES
 
 def invalidate_replacements_cache(file_path: Optional[str] = None) -> None:
     """清理替换规则缓存，让后续渲染重新读取文件。"""
@@ -351,6 +254,14 @@ def reset_text_replacements_to_default(file_path: Optional[str] = None) -> str:
 def ensure_text_replacements_exists() -> str:
     """确保文本替换规则配置文件存在，如果不存在则使用内置模板创建。"""
     if os.path.exists(_DEFAULT_REPLACEMENTS_PATH):
+        try:
+            with open(_DEFAULT_REPLACEMENTS_PATH, 'r', encoding='utf-8') as f:
+                content = f.read()
+            if _is_legacy_default_template(content):
+                reset_text_replacements_to_default(_DEFAULT_REPLACEMENTS_PATH)
+                logger.info(f"已升级默认文本替换规则文件: {_DEFAULT_REPLACEMENTS_PATH}")
+        except Exception as e:
+            logger.warning(f"检查文本替换规则默认模板失败: {e}")
         return _DEFAULT_REPLACEMENTS_PATH
     
     try:

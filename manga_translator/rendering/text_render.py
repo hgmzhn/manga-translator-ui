@@ -33,16 +33,36 @@ FALLBACK_FONTS = [
 _H_BLOCK_RE = re.compile(r'(<H>.*?</H>)', re.IGNORECASE | re.DOTALL)
 _BR_RE = re.compile(r'\s*(?:\[BR\]|<br\s*/?>|【BR】|\r\n|\r|\n)\s*', re.IGNORECASE)
 _HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({'！': '!', '？': '?'})
-_VERTICAL_OPEN_BRACKETS = {'「', '『', '（', '《', '〈', '【', '〔', '［', '｛', '(', '“', '‘', '﹁', '﹃', '︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
-_VERTICAL_CLOSE_BRACKETS = {'」', '』', '）', '》', '〉', '】', '〕', '］', '｝', ')', '”', '’', '﹂', '﹄', '︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
+_VERTICAL_ASCII_ROTATE = {chr(i) for i in range(0x21, 0x7F)}
+_VERTICAL_ROTATE_OPEN_BRACKETS = {'「', '『', '（', '《', '〈', '【', '〖', '〔', '［', '｛', '(', '“', '‘'}
+_VERTICAL_ROTATE_CLOSE_BRACKETS = {'」', '』', '）', '》', '〉', '】', '〗', '〕', '］', '｝', ')', '”', '’'}
+_VERTICAL_OPEN_BRACKETS = _VERTICAL_ROTATE_OPEN_BRACKETS | {'﹁', '﹃', '︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
+_VERTICAL_CLOSE_BRACKETS = _VERTICAL_ROTATE_CLOSE_BRACKETS | {'﹂', '﹄', '︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
 _VERTICAL_PUNCT_UP = {'。', '．', '，', '、', '·', '：', '；', '！', '？', '︒', '︐', '︑', '︓', '︔', '︕', '︖', '﹅', '﹆'}
+_VERTICAL_ROTATE_NONBRACKET = {'⸺', '…', '⋯', '～', '-', '–', '—', '﹏', '●', '•', '~'}
+_VERTICAL_ROTATE_CHARS = (
+    _VERTICAL_ASCII_ROTATE
+    | _VERTICAL_ROTATE_NONBRACKET
+    | _VERTICAL_ROTATE_OPEN_BRACKETS
+    | _VERTICAL_ROTATE_CLOSE_BRACKETS
+)
 _VERTICAL_COMPACT_SLOT = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS | _VERTICAL_PUNCT_UP
 _VERTICAL_HALF_ADVANCE = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS
 
-_VERTICAL_ALIGN_TOP_RIGHT = {'﹁', '﹃'}
-_VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'}
+_VERTICAL_ROTATE_ALIGN_TOP_RIGHT = {'「', '『', '“', '‘'}
+_VERTICAL_ROTATE_ALIGN_BOTTOM_LEFT = {'」', '』', '”', '’'}
+_VERTICAL_ALIGN_TOP_RIGHT = {'﹁', '﹃'} | _VERTICAL_ROTATE_ALIGN_TOP_RIGHT
+_VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'} | _VERTICAL_ROTATE_ALIGN_BOTTOM_LEFT
 _VERTICAL_ALIGN_TOP_CENTER = {'︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
 _VERTICAL_ALIGN_BOTTOM_CENTER = {'︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
+_VERTICAL_PUNCT_CENTER = {'。', '．', '，', '、', '·', '︒', '︐', '︑', '﹅'}
+_VERTICAL_FORCE_COMPACT_RE = re.compile(
+    '['
+    + r'\u2700-\u275A\u2761-\u2767\u2776-\u27BF'
+    + r'\u2600-\u26FF'
+    + r'⁁⁂⁇⁈⁉⁊⁋⁎※⁑⁒⁕⁖⁘⁙⁛⁜‼‽'
+    + ']'
+)
 
 
 def _profile_add(profile_stats: Optional[dict], key: str, start_time: Optional[float]) -> None:
@@ -104,9 +124,9 @@ class FontState:
 
 
 def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
-    """渲染层不再做字符替换，全部交给翻译后处理阶段。"""
-    if cdpt == 'ー' and direction == 1:
-        return 'ー', 90
+    """渲染层不替换字符，只返回方向相关的旋转信息。"""
+    if direction == 1 and (cdpt == 'ー' or cdpt in _VERTICAL_ROTATE_CHARS):
+        return cdpt, 90
     return cdpt, 0
 
 
@@ -1011,6 +1031,25 @@ def _vertical_ellipsis_advance(glyph: GlyphRaster, font_size: int, bitmap_char: 
     return max(1, int(round(3.0 * gap))) if gap and gap > 0 else max(1, raw)
 
 
+def _vertical_force_compact_slot(cdpt: str) -> bool:
+    return cdpt in _VERTICAL_PUNCT_UP or _VERTICAL_FORCE_COMPACT_RE.match(cdpt) is not None
+
+
+def _vertical_rotated_advance(glyph: GlyphRaster, font_size: int, bitmap_char: Optional[np.ndarray] = None) -> int:
+    if glyph.advance_x > 0:
+        return int(glyph.advance_x)
+    if bitmap_char is not None and bitmap_char.size:
+        return int(bitmap_char.shape[0])
+    return int(font_size)
+
+
+def _vertical_space_advance(font_size: int, letter_spacing: float = 1.0) -> int:
+    width = _measure_horizontal_text_width(' ', font_size, 1.0)
+    if width <= 0:
+        width = max(1, int(round(font_size * 0.25)))
+    return _scale_advance(width, letter_spacing)
+
+
 def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> dict:
     state = _state()
     key = (int(font_size), cdpt, round(_normalize_letter_spacing(letter_spacing), 4))
@@ -1018,15 +1057,20 @@ def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> di
     if cached is not None:
         return cached
     translated, rot = CJK_Compatibility_Forms_translate(cdpt, 1)
+    if translated == ' ':
+        base = {
+            'translated': translated, 'rot_degree': 0, 'bitmap': None,
+            'advance_y': _vertical_space_advance(font_size, letter_spacing),
+            'ink_x': 0.0, 'ink_w': 0.0, 'y': 0,
+            'frame_width': int(max(font_size, 1)),
+        }
+        return _cache_put(state.vertical, key, base, _VERTICAL_CACHE_MAX)
+
+    rotated = rot == 90
     glyph = _glyph_raster(translated, font_size)
     bitmap = glyph.alpha if glyph.alpha.size else None
-    if bitmap is not None and rot == 90:
+    if bitmap is not None and rotated:
         bitmap = cv2.rotate(bitmap, cv2.ROTATE_90_CLOCKWISE)
-    advance_y = _vertical_ellipsis_advance(glyph, font_size, bitmap) if _is_vertical_ellipsis_char(translated) else (glyph.advance_y if glyph.advance_y > 0 else font_size)
-    if translated in _VERTICAL_HALF_ADVANCE:
-        advance_y = font_size * 0.5
-    advance_y = _scale_advance(int(advance_y), letter_spacing)
-    slot_height = advance_y if translated in _VERTICAL_HALF_ADVANCE else max(1, advance_y)
     ink_x, ink_y = 0.0, 0.0
     ink_w = float(bitmap.shape[1]) if bitmap is not None else 0.0
     ink_h = float(bitmap.shape[0]) if bitmap is not None else 0.0
@@ -1034,7 +1078,33 @@ def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> di
         rect = _bitmap_ink_rect(bitmap)
         if rect is not None:
             ink_x, ink_y, ink_w, ink_h = rect
-    frame_width = max(font_size, int(glyph.advance_x), int(round(ink_w)) if ink_w else 0, 1)
+
+    force_compact = _vertical_force_compact_slot(translated)
+    if translated in _VERTICAL_HALF_ADVANCE:
+        advance_y = font_size * 0.5
+    elif rotated:
+        advance_y = _vertical_rotated_advance(glyph, font_size, bitmap)
+    elif _is_vertical_ellipsis_char(translated):
+        advance_y = _vertical_ellipsis_advance(glyph, font_size, bitmap)
+    else:
+        advance_y = glyph.advance_y if glyph.advance_y > 0 else font_size
+
+    if translated in _VERTICAL_HALF_ADVANCE:
+        advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
+    elif force_compact and ink_h > 0:
+        if translated in _VERTICAL_PUNCT_CENTER:
+            metrics = QFontMetricsF(_layout_font(font_size, letter_spacing))
+            advance_y = ink_h + max(0.0, float(metrics.descent()))
+        else:
+            advance_y = ink_h
+        advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
+    else:
+        advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
+
+    slot_height = advance_y if (translated in _VERTICAL_HALF_ADVANCE or force_compact or rotated) else max(1, advance_y)
+    frame_width = max(font_size, int(round(ink_w)) if ink_w else 0, 1)
+    if not rotated:
+        frame_width = max(frame_width, int(glyph.advance_x))
     slot_origin_y = max(0, int(round((advance_y - slot_height) / 2.0)))
     
     # 默认居中对齐真实墨迹（考虑到 ink_y 和 ink_h）
@@ -1045,6 +1115,10 @@ def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> di
         y = padding - ink_y
     elif translated in _VERTICAL_ALIGN_BOTTOM_LEFT or translated in _VERTICAL_ALIGN_BOTTOM_CENTER:
         y = advance_y - ink_h - padding - ink_y
+    elif force_compact:
+        y = slot_origin_y - ink_y
+        if translated in _VERTICAL_PUNCT_CENTER:
+            y += max(0.0, (slot_height - ink_h) / 2.0)
 
     base = {
         'translated': translated, 'rot_degree': rot, 'bitmap': bitmap, 'advance_y': int(advance_y),
@@ -1055,8 +1129,7 @@ def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> di
 
 
 def get_vertical_char_bitmap_width(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> int:
-    bitmap = _vertical_base(font_size, cdpt, letter_spacing)['bitmap']
-    return font_size if bitmap is None or bitmap.size == 0 else int(bitmap.shape[1])
+    return int(_vertical_base(font_size, cdpt, letter_spacing)['frame_width'])
 
 
 def _measure_horizontal_text_width(text: str, font_size: int, letter_spacing: float = 1.0) -> int:
