@@ -138,6 +138,8 @@ class RegionTextItem(QGraphicsItemGroup):
         # 对齐辅助线（场景级别）
         self._guide_lines = []
         self._spacing_labels: list = []
+        # 按需求关闭编辑器吸附，避免移动/旋转文本框时自动贴齐其他框。
+        self._snap_enabled = False
         # 吸附阈值（像素）
         self._snap_threshold = 1.0
         self._spacing_snap_threshold = 5.0
@@ -1166,30 +1168,31 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_raw_rotation += delta_deg
         new_rot = self._drag_raw_rotation
 
-        # --- 角度吸附逻辑 ---
-        snap_targets = [0.0, 90.0, 180.0, 270.0, 360.0, -90.0, -180.0, -270.0, -360.0]
-        # 获取其他文本框的角度
-        scene = self.scene()
-        if scene is not None:
-            for item in scene.items():
-                if isinstance(item, RegionTextItem) and item is not self:
-                    snap_targets.append(item.rotation() % 360)
-                    snap_targets.append((item.rotation() % 360) - 360)
+        if self._snap_enabled:
+            # --- 角度吸附逻辑 ---
+            snap_targets = [0.0, 90.0, 180.0, 270.0, 360.0, -90.0, -180.0, -270.0, -360.0]
+            # 获取其他文本框的角度
+            scene = self.scene()
+            if scene is not None:
+                for item in scene.items():
+                    if isinstance(item, RegionTextItem) and item is not self:
+                        snap_targets.append(item.rotation() % 360)
+                        snap_targets.append((item.rotation() % 360) - 360)
 
-        best_diff = 3.0 # 角度吸附阈值 3 度
-        snapped_rot = new_rot
-        normalized_rot = new_rot % 360
-        for target in snap_targets:
-            normalized_target = target % 360
-            diff = min(abs(normalized_rot - normalized_target), 360 - abs(normalized_rot - normalized_target))
-            if diff <= best_diff:
-                best_diff = diff
-                # 需要算出一个实际的旋转度数
-                # 尽量保持接近 new_rot 的那个圈数
-                rounds = round((new_rot - target) / 360.0)
-                snapped_rot = target + rounds * 360.0
+            best_diff = 3.0 # 角度吸附阈值 3 度
+            snapped_rot = new_rot
+            normalized_rot = new_rot % 360
+            for target in snap_targets:
+                normalized_target = target % 360
+                diff = min(abs(normalized_rot - normalized_target), 360 - abs(normalized_rot - normalized_target))
+                if diff <= best_diff:
+                    best_diff = diff
+                    # 需要算出一个实际的旋转度数
+                    # 尽量保持接近 new_rot 的那个圈数
+                    rounds = round((new_rot - target) / 360.0)
+                    snapped_rot = target + rounds * 360.0
 
-        new_rot = snapped_rot
+            new_rot = snapped_rot
         self.setRotation(new_rot)
 
         # 保持白框中心（局部点）在场景中不动
@@ -1343,31 +1346,34 @@ class RegionTextItem(QGraphicsItemGroup):
             left, top, right, bottom = self._drag_start_white_frame_local
             moved = [left + dx, top + dy, right + dx, bottom + dy]
 
-            # --- 吸附：边缘 + 间距从同一位置独立计算，间距优先 ---
-            my_points = self._get_white_frame_world_points_from_local(moved)
-            targets = self._get_other_items_snap_targets()
-            guide_specs = []
-            edge_dx = edge_dy = 0.0
-            if my_points and targets:
-                edge_dx, edge_dy, edge_guides = self._calculate_snap_offset(my_points, targets)
-                guide_specs.extend(edge_guides)
-            spacing_dx, spacing_dy, spacing_guides = self._detect_spacing_snap(my_points)
-            guide_specs.extend(spacing_guides)
-            if spacing_dx != 0.0 or spacing_dy != 0.0:
-                sldx = spacing_dx * cos_a + spacing_dy * sin_a
-                sldy = -spacing_dx * sin_a + spacing_dy * cos_a
-                moved = [moved[0]+sldx, moved[1]+sldy, moved[2]+sldx, moved[3]+sldy]
-                dx += sldx; dy += sldy
-            elif edge_dx != 0.0 or edge_dy != 0.0:
-                eldx = edge_dx * cos_a + edge_dy * sin_a
-                eldy = -edge_dx * sin_a + edge_dy * cos_a
-                moved = [moved[0]+eldx, moved[1]+eldy, moved[2]+eldx, moved[3]+eldy]
-                dx += eldx; dy += eldy
-            if guide_specs:
-                self._show_guide_lines(guide_specs)
+            if self._snap_enabled:
+                # --- 吸附：边缘 + 间距从同一位置独立计算，间距优先 ---
+                my_points = self._get_white_frame_world_points_from_local(moved)
+                targets = self._get_other_items_snap_targets()
+                guide_specs = []
+                edge_dx = edge_dy = 0.0
+                if my_points and targets:
+                    edge_dx, edge_dy, edge_guides = self._calculate_snap_offset(my_points, targets)
+                    guide_specs.extend(edge_guides)
+                spacing_dx, spacing_dy, spacing_guides = self._detect_spacing_snap(my_points)
+                guide_specs.extend(spacing_guides)
+                if spacing_dx != 0.0 or spacing_dy != 0.0:
+                    sldx = spacing_dx * cos_a + spacing_dy * sin_a
+                    sldy = -spacing_dx * sin_a + spacing_dy * cos_a
+                    moved = [moved[0]+sldx, moved[1]+sldy, moved[2]+sldx, moved[3]+sldy]
+                    dx += sldx; dy += sldy
+                elif edge_dx != 0.0 or edge_dy != 0.0:
+                    eldx = edge_dx * cos_a + edge_dy * sin_a
+                    eldy = -edge_dx * sin_a + edge_dy * cos_a
+                    moved = [moved[0]+eldx, moved[1]+eldy, moved[2]+eldx, moved[3]+eldy]
+                    dx += eldx; dy += eldy
+                if guide_specs:
+                    self._show_guide_lines(guide_specs)
+                else:
+                    self._clear_guide_lines()
+                # --- 吸附逻辑结束 ---
             else:
                 self._clear_guide_lines()
-            # --- 吸附逻辑结束 ---
 
             self.prepareGeometryChange()
             self._shape_path = None
