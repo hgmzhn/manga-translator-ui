@@ -124,6 +124,7 @@ class MainAppLogic(QObject):
     task_completed = pyqtSignal(list)
     task_file_completed = pyqtSignal(dict)
     error_dialog_requested = pyqtSignal(str)
+    warning_dialog_requested = pyqtSignal(str)
     render_setting_changed = pyqtSignal()
 
     def __init__(self):
@@ -219,6 +220,14 @@ class MainAppLogic(QObject):
 
     def _validate_runtime_api_requirements(self, config) -> bool:
         from PyQt6.QtWidgets import QMessageBox
+
+        api_candidate_validator = getattr(
+            getattr(self, "main_view", None),
+            "_validate_api_candidate_availability",
+            None,
+        )
+        if callable(api_candidate_validator):
+            return bool(api_candidate_validator())
 
         env_vars = self._collect_runtime_env_values()
         missing = self.config_service.get_missing_runtime_api_requirements(config, env_vars)
@@ -2163,9 +2172,11 @@ class MainAppLogic(QObject):
             return
         
         saved_files = []
+        skipped_count = 0
         # The `results` list will only contain items from a batch job now.
         # Sequential jobs handle saving in `on_file_completed`.
         if results:
+            skipped_count = sum(1 for result in results if result.get('skipped'))
             self._ui_log(f"批量翻译任务完成，收到 {len(results)} 个结果。正在保存...")
             try:
                 config = self.config_service.get_config()
@@ -2178,6 +2189,8 @@ class MainAppLogic(QObject):
                     self.state_manager.set_status_message("错误：输出目录未设置！")
                 else:
                     for result in results:
+                        if result.get('skipped'):
+                            continue
                         if result.get('success'):
                             # 检查是否有 output_path（批量模式下后端已保存）
                             if result.get('output_path'):
@@ -2230,8 +2243,23 @@ class MainAppLogic(QObject):
                 self._ui_log(f"处理批量任务结果时发生严重错误: {e}", "ERROR")
 
         failed_count = len(self._task_failures)
-        if failed_count > 0:
+        all_skipped = skipped_count > 0 and self.saved_files_count == 0 and failed_count == 0
+        all_skipped_message = (
+            f"所有 {skipped_count} 个文件都因为输出目录中已有同名文件被跳过，未开始翻译。\n\n"
+            "解决方法：\n"
+            "1. 删除输出目录中的同名文件\n"
+            "2. 或在 设置 → 通用 → 覆盖已存在文件 开启覆盖"
+        )
+        if all_skipped:
+            self._ui_log(
+                f"任务未处理新文件：{skipped_count} 个文件因输出已存在被跳过。"
+                "请删除输出目录中的同名文件，或在 设置 → 通用 → 覆盖已存在文件 开启覆盖。",
+                "WARNING",
+            )
+        elif failed_count > 0:
             self._ui_log(f"翻译任务完成。成功处理 {self.saved_files_count} 个文件，失败 {failed_count} 个文件。", "WARNING")
+        elif skipped_count > 0:
+            self._ui_log(f"翻译任务完成。成功处理 {self.saved_files_count} 个文件，已跳过 {skipped_count} 个文件。")
         else:
             self._ui_log(f"翻译任务完成。总共成功处理 {self.saved_files_count} 个文件。")
         
@@ -2241,8 +2269,17 @@ class MainAppLogic(QObject):
         
         try:
             self.state_manager.set_translating(False)
-            if failed_count > 0:
+            if all_skipped:
+                self.state_manager.set_status_message(
+                    f"全部 {skipped_count} 个文件已跳过：删除同名文件或开启覆盖。"
+                )
+                self.warning_dialog_requested.emit(all_skipped_message)
+            elif failed_count > 0:
                 self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件，失败 {failed_count} 个文件。")
+            elif skipped_count > 0:
+                self.state_manager.set_status_message(
+                    f"任务完成，成功处理 {self.saved_files_count} 个文件，已跳过 {skipped_count} 个文件。"
+                )
             else:
                 self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件。")
             
@@ -2881,6 +2918,14 @@ class TranslationWorker(QObject):
                 )
             return "\n".join(wrapped_lines)
 
+        def _current_log_file_path() -> str:
+            for handler in reversed(logging.getLogger().handlers):
+                if isinstance(handler, logging.FileHandler):
+                    path = str(getattr(handler, "baseFilename", "") or "").strip()
+                    if path:
+                        return os.path.normpath(os.path.abspath(path))
+            return os.path.normpath(os.path.abspath(os.path.join("result", "log_*.txt")))
+
         friendly_msg = ""
         
         # 如果是"达到最大尝试次数"的错误，提取真正的错误原因
@@ -2891,6 +2936,26 @@ class TranslationWorker(QObject):
                 real_error = error_message.split("最后一次错误:")[1].strip()
             except Exception:
                 pass
+
+        lower_error = real_error.lower()
+
+        def _is_image_output_unsupported_error(*section_markers: str) -> bool:
+            if not any(marker in lower_error for marker in section_markers):
+                return False
+            return any(
+                marker in lower_error
+                for marker in (
+                    "image_url",
+                    "unknown variant",
+                    "expected `text`",
+                    "expected 'text'",
+                    "did not contain an image",
+                    "did not contain image data",
+                    "compatible image output interface",
+                    "only support text chat",
+                    "not image generation/editing output",
+                )
+            )
         
         # 检查是否是AI断句检查失败
         if ("BR markers missing" in real_error or 
@@ -2902,19 +2967,19 @@ class TranslationWorker(QObject):
             friendly_msg += "   AI翻译时未能正确添加断句标记 [BR]，导致多次重试后仍然失败。\n\n"
             friendly_msg += "解决方案（选择其一）：\n"
             friendly_msg += "   1. ⭐ 关闭「AI断句检查」选项（推荐）\n"
-            friendly_msg += "      - 位置：高级设置 → 渲染设置 → AI断句检查\n"
+            friendly_msg += "      - 位置：设置 → 排版 → AI断句检查\n"
             friendly_msg += "      - 说明：允许AI在少数情况下不添加断句标记\n\n"
             friendly_msg += "   2. 增加「重试次数」\n"
-            friendly_msg += "      - 位置：通用设置 → 重试次数\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
             friendly_msg += "      - 建议：设置为 10 或更高（-1 表示无限重试）\n\n"
             friendly_msg += "   3. 更换翻译模型\n"
             friendly_msg += "      - 某些模型对断句标记的理解更好\n"
             friendly_msg += "      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n"
-            friendly_msg += "   4. 关闭「AI断句」功能\n"
-            friendly_msg += "      - 位置：高级设置 → 渲染设置 → AI断句\n"
+            friendly_msg += "   4. 关闭「AI断句自动扩大文字」功能\n"
+            friendly_msg += "      - 位置：设置 → 排版 → AI断句自动扩大文字\n"
             friendly_msg += "      - 说明：使用传统的自动换行（可能导致排版不够精确）\n\n"
             friendly_msg += "   5. 减小批量大小\n"
-            friendly_msg += "      - 位置：高级设置 → 批量大小\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 批量大小\n"
             friendly_msg += "      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n"
             friendly_msg += "      - 说明：批量处理的文本越少，AI越容易正确添加断句标记\n\n"
         
@@ -2926,14 +2991,14 @@ class TranslationWorker(QObject):
             friendly_msg += "   这通常是因为AI将多条文本合并翻译，或漏掉了某些文本。\n\n"
             friendly_msg += "解决方案（选择其一）：\n"
             friendly_msg += "   1. ⭐ 增加「重试次数」（推荐）\n"
-            friendly_msg += "      - 位置：通用设置 → 重试次数\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
             friendly_msg += "      - 建议：设置为 10 或更高（-1 表示无限重试）\n"
             friendly_msg += "      - 说明：多次重试通常能让AI返回正确数量的翻译\n\n"
             friendly_msg += "   2. 更换翻译模型\n"
             friendly_msg += "      - 某些模型对指令的遵循能力更强\n"
             friendly_msg += "      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n"
             friendly_msg += "   3. 减小批量大小\n"
-            friendly_msg += "      - 位置：高级设置 → 批量大小\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 批量大小\n"
             friendly_msg += "      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n"
             friendly_msg += "      - 说明：批量处理的文本越少，AI越不容易出错\n\n"
         
@@ -2944,13 +3009,13 @@ class TranslationWorker(QObject):
             friendly_msg += "   AI返回的翻译存在质量问题，如空翻译、合并翻译或可疑符号。\n\n"
             friendly_msg += "解决方案（选择其一）：\n"
             friendly_msg += "   1. ⭐ 增加「重试次数」（推荐）\n"
-            friendly_msg += "      - 位置：通用设置 → 重试次数\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
             friendly_msg += "      - 建议：设置为 10 或更高（-1 表示无限重试）\n\n"
             friendly_msg += "   2. 更换翻译模型\n"
             friendly_msg += "      - 某些模型翻译质量更稳定\n"
             friendly_msg += "      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n"
             friendly_msg += "   3. 减小批量大小\n"
-            friendly_msg += "      - 位置：高级设置 → 批量大小\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 批量大小\n"
             friendly_msg += "      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n"
             friendly_msg += "      - 说明：批量处理的文本越少，AI翻译质量越稳定\n\n"
 
@@ -2978,6 +3043,23 @@ class TranslationWorker(QObject):
             friendly_msg += "      - 避免敏感画面或高风险词汇，降低审核拦截概率\n\n"
             friendly_msg += "   4. 稍后重试（服务器繁忙时常见）\n\n"
 
+        # 检查是否是渲染/上色模型不支持图片输出
+        elif _is_image_output_unsupported_error("renderer", "render request", "渲染"):
+            friendly_msg += "🔍 错误原因：当前模型不支持渲染\n\n"
+            friendly_msg += "解决方案：\n"
+            friendly_msg += "   1. 将「渲染器」切换为「Default」（default，本地默认渲染器）\n"
+            friendly_msg += "      - 位置：设置 → 排版 → 渲染器\n"
+            friendly_msg += "   2. 继续使用 AI 渲染时，在 API 管理 → 渲染 中换一个支持图片输出/图片编辑的模型\n\n"
+
+        elif _is_image_output_unsupported_error("colorizer", "colorization", "colorize", "上色"):
+            friendly_msg += "🔍 错误原因：当前模型不支持上色\n\n"
+            friendly_msg += "解决方案：\n"
+            friendly_msg += "   1. 切换上色器：在「上色模型」选择 Manga Colorization v2 或其它可用上色器\n"
+            friendly_msg += "      - 位置：设置 → 模式相关 → 上色 → 上色模型\n"
+            friendly_msg += "   2. 关闭上色：在「上色模型」选择「无」（none，不上色）\n"
+            friendly_msg += "      - 位置：设置 → 模式相关 → 上色 → 上色模型\n"
+            friendly_msg += "   3. 继续使用 OpenAI/Gemini 上色时，在 API 管理 → 上色 中换一个支持图片输出/图片编辑的模型\n\n"
+
         # 检查是否是模型不支持多模态
         elif ("不支持多模态" in real_error or
               ("multimodal" in real_error.lower() and "renderer" not in real_error.lower()) or
@@ -2991,7 +3073,7 @@ class TranslationWorker(QObject):
             friendly_msg += "   这些翻译器需要发送图片给AI进行分析，但当前模型不支持图片输入。\n\n"
             friendly_msg += "解决方案（选择其一）：\n"
             friendly_msg += "   1. ⭐ 切换到普通翻译器（推荐）\n"
-            friendly_msg += "      - 位置：翻译设置 → 翻译器\n"
+            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n"
             friendly_msg += "      - 将「OpenAI高质量翻译」改为「OpenAI」\n"
             friendly_msg += "      - 将「Gemini高质量翻译」改为「Google Gemini」\n"
             friendly_msg += "      - 说明：普通翻译器不需要发送图片，只翻译文本\n\n"
@@ -3018,10 +3100,10 @@ class TranslationWorker(QObject):
             friendly_msg += "   这通常是模型名拼写不对、大小写不一致、模型已下线，或当前中转/渠道并不提供这个模型。\n\n"
             friendly_msg += "解决方案：\n"
             friendly_msg += "   1. ⭐ 检查模型名称是否与服务商提供的名称完全一致（最常见）\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量 → MODEL\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 模型\n"
             friendly_msg += "      - 注意：模型名称通常区分大小写，不能省略前缀或版本号\n\n"
             friendly_msg += "   2. 使用「测试连接」或模型列表功能确认当前站点实际支持哪些模型\n"
-            friendly_msg += "      - API管理 → 测试连接 / 获取模型列表\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 测试当前页 / 获取模型列表\n"
             friendly_msg += "      - 先确认该站点真的提供你要用的模型\n\n"
             friendly_msg += "   3. 如果你用的是第三方 OpenAI 兼容站点（如中转、渠道、硅基流动等）\n"
             friendly_msg += "      - 不要假设它支持 OpenAI 官方的全部模型名\n"
@@ -3041,11 +3123,11 @@ class TranslationWorker(QObject):
             friendly_msg += "   这通常意味着API地址错误或模型名称不存在。\n\n"
             friendly_msg += "解决方案：\n"
             friendly_msg += "   1. ⭐ 检查API地址配置（最常见）\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量 → OPENAI_API_BASE\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 地址\n"
             friendly_msg += "      - 正确格式：https://api.openai.com/v1\n"
             friendly_msg += "      - 注意：地址末尾必须是 /v1，不要多加或少加路径\n\n"
             friendly_msg += "   2. 检查模型名称是否正确\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量 → OPENAI_MODEL\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 模型\n"
             friendly_msg += "      - 确认模型名称与API服务提供的模型完全匹配\n"
             friendly_msg += "      - 注意：模型名称区分大小写\n"
             friendly_msg += "      - 提示：可以使用「测试连接」功能查看可用模型列表\n\n"
@@ -3053,20 +3135,30 @@ class TranslationWorker(QObject):
             friendly_msg += "      - 确认中转服务的API地址格式\n"
             friendly_msg += "      - 确认中转服务支持你使用的模型\n"
             friendly_msg += "      - 联系中转服务提供商确认配置\n\n"
-        
+
         # 检查是否是API密钥错误
-        elif "api key" in real_error.lower() or "authentication" in real_error.lower() or "unauthorized" in real_error.lower() or "401" in real_error:
-            friendly_msg += "🔍 错误原因：API密钥验证失败\n\n"
+        elif (
+            "api key" in real_error.lower()
+            or "authentication" in real_error.lower()
+            or "unauthorized" in real_error.lower()
+            or "401" in real_error
+            or "no available api candidates" in real_error.lower()
+            or "exhausting api candidates" in real_error.lower()
+            or "api candidates" in real_error.lower()
+        ):
+            friendly_msg += "🔍 错误原因：API密钥或候选不可用\n\n"
             friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   API密钥无效、过期或未正确配置。\n\n"
+            friendly_msg += "   API密钥缺失、无效、过期，或当前候选池里没有可用候选。\n\n"
             friendly_msg += "解决方案：\n"
             friendly_msg += "   1. 检查API密钥是否正确\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量配置区域\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 密钥\n"
             friendly_msg += "      - 确认密钥没有多余的空格或换行\n\n"
             friendly_msg += "   2. 验证API密钥是否有效\n"
             friendly_msg += "      - OpenAI: https://platform.openai.com/api-keys\n"
             friendly_msg += "      - Gemini: https://aistudio.google.com/app/apikey\n\n"
-            friendly_msg += "   3. 检查API额度是否用完\n"
+            friendly_msg += "   3. 如果通道已被标记为不可用，可在 API 管理里重新启用对应 Key/通道\n"
+            friendly_msg += "      - 也可以使用「测试当前页」重新确认候选是否可用\n\n"
+            friendly_msg += "   4. 检查API额度是否用完\n"
             friendly_msg += "      - 登录对应平台查看余额和使用情况\n\n"
         
         # 检查是否是网络连接错误
@@ -3105,7 +3197,7 @@ class TranslationWorker(QObject):
             friendly_msg += "   2. 尝试开启 TUN（虚拟网卡模式）\n"
             friendly_msg += "      - 某些代理环境下，开启 TUN 后域名解析会更稳定\n\n"
             friendly_msg += "   3. 检查API地址是否正确\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量 → API_BASE\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 地址\n"
             friendly_msg += "      - 默认值：https://api.openai.com/v1\n\n"
         
         # 检查是否是速率限制错误
@@ -3119,7 +3211,7 @@ class TranslationWorker(QObject):
             friendly_msg += "   • 当前账户级别不支持该模型\n\n"
             friendly_msg += "解决方案（按顺序检查）：\n"
             friendly_msg += "   1. ⭐ 检查API密钥是否正确（最常见）\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量配置区域\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 密钥\n"
             friendly_msg += "      - 确认密钥没有多余的空格或换行\n"
             friendly_msg += "      - 使用「测试连接」功能验证密钥是否有效\n\n"
             friendly_msg += "   2. 检查账户余额和状态\n"
@@ -3132,7 +3224,7 @@ class TranslationWorker(QObject):
             friendly_msg += "      - 例如：GPT-4 需要付费账户，免费账户只能用 GPT-3.5\n"
             friendly_msg += "      - 尝试更换为账户支持的模型\n\n"
             friendly_msg += "   4. 降低请求速率\n"
-            friendly_msg += "      - 位置：通用设置 → 每分钟最大请求数\n"
+            friendly_msg += "      - 位置：设置 → 翻译 → 每分钟最大请求数\n"
             friendly_msg += "      - 建议：设置为 3-10（取决于API套餐）\n"
             friendly_msg += "      - 免费账户建议设置为 3\n\n"
             friendly_msg += "   5. 稍后重试\n"
@@ -3164,14 +3256,14 @@ class TranslationWorker(QObject):
             friendly_msg += "        → 应选择「OpenAI」或「OpenAI高质量」翻译器\n"
             friendly_msg += "      - 如果使用 Gemini 官方 API (generativelanguage.googleapis.com)\n"
             friendly_msg += "        → 应选择「Gemini」或「Gemini高质量」翻译器\n"
-            friendly_msg += "      - 位置：翻译设置 → 翻译器\n\n"
+            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n\n"
             friendly_msg += "   2. 检查API地址是否正确\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量 → API_BASE\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 地址\n"
             friendly_msg += "      - OpenAI默认：https://api.openai.com/v1\n"
             friendly_msg += "      - Gemini默认：https://generativelanguage.googleapis.com\n"
             friendly_msg += "      - 注意：地址末尾的 /v1 不要多加或少加\n\n"
             friendly_msg += "   3. 检查模型名称\n"
-            friendly_msg += "      - 位置：翻译设置 → 环境变量 → MODEL\n"
+            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 模型\n"
             friendly_msg += "      - 确认模型名称拼写正确（如 gpt-5.2 不是 gpt52）\n"
             friendly_msg += "      - 使用「测试连接」功能查看可用模型列表\n\n"
             friendly_msg += "   4. 验证模型可用性\n"
@@ -3185,7 +3277,7 @@ class TranslationWorker(QObject):
             friendly_msg += "   API服务器遇到内部错误，这通常是临时问题。\n\n"
             friendly_msg += "解决方案：\n"
             friendly_msg += "   1. ⭐ 增加重试次数（推荐）\n"
-            friendly_msg += "      - 位置：通用设置 → 重试次数\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
             friendly_msg += "      - 建议：设置为 10 或更高\n"
             friendly_msg += "      - 服务器错误通常是临时的，重试可能成功\n\n"
             friendly_msg += "   2. 稍后重试\n"
@@ -3214,7 +3306,7 @@ class TranslationWorker(QObject):
             friendly_msg += "      - 这些错误通常是临时的\n"
             friendly_msg += "      - 等待5-10分钟后重新翻译\n\n"
             friendly_msg += "   2. 增加重试次数\n"
-            friendly_msg += "      - 位置：通用设置 → 重试次数\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
             friendly_msg += "      - 建议：设置为 10 或更高\n\n"
             friendly_msg += "   3. 检查API服务状态\n"
             friendly_msg += "      - 访问API提供商的状态页面\n"
@@ -3233,7 +3325,7 @@ class TranslationWorker(QObject):
             friendly_msg += "   2. 更换翻译器\n"
             friendly_msg += "      - 尝试使用其他翻译器（如 Gemini、DeepL）\n\n"
             friendly_msg += "   3. 增加重试次数\n"
-            friendly_msg += "      - 位置：通用设置 → 重试次数\n"
+            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
             friendly_msg += "      - 有时重试可以解决临时的过滤问题\n\n"
         
         # 检查是否是语言不支持错误
@@ -3241,10 +3333,10 @@ class TranslationWorker(QObject):
             friendly_msg += "🔍 错误原因：翻译器不支持当前语言\n\n"
             friendly_msg += "解决方案：\n"
             friendly_msg += "   1. 更换翻译器\n"
-            friendly_msg += "      - 位置：翻译设置 → 翻译器\n"
+            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n"
             friendly_msg += "      - 建议：使用支持更多语言的翻译器（如 OpenAI、Gemini）\n\n"
             friendly_msg += "   2. 检查目标语言设置\n"
-            friendly_msg += "      - 位置：翻译设置 → 目标语言\n"
+            friendly_msg += "      - 位置：设置 → 翻译 → 目标语言\n"
             friendly_msg += "      - 确认选择的语言被当前翻译器支持\n\n"
         
         # 检查是否是请求被拦截错误
@@ -3258,7 +3350,7 @@ class TranslationWorker(QObject):
             friendly_msg += "      - 如果使用第三方中转API，尝试更换其他服务商\n"
             friendly_msg += "      - 或者使用官方API（如 api.openai.com）\n\n"
             friendly_msg += "   2. 切换到普通翻译器\n"
-            friendly_msg += "      - 位置：翻译设置 → 翻译器\n"
+            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n"
             friendly_msg += "      - 将 openai_hq 改为 openai（不发送图片）\n"
             friendly_msg += "      - 某些中转服务不支持多模态（图片+文本）请求\n\n"
             friendly_msg += "   3. 检查API密钥状态\n"
@@ -3269,14 +3361,11 @@ class TranslationWorker(QObject):
         else:
             friendly_msg += "🔍 错误原因：\n"
             friendly_msg += f"   {error_message}\n\n"
-            friendly_msg += "通用解决方案：\n"
-            friendly_msg += "   1. 检查配置是否正确\n"
-            friendly_msg += "      - 翻译器、API密钥、模型名称等\n\n"
-            friendly_msg += "   2. 增加重试次数\n"
-            friendly_msg += "      - 位置：通用设置 → 重试次数\n"
-            friendly_msg += "      - 建议：设置为 10 或更高\n\n"
-            friendly_msg += "   3. 查看详细日志\n"
-            friendly_msg += "      - 在日志框中查找更多错误信息\n\n"
+            friendly_msg += "提示：\n"
+            friendly_msg += f"   1. 日志文件：{_current_log_file_path()}\n"
+            friendly_msg += "   2. 请保留完整日志文件，并把日志发给 AI 分析具体原因\n"
+            friendly_msg += "   3. 如果仍无法判断，请带上日志文件提交 GitHub issue：\n"
+            friendly_msg += "      https://github.com/hgmzhn/manga-translator-ui/issues\n\n"
         
         friendly_msg += "📋 原始错误信息：\n"
         friendly_msg += f"{_wrap_error_text(error_message)}\n"
@@ -3557,6 +3646,22 @@ class TranslationWorker(QObject):
             # Update total count for progress bar logic
             total_original_count = len(original_files)
             skipped_count = len(skipped_files)
+            if total_original_count > 0 and skipped_count == total_original_count and not self.files:
+                self._log_warning(
+                    f"⚠️ 检测到全部 {skipped_count} 个文件都因输出已存在被跳过，未开始翻译。"
+                )
+                self._log_warning(
+                    "解决方案：删除输出目录中的同名文件，或在 设置 → 通用 → 覆盖已存在文件 开启覆盖。"
+                )
+                progress_context["offset"] = skipped_count
+                progress_context["overall_total"] = total_original_count
+                emit_eta_progress(
+                    skipped_count,
+                    total_original_count,
+                    "全部文件已跳过：删除同名文件或开启覆盖",
+                )
+                self.finished.emit(results)
+                return
             
             # 确定翻译流程模式
             workflow_mode = self._t("Normal Translation")

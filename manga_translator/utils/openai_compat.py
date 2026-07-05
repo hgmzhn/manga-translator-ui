@@ -50,22 +50,6 @@ def is_local_openai_compatible_endpoint(base_url: str | None) -> bool:
     return bool(ip.is_loopback or ip.is_private or ip.is_link_local)
 
 
-def is_custom_openai_compatible_endpoint(base_url: str | None) -> bool:
-    host = _extract_hostname(base_url)
-    if not host:
-        return False
-    return host not in _OFFICIAL_OPENAI_HOSTNAMES
-
-
-def is_openai_api_key_optional(api_key: str | None, base_url: str | None) -> bool:
-    if str(api_key or "").strip():
-        return False
-    return (
-        is_local_openai_compatible_endpoint(base_url)
-        or is_custom_openai_compatible_endpoint(base_url)
-    )
-
-
 def resolve_openai_compatible_api_key(
     api_key: str | None,
     base_url: str | None,

@@ -1,5 +1,9 @@
-from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, pyqtSlot
-from PyQt6.QtGui import QAction
+import logging
+import os
+import re
+
+from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, QUrl, pyqtSlot
+from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import MSFluentWindow, NavigationItemPosition
@@ -352,6 +356,7 @@ class MainWindow(MSFluentWindow):
         self.app_logic.output_path_updated.connect(self.main_view.update_output_path_display)
         self.app_logic.task_completed.connect(self.on_task_completed, type=Qt.ConnectionType.QueuedConnection)
         self.app_logic.error_dialog_requested.connect(self._show_error_dialog, type=Qt.ConnectionType.QueuedConnection)
+        self.app_logic.warning_dialog_requested.connect(self._show_warning_dialog, type=Qt.ConnectionType.QueuedConnection)
 
         # --- View to Logic Connections ---
         self.main_view.setting_changed.connect(self.app_logic.update_single_config)
@@ -568,14 +573,49 @@ class MainWindow(MSFluentWindow):
     def _show_error_dialog(self, error_message: str):
         """弹出翻译错误提示框"""
         try:
+            log_dir = self._resolve_log_folder_from_message(error_message)
             show_error_dialog(
                 self,
                 self._t("Translation Error"),
                 "",
                 error_message,
+                extra_button_text=self._t("Open log folder"),
+                extra_button_callback=lambda: self._open_log_folder(log_dir),
             )
         except Exception as e:
             self.logger.error(f"_show_error_dialog error: {e}", exc_info=True)
+
+    def _resolve_log_folder_from_message(self, message: str) -> str:
+        match = re.search(r"日志文件[：:]\s*(.+)", str(message or ""))
+        if match:
+            log_path = match.group(1).strip()
+            log_path = log_path.splitlines()[0].strip()
+            if log_path:
+                return os.path.dirname(os.path.normpath(os.path.abspath(log_path)))
+        for handler in reversed(logging.getLogger().handlers):
+            if isinstance(handler, logging.FileHandler):
+                log_path = str(getattr(handler, "baseFilename", "") or "").strip()
+                if log_path:
+                    return os.path.dirname(os.path.normpath(os.path.abspath(log_path)))
+        return os.path.normpath(os.path.abspath(os.path.join(os.getcwd(), "result")))
+
+    def _open_log_folder(self, folder: str):
+        target = os.path.normpath(os.path.abspath(folder or os.path.join(os.getcwd(), "result")))
+        os.makedirs(target, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(target))
+
+    @pyqtSlot(str)
+    def _show_warning_dialog(self, message: str):
+        """弹出任务提示框"""
+        try:
+            show_error_dialog(
+                self,
+                self._t("Warning"),
+                "",
+                message,
+            )
+        except Exception as e:
+            self.logger.error(f"_show_warning_dialog error: {e}", exc_info=True)
 
     def switch_to_editor_view(self):
         """

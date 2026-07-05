@@ -179,6 +179,15 @@ def is_endpoint_unavailable(endpoint: APIEndpoint) -> bool:
     return False
 
 
+def get_api_status(endpoint: APIEndpoint) -> dict[str, Any] | None:
+    return _get_status(endpoint.status_key)
+
+
+def clear_api_status(endpoint: APIEndpoint) -> None:
+    with _STATUS_LOCK:
+        _API_STATUS.pop(endpoint.status_key, None)
+
+
 def record_api_success(endpoint: APIEndpoint) -> None:
     with _STATUS_LOCK:
         payload = _endpoint_identity(endpoint)
@@ -207,8 +216,6 @@ def _extract_status_code(error: Exception) -> int | None:
             return int(getattr(response, "status_code", None))
         except (TypeError, ValueError):
             pass
-    if isinstance(error, (RuntimeError, ValueError, TypeError, KeyError, AttributeError)):
-        return None
     match = _STATUS_RE.search(str(error or ""))
     if match:
         try:
@@ -240,6 +247,19 @@ def _is_bad_request_api_unavailable_error(error: Exception) -> bool:
             "access denied",
             "model not found",
             "not found for api version",
+            "supported api model names",
+            "model does not exist",
+            "unsupported model",
+            "invalid model",
+            "unknown variant `image_url`",
+            "unknown variant 'image_url'",
+            "expected `text`",
+            "expected 'text'",
+            "did not contain an image",
+            "did not contain image data",
+            "compatible image output interface",
+            "only support text chat",
+            "not image generation/editing output",
         ),
     )
 
@@ -249,6 +269,8 @@ def is_permanent_api_unavailable_error(error: Exception) -> bool:
     if status_code == 400:
         return _is_bad_request_api_unavailable_error(error)
     if status_code in (402, 404):
+        return True
+    if _is_bad_request_api_unavailable_error(error):
         return True
     return _message_contains(
         error,
@@ -366,7 +388,9 @@ async def run_with_api_candidates(
 ) -> T:
     candidates = iter_api_candidates(endpoints, strategy)
     if not candidates:
-        raise RuntimeError(f"{provider_name} has no available API candidates for {operation_name}.")
+        raise APIRotationExhaustedError(
+            f"{provider_name} has no available API candidates for {operation_name}."
+        )
 
     if retry_attempts is None:
         retry_attempts = get_retry_attempts_from_config(

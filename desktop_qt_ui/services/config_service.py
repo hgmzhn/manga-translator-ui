@@ -31,7 +31,7 @@ from manga_translator.utils.dotenv_utils import (
     update_dotenv_file,
     write_dotenv_file,
 )
-from manga_translator.utils.openai_compat import is_openai_api_key_optional
+from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
 
 PRESET_SPECIAL_ENV_VARS = [
     "OCR_OPENAI_API_KEY",
@@ -304,7 +304,7 @@ class ConfigService(QObject):
 
             accepted_base_env_vars = list(requirement.get("accepted_base_env_vars", []))
             if requirement.get("allow_empty_api_key_for_local_base") and any(
-                is_openai_api_key_optional("", merged_env_vars.get(key, ""))
+                resolve_openai_compatible_api_key("", merged_env_vars.get(key, ""))
                 for key in accepted_base_env_vars
             ):
                 continue

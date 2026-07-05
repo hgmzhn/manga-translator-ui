@@ -439,8 +439,10 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 self._setup_client(system_instruction=None)
             
             if not self.client:
-                self.logger.error(f"{self._log_provider_name()}客户端初始化失败")
-                return texts
+                raise RuntimeError(
+                    f"{self._log_provider_name()}客户端初始化失败：请检查 "
+                    f"{self.API_KEY_ENV} / {self.API_BASE_ENV} / {self.MODEL_ENV} 配置"
+                )
             
             # 构建用户提示词（包含重试信息以避免缓存）
             user_prompt = self._build_user_prompt(batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
@@ -781,7 +783,9 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 
                 await self._sleep_with_cancel_polling(1)
         
-        return texts # Fallback in case loop finishes unexpectedly
+        raise last_exception if last_exception else RuntimeError(
+            f"{self._log_provider_name()} translation failed without a response"
+        )
 
     async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         """主翻译方法"""

@@ -10,6 +10,13 @@ import os
 import sys
 import warnings
 
+# 隐藏第三方库的警告；必须在导入 torch 前设置，才能拦截 torch.cuda 的 pynvml 提示。
+warnings.filterwarnings('ignore', message='.*Triton.*')
+warnings.filterwarnings('ignore', message='.*triton.*')
+warnings.filterwarnings('ignore', message='.*pkg_resources.*')
+warnings.filterwarnings('ignore', message='.*pynvml package is deprecated.*', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='ctranslate2')
+
 # 在 PyTorch 初始化前设置显存优化，允许使用共享显存
 # expandable_segments 可以减少显存碎片，避免 OOM 错误
 os.environ.setdefault('PYTORCH_ALLOC_CONF', 'expandable_segments:True')
@@ -21,12 +28,6 @@ try:
     import torch  # noqa: F401
 except ImportError:
     pass
-
-# 隐藏第三方库的警告
-warnings.filterwarnings('ignore', message='.*Triton.*')
-warnings.filterwarnings('ignore', message='.*triton.*')
-warnings.filterwarnings('ignore', message='.*pkg_resources.*')
-warnings.filterwarnings('ignore', category=DeprecationWarning, module='ctranslate2')
 
 def main():
     """主函数"""

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import textwrap
+from typing import Callable
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from qfluentwidgets import Dialog, FluentIcon as FIF, PlainTextEdit
+from qfluentwidgets import Dialog, FluentIcon as FIF, PlainTextEdit, PushButton
 
 _INSTALLED = False
 
@@ -148,6 +149,9 @@ def show_error_dialog(
     icon: QMessageBox.Icon = QMessageBox.Icon.NoIcon,
     buttons: QMessageBox.StandardButton = QMessageBox.StandardButton.Ok,
     default_button: QMessageBox.StandardButton = QMessageBox.StandardButton.NoButton,
+    extra_button_text: str | None = None,
+    extra_button_callback: Callable[[], None] | None = None,
+    extra_button_icon=FIF.FOLDER,
 ) -> QMessageBox.StandardButton:
     del icon
     dialog_parent = _dialog_parent(parent)
@@ -168,6 +172,15 @@ def show_error_dialog(
         dialog.setFixedSize(720, 460)
     else:
         dialog.setFixedSize(max(dialog.width(), 520), max(dialog.height(), 220))
+
+    if extra_button_text and extra_button_callback:
+        extra_button = PushButton(str(extra_button_text), dialog.buttonGroup)
+        if extra_button_icon:
+            extra_button.setIcon(
+                extra_button_icon if isinstance(extra_button_icon, QIcon) else extra_button_icon.icon()
+            )
+        extra_button.clicked.connect(extra_button_callback)
+        dialog.buttonLayout.insertWidget(0, extra_button, 1)
 
     return _exec_fluent_dialog(dialog, buttons, default_button)
 

@@ -7,6 +7,7 @@ import warnings
 warnings.filterwarnings('ignore', message='.*Triton.*')
 warnings.filterwarnings('ignore', message='.*triton.*')
 warnings.filterwarnings('ignore', message='.*pkg_resources.*')
+warnings.filterwarnings('ignore', message='.*pynvml package is deprecated.*', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='ctranslate2')
 warnings.filterwarnings('ignore', module='xformers')
 
@@ -269,11 +270,12 @@ def main():
         log_dir = os.path.join(os.path.dirname(sys.executable), '_internal', 'result')
     else:
         log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'result')
+    log_dir = os.path.normpath(os.path.abspath(log_dir))
     os.makedirs(log_dir, exist_ok=True)
     
     # 生成带时间戳的日志文件名
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    log_file_path = os.path.join(log_dir, f'log_{timestamp}.txt')
+    log_file_path = os.path.normpath(os.path.abspath(os.path.join(log_dir, f'log_{timestamp}.txt')))
     
     # 使用强制刷新的文件处理器
     file_handler = FlushingFileHandler(log_file_path, encoding='utf-8', delay=False)

@@ -7,25 +7,30 @@ from manga_translator.api_key_rotation import (
     MAX_ROTATION_SLOTS,
     ROTATION_STRATEGIES,
     APIEndpoint,
+    clear_api_status,
+    get_api_status,
     get_indexed_env_key,
     get_rotation_slot_count,
     get_strategy_env_key,
+    is_endpoint_unavailable,
+    iter_api_candidates,
     make_endpoint_status_key,
     normalize_rotation_strategy,
     record_api_failure,
     record_api_success,
 )
-from manga_translator.utils.openai_compat import is_openai_api_key_optional
+from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CaptionLabel, FluentIcon as FIF, HorizontalSeparator, PushButton, SimpleCardWidget, StrongBodyLabel, ToolButton
+from qfluentwidgets import BodyLabel, CaptionLabel, FluentIcon as FIF, HorizontalSeparator, PushButton, SimpleCardWidget, StrongBodyLabel, ToolButton, isDarkTheme
 from qfluentwidgets import LineEdit as FluentLineEdit
 
 from ui.fluent_icon import themed_fluent_svg_icon
@@ -269,6 +274,12 @@ def create_api_rotation_widgets(
             self.env_widgets[key] = (label, widget)
             slot_row += 1
 
+        _add_api_slot_status_notice(
+            self,
+            slot_card_layout,
+            _build_slot_status_endpoint(self, api_key_env, index),
+        )
+
         layout.addWidget(slot_card, row, 0, 1, 3)
         row += 1
 
@@ -337,6 +348,98 @@ def _delete_api_rotation_slot(self, slot_keys: tuple[str, str, str], slot_index:
     self._env_api_groups_signature = None
     self._refresh_env_api_groups(force=True)
     self._refresh_api_feature_selectors()
+
+
+def _build_slot_status_endpoint(self, api_key_env: str, slot_index: int) -> APIEndpoint | None:
+    env_key = get_indexed_env_key(api_key_env, slot_index)
+    if not env_key:
+        return None
+    translator_key = _get_current_translator_key(self)
+    test_target, api_key, api_base, model = _resolve_api_context(self, env_key, translator_key)
+    if not _is_test_item_configured(test_target, api_key, api_base):
+        return None
+    return _build_test_status_endpoint(self, env_key, test_target, api_key, api_base, model)
+
+
+def _restore_api_slot_status(self, endpoint: APIEndpoint) -> None:
+    clear_api_status(endpoint)
+    self._env_api_groups_signature = None
+    self._refresh_env_api_groups(force=True)
+
+
+def _refresh_api_groups_after_dialog(self) -> None:
+    self._env_api_groups_signature = None
+    QTimer.singleShot(0, lambda: self._refresh_env_api_groups(force=True))
+
+
+def _api_slot_status_style(state: str) -> str:
+    dark = isDarkTheme()
+    if state == "cooldown":
+        bg = "rgba(245, 158, 11, 0.18)" if dark else "rgba(245, 158, 11, 0.12)"
+        border = "#f59e0b"
+        text = "#fde68a" if dark else "#92400e"
+        hover = "rgba(245, 158, 11, 0.28)" if dark else "rgba(245, 158, 11, 0.20)"
+    else:
+        bg = "rgba(239, 68, 68, 0.18)" if dark else "rgba(239, 68, 68, 0.10)"
+        border = "#ef4444"
+        text = "#fecaca" if dark else "#991b1b"
+        hover = "rgba(239, 68, 68, 0.28)" if dark else "rgba(239, 68, 68, 0.18)"
+    return f"""
+        #apiSlotStatusNotice {{
+            background-color: {bg};
+            border: 1px solid {border};
+            border-radius: 6px;
+        }}
+        #apiSlotStatusLabel {{
+            color: {text};
+            font-weight: 600;
+        }}
+        #apiSlotRestoreButton {{
+            color: {text};
+            background-color: transparent;
+            border: 1px solid {border};
+            border-radius: 6px;
+        }}
+        #apiSlotRestoreButton:hover {{
+            background-color: {hover};
+        }}
+    """
+
+
+def _add_api_slot_status_notice(self, slot_card_layout, endpoint: APIEndpoint | None) -> None:
+    if endpoint is None or not is_endpoint_unavailable(endpoint):
+        return
+
+    status = get_api_status(endpoint) or {}
+    state = str(status.get("state") or "").lower()
+    marker_key = "API slot cooldown marker" if state == "cooldown" else "API slot unavailable marker"
+
+    status_widget = QWidget()
+    status_widget.setObjectName("apiSlotStatusNotice")
+    status_widget.setStyleSheet(_api_slot_status_style(state))
+
+    status_layout = QHBoxLayout(status_widget)
+    status_layout.setContentsMargins(10, 6, 8, 6)
+    status_layout.setSpacing(8)
+
+    status_label = CaptionLabel(self._t(marker_key))
+    status_label.setObjectName("apiSlotStatusLabel")
+    status_label.setWordWrap(True)
+    restore_button = ToolButton()
+    restore_button.setObjectName("apiSlotRestoreButton")
+    restore_button.setIcon(FIF.SYNC)
+    restore_button.setToolTip(self._t("Restore API channel"))
+    restore_button.setFixedSize(30, 30)
+    restore_button.clicked.connect(
+        lambda _checked=False, api_endpoint=endpoint: _restore_api_slot_status(
+            self,
+            api_endpoint,
+        )
+    )
+
+    status_layout.addWidget(status_label, 1)
+    status_layout.addWidget(restore_button)
+    slot_card_layout.insertWidget(1, status_widget)
 
 
 def get_env_default_placeholder(self, key: str) -> str:
@@ -723,9 +826,12 @@ def _read_env_widget_value(self, env_key: str | None) -> str | None:
     if not env_key:
         return None
     pair = self.env_widgets.get(env_key)
-    if not pair:
+    if pair:
+        return _get_env_widget_value(pair[1]).strip() or None
+    try:
+        return str(self.controller.config_service.load_env_vars().get(env_key, "") or "").strip() or None
+    except Exception:
         return None
-    return _get_env_widget_value(pair[1]).strip() or None
 
 
 def _read_env_candidates(self, *env_keys: str | None) -> str | None:
@@ -825,19 +931,22 @@ def _build_test_status_endpoint(
     _base_field, slot_index = _split_slot_field(field)
     base_url = (api_base or _get_api_address_example(test_target)).rstrip("/")
     model_name = (model or "").strip()
+    status_api_key = api_key
+    if "openai" in (test_target or "").strip().lower():
+        status_api_key = resolve_openai_compatible_api_key(api_key, base_url)
     status_key = make_endpoint_status_key(
         feature,
         provider,
         slot_index,
         base_url,
         model_name,
-        api_key=api_key,
+        api_key=status_api_key,
     )
     return APIEndpoint(
         feature=feature,
         provider=provider,
         slot=slot_index,
-        api_key=api_key,
+        api_key=status_api_key,
         base_url=base_url,
         model_name=model_name,
         status_key=status_key,
@@ -851,7 +960,7 @@ def _is_test_item_configured(test_target: str, api_key: str | None, api_base: st
     normalized = (test_target or "").strip().lower()
     if "sakura" in normalized:
         return bool(str(api_base or "").strip())
-    return "openai" in normalized and is_openai_api_key_optional("", api_base or "")
+    return "openai" in normalized and bool(resolve_openai_compatible_api_key("", api_base or ""))
 
 
 def _get_current_translator_key(self) -> str:
@@ -923,6 +1032,69 @@ def _collect_api_test_items(self, section_key: str) -> list[dict]:
             }
         )
     return items
+
+
+def _collect_required_api_candidate_groups(self, section_key: str) -> dict[tuple[str, str], str]:
+    section_scopes = {
+        "translation": "",
+        "ocr": "OCR_",
+        "color": "COLOR_",
+        "render": "RENDER_",
+    }
+    expected_scope = section_scopes.get(section_key)
+    translator_key = _get_current_translator_key(self)
+    groups: dict[tuple[str, str], str] = {}
+    for key in list(self.env_widgets.keys()):
+        scope, provider, field = _split_env_key(key)
+        base_field, slot_index = _split_slot_field(field)
+        if scope != expected_scope or base_field not in ("API_KEY", "AUTH_KEY", "TOKEN"):
+            continue
+        identity = _test_target_status_identity(_detect_test_target(key, translator_key))
+        if identity is None:
+            continue
+        label_key = _build_related_env_key(scope, provider, base_field) or key
+        groups[identity] = _display_env_label(self, label_key, include_index=False)
+    return groups
+
+
+def validate_api_candidate_availability(self) -> bool:
+    from PyQt6.QtWidgets import QMessageBox
+
+    flush_all_pending_env_vars(self)
+    if hasattr(self, "_refresh_env_api_groups"):
+        self._refresh_env_api_groups(force=True)
+
+    blocked: list[str] = []
+    for section_key in ("translation", "ocr", "color", "render"):
+        required_groups = _collect_required_api_candidate_groups(self, section_key)
+        if not required_groups:
+            continue
+
+        grouped_endpoints: dict[tuple[str, str], list[APIEndpoint]] = {}
+        for item in _collect_api_test_items(self, section_key):
+            endpoint = item.get("endpoint")
+            if endpoint is None:
+                continue
+            grouped_endpoints.setdefault((endpoint.feature, endpoint.provider), []).append(endpoint)
+
+        for group_key, label in required_groups.items():
+            endpoints = tuple(grouped_endpoints.get(group_key, []))
+            if not endpoints or not iter_api_candidates(endpoints, "failover"):
+                blocked.append(label)
+
+    if not blocked:
+        return True
+
+    details = "\n".join(f"- {label}" for label in dict.fromkeys(blocked))
+    log_message = details.replace("\n", "; ")
+    if hasattr(self.controller, "_ui_log"):
+        self.controller._ui_log(f"API 候选池无可用候选，已阻止开始翻译: {log_message}", "WARNING")
+    QMessageBox.warning(
+        self,
+        self._t("API candidate availability failed"),
+        self._t("API candidate availability failed details", details=details),
+    )
+    return False
 
 
 def _format_api_batch_result_text(self, results: list[dict]) -> str:
@@ -1039,7 +1211,9 @@ def _run_api_batch_test(self, items: list[dict]):
         progress.close()
         if progress.wasCanceled():
             return
+        QApplication.processEvents()
         _show_api_batch_test_results(self, results)
+        _refresh_api_groups_after_dialog(self)
 
     thread = BatchTestThread()
     thread.finished_signal.connect(on_finished)
@@ -1129,6 +1303,7 @@ def on_test_api_clicked(self, key: str):
         progress.close()
         if progress.wasCanceled():
             return
+        QApplication.processEvents()
         if status_endpoint is not None:
             if success:
                 record_api_success(status_endpoint)
@@ -1150,6 +1325,8 @@ def on_test_api_clicked(self, key: str):
                 self._t("API connection test failed"),
                 friendly_message,
             )
+        if status_endpoint is not None:
+            _refresh_api_groups_after_dialog(self)
 
     test_thread = TestThread()
     test_thread.finished_signal.connect(on_test_finished)

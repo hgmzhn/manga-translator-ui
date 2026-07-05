@@ -85,6 +85,7 @@ class MainView(QWidget):
     _refresh_api_feature_selectors = main_view_env.refresh_api_feature_selectors
     _on_api_feature_combo_changed = main_view_env.on_api_feature_combo_changed
     _create_api_feature_selector_row = main_view_env.create_api_feature_selector_row
+    _validate_api_candidate_availability = main_view_env.validate_api_candidate_availability
     _on_test_api_clicked = main_view_env.on_test_api_clicked
     _on_test_current_api_section_clicked = main_view_env.on_test_current_api_section_clicked
     _on_get_models_clicked = main_view_env.on_get_models_clicked

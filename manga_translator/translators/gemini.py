@@ -295,8 +295,7 @@ class GeminiTranslator(CommonTranslator):
             self._setup_client()
         
         if not self.client:
-            self.logger.error("Gemini客户端初始化失败")
-            return texts
+            raise RuntimeError("Gemini客户端初始化失败：请检查 GEMINI_API_KEY / GEMINI_API_BASE / GEMINI_MODEL 配置")
         
         # 初始化重试信息
         retry_attempt = 0
@@ -346,8 +345,7 @@ class GeminiTranslator(CommonTranslator):
                 self._setup_client(system_instruction=None)
             
             if not self.client:
-                self.logger.error("Gemini客户端初始化失败")
-                return texts
+                raise RuntimeError("Gemini客户端初始化失败：请检查 GEMINI_API_KEY / GEMINI_API_BASE / GEMINI_MODEL 配置")
             
             # 构建用户提示词
             # 如果加载了 HQ Prompt，_build_user_prompt (即 _build_user_prompt_for_texts) 会生成 JSON 格式的输入，与 System Prompt 匹配
@@ -649,7 +647,7 @@ class GeminiTranslator(CommonTranslator):
                 
                 await self._sleep_with_cancel_polling(1)
         
-        return texts
+        raise last_exception if last_exception else RuntimeError("Gemini translation failed without a response")
 
     async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         """主翻译方法"""

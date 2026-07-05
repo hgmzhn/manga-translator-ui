@@ -17,7 +17,11 @@ from ..custom_api_params import (
     split_gemini_request_params,
 )
 from ..runtime_api_resolver import resolve_runtime_api_config
-from ..api_key_rotation import run_with_api_candidates
+from ..api_key_rotation import (
+    APIRotationExhaustedError,
+    iter_api_candidates,
+    run_with_api_candidates,
+)
 from ..utils import Quadrilateral
 from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.generic import AvgMeter
@@ -388,6 +392,10 @@ class BaseAPIOCR(OfflineOCR):
         runtime_settings = self._read_runtime_config(runtime_config)
         if not runtime_settings.api_key:
             raise RuntimeError(self._missing_api_key_message())
+        if not iter_api_candidates(runtime_settings.candidates, runtime_settings.strategy):
+            raise RuntimeError(
+                f"{self.PROVIDER_NAME} has no available API candidates for OCR request."
+            )
 
         for idx, (q, direction) in enumerate(quadrilaterals):
             region_img = q.get_transformed_region(image, direction, text_height)
@@ -423,6 +431,9 @@ class BaseAPIOCR(OfflineOCR):
                     q.prob = 0.9
 
                     self._estimate_colors_48px(region_img, q)
+            except APIRotationExhaustedError as e:
+                self.logger.error(f"[ERROR] Region {idx} OCR failed: {e}")
+                raise
             except Exception as e:
                 self.logger.error(f"[ERROR] Region {idx} OCR failed: {e}")
                 q.text = ""

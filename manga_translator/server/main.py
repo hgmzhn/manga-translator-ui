@@ -5,9 +5,17 @@ import shutil
 import signal
 import subprocess
 import sys
+import warnings
 from argparse import Namespace
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+# 隐藏第三方库的警告；必须在导入 torch 前设置，才能拦截 torch.cuda 的 pynvml 提示。
+warnings.filterwarnings('ignore', message='.*Triton.*')
+warnings.filterwarnings('ignore', message='.*triton.*')
+warnings.filterwarnings('ignore', message='.*pkg_resources.*')
+warnings.filterwarnings('ignore', message='.*pynvml package is deprecated.*', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='ctranslate2')
 
 # 在 PyQt6 之前加载 PyTorch，避免 PyQt6 的 Qt DLL 路径干扰 c10.dll 的加载
 # 渲染模块 (text_render.py) 依赖 PyQt6，会触发 DLL 冲突
