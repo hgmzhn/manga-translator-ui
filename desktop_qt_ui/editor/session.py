@@ -7,6 +7,7 @@ import numpy as np
 
 from .core.resource_manager import ResourceManager
 from .core.types import MaskType
+from .region_geometry_state import normalize_region_geometry_data
 
 
 INPAINTED_IMAGE_CACHE_KEY = "inpainted_image"
@@ -96,16 +97,43 @@ class EditorSession:
         return self._image
 
     def set_regions(self, regions: list[dict]) -> None:
+        """整体重建 region 列表（文档级操作），region_id 重新分配。"""
         self.resource_manager.clear_regions()
         for region_data in regions:
-            self.resource_manager.add_region(region_data)
+            self.resource_manager.add_region(normalize_region_geometry_data(region_data))
         self._bump_document_revision()
 
-    def set_regions_silent(self, regions: list[dict]) -> None:
-        self.resource_manager.clear_regions()
-        for region_data in regions:
-            self.resource_manager.add_region(region_data)
+    def update_region(self, index: int, region: dict) -> bool:
+        if not self.resource_manager.update_region(index, normalize_region_geometry_data(region)):
+            return False
         self._bump_document_revision()
+        return True
+
+    def insert_region(self, index: int, region: dict) -> int:
+        insert_at = self.resource_manager.insert_region(index, normalize_region_geometry_data(region))
+        self._bump_document_revision()
+        return insert_at
+
+    def remove_region(self, index: int) -> Optional[dict]:
+        removed = self.resource_manager.remove_region(index)
+        if removed is not None:
+            self._bump_document_revision()
+        return removed
+
+    def store_derived_regions(self, updates: dict[int, dict]) -> None:
+        """按索引覆盖指定 region 数据（region_id 不变），用于渲染派生字段写回。"""
+        applied = False
+        for index, region in updates.items():
+            if self.resource_manager.update_region(index, normalize_region_geometry_data(region)):
+                applied = True
+        if applied:
+            self._bump_document_revision()
+
+    def get_region_id(self, index: int) -> Optional[int]:
+        return self.resource_manager.get_region_id(index)
+
+    def find_region_index(self, region_id: int) -> Optional[int]:
+        return self.resource_manager.find_region_index(region_id)
 
     def get_regions(self) -> list[dict]:
         resources = self.resource_manager.get_all_regions()

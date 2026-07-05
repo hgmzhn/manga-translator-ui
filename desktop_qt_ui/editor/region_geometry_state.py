@@ -18,6 +18,25 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 
+def normalize_region_geometry_data(region_data: dict) -> dict:
+    """把历史几何字段规范为当前语义。
+
+    旧版本会把自动渲染框保存在 white_frame_rect_local；当前版本中该字段只表示
+    用户自定义白框，自动框使用 render_box_rect_local。
+    """
+    if not isinstance(region_data, dict):
+        return region_data
+
+    normalized = dict(region_data)
+    custom_wf_local = normalized.get("white_frame_rect_local")
+    render_box_local = normalized.get("render_box_rect_local")
+    has_custom = bool(normalized.get("has_custom_white_frame", False))
+    if not has_custom and _is_rect_like(custom_wf_local) and not _is_rect_like(render_box_local):
+        normalized["render_box_rect_local"] = list(custom_wf_local)
+        normalized.pop("white_frame_rect_local", None)
+    return normalized
+
+
 class RegionGeometryState:
     """统一管理源区域 / 自定义白框 / 渲染框几何状态的纯数据类。"""
 
@@ -106,6 +125,7 @@ class RegionGeometryState:
         region_data: dict,
         prev_state: Optional["RegionGeometryState"] = None,
     ) -> "RegionGeometryState":
+        region_data = normalize_region_geometry_data(region_data)
         lines = region_data.get("lines", [])
         center = region_data.get("center")
         angle = region_data.get("angle", 0)
@@ -119,7 +139,7 @@ class RegionGeometryState:
             else:
                 center = [0, 0]
 
-        # 尝试从 region_data 恢复自定义白框 / 渲染框
+        # 从 region_data 恢复自定义白框 / 渲染框
         custom_wf_local = region_data.get("white_frame_rect_local")
         render_box_local = region_data.get("render_box_rect_local")
         has_custom = region_data.get("has_custom_white_frame", False)
@@ -146,12 +166,6 @@ class RegionGeometryState:
             and not render_box_explicit
         ):
             render_box_local = list(prev_state._render_box_local)
-
-        # 兼容历史数据：旧版本会把自动渲染框写进 white_frame_rect_local
-        if not has_custom and render_box_local is None and _is_rect_like(custom_wf_local):
-            render_box_local = list(custom_wf_local)
-            if not custom_wf_explicit:
-                custom_wf_local = None
 
         return cls(
             lines=lines,

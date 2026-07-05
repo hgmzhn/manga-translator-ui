@@ -29,7 +29,6 @@ class GraphicsView(
     """编辑画布：主文件只保留初始化、信号接线和共享状态。"""
 
     region_geometry_changed = pyqtSignal(int, dict)
-    _layout_result_ready = pyqtSignal(list)
     view_state_changed = pyqtSignal(object, object)
 
     MASK_PREVIEW_MAX_PIXELS = 2_000_000
@@ -88,7 +87,6 @@ class GraphicsView(
         self._region_items = []
         self._pending_geometry_edit_kinds: dict[int, str] = {}
         self._immediate_render_update_pending = False
-        self._render_update_immediate_once = False
 
         self._active_tool = "select"
         self._brush_size = 30
@@ -113,7 +111,6 @@ class GraphicsView(
 
         self._setup_view()
         self._connect_model_signals()
-        self._layout_result_ready.connect(self._apply_layout_result)
 
     def set_controller(self, controller) -> None:
         self.controller = controller
@@ -195,7 +192,6 @@ class GraphicsView(
         self.model.paint_overlay_changed.connect(self.overlay_layers.on_paint_overlay_changed)
         self.model.region_display_mode_changed.connect(self.on_region_display_mode_changed)
         self.model.original_image_alpha_changed.connect(self.on_original_image_alpha_changed)
-        self.model.region_style_updated.connect(self.on_region_style_updated)
         self.model.active_tool_changed.connect(self._on_active_tool_changed)
         self.model.brush_size_changed.connect(self._on_brush_size_changed)
         self.model.brush_color_changed.connect(self._on_brush_color_changed)

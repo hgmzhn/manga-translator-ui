@@ -6,6 +6,7 @@
 import copy
 import logging
 import os
+import time
 import weakref
 from typing import Any, Dict, List, Optional
 
@@ -111,6 +112,8 @@ class ResourceManager:
         self._masks: Dict[MaskType, MaskResource] = {}
         self._regions: Dict[int, RegionResource] = {}
         self._next_region_id = 0
+        # 区域的显示顺序，元素为 region_id
+        self._region_order: List[int] = []
         
         # 资源缓存（用于快速切换）
         self._image_cache: Dict[str, ImageResource] = {}
@@ -448,38 +451,82 @@ class ResourceManager:
     
     def add_region(self, region_data: Dict) -> RegionResource:
         """添加文本区域
-        
+
         Args:
             region_data: 区域数据
-        
+
         Returns:
             RegionResource: 区域资源
         """
         region_id = self._next_region_id
         self._next_region_id += 1
-        
+
         resource = RegionResource(
             region_id=region_id,
             data=copy.deepcopy(region_data),
         )
-        
+
         self._regions[region_id] = resource
+        self._region_order.append(region_id)
         self.logger.debug(f"Added region: {region_id}")
         return resource
 
+    def update_region(self, index: int, region_data: Dict) -> bool:
+        """按显示顺序更新指定位置的区域数据，保持 region_id 不变。"""
+        if not (0 <= index < len(self._region_order)):
+            return False
+        resource = self._regions[self._region_order[index]]
+        resource.data = copy.deepcopy(region_data)
+        resource.update_time = time.time()
+        return True
+
+    def insert_region(self, index: int, region_data: Dict) -> int:
+        """在指定显示位置插入新区域，返回实际插入位置。"""
+        insert_at = max(0, min(int(index), len(self._region_order)))
+        region_id = self._next_region_id
+        self._next_region_id += 1
+        self._regions[region_id] = RegionResource(
+            region_id=region_id,
+            data=copy.deepcopy(region_data),
+        )
+        self._region_order.insert(insert_at, region_id)
+        return insert_at
+
+    def remove_region(self, index: int) -> Optional[Dict]:
+        """移除指定显示位置的区域，返回其数据；越界返回 None。"""
+        if not (0 <= index < len(self._region_order)):
+            return None
+        region_id = self._region_order.pop(index)
+        resource = self._regions.pop(region_id)
+        return resource.data
+
+    def get_region_id(self, index: int) -> Optional[int]:
+        if 0 <= index < len(self._region_order):
+            return self._region_order[index]
+        return None
+
+    def find_region_index(self, region_id: int) -> Optional[int]:
+        try:
+            return self._region_order.index(region_id)
+        except ValueError:
+            return None
+
     def get_all_regions(self) -> List[RegionResource]:
-        """获取所有区域（按region_id排序）
-        
+        """获取所有区域（按显示顺序）
+
         Returns:
-            List[RegionResource]: 区域列表，按region_id升序排列
+            List[RegionResource]: 区域列表，按 _region_order 中的显示顺序排列
         """
-        # 按region_id排序，确保顺序正确
-        return [self._regions[rid] for rid in sorted(self._regions.keys())]
-    
+        return [self._regions[rid] for rid in self._region_order]
+
     def clear_regions(self) -> None:
-        """清空所有区域"""
+        """清空所有区域
+
+        注意：不重置 _next_region_id——region_id 在 ResourceManager 生命周期内
+        单调递增，保证异步任务持有的 id 不会被后续文档复用。
+        """
         self._regions.clear()
-        self._next_region_id = 0
+        self._region_order.clear()
         self.logger.debug("Cleared all regions")
     
     # ==================== 缓存管理 ====================

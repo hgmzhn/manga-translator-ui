@@ -1,6 +1,6 @@
 import copy
-import json
 import os
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -29,6 +29,19 @@ from .editor_model import EditorModel
 from .session import DocumentSnapshot
 
 _UNSET = object()
+
+
+@dataclass(slots=True)
+class _AsyncRegionUpdateRequest:
+    """后台 OCR/翻译结果回主线程落库的请求。
+
+    updates 保存稳定 region_id，而不是 index。index 只能在主线程真正写入前解析。
+    """
+
+    field_name: str
+    updates: list[tuple[Optional[int], str]]
+    task_kind: str
+    error_count: int = 0
 
 
 # 改变这些字段会影响字号反算的文字像素尺寸，需要同步刷新白框：
@@ -93,7 +106,7 @@ class EditorController(QObject):
     # Signal for thread-safe model updates
     _update_refined_mask = pyqtSignal(object)
     _update_display_mask_type = pyqtSignal(str)
-    _regions_update_finished = pyqtSignal(list)
+    _regions_update_finished = pyqtSignal(object)
     _ocr_finished = pyqtSignal(str, str)
     _translation_finished = pyqtSignal(str, str)
     
@@ -244,16 +257,7 @@ class EditorController(QObject):
             List[Dict]: 区域列表
         """
         return self.model.get_regions()
-    
-    def _set_regions(self, regions: list):
-        """设置所有区域
-        
-        Args:
-            regions: 区域列表
-        """
-        # Model now handles synchronization with ResourceManager
-        self.model.set_regions(regions)
-    
+
     def _get_region_by_index(self, index: int):
         """根据索引获取区域
         
@@ -288,88 +292,68 @@ class EditorController(QObject):
         except Exception:
             return region_data
 
-    @staticmethod
-    def _normalize_region_identity_value(value):
-        if isinstance(value, float):
-            return round(value, 4)
-        if isinstance(value, list):
-            return [EditorController._normalize_region_identity_value(item) for item in value]
-        if isinstance(value, tuple):
-            return [EditorController._normalize_region_identity_value(item) for item in value]
-        if isinstance(value, dict):
-            return {
-                key: EditorController._normalize_region_identity_value(val)
-                for key, val in sorted(value.items())
-            }
-        return value
-
-    @classmethod
-    def _build_region_identity(cls, region_data: dict) -> str:
-        if not isinstance(region_data, dict):
-            return ""
-
-        payload = {
-            "center": cls._normalize_region_identity_value(region_data.get("center")),
-            "lines": cls._normalize_region_identity_value(region_data.get("lines")),
-            "angle": cls._normalize_region_identity_value(region_data.get("angle", 0)),
-        }
-        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-    def _resolve_region_update_index(
+    def _queue_async_region_updates(
         self,
-        regions: list[dict],
-        preferred_index: int,
-        region_identity: str,
-    ) -> int | None:
-        if 0 <= preferred_index < len(regions):
-            if self._build_region_identity(regions[preferred_index]) == region_identity:
-                return preferred_index
-
-        matches = [
-            index
-            for index, region in enumerate(regions)
-            if self._build_region_identity(region) == region_identity
-        ]
-        if len(matches) == 1:
-            return matches[0]
-        return None
-
-    def _apply_async_region_updates(
-        self,
-        updates: list[tuple[int, str, str]],
+        updates: list[tuple[Optional[int], str]],
         *,
         field_name: str,
-        request_revision: int,
-        source_image_path: Optional[str],
-    ) -> tuple[int, int, bool]:
+        task_kind: str,
+        error_count: int = 0,
+    ) -> None:
+        """把异步任务结果交给主线程按稳定 region_id 写回模型。
+
+        updates: [(region_id, value), ...]。这里不读取 model、不把 id 提前解析成
+        index；主线程 slot 会在真正落库前重新定位，避免队列等待期间插入/删除
+        region 后写错目标。
+        """
         if not updates:
-            return 0, 0, False
+            return
 
-        start_path = self._normalize_image_path(source_image_path)
-        current_path = self._normalize_image_path(self.model.get_source_image_path())
-        if start_path != current_path:
-            return 0, len(updates), True
+        self._regions_update_finished.emit(
+            _AsyncRegionUpdateRequest(
+                field_name=field_name,
+                updates=list(updates),
+                task_kind=task_kind,
+                error_count=error_count,
+            )
+        )
 
-        current_regions = self.model.get_regions()
-        updated_regions = list(current_regions)
-        document_changed = self.model.get_document_revision() != request_revision
+    def _finish_async_region_update(
+        self,
+        task_kind: str,
+        *,
+        applied_count: int,
+        skipped_count: int,
+        error_count: int = 0,
+    ) -> None:
+        if task_kind == "ocr":
+            if applied_count > 0 and skipped_count == 0 and error_count == 0:
+                self._ocr_finished.emit("success", "识别完成")
+            elif applied_count > 0:
+                self._ocr_finished.emit(
+                    "warning",
+                    f"识别部分完成，已应用 {applied_count} 项，跳过 {skipped_count + error_count} 项",
+                )
+            elif skipped_count > 0:
+                self._ocr_finished.emit("warning", "识别结果未应用，目标区域已变化")
+            elif error_count > 0:
+                self._ocr_finished.emit("error", "识别失败")
+            else:
+                self._ocr_finished.emit("warning", "未识别到可更新的文本")
+            return
 
-        applied_count = 0
-        skipped_count = 0
-        for preferred_index, region_identity, value in updates:
-            target_index = self._resolve_region_update_index(updated_regions, preferred_index, region_identity)
-            if target_index is None:
-                skipped_count += 1
-                continue
-
-            new_region_data = updated_regions[target_index].copy()
-            new_region_data[field_name] = value
-            updated_regions[target_index] = new_region_data
-            applied_count += 1
-
-        if applied_count > 0:
-            self._regions_update_finished.emit(updated_regions)
-        return applied_count, skipped_count, document_changed
+        if task_kind == "translation":
+            if applied_count > 0 and skipped_count == 0:
+                self._translation_finished.emit("success", "翻译完成")
+            elif applied_count > 0:
+                self._translation_finished.emit(
+                    "warning",
+                    f"翻译部分完成，已应用 {applied_count} 项，跳过 {skipped_count} 项",
+                )
+            elif skipped_count > 0:
+                self._translation_finished.emit("warning", "翻译结果未应用，目标区域已变化")
+            else:
+                self._translation_finished.emit("warning", "未生成可应用的翻译结果")
 
     def _finalize_progress_toast(self, toast_attr: str, status: str, message: str) -> None:
         toast = getattr(self, toast_attr, None)
@@ -448,38 +432,32 @@ class EditorController(QObject):
 
     def _connect_model_signals(self):
         """监听模型的变化，可能需要触发一些后续逻辑"""
-        self.model.regions_changed.connect(self.on_regions_changed)
         # 监听蒙版编辑后触发 inpainting
         self.model.refined_mask_changed.connect(self.on_refined_mask_changed)
-
-    def on_regions_changed(self, regions):
-        """模型中的区域数据变化时的槽函数"""
-        pass
 
     def on_refined_mask_changed(self, mask):
         self.inpaint_service.on_refined_mask_changed(mask)
 
     @pyqtSlot(dict)
     def update_multiple_translations(self, translations: dict):
-        """
-        批量更新多个区域的译文。
-        `translations` 是一个 {index: text} 格式的字典。
-        """
+        """批量更新多个区域的译文。`translations` 是 {index: text} 字典。"""
         if not translations:
             return
 
-        commands = []
+        regions = self.model.get_regions()
+        old_regions = [copy.deepcopy(region) for region in regions]
+        new_regions = [copy.deepcopy(region) for region in regions]
+        changed_count = 0
+
         for raw_index, text in translations.items():
             try:
                 index = int(raw_index)
             except (TypeError, ValueError):
                 continue
-
-            old_region_data = self._get_region_by_index(index)
-            if not old_region_data:
+            if not (0 <= index < len(new_regions)):
                 continue
 
-            old_region_data = self._merge_live_geometry_state(index, old_region_data)
+            old_region_data = self._merge_live_geometry_state(index, new_regions[index])
             if old_region_data.get("translation", "") == text:
                 continue
 
@@ -487,21 +465,23 @@ class EditorController(QObject):
             new_region_data["translation"] = text
             # 译文批量更新时同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
             new_region_data["translation_raw"] = text
-            commands.append(
-                UpdateRegionCommand(
-                    model=self.model,
-                    region_index=index,
-                    old_data=old_region_data,
-                    new_data=new_region_data,
-                    description=f"Batch Update Translation Region {index}",
-                    merge_key=f"region:{index}:translation",
-                )
-            )
+            old_regions[index] = copy.deepcopy(old_region_data)
+            new_regions[index] = new_region_data
+            changed_count += 1
 
-        if not commands:
+        if not changed_count:
             return
 
-        self._execute_command_batch(commands, f"Batch Update Translations ({len(commands)})")
+        from .commands import MultiRegionUpdateCommand
+
+        self.execute_command(
+            MultiRegionUpdateCommand(
+                self.model,
+                old_regions,
+                new_regions,
+                description=f"Batch Update Translations ({changed_count})",
+            )
+        )
 
     def _generate_export_snapshot(self) -> dict:
         return self.export_service.generate_export_snapshot()
@@ -933,7 +913,7 @@ class EditorController(QObject):
 
     @pyqtSlot(int, dict)
     def update_region_geometry(self, region_index: int, new_region_data: dict):
-        """处理来自视图的区域几���变化。"""
+        """处理来自视图的区域几何变化。"""
         # 现在RegionTextItem在调用callback之前不会修改self.region_data
         # 所以我们可以从模型中获取正确的旧数据
         old_region_data = self._get_region_by_index(region_index)
@@ -981,7 +961,7 @@ class EditorController(QObject):
         if not results:
             return
 
-        # 构建单条批量命令：修改 model center + 同��移动 item 白框和文字
+        # 构建单条批量命令：修改 model center + 同步移动 item 白框和文字
         regions = self.model.get_regions()
         old_regions = [dict(r) for r in regions]
         new_regions = [dict(r) for r in regions]
@@ -1417,8 +1397,8 @@ class EditorController(QObject):
         render_parameter_service = get_render_parameter_service()
         render_parameter_service.clear_cache()
 
-        # A heavy-handed but reliable way to force a full redraw of all regions with new global defaults
-        self.model.set_regions(self.model.get_regions())
+        # 全局渲染参数影响所有 region 的派生渲染结果；只重建视图缓存，不重建 region/id。
+        self.model.refresh_regions()
 
     @pyqtSlot()
     def run_ocr_for_selection(self):
@@ -1435,37 +1415,76 @@ class EditorController(QObject):
             return
 
         selected_regions_data = [copy.deepcopy(all_regions[i]) for i in valid_indices]
-        region_identities = [self._build_region_identity(region) for region in selected_regions_data]
-        request_revision = self.model.get_document_revision()
-        source_image_path = self.model.get_source_image_path()
-        
+        region_ids = [self.model.get_region_id(i) for i in valid_indices]
+        ocr_config = None
+        property_panel = self.get_property_panel()
+        if property_panel is not None:
+            selected_ocr = property_panel.get_selected_ocr_model()
+            if selected_ocr:
+                from manga_translator.config import Ocr, OcrConfig
+
+                full_config = self.config_service.get_config()
+                current_ocr_config = full_config.ocr if hasattr(full_config, 'ocr') else OcrConfig()
+                try:
+                    ocr_payload = (
+                        current_ocr_config.model_dump()
+                        if hasattr(current_ocr_config, "model_dump")
+                        else {}
+                    )
+                    ocr_payload["ocr"] = Ocr(selected_ocr)
+                    ocr_config = OcrConfig(**ocr_payload)
+                    self.logger.info(f"Using OCR model from property panel: {selected_ocr}")
+                except Exception as e:
+                    self.logger.warning(f"Invalid OCR selection '{selected_ocr}', using default: {e}")
+
         # 显示开始Toast，保存引用以便后续关闭
         self._ocr_toast = None
         toast_manager = self.get_toast_manager()
         if toast_manager is not None:
             self._ocr_toast = toast_manager.show_info("正在识别...", duration=0)
-        
+
         self.async_service.submit_task(
-            self._async_ocr_task(
-                image,
-                selected_regions_data,
-                valid_indices,
-                region_identities,
-                request_revision,
-                source_image_path,
-            )
+            self._async_ocr_task(image, selected_regions_data, region_ids, ocr_config)
         )
 
-    @pyqtSlot(list)
-    def on_regions_update_finished(self, updated_regions: list):
-        """Slot to safely update regions from the main thread."""
-        # 直接使用 set_regions，它会自动同步到 resource_manager
-        self.model.set_regions(updated_regions)
-        
-        # 强制刷新属性栏（忽略焦点状态）
-        property_panel = self.get_property_panel()
-        if property_panel is not None:
-            property_panel.force_refresh_from_model()
+    @pyqtSlot(object)
+    def on_regions_update_finished(self, request):
+        """OCR/翻译异步写回：主线程按 region_id 重新定位并合并通知视图。"""
+        applied_count = 0
+        skipped_count = 0
+        try:
+            if not isinstance(request, _AsyncRegionUpdateRequest):
+                return
+
+            if not request.field_name:
+                skipped_count = len(request.updates)
+                return
+
+            applied: dict[int, dict] = {}
+            for region_id, value in request.updates:
+                index = self.model.find_region_index(region_id) if region_id is not None else None
+                region_data = self.model.get_region_by_index(index) if index is not None else None
+                if index is None or region_data is None:
+                    skipped_count += 1
+                    continue
+                new_region_data = applied.get(index, region_data).copy()
+                new_region_data[request.field_name] = value
+                applied[index] = new_region_data
+
+            if applied:
+                self.model.update_regions(applied, fields=[request.field_name], source="async")
+                applied_count = len(applied)
+        except Exception as exc:
+            self.logger.error("Failed to apply async region updates: %s", exc, exc_info=True)
+            skipped_count = len(request.updates) if isinstance(request, _AsyncRegionUpdateRequest) else 0
+        finally:
+            if isinstance(request, _AsyncRegionUpdateRequest):
+                self._finish_async_region_update(
+                    request.task_kind,
+                    applied_count=applied_count,
+                    skipped_count=skipped_count,
+                    error_count=request.error_count,
+                )
     
     @pyqtSlot(str, str)
     def _on_ocr_finished(self, status: str, message: str):
@@ -1477,71 +1496,27 @@ class EditorController(QObject):
         """翻译完成后在主线程处理Toast。"""
         self._finalize_progress_toast("_translation_toast", status, message)
 
-    async def _async_ocr_task(
-        self,
-        image,
-        regions_to_process,
-        indices,
-        region_identities,
-        request_revision: int,
-        source_image_path: Optional[str],
-    ):
-
-        # 从属性面板获取用户选择的OCR配置
-        ocr_config = None
-        property_panel = self.get_property_panel()
-        if property_panel is not None:
-            selected_ocr = property_panel.get_selected_ocr_model()
-            if selected_ocr:
-                # 获取当前的OCR配置并更新ocr字段
-                from manga_translator.config import Ocr, OcrConfig
-                full_config = self.config_service.get_config()
-                current_ocr_config = full_config.ocr if hasattr(full_config, 'ocr') else OcrConfig()
-                try:
-                    # 将字符串转换为Ocr枚举
-                    ocr_enum = Ocr(selected_ocr) if selected_ocr else current_ocr_config.ocr
-                    ocr_payload = (
-                        current_ocr_config.model_dump()
-                        if hasattr(current_ocr_config, "model_dump")
-                        else {}
-                    )
-                    ocr_payload["ocr"] = ocr_enum
-                    ocr_config = OcrConfig(**ocr_payload)
-                    self.logger.info(f"Using OCR model from property panel: {selected_ocr}")
-                except Exception as e:
-                    self.logger.warning(f"Invalid OCR selection '{selected_ocr}', using default: {e}")
-                    ocr_config = None
-
-        pending_updates: list[tuple[int, str, str]] = []
+    async def _async_ocr_task(self, image, regions_to_process, region_ids, ocr_config):
+        pending_updates: list[tuple[int, str]] = []
         error_count = 0
         for i, region_data in enumerate(regions_to_process):
             try:
                 ocr_result = await self.ocr_service.recognize_region(image, region_data, config=ocr_config)
                 if ocr_result and ocr_result.text:
-                    pending_updates.append((indices[i], region_identities[i], ocr_result.text))
+                    pending_updates.append((region_ids[i], ocr_result.text))
             except Exception as e:
                 self.logger.error(f"OCR识别失败: {e}")
                 error_count += 1
 
-        applied_count, skipped_count, document_changed = self._apply_async_region_updates(
-            pending_updates,
-            field_name="text",
-            request_revision=request_revision,
-            source_image_path=source_image_path,
-        )
-
-        if applied_count > 0 and skipped_count == 0 and error_count == 0:
-            self._ocr_finished.emit("success", "识别完成")
-            return
-        if applied_count > 0:
-            self._ocr_finished.emit(
-                "warning",
-                f"识别部分完成，已应用 {applied_count} 项，跳过 {skipped_count + error_count} 项",
+        if pending_updates:
+            self._queue_async_region_updates(
+                pending_updates,
+                field_name="text",
+                task_kind="ocr",
+                error_count=error_count,
             )
             return
-        if document_changed and pending_updates:
-            self._ocr_finished.emit("warning", "识别结果未应用，当前文档已变化")
-            return
+
         if error_count > 0:
             self._ocr_finished.emit("error", "识别失败")
             return
@@ -1564,62 +1539,55 @@ class EditorController(QObject):
 
         selected_regions_data = [copy.deepcopy(all_regions[i]) for i in valid_indices]
         texts_to_translate = [r.get('text', '') for r in selected_regions_data]
-        region_identities = [self._build_region_identity(region) for region in selected_regions_data]
-        request_revision = self.model.get_document_revision()
-        source_image_path = self.model.get_source_image_path()
+        region_ids = [self.model.get_region_id(i) for i in valid_indices]
         regions_context = copy.deepcopy(all_regions)
-        
+        translator_to_use = None
+        target_lang_to_use = None
+
+        property_panel = self.get_property_panel()
+        if property_panel is not None:
+            selected_translator = property_panel.get_selected_translator()
+            selected_target_lang = property_panel.get_selected_target_language()
+
+            if selected_translator:
+                from manga_translator.config import Translator
+                try:
+                    translator_to_use = Translator(selected_translator)
+                    self.logger.info(f"Using translator from property panel: {selected_translator}")
+                except (ValueError, AttributeError) as e:
+                    self.logger.warning(f"Invalid translator selection '{selected_translator}', using default: {e}")
+
+            if selected_target_lang:
+                target_lang_to_use = selected_target_lang
+                self.logger.info(f"Using target language from property panel: {selected_target_lang}")
+
         # 显示开始Toast，保存引用以便后续关闭
         self._translation_toast = None
         toast_manager = self.get_toast_manager()
         if toast_manager is not None:
             self._translation_toast = toast_manager.show_info("正在翻译...", duration=0)
-        
+
         # 传递所有区域以提供上下文，但只翻译选中的文本
         self.async_service.submit_task(
             self._async_translation_task(
                 texts_to_translate,
-                valid_indices,
-                region_identities,
+                region_ids,
                 image,
                 regions_context,
-                request_revision,
-                source_image_path,
+                translator_to_use,
+                target_lang_to_use,
             )
         )
 
     async def _async_translation_task(
         self,
         texts,
-        indices,
-        region_identities,
+        region_ids,
         image,
         regions,
-        request_revision: int,
-        source_image_path: Optional[str],
+        translator_to_use,
+        target_lang_to_use,
     ):
-        # 从属性面板获取用户选择的翻译器配置
-        translator_to_use = None
-        target_lang_to_use = None
-        
-        property_panel = self.get_property_panel()
-        if property_panel is not None:
-            selected_translator = property_panel.get_selected_translator()
-            selected_target_lang = property_panel.get_selected_target_language()
-            
-            if selected_translator:
-                from manga_translator.config import Translator
-                try:
-                    # 将字符串转换为Translator枚举
-                    translator_to_use = Translator(selected_translator)
-                    self.logger.info(f"Using translator from property panel: {selected_translator}")
-                except (ValueError, AttributeError) as e:
-                    self.logger.warning(f"Invalid translator selection '{selected_translator}', using default: {e}")
-            
-            if selected_target_lang:
-                target_lang_to_use = selected_target_lang
-                self.logger.info(f"Using target language from property panel: {selected_target_lang}")
-        
         # 将image和所有regions信息传递给翻译服务以提供完整上下文
         try:
             results = await self.translation_service.translate_text_batch(
@@ -1629,30 +1597,19 @@ class EditorController(QObject):
                 image=image, 
                 regions=regions
             )
-            pending_updates: list[tuple[int, str, str]] = []
+            pending_updates: list[tuple[int, str]] = []
             for i, result in enumerate(results):
                 if result and result.translated_text:
-                    pending_updates.append((indices[i], region_identities[i], result.translated_text))
+                    pending_updates.append((region_ids[i], result.translated_text))
 
-            applied_count, skipped_count, document_changed = self._apply_async_region_updates(
-                pending_updates,
-                field_name="translation",
-                request_revision=request_revision,
-                source_image_path=source_image_path,
-            )
-
-            if applied_count > 0 and skipped_count == 0:
-                self._translation_finished.emit("success", "翻译完成")
-                return
-            if applied_count > 0:
-                self._translation_finished.emit(
-                    "warning",
-                    f"翻译部分完成，已应用 {applied_count} 项，跳过 {skipped_count} 项",
+            if pending_updates:
+                self._queue_async_region_updates(
+                    pending_updates,
+                    field_name="translation",
+                    task_kind="translation",
                 )
                 return
-            if document_changed and pending_updates:
-                self._translation_finished.emit("warning", "翻译结果未应用，当前文档已变化")
-                return
+
             self._translation_finished.emit("warning", "未生成可应用的翻译结果")
         except Exception as e:
             self.logger.error(f"翻译失败: {e}", exc_info=True)
@@ -1662,4 +1619,3 @@ class EditorController(QObject):
     def set_selection_from_list(self, indices: list):
         """Slot to handle selection changes originating from the RegionListView."""
         self.model.set_selection(indices)
-

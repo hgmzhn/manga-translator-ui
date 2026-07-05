@@ -32,6 +32,7 @@ from qfluentwidgets import (
     ToolButton,
     TogglePushButton,
 )
+from editor.region_geometry_state import normalize_region_geometry_data
 from services import get_config_service, get_i18n_manager
 
 from .color_picker import ColorPickerWidget
@@ -854,14 +855,12 @@ class PropertyPanel(QWidget):
         self.delete_style_preset_button.clicked.connect(self._on_delete_style_preset_clicked)
         # 实时更新（textChanged）
         self.translated_text_box.textChanged.connect(self._on_translated_text_changed)
-        # self.translated_text_box.focusOutEvent = self._make_focus_out_handler(self.translated_text_box, self._on_translated_text_focus_out)
         self.alignment_combo.currentTextChanged.connect(self._on_alignment_changed)
         self.direction_combo.currentTextChanged.connect(self._on_direction_changed)
 
         # Text
         # 实时更新（textChanged）
         self.original_text_box.textChanged.connect(self._on_original_text_changed)
-        # self.original_text_box.focusOutEvent = self._make_focus_out_handler(self.original_text_box, self._on_original_text_focus_out)
         self.ocr_model_combo.currentTextChanged.connect(self._on_ocr_model_change)
         self.translator_combo.currentTextChanged.connect(self._on_translator_change)
         self.target_language_combo.currentTextChanged.connect(self._on_target_language_change)
@@ -875,11 +874,11 @@ class PropertyPanel(QWidget):
         self.copy_button.clicked.connect(self.copy_region_requested.emit)
         self.paste_button.clicked.connect(self.paste_region_requested.emit)
         self.delete_button.clicked.connect(self.delete_region_requested.emit)
+
     def _connect_model_signals(self):
         self.model.display_mask_type_changed.connect(self._on_display_mask_type_changed)
         self.model.refined_mask_changed.connect(self._on_refined_mask_changed)
-        self.model.regions_changed.connect(self.on_regions_updated)
-        self.model.region_style_updated.connect(self.on_single_region_updated)
+        self.model.regions_changed.connect(self.on_regions_changed)
 
     def _on_display_mask_type_changed(self, mask_type: str):
         """响应显示蒙版类型变化"""
@@ -1490,35 +1489,27 @@ class PropertyPanel(QWidget):
 
         self._refresh_style_preset_combo()
 
-    def on_single_region_updated(self, index: int):
-        """Slot to refresh the panel when a single region is updated in a targeted way."""
-        selected_indices = self.model.get_selection()
-        if not selected_indices or len(selected_indices) > 1 or selected_indices[0] != index:
-            return # Not the currently selected item, do nothing
-
-        region_data = self.model.get_region_by_index(index)
-        if region_data:
-            self._update_display(region_data, index)
-    
-    def force_refresh_from_model(self):
-        """强制刷新属性栏，忽略焦点状态（用于OCR/翻译完成后）"""
-        selected_indices = self.model.get_selection()
-        if selected_indices and len(selected_indices) == 1:
-            region_index = selected_indices[0]
-            region_data = self.model.get_region_by_index(region_index)
-            if region_data:
-                self._update_display(region_data, region_index, force=True)
-
-    def on_regions_updated(self, regions):
-        """Slot to refresh the panel if the currently selected region's data has changed."""
+    def on_regions_changed(self, change):
+        """选中 region 的数据变化时刷新面板；本面板发起的修改只跟进信息标签。"""
         selected_indices = self.model.get_selection()
         if not selected_indices or len(selected_indices) > 1:
             return
-        
+
         region_index = selected_indices[0]
-        if 0 <= region_index < len(regions):
-            # 直接使用信号传递过来的最新regions数据来更新显示
-            self._update_display(regions[region_index], region_index)
+        if change.kind != "reset" and region_index not in change.indices:
+            return
+
+        region_data = self.model.get_region_by_index(region_index)
+        if not region_data:
+            return
+
+        force_text_fields = set(change.fields) if change.source == "async" else set()
+        self._update_display(
+            region_data,
+            region_index,
+            update_focused_text=False,
+            force_text_fields=force_text_fields,
+        )
 
     def on_selection_changed(self, selected_indices):
         """Slot to update the panel when the selection in the model changes."""
@@ -1535,7 +1526,7 @@ class PropertyPanel(QWidget):
             self.current_region_index = region_index
             regions = self.model.get_regions()
             if 0 <= region_index < len(regions):
-                self._update_display(regions[region_index], region_index)
+                self._update_display(regions[region_index], region_index, update_focused_text=True)
         else:
             # 多选，启用样式编辑，但禁用文本编辑和信息显示
             self.info_group.setEnabled(False)
@@ -1584,57 +1575,65 @@ class PropertyPanel(QWidget):
             self._set_selection_controls_blocked(False)
             self.block_updates = False
 
-    def _update_display(self, region_data, region_index, force=False):
+    def _update_display(
+        self,
+        region_data,
+        region_index,
+        *,
+        update_focused_text: bool = True,
+        force_text_fields: set[str] | None = None,
+    ):
         """Populate all widgets with data from the selected region.
-        
+
         Args:
             region_data: 区域数据字典
             region_index: 区域索引
-            force: 是否强制更新文本框（忽略焦点状态），用于OCR/翻译完成后
+            update_focused_text: 是否覆盖正在编辑的文本框
         """
+        force_text_fields = force_text_fields or set()
         self.block_updates = True
         self._set_selection_controls_blocked(True)
         try:
             # --- Update Region Info ---
-            self.index_label.setText(str(region_index))
-            wf_info = self._calculate_white_frame_info(region_data)
-            if wf_info:
-                cx, cy, w, h = wf_info
-                self.bbox_label.setText(f"({cx:.0f}, {cy:.0f})")
-                self.size_label.setText(f"{w:.0f} × {h:.0f}")
-            else:
-                self.bbox_label.setText("-")
-                self.size_label.setText("-")
-            angle = region_data.get('angle', 0)
-            self.angle_label.setText(f"{angle:.1f}°")
+            self._update_info_labels(region_data, region_index)
 
             # --- Update Text & Styles ---
-            # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
-            if force or not self.original_text_box.hasFocus():
-                # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
-                original_text = region_data.get("text", "")
+            # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
+            original_text = region_data.get("text", "")
+            update_original_text = update_focused_text or "text" in force_text_fields
+            if (
+                update_original_text or not self.original_text_box.hasFocus()
+            ) and self.original_text_box.toPlainText() != original_text:
                 self.original_text_box.setText(original_text)
 
-            # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
-            if force or not self.translated_text_box.hasFocus():
-                import re
+            import re
 
-                # 复选框选中 → 显示"替换前译文"(translation_raw),否则显示"译文"(translation)
-                show_raw = bool(getattr(self, 'translation_raw_checkbox', None)
-                                and self.translation_raw_checkbox.isChecked())
-                field_key = "translation_raw" if show_raw else "translation"
-                translation_text = region_data.get(field_key, "") or region_data.get("translation", "")
+            # 复选框选中 → 显示"替换前译文"(translation_raw),否则显示"译文"(translation)
+            show_raw = bool(getattr(self, 'translation_raw_checkbox', None)
+                            and self.translation_raw_checkbox.isChecked())
+            field_key = "translation_raw" if show_raw else "translation"
+            translation_text = region_data.get(field_key, "") or region_data.get("translation", "")
+            update_translation_text = (
+                update_focused_text
+                or field_key in force_text_fields
+                or (field_key == "translation_raw"
+                    and "translation" in force_text_fields
+                    and not region_data.get("translation_raw"))
+            )
 
-                # 1. 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为 \n
-                translation_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', translation_text, flags=re.IGNORECASE)
+            # 1. 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为 \n
+            translation_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', translation_text, flags=re.IGNORECASE)
 
-                # 2. 将 <H> 标签替换为符号 ⇄ 显示在文本框中
-                display_text = translation_text.replace('<H>', '⇄').replace('</H>', '⇄')
+            # 2. 将 <H> 标签替换为符号 ⇄ 显示在文本框中
+            display_text = translation_text.replace('<H>', '⇄').replace('</H>', '⇄')
 
-                # 3. 将 \n 替换为 ↵ 显示在文本框中
-                display_text = display_text.replace('\n', '↵')
+            # 3. 将 \n 替换为 ↵ 显示在文本框中
+            display_text = display_text.replace('\n', '↵')
+            if (
+                update_translation_text or not self.translated_text_box.hasFocus()
+            ) and self.translated_text_box.toPlainText() != display_text:
                 self.translated_text_box.setText(display_text)
-            
+
             font_size = int(region_data.get("font_size", 12) or 12)
             self.font_size_input.setValue(font_size)
             self.font_size_slider.setValue(font_size)
@@ -1687,7 +1686,7 @@ class PropertyPanel(QWidget):
             elif direction_value in ("h", "horizontal"):
                 direction_display = horizontal_text
             else:
-                # 旧数据的 auto 或空值：在编辑器内按框形状回显横/竖
+                wf_info = self._calculate_white_frame_info(region_data)
                 if wf_info:
                     _, _, w, h = wf_info
                     direction_display = vertical_text if h > w else horizontal_text
@@ -1703,23 +1702,33 @@ class PropertyPanel(QWidget):
             self._set_selection_controls_blocked(False)
             self.block_updates = False
 
-    def _make_focus_out_handler(self, text_edit, callback):
-        """创建一个焦点丢失事件处理器，保存原始的focusOutEvent"""
-        original_focus_out = text_edit.focusOutEvent
-        
-        def focus_out_wrapper(event):
-            # 先调用原始的focusOutEvent
-            original_focus_out(event)
-            # 然后调用我们的回调
-            callback()
-        
-        return focus_out_wrapper
-    
+    def _update_info_labels(self, region_data, region_index):
+        self.index_label.setText(str(region_index))
+        wf_info = self._calculate_white_frame_info(region_data)
+        if wf_info:
+            cx, cy, w, h = wf_info
+            self.bbox_label.setText(f"({cx:.0f}, {cy:.0f})")
+            self.size_label.setText(f"{w:.0f} × {h:.0f}")
+        else:
+            self.bbox_label.setText("-")
+            self.size_label.setText("-")
+        angle = region_data.get('angle', 0)
+        self.angle_label.setText(f"{angle:.1f}°")
+
+    @staticmethod
+    def _editor_text_to_model_text(raw_text: str) -> str:
+        """把文本框的显示形式（⇄/↵）还原为模型存储形式（<H>/[BR]）。"""
+        import re
+
+        text_with_tags = convert_arrows_to_tags(raw_text)
+        text_with_newlines = text_with_tags.replace('↵', '\n')
+        return re.sub(r'\n+', '[BR]', text_with_newlines)
+
     def force_save_text_edits(self):
         """强制保存当前文本框的编辑内容（在失去焦点前）"""
         if self.current_region_index == -1:
             return
-        
+
         # 保存原文编辑
         current_original = self.original_text_box.toPlainText()
         region_data = self.model.get_region_by_index(self.current_region_index)
@@ -1728,26 +1737,17 @@ class PropertyPanel(QWidget):
             stored_original = region_data.get("original_text") or region_data.get("text", "")
             if stored_original != current_original:
                 self.original_text_modified.emit(self.current_region_index, current_original)
-        
+
         # 保存译文编辑
         self._save_translated_text()
-    
+
     def _save_translated_text(self):
-        """保存译文编辑（执行与_on_translated_text_focus_out相同的逻辑）"""
+        """保存译文编辑（内容有变化时按当前模式写回对应字段）"""
         if self.current_region_index == -1:
             return
 
-        import re
-
-        # 1. 将 ⇄ 替换回 <H> 标签
         raw_text = self.translated_text_box.toPlainText()
-        text_with_tags = convert_arrows_to_tags(raw_text)
-
-        # 2. 将 ↵ 替换回 \n
-        text_with_newlines = text_with_tags.replace('↵', '\n')
-
-        # 3. 将 \n 转换回 AI 换行符 [BR]
-        text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
+        text_with_br = self._editor_text_to_model_text(raw_text)
 
         # 按当前模式决定写入哪个字段
         show_raw = bool(getattr(self, 'translation_raw_checkbox', None)
@@ -1760,47 +1760,16 @@ class PropertyPanel(QWidget):
                     self.translation_raw_modified.emit(self.current_region_index, text_with_br)
                 else:
                     self.translated_text_modified.emit(self.current_region_index, text_with_br)
-    
-    def _on_original_text_focus_out(self):
-        """当原文文本框失去焦点时更新model"""
-        if self.current_region_index != -1:
-            self.original_text_modified.emit(self.current_region_index, self.original_text_box.toPlainText())
-    
-    def _on_translated_text_focus_out(self):
-        """当译文文本框失去焦点时更新model"""
-        if self.current_region_index != -1:
-            # 执行与_save_translated_text相同的转换逻辑
-            import re
 
-            # 1. 将 ⇄ 替换回 <H> 标签
-            raw_text = self.translated_text_box.toPlainText()
-            text_with_tags = convert_arrows_to_tags(raw_text)
-
-            # 2. 将 ↵ 替换回 \n
-            text_with_newlines = text_with_tags.replace('↵', '\n')
-
-            # 3. 将 \n 转换回 AI 换行符 [BR]
-            text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
-
-            self.translated_text_modified.emit(self.current_region_index, text_with_br)
-    
     def _on_original_text_changed(self):
-        """保留这个方法以防需要，但现在不使用"""
         if self.current_region_index != -1 and not self.block_updates:
-            self.original_text_modified.emit(self.current_region_index, self.original_text_box.toPlainText())
+            text = self.original_text_box.toPlainText()
+            self.original_text_modified.emit(self.current_region_index, text)
+
     def _on_translated_text_changed(self):
         if self.current_region_index != -1 and not self.block_updates:
-            import re
-
-            # 1. 将 ⇄ 替换回 <H> 标签
             raw_text = self.translated_text_box.toPlainText()
-            text_with_tags = convert_arrows_to_tags(raw_text)
-
-            # 2. 将 ↵ 替换回 \n
-            text_with_newlines = text_with_tags.replace('↵', '\n')
-
-            # 3. 将 \n 转换回 AI 换行符 [BR]（与 _on_translated_text_focus_out 保持一致）
-            text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
+            text_with_br = self._editor_text_to_model_text(raw_text)
 
             # 复选框选中 → 当前编辑的是"替换前译文",走 raw 信号(controller 会跑替换更新 translation);
             # 否则编辑的是"译文",走原信号
@@ -1817,7 +1786,7 @@ class PropertyPanel(QWidget):
             return
         region_data = self.model.get_region_by_index(self.current_region_index)
         if region_data:
-            self._update_display(region_data, self.current_region_index, force=True)
+            self._update_display(region_data, self.current_region_index, update_focused_text=True)
     
     def get_selected_ocr_model(self) -> str:
         """获取当前选择的OCR模型"""
@@ -1847,7 +1816,7 @@ class PropertyPanel(QWidget):
         for region_index in selected_indices:
             self.font_size_changed.emit(region_index, value)
 
-    def _on_font_size_slider_changed(self, value): 
+    def _on_font_size_slider_changed(self, value):
         if self.block_updates:
             return
         # 支持多选批量设置
@@ -1876,7 +1845,7 @@ class PropertyPanel(QWidget):
         # 批量应用到所有选中的区域
         for region_index in selected_indices:
             self.font_family_changed.emit(region_index, font_filename)
-    
+
     def _on_font_color_changed(self, hex_color):
         """字体颜色变化时的处理"""
         if self.block_updates:
@@ -2045,12 +2014,10 @@ class PropertyPanel(QWidget):
     def _calculate_white_frame_info(self, region_data):
         """计算白框中心世界坐标和宽高，返回 (cx, cy, w, h) 或 None。"""
         import math
+        region_data = normalize_region_geometry_data(region_data)
         has_custom = bool(region_data.get('has_custom_white_frame', False))
-        wf_local = None
         wf_local = region_data.get('render_box_rect_local')
-        if not wf_local and has_custom:
-            wf_local = region_data.get('white_frame_rect_local')
-        if not wf_local:
+        if has_custom:
             wf_local = region_data.get('white_frame_rect_local')
         center = region_data.get('center')
         angle = float(region_data.get('angle', 0))

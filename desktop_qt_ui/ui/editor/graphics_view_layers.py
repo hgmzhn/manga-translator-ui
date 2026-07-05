@@ -62,13 +62,6 @@ class GraphicsViewLayersMixin:
             self._is_drawing = False
             self._is_drawing_textbox = False
             self._clear_pending_geometry_edits()
-
-            if hasattr(self, "_render_executor"):
-                try:
-                    self._render_executor.shutdown(wait=False)
-                    del self._render_executor
-                except Exception:
-                    pass
         except (RuntimeError, AttributeError) as e:
             self.logger.warning("Error during clear_all_state: %s", e)
         finally:
@@ -102,7 +95,6 @@ class GraphicsViewLayersMixin:
                     self.scene.removeItem(self._image_item)
                 self._image_item = None
                 self._q_image_ref = None
-                self._render_update_immediate_once = False
                 return
 
             # 3) 优先用 LRU 缓存的预转 QImage(主线程零阻塞)
@@ -140,7 +132,6 @@ class GraphicsViewLayersMixin:
             self._image_item.setOpacity(self.model.get_original_image_alpha())
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
             self._emit_view_state_changed()
-            self._render_update_immediate_once = True
         finally:
             self.setUpdatesEnabled(True)
 
@@ -148,10 +139,6 @@ class GraphicsViewLayersMixin:
     def on_original_image_alpha_changed(self, alpha: float):
         if self._image_item:
             self._image_item.setOpacity(alpha)
-
-    @pyqtSlot(int)
-    def on_region_style_updated(self, region_index: int):
-        self._perform_single_item_update(region_index)
 
     def on_region_display_mode_changed(self, mode: str):
         for item in self.scene.items():

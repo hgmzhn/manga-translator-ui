@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
+from .region_geometry_state import normalize_region_geometry_data
+
 
 def _resolve_effective_box_local(data: dict):
     custom_box = data.get("white_frame_rect_local")
@@ -49,7 +51,7 @@ class RegionRenderSnapshot:
         region_data: Optional[dict],
         geo_state: Optional[object] = None,
     ) -> RegionRenderSnapshot:
-        data = copy.deepcopy(region_data) if isinstance(region_data, dict) else {}
+        data = normalize_region_geometry_data(copy.deepcopy(region_data)) if isinstance(region_data, dict) else {}
 
         # 优先合并 item 当前几何，避免"模型旧值"回流
         if geo_state is not None:

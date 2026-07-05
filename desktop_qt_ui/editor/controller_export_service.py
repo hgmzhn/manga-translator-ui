@@ -22,6 +22,7 @@ from manga_translator.utils.path_manager import (
 )
 
 from .image_utils import image_like_to_pil, image_like_to_rgb_array
+from .region_geometry_state import normalize_region_geometry_data
 
 if TYPE_CHECKING:
     from .editor_controller import EditorController
@@ -190,6 +191,7 @@ class EditorControllerExportService:
     def resolve_effective_box_local(region: dict):
         if not isinstance(region, dict):
             return None
+        region = normalize_region_geometry_data(region)
 
         custom_box = region.get("white_frame_rect_local")
         render_box = region.get("render_box_rect_local")

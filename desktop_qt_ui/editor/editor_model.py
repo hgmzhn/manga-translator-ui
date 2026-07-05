@@ -1,22 +1,26 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .core.types import MaskType
+from .region_change import RegionChange
 from .session import DocumentSnapshot, EditorSession
 
 
 class EditorModel(QObject):
     """
-    编辑器数据模型 (Model)。
+    编辑器数据模型：region 状态的单一事实来源。
 
-    对外保留原有 signal 接口，内部状态统一委托给 EditorSession。
+    所有 region 改动必须通过 update_region / update_regions / insert_region /
+    remove_region / replace_regions 进入；「API 即事件」——每个 mutation 直接
+    发出对应的 RegionChange，经 regions_changed 广播，视图按 kind 做最小刷新。
+    渲染派生数据经 store_derived_regions 写回，不发通知。
     """
 
     image_changed = pyqtSignal(object)
-    regions_changed = pyqtSignal(list)
+    regions_changed = pyqtSignal(object)
     raw_mask_changed = pyqtSignal(object)
     refined_mask_changed = pyqtSignal(object)
     display_mask_type_changed = pyqtSignal(str)
@@ -25,7 +29,6 @@ class EditorModel(QObject):
     compare_image_changed = pyqtSignal(object)
     region_display_mode_changed = pyqtSignal(str)
     original_image_alpha_changed = pyqtSignal(float)
-    region_style_updated = pyqtSignal(int)
     active_tool_changed = pyqtSignal(str)
     brush_size_changed = pyqtSignal(int)
     brush_color_changed = pyqtSignal(str)
@@ -37,11 +40,6 @@ class EditorModel(QObject):
 
         self.resource_manager = get_resource_manager()
         self.session = EditorSession(self.resource_manager)
-        self.controller = None
-
-    @staticmethod
-    def _normalize_binary_mask(mask: Any):
-        return EditorSession._normalize_binary_mask(mask)
 
     def get_document_revision(self) -> int:
         return self.session.get_document_revision()
@@ -51,7 +49,7 @@ class EditorModel(QObject):
         self.session.load_document(snapshot)
         self.image_changed.emit(self.get_image())
         self.compare_image_changed.emit(self.get_compare_image())
-        self.regions_changed.emit(self.get_regions())
+        self.regions_changed.emit(RegionChange.reset())
         self.raw_mask_changed.emit(self.get_raw_mask())
         self.refined_mask_changed.emit(self.get_refined_mask())
         self.inpainted_image_changed.emit(self.get_inpainted_image())
@@ -64,7 +62,7 @@ class EditorModel(QObject):
         self.session.clear_document()
         self.image_changed.emit(self.get_image())
         self.compare_image_changed.emit(self.get_compare_image())
-        self.regions_changed.emit(self.get_regions())
+        self.regions_changed.emit(RegionChange.reset())
         self.raw_mask_changed.emit(self.get_raw_mask())
         self.refined_mask_changed.emit(self.get_refined_mask())
         self.inpainted_image_changed.emit(self.get_inpainted_image())
@@ -84,12 +82,74 @@ class EditorModel(QObject):
     def get_image(self) -> Optional[Any]:
         return self.session.get_image()
 
-    def set_regions(self, regions: List[Dict[str, Any]]):
-        self.session.set_regions(regions)
-        self.regions_changed.emit(self.get_regions())
+    def update_region(
+        self,
+        index: int,
+        region: Dict[str, Any],
+        *,
+        fields: Iterable[str] | None = None,
+        source: str = "",
+    ) -> None:
+        """更新单个 region，发出 updated([index])。"""
+        if self.session.update_region(index, region):
+            self.regions_changed.emit(RegionChange.updated([index], fields=fields, source=source))
 
-    def set_regions_silent(self, regions: List[Dict[str, Any]]):
-        self.session.set_regions_silent(regions)
+    def update_regions(
+        self,
+        updates: Dict[int, Dict[str, Any]],
+        *,
+        fields: Iterable[str] | None = None,
+        source: str = "",
+    ) -> None:
+        """批量更新多个 region，合并为一次 updated(indices) 通知。"""
+        applied: list[int] = []
+        for index, region in sorted(updates.items()):
+            if self.session.update_region(index, region):
+                applied.append(index)
+        if applied:
+            self.regions_changed.emit(RegionChange.updated(applied, fields=fields, source=source))
+
+    def insert_region(self, index: int, region: Dict[str, Any]) -> int:
+        """在 index 处插入 region，发出 inserted([实际位置])，返回实际位置。"""
+        insert_at = self.session.insert_region(index, region)
+        selection_changed = self.session.set_selection([])
+        self.regions_changed.emit(RegionChange.inserted([insert_at]))
+        if selection_changed:
+            self.selection_changed.emit(self.session.get_selection())
+        return insert_at
+
+    def remove_region(self, index: int) -> Optional[Dict[str, Any]]:
+        """移除 index 处的 region，发出 removed([index])，返回被移除的数据。"""
+        removed = self.session.remove_region(index)
+        if removed is not None:
+            selection_changed = self.session.set_selection([])
+            self.regions_changed.emit(RegionChange.removed([index]))
+            if selection_changed:
+                self.selection_changed.emit(self.session.get_selection())
+        return removed
+
+    def replace_regions(self, regions: List[Dict[str, Any]]) -> None:
+        """整体替换 region 列表（换图/清空/导入），发出 reset。"""
+        self.session.set_regions(regions)
+        self.regions_changed.emit(RegionChange.reset())
+
+    def refresh_regions(self) -> None:
+        """region 数据未变化，但所有 region 派生视图需要重新计算。"""
+        self.regions_changed.emit(RegionChange.reset())
+
+    def store_derived_regions(self, updates: Dict[int, Dict[str, Any]]) -> None:
+        """写回渲染管线派生的 region 字段（render_box_rect_local 等），只传有变化的条目。
+
+        派生数据由渲染计算产生，不属于用户编辑，因此不发出 regions_changed。
+        """
+        self.session.store_derived_regions(updates)
+
+    def get_region_id(self, index: int) -> Optional[int]:
+        """返回 index 处 region 的稳定 id，供异步任务跨时间定位。"""
+        return self.session.get_region_id(index)
+
+    def find_region_index(self, region_id: int) -> Optional[int]:
+        return self.session.find_region_index(region_id)
 
     def get_regions(self) -> List[Dict[str, Any]]:
         return self.session.get_regions()

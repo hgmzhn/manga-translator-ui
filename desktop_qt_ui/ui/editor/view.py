@@ -196,7 +196,7 @@ class EditorView(QWidget):
         self.apply_translations_button = PrimaryPushButton()
         self.apply_translations_button.setText(self._t("Apply All Translation Changes"))
         self.apply_translations_button.setIcon(FIF.ACCEPT)
-        self.region_list_view = RegionListView(self)
+        self.region_list_view = RegionListView(self.model, self)
         
         translation_layout.addWidget(replace_widget)
         translation_layout.addWidget(self.apply_translations_button)
@@ -347,7 +347,7 @@ class EditorView(QWidget):
 
     def _connect_signals(self):
         # --- Model to View ---
-        self.model.regions_changed.connect(self.region_list_view.update_regions)
+        self.model.regions_changed.connect(self.region_list_view.on_regions_changed)
         self.model.selection_changed.connect(self.region_list_view.update_selection)
         # Connect model selection changes to the property panel
         self.model.selection_changed.connect(self.property_panel.on_selection_changed)

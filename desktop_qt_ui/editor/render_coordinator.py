@@ -56,6 +56,21 @@ class RenderCoordinator:
         while len(self.render_snapshots) <= index:
             self.render_snapshots.append(None)
 
+    def insert_region(self, index: int) -> None:
+        index = max(0, min(int(index), len(self.text_blocks)))
+        self.text_blocks.insert(index, None)
+        self.dst_points.insert(index, None)
+        self.render_snapshots.insert(index, None)
+
+    def remove_region(self, index: int) -> None:
+        index = int(index)
+        if 0 <= index < len(self.text_blocks):
+            self.text_blocks.pop(index)
+        if 0 <= index < len(self.dst_points):
+            self.dst_points.pop(index)
+        if 0 <= index < len(self.render_snapshots):
+            self.render_snapshots.pop(index)
+
     def trim_regions(self, count: int) -> None:
         del self.text_blocks[count:]
         del self.dst_points[count:]
