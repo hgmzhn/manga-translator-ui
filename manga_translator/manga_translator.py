@@ -345,6 +345,7 @@ class MangaTranslator:
         
         # 添加模型加载状态标志
         self._models_loaded = False
+        self._semantic_linebreak_models_checked = False
         
         self.parse_init_params(params)
         self.result_sub_folder = ''
@@ -2206,6 +2207,66 @@ class MangaTranslator:
                     del self._model_usage_timestamps[(tool, model)]
             await asyncio.sleep(1)
 
+    def _resolve_ocr_prob_threshold(self, config: Config) -> float:
+        return config.ocr.prob if config.ocr.prob is not None else 0.1
+
+    @staticmethod
+    def _get_textline_text(textline) -> str:
+        return str(getattr(textline, 'text', '') or '')
+
+    @staticmethod
+    def _get_textline_prob(textline) -> float:
+        try:
+            return float(getattr(textline, 'prob', 1.0))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def _textline_needs_secondary_ocr(self, textline, prob_threshold: float) -> bool:
+        return (
+            not self._get_textline_text(textline).strip()
+            or self._get_textline_prob(textline) < prob_threshold
+        )
+
+    def _filter_ocr_textlines(self, config: Config, textlines, prob_threshold: float):
+        filtered_textlines = []
+        filter_list_count = 0
+        low_confidence_count = 0
+
+        for textline in textlines:
+            text = self._get_textline_text(textline)
+            if not text.strip():
+                continue
+
+            textline_prob = self._get_textline_prob(textline)
+            if textline_prob < prob_threshold:
+                low_confidence_count += 1
+                logger.info(
+                    f'OCR过滤低置信度文本行: prob={textline_prob:.4f} < '
+                    f'threshold={prob_threshold:.4f}, text="{text}"'
+                )
+                continue
+
+            if self.filter_text_enabled:
+                match_result = match_filter(text)
+                if match_result:
+                    matched_word, match_type = match_result
+                    filter_list_count += 1
+                    logger.info(f'OCR过滤文本行 ({match_type}匹配): "{text}" -> 匹配: "{matched_word}"')
+                    continue
+
+            if config.render.font_color_fg:
+                textline.fg_r, textline.fg_g, textline.fg_b = config.render.font_color_fg
+            if config.render.font_color_bg:
+                textline.bg_r, textline.bg_g, textline.bg_b = config.render.font_color_bg
+            filtered_textlines.append(textline)
+
+        if filter_list_count > 0:
+            logger.info(f'OCR过滤列表: 过滤了 {filter_list_count} 个文本行')
+        if low_confidence_count > 0:
+            logger.info(f'OCR置信度过滤: 过滤了 {low_confidence_count} 个文本行')
+
+        return filtered_textlines
+
     async def _run_ocr(self, config: Config, ctx: Context):
         # ✅ 检查停止标志
         await asyncio.sleep(0)
@@ -2235,6 +2296,8 @@ class MangaTranslator:
         if ocr_result_dir:
             os.environ['MANGA_OCR_RESULT_DIR'] = ocr_result_dir
         
+        ocr_prob_threshold = self._resolve_ocr_prob_threshold(config)
+
         try:
             # --- Primary OCR run ---
             primary_ocr_engine = config.ocr.ocr
@@ -2254,16 +2317,15 @@ class MangaTranslator:
             if config.ocr.use_hybrid_ocr:
                 # Identify textlines that failed recognition or have low confidence
                 # 判断失败条件：文本为空 或 置信度低于阈值
-                prob_threshold = config.ocr.prob if config.ocr.prob is not None else 0.1
                 failed_indices = [
                     i for i, tl in enumerate(textlines) 
-                    if not tl.text.strip() or tl.prob < prob_threshold
+                    if self._textline_needs_secondary_ocr(tl, ocr_prob_threshold)
                 ]
                 
                 if failed_indices:
                     # Use textlines[i] instead of ctx.textlines[i] because OCR may have changed the order
                     failed_textlines = [textlines[i] for i in failed_indices]
-                    logger.info(f"{len(failed_textlines)} textlines failed or have low confidence (< {prob_threshold}) with primary OCR. Trying secondary OCR...")
+                    logger.info(f"{len(failed_textlines)} textlines failed or have low confidence (< {ocr_prob_threshold}) with primary OCR. Trying secondary OCR...")
                     
                     secondary_ocr_engine = config.ocr.secondary_ocr
                     # We can reuse the same config object, just switching the engine
@@ -2305,30 +2367,7 @@ class MangaTranslator:
             elif 'MANGA_OCR_RESULT_DIR' in os.environ:
                 del os.environ['MANGA_OCR_RESULT_DIR']
 
-        new_textlines = []
-        filtered_count = 0
-        for textline in textlines:
-            text = str(getattr(textline, 'text', '') or '')
-            if not text.strip():
-                continue
-
-            if self.filter_text_enabled:
-                match_result = match_filter(text)
-                if match_result:
-                    matched_word, match_type = match_result
-                    filtered_count += 1
-                    logger.info(f'OCR过滤文本行 ({match_type}匹配): "{text}" -> 匹配: "{matched_word}"')
-                    continue
-
-            if config.render.font_color_fg:
-                textline.fg_r, textline.fg_g, textline.fg_b = config.render.font_color_fg
-            if config.render.font_color_bg:
-                textline.bg_r, textline.bg_g, textline.bg_b = config.render.font_color_bg
-            new_textlines.append(textline)
-
-        if filtered_count > 0:
-            logger.info(f'OCR过滤列表: 过滤了 {filtered_count} 个文本行')
-        return new_textlines
+        return self._filter_ocr_textlines(config, textlines, ocr_prob_threshold)
 
     async def _run_textline_merge(self, config: Config, ctx: Context):
         current_time = time.time()
@@ -3990,6 +4029,16 @@ class MangaTranslator:
                 await prepare_colorization(config.colorizer.colorizer)
             
             self._models_loaded = True  # 标记模型已加载
+
+        if getattr(config.render, "semantic_linebreak", False) and not self._semantic_linebreak_models_checked:
+            try:
+                from .rendering.chinese_linebreak import download_chinese_linebreak_models
+
+                await download_chinese_linebreak_models()
+            except Exception as e:
+                logger.warning(f"HanLP Chinese linebreak model download failed; falling back to normal line breaking: {e}")
+            finally:
+                self._semantic_linebreak_models_checked = True
 
         # Start the background cleanup job once if not already started.
         if self._detector_cleanup_task is None:
