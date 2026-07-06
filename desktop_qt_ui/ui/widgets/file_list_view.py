@@ -20,21 +20,22 @@ from manga_translator.utils import open_pil_image
 
 # 全局线程池，用于异步加载缩略图
 _thumbnail_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="thumbnail_loader")
+_directory_scan_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="directory_scanner")
 
 
 def shutdown_thumbnail_executor():
-    """关闭缩略图加载线程池"""
-    global _thumbnail_executor
-    if _thumbnail_executor:
+    """关闭后台线程池"""
+    global _thumbnail_executor, _directory_scan_executor
+    for executor in (_thumbnail_executor, _directory_scan_executor):
         try:
-            _thumbnail_executor.shutdown(wait=False)
+            executor.shutdown(wait=False)
         except Exception:
             pass
 
 
 class ThumbnailSignals(QObject):
     """用于从工作线程发送信号到主线程"""
-    thumbnail_loaded = pyqtSignal(str, QPixmap)  # file_path, pixmap
+    thumbnail_loaded = pyqtSignal(str, object)  # file_path, pixmap or None
 
 
 def natural_sort_key(path: str):
@@ -50,6 +51,28 @@ def natural_sort_key(path: str):
         else:
             parts.append(part.lower())
     return parts
+
+
+def _scan_directory_worker(folder_path: str, supported_extensions: set[str]) -> tuple[str, List[str], List[str]]:
+    """扫描单层目录，不递归创建 UI。"""
+    norm_folder = os.path.normpath(folder_path)
+    subdirs = []
+    files = []
+    with os.scandir(norm_folder) as entries:
+        for entry in entries:
+            if entry.name == 'manga_translator_work':
+                continue
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    subdirs.append(os.path.normpath(entry.path))
+                elif entry.is_file(follow_symlinks=False) and os.path.splitext(entry.name)[1].lower() in supported_extensions:
+                    files.append(os.path.normpath(entry.path))
+            except OSError:
+                continue
+
+    subdirs.sort(key=natural_sort_key)
+    files.sort(key=natural_sort_key)
+    return norm_folder, subdirs, files
 
 
 def _load_thumbnail_worker(file_path: str) -> tuple[str, Optional[QPixmap]]:
@@ -91,12 +114,15 @@ class FileItemWidget(CardWidget):
     # 存储所有活动的实例，用于分发信号
     _active_instances: Dict[str, List['FileItemWidget']] = {}
 
-    def __init__(self, file_path, is_folder=False, parent=None):
+    def __init__(self, file_path, is_folder=False, parent=None, defer_thumbnail: bool = False):
         super().__init__(parent)
         self.file_path = file_path
         self.is_folder = is_folder
         self._thumbnail_loading = False
+        self._thumbnail_loaded = False
+        self._thumbnail_failed = False
         self._display_name = os.path.basename(file_path)
+        self._count_suffix = ""
         self.setBorderRadius(8)
         self.setFixedHeight(self.ROW_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -127,7 +153,13 @@ class FileItemWidget(CardWidget):
             if not hasattr(FileItemWidget, '_signals_connected'):
                 FileItemWidget._signals.thumbnail_loaded.connect(FileItemWidget._dispatch_thumbnail)
                 FileItemWidget._signals_connected = True
-            self._load_thumbnail()
+            if defer_thumbnail:
+                if self.file_path in FileItemWidget._thumbnail_cache:
+                    self._apply_cached_thumbnail()
+                else:
+                    self.thumbnail_label.clear()
+            else:
+                self.ensure_thumbnail_loaded()
 
         # File Name
         self.base_display_name = self._display_name  # 保存基础名称
@@ -156,6 +188,15 @@ class FileItemWidget(CardWidget):
     def _update_elided_name(self):
         available_width = max(24, self.name_label.width())
         metrics = QFontMetrics(self.name_label.font())
+        if self._count_suffix:
+            suffix_width = metrics.horizontalAdvance(self._count_suffix)
+            if suffix_width < available_width:
+                base_width = max(12, available_width - suffix_width)
+                base_text = metrics.elidedText(self.base_display_name, Qt.TextElideMode.ElideMiddle, base_width)
+                self.name_label.setText(f"{base_text}{self._count_suffix}")
+                return
+            self.name_label.setText(self._count_suffix.strip())
+            return
         self.name_label.setText(metrics.elidedText(self._display_name, Qt.TextElideMode.ElideMiddle, available_width))
     
     def __del__(self):
@@ -178,14 +219,36 @@ class FileItemWidget(CardWidget):
     def update_file_count(self, count: int):
         """更新文件夹显示的文件数量"""
         if self.is_folder:
-            self._display_name = f"{self.base_display_name} ({count}个文件)"
+            self._count_suffix = f" ({count}个文件)"
+            self._display_name = f"{self.base_display_name}{self._count_suffix}"
             self._update_elided_name()
 
-    def _load_thumbnail(self):
-        """异步加载缩略图，使用缓存机制"""
+    def clear_file_count(self):
+        """清除文件夹数量后缀，用于数量未知的懒加载目录。"""
+        if self.is_folder:
+            self._count_suffix = ""
+            self._display_name = self.base_display_name
+            self._update_elided_name()
+
+    def _apply_cached_thumbnail(self) -> bool:
+        """应用已缓存的缩略图，不触发文件读取。"""
+        pixmap = FileItemWidget._thumbnail_cache.get(self.file_path)
+        if pixmap is None:
+            return False
+        self.thumbnail_label.setPixmap(pixmap)
+        FileItemWidget._thumbnail_cache.move_to_end(self.file_path)
+        self._thumbnail_loaded = True
+        return True
+
+    def ensure_thumbnail_loaded(self):
+        """按需异步加载缩略图，只有可见项会调用。"""
+        if self.is_folder or os.path.isdir(self.file_path) or self._is_archive_file(self.file_path):
+            return
+        if self._thumbnail_loaded or self._thumbnail_loading or self._thumbnail_failed:
+            return
+
         # 检查缓存
-        if self.file_path in FileItemWidget._thumbnail_cache:
-            self.thumbnail_label.setPixmap(FileItemWidget._thumbnail_cache[self.file_path])
+        if self._apply_cached_thumbnail():
             return
         
         # 显示加载中提示
@@ -195,6 +258,10 @@ class FileItemWidget(CardWidget):
         # 提交到线程池异步加载
         future = _thumbnail_executor.submit(_load_thumbnail_worker, self.file_path)
         future.add_done_callback(self._on_thumbnail_future_done)
+
+    def _load_thumbnail(self):
+        """兼容旧调用：改为按需加载入口。"""
+        self.ensure_thumbnail_loaded()
     
     def _on_thumbnail_future_done(self, future):
         """线程池任务完成回调"""
@@ -213,6 +280,7 @@ class FileItemWidget(CardWidget):
         try:
             if pixmap:
                 self.thumbnail_label.setPixmap(pixmap)
+                self._thumbnail_loaded = True
                 
                 # 更新缓存 (LRU逻辑)
                 if file_path in FileItemWidget._thumbnail_cache:
@@ -228,6 +296,7 @@ class FileItemWidget(CardWidget):
                         # 移除第一个元素（最久未使用）
                         FileItemWidget._thumbnail_cache.popitem(last=False)
             else:
+                self._thumbnail_failed = True
                 self.thumbnail_label.setText("ERR")
         except RuntimeError:
             # Widget 已被删除，忽略
@@ -265,8 +334,17 @@ class FileListView(TreeWidget):
     file_selected = pyqtSignal(str)
     files_dropped = pyqtSignal(list)  # 新增：拖放文件信号
     _folders_scanned = pyqtSignal(list)  # 内部信号：文件夹扫描完成
+    _filesystem_directory_scanned = pyqtSignal(str, object, object)
     _ROW_HEIGHT = FileItemWidget.ROW_HEIGHT + 8
     _EMPTY_STATE_MARGIN = 16
+    _FS_PLACEHOLDER_ROLE = Qt.ItemDataRole.UserRole + 1
+    _FS_LOADED_ROLE = Qt.ItemDataRole.UserRole + 2
+    _FS_LOADING_ROLE = Qt.ItemDataRole.UserRole + 3
+    _FS_DEFERRED_WIDGET_ROLE = Qt.ItemDataRole.UserRole + 4
+    _FS_POPULATE_CHUNK_SIZE = 120
+    _SUPPORTED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
+    _SUPPORTED_ARCHIVE_EXTENSIONS = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
+    _SUPPORTED_LIST_EXTENSIONS = _SUPPORTED_IMAGE_EXTENSIONS | _SUPPORTED_ARCHIVE_EXTENSIONS
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -294,12 +372,25 @@ class FileListView(TreeWidget):
         
         # 存储文件夹到树节点的映射
         self.folder_nodes: Dict[str, QTreeWidgetItem] = {}
+        self._thumbnail_update_scheduled = False
+        self._root_decoration_update_scheduled = False
+        self._item_width_sync_scheduled = False
+        self._fs_pending_items: Dict[str, QTreeWidgetItem] = {}
+        self._fs_populate_jobs = {}
         
         # 连接选择信号
         self.itemSelectionChanged.connect(self._on_selection_changed)
+        self.verticalScrollBar().valueChanged.connect(self._schedule_visible_thumbnail_loads)
+        self.verticalScrollBar().valueChanged.connect(self._schedule_item_widget_width_sync)
+        self.itemExpanded.connect(self._schedule_visible_thumbnail_loads)
+        self.itemExpanded.connect(self._schedule_item_widget_width_sync)
+        self.itemCollapsed.connect(self._schedule_visible_thumbnail_loads)
+        self.itemCollapsed.connect(self._schedule_item_widget_width_sync)
+        self.itemExpanded.connect(self._on_item_expanded)
         
         # 连接内部信号（确保在主线程中处理）
         self._folders_scanned.connect(self._on_folders_scanned)
+        self._filesystem_directory_scanned.connect(self._on_filesystem_directory_scanned)
 
         self.empty_hint_label = StrongBodyLabel(self._empty_state_text(), self.viewport())
         self.empty_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -318,8 +409,29 @@ class FileListView(TreeWidget):
             if isinstance(path, str) and os.path.isdir(path):
                 has_top_level_folder = True
                 break
-        self.setRootIsDecorated(has_top_level_folder)
-        QTimer.singleShot(0, self._sync_item_widget_widths)
+        if self.rootIsDecorated() != has_top_level_folder:
+            self.setRootIsDecorated(has_top_level_folder)
+        self._schedule_item_widget_width_sync()
+
+    def _schedule_root_decoration_refresh(self):
+        if self._root_decoration_update_scheduled:
+            return
+        self._root_decoration_update_scheduled = True
+        QTimer.singleShot(0, self._run_root_decoration_refresh)
+
+    def _run_root_decoration_refresh(self):
+        self._root_decoration_update_scheduled = False
+        self._refresh_root_decoration()
+
+    def _schedule_item_widget_width_sync(self):
+        if self._item_width_sync_scheduled:
+            return
+        self._item_width_sync_scheduled = True
+        QTimer.singleShot(0, self._run_item_widget_width_sync)
+
+    def _run_item_widget_width_sync(self):
+        self._item_width_sync_scheduled = False
+        self._sync_item_widget_widths()
 
     def setItemWidget(self, item: QTreeWidgetItem, column: int, widget: QWidget):
         if isinstance(widget, FileItemWidget):
@@ -328,34 +440,99 @@ class FileListView(TreeWidget):
             widget.setFixedHeight(FileItemWidget.ROW_HEIGHT)
         super().setItemWidget(item, column, widget)
         self._sync_empty_state_overlay()
-        QTimer.singleShot(0, self._refresh_root_decoration)
+        self._schedule_root_decoration_refresh()
+        if isinstance(widget, FileItemWidget):
+            self._schedule_visible_thumbnail_loads()
 
     def _finalize_folder_item(self, folder_item: QTreeWidgetItem):
         folder_item.setExpanded(False)
-        self._refresh_root_decoration()
+        self._schedule_root_decoration_refresh()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._sync_item_widget_widths()
         self._sync_empty_state_overlay()
+        self._schedule_visible_thumbnail_loads()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._schedule_visible_thumbnail_loads()
+
+    def _schedule_visible_thumbnail_loads(self, *_args):
+        if self._thumbnail_update_scheduled:
+            return
+        self._thumbnail_update_scheduled = True
+        QTimer.singleShot(0, self._load_visible_thumbnails)
+
+    def _load_visible_thumbnails(self):
+        self._thumbnail_update_scheduled = False
+        for item in self._collect_visible_items():
+            widget = self.itemWidget(item, 0)
+            if widget is None and item.data(0, self._FS_DEFERRED_WIDGET_ROLE):
+                widget = self._materialize_file_item_widget(item)
+            if isinstance(widget, FileItemWidget):
+                widget.ensure_thumbnail_loaded()
+
+    def _collect_visible_items(self) -> List[QTreeWidgetItem]:
+        viewport = self.viewport()
+        if viewport is None or viewport.height() <= 0 or viewport.width() <= 0:
+            return []
+
+        visible_items = {}
+        width = viewport.width()
+        sample_x_positions = {
+            max(0, min(4, width - 1)),
+            max(0, width // 2),
+            max(0, width - 4),
+        }
+        step = max(1, self._ROW_HEIGHT // 2)
+        for y in range(0, viewport.height() + step, step):
+            for x in sample_x_positions:
+                item = self.itemAt(x, y)
+                if item is not None:
+                    visible_items[id(item)] = item
+        return list(visible_items.values())
+
+    def _item_depth(self, item: QTreeWidgetItem) -> int:
+        depth = 0
+        parent = item.parent()
+        while parent is not None:
+            depth += 1
+            parent = parent.parent()
+        return depth
+
+    def _materialize_file_item_widget(self, item: QTreeWidgetItem) -> Optional[FileItemWidget]:
+        file_path = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(file_path, str) or os.path.isdir(file_path):
+            return None
+
+        existing_widget = self.itemWidget(item, 0)
+        if isinstance(existing_widget, FileItemWidget):
+            item.setData(0, self._FS_DEFERRED_WIDGET_ROLE, False)
+            return existing_widget
+
+        file_widget = FileItemWidget(file_path, is_folder=False, defer_thumbnail=True)
+        file_widget.remove_requested.connect(self.file_remove_requested.emit)
+        item.setText(0, "")
+        item.setData(0, self._FS_DEFERRED_WIDGET_ROLE, False)
+        self.setItemWidget(item, 0, file_widget)
+        return file_widget
 
     def _sync_item_widget_widths(self):
         viewport_width = max(120, self.viewport().width() - 6)
         self.setColumnWidth(0, viewport_width)
 
-        def sync_item(item: QTreeWidgetItem, depth: int = 0):
+        for item in self._collect_visible_items():
             widget = self.itemWidget(item, 0)
-            if isinstance(widget, FileItemWidget):
-                rect = self.visualItemRect(item)
-                left = rect.left() if rect.isValid() else depth * self.indentation()
-                width = max(120, self.viewport().width() - left - 10)
-                widget.setFixedWidth(width)
-                widget._update_elided_name()
-            for index in range(item.childCount()):
-                sync_item(item.child(index), depth + 1)
-
-        for index in range(self.topLevelItemCount()):
-            sync_item(self.topLevelItem(index))
+            if widget is None and item.data(0, self._FS_DEFERRED_WIDGET_ROLE):
+                widget = self._materialize_file_item_widget(item)
+            if not isinstance(widget, FileItemWidget):
+                continue
+            rect = self.visualItemRect(item)
+            left = rect.left() if rect.isValid() else self._item_depth(item) * self.indentation()
+            width = max(120, self.viewport().width() - left - 10)
+            widget.setFixedWidth(width)
+            widget._update_elided_name()
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -421,6 +598,182 @@ class FileListView(TreeWidget):
         if file_path and not os.path.isdir(file_path):
             self.file_selected.emit(file_path)
 
+    def _is_supported_list_file(self, file_path: str) -> bool:
+        return os.path.splitext(file_path)[1].lower() in self._SUPPORTED_LIST_EXTENSIONS
+
+    def _filesystem_key(self, path: str) -> str:
+        return os.path.normcase(os.path.abspath(os.path.normpath(path)))
+
+    def _is_filesystem_placeholder(self, item: QTreeWidgetItem) -> bool:
+        return bool(item.data(0, self._FS_PLACEHOLDER_ROLE))
+
+    def _has_filesystem_placeholder(self, folder_item: QTreeWidgetItem) -> bool:
+        for index in range(folder_item.childCount()):
+            if self._is_filesystem_placeholder(folder_item.child(index)):
+                return True
+        return False
+
+    def _add_filesystem_placeholder(self, folder_item: QTreeWidgetItem):
+        if self._has_filesystem_placeholder(folder_item):
+            return
+        placeholder = QTreeWidgetItem()
+        placeholder.setText(0, "...")
+        placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+        placeholder.setData(0, self._FS_PLACEHOLDER_ROLE, True)
+        folder_item.addChild(placeholder)
+
+    def _remove_filesystem_placeholders(self, folder_item: QTreeWidgetItem):
+        for index in range(folder_item.childCount() - 1, -1, -1):
+            child = folder_item.child(index)
+            if self._is_filesystem_placeholder(child):
+                folder_item.removeChild(child)
+
+    def _folder_has_child_folders(self, folder_item: QTreeWidgetItem) -> bool:
+        for index in range(folder_item.childCount()):
+            child_path = folder_item.child(index).data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(child_path, str) and os.path.isdir(child_path):
+                return True
+        return False
+
+    def _create_filesystem_folder_item(self, folder_path: str, parent_item: QTreeWidgetItem = None) -> QTreeWidgetItem:
+        norm_folder = os.path.normpath(folder_path)
+        folder_item = QTreeWidgetItem()
+        folder_item.setData(0, Qt.ItemDataRole.UserRole, norm_folder)
+        folder_item.setData(0, self._FS_LOADED_ROLE, False)
+        folder_item.setData(0, self._FS_LOADING_ROLE, False)
+
+        folder_widget = FileItemWidget(norm_folder, is_folder=True)
+        folder_widget.remove_requested.connect(self.file_remove_requested.emit)
+
+        if parent_item is None:
+            self.addTopLevelItem(folder_item)
+        else:
+            parent_item.addChild(folder_item)
+        self.setItemWidget(folder_item, 0, folder_widget)
+        self.folder_nodes[norm_folder] = folder_item
+        self._add_filesystem_placeholder(folder_item)
+        self._finalize_folder_item(folder_item)
+        return folder_item
+
+    def _add_filesystem_folder(self, folder_path: str, parent_item: QTreeWidgetItem = None) -> Optional[QTreeWidgetItem]:
+        norm_folder = os.path.normpath(folder_path)
+        existing_item = self.folder_nodes.get(norm_folder)
+        if existing_item is not None:
+            return existing_item
+        return self._create_filesystem_folder_item(norm_folder, parent_item)
+
+    def _request_filesystem_directory(self, folder_item: QTreeWidgetItem):
+        folder_path = folder_item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(folder_path, str) or not os.path.isdir(folder_path):
+            return
+        if folder_item.data(0, self._FS_LOADED_ROLE) or folder_item.data(0, self._FS_LOADING_ROLE):
+            return
+
+        norm_folder = os.path.normpath(folder_path)
+        folder_key = self._filesystem_key(norm_folder)
+        folder_item.setData(0, self._FS_LOADING_ROLE, True)
+        self._fs_pending_items[folder_key] = folder_item
+        future = _directory_scan_executor.submit(
+            _scan_directory_worker,
+            norm_folder,
+            self._SUPPORTED_LIST_EXTENSIONS,
+        )
+        future.add_done_callback(
+            lambda scan_future, key=folder_key: self._on_filesystem_scan_future_done(key, scan_future)
+        )
+
+    def _on_item_expanded(self, item: QTreeWidgetItem):
+        self._request_filesystem_directory(item)
+
+    def _on_filesystem_scan_future_done(self, folder_key: str, future):
+        try:
+            _folder_path, subdirs, files = future.result()
+        except Exception as e:
+            print(f"Error scanning folder: {e}")
+            subdirs = []
+            files = []
+        self._filesystem_directory_scanned.emit(folder_key, subdirs, files)
+
+    @pyqtSlot(str, object, object)
+    def _on_filesystem_directory_scanned(self, folder_key: str, subdirs: List[str], files: List[str]):
+        folder_item = self._fs_pending_items.pop(folder_key, None)
+        if folder_item is None:
+            return
+
+        self._start_filesystem_populate_job(folder_key, folder_item, subdirs, files)
+
+    def _start_filesystem_populate_job(
+        self,
+        folder_key: str,
+        folder_item: QTreeWidgetItem,
+        subdirs: List[str],
+        files: List[str],
+    ):
+        self._fs_populate_jobs[folder_key] = {
+            'folder_item': folder_item,
+            'subdirs': subdirs,
+            'files': files,
+            'direct_file_count': len(files),
+            'subdir_index': 0,
+            'file_index': 0,
+            'placeholder_removed': False,
+        }
+        QTimer.singleShot(0, lambda key=folder_key: self._process_filesystem_populate_chunk(key))
+
+    def _process_filesystem_populate_chunk(self, folder_key: str):
+        job = self._fs_populate_jobs.get(folder_key)
+        if job is None:
+            return
+
+        folder_item = job['folder_item']
+        try:
+            if folder_item.treeWidget() is not self:
+                self._fs_populate_jobs.pop(folder_key, None)
+                return
+        except RuntimeError:
+            self._fs_populate_jobs.pop(folder_key, None)
+            return
+
+        if not job['placeholder_removed']:
+            self._remove_filesystem_placeholders(folder_item)
+            job['placeholder_removed'] = True
+
+        added_count = 0
+        self.setUpdatesEnabled(False)
+        try:
+            while added_count < self._FS_POPULATE_CHUNK_SIZE and job['subdir_index'] < len(job['subdirs']):
+                subdir = job['subdirs'][job['subdir_index']]
+                job['subdir_index'] += 1
+                self._add_filesystem_folder(subdir, folder_item)
+                added_count += 1
+
+            while added_count < self._FS_POPULATE_CHUNK_SIZE and job['file_index'] < len(job['files']):
+                file_path = job['files'][job['file_index']]
+                job['file_index'] += 1
+                self._add_file_to_folder(file_path, folder_item, defer_widget=True)
+                added_count += 1
+        finally:
+            self.setUpdatesEnabled(True)
+
+        has_more = job['subdir_index'] < len(job['subdirs']) or job['file_index'] < len(job['files'])
+        if has_more:
+            QTimer.singleShot(1, lambda key=folder_key: self._process_filesystem_populate_chunk(key))
+            return
+
+        folder_item.setData(0, self._FS_LOADED_ROLE, True)
+        folder_item.setData(0, self._FS_LOADING_ROLE, False)
+        self._fs_populate_jobs.pop(folder_key, None)
+        folder_widget = self.itemWidget(folder_item, 0)
+        if isinstance(folder_widget, FileItemWidget):
+            if job['direct_file_count'] > 0 or not job['subdirs']:
+                folder_widget.update_file_count(job['direct_file_count'])
+            else:
+                folder_widget.clear_file_count()
+        self._schedule_root_decoration_refresh()
+        self._schedule_item_widget_width_sync()
+        self._schedule_visible_thumbnail_loads()
+        self.viewport().update()
+
     def add_files(self, file_paths: List[str]):
         """添加多个文件/文件夹到列表（异步处理大文件夹）"""
         folders_to_add = []
@@ -437,53 +790,32 @@ class FileListView(TreeWidget):
         for file_path in files_to_add:
             self._add_single_file(file_path)
         
-        # 异步添加文件夹（避免阻塞UI）
-        if folders_to_add:
-            # 显示加载提示
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            
-            # 在后台线程中扫描文件夹结构
-            def scan_folder_structure():
-                result = []
-                for folder_path in folders_to_add:
-                    if folder_path in self.folder_nodes:
-                        continue  # 文件夹已存在
-                    
-                    # 在后台线程中扫描文件夹结构
-                    folder_data = self._scan_folder_structure(folder_path)
-                    result.append((folder_path, folder_data))
-                return result
-            
-            future = _thumbnail_executor.submit(scan_folder_structure)
-            future.add_done_callback(lambda f: self._folders_scanned.emit(f.result()))
+        for folder_path in folders_to_add:
+            self._add_filesystem_folder(folder_path)
     
     def _scan_folder_structure(self, folder_path: str):
-        """在后台线程中扫描文件夹结构（不创建UI元素）"""
+        """兼容旧调用：递归扫描文件夹结构（不创建UI元素）"""
+        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
+        archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
+        all_extensions = image_extensions | archive_extensions
+        structure = {'subdirs': [], 'files': [], 'subdir_data': {}}
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
-            archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
-            all_extensions = image_extensions | archive_extensions
-            structure = {'subdirs': [], 'files': [], 'subdir_data': {}}
-            
-            items = os.listdir(folder_path)
-            for item in items:
-                if item == 'manga_translator_work':
-                    continue
-                    
-                item_path = os.path.join(folder_path, item)
-                if os.path.isdir(item_path):
-                    structure['subdirs'].append(item_path)
-                elif os.path.splitext(item)[1].lower() in all_extensions:
-                    structure['files'].append(item_path)
-            
-            # 排序
+            with os.scandir(folder_path) as entries:
+                for entry in entries:
+                    if entry.name == 'manga_translator_work':
+                        continue
+                    try:
+                        if entry.is_dir():
+                            structure['subdirs'].append(os.path.normpath(entry.path))
+                        elif entry.is_file() and os.path.splitext(entry.name)[1].lower() in all_extensions:
+                            structure['files'].append(os.path.normpath(entry.path))
+                    except OSError:
+                        continue
+
             structure['subdirs'].sort(key=natural_sort_key)
             structure['files'].sort(key=natural_sort_key)
-            
-            # 递归扫描子文件夹
             for subdir in structure['subdirs']:
                 structure['subdir_data'][subdir] = self._scan_folder_structure(subdir)
-            
             return structure
         except Exception as e:
             print(f"Error scanning folder {folder_path}: {e}")
@@ -551,7 +883,7 @@ class FileListView(TreeWidget):
             file_item = QTreeWidgetItem(parent_item)
             file_item.setData(0, Qt.ItemDataRole.UserRole, file_path)
             
-            file_widget = FileItemWidget(file_path, is_folder=False)
+            file_widget = FileItemWidget(file_path, is_folder=False, defer_thumbnail=True)
             file_widget.remove_requested.connect(self.file_remove_requested.emit)
             
             parent_item.addChild(file_item)
@@ -567,11 +899,11 @@ class FileListView(TreeWidget):
         """
         if not folder_tree:
             return
-        
+
         # 找到所有根文件夹（没有父文件夹在tree中的文件夹）
         all_folders = set(folder_tree.keys())
         root_folders = []
-        
+
         for folder in all_folders:
             is_root = True
             for other_folder in all_folders:
@@ -583,10 +915,20 @@ class FileListView(TreeWidget):
         
         # 按自然排序
         root_folders.sort(key=natural_sort_key)
-        
-        # 为每个根文件夹创建树
+
+        # 编辑器切换时只添加根文件夹，子项仍按展开懒加载，避免重复创建大量 UI 控件。
         for root_folder in root_folders:
-            self._create_folder_node_from_tree(root_folder, folder_tree, None)
+            folder_item = self._add_filesystem_folder(root_folder)
+            folder_widget = self.itemWidget(folder_item, 0) if folder_item is not None else None
+            if isinstance(folder_widget, FileItemWidget):
+                folder_widget.update_file_count(self._count_files_in_folder_tree(root_folder, folder_tree))
+
+    def _count_files_in_folder_tree(self, folder_path: str, folder_tree: dict) -> int:
+        folder_data = folder_tree.get(folder_path, {})
+        count = len(folder_data.get('files', []))
+        for subfolder in folder_data.get('subfolders', []):
+            count += self._count_files_in_folder_tree(subfolder, folder_tree)
+        return count
     
     def _create_folder_node_from_tree(self, folder_path: str, folder_tree: dict, parent_item: QTreeWidgetItem = None):
         """从树结构递归创建文件夹节点"""
@@ -917,7 +1259,7 @@ class FileListView(TreeWidget):
                 file_item = QTreeWidgetItem(parent_item)
                 file_item.setData(0, Qt.ItemDataRole.UserRole, file_path)
                 
-                file_widget = FileItemWidget(file_path, is_folder=False)
+                file_widget = FileItemWidget(file_path, is_folder=False, defer_thumbnail=True)
                 file_widget.remove_requested.connect(self.file_remove_requested.emit)
                 
                 parent_item.addChild(file_item)
@@ -1008,12 +1350,19 @@ class FileListView(TreeWidget):
         self._update_folder_count(folder_item)
         self._finalize_folder_item(folder_item)
 
-    def _add_file_to_folder(self, file_path: str, parent_item: QTreeWidgetItem):
+    def _add_file_to_folder(self, file_path: str, parent_item: QTreeWidgetItem, defer_widget: bool = False):
         """将文件添加到文件夹节点下"""
-        file_item = QTreeWidgetItem(parent_item)
+        file_item = QTreeWidgetItem()
         file_item.setData(0, Qt.ItemDataRole.UserRole, file_path)
+        file_item.setSizeHint(0, QSize(0, self._ROW_HEIGHT))
+        if defer_widget:
+            file_item.setText(0, os.path.basename(file_path))
+            file_item.setToolTip(0, file_path)
+            file_item.setData(0, self._FS_DEFERRED_WIDGET_ROLE, True)
+            parent_item.addChild(file_item)
+            return
         
-        file_widget = FileItemWidget(file_path, is_folder=False)
+        file_widget = FileItemWidget(file_path, is_folder=False, defer_thumbnail=True)
         file_widget.remove_requested.connect(self.file_remove_requested.emit)
         
         parent_item.addChild(file_item)
@@ -1030,7 +1379,7 @@ class FileListView(TreeWidget):
         file_item = QTreeWidgetItem(self)
         file_item.setData(0, Qt.ItemDataRole.UserRole, file_path)
         
-        file_widget = FileItemWidget(file_path, is_folder=False)
+        file_widget = FileItemWidget(file_path, is_folder=False, defer_thumbnail=True)
         file_widget.remove_requested.connect(self.file_remove_requested.emit)
         
         self.addTopLevelItem(file_item)
@@ -1133,9 +1482,20 @@ class FileListView(TreeWidget):
                 # 递归统计所有文件数量
                 count = self._count_files_in_tree(folder_item)
                 folder_path = folder_item.data(0, Qt.ItemDataRole.UserRole)
+                is_filesystem_node = folder_item.data(0, self._FS_LOADED_ROLE) is not None
+                has_unloaded_children = (
+                    is_filesystem_node
+                    and (
+                        self._has_filesystem_placeholder(folder_item)
+                        or not folder_item.data(0, self._FS_LOADED_ROLE)
+                    )
+                )
+                has_child_folders = self._folder_has_child_folders(folder_item)
                 
                 # 如果文件夹为空（计数为0），删除该文件夹节点
                 if count == 0:
+                    if has_unloaded_children or has_child_folders:
+                        return False
                     # 从 folder_nodes 中移除
                     if folder_path in self.folder_nodes:
                         del self.folder_nodes[folder_path]
@@ -1189,6 +1549,8 @@ class FileListView(TreeWidget):
         """
         super().clear()
         self.folder_nodes.clear()
+        self._fs_pending_items.clear()
+        self._fs_populate_jobs.clear()
         
         if clear_cache:
             FileItemWidget.clear_thumbnail_cache()

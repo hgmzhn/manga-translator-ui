@@ -151,10 +151,31 @@ class MainAppLogic(QObject):
         self.file_to_folder_map: Dict[str, Optional[str]] = {} # 记录文件来自哪个文件夹
         self.archive_to_temp_map: Dict[str, str] = {} # 记录压缩包解压的临时目录
         self.excluded_subfolders: set = set() # 记录被删除的子文件夹路径
-        self.folder_tree_cache: Dict[str, dict] = {} # 缓存文件夹的完整树结构 {top_folder: tree_structure}
+        self.folder_tree_cache: Dict[tuple, dict] = {} # 缓存当前文件列表的完整树结构
 
         self.app_config = AppConfig()
         self._ui_log("主页面应用业务逻辑初始化完成")
+
+    def _invalidate_folder_tree_cache(self):
+        self.folder_tree_cache.clear()
+
+    def _folder_tree_cache_key(self) -> tuple:
+        return (
+            tuple(os.path.normcase(os.path.abspath(os.path.normpath(path))) for path in self.source_files),
+            tuple(sorted(os.path.normcase(os.path.abspath(os.path.normpath(path))) for path in self.excluded_subfolders)),
+        )
+
+    def _copy_folder_tree_structure(self, structure: dict) -> dict:
+        return {
+            'files': list(structure.get('files', [])),
+            'tree': {
+                folder_path: {
+                    'files': list(folder_data.get('files', [])),
+                    'subfolders': list(folder_data.get('subfolders', [])),
+                }
+                for folder_path, folder_data in structure.get('tree', {}).items()
+            },
+        }
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -1717,6 +1738,7 @@ class MainAppLogic(QObject):
                 new_paths.append(norm_path)
 
         if new_paths:
+            self._invalidate_folder_tree_cache()
             self.source_files.extend(new_paths)
             self.logger.info(f"Added {len(new_paths)} files/folders to the list.")
             self.files_added.emit(new_paths)
@@ -1765,6 +1787,7 @@ class MainAppLogic(QObject):
             
             # 情况1：直接在 source_files 中（文件夹或单独添加的文件）
             if matched_path:
+                self._invalidate_folder_tree_cache()
                 self.source_files.remove(matched_path)
                 # 如果是文件，清理 file_to_folder_map
                 if matched_path in self.file_to_folder_map:
@@ -1802,6 +1825,7 @@ class MainAppLogic(QObject):
                             continue
                 
                 if parent_folder:
+                    self._invalidate_folder_tree_cache()
                     # 这是子文件夹，添加到排除列表
                     self.excluded_subfolders.add(norm_file_path)
                     # 发射删除信号让 FileListView 处理
@@ -1831,6 +1855,7 @@ class MainAppLogic(QObject):
                         del self.file_to_folder_map[f]
                 
                 if files_to_remove:
+                    self._invalidate_folder_tree_cache()
                     self.file_removed.emit(file_path)
                     return
             
@@ -1852,6 +1877,7 @@ class MainAppLogic(QObject):
                             continue
                 
                 if parent_folder:
+                    self._invalidate_folder_tree_cache()
                     # 这是文件夹内的文件，需要将其添加到排除列表
                     # 由于当前架构不支持排除单个文件，我们需要：
                     # 1. 移除整个文件夹
@@ -1889,6 +1915,7 @@ class MainAppLogic(QObject):
         self.source_files.clear()
         self.file_to_folder_map.clear()  # 清空文件夹映射
         self.excluded_subfolders.clear()  # 清空排除列表
+        self._invalidate_folder_tree_cache()
         self.files_cleared.emit()
         self.logger.info("File list cleared by user.")
     # endregion
@@ -1909,6 +1936,10 @@ class MainAppLogic(QObject):
         """
         tree = {}
         all_files = []
+        cache_key = self._folder_tree_cache_key()
+        cached_structure = self.folder_tree_cache.get(cache_key)
+        if cached_structure is not None:
+            return self._copy_folder_tree_structure(cached_structure)
         
         # 处理每个顶层文件夹
         for source_path in self.source_files:
@@ -1921,10 +1952,12 @@ class MainAppLogic(QObject):
                 # 单独添加的文件
                 all_files.append(source_path)
         
-        return {
+        structure = {
             'files': all_files,
             'tree': tree
         }
+        self.folder_tree_cache[cache_key] = self._copy_folder_tree_structure(structure)
+        return structure
     
     def _build_folder_tree(self, folder_path: str, tree: dict) -> List[str]:
         """
@@ -2027,6 +2060,7 @@ class MainAppLogic(QObject):
         self.file_to_folder_map = file_map
         self.archive_to_temp_map = archive_map
         self.excluded_subfolders = excluded
+        self._invalidate_folder_tree_cache()
         
         # 检查文件列表是否为空
         if not resolved_files:
