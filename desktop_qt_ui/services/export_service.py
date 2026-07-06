@@ -367,7 +367,15 @@ class ExportService:
             except Exception:
                 pass
     
-    def _save_regions_data_with_path(self, regions_data: List[Dict[str, Any]], json_path: str, image_path: str, mask: Optional[np.ndarray] = None, config: Optional[Dict[str, Any]] = None):
+    def _save_regions_data_with_path(
+        self,
+        regions_data: List[Dict[str, Any]],
+        json_path: str,
+        image_path: str,
+        mask: Optional[np.ndarray] = None,
+        config: Optional[Dict[str, Any]] = None,
+        last_export_dir: Optional[str] = None,
+    ):
         """保存区域数据到JSON文件，使用正确的图片路径作为键（用于编辑器保存）"""
         # 使用图片的绝对路径作为键，与加载时保持一致
         image_key = os.path.abspath(image_path)
@@ -378,6 +386,7 @@ class ExportService:
             mask,
             config,
             preserve_existing_preprocess_flags=True,
+            last_export_dir=last_export_dir,
         )
 
     def _save_regions_data(self, regions_data: List[Dict[str, Any]], json_path: str, mask: Optional[np.ndarray] = None, config: Optional[Dict[str, Any]] = None):
@@ -474,6 +483,12 @@ class ExportService:
             if existing_colorizer and str(existing_colorizer).lower() != 'none':
                 target_data['colorizer'] = existing_colorizer
                 self.logger.info(f"保留已有上色信息: colorizer={existing_colorizer}")
+
+        if not target_data.get('last_export_dir'):
+            existing_export_dir = existing_image_data.get('last_export_dir')
+            if isinstance(existing_export_dir, str) and existing_export_dir:
+                target_data['last_export_dir'] = existing_export_dir
+                self.logger.info(f"保留已有导出目录: {existing_export_dir}")
     
     def _save_regions_data_internal(
         self,
@@ -484,6 +499,7 @@ class ExportService:
         config: Optional[Dict[str, Any]] = None,
         skip_text_replacements: bool = False,
         preserve_existing_preprocess_flags: bool = False,
+        last_export_dir: Optional[str] = None,
     ):
         """保存区域数据到JSON文件的内部实现"""
         # 获取超分倍率，用于放大坐标
@@ -645,6 +661,9 @@ class ExportService:
         if preserve_existing_preprocess_flags:
             existing_image_data = self._read_existing_image_data(json_path, image_key)
             self._preserve_existing_preprocess_flags(formatted_data[image_key], existing_image_data)
+
+        if last_export_dir:
+            formatted_data[image_key]['last_export_dir'] = os.path.normpath(last_export_dir)
         
         # 如果有蒙版数据，则添加到JSON中
         if mask is not None:

@@ -428,13 +428,21 @@ class EditorControllerExportService:
         mask: Optional[np.ndarray],
         config_dict: dict,
         inpainted_image: Optional[object] = None,
+        last_export_dir: Optional[str] = None,
     ) -> str:
         json_path = self.resolve_editor_json_path(source_path)
         # 写盘的 region 保持 center=源区域中心、white_frame_rect_local 相对该中心。
         # 给后端 load_text 渲染用的副本（_build_enhanced_regions）才需要把
         # center 平移到白框中心；两条路径不能共用，否则下次编辑器加载会再叠加一次偏移。
         json_regions = [dict(region) for region in regions]
-        export_service._save_regions_data_with_path(json_regions, json_path, source_path, mask, config_dict)
+        export_service._save_regions_data_with_path(
+            json_regions,
+            json_path,
+            source_path,
+            mask,
+            config_dict,
+            last_export_dir=last_export_dir,
+        )
         self.save_current_inpainted_image(
             source_path,
             config_dict,
@@ -464,24 +472,25 @@ class EditorControllerExportService:
             if not isinstance(image_data, dict):
                 return None
             saved_dir = image_data.get("last_export_dir")
-            if isinstance(saved_dir, str) and saved_dir and os.path.isdir(saved_dir):
-                return saved_dir
+            if isinstance(saved_dir, str) and saved_dir.strip():
+                return os.path.normpath(saved_dir.strip())
         except Exception as e:
             self.logger.debug(f"Failed to read saved export dir for {source_path}: {e}")
         return None
 
     def _build_output_path(self, config, source_path: Optional[str]) -> str:
-        save_to_source_dir = getattr(config.cli, "save_to_source_dir", False) if hasattr(config, "cli") else False
-        if save_to_source_dir and source_path:
-            output_dir = os.path.join(os.path.dirname(source_path), "manga_translator_work", "result")
-            os.makedirs(output_dir, exist_ok=True)
+        saved_export_dir = self._read_saved_export_dir(source_path)
+        if saved_export_dir:
+            output_dir = saved_export_dir
         else:
-            # 优先使用 JSON 中记录的目录（主翻译流程上次导出的位置），让编辑器导出回到原目录
-            output_dir = self._read_saved_export_dir(source_path)
-            if not output_dir:
+            save_to_source_dir = getattr(config.cli, "save_to_source_dir", False) if hasattr(config, "cli") else False
+            if save_to_source_dir and source_path:
+                output_dir = os.path.join(os.path.dirname(source_path), "manga_translator_work", "result")
+            else:
                 output_dir = getattr(config.app, "last_output_path", None) if hasattr(config, "app") else None
-            if not output_dir or not os.path.exists(output_dir):
-                output_dir = os.path.dirname(source_path) if source_path else os.getcwd()
+                if not output_dir or not os.path.exists(output_dir):
+                    output_dir = os.path.dirname(source_path) if source_path else os.getcwd()
+        os.makedirs(output_dir, exist_ok=True)
 
         if source_path:
             base_name = os.path.splitext(os.path.basename(source_path))[0]
@@ -564,6 +573,7 @@ class EditorControllerExportService:
                     mask=mask,
                     config_dict=config_dict,
                     inpainted_image=inpainted_image,
+                    last_export_dir=os.path.dirname(output_path),
                 )
                 outcome["json_path"] = persisted_json_path
                 # 同步持久化彩色画笔图层
