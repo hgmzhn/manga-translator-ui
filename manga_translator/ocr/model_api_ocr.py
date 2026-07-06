@@ -278,7 +278,7 @@ class BaseAPIOCR(OfflineOCR):
                 image_tensor = image_tensor.to(self.device)
 
             with torch.no_grad():
-                ret = self.color_model.infer_beam_batch(
+                ret = self.color_model.infer_beam_batch_tensor(
                     image_tensor, [new_w], beams_k=5, max_seq_length=255
                 )
 

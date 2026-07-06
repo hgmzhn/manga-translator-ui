@@ -499,7 +499,7 @@ class ModelPaddleOCRVL(OfflineOCR):
 
             # 使用 48px 模型推理
             with torch.no_grad():
-                ret = self.color_model.infer_beam_batch(image_tensor, [new_w], beams_k=5, max_seq_length=255)
+                ret = self.color_model.infer_beam_batch_tensor(image_tensor, [new_w], beams_k=5, max_seq_length=255)
 
             if ret and len(ret) > 0:
                 pred_chars_index, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred = ret[0]

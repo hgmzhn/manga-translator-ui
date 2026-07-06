@@ -192,8 +192,18 @@ class ModelMangaOCR(OfflineOCR):
             logger=self.logger
         )
         
-        sd = torch.load(self._get_file_path('ocr_ar_48px.ckpt'))
-        self.model.load_state_dict(sd)
+        sd = torch.load(self._get_file_path('ocr_ar_48px.ckpt'), map_location='cpu', weights_only=False)
+        if 'state_dict' in sd:
+            sd = sd['state_dict']
+
+        cleaned_sd = {}
+        for k, v in sd.items():
+            if k.startswith('model.'):
+                cleaned_sd[k[6:]] = v
+            else:
+                cleaned_sd[k] = v
+
+        self.model.load_state_dict(cleaned_sd)
         self.model.eval()
         self.device = device
         if (device == 'cuda' or device == 'mps'):
@@ -288,7 +298,7 @@ class ModelMangaOCR(OfflineOCR):
             if self.use_gpu:
                 image_tensor = image_tensor.to(self.device)
             with torch.no_grad():
-                ret = self.model.infer_beam_batch(image_tensor, valid_widths, beams_k = 5, max_seq_length = 255)
+                ret = self.model.infer_beam_batch_tensor(image_tensor, valid_widths, beams_k = 5, max_seq_length = 255)
             
             for i, (pred_chars_index, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred) in enumerate(ret):
                 if prob < 0.2:
@@ -352,7 +362,7 @@ class ModelMangaOCR(OfflineOCR):
                 br = min(max(int(br()), 0), 255)
                 bg = min(max(int(bg()), 0), 255)
                 bb = min(max(int(bb()), 0), 255)
-                cur_region = quadrilaterals[indices[i]][0]
+                cur_region = quadrilaterals[valid_indices[i]][0]
                 if isinstance(cur_region, Quadrilateral):
                     cur_region.prob = prob
                     cur_region.fg_r = fr

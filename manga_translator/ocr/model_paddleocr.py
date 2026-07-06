@@ -574,7 +574,7 @@ class ModelPaddleOCR(OfflineOCR):
                 
                 # 批量推理
                 with torch.no_grad():
-                    ret = self.color_model.infer_beam_batch(image_tensor, widths, beams_k=5, max_seq_length=255)
+                    ret = self.color_model.infer_beam_batch_tensor(image_tensor, widths, beams_k=5, max_seq_length=255)
                 
                 # 处理结果（与 mocr 完全相同的逻辑）
                 for i, (pred_chars_index, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred) in enumerate(ret):
@@ -664,9 +664,9 @@ class ModelPaddleOCR(OfflineOCR):
             if self.use_gpu:
                 image_tensor = image_tensor.to(self.device)
             
-            # 使用 48px 模型推理 - 使用 infer_beam_batch 而不是 infer_beam_batch_tensor
+            # 使用 48px 模型推理
             with torch.no_grad():
-                ret = self.color_model.infer_beam_batch(image_tensor, [new_w], beams_k=5, max_seq_length=255)
+                ret = self.color_model.infer_beam_batch_tensor(image_tensor, [new_w], beams_k=5, max_seq_length=255)
             
             if ret and len(ret) > 0:
                 pred_chars_index, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred = ret[0]
@@ -828,4 +828,3 @@ class ModelPaddleOCRThai(ModelPaddleOCR):
     """Thai OCR"""
     def __init__(self, *args, **kwargs):
         super().__init__(model_type='thai', *args, **kwargs)
-

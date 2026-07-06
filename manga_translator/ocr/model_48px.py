@@ -931,7 +931,7 @@ def test_infer() :
     img_torch = einops.rearrange((torch.from_numpy(img) / 127.5 - 1.0), 'h w c -> 1 c h w')
 
     with torch.no_grad() :
-        idx, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred = model.infer_beam_batch(img_torch, [new_w], 5, max_seq_length = 32)[0]
+        idx, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred = model.infer_beam_batch_tensor(img_torch, [new_w], 5, max_seq_length = 32)[0]
         txt = ''
         for i in idx :
             txt += dictionary[i]
