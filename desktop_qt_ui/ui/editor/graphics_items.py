@@ -44,10 +44,48 @@ from PyQt6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QStyle,
 )
+from qfluentwidgets import isDarkTheme, themeColor
 
 logger = logging.getLogger("manga_translator")
 
 DRAWING_TOOLS = frozenset({"pen", "brush", "eraser", "paint", "paint_erase"})
+
+
+def _clamp_alpha(alpha: int) -> int:
+    return max(0, min(255, int(alpha)))
+
+
+def _fluent_accent(alpha: int = 255) -> QColor:
+    color = QColor(themeColor())
+    if not color.isValid():
+        color = QColor("#0F6CBD")
+    color.setAlpha(_clamp_alpha(alpha))
+    return color
+
+
+def _fluent_surface(alpha: int = 242) -> QColor:
+    color = QColor(43, 43, 43) if isDarkTheme() else QColor(255, 255, 255)
+    color.setAlpha(_clamp_alpha(alpha))
+    return color
+
+
+def _fluent_neutral(alpha: int = 190) -> QColor:
+    color = QColor(255, 255, 255) if isDarkTheme() else QColor(31, 31, 31)
+    color.setAlpha(_clamp_alpha(alpha))
+    return color
+
+
+def _shadow_color(alpha: int = 130) -> QColor:
+    return QColor(0, 0, 0, _clamp_alpha(alpha))
+
+
+def _editor_pen(color: QColor, width: float, style=Qt.PenStyle.SolidLine) -> QPen:
+    pen = QPen(color)
+    pen.setWidthF(max(0.1, float(width)))
+    pen.setStyle(style)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    return pen
 
 
 # ======================================================================
@@ -295,7 +333,7 @@ class RegionTextItem(QGraphicsItemGroup):
                     for p in self._white_corner_points() + self._white_edge_points():
                         path.addEllipse(p, r, r)
                     ri = self._rotate_handle_info()
-                    rr = (ri["handle_size"] / 2.0) + (4.0 / ri["lod"])
+                    rr = ri["hit_radius"]
                     path.addEllipse(ri["rot_pos"], rr, rr)
                     path.moveTo(ri["center"])
                     path.lineTo(ri["rot_pos"])
@@ -327,16 +365,33 @@ class RegionTextItem(QGraphicsItemGroup):
                 ri = self._rotate_handle_info()
                 hs = ri["handle_size"]
                 pw = ri["pen_width"]
-
-                painter.setPen(QPen(QColor("red"), pw * 1.5))
-                painter.drawLine(ri["center"], ri["rot_pos"])
-                painter.setBrush(QBrush(QColor("red")))
-                painter.setPen(QPen(QColor("white"), pw))
-                painter.drawEllipse(
-                    int(ri["rot_pos"].x() - hs / 2),
-                    int(ri["rot_pos"].y() - hs / 2),
-                    int(hs), int(hs),
+                half = hs / 2.0
+                rot_rect = QRectF(
+                    ri["rot_pos"].x() - half,
+                    ri["rot_pos"].y() - half,
+                    hs,
+                    hs,
                 )
+
+                painter.setPen(_editor_pen(_shadow_color(125), pw * 3.0))
+                painter.drawLine(ri["center"], ri["rot_pos"])
+                painter.setPen(_editor_pen(_fluent_accent(205), pw * 1.45))
+                painter.drawLine(ri["center"], ri["rot_pos"])
+                painter.setBrush(QBrush(_fluent_surface(245)))
+                painter.setPen(_editor_pen(_shadow_color(110), pw * 2.8))
+                painter.drawEllipse(rot_rect)
+                painter.setPen(_editor_pen(_fluent_accent(235), pw * 1.2))
+                painter.drawEllipse(rot_rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45))
+                dot = hs * 0.32
+                dot_rect = QRectF(
+                    ri["rot_pos"].x() - dot / 2.0,
+                    ri["rot_pos"].y() - dot / 2.0,
+                    dot,
+                    dot,
+                )
+                painter.setBrush(QBrush(_fluent_accent(225)))
+                painter.setPen(QPen(Qt.PenStyle.NoPen))
+                painter.drawEllipse(dot_rect)
                 self._draw_white_handles(painter)
 
             painter.restore()
@@ -389,15 +444,19 @@ class RegionTextItem(QGraphicsItemGroup):
         poly = QPolygonF([QPointF(left, top), QPointF(right, top), QPointF(right, bottom), QPointF(left, bottom)])
 
         if is_selected:
-            painter.setPen(QPen(QColor(0, 255, 255), 4))
-            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            lod = self._lod()
+            painter.setBrush(QBrush(_fluent_accent(18)))
+            painter.setPen(_editor_pen(_shadow_color(135), 5.0 / lod))
             painter.drawPolygon(poly)
-            painter.setPen(QPen(QColor("black"), 2))
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            painter.setPen(_editor_pen(_fluent_accent(235), 2.35 / lod))
             painter.drawPolygon(poly)
         else:
-            pen = QPen(QColor(230, 230, 230), 2)
-            pen.setStyle(Qt.PenStyle.DashLine)
-            painter.setPen(pen)
+            lod = self._lod()
+            painter.setPen(_editor_pen(_shadow_color(105), 3.0 / lod, Qt.PenStyle.DashLine))
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            painter.drawPolygon(poly)
+            painter.setPen(_editor_pen(_fluent_neutral(180), 1.25 / lod, Qt.PenStyle.DashLine))
             painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             painter.drawPolygon(poly)
 
@@ -406,16 +465,27 @@ class RegionTextItem(QGraphicsItemGroup):
         hs = mtx["visual_size"]
         pw = mtx["pen_width"]
         half = hs / 2.0
+        radius = min(3.5 / mtx["lod"], half)
+        accent = _fluent_accent(238)
+        surface = _fluent_surface(246)
+        handle_shadow = _shadow_color(120)
 
-        painter.setBrush(QBrush(QColor(255, 255, 100)))
-        painter.setPen(QPen(QColor("black"), pw))
         for p in self._white_corner_points():
-            painter.drawRect(int(p.x() - half), int(p.y() - half), int(hs), int(hs))
+            rect = QRectF(p.x() - half, p.y() - half, hs, hs)
+            painter.setBrush(QBrush(surface))
+            painter.setPen(_editor_pen(handle_shadow, pw * 2.3))
+            painter.drawRoundedRect(rect, radius, radius)
+            painter.setPen(_editor_pen(accent, pw * 1.15))
+            painter.drawRoundedRect(rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45), radius, radius)
 
-        painter.setBrush(QBrush(QColor(255, 165, 0)))
-        painter.setPen(QPen(QColor("black"), pw))
         for p in self._white_edge_points():
-            painter.drawEllipse(int(p.x() - half), int(p.y() - half), int(hs), int(hs))
+            rect = QRectF(p.x() - half, p.y() - half, hs, hs)
+            painter.setBrush(QBrush(surface))
+            painter.setPen(_editor_pen(handle_shadow, pw * 2.3))
+            painter.drawEllipse(rect)
+            painter.setBrush(QBrush(_fluent_accent(36)))
+            painter.setPen(_editor_pen(accent, pw * 1.15))
+            painter.drawEllipse(rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45))
 
     # ------------------------------------------------------------------
     # 几何 / 手柄参数
@@ -423,12 +493,12 @@ class RegionTextItem(QGraphicsItemGroup):
 
     def _lod(self) -> float:
         if self.scene() and self.scene().views():
-            return self.scene().views()[0].transform().m11()
+            return max(abs(self.scene().views()[0].transform().m11()), 0.01)
         return 1.0
 
     def _rotate_handle_info(self) -> dict:
         lod = self._lod()
-        hs = 10.0 / lod
+        hs = 14.0 / lod
         if self.geo.white_frame_local is not None:
             left, top, right, bottom = self.geo.white_frame_local
             cx = (left + right) / 2
@@ -440,17 +510,18 @@ class RegionTextItem(QGraphicsItemGroup):
             rot_pos = QPointF(0, -40.0 / lod)
         return {
             "lod": lod, "handle_size": hs,
-            "pen_width": 1.5 / lod,
+            "hit_radius": (hs / 2.0) + (6.0 / lod),
+            "pen_width": 1.15 / lod,
             "center": center, "rot_pos": rot_pos,
         }
 
     def _white_handle_metrics(self) -> dict:
         lod = self._lod()
-        vs = 12.0 / lod
+        vs = 13.0 / lod
         return {
             "lod": lod, "visual_size": vs,
-            "hit_radius": (vs / 2.0) + (4.0 / lod),
-            "pen_width": max(1.0 / lod, 1.0),
+            "hit_radius": (vs / 2.0) + (6.0 / lod),
+            "pen_width": 1.15 / lod,
         }
 
     def _rotation_pivot_local(self) -> QPointF:
@@ -594,8 +665,8 @@ class RegionTextItem(QGraphicsItemGroup):
         font = QFont("Arial", 12)
         font.setBold(True)
         self._angle_label.setFont(font)
-        self._angle_label.setBrush(QBrush(QColor(255, 255, 0)))
-        self._angle_label.setPen(QPen(QColor(0, 0, 0), 0.5))
+        self._angle_label.setBrush(QBrush(_fluent_accent(235)))
+        self._angle_label.setPen(_editor_pen(_shadow_color(120), 0.5))
         scene.addItem(self._angle_label)
         self._angle_label.setVisible(False)
 
@@ -608,6 +679,8 @@ class RegionTextItem(QGraphicsItemGroup):
         if normalized > 180:
             normalized -= 360
         self._angle_label.setText(f"{normalized:.1f}°")
+        self._angle_label.setBrush(QBrush(_fluent_accent(235)))
+        self._angle_label.setPen(_editor_pen(_shadow_color(120), 0.5))
         lod = self._lod()
         scale = 1.0 / max(lod, 0.1)
         self._angle_label.setScale(scale)
@@ -937,7 +1010,7 @@ class RegionTextItem(QGraphicsItemGroup):
 
     def _get_handle_at(self, pos: QPointF):
         ri = self._rotate_handle_info()
-        rot_hit_r = (ri["handle_size"] / 2.0) + (4.0 / ri["lod"])
+        rot_hit_r = ri["hit_radius"]
         dx = ri["rot_pos"].x() - pos.x()
         dy = ri["rot_pos"].y() - pos.y()
         if dx * dx + dy * dy <= rot_hit_r * rot_hit_r:
