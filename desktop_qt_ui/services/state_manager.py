@@ -67,7 +67,7 @@ class StateManager(QObject):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self._state: Dict[AppStateKey, Any] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         
         self._initialize_default_state()
 

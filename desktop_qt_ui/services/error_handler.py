@@ -42,9 +42,14 @@ class InputValidator:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         
-        # API密钥验证模式
+        # API密钥验证模式（宽松模式，接受 base64url 编码的密钥；仅作基本格式校验）
         self.api_patterns = {
-            'openai': r'^sk-[a-zA-Z0-9]{48}$',
+            'openai': r'^sk-[a-zA-Z0-9_-]{20,}$',
+            'gemini': r'^AIza[0-9A-Za-z_-]{35}$',
+            'anthropic': r'^sk-ant-[a-zA-Z0-9_-]{20,}$',
+            'deepseek': r'^sk-[a-zA-Z0-9]{20,}$',
+            'qwen': r'^sk-[a-zA-Z0-9_-]{20,}$',
+            'zhipu': r'^[a-zA-Z0-9]{32,64}(\.[a-zA-Z0-9]{8,16})?$',
         }
     
     def validate_file_path(self, file_path: str) -> ValidationResult:

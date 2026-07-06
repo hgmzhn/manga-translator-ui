@@ -23,8 +23,7 @@ def _release_gpu_memory():
     try:
         import torch
         if torch.cuda.is_available():
-            pass
-            pass
+            torch.cuda.empty_cache()
     except ImportError:
         pass
     except Exception:
@@ -610,6 +609,5 @@ class ResourceManager:
     def __del__(self):
         """析构函数"""
         self.cleanup_all()
-
 
 

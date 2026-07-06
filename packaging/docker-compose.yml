@@ -20,7 +20,9 @@ services:
       - MT_RETRY_ATTEMPTS=-1
       - MT_VERBOSE=false
       # 设置管理员密码（首次启动）
-      - MANGA_TRANSLATOR_ADMIN_PASSWORD=admin123456
+      # ⚠️ 安全提醒：请通过 .env 文件或环境变量设置强密码，不要在此硬编码
+      # 如果没有设置，容器启动时会要求设置密码
+      # - MANGA_TRANSLATOR_ADMIN_PASSWORD=your_strong_password_here
     volumes:
       # 持久化数据
       - ./data/fonts:/app/fonts
@@ -71,7 +73,9 @@ services:
       - MT_RETRY_ATTEMPTS=-1
       - MT_VERBOSE=false
       # 设置管理员密码（首次启动）
-      - MANGA_TRANSLATOR_ADMIN_PASSWORD=admin123456
+      # ⚠️ 安全提醒：请通过 .env 文件或环境变量设置强密码，不要在此硬编码
+      # 如果没有设置，容器启动时会要求设置密码
+      # - MANGA_TRANSLATOR_ADMIN_PASSWORD=your_strong_password_here
     volumes:
       # 持久化数据
       - ./data/fonts:/app/fonts
