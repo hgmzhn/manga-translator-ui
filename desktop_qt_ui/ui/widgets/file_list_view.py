@@ -341,6 +341,7 @@ class FileListView(TreeWidget):
     _FS_LOADED_ROLE = Qt.ItemDataRole.UserRole + 2
     _FS_LOADING_ROLE = Qt.ItemDataRole.UserRole + 3
     _FS_DEFERRED_WIDGET_ROLE = Qt.ItemDataRole.UserRole + 4
+    _FS_TREE_BACKED_ROLE = Qt.ItemDataRole.UserRole + 5
     _FS_POPULATE_CHUNK_SIZE = 120
     _SUPPORTED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
     _SUPPORTED_ARCHIVE_EXTENSIONS = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
@@ -377,6 +378,7 @@ class FileListView(TreeWidget):
         self._item_width_sync_scheduled = False
         self._fs_pending_items: Dict[str, QTreeWidgetItem] = {}
         self._fs_populate_jobs = {}
+        self._folder_tree_data: Dict[str, dict] = {}
         
         # 连接选择信号
         self.itemSelectionChanged.connect(self._on_selection_changed)
@@ -635,12 +637,18 @@ class FileListView(TreeWidget):
                 return True
         return False
 
-    def _create_filesystem_folder_item(self, folder_path: str, parent_item: QTreeWidgetItem = None) -> QTreeWidgetItem:
+    def _create_filesystem_folder_item(
+        self,
+        folder_path: str,
+        parent_item: QTreeWidgetItem = None,
+        tree_backed: bool = False,
+    ) -> QTreeWidgetItem:
         norm_folder = os.path.normpath(folder_path)
         folder_item = QTreeWidgetItem()
         folder_item.setData(0, Qt.ItemDataRole.UserRole, norm_folder)
         folder_item.setData(0, self._FS_LOADED_ROLE, False)
         folder_item.setData(0, self._FS_LOADING_ROLE, False)
+        folder_item.setData(0, self._FS_TREE_BACKED_ROLE, tree_backed)
 
         folder_widget = FileItemWidget(norm_folder, is_folder=True)
         folder_widget.remove_requested.connect(self.file_remove_requested.emit)
@@ -662,6 +670,13 @@ class FileListView(TreeWidget):
             return existing_item
         return self._create_filesystem_folder_item(norm_folder, parent_item)
 
+    def _add_tree_folder(self, folder_path: str, parent_item: QTreeWidgetItem = None) -> Optional[QTreeWidgetItem]:
+        norm_folder = os.path.normpath(folder_path)
+        existing_item = self.folder_nodes.get(norm_folder)
+        if existing_item is not None:
+            return existing_item
+        return self._create_filesystem_folder_item(norm_folder, parent_item, tree_backed=True)
+
     def _request_filesystem_directory(self, folder_item: QTreeWidgetItem):
         folder_path = folder_item.data(0, Qt.ItemDataRole.UserRole)
         if not isinstance(folder_path, str) or not os.path.isdir(folder_path):
@@ -672,6 +687,21 @@ class FileListView(TreeWidget):
         norm_folder = os.path.normpath(folder_path)
         folder_key = self._filesystem_key(norm_folder)
         folder_item.setData(0, self._FS_LOADING_ROLE, True)
+
+        if folder_item.data(0, self._FS_TREE_BACKED_ROLE):
+            folder_data = self._folder_tree_data.get(norm_folder, {})
+            subdirs = list(folder_data.get('subfolders', []))
+            files = list(folder_data.get('files', []))
+            self._start_filesystem_populate_job(
+                folder_key,
+                folder_item,
+                subdirs,
+                files,
+                tree_backed=True,
+                recursive_file_count=self._count_files_in_folder_tree(norm_folder, self._folder_tree_data),
+            )
+            return
+
         self._fs_pending_items[folder_key] = folder_item
         future = _directory_scan_executor.submit(
             _scan_directory_worker,
@@ -708,12 +738,16 @@ class FileListView(TreeWidget):
         folder_item: QTreeWidgetItem,
         subdirs: List[str],
         files: List[str],
+        tree_backed: bool = False,
+        recursive_file_count: int = None,
     ):
         self._fs_populate_jobs[folder_key] = {
             'folder_item': folder_item,
             'subdirs': subdirs,
             'files': files,
             'direct_file_count': len(files),
+            'recursive_file_count': recursive_file_count,
+            'tree_backed': tree_backed,
             'subdir_index': 0,
             'file_index': 0,
             'placeholder_removed': False,
@@ -744,7 +778,10 @@ class FileListView(TreeWidget):
             while added_count < self._FS_POPULATE_CHUNK_SIZE and job['subdir_index'] < len(job['subdirs']):
                 subdir = job['subdirs'][job['subdir_index']]
                 job['subdir_index'] += 1
-                self._add_filesystem_folder(subdir, folder_item)
+                if job.get('tree_backed'):
+                    self._add_tree_folder(subdir, folder_item)
+                else:
+                    self._add_filesystem_folder(subdir, folder_item)
                 added_count += 1
 
             while added_count < self._FS_POPULATE_CHUNK_SIZE and job['file_index'] < len(job['files']):
@@ -765,7 +802,9 @@ class FileListView(TreeWidget):
         self._fs_populate_jobs.pop(folder_key, None)
         folder_widget = self.itemWidget(folder_item, 0)
         if isinstance(folder_widget, FileItemWidget):
-            if job['direct_file_count'] > 0 or not job['subdirs']:
+            if job.get('recursive_file_count') is not None:
+                folder_widget.update_file_count(job['recursive_file_count'])
+            elif job['direct_file_count'] > 0 or not job['subdirs']:
                 folder_widget.update_file_count(job['direct_file_count'])
             else:
                 folder_widget.clear_file_count()
@@ -900,14 +939,16 @@ class FileListView(TreeWidget):
         if not folder_tree:
             return
 
+        self._folder_tree_data = self._normalize_folder_tree(folder_tree)
+
         # 找到所有根文件夹（没有父文件夹在tree中的文件夹）
-        all_folders = set(folder_tree.keys())
+        all_folders = set(self._folder_tree_data.keys())
         root_folders = []
 
         for folder in all_folders:
             is_root = True
             for other_folder in all_folders:
-                if folder != other_folder and folder.startswith(other_folder + os.sep):
+                if folder != other_folder and self._is_child_path(folder, other_folder):
                     is_root = False
                     break
             if is_root:
@@ -918,16 +959,36 @@ class FileListView(TreeWidget):
 
         # 编辑器切换时只添加根文件夹，子项仍按展开懒加载，避免重复创建大量 UI 控件。
         for root_folder in root_folders:
-            folder_item = self._add_filesystem_folder(root_folder)
+            folder_item = self._add_tree_folder(root_folder)
             folder_widget = self.itemWidget(folder_item, 0) if folder_item is not None else None
             if isinstance(folder_widget, FileItemWidget):
-                folder_widget.update_file_count(self._count_files_in_folder_tree(root_folder, folder_tree))
+                folder_widget.update_file_count(self._count_files_in_folder_tree(root_folder, self._folder_tree_data))
+
+    def _normalize_folder_tree(self, folder_tree: dict) -> dict:
+        normalized_tree = {}
+        for folder_path, folder_data in folder_tree.items():
+            norm_folder = os.path.normpath(folder_path)
+            normalized_tree[norm_folder] = {
+                'files': [os.path.normpath(file_path) for file_path in folder_data.get('files', [])],
+                'subfolders': [os.path.normpath(subfolder) for subfolder in folder_data.get('subfolders', [])],
+            }
+        return normalized_tree
+
+    def _is_child_path(self, child_path: str, parent_path: str) -> bool:
+        child_norm = os.path.normcase(os.path.abspath(os.path.normpath(child_path)))
+        parent_norm = os.path.normcase(os.path.abspath(os.path.normpath(parent_path)))
+        if child_norm == parent_norm:
+            return False
+        try:
+            return os.path.commonpath([child_norm, parent_norm]) == parent_norm
+        except ValueError:
+            return False
 
     def _count_files_in_folder_tree(self, folder_path: str, folder_tree: dict) -> int:
         folder_data = folder_tree.get(folder_path, {})
         count = len(folder_data.get('files', []))
         for subfolder in folder_data.get('subfolders', []):
-            count += self._count_files_in_folder_tree(subfolder, folder_tree)
+            count += self._count_files_in_folder_tree(os.path.normpath(subfolder), folder_tree)
         return count
     
     def _create_folder_node_from_tree(self, folder_path: str, folder_tree: dict, parent_item: QTreeWidgetItem = None):
@@ -1551,6 +1612,7 @@ class FileListView(TreeWidget):
         self.folder_nodes.clear()
         self._fs_pending_items.clear()
         self._fs_populate_jobs.clear()
+        self._folder_tree_data.clear()
         
         if clear_cache:
             FileItemWidget.clear_thumbnail_cache()
