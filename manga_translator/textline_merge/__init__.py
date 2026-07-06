@@ -11,6 +11,7 @@ from ..utils import Quadrilateral, TextBlock, quadrilateral_can_merge_region
 GROUP_BUBBLE_LABELS = {'balloon', 'qipao', 'other'}
 GROUP_STRIP_LABELS = {'changfangtiao'}
 WRAP_ONLY_LABELS = {'other'}
+MODEL_ASSISTED_MIN_FONT_SIZE_RATIO = 0.5
 
 def _get_det_label(txtln: Quadrilateral) -> Optional[str]:
     label = getattr(txtln, 'det_label', None)
@@ -79,6 +80,23 @@ def _build_text_block_from_txtlns(txtlns: List[Quadrilateral], fg_color: Tuple[i
         letter_spacing=letter_spacing,
         default_stroke_width=stroke_width
     )
+
+def _filter_model_assisted_small_font_payload(txtlns: List[Quadrilateral]) -> List[Quadrilateral]:
+    if len(txtlns) <= 1:
+        return txtlns
+
+    font_sizes = [float(txtln.font_size) for txtln in txtlns]
+    max_font_size = max(font_sizes, default=0.0)
+    if max_font_size <= 0:
+        return txtlns
+
+    min_font_size = max_font_size * MODEL_ASSISTED_MIN_FONT_SIZE_RATIO
+    # Keep the special pre-merge no more permissive than the normal 2x font-size tolerance.
+    return [
+        txtln
+        for txtln, font_size in zip(txtlns, font_sizes)
+        if font_size >= min_font_size
+    ]
 
 def _is_fully_wrapped(inner: Quadrilateral, outer: Quadrilateral, eps: float = 1.0) -> bool:
     inner_x1, inner_y1 = np.min(inner.pts[:, 0]), np.min(inner.pts[:, 1])
@@ -522,11 +540,12 @@ async def dispatch(
                     continue
                 payload_txtlns.append(txtln)
             payload_txtlns = _sort_group_textlines(payload_txtlns)
+            payload_txtlns = _filter_model_assisted_small_font_payload(payload_txtlns)
             if not payload_txtlns:
                 # 仅有包裹辅助框时，不产出文本块；但会在 consumed 中移除，避免后续误合并
                 for txtln in group_txtlns:
                     idx = id_to_idx.get(id(txtln))
-                    if idx is not None:
+                    if idx is not None and _get_det_label(txtln) in WRAP_ONLY_LABELS:
                         consumed_indices.add(idx)
                 continue
 
@@ -545,9 +564,12 @@ async def dispatch(
             )
             if region is not None:
                 text_regions.append(region)
+                payload_ids = {id(txtln) for txtln in payload_txtlns}
                 for txtln in group_txtlns:
                     idx = id_to_idx.get(id(txtln))
-                    if idx is not None:
+                    if idx is not None and (
+                        id(txtln) in payload_ids or _get_det_label(txtln) in WRAP_ONLY_LABELS
+                    ):
                         consumed_indices.add(idx)
 
     if enable_model_assisted_merge:
