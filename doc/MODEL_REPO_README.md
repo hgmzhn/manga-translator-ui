@@ -30,6 +30,7 @@ license: CC-BY-NC-4.0
 - 图像修复模型
 - 图像超分辨率模型
 - 图像上色模型
+- 中文语义断句模型
 
 ## 🎯 使用说明
 
@@ -88,11 +89,17 @@ license: CC-BY-NC-4.0
 - `manga-colorization-v2-generator.zip` - 上色生成器
 - `manga-colorization-v2-net_rgb.pth` - RGB 网络
 
+### 中文语义断句模型 (Chinese Semantic Line Break)
+- `coarse_electra_small_20220616_012050.zip` - HanLP 中文粗粒度分词模型
+- `ctb9_con_electra_small_20220215_230116.zip` - HanLP CTB9 成分句法分析模型
+
+该功能用于中文译文的短语级自动断句，目前仅支持中文目标文本。程序会自动下载并解压到 `models/rendering/hanlp/`。
+
 ## 📊 统计信息
 
-- **模型总数**：64 个文件
+- **模型总数**：66 个文件
 - **总大小**：约 5-8 GB（取决于选择的模型）
-- **来源**：GitHub Release + HuggingFace
+- **来源**：GitHub Release + HuggingFace + HanLP
 
 ## 🔗 相关链接
 
@@ -111,6 +118,7 @@ license: CC-BY-NC-4.0
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) - 多语言 OCR 模型
 - [PaddlePaddle/PaddleOCR-VL-1.5](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5) - 官方 PaddleOCR-VL-1.5 模型
 - [manga109-segmentation-bubble](https://huggingface.co/huyvux3005/manga109-segmentation-bubble) - 漫画气泡检测模型
+- [HanLP](https://github.com/hankcs/HanLP) - 中文分词与成分句法分析模型
 - [Real-CUGAN](https://github.com/bilibili/ailab) - B站 AI Lab 超分模型
 - [MangaJaNai](https://github.com/the-database/MangaJaNai) - 漫画专用超分模型 **(CC BY-NC 4.0，仅限非商业用途)**
 - [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) - 通用超分模型
@@ -142,9 +150,10 @@ license: CC-BY-NC-4.0
 - [kha-white/manga-ocr](https://github.com/kha-white/manga-ocr) - MangaOCR 模型支持
 - [PaddlePaddle/PaddleOCR-VL-1.5](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5) - 提供 PaddleOCR-VL-1.5 模型支持
 - [huyvux3005/manga109-segmentation-bubble](https://huggingface.co/huyvux3005/manga109-segmentation-bubble) - 漫画气泡检测模型支持
+- [hankcs/HanLP](https://github.com/hankcs/HanLP) - 中文语义断句模型支持
 - [xinntao/Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) - Real-ESRGAN 超分模型
 - [nihui/waifu2x-ncnn-vulkan](https://github.com/nihui/waifu2x-ncnn-vulkan) - Waifu2x 超分模型
 
 ---
 
-**最后更新时间**：2026-02-24
+**最后更新时间**：2026-07-06

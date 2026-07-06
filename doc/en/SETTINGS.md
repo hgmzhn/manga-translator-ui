@@ -84,7 +84,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Later translations reuse those terms to keep wording consistent.
   - This is especially useful for long manga series, where character names and terminology should remain stable.
 
-- **`Auto Remove Final Period` (`remove_trailing_period`)**: when the source text has no ending punctuation, automatically remove an extra period added to the translation.
+- **`Auto Remove Final Period/Comma` (`remove_trailing_period`)**: when the source text has no ending punctuation, automatically remove an extra final period or comma added to the translation; enumeration commas are kept.
   - Current UI location: `Settings` -> `Translation` -> `Auto Remove Final Period`
   - Applies to: the main translation flow
   - Coverage: normal batch mode, high-quality batch mode, and the `batch_concurrent` concurrent pipeline
@@ -458,6 +458,8 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Suggested range: `0.05-0.15` (`5%-15%`)
   - Larger values make a thicker border, smaller values make a thinner one
 
+- **`Chinese Semantic Line Break` (`semantic_linebreak`)**: use local HanLP coarse tokenization + constituency parsing models to line-break Chinese translations by semantic phrases. Currently supports Chinese target text only; if models are missing or fail to load, rendering falls back to normal wrapping.
+- **`Trim Around Line Breaks` (`remove_linebreak_punctuation`)**: remove commas and periods around line break markers. It only cleans punctuation at line-break edges and keeps enumeration commas, question marks, exclamation marks, and ellipses.
 - **`AI Line Breaking` (`disable_auto_wrap`)**: disable normal auto-wrap when AI line breaking is being used.
   - Current UI location: `Settings` -> `Typesetting` -> `AI Line Breaking`
   - Enabling this turns off the standard auto-wrap behavior

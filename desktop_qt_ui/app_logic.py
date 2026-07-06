@@ -1458,6 +1458,8 @@ class MainAppLogic(QObject):
                     "stroke_width": self._t("label_stroke_width"),
                     "center_text_in_bubble": self._t("label_center_text_in_bubble"),
                     "optimize_line_breaks": self._t("label_optimize_line_breaks"),
+                    "semantic_linebreak": self._t("label_semantic_linebreak"),
+                    "remove_linebreak_punctuation": self._t("label_remove_linebreak_punctuation"),
                     "check_br_and_retry": self._t("label_check_br_and_retry"),
                     "strict_smart_scaling": self._t("label_strict_smart_scaling"),
                     "enable_template_alignment": self._t("label_enable_template_alignment"),
@@ -3125,6 +3127,10 @@ class TranslationWorker(QObject):
             or "model not found" in real_error.lower()
             or "invalid model" in real_error.lower()
             or "no such model" in real_error.lower()
+            or "supported api model names" in lower_error
+            or "supported model names" in lower_error
+            or ("you passed" in lower_error and "model" in lower_error)
+            or ("unsupported" in lower_error and "model" in lower_error)
             or "模型不存在" in real_error
             or "模型名称不存在" in real_error
         ):

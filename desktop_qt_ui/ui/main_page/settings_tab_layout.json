@@ -126,6 +126,8 @@
         "render.ai_renderer_prompt_path",
         "render.ai_renderer_concurrency",
         "render.alignment",
+        "render.semantic_linebreak",
+        "render.remove_linebreak_punctuation",
         "render.disable_auto_wrap",
         "render.optimize_line_breaks",
         "render.strict_smart_scaling",

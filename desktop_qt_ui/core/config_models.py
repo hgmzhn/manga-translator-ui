@@ -86,6 +86,8 @@ class RenderSettings(BaseModel):
     font_scale_ratio: float = 1.0
     center_text_in_bubble: bool = False
     optimize_line_breaks: bool = False
+    semantic_linebreak: bool = False
+    remove_linebreak_punctuation: bool = False
     check_br_and_retry: bool = False
     strict_smart_scaling: bool = False
     stroke_width: float = 0.07

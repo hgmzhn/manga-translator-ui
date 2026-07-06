@@ -55,6 +55,8 @@ class RenderParameters:
     font_scale_ratio: float = 1.0  # 字体缩放比例
     center_text_in_bubble: bool = False  # AI断句时文本居中
     optimize_line_breaks: bool = False  # 自动优化断句
+    semantic_linebreak: bool = False  # 中文语义断句
+    remove_linebreak_punctuation: bool = False  # 去除换行符周围的逗号句号
     strict_smart_scaling: bool = False  # AI断句自动扩大文字下不扩大文本框
 
     # 效果参数
@@ -482,6 +484,8 @@ class RenderParameterService:
             'max_font_size': params.max_font_size,
             'font_scale_ratio': params.font_scale_ratio,
             'center_text_in_bubble': params.center_text_in_bubble,
+            'semantic_linebreak': params.semantic_linebreak,
+            'remove_linebreak_punctuation': params.remove_linebreak_punctuation,
             'auto_rotate_symbols': params.auto_rotate_symbols,
 
             # 添加元数据

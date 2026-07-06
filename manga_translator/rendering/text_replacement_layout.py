@@ -14,6 +14,14 @@ class ReplacementLayoutRecord:
     replaced_text: str
 
 
+def _strip_linebreak_edge_punctuation_if_enabled(text: str, config: Config) -> str:
+    if not (config and hasattr(config, 'render') and getattr(config.render, 'remove_linebreak_punctuation', False)):
+        return text
+    from .auto_linebreak import strip_linebreak_edge_punctuation
+
+    return strip_linebreak_edge_punctuation(text)
+
+
 def _boundary_map_replaced_to_raw(replaced_text: str, raw_text: str) -> List[int]:
     mapper: List[Optional[int]] = [None] * (len(replaced_text) + 1)
     matcher = SequenceMatcher(None, replaced_text, raw_text, autojunk=False)
@@ -110,6 +118,7 @@ def prepare_text_replacements_for_layout(
             render_horizontally=render_horizontally,
             config=config,
         )
+        raw_text = _strip_linebreak_edge_punctuation_if_enabled(raw_text, config)
         direction = 0 if render_horizontally else 1
 
         try:
@@ -117,6 +126,7 @@ def prepare_text_replacements_for_layout(
         except Exception as exc:
             logger.warning(f"[RENDER] Failed to apply text replacements, use raw text: {exc}")
             replaced_text = raw_text
+        replaced_text = _strip_linebreak_edge_punctuation_if_enabled(replaced_text, config)
 
         region.translation_raw = raw_text
         region.translation = replaced_text
@@ -126,12 +136,17 @@ def prepare_text_replacements_for_layout(
         )
 
 
-def sync_translation_raw_from_layout(text_regions: List[TextBlock]) -> None:
+def sync_translation_raw_from_layout(text_regions: List[TextBlock], config: Config = None) -> None:
     for region in text_regions:
         record = getattr(region, '_replacement_layout_record', None)
         if record is None:
             continue
-        region.translation_raw = project_insertions_to_raw(record, region.translation)
+        raw_after_layout = project_insertions_to_raw(record, region.translation)
+        region.translation = _strip_linebreak_edge_punctuation_if_enabled(region.translation, config)
+        region.translation_raw = _strip_linebreak_edge_punctuation_if_enabled(
+            raw_after_layout,
+            config,
+        )
         try:
             delattr(region, '_replacement_layout_record')
         except Exception:

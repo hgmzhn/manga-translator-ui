@@ -1,4 +1,5 @@
 import copy
+import base64
 import math
 import os
 import re
@@ -26,7 +27,19 @@ from ..utils import (
     rotate_polygons,
 )
 from . import text_render, text_render_hq
-from .auto_linebreak import solve_no_br_layout, should_force_no_wrap_single_region
+from .auto_linebreak import (
+    _is_chinese_lang,
+    solve_no_br_layout,
+    should_force_no_wrap_single_region,
+    strip_linebreak_edge_punctuation,
+)
+from .chinese_linebreak import (
+    BubbleLinebreakEvaluation,
+    append_chinese_linebreak_debug_record,
+    build_chinese_linebreak_debug_snapshot,
+    bubble_mask_overflow_pixels,
+    choose_chinese_bubble_linebreak_with_trace,
+)
 from .text_replacement_layout import prepare_text_replacements_for_layout, sync_translation_raw_from_layout
 from .text_render_eng import apply_manga2eng_line_breaks
 
@@ -34,6 +47,7 @@ logger = get_logger('render')
 
 # 基准字体大小，用于模拟文本块
 BASE_FONT_SIZE = 100
+
 
 def _resolve_font_path(font_path: str) -> str:
     """Resolve font path from absolute/relative/project-fonts path.
@@ -67,6 +81,19 @@ def _safe_float(value, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _encode_mask_png_base64(mask: Optional[np.ndarray]) -> str:
+    if mask is None:
+        return ""
+    try:
+        mask_u8 = np.where(np.asarray(mask) > 0, 255, 0).astype(np.uint8)
+        ok, buffer = cv2.imencode(".png", mask_u8)
+        if not ok:
+            return ""
+        return base64.b64encode(buffer).decode("ascii")
+    except Exception:
+        return ""
 
 
 def _estimate_effect_padding(font_size: int, config: Config = None) -> float:
@@ -438,6 +465,7 @@ def _solve_unified_no_br_layout(
         target_lang=target_lang,
         config=config,
         adjust_font_size=False,
+        debug_context="ocr_box",
     )
     text_with_br = no_br_result.text_with_br
     layout_font_size, _ = _select_preserved_line_layout_font(
@@ -1266,6 +1294,12 @@ def resize_regions_to_font_size(
         skip_font_scaling: If True, skip font scaling algorithm and use font_size from region directly (for load_text mode)
     """
     mode = config.render.layout_mode
+    if (
+        mode == 'balloon_fill'
+        and return_debug_img
+        and bool(getattr(config.render, 'semantic_linebreak', False))
+    ):
+        config._chinese_linebreak_debug_records = []
     
     logger.debug(f"[RESIZE] 开始处理 {len(text_regions)} 个区域")
 
@@ -1350,6 +1384,7 @@ def resize_regions_to_font_size(
         try:
             if config:
                 config._current_region = region
+                config._semantic_linebreak_current_region_idx = region_idx
 
             # 区域字体统一在布局测量前应用；后续候选字号、缩放和最终 dst_points 都用同一字体。
             if resolved_region_font_path:
@@ -1461,6 +1496,7 @@ def resize_regions_to_font_size(
             render_horizontally = _resolve_region_render_horizontal(region)
             line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
             letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
+            no_br_source_text = region.translation
             has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
 
             line_box_width, line_box_height = region.unrotated_size
@@ -1471,6 +1507,10 @@ def resize_regions_to_font_size(
 
             layout_candidate_font_size = int(max(target_font_size, layout_min_font_size))
             configured_fixed_font_size = _resolve_configured_fixed_font_size(config)
+            remove_linebreak_punctuation = bool(getattr(config.render, 'remove_linebreak_punctuation', False))
+            if has_br and remove_linebreak_punctuation:
+                region.translation = strip_linebreak_edge_punctuation(region.translation)
+                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
 
             if config.render.optimize_line_breaks and has_br and (mode != 'strict' or config.render.disable_auto_wrap):
                 optimized_text, _ = optimize_line_breaks_for_region(
@@ -1481,6 +1521,8 @@ def resize_regions_to_font_size(
                     float(line_box_height),
                 )
                 region.translation = optimized_text
+                if remove_linebreak_punctuation:
+                    region.translation = strip_linebreak_edge_punctuation(region.translation)
                 has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
 
             if has_br:
@@ -1539,8 +1581,13 @@ def resize_regions_to_font_size(
 
             # --- Mode 5: balloon_fill (MUST BE FIRST to override other modes) ---
             if mode == 'balloon_fill':
-                logger.debug(f"=== balloon_fill mode activated for region {region_idx} ===")
-                logger.debug(f"OCR box (xywh): {region.xywh}")
+                semantic_linebreak_debug = (
+                    bool(getattr(config.render, 'semantic_linebreak', False))
+                    and _is_chinese_lang(getattr(region, 'target_lang', '') or '')
+                )
+                if not semantic_linebreak_debug:
+                    logger.debug(f"=== balloon_fill mode activated for region {region_idx} ===")
+                    logger.debug(f"OCR box (xywh): {region.xywh}")
                 configured_min_font_size = _resolve_configured_min_font_size(config)
                 min_font_size = max(configured_min_font_size if configured_min_font_size > 0 else 1, 1)
 
@@ -1576,6 +1623,9 @@ def resize_regions_to_font_size(
                     chosen_font_size = int(max(target_font_size, layout_min_font_size))
                     overflow_candidate_dst_points = None
                     preferred_font_size_for_debug = None
+                    bubble_w = 0
+                    bubble_h = 0
+                    line_budget = 0.0
 
                     if not lines_fully_enclosed:
                         used_smart_scaling_fallback = True
@@ -1595,20 +1645,32 @@ def resize_regions_to_font_size(
                         if chosen_dst_points is None:
                             chosen_dst_points = region.min_rect
                         chosen_font_size = region.font_size if region.font_size > 0 else chosen_font_size
-                        logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to smart_scaling")
+                        if not semantic_linebreak_debug:
+                            logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to smart_scaling")
                     else:
+                        if (
+                            not has_br
+                            and bool(getattr(config.render, 'semantic_linebreak', False))
+                            and _is_chinese_lang(getattr(region, 'target_lang', '') or '')
+                            and np.count_nonzero(region_bubble_mask) > 0
+                        ):
+                            _bubble_x, _bubble_y, bubble_w, bubble_h = find_largest_inscribed_rect(region_bubble_mask)
+                            line_budget = float(bubble_w if render_horizontally else bubble_h)
+
                         if has_br:
-                            logger.debug(
-                                f"balloon_fill region {region_idx}: keep explicit breaks, "
-                                f"candidate font={layout_candidate_font_size}, "
-                                f"required={candidate_required_width:.1f}x{candidate_required_height:.1f}"
-                            )
+                            if not semantic_linebreak_debug:
+                                logger.debug(
+                                    f"balloon_fill region {region_idx}: keep explicit breaks, "
+                                    f"candidate font={layout_candidate_font_size}, "
+                                    f"required={candidate_required_width:.1f}x{candidate_required_height:.1f}"
+                                )
                         else:
-                            logger.debug(
-                                f"balloon_fill region {region_idx}: unified no_br layout, "
-                                f"result_segments={candidate_n}, font={layout_candidate_font_size}, "
-                                f"required={candidate_required_width:.1f}x{candidate_required_height:.1f}"
-                            )
+                            if not semantic_linebreak_debug:
+                                logger.debug(
+                                    f"balloon_fill region {region_idx}: unified no_br layout, "
+                                    f"result_segments={candidate_n}, font={layout_candidate_font_size}, "
+                                    f"required={candidate_required_width:.1f}x{candidate_required_height:.1f}"
+                                )
 
                         preferred_font_size = int(max(layout_candidate_font_size, layout_min_font_size))
                         preferred_font_size_for_debug = preferred_font_size
@@ -1629,6 +1691,192 @@ def resize_regions_to_font_size(
                             if not preferred_fits:
                                 overflow_candidate_dst_points = preferred_dst_points
 
+                        if (
+                            semantic_linebreak_debug
+                            and not has_br
+                            and bubble_w > 0
+                            and bubble_h > 0
+                            and line_budget > 0
+                        ):
+                            single_width, single_height, _ = calc_box_from_font(
+                                preferred_font_size,
+                                no_br_source_text,
+                                render_horizontally,
+                                line_spacing_multiplier,
+                                config,
+                                region.target_lang,
+                                center=None,
+                                angle=0,
+                                letter_spacing=letter_spacing_multiplier,
+                            )
+                            total_budget = float(single_width if render_horizontally else single_height)
+                            linebreak_snapshot = build_chinese_linebreak_debug_snapshot(
+                                no_br_source_text,
+                                font_size=preferred_font_size,
+                                target_segments=candidate_n,
+                                total_budget=total_budget,
+                                line_budget=line_budget,
+                                horizontal=render_horizontally,
+                                letter_spacing=letter_spacing_multiplier,
+                            )
+
+                            original_candidate_text = region.translation
+
+                            def evaluate_chinese_candidate(candidate_text: str) -> Optional[BubbleLinebreakEvaluation]:
+                                region.translation = candidate_text
+                                req_w, req_h, req_n = calc_box_from_font(
+                                    preferred_font_size,
+                                    candidate_text,
+                                    render_horizontally,
+                                    line_spacing_multiplier,
+                                    config,
+                                    region.target_lang,
+                                    center=None,
+                                    angle=0,
+                                    letter_spacing=letter_spacing_multiplier,
+                                )
+                                candidate_dst_points = _calc_region_dst_points_for_font(
+                                    region=region,
+                                    font_size=preferred_font_size,
+                                    render_horizontally=render_horizontally,
+                                    line_spacing_multiplier=line_spacing_multiplier,
+                                    letter_spacing_multiplier=letter_spacing_multiplier,
+                                    config=config,
+                                    anchor_mode=normal_anchor_mode,
+                                )
+                                if candidate_dst_points is None or candidate_dst_points.size == 0:
+                                    return None
+                                return BubbleLinebreakEvaluation(
+                                    text_with_br=candidate_text,
+                                    required_width=float(req_w),
+                                    required_height=float(req_h),
+                                    n_segments=int(req_n),
+                                    dst_points=candidate_dst_points,
+                                    overflow_pixels=bubble_mask_overflow_pixels(candidate_dst_points, region_bubble_mask),
+                                )
+
+                            try:
+                                semantic_choice = choose_chinese_bubble_linebreak_with_trace(
+                                    source_text=no_br_source_text,
+                                    current_text=region.translation,
+                                    font_size=preferred_font_size,
+                                    target_segments=candidate_n,
+                                    total_budget=total_budget,
+                                    line_budget=line_budget,
+                                    horizontal=render_horizontally,
+                                    letter_spacing=letter_spacing_multiplier,
+                                    evaluate=evaluate_chinese_candidate,
+                                )
+                            finally:
+                                region.translation = original_candidate_text
+
+                            if semantic_choice is not None and semantic_choice.selected is not None:
+                                chosen_semantic_candidate = semantic_choice.selected
+                                expected_candidate_n = candidate_n
+                                region.translation = chosen_semantic_candidate.text_with_br
+                                layout_candidate_font_size = preferred_font_size
+                                candidate_required_width = chosen_semantic_candidate.required_width
+                                candidate_required_height = chosen_semantic_candidate.required_height
+                                candidate_n = chosen_semantic_candidate.n_segments
+                                preferred_dst_points = chosen_semantic_candidate.dst_points
+                                preferred_fits = chosen_semantic_candidate.fits
+                                overflow_candidate_dst_points = None if preferred_fits else chosen_semantic_candidate.dst_points
+                                append_chinese_linebreak_debug_record(
+                                    config,
+                                    {
+                                        "stage": "bubble_mask_choice",
+                                        "region_index": region_idx,
+                                        "input": no_br_source_text,
+                                        "current_candidate": original_candidate_text,
+                                        "direction": "h" if render_horizontally else "v",
+                                        "font_size": preferred_font_size,
+                                        "target_segments": expected_candidate_n,
+                                        "ocr_box_xywh": np.asarray(region.xywh).tolist() if getattr(region, "xywh", None) is not None else None,
+                                        "ocr_box_size": {"width": float(line_box_width), "height": float(line_box_height)},
+                                        "bubble_inscribed_rect": {
+                                            "width": float(bubble_w),
+                                            "height": float(bubble_h),
+                                            "line_budget": float(line_budget),
+                                        },
+                                        "single_line_required": {"width": float(single_width), "height": float(single_height)},
+                                        "total_budget": float(total_budget),
+                                        "mask": {
+                                            "encoding": "png_base64",
+                                            "width": int(region_bubble_mask.shape[1]) if region_bubble_mask is not None else 0,
+                                            "height": int(region_bubble_mask.shape[0]) if region_bubble_mask is not None else 0,
+                                            "nonzero_pixels": int(np.count_nonzero(region_bubble_mask)) if region_bubble_mask is not None else 0,
+                                            "data": _encode_mask_png_base64(region_bubble_mask),
+                                        },
+                                        "linebreak_snapshot": linebreak_snapshot,
+                                        "selected": {
+                                            "text_with_br": chosen_semantic_candidate.text_with_br,
+                                            "segments": int(chosen_semantic_candidate.n_segments),
+                                            "required": {
+                                                "width": float(chosen_semantic_candidate.required_width),
+                                                "height": float(chosen_semantic_candidate.required_height),
+                                            },
+                                            "fits": bool(chosen_semantic_candidate.fits),
+                                            "overflow_pixels": int(chosen_semantic_candidate.overflow_pixels),
+                                            "dst_points": np.asarray(chosen_semantic_candidate.dst_points).tolist()
+                                            if chosen_semantic_candidate.dst_points is not None
+                                            else None,
+                                        },
+                                        "candidate_evaluations": semantic_choice.evaluations,
+                                        "candidates": [
+                                            {
+                                                "rank": rank,
+                                                "score": list(score),
+                                                "selected": candidate.text_with_br == chosen_semantic_candidate.text_with_br,
+                                                "text_with_br": candidate.text_with_br,
+                                                "segments": int(candidate.n_segments),
+                                                "semantic_penalty": int(score[1]),
+                                                "required": {
+                                                    "width": float(candidate.required_width),
+                                                    "height": float(candidate.required_height),
+                                                },
+                                                "fits": bool(candidate.fits),
+                                                "overflow_pixels": int(candidate.overflow_pixels),
+                                                "dst_points": np.asarray(candidate.dst_points).tolist()
+                                                if candidate.dst_points is not None
+                                                else None,
+                                            }
+                                            for rank, (score, candidate) in enumerate(semantic_choice.candidates, start=1)
+                                        ],
+                                    },
+                                )
+                            else:
+                                append_chinese_linebreak_debug_record(
+                                    config,
+                                    {
+                                        "stage": "bubble_mask_choice",
+                                        "region_index": region_idx,
+                                        "input": no_br_source_text,
+                                        "current_candidate": original_candidate_text,
+                                        "direction": "h" if render_horizontally else "v",
+                                        "font_size": preferred_font_size,
+                                        "target_segments": candidate_n,
+                                        "ocr_box_xywh": np.asarray(region.xywh).tolist() if getattr(region, "xywh", None) is not None else None,
+                                        "bubble_inscribed_rect": {
+                                            "width": float(bubble_w),
+                                            "height": float(bubble_h),
+                                            "line_budget": float(line_budget),
+                                        },
+                                        "single_line_required": {"width": float(single_width), "height": float(single_height)},
+                                        "total_budget": float(total_budget),
+                                        "mask": {
+                                            "encoding": "png_base64",
+                                            "width": int(region_bubble_mask.shape[1]) if region_bubble_mask is not None else 0,
+                                            "height": int(region_bubble_mask.shape[0]) if region_bubble_mask is not None else 0,
+                                            "nonzero_pixels": int(np.count_nonzero(region_bubble_mask)) if region_bubble_mask is not None else 0,
+                                            "data": _encode_mask_png_base64(region_bubble_mask),
+                                        },
+                                        "linebreak_snapshot": linebreak_snapshot,
+                                        "selected": None,
+                                        "candidate_evaluations": semantic_choice.evaluations if semantic_choice is not None else [],
+                                        "candidates": [],
+                                    },
+                                )
+
                         best_font_size, best_dst_points = _binary_search_font_for_bubble_mask(
                             region=region,
                             start_font_size=preferred_font_size,
@@ -1643,9 +1891,10 @@ def resize_regions_to_font_size(
                         if best_font_size is not None and best_dst_points is not None:
                             chosen_font_size = int(best_font_size)
                             chosen_dst_points = best_dst_points
-                            logger.debug(
-                                f"balloon_fill region {region_idx}: enclosed lines, binary-search font {preferred_font_size}->{chosen_font_size}"
-                            )
+                            if not semantic_linebreak_debug:
+                                logger.debug(
+                                    f"balloon_fill region {region_idx}: enclosed lines, binary-search font {preferred_font_size}->{chosen_font_size}"
+                                )
                         else:
                             chosen_font_size = int(max(min_font_size, 1))
                             chosen_dst_points = _calc_region_dst_points_for_font(
@@ -1660,9 +1909,10 @@ def resize_regions_to_font_size(
                             if chosen_dst_points is None:
                                 chosen_font_size = preferred_font_size
                                 chosen_dst_points = preferred_dst_points
-                            logger.debug(
-                                f"balloon_fill region {region_idx}: no mask-safe layout found, shrink to font={chosen_font_size}"
-                            )
+                            if not semantic_linebreak_debug:
+                                logger.debug(
+                                    f"balloon_fill region {region_idx}: no mask-safe layout found, shrink to font={chosen_font_size}"
+                                )
 
                     if chosen_dst_points is None:
                         chosen_dst_points = region.min_rect
@@ -2051,7 +2301,7 @@ async def dispatch(
         from .model_api_renderer import dispatch_api_rendering
 
         result = await dispatch_api_rendering(img=img, text_regions=text_regions, config=config)
-        sync_translation_raw_from_layout(text_regions)
+        sync_translation_raw_from_layout(text_regions, config)
         return result
 
     # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
@@ -2067,7 +2317,7 @@ async def dispatch(
         skip_font_scaling=skip_font_scaling,
         skip_text_replacements=skip_text_replacements,
     )
-    sync_translation_raw_from_layout(text_regions)
+    sync_translation_raw_from_layout(text_regions, config)
 
     # Handle return value (may be tuple if debug image is included)
     if return_debug_img and isinstance(result, tuple):

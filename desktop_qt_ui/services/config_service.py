@@ -484,6 +484,8 @@ class ConfigService(QObject):
                     config_dict['render']['disable_auto_wrap'] = False
                     config_dict['render']['center_text_in_bubble'] = False
                     config_dict['render']['optimize_line_breaks'] = False
+                    config_dict['render']['semantic_linebreak'] = False
+                    config_dict['render']['remove_linebreak_punctuation'] = False
                     config_dict['render']['check_br_and_retry'] = False
                     config_dict['render']['strict_smart_scaling'] = False
                     
