@@ -219,6 +219,23 @@ class ModelMangaOCR(OfflineOCR):
             del self.model
         if hasattr(self, 'mocr'):
             del self.mocr
+
+    def _normalize_tensor_beam_prob(self, pred_chars_index, prob: float) -> float:
+        """Convert tensor beam's sequence probability to the old mean-logprob score."""
+        prob = float(prob)
+        if prob <= 0.0:
+            return 0.0
+
+        token_count = 0
+        for chid in pred_chars_index:
+            token_count += 1
+            ch = self.model.dictionary[int(chid.item() if hasattr(chid, 'item') else chid)]
+            if ch == '</S>':
+                break
+
+        if token_count <= 0:
+            return prob
+        return float(np.exp(np.log(min(prob, 1.0)) / (token_count + 1)))
     
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False, ignore_bubble: int = 0) -> List[TextBlock]:
         text_height = 48
@@ -298,9 +315,10 @@ class ModelMangaOCR(OfflineOCR):
             if self.use_gpu:
                 image_tensor = image_tensor.to(self.device)
             with torch.no_grad():
-                ret = self.model.infer_beam_batch(image_tensor, valid_widths, beams_k = 5, max_seq_length = 255)
+                ret = self.model.infer_beam_batch_tensor(image_tensor, valid_widths, beams_k = 5, max_seq_length = 255)
             
             for i, (pred_chars_index, prob, fg_pred, bg_pred, fg_ind_pred, bg_ind_pred) in enumerate(ret):
+                prob = self._normalize_tensor_beam_prob(pred_chars_index, prob)
                 if prob < 0.2:
                     # Decode text first to log it
                     seq = []
