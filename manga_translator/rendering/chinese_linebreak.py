@@ -244,7 +244,7 @@ def build_chinese_linebreak_debug_snapshot(
     snapshot: dict[str, Any] = {
         "models_available": chinese_linebreak_models_available(),
         "model_dirs": {
-            "coarse": COARSE_MODEL_DIR,
+            "tokenizer": COARSE_MODEL_DIR,
             "constituency": CONSTITUENCY_MODEL_DIR,
         },
         "font_size": font_size,
@@ -254,7 +254,6 @@ def build_chinese_linebreak_debug_snapshot(
         "direction": "h" if horizontal else "v",
         "letter_spacing": float(letter_spacing),
         "candidate_budgets": budgets,
-        "coarse_tokens": None,
         "constituency_tree": None,
         "semantic_units": None,
         "candidate_layouts": [],
@@ -266,14 +265,13 @@ def build_chinese_linebreak_debug_snapshot(
         tokenizer, parser = models
         try:
             tokens = _normalize_tokens(tokenizer(visible_text))
-            snapshot["coarse_tokens"] = tokens
             if tokens and "".join(tokens) == visible_text:
                 try:
                     snapshot["constituency_tree"] = str(parser(tokens))
                 except Exception as exc:
                     snapshot["constituency_tree_error"] = f"{type(exc).__name__}: {exc}"
         except Exception as exc:
-            snapshot["coarse_tokens_error"] = f"{type(exc).__name__}: {exc}"
+            snapshot["constituency_tokenize_error"] = f"{type(exc).__name__}: {exc}"
 
     units = _protected_semantic_units(text or "")
     if units is not None:
