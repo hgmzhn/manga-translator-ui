@@ -306,9 +306,6 @@ def main():
     # 使用 file_handler 的流对象
     faulthandler.enable(file=file_handler.stream, all_threads=True)
     logging.info("已启用崩溃捕获 (faulthandler)，崩溃信息将记录在此文件中")
-    faulthandler.dump_traceback_later(5, repeat=True, file=file_handler.stream)
-    atexit.register(faulthandler.cancel_dump_traceback_later)
-    logging.info("已启用定时线程栈转储 (faulthandler.dump_traceback_later)，间隔 5 秒")
 
     # --- 环境设置 ---
     # Windows特殊处理：必须在创建QApplication之前设置AppUserModelID
