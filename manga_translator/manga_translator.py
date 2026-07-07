@@ -345,7 +345,6 @@ class MangaTranslator:
         
         # 添加模型加载状态标志
         self._models_loaded = False
-        self._semantic_linebreak_models_checked = False
         
         self.parse_init_params(params)
         self.result_sub_folder = ''
@@ -4043,24 +4042,6 @@ class MangaTranslator:
                 await prepare_colorization(config.colorizer.colorizer)
             
             self._models_loaded = True  # 标记模型已加载
-
-        if getattr(config.render, "semantic_linebreak", False) and not self._semantic_linebreak_models_checked:
-            try:
-                from .rendering.chinese_linebreak import (
-                    chinese_linebreak_models_available,
-                    download_chinese_linebreak_models,
-                )
-
-                logger.info("中文语义断句已启用：检查 HanLP 本地模型")
-                await download_chinese_linebreak_models()
-                if chinese_linebreak_models_available():
-                    logger.info("中文语义断句 HanLP 模型已准备就绪")
-                else:
-                    logger.warning("中文语义断句 HanLP 模型未准备完整，渲染时会回退普通换行")
-            except Exception as e:
-                logger.warning(f"HanLP Chinese linebreak model download failed; falling back to normal line breaking: {e}")
-            finally:
-                self._semantic_linebreak_models_checked = True
 
         # Start the background cleanup job once if not already started.
         if self._detector_cleanup_task is None:

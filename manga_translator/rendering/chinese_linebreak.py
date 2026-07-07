@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 import re
@@ -100,17 +101,20 @@ NO_START_CHARS = set(
 NO_END_CHARS = set("《「『【（﹁﹃︵︷︹︻︽︿﹙﹛﹝﹇([{｛｢〈⁅⟦⟨⟪⦃⦅⦇⦉⦋⦍⦏⦑⧼")
 SUFFIX_TOKENS = {"了", "着", "过", "的", "地", "得", "们", "吧", "呢", "吗", "啊", "哦", "呀", "啦"}
 STRONG_STANDALONE_MARKS = set("!?！？︕︖⁈⁉‼…‥⋯︰⋮︙♪♫♬♡♥❤★☆")
-PREFERRED_BREAK_CHARS = set("，、。．｡､,.!?！？；;：:﹐﹑﹒﹔﹕﹖﹗︐︑︒︓︔︕︖…‥⋯︰⋮︙︴—－–−︱︲～〜〰~≀|")
+STRUCTURAL_BREAK_CHARS = set("，、。．｡､,.!?！？；;：:﹐﹑﹒﹔﹕﹖﹗︐︑︒︓︔︕︖…‥⋯︰⋮︙︴—－–−︱︲～〜〰~≀|")
 
 _load_lock = threading.Lock()
 _tokenizer: Any = None
 _parser: Any = None
 _load_failed = False
 _missing_models_logged = False
-_load_started_logged = False
-_load_success_logged = False
+_download_checked = False
+_enabled_notice_logged = False
+_download_lock: Optional[asyncio.Lock] = None
 _unit_cache: dict[str, Tuple["SemanticUnit", ...]] = {}
 _MAX_UNIT_CACHE_SIZE = 2048
+_inference_fallback_log_cache: set[tuple[str, str]] = set()
+_MAX_INFERENCE_FALLBACK_LOG_CACHE_SIZE = 256
 _H_BLOCK_RE = re.compile(r"(<H>.*?</H>)", re.IGNORECASE | re.DOTALL)
 _BR_RE = re.compile(r"\s*(\[BR\]|<br>|【BR】)\s*", re.IGNORECASE)
 
@@ -218,6 +222,51 @@ async def download_chinese_linebreak_models(force: bool = False) -> bool:
     bundle = ChineseLineBreakModelBundle()
     await bundle.download(force=force)
     return bundle.is_downloaded()
+
+
+async def download_chinese_linebreak_models_if_enabled(config: Any, force: bool = False) -> bool:
+    render_config = getattr(config, "render", None) if config is not None else None
+    if not force and not bool(getattr(render_config, "semantic_linebreak", False)):
+        return False
+    _log_enabled_notice_once()
+    return await _ensure_chinese_linebreak_models_downloaded(force=force)
+
+
+def _log_enabled_notice_once() -> None:
+    global _enabled_notice_logged
+    if _enabled_notice_logged:
+        return
+    logger.info("[中文语义断句] 检测到语义断句打开，将会进行语义断句")
+    _enabled_notice_logged = True
+
+
+async def _ensure_chinese_linebreak_models_downloaded(force: bool = False) -> bool:
+    global _download_checked
+
+    if _download_checked and not force:
+        return chinese_linebreak_models_available()
+
+    async with _get_download_lock():
+        if _download_checked and not force:
+            return chinese_linebreak_models_available()
+
+        try:
+            await download_chinese_linebreak_models(force=force)
+            if not chinese_linebreak_models_available():
+                logger.warning("中文语义断句 HanLP 模型未准备完整，渲染时会回退普通换行")
+        except Exception as exc:
+            logger.warning(f"HanLP Chinese linebreak model download failed; falling back to normal line breaking: {exc}")
+        finally:
+            _download_checked = True
+
+        return chinese_linebreak_models_available()
+
+
+def _get_download_lock() -> asyncio.Lock:
+    global _download_lock
+    if _download_lock is None:
+        _download_lock = asyncio.Lock()
+    return _download_lock
 
 
 def chinese_linebreak_models_available() -> bool:
@@ -657,7 +706,7 @@ def _make_measure(font_size: int, horizontal: bool, letter_spacing: float) -> Ca
 
 
 def _get_models() -> Optional[tuple[Any, Any]]:
-    global _tokenizer, _parser, _load_failed, _missing_models_logged, _load_started_logged, _load_success_logged
+    global _tokenizer, _parser, _load_failed, _missing_models_logged
     if _load_failed:
         return None
     if _tokenizer is not None and _parser is not None:
@@ -674,9 +723,6 @@ def _get_models() -> Optional[tuple[Any, Any]]:
         if _load_failed:
             return None
         try:
-            if not _load_started_logged:
-                logger.info(f"[中文语义断句] 加载 HanLP 模型: {MODEL_DIR}")
-                _load_started_logged = True
             import warnings
 
             warnings.filterwarnings("ignore", message=".*pynvml package is deprecated.*", category=FutureWarning)
@@ -684,9 +730,6 @@ def _get_models() -> Optional[tuple[Any, Any]]:
 
             _tokenizer = hanlp.load(COARSE_MODEL_DIR)
             _parser = hanlp.load(CONSTITUENCY_MODEL_DIR)
-            if not _load_success_logged:
-                logger.info("[中文语义断句] HanLP 模型加载完成")
-                _load_success_logged = True
         except Exception as exc:
             _tokenizer = None
             _parser = None
@@ -708,25 +751,52 @@ def _semantic_units(text: str) -> Optional[Tuple[SemanticUnit, ...]]:
     tokenizer, parser = models
     try:
         tokens = _normalize_tokens(tokenizer(text))
-    except Exception:
+    except Exception as exc:
+        _log_inference_fallback(text, "粗分词推理失败，回退普通换行", exc)
         return None
     if not tokens or "".join(tokens) != text:
+        _log_inference_fallback(text, "粗分词结果与原文不一致，回退普通换行")
         return None
 
     try:
         tree = parser(tokens)
         units = tuple(_units_from_tree(tree))
-    except Exception:
+    except Exception as exc:
+        _log_inference_fallback(text, "成分句法推理失败，使用粗分词结果继续断句", exc)
         units = tuple(SemanticUnit(token) for token in tokens)
 
     units = tuple(_wrap_brackets(_attach_suffix_tokens(list(units))))
+    units = _structure_punctuation_boundaries(units)
     if "".join(unit.text for unit in units) != text:
+        _log_inference_fallback(text, "语义树重组结果与原文不一致，回退普通换行")
         return None
 
     if len(_unit_cache) >= _MAX_UNIT_CACHE_SIZE:
         _unit_cache.clear()
     _unit_cache[text] = units
     return units
+
+
+def _log_inference_fallback(text: str, reason: str, exc: Optional[Exception] = None) -> None:
+    global _inference_fallback_log_cache
+    key = (reason, text)
+    if key in _inference_fallback_log_cache:
+        return
+    if len(_inference_fallback_log_cache) >= _MAX_INFERENCE_FALLBACK_LOG_CACHE_SIZE:
+        _inference_fallback_log_cache.clear()
+    _inference_fallback_log_cache.add(key)
+
+    message = f"[中文语义断句] {reason}: {_compact_log_text(text)}"
+    if exc is not None:
+        message += f" ({type(exc).__name__}: {exc})"
+    logger.warning(message)
+
+
+def _compact_log_text(text: str, limit: int = 80) -> str:
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 1)] + "..."
 
 
 def _protected_semantic_units(text: str) -> Optional[Tuple[SemanticUnit, ...]]:
@@ -940,6 +1010,51 @@ def _contains_phrase_punct(text: str) -> bool:
     return any(char in PHRASE_PUNCT for char in text)
 
 
+def _structure_punctuation_boundaries(units: Tuple[SemanticUnit, ...]) -> Tuple[SemanticUnit, ...]:
+    units = tuple(_structure_unit_children(unit) for unit in units)
+    for index, unit in enumerate(units):
+        if not _is_structural_break_unit(unit):
+            continue
+
+        left_items = units[:index]
+        right_items = units[index + 1:]
+        if not left_items or not right_items:
+            continue
+
+        left_tree = _group_semantic_units(left_items + (unit,))
+        right_tree = _group_semantic_units(_structure_punctuation_boundaries(right_items))
+        return (left_tree, right_tree)
+
+    return units
+
+
+def _structure_unit_children(unit: SemanticUnit) -> SemanticUnit:
+    if not unit.children:
+        return unit
+
+    children = _structure_punctuation_boundaries(unit.children)
+    if children == unit.children:
+        return unit
+
+    text = "".join(child.text for child in children)
+    if text != unit.text:
+        return unit
+    return SemanticUnit(unit.text, children, unit.protected)
+
+
+def _group_semantic_units(units: Tuple[SemanticUnit, ...]) -> SemanticUnit:
+    if len(units) == 1:
+        return units[0]
+    return SemanticUnit("".join(unit.text for unit in units), units)
+
+
+def _is_structural_break_unit(unit: SemanticUnit) -> bool:
+    if unit.protected or unit.children:
+        return False
+    visible = _visible_line_text(unit.text).strip()
+    return bool(visible) and all(char in STRUCTURAL_BREAK_CHARS for char in visible)
+
+
 def _attach_suffix_tokens(units: list[SemanticUnit]) -> list[SemanticUnit]:
     output: list[SemanticUnit] = []
     for unit in units:
@@ -1043,16 +1158,15 @@ def _layout_units(units: Tuple[SemanticUnit, ...], max_budget: int, measure: Cal
         if current:
             candidate = current + unit.text
             if measure(candidate) > max_budget and not _must_attach_to_previous(unit.text) and not _must_attach_next(current):
-                if children:
+                if unit_width <= max_budget:
+                    flush()
+                elif children:
+                    flush()
                     for child in children:
                         place(child, depth + 1)
                     return
-                break_index = _preferred_punctuation_break_index(candidate, max_budget, measure)
-                if break_index is not None and break_index >= len(current):
-                    lines.append(candidate[:break_index])
-                    current = candidate[break_index:]
-                    return
-                flush()
+                else:
+                    flush()
 
         if unit_width > max_budget and children:
             if current:
@@ -1068,53 +1182,6 @@ def _layout_units(units: Tuple[SemanticUnit, ...], max_budget: int, measure: Cal
 
     flush()
     return [line for line in lines if line or len(lines) == 1]
-
-
-def _preferred_punctuation_break_index(
-    text: str,
-    max_budget: int,
-    measure: Callable[[str], int],
-) -> Optional[int]:
-    best: Optional[int] = None
-    for index in _preferred_punctuation_break_indices(text):
-        if index <= 0 or index >= len(text):
-            continue
-        prefix = text[:index]
-        suffix = text[index:]
-        if not prefix or not suffix:
-            continue
-        if suffix[0] in NO_START_CHARS:
-            continue
-        if measure(prefix) <= max_budget:
-            best = index
-    return best
-
-
-def _preferred_punctuation_break_indices(text: str) -> list[int]:
-    indices: list[int] = []
-    cursor = 0
-    for match in _H_BLOCK_RE.finditer(text):
-        indices.extend(_preferred_punctuation_break_indices_plain(text[cursor:match.start()], cursor))
-        cursor = match.end()
-    indices.extend(_preferred_punctuation_break_indices_plain(text[cursor:], cursor))
-    return indices
-
-
-def _preferred_punctuation_break_indices_plain(text: str, offset: int) -> list[int]:
-    indices: list[int] = []
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if char not in PREFERRED_BREAK_CHARS:
-            index += 1
-            continue
-
-        break_at = index + 1
-        while break_at < len(text) and text[break_at] in NO_START_CHARS:
-            break_at += 1
-        indices.append(offset + break_at)
-        index = break_at
-    return indices
 
 
 def _avoid_single_char_lines(

@@ -39,6 +39,7 @@ from .chinese_linebreak import (
     build_chinese_linebreak_debug_snapshot,
     bubble_mask_overflow_pixels,
     choose_chinese_bubble_linebreak_with_trace,
+    download_chinese_linebreak_models_if_enabled,
 )
 from .text_replacement_layout import prepare_text_replacements_for_layout, sync_translation_raw_from_layout
 from .text_render_eng import apply_manga2eng_line_breaks
@@ -2303,6 +2304,8 @@ async def dispatch(
         result = await dispatch_api_rendering(img=img, text_regions=text_regions, config=config)
         sync_translation_raw_from_layout(text_regions, config)
         return result
+
+    await download_chinese_linebreak_models_if_enabled(config)
 
     # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
     text_render.set_font(text_render.DEFAULT_FONT)
