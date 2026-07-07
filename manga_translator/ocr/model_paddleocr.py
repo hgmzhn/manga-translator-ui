@@ -491,28 +491,35 @@ class ModelPaddleOCR(OfflineOCR):
         indices = np.argmax(pred, axis=1)
         confidences = np.max(pred, axis=1)
 
-        # Remove blanks and duplicates, handle special characters
-        chars = []
-        prev_idx = -1
+        # Match PaddleOCR's CTCLabelDecode confidence: remove CTC blanks
+        # and duplicate timesteps before averaging kept character scores.
+        selection = np.ones(len(indices), dtype=bool)
+        if len(indices) > 1:
+            selection[1:] = indices[1:] != indices[:-1]
+        selection &= indices != 0  # 0 is <blank>
 
-        for idx in indices:
-            if idx != 0 and idx != prev_idx:  # 0 is <blank>
-                if idx < len(self.char_dict):
-                    ch = self.char_dict[idx]
-                    
-                    # Special character handling (similar to model_48px)
-                    if ch == '<S>':      # Start token
-                        continue
-                    if ch == '</S>':     # End token
-                        break
-                    if ch == '<SP>':     # Space token
-                        ch = ' '
-                    
-                    chars.append(ch)
-            prev_idx = idx
+        chars = []
+        kept_confidences = []
+
+        for idx, confidence in zip(indices[selection], confidences[selection]):
+            if idx >= len(self.char_dict):
+                continue
+
+            ch = self.char_dict[idx]
+
+            # Special character handling (similar to model_48px)
+            if ch == '<S>':      # Start token
+                continue
+            if ch == '</S>':     # End token
+                break
+            if ch == '<SP>':     # Space token
+                ch = ' '
+
+            chars.append(ch)
+            kept_confidences.append(confidence)
 
         text = ''.join(chars)
-        confidence = float(np.mean(confidences))
+        confidence = float(np.mean(kept_confidences)) if kept_confidences else 0.0
 
         return text, confidence
 
