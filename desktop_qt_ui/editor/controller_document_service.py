@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import time
 from typing import TYPE_CHECKING, Optional
 
 from manga_translator.utils.path_manager import (
@@ -11,6 +12,7 @@ from manga_translator.utils.path_manager import (
 )
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import Dialog, PushButton
+from utils.canvas_lag_debug import record_canvas_debug, record_canvas_duration
 
 from services import get_render_parameter_service
 
@@ -56,6 +58,13 @@ class EditorControllerDocumentService:
         return self.controller.file_service
 
     def clear_editor_state(self, release_image_cache: bool = False, keep_document: bool = False) -> None:
+        clear_start = time.perf_counter()
+        record_canvas_debug(
+            "editor_clear_state_start",
+            release_image_cache=release_image_cache,
+            keep_document=keep_document,
+            include_system=True,
+        )
         loading_toast = getattr(self.controller, "_loading_toast", None)
         if loading_toast is not None:
             try:
@@ -112,6 +121,15 @@ class EditorControllerDocumentService:
                 delattr(self.controller, "_prefetch_executor")
 
         self.logger.debug("Editor state cleared and memory released")
+        record_canvas_duration(
+            "editor_clear_state_done",
+            (time.perf_counter() - clear_start) * 1000.0,
+            threshold_ms=50.0,
+            force=True,
+            include_system=True,
+            release_image_cache=release_image_cache,
+            keep_document=keep_document,
+        )
 
     def find_source_from_translation_map(self, image_path: str) -> Optional[str]:
         try:
@@ -237,6 +255,13 @@ class EditorControllerDocumentService:
         )
 
     def do_load_image(self, image_path: str) -> None:
+        load_request_start = time.perf_counter()
+        record_canvas_debug(
+            "editor_load_request",
+            include_system=True,
+            image_path=image_path,
+            has_pending_changes=self.controller.export_service.has_changes_since_last_export(),
+        )
         # 切图:保留旧画面 + 旧 LRU 缓存,等新数据信号到达再覆盖,避免黑闪
         self.clear_editor_state(keep_document=True)
 
@@ -248,16 +273,38 @@ class EditorControllerDocumentService:
             self.controller._load_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
         def on_load_complete(future):
+            done_start = time.perf_counter()
             try:
                 result = future.result()
+                record_canvas_duration(
+                    "editor_load_future_done",
+                    (time.perf_counter() - done_start) * 1000.0,
+                    threshold_ms=10.0,
+                    force=True,
+                    result_type=type(result).__name__,
+                    image_path=image_path,
+                )
                 self.controller._load_result_ready.emit(result)
             except Exception as e:
+                record_canvas_debug(
+                    "editor_load_future_error",
+                    include_system=True,
+                    image_path=image_path,
+                    error=str(e),
+                )
                 self.logger.error(f"Load failed: {e}", exc_info=True)
                 self.controller._load_result_ready.emit(DocumentLoadFailure(str(e)))
 
         worker = DocumentLoadWorker(self, image_path)
         future = self.controller._load_executor.submit(worker.load)
         future.add_done_callback(on_load_complete)
+        record_canvas_duration(
+            "editor_load_request_submitted",
+            (time.perf_counter() - load_request_start) * 1000.0,
+            threshold_ms=50.0,
+            force=True,
+            image_path=image_path,
+        )
 
     def apply_load_result(self, result: object) -> None:
         if isinstance(result, DocumentLoadFailure):
@@ -269,6 +316,21 @@ class EditorControllerDocumentService:
         self.handle_load_error("Unsupported load result")
 
     def apply_loaded_data_to_model(self, snapshot: DocumentSnapshot) -> None:
+        apply_start = time.perf_counter()
+        phase_start = apply_start
+        record_canvas_debug(
+            "editor_apply_snapshot_start",
+            include_system=True,
+            source_path=snapshot.source_path,
+            image_size=getattr(snapshot.image, "size", None),
+            region_count=len(snapshot.regions),
+            has_raw_mask=snapshot.raw_mask is not None,
+            raw_mask_shape=getattr(snapshot.raw_mask, "shape", None),
+            has_inpainted=snapshot.inpainted_image is not None,
+            inpainted_shape=getattr(snapshot.inpainted_image, "shape", None),
+            has_paint_overlay=snapshot.paint_overlay_image is not None,
+            paint_overlay_shape=getattr(snapshot.paint_overlay_image, "shape", None),
+        )
         loading_toast = getattr(self.controller, "_loading_toast", None)
         if loading_toast is not None:
             loading_toast.close()
@@ -282,18 +344,73 @@ class EditorControllerDocumentService:
             render_parameter_service = get_render_parameter_service()
             for index, region_data in enumerate(snapshot.regions):
                 render_parameter_service.import_parameters_from_json(index, region_data)
+        record_canvas_duration(
+            "editor_apply_import_render_params",
+            (time.perf_counter() - phase_start) * 1000.0,
+            threshold_ms=30.0,
+            region_count=len(snapshot.regions),
+        )
 
+        phase_start = time.perf_counter()
         if not self.controller._user_adjusted_alpha:
             default_alpha = 0.0 if snapshot.inpainted_image is not None else 1.0
             self.model.set_original_image_alpha(default_alpha)
+        record_canvas_duration(
+            "editor_apply_default_alpha",
+            (time.perf_counter() - phase_start) * 1000.0,
+            threshold_ms=10.0,
+            user_adjusted_alpha=self.controller._user_adjusted_alpha,
+        )
 
+        phase_start = time.perf_counter()
         self.model.apply_document_snapshot(snapshot)
+        record_canvas_duration(
+            "editor_apply_model_snapshot",
+            (time.perf_counter() - phase_start) * 1000.0,
+            threshold_ms=50.0,
+            force=True,
+            include_system=True,
+            region_count=len(snapshot.regions),
+        )
+
+        phase_start = time.perf_counter()
         self.resource_manager.release_image_cache_except_current()
+        record_canvas_duration(
+            "editor_apply_release_image_cache",
+            (time.perf_counter() - phase_start) * 1000.0,
+            threshold_ms=30.0,
+            include_system=True,
+        )
+
+        phase_start = time.perf_counter()
         self.prefetch_images(getattr(self.controller, "_pending_editor_prefetch_paths", []))
+        record_canvas_duration(
+            "editor_apply_prefetch_schedule",
+            (time.perf_counter() - phase_start) * 1000.0,
+            threshold_ms=10.0,
+            pending_prefetch_count=len(getattr(self.controller, "_pending_editor_prefetch_paths", []) or []),
+        )
         self.controller._log_memory_snapshot("after-apply-loaded-document")
 
         if snapshot.regions and snapshot.raw_mask is not None:
+            phase_start = time.perf_counter()
             self.async_service.submit_task(self.controller.inpaint_service.async_refine_and_inpaint())
+            record_canvas_duration(
+                "editor_apply_submit_inpaint",
+                (time.perf_counter() - phase_start) * 1000.0,
+                threshold_ms=10.0,
+                region_count=len(snapshot.regions),
+            )
+
+        record_canvas_duration(
+            "editor_apply_snapshot_done",
+            (time.perf_counter() - apply_start) * 1000.0,
+            threshold_ms=100.0,
+            force=True,
+            include_system=True,
+            source_path=snapshot.source_path,
+            region_count=len(snapshot.regions),
+        )
 
     def prefetch_images(self, image_paths: list[str]) -> None:
         """后台预读相邻图片和 QImage，降低下一次切图等待。"""

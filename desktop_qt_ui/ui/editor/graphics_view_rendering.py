@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import time
 
 import numpy as np
 from PyQt6.QtCore import QTimer
@@ -24,6 +25,7 @@ from editor.text_render_pipeline import (
     render_region_text,
 )
 from services import get_render_parameter_service
+from utils.canvas_lag_debug import record_canvas_debug, record_canvas_duration
 
 from .graphics_items import RegionTextItem
 
@@ -45,6 +47,7 @@ class GraphicsViewRenderingMixin:
         self.render_debounce_timer.start()
 
     def on_regions_changed(self, change):
+        change_start = time.perf_counter()
         if change.kind == "updated":
             for region_index in change.indices:
                 if 0 <= region_index < len(self._region_items):
@@ -61,6 +64,18 @@ class GraphicsViewRenderingMixin:
             self.render_coordinator.clear_text_render_cache()
             self.render_coordinator.clear_render_snapshots()
             self._schedule_render_update()
+        record_canvas_duration(
+            "canvas_regions_changed",
+            (time.perf_counter() - change_start) * 1000.0,
+            threshold_ms=20.0,
+            force=change.kind == "reset",
+            kind=change.kind,
+            indices=list(change.indices),
+            fields=list(getattr(change, "fields", ()) or ()),
+            source=getattr(change, "source", ""),
+            region_count=len(self.model.get_regions()),
+            item_count=len(self._region_items),
+        )
 
     def _renumber_region_items_from(self, start_index: int) -> None:
         for region_index in range(max(0, int(start_index)), len(self._region_items)):
@@ -174,6 +189,8 @@ class GraphicsViewRenderingMixin:
         return "other"
 
     def _perform_single_item_update(self, index, edit_kind: str | None = None):
+        update_start = time.perf_counter()
+        resolved_edit_kind = edit_kind
         try:
             if not (0 <= index < len(self._region_items)):
                 return
@@ -185,6 +202,7 @@ class GraphicsViewRenderingMixin:
 
             if edit_kind is None:
                 edit_kind = self._consume_pending_geometry_edit(index)
+            resolved_edit_kind = edit_kind
 
             # white_frame 编辑时 item.geo 在拖动中已经更新过，跳过 update_from_data。
             # 其他编辑（rotate/move/shape/other）需要从 model 同步到 item。
@@ -211,6 +229,15 @@ class GraphicsViewRenderingMixin:
                 item.update()
         except (RuntimeError, AttributeError) as e:
             self.logger.warning("Item update failed for region %s: %s", index, e)
+        finally:
+            record_canvas_duration(
+                "canvas_single_item_update",
+                (time.perf_counter() - update_start) * 1000.0,
+                threshold_ms=16.0,
+                index=index,
+                edit_kind=resolved_edit_kind,
+                region_count=len(self.model.get_regions()),
+            )
 
     def _set_pending_geometry_edit(self, region_index: int, edit_kind: str):
         self._pending_geometry_edit_kinds[int(region_index)] = str(edit_kind)
@@ -298,6 +325,8 @@ class GraphicsViewRenderingMixin:
         )
 
     def _render_region_text_visual(self, index: int, use_cache: bool):
+        render_start = time.perf_counter()
+        cache_hit = None
         if not (0 <= index < len(self._region_items)):
             return
         item = self._region_items[index]
@@ -352,6 +381,7 @@ class GraphicsViewRenderingMixin:
             cache_key = make_text_render_cache_key(unrotated_text_block, dst_points, render_params)
 
         cached_result = self.render_coordinator.get_text_render(cache_key) if cache_key is not None else None
+        cache_hit = cached_result is not None
         if cached_result is None:
             render_result = render_region_text(
                 text_renderer_backend,
@@ -376,8 +406,22 @@ class GraphicsViewRenderingMixin:
             )
         else:
             clear_region_text(item)
+        record_canvas_duration(
+            "canvas_render_region_text_visual",
+            (time.perf_counter() - render_start) * 1000.0,
+            threshold_ms=20.0,
+            index=index,
+            use_cache=use_cache,
+            cache_hit=cache_hit,
+            pixmap_size=(
+                [cached_result[0].width(), cached_result[0].height()]
+                if cached_result and cached_result[0] is not None
+                else None
+            ),
+        )
 
     def _perform_render_update(self):
+        render_update_start = time.perf_counter()
         self._immediate_render_update_pending = False
         self.selection_manager.suppress_forward_sync(True)
         self.setUpdatesEnabled(False)
@@ -424,6 +468,15 @@ class GraphicsViewRenderingMixin:
             self.selection_manager.suppress_forward_sync(False)
             self.selection_manager.restore_selection_after_rebuild()
             self.setUpdatesEnabled(True)
+            record_canvas_duration(
+                "canvas_perform_render_update",
+                (time.perf_counter() - render_update_start) * 1000.0,
+                threshold_ms=50.0,
+                force=True,
+                include_system=True,
+                region_count=len(self.model.get_regions()),
+                item_count=len(self._region_items),
+            )
 
     def _update_text_visuals(self):
         try:
@@ -497,9 +550,18 @@ class GraphicsViewRenderingMixin:
             self.logger.error("Text visual update failed for region %s: %s", index, e, exc_info=True)
 
     def recalculate_render_data(self):
+        recalc_start = time.perf_counter()
         regions = self.model.get_regions()
         if self._image_item is None or not regions:
             self.render_coordinator.reset()
+            record_canvas_duration(
+                "canvas_recalculate_render_data",
+                (time.perf_counter() - recalc_start) * 1000.0,
+                threshold_ms=20.0,
+                force=True,
+                reason="no_image_or_regions",
+                region_count=len(regions),
+            )
             return
 
         snapshots: list[RegionRenderSnapshot] = []
@@ -555,6 +617,16 @@ class GraphicsViewRenderingMixin:
         self._persist_render_boxes(regions, dst_points_list)
         self._update_text_visuals()
         self.scene.update()
+        record_canvas_duration(
+            "canvas_recalculate_render_data",
+            (time.perf_counter() - recalc_start) * 1000.0,
+            threshold_ms=50.0,
+            force=True,
+            include_system=True,
+            region_count=len(regions),
+            text_block_count=sum(1 for item in self._text_blocks_cache if item is not None),
+            dst_point_count=sum(1 for item in self._dst_points_cache if item is not None),
+        )
 
     def _on_region_geometry_changed(self, region_index, new_region_data):
         self._set_pending_geometry_edit(

@@ -1,5 +1,6 @@
 import copy
 import os
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -775,12 +776,39 @@ class EditorController(QObject):
 
     @pyqtSlot(int, str)
     def update_font_color(self, region_index: int, color: str):
-        self._update_region_field(
+        update_start = time.perf_counter()
+        try:
+            from utils.canvas_lag_debug import mark_canvas_interaction, record_canvas_duration
+
+            mark_canvas_interaction(
+                "font_color_update",
+                region_index=region_index,
+                color=color,
+            )
+        except Exception:
+            pass
+
+        changed = self._update_region_field(
             region_index,
             "font_color",
             color,
             description=f"Update Font Color Region {region_index}",
         )
+        try:
+            from utils.canvas_lag_debug import record_canvas_duration
+
+            record_canvas_duration(
+                "controller_update_font_color",
+                (time.perf_counter() - update_start) * 1000.0,
+                threshold_ms=16.0,
+                force=True,
+                include_system=True,
+                region_index=region_index,
+                color=color,
+                changed=changed,
+            )
+        except Exception:
+            pass
 
     @pyqtSlot(int, str)
     def update_stroke_color(self, region_index: int, hex_color: str):
@@ -1382,12 +1410,31 @@ class EditorController(QObject):
     @pyqtSlot(int)
     def set_original_image_alpha(self, alpha: int):
         """设置原图的不透明度 (0-100)，值越大越不透明（越显示原图）"""
+        alpha_start = time.perf_counter()
+        try:
+            from utils.canvas_lag_debug import mark_canvas_interaction
+
+            mark_canvas_interaction("original_image_alpha", alpha=alpha)
+        except Exception:
+            pass
         # slider = 0 -> alpha = 0.0（完全透明，显示inpainted）
         # slider = 100 -> alpha = 1.0（完全不透明，显示原图）
         alpha_float = alpha / 100.0
         self.model.set_original_image_alpha(alpha_float)
         # 标记用户已手动调整透明度
         self._user_adjusted_alpha = True
+        try:
+            from utils.canvas_lag_debug import record_canvas_duration
+
+            record_canvas_duration(
+                "controller_set_original_image_alpha",
+                (time.perf_counter() - alpha_start) * 1000.0,
+                threshold_ms=16.0,
+                force=True,
+                alpha=alpha,
+            )
+        except Exception:
+            pass
 
     def handle_global_render_setting_change(self):
         """Forces a re-render of all regions when a global render setting has changed."""

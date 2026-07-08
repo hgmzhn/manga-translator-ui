@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import cv2
 import numpy as np
 from PyQt6.QtCore import QPointF, Qt, pyqtSlot
@@ -7,6 +9,7 @@ from PyQt6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QGraphicsView
 from qfluentwidgets import Action, RoundMenu
 from services import get_config_service
+from utils.canvas_lag_debug import mark_canvas_interaction, record_canvas_duration
 
 from .graphics_items import RegionTextItem
 
@@ -30,16 +33,33 @@ class GraphicsViewInputMixin:
         self._emit_view_state_changed()
 
     def wheelEvent(self, event):
+        event_start = time.perf_counter()
         zoom_in_factor = 1.15
         zoom_out_factor = 1 / zoom_in_factor
+        delta_y = int(event.angleDelta().y())
+        scale_before = float(self.transform().m11())
+        mark_canvas_interaction(
+            "wheel_zoom",
+            delta_y=delta_y,
+            scale_before=round(scale_before, 4),
+            viewport_size=self.viewport().size(),
+        )
 
-        if event.angleDelta().y() > 0:
+        if delta_y > 0:
             self.scale(zoom_in_factor, zoom_in_factor)
         else:
             self.scale(zoom_out_factor, zoom_out_factor)
 
         self._update_cursor()
         self._emit_view_state_changed()
+        record_canvas_duration(
+            "canvas_wheel_event",
+            (time.perf_counter() - event_start) * 1000.0,
+            threshold_ms=16.0,
+            scale_before=round(scale_before, 4),
+            scale_after=round(float(self.transform().m11()), 4),
+            delta_y=delta_y,
+        )
 
     def mousePressEvent(self, event):
         parent_view = self.parent()
@@ -552,19 +572,64 @@ class GraphicsViewInputMixin:
 
     @pyqtSlot()
     def zoom_in(self):
+        event_start = time.perf_counter()
+        scale_before = float(self.transform().m11())
+        mark_canvas_interaction(
+            "toolbar_zoom_in",
+            scale_before=round(scale_before, 4),
+            viewport_size=self.viewport().size(),
+        )
         self.scale(1.15, 1.15)
         self._emit_view_state_changed()
+        record_canvas_duration(
+            "canvas_toolbar_zoom_in",
+            (time.perf_counter() - event_start) * 1000.0,
+            threshold_ms=16.0,
+            force=True,
+            scale_before=round(scale_before, 4),
+            scale_after=round(float(self.transform().m11()), 4),
+        )
 
     @pyqtSlot()
     def zoom_out(self):
+        event_start = time.perf_counter()
+        scale_before = float(self.transform().m11())
+        mark_canvas_interaction(
+            "toolbar_zoom_out",
+            scale_before=round(scale_before, 4),
+            viewport_size=self.viewport().size(),
+        )
         self.scale(1 / 1.15, 1 / 1.15)
         self._emit_view_state_changed()
+        record_canvas_duration(
+            "canvas_toolbar_zoom_out",
+            (time.perf_counter() - event_start) * 1000.0,
+            threshold_ms=16.0,
+            force=True,
+            scale_before=round(scale_before, 4),
+            scale_after=round(float(self.transform().m11()), 4),
+        )
 
     @pyqtSlot()
     def fit_to_window(self):
         if self._image_item:
+            event_start = time.perf_counter()
+            scale_before = float(self.transform().m11())
+            mark_canvas_interaction(
+                "fit_to_window",
+                scale_before=round(scale_before, 4),
+                viewport_size=self.viewport().size(),
+            )
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
             self._emit_view_state_changed()
+            record_canvas_duration(
+                "canvas_fit_to_window",
+                (time.perf_counter() - event_start) * 1000.0,
+                threshold_ms=20.0,
+                force=True,
+                scale_before=round(scale_before, 4),
+                scale_after=round(float(self.transform().m11()), 4),
+            )
 
     def contextMenuEvent(self, event):
         selected_regions = self.model.get_selection()

@@ -2345,6 +2345,18 @@ class MainAppLogic(QObject):
     
     def _cleanup_after_task(self):
         """延迟清理任务相关资源"""
+        cleanup_start = time.perf_counter()
+        try:
+            from utils.canvas_lag_debug import record_canvas_debug
+
+            record_canvas_debug(
+                "translation_ui_cleanup_start",
+                include_system=True,
+                has_current_worker=self.current_worker is not None,
+                has_current_thread=self.current_thread is not None,
+            )
+        except Exception:
+            pass
         try:
             # 清理线程引用（线程应该已经通过deleteLater自动清理）
             # ✅ 线程池自动管理，无需手动清理线程
@@ -2366,7 +2378,20 @@ class MainAppLogic(QObject):
             try:
                 import torch
                 if torch.cuda.is_available():
+                    cuda_start = time.perf_counter()
                     torch.cuda.empty_cache()
+                    try:
+                        from utils.canvas_lag_debug import record_canvas_duration
+
+                        record_canvas_duration(
+                            "translation_ui_empty_cache",
+                            (time.perf_counter() - cuda_start) * 1000.0,
+                            threshold_ms=20.0,
+                            force=True,
+                            include_system=True,
+                        )
+                    except Exception:
+                        pass
                     self._ui_log("翻译完成后已调用 torch.cuda.empty_cache()", "DEBUG")
             except Exception as memory_cleanup_error:
                 self._ui_log(f"调用 torch.cuda.empty_cache() 失败: {memory_cleanup_error}", "WARNING")
@@ -2377,6 +2402,18 @@ class MainAppLogic(QObject):
         finally:
             # ✅ 清理worker引用
             self.current_worker = None
+            try:
+                from utils.canvas_lag_debug import record_canvas_duration
+
+                record_canvas_duration(
+                    "translation_ui_cleanup_done",
+                    (time.perf_counter() - cleanup_start) * 1000.0,
+                    threshold_ms=50.0,
+                    force=True,
+                    include_system=True,
+                )
+            except Exception:
+                pass
     
     def on_task_error(self, error_message, task_id):
         # 检查任务ID是否匹配，防止已停止的任务更新状态
@@ -4003,6 +4040,22 @@ class TranslationWorker(QObject):
             self.error.emit(friendly_error)
         finally:
             # 翻译结束后进行完整的内存清理（特别是CPU模式）
+            cleanup_start = time.perf_counter()
+            try:
+                from utils.canvas_lag_debug import record_canvas_debug
+
+                debug_unload_models = self.config_dict.get('app', {}).get('unload_models_after_translation', False)
+                record_canvas_debug(
+                    "translation_worker_cleanup_start",
+                    include_system=True,
+                    unload_models=debug_unload_models,
+                    has_translator="translator" in locals(),
+                    result_count=len(results) if "results" in locals() else None,
+                    context_count=len(all_contexts) if "all_contexts" in locals() else None,
+                )
+            except Exception:
+                pass
+
             try:
                 # 显式清理大对象引用，帮助GC回收
                 if 'translator' in locals():
@@ -4024,8 +4077,35 @@ class TranslationWorker(QObject):
                 from desktop_qt_ui.utils.memory_cleanup import full_memory_cleanup
                 # 使用配置中的卸载模型开关
                 unload_models = self.config_dict.get('app', {}).get('unload_models_after_translation', False)
-                full_memory_cleanup(log_callback=self._log_info, unload_models=unload_models)
+                cleanup_result = full_memory_cleanup(log_callback=self._log_info, unload_models=unload_models)
+                try:
+                    from utils.canvas_lag_debug import record_canvas_duration
+
+                    record_canvas_duration(
+                        "translation_worker_cleanup_done",
+                        (time.perf_counter() - cleanup_start) * 1000.0,
+                        threshold_ms=100.0,
+                        force=True,
+                        include_system=True,
+                        unload_models=unload_models,
+                        cleanup_result=cleanup_result,
+                    )
+                except Exception:
+                    pass
             except Exception as e:
+                try:
+                    from utils.canvas_lag_debug import record_canvas_duration
+
+                    record_canvas_duration(
+                        "translation_worker_cleanup_error",
+                        (time.perf_counter() - cleanup_start) * 1000.0,
+                        threshold_ms=0.0,
+                        force=True,
+                        include_system=True,
+                        error=str(e),
+                    )
+                except Exception:
+                    pass
                 self._log_warning(f"--- [CLEANUP] Warning: 内存清理时出错: {e}")
 
     @pyqtSlot()
@@ -4428,4 +4508,3 @@ class TranslationRunnable(QRunnable):
     def _emit_file_processed(self, data):
         """线程安全地发送文件处理完成信号"""
         self.signals.file_processed.emit(data)
-
