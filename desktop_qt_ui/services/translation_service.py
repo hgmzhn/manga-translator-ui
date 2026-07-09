@@ -183,7 +183,10 @@ class TranslationService:
                     
                     # FIX: Instantiate TextBlock using dictionary unpacking, not a non-existent class method.
                     translator_args.text_regions = [TextBlock(**r) for r in converted_regions]
-                except (TypeError, KeyError) as e:
+                except (TypeError, KeyError, ValueError) as e:
+                    # ValueError：translation_rich 严格校验（richtext.v1 未知键等）
+                    # 失败时走 raw-dict 回退，而不是穿到外层 except 让整批翻译
+                    # 静默返回 [None]*len(texts)（审查 F04c）
                     self.logger.warning(f"Could not convert all regions to TextBlock: {e}")
                     translator_args.text_regions = regions # Fallback to passing raw dicts
 

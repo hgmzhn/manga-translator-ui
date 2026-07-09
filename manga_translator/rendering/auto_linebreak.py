@@ -1,5 +1,5 @@
 # auto_linebreak v2.1.0
-# 完全自包含的换行引擎：竖排 <H> 块、CJK 标点禁则、英文连字符均内嵌在布局决策阶段
+# 完全自包含的换行引擎：CJK 标点禁则、英文连字符均内嵌在布局决策阶段
 import math
 import os
 import re
@@ -15,7 +15,6 @@ from shapely.geometry import Polygon
 from . import text_render
 from .text_render import (
     CJK_Compatibility_Forms_translate,
-    calc_horizontal_block_height,
     compact_special_symbols,
     get_char_offset_x,
     get_char_offset_y,
@@ -76,7 +75,6 @@ def _calculate_uniformity(values: List[float]) -> float:
     return math.sqrt(variance) / mean_v
 
 
-_LINE_QUALITY_H_BLOCK_RE = re.compile(r"(<H>.*?</H>)", re.IGNORECASE | re.DOTALL)
 _LINE_QUALITY_PREFERRED_BREAK_CHARS = set("，、。．｡､,.!?！？；;：:﹐﹑﹒﹔﹕﹖﹗︐︑︒︓︔︕︖…‥⋯︰⋮︙︴—－–−︱︲～〜〰~≀|")
 _LINE_QUALITY_STRONG_STANDALONE_MARKS = set("!?！？︕︖⁈⁉‼…‥⋯︰⋮︙♪♫♬♡♥❤★☆")
 _LINE_QUALITY_CLOSING_CHARS = set(
@@ -87,15 +85,7 @@ _LINE_QUALITY_CLOSING_CHARS = set(
 
 
 def _visible_line_quality_text(line: str) -> str:
-    parts: List[str] = []
-    for part in _LINE_QUALITY_H_BLOCK_RE.split(line or ""):
-        if not part:
-            continue
-        if part.lower().startswith("<h>") and part.lower().endswith("</h>"):
-            parts.append(part[3:-4])
-        else:
-            parts.append(part)
-    return "".join(parts).strip()
+    return str(line or "").strip()
 
 
 def _line_quality_content_char_count(line: str) -> int:
@@ -251,13 +241,7 @@ def should_force_no_wrap_single_region(region: Any) -> bool:
 # 竖排换行引擎（完全内嵌，不依赖 text_render.calc_vertical）
 # ---------------------------------------------------------------------------
 
-_H_BLOCK_RE = re.compile(r'(<H>.*?</H>)', re.IGNORECASE | re.DOTALL)
 _BR_RE = re.compile(r'\s*(\[BR\]|<br>|【BR】)\s*', re.IGNORECASE)
-
-
-def _h_block_height(font_size: int, content: str, letter_spacing: float = 1.0) -> int:
-    """计算 <H> 横排块在竖排列中占用的高度，直接复用 text_render 的精确实现。"""
-    return calc_horizontal_block_height(font_size, content, letter_spacing=letter_spacing)
 
 
 def _vert_char_advance(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> int:
@@ -292,11 +276,9 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
     竖排换行引擎，完全自包含。
 
     特性：
-    1. <H> 块用 _h_block_height 计算高度（和渲染一致）
-    2. 普通 CJK 字符用 vertAdvance 逐字累积
-    3. CJK_H2V 字形替换（通过 CJK_Compatibility_Forms_translate）
-    4. [BR]/<br> 等统一预处理为 \n
-    5. 输出的 line 文本保留 <H> 标签供渲染侧使用
+    1. 普通 CJK 字符用 vertAdvance 逐字累积
+    2. CJK_H2V 字形替换（通过 CJK_Compatibility_Forms_translate）
+    3. [BR]/<br> 等统一预处理为 \n
 
     返回 (line_text_list, line_height_list)
     """
@@ -315,38 +297,18 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
         current_line_text = ""
         current_line_height = 0
 
-        for part in _H_BLOCK_RE.split(paragraph):
-            if not part:
+        for cdpt in paragraph:
+            if not cdpt:
                 continue
-
-            is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
-
-            if is_h:
-                content = part[3:-4]
-                if not content:
-                    continue
-                block_h = _h_block_height(font_size, content, letter_spacing=letter_spacing)
-                if current_line_height + block_h > max_height and current_line_text:
-                    line_text_list.append(current_line_text)
-                    line_height_list.append(current_line_height)
-                    current_line_text = part
-                    current_line_height = block_h
-                else:
-                    current_line_text += part
-                    current_line_height += block_h
+            adv = _vert_char_advance(font_size, cdpt, letter_spacing=letter_spacing)
+            if current_line_height + adv > max_height and current_line_text:
+                line_text_list.append(current_line_text)
+                line_height_list.append(current_line_height)
+                current_line_text = cdpt
+                current_line_height = adv
             else:
-                for cdpt in part:
-                    if not cdpt:
-                        continue
-                    adv = _vert_char_advance(font_size, cdpt, letter_spacing=letter_spacing)
-                    if current_line_height + adv > max_height and current_line_text:
-                        line_text_list.append(current_line_text)
-                        line_height_list.append(current_line_height)
-                        current_line_text = cdpt
-                        current_line_height = adv
-                    else:
-                        current_line_text += cdpt
-                        current_line_height += adv
+                current_line_text += cdpt
+                current_line_height += adv
 
         if current_line_text:
             line_text_list.append(current_line_text)
@@ -382,40 +344,19 @@ def _layout_vertical_metrics(font_size: int, text: str, max_height: int, config:
         current_line_height = 0
         current_line_width = font_size
 
-        for part in _H_BLOCK_RE.split(paragraph):
-            if not part:
+        for cdpt in paragraph:
+            if not cdpt:
                 continue
-
-            is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
-
-            if is_h:
-                content = part[3:-4]
-                if not content:
-                    continue
-                block_h = _h_block_height(font_size, content, letter_spacing=letter_spacing)
-                if current_line_height + block_h > max_height and current_line_text:
-                    append_line(current_line_text, current_line_height, current_line_width)
-                    current_line_text = part
-                    current_line_height = block_h
-                    current_line_width = font_size
-                else:
-                    current_line_text += part
-                    current_line_height += block_h
-                continue
-
-            for cdpt in part:
-                if not cdpt:
-                    continue
-                adv, width = _vert_char_metrics(font_size, cdpt, letter_spacing=letter_spacing)
-                if current_line_height + adv > max_height and current_line_text:
-                    append_line(current_line_text, current_line_height, current_line_width)
-                    current_line_text = cdpt
-                    current_line_height = adv
-                    current_line_width = max(font_size, width)
-                else:
-                    current_line_text += cdpt
-                    current_line_height += adv
-                    current_line_width = max(current_line_width, width)
+            adv, width = _vert_char_metrics(font_size, cdpt, letter_spacing=letter_spacing)
+            if current_line_height + adv > max_height and current_line_text:
+                append_line(current_line_text, current_line_height, current_line_width)
+                current_line_text = cdpt
+                current_line_height = adv
+                current_line_width = max(font_size, width)
+            else:
+                current_line_text += cdpt
+                current_line_height += adv
+                current_line_width = max(current_line_width, width)
 
         if current_line_text:
             append_line(current_line_text, current_line_height, current_line_width)
@@ -429,37 +370,20 @@ def _layout_vertical_metrics(font_size: int, text: str, max_height: int, config:
 def _vert_line_width(line_text: str, font_size: int) -> int:
     """竖排单列的实际最大字形宽度，与 put_text_vertical 的 line_widths 逻辑一致。"""
     max_width = font_size
-    for part in _H_BLOCK_RE.split(line_text):
-        if not part:
-            continue
-        is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
-        if is_h:
-            # <H> 块居中置于列内，列宽取 font_size
-            pass
-        else:
-            for c in part:
-                w = _vert_char_bitmap_width(font_size, c)
-                if w > max_width:
-                    max_width = w
+    for c in line_text:
+        w = _vert_char_bitmap_width(font_size, c)
+        if w > max_width:
+            max_width = w
     return max_width
 
 
 def _vert_total_height(text: str, font_size: int, config: Any = None, letter_spacing: float = 1.0) -> int:
-    """不换行时竖排文本的总高度，考虑 <H> 块。"""
+    """不换行时竖排文本的总高度。"""
     text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
     text = _BR_RE.sub('', text)
     total = 0
-    for part in _H_BLOCK_RE.split(text):
-        if not part:
-            continue
-        is_h = part.lower().startswith('<h>') and part.lower().endswith('</h>')
-        if is_h:
-            content = part[3:-4]
-            if content:
-                total += _h_block_height(font_size, content, letter_spacing=letter_spacing)
-        else:
-            for c in part:
-                total += _vert_char_advance(font_size, c, letter_spacing=letter_spacing)
+    for c in text:
+        total += _vert_char_advance(font_size, c, letter_spacing=letter_spacing)
     return total
 
 
@@ -1260,7 +1184,7 @@ def _find_best_lines_for_target_segments(
     if not candidates:
         return []
     _, best_lines, _ = min(candidates, key=lambda item: item[0])
-    # 保留 <H> 标签，渲染侧用于竖排内嵌横排
+    # 返回候选断行文本；旧横排块标签不再作为渲染协议。
     return best_lines
 
 

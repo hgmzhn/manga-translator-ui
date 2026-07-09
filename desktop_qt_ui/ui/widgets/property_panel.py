@@ -92,40 +92,16 @@ class PanelSettingCardGroup(QWidget):
             self._syncing_height = False
 
 
-def convert_arrows_to_tags(raw_text: str) -> str:
+def strip_legacy_horizontal_tags(text: str) -> str:
+    """剥除已废除的 <H>...</H> 局部横排标记（保留内文）。
+
+    渲染管线已删除全部 <H> 消费方，字面标记会被当普通字符画上成品图；
+    局部横排改用富文本 tcy（旧 <H> 协议已废除，⇄→<H> 生产链已随
+    mark_horizontal_button 一并移除）。
     """
-    将文本中的 ⇄ 符号转换为 <H> 标签
-
-    Args:
-        raw_text: 包含 ⇄ 符号的原始文本
-
-    Returns:
-        转换后的文本，⇄ 符号被替换为成对的 <H></H> 标签
-
-    Note:
-        - 如果 ⇄ 是偶数个，会正确配对为 <H></H>
-        - 如果 ⇄ 是奇数个，最后一个会被转换为 <H>，但会记录警告
-    """
-    if '⇄' not in raw_text:
-        return raw_text
-
-    parts = raw_text.split('⇄')
-    text_with_tags = ''
-
-    for i, part in enumerate(parts):
-        text_with_tags += part
-        if i < len(parts) - 1:  # 不是最后一个部分
-            if i % 2 == 0:  # 偶数索引,添加开始标签
-                text_with_tags += '<H>'
-            else:  # 奇数索引,添加结束标签
-                text_with_tags += '</H>'
-
-    # 检查是否有未闭合的标签（奇数个⇄）
-    arrow_count = len(parts) - 1
-    if arrow_count % 2 != 0:
-        logger.warning(f"检测到奇数个⇄符号({arrow_count}个)，最后一个<H>标签未闭合")
-
-    return text_with_tags
+    if '<H>' not in text and '</H>' not in text:
+        return text
+    return text.replace('<H>', '').replace('</H>', '')
 
 
 class CustomSlider(Slider):
@@ -598,15 +574,12 @@ class PropertyPanel(QWidget):
         self.insert_newline_button.setText(self._t("Newline↵"))
         self.insert_newline_button.setIcon(FIF.RETURN)
         set_hover_hint(self.insert_newline_button, self._t("Insert newline"))
-        self.mark_horizontal_button = PushButton()
-        self.mark_horizontal_button.setText(self._t("Horizontal⇄"))
-        self.mark_horizontal_button.setIcon(FIF.ALIGNMENT)
-        set_hover_hint(self.mark_horizontal_button, self._t("Mark selected text as horizontal display"))
-        for button in (self.insert_placeholder_button, self.insert_newline_button, self.mark_horizontal_button):
+        # 「Horizontal⇄」按钮已移除：局部横排改用富文本 tcy（浮动编辑器 T 按钮），
+        # 旧 <H> 协议已废除，渲染管线不再有任何 <H> 消费方。
+        for button in (self.insert_placeholder_button, self.insert_newline_button):
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         insert_buttons_layout.addWidget(self.insert_placeholder_button)
         insert_buttons_layout.addWidget(self.insert_newline_button)
-        insert_buttons_layout.addWidget(self.mark_horizontal_button)
         text_layout.addLayout(insert_buttons_layout)
         self.text_stats_label = CaptionLabel(self._t("Character count: 0"))
         text_layout.addWidget(self.text_stats_label)
@@ -778,29 +751,10 @@ class PropertyPanel(QWidget):
     
     def _populate_font_list(self):
         """Populate font combo box with available fonts from fonts folder"""
-        import os
+        # F15：字体目录枚举收口到共享 helper（显示名去扩展名，userData=文件名）
+        from utils.font_list import populate_font_combo
 
-        from manga_translator.utils import BASE_PATH
-        
-        # 清空现有列表
-        self.font_family_combo.clear()
-        
-        fonts_dir = os.path.join(BASE_PATH, 'fonts')
-        font_files = []
-        
-        if os.path.exists(fonts_dir):
-            for filename in os.listdir(fonts_dir):
-                if filename.lower().endswith(('.ttf', '.otf', '.ttc')):
-                    # Display name without extension
-                    display_name = os.path.splitext(filename)[0]
-                    font_files.append((display_name, filename))
-        
-        # Sort by display name
-        font_files.sort(key=lambda x: x[0])
-
-        # Add font files
-        for display_name, filename in font_files:
-            self.font_family_combo.addItem(display_name, userData=filename)
+        populate_font_combo(self.font_family_combo)
 
     def _create_action_section(self, layout):
         self.action_frame, action_card = self._make_group(self._t("Actions"))
@@ -868,7 +822,6 @@ class PropertyPanel(QWidget):
         self.translate_button.clicked.connect(self.translation_requested.emit)
         self.insert_placeholder_button.clicked.connect(self._insert_placeholder)
         self.insert_newline_button.clicked.connect(self._insert_newline)
-        self.mark_horizontal_button.clicked.connect(self._mark_horizontal)
         
         # Action buttons
         self.copy_button.clicked.connect(self.copy_region_requested.emit)
@@ -1060,9 +1013,6 @@ class PropertyPanel(QWidget):
         if hasattr(self, 'insert_newline_button'):
             self.insert_newline_button.setText(self._t("Newline↵"))
             set_hover_hint(self.insert_newline_button, self._t("Insert newline"))
-        if hasattr(self, 'mark_horizontal_button'):
-            self.mark_horizontal_button.setText(self._t("Horizontal⇄"))
-            set_hover_hint(self.mark_horizontal_button, self._t("Mark selected text as horizontal display"))
         if hasattr(self, 'copy_button'):
             self.copy_button.setText(self._t("Copy"))
             set_hover_hint(self.copy_button, self._t("Copy") + " (Ctrl+C)")
@@ -1624,8 +1574,8 @@ class PropertyPanel(QWidget):
             # 1. 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为 \n
             translation_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', translation_text, flags=re.IGNORECASE)
 
-            # 2. 将 <H> 标签替换为符号 ⇄ 显示在文本框中
-            display_text = translation_text.replace('<H>', '⇄').replace('</H>', '⇄')
+            # 2. 剥除存量的旧 <H> 局部横排标记（协议已废除，保留内文显示）
+            display_text = strip_legacy_horizontal_tags(translation_text)
 
             # 3. 将 \n 替换为 ↵ 显示在文本框中
             display_text = display_text.replace('\n', '↵')
@@ -1717,11 +1667,16 @@ class PropertyPanel(QWidget):
 
     @staticmethod
     def _editor_text_to_model_text(raw_text: str) -> str:
-        """把文本框的显示形式（⇄/↵）还原为模型存储形式（<H>/[BR]）。"""
+        """把文本框的显示形式（↵）还原为模型存储形式（[BR]）。
+
+        不再从 ⇄ 生产 <H> 标记（旧局部横排协议已废除，改用富文本 tcy）；
+        存量/手输的字面 <H></H> 在此剥除（保留内文），避免被当普通字符
+        画上成品图。
+        """
         import re
 
-        text_with_tags = convert_arrows_to_tags(raw_text)
-        text_with_newlines = text_with_tags.replace('↵', '\n')
+        text_without_tags = strip_legacy_horizontal_tags(raw_text)
+        text_with_newlines = text_without_tags.replace('↵', '\n')
         return re.sub(r'\n+', '[BR]', text_with_newlines)
 
     def force_save_text_edits(self):
@@ -2063,19 +2018,8 @@ class PropertyPanel(QWidget):
         self.translated_text_box.setFocus()
         self.translated_text_box.insertPlainText("↵")
 
-    def _mark_horizontal(self):
-        """标记横排：有选中则两侧包裹，无选中则在光标处插入一个 ⇄。"""
-        # 确保文本框有焦点,避免光标位置丢失
-        self.translated_text_box.setFocus()
-        cursor = self.translated_text_box.textCursor()
-        if cursor.hasSelection():
-            selected_text = cursor.selectedText()
-            # Qt 的 selectedText() 会将段落分隔符转换为 \u2029,需要替换回 ↵
-            selected_text = selected_text.replace('\u2029', '↵')
-            cursor.insertText(f"⇄{selected_text}⇄")
-        else:
-            cursor.insertText("⇄")
-        self.translated_text_box.setTextCursor(cursor)
+    # _mark_horizontal 已删除：局部横排改用富文本 tcy（浮动编辑器 T 按钮），
+    # 旧 <H> 协议已废除，渲染管线不再有任何 <H> 消费方。
 
     def _on_ocr_model_change(self, text):
         """OCR模型变化时保存配置"""

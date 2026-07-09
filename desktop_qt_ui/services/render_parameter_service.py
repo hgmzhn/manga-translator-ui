@@ -69,7 +69,6 @@ class RenderParameters:
     # 渲染选项
     hyphenate: bool = True  # 是否启用连字符
     disable_font_border: bool = False  # 是否禁用字体边框
-    auto_rotate_symbols: bool = True # 竖排内横排
     
     def __post_init__(self):
         if self.shadow_offset is None:
@@ -87,7 +86,8 @@ class RenderParameters:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'RenderParameters':
         """从字典创建参数对象"""
-        return cls(**data)
+        clean = dict(data or {})
+        return cls(**clean)
 
 @dataclass
 class ParameterPreset:
@@ -486,8 +486,6 @@ class RenderParameterService:
             'center_text_in_bubble': params.center_text_in_bubble,
             'semantic_linebreak': params.semantic_linebreak,
             'remove_linebreak_punctuation': params.remove_linebreak_punctuation,
-            'auto_rotate_symbols': params.auto_rotate_symbols,
-
             # 添加元数据
             '_render_params_version': '1.0',
             '_generated_by': 'desktop-ui'

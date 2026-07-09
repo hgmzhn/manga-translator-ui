@@ -1337,6 +1337,30 @@ def hex2rgb(h):
     h = h.lstrip('#')
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
+def parse_color(value, default=None):
+    """宽容的颜色解析：#RGB / #RRGGBB / (r,g,b) 序列，越界钳制，非法回退 default。
+
+    与 hex2rgb 的区别：hex2rgb 只接受 6 位且非法直接抛异常；本函数是各渲染/
+    样式入口共用的"用户输入"解析器，永不抛错。
+    """
+    if value is None:
+        return default
+    if isinstance(value, (tuple, list)) and len(value) >= 3:
+        try:
+            return tuple(max(0, min(255, int(c))) for c in value[:3])
+        except (TypeError, ValueError):
+            return default
+    if isinstance(value, str):
+        text = value.strip().lstrip('#')
+        if len(text) == 3:
+            text = ''.join(ch * 2 for ch in text)
+        if len(text) == 6:
+            try:
+                return tuple(int(text[i:i + 2], 16) for i in (0, 2, 4))
+            except ValueError:
+                return default
+    return default
+
 def get_color_name(rgb: List[int]) -> str:
         try:
             # TODO: Maybe replace with offline alternative

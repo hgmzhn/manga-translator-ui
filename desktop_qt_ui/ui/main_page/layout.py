@@ -14,11 +14,12 @@ from qfluentwidgets import ListWidget as QListWidget
 from qfluentwidgets import themeColor
 
 from theme_registry import THEME_OPTIONS
+from utils.font_list import FONT_FILE_EXTENSIONS, list_font_files
 from utils.resource_helper import resource_path
 
 _CURRENT_ASSET_PREFIX = "* "
 _PROMPT_EXTENSIONS = (".yaml", ".yml", ".json", ".txt")
-_FONT_EXTENSIONS = (".ttf", ".otf", ".ttc")
+_FONT_EXTENSIONS = FONT_FILE_EXTENSIONS
 _FONT_PREVIEW_PIXMAP_CACHE: dict[tuple, QPixmap] = {}
 
 
@@ -674,16 +675,8 @@ def delete_selected_font(self):
 def refresh_font_manager(self):
     if not hasattr(self, "font_list_widget"):
         return
-    font_files = []
-    try:
-        fonts_dir = resource_path("fonts")
-        if os.path.isdir(fonts_dir):
-            font_files = sorted([
-                f for f in os.listdir(fonts_dir)
-                if f.lower().endswith((".ttf", ".otf", ".ttc"))
-            ])
-    except Exception as e:
-        print(f"Error scanning fonts directory: {e}")
+    # F15：字体目录枚举收口到共享 helper；此列表按现行为显示完整文件名
+    font_files = [filename for _display_name, filename in list_font_files()]
 
     selected_font = _normalize_asset_filename(self.config_service.get_config().render.font_path)
     current_item = self.font_list_widget.currentItem()

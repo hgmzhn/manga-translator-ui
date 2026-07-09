@@ -23,7 +23,7 @@ from qfluentwidgets import PushButton as QPushButton
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
-from utils.resource_helper import resource_path
+from utils.font_list import list_font_files
 
 
 def _close_combo_popups_before_delete(widget: QWidget):
@@ -913,17 +913,13 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
 
         elif full_key == "render.font_path":
             # 创建自定义ComboBox,在下拉时刷新字体列表
+            # F15：字体目录枚举收口到共享 helper；此下拉框的条目文本按现行为
+            # 保持完整文件名（config 的 render.font_path 回写依赖它）
             class RefreshableComboBox(QComboBox):
                 def showPopup(self):
                     current_text = self.currentText()
                     self.clear()
-                    try:
-                        fonts_dir = resource_path('fonts')
-                        if os.path.isdir(fonts_dir):
-                            font_files = sorted([f for f in os.listdir(fonts_dir) if f.lower().endswith(('.ttf', '.otf', '.ttc'))])
-                            self.addItems(font_files)
-                    except Exception as e:
-                        print(f"Error scanning fonts directory: {e}")
+                    self.addItems([filename for _display_name, filename in list_font_files()])
                     # 恢复之前选择的值
                     if current_text:
                         index = self.findText(current_text)
@@ -932,16 +928,10 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
                         else:
                             self.setCurrentText(current_text)
                     super().showPopup()
-            
+
             combo = RefreshableComboBox()
             combo.setMinimumWidth(260)
-            try:
-                fonts_dir = resource_path('fonts')
-                if os.path.isdir(fonts_dir):
-                    font_files = sorted([f for f in os.listdir(fonts_dir) if f.lower().endswith(('.ttf', '.otf', '.ttc'))])
-                    combo.addItems(font_files)
-            except Exception as e:
-                print(f"Error scanning fonts directory: {e}")
+            combo.addItems([filename for _display_name, filename in list_font_files()])
             combo.setCurrentText(str(value) if value else "")
             combo.currentTextChanged.connect(lambda text, k=full_key: self._on_setting_changed(text, k, None))
             button = QPushButton(self._t("Open Directory"))

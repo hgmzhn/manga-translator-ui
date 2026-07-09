@@ -4,6 +4,8 @@ from typing import Optional
 
 from manga_translator.rendering import calc_font_from_box
 
+from editor.render_text_value import has_renderable_text, render_text_value_from_region
+
 
 def build_rotate_region_data(
     region_data: dict,
@@ -81,10 +83,12 @@ def _calc_font_size(region_data: dict, wf_local: Optional[list]) -> Optional[int
     if size is None:
         return None
     w, h = size
-    text = region_data.get("translation", "")
+    # 反算与正算使用同一文本源（translation_rich 优先），
+    # 保证拖框得到的字号与随后按字号正算的白框尺寸一致。
+    text = render_text_value_from_region(region_data)
     direction = region_data.get("direction", "h")
     is_h = direction in ("h", "horizontal", "hr")
-    if not (text and str(text).strip() and w > 0 and h > 0):
+    if not (has_renderable_text(text) and w > 0 and h > 0):
         return None
     fs = calc_font_from_box(
         w,

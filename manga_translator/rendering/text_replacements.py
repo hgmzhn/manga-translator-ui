@@ -367,7 +367,7 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
                        file_path: Optional[str] = None) -> str:
     """
     对译文应用替换规则。
-    自动跳过 [BR]、<br>、<H>...</H>、【BR】 等标记，避免标记内容被误替换。
+    自动跳过 [BR]、<br>、【BR】 等换行标记，避免标记内容被误替换。
 
     参数:
         text: 原始译文
@@ -384,10 +384,9 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
     if replacements is None:
         replacements = load_replacements(file_path)
 
-    # 保护标记：提取 <H>...</H>、[BR]、<br>、【BR】 等，用占位符替代
+    # 保护标记：提取 [BR]、<br>、【BR】 等，用占位符替代
     _PROTECTED_RE = re.compile(
-        r'<H>.*?</H>'        # <H>...</H> 块
-        r'|\[BR\]'           # [BR]
+        r'\[BR\]'            # [BR]
         r'|【BR】'           # 【BR】
         r'|<br\s*/?>'        # <br> / <br/>
         , re.IGNORECASE | re.DOTALL

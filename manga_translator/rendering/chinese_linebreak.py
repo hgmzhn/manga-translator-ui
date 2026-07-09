@@ -13,7 +13,7 @@ import numpy as np
 
 warnings.filterwarnings("ignore", message=".*pynvml package is deprecated.*", category=FutureWarning)
 
-from .text_render import calc_horizontal_block_height, get_char_offset_y, get_string_width
+from .text_render import get_char_offset_y, get_string_width
 from ..utils.generic import BASE_PATH
 from ..utils.log import get_logger
 
@@ -115,7 +115,6 @@ _unit_cache: dict[str, Tuple["SemanticUnit", ...]] = {}
 _MAX_UNIT_CACHE_SIZE = 2048
 _inference_fallback_log_cache: set[tuple[str, str]] = set()
 _MAX_INFERENCE_FALLBACK_LOG_CACHE_SIZE = 256
-_H_BLOCK_RE = re.compile(r"(<H>.*?</H>)", re.IGNORECASE | re.DOTALL)
 _BR_RE = re.compile(r"\s*(\[BR\]|<br>|【BR】)\s*", re.IGNORECASE)
 
 
@@ -145,21 +144,6 @@ class BubbleLinebreakChoice:
     selected: Optional[BubbleLinebreakEvaluation]
     candidates: Tuple[tuple[tuple[int, int, int, float, float], BubbleLinebreakEvaluation], ...]
     evaluations: Tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class _HBlock:
-    start: int
-    end: int
-    tagged_text: str
-    content: str
-
-
-@dataclass(frozen=True)
-class _RangedUnit:
-    start: int
-    end: int
-    unit: SemanticUnit
 
 
 def append_chinese_linebreak_debug_record(config: Any, record: dict[str, Any]) -> None:
@@ -308,13 +292,12 @@ def build_chinese_linebreak_debug_snapshot(
         "candidate_layouts": [],
     }
 
-    visible_text, h_blocks = _hide_h_tags(text or "")
     models = _get_models()
-    if models is not None and visible_text:
+    if models is not None and text:
         tokenizer, parser = models
         try:
-            tokens = _normalize_tokens(tokenizer(visible_text))
-            if tokens and "".join(tokens) == visible_text:
+            tokens = _normalize_tokens(tokenizer(text))
+            if tokens and "".join(tokens) == text:
                 try:
                     snapshot["constituency_tree"] = str(parser(tokens))
                 except Exception as exc:
@@ -325,11 +308,6 @@ def build_chinese_linebreak_debug_snapshot(
     units = _protected_semantic_units(text or "")
     if units is not None:
         snapshot["semantic_units"] = [_semantic_unit_to_debug(unit) for unit in units]
-    elif h_blocks:
-        snapshot["h_blocks"] = [
-            {"start": block.start, "end": block.end, "tagged_text": block.tagged_text, "content": block.content}
-            for block in h_blocks
-        ]
 
     seen: set[str] = set()
     for budget in budgets:
@@ -679,28 +657,12 @@ def _split_br_text(text: str) -> list[str]:
 def _make_measure(font_size: int, horizontal: bool, letter_spacing: float) -> Callable[[str], int]:
     if horizontal:
         def measure_horizontal(value: str) -> int:
-            total = 0
-            for part in _H_BLOCK_RE.split(value):
-                if not part:
-                    continue
-                if _is_h_block(part):
-                    total += int(get_string_width(font_size, _h_block_content(part), letter_spacing=letter_spacing))
-                else:
-                    total += int(get_string_width(font_size, part, letter_spacing=letter_spacing))
-            return total
+            return int(get_string_width(font_size, value, letter_spacing=letter_spacing))
 
         return measure_horizontal
 
     def measure_vertical(value: str) -> int:
-        total = 0
-        for part in _H_BLOCK_RE.split(value):
-            if not part:
-                continue
-            if _is_h_block(part):
-                total += int(calc_horizontal_block_height(font_size, _h_block_content(part), letter_spacing=letter_spacing))
-            else:
-                total += int(sum(max(0, get_char_offset_y(font_size, char, letter_spacing=letter_spacing)) for char in part))
-        return total
+        return int(sum(max(0, get_char_offset_y(font_size, char, letter_spacing=letter_spacing)) for char in value))
 
     return measure_vertical
 
@@ -800,145 +762,7 @@ def _compact_log_text(text: str, limit: int = 80) -> str:
 
 
 def _protected_semantic_units(text: str) -> Optional[Tuple[SemanticUnit, ...]]:
-    visible_text, h_blocks = _hide_h_tags(text)
-    if not h_blocks:
-        return _semantic_units(text)
-    if not visible_text:
-        return (SemanticUnit(text, protected=True),) if text else ()
-
-    units = _semantic_units(visible_text)
-    if units is None:
-        return None
-
-    restored = _restore_h_blocks(units, h_blocks)
-    if "".join(unit.text for unit in restored) != text:
-        return None
-    return restored
-
-
-def _hide_h_tags(text: str) -> tuple[str, Tuple[_HBlock, ...]]:
-    visible_parts: list[str] = []
-    h_blocks: list[_HBlock] = []
-    source_pos = 0
-    visible_pos = 0
-
-    for match in _H_BLOCK_RE.finditer(text):
-        prefix = text[source_pos:match.start()]
-        visible_parts.append(prefix)
-        visible_pos += len(prefix)
-
-        tagged_text = match.group(0)
-        content = _h_block_content(tagged_text)
-        visible_parts.append(content)
-        h_blocks.append(_HBlock(visible_pos, visible_pos + len(content), tagged_text, content))
-        visible_pos += len(content)
-        source_pos = match.end()
-
-    suffix = text[source_pos:]
-    visible_parts.append(suffix)
-    return "".join(visible_parts), tuple(h_blocks)
-
-
-def _restore_h_blocks(units: Tuple[SemanticUnit, ...], h_blocks: Tuple[_HBlock, ...]) -> Tuple[SemanticUnit, ...]:
-    ranged_units = _restore_h_blocks_ranged(units, h_blocks, 0)
-    return tuple(ranged.unit for ranged in ranged_units)
-
-
-def _restore_h_blocks_ranged(
-    units: Tuple[SemanticUnit, ...],
-    h_blocks: Tuple[_HBlock, ...],
-    base_start: int,
-) -> Tuple[_RangedUnit, ...]:
-    ranged_units: list[_RangedUnit] = []
-    cursor = base_start
-
-    for unit in units:
-        start = cursor
-        end = start + len(unit.text)
-        cursor = end
-
-        if unit.children:
-            children = _restore_h_blocks_ranged(unit.children, h_blocks, start)
-            text = "".join(child.unit.text for child in children)
-            ranged_units.append(_RangedUnit(start, end, SemanticUnit(text, tuple(child.unit for child in children), unit.protected)))
-        else:
-            ranged_units.extend(_split_leaf_at_h_boundaries(unit, h_blocks, start, end))
-
-    return _merge_h_blocks_at_level(tuple(ranged_units), h_blocks)
-
-
-def _split_leaf_at_h_boundaries(
-    unit: SemanticUnit,
-    h_blocks: Tuple[_HBlock, ...],
-    start: int,
-    end: int,
-) -> list[_RangedUnit]:
-    boundaries = {start, end}
-    for block in h_blocks:
-        if start < block.start < end:
-            boundaries.add(block.start)
-        if start < block.end < end:
-            boundaries.add(block.end)
-
-    points = sorted(boundaries)
-    if len(points) <= 2:
-        return [_RangedUnit(start, end, unit)]
-
-    output: list[_RangedUnit] = []
-    for left, right in zip(points, points[1:]):
-        if left == right:
-            continue
-        offset_left = left - start
-        offset_right = right - start
-        output.append(_RangedUnit(left, right, SemanticUnit(unit.text[offset_left:offset_right], protected=unit.protected)))
-    return output
-
-
-def _merge_h_blocks_at_level(
-    ranged_units: Tuple[_RangedUnit, ...],
-    h_blocks: Tuple[_HBlock, ...],
-) -> Tuple[_RangedUnit, ...]:
-    if not ranged_units:
-        return ()
-
-    output: list[_RangedUnit] = []
-    index = 0
-    while index < len(ranged_units):
-        ranged = ranged_units[index]
-        block = _covering_h_block(ranged.start, ranged.end, h_blocks)
-        if block is None:
-            output.append(ranged)
-            index += 1
-            continue
-
-        end_index = index
-        while end_index < len(ranged_units):
-            candidate = ranged_units[end_index]
-            if not (block.start <= candidate.start and candidate.end <= block.end):
-                break
-            end_index += 1
-
-        output.append(_RangedUnit(block.start, block.end, SemanticUnit(block.tagged_text, protected=True)))
-        index = end_index
-
-    return tuple(output)
-
-
-def _covering_h_block(start: int, end: int, h_blocks: Tuple[_HBlock, ...]) -> Optional[_HBlock]:
-    if start == end:
-        return None
-    for block in h_blocks:
-        if block.start < block.end and block.start <= start and end <= block.end:
-            return block
-    return None
-
-
-def _is_h_block(text: str) -> bool:
-    return text.lower().startswith("<h>") and text.lower().endswith("</h>")
-
-
-def _h_block_content(text: str) -> str:
-    return text[3:-4] if len(text) >= 7 else ""
+    return _semantic_units(text)
 
 
 def _normalize_tokens(tokens: Any) -> list[str]:
@@ -1240,12 +1064,7 @@ def _is_weak_single_char_line(line: str, line_index: int = 0) -> bool:
 
 
 def _visible_line_text(line: str) -> str:
-    parts: list[str] = []
-    for part in _H_BLOCK_RE.split(line):
-        if not part:
-            continue
-        parts.append(_h_block_content(part) if _is_h_block(part) else part)
-    return "".join(parts)
+    return line
 
 
 def _is_content_char(char: str) -> bool:

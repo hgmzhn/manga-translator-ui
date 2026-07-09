@@ -13,8 +13,14 @@ import tempfile
 from typing import Optional
 
 from . import Context
+from ..rendering.rich_text import plain_text_of
 
 logger = logging.getLogger(__name__)
+
+
+def _translation_plain_text(value) -> str:
+    # 薄委托：富文本→纯文本的唯一实现在 rendering.rich_text.plain_text_of
+    return plain_text_of(value)
 
 
 # 对齐方式映射到 Photoshop 的 Justification 枚举
@@ -410,7 +416,7 @@ def generate_text_layer_jsx(index: int, text_region, default_font: str, line_spa
     
     # 文本内容（使用翻译后的文本）
     # 先进行竖排文字预处理（縦中横等）
-    raw_text = text_region.translation
+    raw_text = _translation_plain_text(text_region.translation)
     processed_text = preprocess_vertical_text(raw_text, is_vertical)
     text = escape_jsx_string(processed_text)
     
@@ -424,7 +430,7 @@ def generate_text_layer_jsx(index: int, text_region, default_font: str, line_spa
         logger.warning(f"文本层 {index} 的translation为空，跳过")
         return ""
     
-    logger.debug(f"文本层 {index}: 原文='{' '.join(text_region.text)[:30]}', 译文='{text_region.translation[:30]}'")
+    logger.debug(f"文本层 {index}: 原文='{' '.join(text_region.text)[:30]}', 译文='{raw_text[:30]}'")
     
     # 位置和尺寸 - 使用渲染阶段计算的 dst_points
     # dst_points 是 shape (1, 4, 2) 的数组，包含4个角点
@@ -442,7 +448,7 @@ def generate_text_layer_jsx(index: int, text_region, default_font: str, line_spa
     # 计算行数 (使用与 escape_jsx_string 相同的正则逻辑)
     import re
     # 支持半角 [BR] 和全角 【BR】
-    num_lines = len(re.split(r'\s*(?:\[|【)BR(?:\]|】)\s*', text_region.translation, flags=re.IGNORECASE))
+    num_lines = len(re.split(r'\s*(?:\[|【)BR(?:\]|】)\s*', raw_text, flags=re.IGNORECASE))
     
     # 字体大小
     font_size = text_region.font_size
@@ -518,7 +524,7 @@ def generate_text_layer_jsx(index: int, text_region, default_font: str, line_spa
         has_tcy = any(c in processed_text for c in tcy_chars)
         if has_tcy:
             tcy_code = f"""
-    // 应用縦中横（竖排内横排）
+    // 应用 Photoshop 縦中横
     var tcyPositions{index} = findTateChuYokoPositions(textItem{index}.contents);
     var tcyFontSize{index} = {font_size};
     for (var ti{index} = 0; ti{index} < tcyPositions{index}.length; ti{index}++) {{

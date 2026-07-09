@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import math
 import os
 from datetime import datetime
@@ -60,6 +61,8 @@ class EditorControllerExportService:
         for region in regions:
             region_key = {
                 "translation": region.get("translation", ""),
+                "translation_raw": region.get("translation_raw", ""),
+                "translation_rich": region.get("translation_rich"),
                 "font_size": region.get("font_size"),
                 "font_color": region.get("font_color"),
                 "alignment": region.get("alignment"),
@@ -67,7 +70,7 @@ class EditorControllerExportService:
                 "xyxy": region.get("xyxy"),
                 "lines": str(region.get("lines", [])),
             }
-            snapshot_data.append(str(region_key))
+            snapshot_data.append(json.dumps(region_key, ensure_ascii=False, sort_keys=True, default=str))
 
         mask = self.model.get_refined_mask()
         if mask is None:

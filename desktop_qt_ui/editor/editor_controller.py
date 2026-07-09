@@ -27,6 +27,7 @@ from .controller_document_service import EditorControllerDocumentService
 from .controller_export_service import EditorControllerExportService
 from .controller_inpaint_service import EditorControllerInpaintService
 from .editor_model import EditorModel
+from .render_text_value import has_renderable_text, render_text_value_from_region
 from .session import DocumentSnapshot
 
 _UNSET = object()
@@ -46,39 +47,52 @@ class _AsyncRegionUpdateRequest:
 
 
 # 改变这些字段会影响字号反算的文字像素尺寸，需要同步刷新白框：
-# 保持白框中心不变，把宽高更新为 calc_box_from_font(新参数) 的结果。
+# 锚定正文中心，把宽高更新为完整绘制尺寸 calc_box_from_font(新参数) 的结果。
 _FONT_AFFECTING_FIELDS = frozenset({
-    "translation", "text", "font_size", "font_path",
+    "translation", "translation_rich", "text", "font_size", "font_path",
     "letter_spacing", "line_spacing", "direction",
     "stroke_width", "text_stroke_width",
 })
 
 
-def _sync_white_frame_size_for_font_change(region_data: dict) -> None:
+def _sync_white_frame_size_for_font_change(
+    region_data: dict,
+    old_region_data: Optional[dict] = None,
+) -> None:
     """字体/译文/描边/字间距等属性改变后，把白框尺寸同步成字号反算尺寸。
 
-    保持白框中心不变；尺寸 = calc_box_from_font(font_size, translation, ...)。
+    白框仍是渲染框（含注音等框外装饰）；锚定的是正文中心：
+    新框正中心 = (旧框正中心 + 旧正文差值) − 新正文差值，
+    差值 = calc_box_from_font 返回的正文中心 − 渲染框正中心（框内坐标）。
+    纯文本前后差值均为零，行为与"保持框中心"完全一致；富文本增删注音
+    时正文本体钉住不动，渲染框向装饰一侧扩缩。
     标记 has_custom_white_frame=True 让其优先于 render_box 主导渲染中心。
     """
     try:
         from manga_translator.rendering import calc_box_from_font
 
-        font_size = int(region_data.get("font_size") or 0)
-        translation = (region_data.get("translation") or "").strip()
-        if font_size <= 0 or not translation:
-            return
+        def _box_metrics(data: dict):
+            """返回 (框宽, 框高, 正文差值)；文本/字号无效时返回 None。"""
+            font_size = int(data.get("font_size") or 0)
+            value = render_text_value_from_region(data)
+            if font_size <= 0 or not has_renderable_text(value):
+                return None
+            direction = data.get("direction", "h")
+            is_horizontal = direction in ("h", "horizontal", "hr")
+            line_spacing = float(data.get("line_spacing") or 1.0)
+            letter_spacing = float(data.get("letter_spacing") or 1.0)
+            w, h, _, (body_x, body_y) = calc_box_from_font(
+                font_size, value, is_horizontal, line_spacing,
+                None, None, center=None, angle=0, letter_spacing=letter_spacing,
+            )
+            if w <= 0 or h <= 0:
+                return None
+            return float(w), float(h), (float(body_x) - w / 2.0, float(body_y) - h / 2.0)
 
-        direction = region_data.get("direction", "h")
-        is_horizontal = direction in ("h", "horizontal", "hr")
-        line_spacing = float(region_data.get("line_spacing") or 1.0)
-        letter_spacing = float(region_data.get("letter_spacing") or 1.0)
-
-        w, h, _ = calc_box_from_font(
-            font_size, translation, is_horizontal, line_spacing,
-            None, None, center=None, angle=0, letter_spacing=letter_spacing,
-        )
-        if w <= 0 or h <= 0:
+        new_metrics = _box_metrics(region_data)
+        if new_metrics is None:
             return
+        w, h, new_delta = new_metrics
 
         wf = region_data.get("white_frame_rect_local")
         if isinstance(wf, (list, tuple)) and len(wf) == 4:
@@ -87,10 +101,17 @@ def _sync_white_frame_size_for_font_change(region_data: dict) -> None:
         else:
             local_cx = local_cy = 0.0
 
-        half_w, half_h = float(w) / 2.0, float(h) / 2.0
+        # 正文锚点 = 旧框正中心 + 旧正文差值。
+        # 拿不到旧文本时按"差值未变"处理（退化为保持框中心的旧行为）。
+        old_metrics = _box_metrics(old_region_data) if old_region_data else None
+        old_delta = old_metrics[2] if old_metrics is not None else new_delta
+        new_cx = (local_cx + old_delta[0]) - new_delta[0]
+        new_cy = (local_cy + old_delta[1]) - new_delta[1]
+
+        half_w, half_h = w / 2.0, h / 2.0
         region_data["white_frame_rect_local"] = [
-            local_cx - half_w, local_cy - half_h,
-            local_cx + half_w, local_cy + half_h,
+            new_cx - half_w, new_cy - half_h,
+            new_cx + half_w, new_cy + half_h,
         ]
         region_data["has_custom_white_frame"] = True
     except Exception:
@@ -597,9 +618,9 @@ class EditorController(QObject):
         new_region_data = old_region_data.copy()
         new_region_data[field_name] = value
 
-        # 字体/译文等属性改变 → 同步白框尺寸（保持白框中心），让 UI 立即跟上新字号。
+        # 字体/译文等属性改变 → 同步白框尺寸（锚定正文中心），让 UI 立即跟上新字号。
         if field_name in _FONT_AFFECTING_FIELDS:
-            _sync_white_frame_size_for_font_change(new_region_data)
+            _sync_white_frame_size_for_font_change(new_region_data, old_region_data)
 
         command = self._build_region_update_command(
             region_index=region_index,
@@ -719,6 +740,35 @@ class EditorController(QObject):
             merge_key=f"region:{region_index}:translation_raw",
         )
 
+    @pyqtSlot(int, object, str)
+    def update_translation_rich(self, region_index: int, rich_document, plain_text: str):
+        old_region_data = self._get_region_by_index(region_index)
+        if not old_region_data:
+            return
+
+        old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
+        if (
+            old_region_data.get("translation_rich") == rich_document
+            and old_region_data.get("translation", "") == plain_text
+        ):
+            return
+
+        new_region_data = old_region_data.copy()
+        new_region_data["translation"] = plain_text
+        new_region_data["translation_raw"] = plain_text
+        new_region_data["translation_rich"] = rich_document
+
+        _sync_white_frame_size_for_font_change(new_region_data, old_region_data)
+
+        command = self._build_region_update_command(
+            region_index=region_index,
+            old_data=old_region_data,
+            new_data=new_region_data,
+            description=f"Update Rich Translation Region {region_index}",
+            merge_key=f"region:{region_index}:translation_rich",
+        )
+        self.execute_command(command)
+
     def _update_translation_pair(
         self,
         region_index: int,
@@ -742,9 +792,10 @@ class EditorController(QObject):
         new_region_data = old_region_data.copy()
         new_region_data["translation"] = translation
         new_region_data["translation_raw"] = translation_raw
+        new_region_data.pop("translation_rich", None)
 
         # translation 是 _FONT_AFFECTING_FIELDS 成员,改动后同步白框尺寸
-        _sync_white_frame_size_for_font_change(new_region_data)
+        _sync_white_frame_size_for_font_change(new_region_data, old_region_data)
 
         command = self._build_region_update_command(
             region_index=region_index,

@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 from ..config import Config
 from ..utils import TextBlock, get_logger
+from .rich_text import is_rich_text_document
 
 logger = get_logger('render')
 
@@ -14,7 +15,9 @@ class ReplacementLayoutRecord:
     replaced_text: str
 
 
-def _strip_linebreak_edge_punctuation_if_enabled(text: str, config: Config) -> str:
+def _strip_linebreak_edge_punctuation_if_enabled(text: Any, config: Config) -> Any:
+    if not isinstance(text, str):
+        return text
     if not (config and hasattr(config, 'render') and getattr(config.render, 'remove_linebreak_punctuation', False)):
         return text
     from .auto_linebreak import strip_linebreak_edge_punctuation
@@ -92,7 +95,6 @@ def prepare_text_replacements_for_layout(
     config: Config,
     *,
     resolve_render_horizontal: Callable[[TextBlock], bool],
-    apply_vertical_horizontal_markup: Callable[..., str],
     skip_text_replacements: bool = False,
 ) -> None:
     if skip_text_replacements:
@@ -106,18 +108,19 @@ def prepare_text_replacements_for_layout(
         return
 
     for region in text_regions:
-        if region is None or not getattr(region, 'translation', ''):
+        if region is None:
+            continue
+        render_value = region.get_translation_for_rendering() if hasattr(region, 'get_translation_for_rendering') else region.translation
+        if not render_value:
+            continue
+        if is_rich_text_document(render_value):
             continue
         if getattr(region, '_replacement_layout_record', None) is not None:
             continue
 
         render_horizontally = resolve_render_horizontal(region)
+        # TextBlock.translation property 恒返 str
         raw_text = region.translation
-        raw_text = apply_vertical_horizontal_markup(
-            raw_text,
-            render_horizontally=render_horizontally,
-            config=config,
-        )
         raw_text = _strip_linebreak_edge_punctuation_if_enabled(raw_text, config)
         direction = 0 if render_horizontally else 1
 
@@ -139,15 +142,18 @@ def prepare_text_replacements_for_layout(
 def sync_translation_raw_from_layout(text_regions: List[TextBlock], config: Config = None) -> None:
     for region in text_regions:
         record = getattr(region, '_replacement_layout_record', None)
-        if record is None:
-            continue
-        raw_after_layout = project_insertions_to_raw(record, region.translation)
-        region.translation = _strip_linebreak_edge_punctuation_if_enabled(region.translation, config)
-        region.translation_raw = _strip_linebreak_edge_punctuation_if_enabled(
-            raw_after_layout,
-            config,
-        )
-        try:
-            delattr(region, '_replacement_layout_record')
-        except Exception:
-            pass
+        if record is not None:
+            # TextBlock.translation property 恒返 str
+            raw_after_layout = project_insertions_to_raw(record, region.translation)
+            region.translation = _strip_linebreak_edge_punctuation_if_enabled(region.translation, config)
+            region.translation_raw = _strip_linebreak_edge_punctuation_if_enabled(
+                raw_after_layout,
+                config,
+            )
+            try:
+                delattr(region, '_replacement_layout_record')
+            except Exception:
+                pass
+
+        if hasattr(region, 'ensure_translation_rich_from_legacy_breaks'):
+            region.ensure_translation_rich_from_legacy_breaks()

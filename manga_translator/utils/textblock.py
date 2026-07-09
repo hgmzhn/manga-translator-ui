@@ -3,7 +3,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from functools import cached_property
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import cv2
 import numpy as np
@@ -16,7 +16,10 @@ from .generic import (
     is_right_to_left_char,
     is_valuable_char,
 )
+from .log import get_logger
 from .panel import get_panels_from_array
+
+logger = get_logger('textblock')
 
 # from ..detection.ctd_utils.utils.imgproc_utils import union_area, xywh2xyxypoly
 
@@ -67,6 +70,64 @@ def _normalize_direction_token(direction):
         'auto': 'auto',
     }.get(normalized, normalized)
 
+
+def _is_rich_text_value(value: Any) -> bool:
+    from ..rendering.rich_text import is_rich_text_document
+
+    return is_rich_text_document(value)
+
+
+def _normalize_rich_translation_value(value: Any) -> Any:
+    from ..rendering.rich_text import RichTextDocument, ensure_rich_text_document, is_rich_text_document
+
+    if value in (None, ''):
+        return None
+    if isinstance(value, RichTextDocument):
+        return value.to_dict()
+    if is_rich_text_document(value):
+        return ensure_rich_text_document(value).to_dict()
+    raise TypeError('translation_rich must be a richtext.v1 dict or RichTextDocument')
+
+
+def _translation_plain_text(value: Any) -> str:
+    from ..rendering.rich_text import plain_text_of
+
+    return plain_text_of(value)
+
+
+def _reverse_ltr_blocks(text: str) -> str:
+    """右到左（'r' 结尾方向）渲染时，把连续的 LTR（非 RTL 可见字符）块整体反转，
+    使逐字符右到左绘制后仍以正常顺序显示。
+
+    get_translation_for_rendering 的字符串路径与 BR→富文本转换
+    （ensure_translation_rich_from_legacy_breaks）共用，保证两条渲染路径行为一致。
+    """
+    if not text:
+        return text
+
+    text_list = list(text)
+    l2r_idx = -1
+
+    def reverse_sublist(l, i1, i2):
+        delta = i2 - i1
+        for j1 in range(i1, i2 - delta // 2):
+            j2 = i2 - (j1 - i1) - 1
+            l[j1], l[j2] = l[j2], l[j1]
+
+    for i, c in enumerate(text):
+        if not is_right_to_left_char(c) and is_valuable_char(c):
+            if l2r_idx < 0:
+                l2r_idx = i
+        elif l2r_idx >= 0 and i - l2r_idx > 1:
+            # Reverse left-to-right characters for correct rendering
+            reverse_sublist(text_list, l2r_idx, i)
+            l2r_idx = -1
+    if l2r_idx >= 0 and i - l2r_idx > 1:
+        reverse_sublist(text_list, l2r_idx, len(text_list))
+
+    return ''.join(text_list)
+
+
 class TextBlock(object):
     """
     Object that stores a block of text made up of textlines.
@@ -76,8 +137,9 @@ class TextBlock(object):
                  language: str = 'unknown',
                  font_size: float = -1,
                  angle: float = 0,
-                 translation: str = "",
+                 translation: Any = "",
                  translation_raw: str = "",
+                 translation_rich: Any = None,
                  fg_color: Tuple[float] = (0, 0, 0),
                  bg_color: Tuple[float] = (0, 0, 0),
                  line_spacing = 1.,
@@ -122,10 +184,43 @@ class TextBlock(object):
         self.prob = prob
         self.layout_mode = layout_mode
 
-        self.translation = translation
+        # 译文/富文本入库：用 is_rich_text_document 显式类型分派。
+        # 解析失败一律"丢样式、保区域"：translation_rich 置 None、其余字段照常
+        # 构造，绝不让 ValueError/TypeError 穿出构造函数——否则 load_text 会把
+        # 整个区域连同原文、坐标一起丢掉并覆盖回写工程文件（F04）。
+        self.translation_rich = None
+        if _is_rich_text_value(translation):
+            try:
+                rich_value = _normalize_rich_translation_value(translation)
+                plain_value = _translation_plain_text(rich_value)
+            except (ValueError, TypeError) as exc:
+                logger.warning(
+                    f'Invalid rich text passed as translation, discarding styling and keeping the region: {exc}'
+                )
+                rich_value, plain_value = None, ''
+            self.translation = plain_value
+            self.translation_rich = rich_value
+        else:
+            self.translation = translation
+
+        if translation_rich is not None:
+            try:
+                explicit_rich = _normalize_rich_translation_value(translation_rich)
+            except (ValueError, TypeError) as exc:
+                logger.warning(
+                    'Invalid translation_rich discarded, keeping plain translation '
+                    f'{self.translation[:50]!r}: {exc}'
+                )
+                explicit_rich = None
+            if explicit_rich is not None:
+                if not self.translation:
+                    # 先经 setter 写纯文本，再挂富文本（setter 会清 rich，故顺序如此）
+                    self.translation = _translation_plain_text(explicit_rich)
+                self.translation_rich = explicit_rich
+
         # 替换前译文(YAML 规则应用前的原始版本)。空时回填 translation,
         # 保证字段永不为空 — 编辑器和导出可放心读取。
-        self.translation_raw = translation_raw if translation_raw else translation
+        self.translation_raw = translation_raw if isinstance(translation_raw, str) and translation_raw else _translation_plain_text(self.translation)
 
         # Handle color from UI (hex string) or backend (RGB tuple)
         font_color_hex = kwargs.get('font_color')
@@ -280,6 +375,49 @@ class TextBlock(object):
     def __getitem__(self, idx):
         return self.lines[idx]
 
+    @property
+    def translation(self) -> str:
+        return self._translation
+
+    @translation.setter
+    def translation(self, value: Any) -> None:
+        new_plain = _translation_plain_text(value)
+        changed = getattr(self, '_translation', None) != new_plain
+        self._translation = new_plain
+        # 等值赋值不视为编辑：后处理循环（OpenCC 未命中、部分翻译返回、后字典
+        # 无替换等）会把现值原样写回，此时保留 translation_rich；
+        # 只有纯文本真正变化时才失效富文本。
+        if changed and hasattr(self, 'translation_rich'):
+            self.translation_rich = None
+
+    def set_translation_rich(
+        self,
+        value: Any,
+        *,
+        sync_plain: bool = False,
+    ) -> None:
+        self.translation_rich = _normalize_rich_translation_value(value)
+        if sync_plain:
+            self._translation = _translation_plain_text(self.translation_rich)
+
+    def ensure_translation_rich_from_legacy_breaks(self) -> bool:
+        from ..rendering.rich_text import has_legacy_line_breaks, legacy_line_breaks_to_document
+
+        if self.translation_rich is not None:
+            return False
+        if not has_legacy_line_breaks(self.translation):
+            return False
+        document = legacy_line_breaks_to_document(self.translation)
+        if self.direction.endswith('r'):
+            # 右到左（hr/vr）渲染：富文本渲染器按逻辑序排 span，不再经过
+            # get_translation_for_rendering 字符串路径的 LTR 块反转，
+            # 这里在 BR→rich 转换时对每个段落文本补做同一反转，保持行为一致。
+            for paragraph in document.blocks:
+                for run in paragraph.inlines:
+                    run.text = _reverse_ltr_blocks(run.text)
+        self.translation_rich = document.to_dict()
+        return True
+
     def to_dict(self):
         """Serializes the TextBlock to a dictionary, only including necessary fields."""
         # Note: The UI might add/use other fields like 'center' which it calculates itself.
@@ -365,10 +503,12 @@ class TextBlock(object):
             'source_lang': self.source_lang,
             'line_spacing': self.line_spacing,
             'letter_spacing': self.letter_spacing,
-            'stroke_width': self.default_stroke_width,  # 统一使用 stroke_width（后端加载时会转换为 default_stroke_width）
+            'stroke_width': self.default_stroke_width,
             'prob': self.prob,
-            'font_path': getattr(self, 'font_path', ''),  # 区域特定字体路径（空字符串=使用全局默认字体）
+            'font_path': getattr(self, 'font_path', ''),
         }
+        if self.translation_rich is not None:
+            result['translation_rich'] = self.translation_rich
         result.update(render_box_extra)
         return result
 
@@ -440,32 +580,15 @@ class TextBlock(object):
         return self._source_lang
 
     def get_translation_for_rendering(self):
+        if self.translation_rich is not None:
+            return self.translation_rich
         text = self.translation
+        if not isinstance(text, str):
+            return text
         if self.direction.endswith('r'):
             # The render direction is right to left so left-to-right
             # text/number chunks need to be reversed to look normal.
-
-            text_list = list(text)
-            l2r_idx = -1
-
-            def reverse_sublist(l, i1, i2):
-                delta = i2 - i1
-                for j1 in range(i1, i2 - delta // 2):
-                    j2 = i2 - (j1 - i1) - 1
-                    l[j1], l[j2] = l[j2], l[j1]
-
-            for i, c in enumerate(text):
-                if not is_right_to_left_char(c) and is_valuable_char(c):
-                    if l2r_idx < 0:
-                        l2r_idx = i
-                elif l2r_idx >= 0 and i - l2r_idx > 1:
-                    # Reverse left-to-right characters for correct rendering
-                    reverse_sublist(text_list, l2r_idx, i)
-                    l2r_idx = -1
-            if l2r_idx >= 0 and i - l2r_idx > 1:
-                reverse_sublist(text_list, l2r_idx, len(text_list))
-
-            text = ''.join(text_list)
+            text = _reverse_ltr_blocks(text)
         return text
 
     @property

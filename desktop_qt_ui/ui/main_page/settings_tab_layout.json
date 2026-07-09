@@ -146,7 +146,6 @@
         "render.line_spacing",
         "render.letter_spacing",
         "render.font_size",
-        "render.auto_rotate_symbols",
         "render.rtl",
         "render.layout_mode",
         "render.max_font_size",

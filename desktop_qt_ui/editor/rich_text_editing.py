@@ -1,0 +1,545 @@
+"""Helpers for editing structured rich text from the Qt floating editor.
+
+richtext.v1 协议的解析/序列化唯一实现位于 manga_translator.rendering.rich_text
+（F11 收口）；本模块只负责编辑器侧的结构化编辑操作：光标级增删
+（apply_text_change）、样式补丁（apply_style_to_range）、ruby/tcy 包装与解除。
+
+所有编辑操作共享同一套「节点归属拍平」表示（F01/F17）：
+文档 → 逐可见字符条目 _CharEntry(char, style, run, node)，其中
+style/run/node 均为对原文档 dict 的共享引用（只读，不做逐字符深拷贝，F25）；
+编辑 = 对条目序列做拼接/改写，再由 _document_from_entries 重建 —
+连续同 node 的字符重组回原类型节点（ruby 保留原注音、tcy 重建 content），
+node 为 None 的段按样式分组为 text run。
+"""
+
+from __future__ import annotations
+
+import copy
+import re
+from typing import Any
+
+from manga_translator.rendering.rich_text import (
+    RICH_TEXT_FORMAT,
+    ensure_rich_text_document,
+    is_rich_text_document,
+    legacy_line_breaks_to_document,
+    normalize_rich_linebreaks,
+    plain_text_of,
+)
+
+
+def editor_text_to_plain_text(text: str) -> str:
+    return str(text or "").replace("↵", "\n")
+
+
+def plain_text_to_storage_text(text: str) -> str:
+    # 刻意保留：写回 translation 字段时用 [BR] 标记换行，维持 PSD 导出等
+    # 下游对 [BR] 形式的兼容（见审查报告 F31 备注）。
+    return re.sub(r"\n+", "[BR]", str(text or ""))
+
+
+def storage_text_to_editor_text(text: Any) -> str:
+    if is_rich_text_document(text):
+        return plain_text_of(text)
+    # 薄委托：BR 标记 → 换行 的唯一实现在 rich_text.py（F14）。
+    return normalize_rich_linebreaks(str(text or ""))
+
+
+def document_from_region(region_data: dict) -> dict:
+    rich = region_data.get("translation_rich")
+    if is_rich_text_document(rich):
+        try:
+            # 严格解析 + to_dict：既做隔离拷贝，又把 RichTextDocument 实例
+            # 归一成编辑器使用的 dict 形态；非法文档降级回纯文本而不是让
+            # 编辑器崩溃（加载边界的整体降级见 F04）。
+            return ensure_rich_text_document(rich).to_dict()
+        except (ValueError, TypeError):
+            pass
+    return document_from_text(region_data.get("translation", ""))
+
+
+def document_from_text(text: Any) -> dict:
+    # 薄委托：换行/BR 标记 → 段落 的唯一实现在 rich_text.py（F11）。
+    return legacy_line_breaks_to_document(str(text or "")).to_dict()
+
+
+def visible_text_from_document(document: Any) -> str:
+    # 薄委托（F11）：plain_text_of 同时兼容 RichTextDocument 实例与 dict，
+    # 纯字符串原样返回 —— 不再有 str(document) 垃圾输出分支。
+    return plain_text_of(document)
+
+
+def document_to_storage_text(document: Any) -> str:
+    return plain_text_to_storage_text(visible_text_from_document(document))
+
+
+# ---------------------------------------------------------------------------
+# 节点归属拍平（共享 walk，F01/F17/F25）
+# ---------------------------------------------------------------------------
+
+
+class _CharEntry:
+    """一个可见字符的归属：style/run 为原 text run 的共享引用，node 为其所属
+    ruby/tcy 节点（顶层 text run 字符为 None）。段落分隔符条目 char 为 \\n、
+    run/node 为 None。"""
+
+    __slots__ = ("char", "style", "run", "node")
+
+    def __init__(self, char: str, style: dict, run: dict | None, node: dict | None):
+        self.char = char
+        self.style = style
+        self.run = run
+        self.node = node
+
+
+def _blocks_of(document: Any) -> list:
+    if not is_rich_text_document(document):
+        return []
+    if not isinstance(document, dict):
+        # RichTextDocument 实例 → 编辑器统一以 dict 形态操作
+        document = ensure_rich_text_document(document).to_dict()
+    blocks = document.get("blocks", [])
+    return blocks if isinstance(blocks, list) else []
+
+
+def _visible_entries(document: Any) -> list[_CharEntry]:
+    """把文档拍平成逐可见字符的归属条目（唯一的 blocks→inlines 游标行走）。
+
+    ruby 的注音 runs 不占可见位置，不产出条目；base/content 依协议只含
+    text run，非法嵌套节点在此被忽略（严格解析在渲染侧本就会拒绝它们）。
+    """
+    entries: list[_CharEntry] = []
+    blocks = _blocks_of(document)
+    for block_index, block in enumerate(blocks):
+        inlines = block.get("inlines", []) if isinstance(block, dict) else []
+        for inline in inlines:
+            if not isinstance(inline, dict):
+                continue
+            inline_type = inline.get("type", "text")
+            if inline_type == "ruby":
+                _append_run_entries(inline.get("base", []), inline, entries)
+            elif inline_type == "tcy":
+                _append_run_entries(inline.get("content", []), inline, entries)
+            else:
+                _append_run_entries([inline], None, entries)
+        if block_index < len(blocks) - 1:
+            entries.append(_CharEntry("\n", {}, None, None))
+    return entries
+
+
+def _append_run_entries(runs: Any, node: dict | None, entries: list[_CharEntry]) -> None:
+    if not isinstance(runs, list):
+        return
+    for run in runs:
+        if not isinstance(run, dict) or run.get("type", "text") != "text":
+            continue
+        style = run.get("style") if isinstance(run.get("style"), dict) else {}
+        for char in str(run.get("text", "")):
+            entries.append(_CharEntry(char, style, run, node))
+
+
+def _entries_text(entries: list[_CharEntry]) -> str:
+    return "".join(entry.char for entry in entries)
+
+
+def _document_from_entries(text: str, entries: list[_CharEntry]) -> dict:
+    """节点归属重建（F01 的重建侧）。
+
+    text 提供权威字符序列（含 \\n 段落分隔），entries 提供每个字符的
+    style/node 归属；连续同 node（对象身份）的字符重组回原类型节点：
+    ruby 用新 base 文本 + 原注音（深拷贝一次），tcy 用新 content 文本，
+    base/content 被删空的节点自然消失。样式只在 run 边界深拷贝一次（F25）。
+    """
+    text = str(text or "")
+    if len(entries) < len(text):
+        entries = entries + [_CharEntry("", {}, None, None) for _ in range(len(text) - len(entries))]
+
+    blocks = []
+    cursor = 0
+    for line in text.split("\n"):
+        inlines: list[dict] = []
+        line_end = cursor + len(line)
+        index = cursor
+        while index < line_end:
+            node = entries[index].node
+            group_start = index
+            index += 1
+            while index < line_end and entries[index].node is node:
+                index += 1
+            runs = _runs_from_group(
+                line[group_start - cursor:index - cursor],
+                entries[group_start:index],
+            )
+            if node is None:
+                inlines.extend(runs)
+            elif runs:
+                if node.get("type") == "ruby":
+                    inlines.append({
+                        "type": "ruby",
+                        "base": runs,
+                        "text": copy.deepcopy(node.get("text", [])),
+                    })
+                else:
+                    inlines.append({"type": "tcy", "content": runs})
+        blocks.append({"type": "paragraph", "inlines": _merge_adjacent_text_runs(inlines)})
+        cursor = line_end + 1
+
+    if not blocks:
+        blocks = [{"type": "paragraph", "inlines": []}]
+    return {"format": RICH_TEXT_FORMAT, "blocks": blocks}
+
+
+def _runs_from_group(text: str, entries: list[_CharEntry]) -> list[dict]:
+    """把一段连续同 node 的字符按样式分组为 text runs（原 _text_runs_from_segment
+    与 _document_from_text_and_styles 逐字分组的合并实现）。样式引用相同或
+    值相等的相邻字符共享一个 run，深拷贝只发生在 run 边界。"""
+    runs: list[dict] = []
+    if not text:
+        return runs
+    run_start = 0
+    current_style = entries[0].style if entries else {}
+    for index in range(1, len(text)):
+        style = entries[index].style if index < len(entries) else {}
+        if style is current_style or style == current_style:
+            continue
+        runs.append({"type": "text", "text": text[run_start:index], "style": copy.deepcopy(current_style or {})})
+        run_start = index
+        current_style = style
+    runs.append({"type": "text", "text": text[run_start:], "style": copy.deepcopy(current_style or {})})
+    return runs
+
+
+def _normalize_range(entries: list[_CharEntry], start: int, end: int, expand_empty: bool) -> tuple[int, int]:
+    length = len(entries)
+    start = int(start)
+    end = int(end)
+    if expand_empty and start == end:
+        return 0, length
+    start = max(0, min(start, length))
+    end = max(start, min(end, length))
+    return start, end
+
+
+def _runs_text(runs: Any) -> str:
+    if not isinstance(runs, list):
+        return ""
+    return "".join(str(run.get("text", "")) for run in runs if isinstance(run, dict))
+
+
+# ---------------------------------------------------------------------------
+# 编辑操作
+# ---------------------------------------------------------------------------
+
+
+def apply_text_change(
+    document: dict,
+    editor_text: str,
+    position: int,
+    chars_removed: int,
+    chars_added: int,
+) -> dict:
+    """按 QTextDocument.contentsChange 语义更新文档，保留 ruby/tcy 节点（F01）。"""
+    new_text = editor_text_to_plain_text(editor_text)
+    entries = _visible_entries(document)
+    position = max(0, min(int(position), len(entries)))
+    chars_removed = max(0, int(chars_removed))
+    chars_added = max(0, int(chars_added))
+    inherited_style, inherited_node = _insertion_inheritance(entries, position)
+    inserted = [_CharEntry("", inherited_style, None, inherited_node) for _ in range(chars_added)]
+    new_entries = entries[:position] + inserted + entries[position + chars_removed:]
+    return _document_from_entries(new_text, new_entries[:len(new_text)])
+
+
+def _insertion_inheritance(entries: list[_CharEntry], position: int) -> tuple[dict, dict | None]:
+    """插入字符的样式与节点归属。
+
+    样式：插入点严格位于同一 text run 内部（前后字符同 run）才继承该 run
+    的样式，run 边缘不继承 —— 与旧实现语义一致。
+    节点：插入点严格位于同一 ruby/tcy 节点内部（前后字符同节点）才并入该
+    节点；节点前/后边缘或纯文本处插入 → 普通文本（F01 决策）。
+    邻居按插入点在旧文档中的前后字符（position-1 / position）判定。
+    """
+    if position <= 0 or position >= len(entries):
+        return {}, None
+    prev = entries[position - 1]
+    nxt = entries[position]
+    style = prev.style if (prev.run is not None and prev.run is nxt.run) else {}
+    node = prev.node if (prev.node is not None and prev.node is nxt.node) else None
+    return style, node
+
+
+def apply_style_to_range(document: dict, start: int, end: int, patch: dict) -> dict:
+    entries = _visible_entries(document)
+    start, end = _normalize_range(entries, start, end, expand_empty=True)
+    if start == end:
+        return copy.deepcopy(document)
+
+    merged_by_style: dict[int, dict] = {}
+    for entry in entries[start:end]:
+        if entry.char == "\n":
+            continue
+        merged = merged_by_style.get(id(entry.style))
+        if merged is None:
+            merged = _merge_style(entry.style, patch)
+            merged_by_style[id(entry.style)] = merged
+        entry.style = merged
+    return _document_from_entries(_entries_text(entries), entries)
+
+
+def apply_tcy_to_range(document: dict, start: int, end: int) -> dict:
+    return _wrap_range_as_node(document, start, end, "tcy")
+
+
+def apply_ruby_to_range(document: dict, start: int, end: int, ruby_text: str) -> dict:
+    ruby_text = str(ruby_text or "")
+    if not ruby_text:
+        return remove_ruby_from_range(document, start, end)
+    return _wrap_range_as_node(document, start, end, "ruby", ruby_text=ruby_text)
+
+
+def remove_ruby_from_range(document: dict, start: int, end: int) -> dict:
+    entries = _visible_entries(document)
+    start, end = _normalize_range(entries, start, end, expand_empty=True)
+    if start == end:
+        return copy.deepcopy(document)
+
+    for entry in entries[start:end]:
+        if isinstance(entry.node, dict) and entry.node.get("type") == "ruby":
+            entry.node = None
+    return _document_from_entries(_entries_text(entries), entries)
+
+
+def _wrap_range_as_node(document: dict, start: int, end: int, node_type: str, ruby_text: str = "") -> dict:
+    entries = _visible_entries(document)
+    start, end = _normalize_range(entries, start, end, expand_empty=False)
+    if start >= end:
+        return copy.deepcopy(document)
+
+    # 范围外的既有 ruby/tcy 原样保留（条目携带节点归属，重建时复原）。
+    # 范围与既有节点部分/全部重叠：拆散被重叠的旧节点 —— 其全部字符降级为
+    # 携带原样式的普通文本（协议不允许节点嵌套，部分重叠时保留残半节点会
+    # 产生歧义），随后把范围包成新节点。
+    overlapped_ids = {id(entry.node) for entry in entries[start:end] if entry.node is not None}
+    if overlapped_ids:
+        for entry in entries:
+            if entry.node is not None and id(entry.node) in overlapped_ids:
+                entry.node = None
+
+    if node_type == "ruby":
+        new_node = {"type": "ruby", "base": [], "text": [{"type": "text", "text": ruby_text, "style": {}}]}
+    else:
+        new_node = {"type": "tcy", "content": []}
+    for entry in entries[start:end]:
+        entry.node = new_node
+    # 注：范围跨段落时按段落各自重组为一个节点（ruby 注音随之复制到每段），
+    # 与旧实现的逐行包装行为一致。
+    return _document_from_entries(_entries_text(entries), entries)
+
+
+# ---------------------------------------------------------------------------
+# 查询（浮动编辑器工具栏状态）
+# ---------------------------------------------------------------------------
+
+
+def selected_range_from_editor(text_edit) -> tuple[int, int]:
+    cursor = text_edit.textCursor()
+    start = min(cursor.selectionStart(), cursor.selectionEnd())
+    end = max(cursor.selectionStart(), cursor.selectionEnd())
+    return start, end
+
+
+def style_for_range(document: dict, start: int, end: int) -> dict:
+    entries = _visible_entries(document)
+    start, end = _normalize_range(entries, start, end, expand_empty=True)
+    styles = _styles_in_range(entries, start, end)
+    result: dict[str, Any] = {}
+    ruby_texts = _ruby_texts_in_range(entries, start, end)
+    if ruby_texts:
+        result["ruby"] = True
+        result["rubyText"] = ruby_texts[0]
+    for style in styles:
+        if not isinstance(style, dict):
+            continue
+        for key in ("bold", "italic", "scale", "emphasis", "noTcy", "kerning", "preKerning", "lineKerning", "nextKerning"):
+            if key in style and key not in result:
+                result[key] = style.get(key)
+        if "color" in style and "color" not in result:
+            result["color"] = style.get("color")
+        if "fontSize" in style and "fontSize" not in result:
+            result["fontSize"] = style.get("fontSize")
+        if "fontPath" in style and "fontPath" not in result:
+            result["fontPath"] = style.get("fontPath")
+        stroke = style.get("stroke")
+        if isinstance(stroke, dict):
+            if "color" in stroke and "strokeColor" not in result:
+                result["strokeColor"] = stroke.get("color")
+            if "width" in stroke and "strokeWidth" not in result:
+                result["strokeWidth"] = stroke.get("width")
+        outer_stroke = style.get("outerStroke")
+        if isinstance(outer_stroke, dict):
+            if "color" in outer_stroke and "outerStrokeColor" not in result:
+                result["outerStrokeColor"] = outer_stroke.get("color")
+            if "width" in outer_stroke and "outerStrokeWidth" not in result:
+                result["outerStrokeWidth"] = outer_stroke.get("width")
+        glow = style.get("glow")
+        if isinstance(glow, dict):
+            if "color" in glow and "glowColor" not in result:
+                result["glowColor"] = glow.get("color")
+            if "blur" in glow and "glowBlur" not in result:
+                result["glowBlur"] = glow.get("blur")
+        transform = style.get("transform")
+        if isinstance(transform, dict):
+            for source, target in (
+                ("offsetX", "offsetX"),
+                ("offsetY", "offsetY"),
+                ("rotation", "rotation"),
+                ("mirrorX", "mirrorX"),
+                ("mirrorY", "mirrorY"),
+            ):
+                if source in transform and target not in result:
+                    result[target] = transform.get(source)
+    return result
+
+
+def _styles_in_range(entries: list[_CharEntry], start: int, end: int) -> list[dict]:
+    """范围内各 text run 的样式（共享引用，仅供只读），按出现顺序去重相邻。"""
+    styles: list[dict] = []
+    last_run: Any = _UNSET
+    for entry in entries[start:end]:
+        if entry.char == "\n":
+            continue
+        if entry.run is not last_run:
+            styles.append(entry.style)
+            last_run = entry.run
+    return styles
+
+
+_UNSET = object()
+
+
+def _ruby_texts_in_range(entries: list[_CharEntry], start: int, end: int) -> list[str]:
+    texts: list[str] = []
+    seen: set[int] = set()
+    for entry in entries[start:end]:
+        node = entry.node
+        if not (isinstance(node, dict) and node.get("type") == "ruby") or id(node) in seen:
+            continue
+        seen.add(id(node))
+        ruby_text = _runs_text(node.get("text", []))
+        if ruby_text:
+            texts.append(ruby_text)
+    return texts
+
+
+def styled_text_for_key(document: dict, start: int, end: int, row_key: str) -> str:
+    entries = _visible_entries(document)
+    visible_text = _entries_text(entries)
+    visible_len = len(entries)
+    start = max(0, min(int(start), visible_len))
+    end = max(start, min(int(end), visible_len))
+    if start != end:
+        return _compact_display_text(visible_text[start:end])
+
+    matches: list[str] = []
+    index = 0
+    while index < visible_len:
+        node = entries[index].node
+        group_start = index
+        index += 1
+        while index < visible_len and entries[index].node is node:
+            index += 1
+        group_text = visible_text[group_start:index]
+        if isinstance(node, dict) and group_text:
+            if row_key == "R" and node.get("type") == "ruby":
+                matches.append(group_text)
+            elif row_key == "T" and node.get("type") == "tcy":
+                matches.append(group_text)
+        run_start = group_start
+        while run_start < index:
+            run_entry = entries[run_start]
+            run_end = run_start + 1
+            while run_end < index and entries[run_end].run is run_entry.run:
+                run_end += 1
+            if run_entry.char != "\n" and _style_matches_row_key(run_entry.style or {}, row_key):
+                matches.append(visible_text[run_start:run_end])
+            run_start = run_end
+    return _compact_display_text(" / ".join(item for item in matches if item))
+
+
+def _style_matches_row_key(style: dict, row_key: str) -> bool:
+    if row_key == "C":
+        return "color" in style
+    if row_key == "S":
+        return "fontSize" in style
+    if row_key == "%":
+        return "scale" in style
+    if row_key == "F":
+        return "fontPath" in style
+    if row_key == "O":
+        return isinstance(style.get("stroke"), dict) and bool(style.get("stroke"))
+    if row_key == "G":
+        return isinstance(style.get("glow"), dict) and bool(style.get("glow"))
+    if row_key == "OS":
+        return isinstance(style.get("outerStroke"), dict) and bool(style.get("outerStroke"))
+    if row_key == "Rot":
+        transform = style.get("transform")
+        return isinstance(transform, dict) and "rotation" in transform
+    if row_key == "K":
+        return "kerning" in style
+    if row_key == "PK":
+        return "preKerning" in style
+    if row_key == "LK":
+        return "lineKerning" in style
+    if row_key == "NK":
+        return "nextKerning" in style
+    if row_key == "XY":
+        transform = style.get("transform")
+        return isinstance(transform, dict) and ("offsetX" in transform or "offsetY" in transform)
+    return False
+
+
+def _compact_display_text(text: str, limit: int = 12) -> str:
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(value) <= limit:
+        return value
+    return value[:limit - 1] + "..."
+
+
+def _merge_style(style: dict, patch: dict) -> dict:
+    merged = copy.deepcopy(style) if isinstance(style, dict) else {}
+    for key, value in patch.items():
+        if key in {"stroke", "outerStroke", "glow", "transform"}:
+            if value is None:
+                merged.pop(key, None)
+                continue
+            nested = merged.get(key) if isinstance(merged.get(key), dict) else {}
+            nested.update({k: v for k, v in value.items() if v is not None})
+            for nested_key, nested_value in list(value.items()):
+                if nested_value is None:
+                    nested.pop(nested_key, None)
+            if nested:
+                merged[key] = nested
+            else:
+                merged.pop(key, None)
+        elif value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_adjacent_text_runs(inlines: list) -> list:
+    merged = []
+    for inline in inlines:
+        if (
+            merged
+            and isinstance(inline, dict)
+            and inline.get("type", "text") == "text"
+            and isinstance(merged[-1], dict)
+            and merged[-1].get("type", "text") == "text"
+            and (merged[-1].get("style") or {}) == (inline.get("style") or {})
+        ):
+            merged[-1]["text"] = str(merged[-1].get("text", "")) + str(inline.get("text", ""))
+        else:
+            merged.append(inline)
+    return merged

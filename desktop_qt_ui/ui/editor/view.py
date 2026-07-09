@@ -4,7 +4,7 @@ from typing import Any
 from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
-from PyQt6.QtCore import QSize, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QPointF, QSize, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QSizePolicy,
@@ -29,6 +29,7 @@ from ui.widgets.file_list_view import FileListView
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.property_panel import PropertyPanel
 from ui.widgets.region_list_view import RegionListView
+from ui.widgets.rich_text_floating_editor import RichTextFloatingEditor
 
 from .graphics_view import GraphicsView
 from .original_compare_view import OriginalCompareView
@@ -70,6 +71,7 @@ class EditorView(QWidget):
         self.original_compare_view: OriginalCompareView | None = None
         self.edit_canvas_container: QWidget | None = None
         self.graphics_view: GraphicsView | None = None
+        self.rich_text_editor: RichTextFloatingEditor | None = None
         self.add_files_button: PushButton | None = None
         self.add_folder_button: PushButton | None = None
         self.clear_list_button: PushButton | None = None
@@ -345,6 +347,88 @@ class EditorView(QWidget):
         count = len(selected_indices) if selected_indices else 0
         self.toolbar.update_align_distribute_buttons(count)
 
+    def _on_selection_changed_for_rich_editor(self, selected_indices: list):
+        if self.rich_text_editor is None:
+            return
+        if not selected_indices or len(selected_indices) != 1:
+            self.rich_text_editor.clear_region()
+            return
+
+        region_index = int(selected_indices[0])
+        # F22：换绑前先把上一区域去抖期内的待发内容写回，再取新区域数据
+        self.rich_text_editor.flush_pending_changes()
+        region_data = self.model.get_region_by_index(region_index)
+        if not region_data:
+            self.rich_text_editor.clear_region()
+            return
+
+        self.rich_text_editor.set_region(region_index, region_data)
+        self._position_rich_text_editor(region_index)
+        self.rich_text_editor.show()
+        self.rich_text_editor.raise_()
+        # F09：选中不再调用 focus_text() 抢焦点——焦点留在画布，
+        # Delete/A/D/Q/W/E 等画布快捷键保持生效；点击文本框自然获焦进入编辑。
+
+    def _on_regions_changed_for_rich_editor(self, change=None):
+        """模型区域数据变化时同步浮动编辑器（F08）。
+
+        浮动编辑器可见且当前选中 region 的数据变化时重新同步文档，
+        防止陈旧文档在下次样式操作/输入时覆盖模型（属性面板改译文被
+        改回、撤销内容复活）；编辑器自己的写回广播（is_applying_own_change）
+        跳过，避免自回环导致光标跳动。
+        """
+        editor = self.rich_text_editor
+        if editor is None or not editor.isVisible():
+            return
+        if editor.is_applying_own_change():
+            return
+        selected = self.model.get_selection()
+        if not selected or len(selected) != 1:
+            return
+        region_index = int(selected[0])
+        kind = getattr(change, "kind", "")
+        if kind == "updated" and region_index not in getattr(change, "indices", ()):
+            return  # 只关心当前选中区域的内容变化
+        # 先把去抖期内属于当前文档的待发内容写回（正在输入时以编辑器为准），
+        # 再以模型数据刷新；内容未变时 refresh_region_if_changed 不动光标。
+        editor.flush_pending_changes()
+        region_data = self.model.get_region_by_index(region_index)
+        if not region_data:
+            editor.clear_region()
+            return
+        editor.refresh_region_if_changed(region_index, region_data)
+
+    def _position_rich_text_editor_for_selection(self, *args):
+        selected = self.model.get_selection()
+        if selected and len(selected) == 1:
+            self._position_rich_text_editor(int(selected[0]))
+
+    def _position_rich_text_editor(self, region_index: int):
+        if self.rich_text_editor is None or self.graphics_view is None:
+            return
+        region_items = getattr(self.graphics_view, "_region_items", [])
+        if not (0 <= region_index < len(region_items)):
+            return
+        item = region_items[region_index]
+        if item is None or item.scene() is None:
+            return
+
+        rect = item.sceneBoundingRect()
+        anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.top()))
+        self.rich_text_editor.adjustSize()
+        popup_w = self.rich_text_editor.width()
+        popup_h = self.rich_text_editor.height()
+        viewport = self.graphics_view.viewport()
+        margin = 8
+        x = int(anchor.x() - popup_w / 2)
+        y = int(anchor.y() - popup_h - margin)
+        if y < margin:
+            bottom_anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.bottom()))
+            y = int(bottom_anchor.y() + margin)
+        x = max(margin, min(x, max(margin, viewport.width() - popup_w - margin)))
+        y = max(margin, min(y, max(margin, viewport.height() - popup_h - margin)))
+        self.rich_text_editor.move(x, y)
+
     def _connect_signals(self):
         # --- Model to View ---
         self.model.regions_changed.connect(self.region_list_view.on_regions_changed)
@@ -353,6 +437,9 @@ class EditorView(QWidget):
         self.model.selection_changed.connect(self.property_panel.on_selection_changed)
         # Connect model selection changes to toolbar align/distribute button states
         self.model.selection_changed.connect(self._on_selection_changed_for_toolbar)
+        self.model.selection_changed.connect(self._on_selection_changed_for_rich_editor)
+        # F08：region 数据变化时同步浮动编辑器，防止陈旧文档覆盖模型
+        self.model.regions_changed.connect(self._on_regions_changed_for_rich_editor)
         # Connect model brush size changes to the property panel
         self.model.brush_size_changed.connect(self.property_panel.sync_brush_size_from_model)
         # Connect model brush color changes to the property panel
@@ -395,6 +482,7 @@ class EditorView(QWidget):
         # --- Graphics View to Controller ---
         self.graphics_view.region_geometry_changed.connect(self.controller.update_region_geometry)
         self.graphics_view.view_state_changed.connect(self.original_compare_view.sync_view_state)
+        self.graphics_view.view_state_changed.connect(self._position_rich_text_editor_for_selection)
 
         # --- Property Panel (Left Panel) to Controller ---
         self.property_panel.translated_text_modified.connect(self.controller.update_translated_text)
@@ -423,6 +511,9 @@ class EditorView(QWidget):
         # --- Connect Paint Overlay Tools ---
         self.property_panel.brush_color_changed.connect(self.controller.set_brush_color)
         self.property_panel.clear_paint_overlay_requested.connect(self.controller.clear_paint_overlay)
+
+        if self.rich_text_editor is not None:
+            self.rich_text_editor.rich_text_changed.connect(self.controller.update_translation_rich)
 
         # Note: Some signals from PropertyPanel might not have corresponding slots in the controller yet.
         # e.g., copy/paste/delete, mask tool changes.
@@ -454,6 +545,7 @@ class EditorView(QWidget):
         self.graphics_view = GraphicsView(self.model, controller=self.controller, parent=self)
         self.original_compare_view.set_source_view(self.graphics_view)
         edit_canvas_layout.addWidget(self.graphics_view)
+        self.rich_text_editor = RichTextFloatingEditor(self.graphics_view.viewport())
 
         center_layout.addWidget(self.compare_preview_container, 1)
         center_layout.addWidget(self.edit_canvas_container, 1)

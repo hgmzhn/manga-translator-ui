@@ -55,6 +55,11 @@ def update_workflow_mode_description(self, index: int | None = None):
 
 def update_progress(self, current: int, total: int, message: str = ""):
     """更新进度条。"""
+    progress_state = (int(current), int(total), str(message or ""))
+    if getattr(self, "_last_progress_state", None) == progress_state:
+        return
+    self._last_progress_state = progress_state
+
     if total > 0:
         self.progress_bar.setMaximum(total)
         self.progress_bar.setValue(current)
@@ -78,6 +83,7 @@ def update_progress(self, current: int, total: int, message: str = ""):
 
 def reset_progress(self):
     """重置进度条为初始状态（灰色）。"""
+    self._last_progress_state = None
     self._progress_active = False
     self.progress_bar.setMaximum(100)
     self.progress_bar.setValue(0)

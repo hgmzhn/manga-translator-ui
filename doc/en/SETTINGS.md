@@ -510,15 +510,6 @@ Older versions grouped the interface into broad settings tabs. In the current de
 - **`Font Size` (`font_size`)**: fixed font size override.
   - Current UI location: `Settings` -> `Typesetting` -> `Font Size`
 
-- **`Auto Rotate Symbols` (`auto_rotate_symbols`, legacy wording)**: the original Chinese document also described this setting as automatic symbol rotation.
-  - Legacy meaning: automatically rotate punctuation such as `！？` inside vertical text so it displays correctly
-  - Current UI note: in the current desktop UI, the same option is labeled `Horizontal in Vertical`
-
-- **`Horizontal in Vertical` (`auto_rotate_symbols`)**: current UI label for the same vertical-text symbol handling option.
-  - Current UI location: `Settings` -> `Typesetting` -> `Horizontal in Vertical`
-  - Automatically keeps short horizontal symbols and fragments readable inside vertical text
-  - This covers punctuation such as `！？` and similar symbols
-
 - **`Right to Left` (`rtl`)**: enable right-to-left layout.
   - Current UI location: `Settings` -> `Typesetting` -> `Right to Left`
 

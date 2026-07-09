@@ -188,16 +188,19 @@ class FileItemWidget(CardWidget):
     def _update_elided_name(self):
         available_width = max(24, self.name_label.width())
         metrics = QFontMetrics(self.name_label.font())
+        next_text = ""
         if self._count_suffix:
             suffix_width = metrics.horizontalAdvance(self._count_suffix)
             if suffix_width < available_width:
                 base_width = max(12, available_width - suffix_width)
                 base_text = metrics.elidedText(self.base_display_name, Qt.TextElideMode.ElideMiddle, base_width)
-                self.name_label.setText(f"{base_text}{self._count_suffix}")
-                return
-            self.name_label.setText(self._count_suffix.strip())
-            return
-        self.name_label.setText(metrics.elidedText(self._display_name, Qt.TextElideMode.ElideMiddle, available_width))
+                next_text = f"{base_text}{self._count_suffix}"
+            else:
+                next_text = self._count_suffix.strip()
+        else:
+            next_text = metrics.elidedText(self._display_name, Qt.TextElideMode.ElideMiddle, available_width)
+        if self.name_label.text() != next_text:
+            self.name_label.setText(next_text)
     
     def __del__(self):
         """析构时从活动实例列表中移除"""
@@ -343,6 +346,7 @@ class FileListView(TreeWidget):
     _FS_DEFERRED_WIDGET_ROLE = Qt.ItemDataRole.UserRole + 4
     _FS_TREE_BACKED_ROLE = Qt.ItemDataRole.UserRole + 5
     _FS_POPULATE_CHUNK_SIZE = 120
+    _UI_COALESCE_MS = 16
     _SUPPORTED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
     _SUPPORTED_ARCHIVE_EXTENSIONS = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
     _SUPPORTED_LIST_EXTENSIONS = _SUPPORTED_IMAGE_EXTENSIONS | _SUPPORTED_ARCHIVE_EXTENSIONS
@@ -429,7 +433,7 @@ class FileListView(TreeWidget):
         if self._item_width_sync_scheduled:
             return
         self._item_width_sync_scheduled = True
-        QTimer.singleShot(0, self._run_item_widget_width_sync)
+        QTimer.singleShot(self._UI_COALESCE_MS, self._run_item_widget_width_sync)
 
     def _run_item_widget_width_sync(self):
         self._item_width_sync_scheduled = False
@@ -464,7 +468,7 @@ class FileListView(TreeWidget):
         if self._thumbnail_update_scheduled:
             return
         self._thumbnail_update_scheduled = True
-        QTimer.singleShot(0, self._load_visible_thumbnails)
+        QTimer.singleShot(self._UI_COALESCE_MS, self._load_visible_thumbnails)
 
     def _load_visible_thumbnails(self):
         self._thumbnail_update_scheduled = False
@@ -533,7 +537,8 @@ class FileListView(TreeWidget):
             rect = self.visualItemRect(item)
             left = rect.left() if rect.isValid() else self._item_depth(item) * self.indentation()
             width = max(120, self.viewport().width() - left - 10)
-            widget.setFixedWidth(width)
+            if widget.width() != width:
+                widget.setFixedWidth(width)
             widget._update_elided_name()
     
     def _t(self, key: str, **kwargs) -> str:

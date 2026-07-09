@@ -7,7 +7,9 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QImage, QPixmap, QPolygonF
 
+from editor.render_text_value import has_renderable_text, render_text_value_from_text_block
 from manga_translator.rendering import text_render
+from manga_translator.rendering.rich_text import has_legacy_line_breaks, legacy_line_breaks_to_document, plain_text_of
 from manga_translator.rendering.text_render import (
     set_font,
 )
@@ -16,6 +18,11 @@ from manga_translator.utils import TextBlock
 logger = logging.getLogger('manga_translator')
 
 _APPLIED_FONT_TARGET = None
+
+
+def _translation_preview(value, limit: int = 50) -> str:
+    # F12："富文本值转纯文本"统一委托协议层单点 plain_text_of
+    return plain_text_of(value)[:limit]
 
 
 def resource_path(relative_path):
@@ -129,17 +136,16 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
     为单个区域渲染文本的核心函数
     返回一个包含 (QImage, QPointF) 的元组，适合离屏/线程内处理。
     """
-    original_translation = text_block.translation
     profile_stats = render_params.get("_profile_stats") if isinstance(render_params, dict) else None
     stage_t0 = perf_counter() if profile_stats is not None else None
     try:
         # --- 1. 文本预处理 ---
-        text_to_render = original_translation or text_block.text
-        if not text_to_render:
+        text_to_render = render_text_value_from_text_block(text_block)
+        if not has_renderable_text(text_to_render):
             logger.debug("[EDITOR RENDER SKIPPED] Text is empty")
             return None
-
-        text_block.translation = text_to_render
+        if isinstance(text_to_render, str) and has_legacy_line_breaks(text_to_render):
+            text_to_render = legacy_line_breaks_to_document(text_to_render).to_dict()
 
         # 区域级字体优先：render_params.font_path -> text_block.font_path -> 默认字体
         region_font_path = render_params.get('font_path') or getattr(text_block, 'font_path', '')
@@ -192,11 +198,7 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
             except Exception:
                 region_count = 1
 
-        text_for_render = text_render.prepare_text_for_direction_rendering(
-            text_block.get_translation_for_rendering(),
-            is_horizontal=text_block.horizontal,
-            auto_rotate_symbols=bool(render_params.get('auto_rotate_symbols')),
-        )
+        text_for_render = text_to_render
         _record_profile_elapsed(profile_stats, "backend_prepare_ms", stage_t0)
 
         # 使用 Qt 离屏渲染器
@@ -238,7 +240,10 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
         _record_profile_elapsed(profile_stats, "backend_draw_ms", stage_t0)
 
         if rendered_surface is None or rendered_surface.size == 0:
-            logger.debug(f"[EDITOR RENDER SKIPPED] Rendered surface is None or empty. Text: '{text_block.translation[:50] if hasattr(text_block, 'translation') else 'N/A'}...'")
+            logger.debug(
+                "[EDITOR RENDER SKIPPED] Rendered surface is None or empty. "
+                f"Text: '{_translation_preview(getattr(text_block, 'translation', None), 50)}...'"
+            )
             return None
         
         # 预乘 Alpha: 防止 cv2.warpPerspective 插值或填充 0 (透明黑) 时导致黑边灰边
@@ -326,8 +331,6 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
     except Exception as e:
         logger.debug(f"Error during backend text rendering: {e}")
         return None
-    finally:
-        text_block.translation = original_translation
 
 
 def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transform, render_params: dict, pure_zoom: float = 1.0, total_regions: int = 1):

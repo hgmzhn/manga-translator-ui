@@ -567,7 +567,6 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_rtl', '从右到左'), this.createCheckbox('render', 'rtl'), '', 'render', 'rtl')}
                 ${this.createFormRow(this.t('label_no_hyphenation', '禁用连字符'), this.createCheckbox('render', 'no_hyphenation'), '', 'render', 'no_hyphenation')}
                 ${this.createFormRow(this.t('label_bubble_layout_english', '根据气泡排版(强制横排)'), this.createCheckbox('render', 'bubble_layout_english'), '英文默认已启用此排版，开启后韩文/中文等其他语言也使用气泡形状排版并强制横排', 'render', 'bubble_layout_english')}
-                ${this.createFormRow(this.t('label_auto_rotate_symbols', '竖排内横排'), this.createCheckbox('render', 'auto_rotate_symbols'), '自动旋转垂直文本中的符号', 'render', 'auto_rotate_symbols')}
                 ${this.createFormRow(this.t('label_center_text_in_bubble', '垂直居中'), this.createCheckbox('render', 'center_text_in_bubble'), '气泡内文本垂直居中', 'render', 'center_text_in_bubble')}
                 ${this.createFormRow(this.t('label_optimize_line_breaks', 'AI断句自动扩大文字'), this.createCheckbox('render', 'optimize_line_breaks'), '自动优化换行以找到最佳字体大小', 'render', 'optimize_line_breaks')}
                 ${this.createFormRow(this.t('label_check_br_and_retry', 'AI断句检查'), this.createCheckbox('render', 'check_br_and_retry'), '检查翻译是否包含换行标记并重试', 'render', 'check_br_and_retry')}

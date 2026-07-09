@@ -426,7 +426,6 @@ Shortcuts:
 - `Translate`
 - `Placeholder`
 - `Newline↵`
-- `Horizontal⇄`
 
 **Property area**
 

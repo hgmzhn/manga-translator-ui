@@ -27,6 +27,7 @@ from .prompt_loader import (
     ensure_ai_renderer_prompt_file,
     load_ai_renderer_prompt_file,
 )
+from .rich_text import plain_text_of
 
 OPENAI_BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -154,8 +155,9 @@ class BaseAPIRenderer:
         ensure_ai_renderer_prompt_file()
         return load_ai_renderer_prompt_file(None) or DEFAULT_AI_RENDERER_PROMPT
 
-    def _format_prompt_value(self, value: str) -> str:
-        return (value or "").replace("\r\n", "\n").replace("\n", "\\n").strip()
+    def _format_prompt_value(self, value) -> str:
+        # 富文本→纯文本统一走 rich_text.plain_text_of
+        return plain_text_of(value).replace("\r\n", "\n").replace("\n", "\\n").strip()
 
     def _compose_render_prompt(
         self,
@@ -251,7 +253,8 @@ class BaseAPIRenderer:
             raise RuntimeError(self._missing_api_key_message())
 
         renderable_regions = [
-            region for region in text_regions if (getattr(region, "translation", "") or "").strip()
+            region for region in text_regions
+            if self._format_prompt_value(getattr(region, "translation", ""))
         ]
         if not renderable_regions:
             return img

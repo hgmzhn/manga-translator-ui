@@ -60,6 +60,7 @@ from .ocr import dispatch as dispatch_ocr
 from .ocr import prepare as prepare_ocr
 from .ocr import unload as unload_ocr
 from .rendering import dispatch as dispatch_rendering
+from .rendering.rich_text import has_content, plain_text_of
 from .textline_merge import dispatch as dispatch_textline_merge
 from .translators import (
     dispatch as dispatch_translation,
@@ -87,6 +88,15 @@ from .utils.translation_text import remove_trailing_period_if_needed
 
 # Will be overwritten by __main__.py if module is being run directly (with python -m)
 logger = logging.getLogger('manga_translator')
+
+
+def _translation_plain_text(value) -> str:
+    # 薄委托：富文本→纯文本的唯一实现在 rendering.rich_text.plain_text_of
+    return plain_text_of(value)
+
+
+def _has_translation_text(value) -> bool:
+    return has_content(value)
 
 ARCHIVE_EXTRACT_IMAGE_DIRNAME = 'original_images'
 ARCHIVE_EXTRACT_META_FILENAME = '.extract_meta.json'
@@ -784,19 +794,6 @@ class MangaTranslator:
             except Exception as e:
                 logger.warning(f"Failed to override region settings from config: {e}")
 
-
-        # 对竖排区域的 translation 应用 auto_add_horizontal_tags
-        # 确保竖排内横排标记 <H> 写入 JSON
-        if config and hasattr(config, 'render') and getattr(config.render, 'auto_rotate_symbols', False):
-            from .rendering.text_render import auto_add_horizontal_tags
-            for region in regions_data:
-                direction = region.get('direction', '')
-                is_vertical = direction in ('v', 'vertical')
-                if 'horizontal' in region:
-                    is_vertical = not region['horizontal']
-                if is_vertical and region.get('translation'):
-                    region['translation'] = auto_add_horizontal_tags(region['translation'])
-
         # 获取图片尺寸（优先使用保存的尺寸，兼容并发模式）
         if hasattr(ctx, 'original_size') and ctx.original_size:
             original_width, original_height = ctx.original_size
@@ -1279,7 +1276,7 @@ class MangaTranslator:
     def _load_text_and_regions_from_file(self, image_path: str, config: Config):
         """加载翻译数据，支持新的目录结构和向后兼容"""
         if not image_path:
-            return None, None, False, True, False
+            return None, None, False, True, False, 0
 
         # 使用path_manager查找JSON文件（新位置优先）
         text_file_path = find_json_path(image_path)
@@ -1292,10 +1289,10 @@ class MangaTranslator:
                 # If the old format is found, load from it
                 regions = self._load_text_and_regions_from_txt_file(image_path)
                 # Since old format doesn't have mask, we return None for mask and refined status
-                return regions, None, False, True, False
+                return regions, None, False, True, False, 0
             else:
                 logger.info(f"Translation file not found for: {image_path}")
-                return None, None, False, True, False
+                return None, None, False, True, False, 0
 
         try:
             # Force UTF-8 encoding to handle potential file encoding issues
@@ -1303,13 +1300,13 @@ class MangaTranslator:
                 data = json.load(f)
         except Exception as e:
             logger.error(f"Failed to read or parse translation file {text_file_path}: {e}")
-            return None, None, False, True, False
+            return None, None, False, True, False, 0
 
         # Don't check the image key. Assume the user knows what they are doing
         # and that the first entry in the JSON is the one they want to load.
         if not data or len(data.values()) == 0:
             logger.warning(f"JSON file {text_file_path} is empty or invalid.")
-            return None, None, False, True, False
+            return None, None, False, True, False, 0
 
         # Get the first value from the dictionary, regardless of the key.
         image_data = next(iter(data.values()))
@@ -1337,9 +1334,10 @@ class MangaTranslator:
             )
         else:
             logger.warning(f"Invalid data format in JSON file {text_file_path}.")
-            return None, None, False, True, False
+            return None, None, False, True, False, 0
 
         regions = []
+        parse_failure_count = 0
         for region_data in regions_data:
             try:
                 # Convert literal '\\n' to newline characters for the rendering engine
@@ -1409,14 +1407,30 @@ class MangaTranslator:
                         lines_arr = lines_arr.reshape(1, 4, 2)
                     elif lines_arr.ndim != 3 or lines_arr.shape[1] != 4 or lines_arr.shape[2] != 2:
                         logger.warning(f"[加载JSON] 无效的lines形状: {lines_arr.shape}, 跳过此区域")
+                        parse_failure_count += 1
                         continue
                     region_data['lines'] = lines_arr
-                
+
                 # 导入翻译模式：颜色已由用户确认，不需要自动调整描边颜色
                 region_data['adjust_bg_color'] = False
-                region = TextBlock(**region_data)
+                try:
+                    region = TextBlock(**region_data)
+                except Exception as construct_err:
+                    # 保险丝：解析失败不应吞掉整个区域（否则回写 JSON 时该区域连同
+                    # 原文、坐标一起永久丢失）。先剥掉 translation_rich 降级重试一次
+                    # ——丢样式可以，丢区域不行；仍失败才计数跳过。
+                    if isinstance(region_data, dict) and 'translation_rich' in region_data:
+                        degraded_data = {k: v for k, v in region_data.items() if k != 'translation_rich'}
+                        region = TextBlock(**degraded_data)
+                        logger.warning(
+                            f"Region in {text_file_path} failed to load with translation_rich, "
+                            f"discarded rich styling and kept the region: {construct_err}"
+                        )
+                    else:
+                        raise
                 regions.append(region)
             except Exception as e:
+                parse_failure_count += 1
                 logger.error(f"Failed to parse a region in {text_file_path}: {e}")
                 continue
         
@@ -1435,10 +1449,15 @@ class MangaTranslator:
             mask_raw = np.array(mask_raw_data, dtype=np.uint8)
         
         logger.info(f"Loaded {len(regions)} regions from {text_file_path}")
+        if parse_failure_count:
+            logger.error(
+                f"{parse_failure_count} region(s) in {text_file_path} could not be parsed and were skipped; "
+                "JSON write-back will be disabled for this image to protect the project file"
+            )
         if mask_raw is not None:
             logger.info(f"Loaded mask_raw from {text_file_path}")
 
-        return regions, mask_raw, mask_is_refined, skip_font_scaling, skip_text_replacements
+        return regions, mask_raw, mask_is_refined, skip_font_scaling, skip_text_replacements, parse_failure_count
 
     def _load_text_and_regions_from_txt_file(self, image_path: str) -> Optional[List[TextBlock]]:
         """
@@ -1593,14 +1612,10 @@ class MangaTranslator:
             **upscaler_kwargs
         ))[0]
         
-        # 如果 models_ttl > 0，则由清理任务自动卸载；否则立即卸载以释放显存
         if self.models_ttl > 0:
             logger.info(f"Upscaling model {config.upscale.upscaler} will be unloaded after {self.models_ttl}s of inactivity")
         else:
-            # models_ttl == 0 表示永久保留，但 upscaling 模型占用显存较大，仍然立即卸载
-            logger.info(f"Unloading upscaling model {config.upscale.upscaler} immediately to free VRAM")
-            await self._unload_model('upscaling', config.upscale.upscaler, **upscaler_kwargs)
-            del self._model_usage_timestamps[("upscaling", config.upscale.upscaler)]
+            logger.debug(f"Keeping upscaling model {config.upscale.upscaler} loaded because models_ttl=0")
         
         return result
 
@@ -2905,11 +2920,6 @@ class MangaTranslator:
             f"inpainting_size={config.inpainter.inpainting_size}, "
             f"image_shape={img_shape}, mask_shape={mask_shape}"
         )
-        self._log_cuda_memory_snapshot("inpainting/before_cleanup")
-
-        # 修复前先执行一次激进显存清理，降低并发/长批次下的显存碎片与OOM概率。
-        self._cleanup_gpu_memory(aggressive=True)
-        self._log_cuda_memory_snapshot("inpainting/after_cleanup")
         snapshot = self._get_cuda_memory_snapshot()
         if snapshot is not None:
             try:
@@ -3435,20 +3445,22 @@ class MangaTranslator:
                             ctx.config = config
                             
                             # 加载翻译数据
-                            loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling, skip_text_replacements = self._load_text_and_regions_from_file(image_name, config)
+                            loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling, skip_text_replacements, region_parse_failures = self._load_text_and_regions_from_file(image_name, config)
                             if loaded_regions is None:
                                 json_path = os.path.splitext(image_name)[0] + '_translations.json' if image_name else 'unknown'
                                 raise FileNotFoundError(f"Translation file not found or invalid: {json_path}")
-                            
+
                             # 如果regions是空列表，记录日志但继续处理（渲染原图）
                             if not loaded_regions:
                                 logger.info(f"No text regions found in JSON for {os.path.basename(image_name)}, will render original image")
-                            
+
                             self._prepare_loaded_regions(loaded_regions, use_text_as_translation=True)
-                            
+
                             ctx.text_regions = loaded_regions
                             ctx.skip_font_scaling = skip_font_scaling
                             ctx.skip_text_replacements = skip_text_replacements
+                            # 有区域解析失败时禁止回写 JSON，避免把丢失的区域覆盖进工程文件
+                            ctx.load_text_parse_failures = region_parse_failures
                             
                             existing_inpainted_path = find_inpainted_path(image_name) if image_name else None
 
@@ -3667,10 +3679,19 @@ class MangaTranslator:
 
                             # load_text模式：渲染后回写JSON（同步最新regions，包含translation/font_size等字段）
                             if hasattr(ctx, 'text_regions') and ctx.text_regions is not None and hasattr(ctx, 'image_name') and ctx.image_name:
-                                try:
-                                    self._save_text_to_file(ctx.image_name, ctx, config)
-                                except Exception as save_json_err:
-                                    logger.error(f"Error updating JSON in load_text mode for {os.path.basename(ctx.image_name)}: {save_json_err}")
+                                parse_failures = getattr(ctx, 'load_text_parse_failures', 0)
+                                if parse_failures:
+                                    # 保险丝：有区域解析失败时跳过覆盖回写，否则这些区域会
+                                    # 连同原文、坐标从工程 JSON 中永久消失（无备份）。
+                                    logger.error(
+                                        f"{parse_failures} region(s) failed to parse for "
+                                        f"{os.path.basename(ctx.image_name)}; skipped JSON write-back to protect the project file"
+                                    )
+                                else:
+                                    try:
+                                        self._save_text_to_file(ctx.image_name, ctx, config)
+                                    except Exception as save_json_err:
+                                        logger.error(f"Error updating JSON in load_text mode for {os.path.basename(ctx.image_name)}: {save_json_err}")
                             
                             preprocessed_contexts.append((ctx, config))
                             
@@ -3751,7 +3772,7 @@ class MangaTranslator:
                             ctx.config = config
                             ctx.from_lang = 'auto'
 
-                            loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling, _skip_text_replacements = self._load_text_and_regions_from_file(image_name, config)
+                            loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling, _skip_text_replacements, region_parse_failures = self._load_text_and_regions_from_file(image_name, config)
                             if loaded_regions is None:
                                 json_path = find_json_path(image_name) if image_name else None
                                 if not json_path and image_name:
@@ -3761,6 +3782,8 @@ class MangaTranslator:
                             self._prepare_loaded_regions(loaded_regions, use_text_as_translation=False)
                             ctx.text_regions = loaded_regions
                             ctx.skip_font_scaling = skip_font_scaling
+                            # 有区域解析失败时禁止回写 JSON，避免把丢失的区域覆盖进工程文件
+                            ctx.load_text_parse_failures = region_parse_failures
 
                             if loaded_mask is not None:
                                 if mask_is_refined:
@@ -3794,6 +3817,14 @@ class MangaTranslator:
                             continue
 
                         try:
+                            parse_failures = getattr(ctx, 'load_text_parse_failures', 0)
+                            if parse_failures:
+                                # 保险丝：回写会以当前 regions 全量重建 JSON，解析失败的
+                                # 区域会被永久删除，这里改为显式失败并保留原文件。
+                                raise IOError(
+                                    f"{parse_failures} region(s) failed to parse from JSON; "
+                                    "skipped saving to protect the project file"
+                                )
                             save_success = self._save_text_to_file(ctx.image_name, ctx, config)
                             if not save_success:
                                 raise IOError(f"Failed to save JSON for {os.path.basename(ctx.image_name)}")
@@ -4623,12 +4654,13 @@ class MangaTranslator:
                         for region in ctx.text_regions:
                             should_filter = False
                             filter_reason = ""
+                            translation_text = _translation_plain_text(region.translation)
 
-                            if not region.translation.strip():
+                            if not translation_text.strip():
                                 should_filter = True
                                 filter_reason = "Translation contain blank areas"
                             elif config.translator.translator != Translator.none:
-                                if region.translation.isnumeric():
+                                if translation_text.isnumeric():
                                     should_filter = True
                                     filter_reason = "Numeric translation"
                                 elif not config.translator.translator == Translator.original:
@@ -4637,8 +4669,8 @@ class MangaTranslator:
                                         filter_reason = "Translation identical to original"
 
                             if should_filter:
-                                if region.translation.strip():
-                                    logger.info(f'Filtered out: {region.translation}')
+                                if translation_text.strip():
+                                    logger.info(f'Filtered out: {translation_text}')
                                     logger.info(f'Reason: {filter_reason}')
                             else:
                                 new_text_regions.append(region)
@@ -4782,7 +4814,7 @@ class MangaTranslator:
         """Keep identical text when no_text_lang_skip is enabled."""
         if getattr(config.translator, 'no_text_lang_skip', False):
             return False
-        return region.text.lower().strip() == region.translation.lower().strip()
+        return str(region.text or '').lower().strip() == _translation_plain_text(region.translation).lower().strip()
             
     async def _apply_post_translation_processing(self, ctx: Context, config: Config) -> List:
         """
@@ -4819,6 +4851,7 @@ class MangaTranslator:
         # 统一渲染：不在翻译后阶段强制替换引号/括号，交由渲染层处理。
 
         for region in ctx.text_regions:
+            # translation property 恒返 str，无需 isinstance 防御
             if region.text and region.translation:
                 # 引号处理逻辑
                 if '『' in region.text and '』' in region.text:
@@ -4885,8 +4918,8 @@ class MangaTranslator:
         # 应用后字典
         post_dict = load_dictionary(self.post_dict)
         post_replacements = []  
-        for region in ctx.text_regions:  
-            original = region.translation  
+        for region in ctx.text_regions:
+            original = region.translation
             region.translation = apply_dictionary(region.translation, post_dict)
             if original != region.translation:  
                 post_replacements.append(f"{original} => {region.translation}")  
@@ -4898,8 +4931,7 @@ class MangaTranslator:
         else:
             logger.info("No post-translation replacements made.")
 
-        # 注:文本替换规则(text_replacements.yaml) 已挪到 rendering 函数 dispatch() 内执行,
-        # 在 [BR]/<H> 标记加完之后、画字之前 — 这样 raw 含完整标记,渲染图也用替换后字符。
+        # 注:文本替换规则(text_replacements.yaml) 已挪到 rendering 函数 dispatch() 内执行。
 
         # 单个region幻觉检测
         failed_regions = []
@@ -4908,10 +4940,10 @@ class MangaTranslator:
             
             # 单个region级别的幻觉检测
             for region in ctx.text_regions:
-                if region.translation and region.translation.strip():
+                if _has_translation_text(region.translation):
                     # 只检查重复内容幻觉
                     if await self._check_repetition_hallucination(
-                        region.translation, 
+                        _translation_plain_text(region.translation),
                         config.translator.post_check_repetition_threshold,
                         silent=False
                     ):
@@ -5136,8 +5168,8 @@ class MangaTranslator:
         # 合并所有翻译文本
         all_translations = []
         for region in text_regions:
-            translation = getattr(region, 'translation', '')
-            if translation and translation.strip():
+            translation = _translation_plain_text(getattr(region, 'translation', ''))
+            if translation.strip():
                 all_translations.append(translation.strip())
         
         if not all_translations:
@@ -5183,7 +5215,8 @@ class MangaTranslator:
         if not config.translator.enable_post_translation_check:
             return True
             
-        if not translation or not translation.strip():
+        translation = _translation_plain_text(translation)
+        if not translation.strip():
             return True
         
         # 1. 目标语言比例检查（页面级别）

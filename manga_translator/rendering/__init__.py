@@ -43,6 +43,13 @@ from .chinese_linebreak import (
 )
 from .text_replacement_layout import prepare_text_replacements_for_layout, sync_translation_raw_from_layout
 from .text_render_eng import apply_manga2eng_line_breaks
+from .rich_text import (
+    ensure_rich_text_document,
+    has_content as rich_text_has_content,
+    is_rich_text_document,
+    plain_equivalent_text,
+    plain_text_of,
+)
 
 logger = get_logger('render')
 
@@ -118,23 +125,33 @@ def _estimate_effect_padding(font_size: int, config: Config = None) -> float:
     return float(max(int(font_size * stroke_ratio), 1))
 
 
-def _apply_vertical_horizontal_markup(text: str, *, render_horizontally: bool, config: Config = None) -> str:
-    """高层渲染预处理：仅在这里决定是否为竖排文本补 <H> 标记。"""
-    value = str(text or "")
-    if not value or render_horizontally:
-        return value
-
-    if not (config and hasattr(config, 'render') and getattr(config.render, 'auto_rotate_symbols', False)):
-        return value
-
-    return text_render.auto_add_horizontal_tags(value)
-
-
 def _has_explicit_line_breaks(text: str) -> bool:
-    return bool(re.search(r'(\[BR\]|【BR】|<br\s*/?>|\r\n|\r|\n)', str(text or ''), flags=re.IGNORECASE))
+    if not isinstance(text, str):
+        return False
+    return bool(re.search(r'(\[BR\]|【BR】|<br\s*/?>|\r\n|\r|\n)', text or '', flags=re.IGNORECASE))
+
+
+def _rich_text_has_content(value) -> bool:
+    # F12：薄委托 rich_text.has_content（本层语义：仅富文本文档参与判断）
+    return is_rich_text_document(value) and rich_text_has_content(value)
+
+
+def _translation_preview(value, limit: int = 80) -> str:
+    # F12：薄委托 rich_text.plain_text_of（任意译文值 → 纯文本）
+    return plain_text_of(value)[:limit]
+
+
+def _region_render_value(region: TextBlock):
+    if hasattr(region, 'get_translation_for_rendering'):
+        return region.get_translation_for_rendering()
+    return getattr(region, 'translation', '')
 
 
 def _should_apply_default_english_line_break_method(region: TextBlock, config: Config = None) -> bool:
+    if is_rich_text_document(_region_render_value(region)):
+        return False
+    if not isinstance(getattr(region, 'translation', ''), str):
+        return False
     # 开关开启时，对所有语言生效（强制横排+气泡排版）
     render_cfg = getattr(config, 'render', None) if config is not None else None
     bubble_layout = bool(getattr(render_cfg, 'bubble_layout_english', False)) if render_cfg is not None else False
@@ -149,6 +166,10 @@ def _should_apply_default_english_line_break_method(region: TextBlock, config: C
 
 
 def _apply_default_english_case_preferences(region: TextBlock, config: Config = None) -> bool:
+    if is_rich_text_document(_region_render_value(region)):
+        return False
+    if not isinstance(getattr(region, 'translation', ''), str):
+        return False
     if str(getattr(region, 'target_lang', '') or '').upper() != 'ENG':
         return False
     if not _resolve_region_render_horizontal(region):
@@ -209,7 +230,7 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
     复用后端渲染的尺寸计算逻辑，保证和实际渲染一致。
 
     Args:
-        text: 文本内容（支持 [BR]、<H> 等标记）
+        text: 文本内容。旧 [BR]/<br>/【BR】 会在入口层转换成 richtext.v1 段落。
         is_horizontal: True=横排，False=竖排
         line_spacing: 行间距倍率
         config: 配置对象
@@ -219,20 +240,28 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
         (base_width, base_height, n_lines) - 基准尺寸和行/列数
     """
     base_font = max(1, int(font_size))
+    if text_render.is_rich_text_document(text):
+        if is_horizontal:
+            return text_render.measure_rich_text_horizontal(
+                base_font,
+                text,
+                line_spacing,
+                config=config,
+                letter_spacing=letter_spacing,
+            )
+        return text_render.measure_rich_text_vertical(
+            base_font,
+            text,
+            line_spacing,
+            config=config,
+            letter_spacing=letter_spacing,
+        )
 
     # 先做特殊符号规范化（省略号等），保证排版和渲染阶段文本一致。
     # 横排保留 ASCII `...`，避免英文省略号被压成中文/居中的单字形。
     text = text_render.compact_special_symbols(text, convert_ascii_ellipsis=not is_horizontal)
     # 处理 BR 标记
     text_for_calc = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text, flags=re.IGNORECASE)
-
-    text_for_calc = text_render.prepare_text_for_direction_rendering(
-        text_for_calc,
-        is_horizontal=is_horizontal,
-        auto_rotate_symbols=bool(
-            config and hasattr(config, 'render') and getattr(config.render, 'auto_rotate_symbols', False)
-        ),
-    )
 
     if is_horizontal:
         normalized_lines = re.sub(r'\r\n?|\n', '\n', text_for_calc).split('\n')
@@ -261,6 +290,7 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
 
     return 0, 0, 0
 
+
 def calc_font_from_box(width: float, height: float, text: str, is_horizontal: bool,
                        line_spacing: float = 1.0, config: Config = None,
                        target_lang: str = None, letter_spacing: float = 1.0) -> int:
@@ -282,12 +312,18 @@ def calc_font_from_box(width: float, height: float, text: str, is_horizontal: bo
     if width <= 0 or height <= 0:
         return 1
 
-    text = (text or '').strip()
-    if not text:
-        return 1
+    if is_rich_text_document(text):
+        if not _rich_text_has_content(text):
+            return 1
+        # F24：解析一次向下传实例，二分迭代内不再重复解析 dict
+        text = ensure_rich_text_document(text)
+    else:
+        text = (text or '').strip()
+        if not text:
+            return 1
 
     def _fits(fs: int) -> bool:
-        req_w, req_h, _ = calc_box_from_font(
+        req_w, req_h, _, _ = calc_box_from_font(
             fs,
             text,
             is_horizontal,
@@ -481,7 +517,7 @@ def _solve_unified_no_br_layout(
         letter_spacing=letter_spacing_multiplier,
     )
     layout_font_size = max(int(layout_font_size), int(layout_min_font_size), 1)
-    required_width, required_height, n_segments = calc_box_from_font(
+    required_width, required_height, n_segments, _ = calc_box_from_font(
         layout_font_size,
         text_with_br,
         render_horizontally,
@@ -495,12 +531,37 @@ def _solve_unified_no_br_layout(
     return text_with_br, layout_font_size, required_width, required_height, n_segments
 
 
+def calc_text_block_metrics(text, is_horizontal: bool, line_spacing: float,
+                            config: Config = None, target_lang: str = None,
+                            font_size: int = None, letter_spacing: float = 1.0) -> tuple:
+    """尺寸 + 正文中心：在 calc_text_block_dimensions 基础上追加正文框中心点。
+
+    Returns:
+        (base_width, base_height, n_lines, body_center)
+        body_center 为正文框中心在渲染框内的坐标（相对渲染框左上角）。
+        纯文本没有框外装饰，恒为渲染框正中心。
+    """
+    base_font = max(1, int(font_size))
+    if text_render.is_rich_text_document(text):
+        metrics = text_render.measure_rich_text_metrics(
+            base_font, text, is_horizontal, line_spacing,
+            config=config, letter_spacing=letter_spacing,
+        )
+        return metrics['width'], metrics['height'], metrics['n_lines'], metrics['body_center']
+
+    base_w, base_h, n_lines = calc_text_block_dimensions(
+        text, is_horizontal, line_spacing, config, target_lang,
+        font_size=base_font, letter_spacing=letter_spacing,
+    )
+    return base_w, base_h, n_lines, (base_w / 2.0, base_h / 2.0)
+
+
 def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
                        line_spacing: float = 1.0, config: Config = None,
                        target_lang: str = None, center: tuple = None,
                        angle: float = 0, letter_spacing: float = 1.0) -> tuple:
     """
-    字体 → 框：直接按目标字号测量文本像素尺寸
+    字体 → 框：直接按目标字号测量文本像素尺寸，并给出正文中心点
 
     Args:
         font_size: 字体大小（像素）
@@ -513,32 +574,45 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
         angle: 旋转角度（度），仅当 center 不为 None 时使用
 
     Returns:
-        如果 center 为 None: (required_width, required_height, n_lines)
-        如果 center 不为 None: dst_points (shape: (1, 4, 2)) - 可直接用于绿框
+        center 为 None: (required_width, required_height, n_lines, body_center)
+            body_center = 正文框中心在渲染框内的坐标（相对渲染框左上角）。
+            纯文本恒为 (w/2, h/2)；富文本会因首行注音/末行着重号（横排）
+            或首列注音（竖排）偏离渲染框正中心。
+        center 不为 None: (dst_points, body_center_world)
+            dst_points shape (1, 4, 2)，渲染框以 center 为正中心；
+            body_center_world = 正文中心的世界坐标（已随 angle 旋转）。
+            文本为空时返回 (None, None)。
     """
     font_size = max(1, int(font_size))
-    base_w, base_h, n_lines = calc_text_block_dimensions(
-        text, is_horizontal, line_spacing, config, target_lang, font_size=font_size, letter_spacing=letter_spacing
+    base_w, base_h, n_lines, (body_x, body_y) = calc_text_block_metrics(
+        text, is_horizontal, line_spacing, config, target_lang,
+        font_size=font_size, letter_spacing=letter_spacing,
     )
 
     if base_w <= 0 or base_h <= 0:
         if center is not None:
-            return None
-        return 0, 0, 0
+            return None, None
+        return 0, 0, 0, (0.0, 0.0)
 
     # 直接按目标字号测量，不再做基准字号线性缩放
     req_width = math.ceil(base_w)
     req_height = math.ceil(base_h)
+    body_x = float(body_x)
+    body_y = float(body_y)
 
-    # 计入效果边距，避免“字号不变但框太小导致视觉缩字”
+    # 计入效果边距，避免“字号不变但框太小导致视觉缩字”。
+    # 边距四边对称，正文中心随左上角同步平移。
     effect_padding = _estimate_effect_padding(font_size, config)
     if effect_padding > 0.0:
-        req_width += int(effect_padding * 2.0)
-        req_height += int(effect_padding * 2.0)
+        pad_total = int(effect_padding * 2.0)
+        req_width += pad_total
+        req_height += pad_total
+        body_x += pad_total / 2.0
+        body_y += pad_total / 2.0
 
-    # 如果没有提供中心点，返回尺寸
+    # 如果没有提供中心点，返回尺寸和正文中心（框内坐标）
     if center is None:
-        return req_width, req_height, n_lines
+        return req_width, req_height, n_lines, (body_x, body_y)
 
     # 提供了中心点，构建 dst_points
     cx, cy = center
@@ -552,17 +626,27 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
         [cx + half_w, cy + half_h],
         [cx - half_w, cy + half_h]
     ], dtype=np.float32)
+    # 正文中心（未旋转世界坐标）：框左上角 + 框内坐标
+    unrotated_body = np.array([
+        [cx - half_w + body_x, cy - half_h + body_y],
+    ] * 4, dtype=np.float32)
 
-    # 应用旋转
+    # 应用旋转（正文点走与角点完全相同的变换，保证坐标约定一致）
     if angle != 0:
         dst_points = rotate_polygons(
             center, unrotated_points.reshape(1, -1),
             -angle, to_int=False
         ).reshape(-1, 4, 2)
+        rotated_body = rotate_polygons(
+            center, unrotated_body.reshape(1, -1),
+            -angle, to_int=False
+        ).reshape(-1, 4, 2)
+        body_world = (float(rotated_body[0, 0, 0]), float(rotated_body[0, 0, 1]))
     else:
         dst_points = unrotated_points.reshape(-1, 4, 2)
+        body_world = (float(unrotated_body[0, 0]), float(unrotated_body[0, 1]))
 
-    return dst_points
+    return dst_points, body_world
 
 def find_largest_inscribed_rect(mask: np.ndarray) -> tuple:
     """
@@ -1150,11 +1234,14 @@ def _compute_top_aligned_center(region: 'TextBlock', text_height: float) -> tupl
 def _resolve_layout_anchor_mode(*, apply_bubble_centering: bool, skip_font_scaling: bool = False) -> str:
     """统一中心锚点策略。
 
-    - skip_font_scaling: 永远按当前 region.center 渲染，不做上对齐
-    - 正常渲染: 气泡内居中命中时 center，否则 top
+    - skip_font_scaling: 编辑器授权布局——region.center 是编辑器白框（渲染框）
+      中心，按"渲染框中心"语义摆放（center_box，不做正文平移），与编辑器
+      预览逐像素一致
+    - 正常渲染: 锚点由管线自己计算，语义是"正文中心该在哪"——气泡内居中
+      命中时 center，否则 top
     """
     if skip_font_scaling:
-        return 'center'
+        return 'center_box'
     return 'center' if apply_bubble_centering else 'top'
 
 
@@ -1166,22 +1253,28 @@ def _resolve_region_layout_center(
     letter_spacing_multiplier: float,
     config: Config,
     anchor_mode: str = 'top',
+    render_value=None,
 ) -> tuple:
-    if anchor_mode == 'center':
+    if anchor_mode in ('center', 'center_box'):
         return tuple(region.center)
     if anchor_mode != 'top':
         raise ValueError(f"Unsupported anchor_mode: {anchor_mode!r}")
 
-    _, req_h, _ = calc_box_from_font(
+    if render_value is None:
+        render_value = _region_render_value(region)
+    _, req_h, _, (_, body_y) = calc_box_from_font(
         int(max(font_size, 1)),
-        region.translation,
+        render_value,
         render_horizontally,
         line_spacing_multiplier,
         config,
         region.target_lang,
         letter_spacing=letter_spacing_multiplier,
     )
-    return _compute_top_aligned_center(region, req_h)
+    # 上对齐用正文本体高度（正文中心到底边的两倍），把框外注音/着重号排除，
+    # 这样正文顶边贴气泡顶边，而不是让注音顶边贴气泡。
+    body_height = 2.0 * (req_h - body_y)
+    return _compute_top_aligned_center(region, body_height)
 
 
 def _calc_region_dst_points_for_font(
@@ -1193,7 +1286,13 @@ def _calc_region_dst_points_for_font(
     config: Config,
     anchor_mode: str = 'top',
 ) -> Optional[np.ndarray]:
-    center = _resolve_region_layout_center(
+    # F24：富文本渲染值在此解析一次；锚点计算与 dst 计算（以及掩码二分的
+    # 每一步）复用同一实例，不再重复解析 dict。
+    render_value = _region_render_value(region)
+    if is_rich_text_document(render_value):
+        render_value = ensure_rich_text_document(render_value)
+    # anchor 是“正文中心”应落到的世界坐标（纯文本时正文中心即框中心）。
+    anchor = _resolve_region_layout_center(
         region=region,
         font_size=font_size,
         render_horizontally=render_horizontally,
@@ -1201,18 +1300,33 @@ def _calc_region_dst_points_for_font(
         letter_spacing_multiplier=letter_spacing_multiplier,
         config=config,
         anchor_mode=anchor_mode,
+        render_value=render_value,
     )
-    return calc_box_from_font(
+    dst_points, body_world = calc_box_from_font(
         int(max(font_size, 1)),
-        region.translation,
+        render_value,
         render_horizontally,
         line_spacing_multiplier,
         config,
         region.target_lang,
-        center=center,
+        center=anchor,
         angle=region.angle,
         letter_spacing=letter_spacing_multiplier,
     )
+    if dst_points is None:
+        return None
+    # calc_box_from_font 把“渲染框中心”放在 anchor。管线自算锚点（top/center）
+    # 的语义是“正文中心该在哪”：平移整框，使正文中心落在 anchor——纯文本
+    # body_world==anchor、delta=0，与旧行为完全一致；富文本则把注音/着重号
+    # 挤到框外，正文本体锚定不动。center_box（编辑器授权中心）保持渲染框
+    # 中心语义，不平移，与编辑器预览对齐。
+    if anchor_mode == 'center_box':
+        return dst_points
+    delta_x = float(anchor[0]) - float(body_world[0])
+    delta_y = float(anchor[1]) - float(body_world[1])
+    if delta_x or delta_y:
+        dst_points = dst_points + np.array([delta_x, delta_y], dtype=dst_points.dtype)
+    return dst_points
 
 
 def _font_size_fits_bubble_mask(
@@ -1304,13 +1418,6 @@ def resize_regions_to_font_size(
     
     logger.debug(f"[RESIZE] 开始处理 {len(text_regions)} 个区域")
 
-    for region in text_regions:
-        region.translation = _apply_vertical_horizontal_markup(
-            region.translation,
-            render_horizontally=_resolve_region_render_horizontal(region),
-            config=config,
-        )
-
     # Prepare debug image for balloon_fill mode (only when requested)
     debug_img = None
     if mode == 'balloon_fill' and original_img is not None and return_debug_img:
@@ -1394,7 +1501,12 @@ def resize_regions_to_font_size(
                 text_render.set_font(text_render.DEFAULT_FONT)
 
             # 如果 translation 为空,直接返回 min_rect,避免触发复杂的布局计算
-            if not region.translation or not region.translation.strip():
+            render_value = _region_render_value(region)
+            if (
+                not render_value
+                or (isinstance(render_value, str) and not render_value.strip())
+                or (is_rich_text_document(render_value) and not _rich_text_has_content(render_value))
+            ):
                 logger.info(f"[RESIZE] 区域 {region_idx}: translation 为空，使用 min_rect")
                 dst_points_list.append(region.min_rect)
                 continue
@@ -1404,7 +1516,6 @@ def resize_regions_to_font_size(
                 [region],
                 config,
                 resolve_render_horizontal=_resolve_region_render_horizontal,
-                apply_vertical_horizontal_markup=_apply_vertical_horizontal_markup,
                 skip_text_replacements=skip_text_replacements,
             )
 
@@ -1498,6 +1609,8 @@ def resize_regions_to_font_size(
             line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
             letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
             no_br_source_text = region.translation
+            # region.translation 恒为 str（TextBlock._translation 只经
+            # _translation_plain_text 写入），无需 isinstance 防御
             has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
 
             line_box_width, line_box_height = region.unrotated_size
@@ -1509,6 +1622,81 @@ def resize_regions_to_font_size(
             layout_candidate_font_size = int(max(target_font_size, layout_min_font_size))
             configured_fixed_font_size = _resolve_configured_fixed_font_size(config)
             remove_linebreak_punctuation = bool(getattr(config.render, 'remove_linebreak_punctuation', False))
+            if is_rich_text_document(_region_render_value(region)):
+                # 富文本文档不可重排：不做断句优化/自动断行（会破坏结构化段落
+                # 与样式边界），但字号自适应必须生效——不再直接使用估算字号。
+                # 解析一次向下传实例，字号二分内不重复解析 dict。
+                rich_render_value = ensure_rich_text_document(_region_render_value(region))
+                layout_font_size = layout_candidate_font_size
+                if configured_fixed_font_size <= 0:
+                    # 1) 未旋转外接框内能容纳的最大字号，与估算字号取 min（只收缩）
+                    box_fit_font_size = calc_font_from_box(
+                        width=float(line_box_width),
+                        height=float(line_box_height),
+                        text=rich_render_value,
+                        is_horizontal=render_horizontally,
+                        line_spacing=line_spacing_multiplier,
+                        config=config,
+                        target_lang=region.target_lang,
+                        letter_spacing=letter_spacing_multiplier,
+                    )
+                    layout_font_size = max(
+                        min(layout_candidate_font_size, int(box_fit_font_size)),
+                        layout_min_font_size,
+                    )
+
+                    # 2) balloon_fill：继续用气泡蒙版收缩（_calc_region_dst_points_for_font
+                    #    内部已支持富文本正文锚定）；区域不完全在蒙版内时保持框收缩结果
+                    if mode == 'balloon_fill' and original_img is not None:
+                        try:
+                            region_bubble_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
+                            if balloon_fill_mask is not None and np.count_nonzero(balloon_fill_mask) > 0:
+                                region_bubble_mask = _build_region_reference_mask(
+                                    region, balloon_fill_mask, balloon_fill_label_map
+                                )
+                            if (
+                                np.count_nonzero(region_bubble_mask) > 0
+                                and _region_lines_fully_inside_mask(region, region_bubble_mask)
+                            ):
+                                configured_min_font_size = _resolve_configured_min_font_size(config)
+                                bubble_min_font_size = max(
+                                    configured_min_font_size if configured_min_font_size > 0 else 1, 1
+                                )
+                                best_font_size, _ = _binary_search_font_for_bubble_mask(
+                                    region=region,
+                                    start_font_size=layout_font_size,
+                                    min_font_size=bubble_min_font_size,
+                                    render_horizontally=render_horizontally,
+                                    line_spacing_multiplier=line_spacing_multiplier,
+                                    letter_spacing_multiplier=letter_spacing_multiplier,
+                                    config=config,
+                                    bubble_mask=region_bubble_mask,
+                                    anchor_mode=normal_anchor_mode,
+                                )
+                                if best_font_size is not None:
+                                    layout_font_size = int(best_font_size)
+                        except Exception as exc:
+                            logger.warning(
+                                f"balloon_fill rich-text mask shrink failed for region {region_idx}: {exc}"
+                            )
+
+                final_font_size = _apply_final_font_constraints(layout_font_size, config)
+                dst_points = _calc_region_dst_points_for_font(
+                    region=region,
+                    font_size=final_font_size,
+                    render_horizontally=render_horizontally,
+                    line_spacing_multiplier=line_spacing_multiplier,
+                    letter_spacing_multiplier=letter_spacing_multiplier,
+                    config=config,
+                    anchor_mode=normal_anchor_mode,
+                )
+                if dst_points is None:
+                    dst_points = region.min_rect
+
+                region.font_size = final_font_size
+                dst_points_list.append(dst_points)
+                continue
+
             if has_br and remove_linebreak_punctuation:
                 region.translation = strip_linebreak_edge_punctuation(region.translation)
                 has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
@@ -1540,7 +1728,7 @@ def resize_regions_to_font_size(
                         letter_spacing=letter_spacing_multiplier,
                     )
                     layout_candidate_font_size = max(int(layout_candidate_font_size), layout_min_font_size)
-                candidate_required_width, candidate_required_height, candidate_n = calc_box_from_font(
+                candidate_required_width, candidate_required_height, candidate_n, _ = calc_box_from_font(
                     layout_candidate_font_size,
                     region.translation,
                     render_horizontally,
@@ -1699,7 +1887,7 @@ def resize_regions_to_font_size(
                             and bubble_h > 0
                             and line_budget > 0
                         ):
-                            single_width, single_height, _ = calc_box_from_font(
+                            single_width, single_height, _, _ = calc_box_from_font(
                                 preferred_font_size,
                                 no_br_source_text,
                                 render_horizontally,
@@ -1725,7 +1913,7 @@ def resize_regions_to_font_size(
 
                             def evaluate_chinese_candidate(candidate_text: str) -> Optional[BubbleLinebreakEvaluation]:
                                 region.translation = candidate_text
-                                req_w, req_h, req_n = calc_box_from_font(
+                                req_w, req_h, req_n, _ = calc_box_from_font(
                                     preferred_font_size,
                                     candidate_text,
                                     render_horizontally,
@@ -2183,7 +2371,7 @@ def resize_regions_to_font_size(
                             required_width = final_total_width / n if n > 0 else final_total_width
                             required_height = n * target_font_size + max(0, n - 1) * final_spacing_y
                         else:
-                            required_width, required_height, n = calc_box_from_font(
+                            required_width, required_height, n, _ = calc_box_from_font(
                                 target_font_size,
                                 region.translation,
                                 False,
@@ -2296,7 +2484,6 @@ async def dispatch(
             text_regions,
             config,
             resolve_render_horizontal=_resolve_region_render_horizontal,
-            apply_vertical_horizontal_markup=_apply_vertical_horizontal_markup,
             skip_text_replacements=skip_text_replacements,
         )
         from .model_api_renderer import dispatch_api_rendering
@@ -2309,7 +2496,7 @@ async def dispatch(
 
     # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
     text_render.set_font(text_render.DEFAULT_FONT)
-    text_regions = list(filter(lambda region: region.translation, text_regions))
+    text_regions = list(filter(lambda region: _region_render_value(region), text_regions))
 
     result = resize_regions_to_font_size(
         img,
@@ -2336,8 +2523,12 @@ async def dispatch(
 
         try:
             # 检查是否有文本需要渲染
-            if not region.translation or not region.translation.strip():
-                logger.info(f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', translation='{region.translation[:20] if region.translation else ''}'")
+            render_value = _region_render_value(region)
+            if not render_value or (isinstance(render_value, str) and not render_value.strip()):
+                logger.info(
+                    f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', "
+                    f"translation='{_translation_preview(render_value, 20)}'"
+                )
                 continue
 
             # render() / put_text_*() 统一接收“倍率”，基础值在文本渲染器内部处理。
@@ -2369,12 +2560,6 @@ def render(
     config: Config,
     render_alpha: Optional[np.ndarray] = None,
 ):
-    region.translation = _apply_vertical_horizontal_markup(
-        region.translation,
-        render_horizontally=_resolve_region_render_horizontal(region),
-        config=config,
-    )
-
     # 完全依赖区域字体，不再使用运行时全局字体参数
     # JSON 导出时已为每个区域填入完整 font_path，这里直接用即可
     region_font_path = getattr(region, 'font_path', '') or ''
@@ -2427,7 +2612,7 @@ def render(
         fg, bg = fg_bg_compare(fg, bg)
 
     text_to_render = region.get_translation_for_rendering()
-    has_br_in_text = bool(re.search(r'(\[BR\]|<br>|【BR】)', text_to_render, flags=re.IGNORECASE))
+    has_br_in_text = isinstance(text_to_render, str) and bool(re.search(r'(\[BR\]|<br>|【BR】)', text_to_render, flags=re.IGNORECASE))
     if has_br_in_text:
         text_to_render = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text_to_render, flags=re.IGNORECASE)
 
@@ -2440,12 +2625,6 @@ def render(
     r_orig = np.mean(norm_h / norm_v)
 
     render_horizontally = _resolve_region_render_horizontal(region)
-    text_to_render = text_render.prepare_text_for_direction_rendering(
-        text_to_render,
-        is_horizontal=render_horizontally,
-        auto_rotate_symbols=bool(getattr(config.render, 'auto_rotate_symbols', False)),
-    )
-
     letter_spacing = _resolve_letter_spacing_multiplier(region, config)
 
     # 将当前region传递给config，用于方向不匹配检测
@@ -2454,9 +2633,18 @@ def render(
 
     # 使用 Qt 离屏渲染器
     # 检测是否需要使用高质量渲染（针对低分辨率优化）
-    use_hq_render = text_render_hq.should_use_hq_rendering(
-        region.font_size, 
-        (img.shape[1], img.shape[0])
+    text_is_structured = is_rich_text_document(text_to_render)
+    if text_is_structured:
+        # 仅由 BR 转换产生的"纯文本 + 换行"文档（无任何样式/注音/纵中横）
+        # 回退等价多行字符串，走纯字符串渲染路径，保住 HQ 超采样；
+        # 带样式的文档保持结构化路径（text_render_hq 不支持富文本）。
+        plain_equivalent = plain_equivalent_text(text_to_render)
+        if plain_equivalent is not None:
+            text_to_render = plain_equivalent
+            text_is_structured = False
+    use_hq_render = (not text_is_structured) and text_render_hq.should_use_hq_rendering(
+        region.font_size,
+        (img.shape[1], img.shape[0]),
     )
     
     if use_hq_render:
@@ -2515,7 +2703,7 @@ def render(
         )
     
     if temp_box is None:
-        logger.warning(f"[RENDER SKIPPED] Text rendering returned None. Text: '{region.translation[:100]}...'")
+        logger.warning(f"[RENDER SKIPPED] Text rendering returned None. Text: '{_translation_preview(region.translation, 100)}...'")
         return img
     
     h, w, _ = temp_box.shape
@@ -2567,8 +2755,10 @@ def render(
     # 统一使用局部区域渲染，避免 OpenCV warpPerspective 的 32767 像素限制
     SHRT_MAX = 32767
     if box.shape[0] > SHRT_MAX or box.shape[1] > SHRT_MAX:
-        logger.error(f"[RENDER SKIPPED] Text box size exceeds OpenCV limit (32767). "
-                     f"box={box.shape[:2]}, text='{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
+        logger.error(
+            f"[RENDER SKIPPED] Text box size exceeds OpenCV limit (32767). "
+            f"box={box.shape[:2]}, text='{_translation_preview(getattr(region, 'translation', None), 50)}...'"
+        )
         return img
     
     # 计算文字区域的边界框，添加边距
@@ -2587,14 +2777,16 @@ def render(
         logger.warning(
             f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, "
             f"w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). "
-            f"Text: '{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'"
+            f"Text: '{_translation_preview(getattr(region, 'translation', None), 50)}...'"
         )
         return img
     
     # 检查局部区域是否仍然超限
     if local_w > SHRT_MAX or local_h > SHRT_MAX:
-        logger.error(f"[RENDER SKIPPED] Local region still exceeds OpenCV limit. "
-                     f"local_size=({local_w}, {local_h}), text='{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
+        logger.error(
+            f"[RENDER SKIPPED] Local region still exceeds OpenCV limit. "
+            f"local_size=({local_w}, {local_h}), text='{_translation_preview(getattr(region, 'translation', None), 50)}...'"
+        )
         return img
     
     # 调整目标点到局部坐标系
@@ -2608,7 +2800,7 @@ def render(
     # 检查变换矩阵是否有效
     if M_local is None:
         logger.warning(f"[RENDER SKIPPED] Failed to compute homography matrix for text: "
-                      f"'{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
+                      f"'{_translation_preview(getattr(region, 'translation', None), 50)}...'")
         return img
 
     # 在局部区域进行变换
@@ -2666,6 +2858,10 @@ def render(
         else:
             logger.warning(f"Text region size mismatch: canvas={canvas_region.shape[:2]}, target={target_region.shape[:2]}, skipping region")
     else:
-        logger.warning(f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). Text: '{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
+        logger.warning(
+            f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, "
+            f"w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). "
+            f"Text: '{_translation_preview(getattr(region, 'translation', None), 50)}...'"
+        )
     
     return img

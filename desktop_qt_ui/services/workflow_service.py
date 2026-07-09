@@ -818,6 +818,19 @@ def _load_large_json_optimized(json_file_path: str):
         with open(json_file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
+def _strip_legacy_horizontal_tags(text):
+    """剥除已废除的 <H>...</H> 局部横排标记（保留内文）。
+
+    渲染管线已删除全部 <H> 消费方，字面标记会被当普通字符画上成品图；
+    局部横排改用富文本 tcy（旧 <H> 协议已废除）。
+    """
+    if not isinstance(text, str):
+        return text
+    if '<H>' not in text and '</H>' not in text:
+        return text
+    return text.replace('<H>', '').replace('</H>', '')
+
+
 def safe_update_large_json_from_text(
     text_file_path: str,
     json_file_path: str,
@@ -988,11 +1001,14 @@ def safe_update_large_json_from_text(
             # 首先尝试精确匹配
             if original_text in translations:
                 old_translation = region.get('translation', '')
-                new_translation = translations[original_text]
+                new_translation = _strip_legacy_horizontal_tags(translations[original_text])
 
                 # 总是更新translation字段，即使原文和译文相同
                 if old_translation != new_translation:
                     region['translation'] = new_translation
+                    # 写纯文本译文必须同步失效富文本文档（渲染时 rich 优先，
+                    # 不清会导致成图渲染旧译文；与 editor_controller 写入姿势一致）
+                    region.pop('translation_rich', None)
                     updated_count += 1
                     logger.debug(f"更新翻译: '{original_text[:30]}...' -> '{new_translation[:30]}...'")
             else:
@@ -1002,13 +1018,15 @@ def safe_update_large_json_from_text(
                 if normalized in normalized_to_original:
                     matched_original = normalized_to_original[normalized]
                     old_translation = region.get('translation', '')
-                    new_translation = translations[matched_original]
+                    new_translation = _strip_legacy_horizontal_tags(translations[matched_original])
 
                     logger.debug(f"模糊匹配成功: '{original_text}' -> '{matched_original}', old='{old_translation}', new='{new_translation}'")
 
                     # 总是更新translation字段，即使原文和译文相同
                     if old_translation != new_translation:
                         region['translation'] = new_translation
+                        # 同上：写 translation 时同步 pop translation_rich
+                        region.pop('translation_rich', None)
                         updated_count += 1
                 else:
                     logger.debug(f"模糊匹配也失败: '{normalized}' not in normalized_to_original")

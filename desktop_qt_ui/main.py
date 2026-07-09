@@ -304,7 +304,10 @@ def main():
     # 将崩溃信息直接写入同一个日志文件
     import faulthandler
     # 使用 file_handler 的流对象
-    faulthandler.enable(file=file_handler.stream, all_threads=True)
+    # all_threads=False：原生文件对话框打开时 Windows 会高频抛出无害的
+    # 0x8001010e (RPC_E_WRONG_THREAD)，faulthandler 每次都无锁遍历所有
+    # 运行中线程的帧栈，与 OCR/修复线程竞态最终产生 access violation 导致闪退
+    faulthandler.enable(file=file_handler.stream, all_threads=False)
     logging.info("已启用崩溃捕获 (faulthandler)，崩溃信息将记录在此文件中")
 
     # --- 环境设置 ---

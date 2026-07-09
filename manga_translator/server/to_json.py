@@ -1,5 +1,5 @@
 import struct
-from typing import Annotated, List
+from typing import Annotated, Any, List
 
 import numpy as np
 from pydantic import BaseModel, WithJsonSchema
@@ -30,19 +30,21 @@ class Translation(BaseModel):
     lines: list
     texts: list[str]
     text: str
-    translation: str
+    translation: Any
+    translation_raw: str = ""
+    translation_rich: Any | None = None
     angle: float | int
-    font_size: int
-    fg_colors: list[int]
-    bg_colors: list[int]
+    font_size: int | None = None
+    fg_colors: list[int] | None = None
+    bg_colors: list[int] | None = None
     direction: str
     alignment: str
     target_lang: str
     source_lang: str
     line_spacing: float
     letter_spacing: float
-    default_stroke_width: float
-    adjust_bg_color: bool
+    stroke_width: float | None = None
+    font_path: str | None = None
     prob: float
 
     def to_bytes(self):
