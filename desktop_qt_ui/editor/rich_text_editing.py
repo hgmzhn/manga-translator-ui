@@ -469,6 +469,8 @@ def styled_text_for_key(document: dict, start: int, end: int, row_key: str) -> s
 def _style_matches_row_key(style: dict, row_key: str) -> bool:
     if row_key == "C":
         return "color" in style
+    if row_key == "I":
+        return "italic" in style
     if row_key == "S":
         return "fontSize" in style
     if row_key == "%":

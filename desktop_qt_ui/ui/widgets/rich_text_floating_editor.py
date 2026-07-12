@@ -95,7 +95,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         layout.addLayout(toolbar)
 
         self.bold_button = self._make_tool_button("B", "加粗")
-        self.italic_button = self._make_tool_button("I", "斜体")
+        self.italic_button = self._make_tool_button("I", "斜体（切变角度，默认15）")
         self.color_button = self._make_tool_button("C", "文字颜色")
         self.size_button = self._make_tool_button("S", "绝对字号")
         self.scale_button = self._make_tool_button("%", "字号倍率")
@@ -223,6 +223,13 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.rotation_input.setSingleStep(1.0)
         self.rotation_input.setDecimals(1)
 
+        # 斜体 = 切变角度（度），对齐参考实现 [i=15]：按钮开 = 写入角度，默认 15
+        self.italic_angle_input = _compact_double_spin_box()
+        self.italic_angle_input.setRange(-85.0, 85.0)
+        self.italic_angle_input.setSingleStep(1.0)
+        self.italic_angle_input.setDecimals(1)
+        self.italic_angle_input.setValue(15.0)
+
         self.kerning_input = _compact_double_spin_box()
         self.kerning_input.setRange(-5.0, 5.0)
         self.kerning_input.setSingleStep(0.05)
@@ -258,6 +265,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.ruby_text_input.setMinimumHeight(28)
 
         self._add_style_row(form, "C", self.color_picker, "文字颜色")
+        self._add_style_row(form, "I", self.italic_angle_input, "斜体角度")
         self._add_style_row(form, "S", self.font_size_input, "绝对字号")
         self._add_style_row(form, "%", self.scale_input, "字号倍率")
         self._add_style_row(form, "F", self.font_combo, "字体文件")
@@ -276,7 +284,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.text_box.document().contentsChange.connect(self._on_text_changed)
         self.text_box.cursorPositionChanged.connect(self._on_cursor_position_changed)
         self.bold_button.clicked.connect(lambda checked: self._apply_toggle("bold", checked))
-        self.italic_button.clicked.connect(lambda checked: self._apply_toggle("italic", checked))
+        self.italic_button.clicked.connect(lambda checked: self._toggle_row_and_apply("I", checked, {"italic": float(self.italic_angle_input.value())}))
         self.color_button.clicked.connect(lambda checked: self._toggle_row_and_apply("C", checked, {"color": self.color_picker.get_color()}))
         self.size_button.clicked.connect(lambda checked: self._toggle_row_and_apply("S", checked, {"fontSize": int(self.font_size_input.value())}))
         self.scale_button.clicked.connect(lambda checked: self._toggle_row_and_apply("%", checked, {"scale": float(self.scale_input.value())}))
@@ -308,6 +316,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.font_combo.currentIndexChanged.connect(self._on_font_changed)
         self.ruby_text_input.returnPressed.connect(self._apply_ruby)
         self.rotation_input.valueChanged.connect(lambda value: self._apply_style({"transform": {"rotation": float(value)}}))
+        self.italic_angle_input.valueChanged.connect(lambda value: self._apply_style({"italic": float(value)}))
         self.kerning_input.valueChanged.connect(lambda value: self._apply_style({"kerning": float(value)}))
         self.pre_kerning_input.valueChanged.connect(lambda value: self._apply_style({"preKerning": float(value)}))
         self.line_kerning_input.valueChanged.connect(lambda value: self._apply_style({"lineKerning": float(value)}))
@@ -607,7 +616,12 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._updating = True
         try:
             self.bold_button.setChecked(bool(style.get("bold")))
-            self.italic_button.setChecked(bool(style.get("italic")))
+            has_italic = bool(style.get("italic"))
+            self._set_button_and_row(self.italic_button, "I", has_italic)
+            if has_italic:
+                italic_value = style.get("italic")
+                # 旧文档的 italic: true 显示为参考默认角度 15（渲染层同口径）
+                self.italic_angle_input.setValue(15.0 if isinstance(italic_value, bool) else float(italic_value))
             self.emphasis_button.setChecked(bool(style.get("emphasis")))
             self.no_tcy_button.setChecked(bool(style.get("noTcy")))
             self.mirror_x_button.setChecked(bool(style.get("mirrorX")))
@@ -713,6 +727,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
     def _clear_patch_for_row(self, row_key: str) -> dict:
         return {
             "C": {"color": None},
+            "I": {"italic": None},
             "S": {"fontSize": None},
             "%": {"scale": None},
             "F": {"fontFamily": None},

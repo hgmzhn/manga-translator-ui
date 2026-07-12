@@ -81,7 +81,9 @@ class TextTransform:
 @dataclass
 class TextStyle:
     bold: bool = False
-    italic: bool = False
+    # italic: True = 默认斜体角度（渲染层按参考实现取 15°）；数字 = 切变角度
+    # （度，正值向右倾）。False/0 = 无斜体。
+    italic: Union[bool, float] = False
     color: Optional[str] = None
     scale: float = 1.0
     font_size: Optional[float] = None
@@ -130,7 +132,7 @@ class TextStyle:
         font_size = _safe_float(value.get('fontSize'), None)
         return cls(
             bold=bool(value.get('bold', False)),
-            italic=bool(value.get('italic', False)),
+            italic=_parse_italic(value.get('italic', False)),
             color=value.get('color'),
             scale=float(value.get('scale', 1.0) or 1.0),
             font_size=font_size,
@@ -421,6 +423,16 @@ def _safe_float(value, default):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_italic(value) -> Union[bool, float]:
+    """italic 协议值：bool 原样；数字为切变角度（度），0 归一成 False。"""
+    if isinstance(value, bool) or value is None:
+        return bool(value)
+    number = _safe_float(value, None)
+    if number is None:
+        raise ValueError('style.italic must be a bool or a number (degrees)')
+    return number if number else False
 
 
 def _drop_none(value: dict) -> dict:

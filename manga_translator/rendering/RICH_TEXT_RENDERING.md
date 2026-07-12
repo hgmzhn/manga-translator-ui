@@ -76,6 +76,7 @@
 - `ruby` inline 只允许 `type`、`base`、`text`。
 - `tcy` inline 只允许 `type`、`content`。
 - `style` 字段只认 camelCase 协议名，例如 `fontSize`、`fontFamily`、`outerStroke`、`noTcy`、`preKerning`、`lineKerning`、`nextKerning`。
+- `italic` 接受布尔或数字：数字是切变角度（度，正值向右倾），对齐 mtu-json-gui 参考实现的 `[i=15]`；`true` 是旧值，渲染时按参考默认 15° 处理；`0` 归一为无斜体。
 - `transform` 字段只认 `offsetX`、`offsetY`、`rotation`、`mirrorX`、`mirrorY`。
 - `source`、`document`、`font_size`、`fontFamily`、`outer_stroke` 这类非协议字段会直接报错。
 
@@ -165,6 +166,9 @@ string
 - 局部填充颜色。
 - 局部字号倍率和绝对字号。
 - 局部描边颜色和描边宽度。
+- 斜体：`italic` 布尔（默认 15° 切变）或数字角度切变；竖排横躺字符与正常
+  字符共用同一切变矩阵（旋转坐标系下等价于换轴切变，无需分支）。
+- 局部旋转、镜像、`transform` 偏移，均计入渲染框包络。
 - 着重号。
 - 从 `richtext.v1` 直接横排和竖排渲染。
 - 结构化文档测量入口：
@@ -178,8 +182,17 @@ string
 ## 正文中心与锚定
 
 渲染框（白框、dst_points、绘制图层）包含框外装饰：横排的首行注音在框顶部、
-末行着重号在框底部；竖排的首列注音在框右侧。竖排渲染框是紧凑框，左右溢出
-各按真实需要计算，不做对称扩张。因此**渲染框正中心 ≠ 正文中心**。
+末行着重号在框底部；竖排的首列注音在框右侧。`transform` 偏移、斜体/旋转等
+图层特效把墨迹推出正文框的部分同样计入渲染框包络（横排四向、竖排四向），
+因此加偏移会让渲染框向偏移方向扩张。竖排渲染框是紧凑框，左右溢出各按真实
+需要计算，不做对称扩张。因此**渲染框正中心 ≠ 正文中心**。
+
+测量与绘制共用同一套包络几何（横排 `_build_rich_horizontal_layout` +
+`_rich_horizontal_layout_geometry`，竖排对应 F21 builder/geometry），绘制端
+按包络定矩形裁切而不按墨迹紧裁——输出面尺寸恒等于测量框，统一偏移不会被
+裁切抵消。唯一例外是全局描边：沿用旧口径不进测量包络（由
+`calc_box_from_font` 的四边对称 effect padding 覆盖），带描边的输出面比测量
+框大出描边外扩。
 
 测量层把正文中心作为事实返回，锚定（“什么钉住不动”）是调用方的策略：
 

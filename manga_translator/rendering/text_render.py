@@ -262,28 +262,34 @@ def _stroke_alpha_from_text_alpha(text_alpha: np.ndarray, stroke_px: int):
     return np.maximum(stroke_alpha, padded), -pad, -pad
 
 
-def _crop_rgba(canvas: np.ndarray):
+def _crop_rgba_fixed(canvas: np.ndarray, x0: int, x1: int, y0: int, y1: int):
+    """按预定包络矩形裁切（不按墨迹紧裁）。
+
+    富文本路径的"测量 == 输出面尺寸"契约：包络由度量几何给定，测量与
+    绘制共用同一套数字，输出面必须严格等于测量框，偏移/切变等把墨迹
+    推到框内任意位置都不会被裁掉（全透明时仍返回 None 表示无可绘内容）。
+    """
     if canvas is None or canvas.size == 0 or canvas.shape[2] != 4:
         return None
-    alpha = canvas[:, :, 3]
-    nz = cv2.findNonZero(alpha)
-    if nz is None:
-        return None
-    x, y, w, h = cv2.boundingRect(nz)
-    return None if w == 0 or h == 0 else canvas[y:y + h, x:x + w]
-
-
-def _crop_rgba_preserve_x(canvas: np.ndarray, x0: int, x1: int):
-    if canvas is None or canvas.size == 0 or canvas.shape[2] != 4:
-        return None
-    alpha = canvas[:, :, 3]
-    nz = cv2.findNonZero(alpha)
-    if nz is None:
-        return None
-    _, y, _, h = cv2.boundingRect(nz)
     x0 = max(0, min(int(x0), canvas.shape[1]))
     x1 = max(x0, min(int(x1), canvas.shape[1]))
-    return None if x1 <= x0 or h == 0 else canvas[y:y + h, x0:x1]
+    y0 = max(0, min(int(y0), canvas.shape[0]))
+    y1 = max(y0, min(int(y1), canvas.shape[0]))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    region = canvas[y0:y1, x0:x1]
+    return region if region[:, :, 3].any() else None
+
+
+def _stroke_pad_px(font_size: int, stroke_ratio: float) -> int:
+    """描边给字形图层带来的四边外扩（像素）。
+
+    与 _stroke_alpha_from_text_alpha 的 pad 公式一致，度量与绘制共用。
+    """
+    if stroke_ratio <= 0:
+        return 0
+    stroke_px = max(int(stroke_ratio * font_size), 1)
+    return max(1, int(stroke_px)) + 1
 
 
 def _paste_rgba(dst: np.ndarray, src: np.ndarray, x: int, y: int):
@@ -346,6 +352,43 @@ def _warp_rgba_layer(layer: np.ndarray, matrix: np.ndarray):
     return warped, float(min_x), float(min_y)
 
 
+DEFAULT_ITALIC_ANGLE = 15.0
+_MAX_ITALIC_ANGLE = 85.0
+
+
+def _style_italic_shear(style: TextStyle) -> float:
+    """italic 协议值 → 图层水平切变系数。
+
+    True = 参考实现（mtu-json-gui）斜体按钮的默认 15°；数字 = 角度（度）。
+    图层坐标 y 向下，向右倾斜的切变系数为 -tan(angle)。竖排横躺字符的位图
+    在 _vertical_base 已按 90° 预旋转，对旋转后的位图施加同一切变矩阵 M
+    恰好满足 M·R = R·S（S 为参考实现在旋转坐标系内的换轴切变），因此
+    所有字符统一用本系数，无需按是否旋转分支。
+    """
+    italic = style.italic
+    if italic is True:
+        angle = DEFAULT_ITALIC_ANGLE
+    elif isinstance(italic, (int, float)) and not isinstance(italic, bool):
+        angle = float(italic)
+    else:
+        return 0.0
+    angle = max(-_MAX_ITALIC_ANGLE, min(_MAX_ITALIC_ANGLE, angle))
+    if not angle:
+        return 0.0
+    return -math.tan(math.radians(angle))
+
+
+def _italic_shear_matrix(shear: float, height: float) -> np.ndarray:
+    """斜体切变矩阵，轴在图层竖直中心。
+
+    参考实现先 translate 到字符中心再 skew（上半右移、下半左移对称）；
+    平移项 -shear·h/2 把切变轴从图层顶边挪到中线，经 _warp_rgba_layer /
+    _warp_geometry 的 min_x 归一后，dx 会带回这一平移，绘制位置随之对称，
+    否则字身相对槽位整体滑向一侧（横排左滑 tan(角度)·ascent）。
+    """
+    return np.float32([[1.0, shear, -shear * (float(height) / 2.0)], [0.0, 1.0, 0.0]])
+
+
 def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: int):
     if layer is None or layer.size == 0:
         return layer, 0.0, 0.0
@@ -359,9 +402,9 @@ def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: i
     if style.transform.mirror_y:
         result = cv2.flip(result, 0)
 
-    if style.italic:
-        shear = -0.22
-        matrix = np.float32([[1.0, shear, 0.0], [0.0, 1.0, 0.0]])
+    shear = _style_italic_shear(style)
+    if shear:
+        matrix = _italic_shear_matrix(shear, result.shape[0])
         result, dx, dy = _warp_rgba_layer(result, matrix)
         offset_x += dx
         offset_y += dy
@@ -388,9 +431,9 @@ def _style_layer_effects_geometry(height: int, width: int, style: TextStyle):
     offset_x = 0.0
     offset_y = 0.0
 
-    if style.italic:
-        shear = -0.22
-        matrix = np.float32([[1.0, shear, 0.0], [0.0, 1.0, 0.0]])
+    shear = _style_italic_shear(style)
+    if shear:
+        matrix = _italic_shear_matrix(shear, height)
         height, width, dx, dy = _warp_geometry(height, width, matrix)
         offset_x += float(dx)
         offset_y += float(dy)
@@ -474,6 +517,11 @@ def _rich_vertical_layout_geometry(layouts: list, font_size: int, line_spacing: 
     left_extra = max((int(layout.get('paint_left_extra', 0)) for layout in layouts), default=0)
     right_paint_extra = max((int(layout.get('paint_right_extra', 0)) for layout in layouts), default=0)
     right_extra = max(_rich_vertical_side_space(layouts[0]) if layouts else 0, right_paint_extra)
+    # 纵向包络：正文高 = 最高列的游走高度；上下 extras 由各列图层实际
+    # 纵向溢出（偏移/切变/描边外扩）取最大值，测量与绘制共用。
+    body_height = max((int(layout['height']) for layout in layouts), default=0)
+    top_extra = max((int(layout.get('paint_top_extra', 0)) for layout in layouts), default=0)
+    bottom_extra = max((int(layout.get('paint_bottom_extra', 0)) for layout in layouts), default=0)
     return {
         'spacing_x': int(spacing_x),
         'body_width': int(body_width),
@@ -482,6 +530,11 @@ def _rich_vertical_layout_geometry(layouts: list, font_size: int, line_spacing: 
         'left_extra': int(left_extra),
         'right_extra': int(right_extra),
         'body_center_x': float(left_extra) + float(layout_width) / 2.0,
+        'body_height': int(body_height),
+        'top_extra': int(top_extra),
+        'bottom_extra': int(bottom_extra),
+        'paint_height': int(body_height + top_extra + bottom_extra),
+        'body_center_y': float(top_extra) + float(body_height) / 2.0,
     }
 
 
@@ -1538,59 +1591,41 @@ def _render_rich_text_horizontal(
 ):
     document = ensure_rich_text_document(text)
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
-    spacing_y = calc_horizontal_line_spacing_px(font_size, line_spacing)
-    layouts = []
-    max_logical_width = 0.0
-    max_font_size = font_size
-
-    for paragraph in document.paragraphs:
-        runs = [
-            run for span in paragraph.spans
-            for run in [_rich_span_surface(span, font_size, stroke_ratio, bg, reversed_direction, letter_spacing, profile_stats)]
-            if run is not None
-        ]
-        if not runs:
-            metrics = _line_metrics('', font_size, letter_spacing)
-            layouts.append({'runs': [], 'logical_width': 0.0, 'ascent': metrics['ascent'], 'descent': metrics['descent'], 'ruby_extra': 0.0, 'dot_extra': 0.0, 'height': metrics['height']})
-            continue
-        ascent = max(run['ascent'] for run in runs)
-        descent = max(run['descent'] for run in runs)
-        logical_width = sum(run['logical_width'] for run in runs)
-        max_logical_width = max(max_logical_width, logical_width)
-        max_font_size = max(max_font_size, *(run['font_size'] for run in runs))
-        ruby_extra = 0.0
-        dot_extra = 0.0
-        for run in runs:
-            if run['span'].ruby:
-                ruby = _rich_ruby_surface(run['span'], run['font_size'], fg, bg, letter_spacing, profile_stats)
-                run['ruby'] = ruby
-                if ruby:
-                    ruby_extra = max(ruby_extra, ruby['layer'].shape[0] + max(1, run['font_size'] * 0.08))
-            if run['span'].style.emphasis:
-                dot_extra = max(dot_extra, run['font_size'] * 0.25)
-        line_height = ruby_extra + ascent + descent + dot_extra
-        layouts.append({'runs': runs, 'logical_width': logical_width, 'ascent': ascent, 'descent': descent, 'ruby_extra': ruby_extra, 'dot_extra': dot_extra, 'height': line_height})
+    _ = (width, height)  # 包络由内容决定，外部最小尺寸不再参与画布
+    layouts = _build_rich_horizontal_layout(
+        document, font_size, stroke_ratio, fg, bg, reversed_direction, letter_spacing, profile_stats
+    )
+    geometry = _rich_horizontal_layout_geometry(layouts, font_size, line_spacing)
+    spacing_y = geometry['spacing_y']
+    max_font_size = max(
+        [font_size] + [run['font_size'] for layout in layouts for run in layout['runs']]
+    )
 
     padding = int(max(max_font_size * 2.0, 16))
-    canvas_w = int(math.ceil(max(max_logical_width, float(width), 1.0) + padding * 2))
-    content_h = sum(layout['height'] for layout in layouts) + spacing_y * max(0, len(layouts) - 1)
-    canvas_h = int(math.ceil(max(content_h, float(height), 1.0) + padding * 2))
-    canvas = np.zeros((canvas_h, canvas_w, 4), dtype=np.uint8)
-    y = float(padding)
+    canvas_w = geometry['paint_width'] + padding * 2
+    canvas_h = geometry['paint_height'] + padding * 2
+    canvas = np.zeros((max(canvas_h, 1), max(canvas_w, 1), 4), dtype=np.uint8)
+    body_left = padding + geometry['left_extra']
+    body_width = geometry['body_width']
+    y = float(padding) + geometry['top_extra']
 
     for layout in layouts:
         line_width = layout['logical_width']
         if reversed_direction:
-            line_left = padding + max_logical_width - line_width if alignment == 'right' else padding
+            line_left = body_left + body_width - line_width if alignment == 'right' else body_left
             if alignment == 'center':
-                line_left = padding + (max_logical_width - line_width) / 2.0
+                line_left = body_left + (body_width - line_width) / 2.0
         else:
-            line_left = padding if alignment == 'left' else padding + (max_logical_width - line_width) / 2.0 if alignment == 'center' else padding + max_logical_width - line_width
+            line_left = body_left if alignment == 'left' else body_left + (body_width - line_width) / 2.0 if alignment == 'center' else body_left + body_width - line_width
         baseline_y = y + layout['ruby_extra'] + layout['ascent']
         cursor_x = line_left
         for run in layout['runs']:
             surface = run['surface']
             span = run['span']
+            if surface is None:
+                # 空白 spacer：只推进游标（宽度已计入行宽与包络）
+                cursor_x += run['logical_width']
+                continue
             layer, layer_dx, layer_dy = _rich_colorized_surface(run, fg, bg)
             if layer is not None:
                 draw_x = cursor_x + surface['left_rel'] + span.style.transform.offset_x + layer_dx
@@ -1602,6 +1637,8 @@ def _render_rich_text_horizontal(
                 ruby_x = cursor_x + run['logical_width'] / 2.0 - ruby['layer'].shape[1] / 2.0
                 main_top = baseline_y - run['ascent']
                 ruby_y = main_top - gap - ruby['layer'].shape[0]
+                # 注音不越出本行预留区顶（包络按度量式 ruby_extra 计算）
+                ruby_y = max(ruby_y, y)
                 _paste_rgba(
                     canvas,
                     ruby['layer'],
@@ -1625,7 +1662,227 @@ def _render_rich_text_horizontal(
             cursor_x += run['logical_width']
         y += layout['height'] + spacing_y
 
-    return _crop_rgba(canvas)
+    return _crop_rgba_fixed(
+        canvas,
+        padding,
+        padding + geometry['paint_width'],
+        padding,
+        padding + geometry['paint_height'],
+    )
+
+
+def _rich_horizontal_ruby_extra(run: dict, bg) -> float:
+    """横排注音预留高度（度量式，测量/绘制共用）。
+
+    基数 0.50×字号沿用旧测量口径；注音带描边时（描边判定与
+    _rich_ruby_surface 一致）加上描边图层外扩，避免包络裁到注音描边。
+    """
+    span = run['span']
+    ruby_font = max(1, int(round(run['font_size'] * 0.42)))
+    ruby_stroke_ratio = 0.0 if bg is None and not span.style.stroke else _style_stroke_ratio(span.style, ruby_font, 0.0, bg)
+    return run['font_size'] * 0.50 + _stroke_pad_px(ruby_font, ruby_stroke_ratio) * 2.0
+
+
+def _build_rich_horizontal_layout(
+    document: RichTextDocument,
+    base_font_size: int,
+    global_stroke_ratio: float,
+    fg,
+    bg,
+    reversed_direction: bool,
+    letter_spacing: float,
+    profile_stats: Optional[dict] = None,
+    measure_only: bool = False,
+):
+    """横排富文本布局（竖排 F21 builder 的横排对应物）。
+
+    measure_only=True 时完全不光栅化，run 只带 QTextLayout 度量字段
+    （与 _rich_span_surface 读取的是同一条 QTextLayout line，数值逐位
+    一致）；行宽/行高/包络 extras 两条路径出自同一套度量公式，保证
+    measure_rich_text_metrics 与绘制输出面逐像素同尺寸。
+    空白 span 统一保留为无墨迹 spacer：占宽度、推进游标（旧绘制路径
+    直接丢弃空白 span 导致与测量宽度不一致，此处一并收口）。
+    """
+    layouts = []
+    for paragraph in document.paragraphs:
+        runs = []
+        for span in paragraph.spans:
+            if not span.text:
+                continue
+            span_font = _style_font_size(base_font_size, span.style)
+            span_stroke_ratio = _style_stroke_ratio(span.style, span_font, global_stroke_ratio, bg)
+            run = None
+            if not measure_only:
+                run = _rich_span_surface(span, base_font_size, global_stroke_ratio, bg, reversed_direction, letter_spacing, profile_stats)
+            elif span.text.strip():
+                with _style_font_scope(span.style):
+                    metrics = _line_metrics(span.text, span_font, letter_spacing)
+                run = {
+                    'span': span,
+                    'font_size': span_font,
+                    'stroke_ratio': span_stroke_ratio,
+                    'surface': None,
+                    'logical_width': float(metrics['logical_width']),
+                    'ascent': float(metrics['ascent']),
+                    'descent': float(metrics['descent']),
+                }
+            if run is None:
+                with _style_font_scope(span.style):
+                    spacer_width = float(_measure_horizontal_text_width(span.text, span_font, letter_spacing))
+                run = {
+                    'span': span,
+                    'font_size': span_font,
+                    'stroke_ratio': span_stroke_ratio,
+                    'surface': None,
+                    'logical_width': spacer_width,
+                    'ascent': None,
+                    'descent': None,
+                }
+            if span.ruby and run['ascent'] is not None:
+                ruby_text = ''.join(item.text for item in span.ruby)
+                if ruby_text:
+                    ruby_font = max(1, int(round(run['font_size'] * 0.42)))
+                    with _style_font_scope(span.style):
+                        run['ruby_width'] = float(_line_metrics(ruby_text, ruby_font, letter_spacing)['logical_width'])
+                    run['ruby_extra_self'] = _rich_horizontal_ruby_extra(run, bg)
+                    if not measure_only:
+                        run['ruby'] = _rich_ruby_surface(span, run['font_size'], fg, bg, letter_spacing, profile_stats)
+            runs.append(run)
+
+        inked = [run for run in runs if run['ascent'] is not None]
+        if inked:
+            ascent = max(run['ascent'] for run in inked)
+            descent = max(run['descent'] for run in inked)
+            ruby_extra = max((run['ruby_extra_self'] for run in inked if run.get('ruby_width')), default=0.0)
+            dot_extra = max((run['font_size'] * 0.25 for run in inked if run['span'].style.emphasis), default=0.0)
+            line_height = ruby_extra + ascent + descent + dot_extra
+        else:
+            metrics = _line_metrics('', base_font_size, letter_spacing)
+            ascent, descent = float(metrics['ascent']), float(metrics['descent'])
+            ruby_extra = dot_extra = 0.0
+            line_height = float(metrics['height'])
+        layouts.append({
+            'runs': runs,
+            'logical_width': sum(float(run['logical_width']) for run in runs),
+            'ascent': float(ascent),
+            'descent': float(descent),
+            'ruby_extra': float(ruby_extra),
+            'dot_extra': float(dot_extra),
+            'height': float(line_height),
+        })
+    return layouts
+
+
+def _rich_horizontal_run_paint_rects(run: dict) -> list:
+    """run 图层的度量包络矩形（相对行内游标原点 x=0、基线 y=0）。
+
+    字形框 = 逻辑框 + 描边外扩，经 _style_layer_effects_geometry
+    （镜像/切变/旋转，与绘制同一矩阵）后叠加 transform 偏移；注音框按
+    run 中心对称展开（注音绘制不参与偏移/特效，与绘制路径一致）。
+    """
+    rects = []
+    ascent = run.get('ascent')
+    if ascent is None:
+        return rects
+    span = run['span']
+    ascent = float(ascent)
+    descent = float(run.get('descent') or 0.0)
+    pad = float(_stroke_pad_px(run['font_size'], float(run.get('stroke_ratio') or 0.0)))
+    box_w = float(run['logical_width']) + pad * 2.0
+    box_h = ascent + descent + pad * 2.0
+    if box_w > 0 and box_h > 0:
+        transform = span.style.transform
+        if _style_italic_shear(span.style) or transform.rotation:
+            # 有切变/旋转才走角点几何（内部按整型框计算，保守 ≤1px）；
+            # 无特效时保持浮点框，避免 ceil 残量污染无装饰文档的包络。
+            out_h, out_w, dx, dy = _style_layer_effects_geometry(
+                max(1, int(math.ceil(box_h))), max(1, int(math.ceil(box_w))), span.style
+            )
+            rects.append((
+                -pad + float(dx) + transform.offset_x,
+                -ascent - pad + float(dy) + transform.offset_y,
+                float(out_w),
+                float(out_h),
+            ))
+        else:
+            rects.append((
+                -pad + transform.offset_x,
+                -ascent - pad + transform.offset_y,
+                box_w,
+                box_h,
+            ))
+    ruby_width = float(run.get('ruby_width') or 0.0)
+    if ruby_width > 0:
+        ruby_extra = float(run.get('ruby_extra_self') or 0.0)
+        rects.append((
+            float(run['logical_width']) / 2.0 - ruby_width / 2.0,
+            -ascent - ruby_extra,
+            ruby_width,
+            ruby_extra,
+        ))
+    return rects
+
+
+def _rich_horizontal_layout_geometry(layouts: list, font_size: int, line_spacing: float) -> dict:
+    """横排包络几何（测量/绘制共用，F21 竖排 geometry 的横排对应物）。
+
+    正文框 = 行按对齐堆叠的逻辑区域（宽 = 最长行逻辑宽，高 = 行高累加）；
+    包络在正文框四周按 run 图层的度量矩形外扩（描边/切变/旋转/偏移/注音
+    超宽）。X 向 extras 以各行自身行框为参照取最大值 —— 相对逐行对齐位置
+    是保守估计，保证不裁墨迹，最多在非贴边行留少量空白。
+    body_center 沿用旧口径：正文剔除首行注音区与末行着重号区后的中心。
+    """
+    spacing_y = calc_horizontal_line_spacing_px(font_size, line_spacing)
+    body_width = max((float(layout['logical_width']) for layout in layouts), default=0.0)
+    left_extra = 0.0
+    right_extra = 0.0
+    top_abs = 0.0
+    bottom_abs = 0.0
+    y = 0.0
+    body_height = 0.0
+    for index, layout in enumerate(layouts):
+        baseline = y + layout['ruby_extra'] + layout['ascent']
+        cursor = 0.0
+        for run in layout['runs']:
+            for rect_x, rect_y, rect_w, rect_h in _rich_horizontal_run_paint_rects(run):
+                left_extra = max(left_extra, -(cursor + rect_x))
+                right_extra = max(right_extra, cursor + rect_x + rect_w - float(layout['logical_width']))
+                top_abs = min(top_abs, baseline + rect_y)
+                bottom_abs = max(bottom_abs, baseline + rect_y + rect_h)
+            cursor += float(run['logical_width'])
+        y += float(layout['height'])
+        bottom_abs = max(bottom_abs, y)
+        body_height = y
+        if index < len(layouts) - 1:
+            y += spacing_y
+    top_extra = max(0.0, -top_abs)
+    bottom_extra = max(0.0, bottom_abs - body_height)
+    body_top = float(layouts[0]['ruby_extra']) if layouts else 0.0
+    last_dot_extra = float(layouts[-1]['dot_extra']) if layouts else 0.0
+    # 整数化各分量后再求和：无装饰文档 extras 全零时，正文中心严格等于
+    # 渲染框正中心（白框锚定契约：纯文本 delta 恒为 0）。ceil 余量并入
+    # 正文侧（框内空气），与旧逐行 ceil 口径一致。
+    left_i = int(math.ceil(left_extra))
+    right_i = int(math.ceil(right_extra))
+    top_i = int(math.ceil(top_extra))
+    bottom_i = int(math.ceil(bottom_extra))
+    body_w_i = int(math.ceil(body_width))
+    body_h_i = int(math.ceil(body_height))
+    return {
+        'spacing_y': int(spacing_y),
+        'body_width': float(body_width),
+        'body_height': float(body_height),
+        'left_extra': left_i,
+        'right_extra': right_i,
+        'top_extra': top_i,
+        'bottom_extra': bottom_i,
+        'paint_width': body_w_i + left_i + right_i,
+        'paint_height': body_h_i + top_i + bottom_i,
+        'body_center': (
+            float(left_i) + float(body_w_i) / 2.0,
+            float(top_i) + (body_top + float(body_h_i) - last_dot_extra) / 2.0,
+        ),
+    }
 
 
 def _glyph_pair_rgba(char_bitmap: np.ndarray, border_bitmap: Optional[np.ndarray], fill, stroke):
@@ -1727,6 +1984,7 @@ def _prepare_rich_vertical_char_item(item: dict, measure_only: bool = False) -> 
             off_x = off_y = -pad
         height, width, layer_dx, layer_dy = _style_layer_effects_geometry(height, width, item['span'].style)
         item['layer_width'] = int(width)
+        item['layer_height'] = int(height)
         item['paint_offset_x'] = float(bitmap_dx + off_x + layer_dx)
         item['paint_offset_y'] = float(bitmap_dy + off_y + layer_dy)
         return item
@@ -1740,6 +1998,7 @@ def _prepare_rich_vertical_char_item(item: dict, measure_only: bool = False) -> 
     layer, layer_dx, layer_dy = _apply_style_layer_effects(layer, item['span'].style, item['font_size'])
     item['layer'] = layer
     item['layer_width'] = int(layer.shape[1])
+    item['layer_height'] = int(layer.shape[0])
     item['paint_offset_x'] = float(bitmap_dx + off_x + layer_dx)
     item['paint_offset_y'] = float(bitmap_dy + off_y + layer_dy)
     return item
@@ -1773,6 +2032,27 @@ def _rich_vertical_item_paint_extra(item: dict, thickness: int) -> Tuple[int, in
     left_extra = max(0.0, -x)
     right_extra = max(0.0, x + width - float(thickness))
     return int(math.ceil(left_extra)), int(math.ceil(right_extra))
+
+
+def _rich_vertical_item_paint_extent_y(item: dict) -> Optional[Tuple[float, float]]:
+    """item 图层的纵向包络区间 [y0, y1)，相对列顶（cursor 原点）。
+
+    与绘制路径的 y 公式同源：块 = cursor_y + transform 偏移 + 特效偏移；
+    字符 = cursor_y + base.y + transform 偏移 + paint_offset_y。
+    无图层的占位/空白项返回 None。
+    """
+    if item['kind'] == 'block':
+        y0 = float(item['cursor_y']) + item['span'].style.transform.offset_y + float(item.get('offset_y', 0.0))
+        return y0, y0 + float(item.get('height', 0))
+    if item['kind'] == 'char' and item.get('layer_height') is not None:
+        y0 = (
+            float(item['cursor_y'])
+            + float(int(item['base']['y']))
+            + item['span'].style.transform.offset_y
+            + float(item.get('paint_offset_y', 0.0))
+        )
+        return y0, y0 + float(item['layer_height'])
+    return None
 
 
 def _build_rich_vertical_layout(
@@ -1861,15 +2141,26 @@ def _build_rich_vertical_layout(
             cursor += int(item.get('advance_y', item.get('height', 0)))
             cursor += int(item.get('post_advance_y', 0))
             laid.append(item)
+        column_height = max(0, int(cursor))
+        paint_top_extra = 0.0
+        paint_bottom_extra = 0.0
+        for item in laid:
+            extent = _rich_vertical_item_paint_extent_y(item)
+            if extent is None:
+                continue
+            paint_top_extra = max(paint_top_extra, -extent[0])
+            paint_bottom_extra = max(paint_bottom_extra, extent[1] - column_height)
         layouts.append({
             'width': int(thickness),
             'body_width': int(thickness),
             'thickness': int(thickness),
             'paint_left_extra': int(paint_left_extra),
             'paint_right_extra': int(paint_right_extra),
+            'paint_top_extra': int(math.ceil(max(0.0, paint_top_extra))),
+            'paint_bottom_extra': int(math.ceil(max(0.0, paint_bottom_extra))),
             'ruby_extra': int(ruby_extra),
             'dot_extra': int(dot_extra),
-            'height': max(0, int(cursor)),
+            'height': column_height,
             'items': laid,
         })
     return layouts
@@ -1913,19 +2204,25 @@ def _render_rich_text_vertical(
 ):
     document = ensure_rich_text_document(text)
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
+    _ = h  # 包络由内容决定，外部最小高度不再参与画布
     layouts = _build_rich_vertical_layout(document, font_size, stroke_ratio, fg, bg, letter_spacing, profile_stats)
     geometry = _rich_vertical_layout_geometry(layouts, font_size, line_spacing)
-    max_height = max((layout['height'] for layout in layouts), default=0)
+    body_height = geometry['body_height']
     padding = int(max(font_size * 2.0, 16))
-    canvas = np.zeros((int(max(max_height, h, 1)) + padding * 2, int(max(geometry['paint_width'], 1)) + padding * 2, 4), dtype=np.uint8)
+    canvas = np.zeros(
+        (int(max(geometry['paint_height'], 1)) + padding * 2, int(max(geometry['paint_width'], 1)) + padding * 2, 4),
+        dtype=np.uint8,
+    )
     content_left = padding
     content_right = padding + geometry['paint_width']
+    content_top = padding
+    content_bottom = padding + geometry['paint_height']
     columns = _rich_vertical_column_positions(layouts, geometry, padding)
 
     for idx, layout in enumerate(layouts):
         body_left, body_right, _ = columns[idx]
         thickness = float(layout['thickness'])
-        line_origin_y = _vertical_line_origin_y(float(padding), alignment, max_height, layout['height'])
+        line_origin_y = _vertical_line_origin_y(float(padding + geometry['top_extra']), alignment, body_height, layout['height'])
         for item in layout['items']:
             if item['kind'] == 'block':
                 x = _rich_vertical_block_layer_x(body_left, thickness, item)
@@ -1971,7 +2268,7 @@ def _render_rich_text_vertical(
                     letter_spacing,
                 )
 
-    return _crop_rgba_preserve_x(canvas, content_left, content_right)
+    return _crop_rgba_fixed(canvas, content_left, content_right, content_top, content_bottom)
 
 
 def measure_rich_text_metrics(
@@ -1992,69 +2289,39 @@ def measure_rich_text_metrics(
     document = ensure_rich_text_document(text)
     base_font = max(1, int(font_size))
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
+    # 度量沿用旧口径：全局描边不进包络（由 calc_box_from_font 的四边对称
+    # effect padding 覆盖），带描边的绘制输出面比框大出描边外扩属既有行为。
+    # span 局部描边仍按其比例进包络（bg=None 时 _style_stroke_ratio 只认局部）。
+    measure_bg = None
 
     if is_horizontal:
-        spacing_y = calc_horizontal_line_spacing_px(base_font, line_spacing)
-        widths = []
-        heights = []
-        ruby_extras = []
-        dot_extras = []
-        for paragraph in document.paragraphs:
-            line_width = 0.0
-            line_ascent = float(base_font)
-            line_descent = 0.0
-            ruby_extra = 0.0
-            dot_extra = 0.0
-            for span in paragraph.spans:
-                span_font = _style_font_size(base_font, span.style)
-                # F21：度量不做光栅化。_line_metrics 与渲染路径（_rich_span_surface
-                # → _line_surface）读取的是同一条 QTextLayout line，logical_width/
-                # ascent/descent 三个值逐位一致；bold/描边只影响位图不影响这三项。
-                if span.text.strip():
-                    with _style_font_scope(span.style):
-                        metrics = _line_metrics(span.text, span_font, letter_spacing)
-                    line_width += float(metrics['logical_width'])
-                    line_ascent = max(line_ascent, float(metrics['ascent']))
-                    line_descent = max(line_descent, float(metrics['descent']))
-                elif span.text:
-                    # 空白 span 渲染时产不出 surface（无墨迹），与渲染路径一致：
-                    # 只计宽度，不参与行高
-                    with _style_font_scope(span.style):
-                        line_width += _measure_horizontal_text_width(span.text, span_font, letter_spacing)
-                if span.ruby:
-                    ruby_extra = max(ruby_extra, span_font * 0.50)
-                if span.style.emphasis:
-                    dot_extra = max(dot_extra, span_font * 0.25)
-            widths.append(int(math.ceil(line_width)))
-            heights.append(int(math.ceil(ruby_extra + line_ascent + line_descent + dot_extra)))
-            ruby_extras.append(ruby_extra)
-            dot_extras.append(dot_extra)
-        n_lines = max(1, len(document.paragraphs))
-        width = max(widths, default=0)
-        height = sum(heights) + spacing_y * max(0, n_lines - 1)
-        # 首行注音占据渲染框顶部、末行着重号占据底部，都在正文区间之外。
-        body_top = ruby_extras[0] if ruby_extras else 0.0
-        body_bottom = float(height) - (dot_extras[-1] if dot_extras else 0.0)
-        body_center_y = (body_top + body_bottom) / 2.0 if height > 0 else 0.0
+        # 与绘制共用同一 builder/geometry（F21 口径）：行度量、包络 extras、
+        # 正文中心全部同源，测量框 == 绘制输出面。
+        layouts = _build_rich_horizontal_layout(
+            document, base_font, stroke_ratio, (0, 0, 0), measure_bg,
+            False, letter_spacing, measure_only=True,
+        )
+        if not layouts:
+            return {'width': 0, 'height': 0, 'n_lines': 0, 'body_center': (0.0, 0.0)}
+        geometry = _rich_horizontal_layout_geometry(layouts, base_font, line_spacing)
         return {
-            'width': int(width),
-            'height': int(height),
-            'n_lines': n_lines,
-            'body_center': (float(width) / 2.0, float(body_center_y)),
+            'width': int(geometry['paint_width']),
+            'height': int(geometry['paint_height']),
+            'n_lines': max(1, len(layouts)),
+            'body_center': geometry['body_center'],
         }
 
     layouts = _build_rich_vertical_layout(
-        document, base_font, stroke_ratio, (0, 0, 0), None, letter_spacing, measure_only=True
+        document, base_font, stroke_ratio, (0, 0, 0), measure_bg, letter_spacing, measure_only=True
     )
     if not layouts:
         return {'width': 0, 'height': 0, 'n_lines': 0, 'body_center': (0.0, 0.0)}
     geometry = _rich_vertical_layout_geometry(layouts, base_font, line_spacing)
-    height = max((int(layout['height']) for layout in layouts), default=0)
     return {
         'width': int(geometry['paint_width']),
-        'height': int(height),
+        'height': int(geometry['paint_height']),
         'n_lines': len(layouts),
-        'body_center': (float(geometry['body_center_x']), float(height) / 2.0),
+        'body_center': (float(geometry['body_center_x']), float(geometry['body_center_y'])),
     }
 
 
