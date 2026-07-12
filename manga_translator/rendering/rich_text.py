@@ -85,7 +85,7 @@ class TextStyle:
     color: Optional[str] = None
     scale: float = 1.0
     font_size: Optional[float] = None
-    font_path: Optional[str] = None
+    font_family: Optional[str] = None
     stroke: Optional[StrokeStyle] = None
     outer_stroke: Optional[StrokeStyle] = None
     glow: Optional[GlowStyle] = None
@@ -113,7 +113,7 @@ class TextStyle:
                 'color',
                 'scale',
                 'fontSize',
-                'fontPath',
+                'fontFamily',
                 'stroke',
                 'outerStroke',
                 'glow',
@@ -134,7 +134,7 @@ class TextStyle:
             color=value.get('color'),
             scale=float(value.get('scale', 1.0) or 1.0),
             font_size=font_size,
-            font_path=value.get('fontPath'),
+            font_family=value.get('fontFamily'),
             stroke=StrokeStyle.from_dict(value.get('stroke')),
             outer_stroke=StrokeStyle.from_dict(value.get('outerStroke')),
             glow=GlowStyle.from_dict(value.get('glow')),
@@ -154,7 +154,7 @@ class TextStyle:
             'color': self.color,
             'scale': None if self.scale == 1.0 else self.scale,
             'fontSize': self.font_size,
-            'fontPath': self.font_path,
+            'fontFamily': self.font_family,
             'stroke': self.stroke.to_dict() if self.stroke else None,
             'outerStroke': self.outer_stroke.to_dict() if self.outer_stroke else None,
             'glow': self.glow.to_dict() if self.glow else None,

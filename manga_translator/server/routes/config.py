@@ -461,11 +461,16 @@ async def get_config_options(
     if os.path.exists(FONTS_DIR):
         fonts = sorted([f for f in os.listdir(FONTS_DIR) if f.lower().endswith(('.ttf', '.otf', '.ttc'))])
     
-    # 服务器字体使用相对路径: fonts/{filename}
-    server_font_paths = [f'fonts/{f}' for f in fonts]
+    from manga_translator.rendering.text_render import load_font_file
+    server_font_families = []
+    for filename in fonts:
+        try:
+            server_font_families.append(load_font_file(os.path.join(FONTS_DIR, filename)))
+        except Exception:
+            pass
     
     # Get user's uploaded fonts if session is provided
-    user_font_paths = []
+    user_font_families = []
     user_prompt_paths = []
     if session_token:
         try:
@@ -475,12 +480,15 @@ async def get_config_options(
             session = session_service.verify_token(session_token)
             if session:
                 resource_service = get_resource_service()
-                # 用户字体使用相对路径: manga_translator/server/data/user_resources/fonts/{username}/{filename}
                 user_font_resources = resource_service.get_user_fonts(session.username)
-                user_font_paths = [
-                    f'{USER_RESOURCES_RELATIVE_DIR}/fonts/{session.username}/{f.filename}'
-                    for f in user_font_resources
-                ]
+                for font_resource in user_font_resources:
+                    try:
+                        user_font_families.append(
+                            load_font_file(str(resource_service.base_path / font_resource.file_path))
+                        )
+                    except Exception:
+                        if font_resource.font_family:
+                            user_font_families.append(font_resource.font_family)
                 # 用户提示词使用相对路径: manga_translator/server/data/user_resources/prompts/{username}/{filename}
                 user_prompt_resources = resource_service.get_user_prompts(session.username)
                 user_prompt_paths = [
@@ -491,8 +499,7 @@ async def get_config_options(
             import logging
             logging.getLogger('manga_translator.server').warning(f"Failed to get user resources: {e}")
     
-    # Combine server fonts and user fonts
-    all_font_paths = server_font_paths + user_font_paths
+    all_font_families = sorted(set(server_font_families + user_font_families), key=str.casefold)
     
     # Get server prompt list
     prompts = []
@@ -527,7 +534,7 @@ async def get_config_options(
             '3x-denoise3x', '3x-denoise3x-pro',
             '4x-conservative', '4x-no-denoise', '4x-denoise3x'
         ],
-        'font_path': all_font_paths,
+        'font_family': all_font_families,
         'high_quality_prompt_path': all_prompt_paths,
         'layout_mode': ['smart_scaling', 'strict', 'balloon_fill'],
         'ocr_vl_language_hint': [

@@ -23,7 +23,7 @@
           "text": "红字",
           "style": {
             "color": "#ff0000",
-            "fontPath": "fonts/Arial-Unicode-Regular.ttf",
+            "fontFamily": "Arial Unicode MS",
             "fontSize": 32,
             "stroke": {
               "color": "#000000",
@@ -75,7 +75,7 @@
 - `text` inline 只允许 `type`、`text`、`style`。
 - `ruby` inline 只允许 `type`、`base`、`text`。
 - `tcy` inline 只允许 `type`、`content`。
-- `style` 字段只认 camelCase 协议名，例如 `fontSize`、`fontPath`、`outerStroke`、`noTcy`、`preKerning`、`lineKerning`、`nextKerning`。
+- `style` 字段只认 camelCase 协议名，例如 `fontSize`、`fontFamily`、`outerStroke`、`noTcy`、`preKerning`、`lineKerning`、`nextKerning`。
 - `transform` 字段只认 `offsetX`、`offsetY`、`rotation`、`mirrorX`、`mirrorY`。
 - `source`、`document`、`font_size`、`fontFamily`、`outer_stroke` 这类非协议字段会直接报错。
 
@@ -96,7 +96,7 @@ BR 收口只负责把传统换行字符串拆成多个 `paragraph`，不会从 `
 - `style.color`：字体颜色。
 - `style.stroke.color` / `style.stroke.width`：描边颜色和描边宽度比例，`width` 使用相对字号的比例值。
 - `style.fontSize`：当前区域字号。
-- `style.fontPath`：本地字体文件路径。协议不保存 `fontFamily`，字体选择以本地路径为准。
+- `style.fontFamily`：Qt 字体 family。字体文件仅在加载阶段注册，协议不保存路径。
 
 ## 模块职责
 

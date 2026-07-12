@@ -57,8 +57,6 @@ def encode_image_for_gemini(image, max_size=1024):
     return image_bytes, 'image/jpeg'
 
 
-
-
 class GeminiHighQualityTranslator(CommonTranslator):
     """
     Gemini高质量翻译器
@@ -366,9 +364,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
             text_order = data.get('text_order', [])
             upscaled_size = data.get('upscaled_size')
             if text_regions and text_order:
-                image_array = draw_text_boxes_on_image(image, text_regions, text_order, upscaled_size)
-                from PIL import Image as PILImage
-                image = PILImage.fromarray(image_array)
+                image = draw_text_boxes_on_image(image, text_regions, text_order, upscaled_size)
                 self.logger.debug(f"已在图片上绘制 {len(text_regions)} 个带编号的文本框")
             
             # 使用新版 SDK 的格式

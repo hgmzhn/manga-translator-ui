@@ -239,8 +239,6 @@ class TextBlock(object):
 
         # self.stroke_width = stroke_width
         self.font_family: str = font_family
-        # Support font_path from kwargs (used by desktop-ui for per-region fonts)
-        self.font_path: str = kwargs.get('font_path', '')
         self.bold: bool = bold
         self.underline: bool = underline
         self.italic: bool = italic
@@ -505,7 +503,11 @@ class TextBlock(object):
             'letter_spacing': self.letter_spacing,
             'stroke_width': self.default_stroke_width,
             'prob': self.prob,
-            'font_path': getattr(self, 'font_path', ''),
+            'font_family': getattr(self, 'font_family', ''),
+            'bold': getattr(self, 'bold', False),
+            'italic': getattr(self, 'italic', False),
+            'underline': getattr(self, 'underline', False),
+            'font_weight': getattr(self, 'font_weight', 50),
         }
         if self.translation_rich is not None:
             result['translation_rich'] = self.translation_rich

@@ -44,7 +44,7 @@ class Translation(BaseModel):
     line_spacing: float
     letter_spacing: float
     stroke_width: float | None = None
-    font_path: str | None = None
+    font_family: str | None = None
     prob: float
 
     def to_bytes(self):

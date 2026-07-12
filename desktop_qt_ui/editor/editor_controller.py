@@ -49,7 +49,7 @@ class _AsyncRegionUpdateRequest:
 # 改变这些字段会影响字号反算的文字像素尺寸，需要同步刷新白框：
 # 锚定正文中心，把宽高更新为完整绘制尺寸 calc_box_from_font(新参数) 的结果。
 _FONT_AFFECTING_FIELDS = frozenset({
-    "translation", "translation_rich", "text", "font_size", "font_path",
+    "translation", "translation_rich", "text", "font_size", "font_family",
     "letter_spacing", "line_spacing", "direction",
     "stroke_width", "text_stroke_width",
 })
@@ -633,30 +633,6 @@ class EditorController(QObject):
         return True
 
     @staticmethod
-    def _normalize_font_path(font_filename: str) -> str:
-        from manga_translator.utils import BASE_PATH
-
-        if not font_filename:
-            return ""
-
-        if os.path.isabs(font_filename):
-            norm_path = os.path.normpath(font_filename)
-            base_path = os.path.normpath(BASE_PATH)
-            fonts_dir = os.path.normpath(os.path.join(base_path, "fonts"))
-            try:
-                if os.path.commonpath([norm_path, fonts_dir]) == fonts_dir:
-                    return os.path.relpath(norm_path, base_path).replace("\\", "/")
-                if os.path.commonpath([norm_path, base_path]) == base_path:
-                    return os.path.relpath(norm_path, base_path).replace("\\", "/")
-            except ValueError:
-                return norm_path
-            return norm_path
-
-        if font_filename.lower().startswith("fonts/") or font_filename.lower().startswith("fonts\\"):
-            return font_filename.replace("\\", "/")
-        return f"fonts/{font_filename}".replace("\\", "/")
-
-    @staticmethod
     def _normalize_alignment_value(alignment_text: str) -> str:
         raw_text = str(alignment_text or "").strip()
         lower_text = raw_text.lower()
@@ -971,12 +947,11 @@ class EditorController(QObject):
         self.execute_command(command)
 
     @pyqtSlot(int, str)
-    def update_font_family(self, region_index: int, font_filename: str):
-        font_path = self._normalize_font_path(font_filename)
+    def update_font_family(self, region_index: int, font_family: str):
         self._update_region_field(
             region_index,
-            "font_path",
-            font_path,
+            "font_family",
+            font_family,
             description=f"Update Font Family Region {region_index}",
         )
 
@@ -1233,7 +1208,7 @@ class EditorController(QObject):
         new_region_data = region_data.copy()
         
         # 复制样式属性
-        style_keys = ['font_path', 'font_family', 'font_size', 'font_color', 'alignment', 'direction', 'bold', 'italic', 'line_spacing', 'letter_spacing']
+        style_keys = ['font_family', 'font_size', 'font_color', 'alignment', 'direction', 'bold', 'italic', 'line_spacing', 'letter_spacing']
         for key in style_keys:
             if key in clipboard_data:
                 new_region_data[key] = clipboard_data[key]

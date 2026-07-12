@@ -1,11 +1,8 @@
-import os
-
 from PyQt6.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QAbstractSpinBox, QFormLayout, QGridLayout, QHBoxLayout, QLineEdit, QSizePolicy, QTextEdit, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PyQt6.QtWidgets import QAbstractSpinBox, QFontComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLineEdit, QSizePolicy, QTextEdit, QToolButton, QVBoxLayout, QWidget
 from qfluentwidgets import (
     CaptionLabel,
-    ComboBox,
     CompactDoubleSpinBox,
     CompactSpinBox,
     SimpleCardWidget,
@@ -215,7 +212,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.scale_input.setDecimals(2)
         self.scale_input.setValue(1.20)
 
-        self.font_combo = ComboBox()
+        self.font_combo = QFontComboBox()
+        self.font_combo.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
         self.font_combo.setMinimumWidth(140)
         self.font_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self._populate_font_combo()
@@ -433,24 +431,13 @@ class RichTextFloatingEditor(SimpleCardWidget):
             self._set_style_row_visible(key, False)
 
     def _populate_font_combo(self):
-        # F15：字体目录枚举收口到共享 helper
         populate_font_combo(self.font_combo)
 
     def _set_font_combo_value(self, font_value: str):
         if not font_value:
             self.font_combo.setCurrentIndex(-1)
             return
-        font_filename = os.path.basename(font_value)
-        target_index = -1
-        for index in range(self.font_combo.count()):
-            item_data = self.font_combo.itemData(index)
-            if item_data == font_value or item_data == font_filename:
-                target_index = index
-                break
-        if target_index < 0:
-            self.font_combo.addItem(os.path.splitext(font_filename)[0] or font_filename, userData=font_value)
-            target_index = self.font_combo.count() - 1
-        self.font_combo.setCurrentIndex(target_index)
+        self.font_combo.setCurrentFont(QFont(font_value))
 
     def _on_text_changed(self, position: int, chars_removed: int, chars_added: int):
         if self._updating or self._region_index < 0:
@@ -506,19 +493,19 @@ class RichTextFloatingEditor(SimpleCardWidget):
     def _on_font_changed(self, index: int):
         if self._updating or index < 0:
             return
-        font_path = self.font_combo.itemData(index) or ""
-        self._apply_style({"fontPath": str(font_path)})
+        font_family = self.font_combo.currentFont().family()
+        self._apply_style({"fontFamily": str(font_family)})
 
     def _on_font_button_clicked(self, checked: bool):
         if self._updating:
             return
         self._set_style_row_visible("F", checked)
         if checked:
-            font_path = self.font_combo.itemData(self.font_combo.currentIndex()) or ""
-            if font_path:
-                self._apply_style({"fontPath": str(font_path)})
+            font_family = self.font_combo.currentFont().family()
+            if font_family:
+                self._apply_style({"fontFamily": str(font_family)})
             return
-        self._apply_style({"fontPath": None})
+        self._apply_style({"fontFamily": None})
 
     def _apply_toggle(self, key: str, checked: bool):
         self._apply_style({key: True if checked else None})
@@ -643,8 +630,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
             if "scale" in style:
                 self.scale_input.setValue(float(style.get("scale") or 1.0))
 
-            self._set_button_and_row(self.font_button, "F", "fontPath" in style)
-            self._set_font_combo_value(str(style.get("fontPath") or ""))
+            self._set_button_and_row(self.font_button, "F", "fontFamily" in style)
+            self._set_font_combo_value(str(style.get("fontFamily") or ""))
 
             has_stroke = "strokeColor" in style or "strokeWidth" in style
             self._set_button_and_row(self.stroke_button, "O", has_stroke)
@@ -728,7 +715,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
             "C": {"color": None},
             "S": {"fontSize": None},
             "%": {"scale": None},
-            "F": {"fontPath": None},
+            "F": {"fontFamily": None},
             "O": {"stroke": None},
             "G": {"glow": None},
             "OS": {"outerStroke": None},

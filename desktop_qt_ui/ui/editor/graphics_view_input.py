@@ -873,7 +873,6 @@ class GraphicsViewInputMixin:
                 "line_spacing": default_line_spacing,
                 "letter_spacing": template_data.get("letter_spacing", default_letter_spacing),
                 "stroke_width": default_stroke_width,
-                "font_path": "",
             }
 
             controller = self._get_controller()

@@ -2,11 +2,12 @@
 import logging
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QWheelEvent
+from PyQt6.QtGui import QColor, QFont, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
     QFormLayout,
+    QFontComboBox,
     QHBoxLayout,
     QSizePolicy,
     QVBoxLayout,
@@ -259,7 +260,7 @@ class PropertyPanel(QWidget):
     def _set_selection_controls_blocked(self, blocked: bool):
         """统一阻止/恢复与区域样式相关控件信号，避免切换选区时误写回。"""
         for child in self.findChildren(QWidget):
-            if isinstance(child, (TextEdit, ComboBox, Slider, QAbstractSpinBox)):
+            if isinstance(child, (TextEdit, ComboBox, QFontComboBox, Slider, QAbstractSpinBox)):
                 child.blockSignals(blocked)
 
     def _create_region_info_section(self, layout):
@@ -621,7 +622,7 @@ class PropertyPanel(QWidget):
         self._refresh_style_preset_combo()
         
         # Font family selector with refresh capability
-        class RefreshableComboBox(ComboBox):
+        class RefreshableFontComboBox(QFontComboBox):
             """可刷新的下拉框，在下拉时自动刷新字体列表"""
             def __init__(self, parent_widget, parent=None):
                 super().__init__(parent)
@@ -629,40 +630,22 @@ class PropertyPanel(QWidget):
             
             def showPopup(self):
                 # 保存当前选中的文本
-                current_text = self.currentText()
-                current_data = self.itemData(self.currentIndex())
+                current_family = self.currentFont().family()
                 
                 # 刷新字体列表
                 self.blockSignals(True)
                 try:
                     self.parent_widget._populate_font_list()
-
-                    # 恢复之前选择的值
-                    restored_index = -1
-                    if isinstance(current_data, str) and current_data:
-                        import os
-                        current_filename = os.path.basename(current_data)
-                        for i in range(self.count()):
-                            item_data = self.itemData(i)
-                            if item_data == current_data or item_data == current_filename:
-                                restored_index = i
-                                break
-
-                        # 外部字体不在 fonts 目录时，保留并恢复当前项
-                        if restored_index < 0:
-                            display_name = os.path.splitext(current_filename)[0] or current_text or current_data
-                            self.addItem(display_name, userData=current_data)
-                            restored_index = self.count() - 1
-                    elif current_text:
-                        restored_index = self.findText(current_text)
-
-                    self.setCurrentIndex(restored_index if restored_index >= 0 else -1)
+                    self.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
+                    if current_family:
+                        self.setCurrentFont(QFont(current_family))
                 finally:
                     self.blockSignals(False)
                 
                 super().showPopup()
         
-        self.font_family_combo = RefreshableComboBox(self)
+        self.font_family_combo = RefreshableFontComboBox(self)
+        self.font_family_combo.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
         self.font_family_combo.setMinimumWidth(120)
         self._populate_font_list()
         self.font_label = BodyLabel(self._t("Font:"))
@@ -1124,7 +1107,7 @@ class PropertyPanel(QWidget):
 
         default_font_color = self.config_service.get_config().render.font_color or "#000000"
         normalized = {}
-        font_value = region_data.get("font_path", region_data.get("font_family", ""))
+        font_value = region_data.get("font_family", "")
         normalized["font_family"] = "" if font_value is None else str(font_value)
 
         font_color = region_data.get("font_color")
@@ -1234,30 +1217,14 @@ class PropertyPanel(QWidget):
         if not font_value:
             self.font_family_combo.setCurrentIndex(-1)
             return
-
-        import os
-
-        font_filename = os.path.basename(font_value)
-        target_index = -1
-        for i in range(self.font_family_combo.count()):
-            item_data = self.font_family_combo.itemData(i)
-            if item_data == font_value or item_data == font_filename:
-                target_index = i
-                break
-
-        if target_index < 0:
-            display_name = os.path.splitext(font_filename)[0] or font_filename
-            self.font_family_combo.addItem(display_name, userData=font_value)
-            target_index = self.font_family_combo.count() - 1
-
-        self.font_family_combo.setCurrentIndex(target_index)
+        self.font_family_combo.setCurrentFont(QFont(font_value))
 
     def _normalize_saved_style_preset(self, style_data):
         if not isinstance(style_data, dict):
             return {}
 
         normalized = {}
-        font_value = style_data.get("font_family", style_data.get("font_path", ""))
+        font_value = style_data.get("font_family", "")
         normalized["font_family"] = "" if font_value is None else str(font_value)
 
         font_color = str(style_data.get("font_color") or "#000000").strip()
@@ -1291,10 +1258,10 @@ class PropertyPanel(QWidget):
         return normalized
 
     def _collect_current_style_preset(self):
-        current_font = self.font_family_combo.itemData(self.font_family_combo.currentIndex())
+        current_font = self.font_family_combo.currentFont().family()
 
         return {
-            "font_family": "" if current_font is None else str(current_font),
+            "font_family": str(current_font or ""),
             "font_color": self.font_color_picker.get_color(),
             "stroke_color": self.stroke_color_picker.get_color(),
             "stroke_width": float(self.stroke_width_spinbox.value()),
@@ -1623,7 +1590,7 @@ class PropertyPanel(QWidget):
             self.letter_spacing_spinbox.setValue(letter_spacing if letter_spacing is not None else 1.0)
             self.angle_spinbox.setValue(float(region_data.get("angle", 0.0) or 0.0))
             
-            self._set_font_family_combo_value(region_data.get("font_path", ""))
+            self._set_font_family_combo_value(region_data.get("font_family", ""))
             self.alignment_combo.setCurrentText(self._alignment_text_for_value(region_data.get("alignment", "auto")))
             
             display_direction_map = self.app_logic.get_display_mapping('direction') or {}
@@ -1793,9 +1760,7 @@ class PropertyPanel(QWidget):
             return
         
         # Get the font filename from combo box data
-        font_filename = self.font_family_combo.itemData(index)
-        if font_filename is None:
-            font_filename = ""
+        font_filename = self.font_family_combo.currentFont().family()
         
         # 批量应用到所有选中的区域
         for region_index in selected_indices:

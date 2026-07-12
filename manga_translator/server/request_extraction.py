@@ -293,13 +293,10 @@ def prepare_translator_params(config: Config, workflow: str = "normal") -> dict:
             if attempts is not None and (attempts >= 0 or attempts == -1):
                 translator_params['attempts'] = attempts
     
-    # 字体路径 - 直接传递相对路径，翻译程序会自动用 BASE_PATH 拼接
-    if hasattr(config, 'render') and hasattr(config.render, 'font_path'):
-        font_path = config.render.font_path
-        if font_path:
-            translator_params['font_path'] = font_path
-            logger.debug(f"Using font path: {font_path}")
-    
+    if hasattr(config, 'render') and getattr(config.render, 'font_family', None):
+        translator_params['font_family'] = config.render.font_family
+        logger.debug(f"Using font family: {config.render.font_family}")
+
     # 直接粘贴模式只能在 Qt UI 的替换翻译模式中使用，Web UI 禁止使用
     if hasattr(config, 'render') and hasattr(config.render, 'enable_template_alignment'):
         config.render.enable_template_alignment = False

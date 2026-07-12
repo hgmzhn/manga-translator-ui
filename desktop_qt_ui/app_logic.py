@@ -1468,7 +1468,6 @@ class MainAppLogic(QObject):
                     "direction": self._t("label_direction"),
                     "uppercase": self._t("label_uppercase"),
                     "lowercase": self._t("label_lowercase"),
-                    "font_path": self._t("label_font_path"),
                     "no_hyphenation": self._t("label_no_hyphenation"),
                     "bubble_layout_english": self._t("label_bubble_layout_english"),
                     "font_color": self._t("label_font_color"),
@@ -3507,14 +3506,9 @@ class TranslationWorker(QObject):
             if hasattr(self, 'log_service') and self.log_service:
                 self.log_service.set_console_log_level(verbose)
             
-            font_filename = self.config_dict.get('render', {}).get('font_path')
-            if font_filename:
-                font_full_path = os.path.join(self.root_dir, 'fonts', font_filename)
-                if os.path.exists(font_full_path):
-                    translator_params['font_path'] = font_full_path
-                    # 同时更新 config_dict 中的 font_path
-                    self.config_dict['render']['font_path'] = font_full_path
-
+            font_family = self.config_dict.get('render', {}).get('font_family')
+            if font_family:
+                translator_params['font_family'] = font_family
             translator = MangaTranslator(params=translator_params)
             self._log_info("--- 翻译器初始化完成")
             

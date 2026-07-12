@@ -78,14 +78,14 @@ def build_region_render_params(
 ) -> dict:
     render_params = render_parameter_service.export_parameters_for_backend(region_index, region_data)
     render_params["font_size"] = text_block.font_size
-    region_font_path = (
-        region_data.get("font_path")
-        or getattr(text_block, "font_path", "")
-        or render_params.get("font_path", "")
+    region_font = (
+        region_data.get("font_family")
+        or getattr(text_block, "font_family", "")
+        or render_params.get("font_family", "")
     )
-    if region_font_path:
-        render_params["font_path"] = region_font_path
-        text_block.font_path = region_font_path
+    if region_font:
+        render_params["font_family"] = region_font
+        text_block.font_family = region_font
 
     return render_params
 
@@ -94,7 +94,7 @@ def make_text_render_cache_key(text_block: TextBlock, dst_points: np.ndarray, re
     return (
         _freeze_cache_value(text_block.get_translation_for_rendering()),
         tuple(map(tuple, dst_points.reshape(-1, 2))),
-        render_params.get("font_path"),
+        render_params.get("font_family"),
         render_params.get("font_size"),
         render_params.get("bold"),
         render_params.get("italic"),

@@ -199,6 +199,13 @@ async def delete_prompt(
 # 字体管理端点
 # ============================================================================
 
+def _font_public_dict(resource) -> dict:
+    return {
+        'id': resource.id,
+        'filename': resource.filename,
+        'font_family': resource.font_family,
+    }
+
 @router.post("/fonts", response_model=dict)
 async def upload_font(
     file: UploadFile = File(...),
@@ -235,13 +242,21 @@ async def upload_font(
     try:
         # 上传文件
         resource = await resource_service.upload_font(session.username, file)
+        try:
+            from manga_translator.rendering.text_render import load_font_file
+            resource.font_family = load_font_file(str(resource_service.base_path / resource.file_path))
+            resource_service.fonts_repo.update_resource(
+                resource.id, {'font_family': resource.font_family}
+            )
+        except Exception as exc:
+            logger.warning(f"Font uploaded but Qt registration failed for {resource.filename}: {exc}")
         
         logger.info(f"User {session.username} uploaded font: {resource.filename}")
         
         return {
             "success": True,
             "message": "字体上传成功",
-            "resource": resource.to_dict()
+            "resource": _font_public_dict(resource)
         }
     
     except ValueError as e:
@@ -275,7 +290,7 @@ async def get_fonts(
         
         return {
             "success": True,
-            "fonts": [font.to_dict() for font in fonts],
+            "fonts": [_font_public_dict(font) for font in fonts],
             "count": len(fonts)
         }
     

@@ -257,16 +257,7 @@ class PermissionEditor {
             if (value === '不指定') return this.t('format_not_specified', '不指定');
             return value;
         }
-        // 字体路径 - 区分用户字体和服务器字体
-        if (key === 'font_path') {
-            if (value && value.startsWith('user:')) {
-                // 用户字体: user:{username}/{filename} -> [我的] filename
-                const parts = value.split('/');
-                const filename = parts[parts.length - 1];
-                return `[我的] ${filename}`;
-            }
-            return value;
-        }
+        if (key === 'font_family') return value;
         return value;
     }
     
@@ -546,8 +537,8 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_layout_mode', '排版模式'), this.createSelect('render', 'layout_mode', opts.layout_mode), '', 'render', 'layout_mode')}
             </div>
             <div class="form-section">
-                <h3>${this.t('label_font_path', '字体设置')}</h3>
-                ${this.createFormRow(this.t('label_font_path', '字体路径'), this.createSelect('render', 'font_path', opts.font_path), '', 'render', 'font_path')}
+                <h3>${this.t('label_font_family', '字体设置')}</h3>
+                ${this.createFormRow(this.t('label_font_family', '字体'), this.createSelect('render', 'font_family', opts.font_family), '', 'render', 'font_family')}
                 ${this.createFormRow(this.t('label_font_size', '字体大小'), this.createInput('render', 'font_size', 'number'), '', 'render', 'font_size')}
                 ${this.createFormRow(this.t('label_font_size_offset', '字体大小偏移量'), this.createInput('render', 'font_size_offset', 'number'), '', 'render', 'font_size_offset')}
                 ${this.createFormRow(this.t('label_font_size_minimum', '最小字体大小'), this.createInput('render', 'font_size_minimum', 'number'), '', 'render', 'font_size_minimum')}

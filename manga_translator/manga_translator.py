@@ -329,7 +329,7 @@ class MangaTranslator:
     def __init__(self, params: dict = {}):
         self.pre_dict = params.get('pre_dict', None)
         self.post_dict = params.get('post_dict', None)
-        self.font_path = None
+        self.font_family = None
         self.kernel_size = None
         self.device = None
         self.text_output_file = params.get('save_text_file', None)
@@ -395,8 +395,7 @@ class MangaTranslator:
 
     def parse_init_params(self, params: dict):
         self.verbose = params.get('verbose', False)
-        # font_path 优先从配置文件读取，如果没有则使用命令行参数
-        self.font_path = params.get('font_path', None)
+        self.font_family = params.get('font_family', None)
         self.models_ttl = params.get('models_ttl', 0)
         self.batch_size = params.get('batch_size', 3)  # 批量大小（翻译批次）
         disable_onnx_gpu = params.get('disable_onnx_gpu', False)
@@ -719,50 +718,16 @@ class MangaTranslator:
         # Prepare data for JSON serialization
         regions_data = [region.to_dict() for region in ctx.text_regions]
 
-        def normalize_font_path_for_save(font_path: str) -> str:
-            """Normalize font path to portable relative form when possible."""
-            if not font_path:
-                return ''
+        global_font_family = ''
+        if config and hasattr(config, 'render'):
+            global_font_family = getattr(config.render, 'font_family', None) or ''
+        if not global_font_family:
+            global_font_family = self.font_family or ''
 
-            if os.path.isabs(font_path):
-                norm_path = os.path.normpath(font_path)
-                base_path = os.path.normpath(BASE_PATH)
-                fonts_dir = os.path.normpath(os.path.join(base_path, 'fonts'))
-                try:
-                    if os.path.commonpath([norm_path, fonts_dir]) == fonts_dir:
-                        return os.path.relpath(norm_path, base_path).replace('\\', '/')
-                    if os.path.commonpath([norm_path, base_path]) == base_path:
-                        return os.path.relpath(norm_path, base_path).replace('\\', '/')
-                except ValueError:
-                    return norm_path
-                return norm_path
-
-            normalized = font_path.replace('\\', '/')
-            if normalized.lower().startswith('fonts/'):
-                return normalized
-            if '/' in normalized:
-                return normalized
-            return f"fonts/{normalized}"
-
-        # 补全每个区域的 font_path：若区域没有特定字体，填入当前全局字体
-        # 这样后端渲染时完全依靠区域字体，不再依赖运行时全局字体状态
-        global_font = ''
-        if config and hasattr(config, 'render') and getattr(config.render, 'font_path', None):
-            global_font = config.render.font_path
-        if not global_font:
-            global_font = self.font_path or ''
-        global_font = normalize_font_path_for_save(global_font)
-
-        # 统一 region.font_path 保存格式（优先相对路径）
         for region in regions_data:
-            region_font_path = region.get('font_path')
-            if region_font_path:
-                region['font_path'] = normalize_font_path_for_save(region_font_path)
-
-        if global_font:
-            for region in regions_data:
-                if not region.get('font_path'):
-                    region['font_path'] = global_font
+            if not region.get('font_family') and global_font_family:
+                region['font_family'] = global_font_family
+            region.pop('font_path', None)
 
         # 强制使用Config中的排版方向和对齐方式覆盖（如果存在）
         # 这是为了确保即使 textline_merge 检测过程使用了 auto，
@@ -2964,12 +2929,11 @@ class MangaTranslator:
         current_time = time.time()
         self._model_usage_timestamps[("rendering", config.render.renderer)] = current_time
 
-        # 全局字体只作为“补全区域字体”的来源，后端渲染实际只读 region.font_path
-        fallback_font_path = config.render.font_path or self.font_path or ''
+        fallback_font_family = config.render.font_family or self.font_family or ''
         if ctx.text_regions:
             for region in ctx.text_regions:
-                if not getattr(region, 'font_path', ''):
-                    region.font_path = fallback_font_path
+                if not getattr(region, 'font_family', ''):
+                    region.font_family = fallback_font_family
 
         render_base_img = ctx.img_rgb if self._should_skip_inpainting_for_ai_renderer(config) else ctx.img_inpainted
 

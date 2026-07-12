@@ -478,7 +478,7 @@ class ConfigService(QObject):
                     # 这样用户可以看到示例，但不会被个人设置覆盖
                     if 'render' not in config_dict:
                         config_dict['render'] = {}
-                    config_dict['render']['font_path'] = 'fonts/Arial-Unicode-Regular.ttf'
+                    config_dict['render']['font_family'] = 'Microsoft YaHei UI'
                     
                     # AI断句相关设置在模板配置中始终为关闭状态
                     config_dict['render']['disable_auto_wrap'] = False

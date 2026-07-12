@@ -2,9 +2,11 @@ import json
 import os
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
+    QFontComboBox,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -23,7 +25,7 @@ from qfluentwidgets import PushButton as QPushButton
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
-from utils.font_list import list_font_files
+from utils.font_list import list_font_families
 
 
 def _close_combo_popups_before_delete(widget: QWidget):
@@ -869,10 +871,10 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
 
         # 跳过这些选项，因为已经用下拉框替代或不需要在UI中显示
         # realcugan_model 将通过 upscale_ratio 动态下拉框处理
-        # gimp_font 已废弃，使用 font_path 代替
+        # gimp_font 已废弃；字体统一使用 font_family。
         # replace_translation 和 replace_translation_mode 通过工作流模式下拉框控制
         # app 配置组的字段：last_open_dir, last_output_path, favorite_folders, current_preset 是内部状态，不显示在UI中
-        if full_key in ["cli.load_text", "cli.translate_json_only", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "cli.inpaint_only", "cli.replace_translation", "cli.replace_translation_mode", "upscale.realcugan_model", "render.gimp_font", "render.font_path", "translator.high_quality_prompt_path", "app.last_open_dir", "app.last_output_path", "app.favorite_folders", "app.current_preset"]:
+        if full_key in ["cli.load_text", "cli.translate_json_only", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "cli.inpaint_only", "cli.replace_translation", "cli.replace_translation_mode", "upscale.realcugan_model", "render.gimp_font", "translator.high_quality_prompt_path", "app.last_open_dir", "app.last_output_path", "app.favorite_folders", "app.current_preset"]:
             continue
 
         label_text = key
@@ -911,32 +913,25 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             open_btn.clicked.connect(self._open_filter_list)
             widget = [checkbox, open_btn]
 
-        elif full_key == "render.font_path":
-            # 创建自定义ComboBox,在下拉时刷新字体列表
-            # F15：字体目录枚举收口到共享 helper；此下拉框的条目文本按现行为
-            # 保持完整文件名（config 的 render.font_path 回写依赖它）
-            class RefreshableComboBox(QComboBox):
+        elif full_key == "render.font_family":
+            class RefreshableFamilyComboBox(QFontComboBox):
                 def showPopup(self):
-                    current_text = self.currentText()
-                    self.clear()
-                    self.addItems([filename for _display_name, filename in list_font_files()])
-                    # 恢复之前选择的值
-                    if current_text:
-                        index = self.findText(current_text)
-                        if index >= 0:
-                            self.setCurrentIndex(index)
-                        else:
-                            self.setCurrentText(current_text)
+                    current_font = self.currentFont()
+                    list_font_families()
+                    self.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
+                    self.setCurrentFont(current_font)
                     super().showPopup()
 
-            combo = RefreshableComboBox()
+            combo = RefreshableFamilyComboBox()
             combo.setMinimumWidth(260)
-            combo.addItems([filename for _display_name, filename in list_font_files()])
-            combo.setCurrentText(str(value) if value else "")
-            combo.currentTextChanged.connect(lambda text, k=full_key: self._on_setting_changed(text, k, None))
-            button = QPushButton(self._t("Open Directory"))
-            button.clicked.connect(self.controller.open_font_directory)
-            widget = [combo, button]
+            list_font_families()
+            combo.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
+            if value:
+                combo.setCurrentFont(QFont(str(value)))
+            combo.currentFontChanged.connect(
+                lambda font, k=full_key: self._on_setting_changed(font.family(), k, None)
+            )
+            widget = combo
 
         elif full_key == "translator.high_quality_prompt_path":
             # 创建自定义ComboBox,在下拉时刷新提示词列表

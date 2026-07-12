@@ -1,5 +1,4 @@
 import logging
-import os
 from time import perf_counter
 
 import cv2
@@ -25,62 +24,22 @@ def _translation_preview(value, limit: int = 50) -> str:
     return plain_text_of(value)[:limit]
 
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    import os
-    import sys
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    return os.path.join(base_path, relative_path)
-
-def resolve_font_path(font_path: str) -> str:
-    """Resolve absolute/relative font path for both dev and packaged runtime.
-
-    When an absolute path does not exist on the current machine (e.g., the path
-    was saved on a different machine or the install directory changed), we fall
-    back to searching for the font file by name inside the local fonts/ directory.
-    """
-    if not font_path:
-        return ''
-    if os.path.exists(font_path):
-        return font_path
-
-    # 路径不存在时（含绝对路径盘符不同的情况），用文件名在 fonts/ 目录里继续找
-    font_basename = os.path.basename(font_path)
-    candidates = (
-        resource_path(os.path.join('fonts', font_basename)),
-        resource_path(font_basename),
-    )
-    if not os.path.isabs(font_path):
-        # 相对路径还额外尝试直接 join
-        candidates = (
-            resource_path(font_path),
-        ) + candidates
-
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return ''
-
-def apply_font_for_render(font_path: str) -> str:
-    """Apply font for current render call; fallback to built-in default."""
+def apply_font_for_render(font_value: str) -> str:
+    """Apply a Qt family name for the current render call."""
     global _APPLIED_FONT_TARGET
 
-    resolved_font_path = resolve_font_path(font_path)
-    target_font = resolved_font_path or text_render.DEFAULT_FONT
+    target_font = font_value or text_render.DEFAULT_FONT_FAMILY
     if _APPLIED_FONT_TARGET == target_font:
-        return resolved_font_path
+        return target_font
 
     try:
         set_font(target_font)
         _APPLIED_FONT_TARGET = target_font
     except Exception:
-        set_font(text_render.DEFAULT_FONT)
-        _APPLIED_FONT_TARGET = text_render.DEFAULT_FONT
+        set_font(text_render.DEFAULT_FONT_FAMILY)
+        _APPLIED_FONT_TARGET = text_render.DEFAULT_FONT_FAMILY
         return ''
-    return resolved_font_path
+    return target_font
 
 
 def _rgba_image_to_qimage(rgba_image: np.ndarray) -> QImage:
@@ -147,11 +106,13 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
         if isinstance(text_to_render, str) and has_legacy_line_breaks(text_to_render):
             text_to_render = legacy_line_breaks_to_document(text_to_render).to_dict()
 
-        # 区域级字体优先：render_params.font_path -> text_block.font_path -> 默认字体
-        region_font_path = render_params.get('font_path') or getattr(text_block, 'font_path', '')
-        resolved_font_path = apply_font_for_render(region_font_path)
-        if not resolved_font_path and region_font_path:
-            logger.warning(f"[EDITOR RENDER] Font path not found: {region_font_path}, fallback to default font")
+        region_font = (
+            render_params.get('font_family')
+            or getattr(text_block, 'font_family', '')
+        )
+        applied_font = apply_font_for_render(region_font)
+        if not applied_font and region_font:
+            logger.warning(f"[EDITOR RENDER] Font unavailable: {region_font}, fallback to default font")
 
         # --- 2. 渲染 ---
         disable_font_border = render_params.get('disable_font_border', False)

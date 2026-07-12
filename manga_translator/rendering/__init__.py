@@ -14,7 +14,6 @@ from shapely.geometry import Polygon
 from tqdm import tqdm
 
 from ..config import Config, Renderer
-from ..server_paths import normalize_server_resource_path
 
 # 只使用 Qt 离屏渲染器
 from ..utils import (
@@ -55,33 +54,6 @@ logger = get_logger('render')
 
 # 基准字体大小，用于模拟文本块
 BASE_FONT_SIZE = 100
-
-
-def _resolve_font_path(font_path: str) -> str:
-    """Resolve font path from absolute/relative/project-fonts path.
-
-    When an absolute path does not exist on the current machine (e.g., saved
-    path from a different install directory), falls back to searching by
-    filename inside the project fonts/ directory.
-    """
-    if not font_path:
-        return ''
-    font_path = normalize_server_resource_path(font_path)
-    if os.path.exists(font_path):
-        return font_path
-
-    # 路径不存在时（含绝对路径盘符/目录不同的情况），用文件名在 fonts/ 目录里找
-    font_basename = os.path.basename(font_path)
-    candidate = os.path.join(BASE_PATH, 'fonts', font_basename)
-    if os.path.exists(candidate):
-        return candidate
-
-    if not os.path.isabs(font_path):
-        candidate = os.path.join(BASE_PATH, font_path)
-        if os.path.exists(candidate):
-            return candidate
-
-    return ''
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -1487,18 +1459,18 @@ def resize_regions_to_font_size(
             logger.info(f"[RESIZE] 区域 {region_idx}: None，跳过")
             dst_points_list.append(None)
             continue
-        region_font_path = getattr(region, 'font_path', '') or ''
-        resolved_region_font_path = _resolve_font_path(region_font_path)
+        region_font_family = getattr(region, 'font_family', '') or ''
         try:
             if config:
                 config._current_region = region
                 config._semantic_linebreak_current_region_idx = region_idx
 
             # 区域字体统一在布局测量前应用；后续候选字号、缩放和最终 dst_points 都用同一字体。
-            if resolved_region_font_path:
-                text_render.set_font(resolved_region_font_path)
+            if region_font_family:
+                text_render.set_font(region_font_family)
             else:
-                text_render.set_font(text_render.DEFAULT_FONT)
+                text_render.set_font(text_render.DEFAULT_FONT_FAMILY)
+            text_render.set_bold(getattr(region, 'bold', False))
 
             # 如果 translation 为空,直接返回 min_rect,避免触发复杂的布局计算
             render_value = _region_render_value(region)
@@ -2494,8 +2466,7 @@ async def dispatch(
 
     await download_chinese_linebreak_models_if_enabled(config)
 
-    # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
-    text_render.set_font(text_render.DEFAULT_FONT)
+    text_render.set_font(getattr(config.render, 'font_family', None) or text_render.DEFAULT_FONT_FAMILY)
     text_regions = list(filter(lambda region: _region_render_value(region), text_regions))
 
     result = resize_regions_to_font_size(
@@ -2560,16 +2531,13 @@ def render(
     config: Config,
     render_alpha: Optional[np.ndarray] = None,
 ):
-    # 完全依赖区域字体，不再使用运行时全局字体参数
-    # JSON 导出时已为每个区域填入完整 font_path，这里直接用即可
-    region_font_path = getattr(region, 'font_path', '') or ''
-    resolved_font_path = _resolve_font_path(region_font_path)
-    if resolved_font_path:
-        text_render.set_font(resolved_font_path)
+    # 区域只保存 family；字体文件在启动/导入阶段注册。
+    region_font_family = getattr(region, 'font_family', '') or ''
+    if region_font_family:
+        text_render.set_font(region_font_family)
     else:
-        if region_font_path:
-            logger.warning(f"Font path not found for region: {region_font_path}, using built-in default font")
-        text_render.set_font(text_render.DEFAULT_FONT)
+        text_render.set_font(text_render.DEFAULT_FONT_FAMILY)
+    text_render.set_bold(getattr(region, 'bold', False))
 
     # --- START BRUTEFORCE COLOR FIX ---
     fg = (0, 0, 0) # Default to black

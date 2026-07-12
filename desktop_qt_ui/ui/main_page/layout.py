@@ -14,7 +14,7 @@ from qfluentwidgets import ListWidget as QListWidget
 from qfluentwidgets import themeColor
 
 from theme_registry import THEME_OPTIONS
-from utils.font_list import FONT_FILE_EXTENSIONS, list_font_files
+from utils.font_list import FONT_FILE_EXTENSIONS, font_family_for_file, list_font_files
 from utils.resource_helper import resource_path
 
 _CURRENT_ASSET_PREFIX = "* "
@@ -654,6 +654,7 @@ def delete_selected_font(self):
     if reply != QMessageBox.StandardButton.Yes:
         return
 
+    deleted_family = font_family_for_file(filename)
     font_path = os.path.join(resource_path("fonts"), filename)
     try:
         if not os.path.exists(font_path):
@@ -664,9 +665,9 @@ def delete_selected_font(self):
         QMessageBox.critical(self, self._t("Error"), str(e))
         return
 
-    current_font = _normalize_asset_filename(self.config_service.get_config().render.font_path)
-    if current_font == filename:
-        self.setting_changed.emit("render.font_path", None)
+    current_family = self.config_service.get_config().render.font_family
+    if deleted_family and current_family == deleted_family:
+        self.setting_changed.emit("render.font_family", "")
 
     self._refresh_font_manager()
     _set_font_status(self, "Deleted: {filename}", filename=filename)
@@ -678,7 +679,11 @@ def refresh_font_manager(self):
     # F15：字体目录枚举收口到共享 helper；此列表按现行为显示完整文件名
     font_files = [filename for _display_name, filename in list_font_files()]
 
-    selected_font = _normalize_asset_filename(self.config_service.get_config().render.font_path)
+    selected_family = self.config_service.get_config().render.font_family
+    selected_font = next(
+        (filename for filename in font_files if font_family_for_file(filename) == selected_family),
+        '',
+    )
     current_item = self.font_list_widget.currentItem()
     current_font = _get_asset_item_filename(current_item)
     preferred_font = current_font or selected_font
@@ -713,7 +718,9 @@ def apply_selected_font(self):
     font_name = _get_asset_item_filename(current_item)
     if not font_name:
         return
-    self.setting_changed.emit("render.font_path", font_name)
+    font_family = font_family_for_file(font_name)
+    if font_family:
+        self.setting_changed.emit("render.font_family", font_family)
     self._refresh_font_manager()
     _set_font_status(self, "Current font: {filename}", filename=font_name)
 

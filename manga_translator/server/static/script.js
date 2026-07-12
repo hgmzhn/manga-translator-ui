@@ -54,7 +54,7 @@ const hiddenKeys = [
     'translator.skip_lang',  // Skip Lang
     'use_custom_api_params',  // 仅用于服务器端，用户端不显示
     // 废弃参数
-    'render.gimp_font',  // 已废弃，使用 font_path 代替
+    'render.gimp_font',  // 已废弃，使用 font_family 代替
 ];
 
 // User session and permissions
@@ -263,9 +263,7 @@ async function init() {
     await loadConfigOptions(); // Load parameter options (先加载选项数据)
     await loadConfig(); // 创建配置表单（会使用 configOptions 填充下拉框）
     // 更新字体和提示词管理列表（不是下拉框，是管理面板中的列表）
-    if (configOptions['font_path']) {
-        updateFontList(configOptions['font_path']);
-    }
+    await refreshFontResources();
     if (configOptions['high_quality_prompt_path']) {
         updatePromptList(configOptions['high_quality_prompt_path']);
     }
@@ -430,7 +428,7 @@ async function loadConfigOptions() {
         configOptions = await res.json();
         console.log('Loaded config options:', configOptions);
         console.log('high_quality_prompt_path options:', configOptions['high_quality_prompt_path']);
-        console.log('font_path options:', configOptions['font_path']);
+        console.log('font_family options:', configOptions['font_family']);
         console.log('layout_mode options:', configOptions['layout_mode']);
         
         // 字体和提示词选项将在 init 函数中 loadConfig 之后更新
@@ -709,22 +707,39 @@ function updateFontList(fonts) {
     
     let html = '<div style="display: flex; flex-direction: column; gap: 8px;">';
     fonts.forEach(font => {
-        // 判断是否是用户上传的字体（路径包含 user_resources）
-        const isUserFont = font.includes('user_resources');
-        const displayName = isUserFont ? font.split('/').pop() : font;
-        const deleteBtn = isUserFont 
-            ? `<button onclick="deleteFont('${font}')" class="secondary-btn" style="padding: 4px 12px; font-size: 12px; background: #F44336; color: white;">删除</button>`
-            : '<span style="color: #999; font-size: 11px;">服务器字体</span>';
+        const family = font.font_family || font.filename;
+        const deleteBtn = `<button data-font-id="${font.id}" data-font-name="${font.filename}" class="secondary-btn delete-font-btn" style="padding: 4px 12px; font-size: 12px; background: #F44336; color: white;">删除</button>`;
         
         html += `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #F5F7FA; border-radius: 4px;">
-                <span style="font-family: monospace; font-size: 13px;">${displayName}</span>
+                <span style="font-size: 13px;">${family} · ${font.filename}</span>
                 ${deleteBtn}
             </div>
         `;
     });
     html += '</div>';
     container.innerHTML = html;
+    container.querySelectorAll('.delete-font-btn').forEach(button => {
+        button.addEventListener('click', () => deleteFont(button.dataset.fontId, button.dataset.fontName));
+    });
+}
+
+async function refreshFontResources() {
+    const sessionToken = localStorage.getItem('session_token');
+    if (!sessionToken) {
+        updateFontList([]);
+        return;
+    }
+    try {
+        const res = await fetch('/api/resources/fonts', {
+            headers: {'X-Session-Token': sessionToken}
+        });
+        const data = await res.json();
+        const fonts = data.fonts || [];
+        updateFontList(fonts);
+    } catch (e) {
+        console.error('Failed to refresh font resources:', e);
+    }
 }
 
 function updatePromptList(prompts) {
@@ -1167,8 +1182,8 @@ function generateConfigUI(config) {
             // String, null, or Enum - check if we have options for this key
             const options = configOptions[key];
             
-            // 特殊处理：font_path 和 high_quality_prompt_path 即使为空也显示下拉菜单
-            const alwaysDropdown = (key === 'font_path' || key === 'high_quality_prompt_path');
+            // font_family 和 high_quality_prompt_path 即使为空也显示下拉菜单
+            const alwaysDropdown = (key === 'font_family' || key === 'high_quality_prompt_path');
             
             // 如果有选项列表，创建下拉框（即使当前值是null）
             if (options && Array.isArray(options) && (options.length > 0 || alwaysDropdown)) {
@@ -1176,7 +1191,7 @@ function generateConfigUI(config) {
                 input = document.createElement('select');
                 
                 // 为字体和提示词添加实时刷新功能
-                if (key === 'font_path' || key === 'high_quality_prompt_path') {
+                if (key === 'font_family' || key === 'high_quality_prompt_path') {
                     input.onfocus = async () => {
                         const currentValue = input.value;
                         try {
@@ -1217,7 +1232,7 @@ function generateConfigUI(config) {
                 }
                 
                 // 为某些参数添加空选项
-                if (key === 'font_path' || key === 'high_quality_prompt_path') {
+                if (key === 'font_family' || key === 'high_quality_prompt_path') {
                     const emptyOption = document.createElement('option');
                     emptyOption.value = '';
                     emptyOption.textContent = '-- 不使用 --';
@@ -1253,7 +1268,7 @@ function generateConfigUI(config) {
                         // OCR 语言提示显示翻译后的全称
                         const langKey = `ocr_lang_${String(opt).toLowerCase().replace(/\s+/g, '_')}`;
                         option.textContent = t(langKey, opt);
-                    } else if (key === 'font_path' || key === 'high_quality_prompt_path') {
+                    } else if (key === 'font_family' || key === 'high_quality_prompt_path') {
                         // 字体和提示词显示简短文件名
                         option.textContent = opt.includes('/') ? opt.split('/').pop() : opt;
                     } else {
@@ -1506,10 +1521,10 @@ function replaceWithSelectTranslated(fullKey, options) {
 }
 
 function updateFontSelects(fonts) {
-    // 查找 font_path 元素（select 或 input）
-    let element = document.querySelector(`select[data-key="render.font_path"]`);
+    // 查找 font_family 元素（select 或 input）
+    let element = document.querySelector(`select[data-key="render.font_family"]`);
     if (!element) {
-        element = document.querySelector(`input[data-key="render.font_path"]`);
+        element = document.querySelector(`input[data-key="render.font_family"]`);
     }
     
     if (!element) return;
@@ -1527,8 +1542,7 @@ function updateFontSelects(fonts) {
         fonts.forEach(f => {
             const option = document.createElement('option');
             option.value = f;
-            // 显示简短的文件名
-            option.textContent = f.includes('/') ? f.split('/').pop() : f;
+            option.textContent = f;
             if (f === currentValue) option.selected = true;
             element.appendChild(option);
         });
@@ -1536,7 +1550,7 @@ function updateFontSelects(fonts) {
         // 是 input，替换为 select
         const select = document.createElement('select');
         select.className = 'full-width-select';
-        select.dataset.key = 'render.font_path';
+        select.dataset.key = 'render.font_family';
 
         const defaultOpt = document.createElement('option');
         defaultOpt.value = '';
@@ -1546,7 +1560,7 @@ function updateFontSelects(fonts) {
         fonts.forEach(f => {
             const option = document.createElement('option');
             option.value = f;
-            option.textContent = f.includes('/') ? f.split('/').pop() : f;
+            option.textContent = f;
             if (f === currentValue) option.selected = true;
             select.appendChild(option);
         });
@@ -2894,10 +2908,10 @@ async function handleFontUpload(e) {
             // 重新加载配置选项以获取新字体
             await loadConfigOptions();
             // 更新字体下拉框和管理列表
-            if (configOptions['font_path']) {
-                updateFontSelects(configOptions['font_path']);
-                updateFontList(configOptions['font_path']);
+            if (configOptions['font_family']) {
+                updateFontSelects(configOptions['font_family']);
             }
+            await refreshFontResources();
         } else {
             const error = await res.text();
             log(`${t('font_upload_failed', '字体上传失败')}: ${error}`, 'error');
@@ -2950,8 +2964,8 @@ async function handlePromptUpload(e) {
     e.target.value = ''; // Reset
 }
 
-async function deleteFont(fontPath) {
-    const displayName = fontPath.split('/').pop();
+async function deleteFont(resourceId, filename) {
+    const displayName = filename;
     if (!confirm(`确定要删除字体 "${displayName}" 吗？`)) {
         return;
     }
@@ -2963,9 +2977,7 @@ async function deleteFont(fontPath) {
     }
     
     try {
-        // 用户字体通过文件名删除
-        const filename = fontPath.split('/').pop();
-        const res = await fetch(`/api/resources/fonts/by-name/${encodeURIComponent(filename)}`, {
+        const res = await fetch(`/api/resources/fonts/${encodeURIComponent(resourceId)}`, {
             method: 'DELETE',
             headers: headers
         });
@@ -2974,10 +2986,10 @@ async function deleteFont(fontPath) {
             log(`${t('font_deleted', '字体删除成功')}: ${displayName}`, 'info');
             // 重新加载配置选项并更新UI
             await loadConfigOptions();
-            if (configOptions['font_path']) {
-                updateFontSelects(configOptions['font_path']);
-                updateFontList(configOptions['font_path']);
+            if (configOptions['font_family']) {
+                updateFontSelects(configOptions['font_family']);
             }
+            await refreshFontResources();
         } else {
             const error = await res.text();
             log(`${t('font_delete_failed', '字体删除失败')}: ${error}`, 'error');

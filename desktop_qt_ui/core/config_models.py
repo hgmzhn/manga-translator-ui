@@ -72,7 +72,7 @@ class RenderSettings(BaseModel):
     direction: str = "auto"
     uppercase: bool = False
     lowercase: bool = False
-    font_path: str = "Arial-Unicode-Regular.ttf"
+    font_family: str = ""
     no_hyphenation: bool = False
     bubble_layout_english: bool = False
     font_color: Optional[str] = None

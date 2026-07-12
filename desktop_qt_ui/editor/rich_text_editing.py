@@ -367,8 +367,8 @@ def style_for_range(document: dict, start: int, end: int) -> dict:
             result["color"] = style.get("color")
         if "fontSize" in style and "fontSize" not in result:
             result["fontSize"] = style.get("fontSize")
-        if "fontPath" in style and "fontPath" not in result:
-            result["fontPath"] = style.get("fontPath")
+        if "fontFamily" in style and "fontFamily" not in result:
+            result["fontFamily"] = style.get("fontFamily")
         stroke = style.get("stroke")
         if isinstance(stroke, dict):
             if "color" in stroke and "strokeColor" not in result:
@@ -474,7 +474,7 @@ def _style_matches_row_key(style: dict, row_key: str) -> bool:
     if row_key == "%":
         return "scale" in style
     if row_key == "F":
-        return "fontPath" in style
+        return "fontFamily" in style
     if row_key == "O":
         return isinstance(style.get("stroke"), dict) and bool(style.get("stroke"))
     if row_key == "G":
