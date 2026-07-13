@@ -15,12 +15,10 @@ from shapely.geometry import Polygon
 from . import text_render
 from .text_render import (
     CJK_Compatibility_Forms_translate,
-    compact_special_symbols,
     get_char_offset_x,
     get_char_offset_y,
     get_vertical_char_bitmap_width,
     get_string_width,
-    normalize_vertical_ellipsis_text,
     select_hyphenator,
 )
 from .chinese_linebreak import append_chinese_linebreak_debug_record, layout_chinese_cjk
@@ -54,8 +52,7 @@ class NoBrLayoutResult:
 
 
 def _normalize_no_br_text(text: str, horizontal: bool = False) -> str:
-    text = compact_special_symbols(text or "", convert_ascii_ellipsis=not horizontal)
-    return re.sub(r"\s*(\[BR\]|<br>|【BR】)\s*", "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s*(\[BR\]|<br>|【BR】)\s*", "", text or "", flags=re.IGNORECASE)
 
 
 def _compact_debug_text(text: str, limit: int = 120) -> str:
@@ -282,7 +279,7 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
 
     返回 (line_text_list, line_height_list)
     """
-    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
+    text = text or ''
     text = _BR_RE.sub('\n', text)
 
     line_text_list: List[str] = []
@@ -323,7 +320,7 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
 
 def _layout_vertical_metrics(font_size: int, text: str, max_height: int, config: Any = None, letter_spacing: float = 1.0) -> Tuple[List[str], List[int], List[int]]:
     """竖排换行 + 每列宽度，一次扫描完成尺寸测量。"""
-    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
+    text = text or ''
     text = _BR_RE.sub('\n', text)
 
     line_text_list: List[str] = []
@@ -379,7 +376,7 @@ def _vert_line_width(line_text: str, font_size: int) -> int:
 
 def _vert_total_height(text: str, font_size: int, config: Any = None, letter_spacing: float = 1.0) -> int:
     """不换行时竖排文本的总高度。"""
-    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
+    text = text or ''
     text = _BR_RE.sub('', text)
     total = 0
     for c in text:

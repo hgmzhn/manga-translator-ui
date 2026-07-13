@@ -229,9 +229,8 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
             letter_spacing=letter_spacing,
         )
 
-    # 先做特殊符号规范化（省略号等），保证排版和渲染阶段文本一致。
-    # 横排保留 ASCII `...`，避免英文省略号被压成中文/居中的单字形。
-    text = text_render.compact_special_symbols(text, convert_ascii_ellipsis=not is_horizontal)
+    # 特殊符号规范化已外移到 text_replacements.yaml 规则层，渲染入口不再改写字符。
+    text = text or ''
     # 处理 BR 标记
     text_for_calc = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text, flags=re.IGNORECASE)
 

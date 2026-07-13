@@ -15,7 +15,7 @@ from hyphen import Hyphenator
 from hyphen.dictools import LANGUAGES as HYPHENATOR_LANGUAGES
 from langcodes import standardize_tag
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QImage, QPainter, QPainterPath, QPainterPathStroker, QRawFont, QTextLayout
+from PyQt6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QImage, QPainter, QPainterPath, QRawFont, QTextLayout
 
 from ..utils import BASE_PATH, parse_color
 from .rich_text import RichTextDocument, RenderSpan, TextStyle, ensure_rich_text_document, is_rich_text_document, normalize_rich_linebreaks
@@ -135,16 +135,6 @@ def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     return cdpt, 0
 
 
-def compact_special_symbols(text: str, *, convert_ascii_ellipsis: bool = True) -> str:
-    # 渲染层不再做字符替换，统一交给外部的 text_replacements.yaml 规则处理
-    return text or ''
-
-
-def normalize_vertical_ellipsis_text(text: str) -> str:
-    # 渲染层不再做字符替换，统一交给外部的 text_replacements.yaml 规则处理
-    return text or ''
-
-
 def _normalize_horizontal_block_content(content: str) -> str:
     # F14：BR 编解码统一走 rich_text.normalize_rich_linebreaks（BR→\n 后去换行，
     # 与旧的 _BR_RE.sub('') 输出一致）
@@ -217,10 +207,6 @@ def _style_font_size(base_font_size: int, style: TextStyle) -> int:
     if style.font_size is not None:
         return max(1, int(round(style.font_size)))
     return max(1, int(round(base_font_size * (style.scale or 1.0))))
-
-
-def _style_bold_extra(font_size: int) -> int:
-    return max(1, int(round(font_size * 0.035)))
 
 
 def _style_fill_color(style: TextStyle, fallback) -> Tuple[int, int, int]:
@@ -605,14 +591,6 @@ def _cache_put(cache: dict, key, value, max_entries: int):
     while len(cache) > max_entries:
         cache.popitem(last=False)
     return value
-
-
-def _clear_shape_caches(state: FontState):
-    state.glyph_specs.clear()
-    state.glyphs.clear()
-    state.strokes.clear()
-    state.measures.clear()
-    state.vertical.clear()
 
 
 def _resolve_existing_font_path(path: str) -> str:
@@ -1018,13 +996,6 @@ def _create_text_layout(text: str, font_size: int, letter_spacing: float = 1.0):
     return text, qfont, layout, line
 
 
-def _font_supports_character(raw_font: QRawFont, cdpt: str) -> bool:
-    try:
-        return bool(raw_font.supportsCharacter(cdpt))
-    except Exception:
-        return True
-
-
 def _glyph_has_advance(raw_font: QRawFont, glyph_id: int) -> bool:
     if not glyph_id:
         return False
@@ -1157,17 +1128,6 @@ def _rasterize_path(path: QPainterPath) -> Tuple[np.ndarray, int, int]:
     return _qimage_alpha_to_array(image), left, top
 
 
-def _stroke_path(path: QPainterPath, stroke_px: int) -> QPainterPath:
-    if path.isEmpty() or stroke_px <= 0:
-        return QPainterPath()
-    stroker = QPainterPathStroker()
-    stroker.setWidth(float(stroke_px * 2))
-    stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
-    # 不要使用 subtracted(path)，否则会导致内部中空，在抗锯齿边缘产生脏边
-    return stroker.createStroke(path).united(path)
-
-
 def _glyph_raster(cdpt: str, font_size: int) -> GlyphRaster:
     spec = _glyph_spec(cdpt, font_size)
     state = _state()
@@ -1261,9 +1221,6 @@ def _normalize_line_spacing(line_spacing: float) -> float:
     return value if value > 0 else 1.0
 
 
-def resolve_horizontal_line_spacing_multiplier(line_spacing: float) -> float:
-    return _normalize_line_spacing(line_spacing)
-
 def calc_horizontal_line_spacing_px(font_size: int, line_spacing: float) -> int:
     value = _normalize_line_spacing(line_spacing)
     return int(font_size * (value - 1.0))
@@ -1287,12 +1244,8 @@ def _scale_advance(advance: int, letter_spacing: float) -> int:
     return max(1, int(round(advance * _normalize_letter_spacing(letter_spacing))))
 
 
-def _normalize_horizontal_measure_text(text: str) -> str:
-    return ''.join(c if c in '\r\n' else CJK_Compatibility_Forms_translate(c, 0)[0] for c in (text or ''))
-
-
 def _horizontal_line(text: str, font_size: int, letter_spacing: float = 1.0):
-    return _create_text_layout(_normalize_horizontal_measure_text(text), font_size, letter_spacing)
+    return _create_text_layout(text or '', font_size, letter_spacing)
 
 
 def _line_logical_width(line, text_length: int) -> float:
@@ -1354,16 +1307,6 @@ def _crop_pair(text_canvas: np.ndarray, border_canvas: np.ndarray):
         return None
     x, y, w, h = cv2.boundingRect(combined)
     return None if w == 0 or h == 0 else (text_canvas[y:y+h, x:x+w], border_canvas[y:y+h, x:x+w], x, y, w, h)
-
-
-def _get_fallback_glyph(glyph_id: int, run_font: QRawFont, char: str, font_size: int) -> Tuple[QRawFont, int]:
-    if glyph_id > 0 or not char:
-        return run_font, glyph_id
-    try:
-        spec = _glyph_spec(char, font_size)
-        return spec.raw_font, spec.glyph_id
-    except Exception:
-        return run_font, glyph_id
 
 
 def _line_surface_impl(
@@ -2528,7 +2471,7 @@ def _vertical_char_bitmap_x(
 
 
 def _measure_horizontal_text_width(text: str, font_size: int, letter_spacing: float = 1.0) -> int:
-    normalized = _normalize_horizontal_measure_text(text)
+    normalized = text or ''
     if not normalized:
         return 0
     if '\n' in normalized or '\r' in normalized:
@@ -2580,9 +2523,9 @@ def get_string_height(font_size: int, text: str, letter_spacing: float = 1.0):
         for paragraph in document.paragraphs:
             max_height = max(max_height, _rich_paragraph_vertical_metrics(font_size, paragraph, letter_spacing)[0])
         return max_height
-    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
+    text = text or ''
     total = 0
-    for char in re.sub(r'\s*(?:\[BR\]|<br>|【BR】)\s*', '', text or '', flags=re.IGNORECASE):
+    for char in re.sub(r'\s*(?:\[BR\]|<br>|【BR】)\s*', '', text, flags=re.IGNORECASE):
         total += get_char_offset_y(font_size, char, letter_spacing)
     return total
 
@@ -2654,15 +2597,6 @@ def _build_vertical_layout(
     return {'width': int(line_width), 'height': max(0, int(cursor)), 'items': laid}
 
 
-def put_char_horizontal(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_text: np.ndarray, canvas_border: np.ndarray, border_size: int, config=None, stroke_width: float = None, letter_spacing: float = 1.0):
-    char = '　' if cdpt == '＿' else CJK_Compatibility_Forms_translate(cdpt, 0)[0]
-    char_offset_x = get_char_offset_x(font_size, char, letter_spacing)
-    surface = _line_surface(char, font_size, border_size, _resolve_stroke_ratio(config, stroke_width), False, letter_spacing, False)
-    if surface is not None:
-        _paste_surface(canvas_text, canvas_border, surface, pen_l[0] + surface['left_rel'], pen_l[1] + surface['top_rel'])
-    return char_offset_x
-
-
 def put_text_horizontal(
     font_size: int,
     text: str,
@@ -2701,7 +2635,7 @@ def put_text_horizontal(
             letter_spacing,
             profile_stats,
         )
-    text = compact_special_symbols(text, convert_ascii_ellipsis=False)
+    text = text or ''
     if not text:
         return None
     _ = (width, height, lang, hyphenate, region_count)
@@ -2787,7 +2721,7 @@ def put_text_vertical(
             letter_spacing,
             profile_stats,
         )
-    text = normalize_vertical_ellipsis_text(compact_special_symbols(text))
+    text = text or ''
     if not text:
         return None
     _ = (h, region_count)
