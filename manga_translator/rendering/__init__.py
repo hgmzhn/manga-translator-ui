@@ -199,10 +199,11 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
     """
     按指定字号模拟渲染文本块，返回精确的像素尺寸
 
-    复用后端渲染的尺寸计算逻辑，保证和实际渲染一致。
+    测量与渲染共用同一套包络几何（put_text_* 的归一口径）：纯字符串在
+    measure 入口转成单样式 richtext 段落，测量框 == 渲染输出面尺寸。
 
     Args:
-        text: 文本内容。旧 [BR]/<br>/【BR】 会在入口层转换成 richtext.v1 段落。
+        text: 文本内容。纯字符串的 [BR]/<br>/【BR】/换行会归一成段落。
         is_horizontal: True=横排，False=竖排
         line_spacing: 行间距倍率
         config: 配置对象
@@ -211,55 +212,23 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
     Returns:
         (base_width, base_height, n_lines) - 基准尺寸和行/列数
     """
+    _ = target_lang
     base_font = max(1, int(font_size))
-    if text_render.is_rich_text_document(text):
-        if is_horizontal:
-            return text_render.measure_rich_text_horizontal(
-                base_font,
-                text,
-                line_spacing,
-                config=config,
-                letter_spacing=letter_spacing,
-            )
-        return text_render.measure_rich_text_vertical(
+    if is_horizontal:
+        return text_render.measure_rich_text_horizontal(
             base_font,
             text,
             line_spacing,
             config=config,
             letter_spacing=letter_spacing,
         )
-
-    # 特殊符号规范化已外移到 text_replacements.yaml 规则层，渲染入口不再改写字符。
-    text = text or ''
-    # 处理 BR 标记
-    text_for_calc = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text, flags=re.IGNORECASE)
-
-    if is_horizontal:
-        normalized_lines = re.sub(r'\r\n?|\n', '\n', text_for_calc).split('\n')
-        if any(line for line in normalized_lines):
-            widths = [
-                text_render.get_string_width(base_font, line_text, letter_spacing=letter_spacing)
-                for line_text in normalized_lines
-            ]
-            spacing_y = text_render.calc_horizontal_line_spacing_px(base_font, line_spacing)
-            # 测量链路直接按原始行文本量宽，避免英文断行器折叠连续空格。
-            base_width = max(widths, default=0)
-            base_height = base_font * len(normalized_lines) + spacing_y * max(0, len(normalized_lines) - 1)
-            return base_width, base_height, len(normalized_lines)
-    else:
-        lines, heights, line_widths = text_render.calc_vertical_metrics(
-            base_font, text_for_calc,
-            max_height=99999, config=config, letter_spacing=letter_spacing
-        )
-        if heights:
-            spacing_x = int(base_font * 0.2 * line_spacing)
-
-            # 和后端渲染一致：sum(line_widths) + spacing
-            base_width = sum(line_widths) + spacing_x * max(0, len(lines) - 1)
-            base_height = max(heights)
-            return base_width, base_height, len(lines)
-
-    return 0, 0, 0
+    return text_render.measure_rich_text_vertical(
+        base_font,
+        text,
+        line_spacing,
+        config=config,
+        letter_spacing=letter_spacing,
+    )
 
 
 def calc_font_from_box(width: float, height: float, text: str, is_horizontal: bool,
@@ -512,19 +481,13 @@ def calc_text_block_metrics(text, is_horizontal: bool, line_spacing: float,
         body_center 为正文框中心在渲染框内的坐标（相对渲染框左上角）。
         纯文本没有框外装饰，恒为渲染框正中心。
     """
+    _ = target_lang
     base_font = max(1, int(font_size))
-    if text_render.is_rich_text_document(text):
-        metrics = text_render.measure_rich_text_metrics(
-            base_font, text, is_horizontal, line_spacing,
-            config=config, letter_spacing=letter_spacing,
-        )
-        return metrics['width'], metrics['height'], metrics['n_lines'], metrics['body_center']
-
-    base_w, base_h, n_lines = calc_text_block_dimensions(
-        text, is_horizontal, line_spacing, config, target_lang,
-        font_size=base_font, letter_spacing=letter_spacing,
+    metrics = text_render.measure_rich_text_metrics(
+        base_font, text, is_horizontal, line_spacing,
+        config=config, letter_spacing=letter_spacing,
     )
-    return base_w, base_h, n_lines, (base_w / 2.0, base_h / 2.0)
+    return metrics['width'], metrics['height'], metrics['n_lines'], metrics['body_center']
 
 
 def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,

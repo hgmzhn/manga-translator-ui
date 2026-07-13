@@ -18,7 +18,7 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QImage, QPainter, QPainterPath, QRawFont, QTextLayout
 
 from ..utils import BASE_PATH, parse_color
-from .rich_text import RichTextDocument, RenderSpan, TextStyle, ensure_rich_text_document, is_rich_text_document, normalize_rich_linebreaks
+from .rich_text import RichTextDocument, RenderSpan, TextStyle, ensure_rich_text_document, is_rich_text_document, legacy_line_breaks_to_document, normalize_rich_linebreaks
 
 try:
     HYPHENATOR_LANGUAGES.remove('fr')
@@ -83,7 +83,6 @@ _RAW_FONT_CACHE_MAX = 128
 _QFONT_CACHE_MAX = 192
 _GLYPH_SPEC_CACHE_MAX = 4096
 _GLYPH_RASTER_CACHE_MAX = 2048
-_STROKE_CACHE_MAX = 1024
 _VERTICAL_CACHE_MAX = 2048
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -123,7 +122,6 @@ class FontState:
     qfonts: dict = field(default_factory=OrderedDict)
     glyph_specs: dict = field(default_factory=OrderedDict)
     glyphs: dict = field(default_factory=OrderedDict)
-    strokes: dict = field(default_factory=OrderedDict)
     measures: dict = field(default_factory=dict)
     vertical: dict = field(default_factory=OrderedDict)
 
@@ -178,17 +176,6 @@ def add_color(bw_char_map, color, stroke_char_map, stroke_color):
     out[:, :, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
     out[:, :, 3] = stroke_alpha_u8
     return out
-
-
-def _crop_and_color(canvas_text: np.ndarray, canvas_border: np.ndarray, fg, bg):
-    """按有效 alpha 区域裁剪后再上色，避免给大面积透明 padding 做无用合成。"""
-    combined = cv2.add(canvas_text, canvas_border)
-    x, y, w, h = cv2.boundingRect(combined)
-    if w == 0 or h == 0:
-        return None
-    text_crop = canvas_text[y:y + h, x:x + w]
-    border_crop = canvas_border[y:y + h, x:x + w]
-    return add_color(text_crop, fg, border_crop, bg)
 
 
 def _parse_rgb(value, fallback=(0, 0, 0)) -> Tuple[int, int, int]:
@@ -823,7 +810,7 @@ def _refresh_font_selection(state: FontState):
     if selection != state.font_selection:
         state.font_selection = selection
         state.qfonts.clear()
-        # glyph_specs/glyphs/strokes 的 key 含字体路径，切换字体时无需清空，
+        # glyph_specs/glyphs 的 key 含字体路径，切换字体时无需清空，
         # 保留缓存避免重复解析大字体文件的字形数据
         state.measures.clear()
         state.vertical.clear()
@@ -1146,26 +1133,6 @@ def _glyph_raster(cdpt: str, font_size: int) -> GlyphRaster:
     return _cache_put(state.glyphs, key, raster, _GLYPH_RASTER_CACHE_MAX)
 
 
-def _glyph_stroke_alpha(cdpt: str, font_size: int, stroke_ratio: float) -> np.ndarray:
-    spec = _glyph_spec(cdpt, font_size)
-    state = _state()
-    key = (spec.cache_key, spec.glyph_id, int(font_size), round(float(stroke_ratio), 4))
-    cached = _cache_get(state.strokes, key)
-    if cached is not None:
-        return cached
-    raster = _glyph_raster(cdpt, font_size)
-    if raster.alpha.size == 0:
-        return _cache_put(state.strokes, key, np.zeros((0, 0), dtype=np.uint8), _STROKE_CACHE_MAX)
-    stroke_px = max(int(stroke_ratio * font_size), 1)
-    full_alpha, _, _ = _stroke_alpha_from_text_alpha(raster.alpha, stroke_px)
-    nz = cv2.findNonZero(full_alpha)
-    if nz is None:
-        return _cache_put(state.strokes, key, np.zeros((0, 0), dtype=np.uint8), _STROKE_CACHE_MAX)
-    x, y, w, h = cv2.boundingRect(nz)
-    result = full_alpha[y:y + h, x:x + w]
-    return _cache_put(state.strokes, key, result, _STROKE_CACHE_MAX)
-
-
 def _paste_bitmap(canvas: np.ndarray, bitmap_arr: np.ndarray, x: int, y: int, mode: str = 'max'):
     if bitmap_arr is None or bitmap_arr.size == 0:
         return
@@ -1182,27 +1149,6 @@ def _paste_bitmap(canvas: np.ndarray, bitmap_arr: np.ndarray, x: int, y: int, mo
         cv2.add(target, bitmap, dst=target)
     else:
         np.maximum(target, bitmap, out=target)
-
-
-def _paste_surface(canvas_text: np.ndarray, canvas_border: np.ndarray, surface: dict, x: int, y: int):
-    _paste_bitmap(canvas_text, surface['text'], int(round(x)), int(round(y)))
-    _paste_bitmap(canvas_border, surface['border'], int(round(x)), int(round(y)))
-
-
-def _paste_glyph_pair(
-    canvas_text: np.ndarray,
-    canvas_border: np.ndarray,
-    bitmap_char: np.ndarray,
-    draw_x: int,
-    draw_y: int,
-    bitmap_border: Optional[np.ndarray] = None,
-):
-    _paste_bitmap(canvas_text, bitmap_char, draw_x, draw_y, mode='max')
-    if bitmap_border is None or bitmap_border.size == 0:
-        return
-    border_x = draw_x - round((bitmap_border.shape[1] - bitmap_char.shape[1]) / 2.0)
-    border_y = draw_y - round((bitmap_border.shape[0] - bitmap_char.shape[0]) / 2.0)
-    _paste_bitmap(canvas_border, bitmap_border, border_x, border_y, mode='add')
 
 
 def _normalize_letter_spacing(letter_spacing: float) -> float:
@@ -1572,6 +1518,12 @@ def _render_rich_text_horizontal(
             layer, layer_dx, layer_dy = _rich_colorized_surface(run, fg, bg)
             if layer is not None:
                 draw_x = cursor_x + surface['left_rel'] + span.style.transform.offset_x + layer_dx
+                if reversed_direction:
+                    # reversed 的 _line_surface 以"行右端"为原点相对化墨迹
+                    # （origin_x = -logical_width），left_rel 因此带 +行宽偏移；
+                    # 摆放按 run 左边缘游标，需要减回一个行宽（对齐旧纯文本
+                    # 编排的 pen_x 补偿公式）。
+                    draw_x -= run['logical_width']
                 draw_y = baseline_y + surface['top_rel'] + span.style.transform.offset_y + layer_dy
                 _paste_rgba(canvas, layer, int(round(draw_x)), int(round(draw_y)))
             ruby = run.get('ruby')
@@ -2225,11 +2177,13 @@ def measure_rich_text_metrics(
 ) -> dict:
     """测量 richtext.v1 文档，返回渲染框尺寸与正文中心点。
 
+    纯字符串输入在此归一为单样式文档（BR/换行 → 段落），与 put_text_* 的
+    归一口径一致：测量框 == 绘制输出面尺寸对所有文本成立。
     正文框 = 渲染框去掉框外装饰（横排的首行注音/末行着重号、竖排的首列
     注音与字形左右溢出）后，纯文本本体占据的区域。body_center 是正文框
     中心在渲染框内的坐标（相对渲染框左上角）；无框外装饰时恒为渲染框正中心。
     """
-    document = ensure_rich_text_document(text)
+    document = _coerce_render_document(text)
     base_font = max(1, int(font_size))
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
     # 度量沿用旧口径：全局描边不进包络（由 calc_box_from_font 的四边对称
@@ -2552,49 +2506,23 @@ def _rich_paragraph_vertical_metrics(font_size: int, paragraph, letter_spacing: 
     return int(line_height), int(line_width)
 
 
-def _vertical_border_bitmap(translated: str, font_size: int, stroke_ratio: float, rot_degree: int):
-    bitmap = _glyph_stroke_alpha(translated, font_size, stroke_ratio)
-    if bitmap.size == 0:
-        return None
-    return cv2.rotate(bitmap, cv2.ROTATE_90_CLOCKWISE) if rot_degree == 90 else bitmap
-
-
 def _stroke_bitmap_from_alpha(text_alpha: np.ndarray, font_size: int, stroke_ratio: float):
     stroke_px = max(int(stroke_ratio * font_size), 1)
     bitmap, _, _ = _stroke_alpha_from_text_alpha(text_alpha, stroke_px)
     return None if bitmap.size == 0 else bitmap
 
 
-def _build_vertical_layout(
-    font_size: int,
-    line_text: str,
-    border_size: int,
-    stroke_ratio: float,
-    letter_spacing: float,
-    profile_stats: Optional[dict] = None,
-) -> dict:
-    line_width, items = font_size, []
-    for char in line_text:
-        if char == '＿':
-            items.append(('placeholder', _scale_advance(font_size, letter_spacing)))
-            continue
-        base = _vertical_base(font_size, char, letter_spacing)
-        line_width = max(line_width, int(base['frame_width']))
-        items.append(('char', base))
-    cursor, laid = 0, []
-    for kind, value in items:
-        if kind == 'placeholder':
-            laid.append({'kind': kind, 'advance_y': int(value), 'cursor_y': cursor})
-            cursor += int(value)
-        else:
-            x = _vertical_char_bitmap_x(0.0, float(line_width), value, font_size)
+def _coerce_render_document(text) -> RichTextDocument:
+    """渲染/测量入口的统一归一：纯字符串转单样式 richtext 文档。
 
-            laid.append({
-                'kind': kind, 'translated': value['translated'], 'rot_degree': value['rot_degree'], 'bitmap': value['bitmap'],
-                'cursor_y': cursor, 'x': int(round(x)), 'y': int(value['y']),
-            })
-            cursor += int(value['advance_y'])
-    return {'width': int(line_width), 'height': max(0, int(cursor)), 'items': laid}
+    纯文本 == "单 span、默认样式"的富文本特例：BR/换行拆成多段落，
+    每段一个默认样式 TextRun。归一后横竖排只剩富文本一套编排，
+    输出面尺寸恒等于测量框（测/渲同源契约对纯文本同样成立）。
+    """
+    if is_rich_text_document(text):
+        # F24：入口解析一次，向下传实例（内部 ensure 对实例是短路）
+        return ensure_rich_text_document(text)
+    return legacy_line_breaks_to_document(text or '')
 
 
 def put_text_horizontal(
@@ -2615,78 +2543,25 @@ def put_text_horizontal(
     letter_spacing: float = 1.0,
     profile_stats: Optional[dict] = None,
 ):
-    if is_rich_text_document(text):
-        # F24：入口解析一次，向下传实例（内部 ensure 对实例是短路）
-        document = ensure_rich_text_document(text)
-        if not document.paragraphs:
-            return None
-        return _render_rich_text_horizontal(
-            font_size,
-            document,
-            width,
-            height,
-            alignment,
-            reversed_direction,
-            fg,
-            bg,
-            line_spacing,
-            config,
-            stroke_width,
-            letter_spacing,
-            profile_stats,
-        )
-    text = text or ''
-    if not text:
-        return None
     _ = (width, height, lang, hyphenate, region_count)
-    stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
-    bg_size = int(max(font_size * stroke_ratio, 1)) if bg is not None else 0
-    spacing_y = calc_horizontal_line_spacing_px(font_size, line_spacing)
-    line_texts = normalize_rich_linebreaks(text).split('\n')
-    surfaces, metrics, tops, extents, logical_widths = [], [], [], [], []
-    logical_y = min_ink_top = max_ink_bottom = 0.0
-    for idx, line_text in enumerate(line_texts):
-        surface = _line_surface(line_text, font_size, bg_size, stroke_ratio, reversed_direction, letter_spacing, False, profile_stats)
-        frame = {'ascent': surface['line_ascent'], 'height': surface['line_height'], 'descent': surface['line_descent']} if surface else _line_metrics(line_text, font_size, letter_spacing)
-        surfaces.append(surface)
-        metrics.append(frame)
-        tops.append(logical_y)
-        left, right = (surface['left_rel'], surface['right_rel']) if surface else (0.0, 0.0)
-        logical_widths.append(float(surface['logical_width']) if surface else float(frame.get('logical_width', 0.0)))
-        if surface:
-            min_ink_top = min(min_ink_top, logical_y + surface['ink_top'])
-            max_ink_bottom = max(max_ink_bottom, logical_y + surface['ink_bottom'])
-        extents.append((left, right))
-        logical_y += frame['height'] + (spacing_y if idx < len(line_texts) - 1 else 0)
-    max_visual_width = max((max(0.0, right - left) for left, right in extents), default=0.0)
-    canvas_w = int(math.ceil(max(max_visual_width, max(logical_widths, default=0.0)) + (font_size + bg_size) * 2))
-    canvas_h = int(math.ceil(logical_y + max(0.0, -min_ink_top) + max(0.0, max_ink_bottom - logical_y) + bg_size * 2))
-    canvas_text = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
-    canvas_border = np.zeros_like(canvas_text)
-    base_x = canvas_w - bg_size - 10 if reversed_direction else font_size + bg_size
-    base_y = bg_size + max(0.0, -min_ink_top)
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    for i, surface in enumerate(surfaces):
-        if surface is None:
-            continue
-        left, right = extents[i]
-        line_width = max(0.0, right - left)
-        if reversed_direction:
-            slot_right = base_x
-            slot_left = slot_right - max_visual_width
-            target_left = slot_left if alignment == 'left' else slot_left + round((max_visual_width - line_width) / 2.0) if alignment == 'center' else slot_right - line_width
-            pen_x = round(target_left + line_width - right)
-        else:
-            slot_left = base_x
-            target_left = slot_left if alignment == 'left' else slot_left + round((max_visual_width - line_width) / 2.0) if alignment == 'center' else slot_left + (max_visual_width - line_width)
-            pen_x = round(target_left - left)
-        baseline_y = base_y + tops[i] + metrics[i]['ascent']
-        _paste_surface(canvas_text, canvas_border, surface, pen_x + surface['left_rel'], baseline_y + surface['top_rel'])
-    _profile_add(profile_stats, "tr_paste_ms", stage_t0)
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    result = _crop_and_color(canvas_text, canvas_border, fg, bg)
-    _profile_add(profile_stats, "tr_color_ms", stage_t0)
-    return result
+    document = _coerce_render_document(text)
+    if not document.paragraphs:
+        return None
+    return _render_rich_text_horizontal(
+        font_size,
+        document,
+        width,
+        height,
+        alignment,
+        reversed_direction,
+        fg,
+        bg,
+        line_spacing,
+        config,
+        stroke_width,
+        letter_spacing,
+        profile_stats,
+    )
 
 
 def put_text_vertical(
@@ -2703,67 +2578,23 @@ def put_text_vertical(
     letter_spacing: float = 1.0,
     profile_stats: Optional[dict] = None,
 ):
-    if is_rich_text_document(text):
-        # F24：入口解析一次，向下传实例（内部 ensure 对实例是短路）
-        document = ensure_rich_text_document(text)
-        if not document.paragraphs:
-            return None
-        return _render_rich_text_vertical(
-            font_size,
-            document,
-            h,
-            alignment,
-            fg,
-            bg,
-            line_spacing,
-            config,
-            stroke_width,
-            letter_spacing,
-            profile_stats,
-        )
-    text = text or ''
-    if not text:
-        return None
     _ = (h, region_count)
-    stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
-    bg_size = int(max(font_size * stroke_ratio, 1)) if bg is not None else 0
-
-    spacing_x = calc_vertical_line_spacing_px(font_size, line_spacing)
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    layouts = [
-        _build_vertical_layout(font_size, line, bg_size, stroke_ratio, letter_spacing, profile_stats)
-        for line in normalize_rich_linebreaks(text).split('\n')
-    ]
-    _profile_add(profile_stats, "tr_vertical_layout_ms", stage_t0)
-    line_widths = [layout['width'] for layout in layouts]
-    max_height = max((layout['height'] for layout in layouts), default=0)
-    content_width = sum(line_widths) + spacing_x * max(0, len(line_widths) - 1)
-    canvas_text = np.zeros((max_height + (font_size + bg_size) * 2, content_width + (font_size + bg_size) * 2), dtype=np.uint8)
-    canvas_border = np.zeros_like(canvas_text)
-    columns = _vertical_column_walk(
-        line_widths,
-        [spacing_x] * max(0, len(line_widths) - 1),
-        font_size + bg_size + content_width,
+    document = _coerce_render_document(text)
+    if not document.paragraphs:
+        return None
+    return _render_rich_text_vertical(
+        font_size,
+        document,
+        h,
+        alignment,
+        fg,
+        bg,
+        line_spacing,
+        config,
+        stroke_width,
+        letter_spacing,
+        profile_stats,
     )
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    for idx, layout in enumerate(layouts):
-        line_start_x = int(round(columns[idx][0]))
-        line_origin_y = _vertical_line_origin_y(font_size + bg_size, alignment, max_height, layout['height'])
-        for item in layout['items']:
-            if item['kind'] == 'char' and item['bitmap'] is not None:
-                draw_x = line_start_x + int(item['x'])
-                draw_y = line_origin_y + item['cursor_y'] + int(item['y'])
-                sub_t0 = perf_counter() if profile_stats is not None else None
-                border_bitmap = _vertical_border_bitmap(item['translated'], font_size, stroke_ratio, item['rot_degree']) if bg_size > 0 else None
-                _profile_add(profile_stats, "tr_vborder_ms", sub_t0)
-                sub_t0 = perf_counter() if profile_stats is not None else None
-                _paste_glyph_pair(canvas_text, canvas_border, item['bitmap'], draw_x, draw_y, border_bitmap)
-                _profile_add(profile_stats, "tr_vpaste_ms", sub_t0)
-    _profile_add(profile_stats, "tr_paste_ms", stage_t0)
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    result = _crop_and_color(canvas_text, canvas_border, fg, bg)
-    _profile_add(profile_stats, "tr_color_ms", stage_t0)
-    return result
 
 
 def select_hyphenator(lang: str):
