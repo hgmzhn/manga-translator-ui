@@ -66,75 +66,36 @@ def render_text_with_upscale(
         else:
             upscale_factor = 1  # 大字号不需要放大
     
-    # 如果不需要放大，直接使用原始渲染
-    if upscale_factor == 1:
+    def _render(fs: int, w: int, h: int) -> Optional[np.ndarray]:
+        """按给定字号/画布尺寸调用底层渲染器；横竖排参数差异在此收口。"""
         if is_horizontal:
             return text_render.put_text_horizontal(
-                font_size, text, width, height, alignment,
-                reversed_direction, fg, bg, target_lang, hyphenate, 
+                fs, text, w, h, alignment,
+                reversed_direction, fg, bg, target_lang, hyphenate,
                 line_spacing, config, region_count, stroke_width, letter_spacing=letter_spacing
             )
-        else:
-            return text_render.put_text_vertical(
-                font_size, text, height, alignment, fg, bg, 
-                line_spacing, config, region_count, stroke_width, letter_spacing=letter_spacing
-            )
-    
+        return text_render.put_text_vertical(
+            fs, text, h, alignment, fg, bg,
+            line_spacing, config, region_count, stroke_width, letter_spacing=letter_spacing
+        )
+
+    # 如果不需要放大，直接使用原始渲染
+    if upscale_factor == 1:
+        return _render(font_size, width, height)
+
     logger.debug(f"[HQ_RENDER] 使用 {upscale_factor}x 放大渲染 (原始字号={font_size})")
-    
+
     # 放大所有参数
     upscaled_font_size = font_size * upscale_factor
     upscaled_width = width * upscale_factor
     upscaled_height = height * upscale_factor
-    
+
     # 用放大的参数渲染整个文本块
     try:
-        if is_horizontal:
-            upscaled_canvas = text_render.put_text_horizontal(
-                upscaled_font_size,
-                text,
-                upscaled_width,
-                upscaled_height,
-                alignment,
-                reversed_direction,
-                fg,
-                bg,
-                target_lang,
-                hyphenate,
-                line_spacing,
-                config,
-                region_count,
-                stroke_width,
-                letter_spacing=letter_spacing
-            )
-        else:
-            upscaled_canvas = text_render.put_text_vertical(
-                upscaled_font_size,
-                text,
-                upscaled_height,
-                alignment,
-                fg,
-                bg,
-                line_spacing,
-                config,
-                region_count,
-                stroke_width,
-                letter_spacing=letter_spacing
-            )
+        upscaled_canvas = _render(upscaled_font_size, upscaled_width, upscaled_height)
     except Exception as e:
         logger.error(f"[HQ_RENDER] 放大渲染失败: {e}，回退到普通渲染")
-        # 失败时回退到普通渲染
-        if is_horizontal:
-            return text_render.put_text_horizontal(
-                font_size, text, width, height, alignment,
-                reversed_direction, fg, bg, target_lang, hyphenate,
-                line_spacing, config, region_count, stroke_width, letter_spacing=letter_spacing
-            )
-        else:
-            return text_render.put_text_vertical(
-                font_size, text, height, alignment, fg, bg,
-                line_spacing, config, region_count, stroke_width, letter_spacing=letter_spacing
-            )
+        return _render(font_size, width, height)
     
     if upscaled_canvas is None:
         logger.warning("[HQ_RENDER] 放大渲染返回 None")
