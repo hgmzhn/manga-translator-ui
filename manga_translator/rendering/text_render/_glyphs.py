@@ -1,0 +1,178 @@
+"""字形层：character → GlyphSpec（字体+glyph id）→ GlyphRaster（alpha 位图与度量）。"""
+import math
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+import numpy as np
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QRawFont
+
+from ._fonts import _create_text_layout, _normalize_font_path, _raw_font, _state
+from ._shared import _GLYPH_RASTER_CACHE_MAX, _GLYPH_SPEC_CACHE_MAX, _cache_get, _cache_put
+
+@dataclass(frozen=True)
+class GlyphSpec:
+    raw_font: QRawFont
+    glyph_id: int
+    cache_key: Tuple
+
+
+@dataclass(frozen=True)
+class GlyphRaster:
+    alpha: np.ndarray
+    left: int
+    top: int
+    advance_x: int
+    advance_y: int
+    vert_bearing_y: int
+    frame_width: int
+
+
+def _glyph_has_advance(raw_font: QRawFont, glyph_id: int) -> bool:
+    if not glyph_id:
+        return False
+    try:
+        advances = raw_font.advancesForGlyphIndexes([glyph_id])
+    except Exception:
+        return False
+    return bool(advances and (advances[0].x() or advances[0].y()))
+
+
+def _glyph_renderable(raw_font: QRawFont, glyph_id: int, cdpt: str = '') -> bool:
+    if not glyph_id:
+        return False
+    if cdpt.isspace() and _glyph_has_advance(raw_font, glyph_id):
+        return True
+    try:
+        if not raw_font.pathForGlyph(glyph_id).isEmpty():
+            return True
+    except Exception:
+        pass
+    try:
+        alpha = raw_font.alphaMapForGlyph(glyph_id)
+        return not alpha.isNull() and alpha.width() > 0 and alpha.height() > 0
+    except Exception:
+        return False
+
+
+def _raw_font_key(raw_font: QRawFont) -> Tuple[str, str, str]:
+    try:
+        family = raw_font.familyName() or ''
+    except Exception:
+        family = ''
+    try:
+        style = raw_font.styleName() or ''
+    except Exception:
+        style = ''
+    try:
+        weight = raw_font.weight()
+        weight = getattr(weight, 'value', weight)
+        weight = str(int(weight))
+    except Exception:
+        weight = ''
+    return family, style, weight
+
+
+def _glyph_spec_via_layout(cdpt: str, font_size: int) -> Optional[GlyphSpec]:
+    _, _, layout, _ = _create_text_layout(cdpt, font_size, 1.0)
+    if layout is None:
+        return None
+    whitespace = None
+    for run in layout.glyphRuns():
+        raw_font = run.rawFont()
+        for glyph_id in run.glyphIndexes():
+            if _glyph_renderable(raw_font, glyph_id, cdpt):
+                return GlyphSpec(raw_font, int(glyph_id), ('qt-layout',) + _raw_font_key(raw_font))
+            if whitespace is None and cdpt.isspace() and _glyph_has_advance(raw_font, glyph_id):
+                whitespace = GlyphSpec(raw_font, int(glyph_id), ('qt-layout',) + _raw_font_key(raw_font))
+    return whitespace
+
+
+def _glyph_spec_from_selection(cdpt: str, font_size: int) -> Optional[GlyphSpec]:
+    state = _state()
+    if state.font_family or state.bold:
+        return None
+    for path in state.font_selection:
+        raw_font = _raw_font(path, font_size)
+        # Avoid raw_font.supportsCharacter() because it freezes on some fonts
+        glyphs = raw_font.glyphIndexesForString(cdpt)
+        glyph_id = glyphs[0] if glyphs else 0
+        # glyph_id > 0 足以判断字体支持该字符，跳过 _glyph_renderable 避免
+        # 对复杂字形调 pathForGlyph 导致首次渲染极慢
+        if glyph_id > 0:
+            return GlyphSpec(raw_font, int(glyph_id), ('font-path', _normalize_font_path(path)))
+        # Space character might legitimately have glyph_id == 0 or map to advance
+        if glyph_id == 0 and cdpt.isspace() and _glyph_has_advance(raw_font, glyph_id):
+            return GlyphSpec(raw_font, int(glyph_id), ('font-path', _normalize_font_path(path)))
+    return None
+
+
+def _glyph_spec(cdpt: str, font_size: int) -> GlyphSpec:
+    state = _state()
+    # 缓存 key 含当前主字体路径，避免切换字体后命中旧缓存
+    font_key = state.font_family or (state.font_selection[0] if state.font_selection else '')
+    key = (cdpt, int(font_size), font_key, bool(state.bold))
+    cached = _cache_get(state.glyph_specs, key)
+    if cached is not None:
+        return cached
+    # 优先使用 font_selection 手动查找，修复 Qt layout 找不到某些字体的问题
+    spec = _glyph_spec_from_selection(cdpt, font_size) or _glyph_spec_via_layout(cdpt, font_size)
+    if spec is None:
+        if cdpt in (' ', '?', '□'):
+            raise RuntimeError(f"Character '{cdpt}' not found in any font.")
+        for placeholder in ('?', '□', ' '):
+            if placeholder != cdpt:
+                try:
+                    spec = _glyph_spec(placeholder, font_size)
+                    break
+                except RuntimeError:
+                    continue
+    if spec is None:
+        raise RuntimeError('No placeholder character found in any font.')
+    return _cache_put(state.glyph_specs, key, spec, _GLYPH_SPEC_CACHE_MAX)
+
+
+def _qimage_alpha_to_array(image: QImage) -> np.ndarray:
+    ptr = image.bits()
+    ptr.setsize(image.sizeInBytes())
+    arr = np.frombuffer(ptr, dtype=np.uint8).reshape((image.height(), image.bytesPerLine() // 4, 4))
+    return arr[:, :image.width(), 3].copy()
+
+
+def _rasterize_path(path: QPainterPath) -> Tuple[np.ndarray, int, int]:
+    if path.isEmpty():
+        return np.zeros((0, 0), dtype=np.uint8), 0, 0
+    rect = path.boundingRect()
+    left, top = math.floor(rect.left()), math.floor(rect.top())
+    width = max(0, math.ceil(rect.right()) - left)
+    height = max(0, math.ceil(rect.bottom()) - top)
+    if width <= 0 or height <= 0:
+        return np.zeros((0, 0), dtype=np.uint8), left, top
+    image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(255, 255, 255, 255))
+    painter.translate(-left, -top)
+    painter.drawPath(path)
+    painter.end()
+    return _qimage_alpha_to_array(image), left, top
+
+
+def _glyph_raster(cdpt: str, font_size: int) -> GlyphRaster:
+    spec = _glyph_spec(cdpt, font_size)
+    state = _state()
+    key = (spec.cache_key, spec.glyph_id, int(font_size))
+    cached = _cache_get(state.glyphs, key)
+    if cached is not None:
+        return cached
+    path = spec.raw_font.pathForGlyph(spec.glyph_id)
+    alpha, left, top = _rasterize_path(path)
+    advances = spec.raw_font.advancesForGlyphIndexes([spec.glyph_id]) if spec.glyph_id else []
+    advance = advances[0] if advances else QPointF(float(font_size), float(font_size))
+    metrics = path.boundingRect()
+    advance_x = int(round(advance.x())) if advance.x() else max(int(round(metrics.width())), font_size)
+    advance_y = int(round(advance.y())) if advance.y() else max(int(round(metrics.height())), font_size)
+    raster = GlyphRaster(alpha, int(left), int(-top), int(advance_x), int(advance_y), int(top), max(int(round(metrics.width())), int(advance_x), 1))
+    return _cache_put(state.glyphs, key, raster, _GLYPH_RASTER_CACHE_MAX)
