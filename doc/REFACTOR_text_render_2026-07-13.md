@@ -9,9 +9,11 @@
 |---|---|---|
 | Phase 0 | 测试基线 + golden 像素基准脚本 | 完成 |
 | Phase 1 | 死代码与空壳清理（-659 行） | **已提交 d69b21e** |
-| Phase 2 | 纯文本归一到富文本单路径（净 -约 300 行） | **已提交；横排行高口径决策待定，见 doc/DECISION_h_line_height_2026-07-13.md** |
-| Phase 3 | text_render.py 拆分为子模块（facade 保 API） | 未开始 |
-| Phase 4 | 连带文件简化（__init__.py / text_render_hq.py） | 未开始 |
+| Phase 2 | 纯文本归一到富文本单路径（净 -约 300 行） | **已提交 62093a6；横排行高口径决策待定，见 doc/DECISION_h_line_height_2026-07-13.md** |
+| Phase 3 | text_render.py 拆分为子模块包（facade 保 API） | **已提交 2242e4f** |
+| Phase 4 | 连带文件简化 | **HQ 收口已提交 1572b79；generate_line_break_combinations 决定不动（见下）** |
+
+全程净减约 558 行（+3019/-3577，含拆分的 import/docstring 开销 +167）。
 
 回归验收手段（Phase 0 建立）：
 - `test/render_golden.py`：22 个语料用例（纯文本横/竖排、省略号、宽字形、reversed、
@@ -105,13 +107,32 @@
   和 `_rich_horizontal_layout_geometry` 共用同一数字，改一处测/渲同步变。
   注意这会同时改变富文本既有行为（测试固化，需同步更新断言）。
 
-## Phase 3 / Phase 4（未开始）
+## Phase 3（已提交 2242e4f）
 
-- Phase 3：`text_render.py`（当前约 2350 行）拆分为 fonts / glyphs / compose /
-  layout / measure 子模块，facade 保持 `text_render.xxx` 全部公共 API 与
-  `auto_linebreak` 依赖的 `_vertical_base`、`_measure_horizontal_text_width`。
-  外部消费方清单与硬边界见 `~/.claude/plans/scalable-fluttering-cerf.md`。
-- Phase 4：`rendering/__init__.py` 的 `generate_line_break_combinations` 三分支合并；
-  `text_render_hq.py` 三处重复调用收口。
-- 附带备忘：`scripts/verify_vertical_stroke_alignment.py` 引用了不存在的
-  `_get_vertical_border_bitmap`（早于本次重构就已脱节），需要时按新 API 重写。
+`text_render.py`（2647 行单文件）拆分为 `text_render/` 包，ast 按符号切割保证零转录，
+外部 `text_render.xxx` 导入路径不变。依赖单向无环：
+
+```
+_shared（计时/LRU 缓存原语） ← _fonts（Qt 字体运行时） ← _glyphs（字形光栅）
+_compose（图层合成/特效，独立）
+_layout（横竖排布局+包络几何+竖排槽位；依赖上面全部）
+_render（put_text_*/measure_*/calc_* 入口）
+__init__.py（facade：公共 API + auto_linebreak/测试依赖的私有符号收口）
+```
+
+## Phase 4（HQ 收口已提交 1572b79）
+
+- `text_render_hq.py`：直通/放大/失败回退三处重复的 put_text 调用收口为 `_render` 闭包。
+- **`generate_line_break_combinations`（rendering/__init__.py）决定不合并**：三个规模
+  分支的 pair 删除路径存在微妙的 offset 计算语义差异，且使用 `random.sample`
+  非确定采样、无任何测试覆盖——合并的回归风险大于 ~100 行的收益。留待该函数
+  有测试后再动。
+
+## 遗留备忘
+
+- 横排行高口径决策（见 doc/DECISION_h_line_height_2026-07-13.md）
+- `scripts/verify_vertical_stroke_alignment.py` 引用了不存在的
+  `_get_vertical_border_bitmap`（早于本次重构就已脱节），需要时按新 API 重写；
+  `scripts/verify_text_render_shared_state.py` 同样引用已消失的私有符号。
+- golden 基线（test/golden/）按 Phase 2 归一后口径建立；后续改动跑
+  `python test/render_golden.py --check` 验收。

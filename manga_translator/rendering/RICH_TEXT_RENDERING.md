@@ -106,9 +106,13 @@ BR 收口只负责把传统换行字符串拆成多个 `paragraph`，不会从 `
   - 提供 `RichTextDocument`、`Paragraph`、`TextRun`、`RubyRun`、`TcyRun`、`TextStyle`、`StrokeStyle`、`GlowStyle`、`TextTransform`。
   - 提供 `ensure_rich_text_document()` 和 `is_rich_text_document()` 给渲染入口判断和规范化输入。
 
-- `text_render.py`
-  - 字符串输入继续走原来的纯文本渲染路径。
-  - 只有 `RichTextDocument` 或 `{"format": "richtext.v1", ...}` dict 才会走结构化富文本渲染路径。
+- `text_render/`（包，2026-07 由单文件拆分）
+  - 渲染入口只有一条富文本编排：纯字符串在入口归一为单 span 文档
+    （`_render._coerce_render_document`，BR/换行 → 段落）。
+  - 子模块按职责分层：`_fonts`（Qt 字体运行时）、`_glyphs`（字形光栅）、
+    `_compose`（图层合成与特效）、`_layout`（横竖排布局与包络几何，
+    "测量==绘制"契约的实现处）、`_render`（put_text_*/measure_*/calc_* 入口）、
+    `__init__`（facade，消费方只应通过它访问）。
   - 渲染路径不解析标记语言，也不做 tag strip。
 
 - `rendering/__init__.py`、`utils/textblock.py`
@@ -148,12 +152,13 @@ string
   -> 结构化富文本渲染路径
 ```
 
-不含旧换行标记的普通字符串仍按纯文本渲染：
+不含旧换行标记的普通字符串同样在渲染入口归一为单 span 文档，走同一条
+结构化渲染路径（2026-07 起纯文本编排已移除，测量与渲染共用富文本包络几何）：
 
 ```text
 string
-  -> 原有 compact 处理
-  -> 原有横排或竖排渲染器
+  -> _coerce_render_document()（单 span、默认样式）
+  -> 结构化富文本渲染路径
 ```
 
 ## 当前支持范围
