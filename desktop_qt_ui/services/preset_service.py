@@ -8,6 +8,9 @@ import os
 import sys
 from typing import Dict, List, Optional
 
+ATLAS_CLOUD_OPENAI_BASE = "https://api.atlascloud.ai/v1"
+ATLAS_CLOUD_TEXT_MODEL = "qwen/qwen3.5-flash"
+
 
 class PresetService:
     """预设管理服务"""
@@ -34,8 +37,8 @@ class PresetService:
         # 确保预设目录存在
         os.makedirs(self.presets_dir, exist_ok=True)
         
-        # 创建默认预设（如果不存在）
-        self._create_default_preset()
+        # 创建内置预设（如果不存在）
+        self._create_builtin_presets()
         
         self.logger.info(f"预设目录: {self.presets_dir}")
 
@@ -97,18 +100,34 @@ class PresetService:
         default_env["OPENAI_API_BASE"] = "https://api.openai.com/v1"
         default_env["OPENAI_MODEL"] = "gpt-4o"
         return default_env
+
+    def _build_atlascloud_preset_env(self) -> Dict[str, str]:
+        """构建 Atlas Cloud OpenAI-compatible 预设内容。"""
+        atlas_env = self._normalize_preset_env_vars({})
+        atlas_env["OPENAI_API_KEY"] = ""
+        atlas_env["OPENAI_API_BASE"] = ATLAS_CLOUD_OPENAI_BASE
+        atlas_env["OPENAI_MODEL"] = ATLAS_CLOUD_TEXT_MODEL
+        return atlas_env
+
+    def _write_builtin_preset_if_missing(self, preset_name: str, env_vars: Dict[str, str]):
+        preset_path = os.path.join(self.presets_dir, f"{preset_name}.json")
+        if os.path.exists(preset_path):
+            return
+        try:
+            with open(preset_path, 'w', encoding='utf-8') as f:
+                json.dump(env_vars, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"已创建{preset_name}预设")
+        except Exception as e:
+            self.logger.error(f"创建{preset_name}预设失败: {e}")
+
+    def _create_builtin_presets(self):
+        """创建内置预设"""
+        self._write_builtin_preset_if_missing("默认", self._build_default_preset_env())
+        self._write_builtin_preset_if_missing("Atlas Cloud", self._build_atlascloud_preset_env())
     
     def _create_default_preset(self):
         """创建默认预设"""
-        default_preset_path = os.path.join(self.presets_dir, "默认.json")
-        if not os.path.exists(default_preset_path):
-            default_env = self._build_default_preset_env()
-            try:
-                with open(default_preset_path, 'w', encoding='utf-8') as f:
-                    json.dump(default_env, f, indent=2, ensure_ascii=False)
-                self.logger.info("已创建默认预设")
-            except Exception as e:
-                self.logger.error(f"创建默认预设失败: {e}")
+        self._write_builtin_preset_if_missing("默认", self._build_default_preset_env())
     
     def get_presets_list(self) -> List[str]:
         """获取所有预设名称列表"""
