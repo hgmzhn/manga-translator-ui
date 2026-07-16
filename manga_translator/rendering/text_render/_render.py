@@ -6,6 +6,7 @@
 import re
 from typing import Optional, Tuple
 
+import cv2
 import numpy as np
 
 from ..rich_text import (
@@ -14,16 +15,26 @@ from ..rich_text import (
     is_rich_text_document,
     legacy_line_breaks_to_document,
 )
-from ._compose import _crop_rgba_fixed, _draw_rgba_disc, _paste_rgba, _style_fill_color, _style_font_size
-from ._fonts import _style_font_scope
+from ._compose import (
+    _apply_style_layer_effects,
+    _crop_rgba_fixed,
+    _draw_rgba_disc,
+    _glyph_pair_rgba,
+    _paste_rgba,
+    _rgba_from_alpha_pair,
+    _style_fill_color,
+    _style_font_size,
+    _style_stroke_color,
+    _stroke_bitmap_from_alpha,
+)
+from ._fonts import _state, _style_font_scope
 from ._layout import (
     _build_rich_horizontal_layout,
     _build_rich_vertical_layout,
-    _draw_vertical_ruby,
     _measure_horizontal_text_width,
-    _rich_colorized_surface,
+    _line_surface,
     _rich_horizontal_layout_geometry,
-    _rich_vertical_block_layer_x,
+    _rich_vertical_tcy_layer_x,
     _rich_vertical_char_layer_x,
     _rich_vertical_column_positions,
     _rich_vertical_layout_geometry,
@@ -31,6 +42,91 @@ from ._layout import (
     _vertical_line_origin_y,
     calc_horizontal_block_height,
 )
+from ._plans import RubyPlan, TcyPlan
+from ._policy import RICH_TEXT_POLICY
+from ._vertical_types import VerticalCharPlan, VerticalPlaceholderPlan
+
+
+def _paint_vertical_ruby(canvas: np.ndarray, plan: RubyPlan, body_right: float, main_offset: float, fg, letter_spacing: float):
+    if not plan.glyphs:
+        return
+    ruby_size = max(1, int(round(plan.font_size * RICH_TEXT_POLICY.vertical_ruby_size)))
+    ruby_style = plan.source.style.copy()
+    ruby_style.emphasis = False
+    fill = _style_fill_color(ruby_style, fg)
+    stroke = _style_stroke_color(ruby_style, None)
+    x = body_right + plan.cross_center
+    with _style_font_scope(ruby_style):
+        for glyph in plan.glyphs:
+            base = _vertical_base(ruby_size, glyph.char, letter_spacing)
+            if base.bitmap is None:
+                continue
+            layer, off_x, off_y = _glyph_pair_rgba(base.bitmap, None, fill, stroke)
+            if layer is None:
+                continue
+            if glyph.main_scale != 1.0:
+                scaled_h = max(1, int(round(layer.shape[0] * glyph.main_scale)))
+                layer = cv2.resize(layer, (layer.shape[1], scaled_h), interpolation=cv2.INTER_LINEAR)
+                off_y *= glyph.main_scale
+            cy = main_offset + glyph.main_center
+            _paste_rgba(
+                canvas,
+                layer,
+                int(round(x - layer.shape[1] / 2.0 + off_x)),
+                int(round(cy - layer.shape[0] / 2.0 + off_y)),
+            )
+
+
+def _rasterize_text_layer(
+    text: str,
+    style,
+    font_size: int,
+    stroke_ratio: float,
+    reversed_direction: bool,
+    fg,
+    bg,
+    letter_spacing: float,
+    profile_stats: Optional[dict],
+):
+    """Rasterize one horizontal text primitive from an existing layout plan."""
+    border_size = int(max(font_size * stroke_ratio, 1)) if stroke_ratio > 0 else 0
+    effective_bold = bool(style.bold) or _state().bold
+    with _style_font_scope(style):
+        surface = _line_surface(
+            text,
+            font_size,
+            border_size,
+            stroke_ratio,
+            reversed_direction,
+            letter_spacing,
+            effective_bold,
+            profile_stats,
+        )
+    if surface is None:
+        return None
+    fill = _style_fill_color(style, fg)
+    stroke = _style_stroke_color(style, bg) if stroke_ratio > 0 else None
+    layer = _rgba_from_alpha_pair(surface['text'], surface['border'], fill, stroke)
+    if layer is None:
+        return None
+    layer, _, _ = _apply_style_layer_effects(layer, style, font_size)
+    return layer
+
+
+def _rasterize_vertical_char(plan: VerticalCharPlan):
+    bitmap = plan.base.bitmap
+    if bitmap is None or not bitmap.size:
+        return None
+    stroke_bitmap = (
+        _stroke_bitmap_from_alpha(bitmap, plan.font_size, plan.stroke_ratio)
+        if plan.stroke_ratio > 0
+        else None
+    )
+    layer, _, _ = _glyph_pair_rgba(bitmap, stroke_bitmap, plan.fill, plan.stroke)
+    if layer is None:
+        return None
+    layer, _, _ = _apply_style_layer_effects(layer, plan.span.style, plan.font_size)
+    return layer
 
 def _render_rich_text_horizontal(
     font_size: int,
@@ -51,11 +147,11 @@ def _render_rich_text_horizontal(
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
     _ = (width, height)  # 包络由内容决定，外部最小尺寸不再参与画布
     layouts = _build_rich_horizontal_layout(
-        document, font_size, stroke_ratio, fg, bg, reversed_direction, letter_spacing, profile_stats
+        document, font_size, stroke_ratio, bg, reversed_direction, letter_spacing, profile_stats
     )
     geometry = _rich_horizontal_layout_geometry(layouts, font_size, line_spacing)
     max_font_size = max(
-        [font_size] + [run['font_size'] for layout in layouts for run in layout['runs']]
+        [font_size] + [run.font_size for layout in layouts for run in layout.runs]
     )
 
     padding = int(max(max_font_size * 2.0, 16))
@@ -66,7 +162,7 @@ def _render_rich_text_horizontal(
     body_width = geometry['body_width']
 
     for layout, normalized_baseline in zip(layouts, geometry['baselines']):
-        line_width = layout['logical_width']
+        line_width = layout.logical_width
         if reversed_direction:
             line_left = body_left + body_width - line_width if alignment == 'right' else body_left
             if alignment == 'center':
@@ -75,43 +171,65 @@ def _render_rich_text_horizontal(
             line_left = body_left if alignment == 'left' else body_left + (body_width - line_width) / 2.0 if alignment == 'center' else body_left + body_width - line_width
         baseline_y = float(padding) + float(normalized_baseline)
         cursor_x = line_left
-        for run in layout['runs']:
-            surface = run['surface']
-            span = run['span']
-            if surface is not None:
-                layer, _, _ = _rich_colorized_surface(run, fg, bg)
+        for run in layout.runs:
+            span = run.span
+            if run.has_ink:
+                layer = _rasterize_text_layer(
+                    span.text,
+                    span.style,
+                    run.font_size,
+                    run.stroke_ratio,
+                    reversed_direction,
+                    fg,
+                    bg,
+                    letter_spacing,
+                    profile_stats,
+                )
                 if layer is not None:
-                    main_rect = run['main_rect']
+                    main_rect = run.main_rect
+                    if main_rect is not None:
+                        _paste_rgba(
+                            canvas,
+                            layer,
+                            int(round(cursor_x + main_rect.x)),
+                            int(round(baseline_y + main_rect.y)),
+                        )
+            ruby = run.ruby
+            if ruby is not None:
+                ruby_style = span.style.copy()
+                ruby_style.emphasis = False
+                for glyph in ruby.glyphs:
+                    layer = _rasterize_text_layer(
+                        glyph.char,
+                        ruby_style,
+                        ruby.font_size,
+                        ruby.stroke_ratio,
+                        False,
+                        fg,
+                        bg,
+                        letter_spacing,
+                        profile_stats,
+                    )
+                    if layer is None:
+                        continue
                     _paste_rgba(
                         canvas,
                         layer,
-                        int(round(cursor_x + main_rect[0])),
-                        int(round(baseline_y + main_rect[1])),
+                        int(round(cursor_x + glyph.main_center - glyph.paint_width / 2.0)),
+                        int(round(baseline_y + ruby.cross_center - glyph.paint_height / 2.0)),
                     )
-            ruby = run.get('ruby')
-            ruby_rect = run.get('ruby_rect')
-            if ruby and ruby_rect:
-                _paste_rgba(
-                    canvas,
-                    ruby['layer'],
-                    int(round(cursor_x + ruby_rect[0])),
-                    int(round(baseline_y + ruby_rect[1])),
-                )
-            if span.style.emphasis:
-                dot_color = _style_fill_color(span.style, fg)
-                char_cursor = cursor_x
-                for char in span.text:
-                    advance = get_char_offset_x(run['font_size'], char, letter_spacing)
-                    radius = max(1.0, run['font_size'] * 0.055)
+            emphasis = run.emphasis
+            if emphasis is not None:
+                dot_color = _style_fill_color(emphasis.source.style, fg)
+                for main_center in emphasis.main_centers:
                     _draw_rgba_disc(
                         canvas,
-                        char_cursor + advance / 2.0,
-                        baseline_y + run['emphasis_center_y'],
-                        radius,
+                        cursor_x + main_center,
+                        baseline_y + emphasis.cross_center,
+                        emphasis.radius,
                         dot_color,
                     )
-                    char_cursor += advance
-            cursor_x += run['logical_width']
+            cursor_x += run.logical_width
 
     return _crop_rgba_fixed(
         canvas,
@@ -154,52 +272,72 @@ def _render_rich_text_vertical(
 
     for idx, layout in enumerate(layouts):
         body_left, body_right, _ = columns[idx]
-        thickness = float(layout['thickness'])
-        line_origin_y = _vertical_line_origin_y(float(padding + geometry['top_extra']), alignment, body_height, layout['height'])
-        for item in layout['items']:
-            if item['kind'] == 'block':
-                x = _rich_vertical_block_layer_x(body_left, thickness, item)
-                y = line_origin_y + item['cursor_y']
-                y += item['span'].style.transform.offset_y + item.get('offset_y', 0.0)
-                _paste_rgba(canvas, item['layer'], int(round(x)), int(round(y)))
+        thickness = float(layout.thickness)
+        line_origin_y = _vertical_line_origin_y(
+            float(padding + geometry['top_extra']),
+            alignment,
+            body_height,
+            layout.height,
+        )
+        for item in layout.items:
+            if isinstance(item, TcyPlan):
+                layer = _rasterize_text_layer(
+                    item.text,
+                    item.source.style,
+                    item.font_size,
+                    item.stroke_ratio,
+                    False,
+                    fg,
+                    bg,
+                    letter_spacing,
+                    profile_stats,
+                )
+                if layer is None:
+                    continue
+                x = _rich_vertical_tcy_layer_x(body_left, thickness, item)
+                y = (
+                    line_origin_y
+                    + item.main_start
+                    + item.source.style.transform.offset_y
+                    + item.paint_offset_y
+                )
+                _paste_rgba(canvas, layer, int(round(x)), int(round(y)))
                 continue
-            if item['kind'] == 'placeholder':
+            if isinstance(item, VerticalPlaceholderPlan):
                 continue
-            layer = item.get('layer')
+            if not isinstance(item, VerticalCharPlan):
+                continue
+            layer = _rasterize_vertical_char(item)
             if layer is None:
                 continue
             char_x = _rich_vertical_char_layer_x(body_left, thickness, item)
             char_y = (
                 line_origin_y
-                + item['cursor_y']
-                + int(item['base']['y'])
-                + item['span'].style.transform.offset_y
-                + float(item.get('paint_offset_y', 0.0))
+                + item.cursor_y
+                + item.base.y
+                + item.span.style.transform.offset_y
+                + item.paint_offset_y
             )
             _paste_rgba(canvas, layer, int(round(char_x)), int(round(char_y)))
-            if item['span'].style.emphasis:
-                radius = max(1.0, item['font_size'] * 0.055)
+        for emphasis in layout.emphasis_plans:
+            dot_color = _style_fill_color(emphasis.source.style, fg)
+            for main_center in emphasis.main_centers:
                 _draw_rgba_disc(
                     canvas,
-                    body_right + layout['ruby_extra'] + item['font_size'] * 0.20,
-                    line_origin_y + item['cursor_y'] + item['advance_y'] / 2.0,
-                    radius,
-                    item['fill'],
+                    body_right + emphasis.cross_center,
+                    line_origin_y + main_center,
+                    emphasis.radius,
+                    dot_color,
                 )
-            if item['span'].ruby:
-                ruby_x = body_right + max(1.0, layout['ruby_extra'] / 2.0)
-                _draw_vertical_ruby(
-                    canvas,
-                    ''.join(run.text for run in item['span'].ruby),
-                    ruby_x,
-                    line_origin_y + item['cursor_y'],
-                    line_origin_y + item['cursor_y'] + item['advance_y'],
-                    item['font_size'],
-                    item['span'].style,
-                    fg,
-                    bg,
-                    letter_spacing,
-                )
+        for ruby_plan in layout.ruby_plans:
+            _paint_vertical_ruby(
+                canvas,
+                ruby_plan,
+                body_right,
+                line_origin_y,
+                fg,
+                letter_spacing,
+            )
 
     return _crop_rgba_fixed(canvas, content_left, content_right, content_top, content_bottom)
 
@@ -229,8 +367,8 @@ def measure_rich_text_metrics(
         # color is sufficient because only stroke presence affects geometry.
         measure_bg = (0, 0, 0) if stroke_ratio > 0 else None
         layouts = _build_rich_horizontal_layout(
-            document, base_font, stroke_ratio, (0, 0, 0), measure_bg,
-            False, letter_spacing, measure_only=True,
+            document, base_font, stroke_ratio, measure_bg,
+            False, letter_spacing,
         )
         if not layouts:
             return {'width': 0, 'height': 0, 'n_lines': 0, 'body_center': (0.0, 0.0)}
@@ -245,7 +383,7 @@ def measure_rich_text_metrics(
     # Vertical layout retains its existing outer-padding contract.
     measure_bg = None
     layouts = _build_rich_vertical_layout(
-        document, base_font, stroke_ratio, (0, 0, 0), measure_bg, letter_spacing, measure_only=True
+        document, base_font, stroke_ratio, (0, 0, 0), measure_bg, letter_spacing
     )
     if not layouts:
         return {'width': 0, 'height': 0, 'n_lines': 0, 'body_center': (0.0, 0.0)}
@@ -316,7 +454,7 @@ def get_string_width(font_size: int, text: str, letter_spacing: float = 1.0):
 
 
 def get_char_offset_y(font_size: int, cdpt: str, letter_spacing: float = 1.0):
-    return _vertical_base(font_size, '　' if cdpt == '＿' else cdpt, letter_spacing)['advance_y']
+    return _vertical_base(font_size, '　' if cdpt == '＿' else cdpt, letter_spacing).advance_y
 
 
 def get_string_height(font_size: int, text: str, letter_spacing: float = 1.0):

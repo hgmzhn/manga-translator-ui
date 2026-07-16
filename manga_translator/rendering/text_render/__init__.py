@@ -45,7 +45,6 @@ from ._layout import (
     _line_surface,
     _measure_horizontal_text_width,
     _rich_horizontal_layout_geometry,
-    _rich_span_surface,
     _rich_vertical_column_positions,
     _rich_vertical_layout_geometry,
     _vertical_base,

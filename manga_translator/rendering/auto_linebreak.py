@@ -259,8 +259,8 @@ def _vert_char_metrics(font_size: int, cdpt: str, letter_spacing: float = 1.0) -
     """一次取竖排进量和字形宽度，避免 layout 尺寸计算重复查同一字形。"""
     try:
         base = text_render._vertical_base(font_size, '　' if cdpt == '＿' else cdpt, letter_spacing)
-        width = int(base.get('frame_width') or font_size)
-        return int(base.get('advance_y') or font_size), width
+        width = int(base.frame_width or font_size)
+        return int(base.advance_y or font_size), width
     except Exception:
         return (
             _vert_char_advance(font_size, cdpt, letter_spacing=letter_spacing),

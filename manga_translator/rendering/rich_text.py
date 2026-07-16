@@ -272,8 +272,7 @@ class Paragraph:
 
         解析后的文档视为不可变（全仓无人在解析后原地修改 blocks/inlines），
         首次访问计算并缓存到 self._spans。缓存的 span.style 在构建时已与
-        inline.style 脱钩（copy），消费方需要改样式时自行 copy（现有调用方
-        _rich_ruby_surface/_draw_vertical_ruby 均如此）。
+        inline.style 脱钩（copy），消费方需要改样式时自行 copy。
         """
         cached = getattr(self, '_spans', None)
         if cached is not None:
