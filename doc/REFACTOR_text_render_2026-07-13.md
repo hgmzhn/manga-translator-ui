@@ -9,9 +9,10 @@
 |---|---|---|
 | Phase 0 | 测试基线 + golden 像素基准脚本 | 完成 |
 | Phase 1 | 死代码与空壳清理（-659 行） | **已提交 d69b21e** |
-| Phase 2 | 纯文本归一到富文本单路径（净 -约 300 行） | **已提交 62093a6；横排行高口径决策待定，见 doc/DECISION_h_line_height_2026-07-13.md** |
+| Phase 2 | 纯文本归一到富文本单路径（净 -约 300 行） | **已提交 62093a6** |
 | Phase 3 | text_render.py 拆分为子模块包（facade 保 API） | **已提交 2242e4f** |
 | Phase 4 | 连带文件简化 | **HQ 收口已提交 1572b79；generate_line_break_combinations 决定不动（见下）** |
+| Phase 5 | 横排真实墨迹布局 + 富文本碰撞计划 | **已完成；取代 `ascent+descent` 固定行高** |
 
 全程净减约 558 行（+3019/-3577，含拆分的 import/docstring 开销 +167）。
 
@@ -81,7 +82,7 @@
 - 测试套件与基线持平（35/36+23+13）
 - 对比图存于 `test/golden/compare/`（左旧右新）
 
-### ⚠ 决策点：横排行高口径（暂缓提交的原因）
+### 历史决策点：横排行高口径
 
 归一修正了一个旧的隐藏缺陷，副作用可见：
 
@@ -98,7 +99,11 @@
 - 另一个旧的不一致被消除：同一段文字"无样式 vs 加任意样式"的字号自适应原本相差
   20%+（富文本路径一直是新口径），归一后一致
 
-补偿/反悔手段：
+以下内容是 Phase 2 当时的历史备忘。最终没有选择其中任一固定行高方案；
+Phase 5 已改为真实 glyph 墨迹包络和相邻行碰撞布局，见
+`doc/DECISION_h_line_height_2026-07-13.md`。
+
+当时记录的补偿/反悔手段：
 1. 全局补偿：`render.font_scale_ratio` 配置按需放大
 2. 回退整个 Phase 2：`git checkout -- manga_translator/rendering/__init__.py
    manga_translator/rendering/text_render.py`（改动全部在工作区，HEAD 是 Phase 1）
@@ -128,9 +133,25 @@ __init__.py（facade：公共 API + auto_linebreak/测试依赖的私有符号�
   非确定采样、无任何测试覆盖——合并的回归风险大于 ~100 行的收益。留待该函数
   有测试后再动。
 
+## Phase 5（横排真实墨迹布局，2026-07-16）
+
+- 删除横排 `font_size` / `ascent+descent` 固定行高模型。
+- 直接消费 `QTextLayout.glyphRuns()` 的 glyph id、字体和位置，构造矢量墨迹 path；
+  同时修正 bidi 文本不能用 `cursorToX(text_length)` 代表逻辑宽度的问题，改用
+  `QTextLine.naturalTextWidth()`。
+- 主文字、全局/局部描边、斜体、旋转、镜像、offset、ruby、emphasis 统一生成
+  富文本 paint 包络。
+- 相邻行按实际上下包络防碰撞，再添加 `0.1em × line_spacing` 可见间隙。
+- 横排 `measure_rich_text_metrics` 与绘制消费同一计划；全局描边直接进入计划，
+  `calc_box_from_font` 不再为横排二次估算 effect padding。
+- `auto_linebreak` 删除 `font_size × 行数` 高度近似，英文气泡布局删除
+  `0.8 × font_size` 行高近似，全部转为消费实际墨迹高度。
+- 显式空行保留 `font_size` 高的结构槽位；不使用代表字符或字体指标 fallback。
+- 高度受限抽查：800×100 CJK 68→95，500×60 英文 41→62；三行 CJK 与
+  上下伸展混排会按真实碰撞分别选择不同字号。
+
 ## 遗留备忘
 
-- 横排行高口径决策（见 doc/DECISION_h_line_height_2026-07-13.md）
 - `scripts/verify_vertical_stroke_alignment.py` 引用了不存在的
   `_get_vertical_border_bitmap`（早于本次重构就已脱节），需要时按新 API 重写；
   `scripts/verify_text_render_shared_state.py` 同样引用已消失的私有符号。

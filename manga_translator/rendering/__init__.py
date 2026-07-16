@@ -17,7 +17,6 @@ from ..config import Config, Renderer
 
 # 只使用 Qt 离屏渲染器
 from ..utils import (
-    BASE_PATH,
     TextBlock,
     build_bubble_mask_from_mangalens_result,
     fg_bg_compare,
@@ -510,8 +509,8 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
     Returns:
         center 为 None: (required_width, required_height, n_lines, body_center)
             body_center = 正文框中心在渲染框内的坐标（相对渲染框左上角）。
-            纯文本恒为 (w/2, h/2)；富文本会因首行注音/末行着重号（横排）
-            或首列注音（竖排）偏离渲染框正中心。
+            横排按实际主文字墨迹计算，ruby/emphasis 等装饰可使其偏离渲染框
+            正中心；竖排会因首列注音等装饰偏移。
         center 不为 None: (dst_points, body_center_world)
             dst_points shape (1, 4, 2)，渲染框以 center 为正中心；
             body_center_world = 正文中心的世界坐标（已随 angle 旋转）。
@@ -534,9 +533,8 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
     body_x = float(body_x)
     body_y = float(body_y)
 
-    # 计入效果边距，避免“字号不变但框太小导致视觉缩字”。
-    # 边距四边对称，正文中心随左上角同步平移。
-    effect_padding = _estimate_effect_padding(font_size, config)
+    # 横排的描边/富文本效果已经进入真实墨迹计划；竖排仍沿用外围 padding。
+    effect_padding = 0.0 if is_horizontal else _estimate_effect_padding(font_size, config)
     if effect_padding > 0.0:
         pad_total = int(effect_padding * 2.0)
         req_width += pad_total

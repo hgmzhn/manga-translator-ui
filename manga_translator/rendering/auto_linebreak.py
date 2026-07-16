@@ -449,7 +449,7 @@ def _layout_horizontal_cjk(font_size: int, text: str, max_width: int, letter_spa
         if current_line:
             lines.append((current_line, current_width))
 
-    return [l[0] for l in lines], [l[1] for l in lines]
+    return [line[0] for line in lines], [line[1] for line in lines]
 
 
 # ---------------------------------------------------------------------------
@@ -1198,28 +1198,22 @@ def _measure_required_size(
     config: Any,
     letter_spacing_multiplier: float = 1.0,
 ) -> Tuple[int, float, float]:
-    hyphenate = _hyphenate_enabled(config)
     semantic_linebreak = _semantic_linebreak_enabled(config)
 
     if horizontal:
-        lines, widths = _calc_horizontal_layout(
+        metrics = text_render.measure_rich_text_metrics(
             font_size,
             text_with_br,
-            99999,
-            target_lang,
-            hyphenate,
-            semantic_linebreak=semantic_linebreak,
+            True,
+            line_spacing_multiplier,
+            config=config,
             letter_spacing=letter_spacing_multiplier,
         )
-        n = max(1, len(lines))
-        spacing_y = text_render.calc_horizontal_line_spacing_px(font_size, line_spacing_multiplier)
-        required_width = max(widths) if widths else get_string_width(
-            font_size,
-            _normalize_no_br_text(text_with_br, horizontal=True),
-            letter_spacing=letter_spacing_multiplier,
+        return (
+            max(1, int(metrics['n_lines'])),
+            float(metrics['width']),
+            float(metrics['height']),
         )
-        required_height = font_size * n + spacing_y * max(0, n - 1)
-        return n, float(required_width), float(required_height)
 
     lines, heights = _calc_vertical_layout(
         font_size,
@@ -1256,8 +1250,15 @@ def _measure_unwrapped_required_size(
         return 1, 0.0, 0.0
 
     if horizontal:
-        required_width = get_string_width(font_size, clean_text, letter_spacing=letter_spacing_multiplier)
-        return 1, float(required_width), float(font_size)
+        metrics = text_render.measure_rich_text_metrics(
+            font_size,
+            clean_text,
+            True,
+            1.0,
+            config=config,
+            letter_spacing=letter_spacing_multiplier,
+        )
+        return 1, float(metrics['width']), float(metrics['height'])
 
     required_height = _vert_total_height(clean_text, font_size, config=config, letter_spacing=letter_spacing_multiplier)
     required_width = _vert_line_width(clean_text, font_size)

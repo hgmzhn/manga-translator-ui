@@ -18,7 +18,6 @@ from ..rich_text import RenderSpan, RichTextDocument, TextStyle, normalize_rich_
 from ._compose import (
     _apply_style_layer_effects,
     _bitmap_ink_rect,
-    _crop_pair,
     _glyph_pair_rgba,
     _paste_bitmap,
     _paste_rgba,
@@ -28,13 +27,12 @@ from ._compose import (
     _stroke_pad_px,
     _style_fill_color,
     _style_font_size,
-    _style_italic_shear,
     _style_layer_effects_geometry,
     _style_stroke_color,
     _style_stroke_ratio,
 )
 from ._fonts import _bold_scope, _create_text_layout, _layout_font, _state, _style_font_scope
-from ._glyphs import GlyphRaster, _glyph_raster, _glyph_spec, _rasterize_path
+from ._glyphs import GlyphRaster, _glyph_raster, _rasterize_path
 from ._shared import _VERTICAL_CACHE_MAX, _cache_get, _cache_put, _profile_add
 
 _HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({'！': '!', '？': '?'})
@@ -196,8 +194,13 @@ def _normalize_line_spacing(line_spacing: float) -> float:
 
 
 def calc_horizontal_line_spacing_px(font_size: int, line_spacing: float) -> int:
+    """Visible ink gap between adjacent horizontal lines.
+
+    ``line_spacing`` scales a 0.1-em natural gap.  Line boxes themselves are
+    content-derived, so this is the only vertical whitespace added by layout.
+    """
     value = _normalize_line_spacing(line_spacing)
-    return int(font_size * (value - 1.0))
+    return max(0, int(round(font_size * 0.10 * value)))
 
 
 def calc_vertical_line_spacing_px(font_size: int, line_spacing: float) -> int:
@@ -223,48 +226,8 @@ def _horizontal_line(text: str, font_size: int, letter_spacing: float = 1.0):
 
 
 def _line_logical_width(line, text_length: int) -> float:
-    cursor_x = line.cursorToX(text_length)
-    return float(cursor_x[0] if isinstance(cursor_x, tuple) else cursor_x)
-
-
-def _sorted_glyph_positions(layout, reversed_direction: bool):
-    positions = [pos for run in layout.glyphRuns() for pos in run.positions()]
-    positions.sort(key=lambda p: p.x(), reverse=reversed_direction)
-    return positions
-
-
-def _horizontal_ellipsis_tracking_offsets(
-    text: str,
-    font_size: int,
-    letter_spacing: float,
-    positions: list,
-    reversed_direction: bool = False,
-) -> list:
-    if reversed_direction or _normalize_letter_spacing(letter_spacing) == 1.0 or '……' not in (text or ''):
-        return [0.0] * len(positions)
-    _, _, base_layout, _ = _horizontal_line(text, font_size, 1.0)
-    if base_layout is None:
-        return [0.0] * len(positions)
-    base_positions = _sorted_glyph_positions(base_layout, False)
-    limit = min(len(text), len(positions), len(base_positions))
-    offsets = [0.0] * len(positions)
-    idx = 0
-    while idx < limit:
-        if text[idx] != '…':
-            idx += 1
-            continue
-        run_start = idx
-        while idx < limit and text[idx] == '…':
-            idx += 1
-        if idx - run_start < 2:
-            continue
-        start_spaced_x = positions[run_start].x()
-        start_base_x = base_positions[run_start].x()
-        for run_idx in range(run_start + 1, idx):
-            spaced_delta = positions[run_idx].x() - start_spaced_x
-            base_delta = base_positions[run_idx].x() - start_base_x
-            offsets[run_idx] = spaced_delta - base_delta
-    return offsets
+    _ = text_length
+    return float(line.naturalTextWidth())
 
 
 def _line_metrics(text: str, font_size: int, letter_spacing: float = 1.0) -> dict:
@@ -273,6 +236,107 @@ def _line_metrics(text: str, font_size: int, letter_spacing: float = 1.0) -> dic
     if line is None:
         return {'text': normalized, 'logical_width': 0.0, 'ascent': float(metrics.ascent()), 'height': float(metrics.height()), 'descent': float(metrics.descent())}
     return {'text': normalized, 'logical_width': _line_logical_width(line, len(normalized)), 'ascent': float(line.ascent()), 'height': float(line.height()), 'descent': float(line.descent())}
+
+
+def _horizontal_glyph_path(
+    line_text: str,
+    font_size: int,
+    reversed_direction: bool,
+    letter_spacing: float,
+    profile_stats: Optional[dict] = None,
+):
+    """Shape one horizontal span and return its exact vector ink path.
+
+    QTextLayout remains responsible for glyph selection and baseline positions,
+    but line fitting never consumes its ascent/descent box.  The returned path
+    is the actual union of the shaped glyph outlines in QTextLine coordinates.
+    """
+    stage_t0 = perf_counter() if profile_stats is not None else None
+    normalized, _, layout, line = _horizontal_line(line_text, font_size, letter_spacing)
+    _profile_add(profile_stats, "tr_layout_ms", stage_t0)
+    if not line_text or line is None:
+        return normalized, layout, line, QPainterPath()
+
+    path = QPainterPath()
+    path.setFillRule(Qt.FillRule.WindingFill)
+    stage_t0 = perf_counter() if profile_stats is not None else None
+    for glyph_run in layout.glyphRuns():
+        raw_font = glyph_run.rawFont()
+        for glyph_id, pos in zip(glyph_run.glyphIndexes(), glyph_run.positions()):
+            glyph_path = raw_font.pathForGlyph(glyph_id)
+            if glyph_path.isEmpty():
+                continue
+            glyph_path.translate(pos.x(), pos.y())
+            path.addPath(glyph_path)
+    _profile_add(profile_stats, "tr_path_ms", stage_t0)
+    return normalized, layout, line, path
+
+
+def _line_ink_geometry(
+    line_text: str,
+    font_size: int,
+    stroke_ratio: float = 0.0,
+    reversed_direction: bool = False,
+    letter_spacing: float = 1.0,
+    profile_stats: Optional[dict] = None,
+) -> dict:
+    """Return the fixed pixel frame of the shaped glyph ink.
+
+    The floor/ceil policy is identical to ``_rasterize_path``.  Stroke padding
+    is part of the frame, so measurement and rendering use one geometry without
+    the former outer ``calc_box_from_font`` padding estimate.
+    """
+    normalized, layout, line, path = _horizontal_glyph_path(
+        line_text,
+        font_size,
+        reversed_direction,
+        letter_spacing,
+        profile_stats,
+    )
+    logical_width = 0.0 if line is None else _line_logical_width(line, len(normalized))
+    ascent = float(_line_metrics('', font_size, letter_spacing)['ascent']) if line is None else float(line.ascent())
+    descent = float(_line_metrics('', font_size, letter_spacing)['descent']) if line is None else float(line.descent())
+    if path.isEmpty():
+        return {
+            'path': path,
+            'logical_width': float(logical_width),
+            'ascent': ascent,
+            'descent': descent,
+            'left_rel': 0.0,
+            'top_rel': 0.0,
+            'width': 0,
+            'height': 0,
+            'has_ink': False,
+        }
+
+    rect = path.boundingRect()
+    left = math.floor(rect.left())
+    top = math.floor(rect.top())
+    right = math.ceil(rect.right())
+    bottom = math.ceil(rect.bottom())
+    pad = _stroke_pad_px(font_size, stroke_ratio)
+    left -= pad
+    top -= pad
+    right += pad
+    bottom += pad
+    origin_x = -logical_width if reversed_direction else 0.0
+    return {
+        'path': path,
+        'layout': layout,
+        'logical_width': float(logical_width),
+        'ascent': ascent,
+        'descent': descent,
+        'left_rel': float(left) - origin_x,
+        'top_rel': float(top) - ascent,
+        'width': max(0, int(right - left)),
+        'height': max(0, int(bottom - top)),
+        'has_ink': right > left and bottom > top,
+        'frame_left': int(left),
+        'frame_top': int(top),
+        'fill_left': int(left + pad),
+        'fill_top': int(top + pad),
+        'pad': int(pad),
+    }
 
 
 def _line_surface_impl(
@@ -285,84 +349,50 @@ def _line_surface_impl(
     bold: bool = False,
     profile_stats: Optional[dict] = None,
 ):
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    normalized, _, layout, line = _horizontal_line(line_text, font_size, letter_spacing)
-    _profile_add(profile_stats, "tr_layout_ms", stage_t0)
-    if not line_text or line is None:
-        return None
-    path = QPainterPath()
-    path.setFillRule(Qt.FillRule.WindingFill)
-    # Qt/DirectWrite 把 family name 以 '[' 开头的字体归入同一字体集合，
-    # 导致 shaping 时 character-to-glyph 映射返回错误的 glyph_id。
-    # 修复：用 _glyph_spec 查字形路径（走 font_selection 直接加载的 QRawFont，
-    # 绕开 Qt 字体数据库），位置（pos）仍从 QTextLayout 取。
-    # glyphRuns() 返回的 run 顺序不保证与字符串字符顺序一致（混合脚本时
-    # 如 CJK + ASCII 会分成多个 run，run 顺序不定），按 x 坐标排序以
-    # 确保位置与字符的逻辑顺序匹配
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    all_positions = _sorted_glyph_positions(layout, reversed_direction)
-    position_offsets = _horizontal_ellipsis_tracking_offsets(
-        normalized,
+    geometry = _line_ink_geometry(
+        line_text,
         font_size,
-        letter_spacing,
-        all_positions,
+        stroke_ratio if border_size > 0 else 0.0,
         reversed_direction,
+        letter_spacing,
+        profile_stats,
     )
-    for idx, char in enumerate(normalized):
-        if idx >= len(all_positions):
-            break
-        pos = all_positions[idx]
-        try:
-            spec = _glyph_spec(char, font_size)
-        except Exception:
-            continue
-        glyph_path = spec.raw_font.pathForGlyph(spec.glyph_id)
-        if not glyph_path.isEmpty():
-            offset_x = position_offsets[idx] if idx < len(position_offsets) else 0.0
-            glyph_path.translate(pos.x() - offset_x, pos.y())
-            path.addPath(glyph_path)
-    _profile_add(profile_stats, "tr_path_ms", stage_t0)
-                
-    if path.isEmpty():
+    path = geometry['path']
+    if not geometry['has_ink']:
         return None
     stage_t0 = perf_counter() if profile_stats is not None else None
     fill_alpha, fill_left, fill_top = _rasterize_path(path)
     _profile_add(profile_stats, "tr_raster_ms", stage_t0)
     if fill_alpha.size == 0:
         return None
+    frame_left = int(geometry['frame_left'])
+    frame_top = int(geometry['frame_top'])
+    frame_width = int(geometry['width'])
+    frame_height = int(geometry['height'])
+    text_canvas = np.zeros((frame_height, frame_width), dtype=np.uint8)
+    border_canvas = np.zeros_like(text_canvas)
+    _paste_bitmap(text_canvas, fill_alpha, fill_left - frame_left, fill_top - frame_top)
     if border_size > 0:
         stage_t0 = perf_counter() if profile_stats is not None else None
         stroke_px = max(int(stroke_ratio * font_size), 1)
         border_alpha, border_dx, border_dy = _stroke_alpha_from_text_alpha(fill_alpha, stroke_px)
         border_left, border_top = fill_left + border_dx, fill_top + border_dy
-        left = min(fill_left, border_left)
-        top = min(fill_top, border_top)
-        right = max(fill_left + fill_alpha.shape[1], border_left + border_alpha.shape[1])
-        bottom = max(fill_top + fill_alpha.shape[0], border_top + border_alpha.shape[0])
-        text_canvas = np.zeros((bottom - top, right - left), dtype=np.uint8)
-        border_canvas = np.zeros((bottom - top, right - left), dtype=np.uint8)
-        _paste_bitmap(text_canvas, fill_alpha, fill_left - left, fill_top - top)
-        _paste_bitmap(border_canvas, border_alpha, border_left - left, border_top - top)
+        _paste_bitmap(border_canvas, border_alpha, border_left - frame_left, border_top - frame_top)
         _profile_add(profile_stats, "tr_stroke_ms", stage_t0)
-    else:
-        left, top = fill_left, fill_top
-        text_canvas, border_canvas = fill_alpha, np.zeros_like(fill_alpha)
-    stage_t0 = perf_counter() if profile_stats is not None else None
-    cropped = _crop_pair(text_canvas, border_canvas)
-    if cropped is None:
-        return None
-    text_bitmap, border_bitmap, x, y, w, h = cropped
-    logical_width = _line_logical_width(line, len(normalized))
-    origin_x = -logical_width if reversed_direction else 0.0
-    ascent, height = float(line.ascent()), float(line.height())
     result = {
-        'text': text_bitmap, 'border': border_bitmap, 'left_rel': left + x - origin_x,
-        'right_rel': left + x - origin_x + w, 'top_rel': top + y - ascent, 'width': w, 'height': h,
-        'logical_width': logical_width,
-        'line_ascent': ascent, 'line_descent': float(line.descent()), 'line_height': height,
-        'ink_top': float(top + y), 'ink_bottom': float(top + y + h),
+        'text': text_canvas,
+        'border': border_canvas,
+        'left_rel': geometry['left_rel'],
+        'right_rel': geometry['left_rel'] + frame_width,
+        'top_rel': geometry['top_rel'],
+        'width': frame_width,
+        'height': frame_height,
+        'logical_width': geometry['logical_width'],
+        'line_ascent': geometry['ascent'],
+        'line_descent': geometry['descent'],
+        'ink_top': geometry['top_rel'],
+        'ink_bottom': geometry['top_rel'] + frame_height,
     }
-    _profile_add(profile_stats, "tr_crop_ms", stage_t0)
     return result
 
 
@@ -444,7 +474,7 @@ def _rich_span_surface(
         'logical_width': float(surface.get('logical_width', 0.0)),
         'ascent': float(surface.get('line_ascent', font_size)),
         'descent': float(surface.get('line_descent', font_size * 0.2)),
-        'height': float(surface.get('line_height', font_size)),
+        'height': float(surface.get('height', font_size)),
     }
 
 
@@ -483,16 +513,155 @@ def _rich_ruby_surface(span: RenderSpan, parent_font_size: int, fg, bg, letter_s
     return {'surface': surface, 'layer': layer, 'font_size': ruby_font_size, 'offset_x': layer_dx, 'offset_y': layer_dy}
 
 
-def _rich_horizontal_ruby_extra(run: dict, bg) -> float:
-    """横排注音预留高度（度量式，测量/绘制共用）。
-
-    基数 0.50×字号沿用旧测量口径；注音带描边时（描边判定与
-    _rich_ruby_surface 一致）加上描边图层外扩，避免包络裁到注音描边。
-    """
+def _rich_horizontal_main_rect(run: dict) -> Tuple[float, float, float, float]:
+    """Transformed main-ink rectangle relative to run cursor and baseline."""
+    if not run.get('has_ink'):
+        return (0.0, 0.0, 0.0, 0.0)
     span = run['span']
+    left = float(run['left_rel'])
+    top = float(run['top_rel'])
+    height = int(run['ink_height'])
+    width = int(run['ink_width'])
+    out_h, out_w, dx, dy = _style_layer_effects_geometry(height, width, span.style)
+    return (
+        left + float(dx) + span.style.transform.offset_x,
+        top + float(dy) + span.style.transform.offset_y,
+        float(out_w),
+        float(out_h),
+    )
+
+
+def _measure_rich_horizontal_run(
+    span: RenderSpan,
+    base_font_size: int,
+    global_stroke_ratio: float,
+    stroke_enabled,
+    reversed_direction: bool,
+    letter_spacing: float,
+    profile_stats: Optional[dict] = None,
+) -> dict:
+    font_size = _style_font_size(base_font_size, span.style)
+    stroke_ratio = _style_stroke_ratio(span.style, font_size, global_stroke_ratio, stroke_enabled)
+    with _style_font_scope(span.style):
+        geometry = _line_ink_geometry(
+            span.text,
+            font_size,
+            stroke_ratio,
+            reversed_direction,
+            letter_spacing,
+            profile_stats,
+        )
+    left_rel = float(geometry['left_rel'])
+    if reversed_direction:
+        left_rel -= float(geometry['logical_width'])
+    return {
+        'span': span,
+        'font_size': font_size,
+        'stroke_ratio': stroke_ratio,
+        'surface': None,
+        'logical_width': float(geometry['logical_width']),
+        'ascent': float(geometry['ascent']),
+        'descent': float(geometry['descent']),
+        'has_ink': bool(geometry['has_ink']),
+        'left_rel': left_rel,
+        'top_rel': float(geometry['top_rel']),
+        'ink_width': int(geometry['width']),
+        'ink_height': int(geometry['height']),
+    }
+
+
+def _measure_ruby_layer(run: dict, stroke_enabled, letter_spacing: float) -> Optional[dict]:
+    span = run['span']
+    ruby_text = ''.join(item.text for item in (span.ruby or []))
+    if not ruby_text:
+        return None
+    ruby_style = span.style.copy()
+    ruby_style.emphasis = False
     ruby_font = max(1, int(round(run['font_size'] * 0.42)))
-    ruby_stroke_ratio = 0.0 if bg is None and not span.style.stroke else _style_stroke_ratio(span.style, ruby_font, 0.0, bg)
-    return run['font_size'] * 0.50 + _stroke_pad_px(ruby_font, ruby_stroke_ratio) * 2.0
+    ruby_stroke_ratio = _style_stroke_ratio(ruby_style, ruby_font, 0.0, stroke_enabled)
+    with _style_font_scope(ruby_style):
+        geometry = _line_ink_geometry(ruby_text, ruby_font, ruby_stroke_ratio, False, letter_spacing)
+    if not geometry['has_ink']:
+        return None
+    out_h, out_w, _, _ = _style_layer_effects_geometry(
+        int(geometry['height']), int(geometry['width']), ruby_style
+    )
+    return {'width': int(out_w), 'height': int(out_h), 'font_size': ruby_font}
+
+
+def _finalize_rich_horizontal_line(runs: list, base_font_size: int, letter_spacing: float) -> dict:
+    cursor = 0.0
+    body_rects = []
+    paint_rects = []
+    for run in runs:
+        main_rect = _rich_horizontal_main_rect(run)
+        run['main_rect'] = main_rect
+        if main_rect[2] > 0 and main_rect[3] > 0:
+            rect = (cursor + main_rect[0], main_rect[1], main_rect[2], main_rect[3])
+            body_rects.append(rect)
+            paint_rects.append(rect)
+
+            ruby = run.get('ruby_box')
+            if ruby:
+                gap = max(1, int(round(run['font_size'] * 0.08)))
+                ruby_x = cursor + run['logical_width'] / 2.0 - ruby['width'] / 2.0
+                ruby_y = main_rect[1] - gap - ruby['height']
+                run['ruby_rect'] = (ruby_x - cursor, ruby_y, float(ruby['width']), float(ruby['height']))
+                paint_rects.append((ruby_x, ruby_y, float(ruby['width']), float(ruby['height'])))
+
+            if run['span'].style.emphasis:
+                radius = max(1, int(round(run['font_size'] * 0.055)))
+                size = radius * 2 + 3
+                gap = max(1, int(round(run['font_size'] * 0.08)))
+                top = main_rect[1] + main_rect[3] + gap
+                run['emphasis_center_y'] = top + size // 2
+                char_cursor = cursor
+                for char in run['span'].text:
+                    advance = _measure_horizontal_text_width(char, run['font_size'], letter_spacing)
+                    center_x = char_cursor + advance / 2.0
+                    paint_rects.append((center_x - size // 2, top, float(size), float(size)))
+                    char_cursor += advance
+        cursor += float(run['logical_width'])
+
+    logical_width = sum(float(run['logical_width']) for run in runs)
+    if not paint_rects:
+        half = max(float(base_font_size), 1.0) / 2.0
+        return {
+            'runs': runs,
+            'logical_width': logical_width,
+            'body_left': 0.0,
+            'body_right': logical_width,
+            'body_top': -half,
+            'body_bottom': half,
+            'paint_left': 0.0,
+            'paint_right': logical_width,
+            'paint_top': -half,
+            'paint_bottom': half,
+            'blank': True,
+        }
+
+    def bounds(rects):
+        left = min(rect[0] for rect in rects)
+        top = min(rect[1] for rect in rects)
+        right = max(rect[0] + rect[2] for rect in rects)
+        bottom = max(rect[1] + rect[3] for rect in rects)
+        return left, top, right, bottom
+
+    body_left, body_top, body_right, body_bottom = bounds(body_rects)
+    paint_left, paint_top, paint_right, paint_bottom = bounds(paint_rects)
+    return {
+        'runs': runs,
+        'logical_width': logical_width,
+        'body_left': body_left,
+        'body_right': body_right,
+        'body_top': body_top,
+        'body_bottom': body_bottom,
+        'paint_left': paint_left,
+        'paint_right': paint_right,
+        'paint_top': paint_top,
+        'paint_bottom': paint_bottom,
+        'blank': False,
+    }
 
 
 def _build_rich_horizontal_layout(
@@ -506,14 +675,11 @@ def _build_rich_horizontal_layout(
     profile_stats: Optional[dict] = None,
     measure_only: bool = False,
 ):
-    """横排富文本布局（竖排 F21 builder 的横排对应物）。
+    """Build one content-derived ink plan for horizontal text.
 
-    measure_only=True 时完全不光栅化，run 只带 QTextLayout 度量字段
-    （与 _rich_span_surface 读取的是同一条 QTextLayout line，数值逐位
-    一致）；行宽/行高/包络 extras 两条路径出自同一套度量公式，保证
-    measure_rich_text_metrics 与绘制输出面逐像素同尺寸。
-    空白 span 统一保留为无墨迹 spacer：占宽度、推进游标（旧绘制路径
-    直接丢弃空白 span 导致与测量宽度不一致，此处一并收口）。
+    Pure and rich text share this plan.  QText baselines are retained only as
+    drawing coordinates; line fitting and vertical placement consume the real
+    shaped glyph/effect rectangles.
     """
     layouts = []
     for paragraph in document.paragraphs:
@@ -521,178 +687,88 @@ def _build_rich_horizontal_layout(
         for span in paragraph.spans:
             if not span.text:
                 continue
-            span_font = _style_font_size(base_font_size, span.style)
-            span_stroke_ratio = _style_stroke_ratio(span.style, span_font, global_stroke_ratio, bg)
-            run = None
-            if not measure_only:
-                run = _rich_span_surface(span, base_font_size, global_stroke_ratio, bg, reversed_direction, letter_spacing, profile_stats)
-            elif span.text.strip():
-                with _style_font_scope(span.style):
-                    metrics = _line_metrics(span.text, span_font, letter_spacing)
-                run = {
-                    'span': span,
-                    'font_size': span_font,
-                    'stroke_ratio': span_stroke_ratio,
-                    'surface': None,
-                    'logical_width': float(metrics['logical_width']),
-                    'ascent': float(metrics['ascent']),
-                    'descent': float(metrics['descent']),
-                }
-            if run is None:
-                with _style_font_scope(span.style):
-                    spacer_width = float(_measure_horizontal_text_width(span.text, span_font, letter_spacing))
-                run = {
-                    'span': span,
-                    'font_size': span_font,
-                    'stroke_ratio': span_stroke_ratio,
-                    'surface': None,
-                    'logical_width': spacer_width,
-                    'ascent': None,
-                    'descent': None,
-                }
-            if span.ruby and run['ascent'] is not None:
-                ruby_text = ''.join(item.text for item in span.ruby)
-                if ruby_text:
-                    ruby_font = max(1, int(round(run['font_size'] * 0.42)))
-                    with _style_font_scope(span.style):
-                        run['ruby_width'] = float(_line_metrics(ruby_text, ruby_font, letter_spacing)['logical_width'])
-                    run['ruby_extra_self'] = _rich_horizontal_ruby_extra(run, bg)
-                    if not measure_only:
-                        run['ruby'] = _rich_ruby_surface(span, run['font_size'], fg, bg, letter_spacing, profile_stats)
+            if measure_only:
+                run = _measure_rich_horizontal_run(
+                    span, base_font_size, global_stroke_ratio, bg,
+                    reversed_direction, letter_spacing, profile_stats,
+                )
+            else:
+                run = _rich_span_surface(
+                    span, base_font_size, global_stroke_ratio, bg,
+                    reversed_direction, letter_spacing, profile_stats,
+                )
+                if run is None:
+                    run = _measure_rich_horizontal_run(
+                        span, base_font_size, global_stroke_ratio, bg,
+                        reversed_direction, letter_spacing, profile_stats,
+                    )
+                else:
+                    surface = run['surface']
+                    run.update({
+                        'has_ink': True,
+                        'left_rel': float(surface['left_rel']) - (run['logical_width'] if reversed_direction else 0.0),
+                        'top_rel': float(surface['top_rel']),
+                        'ink_width': int(surface['width']),
+                        'ink_height': int(surface['height']),
+                    })
+            if span.ruby and run.get('has_ink'):
+                run['ruby_box'] = _measure_ruby_layer(run, bg, letter_spacing)
+                if not measure_only and run['ruby_box']:
+                    run['ruby'] = _rich_ruby_surface(
+                        span, run['font_size'], fg, bg, letter_spacing, profile_stats
+                    )
             runs.append(run)
-
-        inked = [run for run in runs if run['ascent'] is not None]
-        if inked:
-            ascent = max(run['ascent'] for run in inked)
-            descent = max(run['descent'] for run in inked)
-            ruby_extra = max((run['ruby_extra_self'] for run in inked if run.get('ruby_width')), default=0.0)
-            dot_extra = max((run['font_size'] * 0.25 for run in inked if run['span'].style.emphasis), default=0.0)
-            line_height = ruby_extra + ascent + descent + dot_extra
-        else:
-            metrics = _line_metrics('', base_font_size, letter_spacing)
-            ascent, descent = float(metrics['ascent']), float(metrics['descent'])
-            ruby_extra = dot_extra = 0.0
-            line_height = float(metrics['height'])
-        layouts.append({
-            'runs': runs,
-            'logical_width': sum(float(run['logical_width']) for run in runs),
-            'ascent': float(ascent),
-            'descent': float(descent),
-            'ruby_extra': float(ruby_extra),
-            'dot_extra': float(dot_extra),
-            'height': float(line_height),
-        })
+        layouts.append(_finalize_rich_horizontal_line(runs, base_font_size, letter_spacing))
     return layouts
 
 
-def _rich_horizontal_run_paint_rects(run: dict) -> list:
-    """run 图层的度量包络矩形（相对行内游标原点 x=0、基线 y=0）。
-
-    字形框 = 逻辑框 + 描边外扩，经 _style_layer_effects_geometry
-    （镜像/切变/旋转，与绘制同一矩阵）后叠加 transform 偏移；注音框按
-    run 中心对称展开（注音绘制不参与偏移/特效，与绘制路径一致）。
-    """
-    rects = []
-    ascent = run.get('ascent')
-    if ascent is None:
-        return rects
-    span = run['span']
-    ascent = float(ascent)
-    descent = float(run.get('descent') or 0.0)
-    pad = float(_stroke_pad_px(run['font_size'], float(run.get('stroke_ratio') or 0.0)))
-    box_w = float(run['logical_width']) + pad * 2.0
-    box_h = ascent + descent + pad * 2.0
-    if box_w > 0 and box_h > 0:
-        transform = span.style.transform
-        if _style_italic_shear(span.style) or transform.rotation:
-            # 有切变/旋转才走角点几何（内部按整型框计算，保守 ≤1px）；
-            # 无特效时保持浮点框，避免 ceil 残量污染无装饰文档的包络。
-            out_h, out_w, dx, dy = _style_layer_effects_geometry(
-                max(1, int(math.ceil(box_h))), max(1, int(math.ceil(box_w))), span.style
-            )
-            rects.append((
-                -pad + float(dx) + transform.offset_x,
-                -ascent - pad + float(dy) + transform.offset_y,
-                float(out_w),
-                float(out_h),
-            ))
-        else:
-            rects.append((
-                -pad + transform.offset_x,
-                -ascent - pad + transform.offset_y,
-                box_w,
-                box_h,
-            ))
-    ruby_width = float(run.get('ruby_width') or 0.0)
-    if ruby_width > 0:
-        ruby_extra = float(run.get('ruby_extra_self') or 0.0)
-        rects.append((
-            float(run['logical_width']) / 2.0 - ruby_width / 2.0,
-            -ascent - ruby_extra,
-            ruby_width,
-            ruby_extra,
-        ))
-    return rects
-
-
 def _rich_horizontal_layout_geometry(layouts: list, font_size: int, line_spacing: float) -> dict:
-    """横排包络几何（测量/绘制共用，F21 竖排 geometry 的横排对应物）。
-
-    正文框 = 行按对齐堆叠的逻辑区域（宽 = 最长行逻辑宽，高 = 行高累加）；
-    包络在正文框四周按 run 图层的度量矩形外扩（描边/切变/旋转/偏移/注音
-    超宽）。X 向 extras 以各行自身行框为参照取最大值 —— 相对逐行对齐位置
-    是保守估计，保证不裁墨迹，最多在非贴边行留少量空白。
-    body_center 沿用旧口径：正文剔除首行注音区与末行着重号区后的中心。
-    """
-    spacing_y = calc_horizontal_line_spacing_px(font_size, line_spacing)
+    """Place real line ink boxes and return their normalized render frame."""
+    gap = calc_horizontal_line_spacing_px(font_size, line_spacing)
     body_width = max((float(layout['logical_width']) for layout in layouts), default=0.0)
-    left_extra = 0.0
-    right_extra = 0.0
-    top_abs = 0.0
-    bottom_abs = 0.0
-    y = 0.0
-    body_height = 0.0
-    for index, layout in enumerate(layouts):
-        baseline = y + layout['ruby_extra'] + layout['ascent']
-        cursor = 0.0
-        for run in layout['runs']:
-            for rect_x, rect_y, rect_w, rect_h in _rich_horizontal_run_paint_rects(run):
-                left_extra = max(left_extra, -(cursor + rect_x))
-                right_extra = max(right_extra, cursor + rect_x + rect_w - float(layout['logical_width']))
-                top_abs = min(top_abs, baseline + rect_y)
-                bottom_abs = max(bottom_abs, baseline + rect_y + rect_h)
-            cursor += float(run['logical_width'])
-        y += float(layout['height'])
-        bottom_abs = max(bottom_abs, y)
-        body_height = y
-        if index < len(layouts) - 1:
-            y += spacing_y
-    top_extra = max(0.0, -top_abs)
-    bottom_extra = max(0.0, bottom_abs - body_height)
-    body_top = float(layouts[0]['ruby_extra']) if layouts else 0.0
-    last_dot_extra = float(layouts[-1]['dot_extra']) if layouts else 0.0
-    # 整数化各分量后再求和：无装饰文档 extras 全零时，正文中心严格等于
-    # 渲染框正中心（白框锚定契约：纯文本 delta 恒为 0）。ceil 余量并入
-    # 正文侧（框内空气），与旧逐行 ceil 口径一致。
-    left_i = int(math.ceil(left_extra))
-    right_i = int(math.ceil(right_extra))
-    top_i = int(math.ceil(top_extra))
-    bottom_i = int(math.ceil(bottom_extra))
-    body_w_i = int(math.ceil(body_width))
-    body_h_i = int(math.ceil(body_height))
+    left_extra = max((max(0.0, -float(layout['paint_left'])) for layout in layouts), default=0.0)
+    right_extra = max((max(0.0, float(layout['paint_right']) - float(layout['logical_width'])) for layout in layouts), default=0.0)
+
+    baselines = []
+    if layouts:
+        baselines.append(-float(layouts[0]['paint_top']))
+        for previous, current in zip(layouts, layouts[1:]):
+            advance = float(previous['paint_bottom']) - float(current['paint_top']) + gap
+            baselines.append(baselines[-1] + max(1.0, advance))
+
+    paint_top = min((baseline + layout['paint_top'] for baseline, layout in zip(baselines, layouts)), default=0.0)
+    paint_bottom = max((baseline + layout['paint_bottom'] for baseline, layout in zip(baselines, layouts)), default=0.0)
+    body_top = min((baseline + layout['body_top'] for baseline, layout in zip(baselines, layouts)), default=0.0)
+    body_bottom = max((baseline + layout['body_bottom'] for baseline, layout in zip(baselines, layouts)), default=0.0)
+    centered_body_left = min((
+        (body_width - float(layout['logical_width'])) / 2.0 + float(layout['body_left'])
+        for layout in layouts
+    ), default=0.0)
+    centered_body_right = max((
+        (body_width - float(layout['logical_width'])) / 2.0 + float(layout['body_right'])
+        for layout in layouts
+    ), default=body_width)
+
+    frame_left = math.floor(-left_extra)
+    frame_right = math.ceil(body_width + right_extra)
+    frame_top = math.floor(paint_top)
+    frame_bottom = math.ceil(paint_bottom)
+    body_left = -frame_left
+    normalized_baselines = [baseline - frame_top for baseline in baselines]
     return {
-        'spacing_y': int(spacing_y),
+        'spacing_y': int(gap),
         'body_width': float(body_width),
-        'body_height': float(body_height),
-        'left_extra': left_i,
-        'right_extra': right_i,
-        'top_extra': top_i,
-        'bottom_extra': bottom_i,
-        'paint_width': body_w_i + left_i + right_i,
-        'paint_height': body_h_i + top_i + bottom_i,
+        'body_height': float(max(0.0, body_bottom - body_top)),
+        'left_extra': int(body_left),
+        'right_extra': int(frame_right - math.ceil(body_width)),
+        'top_extra': int(-frame_top),
+        'bottom_extra': int(frame_bottom - math.ceil(body_bottom)),
+        'paint_width': int(max(0, frame_right - frame_left)),
+        'paint_height': int(max(0, frame_bottom - frame_top)),
+        'baselines': normalized_baselines,
         'body_center': (
-            float(left_i) + float(body_w_i) / 2.0,
-            float(top_i) + (body_top + float(body_h_i) - last_dot_extra) / 2.0,
+            float((centered_body_left + centered_body_right) / 2.0 - frame_left),
+            float((body_top + body_bottom) / 2.0 - frame_top),
         ),
     }
 

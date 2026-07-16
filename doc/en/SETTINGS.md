@@ -494,7 +494,9 @@ Older versions grouped the interface into broad settings tabs. In the current de
 - **`Font Color` (`font_color`)**: font color in hexadecimal, for example `#FFFFFF`.
   - Current UI location: `Settings` -> `Typesetting` -> `Font Color`
 
-- **`Line Spacing` (`line_spacing`)**: line spacing multiplier.
+- **`Line Spacing` (`line_spacing`)**: line spacing multiplier. Horizontal text
+  first separates adjacent real ink envelopes, then adds a visible
+  `0.1em × line_spacing` gap; vertical text keeps its column-spacing formula.
   - Current UI location: `Settings` -> `Typesetting` -> `Line Spacing`
   - Default: `1.0`
   - Range: `0.1-5.0`

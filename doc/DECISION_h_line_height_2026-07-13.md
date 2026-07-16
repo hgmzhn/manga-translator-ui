@@ -1,46 +1,59 @@
-# 决策待定：横排行高口径（2026-07-13）
+# 横排行高决策：真实墨迹布局（2026-07-16 已决策）
 
-**状态：未决策。** 本文档记录 Phase 2 归一引入的横排行高口径变化，供改天决策。
-在决策前，新口径（测量==渲染）已随归一 commit 生效；三个方向任选其一，操作见文末。
+**状态：已完成。** 横排不再选择 `font_size` 或 `ascent+descent` 作为统一行高，
+改为按当前内容的实际 shaped glyph 墨迹和富文本效果包络布局。
 
-## 背景
+## 决策
 
-text_render 重构 Phase 2 把纯文本渲染归一到富文本单路径（见
-`doc/REFACTOR_text_render_2026-07-13.md`）。归一暴露并修正了一个旧的自相矛盾：
+- Qt `QTextLayout` 基线只负责 shaping 和最终绘制坐标。
+- 字号适配、渲染框、正文中心和相邻行推进不消费字体设计行框。
+- 每个 span 从实际 glyph run 构造 `QPainterPath`，按 path 的像素边界生成主文字框。
+- 局部/全局描边、斜体、旋转、镜像和 transform offset 直接进入主文字框。
+- ruby 放在对应主墨迹上方，emphasis 放在主墨迹下方，两者进入整行 paint 包络。
+- 相邻行基线距离由 `上一行 paint_bottom - 下一行 paint_top + 可见行间隙` 决定；
+  因此纯 CJK 自动紧排，而下伸字母、重音、ruby 和着重号会按实际需要拉开。
+- `line_spacing` 现在缩放 `0.1em` 的可见墨迹间隙；默认 1.0 即 `0.1em`。
+- 显式空行采用一个 `font_size` 高的结构槽位；它不是字体指标 fallback。
 
-| | 归一前 | 归一后 |
-|---|---|---|
-| 横排**测量**行高 | `font_size`（48px 字号 = 48px/行） | `ascent+descent`（≈65px/行，Arial-Unicode） |
-| 横排**渲染**行进 | `QTextLine.height()`（≈65px/行） | 同测量（65px/行） |
-| 矛盾 | 测量框比实际渲染矮约 35%，多行必向下溢出，靠 render() 补边掩盖 | 无，白框贴合 |
+## 为什么不使用固定行高
 
-另一个被消除的旧不一致：同一段文字"无样式 vs 加任意样式"走两条路径，
-字号自适应原本相差 20%+（富文本路径一直是 ascent+descent 口径）。
+Arial Unicode 48px 的 `ascent+descent` 约为 64px，但常见 CJK 墨迹只有约 44px。
+检测模型框住的是可见墨迹，使用 64px 字体设计框做高度适配会无条件缩小字号。
+另一方面，固定 `font_size` 无法处理 `gypqj` 下伸、重音、局部大字号和富文本装饰。
+真实墨迹碰撞布局同时解决了这两个问题。
 
-## 量化影响（48px 字号实测）
+## 实测结果
 
-- **宽度受限场景（漫画气泡最常见）：字号自适应完全不变**
-  （4 个典型场景 33/58/63/49 归一前后一致）
-- **高度受限场景：字号自适应约 -23%**
-  （800×100 框：88→68；500×60 英文：54→41）
-- 竖排：不受影响（测量值不变，渲染面仅 +2~7px 包络差）
+条件：打包 Arial Unicode、默认 7% 描边、`line_spacing=1.0`。
 
-## 三个方向
+| 场景 | 旧 `font_size` | `ascent+descent` | 真实墨迹计划 |
+|---|---:|---:|---:|
+| 800×100，`高度受限字号对比` | 88 | 68 | **95** |
+| 500×60，`HEIGHT LIMITED` | 54 | 41 | **62** |
+| 500×220，三行 CJK | 70 | 53 | **64** |
+| 500×220，`gypqj / ÁÉÎÔŨ / gypqj` | 70 | 53 | **63** |
 
-1. **接受新口径**（当前生效）：测量==渲染，白框贴合；高度受限字号变小可用
-   `render.font_scale_ratio` 配置全局补偿。什么都不用做。
-2. **改用紧凑行高**：测量与渲染都改 `font_size`/行。字号自适应恢复旧值，但行距
-   变紧、大字形墨迹可能贴近；富文本既有行为同步变化，需更新测试断言。
-   改法：`text_render.py` 的 `_build_rich_horizontal_layout` 中
-   `line_height = ruby_extra + ascent + descent + dot_extra` 一处改为
-   `ruby_extra + font_size + dot_extra`（与 `_rich_horizontal_layout_geometry`
-   共用同一数字，测/渲自动同步）。
-3. **回退整个 Phase 2**：`git revert` 归一 commit
-   （`git log --oneline | grep 归一` 找 hash）。回到两套编排并存 + 旧矛盾口径。
+最后一项会因真实上下伸展碰撞而比纯 CJK 更保守，但仍明显大于统一字体行框口径。
 
-## 验证手段
+## 实现位置
 
-任何方向改完后跑：
-- `python test/render_golden.py --check`（golden 基线在 `test/golden/`）
+- glyph path 与固定像素墨迹框：`text_render/_layout.py::_horizontal_glyph_path`、
+  `_line_ink_geometry`
+- span/ruby/emphasis 富文本计划：`_build_rich_horizontal_layout`
+- 相邻行防碰撞与最终包络：`_rich_horizontal_layout_geometry`
+- 计划消费与绘制：`text_render/_render.py::_render_rich_text_horizontal`
+- 字号适配：`calc_font_from_box -> calc_box_from_font -> measure_rich_text_metrics`
+- 自动断行候选尺寸：`auto_linebreak._measure_required_size` 直接消费同一测量入口
+- 英文气泡 mask 行高：`text_render_eng.apply_manga2eng_line_breaks` 使用当前全文
+  实际墨迹高度与配置行间隙，不再使用 `0.8 × font_size`
+
+全局描边已直接进入横排计划，横排不再使用 `calc_box_from_font` 外围 effect padding。
+竖排布局未改变。
+
+## 验证
+
+- `python test/render_golden.py --check`
 - `QT_QPA_PLATFORM=offscreen PYTHONPATH=. python test/test_rich_text_rendering.py`
-- 高度受限自适应抽查：`calc_font_from_box(width=800, height=100, text=..., is_horizontal=True)`
+- `QT_QPA_PLATFORM=offscreen PYTHONPATH=. python test/test_rich_text_editing.py`
+- `QT_QPA_PLATFORM=offscreen PYTHONPATH=. python test/test_textblock_rich_safety.py`
+- `QT_QPA_PLATFORM=offscreen PYTHONPATH=. python test/test_font_family_sanitization.py`

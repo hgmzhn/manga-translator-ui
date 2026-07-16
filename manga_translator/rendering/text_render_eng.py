@@ -5,7 +5,12 @@ import numpy as np
 
 from ..utils import TextBlock, get_logger
 from .ballon_extractor import extract_ballon_region
-from .text_render import get_char_offset_x, get_string_width
+from .text_render import (
+    calc_horizontal_block_height,
+    calc_horizontal_line_spacing_px,
+    get_char_offset_x,
+    get_string_width,
+)
 
 logger = get_logger('text_render_eng')
 
@@ -205,7 +210,16 @@ def apply_manga2eng_line_breaks(
 
     words = seg_eng(text, uppercase=False)
     font_size = max(int(seed_font_size or getattr(region, 'font_size', 0) or 1), 1)
-    line_height = int(font_size * 0.8)
+    render_cfg = getattr(config, 'render', None) if config is not None else None
+    line_spacing = getattr(region, 'line_spacing', None)
+    if not isinstance(line_spacing, (int, float)) or line_spacing <= 0:
+        line_spacing = getattr(render_cfg, 'line_spacing', None) if render_cfg is not None else None
+    if not isinstance(line_spacing, (int, float)) or line_spacing <= 0:
+        line_spacing = 1.0
+    line_height = (
+        calc_horizontal_block_height(font_size, text, letter_spacing)
+        + calc_horizontal_line_spacing_px(font_size, line_spacing)
+    )
     delimiter_len = get_char_offset_x(font_size, delimiter)
     word_lengths = []
     for word in words:

@@ -54,7 +54,6 @@ def _render_rich_text_horizontal(
         document, font_size, stroke_ratio, fg, bg, reversed_direction, letter_spacing, profile_stats
     )
     geometry = _rich_horizontal_layout_geometry(layouts, font_size, line_spacing)
-    spacing_y = geometry['spacing_y']
     max_font_size = max(
         [font_size] + [run['font_size'] for layout in layouts for run in layout['runs']]
     )
@@ -65,9 +64,8 @@ def _render_rich_text_horizontal(
     canvas = np.zeros((max(canvas_h, 1), max(canvas_w, 1), 4), dtype=np.uint8)
     body_left = padding + geometry['left_extra']
     body_width = geometry['body_width']
-    y = float(padding) + geometry['top_extra']
 
-    for layout in layouts:
+    for layout, normalized_baseline in zip(layouts, geometry['baselines']):
         line_width = layout['logical_width']
         if reversed_direction:
             line_left = body_left + body_width - line_width if alignment == 'right' else body_left
@@ -75,39 +73,29 @@ def _render_rich_text_horizontal(
                 line_left = body_left + (body_width - line_width) / 2.0
         else:
             line_left = body_left if alignment == 'left' else body_left + (body_width - line_width) / 2.0 if alignment == 'center' else body_left + body_width - line_width
-        baseline_y = y + layout['ruby_extra'] + layout['ascent']
+        baseline_y = float(padding) + float(normalized_baseline)
         cursor_x = line_left
         for run in layout['runs']:
             surface = run['surface']
             span = run['span']
-            if surface is None:
-                # 空白 spacer：只推进游标（宽度已计入行宽与包络）
-                cursor_x += run['logical_width']
-                continue
-            layer, layer_dx, layer_dy = _rich_colorized_surface(run, fg, bg)
-            if layer is not None:
-                draw_x = cursor_x + surface['left_rel'] + span.style.transform.offset_x + layer_dx
-                if reversed_direction:
-                    # reversed 的 _line_surface 以"行右端"为原点相对化墨迹
-                    # （origin_x = -logical_width），left_rel 因此带 +行宽偏移；
-                    # 摆放按 run 左边缘游标，需要减回一个行宽（对齐旧纯文本
-                    # 编排的 pen_x 补偿公式）。
-                    draw_x -= run['logical_width']
-                draw_y = baseline_y + surface['top_rel'] + span.style.transform.offset_y + layer_dy
-                _paste_rgba(canvas, layer, int(round(draw_x)), int(round(draw_y)))
+            if surface is not None:
+                layer, _, _ = _rich_colorized_surface(run, fg, bg)
+                if layer is not None:
+                    main_rect = run['main_rect']
+                    _paste_rgba(
+                        canvas,
+                        layer,
+                        int(round(cursor_x + main_rect[0])),
+                        int(round(baseline_y + main_rect[1])),
+                    )
             ruby = run.get('ruby')
-            if ruby:
-                gap = max(1, int(round(run['font_size'] * 0.08)))
-                ruby_x = cursor_x + run['logical_width'] / 2.0 - ruby['layer'].shape[1] / 2.0
-                main_top = baseline_y - run['ascent']
-                ruby_y = main_top - gap - ruby['layer'].shape[0]
-                # 注音不越出本行预留区顶（包络按度量式 ruby_extra 计算）
-                ruby_y = max(ruby_y, y)
+            ruby_rect = run.get('ruby_rect')
+            if ruby and ruby_rect:
                 _paste_rgba(
                     canvas,
                     ruby['layer'],
-                    int(round(ruby_x + ruby.get('offset_x', 0.0))),
-                    int(round(ruby_y + ruby.get('offset_y', 0.0))),
+                    int(round(cursor_x + ruby_rect[0])),
+                    int(round(baseline_y + ruby_rect[1])),
                 )
             if span.style.emphasis:
                 dot_color = _style_fill_color(span.style, fg)
@@ -118,13 +106,12 @@ def _render_rich_text_horizontal(
                     _draw_rgba_disc(
                         canvas,
                         char_cursor + advance / 2.0,
-                        baseline_y + layout['descent'] + radius * 2.0,
+                        baseline_y + run['emphasis_center_y'],
                         radius,
                         dot_color,
                     )
                     char_cursor += advance
             cursor_x += run['logical_width']
-        y += layout['height'] + spacing_y
 
     return _crop_rgba_fixed(
         canvas,
@@ -230,21 +217,17 @@ def measure_rich_text_metrics(
 
     纯字符串输入在此归一为单样式文档（BR/换行 → 段落），与 put_text_* 的
     归一口径一致：测量框 == 绘制输出面尺寸对所有文本成立。
-    正文框 = 渲染框去掉框外装饰（横排的首行注音/末行着重号、竖排的首列
-    注音与字形左右溢出）后，纯文本本体占据的区域。body_center 是正文框
-    中心在渲染框内的坐标（相对渲染框左上角）；无框外装饰时恒为渲染框正中心。
+    横排正文框是实际主文字墨迹（含主文字 transform/描边，不含 ruby 与
+    emphasis）的联合包络；竖排沿用列正文定义。body_center 是正文框中心在
+    渲染框内的坐标。横排测量、全局描边和绘制输出面消费同一个墨迹计划。
     """
     document = _coerce_render_document(text)
     base_font = max(1, int(font_size))
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
-    # 度量沿用旧口径：全局描边不进包络（由 calc_box_from_font 的四边对称
-    # effect padding 覆盖），带描边的绘制输出面比框大出描边外扩属既有行为。
-    # span 局部描边仍按其比例进包络（bg=None 时 _style_stroke_ratio 只认局部）。
-    measure_bg = None
-
     if is_horizontal:
-        # 与绘制共用同一 builder/geometry（F21 口径）：行度量、包络 extras、
-        # 正文中心全部同源，测量框 == 绘制输出面。
+        # Horizontal ink plans include the global stroke directly.  A dummy
+        # color is sufficient because only stroke presence affects geometry.
+        measure_bg = (0, 0, 0) if stroke_ratio > 0 else None
         layouts = _build_rich_horizontal_layout(
             document, base_font, stroke_ratio, (0, 0, 0), measure_bg,
             False, letter_spacing, measure_only=True,
@@ -259,6 +242,8 @@ def measure_rich_text_metrics(
             'body_center': geometry['body_center'],
         }
 
+    # Vertical layout retains its existing outer-padding contract.
+    measure_bg = None
     layouts = _build_rich_vertical_layout(
         document, base_font, stroke_ratio, (0, 0, 0), measure_bg, letter_spacing, measure_only=True
     )
@@ -304,9 +289,11 @@ def measure_rich_text_vertical(
 
 
 def _resolve_stroke_ratio(config=None, stroke_width: Optional[float] = None) -> float:
+    render_cfg = getattr(config, 'render', None)
+    if bool(getattr(render_cfg, 'disable_font_border', False)):
+        return 0.0
     if stroke_width is not None:
         return float(stroke_width)
-    render_cfg = getattr(config, 'render', None)
     return float(getattr(render_cfg, 'stroke_width', 0.07))
 
 
