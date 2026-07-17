@@ -126,7 +126,6 @@ class MainWindow(MSFluentWindow):
             ("settings", self.main_view.settings_page, FIF.SETTING, self._t("Settings")),
             ("env", self.main_view.env_page, FIF.CONNECT, self._t("API Management")),
             ("prompts", self.main_view.prompt_page, FIF.DOCUMENT, self._t("Prompt Management")),
-            ("fonts", self.main_view.font_page, FIF.FONT, self._t("Font Management")),
             ("replacements", self.main_view.replacements_page, FIF.EDIT, self._t("Replacement Rules")),
         ]
         for key, page, icon, text in pages:
@@ -156,8 +155,6 @@ class MainWindow(MSFluentWindow):
             self.main_view._refresh_env_api_groups()
         elif page_key == "prompts":
             self.main_view._refresh_prompt_manager()
-        elif page_key == "fonts":
-            self.main_view._refresh_font_manager()
         elif page_key == "replacements":
             if hasattr(self.main_view, "replacements_editor_panel"):
                 self.main_view.replacements_editor_panel.refresh()
@@ -674,7 +671,6 @@ class MainWindow(MSFluentWindow):
             "settings": self._t("Settings"),
             "env": self._t("API Management"),
             "prompts": self._t("Prompt Management"),
-            "fonts": self._t("Font Management"),
             "replacements": self._t("Replacement Rules"),
         }
         for key, text in nav_labels.items():

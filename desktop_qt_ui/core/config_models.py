@@ -139,7 +139,6 @@ class CliSettings(BaseModel):
     inpaint_only: bool = False  # 仅输出修复图片模式
     save_to_source_dir: bool = False  # 输出到原图目录的 manga_translator_work/result 子目录
     export_editable_psd: bool = False  # 导出可编辑的PSD文件（需要Photoshop）
-    psd_font: Optional[str] = None  # PSD导出使用的字体名称 (PostScript名称)
     psd_script_only: bool = False  # 仅生成JSX脚本而不执行Photoshop
     replace_translation: bool = False  # 替换翻译模式：将一张图的翻译应用到另一张生肉图上
 

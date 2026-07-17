@@ -18,6 +18,15 @@ from ..rendering.rich_text import plain_text_of
 logger = logging.getLogger(__name__)
 
 
+def resolve_photoshop_font(config) -> str | None:
+    """获取 PSD 文本层使用的渲染字体。"""
+    render_cfg = getattr(config, 'render', None)
+    font_family = getattr(render_cfg, 'font_family', None)
+    if isinstance(font_family, str) and font_family.strip():
+        return font_family.strip()
+    return None
+
+
 def _translation_plain_text(value) -> str:
     # 薄委托：富文本→纯文本的唯一实现在 rendering.rich_text.plain_text_of
     return plain_text_of(value)
@@ -680,7 +689,7 @@ def photoshop_export(output_file: str, ctx: Context, default_font: str = None, i
         font_basename = os.path.splitext(os.path.basename(default_font))[0]
         logger.warning(f"检测到 default_font 是文件路径: {default_font}")
         logger.warning(f"已提取字体名称: {font_basename}")
-        logger.warning("提示: 请在配置中使用 'psd_font' 参数指定字体名称，而不是文件路径")
+        logger.warning("提示: 请使用系统字体列表选择字体名称，而不是字体文件路径")
         default_font = font_basename
     
     # 创建临时文件（只用于修复图和遮罩）

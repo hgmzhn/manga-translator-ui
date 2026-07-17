@@ -13,7 +13,6 @@ from ui.main_page import env_management as main_view_env
 from ui.main_page import layout as layout_parts
 from ui.main_page import runtime as main_view_runtime
 from ui.main_page.pages.env_page import create_env_page
-from ui.main_page.pages.font_page import create_font_page
 from ui.main_page.pages.prompt_page import create_prompt_page
 from ui.main_page.pages.replacements_page import create_replacements_page
 from ui.main_page.pages.settings_page import create_settings_page
@@ -49,7 +48,6 @@ class MainView(QWidget):
     _create_settings_page = create_settings_page
     _create_env_page = create_env_page
     _create_prompt_page = create_prompt_page
-    _create_font_page = create_font_page
     _populate_theme_combo = layout_parts.populate_theme_combo
     _populate_language_combo = layout_parts.populate_language_combo
     _on_theme_combo_changed = layout_parts.on_theme_combo_changed
@@ -62,13 +60,6 @@ class MainView(QWidget):
     _copy_selected_prompt = layout_parts.copy_selected_prompt
     _rename_selected_prompt = layout_parts.rename_selected_prompt
     _delete_selected_prompt = layout_parts.delete_selected_prompt
-    _refresh_font_manager = layout_parts.refresh_font_manager
-    _import_fonts = layout_parts.import_fonts
-    _delete_selected_font = layout_parts.delete_selected_font
-    _apply_selected_font = layout_parts.apply_selected_font
-    _on_font_selection_changed = layout_parts._on_font_selection_changed
-    _update_font_preview = layout_parts._update_font_preview
-    _refresh_font_preview_styles = layout_parts.refresh_font_preview_styles
 
     _create_replacements_page = create_replacements_page
     update_progress = main_view_runtime.update_progress
@@ -131,14 +122,12 @@ class MainView(QWidget):
         self.settings_page = self._create_settings_page()
         self.env_page = self._create_env_page()
         self.prompt_page = self._create_prompt_page()
-        self.font_page = self._create_font_page()
         self.replacements_page = self._create_replacements_page()
         self.page_widgets = {
             "translation": self.translation_interface,
             "settings": self.settings_page,
             "env": self.env_page,
             "prompts": self.prompt_page,
-            "fonts": self.font_page,
             "replacements": self.replacements_page,
         }
         self.layout.addWidget(self.translation_interface)
@@ -201,8 +190,6 @@ class MainView(QWidget):
             self.prompt_preview_panel.apply_theme()
         if hasattr(self, "replacements_editor_panel") and self.replacements_editor_panel:
             self.replacements_editor_panel.apply_theme()
-        if hasattr(self, "_refresh_font_preview_styles"):
-            self._refresh_font_preview_styles()
         if hasattr(self, "settings_page") and self.settings_page:
             self.settings_page.update()
         self.file_list.refresh_empty_state_text()
@@ -403,27 +390,6 @@ class MainView(QWidget):
             self.prompt_delete_button.setText(self._t("Delete"))
         if hasattr(self, "prompt_preview_panel") and hasattr(self.prompt_preview_panel, "refresh_ui_texts"):
             self.prompt_preview_panel.refresh_ui_texts()
-
-        if hasattr(self, "font_page_title_label"):
-            self.font_page_title_label.setText(self._t("Font Management"))
-        if hasattr(self, "font_page_subtitle_label"):
-            self.font_page_subtitle_label.setText(
-                self._t("Manage and preview fonts for text rendering")
-            )
-        if hasattr(self, "font_card"):
-            self.font_card.setTitle(self._t("Font List"))
-        if hasattr(self, "font_import_button"):
-            self.font_import_button.setText(self._t("Import"))
-        if hasattr(self, "font_delete_button"):
-            self.font_delete_button.setText(self._t("Delete"))
-        if hasattr(self, "font_refresh_button"):
-            self.font_refresh_button.setText(self._t("Refresh"))
-        if hasattr(self, "font_open_dir_button"):
-            self.font_open_dir_button.setText(self._t("Open Directory"))
-        if hasattr(self, "font_apply_button"):
-            self.font_apply_button.setText(self._t("Apply Selected Font"))
-        if hasattr(self, "font_preview_card"):
-            self.font_preview_card.setTitle(self._t("Font Preview"))
 
         if hasattr(self, "replacements_page_title_label"):
             self.replacements_page_title_label.setText(self._t("Replacement Rules"))

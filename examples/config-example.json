@@ -135,7 +135,6 @@
     "inpaint_only": false,
     "save_to_source_dir": false,
     "export_editable_psd": false,
-    "psd_font": null,
     "psd_script_only": false,
     "replace_translation": false
   }

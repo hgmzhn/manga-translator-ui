@@ -216,9 +216,7 @@
   - 原图层优先使用 `manga_translator_work/editor_base/` 中的上色/超分底图
   - 修复图层优先使用当前会话修复图，回退 `manga_translator_work/inpainted/`
   - 导出路径：`原图目录/manga_translator_work/psd/`
-- **PSD 默认字体 (psd_font)**：在 Photoshop 中显示的文本图层字体
-  - 支持字体显示名称或 PostScript 名称
-  - 留空时使用 Photoshop 默认字体
+- **PSD 文本层字体**：直接复用「渲染设置 -> 字体」中选择的系统字体，无需另外输入 Photoshop/PostScript 字体名称
 - **仅生成 PSD 脚本 (psd_script_only)**：只生成 `.jsx` 脚本，不自动运行 Photoshop
   - 不会直接生成 PSD 文件
   - 脚本保存路径：`原图目录/manga_translator_work/psd/`

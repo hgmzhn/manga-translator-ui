@@ -15,7 +15,6 @@ To stay aligned with the current desktop UI, this English version uses the actua
   - `Mode Specific`
 - `API Management`
 - `Prompt Management`
-- `Font Management`
 
 Where older documentation used legacy UI wording, this version keeps the full explanation but updates the visible button names and locations to match the current UI.
 
@@ -253,10 +252,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - The inpainted layer prefers the current-session inpainted image, then falls back to `manga_translator_work/inpainted/`
   - Export path: `source_image_dir/manga_translator_work/psd/`
 
-- **`PSD Default Font` (`psd_font`)**: font used for text layers in Photoshop.
-  - Current UI location: `Settings` -> `General` -> `PSD Default Font`
-  - Supports either the display name or the PostScript name
-  - If left empty, Photoshop uses its own default font
+- **PSD text layer font**: automatically reuses the system font selected under `Render Settings` -> `Font`; no separate Photoshop/PostScript font name is required.
 
 - **`Generate PSD Script Only` (`psd_script_only`)**: only generate the `.jsx` script and do not launch Photoshop automatically.
   - Current UI location: `Settings` -> `General` -> `Generate PSD Script Only`
@@ -440,12 +436,10 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - `horizontal`: horizontal layout
   - `vertical`: vertical layout
 
-- **`Font Path` (`font_path`)**: font file path for a custom font.
-  - Internal config key: `render.font_path`
-  - The app can load new `.ttf`, `.otf`, or `.ttc` files from the `fonts` directory
-  - The font list is rescanned whenever the font selection UI is opened
-  - New fonts appear without restarting
-  - Current UI note: in the current desktop UI, default font selection is mainly handled in `Font Management`, then applied with `Apply Selected Font`
+- **`Font` (`font_family`)**: system font family used for rendering and PSD text layers.
+  - Current UI location: `Settings` -> `Typesetting` -> `Font`
+  - The list is populated from fonts available to the operating system
+  - Open the dropdown again to refresh the available font list
 
 - **`Disable Font Border` (`disable_font_border`)**: disable text border / stroke.
   - Current UI location: `Settings` -> `Typesetting` -> `Disable Font Border`
@@ -912,23 +906,11 @@ Lazy shortcut:
 - Optional shared group: `common`
 - Legacy compatibility: top-level JSON keys are treated as `common`
 
-**Font path**:
+**How to select a font**
 
-- Default: the `fonts` directory
-- You can also point to a specific font file such as `fonts/my_font.ttf`
-- Supports `.ttf`, `.otf`, and `.ttc`
-
-**How to add a custom font**
-
-Current UI method:
-
-1. Open `Font Management`
-2. Either:
-   - click `Import`, or
-   - click `Open Directory` and copy the font file into `fonts/`
-3. Font filenames are best kept in English if possible
-4. Select the new font in `Font Management`
-5. Click `Apply Selected Font`
+1. Install the font in the operating system
+2. Open `Settings` -> `Typesetting` -> `Font`
+3. Select it from the system font dropdown
 
 **Output folder**:
 

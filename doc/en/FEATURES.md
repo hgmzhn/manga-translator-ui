@@ -62,7 +62,7 @@ The built-in editor is designed for precise post-processing.
 - **Live logs**: see progress and runtime errors as tasks run
 - **Config management**: import, export, and reuse configuration presets
 - **Prompt Management**: manage prompt files and use `Apply Selected Prompt`
-- **Font Management**: import fonts, preview them, and use `Apply Selected Font`
+- **System font selection**: choose an installed font directly under `Settings` -> `Typesetting`
 
 ---
 
@@ -182,13 +182,9 @@ Current layout mode names:
 
 ## 💾 Font Support
 
-The app automatically loads fonts from the `fonts` directory.
-
-You can also use `Font Management` to:
-
-- import fonts
-- preview fonts
-- apply a selected font to the current workflow
+The desktop app lists fonts installed in the operating system. Select the
+rendering font under `Settings` -> `Typesetting` -> `Font`; the same selection
+is also used for editable PSD text layers.
 
 ---
 

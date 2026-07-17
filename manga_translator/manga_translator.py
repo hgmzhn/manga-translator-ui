@@ -685,10 +685,11 @@ class MangaTranslator:
                     from .utils.photoshop_export import (
                         get_psd_output_path,
                         photoshop_export,
+                        resolve_photoshop_font,
                     )
                     psd_path = get_psd_output_path(ctx.image_name)
                     cli_cfg = getattr(config, 'cli', None)
-                    default_font = getattr(cli_cfg, 'psd_font', None)
+                    default_font = resolve_photoshop_font(config)
                     line_spacing = getattr(config.render, 'line_spacing', None) if hasattr(config, 'render') else None
                     script_only = getattr(cli_cfg, 'psd_script_only', False)
                     photoshop_export(psd_path, ctx, default_font, ctx.image_name, self.verbose, self._result_path, line_spacing, script_only)

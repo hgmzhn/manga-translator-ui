@@ -25,7 +25,6 @@
         "use_custom_api_params",
         "cli.save_to_source_dir",
         "cli.export_editable_psd",
-        "cli.psd_font",
         "cli.psd_script_only",
         "app.unload_models_after_translation"
       ]
@@ -123,6 +122,7 @@
       "marked": false,
       "items": [
         "render.renderer",
+        "render.font_family",
         "render.ai_renderer_prompt_path",
         "render.ai_renderer_concurrency",
         "render.alignment",

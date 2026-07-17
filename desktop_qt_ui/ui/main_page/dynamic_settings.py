@@ -689,7 +689,6 @@ def _finalize_settings_ui(self):
     self._refresh_api_feature_selectors()
 
     self._refresh_prompt_manager()
-    self._refresh_font_manager()
     self._settings_rendered_signature = getattr(self, "_settings_pending_signature", None)
     self._settings_ui_ready = True
 
@@ -1049,7 +1048,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             widget = QLineEdit(str(value))
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int))
 
-        elif value is None and key in ['tile_size', 'line_spacing', 'letter_spacing', 'font_size', 'psd_font', 'ocr_vl_custom_prompt', 'ai_ocr_custom_prompt']:
+        elif value is None and key in ['tile_size', 'line_spacing', 'letter_spacing', 'font_size', 'ocr_vl_custom_prompt', 'ai_ocr_custom_prompt']:
             # 处理值为 None 的可选参数（数值/字符串）
             widget = QLineEdit("")
             # 根据参数名设置提示文本
@@ -1065,9 +1064,6 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             elif key == 'font_size':
                 widget.setPlaceholderText(self._t("Auto"))
                 widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, int))
-            elif key == 'psd_font':
-                widget.setPlaceholderText(self._t("Photoshop Font Name (e.g. AdobeHeitiStd-Regular)"))
-                widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
             elif key == 'ocr_vl_custom_prompt':
                 widget.setMinimumWidth(320)
                 widget.setPlaceholderText("OCR: Extract all Arabic text.")

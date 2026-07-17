@@ -346,13 +346,9 @@ Notes:
 
 ### Font management
 
-The app automatically loads fonts from the `fonts` directory.
-
-You can also open `Font Management` to:
-
-- `Import` new fonts
-- Preview fonts
-- Use `Apply Selected Font`
+Install the desired font in the operating system, then select it from
+`Settings` -> `Typesetting` -> `Font`. The dropdown refreshes the system font
+list when opened.
 
 ### Prompt management
 

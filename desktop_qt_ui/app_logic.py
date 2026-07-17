@@ -571,23 +571,6 @@ class MainAppLogic(QObject):
         except Exception as e:
             self.logger.error(f"Failed to open output folder: {e}")
 
-    def open_font_directory(self):
-        import subprocess
-        import sys
-        # fonts目录在_internal里（打包后）或项目根目录（开发时）
-        fonts_dir = os.path.join(self.config_service.root_dir, 'fonts')
-        try:
-            if not os.path.exists(fonts_dir):
-                os.makedirs(fonts_dir)
-            if sys.platform == "win32":
-                os.startfile(fonts_dir)
-            elif sys.platform == "darwin":
-                subprocess.run(["open", fonts_dir])
-            else:
-                subprocess.run(["xdg-open", fonts_dir])
-        except Exception as e:
-            self.logger.error(f"Error opening font directory: {e}")
-
     def open_dict_directory(self):
         import subprocess
         import sys
@@ -1503,7 +1486,6 @@ class MainAppLogic(QObject):
                     "export_editable_psd": self._t("label_export_editable_psd"),
                     "last_output_path": self._t("label_last_output_path"),
                     "save_to_source_dir": self._t("label_save_to_source_dir"),
-                    "psd_font": self._t("label_psd_font"),
                     "psd_script_only": self._t("label_psd_script_only"),
                     "line_spacing": self._t("label_line_spacing"),
                     "letter_spacing": self._t("label_letter_spacing"),

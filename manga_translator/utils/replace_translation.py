@@ -636,10 +636,11 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                                     from .photoshop_export import (
                                         get_psd_output_path,
                                         photoshop_export,
+                                        resolve_photoshop_font,
                                     )
                                     psd_path = get_psd_output_path(image_name)
                                     cli_cfg = getattr(config, 'cli', None)
-                                    default_font = getattr(cli_cfg, 'psd_font', None)
+                                    default_font = resolve_photoshop_font(config)
                                     line_spacing = getattr(config.render, 'line_spacing', None) if hasattr(config, 'render') else None
                                     script_only = getattr(cli_cfg, 'psd_script_only', False)
                                     photoshop_export(psd_path, raw_ctx, default_font, image_name, translator.verbose, translator._result_path, line_spacing, script_only)

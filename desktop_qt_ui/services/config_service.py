@@ -498,10 +498,6 @@ class ConfigService(QObject):
                         config_dict['ocr'] = {}
                     config_dict['ocr']['use_hybrid_ocr'] = False
                     
-                    # PSD导出字体在模板配置中始终为空
-                    if 'cli' not in config_dict:
-                        config_dict['cli'] = {}
-                    config_dict['cli']['psd_font'] = None
                 else:
                     # 用户配置保留favorite_folders（但如果当前配置已经有新值，就不覆盖）
                     if existing_favorites is not None:

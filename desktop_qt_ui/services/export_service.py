@@ -882,7 +882,7 @@ class ExportService:
             cli_cfg = CliConfig(**cli_config) if cli_config else CliConfig()
             
             self.logger.info(f"Creating Config with upscale_ratio={upscale_cfg.upscale_ratio}, colorizer={colorizer_cfg.colorizer}, inpainting_size={inpainter_cfg.inpainting_size}")
-            self.logger.info(f"PSD导出配置: export_editable_psd={cli_cfg.export_editable_psd}, psd_font={cli_cfg.psd_font}, psd_script_only={cli_cfg.psd_script_only}")
+            self.logger.info(f"PSD导出配置: export_editable_psd={cli_cfg.export_editable_psd}, font_family={render_cfg.font_family}, psd_script_only={cli_cfg.psd_script_only}")
 
             cfg = Config(render=render_cfg, translator=translator_cfg, upscale=upscale_cfg, colorizer=colorizer_cfg, inpainter=inpainter_cfg, cli=cli_cfg)
 
@@ -952,6 +952,7 @@ class ExportService:
                             from manga_translator.utils.photoshop_export import (
                                 get_psd_output_path,
                                 photoshop_export,
+                                resolve_photoshop_font,
                             )
                             
                             # 优先使用原图路径生成PSD路径，其次使用输出路径，最后使用临时路径
@@ -965,7 +966,7 @@ class ExportService:
                                 # 如果都没有，使用临时路径（向后兼容）
                                 psd_path = get_psd_output_path(image_path)
                             
-                            default_font = cfg.cli.psd_font
+                            default_font = resolve_photoshop_font(cfg)
                             line_spacing = cfg.render.line_spacing if hasattr(cfg.render, 'line_spacing') else None
                             script_only = cfg.cli.psd_script_only
                             

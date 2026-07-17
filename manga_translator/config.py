@@ -407,8 +407,6 @@ class CliConfig(BaseModel):
     """Ignore errors and continue processing"""
     export_editable_psd: bool = False
     """Export editable PSD file with layers (requires Photoshop)"""
-    psd_font: Optional[str] = None
-    """Font name for PSD export (PostScript name, e.g. ArialMT, SimHei). If not set, uses default font."""
     save_to_source_dir: bool = False
     """Save translation results to manga_translator_work/result/ subdirectory in the source image directory."""
     psd_script_only: bool = False

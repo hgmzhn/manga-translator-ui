@@ -70,7 +70,6 @@ SERVER_HIDDEN_CONFIG_KEYS = {
     "render.gimp_font",
     # PSD 相关（Qt UI / Photoshop 专属）
     "cli.export_editable_psd",
-    "cli.psd_font",
     # Qt UI 专属 - 输出到原图目录
     "cli.save_to_source_dir",
     # Qt UI 专属 - 导入固定YOLO框
