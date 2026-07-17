@@ -95,7 +95,9 @@
 BR 收口只负责把传统换行字符串拆成多个 `paragraph`，不会从 `TextBlock` 区域字段迁移字体、字号、颜色或描边。样式必须直接存在于 `translation_rich` 的 `style` 里：
 
 - `style.color`：字体颜色。
-- `style.stroke.color` / `style.stroke.width`：描边颜色和描边宽度比例，`width` 使用相对字号的比例值。
+- `style.stroke.color` / `style.stroke.width`：局部描边颜色和相对字号的宽度比例。
+- `style.outerStroke.color` / `style.outerStroke.width`：局部外描边颜色和相对字号的宽度比例。
+- `style.glow.color` / `style.glow.blur`：局部发光颜色和相对字号的模糊半径比例。
 - `style.fontSize`：当前区域字号。
 - `style.fontFamily`：Qt 字体 family。字体文件仅在加载阶段注册，协议不保存路径。
 
@@ -167,10 +169,15 @@ string
 
 - `text` inline 节点。
 - `ruby` inline 节点。
-- `tcy` inline 节点；横排按普通 inline 渲染，竖排按纵中横块渲染。
+- `tcy` inline 节点；横排按普通 inline 渲染，竖排按纵中横块渲染。纵中横墨迹
+  宽超过 `1.1 × 基准字号`（`RICH_TEXT_POLICY.tcy_max_width`，对齐参考实现）时
+  整组水平压缩到上限：压缩系数写入 `TcyPlan.scale_x`，测量几何与绘制端
+  （最终图层 X 向 resize，描边/特效随之变窄）共用，高度不变。
 - 局部填充颜色。
 - 局部字号倍率和绝对字号。
 - 局部描边颜色和描边宽度。
+- 局部外描边和发光；宽度、模糊半径均使用相对字号的比例值。
+- 局部行距：`lineKerning` 控制与上一行的附加间距，`nextKerning` 控制与下一行的附加间距；当前行 `lineKerning` 优先，数值使用相对字号的比例值。
 - 斜体：`italic` 布尔（默认 15° 切变）或数字角度切变；竖排横躺字符与正常
   字符共用同一切变矩阵（旋转坐标系下等价于换轴切变，无需分支）。
 - 局部旋转、镜像、`transform` 偏移，均计入渲染框包络。
@@ -194,6 +201,14 @@ string
 测量与绘制共用同一套包络几何（横排 `_build_rich_horizontal_layout` +
 `_rich_horizontal_layout_geometry`，竖排对应 F21 builder/geometry），绘制端
 按包络定矩形裁切而不在绘制后重新紧裁，输出面尺寸恒等于测量框。
+
+竖排框的左右 extras 按列位游走后的真实位置取并集：中间列的斜体切变、描边
+外扩等溢出落在列间隙/邻列区域内时不放大整框，只有真正越过正文带
+`[0, layout_width]` 的墨迹才扩框（溢出墨迹在绘制时按全局"先描边后正文"
+顺序压在邻列图层之下）。竖排测量与横排同口径地把全局描边计入几何（渲染
+调用约定 `bg=None ⟺ 描边禁用`）；首末字符墨迹+pad 相对槽位的上下溢出可
+不对称，纯文本的正文中心与框正中心因此允许 ≤ 描边 pad 的偏差（横排 pad
+对称包住行墨迹，仍严格重合）。
 
 横排采用真实墨迹计划：`QTextLayout` 只提供 shaped glyph run 和基线坐标，
 每个 glyph 的矢量 path 合并成实际墨迹框；全局/局部描边、斜体、旋转、镜像、

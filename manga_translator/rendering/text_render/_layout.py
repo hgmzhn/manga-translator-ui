@@ -101,8 +101,18 @@ def _rich_vertical_ruby_space(font_size: int) -> int:
     return int(round(font_size * RICH_TEXT_POLICY.vertical_ruby_side_space))
 
 
-def _rich_vertical_line_gap(spacing_x: int, column: VerticalColumnPlan) -> int:
-    return max(int(spacing_x), column.annotation_cross_extent)
+def _adjacent_line_adjustment(previous, current, font_size: int) -> float:
+    """当前行 LK 优先，否则使用上一行 NK；值为字号比例。"""
+    if current.line_kerning is not None:
+        return float(current.line_kerning) * font_size
+    if previous.next_kerning is not None:
+        return float(previous.next_kerning) * font_size
+    return 0.0
+
+
+def _rich_vertical_line_gap(spacing_x: int, previous: VerticalColumnPlan, current: VerticalColumnPlan) -> int:
+    base = max(int(spacing_x), current.annotation_cross_extent)
+    return int(round(base + _adjacent_line_adjustment(previous, current, max(previous.thickness, current.thickness))))
 
 
 def _vertical_column_walk(widths: list, gaps: list, origin_right: float) -> list:
@@ -143,22 +153,31 @@ def _rich_vertical_layout_geometry(
     spacing_x = calc_vertical_line_spacing_px(font_size, line_spacing)
     body_width = sum(column.thickness for column in layouts)
     body_width += spacing_x * max(0, len(layouts) - 1)
-    layout_width = sum(column.thickness for column in layouts)
-    layout_width += sum(_rich_vertical_line_gap(spacing_x, column) for column in layouts[1:])
-    # 紧凑框：左右溢出各按真实需要计算。右侧 = 首列注音/着重号 + 字形右溢出；
-    # 左侧只有字形左溢出。正文列区间 [left_extra, left_extra+layout_width] 因此
-    # 一般不在 paint 框正中，正文中心由 body_center_x 显式给出。
-    left_extra = max((
-        int(max(0.0, -column.content_paint_bounds.left))
-        for column in layouts
-    ), default=0)
-    right_paint_extra = max((
-        int(max(0.0, column.content_paint_bounds.right - column.thickness))
-        for column in layouts
-    ), default=0)
+    gaps = [
+        _rich_vertical_line_gap(spacing_x, previous, current)
+        for previous, current in zip(layouts, layouts[1:])
+    ]
+    layout_width = sum(column.thickness for column in layouts) + sum(gaps)
+    # 紧凑框：各列 content_paint_bounds 先经列位游走换算成正文带内的绝对
+    # 区间再取并集——中间列的斜体切变/描边外扩落在列间隙或邻列区域内，
+    # 不放大整框；只有真正越过 [0, layout_width] 的墨迹才计入 extras。
+    # 右侧另含首列注音/着重号。正文列区间 [left_extra, left_extra+layout_width]
+    # 因此一般不在 paint 框正中，正文中心由 body_center_x 显式给出。
+    column_edges = _vertical_column_walk(
+        [float(column.thickness) for column in layouts], gaps, float(layout_width)
+    )
+    paint_left = min((
+        column_left + column.content_paint_bounds.left
+        for (column_left, _), column in zip(column_edges, layouts)
+    ), default=0.0)
+    paint_right = max((
+        column_left + column.content_paint_bounds.right
+        for (column_left, _), column in zip(column_edges, layouts)
+    ), default=float(layout_width))
+    left_extra = int(math.ceil(max(0.0, -paint_left)))
     right_extra = max(
         layouts[0].annotation_cross_extent if layouts else 0,
-        right_paint_extra,
+        int(math.ceil(max(0.0, paint_right - layout_width))),
     )
     # 纵向包络：正文高 = 最高列的游走高度；上下 extras 由各列图层实际
     # 纵向溢出（偏移/切变/描边外扩）取最大值，测量与绘制共用。
@@ -195,7 +214,7 @@ def _rich_vertical_column_positions(
     origin_right = float(origin_x) + geometry['left_extra'] + geometry['layout_width']
     widths = [float(column.thickness) for column in layouts]
     gaps = [
-        _rich_vertical_line_gap(geometry['spacing_x'], layouts[idx + 1])
+        _rich_vertical_line_gap(geometry['spacing_x'], layouts[idx], layouts[idx + 1])
         for idx in range(max(0, len(layouts) - 1))
     ]
     return [
@@ -404,7 +423,7 @@ def _line_surface(
         _paste_bitmap(text_canvas, fill_alpha, fill_left - frame_left, fill_top - frame_top)
         if border_size > 0:
             stage_t0 = perf_counter() if profile_stats is not None else None
-            stroke_px = max(int(stroke_ratio * font_size), 1)
+            stroke_px = max(int(round(stroke_ratio * font_size)), 1)
             border_alpha, border_dx, border_dy = _stroke_alpha_from_text_alpha(fill_alpha, stroke_px)
             border_left, border_top = fill_left + border_dx, fill_top + border_dy
             _paste_bitmap(border_canvas, border_alpha, border_left - frame_left, border_top - frame_top)
@@ -500,7 +519,7 @@ def _build_horizontal_ruby_plan(
                 raw_glyphs.append((0, 0))
                 continue
             out_h, out_w, _, _ = _style_layer_effects_geometry(
-                int(geometry['height']), int(geometry['width']), ruby_style
+                int(geometry['height']), int(geometry['width']), ruby_style, ruby_font
             )
             raw_glyphs.append((int(out_w), int(out_h)))
 
@@ -547,7 +566,7 @@ def _rich_horizontal_main_rect(run: HorizontalRunPlan) -> Rect:
     top = run.top_rel
     height = run.ink_height
     width = run.ink_width
-    out_h, out_w, dx, dy = _style_layer_effects_geometry(height, width, span.style)
+    out_h, out_w, dx, dy = _style_layer_effects_geometry(height, width, span.style, run.font_size)
     return Rect(
         left + float(dx) + span.style.transform.offset_x,
         top + float(dy) + span.style.transform.offset_y,
@@ -556,7 +575,19 @@ def _rich_horizontal_main_rect(run: HorizontalRunPlan) -> Rect:
     )
 
 
-def _finalize_rich_horizontal_line(runs: list[HorizontalRunPlan], base_font_size: int, letter_spacing: float) -> HorizontalLinePlan:
+def _paragraph_line_spacing_values(paragraph) -> tuple[float | None, float | None]:
+    line_value = next((span.style.line_kerning for span in paragraph.spans if span.style.line_kerning is not None), None)
+    next_value = next((span.style.next_kerning for span in paragraph.spans if span.style.next_kerning is not None), None)
+    return line_value, next_value
+
+
+def _finalize_rich_horizontal_line(
+    runs: list[HorizontalRunPlan],
+    base_font_size: int,
+    letter_spacing: float,
+    line_kerning: float | None = None,
+    next_kerning: float | None = None,
+) -> HorizontalLinePlan:
     cursor = 0.0
     body_rects = []
     paint_rects = []
@@ -609,7 +640,7 @@ def _finalize_rich_horizontal_line(runs: list[HorizontalRunPlan], base_font_size
     if not paint_rects:
         half = max(float(base_font_size), 1.0) / 2.0
         bounds = Bounds(0.0, -half, logical_width, half)
-        return HorizontalLinePlan(tuple(runs), logical_width, bounds, bounds)
+        return HorizontalLinePlan(tuple(runs), logical_width, bounds, bounds, line_kerning, next_kerning)
 
     def bounds(rects):
         left = min(rect[0] for rect in rects)
@@ -625,6 +656,8 @@ def _finalize_rich_horizontal_line(runs: list[HorizontalRunPlan], base_font_size
         logical_width,
         Bounds(body_left, body_top, body_right, body_bottom),
         Bounds(paint_left, paint_top, paint_right, paint_bottom),
+        line_kerning,
+        next_kerning,
     )
 
 
@@ -668,7 +701,10 @@ def _build_rich_horizontal_layout(
                 if ruby_paint is not None:
                     run.ruby = ruby_paint
             runs.append(run)
-        layouts.append(_finalize_rich_horizontal_line(runs, base_font_size, letter_spacing))
+        line_kerning, next_kerning = _paragraph_line_spacing_values(paragraph)
+        layouts.append(_finalize_rich_horizontal_line(
+            runs, base_font_size, letter_spacing, line_kerning, next_kerning
+        ))
     return layouts
 
 
@@ -683,7 +719,8 @@ def _rich_horizontal_layout_geometry(layouts: list[HorizontalLinePlan], font_siz
     if layouts:
         baselines.append(-layouts[0].paint_bounds.top)
         for previous, current in zip(layouts, layouts[1:]):
-            advance = previous.paint_bounds.bottom - current.paint_bounds.top + gap
+            local_gap = gap + _adjacent_line_adjustment(previous, current, font_size)
+            advance = previous.paint_bounds.bottom - current.paint_bounds.top + local_gap
             baselines.append(baselines[-1] + max(1.0, advance))
 
     paint_top = min((baseline + layout.paint_bounds.top for baseline, layout in zip(baselines, layouts)), default=0.0)
@@ -745,9 +782,18 @@ def _build_tcy_plan(
         )
     if not geometry['has_ink']:
         return None
+    # 纵中横压缩（对齐参考实现）：正文墨迹宽超过 1.1 倍基准字号时整组水平
+    # 压缩到上限。压缩作用于最终图层（描边/特效随之变窄），判定只看纯墨迹
+    # 宽（去掉描边 pad），与参考实现按字形墨迹累计的口径一致。
+    ink_width = float(geometry['width']) - 2.0 * float(geometry['pad'])
+    max_width = float(base_font_size) * RICH_TEXT_POLICY.tcy_max_width
+    scale_x = max_width / ink_width if ink_width > max_width else 1.0
     height, width, layer_dx, layer_dy = _style_layer_effects_geometry(
-        int(geometry['height']), int(geometry['width']), span.style
+        int(geometry['height']), int(geometry['width']), span.style, font_size
     )
+    if scale_x < 1.0:
+        width = max(1, int(math.ceil(width * scale_x)))
+        layer_dx = float(layer_dx) * scale_x
     return TcyPlan(
         source=span,
         text=text,
@@ -759,6 +805,7 @@ def _build_tcy_plan(
         paint_offset_y=float(layer_dy),
         pre_advance=int(round(span.style.pre_kerning * font_size)),
         post_advance=int(round(span.style.kerning * font_size)),
+        scale_x=float(scale_x),
     )
 
 
@@ -776,13 +823,13 @@ def _build_vertical_char_plan(
     if bitmap is not None and bitmap.size:
         height, width = int(bitmap.shape[0]), int(bitmap.shape[1])
         if stroke_ratio > 0 and stroke is not None:
-            stroke_px = max(int(stroke_ratio * font_size), 1)
+            stroke_px = max(int(round(stroke_ratio * font_size)), 1)
             pad = max(1, stroke_px) + 1
             height += pad * 2
             width += pad * 2
             off_x = off_y = float(-pad)
         height, width, layer_dx, layer_dy = _style_layer_effects_geometry(
-            height, width, span.style
+            height, width, span.style, font_size
         )
         off_x += layer_dx
         off_y += layer_dy
@@ -1035,6 +1082,7 @@ def _build_rich_vertical_layout(
             )
         top_extra = int(math.ceil(max(0.0, paint_top_extra)))
         bottom_extra = int(math.ceil(max(0.0, paint_bottom_extra)))
+        line_kerning, next_kerning = _paragraph_line_spacing_values(paragraph)
         layouts.append(VerticalColumnPlan(
             thickness=int(thickness),
             height=column_height,
@@ -1049,6 +1097,8 @@ def _build_rich_vertical_layout(
             items=tuple(laid),
             ruby_plans=tuple(ruby_plans),
             emphasis_plans=tuple(emphasis_plans),
+            line_kerning=line_kerning,
+            next_kerning=next_kerning,
         ))
     return layouts
 

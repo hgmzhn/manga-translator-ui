@@ -65,3 +65,5 @@ class VerticalColumnPlan:
     items: tuple[VerticalItemPlan, ...]
     ruby_plans: tuple[RubyPlan, ...]
     emphasis_plans: tuple[EmphasisPlan, ...]
+    line_kerning: float | None = None
+    next_kerning: float | None = None

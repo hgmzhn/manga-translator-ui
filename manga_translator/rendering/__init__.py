@@ -75,20 +75,29 @@ def _encode_mask_png_base64(mask: Optional[np.ndarray]) -> str:
         return ""
 
 
-def _estimate_effect_padding(font_size: int, config: Config = None) -> float:
+def _resolve_effective_stroke_width(
+    config: Config = None,
+    stroke_width: float = None,
+) -> float:
+    """Resolve the one stroke ratio consumed by measurement and drawing."""
+    render_cfg = getattr(config, 'render', None) if config is not None else None
+    if bool(getattr(render_cfg, 'disable_font_border', False)):
+        return 0.0
+    if stroke_width is not None:
+        return max(_safe_float(stroke_width, 0.0), 0.0)
+    return max(_safe_float(getattr(render_cfg, 'stroke_width', 0.07), 0.07), 0.0)
+
+
+def _estimate_effect_padding(
+    font_size: int,
+    config: Config = None,
+    stroke_width: float = None,
+) -> float:
     """估算文本效果（当前主要是描边）带来的额外边缘像素。"""
     if font_size <= 0:
         return 0.0
 
-    render_cfg = getattr(config, 'render', None) if config is not None else None
-    disable_border = bool(getattr(render_cfg, 'disable_font_border', False)) if render_cfg is not None else False
-    if disable_border:
-        return 0.0
-
-    stroke_ratio = 0.07
-    if render_cfg is not None:
-        stroke_ratio = _safe_float(getattr(render_cfg, 'stroke_width', stroke_ratio), stroke_ratio)
-    stroke_ratio = max(stroke_ratio, 0.0)
+    stroke_ratio = _resolve_effective_stroke_width(config, stroke_width)
     if stroke_ratio <= 0.0:
         return 0.0
 
@@ -116,6 +125,14 @@ def _region_render_value(region: TextBlock):
     if hasattr(region, 'get_translation_for_rendering'):
         return region.get_translation_for_rendering()
     return getattr(region, 'translation', '')
+
+
+def _resolve_region_stroke_width(region: TextBlock, config: Config = None) -> float:
+    """Return the exact region stroke ratio consumed by layout and drawing."""
+    render_cfg = getattr(config, 'render', None) if config is not None else None
+    if bool(getattr(render_cfg, 'disable_font_border', False)):
+        return 0.0
+    return max(_safe_float(getattr(region, 'stroke_width', 0.0), 0.0), 0.0)
 
 
 def _should_apply_default_english_line_break_method(region: TextBlock, config: Config = None) -> bool:
@@ -194,7 +211,8 @@ def _apply_default_english_line_break_method(
 
 def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: float = 1.0,
                                 config: Config = None, target_lang: str = None,
-                                font_size: int = BASE_FONT_SIZE, letter_spacing: float = 1.0) -> tuple:
+                                font_size: int = BASE_FONT_SIZE, letter_spacing: float = 1.0,
+                                stroke_width: float = None) -> tuple:
     """
     按指定字号模拟渲染文本块，返回精确的像素尺寸
 
@@ -219,6 +237,7 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
             text,
             line_spacing,
             config=config,
+            stroke_width=stroke_width,
             letter_spacing=letter_spacing,
         )
     return text_render.measure_rich_text_vertical(
@@ -226,13 +245,15 @@ def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: flo
         text,
         line_spacing,
         config=config,
+        stroke_width=stroke_width,
         letter_spacing=letter_spacing,
     )
 
 
 def calc_font_from_box(width: float, height: float, text: str, is_horizontal: bool,
                        line_spacing: float = 1.0, config: Config = None,
-                       target_lang: str = None, letter_spacing: float = 1.0) -> int:
+                       target_lang: str = None, letter_spacing: float = 1.0,
+                       stroke_width: float = None) -> int:
     """
     框 → 字体：基于真实测量结果二分搜索可容纳的最大字号
 
@@ -271,7 +292,8 @@ def calc_font_from_box(width: float, height: float, text: str, is_horizontal: bo
             target_lang,
             center=None,
             angle=0,
-            letter_spacing=letter_spacing
+            letter_spacing=letter_spacing,
+            stroke_width=stroke_width,
         )
         return req_w <= width and req_h <= height
 
@@ -308,6 +330,7 @@ def _select_preserved_line_layout_font(
     config: Config = None,
     target_lang: str = None,
     letter_spacing: float = 1.0,
+    stroke_width: float = None,
 ) -> Tuple[int, int]:
     base_font = max(int(base_font_size), 1)
     line_font = max(
@@ -321,6 +344,7 @@ def _select_preserved_line_layout_font(
                 config=config,
                 target_lang=target_lang,
                 letter_spacing=letter_spacing,
+                stroke_width=stroke_width,
             )
         ),
         1,
@@ -340,6 +364,7 @@ def _solve_unified_no_br_layout(
     config: Config = None,
     target_lang: str = None,
     max_font_size: Optional[int] = None,
+    stroke_width: float = None,
 ) -> Tuple[str, int, float, float, int]:
     """Shared no-BR line-break solver for strict, smart_scaling, and balloon_fill."""
     safe_target_font_size = max(int(target_font_size), int(layout_min_font_size), 1)
@@ -454,6 +479,7 @@ def _solve_unified_no_br_layout(
         config=config,
         target_lang=target_lang,
         letter_spacing=letter_spacing_multiplier,
+        stroke_width=stroke_width,
     )
     layout_font_size = max(int(layout_font_size), int(layout_min_font_size), 1)
     required_width, required_height, n_segments, _ = calc_box_from_font(
@@ -466,13 +492,15 @@ def _solve_unified_no_br_layout(
         center=None,
         angle=0,
         letter_spacing=letter_spacing_multiplier,
+        stroke_width=stroke_width,
     )
     return text_with_br, layout_font_size, required_width, required_height, n_segments
 
 
 def calc_text_block_metrics(text, is_horizontal: bool, line_spacing: float,
                             config: Config = None, target_lang: str = None,
-                            font_size: int = None, letter_spacing: float = 1.0) -> tuple:
+                            font_size: int = None, letter_spacing: float = 1.0,
+                            stroke_width: float = None) -> tuple:
     """尺寸 + 正文中心：在 calc_text_block_dimensions 基础上追加正文框中心点。
 
     Returns:
@@ -484,7 +512,7 @@ def calc_text_block_metrics(text, is_horizontal: bool, line_spacing: float,
     base_font = max(1, int(font_size))
     metrics = text_render.measure_rich_text_metrics(
         base_font, text, is_horizontal, line_spacing,
-        config=config, letter_spacing=letter_spacing,
+        config=config, stroke_width=stroke_width, letter_spacing=letter_spacing,
     )
     return metrics['width'], metrics['height'], metrics['n_lines'], metrics['body_center']
 
@@ -492,7 +520,8 @@ def calc_text_block_metrics(text, is_horizontal: bool, line_spacing: float,
 def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
                        line_spacing: float = 1.0, config: Config = None,
                        target_lang: str = None, center: tuple = None,
-                       angle: float = 0, letter_spacing: float = 1.0) -> tuple:
+                       angle: float = 0, letter_spacing: float = 1.0,
+                       stroke_width: float = None) -> tuple:
     """
     字体 → 框：直接按目标字号测量文本像素尺寸，并给出正文中心点
 
@@ -520,6 +549,7 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
     base_w, base_h, n_lines, (body_x, body_y) = calc_text_block_metrics(
         text, is_horizontal, line_spacing, config, target_lang,
         font_size=font_size, letter_spacing=letter_spacing,
+        stroke_width=stroke_width,
     )
 
     if base_w <= 0 or base_h <= 0:
@@ -534,7 +564,11 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
     body_y = float(body_y)
 
     # 横排的描边/富文本效果已经进入真实墨迹计划；竖排仍沿用外围 padding。
-    effect_padding = 0.0 if is_horizontal else _estimate_effect_padding(font_size, config)
+    effect_padding = 0.0 if is_horizontal else _estimate_effect_padding(
+        font_size,
+        config,
+        stroke_width,
+    )
     if effect_padding > 0.0:
         pad_total = int(effect_padding * 2.0)
         req_width += pad_total
@@ -1202,6 +1236,7 @@ def _resolve_region_layout_center(
         config,
         region.target_lang,
         letter_spacing=letter_spacing_multiplier,
+        stroke_width=_resolve_region_stroke_width(region, config),
     )
     # 上对齐用正文本体高度（正文中心到底边的两倍），把框外注音/着重号排除，
     # 这样正文顶边贴气泡顶边，而不是让注音顶边贴气泡。
@@ -1244,6 +1279,7 @@ def _calc_region_dst_points_for_font(
         center=anchor,
         angle=region.angle,
         letter_spacing=letter_spacing_multiplier,
+        stroke_width=_resolve_region_stroke_width(region, config),
     )
     if dst_points is None:
         return None
@@ -1571,6 +1607,7 @@ def resize_regions_to_font_size(
                         config=config,
                         target_lang=region.target_lang,
                         letter_spacing=letter_spacing_multiplier,
+                        stroke_width=_resolve_region_stroke_width(region, config),
                     )
                     layout_font_size = max(
                         min(layout_candidate_font_size, int(box_fit_font_size)),
@@ -1658,6 +1695,7 @@ def resize_regions_to_font_size(
                         config=config,
                         target_lang=region.target_lang,
                         letter_spacing=letter_spacing_multiplier,
+                        stroke_width=_resolve_region_stroke_width(region, config),
                     )
                     layout_candidate_font_size = max(int(layout_candidate_font_size), layout_min_font_size)
                 candidate_required_width, candidate_required_height, candidate_n, _ = calc_box_from_font(
@@ -1670,6 +1708,7 @@ def resize_regions_to_font_size(
                     center=None,
                     angle=0,
                     letter_spacing=letter_spacing_multiplier,
+                    stroke_width=_resolve_region_stroke_width(region, config),
                 )
             else:
                 line_layout_max_font_size = int(
@@ -1697,6 +1736,7 @@ def resize_regions_to_font_size(
                     config=config,
                     target_lang=region.target_lang,
                     max_font_size=line_layout_max_font_size,
+                    stroke_width=_resolve_region_stroke_width(region, config),
                 )
                 layout_candidate_font_size = max(int(layout_candidate_font_size), int(unified_layout_font_size))
 
@@ -1829,6 +1869,7 @@ def resize_regions_to_font_size(
                                 center=None,
                                 angle=0,
                                 letter_spacing=letter_spacing_multiplier,
+                                stroke_width=_resolve_region_stroke_width(region, config),
                             )
                             total_budget = float(single_width if render_horizontally else single_height)
                             linebreak_snapshot = build_chinese_linebreak_debug_snapshot(
@@ -1855,6 +1896,7 @@ def resize_regions_to_font_size(
                                     center=None,
                                     angle=0,
                                     letter_spacing=letter_spacing_multiplier,
+                                    stroke_width=_resolve_region_stroke_width(region, config),
                                 )
                                 candidate_dst_points = _calc_region_dst_points_for_font(
                                     region=region,
@@ -2313,6 +2355,7 @@ def resize_regions_to_font_size(
                                 center=None,
                                 angle=0,
                                 letter_spacing=letter_spacing_multiplier,
+                                stroke_width=_resolve_region_stroke_width(region, config),
                             )
 
                         # 用新的required重新计算框扩大
