@@ -2524,6 +2524,62 @@ async def dispatch(
         return img, debug_img
     return img
 
+def _native_render_rect_points(center, width: int, height: int, angle: float) -> np.ndarray:
+    """按原生 RGBA 尺寸生成实际渲染四角；angle 为图像坐标系顺时针角度。"""
+    cx, cy = float(center[0]), float(center[1])
+    hw, hh = float(width) / 2.0, float(height) / 2.0
+    local = np.array(
+        [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]],
+        dtype=np.float32,
+    )
+    rad = math.radians(float(angle or 0.0))
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+    points = np.empty_like(local)
+    points[:, 0] = cx + local[:, 0] * cos_a - local[:, 1] * sin_a
+    points[:, 1] = cy + local[:, 0] * sin_a + local[:, 1] * cos_a
+    return points.reshape(1, 4, 2)
+
+
+def _premultiply_rgba(rgba: np.ndarray) -> np.ndarray:
+    premultiplied = rgba.copy()
+    if premultiplied.ndim != 3 or premultiplied.shape[2] != 4:
+        return premultiplied
+    alpha = premultiplied[:, :, 3].astype(np.float32) / 255.0
+    for channel in range(3):
+        premultiplied[:, :, channel] = np.clip(
+            premultiplied[:, :, channel].astype(np.float32) * alpha,
+            0,
+            255,
+        ).astype(np.uint8)
+    return premultiplied
+
+
+def _rotate_native_rgba(premultiplied: np.ndarray, angle: float) -> np.ndarray:
+    """保持 scale=1 旋转预乘 RGBA，并扩展画布避免裁切。"""
+    angle = float(angle or 0.0)
+    if abs(angle) < 1e-6:
+        return premultiplied
+
+    height, width = premultiplied.shape[:2]
+    center = (width / 2.0, height / 2.0)
+    # OpenCV 正角在图像坐标中是逆时针；项目 angle/Qt 正角是顺时针。
+    matrix = cv2.getRotationMatrix2D(center, -angle, 1.0)
+    abs_cos = abs(float(matrix[0, 0]))
+    abs_sin = abs(float(matrix[0, 1]))
+    bound_w = max(1, int(math.ceil(width * abs_cos + height * abs_sin)))
+    bound_h = max(1, int(math.ceil(height * abs_cos + width * abs_sin)))
+    matrix[0, 2] += bound_w / 2.0 - center[0]
+    matrix[1, 2] += bound_h / 2.0 - center[1]
+    return cv2.warpAffine(
+        premultiplied,
+        matrix,
+        (bound_w, bound_h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(0, 0, 0, 0),
+    )
+
+
 def render(
     img,
     region: TextBlock,
@@ -2593,8 +2649,6 @@ def render(
     middle_pts = (dst_points[:, [1, 2, 3, 0]] + dst_points) / 2
     norm_h = np.linalg.norm(middle_pts[:, 1] - middle_pts[:, 3], axis=1)
     norm_v = np.linalg.norm(middle_pts[:, 2] - middle_pts[:, 0], axis=1)
-    r_orig = np.mean(norm_h / norm_v)
-
     render_horizontally = _resolve_region_render_horizontal(region)
     letter_spacing = _resolve_letter_spacing_multiplier(region, config)
 
@@ -2681,158 +2735,66 @@ def render(
     if h == 0 or w == 0:
         logger.warning(f"Skipping rendering for region with invalid dimensions (w={w}, h={h}). Text: '{region.translation}'")
         return img
-    r_temp = w / h
+    layout_points = np.asarray(dst_points, dtype=np.float32).reshape(-1, 2)
+    anchor = np.mean(layout_points[:4], axis=0)
+    edge = layout_points[1] - layout_points[0]
+    angle = math.degrees(math.atan2(float(edge[1]), float(edge[0])))
 
-    box = None
-    if render_horizontally:
-        if r_temp > r_orig:
-            h_ext = int((w / r_orig - h) // 2) if r_orig > 0 else 0
-            if h_ext >= 0:
-                box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                box[h_ext:h_ext+h, 0:w] = temp_box
-            else:
-                box = temp_box.copy()
-        else:
-            w_ext = int((h * r_orig - w) // 2)
-            if w_ext >= 0:
-                box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)
-                # 横排文本默认水平居中
-                box[0:h, w_ext:w_ext+w] = temp_box
-            else:
-                box = temp_box.copy()
-    else:
-        if r_temp > r_orig:
-            h_ext = int(w / (2 * r_orig) - h / 2) if r_orig > 0 else 0
-            if h_ext >= 0:
-                box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                box[h_ext:h_ext+h, 0:w] = temp_box
-            else:
-                box = temp_box.copy()
-        else:
-            w_ext = int((h * r_orig - w) / 2)
-            if w_ext >= 0:
-                box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)
-                # 竖排文本水平居中
-                box[0:h, w_ext:w_ext+w] = temp_box
-            else:
-                box = temp_box.copy()
+    # dst_points 不再控制像素尺寸；实际四角由原生 RGBA 宽高反向派生。
+    actual_dst_points = _native_render_rect_points(anchor, w, h, angle)
+    region.dst_points = actual_dst_points
 
-    src_points = np.array([[0, 0], [box.shape[1], 0], [box.shape[1], box.shape[0]], [0, box.shape[0]]]).astype(np.float32)
-
-    # 文字框允许超出画布；最终只把画布内的有效像素合成回原图。
-    # 不在这里按坐标分量 clip 四角点，否则会压缩/扭曲文本，并造成预览与导出不一致。
-    img_h, img_w = img.shape[:2]
-
-    # 统一使用局部区域渲染，避免 OpenCV warpPerspective 的 32767 像素限制
+    premultiplied = _premultiply_rgba(temp_box)
+    rgba_region = _rotate_native_rgba(premultiplied, angle)
+    rotated_h, rotated_w = rgba_region.shape[:2]
     SHRT_MAX = 32767
-    if box.shape[0] > SHRT_MAX or box.shape[1] > SHRT_MAX:
+    if rotated_h > SHRT_MAX or rotated_w > SHRT_MAX:
         logger.error(
-            f"[RENDER SKIPPED] Text box size exceeds OpenCV limit (32767). "
-            f"box={box.shape[:2]}, text='{_translation_preview(getattr(region, 'translation', None), 50)}...'"
+            f"[RENDER SKIPPED] Native text layer exceeds OpenCV limit (32767). "
+            f"box={rgba_region.shape[:2]}, text='{_translation_preview(getattr(region, 'translation', None), 50)}...'"
         )
         return img
-    
-    # 计算文字区域的边界框，添加边距
-    x_adj, y_adj, w_adj, h_adj = cv2.boundingRect(np.round(dst_points[0]).astype(np.int32))
-    margin = max(w_adj, h_adj) // 2 + 100  # 添加足够的边距
-    
-    # 计算局部区域边界
-    local_x1 = max(0, x_adj - margin)
-    local_y1 = max(0, y_adj - margin)
-    local_x2 = min(img_w, x_adj + w_adj + margin)
-    local_y2 = min(img_h, y_adj + h_adj + margin)
-    local_w = local_x2 - local_x1
-    local_h = local_y2 - local_y1
 
-    if local_w <= 0 or local_h <= 0:
+    img_h, img_w = img.shape[:2]
+    dst_x1 = int(round(float(anchor[0]) - rotated_w / 2.0))
+    dst_y1 = int(round(float(anchor[1]) - rotated_h / 2.0))
+    dst_x2 = dst_x1 + rotated_w
+    dst_y2 = dst_y1 + rotated_h
+
+    clip_x1 = max(0, dst_x1)
+    clip_y1 = max(0, dst_y1)
+    clip_x2 = min(img_w, dst_x2)
+    clip_y2 = min(img_h, dst_y2)
+    if clip_x2 <= clip_x1 or clip_y2 <= clip_y1:
         logger.warning(
-            f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, "
-            f"w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). "
+            f"Text region completely outside image bounds: center=({anchor[0]:.1f}, {anchor[1]:.1f}), "
+            f"native_size=({rotated_w}, {rotated_h}), image_size=({img_w}, {img_h}). "
             f"Text: '{_translation_preview(getattr(region, 'translation', None), 50)}...'"
         )
         return img
-    
-    # 检查局部区域是否仍然超限
-    if local_w > SHRT_MAX or local_h > SHRT_MAX:
-        logger.error(
-            f"[RENDER SKIPPED] Local region still exceeds OpenCV limit. "
-            f"local_size=({local_w}, {local_h}), text='{_translation_preview(getattr(region, 'translation', None), 50)}...'"
-        )
-        return img
-    
-    # 调整目标点到局部坐标系
-    local_dst_points = dst_points.copy()
-    local_dst_points[0, :, 0] -= local_x1
-    local_dst_points[0, :, 1] -= local_y1
-    
-    # 重新计算变换矩阵
-    M_local, _ = cv2.findHomography(src_points, local_dst_points[0], cv2.RANSAC, 5.0)
 
-    # 检查变换矩阵是否有效
-    if M_local is None:
-        logger.warning(f"[RENDER SKIPPED] Failed to compute homography matrix for text: "
-                      f"'{_translation_preview(getattr(region, 'translation', None), 50)}...'")
-        return img
+    src_x1 = clip_x1 - dst_x1
+    src_y1 = clip_y1 - dst_y1
+    src_x2 = src_x1 + (clip_x2 - clip_x1)
+    src_y2 = src_y1 + (clip_y2 - clip_y1)
+    source = rgba_region[src_y1:src_y2, src_x1:src_x2]
+    canvas_region = source[:, :, :3]
+    mask_region = source[:, :, 3:4].astype(np.float32) / 255.0
+    target_region = img[clip_y1:clip_y2, clip_x1:clip_x2]
+    img[clip_y1:clip_y2, clip_x1:clip_x2] = np.clip(
+        target_region.astype(np.float32) * (1.0 - mask_region)
+        + canvas_region.astype(np.float32),
+        0,
+        255,
+    ).astype(np.uint8)
 
-    # 在局部区域进行变换
-    # 关键修复 1：先做 Alpha 预乘，避免 warpPerspective 的插值把边缘像素和
-    # 透明黑 (0,0,0,0) 混合成灰/黑色晕边。
-    # 关键修复 2：使用 INTER_LINEAR 而非 INTER_LANCZOS4。Lanczos4 的 sinc 负
-    # lobe 在预乘空间会把"远处的透明黑"按负权重减出来，且 RGB 与 alpha 振铃
-    # 量不成比例 —— 反预乘还原后，描边外缘出现 ~5% 的灰（约 #f9f9f9）。
-    # 双线性无负 lobe，描边边缘保持纯白；漫画文字大字号缩放下肉眼看不出锐度差异。
-    if box.shape[2] == 4:
-        box_pm = box.copy()
-        a_f = box_pm[:, :, 3].astype(np.float32) / 255.0
-        for c in range(3):
-            box_pm[:, :, c] = np.clip(box_pm[:, :, c].astype(np.float32) * a_f, 0, 255).astype(np.uint8)
-    else:
-        box_pm = box
-
-    rgba_region = cv2.warpPerspective(box_pm, M_local, (local_w, local_h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
-
-    # 计算在局部区域中的有效范围
-    local_text_x = x_adj - local_x1
-    local_text_y = y_adj - local_y1
-    valid_y1 = max(0, local_text_y)
-    valid_y2 = min(local_h, local_text_y + h_adj)
-    valid_x1 = max(0, local_text_x)
-    valid_x2 = min(local_w, local_text_x + w_adj)
-    
-    if valid_y2 > valid_y1 and valid_x2 > valid_x1:
-        # canvas_region 已经是预乘的 RGB；直接使用预乘合成公式：
-        #   out = target*(1-a) + src_premul
-        # 不再除以 alpha 还原，避免边缘像素（alpha 很小）在还原时放大数值噪声
-        canvas_region = rgba_region[valid_y1:valid_y2, valid_x1:valid_x2, :3]
-        mask_region = rgba_region[valid_y1:valid_y2, valid_x1:valid_x2, 3:4].astype(np.float32) / 255.0
-        
-        # 计算在原图中的对应位置
-        img_target_y1 = local_y1 + valid_y1
-        img_target_y2 = local_y1 + valid_y2
-        img_target_x1 = local_x1 + valid_x1
-        img_target_x2 = local_x1 + valid_x2
-        
-        target_region = img[img_target_y1:img_target_y2, img_target_x1:img_target_x2]
-        if canvas_region.shape[:2] == target_region.shape[:2]:
-            img[img_target_y1:img_target_y2, img_target_x1:img_target_x2] = np.clip(
-                target_region.astype(np.float32) * (1.0 - mask_region) + canvas_region.astype(np.float32),
-                0, 255
-            ).astype(np.uint8)
-            if render_alpha is not None:
-                try:
-                    alpha_region = rgba_region[valid_y1:valid_y2, valid_x1:valid_x2, 3]
-                    alpha_target = render_alpha[img_target_y1:img_target_y2, img_target_x1:img_target_x2]
-                    if alpha_region.shape == alpha_target.shape:
-                        np.maximum(alpha_target, alpha_region, out=alpha_target)
-                except Exception as alpha_error:
-                    logger.debug(f"Failed to accumulate render alpha: {alpha_error}")
-        else:
-            logger.warning(f"Text region size mismatch: canvas={canvas_region.shape[:2]}, target={target_region.shape[:2]}, skipping region")
-    else:
-        logger.warning(
-            f"Text region completely outside image bounds: x={x_adj}, y={y_adj}, "
-            f"w={w_adj}, h={h_adj}, image_size=({img_w}, {img_h}). "
-            f"Text: '{_translation_preview(getattr(region, 'translation', None), 50)}...'"
-        )
+    if render_alpha is not None:
+        try:
+            alpha_region = source[:, :, 3]
+            alpha_target = render_alpha[clip_y1:clip_y2, clip_x1:clip_x2]
+            if alpha_region.shape == alpha_target.shape:
+                np.maximum(alpha_target, alpha_region, out=alpha_target)
+        except Exception as alpha_error:
+            logger.debug(f"Failed to accumulate render alpha: {alpha_error}")
     
     return img

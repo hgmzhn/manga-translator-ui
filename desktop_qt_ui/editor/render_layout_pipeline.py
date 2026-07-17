@@ -1,51 +1,38 @@
-"""渲染布局管线 — 计算 dst_points（文字渲染的目标四角点）。"""
+"""渲染布局管线 — 用统一的 RenderParameters 计算文字几何。"""
 import logging
-from typing import Optional, Tuple
-
-logger = logging.getLogger('manga_translator')
+from typing import Optional
 
 import numpy as np
-from editor import text_renderer_backend
-from editor.render_text_value import has_renderable_text, render_text_value_from_text_block
-
-from manga_translator.config import Config, RenderConfig
 from manga_translator.rendering import calc_box_from_font
 from manga_translator.utils import TextBlock
 
+from editor import text_renderer_backend
+from editor.render_text_value import (
+    has_renderable_text,
+    render_text_value_from_text_block,
+)
+from services.render_parameter_service import RenderParameters
 
-def _normalize_direction(direction_value):
-    if direction_value == "h":
-        return "horizontal"
-    if direction_value == "v":
-        return "vertical"
-    return direction_value
-
-
-def prepare_layout_context(render_parameter_service, _text_renderer_backend) -> Tuple[dict, Config]:
-    default_params_obj = render_parameter_service.get_default_parameters()
-    global_params_dict = default_params_obj.to_dict()
-    global_params_dict["direction"] = _normalize_direction(global_params_dict.get("direction"))
-
-    config_obj = Config(render=RenderConfig(**global_params_dict))
-    return global_params_dict, config_obj
+logger = logging.getLogger('manga_translator')
 
 
-def build_region_specific_params(global_params_dict: dict, text_block: TextBlock) -> dict:
-    region_params = global_params_dict.copy()
-    if hasattr(text_block, "direction"):
-        region_params["direction"] = _normalize_direction(getattr(text_block, "direction", None))
-    if hasattr(text_block, "letter_spacing"):
-        region_params["letter_spacing"] = getattr(text_block, "letter_spacing", None)
+def resolve_region_layout_parameters(
+    render_parameter_service,
+    region_index: int,
+    region_data: dict,
+    text_block: TextBlock,
+) -> RenderParameters:
+    """Resolve the exact parameter snapshot shared by measurement and drawing."""
+    params = render_parameter_service.get_region_parameters(region_index, region_data)
     region_font = getattr(text_block, "font_family", "")
     if region_font:
-        region_params["font_family"] = region_font
-    return region_params
+        params.font_family = region_font
+    return params
 
 
 def calculate_region_dst_points(
     text_block: TextBlock,
-    region_params: dict,
-    config_obj: Config,
+    params: RenderParameters,
     override_dst_points=None,
 ) -> Optional[object]:
     """计算文字渲染的目标四角点（世界坐标轴对齐矩形）。
@@ -62,13 +49,10 @@ def calculate_region_dst_points(
         return text_block.min_rect
 
     is_horizontal = text_block.horizontal
-    line_spacing = region_params.get("line_spacing") or config_obj.render.line_spacing or 1.0
-    letter_spacing = region_params.get("letter_spacing") or getattr(config_obj.render, "letter_spacing", None) or 1.0
+    line_spacing = params.line_spacing or 1.0
+    letter_spacing = params.letter_spacing or 1.0
     target_lang = text_block.target_lang or "en_US"
-    region_font = (
-        region_params.get("font_family")
-        or getattr(text_block, "font_family", "")
-    )
+    region_font = params.font_family or getattr(text_block, "font_family", "")
     text_renderer_backend.apply_font_for_render(region_font)
     # 编辑器尺寸计算与最终渲染保持一致，避免预览白框和最终文字尺寸不一致。
     box_w, box_h, _, _ = calc_box_from_font(
@@ -76,11 +60,12 @@ def calculate_region_dst_points(
         translation,
         is_horizontal,
         line_spacing,
-        config_obj,
+        None,
         target_lang,
         center=None,
         angle=0,
         letter_spacing=letter_spacing,
+        stroke_width=params.effective_stroke_width,
     )
     cx, cy = tuple(text_block.center)
     hw = float(box_w) / 2.0

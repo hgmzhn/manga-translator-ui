@@ -1,6 +1,6 @@
-from PyQt6.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QAbstractSpinBox, QFontComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLineEdit, QSizePolicy, QTextEdit, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QAbstractSpinBox, QFontComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLineEdit, QScrollArea, QSizePolicy, QTextEdit, QToolButton, QVBoxLayout, QWidget
 from qfluentwidgets import (
     CaptionLabel,
     CompactDoubleSpinBox,
@@ -17,8 +17,10 @@ from editor.rich_text_editing import (
     document_from_region,
     document_to_storage_text,
     remove_ruby_from_range,
+    remove_tcy_from_range,
     storage_text_to_editor_text,
     styled_text_for_key,
+    style_row_coverage,
     style_for_range,
 )
 from services import get_config_service, get_i18n_manager
@@ -42,19 +44,36 @@ def _compact_spin_box() -> CompactSpinBox:
     return spin_box
 
 
+class _WheelGuardScrollArea(QScrollArea):
+    """样式列表专用滚动区：滚轮到边界后也不向下层画布传播。"""
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        content = self.widget()
+        if content is not None:
+            # 横向内容始终压缩到可视区内，不显示左右滚动条。
+            content.setFixedWidth(self.viewport().width())
+
+    def wheelEvent(self, event):
+        super().wheelEvent(event)
+        event.accept()
+
+
 class RichTextFloatingEditor(SimpleCardWidget):
     rich_text_changed = pyqtSignal(int, object, str)
+    layout_size_changed = pyqtSignal()
 
-    # 渲染器尚未实现这些样式字段的绘制（glow / outerStroke / lineKerning /
-    # nextKerning，审查 F18）：schema 与编辑逻辑保留，UI 暂不开放；
-    # 渲染实现后把对应按钮加回工具栏并从此集合移除即可恢复。
-    _UNRENDERED_STYLE_ROW_KEYS = frozenset({"G", "OS", "LK", "NK"})
+    # 保留集中式禁用入口；当前已实现的 G / OS / LS 均直接开放。
+    _UNRENDERED_STYLE_ROW_KEYS = frozenset()
+    _DRAG_BORDER_WIDTH = 12
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Widget)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setFixedWidth(460)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoMousePropagation, True)
+        self.setMouseTracking(True)
+        self.setFixedWidth(420)
         self.setMinimumHeight(210)
         self._region_index = -1
         self._region_data: dict = {}
@@ -62,6 +81,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._selection_start = 0
         self._selection_end = 0
         self._updating = False
+        self._dragging = False
+        self._drag_offset = QPoint()
+        self._manually_positioned = False
         # 自己发出的写回正在广播中（供 view 的 regions_changed handler 防自回环，F08）
         self._applying_own_change = False
         # F22：contentsChange → 模型写回的去抖（重置式 singleShot）。
@@ -73,17 +95,23 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._emit_debounce_timer.setInterval(180)
         self._emit_debounce_timer.timeout.connect(self._flush_pending_document_change)
         self._style_rows: dict[str, tuple[QWidget, QWidget]] = {}
+        self._style_row_cards: dict[str, QWidget] = {}
+        self._style_remove_buttons: dict[str, QToolButton] = {}
         self._style_row_hints: dict[str, str] = {}
         self.config_service = get_config_service()
         self.i18n = get_i18n_manager()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        # 四周 12px 留作拖动热区；内部控件不会抢占这一圈。
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(6)
 
         self.text_box = TextEdit()
+        text_box_font = self.text_box.font()
+        text_box_font.setPointSize(14)
+        self.text_box.setFont(text_box_font)
         self.text_box.setMinimumHeight(92)
-        self.text_box.setMaximumHeight(150)
+        self.text_box.setFixedHeight(120)
         self.text_box.setUndoRedoEnabled(True)
         self.text_box.installEventFilter(self)
         layout.addWidget(self.text_box)
@@ -110,8 +138,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.rotation_button = self._make_tool_button("Rot", "局部旋转")
         self.kerning_button = self._make_tool_button("K", "字后间距")
         self.pre_kerning_button = self._make_tool_button("PK", "字前间距")
-        self.line_kerning_button = self._make_tool_button("LK", "本行行距")
-        self.next_kerning_button = self._make_tool_button("NK", "下一行行距")
+        self.line_kerning_button = self._make_tool_button("LK", "与前一行的局部行距")
+        self.next_kerning_button = self._make_tool_button("NK", "与后一行的局部行距")
         self.offset_button = self._make_tool_button("XY", "局部偏移")
         self.mirror_x_button = self._make_tool_button("M", "水平镜像")
         self.mirror_y_button = self._make_tool_button("MV", "垂直镜像")
@@ -124,33 +152,101 @@ class RichTextFloatingEditor(SimpleCardWidget):
             self.scale_button,
             self.font_button,
             self.stroke_button,
+            self.glow_button,
+            self.outer_stroke_button,
             self.emphasis_button,
             self.tcy_button,
             self.ruby_button,
             self.rotation_button,
             self.kerning_button,
             self.pre_kerning_button,
+            self.line_kerning_button,
+            self.next_kerning_button,
             self.offset_button,
             self.mirror_x_button,
             self.mirror_y_button,
         )):
             toolbar.addWidget(button, index // 10, index % 10)
 
-        # F18：以下按钮对应的样式字段渲染器尚未实现绘制（有 UI 无渲染），
-        # 暂不开放；底层 schema 与编辑逻辑保留，渲染实现后加回上方 tuple 即可。
+        # 不启用自动 TCY，因此 noTcy 暂不开放。
         for button in (
-            self.glow_button,
-            self.outer_stroke_button,
             self.no_tcy_button,
-            self.line_kerning_button,
-            self.next_kerning_button,
         ):
             button.hide()
 
+        self.style_panel = QWidget(self)
+        self.style_panel.setObjectName("richTextStylePanel")
+        self.style_panel.setStyleSheet("""
+            QWidget#richTextStylePanel {
+                background-color: rgba(249, 250, 252, 252);
+                border: 1px solid rgba(120, 130, 145, 75);
+                border-radius: 10px;
+            }
+            QWidget#richTextStyleRow {
+                background-color: rgba(255, 255, 255, 255);
+                border: 1px solid rgba(125, 135, 150, 65);
+                border-radius: 5px;
+            }
+            QWidget#richTextStyleRow CaptionLabel {
+                color: #20242a;
+                font-size: 11px;
+                font-weight: 600;
+                background: transparent;
+                border: none;
+            }
+            CaptionLabel#selectedTextLabel {
+                color: #005fb8;
+                background-color: #f0f6ff;
+                border: none;
+                border-radius: 4px;
+                padding: 2px 4px;
+            }
+            CaptionLabel#styleNameLabel {
+                color: #20242a;
+                background: transparent;
+                border: none;
+                font-weight: 700;
+                font-size: 11px;
+            }
+            QWidget#styleRowDivider {
+                background-color: #aeb8c6;
+                border: none;
+            }
+            QWidget#richTextStyleRow QLineEdit,
+            QWidget#richTextStyleRow QAbstractSpinBox,
+            QWidget#richTextStyleRow QComboBox {
+                min-height: 25px;
+                font-size: 12px;
+            }
+            QToolButton#removeStyleButton {
+                color: #b42318;
+                background-color: #fff1f0;
+                border: 1px solid #f0a39d;
+                border-radius: 6px;
+                font-size: 15px;
+                font-weight: 700;
+            }
+            QToolButton#removeStyleButton:hover {
+                color: white;
+                background-color: #d92d20;
+                border-color: #d92d20;
+            }
+        """)
+        style_panel_layout = QVBoxLayout(self.style_panel)
+        style_panel_layout.setContentsMargins(7, 7, 7, 7)
+        style_panel_layout.setSpacing(6)
+        self.style_panel_title = CaptionLabel("当前文字样式")
+        title_font = self.style_panel_title.font()
+        title_font.setPointSize(11)
+        title_font.setBold(True)
+        self.style_panel_title.setFont(title_font)
+        self.style_panel_title.setStyleSheet("color: #20242a; background: transparent; border: none;")
+        style_panel_layout.addWidget(self.style_panel_title)
+
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(4)
-        form.setVerticalSpacing(4)
+        form.setHorizontalSpacing(0)
+        form.setVerticalSpacing(6)
 
         self.color_picker = ColorPickerWidget(
             dialog_title="Select rich text color",
@@ -171,7 +267,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.stroke_width_input.setSingleStep(0.01)
         self.stroke_width_input.setDecimals(2)
         self.stroke_width_input.setValue(0.07)
-        self.stroke_row = self._two_part_row(self.stroke_color_picker, self.stroke_width_input)
+        self.stroke_row = self._labeled_two_part_row("颜色", self.stroke_color_picker, "宽度", self.stroke_width_input)
 
         self.glow_color_picker = ColorPickerWidget(
             dialog_title="Select rich text glow color",
@@ -185,7 +281,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.glow_blur_input.setSingleStep(0.05)
         self.glow_blur_input.setDecimals(2)
         self.glow_blur_input.setValue(0.10)
-        self.glow_row = self._two_part_row(self.glow_color_picker, self.glow_blur_input)
+        self.glow_row = self._labeled_two_part_row("颜色", self.glow_color_picker, "模糊", self.glow_blur_input)
 
         self.outer_stroke_color_picker = ColorPickerWidget(
             dialog_title="Select rich text outer stroke color",
@@ -199,7 +295,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.outer_stroke_width_input.setSingleStep(0.01)
         self.outer_stroke_width_input.setDecimals(2)
         self.outer_stroke_width_input.setValue(0.20)
-        self.outer_stroke_row = self._two_part_row(self.outer_stroke_color_picker, self.outer_stroke_width_input)
+        self.outer_stroke_row = self._labeled_two_part_row("颜色", self.outer_stroke_color_picker, "宽度", self.outer_stroke_width_input)
 
         self.font_size_input = _compact_spin_box()
         self.font_size_input.setRange(1, 1000)
@@ -254,32 +350,61 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.offset_x_input.setRange(-500.0, 500.0)
         self.offset_x_input.setSingleStep(1.0)
         self.offset_x_input.setDecimals(1)
+        self.offset_x_input.setMinimumWidth(55)
         self.offset_y_input = _compact_double_spin_box()
         self.offset_y_input.setRange(-500.0, 500.0)
         self.offset_y_input.setSingleStep(1.0)
         self.offset_y_input.setDecimals(1)
-        self.offset_row = self._two_part_row(self.offset_x_input, self.offset_y_input)
+        self.offset_y_input.setMinimumWidth(55)
+        self.offset_row = self._labeled_two_part_row("X", self.offset_x_input, "Y", self.offset_y_input)
+
+        # 无输入参数的样式使用空白占位；每一行的删除 X 由
+        # _add_style_row 统一追加到最右侧。
+        self.bold_style_placeholder = QWidget(self)
+        self.emphasis_style_placeholder = QWidget(self)
+        self.tcy_style_placeholder = QWidget(self)
+        self.mirror_x_style_placeholder = QWidget(self)
+        self.mirror_y_style_placeholder = QWidget(self)
 
         self.ruby_text_input = QLineEdit()
         self.ruby_text_input.setPlaceholderText("注音")
         self.ruby_text_input.setMinimumHeight(28)
 
-        self._add_style_row(form, "C", self.color_picker, "文字颜色")
+        # 与上方工具栏保持相同顺序：B I C S % F O D T R Rot K PK XY M MV。
+        self._add_style_row(form, "B", self.bold_style_placeholder, "加粗")
         self._add_style_row(form, "I", self.italic_angle_input, "斜体角度")
+        self._add_style_row(form, "C", self.color_picker, "文字颜色")
         self._add_style_row(form, "S", self.font_size_input, "绝对字号")
         self._add_style_row(form, "%", self.scale_input, "字号倍率")
         self._add_style_row(form, "F", self.font_combo, "字体文件")
         self._add_style_row(form, "O", self.stroke_row, "描边颜色 / 宽度")
         self._add_style_row(form, "G", self.glow_row, "发光颜色 / 模糊")
         self._add_style_row(form, "OS", self.outer_stroke_row, "外描边颜色 / 宽度")
+        self._add_style_row(form, "D", self.emphasis_style_placeholder, "着重号")
+        self._add_style_row(form, "T", self.tcy_style_placeholder, "纵中横")
         self._add_style_row(form, "R", self.ruby_text_input, "注音文本")
         self._add_style_row(form, "Rot", self.rotation_input, "旋转角度")
         self._add_style_row(form, "K", self.kerning_input, "字后间距倍率")
         self._add_style_row(form, "PK", self.pre_kerning_input, "字前间距倍率")
-        self._add_style_row(form, "LK", self.line_kerning_input, "本行行距倍率")
-        self._add_style_row(form, "NK", self.next_kerning_input, "下一行行距倍率")
+        self._add_style_row(form, "LK", self.line_kerning_input, "前行距倍率")
+        self._add_style_row(form, "NK", self.next_kerning_input, "后行距倍率")
         self._add_style_row(form, "XY", self.offset_row, "X / Y 偏移")
-        layout.addLayout(form)
+        self._add_style_row(form, "M", self.mirror_x_style_placeholder, "水平镜像")
+        self._add_style_row(form, "MV", self.mirror_y_style_placeholder, "垂直镜像")
+        style_panel_layout.addLayout(form)
+        self.style_scroll = _WheelGuardScrollArea(self)
+        self.style_scroll.setWidgetResizable(True)
+        self.style_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.style_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.style_scroll.setMaximumHeight(245)
+        self.style_scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical { width: 8px; background: transparent; margin: 2px; }
+            QScrollBar::handle:vertical { background: #9aa4b2; border-radius: 4px; min-height: 24px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
+        self.style_scroll.setWidget(self.style_panel)
+        layout.addWidget(self.style_scroll)
 
         self.text_box.document().contentsChange.connect(self._on_text_changed)
         self.text_box.cursorPositionChanged.connect(self._on_cursor_position_changed)
@@ -293,7 +418,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.glow_button.clicked.connect(lambda checked: self._toggle_row_and_apply("G", checked, self._glow_patch()))
         self.outer_stroke_button.clicked.connect(lambda checked: self._toggle_row_and_apply("OS", checked, self._outer_stroke_patch()))
         self.emphasis_button.clicked.connect(lambda checked: self._apply_toggle("emphasis", checked))
-        self.tcy_button.clicked.connect(lambda _checked: self._apply_tcy())
+        self.tcy_button.clicked.connect(self._toggle_tcy)
         self.no_tcy_button.clicked.connect(lambda checked: self._apply_toggle("noTcy", checked))
         self.ruby_button.clicked.connect(self._toggle_ruby_row)
         self.rotation_button.clicked.connect(lambda checked: self._toggle_row_and_apply("Rot", checked, {"transform": {"rotation": float(self.rotation_input.value())}}))
@@ -301,9 +426,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.pre_kerning_button.clicked.connect(lambda checked: self._toggle_row_and_apply("PK", checked, {"preKerning": float(self.pre_kerning_input.value())}))
         self.line_kerning_button.clicked.connect(lambda checked: self._toggle_row_and_apply("LK", checked, {"lineKerning": float(self.line_kerning_input.value())}))
         self.next_kerning_button.clicked.connect(lambda checked: self._toggle_row_and_apply("NK", checked, {"nextKerning": float(self.next_kerning_input.value())}))
-        self.offset_button.clicked.connect(lambda checked: self._toggle_row_and_apply("XY", checked, {"transform": {"offsetX": float(self.offset_x_input.value()), "offsetY": float(self.offset_y_input.value())}}))
-        self.mirror_x_button.clicked.connect(lambda checked: self._apply_style({"transform": {"mirrorX": bool(checked)}}))
-        self.mirror_y_button.clicked.connect(lambda checked: self._apply_style({"transform": {"mirrorY": bool(checked)}}))
+        self.offset_button.clicked.connect(lambda checked: self._toggle_row_and_apply("XY", checked, self._offset_patch()))
+        self.mirror_x_button.clicked.connect(lambda checked: self._apply_transform_toggle("mirrorX", checked))
+        self.mirror_y_button.clicked.connect(lambda checked: self._apply_transform_toggle("mirrorY", checked))
         self.color_picker.color_changed.connect(lambda color: self._apply_style({"color": color}))
         self.stroke_color_picker.color_changed.connect(lambda color: self._apply_style({"stroke": {"color": color}}))
         self.stroke_width_input.valueChanged.connect(lambda value: self._apply_style({"stroke": {"width": float(value)}}))
@@ -324,7 +449,71 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.offset_x_input.valueChanged.connect(lambda value: self._apply_style({"transform": {"offsetX": float(value)}}))
         self.offset_y_input.valueChanged.connect(lambda value: self._apply_style({"transform": {"offsetY": float(value)}}))
         self._hide_all_style_rows()
+        self._update_style_panel_visibility()
         self.hide()
+
+    # 浮窗覆盖在画布 viewport 上；标签、空白卡片等控件默认会忽略鼠标事件，
+    # 若继续向父级传播就会触发画布选择逻辑并让浮窗消失。这里把整个浮窗
+    # 设为事件边界，子控件正常处理自己的交互，未处理事件在此被吃掉。
+    def _is_drag_border(self, pos) -> bool:
+        border = self._DRAG_BORDER_WIDTH
+        return (
+            pos.x() <= border
+            or pos.y() <= border
+            or pos.x() >= self.width() - border
+            or pos.y() >= self.height() - border
+        )
+
+    def is_manually_positioned(self) -> bool:
+        return self._manually_positioned
+
+    def reset_manual_position(self):
+        self._manually_positioned = False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._is_drag_border(event.position()):
+            self._dragging = True
+            self._drag_offset = event.globalPosition().toPoint() - self.mapToGlobal(QPoint(0, 0))
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
+            parent = self.parentWidget()
+            target_global = event.globalPosition().toPoint() - self._drag_offset
+            self.move(parent.mapFromGlobal(target_global) if parent is not None else target_global)
+            self._manually_positioned = True
+            event.accept()
+            return
+        self.setCursor(
+            Qt.CursorShape.SizeAllCursor
+            if self._is_drag_border(event.position())
+            else Qt.CursorShape.ArrowCursor
+        )
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging and event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._manually_positioned = True
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+        event.accept()
+
+    def leaveEvent(self, event):
+        if not self._dragging:
+            self.unsetCursor()
+        super().leaveEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        event.accept()
+
+    def contextMenuEvent(self, event):
+        event.accept()
+
+    def wheelEvent(self, event):
+        event.accept()
 
     def eventFilter(self, obj, event):
         if hasattr(self, "text_box") and obj is self.text_box and event.type() in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
@@ -401,8 +590,28 @@ class RichTextFloatingEditor(SimpleCardWidget):
         button = QToolButton(self)
         button.setText(text)
         button.setCheckable(True)
-        button.setFixedSize(30, 26)
+        button.setFixedSize(34, 30)
         button.setIconSize(QSize(14, 14))
+        button.setStyleSheet("""
+            QToolButton {
+                color: #20242a;
+                background-color: rgba(255, 255, 255, 235);
+                border: 1px solid rgba(120, 130, 145, 75);
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            QToolButton:hover {
+                background-color: #edf3fa;
+                border-color: #8aa9c7;
+            }
+            QToolButton:checked {
+                color: white;
+                background-color: #0078d4;
+                border-color: #0078d4;
+            }
+            QToolButton:pressed { background-color: #005fb8; }
+        """)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         set_hover_hint(button, hint)
         return button
@@ -416,28 +625,109 @@ class RichTextFloatingEditor(SimpleCardWidget):
         row.addWidget(right, 1)
         return widget
 
+    def _labeled_two_part_row(self, left_text: str, left: QWidget, right_text: str, right: QWidget) -> QWidget:
+        widget = QWidget(self)
+        row = QHBoxLayout(widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        left_label = CaptionLabel(left_text)
+        right_label = CaptionLabel(right_text)
+        left_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row.addWidget(left_label)
+        row.addWidget(left, 1)
+        row.addWidget(right_label)
+        row.addWidget(right, 1)
+        return widget
+
+    def _make_remove_style_button(self, hint: str) -> QToolButton:
+        button = QToolButton(self)
+        button.setObjectName("removeStyleButton")
+        button.setText("X")
+        button.setFixedSize(24, 26)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_hover_hint(button, hint)
+        return button
+
+    def _trailing_action_row(self, button: QToolButton) -> QWidget:
+        widget = QWidget(self)
+        row = QHBoxLayout(widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch(1)
+        row.addWidget(button)
+        return widget
+
     def _add_style_row(self, form: QFormLayout, key: str, widget: QWidget, hint: str):
-        label = CaptionLabel(f"当前文本 · {key} {hint}")
-        label.setFixedWidth(190)
-        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        card = QWidget(self.style_panel)
+        card.setObjectName("richTextStyleRow")
+        card.setMinimumHeight(34)
+        card.setMinimumWidth(0)
+        card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        card_layout = QHBoxLayout(card)
+        card_layout.setContentsMargins(4, 3, 4, 3)
+        card_layout.setSpacing(3)
+        label = CaptionLabel("当前文本")
+        label.setObjectName("selectedTextLabel")
+        label.setFixedWidth(46)
+        label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        # 行内只显示协议前缀，完整名称放在悬停提示中。
+        style_label = CaptionLabel(key)
+        style_label.setObjectName("styleNameLabel")
+        style_label.setFixedWidth(24 if len(key) <= 2 else 30)
+        style_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        divider = QWidget(card)
+        divider.setObjectName("styleRowDivider")
+        divider.setFixedWidth(1)
+        divider.setMinimumHeight(22)
         set_hover_hint(label, hint)
-        set_hover_hint(widget, hint)
-        form.addRow(label, widget)
+        set_hover_hint(style_label, f"{key}：{hint}")
+        set_hover_hint(widget, f"{key}：{hint}")
+        remove_button = self._make_remove_style_button(f"移除 {key} {hint}")
+        remove_button.clicked.connect(lambda _checked=False, row_key=key: self._remove_style_by_row(row_key))
+        card_layout.addWidget(label)
+        card_layout.addWidget(divider)
+        card_layout.addWidget(style_label)
+        card_layout.addWidget(widget, 1)
+        card_layout.addWidget(remove_button)
+        card_layout.setStretch(3, 1)
+        card_layout.setStretch(4, 0)
+        form.addRow(card)
         self._style_rows[key] = (label, widget)
+        self._style_row_cards[key] = card
+        self._style_remove_buttons[key] = remove_button
         self._style_row_hints[key] = hint
 
     def _set_style_row_visible(self, key: str, visible: bool):
         if visible and key in self._UNRENDERED_STYLE_ROW_KEYS:
             visible = False  # 渲染未实现，暂不开放（F18）
-        row = self._style_rows.get(key)
-        if not row:
+        card = self._style_row_cards.get(key)
+        if card is None:
             return
-        for widget in row:
-            widget.setVisible(bool(visible))
+        card.setVisible(bool(visible))
 
     def _hide_all_style_rows(self):
         for key in self._style_rows:
             self._set_style_row_visible(key, False)
+
+    def _update_style_panel_visibility(self):
+        visible_count = sum(not card.isHidden() for card in self._style_row_cards.values())
+        if visible_count <= 0:
+            self.style_scroll.hide()
+        else:
+            # 少量样式紧贴内容，多量样式限制高度后使用 Fluent 风格细滚动条。
+            self.style_scroll.setFixedHeight(min(245, 38 + visible_count * 44))
+            self.style_scroll.show()
+
+        # 浮动编辑器是 viewport 的手动定位子控件，不会像普通顶层窗口一样
+        # 自动采用新的 sizeHint。显式调整自身高度，新增的样式区只会向下
+        # 扩展，不再压缩文本框和工具栏、把按钮顶上去。
+        current_layout = self.layout()
+        if current_layout is not None:
+            current_layout.activate()
+        target_height = max(self.minimumHeight(), int(self.sizeHint().height()))
+        if self.height() != target_height:
+            self.resize(self.width(), target_height)
+            QTimer.singleShot(0, self.layout_size_changed.emit)
 
     def _populate_font_combo(self):
         populate_font_combo(self.font_combo)
@@ -508,16 +798,29 @@ class RichTextFloatingEditor(SimpleCardWidget):
     def _on_font_button_clicked(self, checked: bool):
         if self._updating:
             return
+        start, end = self._selected_range()
+        if start == end and checked:
+            self._refresh_controls()
+            return
         self._set_style_row_visible("F", checked)
         if checked:
             font_family = self.font_combo.currentFont().family()
             if font_family:
                 self._apply_style({"fontFamily": str(font_family)})
             return
-        self._apply_style({"fontFamily": None})
+        self._apply_style({"fontFamily": None}, allow_empty_range=True)
 
     def _apply_toggle(self, key: str, checked: bool):
-        self._apply_style({key: True if checked else None})
+        self._apply_style(
+            {key: True if checked else None},
+            allow_empty_range=not checked,
+        )
+
+    def _apply_transform_toggle(self, key: str, checked: bool):
+        self._apply_style(
+            {"transform": {key: True if checked else None}},
+            allow_empty_range=not checked,
+        )
 
     def _toggle_row_and_apply(self, row_key: str, checked: bool, patch: dict):
         if self._updating:
@@ -526,13 +829,21 @@ class RichTextFloatingEditor(SimpleCardWidget):
         if checked:
             self._apply_style(patch)
         else:
-            self._apply_style(self._clear_patch_for_row(row_key))
+            self._apply_style(
+                self._clear_patch_for_row(row_key),
+                allow_empty_range=True,
+            )
 
     def _toggle_ruby_row(self, checked: bool):
         if self._updating:
             return
         self._set_style_row_visible("R", checked)
         if checked:
+            start, end = self._selected_range()
+            if start == end:
+                self.ruby_button.setChecked(False)
+                self._set_style_row_visible("R", False)
+                return
             self.ruby_text_input.setFocus()
             return
         start, end = self._selected_range()
@@ -546,8 +857,48 @@ class RichTextFloatingEditor(SimpleCardWidget):
             return
         start, end = self._selected_range()
         if start == end:
+            self._refresh_controls()
             return
         self._document = apply_tcy_to_range(self._document, start, end)
+        self._emit_document_changed()
+        self._refresh_controls()
+
+    def _toggle_tcy(self, checked: bool):
+        """纵中横按钮按选中状态执行添加或取消。"""
+        if checked:
+            self._apply_tcy()
+        else:
+            self._remove_tcy()
+
+    def _remove_tcy(self):
+        if self._updating or self._region_index < 0:
+            return
+        start, end = self._selected_range()
+        # 无选区时工具栏按全文覆盖率显示状态；若全文都是 TCY，T 会保持
+        # 选中。remove_tcy_from_range 对空范围已有“扩展到全文”的语义，不能
+        # 在这里提前返回，否则蓝色 T 按钮无法再次点击取消。
+        self._document = remove_tcy_from_range(self._document, start, end)
+        self._emit_document_changed()
+        self._refresh_controls()
+
+    def _remove_style_by_row(self, row_key: str):
+        """行尾 X 的统一删除入口。
+
+        有选区时只移除选区；无选区时该行代表全文样式汇总，因此 X 移除
+        全文中的这一种样式。普通参数控件仍禁止无选区写入。
+        """
+        if self._updating or self._region_index < 0:
+            return
+        start, end = self._selected_range()
+        if row_key == "T":
+            self._document = remove_tcy_from_range(self._document, start, end)
+        elif row_key == "R":
+            self._document = remove_ruby_from_range(self._document, start, end)
+        else:
+            patch = self._clear_patch_for_row(row_key)
+            if not patch:
+                return
+            self._document = apply_style_to_range(self._document, start, end, patch)
         self._emit_document_changed()
         self._refresh_controls()
 
@@ -564,10 +915,15 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._emit_document_changed()
         self._refresh_controls()
 
-    def _apply_style(self, patch: dict):
+    def _apply_style(self, patch: dict, *, allow_empty_range: bool = False):
         if self._updating or self._region_index < 0:
             return
         start, end = self._selected_range()
+        # 逐字样式必须有明确选区。旧逻辑把零长度选区扩展为全文，光标
+        # 偶尔丢失选区时就会把一个字的参数写到其他字，造成“串样式”。
+        if start == end and not allow_empty_range:
+            self._refresh_controls()
+            return
         self._document = apply_style_to_range(self._document, start, end, patch)
         self._emit_document_changed()
         self._refresh_controls()
@@ -612,108 +968,117 @@ class RichTextFloatingEditor(SimpleCardWidget):
         if self._region_index < 0:
             return
         start, end = self._selected_range()
+        # 无具体文字选区时展示全文已经使用的样式，方便查看“哪些文字用了
+        # 哪些样式”；写入仍由 _apply_style 的非空选区保护负责，展示全文
+        # 不代表后续操作会修改全文。
         style = style_for_range(self._document, start, end)
+        coverage = {
+            key: style_row_coverage(self._document, start, end, key)
+            for key in ("B", "I", "C", "S", "%", "F", "O", "G", "OS", "D", "T", "R", "Rot", "K", "PK", "LK", "NK", "XY", "M", "MV")
+        }
         self._updating = True
         try:
-            self.bold_button.setChecked(bool(style.get("bold")))
-            has_italic = bool(style.get("italic"))
-            self._set_button_and_row(self.italic_button, "I", has_italic)
+            has_bold, all_bold = coverage["B"]
+            self.bold_button.setChecked(all_bold)
+            self._set_style_row_visible("B", has_bold)
+            has_italic, all_italic = coverage["I"]
+            self._set_button_and_row(self.italic_button, "I", has_italic, all_italic)
             if has_italic:
                 italic_value = style.get("italic")
                 # 旧文档的 italic: true 显示为参考默认角度 15（渲染层同口径）
                 self.italic_angle_input.setValue(15.0 if isinstance(italic_value, bool) else float(italic_value))
-            self.emphasis_button.setChecked(bool(style.get("emphasis")))
+            else:
+                self.italic_angle_input.setValue(15.0)
+            has_emphasis, all_emphasis = coverage["D"]
+            self.emphasis_button.setChecked(all_emphasis)
+            self._set_style_row_visible("D", has_emphasis)
+            has_tcy, all_tcy = coverage["T"]
+            self.tcy_button.setChecked(all_tcy)
+            self._set_style_row_visible("T", has_tcy)
             self.no_tcy_button.setChecked(bool(style.get("noTcy")))
-            self.mirror_x_button.setChecked(bool(style.get("mirrorX")))
-            self.mirror_y_button.setChecked(bool(style.get("mirrorY")))
-            self.ruby_button.setChecked(bool(style.get("ruby")))
+            has_mirror_x, all_mirror_x = coverage["M"]
+            has_mirror_y, all_mirror_y = coverage["MV"]
+            self.mirror_x_button.setChecked(all_mirror_x)
+            self.mirror_y_button.setChecked(all_mirror_y)
+            self._set_style_row_visible("M", has_mirror_x)
+            self._set_style_row_visible("MV", has_mirror_y)
+            has_ruby, all_ruby = coverage["R"]
+            self.ruby_button.setChecked(all_ruby)
             if "rubyText" in style:
                 self.ruby_text_input.setText(str(style.get("rubyText") or ""))
             elif not self.ruby_text_input.hasFocus():
                 self.ruby_text_input.clear()
 
-            self._set_button_and_row(self.color_button, "C", "color" in style)
-            if "color" in style:
-                self.color_picker.set_color(str(style.get("color") or "#E53935"))
+            self._set_button_and_row(self.color_button, "C", *coverage["C"])
+            self.color_picker.set_color(str(style.get("color") or "#E53935"))
 
-            self._set_button_and_row(self.size_button, "S", "fontSize" in style)
-            if "fontSize" in style:
-                self.font_size_input.setValue(int(style.get("fontSize") or 24))
+            self._set_button_and_row(self.size_button, "S", *coverage["S"])
+            self.font_size_input.setValue(int(style.get("fontSize") or 24))
 
-            self._set_button_and_row(self.scale_button, "%", "scale" in style)
-            if "scale" in style:
-                self.scale_input.setValue(float(style.get("scale") or 1.0))
+            self._set_button_and_row(self.scale_button, "%", *coverage["%"])
+            self.scale_input.setValue(float(style.get("scale") if "scale" in style else 1.20))
 
-            self._set_button_and_row(self.font_button, "F", "fontFamily" in style)
+            self._set_button_and_row(self.font_button, "F", *coverage["F"])
             self._set_font_combo_value(str(style.get("fontFamily") or ""))
 
             has_stroke = "strokeColor" in style or "strokeWidth" in style
-            self._set_button_and_row(self.stroke_button, "O", has_stroke)
-            if "strokeColor" in style:
-                self.stroke_color_picker.set_color(str(style.get("strokeColor") or "#ffffff"))
-            if "strokeWidth" in style:
-                self.stroke_width_input.setValue(float(style.get("strokeWidth") or 0.0))
+            self._set_button_and_row(self.stroke_button, "O", *coverage["O"])
+            self.stroke_color_picker.set_color(str(style.get("strokeColor") or "#ffffff"))
+            self.stroke_width_input.setValue(float(style.get("strokeWidth") if "strokeWidth" in style else 0.07))
 
             has_glow = "glowColor" in style or "glowBlur" in style
-            self._set_button_and_row(self.glow_button, "G", has_glow)
-            if "glowColor" in style:
-                self.glow_color_picker.set_color(str(style.get("glowColor") or "#00ffff"))
-            if "glowBlur" in style:
-                self.glow_blur_input.setValue(float(style.get("glowBlur") or 0.0))
+            self._set_button_and_row(self.glow_button, "G", *coverage["G"])
+            self.glow_color_picker.set_color(str(style.get("glowColor") or "#00ffff"))
+            self.glow_blur_input.setValue(float(style.get("glowBlur") if "glowBlur" in style else 0.10))
 
             has_outer_stroke = "outerStrokeColor" in style or "outerStrokeWidth" in style
-            self._set_button_and_row(self.outer_stroke_button, "OS", has_outer_stroke)
-            if "outerStrokeColor" in style:
-                self.outer_stroke_color_picker.set_color(str(style.get("outerStrokeColor") or "#000000"))
-            if "outerStrokeWidth" in style:
-                self.outer_stroke_width_input.setValue(float(style.get("outerStrokeWidth") or 0.0))
+            self._set_button_and_row(self.outer_stroke_button, "OS", *coverage["OS"])
+            self.outer_stroke_color_picker.set_color(str(style.get("outerStrokeColor") or "#000000"))
+            self.outer_stroke_width_input.setValue(float(style.get("outerStrokeWidth") if "outerStrokeWidth" in style else 0.20))
 
-            self._set_button_and_row(self.rotation_button, "Rot", "rotation" in style)
-            if "rotation" in style:
-                self.rotation_input.setValue(float(style.get("rotation") or 0.0))
+            self._set_button_and_row(self.rotation_button, "Rot", *coverage["Rot"])
+            self.rotation_input.setValue(float(style.get("rotation") or 0.0))
 
-            self._set_button_and_row(self.kerning_button, "K", "kerning" in style)
-            if "kerning" in style:
-                self.kerning_input.setValue(float(style.get("kerning") or 0.0))
+            self._set_button_and_row(self.kerning_button, "K", *coverage["K"])
+            self.kerning_input.setValue(float(style.get("kerning") or 0.0))
 
-            self._set_button_and_row(self.pre_kerning_button, "PK", "preKerning" in style)
-            if "preKerning" in style:
-                self.pre_kerning_input.setValue(float(style.get("preKerning") or 0.0))
+            self._set_button_and_row(self.pre_kerning_button, "PK", *coverage["PK"])
+            self.pre_kerning_input.setValue(float(style.get("preKerning") or 0.0))
 
-            self._set_button_and_row(self.line_kerning_button, "LK", "lineKerning" in style)
-            if "lineKerning" in style:
-                self.line_kerning_input.setValue(float(style.get("lineKerning") or 0.0))
-
-            self._set_button_and_row(self.next_kerning_button, "NK", "nextKerning" in style)
-            if "nextKerning" in style:
-                self.next_kerning_input.setValue(float(style.get("nextKerning") or 0.0))
+            self._set_button_and_row(self.line_kerning_button, "LK", *coverage["LK"])
+            self.line_kerning_input.setValue(float(style.get("lineKerning") or 0.0))
+            self._set_button_and_row(self.next_kerning_button, "NK", *coverage["NK"])
+            self.next_kerning_input.setValue(float(style.get("nextKerning") or 0.0))
 
             has_offset = "offsetX" in style or "offsetY" in style
-            self._set_button_and_row(self.offset_button, "XY", has_offset)
-            if "offsetX" in style:
-                self.offset_x_input.setValue(float(style.get("offsetX") or 0.0))
-            if "offsetY" in style:
-                self.offset_y_input.setValue(float(style.get("offsetY") or 0.0))
+            self._set_button_and_row(self.offset_button, "XY", *coverage["XY"])
+            # 选区切换时必须完整加载该选区自己的 XY。之前仅在字段存在时
+            # 更新输入框，导致无偏移字符沿用上一字符残留的数值；再次开启
+            # XY 时就会把上一字符的偏移复制过来。缺失轴明确归零，两个字
+            # 的编辑状态由各自 style 决定，互不串值。
+            self.offset_x_input.setValue(float(style.get("offsetX") or 0.0))
+            self.offset_y_input.setValue(float(style.get("offsetY") or 0.0))
 
-            self._set_style_row_visible("R", bool(style.get("ruby")) or self.ruby_button.isChecked())
+            self._set_style_row_visible("R", has_ruby)
             self._refresh_style_row_labels()
+            self._update_style_panel_visibility()
         finally:
             self._updating = False
 
-    def _set_button_and_row(self, button: QToolButton, row_key: str, enabled: bool):
-        button.setChecked(bool(enabled))
-        self._set_style_row_visible(row_key, bool(enabled))
+    def _set_button_and_row(self, button: QToolButton, row_key: str, present: bool, fully_applied: bool):
+        button.setChecked(bool(fully_applied))
+        self._set_style_row_visible(row_key, bool(present))
 
     def _refresh_style_row_labels(self):
         start, end = self._selected_range()
         for key, (label, widget) in self._style_rows.items():
-            if label.isHidden() and widget.isHidden():
+            card = self._style_row_cards.get(key)
+            if card is None or card.isHidden():
                 continue
             style_text = styled_text_for_key(self._document, start, end, key) or "当前文本"
             hint = self._style_row_hints.get(key, key)
-            label_text = f"{style_text} · {key} {hint}"
-            label.setText(label_text)
-            set_hover_hint(label, label_text)
+            label.setText(style_text)
+            set_hover_hint(label, f"选中文字：{style_text}；样式：{key} {hint}")
 
     def _stroke_patch(self) -> dict:
         return {"stroke": {"color": self.stroke_color_picker.get_color(), "width": float(self.stroke_width_input.value())}}
@@ -724,8 +1089,17 @@ class RichTextFloatingEditor(SimpleCardWidget):
     def _outer_stroke_patch(self) -> dict:
         return {"outerStroke": {"color": self.outer_stroke_color_picker.get_color(), "width": float(self.outer_stroke_width_input.value())}}
 
+    def _offset_patch(self) -> dict:
+        return {
+            "transform": {
+                "offsetX": float(self.offset_x_input.value()),
+                "offsetY": float(self.offset_y_input.value()),
+            }
+        }
+
     def _clear_patch_for_row(self, row_key: str) -> dict:
         return {
+            "B": {"bold": None},
             "C": {"color": None},
             "I": {"italic": None},
             "S": {"fontSize": None},
@@ -734,10 +1108,13 @@ class RichTextFloatingEditor(SimpleCardWidget):
             "O": {"stroke": None},
             "G": {"glow": None},
             "OS": {"outerStroke": None},
+            "D": {"emphasis": None},
             "Rot": {"transform": {"rotation": None}},
             "K": {"kerning": None},
             "PK": {"preKerning": None},
             "LK": {"lineKerning": None},
             "NK": {"nextKerning": None},
             "XY": {"transform": {"offsetX": None, "offsetY": None}},
+            "M": {"transform": {"mirrorX": None}},
+            "MV": {"transform": {"mirrorY": None}},
         }.get(row_key, {})

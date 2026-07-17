@@ -115,7 +115,7 @@ def make_text_render_cache_key(text_block: TextBlock, dst_points: np.ndarray, re
         render_params.get("max_font_size"),
         render_params.get("font_scale_ratio"),
         render_params.get("center_text_in_bubble"),
-        render_params.get("text_stroke_width"),
+        render_params.get("stroke_width"),
         render_params.get("shadow_radius"),
         render_params.get("shadow_strength"),
         tuple(render_params.get("shadow_color", (0, 0, 0))),

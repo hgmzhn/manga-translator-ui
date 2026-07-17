@@ -1129,7 +1129,7 @@ class PropertyPanel(QWidget):
         normalized["stroke_color"] = QColor(stroke_color).name() if QColor(stroke_color).isValid() else "#ffffff"
 
         try:
-            normalized["stroke_width"] = float(region_data.get("stroke_width", region_data.get("default_stroke_width", 0.07)))
+            normalized["stroke_width"] = float(region_data.get("stroke_width", 0.07))
         except (TypeError, ValueError):
             normalized["stroke_width"] = 0.07
 
@@ -1579,7 +1579,7 @@ class PropertyPanel(QWidget):
             self.stroke_color_picker.set_color(stroke_hex)
 
             # Update stroke width
-            stroke_width = region_data.get("stroke_width", region_data.get("default_stroke_width", 0.07))
+            stroke_width = region_data.get("stroke_width", 0.07)
             self.stroke_width_spinbox.setValue(stroke_width if stroke_width is not None else 0.07)
             
             # Update line spacing

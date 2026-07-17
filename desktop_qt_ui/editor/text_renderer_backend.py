@@ -69,20 +69,20 @@ def _target_rect_from_points(points: np.ndarray):
     return x_s, y_s, w_s, h_s
 
 
-def _is_axis_aligned_rect(points: np.ndarray, tolerance: float = 0.01) -> bool:
-    p = np.asarray(points, dtype=np.float32).reshape(4, 2)
-    return (
-        abs(float(p[0, 1] - p[1, 1])) <= tolerance
-        and abs(float(p[2, 1] - p[3, 1])) <= tolerance
-        and abs(float(p[0, 0] - p[3, 0])) <= tolerance
-        and abs(float(p[1, 0] - p[2, 0])) <= tolerance
+def _native_rect_points(center, width: int, height: int, angle: float) -> np.ndarray:
+    """按原生像素宽高生成实际渲染四角；只旋转，不缩放。"""
+    cx, cy = float(center[0]), float(center[1])
+    hw, hh = float(width) / 2.0, float(height) / 2.0
+    local = np.array(
+        [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]],
+        dtype=np.float32,
     )
-
-
-def _resize_to_target_rect(box: np.ndarray, width: int, height: int) -> np.ndarray:
-    if box.shape[1] == width and box.shape[0] == height:
-        return box
-    return cv2.resize(box, (width, height), interpolation=cv2.INTER_LINEAR)
+    rad = np.deg2rad(float(angle or 0.0))
+    cos_a, sin_a = float(np.cos(rad)), float(np.sin(rad))
+    rotated = np.empty_like(local)
+    rotated[:, 0] = cx + local[:, 0] * cos_a - local[:, 1] * sin_a
+    rotated[:, 1] = cy + local[:, 0] * sin_a + local[:, 1] * cos_a
+    return rotated.reshape(1, 4, 2)
 
 
 def _record_profile_elapsed(stats: dict | None, key: str, start_time: float | None) -> None:
@@ -139,7 +139,7 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
         bg_color = render_params.get('text_stroke_color', bg_color_default)
         
         # 从 render_params 中获取描边宽度
-        stroke_width = render_params.get('text_stroke_width', None)
+        stroke_width = render_params['stroke_width']
         
         if disable_font_border:
             bg_color = None
@@ -207,7 +207,7 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
             )
             return None
         
-        # 预乘 Alpha: 防止 cv2.warpPerspective 插值或填充 0 (透明黑) 时导致黑边灰边
+        # 转为预乘 Alpha，与 QImage.Format_RGBA8888_Premultiplied 的输入契约一致。
         stage_t0 = perf_counter() if profile_stats is not None else None
         rendered_surface = rendered_surface.copy()
         alpha_f = rendered_surface[:, :, 3] / 255.0
@@ -216,78 +216,37 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
         rendered_surface[:, :, 2] = (rendered_surface[:, :, 2] * alpha_f).astype(np.uint8)
         _record_profile_elapsed(profile_stats, "backend_premul_ms", stage_t0)
 
-        # --- 3. 宽高比校正 (与后端渲染逻辑完全同步) ---
-        stage_t0 = perf_counter() if profile_stats is not None else None
-        h_temp, w_temp, _ = rendered_surface.shape
-        if h_temp == 0 or w_temp == 0:
-            logger.debug(f"[EDITOR RENDER SKIPPED] Rendered surface has zero dimensions: width={w_temp}, height={h_temp}")
+        # --- 3. 保持原生像素尺寸 ---
+        # dst_points 只提供文字的布局锚点，不再作为 RGBA 图层的缩放/透视目标。
+        # RegionTextItem 的父节点负责 angle 旋转，因此编辑器后端只需把原生
+        # pixmap 居中放到目标框中心。文字大于白框时允许自然溢出。
+        native_image = rendered_surface
+        h, w, ch = native_image.shape
+        if h == 0 or w == 0:
+            logger.debug(
+                f"[EDITOR RENDER SKIPPED] Rendered surface has zero dimensions: "
+                f"width={w}, height={h}"
+            )
             return None
-        r_temp = w_temp / h_temp
-        
-        r_orig = norm_h / norm_v
 
-        box = None
-        if text_block.horizontal:
-            if r_temp > r_orig:
-                h_ext = int((w_temp / r_orig - h_temp) // 2) if r_orig > 0 else 0
-                if h_ext >= 0:
-                    box = np.zeros((h_temp + h_ext * 2, w_temp, 4), dtype=np.uint8)
-                    box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
-                else:
-                    box = rendered_surface.copy()
-            else:
-                w_ext = int((h_temp * r_orig - w_temp) // 2)
-                if w_ext >= 0:
-                    box = np.zeros((h_temp, w_temp + w_ext * 2, 4), dtype=np.uint8)
-                    # 横排文本默认水平居中
-                    box[0:h_temp, w_ext:w_ext+w_temp] = rendered_surface
-                else:
-                    box = rendered_surface.copy()
-        else: # Vertical
-            if r_temp > r_orig:
-                h_ext = int(w_temp / (2 * r_orig) - h_temp / 2) if r_orig > 0 else 0
-                if h_ext >= 0:
-                    box = np.zeros((h_temp + h_ext * 2, w_temp, 4), dtype=np.uint8)
-                    box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
-                else:
-                    box = rendered_surface.copy()
-            else:
-                w_ext = int((h_temp * r_orig - w_temp) / 2)
-                if w_ext >= 0:
-                    box = np.zeros((h_temp, w_temp + w_ext * 2, 4), dtype=np.uint8)
-                    # 竖排文本水平居中
-                    box[0:h_temp, w_ext:w_ext+w_temp] = rendered_surface
-                else:
-                    box = rendered_surface.copy()
+        target_center = np.mean(dst_points_screen, axis=0)
+        native_pos = QPointF(
+            float(target_center[0]) - w / 2.0,
+            float(target_center[1]) - h / 2.0,
+        )
+        native_dst_points = _native_rect_points(
+            target_center,
+            w,
+            h,
+            getattr(text_block, "angle", 0.0),
+        )
 
-        if box is None:
-            box = rendered_surface.copy()
-        _record_profile_elapsed(profile_stats, "backend_box_ms", stage_t0)
-
-        # --- 4. 坐标变换与扭曲 (Warping) ---
-        stage_t0 = perf_counter() if profile_stats is not None else None
-        if _is_axis_aligned_rect(dst_points_screen):
-            # 编辑器文字框在当前渲染链路里通常是轴对齐矩形；直接缩放比
-            # findHomography + warpPerspective 轻很多，视觉结果等价。
-            warped_image = _resize_to_target_rect(box, w_s, h_s)
-        else:
-            src_points = np.float32([[0, 0], [box.shape[1], 0], [box.shape[1], box.shape[0]], [0, box.shape[0]]])
-            dst_points_warp = dst_points_screen - [x_s, y_s]
-            matrix = cv2.getPerspectiveTransform(src_points, dst_points_warp.astype(np.float32))
-            if matrix is None:
-                logger.debug("[EDITOR RENDER SKIPPED] Failed to compute perspective matrix for text transformation")
-                return None
-
-            warped_image = cv2.warpPerspective(box, matrix, (w_s, h_s), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0,0))
-        _record_profile_elapsed(profile_stats, "backend_warp_ms", stage_t0)
-
-        # --- 5. 转换为QImage并返回绘制信息 ---
-        h, w, ch = warped_image.shape
+        # --- 4. 转换为QImage并返回绘制信息 ---
         if ch == 4:
             stage_t0 = perf_counter() if profile_stats is not None else None
-            final_image = _rgba_image_to_qimage(warped_image)
+            final_image = _rgba_image_to_qimage(native_image)
             _record_profile_elapsed(profile_stats, "backend_qimage_ms", stage_t0)
-            return (final_image, QPointF(x_s, y_s))
+            return (final_image, native_pos, native_dst_points)
 
     except Exception as e:
         logger.debug(f"Error during backend text rendering: {e}")
@@ -306,9 +265,9 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
     if image_result is None:
         return None
 
-    final_image, pos = image_result
+    final_image, pos, native_dst_points = image_result
     profile_stats = render_params.get("_profile_stats") if isinstance(render_params, dict) else None
     stage_t0 = perf_counter() if profile_stats is not None else None
     pixmap = QPixmap.fromImage(final_image)
     _record_profile_elapsed(profile_stats, "backend_pixmap_ms", stage_t0)
-    return (pixmap, pos)
+    return (pixmap, pos, native_dst_points)

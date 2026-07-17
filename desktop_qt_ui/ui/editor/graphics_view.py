@@ -33,6 +33,9 @@ class GraphicsView(
 
     region_geometry_changed = pyqtSignal(int, dict)
     view_state_changed = pyqtSignal(object, object)
+    region_drag_started = pyqtSignal()
+    region_drag_finished = pyqtSignal()
+    blank_canvas_pressed = pyqtSignal()
 
     MASK_PREVIEW_MAX_PIXELS = 2_000_000
     INPAINT_PREVIEW_MAX_PIXELS = 6_000_000
@@ -102,6 +105,8 @@ class GraphicsView(
         self._potential_drag = False
         self._drag_start_pos = None
         self._drag_threshold = 5
+        self._region_drag_candidate = False
+        self._region_drag_active = False
 
         self._is_drawing_textbox = False
         self._textbox_start_pos = None

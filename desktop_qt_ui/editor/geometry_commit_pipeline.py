@@ -5,6 +5,7 @@ from typing import Optional
 from manga_translator.rendering import calc_font_from_box
 
 from editor.render_text_value import has_renderable_text, render_text_value_from_region
+from services import get_render_parameter_service
 
 
 def build_rotate_region_data(
@@ -24,6 +25,7 @@ def build_rotate_region_data(
 
 
 def build_white_frame_region_data(
+    region_index: int,
     region_data: dict,
     white_patch: dict,
     white_frame_local: Optional[list],
@@ -40,7 +42,11 @@ def build_white_frame_region_data(
     if not _white_frame_size_changed(old_white_frame_local, white_frame_local):
         return data
 
-    new_fs = _calc_font_size(data, white_frame_local)
+    service = get_render_parameter_service()
+    if service is None:
+        raise RuntimeError("RenderParameterService is not initialized")
+    params = service.get_region_parameters(region_index, data)
+    new_fs = _calc_font_size(data, white_frame_local, params)
     if new_fs is not None:
         data["font_size"] = new_fs
     return data
@@ -78,7 +84,7 @@ def _extract_white_frame_size(wf_local: Optional[list]) -> Optional[tuple[float,
     return width, height
 
 
-def _calc_font_size(region_data: dict, wf_local: Optional[list]) -> Optional[int]:
+def _calc_font_size(region_data: dict, wf_local: Optional[list], params) -> Optional[int]:
     size = _extract_white_frame_size(wf_local)
     if size is None:
         return None
@@ -86,7 +92,7 @@ def _calc_font_size(region_data: dict, wf_local: Optional[list]) -> Optional[int
     # 反算与正算使用同一文本源（translation_rich 优先），
     # 保证拖框得到的字号与随后按字号正算的白框尺寸一致。
     text = render_text_value_from_region(region_data)
-    direction = region_data.get("direction", "h")
+    direction = region_data.get("direction") or params.direction
     is_h = direction in ("h", "horizontal", "hr")
     if not (has_renderable_text(text) and w > 0 and h > 0):
         return None
@@ -95,7 +101,8 @@ def _calc_font_size(region_data: dict, wf_local: Optional[list]) -> Optional[int
         h,
         text,
         is_h,
-        region_data.get("line_spacing", 1.0) or 1.0,
-        letter_spacing=region_data.get("letter_spacing", 1.0) or 1.0,
+        params.line_spacing or 1.0,
+        letter_spacing=params.letter_spacing or 1.0,
+        stroke_width=params.effective_stroke_width,
     )
     return int(max(8, fs))

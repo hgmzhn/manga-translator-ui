@@ -664,6 +664,7 @@ class RegionTextItem(QGraphicsItemGroup):
                 continue
             patch = item.geo.to_region_data_patch()
             new_data = build_white_frame_region_data(
+                item.region_index,
                 item.region_data, patch, item.geo.white_frame_local,
                 old_white_frame_local=peer["start_wf_local"],
                 edit_mode="white_move",
@@ -1532,6 +1533,7 @@ class RegionTextItem(QGraphicsItemGroup):
 
         patch = self.geo.to_region_data_patch()
         new_data = build_white_frame_region_data(
+            self.region_index,
             self.region_data, patch, self.geo.white_frame_local,
             old_white_frame_local=self._drag_start_white_frame_local,
             edit_mode=edit_mode,

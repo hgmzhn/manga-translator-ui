@@ -9,9 +9,8 @@ from editor import text_renderer_backend
 from editor.region_geometry_state import RegionGeometryState
 from editor.region_render_snapshot import RegionRenderSnapshot
 from editor.render_layout_pipeline import (
-    build_region_specific_params,
     calculate_region_dst_points,
-    prepare_layout_context,
+    resolve_region_layout_parameters,
 )
 from editor.text_render_pipeline import (
     build_region_render_params as pipeline_build_region_render_params,
@@ -395,8 +394,13 @@ class GraphicsViewRenderingMixin:
             cached_result = render_result
 
         if cached_result:
-            pixmap, pos = cached_result
-            item.set_dst_points(dst_points)
+            if len(cached_result) >= 3:
+                pixmap, pos, actual_dst_points = cached_result[:3]
+            else:
+                pixmap, pos = cached_result
+                actual_dst_points = dst_points
+            item.set_dst_points(actual_dst_points)
+            self._persist_single_render_box(index, actual_dst_points)
             item.update_text_pixmap(
                 pixmap,
                 pos,
@@ -511,35 +515,29 @@ class GraphicsViewRenderingMixin:
             return
 
         render_parameter_service = get_render_parameter_service()
-        global_params_dict, config_obj = prepare_layout_context(
-            render_parameter_service,
-            text_renderer_backend,
-        )
-        region_specific_params = build_region_specific_params(global_params_dict, text_block)
-        if region_dict.get("line_spacing") is not None:
-            region_specific_params["line_spacing"] = region_dict.get("line_spacing")
-        if region_dict.get("letter_spacing") is not None:
-            region_specific_params["letter_spacing"] = region_dict.get("letter_spacing")
-
+        layout_params = None
         try:
+            layout_params = resolve_region_layout_parameters(
+                render_parameter_service,
+                index,
+                snapshot.style_input(),
+                text_block,
+            )
             self._dst_points_cache[index] = calculate_region_dst_points(
                 text_block,
-                region_specific_params,
-                config_obj,
+                layout_params,
                 override_dst_points=override_dst_points,
             )
         except Exception as e:
             self._log_layout_failure(
                 index,
                 text_block,
-                region_specific_params.get("line_spacing"),
-                region_specific_params.get("letter_spacing"),
+                getattr(layout_params, "line_spacing", None),
+                getattr(layout_params, "letter_spacing", None),
                 region_dict.get("angle"),
                 e,
             )
             self._dst_points_cache[index] = None
-
-        self._persist_single_render_box(index, self._dst_points_cache[index])
 
     def _update_single_region_text_visual(self, index, use_cache=False):
         try:
@@ -576,10 +574,6 @@ class GraphicsViewRenderingMixin:
         ]
 
         render_parameter_service = get_render_parameter_service()
-        global_params_dict, config_obj = prepare_layout_context(
-            render_parameter_service,
-            text_renderer_backend,
-        )
 
         dst_points_list = []
         for i, text_block in enumerate(self._text_blocks_cache):
@@ -588,33 +582,33 @@ class GraphicsViewRenderingMixin:
                 continue
 
             snapshot = snapshots[i] if i < len(snapshots) else None
+            layout_params = None
             try:
                 region_dict = snapshot.region_data if snapshot is not None else {}
-                region_params = build_region_specific_params(global_params_dict, text_block)
-                if region_dict.get("line_spacing") is not None:
-                    region_params["line_spacing"] = region_dict.get("line_spacing")
-                if region_dict.get("letter_spacing") is not None:
-                    region_params["letter_spacing"] = region_dict.get("letter_spacing")
+                layout_params = resolve_region_layout_parameters(
+                    render_parameter_service,
+                    i,
+                    region_dict,
+                    text_block,
+                )
                 dst_points_list.append(
                     calculate_region_dst_points(
                         text_block,
-                        region_params,
-                        config_obj,
+                        layout_params,
                     )
                 )
             except Exception as e:
                 self._log_layout_failure(
                     i,
                     text_block,
-                    global_params_dict.get("line_spacing"),
-                    global_params_dict.get("letter_spacing"),
+                    getattr(layout_params, "line_spacing", None),
+                    getattr(layout_params, "letter_spacing", None),
                     regions[i].get("angle") if i < len(regions) else "N/A",
                     e,
                 )
                 dst_points_list.append(None)
 
         self._dst_points_cache = dst_points_list
-        self._persist_render_boxes(regions, dst_points_list)
         self._update_text_visuals()
         self.scene.update()
         record_canvas_duration(

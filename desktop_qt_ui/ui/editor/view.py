@@ -4,7 +4,7 @@ from typing import Any
 from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
-from PyQt6.QtCore import QPointF, QSize, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QSizePolicy,
@@ -72,6 +72,8 @@ class EditorView(QWidget):
         self.edit_canvas_container: QWidget | None = None
         self.graphics_view: GraphicsView | None = None
         self.rich_text_editor: RichTextFloatingEditor | None = None
+        self._rich_editor_anchor_region = -1
+        self._rich_editor_anchor_side: str | None = None
         self.add_files_button: PushButton | None = None
         self.add_folder_button: PushButton | None = None
         self.clear_list_button: PushButton | None = None
@@ -351,10 +353,16 @@ class EditorView(QWidget):
         if self.rich_text_editor is None:
             return
         if not selected_indices or len(selected_indices) != 1:
+            self._rich_editor_anchor_region = -1
+            self._rich_editor_anchor_side = None
             self.rich_text_editor.clear_region()
             return
 
         region_index = int(selected_indices[0])
+        if region_index != self._rich_editor_anchor_region:
+            self._rich_editor_anchor_region = region_index
+            self._rich_editor_anchor_side = None
+            self.rich_text_editor.reset_manual_position()
         # F22：换绑前先把上一区域去抖期内的待发内容写回，再取新区域数据
         self.rich_text_editor.flush_pending_changes()
         region_data = self.model.get_region_by_index(region_index)
@@ -401,7 +409,33 @@ class EditorView(QWidget):
     def _position_rich_text_editor_for_selection(self, *args):
         selected = self.model.get_selection()
         if selected and len(selected) == 1:
+            if self.rich_text_editor is not None and self.rich_text_editor.is_manually_positioned():
+                return
             self._position_rich_text_editor(int(selected[0]))
+        elif self.rich_text_editor is not None:
+            self.rich_text_editor.hide()
+
+    def _hide_rich_text_editor_for_region_drag(self):
+        if self.rich_text_editor is not None:
+            self.rich_text_editor.hide()
+
+    def _restore_rich_text_editor_after_region_drag(self):
+        # 等几何提交和可能的 item 重建完成后，再按新位置恢复浮动编辑器。
+        QTimer.singleShot(0, self._show_rich_text_editor_after_region_drag)
+
+    def _show_rich_text_editor_after_region_drag(self):
+        editor = self.rich_text_editor
+        selected = self.model.get_selection()
+        if editor is None or not selected or len(selected) != 1:
+            return
+        region_index = int(selected[0])
+        # 拖动后文本框位置已经改变，按新位置重新选择一次停靠侧。
+        self._rich_editor_anchor_region = region_index
+        self._rich_editor_anchor_side = None
+        editor.reset_manual_position()
+        self._position_rich_text_editor(region_index)
+        editor.show()
+        editor.raise_()
 
     def _position_rich_text_editor(self, region_index: int):
         if self.rich_text_editor is None or self.graphics_view is None:
@@ -414,19 +448,40 @@ class EditorView(QWidget):
             return
 
         rect = item.sceneBoundingRect()
-        anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.top()))
+        top_anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.top()))
+        bottom_anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.bottom()))
         self.rich_text_editor.adjustSize()
         popup_w = self.rich_text_editor.width()
         popup_h = self.rich_text_editor.height()
         viewport = self.graphics_view.viewport()
         margin = 8
-        x = int(anchor.x() - popup_w / 2)
-        y = int(anchor.y() - popup_h - margin)
-        if y < margin:
-            bottom_anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.bottom()))
+        x = int(top_anchor.x() - popup_w / 2)
+
+        # 当前文本框的停靠侧保持稳定。样式区展开/收起只改变浮窗高度，
+        # 不再在文本框上方和下方来回切换，避免浮窗扫过文本框造成抽搐。
+        if region_index != self._rich_editor_anchor_region:
+            self._rich_editor_anchor_region = region_index
+            self._rich_editor_anchor_side = None
+        if self._rich_editor_anchor_side is None:
+            space_above = int(top_anchor.y()) - margin
+            space_below = viewport.height() - int(bottom_anchor.y()) - margin
+            if space_above >= popup_h:
+                self._rich_editor_anchor_side = "above"
+            elif space_below >= popup_h:
+                self._rich_editor_anchor_side = "below"
+            else:
+                self._rich_editor_anchor_side = "above" if space_above >= space_below else "below"
+
+        if self._rich_editor_anchor_side == "above":
+            y = int(top_anchor.y() - popup_h - margin)
+        else:
             y = int(bottom_anchor.y() + margin)
-        x = max(margin, min(x, max(margin, viewport.width() - popup_w - margin)))
-        y = max(margin, min(y, max(margin, viewport.height() - popup_h - margin)))
+        # 自动弹出必须完整位于画布 viewport 内；这个限制只作用于自动定位。
+        # 用户随后通过四周拖动热区移动时不经过这里，仍可自由拖出画布。
+        max_x = max(margin, viewport.width() - popup_w - margin)
+        max_y = max(margin, viewport.height() - popup_h - margin)
+        x = max(margin, min(x, max_x))
+        y = max(margin, min(y, max_y))
         self.rich_text_editor.move(x, y)
 
     def _connect_signals(self):
@@ -483,6 +538,9 @@ class EditorView(QWidget):
         self.graphics_view.region_geometry_changed.connect(self.controller.update_region_geometry)
         self.graphics_view.view_state_changed.connect(self.original_compare_view.sync_view_state)
         self.graphics_view.view_state_changed.connect(self._position_rich_text_editor_for_selection)
+        self.graphics_view.region_drag_started.connect(self._hide_rich_text_editor_for_region_drag)
+        self.graphics_view.region_drag_finished.connect(self._restore_rich_text_editor_after_region_drag)
+        self.graphics_view.blank_canvas_pressed.connect(self._hide_rich_text_editor_for_region_drag)
 
         # --- Property Panel (Left Panel) to Controller ---
         self.property_panel.translated_text_modified.connect(self.controller.update_translated_text)
@@ -514,6 +572,7 @@ class EditorView(QWidget):
 
         if self.rich_text_editor is not None:
             self.rich_text_editor.rich_text_changed.connect(self.controller.update_translation_rich)
+            self.rich_text_editor.layout_size_changed.connect(self._position_rich_text_editor_for_selection)
 
         # Note: Some signals from PropertyPanel might not have corresponding slots in the controller yet.
         # e.g., copy/paste/delete, mask tool changes.

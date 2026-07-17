@@ -104,8 +104,12 @@ class GraphicsViewInputMixin:
             item_at_pos = self.itemAt(event.pos())
 
             clicked_region_item = self._region_item_at_view_pos(event.pos()) is not None
+            self._region_drag_candidate = bool(clicked_region_item)
+            self._region_drag_active = False
+            self._drag_start_pos = event.pos() if clicked_region_item else None
 
             if item_at_pos is None or item_at_pos == self._image_item:
+                self.blank_canvas_pressed.emit()
                 self.selection_manager.start_box_select(self.mapToScene(event.pos()))
                 event.accept()
                 return
@@ -135,6 +139,16 @@ class GraphicsViewInputMixin:
 
         if self._is_drawing:
             self._update_preview_drawing(event.pos())
+        if (
+            self._region_drag_candidate
+            and not self._region_drag_active
+            and self._drag_start_pos is not None
+            and bool(event.buttons() & Qt.MouseButton.LeftButton)
+        ):
+            delta = event.pos() - self._drag_start_pos
+            if abs(delta.x()) + abs(delta.y()) >= self._drag_threshold:
+                self._region_drag_active = True
+                self.region_drag_started.emit()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -154,6 +168,10 @@ class GraphicsViewInputMixin:
 
         if event.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            if event.button() == Qt.MouseButton.LeftButton and self._region_drag_active:
+                self.region_drag_finished.emit()
+            self._region_drag_candidate = False
+            self._region_drag_active = False
             if self._drag_start_pos:
                 self._potential_drag = False
                 self._drag_start_pos = None

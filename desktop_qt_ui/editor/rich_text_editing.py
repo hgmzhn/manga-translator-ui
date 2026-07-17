@@ -309,6 +309,18 @@ def remove_ruby_from_range(document: dict, start: int, end: int) -> dict:
     return _document_from_entries(_entries_text(entries), entries)
 
 
+def remove_tcy_from_range(document: dict, start: int, end: int) -> dict:
+    entries = _visible_entries(document)
+    start, end = _normalize_range(entries, start, end, expand_empty=True)
+    if start == end:
+        return copy.deepcopy(document)
+
+    for entry in entries[start:end]:
+        if isinstance(entry.node, dict) and entry.node.get("type") == "tcy":
+            entry.node = None
+    return _document_from_entries(_entries_text(entries), entries)
+
+
 def _wrap_range_as_node(document: dict, start: int, end: int, node_type: str, ruby_text: str = "") -> dict:
     entries = _visible_entries(document)
     start, end = _normalize_range(entries, start, end, expand_empty=False)
@@ -357,6 +369,8 @@ def style_for_range(document: dict, start: int, end: int) -> dict:
     if ruby_texts:
         result["ruby"] = True
         result["rubyText"] = ruby_texts[0]
+    if any(isinstance(entry.node, dict) and entry.node.get("type") == "tcy" for entry in entries[start:end]):
+        result["tcy"] = True
     for style in styles:
         if not isinstance(style, dict):
             continue
@@ -399,6 +413,29 @@ def style_for_range(document: dict, start: int, end: int) -> dict:
                 if source in transform and target not in result:
                     result[target] = transform.get(source)
     return result
+
+
+def style_row_coverage(document: dict, start: int, end: int, row_key: str) -> tuple[bool, bool]:
+    """返回样式在范围内的 (任意文字使用, 全部文字使用)。
+
+    空选区沿用工具栏的全文查看语义；换行符不参与覆盖率计算。
+    """
+    entries = _visible_entries(document)
+    start, end = _normalize_range(entries, start, end, expand_empty=True)
+    visible_entries = [entry for entry in entries[start:end] if entry.char != "\n"]
+    if not visible_entries:
+        return False, False
+
+    def matches(entry: _CharEntry) -> bool:
+        node = entry.node
+        if row_key == "R":
+            return isinstance(node, dict) and node.get("type") == "ruby"
+        if row_key == "T":
+            return isinstance(node, dict) and node.get("type") == "tcy"
+        return _style_matches_row_key(entry.style or {}, row_key)
+
+    matched = [matches(entry) for entry in visible_entries]
+    return any(matched), all(matched)
 
 
 def _styles_in_range(entries: list[_CharEntry], start: int, end: int) -> list[dict]:
@@ -467,6 +504,8 @@ def styled_text_for_key(document: dict, start: int, end: int, row_key: str) -> s
 
 
 def _style_matches_row_key(style: dict, row_key: str) -> bool:
+    if row_key == "B":
+        return bool(style.get("bold"))
     if row_key == "C":
         return "color" in style
     if row_key == "I":
@@ -483,6 +522,8 @@ def _style_matches_row_key(style: dict, row_key: str) -> bool:
         return isinstance(style.get("glow"), dict) and bool(style.get("glow"))
     if row_key == "OS":
         return isinstance(style.get("outerStroke"), dict) and bool(style.get("outerStroke"))
+    if row_key == "D":
+        return bool(style.get("emphasis"))
     if row_key == "Rot":
         transform = style.get("transform")
         return isinstance(transform, dict) and "rotation" in transform
@@ -497,6 +538,12 @@ def _style_matches_row_key(style: dict, row_key: str) -> bool:
     if row_key == "XY":
         transform = style.get("transform")
         return isinstance(transform, dict) and ("offsetX" in transform or "offsetY" in transform)
+    if row_key == "M":
+        transform = style.get("transform")
+        return isinstance(transform, dict) and bool(transform.get("mirrorX"))
+    if row_key == "MV":
+        transform = style.get("transform")
+        return isinstance(transform, dict) and bool(transform.get("mirrorY"))
     return False
 
 

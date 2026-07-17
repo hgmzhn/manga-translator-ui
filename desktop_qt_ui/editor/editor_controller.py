@@ -19,6 +19,7 @@ from services import (
     get_logger,
     get_ocr_service,
     get_resource_manager,
+    get_render_parameter_service,
     get_translation_service,
 )
 
@@ -51,13 +52,15 @@ class _AsyncRegionUpdateRequest:
 _FONT_AFFECTING_FIELDS = frozenset({
     "translation", "translation_rich", "text", "font_size", "font_family",
     "letter_spacing", "line_spacing", "direction",
-    "stroke_width", "text_stroke_width",
+    "stroke_width", "disable_font_border",
 })
 
 
 def _sync_white_frame_size_for_font_change(
     region_data: dict,
-    old_region_data: Optional[dict] = None,
+    old_region_data: Optional[dict],
+    render_params,
+    old_render_params,
 ) -> None:
     """字体/译文/描边/字间距等属性改变后，把白框尺寸同步成字号反算尺寸。
 
@@ -71,25 +74,26 @@ def _sync_white_frame_size_for_font_change(
     try:
         from manga_translator.rendering import calc_box_from_font
 
-        def _box_metrics(data: dict):
+        def _box_metrics(data: dict, params):
             """返回 (框宽, 框高, 正文差值)；文本/字号无效时返回 None。"""
-            font_size = int(data.get("font_size") or 0)
+            font_size = int(data.get("font_size") or getattr(params, "font_size", 0) or 0)
             value = render_text_value_from_region(data)
             if font_size <= 0 or not has_renderable_text(value):
                 return None
-            direction = data.get("direction", "h")
+            direction = data.get("direction") or getattr(params, "direction", "h")
             is_horizontal = direction in ("h", "horizontal", "hr")
-            line_spacing = float(data.get("line_spacing") or 1.0)
-            letter_spacing = float(data.get("letter_spacing") or 1.0)
+            line_spacing = float(getattr(params, "line_spacing", 1.0) or 1.0)
+            letter_spacing = float(getattr(params, "letter_spacing", 1.0) or 1.0)
             w, h, _, (body_x, body_y) = calc_box_from_font(
                 font_size, value, is_horizontal, line_spacing,
                 None, None, center=None, angle=0, letter_spacing=letter_spacing,
+                stroke_width=params.effective_stroke_width,
             )
             if w <= 0 or h <= 0:
                 return None
             return float(w), float(h), (float(body_x) - w / 2.0, float(body_y) - h / 2.0)
 
-        new_metrics = _box_metrics(region_data)
+        new_metrics = _box_metrics(region_data, render_params)
         if new_metrics is None:
             return
         w, h, new_delta = new_metrics
@@ -103,7 +107,7 @@ def _sync_white_frame_size_for_font_change(
 
         # 正文锚点 = 旧框正中心 + 旧正文差值。
         # 拿不到旧文本时按"差值未变"处理（退化为保持框中心的旧行为）。
-        old_metrics = _box_metrics(old_region_data) if old_region_data else None
+        old_metrics = _box_metrics(old_region_data, old_render_params) if old_region_data else None
         old_delta = old_metrics[2] if old_metrics is not None else new_delta
         new_cx = (local_cx + old_delta[0]) - new_delta[0]
         new_cy = (local_cy + old_delta[1]) - new_delta[1]
@@ -593,6 +597,13 @@ class EditorController(QObject):
             merge_key=merge_key,
         )
 
+    @staticmethod
+    def _resolve_region_render_params(region_index: int, region_data: dict):
+        service = get_render_parameter_service()
+        if service is None:
+            raise RuntimeError("RenderParameterService is not initialized")
+        return service.get_region_parameters(region_index, region_data)
+
     def _update_region_field(
         self,
         region_index: int,
@@ -620,7 +631,12 @@ class EditorController(QObject):
 
         # 字体/译文等属性改变 → 同步白框尺寸（锚定正文中心），让 UI 立即跟上新字号。
         if field_name in _FONT_AFFECTING_FIELDS:
-            _sync_white_frame_size_for_font_change(new_region_data, old_region_data)
+            _sync_white_frame_size_for_font_change(
+                new_region_data,
+                old_region_data,
+                self._resolve_region_render_params(region_index, new_region_data),
+                self._resolve_region_render_params(region_index, old_region_data),
+            )
 
         command = self._build_region_update_command(
             region_index=region_index,
@@ -734,7 +750,12 @@ class EditorController(QObject):
         new_region_data["translation_raw"] = plain_text
         new_region_data["translation_rich"] = rich_document
 
-        _sync_white_frame_size_for_font_change(new_region_data, old_region_data)
+        _sync_white_frame_size_for_font_change(
+            new_region_data,
+            old_region_data,
+            self._resolve_region_render_params(region_index, new_region_data),
+            self._resolve_region_render_params(region_index, old_region_data),
+        )
 
         command = self._build_region_update_command(
             region_index=region_index,
@@ -771,7 +792,12 @@ class EditorController(QObject):
         new_region_data.pop("translation_rich", None)
 
         # translation 是 _FONT_AFFECTING_FIELDS 成员,改动后同步白框尺寸
-        _sync_white_frame_size_for_font_change(new_region_data, old_region_data)
+        _sync_white_frame_size_for_font_change(
+            new_region_data,
+            old_region_data,
+            self._resolve_region_render_params(region_index, new_region_data),
+            self._resolve_region_render_params(region_index, old_region_data),
+        )
 
         command = self._build_region_update_command(
             region_index=region_index,

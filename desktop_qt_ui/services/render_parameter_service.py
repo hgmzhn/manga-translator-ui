@@ -82,6 +82,13 @@ class RenderParameters:
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
         return asdict(self)
+
+    @property
+    def effective_stroke_width(self) -> float:
+        """描边测量和绘制共同消费的唯一有效宽度。"""
+        if self.disable_font_border:
+            return 0.0
+        return max(float(self.stroke_width), 0.0)
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'RenderParameters':
@@ -174,16 +181,15 @@ class RenderParameterService:
     
     def calculate_default_parameters(self, region_data: Dict[str, Any]) -> RenderParameters:
         """基于原始文本框计算默认渲染参数"""
+        params = self.get_default_parameters()
         try:
-            # 提取区域信息
             lines = region_data.get('lines', [])
             if not lines or not lines[0]:
-                return self.get_default_parameters()
+                return self._apply_region_overrides(params, region_data)
 
-            # 计算区域尺寸
             all_points = [point for poly in lines for point in poly]
             if len(all_points) < 4:
-                return self.get_default_parameters()
+                return self._apply_region_overrides(params, region_data)
             
             x_coords = [p[0] for p in all_points]
             y_coords = [p[1] for p in all_points]
@@ -210,182 +216,78 @@ class RenderParameterService:
                 direction = "auto"  # 自动判断
                 alignment = "center"
             
-            # 创建参数对象，以配置服务的默认值为基础
-            config = self.config_service.get_config()
-            render_fields = RenderParameters.__dataclass_fields__.keys()
-            global_render_config = config.render.model_dump()
-            valid_global_config = {k: v for k, v in global_render_config.items() if k in render_fields}
-            params = RenderParameters(**valid_global_config)
-
-            # 然后，仅覆盖根据几何计算出的值
             params.font_size = font_size
             params.alignment = alignment
             params.direction = direction
-            
-            # 从 region_data 读取描边宽度（优先 stroke_width，兼容 default_stroke_width）
-            stroke_width_val = region_data.get('stroke_width') or region_data.get('default_stroke_width')
-            if stroke_width_val is not None:
-                params.stroke_width = stroke_width_val
-            
-            # 注意：不覆盖line_spacing，使用配置服务的值
-            
+
             self.logger.debug(f"计算默认参数: 尺寸={width}x{height}, 字体={font_size}, 方向={direction}")
-            return params
+            return self._apply_region_overrides(params, region_data)
             
         except Exception as e:
             self.logger.error(f"计算默认参数失败: {e}")
-            # 从配置服务获取默认参数
-            config = self.config_service.get_config()
-            render_fields = RenderParameters.__dataclass_fields__.keys()
-            global_render_config = config.render.model_dump()
-            valid_global_config = {k: v for k, v in global_render_config.items() if k in render_fields}
-            return RenderParameters(**valid_global_config)
+            return self._apply_region_overrides(params, region_data)
+
+    @staticmethod
+    def _parse_hex_color(value: Any):
+        if not (isinstance(value, str) and value.startswith('#') and len(value) == 7):
+            return None
+        try:
+            return tuple(int(value[index:index + 2], 16) for index in (1, 3, 5))
+        except ValueError:
+            return None
+
+    def _apply_region_overrides(
+        self,
+        params: RenderParameters,
+        region_data: Dict[str, Any] = None,
+    ) -> RenderParameters:
+        """Apply canonical region fields once; callers always receive a copy.
+
+        ``stroke_width`` is the only accepted stroke-width field.  Measurement
+        and drawing both consume the returned ``RenderParameters`` instance,
+        so aliases cannot silently diverge again.
+        """
+        resolved = copy.deepcopy(params)
+        if not region_data:
+            return resolved
+
+        for field_name in RenderParameters.__dataclass_fields__:
+            if field_name not in region_data:
+                continue
+            value = region_data[field_name]
+            if value is None:
+                continue
+            if field_name == 'font_size' and not value:
+                continue
+            if field_name in {'font_family', 'alignment', 'direction'} and not value:
+                continue
+            if field_name == 'stroke_width':
+                value = max(float(value), 0.0)
+            elif field_name in {'fg_color', 'bg_color'} and isinstance(value, list):
+                value = tuple(value)
+            setattr(resolved, field_name, value)
+
+        font_color = self._parse_hex_color(region_data.get('font_color'))
+        if font_color is not None:
+            resolved.fg_color = font_color
+        elif region_data.get('fg_colors') is not None:
+            resolved.fg_color = tuple(region_data['fg_colors'])
+
+        if region_data.get('bg_colors') is not None:
+            resolved.bg_color = tuple(region_data['bg_colors'])
+
+        return resolved
     
     def get_region_parameters(self, region_index: int, region_data: Dict[str, Any] = None) -> RenderParameters:
-        """获取指定区域的渲染参数"""
+        """Resolve one immutable-by-convention parameter snapshot for a region."""
         if region_index in self.region_parameters:
-            params = self.region_parameters[region_index]
-
-            # 如果有 region_data,从中读取可能被用户修改的字段
-            if region_data:
-                # 字体大小
-                if 'font_size' in region_data and region_data['font_size']:
-                    params.font_size = region_data['font_size']
-
-                # 对齐方式
-                if 'alignment' in region_data and region_data['alignment']:
-                    params.alignment = region_data['alignment']
-
-                # 文本方向
-                if 'direction' in region_data and region_data['direction']:
-                    params.direction = region_data['direction']
-
-                # 字体颜色 - 优先使用 font_color (hex格式)
-                if 'font_color' in region_data and region_data['font_color']:
-                    # 将 hex 转换为 RGB tuple
-                    hex_color = region_data['font_color']
-                    if isinstance(hex_color, str) and hex_color.startswith('#'):
-                        try:
-                            r = int(hex_color[1:3], 16)
-                            g = int(hex_color[3:5], 16)
-                            b = int(hex_color[5:7], 16)
-                            params.fg_color = (r, g, b)
-                        except ValueError:
-                            pass
-                elif 'fg_colors' in region_data and region_data['fg_colors']:
-                    params.fg_color = tuple(region_data['fg_colors'])
-
-                # 描边颜色
-                if 'bg_colors' in region_data and region_data['bg_colors']:
-                    params.bg_color = tuple(region_data['bg_colors'])
-                elif 'bg_color' in region_data and region_data['bg_color']:
-                    params.bg_color = tuple(region_data['bg_color'])
-
-                # 描边宽度 - 优先读取 stroke_width，兼容旧的 default_stroke_width
-                stroke_width_val = region_data.get('stroke_width') or region_data.get('default_stroke_width')
-                if stroke_width_val is not None:
-                    params.stroke_width = stroke_width_val
-
-                # 行间距 - 读取 line_spacing
-                if 'line_spacing' in region_data and region_data['line_spacing'] is not None:
-                    params.line_spacing = region_data['line_spacing']
-                if 'letter_spacing' in region_data and region_data['letter_spacing'] is not None:
-                    params.letter_spacing = region_data['letter_spacing']
-
-                # 字体样式
-                if 'bold' in region_data:
-                    params.bold = region_data['bold']
-                if 'italic' in region_data:
-                    params.italic = region_data['italic']
-                if 'underline' in region_data:
-                    params.underline = region_data['underline']
-                if 'font_weight' in region_data:
-                    params.font_weight = region_data['font_weight']
-
-                if 'font_family' in region_data and region_data['font_family']:
-                    params.font_family = region_data['font_family']
-
-            return params
-
-        # 动态从配置服务获取最新的默认参数
-        config = self.config_service.get_config()
-        render_fields = RenderParameters.__dataclass_fields__.keys()
-        global_render_config = config.render.model_dump()
-        valid_global_config = {k: v for k, v in global_render_config.items() if k in render_fields}
-
-        # 创建基于配置服务的默认参数
-        default_params = RenderParameters(**valid_global_config)
-
-        # 如果有区域数据，基于它计算参数
-        if region_data:
-            calculated_params = self.calculate_default_parameters(region_data)
-            
-            # 从 region_data 中读取 line_spacing（倍率），如果没有则使用配置的默认值
-            if 'line_spacing' in region_data and region_data['line_spacing'] is not None:
-                calculated_params.line_spacing = region_data['line_spacing']
-            else:
-                calculated_params.line_spacing = default_params.line_spacing
-            if 'letter_spacing' in region_data and region_data['letter_spacing'] is not None:
-                calculated_params.letter_spacing = region_data['letter_spacing']
-            else:
-                calculated_params.letter_spacing = default_params.letter_spacing
-
-            # 从 region_data 中读取用户设置的字段
-            # 字体大小
-            if 'font_size' in region_data and region_data['font_size']:
-                calculated_params.font_size = region_data['font_size']
-
-            # 对齐方式
-            if 'alignment' in region_data and region_data['alignment']:
-                calculated_params.alignment = region_data['alignment']
-
-            # 文本方向
-            if 'direction' in region_data and region_data['direction']:
-                calculated_params.direction = region_data['direction']
-
-            # 字体颜色 - 优先使用 font_color (hex格式)
-            if 'font_color' in region_data and region_data['font_color']:
-                hex_color = region_data['font_color']
-                if isinstance(hex_color, str) and hex_color.startswith('#'):
-                    try:
-                        r = int(hex_color[1:3], 16)
-                        g = int(hex_color[3:5], 16)
-                        b = int(hex_color[5:7], 16)
-                        calculated_params.fg_color = (r, g, b)
-                    except ValueError:
-                        pass
-            elif 'fg_colors' in region_data and region_data['fg_colors']:
-                calculated_params.fg_color = tuple(region_data['fg_colors'])
-
-            # 描边颜色
-            if 'bg_colors' in region_data and region_data['bg_colors']:
-                calculated_params.bg_color = tuple(region_data['bg_colors'])
-            elif 'bg_color' in region_data and region_data['bg_color']:
-                calculated_params.bg_color = tuple(region_data['bg_color'])
-
-            # 描边宽度 - 优先读取 stroke_width，兼容旧的 default_stroke_width
-            stroke_width_val = region_data.get('stroke_width') or region_data.get('default_stroke_width')
-            if stroke_width_val is not None:
-                calculated_params.stroke_width = stroke_width_val
-
-            # 字体样式
-            if 'bold' in region_data:
-                calculated_params.bold = region_data['bold']
-            if 'italic' in region_data:
-                calculated_params.italic = region_data['italic']
-            if 'underline' in region_data:
-                calculated_params.underline = region_data['underline']
-            if 'font_weight' in region_data:
-                calculated_params.font_weight = region_data['font_weight']
-
-            if 'font_family' in region_data and region_data['font_family']:
-                calculated_params.font_family = region_data['font_family']
-
-            # 可以添加其他需要从配置服务获取的参数
-            self.region_parameters[region_index] = calculated_params
-            return calculated_params
-
-        return default_params
+            base = self.region_parameters[region_index]
+        elif region_data:
+            base = self.calculate_default_parameters(region_data)
+            self.region_parameters[region_index] = copy.deepcopy(base)
+        else:
+            base = self.get_default_parameters()
+        return self._apply_region_overrides(base, region_data)
     
     def set_region_parameters(self, region_index: int, parameters: RenderParameters):
         """设置指定区域的渲染参数"""
@@ -464,8 +366,7 @@ class RenderParameterService:
             'letter_spacing': params.letter_spacing,
             
             # 效果参数
-            'stroke_width': params.stroke_width,  # 统一使用 stroke_width（后端会转换为 default_stroke_width）
-            'text_stroke_width': params.stroke_width,  # text_renderer_backend 期望的参数名
+            'stroke_width': params.effective_stroke_width,
             'shadow_radius': params.shadow_radius,
             'shadow_strength': params.shadow_strength,
             'shadow_color': params.shadow_color,
@@ -491,18 +392,6 @@ class RenderParameterService:
         # 处理描边颜色 - 使用 params.bg_color 作为描边颜色
         backend_params['text_stroke_color'] = params.bg_color
 
-        # 覆盖 line_spacing / letter_spacing 和 stroke_width（如果 region_data 中有的话）
-        if region_data:
-            if 'line_spacing' in region_data:
-                backend_params['line_spacing'] = region_data['line_spacing']
-            if 'letter_spacing' in region_data:
-                backend_params['letter_spacing'] = region_data['letter_spacing']
-            # 优先使用 stroke_width，兼容旧的 default_stroke_width
-            stroke_width_val = region_data.get('stroke_width') or region_data.get('default_stroke_width')
-            if stroke_width_val is not None:
-                backend_params['default_stroke_width'] = stroke_width_val
-                backend_params['text_stroke_width'] = stroke_width_val
-        
         return backend_params
     
     def import_parameters_from_json(self, region_index: int, json_data: Dict[str, Any]):
