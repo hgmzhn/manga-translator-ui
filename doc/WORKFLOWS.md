@@ -24,7 +24,7 @@
 
 ## 2. 导出翻译
 
-**用途**：翻译后导出翻译结果到 TXT 文件
+**用途**：翻译后按 `translation_template.json` 配置的扩展名导出翻译结果
 
 **步骤**：
 1. 选择"导出翻译"模式
@@ -33,13 +33,13 @@
 4. 程序会：
    - 完整翻译图片
    - 生成 `_translations.json` 文件
-   - 生成 `_translated.txt` 文件（包含翻译结果）
+   - 生成 `_translated.<output_format>` 文件（默认 `_translated.json`）
 
 ---
 
 ## 3. 导出原文
 
-**用途**：仅检测和识别文本，导出原文到 TXT 文件，不进行翻译
+**用途**：仅检测和识别文本，按模板配置导出原文，不进行翻译
 
 **步骤**：
 1. 选择"导出原文"模式
@@ -49,45 +49,45 @@
    - 检测文本区域
    - OCR 识别原文
    - 生成 `_translations.json` 文件
-   - 生成 `_original.txt` 文件（包含原文）
+   - 生成 `_original.<output_format>` 文件（默认 `_original.json`）
    - **不进行翻译**，直接停止
 
 **后续手动翻译**：
-1. 打开 `manga_translator_work/originals/图片名_original.txt` 文件
+1. 打开 `manga_translator_work/originals/图片名_original.<output_format>` 文件
 2. 将原文翻译成目标语言
-3. **直接在 `_original.txt` 文件中修改**（或直接修改 JSON 文件的 `translation` 字段）
+3. **直接在 `_original.<output_format>` 文件中修改**（或直接修改工程 JSON 的 `translation` 字段）
 
-**TXT 文件优先级**（在"导入翻译并渲染"模式中）：
-- **优先使用 `_original.txt`**（原文文件，用于手动翻译后导入）⭐ 最高优先级
-- 如果不存在，使用 `_translated.txt`（翻译文件）
+**导出文本文件优先级**（在"导入翻译并渲染"模式中）：
+- **优先使用 `_original.<output_format>`**（原文文件，用于手动翻译后导入）⭐ 最高优先级
+- 如果不存在，使用 `_translated.<output_format>`（翻译文件）
 - 如果都不存在，直接使用 JSON 文件中的翻译
 
 ---
 
 ## 4. 导入翻译并渲染
 
-**用途**：从 TXT 或 JSON 文件导入翻译内容，重新渲染图片，不进行翻译
+**用途**：从模板导出文件或工程 JSON 导入翻译内容，重新渲染图片，不进行翻译
 
 **步骤**：
 1. 选择"导入翻译并渲染"模式
 2. 添加之前翻译过的图片（确保有对应的 `_translations.json` 文件）
 3. 点击"导入翻译并渲染"
 4. 程序会：
-   - **预处理**：如果存在 `_translated.txt` 或 `_original.txt` 文件，先将 TXT 内容导入到 JSON 文件
+   - **预处理**：如果存在当前 `output_format` 对应的译文或原文文件，先将内容导入工程 JSON
    - **加载翻译**：从 JSON 文件加载翻译内容
    - **渲染图片**：使用加载的翻译内容渲染图片
    - **不进行翻译**，直接渲染
 
-**TXT 文件导入优先级**：
-- **优先使用 `_original.txt`**（原文文件，用于手动翻译后导入）⭐ 最高优先级
-  - 位置：`manga_translator_work/originals/图片名_original.txt`
+**导出文本文件导入优先级**：
+- **优先使用 `_original.<output_format>`**（原文文件，用于手动翻译后导入）⭐ 最高优先级
+  - 位置：`manga_translator_work/originals/图片名_original.<output_format>`
   - 说明：将手动翻译的内容替换此文件中的原文内容
-- 如果不存在，使用 `_translated.txt`（翻译文件）
-  - 位置：`manga_translator_work/translations/图片名_translated.txt`
+- 如果不存在，使用 `_translated.<output_format>`（翻译文件）
+  - 位置：`manga_translator_work/translations/图片名_translated.<output_format>`
 - 如果都不存在，直接使用 JSON 文件中的翻译
 
 **使用场景**：
-- 修改了 TXT 文件中的翻译内容，需要导入并重新渲染
+- 修改了导出文本文件中的翻译内容，需要导入并重新渲染
 - 修改了 JSON 文件中的翻译内容，需要重新渲染
 - 修改了渲染参数（字体、颜色、排版等），需要重新渲染
 
@@ -341,8 +341,9 @@
 - **重复的是文本框部分**，而不是整个 JSON 结构
 - 例如：模版有 3 个占位符对，则每 3 个文本框作为一组输出
 
-**示例模版**（3 个文本框一组）：
-```json
+**默认模版**（3 个文本框一组）：
+```text
+"output_format": "json",
 {
     "<original>": "<translated>",
     "<original>": "<translated>",
@@ -366,10 +367,12 @@
 
 **使用说明**：
 1. 编辑 `config/translation_template.json` 文件
-2. 定义一组文本框的格式（可以是 1 个、3 个或任意数量）
-3. 使用 `<original>` 和 `<translated>` 作为占位符
-4. 导出原文时，每组文本框会重复使用这个格式
-5. 手动翻译后，使用"导入翻译并渲染"功能导入
+2. 第一行使用 `"output_format": "json",` 设置导出扩展名；可改为 `txt`、`md`、`yaml`、`csv` 等任意安全扩展名
+3. 未配置 `output_format` 时默认使用 `json`
+4. 在后续模板中定义一组文本框格式，并使用 `<original>` 和 `<translated>` 作为占位符
+5. 导出时只重复 `{ ... }` 内的模板结构，顶部 `output_format` 指令不会写入导出文件
+6. 关闭“覆盖已存在文件”时，程序按当前扩展名检查 `_original.<output_format>` 或 `_translated.<output_format>`
+7. 手动翻译后，使用"导入翻译并渲染"功能导入
 
 **注意事项**：
 - 模版中有几个占位符对，就会每几个文本框分为一组
@@ -390,10 +393,10 @@
   - 仅供编辑器的“原图层”与 PSD 的原图层使用
   - 不替代修复图，不参与后端修复结果保存
 
-- **原文 TXT**：`manga_translator_work/originals/图片名_original.txt`
+- **原文导出文件**：`manga_translator_work/originals/图片名_original.<output_format>`（默认 `.json`）
   - 导出原文时生成
 
-- **翻译 TXT**：`manga_translator_work/translations/图片名_translated.txt`
+- **翻译导出文件**：`manga_translator_work/translations/图片名_translated.<output_format>`（默认 `.json`）
   - 手动翻译后保存在此
 
 - **修复图片**：`manga_translator_work/inpainted/图片名_inpainted.原扩展名`
@@ -422,8 +425,8 @@
 **目录说明**：
 - `json/`：存储翻译数据的 JSON 文件
 - `editor_base/`：存储编辑器专用的上色/超分底图
-- `originals/`：存储导出的原文 TXT 文件
-- `translations/`：存储翻译后的 TXT 文件
+- `originals/`：存储导出的原文文件
+- `translations/`：存储导出的翻译文件
 - `inpainted/`：存储修复后的图片（擦除文字）
 - `result/`：存储最终翻译结果图片
 - `psd/`：存储可编辑的 PSD 文件

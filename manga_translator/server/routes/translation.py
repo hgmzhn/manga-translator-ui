@@ -730,10 +730,11 @@ async def export_original(req: Request, image: UploadFile = File(...), config: s
                 json_content = f.read()
             zip_file.writestr("translation.json", json_content)
             
-            # Add TXT file
+            # Add formatted text file
             with open(txt_path, 'r', encoding='utf-8') as f:
                 txt_content = f.read()
-            zip_file.writestr("original.txt", txt_content)
+            output_format = workflow_service.get_translation_output_format(template_path)
+            zip_file.writestr(f"original.{output_format}", txt_content)
         
         # Clean up temporary files
         os.unlink(tmp_json_path)
@@ -820,10 +821,11 @@ async def export_translated(req: Request, image: UploadFile = File(...), config:
                 json_content = f.read()
             zip_file.writestr("translation.json", json_content)
             
-            # Add TXT file
+            # Add formatted text file
             with open(txt_path, 'r', encoding='utf-8') as f:
                 txt_content = f.read()
-            zip_file.writestr("translated.txt", txt_content)
+            output_format = workflow_service.get_translation_output_format(template_path)
+            zip_file.writestr(f"translated.{output_format}", txt_content)
         
         # Clean up temporary files
         os.unlink(tmp_json_path)

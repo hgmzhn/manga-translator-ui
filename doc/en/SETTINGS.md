@@ -223,7 +223,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Requires matching JSON data to already exist
   - Does not run detection, OCR, inpainting, or rendering
   - Good for workflows where original text was exported earlier and only the translation content needs updating
-  - After the JSON is written successfully, the matching `_original.txt` file is deleted
+  - After the JSON is written successfully, the matching `_original.<output_format>` file is deleted
 
 - **`Export Original Text` (`template`)**: export original text to a text file for manual translation.
   - Current UI entry: `Translation Workflow Mode:` -> `Export Original Text`
@@ -878,6 +878,8 @@ Lazy shortcut:
 - Note: In CLI mode, if this file cannot be found, please start the application once first, and it will be generated automatically from a built-in template.
 - Used to customize the exported original-text format
 - Defines a text-box structure that the program repeats automatically
+- The first line, `"output_format": "json",`, controls the exported extension and defaults to `json`
+- Any safe extension is accepted; this directive is removed and never appears in exported content
 
 **Filter list path**:
 

@@ -8,7 +8,6 @@
 
 每条规则支持字面替换和正则替换（regex: true）
 """
-import hashlib
 import logging
 import os
 import re
@@ -216,22 +215,6 @@ vertical:
     replace: "·"
 """
 
-_LEGACY_DEFAULT_REPLACEMENTS_HASHES = {
-    # 旧版内置默认模板（common 中压缩空白，包含无效的“保持不变”规则）
-    "ceba4914b4c7bd239bc5a48be1b3755ed0d7ef7c496cc5eb0b4c4cbb76ca2702",
-    # 旧版 config/text_replacements.yaml（由表格编辑器保存后的默认模板格式）
-    "481f39ff205c61a6604f5e0d6b5a186462a6bc118ab74d7be037be3007267d94",
-}
-
-
-def _template_hash(content: str) -> str:
-    normalized = (content or "").replace("\r\n", "\n").replace("\r", "\n")
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
-def _is_legacy_default_template(content: str) -> bool:
-    return _template_hash(content) in _LEGACY_DEFAULT_REPLACEMENTS_HASHES
-
 def invalidate_replacements_cache(file_path: Optional[str] = None) -> None:
     """清理替换规则缓存，让后续渲染重新读取文件。"""
     if file_path is None:
@@ -252,16 +235,8 @@ def reset_text_replacements_to_default(file_path: Optional[str] = None) -> str:
 
 
 def ensure_text_replacements_exists() -> str:
-    """确保文本替换规则配置文件存在，如果不存在则使用内置模板创建。"""
+    """确保文本替换规则存在；历史默认文件升级由启动初始化统一处理。"""
     if os.path.exists(_DEFAULT_REPLACEMENTS_PATH):
-        try:
-            with open(_DEFAULT_REPLACEMENTS_PATH, 'r', encoding='utf-8') as f:
-                content = f.read()
-            if _is_legacy_default_template(content):
-                reset_text_replacements_to_default(_DEFAULT_REPLACEMENTS_PATH)
-                logger.info(f"已升级默认文本替换规则文件: {_DEFAULT_REPLACEMENTS_PATH}")
-        except Exception as e:
-            logger.warning(f"检查文本替换规则默认模板失败: {e}")
         return _DEFAULT_REPLACEMENTS_PATH
     
     try:

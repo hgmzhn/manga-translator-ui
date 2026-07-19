@@ -836,9 +836,9 @@ if response.status_code == 200:
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/translate/export/original` | POST | 导出原文（ZIP：JSON + TXT） |
+| `/translate/export/original` | POST | 导出原文（ZIP：工程 JSON + 模板格式文件） |
 | `/translate/export/original/stream` | POST | 导出原文（流式，支持进度） |
-| `/translate/export/translated` | POST | 导出译文（ZIP：JSON + TXT） |
+| `/translate/export/translated` | POST | 导出译文（ZIP：工程 JSON + 模板格式文件） |
 | `/translate/export/translated/stream` | POST | 导出译文（流式，支持进度） |
 
 **处理端点**（图片处理）：
@@ -921,12 +921,12 @@ POST /translate/with-form/json/stream    # 表单方式，流式
 
 **流程**：
 ```
-输入图片 → 文本检测 → OCR识别 → 生成 ZIP（JSON + TXT）
+输入图片 → 文本检测 → OCR识别 → 生成 ZIP（工程 JSON + 模板格式文件）
 ```
 
 **返回内容**：
 - `translation.json` - 包含文本框位置、原文等信息
-- `original.txt` - 纯文本原文（每行一个文本框）
+- `original.<output_format>` - 模板格式原文（默认 `original.json`）
 
 **使用场景**：
 - 需要手动翻译
@@ -949,16 +949,16 @@ with open('manga.jpg', 'rb') as f:
 ```
 
 #### 导出译文
-执行完整翻译，并导出 JSON 和 TXT 文件。
+执行完整翻译，并导出工程 JSON 和模板格式文件。
 
 **流程**：
 ```
-输入图片 → 完整翻译流程 → 生成 ZIP（JSON + TXT）
+输入图片 → 完整翻译流程 → 生成 ZIP（工程 JSON + 模板格式文件）
 ```
 
 **返回内容**：
 - `translation.json` - 包含原文、译文、位置信息
-- `translated.txt` - 纯文本译文
+- `translated.<output_format>` - 模板格式译文（默认 `translated.json`）
 
 **使用场景**：
 - 需要保存翻译数据用于后续编辑
@@ -1130,14 +1130,14 @@ with open('manga.jpg', 'rb') as f:
     with open('export.zip', 'wb') as out:
         out.write(response.content)
 
-# 步骤2：解压 export.zip，得到 translation.json 和 original.txt
+# 步骤2：解压 export.zip，默认得到 translation.json 和 original.json
 
-# 步骤3：手动翻译 original.txt，保存为 translated.txt
+# 步骤3：手动翻译 original.json，保存为 translated.json
 # 可以保持原有格式，或使用简单格式（每行一个翻译）
 
 # 步骤4：导入翻译并渲染
 with open('manga.jpg', 'rb') as img, \
-     open('translated.txt', 'rb') as txt, \
+     open('translated.json', 'rb') as txt, \
      open('translation.json', 'rb') as json_file:
     files = {
         'image': img,
@@ -1192,8 +1192,8 @@ with open('history.zip', 'wb') as f:
 
 **支持的工作流程**：
 - `normal` - 正常翻译（默认）
-- `export_original` - 导出原文（只检测和 OCR，生成 JSON + TXT 文件）
-- `save_json` - 保存 JSON（正常翻译 + 保存 JSON + TXT 文件）
+- `export_original` - 导出原文（只检测和 OCR，生成工程 JSON + 模板格式文件）
+- `save_json` - 保存 JSON（正常翻译 + 工程 JSON + 模板格式文件）
 - `load_text` - 导入翻译并渲染（从 JSON 文件加载翻译）
 - `upscale_only` - 仅超分
 - `colorize_only` - 仅上色
@@ -1201,20 +1201,20 @@ with open('history.zip', 'wb') as f:
 **文件生成位置**：
 - JSON 文件：`manga_translator_work/json/图片名_translations.json`
 - 编辑器底图：`manga_translator_work/editor_base/图片名.原扩展名`
-- 原文 TXT：`manga_translator_work/originals/图片名_original.txt`
-- 翻译 TXT：`manga_translator_work/translations/图片名_translated.txt`
+- 原文导出文件：`manga_translator_work/originals/图片名_original.<output_format>`（默认 `.json`）
+- 翻译导出文件：`manga_translator_work/translations/图片名_translated.<output_format>`（默认 `.json`）
 - 修复图片：`manga_translator_work/inpainted/图片名_inpainted.原扩展名`
 - 翻译结果：`manga_translator_work/result/图片名.png`（开启 `--save-to-source-dir` 时）
 
 **工作流程说明**：
 1. `export_original` - 导出原文用于手动翻译
    - 生成 JSON 文件（包含原文和文本框信息）
-   - 生成 TXT 文件（纯文本原文）
-   - 可以编辑 TXT 文件进行手动翻译
+   - 生成 `_original.<output_format>` 文件（默认 `.json`）
+   - 可以编辑该导出文件进行手动翻译
 
 2. `save_json` - 保存翻译结果
    - 生成 JSON 文件（包含翻译和文本框信息）
-   - 生成 TXT 文件（纯文本翻译）
+   - 生成 `_translated.<output_format>` 文件（默认 `.json`）
    - 用于后续编辑或重新渲染
 
 3. `load_text` - 导入翻译并渲染
@@ -1266,7 +1266,7 @@ with open('manga.jpg', 'rb') as f:
         print(f"原文: {region['text']}")
         print(f"译文: {region['translation']}")
 
-# 方式3：导出原文（只检测和 OCR，返回 ZIP：JSON + TXT）
+# 方式3：导出原文（只检测和 OCR，返回工程 JSON + 模板格式文件）
 with open('manga.jpg', 'rb') as f:
     files = {'image': f}
     response = requests.post('http://localhost:8000/translate/export/original',
@@ -1276,7 +1276,7 @@ with open('manga.jpg', 'rb') as f:
     with open('original_export.zip', 'wb') as out:
         out.write(response.content)
     
-    # ZIP 包含：translation.json 和 original.txt
+    # 默认 ZIP 包含：translation.json 和 original.json
 
 # 方式5：仅超分
 with open('manga.jpg', 'rb') as f:
@@ -1411,8 +1411,8 @@ python -m manga_translator shared --host 127.0.0.1 --port 5003 --models-ttl 300 
 ### 工作流相关参数（与界面名称对照）
 - `save_text` - `图片可编辑`：保存翻译结果到 JSON，便于后续在编辑器中继续修改
 - `load_text` - `导入翻译` / `导入翻译并渲染`：从已有 JSON / TXT 导入翻译并直接渲染
-- `template` + `save_text` - `导出原文`：导出原文 TXT 和 JSON，用于手动翻译
-- `generate_and_export` - `导出翻译`：导出译文 TXT 和 JSON
+- `template` + `save_text` - `导出原文`：按模板配置扩展名导出原文，并保存工程 JSON
+- `generate_and_export` - `导出翻译`：按模板配置扩展名导出译文，并保存工程 JSON
 - `upscale_only` - `仅超分`
 - `colorize_only` - `仅上色`
 - `inpaint_only` - `仅修复`

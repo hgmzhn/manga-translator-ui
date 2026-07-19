@@ -8,6 +8,11 @@
 import os
 from typing import Optional, Tuple
 
+from manga_translator.utils.translation_template import (
+    get_translation_output_format,
+    normalize_translation_output_format,
+)
+
 # 工作目录名称常量
 WORK_DIR_NAME = "manga_translator_work"
 JSON_SUBDIR = "json"
@@ -163,16 +168,26 @@ def get_json_path(image_path: str, create_dir: bool = True) -> str:
     return os.path.join(json_dir, f"{base_name}_translations.json")
 
 
-def get_original_txt_path(image_path: str, create_dir: bool = True) -> str:
+def _resolve_text_output_format(output_format: Optional[str] = None) -> str:
+    if output_format is None:
+        return get_translation_output_format()
+    return normalize_translation_output_format(output_format)
+
+
+def get_original_txt_path(
+    image_path: str,
+    create_dir: bool = True,
+    output_format: Optional[str] = None,
+) -> str:
     """
-    获取原文TXT文件的路径
+    获取原文导出文件的路径。
     
     Args:
         image_path: 原图片路径
         create_dir: 是否自动创建目录
         
     Returns:
-        原文TXT文件的绝对路径
+        原文导出文件的绝对路径
     """
     work_dir = get_work_dir(image_path)
     originals_dir = os.path.join(work_dir, ORIGINALS_SUBDIR)
@@ -181,19 +196,24 @@ def get_original_txt_path(image_path: str, create_dir: bool = True) -> str:
         os.makedirs(originals_dir, exist_ok=True)
     
     base_name = os.path.splitext(os.path.basename(image_path))[0]
-    return os.path.join(originals_dir, f"{base_name}_original.txt")
+    extension = _resolve_text_output_format(output_format)
+    return os.path.join(originals_dir, f"{base_name}_original.{extension}")
 
 
-def get_translated_txt_path(image_path: str, create_dir: bool = True) -> str:
+def get_translated_txt_path(
+    image_path: str,
+    create_dir: bool = True,
+    output_format: Optional[str] = None,
+) -> str:
     """
-    获取翻译TXT文件的路径
+    获取译文导出文件的路径。
     
     Args:
         image_path: 原图片路径
         create_dir: 是否自动创建目录
         
     Returns:
-        翻译TXT文件的绝对路径
+        译文导出文件的绝对路径
     """
     work_dir = get_work_dir(image_path)
     translations_dir = os.path.join(work_dir, TRANSLATIONS_SUBDIR)
@@ -202,7 +222,8 @@ def get_translated_txt_path(image_path: str, create_dir: bool = True) -> str:
         os.makedirs(translations_dir, exist_ok=True)
     
     base_name = os.path.splitext(os.path.basename(image_path))[0]
-    return os.path.join(translations_dir, f"{base_name}_translated.txt")
+    extension = _resolve_text_output_format(output_format)
+    return os.path.join(translations_dir, f"{base_name}_translated.{extension}")
 
 
 def get_yolo_labels_dir(image_path: str, create_dir: bool = True) -> str:
@@ -419,25 +440,19 @@ def find_paint_overlay_path(image_path: str) -> Optional[str]:
 
 def find_txt_files(image_path: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    查找原文和翻译TXT文件
+    查找当前模板格式的原文和译文导出文件。
     
     Args:
         image_path: 原图片路径
         
     Returns:
-        (原文TXT路径, 翻译TXT路径)，不存在的返回None
+        (原文路径, 译文路径)，不存在的返回None
     """
     original_path = get_original_txt_path(image_path, create_dir=False)
     translated_path = get_translated_txt_path(image_path, create_dir=False)
-    
+
     original_exists = original_path if os.path.exists(original_path) else None
     translated_exists = translated_path if os.path.exists(translated_path) else None
-    
-    # 向后兼容：查找旧格式的TXT文件
-    if not translated_exists:
-        old_txt_path = os.path.splitext(image_path)[0] + '_translations.txt'
-        if os.path.exists(old_txt_path):
-            translated_exists = old_txt_path
     
     return original_exists, translated_exists
 

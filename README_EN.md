@@ -332,7 +332,7 @@ python -m manga_translator --help
 This program supports multiple workflows:
 
 1. **Normal Translation** - translate images directly
-2. **Export Translation** - translate first, then export translated text to TXT files
+2. **Export Translation** - translate first, then export text with the template-configured extension (JSON by default)
 3. **Export Original Text** - detect and OCR only, then export the original text for manual translation
 4. **Import Translation and Render** - import translated content from TXT or JSON and render again
 

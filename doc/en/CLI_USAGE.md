@@ -801,9 +801,9 @@ The `cli` section in the config file contains the following important fields.
 - `load_text` -> `Import Translation` / `Import Translation and Render`
   - Load translation content from existing JSON or TXT and render directly
 - `template` + `save_text` -> `Export Original Text`
-  - Export original text as TXT and JSON for manual translation workflows
+  - Export original text using the template-configured extension plus project JSON
 - `generate_and_export` -> `Export Translation`
-  - Export translated TXT and JSON
+  - Export translated text using the template-configured extension plus project JSON
 - `upscale_only` -> `Upscale Only`
 - `colorize_only` -> `Colorize Only`
 - `inpaint_only` -> `Inpaint Only`
@@ -1096,9 +1096,9 @@ Export endpoints:
 
 | Endpoint | Method | Description |
 |------|------|------|
-| `/translate/export/original` | POST | Export original text, returns ZIP with JSON + TXT |
+| `/translate/export/original` | POST | Export original text, returns ZIP with project JSON + template-formatted output |
 | `/translate/export/original/stream` | POST | Streaming export of original text with progress |
-| `/translate/export/translated` | POST | Export translated text, returns ZIP with JSON + TXT |
+| `/translate/export/translated` | POST | Export translated text, returns ZIP with project JSON + template-formatted output |
 | `/translate/export/translated/stream` | POST | Streaming export of translated text with progress |
 
 Processing endpoints:
@@ -1190,13 +1190,13 @@ This runs only detection and OCR, without translation, and is used to extract th
 Flow:
 
 ```text
-Input image -> text detection -> OCR -> generate ZIP (JSON + TXT)
+Input image -> text detection -> OCR -> generate ZIP (project JSON + template-formatted output)
 ```
 
 Returned files:
 
 - `translation.json`: includes text-box positions and source text
-- `original.txt`: plain-text source text, usually one text box per entry
+- `original.<output_format>`: template-formatted source text (default: `original.json`)
 
 Use cases:
 
@@ -1225,18 +1225,18 @@ with open("manga.jpg", "rb") as f:
 
 #### Export translated text
 
-This runs the full translation flow and exports JSON and TXT files together.
+This runs the full translation flow and exports project JSON plus a template-formatted file.
 
 Flow:
 
 ```text
-Input image -> full translation flow -> generate ZIP (JSON + TXT)
+Input image -> full translation flow -> generate ZIP (project JSON + template-formatted output)
 ```
 
 Returned files:
 
 - `translation.json`: includes source text, translated text, and positional data
-- `translated.txt`: plain-text translated output
+- `translated.<output_format>`: template-formatted translated output (default: `translated.json`)
 
 Use cases:
 
@@ -1441,13 +1441,13 @@ with open("manga.jpg", "rb") as f:
     with open("export.zip", "wb") as out:
         out.write(response.content)
 
-# Step 2: unzip export.zip to get translation.json and original.txt
+# Step 2: unzip export.zip; by default it contains translation.json and original.json
 
-# Step 3: manually translate original.txt and save it as translated.txt
+# Step 3: manually translate original.json and save it as translated.json
 
 # Step 4: import the translation and render
 with open("manga.jpg", "rb") as img, \
-     open("translated.txt", "rb") as txt, \
+     open("translated.json", "rb") as txt, \
      open("translation.json", "rb") as json_file:
     files = {
         "image": img,
@@ -1504,8 +1504,8 @@ Notes:
 ### Supported workflow names
 
 - `normal`: normal translation, default
-- `export_original`: export original text, detection + OCR only, generates JSON + TXT
-- `save_json`: save JSON, full translation plus JSON + TXT output
+- `export_original`: export original text, detection + OCR only, generates project JSON plus template-formatted output
+- `save_json`: save JSON, full translation plus project JSON and template-formatted output
 - `load_text`: import translation and render
 - `upscale_only`: upscale only
 - `colorize_only`: colorize only
@@ -1514,8 +1514,8 @@ Notes:
 
 - JSON file: `manga_translator_work/json/<image_name>_translations.json`
 - Editor base image: `manga_translator_work/editor_base/<image_name>.<original_ext>`
-- Original TXT: `manga_translator_work/originals/<image_name>_original.txt`
-- Translated TXT: `manga_translator_work/translations/<image_name>_translated.txt`
+- Original export: `manga_translator_work/originals/<image_name>_original.<output_format>` (default: `.json`)
+- Translated export: `manga_translator_work/translations/<image_name>_translated.<output_format>` (default: `.json`)
 - Inpainted image: `manga_translator_work/inpainted/<image_name>_inpainted.<original_ext>`
 - Final translated image: `manga_translator_work/result/<image_name>.png` when `--save-to-source-dir` is enabled
 
@@ -1523,12 +1523,12 @@ Notes:
 
 1. `export_original`
    - generates a JSON file that contains source text and text-box information
-   - generates a TXT file with plain source text
+   - generates `_original.<output_format>` (default: `.json`)
    - is suitable for manual translation
 
 2. `save_json`
    - generates a JSON file that contains translations and text-box information
-   - generates a TXT file with plain translated text
+   - generates `_translated.<output_format>` (default: `.json`)
    - is suitable for later editing or re-rendering
 
 3. `load_text`

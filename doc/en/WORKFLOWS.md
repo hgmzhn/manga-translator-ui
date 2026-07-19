@@ -61,16 +61,12 @@ The app will:
 
 - Complete the normal translation flow
 - Generate JSON data
-- Generate translated TXT output
+- Generate translated output using the configured extension
 
 Typical files:
 
 - `manga_translator_work/json/<image>_translations.json`
-- `manga_translator_work/translations/<image>_translated.txt`
-
-Qt UI tip:
-
-- `Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files`
+- `manga_translator_work/translations/<image>_translated.<output_format>` (default: `.json`)
 
 ---
 
@@ -89,29 +85,25 @@ The app will:
 - Detect text regions
 - Run OCR
 - Generate JSON data
-- Generate the original-text TXT file
+- Generate the original-text file using the configured extension
 - Stop before translation
 
 Typical files:
 
 - `manga_translator_work/json/<image>_translations.json`
-- `manga_translator_work/originals/<image>_original.txt`
+- `manga_translator_work/originals/<image>_original.<output_format>` (default: `.json`)
 
 **Manual translation flow**:
 
-1. Open `<image>_original.txt`
+1. Open `<image>_original.<output_format>`
 2. Replace the source text with your translated text
 3. Then use `Import Translation and Render`
 
-TXT import priority when rendering later:
+Export-file import priority when rendering later:
 
-- Highest: `_original.txt`
-- Then: `_translated.txt`
+- Highest: `_original.<output_format>`
+- Then: `_translated.<output_format>`
 - Otherwise: JSON translation fields
-
-Qt UI tip:
-
-- `Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode`
 
 ---
 
@@ -130,17 +122,13 @@ Qt UI tip:
 - Reads original text from the JSON file
 - Sends only the translation stage
 - Writes the translated text back into JSON
-- Deletes `<image>_original.txt` after a successful write-back
-
-Qt UI tip:
-
-- `Tip: Requires existing JSON data. The app reads original text from JSON, translates it, writes results back to JSON, and deletes imagename_original.txt after success`
+- Deletes `<image>_original.<output_format>` after a successful write-back
 
 ---
 
 ## 5. Import Translation and Render
 
-**Purpose**: import translation content from TXT or JSON and render the page again without re-translating.
+**Purpose**: import translation content from the template export file or project JSON and render the page again without re-translating.
 
 **Steps**:
 
@@ -150,27 +138,23 @@ Qt UI tip:
 
 The app will:
 
-- Check whether `_original.txt` or `_translated.txt` exists
-- Import TXT content into JSON when needed
+- Check whether `_original.<output_format>` or `_translated.<output_format>` exists
+- Import the exported content into JSON when needed
 - Load translation text from JSON
 - Render the final image
 - Skip the translation step itself
 
-TXT priority:
+Export-file priority:
 
-- `_original.txt` from `manga_translator_work/originals/`
-- `_translated.txt` from `manga_translator_work/translations/`
-- JSON translation fields if no TXT exists
+- `_original.<output_format>` from `manga_translator_work/originals/`
+- `_translated.<output_format>` from `manga_translator_work/translations/`
+- JSON translation fields if no export file exists
 
 Useful when:
 
-- You edited TXT files manually
+- You edited template export files manually
 - You edited JSON translation content
 - You changed rendering settings such as font, color, or layout
-
-Qt UI tip:
-
-- `Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt)`
 
 ---
 
@@ -422,6 +406,22 @@ The export-original workflow can be customized with:
 
 This template controls how groups of text items are exported.
 
+Default template:
+
+```text
+"output_format": "json",
+{
+    "<original>": "<translated>",
+    "<original>": "<translated>"
+}
+```
+
+- `output_format` controls the exported filename extension and defaults to `json`
+- Any safe extension can be used, such as `txt`, `md`, `yaml`, or `csv`
+- The header directive is removed before rendering and never appears in the exported content
+- Every format uses the same `<original>` / `<translated>` template parser
+- When overwrite is disabled, existing-file checks use the configured extension
+
 How it works:
 
 - The template defines a repeated structure
@@ -447,11 +447,11 @@ Common outputs:
 - **Editor base image**
   - `manga_translator_work/editor_base/<image>.<ext>`
 
-- **Original text TXT**
-  - `manga_translator_work/originals/<image>_original.txt`
+- **Original text export**
+  - `manga_translator_work/originals/<image>_original.<output_format>` (default: `.json`)
 
-- **Translated text TXT**
-  - `manga_translator_work/translations/<image>_translated.txt`
+- **Translated text export**
+  - `manga_translator_work/translations/<image>_translated.<output_format>` (default: `.json`)
 
 - **Inpainted image**
   - `manga_translator_work/inpainted/<image>_inpainted.<ext>`
