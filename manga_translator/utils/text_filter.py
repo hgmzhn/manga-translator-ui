@@ -1,8 +1,9 @@
 # 文本过滤工具
 import json
 import os
-import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+from manga_translator.runtime_paths import get_config_dir
 
 from . import get_logger
 
@@ -20,29 +21,19 @@ _DEFAULT_FILTER_LIST_DATA = {
 }
 
 
-def _get_examples_dir() -> str:
-    if getattr(sys, 'frozen', False):
-        if hasattr(sys, '_MEIPASS'):
-            return os.path.join(sys._MEIPASS, 'examples')
-        return os.path.join(os.path.dirname(sys.executable), 'examples')
-
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return os.path.join(project_root, 'examples')
-
-
 def _get_filter_list_path() -> str:
     """
     获取 JSON 过滤列表文件路径
 
-    打包环境：_internal/examples/filter_list.json
-    开发环境：项目根目录/examples/filter_list.json
+    打包环境：可执行文件同级/config/filter_list.json
+    开发环境：项目根目录/config/filter_list.json
     """
-    return os.path.join(_get_examples_dir(), _FILTER_LIST_FILENAME)
+    return os.path.join(get_config_dir(), _FILTER_LIST_FILENAME)
 
 
 def _get_legacy_filter_list_path() -> str:
     """获取旧版 TXT 过滤列表文件路径。"""
-    return os.path.join(_get_examples_dir(), _LEGACY_FILTER_LIST_FILENAME)
+    return os.path.join(get_config_dir(), _LEGACY_FILTER_LIST_FILENAME)
 
 
 def _sanitize_rule_list(values: Any) -> List[str]:

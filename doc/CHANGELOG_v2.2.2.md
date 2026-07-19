@@ -7,7 +7,7 @@
 - 权限系统扩展到翻译器、OCR、上色器、渲染器四类能力；用户组/用户权限与权限编辑器现在都可以分别管理这些能力。
 - 权限编辑器新增 API Key 策略可视化项：支持配置“允许用户在主页编辑 API Keys”“允许使用服务器默认 API Keys”“强制用户提供 API Keys 或预设”“允许把用户填写的 API Keys 保存到服务器”等策略。
 - Web 管理后台与用户主页的 API Key 管理按 Qt 界面思路重做，统一分为“翻译 / OCR / 上色 / 渲染”四组，并加入 Vertex 分组。
-- Web 启动流程现在会和 Qt 一样自动补齐 `examples/custom_api_params.json`、`examples/filter_list.json`、`dict/ai_ocr_prompt.yaml`、`dict/ai_renderer_prompt.yaml`、`dict/ai_colorizer_prompt.yaml` 等初始化文件。
+- Web 启动流程现在会和 Qt 一样自动补齐 `config/custom_api_params.json`、`config/filter_list.json`、`dict/ai_ocr_prompt.yaml`、`dict/ai_renderer_prompt.yaml`、`dict/ai_colorizer_prompt.yaml` 等初始化文件。
 
 ## 🔐 安全与权限
 

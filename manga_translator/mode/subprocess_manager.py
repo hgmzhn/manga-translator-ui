@@ -10,7 +10,11 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-ROOT_DIR = Path(__file__).parent.parent.parent
+ROOT_DIR = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, 'frozen', False)
+    else Path(__file__).resolve().parent.parent.parent
+)
 
 # 内存监控阈值
 DEFAULT_MEMORY_THRESHOLD_MB = 0  # 默认不限制绝对内存
@@ -347,5 +351,3 @@ async def translate_with_subprocess(
         print(f"\n⚠️ 有 {failed_count} 个文件失败")
     
     return success_count, failed_count
-
-

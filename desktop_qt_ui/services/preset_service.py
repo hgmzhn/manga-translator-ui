@@ -5,8 +5,9 @@
 import json
 import logging
 import os
-import sys
 from typing import Dict, List, Optional
+
+from manga_translator.runtime_paths import get_application_dir
 
 
 class PresetService:
@@ -18,16 +19,8 @@ class PresetService:
         
         # 预设存储目录
         if presets_dir is None:
-            # 默认存储在_internal目录的presets文件夹
-            # 打包后：E:\manga-translator-cpu-v1.9.2\_internal\presets
-            # 开发时：项目根目录\presets
-            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-                # 打包环境：_internal目录 (sys._MEIPASS)
-                base_dir = sys._MEIPASS
-            else:
-                # 开发环境：当前工作目录
-                base_dir = os.getcwd()
-            self.presets_dir = os.path.join(base_dir, "presets")
+            # 打包后位于 app.exe 同级，开发时位于项目根目录。
+            self.presets_dir = os.path.join(get_application_dir(), "presets")
         else:
             self.presets_dir = presets_dir
         

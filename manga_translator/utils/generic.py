@@ -41,12 +41,11 @@ except AttributeError: # Supports Python versions below 3.8
 MODULE_PATH = os.path.dirname(os.path.realpath(__file__))
 EXIF_ORIENTATION_TAG = 274
 
-# PyInstaller compatibility: use sys._MEIPASS if available
-if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    # Running in PyInstaller bundle
-    BASE_PATH = sys._MEIPASS
+# Runtime resources live beside the executable in packaged builds.  PyInstaller's
+# _internal directory is reserved for Python/native dependencies.
+if getattr(sys, 'frozen', False):
+    BASE_PATH = os.path.dirname(os.path.abspath(sys.executable))
 else:
-    # Running in normal Python environment
     BASE_PATH = os.path.abspath(os.path.join(MODULE_PATH, '..', '..'))
 
 # Adapted from argparse.Namespace

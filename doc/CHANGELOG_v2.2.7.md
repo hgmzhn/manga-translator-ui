@@ -28,7 +28,7 @@
 ### 文本替换规则管理
 
 - 新增可视化的文本替换规则管理系统，支持在翻译后、渲染前对译文执行自定义替换
-- 替换规则配置文件：`examples/text_replacements.yaml`，支持三个分组：
+- 替换规则配置文件：`config/text_replacements.yaml`，支持三个分组：
   - `common`：通用替换，横排竖排都执行
   - `horizontal`：仅横排时执行
   - `vertical`：仅竖排时执行

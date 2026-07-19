@@ -76,7 +76,7 @@ manga-translator-ui-package/
 │  ├─ utils/                   # Shared utilities and intermediate formats
 │  └─ server/                  # FastAPI server, static pages, admin panel
 ├─ packaging/                  # Launch scripts, update scripts, PyInstaller, Docker
-├─ examples/                   # Default config, templates, translator registry
+├─ config/                     # Default config, templates, translator registry
 ├─ .github/                    # CI/CD and issue templates
 ├─ doc/                        # User documentation and changelogs
 ├─ fonts/                      # Default font resources
@@ -186,9 +186,9 @@ Before changing any resource-path logic, make sure you know which tracked resour
 ### Common tracked resources used in development mode
 
 - default config template:
-  - `examples/config-example.json`
+  - `config/config-example.json`
 - translator registry:
-  - `examples/config/translators.json`
+  - `config/config/translators.json`
 - resource directories:
   - `fonts/`
   - `dict/`
@@ -197,7 +197,7 @@ Before changing any resource-path logic, make sure you know which tracked resour
 
 ### Tracked resources to pay attention to during packaging
 
-- `examples/`
+- `config/`
 - `fonts/`
 - `dict/`
 - `doc/`
@@ -245,7 +245,7 @@ At minimum, check the chain below. Many settings require more than changing only
 2. `manga_translator/config.py`
    If the setting is used by the core translation pipeline, CLI, Web service, or a lower-level module, sync the core config model and related enums here as well.
    Otherwise the desktop app may save the value, but the backend runtime may never read it.
-3. `examples/config-example.json`
+3. `config/config-example.json`
    Sync the default config template so the new field appears in exported config and first-run config.
 4. `desktop_qt_ui/ui/main_page/settings_tab_layout.json`
    If the setting should appear in the settings page, add `section.key` to the correct tab `items`.
@@ -274,7 +274,7 @@ Depending on the setting type, also check these extra locations:
 - If the setting should also affect CLI or Web behavior:
   check `manga_translator/config.py`, `manga_translator/args.py`, the relevant mode or service parameter-merge logic, and the actual backend consumption point.
 - If the setting introduces new API dependencies or environment variables:
-  check `examples/config/translators.json` and the validation logic in `desktop_qt_ui/services/config_service.py`.
+  check `config/config/translators.json` and the validation logic in `desktop_qt_ui/services/config_service.py`.
 - If the setting is temporary state that should be excluded from import/export:
   check `export_config()` and `import_config()` in `desktop_qt_ui/app_logic.py`.
 - If the setting affects editor-side display or editing behavior:
@@ -298,7 +298,7 @@ You usually need to update all of these together:
 
 1. add the implementation under `manga_translator/<corresponding_module>/`
 2. update the config and enum entry points
-3. if API environment variables are involved, update `examples/config/translators.json`
+3. if API environment variables are involved, update `config/config/translators.json`
 4. add UI options, documentation, and tests if needed
 
 #### Modify editor behavior
@@ -387,11 +387,11 @@ When changing install or update behavior, do not change only the `.bat` or `.sh`
 
 - `.github/workflows/build-and-release.yml`
   - builds Windows CPU and GPU PyInstaller packages
-  - prepares `_internal` resources on Ubuntu and publishes a Release
+  - prepares external runtime resources next to the executable on Ubuntu and publishes a Release
 - `.github/workflows/docker-build-push.yml`
   - builds CPU and GPU Docker images based on `packaging/Dockerfile`
 
-If you add resources that must be included in packaged builds, also update the workflow steps that copy files into `_internal`.
+If you add resources that must be included in packaged builds, also update the workflow steps that copy them next to the executable.
 
 ---
 

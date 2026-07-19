@@ -333,7 +333,7 @@
 
 **用途**：自定义导出原文的格式，方便使用外部工具翻译
 
-**模版文件位置**：`examples/translation_template.json`
+**模版文件位置**：`config/translation_template.json`
 
 **工作原理**：
 - 模版定义了**一组文本框**的格式
@@ -365,7 +365,7 @@
 ```
 
 **使用说明**：
-1. 编辑 `examples/translation_template.json` 文件
+1. 编辑 `config/translation_template.json` 文件
 2. 定义一组文本框的格式（可以是 1 个、3 个或任意数量）
 3. 使用 `<original>` 和 `<translated>` 作为占位符
 4. 导出原文时，每组文本框会重复使用这个格式
@@ -428,4 +428,3 @@
 - `result/`：存储最终翻译结果图片
 - `psd/`：存储可编辑的 PSD 文件
 - `translated_images/`：存储已翻译的图片（替换翻译模式使用）
-

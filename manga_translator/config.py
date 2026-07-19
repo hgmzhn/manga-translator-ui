@@ -480,7 +480,7 @@ class Config(BaseModel):
     mask_dilation_offset: int = 20
     """By how much to extend the text mask to remove left-over text pixels of the original image."""
     use_custom_api_params: bool = False
-    """Use custom API parameters from examples/custom_api_params.json for supported AI backends."""
+    """Use custom API parameters from config/custom_api_params.json for supported AI backends."""
     _runtime_api_overrides: dict[str, dict[str, dict[str, str]]] = PrivateAttr(default_factory=dict)
     _allow_server_api_keys: bool = PrivateAttr(default=True)
 

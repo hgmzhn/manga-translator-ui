@@ -2,8 +2,10 @@ import logging
 import shutil
 from pathlib import Path
 
+from manga_translator.runtime_paths import get_application_dir
 
-PACKAGE_DIR = Path(__file__).resolve().parent
+
+PACKAGE_DIR = Path(get_application_dir()) / "manga_translator"
 SERVER_DIR = PACKAGE_DIR / "server"
 SERVER_DATA_DIR = SERVER_DIR / "data"
 USER_RESOURCES_DIR = SERVER_DATA_DIR / "user_resources"

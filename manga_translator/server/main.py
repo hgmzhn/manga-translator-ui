@@ -105,8 +105,9 @@ os.environ['MANGA_TRANSLATOR_WEB_SERVER'] = 'true'
 
 # 启动时加载 .env 文件
 from manga_translator.utils.dotenv_utils import APP_DOTENV_PATH_ENV, load_app_dotenv
+from manga_translator.runtime_paths import get_application_dir
 
-env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+env_path = os.path.join(get_application_dir(), '.env')
 os.environ[APP_DOTENV_PATH_ENV] = env_path
 if os.path.exists(env_path):
     load_app_dotenv(env_path, override=False)
@@ -294,7 +295,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 # Mount static files
-static_dir = os.path.join(os.path.dirname(__file__), "static")
+static_dir = os.path.join(get_application_dir(), "manga_translator", "server", "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -309,7 +310,7 @@ async def favicon():
 
 
 # Mount Qt UI locales for i18n (共享翻译文件)
-locales_dir = os.path.join(os.path.dirname(__file__), "../../desktop_qt_ui/locales")
+locales_dir = os.path.join(get_application_dir(), "desktop_qt_ui", "locales")
 if os.path.exists(locales_dir):
     app.mount("/locales", StaticFiles(directory=locales_dir), name="locales")
 
@@ -364,9 +365,7 @@ def start_translator_client_proc(host: str, port: int, nonce: str, params: Names
         cmds.extend(['--pre-dict', params.pre_dict])
     if getattr(params, 'post_dict', None):
         cmds.extend(['--post-dict', params.post_dict])       
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    parent = os.path.dirname(base_path)
-    proc = subprocess.Popen(cmds, cwd=parent)
+    proc = subprocess.Popen(cmds, cwd=get_application_dir())
     executor_instances.register(ExecutorInstance(ip=host, port=port))
 
     def handle_exit_signals(signal, frame):

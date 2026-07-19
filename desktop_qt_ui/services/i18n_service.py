@@ -22,28 +22,19 @@ class I18nManager:
     """国际化管理器"""
     
     def __init__(self, locale_dir: str = "locales", fallback_locale: str = "zh_CN", config_language: str = "auto"):
-        # 处理打包后的路径
-        import sys
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            # 打包环境：locales在_internal/desktop_qt_ui/locales/
-            self.locale_dir = os.path.join(sys._MEIPASS, 'desktop_qt_ui', 'locales')
+        if not os.path.isabs(locale_dir):
+            # 相对路径以当前服务目录为基准。
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            self.locale_dir = os.path.join(current_dir, '..', locale_dir)
         else:
-            # 开发环境：使用相对路径
-            if not os.path.isabs(locale_dir):
-                # 如果是相对路径，相对于当前文件所在目录
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                self.locale_dir = os.path.join(current_dir, '..', locale_dir)
-            else:
-                self.locale_dir = locale_dir
+            self.locale_dir = locale_dir
         
         self.fallback_locale = fallback_locale
         self.translations: Dict[str, Dict[str, str]] = {}
         self.available_locales: Dict[str, LocaleInfo] = {}
         self.logger = logging.getLogger(__name__)
         
-        # 确保locale目录存在（仅在开发环境）
-        if not getattr(sys, 'frozen', False):
-            os.makedirs(self.locale_dir, exist_ok=True)
+        os.makedirs(self.locale_dir, exist_ok=True)
         
         # 初始化支持的语言
         self._init_supported_locales()

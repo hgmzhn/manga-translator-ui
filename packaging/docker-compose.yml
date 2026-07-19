@@ -30,7 +30,7 @@ services:
       - ./data/logs:/app/logs
       - ./data/server:/app/manga_translator/server/data
       # 配置文件
-      - ./data/config:/app/examples
+      - ./data/config:/app/config
       # 如果要让 Web 管理界面里保存的服务器 API Keys 在重建容器后保留，
       # 请先创建空文件 ./data/app.env ，再取消下面这行注释：
       # - ./data/app.env:/app/.env
@@ -81,7 +81,7 @@ services:
       - ./data/logs:/app/logs
       - ./data/server:/app/manga_translator/server/data
       # 配置文件
-      - ./data/config:/app/examples
+      - ./data/config:/app/config
       # 如果要让 Web 管理界面里保存的服务器 API Keys 在重建容器后保留，
       # 请先创建空文件 ./data/app.env ，再取消下面这行注释：
       # - ./data/app.env:/app/.env

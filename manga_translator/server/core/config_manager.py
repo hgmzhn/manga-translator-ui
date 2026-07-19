@@ -11,17 +11,18 @@ from typing import Optional
 
 from manga_translator import Config
 from manga_translator.custom_api_params import migrate_legacy_custom_api_params_config
+from manga_translator.runtime_paths import get_config_path
 from manga_translator.server_paths import ADMIN_CONFIG_FILE, ensure_server_data_layout
 from manga_translator.utils import BASE_PATH
 
 # 配置文件路径
 ADMIN_CONFIG_PATH = str(ADMIN_CONFIG_FILE)
-# 默认配置文件：优先使用 examples/config.json（相对于项目根目录）
-SERVER_CONFIG_PATH = os.path.join(BASE_PATH, 'examples', 'config.json')
+# 默认配置文件：打包后位于 app.exe 同级的 config/config.json。
+SERVER_CONFIG_PATH = get_config_path('config.json')
 
 # 文件目录路径
 FONTS_DIR = os.path.join(BASE_PATH, 'fonts')
-PROMPTS_DIR = os.path.join(BASE_PATH, '..', 'dict')
+PROMPTS_DIR = os.path.join(BASE_PATH, 'dict')
 PROMPTS_DIR = os.path.abspath(PROMPTS_DIR)
 
 # 确保目录存在
@@ -30,7 +31,7 @@ os.makedirs(PROMPTS_DIR, exist_ok=True)
 ensure_server_data_layout()
 
 # i18n 相关路径
-desktop_locales_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'desktop_qt_ui', 'locales')
+desktop_locales_dir = os.path.join(BASE_PATH, 'desktop_qt_ui', 'locales')
 desktop_locales_dir = os.path.abspath(desktop_locales_dir)
 
 # 全局翻译字典缓存
@@ -234,7 +235,7 @@ def load_default_config() -> Config:
 def parse_config(config_str: str) -> Config:
     """解析配置，如果为空则使用默认配置"""
     if not config_str or config_str.strip() in ('{}', ''):
-        print("[INFO] No config provided, using default config from examples/config.json")
+        print("[INFO] No config provided, using default config from config/config.json")
         return load_default_config()
     else:
         config = Config.parse_raw(config_str)
@@ -326,9 +327,7 @@ def temp_env_vars(env_vars: dict):
 def init_server_config_file():
     """初始化服务器配置文件（如果不存在，从模板复制）"""
     if not os.path.exists(SERVER_CONFIG_PATH):
-        EXAMPLE_CONFIG_PATH = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..', 'examples', 'config-example.json'
-        )
+        EXAMPLE_CONFIG_PATH = get_config_path('config-example.json')
         if os.path.exists(EXAMPLE_CONFIG_PATH):
             import shutil
             shutil.copy(EXAMPLE_CONFIG_PATH, SERVER_CONFIG_PATH)

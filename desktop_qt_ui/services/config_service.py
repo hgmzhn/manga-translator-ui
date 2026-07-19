@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from core.config_models import AppSettings
 from manga_translator.colorization.prompt_loader import ensure_ai_colorizer_prompt_file
+from manga_translator.runtime_paths import get_config_path
 from manga_translator.custom_api_params import (
     ensure_custom_api_params_file,
     migrate_legacy_custom_api_params_config,
@@ -143,7 +144,7 @@ class ConfigService(QObject):
         # .env文件应该在exe所在目录（可写位置）
         # 打包后：E:\manga-translator-cpu-v1.9.2\.env
         # 开发时：项目根目录\.env
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        if getattr(sys, 'frozen', False):
             exe_dir = os.path.dirname(sys.executable)
             self.env_path = os.path.join(exe_dir, ".env")
         else:
@@ -172,8 +173,8 @@ class ConfigService(QObject):
         self.logger.debug(f"用户配置: {os.path.basename(self.user_config_path)}")
         self.logger.debug(f"默认配置存在: {os.path.exists(self.default_config_path)}")
         self.logger.debug(f"用户配置存在: {os.path.exists(self.user_config_path)}")
-        if hasattr(sys, '_MEIPASS'):
-            self.logger.debug(f"打包环境，sys._MEIPASS = {sys._MEIPASS}")
+        if getattr(sys, 'frozen', False):
+            self.logger.debug(f"打包环境，外部配置目录 = {os.path.dirname(self.user_config_path)}")
 
         # 加载配置：优先级 用户配置 > 默认配置 > 代码默认值
         self._load_configs_with_priority()
@@ -193,12 +194,7 @@ class ConfigService(QObject):
         """从JSON文件初始化翻译器配置注册表"""
         configs = {}
         
-        if hasattr(sys, '_MEIPASS'):
-            # Packaged environment
-            config_path = os.path.join(sys._MEIPASS, "examples", "config", "translators.json")
-        else:
-            # Development environment
-            config_path = os.path.join(self.root_dir, "examples", "config", "translators.json")
+        config_path = get_config_path("config", "translators.json")
 
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -409,7 +405,7 @@ class ConfigService(QObject):
         """
         保存JSON配置文件
         - 如果指定路径，只保存到指定路径
-        - 否则保存到用户配置路径（打包后在_internal/examples，开发时在examples目录）
+        - 否则保存到外部 config 目录（打包后与 app.exe 同级）
         - 同时更新模板配置（开发环境）
         """
         try:
@@ -419,7 +415,7 @@ class ConfigService(QObject):
             else:
                 # 打包环境和开发环境都保存到用户配置
                 # 开发环境额外保存到模板配置
-                if hasattr(sys, '_MEIPASS'):
+                if getattr(sys, 'frozen', False):
                     save_paths = [self.user_config_path]
                 else:
                     save_paths = [self.user_config_path, self.default_config_path]
@@ -449,7 +445,7 @@ class ConfigService(QObject):
                 
                 # 只有保存到模板配置时才重置临时状态（仅开发环境）
                 is_default_config = save_path == self.default_config_path
-                if is_default_config and not hasattr(sys, '_MEIPASS'):
+                if is_default_config and not getattr(sys, 'frozen', False):
                     # 读取现有模板配置，保留某些字段
                     if os.path.exists(save_path):
                         try:
@@ -722,29 +718,19 @@ class ConfigService(QObject):
         """
         获取默认配置文件路径
 
-        打包后配置文件在 _internal/examples/config-example.json
-        开发时在 项目根目录/examples/config-example.json
+        打包后配置文件在 app.exe 同级/config/config-example.json
+        开发时在 项目根目录/config/config-example.json
         """
-        if hasattr(sys, '_MEIPASS'):
-            # 打包环境：sys._MEIPASS 指向 _internal 目录
-            return os.path.join(sys._MEIPASS, 'examples', 'config-example.json')
-        else:
-            # 开发环境
-            return os.path.join(self.root_dir, "examples", "config-example.json")
+        return get_config_path('config-example.json')
     
     def get_user_config_path(self) -> str:
         """
         获取用户配置文件路径
         
-        打包后：用户配置在_internal/examples/config.json（可写）
-        开发时：在项目根目录的examples目录
+        打包后：用户配置在 app.exe 同级/config/config.json（可写）
+        开发时：在项目根目录的 config 目录
         """
-        if hasattr(sys, '_MEIPASS'):
-            # 打包环境：用户配置在_internal/examples目录
-            return os.path.join(sys._MEIPASS, 'examples', 'config.json')
-        else:
-            # 开发环境：用户配置在项目根目录的examples目录
-            return os.path.join(self.root_dir, "examples", "config.json")
+        return get_config_path('config.json')
     
     def _load_configs_with_priority(self):
         """

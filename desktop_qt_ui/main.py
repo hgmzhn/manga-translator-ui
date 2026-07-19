@@ -265,9 +265,9 @@ def main():
             super().emit(record)
             self.flush()  # 强制刷新缓冲区
     
-    # 日志目录放在 result/ 下
+    # 日志目录放在 app.exe 同级的 result/ 下
     if getattr(sys, 'frozen', False):
-        log_dir = os.path.join(os.path.dirname(sys.executable), '_internal', 'result')
+        log_dir = os.path.join(os.path.dirname(sys.executable), 'result')
     else:
         log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'result')
     log_dir = os.path.normpath(os.path.abspath(log_dir))
@@ -385,10 +385,9 @@ def main():
             logging.warning("Windows 原生窗口图标未找到：desktop_qt_ui/ui/icons/icon.ico")
 
     # 2. 初始化所有服务
-    # 设置正确的根目录：打包后指向_internal，开发时指向项目根目录
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # PyInstaller打包环境：所有资源在_internal目录
-        root_dir = sys._MEIPASS
+    # 打包后资源根目录为 app.exe 所在目录；_internal 只保留依赖。
+    if getattr(sys, 'frozen', False):
+        root_dir = os.path.dirname(os.path.abspath(sys.executable))
     else:
         # 开发环境：资源在项目根目录
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

@@ -14,10 +14,10 @@ body:
         
         常用文件路径（当前版本）：
         - 日志（开发环境）：`result/log_*.txt`
-        - 日志（打包环境）：`_internal/result/log_*.txt`
-        - 主配置：`examples/config.json`
-        - 配置模板：`examples/config-example.json`
-        - 翻译器配置：`examples/config/translators.json`
+        - 日志（打包环境）：`result/log_*.txt`
+        - 主配置：`config/config.json`
+        - 配置模板：`config/config-example.json`
+        - 翻译器配置：`config/config/translators.json`
         
         隐私提醒：
         - 不要上传 `.env` 原文、账号、API Key、Cookie、Token
@@ -103,7 +103,7 @@ body:
       description: 请贴出关键配置，或上传你实际使用到的配置文件；敏感字段请脱敏（不要直接上传 .env 或含密钥预设）
       placeholder: |
         - 使用的配置文件路径（请写全）:
-          - examples/config.json
+          - config/config.json
           - <你的其他配置文件路径>
         - 关键配置内容:
         ```json
@@ -120,7 +120,7 @@ body:
     id: logs
     attributes:
       label: 日志（必须提供）
-      description: 至少提供一段报错日志和时间点；建议上传完整日志文件。当前版本优先提供 result/log_*.txt（打包版为 _internal/result/log_*.txt）
+      description: 至少提供一段报错日志和时间点；建议上传完整日志文件。开发版和打包版均优先提供 result/log_*.txt
       placeholder: |
         - 日志文件路径:
           - result/log_20260228003000.txt

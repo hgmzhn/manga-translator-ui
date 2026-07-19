@@ -1,10 +1,11 @@
 import os
 import logging
-from . import BASE_PATH
+
+from manga_translator.runtime_paths import get_config_path
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TEMPLATE_PATH = os.path.join(BASE_PATH, 'examples', 'translation_template.json')
+_DEFAULT_TEMPLATE_PATH = get_config_path('translation_template.json')
 
 _DEFAULT_TEMPLATE_JSON = """{
     "<original>": "<translated>",

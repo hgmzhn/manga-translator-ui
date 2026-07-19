@@ -109,7 +109,7 @@ RUN if [ "$BUILD_TYPE" = "gpu" ]; then \
 RUN mkdir -p /app/result /app/models /app/logs
 
 # 备份默认数据以便在挂载空卷时恢复
-RUN cp -r /app/examples /app/default_examples && \
+RUN cp -r /app/config /app/default_config && \
     cp -r /app/fonts /app/default_fonts && \
     cp -r /app/dict /app/default_dict && \
     cp -r /app/manga_translator/server/data /app/default_server_data

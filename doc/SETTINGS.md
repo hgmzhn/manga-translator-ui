@@ -94,7 +94,7 @@
 - **使用自定义 API 参数 (use_custom_api_params)**：启用自定义 API 参数
   - 位置：Qt UI 的“通用”页
   - 适用于：翻译、AI 识别（OCR）、AI 渲染、AI 上色
-  - 勾选后，程序会从 `examples/custom_api_params.json` 读取自定义参数并传递给已启用的 AI API
+  - 勾选后，程序会从 `config/custom_api_params.json` 读取自定义参数并传递给已启用的 AI API
   - 点击"打开文件"按钮可自动创建并打开配置文件
   - 配置文件为标准 JSON 格式，支持实时生效（每次翻译都会重新加载）
   - 使用场景：
@@ -594,7 +594,7 @@
 
 程序支持通过过滤列表跳过特定文本区域（如水印、广告等）。
 
-- **文件位置**：`examples/filter_list.json`
+- **文件位置**：`config/filter_list.json`
 - **格式**：JSON 对象，包含 `contains` 和 `exact` 两个数组
 - **工作原理**：OCR 识别的原文包含过滤词时，该文本区域会被完全跳过（不翻译、不擦除、不渲染）
 - **自动创建**：程序启动时会自动创建该文件（如果不存在），旧版 `filter_list.txt` 会自动迁移
@@ -619,7 +619,7 @@
 
 ### 相对路径基准
 
-- **打包版本**：相对于 `_internal` 目录
+- **打包版本**：相对于 `app.exe` 所在目录
 - **开发版本**：相对于项目根目录
 
 ### 常用路径
@@ -693,19 +693,19 @@ glossary:
 > - `prompt_example.yaml` 的内容作为参考格式
 
 **导出原文模版路径**：
-- 默认：`examples/translation_template.json`
+- 默认：`config/translation_template.json`
 - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 用于自定义导出原文的格式
 - 定义一组文本框的结构，程序会自动重复应用
 
 **过滤列表路径**：
-- 默认：`examples/filter_list.json`
+- 默认：`config/filter_list.json`
 - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
-- 旧版兼容：`examples/filter_list.txt`（启动时会自动迁移到 JSON）
+- 旧版兼容：`config/filter_list.txt`（启动时会自动迁移到 JSON）
 - 用于跳过水印、广告等不需要翻译的文本
 
 **文本替换规则路径**：
-- 默认：`examples/text_replacements.yaml`
+- 默认：`config/text_replacements.yaml`
 - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 用于翻译后、渲染前对译文执行自定义替换
 - 支持三个分组：`common`（通用）、`horizontal`（横排）、`vertical`（竖排）
@@ -723,7 +723,7 @@ glossary:
 - 可在 Qt 界面"数据管理 → 替换规则"中可视化编辑
 
 **自定义 API 参数路径**：
-- 默认：`examples/custom_api_params.json`
+- 默认：`config/custom_api_params.json`
 - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 用于翻译、AI OCR、AI 渲染、AI 上色的额外 API 参数
 - 推荐分组键：`translator`、`ocr`、`render`、`colorizer`

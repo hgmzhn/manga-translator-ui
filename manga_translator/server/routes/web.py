@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 
 from manga_translator.server.core.config_manager import admin_settings
 from manga_translator.server.core.request_rate_limiter import SlidingWindowRateLimiter
+from manga_translator.runtime_paths import get_application_dir
 
 router = APIRouter(tags=["web"])
 USER_LOGIN_WINDOW = timedelta(minutes=10)
@@ -19,7 +20,7 @@ USER_LOGIN_MAX_ATTEMPTS = 10
 _user_login_rate_limiter = SlidingWindowRateLimiter()
 
 # Static directory path
-static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+static_dir = os.path.join(get_application_dir(), "manga_translator", "server", "static")
 
 
 # ============================================================================

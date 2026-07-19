@@ -1,7 +1,5 @@
 import json
 import logging
-import os
-import sys
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -21,15 +19,12 @@ from qfluentwidgets import (
     TitleLabel,
 )
 
+from utils.resource_helper import resource_path
+
 
 def _resolve_settings_tab_layout_file() -> str:
     """打包/开发环境通用地定位 settings_tab_layout.json。"""
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, "desktop_qt_ui", "ui", "main_page", "settings_tab_layout.json")
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "settings_tab_layout.json",
-    )
+    return resource_path("desktop_qt_ui/ui/main_page/settings_tab_layout.json")
 
 
 _SETTINGS_TAB_LAYOUT_FILE = _resolve_settings_tab_layout_file()

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from collections.abc import Mapping
 from typing import Any
+
+from manga_translator.runtime_paths import get_config_dir
 
 CUSTOM_API_PARAM_SECTIONS = ("common", "translator", "ocr", "render", "colorizer")
 _SECTION_ALIASES = {
@@ -57,17 +58,7 @@ _DEFAULT_CUSTOM_API_PARAMS_DATA = {
 }
 
 
-def _get_examples_dir() -> str:
-    if getattr(sys, "frozen", False):
-        if hasattr(sys, "_MEIPASS"):
-            return os.path.join(sys._MEIPASS, "examples")
-        return os.path.join(os.path.dirname(sys.executable), "examples")
-
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(project_root, "examples")
-
-
-_CUSTOM_API_PARAMS_PATH = os.path.join(_get_examples_dir(), "custom_api_params.json")
+_CUSTOM_API_PARAMS_PATH = os.path.join(get_config_dir(), "custom_api_params.json")
 
 
 def get_custom_api_params_path(path: str | None = None) -> str:

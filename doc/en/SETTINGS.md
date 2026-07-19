@@ -108,7 +108,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
 - **`Use Custom API Params` (`use_custom_api_params`)**: enable custom API parameters.
   - Current UI location: `Settings` -> `General` -> `Use Custom API Params`
   - Applies to: translation, AI OCR, AI rendering, and AI colorization
-  - When enabled, the app reads custom parameters from `examples/custom_api_params.json` and passes them to enabled AI APIs
+  - When enabled, the app reads custom parameters from `config/custom_api_params.json` and passes them to enabled AI APIs
   - Click the `Edit` button to create and open the config file automatically
   - The file uses standard JSON format and takes effect dynamically because it is reloaded when translation runs
   - Typical use cases:
@@ -756,7 +756,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
 
 The program supports skipping specific text regions through a filter list, for example watermarks or ad text.
 
-- **File Path**: `examples/filter_list.json`
+- **File Path**: `config/filter_list.json`
 - Note: In CLI mode, if this file cannot be found, please start the application once first, and it will be generated automatically from a built-in template.
 - **Format**: JSON object with `contains` and `exact` arrays
 - **Working Principle**: if the OCR original text matches the filter, that region is skipped completely and is not translated, erased, or rendered
@@ -783,7 +783,7 @@ Example:
 
 ### Relative path base
 
-- **Packaged Build**: relative to the `_internal` directory
+- **Packaged Build**: relative to the directory containing `app.exe`
 - **Development Build**: relative to the project root
 
 ### Common paths
@@ -868,20 +868,20 @@ Lazy shortcut:
 
 **Export original text template path**:
 
-- Default: `examples/translation_template.json`
+- Default: `config/translation_template.json`
 - Note: In CLI mode, if this file cannot be found, please start the application once first, and it will be generated automatically from a built-in template.
 - Used to customize the exported original-text format
 - Defines a text-box structure that the program repeats automatically
 
 **Filter list path**:
 
-- Default: `examples/filter_list.json`
-- Legacy compatibility: `examples/filter_list.txt` is migrated automatically to JSON
+- Default: `config/filter_list.json`
+- Legacy compatibility: `config/filter_list.txt` is migrated automatically to JSON
 - Used to skip watermarks, ads, and other text that should not be translated
 
 **Text replacement rules path**:
 
-- Default: `examples/text_replacements.yaml`
+- Default: `config/text_replacements.yaml`
 - Note: In CLI mode, if this file cannot be found, please start the application once first, and it will be generated automatically from a built-in template.
 - Used for custom text replacements applied after translation and before rendering
 - Supports three groups: `common` (all directions), `horizontal` (horizontal text only), `vertical` (vertical text only)
@@ -900,7 +900,7 @@ Lazy shortcut:
 
 **Custom API params path**:
 
-- Default: `examples/custom_api_params.json`
+- Default: `config/custom_api_params.json`
 - Note: In CLI mode, if this file cannot be found, please start the application once first, and it will be generated automatically from a built-in template.
 - Used for extra request parameters for translation, AI OCR, AI rendering, and AI colorization
 - Recommended groups: `translator`, `ocr`, `render`, `colorizer`

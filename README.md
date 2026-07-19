@@ -165,7 +165,7 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 
 **Web UI 持久化（推荐）**：
 
-- 必挂目录：`/app/manga_translator/server/data`、`/app/examples`、`/app/dict`、`/app/fonts`、`/app/models`
+- 必挂目录：`/app/manga_translator/server/data`、`/app/config`、`/app/dict`、`/app/fonts`、`/app/models`
 - 可选目录：`/app/logs`、`/app/result`
 - 可选文件：`/app/.env`。如果你准备在 Web 管理界面里保存服务器 API Keys，必须额外挂这个文件
 - `server/data` 现在会统一保存 `admin_config.json`、`user_resources/`、账号、会话、用户组、权限、配额、API Key 预设、用户配置和翻译历史元数据

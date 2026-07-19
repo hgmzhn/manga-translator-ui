@@ -60,7 +60,7 @@ python -m manga_translator -i manga.jpg
 ```
 
 就这么简单！程序会自动：
-- 加载 `examples/config.json` 配置文件
+- 加载 `config/config.json` 配置文件
 - 使用配置文件中的所有设置（翻译器、OCR、渲染等）
 - 输出到同目录（文件名加 `-translated` 后缀）
 
@@ -124,8 +124,8 @@ python -m manga_translator -i <输入> [选项]
 
 命令行模式会自动按以下优先级查找配置文件：
 
-1. **`examples/config.json`** （用户配置，优先）
-2. `examples/config-example.json` （模板配置）
+1. **`config/config.json`** （用户配置，优先）
+2. `config/config-example.json` （模板配置）
 
 ### 指定配置文件
 
@@ -135,7 +135,7 @@ python -m manga_translator -i manga.jpg --config my_config.json
 
 ### 配置文件内容
 
-配置文件包含所有翻译设置。完整的配置示例请参考 `examples/config-example.json`。
+配置文件包含所有翻译设置。完整的配置示例请参考 `config/config-example.json`。
 
 **基本配置示例**：
 
@@ -221,7 +221,7 @@ python -m manga_translator -i manga.jpg --config my_config.json
 ```
 
 **配置说明**：
-- 完整的配置结构请参考 `examples/config-example.json`
+- 完整的配置结构请参考 `config/config-example.json`
 - 所有参数的详细说明请参考 [设置说明文档](SETTINGS.md)
 - `translator.keep_lang` 用于在文本框合并后按源语言过滤后续处理区域；不匹配的区域会保持原图，不擦除、不翻译、不渲染。设为 `ENG` 可用于英文漫画只处理英文文本，设为 `none` 则关闭该功能
 - `translator.enable_streaming` 用于控制 OpenAI / Gemini（含 HQ）是否优先使用流式传输；设为 `false` 时将始终走普通非流式请求
@@ -475,7 +475,7 @@ docker run -e MANGA_TRANSLATOR_ADMIN_PASSWORD=your_password_here ...
 - 密码会自动保存到 `manga_translator/server/data/admin_config.json`
 - 后续启动会使用保存的密码，不再读取环境变量
 - 如需修改密码，请在管理面板中使用"更改管理员密码"功能
-- 如果你是用 Docker 长期部署 Web UI，记得额外挂载 `/app/manga_translator/server/data`、`/app/examples`、`/app/dict`、`/app/fonts`、`/app/models`；现在管理员配置和用户上传资源都在 `server/data` 里。如果要在网页后台保存服务器 API Keys，还要额外挂载 `/app/.env`
+- 如果你是用 Docker 长期部署 Web UI，记得额外挂载 `/app/manga_translator/server/data`、`/app/config`、`/app/dict`、`/app/fonts`、`/app/models`；现在管理员配置和用户上传资源都在 `server/data` 里。如果要在网页后台保存服务器 API Keys，还要额外挂载 `/app/.env`
 
 **核心功能**：
 
@@ -1536,13 +1536,13 @@ python -m manga_translator --help
 
 ### Q: 配置文件在哪里？
 
-默认位置：`examples/config.json`
+默认位置：`config/config.json`
 
-如果不存在，会使用 `examples/config-example.json`
+如果不存在，会使用 `config/config-example.json`
 
 ### Q: 如何修改翻译器？
 
-编辑 `examples/config.json`：
+编辑 `config/config.json`：
 
 ```json
 {

@@ -8,16 +8,11 @@ from typing import Iterable
 
 
 def _resource_base_candidates() -> list[str]:
-    """Return candidate base directories for bundled and dev environments."""
+    """Return application resource roots for bundled and dev environments."""
     base_candidates: list[str] = []
 
     if getattr(sys, "frozen", False):
-        meipass = getattr(sys, "_MEIPASS", None)
-        if meipass:
-            base_candidates.append(meipass)
-
         exe_dir = os.path.dirname(sys.executable)
-        base_candidates.append(os.path.join(exe_dir, "_internal"))
         base_candidates.append(exe_dir)
     else:
         base_candidates.append(
@@ -36,7 +31,7 @@ def _resource_base_candidates() -> list[str]:
 
 def resource_path(relative_path):
     """
-    Get absolute path to resource, works for dev and for PyInstaller.
+    Get an absolute external-resource path for dev and PyInstaller builds.
 
     Args:
         relative_path: 相对于项目根目录的路径

@@ -169,7 +169,7 @@ This project publishes Docker images to two registries. Use whichever is faster 
 
 **Recommended Web UI persistence**:
 
-- Required directories: `/app/manga_translator/server/data`, `/app/examples`, `/app/dict`, `/app/fonts`, `/app/models`
+- Required directories: `/app/manga_translator/server/data`, `/app/config`, `/app/dict`, `/app/fonts`, `/app/models`
 - Optional directories: `/app/logs`, `/app/result`
 - Optional file: `/app/.env`. Mount this too if you want server API keys saved from the Web UI to survive container recreation
 - `server/data` now also contains `admin_config.json`, `user_resources/`, accounts, sessions, groups, permissions, quotas, API key presets, user configs, and translation-history metadata

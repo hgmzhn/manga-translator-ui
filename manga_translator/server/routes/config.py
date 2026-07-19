@@ -21,6 +21,7 @@ from manga_translator.server.core.middleware import get_services, require_auth
 from manga_translator.server.core.models import Session
 from manga_translator.server.core.response_utils import get_user_preset_env_state
 from manga_translator.server_paths import USER_RESOURCES_RELATIVE_DIR
+from manga_translator.runtime_paths import get_application_dir, get_config_path
 from manga_translator.utils import BASE_PATH
 
 router = APIRouter(tags=["config"])
@@ -109,7 +110,7 @@ WEB_API_ENV_KEYS = {
 def _load_server_web_env_vars() -> dict:
     from manga_translator.utils.dotenv_utils import read_dotenv_file
 
-    env_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
+    env_path = os.path.join(get_application_dir(), '.env')
     env_vars = read_dotenv_file(env_path)
     return {
         key: value for key, value in env_vars.items()
@@ -775,8 +776,7 @@ async def get_workflows(
 @router.get("/translator-config/{translator}")
 async def get_translator_config(translator: str):
     """Get translator configuration (required API keys) - public info only"""
-    config_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 
-                               'examples', 'config', 'translators.json')
+    config_path = get_config_path('config', 'translators.json')
     
     if os.path.exists(config_path):
         try:
@@ -961,7 +961,7 @@ async def save_user_env_vars(env_vars: dict, session: Session = Depends(require_
         return {"success": True, "saved_to_server": False}
     
     # Save to server .env file using EnvService for consistent formatting
-    env_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
+    env_path = os.path.join(get_application_dir(), '.env')
     os.environ[APP_DOTENV_PATH_ENV] = env_path
     try:
         env_service = EnvService(env_path)

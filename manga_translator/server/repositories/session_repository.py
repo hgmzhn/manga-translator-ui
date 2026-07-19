@@ -12,6 +12,7 @@ from manga_translator.server.models.session_models import (
     SessionAccessAttempt,
     SessionOwnership,
 )
+from manga_translator.server_paths import SERVER_DATA_DIR
 
 
 class SessionRepository:
@@ -25,9 +26,7 @@ class SessionRepository:
             data_dir: Directory for data storage
         """
         if data_dir is None:
-            # Default to server/data directory
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.join(os.path.dirname(current_dir), 'data')
+            data_dir = str(SERVER_DATA_DIR)
         
         self.data_dir = data_dir
         os.makedirs(self.data_dir, exist_ok=True)

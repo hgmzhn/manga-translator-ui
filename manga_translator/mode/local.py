@@ -12,7 +12,11 @@ import sys
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
-ROOT_DIR = Path(__file__).parent.parent.parent  # 上两级目录
+ROOT_DIR = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, 'frozen', False)
+    else Path(__file__).resolve().parent.parent.parent
+)
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / 'desktop_qt_ui'))
 
@@ -56,7 +60,7 @@ def parse_args():
     parser.add_argument('-o', '--output', default=None,
                         help='输出目录（默认：同目录加 -translated 后缀）')
     parser.add_argument('--config', default=None,
-                        help='配置文件路径（默认：examples/config.json）')
+                        help='配置文件路径（默认：config/config.json）')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='显示详细日志')
     parser.add_argument('--overwrite', action='store_true',
@@ -820,4 +824,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

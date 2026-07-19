@@ -216,10 +216,13 @@ If the release is split into multiple archive parts such as `part1.rar`, `part2.
    ```text
    manga-translator/
    ├── app.exe
-   ├── _internal/
+   ├── _internal/       # PyInstaller/Python dependencies only
    ├── fonts/
    ├── models/
-   └── examples/
+   ├── config/
+   ├── dict/
+   ├── doc/
+   └── desktop_qt_ui/
    ```
 
 3. **Run the program**
@@ -314,7 +317,7 @@ For a real Web UI deployment, persist these paths:
 | Path inside container | Priority | Purpose |
 |------|------|------|
 | `/app/manga_translator/server/data` | Required | Unified storage for `admin_config.json`, `user_resources/`, accounts, sessions, groups, permissions, quotas, API key presets, user configs, audit logs, translation-history indexes, and Web history result files |
-| `/app/examples` | Strongly recommended | Stores `config.json`, `custom_api_params.json`, `filter_list.json`, and other auto-created editable config files |
+| `/app/config` | Strongly recommended | Stores `config.json`, `custom_api_params.json`, `filter_list.json`, and other auto-created editable config files |
 | `/app/dict` | Strongly recommended | Stores glossaries and AI prompt files such as `ai_ocr_prompt.yaml`, `ai_renderer_prompt.yaml`, and `ai_colorizer_prompt.yaml` |
 | `/app/fonts` | Strongly recommended | Server-level fonts |
 | `/app/models` | Strongly recommended | Downloaded models, so container recreation does not re-download them |
@@ -346,7 +349,7 @@ services:
       - ./data/models:/app/models
       - ./data/fonts:/app/fonts
       - ./data/dict:/app/dict
-      - ./data/config:/app/examples
+      - ./data/config:/app/config
       - ./data/server:/app/manga_translator/server/data
       - ./data/logs:/app/logs
       - ./data/result:/app/result
@@ -444,7 +447,7 @@ After deployment:
 3. Pull the image
 4. Create a container with `8000:8000`
 5. Add environment variables if needed
-6. Add persistent mounts for `/app/manga_translator/server/data`, `/app/examples`, `/app/dict`, `/app/fonts`, and `/app/models`
+6. Add persistent mounts for `/app/manga_translator/server/data`, `/app/config`, `/app/dict`, `/app/fonts`, and `/app/models`
 7. If you want server API keys saved from the Web UI to persist too, also bind-mount `/app/.env` from an empty host file you created in advance
 8. Start the container and open the site
 

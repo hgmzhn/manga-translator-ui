@@ -24,7 +24,7 @@ _REGISTERED_FONT_FAMILIES: dict[str, list[str]] = {}
 
 
 def fonts_directory() -> str:
-    """字体目录绝对路径（开发环境 = 项目根/fonts，打包后 = _MEIPASS/fonts）。"""
+    """字体目录绝对路径（打包后位于 app.exe 同级）。"""
     return resource_path('fonts')
 
 

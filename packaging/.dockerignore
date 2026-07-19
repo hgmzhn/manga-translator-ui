@@ -68,9 +68,9 @@ doc/
 !README.md
 
 # Examples (keep config files)
-examples/*.jpg
-examples/*.png
-examples/*.webp
+config/*.jpg
+config/*.png
+config/*.webp
 
 # Results and uploads
 result/

@@ -88,7 +88,7 @@ class Builder:
         if not app_version:
             return
 
-        runtime_version_file = dist_dir / "_internal" / "VERSION"
+        runtime_version_file = dist_dir / "VERSION"
         runtime_version_file.parent.mkdir(parents=True, exist_ok=True)
         runtime_version_file.write_text(f"{app_version}\n", encoding="utf-8")
         print(f"Created runtime version file at: {runtime_version_file}")

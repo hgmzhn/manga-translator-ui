@@ -175,33 +175,45 @@ jobs:
     #     commit_message: 'Deploy TUF repository for ${{ github.ref_name }}'
     #     exclude_assets: '**/*.tar.gz'
 
-    - name: Bundle extra directories into _internal
+    - name: Bundle external runtime resources next to app
       run: |
-        echo "Bundling extra directories into _internal..."
+        echo "Bundling runtime resources next to app.exe..."
         APP_VERSION="${GITHUB_REF_NAME#v}"
         echo "Embedding app version: ${APP_VERSION}"
-        mkdir -p dist/manga-translator-cpu/_internal
-        mkdir -p dist/manga-translator-gpu/_internal
-        
-        cp -r examples dist/manga-translator-cpu/_internal/
-        cp -r fonts dist/manga-translator-cpu/_internal/
-        cp -r models_cpu dist/manga-translator-cpu/_internal/models
-        cp -r dict dist/manga-translator-cpu/_internal/
-        cp -r doc dist/manga-translator-cpu/_internal/
-        mkdir -p dist/manga-translator-cpu/_internal/desktop_qt_ui
-        cp -r desktop_qt_ui/locales dist/manga-translator-cpu/_internal/desktop_qt_ui/locales
-        cp -r desktop_qt_ui/ui dist/manga-translator-cpu/_internal/desktop_qt_ui/ui
-        printf '%s\n' "$APP_VERSION" > dist/manga-translator-cpu/_internal/VERSION
 
-        cp -r examples dist/manga-translator-gpu/_internal/
-        cp -r fonts dist/manga-translator-gpu/_internal/
-        cp -r models_gpu dist/manga-translator-gpu/_internal/models
-        cp -r dict dist/manga-translator-gpu/_internal/
-        cp -r doc dist/manga-translator-gpu/_internal/
-        mkdir -p dist/manga-translator-gpu/_internal/desktop_qt_ui
-        cp -r desktop_qt_ui/locales dist/manga-translator-gpu/_internal/desktop_qt_ui/locales
-        cp -r desktop_qt_ui/ui dist/manga-translator-gpu/_internal/desktop_qt_ui/ui
-        printf '%s\n' "$APP_VERSION" > dist/manga-translator-gpu/_internal/VERSION
+        for variant in cpu gpu; do
+          dist_dir="dist/manga-translator-${variant}"
+          rm -rf \
+            "$dist_dir/_internal/config" \
+            "$dist_dir/_internal/examples" \
+            "$dist_dir/_internal/fonts" \
+            "$dist_dir/_internal/models" \
+            "$dist_dir/_internal/dict" \
+            "$dist_dir/_internal/doc" \
+            "$dist_dir/_internal/desktop_qt_ui" \
+            "$dist_dir/_internal/presets" \
+            "$dist_dir/_internal/logs" \
+            "$dist_dir/_internal/result"
+          rm -f "$dist_dir/_internal/VERSION"
+          rm -rf "$dist_dir/_internal/manga_translator/server/static"
+
+          rm -rf "$dist_dir/config" "$dist_dir/fonts" "$dist_dir/models" \
+            "$dist_dir/dict" "$dist_dir/doc" "$dist_dir/desktop_qt_ui" \
+            "$dist_dir/manga_translator/server/static"
+          cp -r config "$dist_dir/config"
+          cp -r fonts "$dist_dir/fonts"
+          cp -r dict "$dist_dir/dict"
+          cp -r doc "$dist_dir/doc"
+          mkdir -p "$dist_dir/desktop_qt_ui"
+          cp -r desktop_qt_ui/locales "$dist_dir/desktop_qt_ui/locales"
+          cp -r desktop_qt_ui/ui "$dist_dir/desktop_qt_ui/ui"
+          mkdir -p "$dist_dir/manga_translator/server"
+          cp -r manga_translator/server/static "$dist_dir/manga_translator/server/static"
+          printf '%s\n' "$APP_VERSION" > "$dist_dir/VERSION"
+        done
+
+        cp -r models_cpu dist/manga-translator-cpu/models
+        cp -r models_gpu dist/manga-translator-gpu/models
 
     - name: Create Release Archives using 7-Zip with Splitting
       run: |

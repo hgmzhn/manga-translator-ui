@@ -1200,19 +1200,9 @@ class MangaTranslator:
     def _get_default_template_path(self) -> Optional[str]:
         """获取默认模板文件路径"""
         try:
-            # 尝试多个可能的路径
-            possible_paths = [
-                os.path.join(os.path.dirname(__file__), '..', 'examples', 'translation_template.json'),
-                os.path.join(os.getcwd(), 'examples', 'translation_template.json'),
-            ]
-            
-            # 如果是打包环境
-            if getattr(sys, 'frozen', False):
-                if hasattr(sys, '_MEIPASS'):
-                    possible_paths.insert(0, os.path.join(sys._MEIPASS, 'examples', 'translation_template.json'))
-                else:
-                    exe_dir = os.path.dirname(sys.executable)
-                    possible_paths.insert(0, os.path.join(exe_dir, 'examples', 'translation_template.json'))
+            from manga_translator.runtime_paths import get_config_path
+
+            possible_paths = [get_config_path('translation_template.json')]
             
             for path in possible_paths:
                 abs_path = os.path.abspath(path)

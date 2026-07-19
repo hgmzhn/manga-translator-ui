@@ -69,7 +69,7 @@ manga-translator-ui-package/
 │  ├─ utils/                   # 通用工具与中间格式
 │  └─ server/                  # FastAPI 服务端、静态页面、管理后台
 ├─ packaging/                  # 启动脚本、更新脚本、PyInstaller、Docker
-├─ examples/                   # 默认配置、模板、翻译器注册表
+├─ config/                     # 默认配置、模板、翻译器注册表
 ├─ .github/                    # CI/CD、Issue 模板
 ├─ doc/                        # 用户文档与 changelog
 ├─ fonts/                      # 默认字体资源
@@ -161,13 +161,13 @@ python -m manga_translator local -i path/to/image.png -o path/to/output
 
 ### 开发环境常用的已跟踪资源
 
-- 默认配置模板：`examples/config-example.json`
-- 翻译器注册表：`examples/config/translators.json`
+- 默认配置模板：`config/config-example.json`
+- 翻译器注册表：`config/config/translators.json`
 - 资源目录：`fonts/`、`dict/`、`doc/`、`desktop_qt_ui/locales/`
 
 ### 打包时需要关注的已跟踪资源
 
-- `examples/`
+- `config/`
 - `fonts/`
 - `dict/`
 - `doc/`
@@ -212,7 +212,7 @@ python -m manga_translator web --host 127.0.0.1 --port 8000 -v
    定义字段、默认值、类型、校验和兼容迁移。
 2. `manga_translator/config.py`
    如果这个设置会进入核心翻译流水线、CLI、Web 服务或底层模块配置，还要同步这里的核心配置模型和相关枚举；否则桌面端存下来了，后端实际运行时可能根本读不到。
-3. `examples/config-example.json`
+3. `config/config-example.json`
    同步默认配置模板，保证新字段能写入导出配置和首次启动配置。
 4. `desktop_qt_ui/ui/main_page/settings_tab_layout.json`
    如果这个设置要出现在设置页，需要把 `section.key` 放进对应 tab 的 `items`。
@@ -234,7 +234,7 @@ python -m manga_translator web --host 127.0.0.1 --port 8000 -v
 - 如果设置也要影响命令行或 Web 运行：
   检查 `manga_translator/config.py`、`manga_translator/args.py`、相关 mode/service 的参数合并逻辑，以及后端实际消费点。
 - 如果设置引入新的 API 依赖或环境变量：
-  检查 `examples/config/translators.json` 和 `desktop_qt_ui/services/config_service.py` 里的校验逻辑。
+  检查 `config/config/translators.json` 和 `desktop_qt_ui/services/config_service.py` 里的校验逻辑。
 - 如果设置属于导入导出时应排除的临时状态：
   检查 `desktop_qt_ui/app_logic.py` 的 `export_config()` / `import_config()`。
 - 如果设置会影响编辑器侧展示或编辑行为：
@@ -246,7 +246,7 @@ python -m manga_translator web --host 127.0.0.1 --port 8000 -v
 
 1. 在 `manga_translator/<对应模块>/` 新增实现
 2. 更新配置/枚举入口
-3. 如果涉及 API 环境变量，更新 `examples/config/translators.json`
+3. 如果涉及 API 环境变量，更新 `config/config/translators.json`
 4. 必要时补 UI 选项、文档说明和测试
 
 #### 修改编辑器行为
@@ -320,11 +320,11 @@ python packaging/build_packages.py <version> --build both
 
 - `.github/workflows/build-and-release.yml`
   - Windows 上构建 CPU/GPU PyInstaller 包
-  - Ubuntu 上整理 `_internal` 资源并发布 Release
+  - Ubuntu 上把运行时资源整理到可执行文件同级，并发布 Release
 - `.github/workflows/docker-build-push.yml`
   - 基于 `packaging/Dockerfile` 构建 CPU/GPU Docker 镜像
 
-如果你新增了打包必须资源，请同步更新 workflow 中复制 `_internal` 的步骤。
+如果你新增了打包必须资源，请同步更新 workflow 中复制到可执行文件同级的步骤。
 
 ## 8. 开发建议
 
@@ -339,4 +339,3 @@ python packaging/build_packages.py <version> --build both
 - [命令行模式](CLI_USAGE.md)
 - [调试指南](DEBUGGING.md)
 - [设置说明](SETTINGS.md)
-

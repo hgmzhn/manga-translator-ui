@@ -477,7 +477,7 @@ If `COLOR_OPENAI_API_BASE` or `OPENAI_API_BASE` points to different OpenAI-compa
 - `https://dashscope-intl.aliyuncs.com/api/v1`
 - Volcano Engine or other OpenAI-compatible image endpoints
 
-If `Use Custom API Params` is enabled, the app also merges the `colorizer` group from `examples/custom_api_params.json` into the backend request payload.
+If `Use Custom API Params` is enabled, the app also merges the `colorizer` group from `config/custom_api_params.json` into the backend request payload.
 
 ---
 
@@ -556,7 +556,7 @@ Prompt file notes:
 
 If `RENDER_OPENAI_API_BASE` or `OPENAI_API_BASE` points to a special OpenAI-compatible image backend, the app adapts the request format automatically, using rules similar to `OpenAI Colorizer`.
 
-If `Use Custom API Params` is enabled, the app also merges the `render` group from `examples/custom_api_params.json` into the backend request payload.
+If `Use Custom API Params` is enabled, the app also merges the `render` group from `config/custom_api_params.json` into the backend request payload.
 
 ---
 

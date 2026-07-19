@@ -377,7 +377,7 @@ Relevant UI entries:
 
 Storage:
 
-- `examples/filter_list.json`
+- `config/filter_list.json`
 
 Two filter modes:
 

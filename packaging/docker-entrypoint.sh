@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-# Restore default examples if directory is empty
-if [ -d "/app/default_examples" ] && [ -d "/app/examples" ]; then
-    if [ -z "$(ls -A /app/examples)" ]; then
-        echo "Initializing empty examples directory..."
-        cp -r /app/default_examples/* /app/examples/ || true
+# Restore default config if directory is empty
+if [ -d "/app/default_config" ] && [ -d "/app/config" ]; then
+    if [ -z "$(ls -A /app/config)" ]; then
+        echo "Initializing empty config directory..."
+        cp -r /app/default_config/* /app/config/ || true
     fi
 fi
 

@@ -8,6 +8,7 @@ from typing import List, Tuple
 
 # 添加项目根目录到路径以便导入path_manager
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from manga_translator.runtime_paths import get_application_dir, get_config_path
 from manga_translator.utils.path_manager import (
     find_json_path,
     find_txt_files,
@@ -492,13 +493,7 @@ def get_template_path_from_config(custom_path: str = None) -> str:
     Returns:
         str: 最终使用的模板路径
     """
-    import sys
-
-    # Define base_path for resolving relative paths, works for dev and for PyInstaller
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    base_path = get_application_dir()
 
     # 优先级: 用户指定 > 环境变量 > 默认路径
     if custom_path:
@@ -643,20 +638,9 @@ def import_with_custom_template(
         return f"导入过程中出错: {e}"
 
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    import os
-    import sys
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    return os.path.join(base_path, relative_path)
-
 def get_default_template_path() -> str:
     """获取默认模板文件路径"""
-    return resource_path(os.path.join("examples", "translation_template.json"))
+    return get_config_path("translation_template.json")
 
 
 def ensure_default_template_exists() -> str:
@@ -1224,10 +1208,3 @@ def batch_update_directory_translations(
     summary = f"批量更新完成 (处理: {successful}/{total}):\n" + "\n".join(results)
     logger.debug(f"Batch update summary:\n{summary}")
     return summary
-
-
-
-
-
-
-

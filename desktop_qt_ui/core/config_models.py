@@ -15,7 +15,7 @@ class TranslatorSettings(BaseModel):
     keep_lang: str = "none"
     enable_streaming: bool = True
     no_text_lang_skip: bool = False
-    # 相对路径，后端会用BASE_PATH拼接（打包后=_internal，开发时=项目根目录）
+    # 相对路径，后端会用 BASE_PATH 拼接（打包后=app.exe 同级，开发时=项目根目录）
     high_quality_prompt_path: Optional[str] = "dict/prompt_example.yaml"
     extract_glossary: bool = False
     max_requests_per_minute: int = 0

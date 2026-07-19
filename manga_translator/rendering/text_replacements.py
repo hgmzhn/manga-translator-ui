@@ -16,12 +16,12 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 
-from ..utils import BASE_PATH
+from manga_translator.runtime_paths import get_config_path
 
 logger = logging.getLogger(__name__)
 
 # 默认配置文件路径
-_DEFAULT_REPLACEMENTS_PATH = os.path.join(BASE_PATH, 'examples', 'text_replacements.yaml')
+_DEFAULT_REPLACEMENTS_PATH = get_config_path('text_replacements.yaml')
 
 # 缓存：(文件路径, mtime) -> 解析后的规则
 _replacements_cache: Dict[str, Tuple[float, dict]] = {}
@@ -219,7 +219,7 @@ vertical:
 _LEGACY_DEFAULT_REPLACEMENTS_HASHES = {
     # 旧版内置默认模板（common 中压缩空白，包含无效的“保持不变”规则）
     "ceba4914b4c7bd239bc5a48be1b3755ed0d7ef7c496cc5eb0b4c4cbb76ca2702",
-    # 旧版 examples/text_replacements.yaml（由表格编辑器保存后的默认模板格式）
+    # 旧版 config/text_replacements.yaml（由表格编辑器保存后的默认模板格式）
     "481f39ff205c61a6604f5e0d6b5a186462a6bc118ab74d7be037be3007267d94",
 }
 

@@ -79,7 +79,7 @@ python -m manga_translator -i manga.jpg
 
 That is the basic flow. The program will automatically:
 
-- load `examples/config.json`
+- load `config/config.json`
 - use the settings defined there for translation, OCR, rendering, and other stages
 - output to the same directory by default, usually with a `-translated` style suffix
 
@@ -150,8 +150,8 @@ pip install psutil
 
 CLI mode automatically looks up config files in the following priority order:
 
-1. **`examples/config.json`**: user config, highest priority
-2. `examples/config-example.json`: template config
+1. **`config/config.json`**: user config, highest priority
+2. `config/config-example.json`: template config
 
 ### Specify a config file explicitly
 
@@ -163,7 +163,7 @@ python -m manga_translator -i manga.jpg --config my_config.json
 
 The config file contains the translation pipeline settings. For a full example, see:
 
-- `examples/config-example.json`
+- `config/config-example.json`
 
 Basic example:
 
@@ -250,7 +250,7 @@ Basic example:
 
 ### Config notes
 
-- For the full config structure, use `examples/config-example.json` as the source of truth
+- For the full config structure, use `config/config-example.json` as the source of truth
 - For full parameter explanations, see [SETTINGS.md](SETTINGS.md)
 - `translator.keep_lang` filters which candidate regions continue through later processing by source language after text-region merging. Non-matching regions stay unchanged and are not inpainted, translated, or rendered
   - Example: set it to `ENG` to keep only English text in English comics
@@ -570,7 +570,7 @@ Notes:
 - The password is saved automatically to `manga_translator/server/data/admin_config.json`
 - Later startups use the saved password and no longer read the environment variable for initial setup
 - If you want to change the password later, use the admin panel's password change function
-- For a long-running Docker Web UI deployment, also persist `/app/manga_translator/server/data`, `/app/examples`, `/app/dict`, `/app/fonts`, and `/app/models`; admin config and user-uploaded resources now live under `server/data`. If you save server API keys from the Web UI, persist `/app/.env` too
+- For a long-running Docker Web UI deployment, also persist `/app/manga_translator/server/data`, `/app/config`, `/app/dict`, `/app/fonts`, and `/app/models`; admin config and user-uploaded resources now live under `server/data`. If you save server API keys from the Web UI, persist `/app/.env` too
 
 ### Core features
 
@@ -1747,15 +1747,15 @@ python -m manga_translator --help
 
 Default location:
 
-`examples/config.json`
+`config/config.json`
 
 If it does not exist, the program falls back to:
 
-`examples/config-example.json`
+`config/config-example.json`
 
 ### Q: How do I change the translator?
 
-Edit `examples/config.json`:
+Edit `config/config.json`:
 
 ```json
 {

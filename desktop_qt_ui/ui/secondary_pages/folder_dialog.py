@@ -59,7 +59,7 @@ from qfluentwidgets import ToolButton as QToolButton
 from services import get_i18n_manager
 from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
 from ui.widgets.hover_hint import set_hover_hint
-from utils.resource_helper import resource_path
+from manga_translator.runtime_paths import get_config_path
 
 
 class CaseInsensitiveSortProxyModel(QSortFilterProxyModel):
@@ -1112,7 +1112,7 @@ class FolderDialog(FluentSecondaryDialog):
 
     def _get_config_path(self) -> str:
         """获取配置文件路径，支持打包和开发环境"""
-        return resource_path(os.path.join("examples", "config.json"))
+        return get_config_path("config.json")
     
     def _get_favorites_config_path(self) -> str:
         """获取收藏文件夹配置文件路径（用户目录）"""

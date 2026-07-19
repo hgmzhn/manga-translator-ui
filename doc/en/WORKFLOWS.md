@@ -418,7 +418,7 @@ Recommendation:
 
 The export-original workflow can be customized with:
 
-- `examples/translation_template.json`
+- `config/translation_template.json`
 
 This template controls how groups of text items are exported.
 

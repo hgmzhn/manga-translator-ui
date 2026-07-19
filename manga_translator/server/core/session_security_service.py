@@ -12,6 +12,7 @@ Security Features:
 
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from manga_translator.server.core.permission_service_v2 import EnhancedPermissionService
@@ -25,6 +26,7 @@ from manga_translator.server.repositories.permission_repository import (
     PermissionRepository,
 )
 from manga_translator.server.repositories.session_repository import SessionRepository
+from manga_translator.server_paths import SERVER_DATA_DIR
 
 
 class SessionSecurityService:
@@ -49,16 +51,13 @@ class SessionSecurityService:
         Args:
             data_dir: Directory for data storage
         """
-        import os
-        
         self.repository = SessionRepository(data_dir)
         
         # Initialize permission repository with file path
         if data_dir is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.join(os.path.dirname(current_dir), 'data')
+            data_dir = str(SERVER_DATA_DIR)
         
-        permissions_file = os.path.join(data_dir, 'permissions.json')
+        permissions_file = str(Path(data_dir) / 'permissions.json')
         permission_repo = PermissionRepository(permissions_file)
         self.permission_service = EnhancedPermissionService(permission_repo)
         

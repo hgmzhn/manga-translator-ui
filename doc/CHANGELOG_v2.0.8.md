@@ -14,7 +14,7 @@
 - **自定义 API 参数功能**：
   - 支持为 OpenAI、Gemini 等翻译器传递自定义 API 参数
   - 可通过 UI 界面勾选开关并点击"打开文件"按钮编辑配置
-  - 配置文件位于 `examples/custom_api_params.json`
+  - 配置文件位于 `config/custom_api_params.json`
   - 支持实时生效，修改配置后下次翻译立即使用新参数
   - 适用于控制 Ollama 等本地模型的特殊参数（如关闭思考模式）
 

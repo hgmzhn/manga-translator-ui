@@ -18,6 +18,7 @@ from cryptography.fernet import Fernet
 
 from manga_translator.server.core.env_service import EnvService
 from manga_translator.server.models.config_models import ConfigPreset, UserConfig
+from manga_translator.server_paths import SERVER_DATA_DIR
 from manga_translator.server.repositories.config_repository import (
     ConfigRepository,
     UserConfigRepository,
@@ -29,8 +30,7 @@ logger = logging.getLogger(__name__)
 class ConfigManagementService:
     """Service for managing .env configurations, presets, and user configs."""
     
-    # 使用绝对路径，基于当前文件位置
-    _DATA_DIR = Path(__file__).parent.parent / "data"
+    _DATA_DIR = SERVER_DATA_DIR
     _DEFAULT_PRESETS_FILE = str(_DATA_DIR / "env_presets.json")
     _DEFAULT_USER_CONFIGS_FILE = str(_DATA_DIR / "user_configs.json")
     
@@ -166,7 +166,7 @@ class ConfigManagementService:
             Path to the backup file
         """
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        backup_dir = Path("manga_translator/server/data/backups")
+        backup_dir = SERVER_DATA_DIR / "backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
         
         backup_path = backup_dir / f".env.backup.{timestamp}"
@@ -226,7 +226,7 @@ class ConfigManagementService:
         Returns:
             List of backup information dictionaries
         """
-        backup_dir = Path("manga_translator/server/data/backups")
+        backup_dir = SERVER_DATA_DIR / "backups"
         if not backup_dir.exists():
             return []
         

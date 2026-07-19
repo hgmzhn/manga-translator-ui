@@ -93,21 +93,21 @@ result/
 logs/
 
 # Ignore user config (这是用户自己的配置，防止推送到git)
-examples/text_replacements.yaml
-examples/translation_template.json
-examples/config.json
-examples/custom_api_params.json
+config/text_replacements.yaml
+config/translation_template.json
+config/config.json
+config/custom_api_params.json
 dict/ai_ocr_prompt.yaml
 dict/ai_renderer_prompt.yaml
 dict/ai_colorizer_prompt.yaml
 
 # Ignore filter list (用户自定义过滤列表)
-examples/filter_list.json
-examples/filter_list.txt
+config/filter_list.json
+config/filter_list.txt
 
 # Ignore API test files (本地测试文件)
-examples/api_test_ui.py
-examples/API_TEST_README.md
+config/api_test_ui.py
+config/API_TEST_README.md
 
 # ---------- Below from old .gitignore ----------
 
@@ -179,7 +179,7 @@ gen_scripts.py
 # Ignore test/example directories
 ailab-main/
 manga-image-translator-rust-master/
-examples/config.json
+config/config.json
 
 # Ignore local build directories
 pydensecrf/

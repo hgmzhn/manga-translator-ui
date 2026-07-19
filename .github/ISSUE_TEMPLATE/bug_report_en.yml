@@ -14,10 +14,10 @@ body:
 
         Common file paths in the current version:
         - Logs (dev environment): `result/log_*.txt`
-        - Logs (packaged build): `_internal/result/log_*.txt`
-        - Main config: `examples/config.json`
-        - Config template: `examples/config-example.json`
-        - Translator config: `examples/config/translators.json`
+        - Logs (packaged build): `result/log_*.txt`
+        - Main config: `config/config.json`
+        - Config template: `config/config-example.json`
+        - Translator config: `config/config/translators.json`
 
         Privacy reminder:
         - Do not upload raw `.env` files, account credentials, API keys, cookies, or tokens
@@ -103,7 +103,7 @@ body:
       description: Paste the key configuration or upload the actual config files you used; redact sensitive fields first (do not upload raw `.env` files or secret-bearing presets)
       placeholder: |
         - Config file paths (full paths please):
-          - examples/config.json
+          - config/config.json
           - <your other config file path>
         - Key config content:
         ```json
@@ -120,7 +120,7 @@ body:
     id: logs
     attributes:
       label: Logs (required)
-      description: Include at least one relevant error snippet and the timestamp; uploading the full log file is recommended. For the current version, prefer `result/log_*.txt` (`_internal/result/log_*.txt` in packaged builds).
+      description: Include at least one relevant error snippet and the timestamp; uploading the full log file is recommended. Prefer `result/log_*.txt` in both development and packaged builds.
       placeholder: |
         - Log file path:
           - result/log_20260228003000.txt

@@ -215,10 +215,13 @@ D:\manga-translator-ui\          # 你选择的安装目录
    ```
    manga-translator/
    ├── app.exe          # 主程序
-   ├── _internal/       # 依赖文件
+   ├── _internal/       # PyInstaller/Python 依赖文件
    ├── fonts/           # 字体文件
    ├── models/          # AI 模型文件
-   └── examples/        # 配置示例
+   ├── config/          # 可编辑配置
+   ├── dict/            # 词典和提示词
+   ├── doc/             # 文档与图标资源
+   └── desktop_qt_ui/   # UI 静态资源和语言文件
    ```
 
 3. **运行程序**：
@@ -303,7 +306,7 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 | 容器内路径 | 建议程度 | 作用 |
 |-----------|---------|------|
 | `/app/manga_translator/server/data` | 必须 | 统一保存 `admin_config.json`、`user_resources/`、账号、会话、用户组、权限、配额、API Key 预设、用户配置、审计日志、翻译历史索引与 Web 历史结果 |
-| `/app/examples` | 强烈建议 | 保存 `config.json`、`custom_api_params.json`、`filter_list.json` 等会自动生成或被编辑的配置文件 |
+| `/app/config` | 强烈建议 | 保存 `config.json`、`custom_api_params.json`、`filter_list.json` 等会自动生成或被编辑的配置文件 |
 | `/app/dict` | 强烈建议 | 保存术语表、网页端/本地 AI prompt 文件（如 `ai_ocr_prompt.yaml`、`ai_renderer_prompt.yaml`、`ai_colorizer_prompt.yaml`） |
 | `/app/fonts` | 强烈建议 | 保存服务器级字体文件 |
 | `/app/models` | 强烈建议 | 保存下载后的模型文件，避免容器重建后重新下载 |
@@ -335,7 +338,7 @@ services:
       - ./data/models:/app/models
       - ./data/fonts:/app/fonts
       - ./data/dict:/app/dict
-      - ./data/config:/app/examples
+      - ./data/config:/app/config
       - ./data/server:/app/manga_translator/server/data
       - ./data/logs:/app/logs
       - ./data/result:/app/result
@@ -451,7 +454,7 @@ services:
    - **环境变量**：根据需要添加（可选）
    - **挂载目录/文件**：建议至少挂载下面这些路径
      - `宿主机目录 -> /app/manga_translator/server/data`
-     - `宿主机目录 -> /app/examples`
+     - `宿主机目录 -> /app/config`
      - `宿主机目录 -> /app/dict`
      - `宿主机目录 -> /app/fonts`
      - `宿主机目录 -> /app/models`
@@ -703,4 +706,3 @@ A: 运行 `./macOS_4_更新维护.sh`，选择"完整更新"即可。
 ---
 
 返回 [主页](../README.md)
-
