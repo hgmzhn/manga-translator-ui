@@ -1635,6 +1635,7 @@ class MangaTranslator:
                 config.detector.min_box_area_ratio,
                 self._result_path,
                 config.detector.det_rearrange_min_effective_short_side,
+                use_sfx_filter=bool(getattr(config.detector, 'use_sfx_filter', False)),
             )
         
             # 处理bbox调试图（如果检测器返回了）

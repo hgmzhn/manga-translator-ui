@@ -355,6 +355,12 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Current UI location: `Settings` -> `Detection` -> `Enable YOLO Detection`
   - Helps improve detection accuracy
 
+- **`SFX Filter` (`use_sfx_filter`)**: filter main-detector boxes that lack YOLO support. Disabled by default.
+  - Keep a main box when it is fully wrapped by a YOLO `other` box
+  - Keep a main box when its overlap with another YOLO OBB box reaches `yolo_obb_overlap_threshold`
+  - Filter it when neither condition is met, reducing false detections from sound effects and decorative text
+  - Requires `use_yolo_obb`
+
 - **`YOLO Confidence Threshold` (`yolo_obb_conf`)**: confidence threshold for YOLO-assisted detection.
   - Current UI location: `Settings` -> `Detection` -> `YOLO Confidence Threshold`
   - Larger values are stricter

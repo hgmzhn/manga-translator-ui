@@ -290,6 +290,12 @@
 
 - **启用YOLO辅助检测 (use_yolo_obb)**：使用 YOLO 有向边界框辅助检测（提高检测准确率）
 
+- **拟声词过滤 (use_sfx_filter)**：过滤缺少 YOLO 支持的主检测框，默认关闭
+  - 主检测框被 YOLO `other` 框完整包裹时保留
+  - 主检测框与其他 YOLO OBB 框的重叠率达到 `yolo_obb_overlap_threshold` 时保留
+  - 两项都不满足时过滤，适合减少拟声词、装饰字等误检
+  - 需同时启用 `use_yolo_obb`
+
 - **YOLO置信度阈值 (yolo_obb_conf)**：YOLO 辅助检测的置信度阈值（值越高越严格）
 
 - **YOLO交叉比(IoU) (yolo_obb_iou)**：YOLO IOU 阈值（控制框重叠度判断）

@@ -41,12 +41,14 @@ async def prepare(detector_key: Detector):
 async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, text_threshold: float, box_threshold: float, unclip_ratio: float,
                    device: str = 'cpu', verbose: bool = False,
                    use_yolo_obb: bool = False, yolo_obb_conf: float = 0.4, yolo_obb_overlap_threshold: float = 0.1, min_box_area_ratio: float = 0.0009,
-                   result_path_fn=None, det_rearrange_min_effective_short_side: float = 341.0):
+                   result_path_fn=None, det_rearrange_min_effective_short_side: float = 341.0,
+                   use_sfx_filter: bool = False):
     """
     检测调度函数，支持混合检测模式
     
     Args:
         use_yolo_obb: 是否启用YOLO OBB辅助检测器
+        use_sfx_filter: 是否过滤既未被 other 包裹、也未与 YOLO 文本框重叠的主检测框
         yolo_obb_conf: YOLO OBB检测器的置信度阈值
         min_box_area_ratio: 最小检测框面积占比（相对图片总像素）
         result_path_fn: 结果路径生成函数（用于保存调试图）
@@ -85,11 +87,22 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
         )
         
         # 智能合并：YOLO框可以替换过小的主检测器框，或添加新框
-        combined_textlines = merge_detection_boxes(yolo_textlines, main_textlines, overlap_threshold=yolo_obb_overlap_threshold)
+        sfx_filtered_count = (
+            len(_get_sfx_filtered_main_indices(main_textlines, yolo_textlines, yolo_obb_overlap_threshold))
+            if use_sfx_filter
+            else 0
+        )
+        combined_textlines = merge_detection_boxes(
+            yolo_textlines,
+            main_textlines,
+            overlap_threshold=yolo_obb_overlap_threshold,
+            use_sfx_filter=use_sfx_filter,
+        )
         
         replaced_count = len(main_textlines) + len(yolo_textlines) - len(combined_textlines)
         detector.logger.info(f"混合检测: 主检测器={len(main_textlines)}, YOLO OBB={len(yolo_textlines)}, "
-                           f"替换={replaced_count}, 总计={len(combined_textlines)}")
+                           f"替换/移除={replaced_count}, 拟声词过滤={sfx_filtered_count}, "
+                           f"总计={len(combined_textlines)}")
         
         # 生成调试图片（如果verbose=True）
         debug_img = None
@@ -233,7 +246,65 @@ def _is_axis_wrapped_pair(box_a: Quadrilateral, box_b: Quadrilateral, eps: float
     )
 
 
-def merge_detection_boxes(yolo_boxes: List[Quadrilateral], main_boxes: List[Quadrilateral], overlap_threshold: float = 0.1) -> List[Quadrilateral]:
+def _aabb_overlap_ratio(box_a: Quadrilateral, box_b: Quadrilateral) -> float:
+    """返回两个 AABB 交集占较小框面积的比例。"""
+    a_min_x, a_max_x, a_min_y, a_max_y = _box_aabb(box_a)
+    b_min_x, b_max_x, b_min_y, b_max_y = _box_aabb(box_b)
+    a_area = max(0.0, a_max_x - a_min_x) * max(0.0, a_max_y - a_min_y)
+    b_area = max(0.0, b_max_x - b_min_x) * max(0.0, b_max_y - b_min_y)
+    min_area = min(a_area, b_area)
+    if min_area <= 0:
+        return 0.0
+
+    inter_w = max(0.0, min(a_max_x, b_max_x) - max(a_min_x, b_min_x))
+    inter_h = max(0.0, min(a_max_y, b_max_y) - max(a_min_y, b_min_y))
+    return (inter_w * inter_h) / min_area
+
+
+def _get_sfx_filtered_main_indices(
+    main_boxes: List[Quadrilateral],
+    yolo_boxes: List[Quadrilateral],
+    overlap_threshold: float,
+    wrap_eps: float = 2.0,
+) -> set[int]:
+    """
+    找出缺少 YOLO 支持的主检测框：
+    - YOLO `other` 必须完整包裹主框；或
+    - 任一非 `other` YOLO 框与主框的重叠率达到阈值。
+    两项均不满足时视为拟声词/装饰字候选并过滤。
+    """
+    # 即使用户把合并阈值设为 0，也仍要求存在真实交集，避免任意 YOLO 框
+    # 让整页所有主检测框都通过过滤。
+    threshold = max(1e-6, min(1.0, float(overlap_threshold)))
+    filtered_indices = set()
+
+    for main_idx, main_box in enumerate(main_boxes):
+        main_aabb = _box_aabb(main_box)
+        supported = False
+        for yolo_box in yolo_boxes:
+            yolo_label = _get_box_label(yolo_box)
+            if yolo_label == 'other':
+                if _aabb_contains(_box_aabb(yolo_box), main_aabb, eps=wrap_eps):
+                    supported = True
+                    break
+                continue
+
+            if _aabb_overlap_ratio(main_box, yolo_box) >= threshold:
+                supported = True
+                break
+
+        if not supported:
+            filtered_indices.add(main_idx)
+
+    return filtered_indices
+
+
+def merge_detection_boxes(
+    yolo_boxes: List[Quadrilateral],
+    main_boxes: List[Quadrilateral],
+    overlap_threshold: float = 0.1,
+    use_sfx_filter: bool = False,
+) -> List[Quadrilateral]:
     """
     合并主检测器和YOLO检测器的框，智能替换逻辑：
     0. 高优先级结构替换：
@@ -251,6 +322,7 @@ def merge_detection_boxes(yolo_boxes: List[Quadrilateral], main_boxes: List[Quad
         yolo_boxes: YOLO OBB检测器的检测框
         main_boxes: 主检测器的检测框
         overlap_threshold: 重叠率阈值（0.0-1.0）。重叠率 >= 该值时删除YOLO框。设为1.0则保留所有框。
+        use_sfx_filter: 过滤既未被 YOLO other 框包裹、也未与其他 YOLO 框达到重叠阈值的主检测框。
     
     Returns:
         合并后的检测框列表
@@ -259,13 +331,18 @@ def merge_detection_boxes(yolo_boxes: List[Quadrilateral], main_boxes: List[Quad
         return yolo_boxes
     
     if len(yolo_boxes) == 0:
-        return main_boxes
+        return [] if use_sfx_filter else main_boxes
 
     # 先进行标签感染：每个 YOLO 框最多感染一个主框
     _apply_yolo_label_infection(main_boxes, yolo_boxes, min_overlap_ratio=max(0.01, overlap_threshold * 0.5))
     
-    # 标记要移除的主检测器框索引
-    main_boxes_to_remove = set()
+    # 标记要移除的主检测器框索引。拟声词过滤只作用于主检测器框，
+    # YOLO 自身框仍按下方原有的替换/去重规则处理。
+    main_boxes_to_remove = (
+        _get_sfx_filtered_main_indices(main_boxes, yolo_boxes, overlap_threshold)
+        if use_sfx_filter
+        else set()
+    )
     # 标记要移除的YOLO框索引
     yolo_boxes_to_remove = set()
     # 要添加的YOLO框（用于替换）

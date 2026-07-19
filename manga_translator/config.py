@@ -346,6 +346,8 @@ class DetectorConfig(BaseModel):
     """Import YOLO labels from manga_translator_work/yolo_labels and use them in detection workflows"""
     use_yolo_obb: bool = False
     """Enable YOLO OBB auxiliary detector for hybrid detection"""
+    use_sfx_filter: bool = False
+    """Filter main-detector boxes that are neither wrapped by YOLO 'other' boxes nor overlapping YOLO text boxes"""
     yolo_obb_conf: float = 0.4
     """Confidence threshold for YOLO OBB detector"""
     yolo_obb_overlap_threshold: float = 0.1

@@ -456,6 +456,7 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_unclip_ratio', 'Unclip比例'), this.createInput('detector', 'unclip_ratio', 'number'), '文本骨架扩展比例，默认2.5', 'detector', 'unclip_ratio')}
                 ${this.createFormRow(this.t('label_min_box_area_ratio', '最小检测框面积占比'), this.createInput('detector', 'min_box_area_ratio', 'number'), '相对图片总像素，默认0.0009(0.09%)', 'detector', 'min_box_area_ratio')}
                 ${this.createFormRow(this.t('label_use_yolo_obb', '启用YOLO辅助检测'), this.createCheckbox('detector', 'use_yolo_obb'), '启用YOLO旋转边界框辅助检测', 'detector', 'use_yolo_obb')}
+                ${this.createFormRow(this.t('label_use_sfx_filter', '拟声词过滤'), this.createCheckbox('detector', 'use_sfx_filter'), '过滤既未被YOLO other框包裹、也未与YOLO文本框达到重叠阈值的主检测框', 'detector', 'use_sfx_filter')}
                 ${this.createFormRow(this.t('label_yolo_obb_conf', 'YOLO置信度阈值'), this.createInput('detector', 'yolo_obb_conf', 'number'), '默认0.4', 'detector', 'yolo_obb_conf')}
                 ${this.createFormRow(this.t('label_yolo_obb_overlap_threshold', 'YOLO辅助检测重叠率删除阈值'), this.createInput('detector', 'yolo_obb_overlap_threshold', 'number'), '重叠比例阈值(0.0-1.0)，默认0.1', 'detector', 'yolo_obb_overlap_threshold')}
             </div>
