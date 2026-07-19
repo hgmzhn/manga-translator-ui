@@ -31,8 +31,6 @@ def ensure_runtime_files(logger: Any = None) -> dict[str, str]:
         try:
             path = factory()
             paths[label] = path
-            if logger:
-                logger.debug(f"Runtime table ready [{label}]: {path}")
         except Exception as exc:
             if logger:
                 logger.warning(f"Failed to prepare runtime table [{label}]: {exc}")
