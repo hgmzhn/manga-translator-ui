@@ -165,6 +165,22 @@ def _extract_http_error_details(response) -> str:
     return summarize_response_text(raw_json, limit=800, empty_placeholder="(empty response)")
 
 
+def _response_diagnostics(response, *, limit: int = 1200) -> str:
+    """Return safe, bounded HTTP response details for parse errors."""
+    headers = getattr(response, "headers", {}) or {}
+    content_type = ""
+    try:
+        content_type = headers.get("content-type", "") or headers.get("Content-Type", "")
+    except Exception:
+        content_type = ""
+    status_code = getattr(response, "status_code", "unknown")
+    raw_text = summarize_response_text(
+        getattr(response, "text", ""),
+        limit=limit,
+        empty_placeholder="(empty response)",
+    )
+    return f"HTTP {status_code}, Content-Type: {content_type or '(missing)'}, raw response: {raw_text}"
+
 
 class LanguageUnsupportedException(Exception):
     def __init__(self, language_code: str, translator: str = None, supported_languages: List[str] = None):
@@ -244,6 +260,9 @@ class AsyncOpenAICurlCffi:
             data.update(kwargs)
 
             stream_mode = bool(data.get("stream"))
+            # 部分 OpenAI 兼容站点会在缺省 stream 参数时错误地默认返回 SSE。
+            # 普通请求显式传 false，确保响应遵循非流式 JSON 格式。
+            data["stream"] = stream_mode
             if stream_mode:
                 return self._create_stream(url, data, headers)
 
@@ -265,7 +284,12 @@ class AsyncOpenAICurlCffi:
                 )
                 raise Exception(error_msg)
 
-            result = response.json()
+            try:
+                result = response.json()
+            except Exception as e:
+                raise Exception(
+                    f"无法解析 API 的 JSON 响应: {e}. {_response_diagnostics(response)}"
+                ) from e
 
             # 转换为类似 OpenAI SDK 的响应对象
             return _OpenAIResponse(result)
@@ -352,12 +376,18 @@ class AsyncOpenAICurlCffi:
             content_type = response.headers.get('content-type', '')
             if 'application/json' not in content_type and 'text/json' not in content_type:
                 # 可能返回了 HTML 页面，说明 API 不支持 /models 端点
-                raise Exception("API 不支持获取模型列表（返回了非 JSON 响应）。请手动输入模型名称。")
+                raise Exception(
+                    "API 不支持获取模型列表（返回了非 JSON 响应）。"
+                    f"{_response_diagnostics(response)}。请手动输入模型名称。"
+                )
 
             try:
                 result = response.json()
             except Exception as e:
-                raise Exception(f"无法解析 API 响应: {str(e)}。请手动输入模型名称。")
+                raise Exception(
+                    f"无法解析 API 响应: {str(e)}. "
+                    f"{_response_diagnostics(response)}。请手动输入模型名称。"
+                ) from e
 
             # 转换为类似 OpenAI SDK 的响应对象
             return _ModelsResponse(result)
