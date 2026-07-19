@@ -35,6 +35,7 @@ from services import (
 )
 from services.state_manager import AppStateKey
 from utils.asyncio_cleanup import shutdown_event_loop
+from utils.font_list import fonts_directory
 
 from manga_translator.config import (
     Alignment,
@@ -587,6 +588,22 @@ class MainAppLogic(QObject):
                 subprocess.run(["xdg-open", dict_dir])
         except Exception as e:
             self.logger.error(f"Error opening dict directory: {e}")
+
+    def open_fonts_directory(self):
+        import subprocess
+        import sys
+
+        fonts_dir = fonts_directory()
+        try:
+            os.makedirs(fonts_dir, exist_ok=True)
+            if sys.platform == "win32":
+                os.startfile(fonts_dir)
+            elif sys.platform == "darwin":
+                subprocess.run(["open", fonts_dir])
+            else:
+                subprocess.run(["xdg-open", fonts_dir])
+        except Exception as e:
+            self.logger.error(f"Error opening fonts directory: {e}")
 
     def get_hq_prompt_options(self) -> List[str]:
         try:
@@ -1431,6 +1448,7 @@ class MainAppLogic(QObject):
                     "inpainting_precision": self._t("label_inpainting_precision"),
                     "force_use_torch_inpainting": self._t("label_force_use_torch_inpainting"),
                     "renderer": self._t("label_renderer"),
+                    "font_family": self._t("label_font_family"),
                     "alignment": self._t("label_alignment"),
                     "disable_font_border": self._t("label_disable_font_border"),
                     "disable_auto_wrap": self._t("label_disable_auto_wrap"),

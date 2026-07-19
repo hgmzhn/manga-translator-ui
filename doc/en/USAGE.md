@@ -346,9 +346,10 @@ Notes:
 
 ### Font management
 
-Install the desired font in the operating system, then select it from
-`Settings` -> `Typesetting` -> `Font`. The dropdown refreshes the system font
-list when opened.
+Install the desired font in the operating system, or copy a `.ttf`, `.otf`, or
+`.ttc` file into the project `fonts` directory. Then select it from `Settings`
+-> `Typesetting` -> `Font`. Use `Open Directory` beside the selector to access
+the project directory; reopen the dropdown to refresh the combined font list.
 
 ### Prompt management
 

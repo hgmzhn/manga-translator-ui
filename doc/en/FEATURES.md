@@ -182,9 +182,11 @@ Current layout mode names:
 
 ## 💾 Font Support
 
-The desktop app lists fonts installed in the operating system. Select the
-rendering font under `Settings` -> `Typesetting` -> `Font`; the same selection
-is also used for editable PSD text layers.
+The desktop app combines fonts installed in the operating system with font
+files from the project `fonts` directory. Select the rendering font under
+`Settings` -> `Typesetting` -> `Font`; the same selection is also used for
+editable PSD text layers. Use `Open Directory` to add project fonts, then
+reopen the dropdown to refresh it.
 
 ---
 

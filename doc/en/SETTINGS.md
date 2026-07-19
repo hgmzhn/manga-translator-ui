@@ -436,10 +436,11 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - `horizontal`: horizontal layout
   - `vertical`: vertical layout
 
-- **`Font` (`font_family`)**: system font family used for rendering and PSD text layers.
+- **`Font` (`font_family`)**: font family used for rendering and editable PSD text layers.
   - Current UI location: `Settings` -> `Typesetting` -> `Font`
-  - The list is populated from fonts available to the operating system
-  - Open the dropdown again to refresh the available font list
+  - The list combines fonts installed in the operating system with font files from the project `fonts` directory
+  - Click `Open Directory` beside the selector to open the project font directory
+  - Add a `.ttf`, `.otf`, or `.ttc` file there, then reopen the dropdown to refresh the list; no restart is required
 
 - **`Disable Font Border` (`disable_font_border`)**: disable text border / stroke.
   - Current UI location: `Settings` -> `Typesetting` -> `Disable Font Border`
@@ -909,8 +910,9 @@ Lazy shortcut:
 **How to select a font**
 
 1. Install the font in the operating system
-2. Open `Settings` -> `Typesetting` -> `Font`
-3. Select it from the system font dropdown
+   or copy a `.ttf`, `.otf`, or `.ttc` file into the project `fonts` directory
+2. Open `Settings` -> `Typesetting` -> `Font`; use `Open Directory` if you need direct access to the project font directory
+3. Reopen the dropdown to refresh it, then select the font family
 
 **Output folder**:
 

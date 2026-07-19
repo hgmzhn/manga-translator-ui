@@ -930,7 +930,9 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             combo.currentFontChanged.connect(
                 lambda font, k=full_key: self._on_setting_changed(font.family(), k, None)
             )
-            widget = combo
+            button = QPushButton(self._t("Open Directory"))
+            button.clicked.connect(self.controller.open_fonts_directory)
+            widget = [combo, button]
 
         elif full_key == "translator.high_quality_prompt_path":
             # 创建自定义ComboBox,在下拉时刷新提示词列表
