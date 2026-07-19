@@ -4,14 +4,23 @@ import textwrap
 from typing import Callable
 
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 from qfluentwidgets import Dialog, FluentIcon as FIF, PlainTextEdit, PushButton
 
 _INSTALLED = False
 
 
 def _dialog_parent(parent):
-    return parent or QApplication.activeWindow()
+    candidate = parent if isinstance(parent, QWidget) else QApplication.activeWindow()
+    if candidate is None:
+        return None
+
+    # Fluent dialogs are real top-level windows.  Passing a native child page
+    # (for example main_env_page inside MSFluentWindow's stacked widget) can
+    # make Qt try to use a non-top-level QWidgetWindow as transient parent.
+    # Always anchor dialogs to the containing application window instead.
+    top_level = candidate.window()
+    return top_level if top_level is not None else candidate
 
 
 def _wrap_dialog_text(text: str, width: int = 92) -> str:

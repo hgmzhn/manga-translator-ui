@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QWidget
 from qfluentwidgets import (
     Dialog,
     FluentIcon as FIF,
@@ -112,7 +113,15 @@ def apply_progress_dialog_style(dialog: Dialog) -> Dialog:
     return dialog
 
 
+def _dialog_parent(parent):
+    candidate = parent if isinstance(parent, QWidget) else QApplication.activeWindow()
+    if candidate is None:
+        return None
+    top_level = candidate.window()
+    return top_level if top_level is not None else candidate
+
+
 def create_progress_dialog(parent, title: str, label_text: str, cancel_button_text: str | None = None) -> ThemedProgressDialog:
-    dialog = ThemedProgressDialog(label_text, cancel_button_text, parent)
+    dialog = ThemedProgressDialog(label_text, cancel_button_text, _dialog_parent(parent))
     dialog.setWindowTitle(title)
     return dialog
