@@ -790,6 +790,15 @@ class EditorController(QObject):
         new_region_data["translation"] = translation
         new_region_data["translation_raw"] = translation_raw
         new_region_data.pop("translation_rich", None)
+        try:
+            from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
+
+            direction_value = new_region_data.get("direction", "h")
+            rich_document = apply_rich_text_rules(translation, direction_value)
+            if rich_document is not None:
+                new_region_data["translation_rich"] = rich_document.to_dict()
+        except Exception as exc:
+            self.logger.warning(f"apply_rich_text_rules failed for region {region_index}: {exc}")
 
         # translation 是 _FONT_AFFECTING_FIELDS 成员,改动后同步白框尺寸
         _sync_white_frame_size_for_font_change(

@@ -140,6 +140,8 @@ def prepare_text_replacements_for_layout(
 
 
 def sync_translation_raw_from_layout(text_regions: List[TextBlock], config: Config = None) -> None:
+    from .rich_text_rules import apply_rich_text_rules_to_region
+
     for region in text_regions:
         record = getattr(region, '_replacement_layout_record', None)
         if record is not None:
@@ -154,6 +156,10 @@ def sync_translation_raw_from_layout(text_regions: List[TextBlock], config: Conf
                 delattr(region, '_replacement_layout_record')
             except Exception:
                 pass
+
+        # 富文本规则读取的是替换及断句完成后的 translation。规则引擎会把
+        # [BR]/【BR】/<br>/换行转换为 paragraph 边界，标记本身不会进入样式 run。
+        apply_rich_text_rules_to_region(region)
 
         if hasattr(region, 'ensure_translation_rich_from_legacy_breaks'):
             region.ensure_translation_rich_from_legacy_breaks()

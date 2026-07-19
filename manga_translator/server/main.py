@@ -48,31 +48,10 @@ ensure_server_data_layout()
 
 
 def _ensure_web_startup_files() -> None:
-    """Create the same template files that the Qt app prepares on startup."""
-    from manga_translator.colorization.prompt_loader import ensure_ai_colorizer_prompt_file
-    from manga_translator.custom_api_params import ensure_custom_api_params_file
-    from manga_translator.ocr.prompt_loader import ensure_ai_ocr_prompt_file
-    from manga_translator.rendering.prompt_loader import ensure_ai_renderer_prompt_file
-    from manga_translator.rendering.text_replacements import ensure_text_replacements_exists
-    from manga_translator.utils.translation_template import ensure_translation_template_exists
-    from manga_translator.utils.text_filter import ensure_filter_list_exists
+    """Create the same runtime tables used by CLI and desktop startup."""
+    from manga_translator.runtime_files import ensure_runtime_files
 
-    startup_files = [
-        ("custom_api_params", lambda: ensure_custom_api_params_file(logger=logger)),
-        ("ocr_prompt", ensure_ai_ocr_prompt_file),
-        ("renderer_prompt", ensure_ai_renderer_prompt_file),
-        ("colorizer_prompt", ensure_ai_colorizer_prompt_file),
-        ("filter_list", ensure_filter_list_exists),
-        ("text_replacements", ensure_text_replacements_exists),
-        ("translation_template", ensure_translation_template_exists),
-    ]
-
-    for label, factory in startup_files:
-        try:
-            path = factory()
-            logger.info(f"Startup file ready [{label}]: {path}")
-        except Exception as exc:
-            logger.warning(f"Failed to prepare startup file [{label}]: {exc}")
+    ensure_runtime_files(logger)
 
 # Import route modules
 # Import sessions_router

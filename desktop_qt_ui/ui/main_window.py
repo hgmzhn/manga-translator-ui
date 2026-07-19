@@ -127,6 +127,7 @@ class MainWindow(MSFluentWindow):
             ("env", self.main_view.env_page, FIF.CONNECT, self._t("API Management")),
             ("prompts", self.main_view.prompt_page, FIF.DOCUMENT, self._t("Prompt Management")),
             ("replacements", self.main_view.replacements_page, FIF.EDIT, self._t("Replacement Rules")),
+            ("rich_text_rules", self.main_view.rich_text_rules_page, FIF.FONT, self._t("Rich Text Rules")),
         ]
         for key, page, icon, text in pages:
             page.setObjectName(f"main_{key}_page")
@@ -158,6 +159,9 @@ class MainWindow(MSFluentWindow):
         elif page_key == "replacements":
             if hasattr(self.main_view, "replacements_editor_panel"):
                 self.main_view.replacements_editor_panel.refresh()
+        elif page_key == "rich_text_rules":
+            if hasattr(self.main_view, "rich_text_rules_editor_panel"):
+                self.main_view.rich_text_rules_editor_panel.refresh()
 
     def _ensure_editor_initialized(self):
         if self.editor_view is not None:
@@ -672,6 +676,7 @@ class MainWindow(MSFluentWindow):
             "env": self._t("API Management"),
             "prompts": self._t("Prompt Management"),
             "replacements": self._t("Replacement Rules"),
+            "rich_text_rules": self._t("Rich Text Rules"),
         }
         for key, text in nav_labels.items():
             item = getattr(self, "_main_navigation_items", {}).get(key)

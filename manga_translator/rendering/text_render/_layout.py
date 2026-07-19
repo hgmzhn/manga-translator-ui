@@ -51,26 +51,19 @@ from ._vertical_types import (
 )
 
 _HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({'！': '!', '？': '?'})
-_VERTICAL_ASCII_ROTATE = {chr(i) for i in range(0x21, 0x7F)}
-_VERTICAL_ROTATE_OPEN_BRACKETS = {'「', '『', '（', '《', '〈', '【', '〖', '〔', '［', '｛', '(', '“', '‘'}
-_VERTICAL_ROTATE_CLOSE_BRACKETS = {'」', '』', '）', '》', '〉', '】', '〗', '〕', '］', '｝', ')', '”', '’'}
-_VERTICAL_OPEN_BRACKETS = _VERTICAL_ROTATE_OPEN_BRACKETS | {'﹁', '﹃', '︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
-_VERTICAL_CLOSE_BRACKETS = _VERTICAL_ROTATE_CLOSE_BRACKETS | {'﹂', '﹄', '︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
+# 普通自动旋转字符已移到 rich_text_rules.yaml。四个弯引号与四个日文
+# 角引号保留渲染引擎特殊路径：自动旋转 90°，再做顶右/底左定位。
+_VERTICAL_ROTATE_OPEN_SPECIALS = {'“', '‘', '「', '『'}
+_VERTICAL_ROTATE_CLOSE_SPECIALS = {'”', '’', '」', '』'}
+_VERTICAL_OPEN_BRACKETS = _VERTICAL_ROTATE_OPEN_SPECIALS | {'﹁', '﹃', '︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
+_VERTICAL_CLOSE_BRACKETS = _VERTICAL_ROTATE_CLOSE_SPECIALS | {'﹂', '﹄', '︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
 _VERTICAL_PUNCT_UP = {'。', '．', '，', '、', '·', '：', '；', '！', '？', '︒', '︐', '︑', '︓', '︔', '︕', '︖', '﹅', '﹆'}
-_VERTICAL_ROTATE_NONBRACKET = {'⸺', '…', '⋯', '～', '-', '–', '—', '﹏', '●', '•', '~'}
-_VERTICAL_ROTATE_CHARS = (
-    _VERTICAL_ASCII_ROTATE
-    | _VERTICAL_ROTATE_NONBRACKET
-    | _VERTICAL_ROTATE_OPEN_BRACKETS
-    | _VERTICAL_ROTATE_CLOSE_BRACKETS
-)
+_VERTICAL_ROTATE_CHARS = _VERTICAL_ROTATE_OPEN_SPECIALS | _VERTICAL_ROTATE_CLOSE_SPECIALS
 _VERTICAL_COMPACT_SLOT = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS | _VERTICAL_PUNCT_UP
 _VERTICAL_HALF_ADVANCE = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS
 
-_VERTICAL_ROTATE_ALIGN_TOP_RIGHT = {'「', '『', '“', '‘'}
-_VERTICAL_ROTATE_ALIGN_BOTTOM_LEFT = {'」', '』', '”', '’'}
-_VERTICAL_ALIGN_TOP_RIGHT = {'﹁', '﹃'} | _VERTICAL_ROTATE_ALIGN_TOP_RIGHT
-_VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'} | _VERTICAL_ROTATE_ALIGN_BOTTOM_LEFT
+_VERTICAL_ALIGN_TOP_RIGHT = {'﹁', '﹃'} | _VERTICAL_ROTATE_OPEN_SPECIALS
+_VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'} | _VERTICAL_ROTATE_CLOSE_SPECIALS
 _VERTICAL_ALIGN_TOP_CENTER = {'︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
 _VERTICAL_ALIGN_BOTTOM_CENTER = {'︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
 _VERTICAL_PUNCT_CENTER = {'。', '．', '，', '、', '·', '︒', '︐', '︑', '﹅'}
@@ -85,7 +78,7 @@ _VERTICAL_FORCE_COMPACT_RE = re.compile(
 
 def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     """渲染层不替换字符，只返回方向相关的旋转信息。"""
-    if direction == 1 and (cdpt == 'ー' or cdpt in _VERTICAL_ROTATE_CHARS):
+    if direction == 1 and cdpt in _VERTICAL_ROTATE_CHARS:
         return cdpt, 90
     return cdpt, 0
 
@@ -833,6 +826,15 @@ def _build_vertical_char_plan(
         )
         off_x += layer_dx
         off_y += layer_dy
+    advance_y = int(base.advance_y)
+    if span.style.transform.rotation and height > 0:
+        advance_y = _vertical_free_rotation_advance(
+            base,
+            height,
+            span.style.transform.rotation,
+        )
+        # 扩大的槽位上下均分，保持旋转墨迹以原槽位中心为锚点。
+        off_y += (float(advance_y) - float(base.advance_y)) / 2.0
     return VerticalCharPlan(
         span=span,
         base=base,
@@ -840,7 +842,7 @@ def _build_vertical_char_plan(
         fill=fill,
         stroke=stroke,
         stroke_ratio=stroke_ratio,
-        advance_y=base.advance_y,
+        advance_y=advance_y,
         pre_advance_y=int(round(span.style.pre_kerning * font_size)),
         post_advance_y=int(round(span.style.kerning * font_size)),
         paint_width=int(width),
@@ -1132,6 +1134,27 @@ def _vertical_rotated_advance(glyph: GlyphRaster, font_size: int, bitmap_char: O
     if bitmap_char is not None and bitmap_char.size:
         return int(bitmap_char.shape[0])
     return int(font_size)
+
+
+def _vertical_free_rotation_advance(
+    base: VerticalGlyphBase,
+    paint_height: int,
+    rotation: float,
+) -> int:
+    """按任意旋转角度计算竖排槽位，只扩大、不压缩原推进量。"""
+    base_advance = max(float(base.advance_y), 1.0)
+    angle = math.radians(float(rotation or 0.0))
+    logical_width = max(float(base.frame_width), float(base.advance_x), 1.0)
+    projected_height = (
+        abs(logical_width * math.sin(angle))
+        + abs(base_advance * math.cos(angle))
+    )
+    return max(
+        int(base.advance_y),
+        int(math.ceil(projected_height)),
+        int(math.ceil(max(float(paint_height), 0.0))),
+        1,
+    )
 
 
 def _vertical_space_advance(font_size: int, letter_spacing: float = 1.0) -> int:

@@ -47,6 +47,10 @@ def main():
     init_logging()
     set_log_level(level=logging.DEBUG if args.verbose else logging.INFO)
     logger = get_logger(args.mode)
+
+    # 所有 CLI 模式在分发前统一释放外部配置表和 AI 提示词表。
+    from manga_translator.runtime_files import ensure_runtime_files
+    ensure_runtime_files(logger)
     
     # 根据模式分发
     if args.mode == 'web':

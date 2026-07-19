@@ -2490,6 +2490,31 @@ async def dispatch(
         dst_points_list = result
         debug_img = None
 
+    # 自动富文本规则必须等普通字符串完成替换、断句和自动换行后再生成文档；
+    # 对命中的少量区域补做一次富文本测量，确保局部字号、倍率、描边等样式
+    # 反映到最终渲染框。第二次测量跳过替换，BR 结构也不会再次被改写。
+    automatic_rich_indices = [
+        index for index, region in enumerate(text_regions)
+        if getattr(region, '_rich_text_rules_applied', False)
+    ]
+    if automatic_rich_indices:
+        automatic_regions = [text_regions[index] for index in automatic_rich_indices]
+        automatic_points = resize_regions_to_font_size(
+            img,
+            automatic_regions,
+            config,
+            original_img,
+            False,
+            skip_font_scaling=skip_font_scaling,
+            skip_text_replacements=True,
+        )
+        for index, points, region in zip(automatic_rich_indices, automatic_points, automatic_regions):
+            dst_points_list[index] = points
+            try:
+                delattr(region, '_rich_text_rules_applied')
+            except Exception:
+                pass
+
     for region_idx, (region, dst_points) in enumerate(tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions))):
         # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
         # 注意：这是缩放后的真实文本区域，不是 render 函数中扩展后的区域

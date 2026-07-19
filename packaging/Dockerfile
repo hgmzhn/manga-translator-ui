@@ -105,8 +105,10 @@ RUN if [ "$BUILD_TYPE" = "gpu" ]; then \
         pip install --no-cache-dir -r /tmp/requirements_cpu_no_pydensecrf.txt; \
     fi
 
-# 创建必要的目录（不覆盖已存在的目录）
-RUN mkdir -p /app/result /app/models /app/logs
+# 创建必要的目录，并由代码内置模板生成所有运行时配置表和提示词表。
+# 这些文件属于用户配置且多被 .gitignore 忽略，不能依赖宿主机已有文件。
+RUN mkdir -p /app/result /app/models /app/logs /app/config && \
+    python -c "from manga_translator.runtime_files import ensure_runtime_files; print(ensure_runtime_files())"
 
 # 备份默认数据以便在挂载空卷时恢复
 RUN cp -r /app/config /app/default_config && \

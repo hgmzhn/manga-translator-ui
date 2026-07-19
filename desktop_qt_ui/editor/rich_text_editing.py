@@ -20,6 +20,7 @@ from typing import Any
 
 from manga_translator.rendering.rich_text import (
     RICH_TEXT_FORMAT,
+    TextStyle,
     ensure_rich_text_document,
     is_rich_text_document,
     legacy_line_breaks_to_document,
@@ -71,6 +72,61 @@ def visible_text_from_document(document: Any) -> str:
 
 def document_to_storage_text(document: Any) -> str:
     return plain_text_to_storage_text(visible_text_from_document(document))
+
+
+def normalize_text_style(style: Any) -> dict:
+    """富文本编辑器与规则编辑器共享的样式校验/归一化入口。"""
+    if not isinstance(style, dict):
+        style = {}
+    return TextStyle.from_dict(copy.deepcopy(style)).to_dict()
+
+
+def text_style_to_control_values(style: Any) -> dict:
+    """把 richtext.v1 嵌套样式展开成控件可直接读写的扁平值。"""
+    style = normalize_text_style(style)
+    transform = style.get("transform") or {}
+    stroke = style.get("stroke") or {}
+    outer_stroke = style.get("outerStroke") or {}
+    glow = style.get("glow") or {}
+    return {
+        "bold": bool(style.get("bold", False)),
+        "emphasis": bool(style.get("emphasis", False)),
+        "italic": style.get("italic"),
+        "color": style.get("color"),
+        "fontSize": style.get("fontSize"),
+        "scale": style.get("scale"),
+        "fontFamily": style.get("fontFamily"),
+        "stroke": copy.deepcopy(stroke) or None,
+        "outerStroke": copy.deepcopy(outer_stroke) or None,
+        "glow": copy.deepcopy(glow) or None,
+        "kerning": style.get("kerning"),
+        "preKerning": style.get("preKerning"),
+        "lineKerning": style.get("lineKerning"),
+        "nextKerning": style.get("nextKerning"),
+        "rotation": transform.get("rotation"),
+        "offsetX": transform.get("offsetX"),
+        "offsetY": transform.get("offsetY"),
+    }
+
+
+def text_style_from_control_values(values: dict, enabled: set[str]) -> dict:
+    """由共享控件值构建严格的 richtext.v1 style。未启用字段不写入。"""
+    style: dict[str, Any] = {}
+    for key in (
+        "bold", "emphasis", "italic", "color", "fontSize", "scale",
+        "fontFamily", "stroke", "outerStroke", "glow", "kerning",
+        "preKerning", "lineKerning", "nextKerning",
+    ):
+        if key in enabled:
+            style[key] = copy.deepcopy(values.get(key))
+    transform = {
+        key: values.get(key)
+        for key in ("rotation", "offsetX", "offsetY")
+        if key in enabled
+    }
+    if transform:
+        style["transform"] = transform
+    return normalize_text_style(style)
 
 
 # ---------------------------------------------------------------------------
