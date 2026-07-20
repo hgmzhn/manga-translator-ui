@@ -3,16 +3,23 @@ from time import perf_counter
 
 import cv2
 import numpy as np
+from editor.render_text_value import (
+    has_renderable_text,
+    render_text_value_from_text_block,
+)
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QImage, QPixmap, QPolygonF
 
-from editor.render_text_value import has_renderable_text, render_text_value_from_text_block
 from manga_translator.rendering import text_render
-from manga_translator.rendering.rich_text import has_legacy_line_breaks, legacy_line_breaks_to_document, plain_text_of
+from manga_translator.rendering.rich_text import (
+    has_legacy_line_breaks,
+    legacy_line_breaks_to_document,
+    plain_text_of,
+)
 from manga_translator.rendering.text_render import (
     set_font,
 )
-from manga_translator.utils import TextBlock
+from manga_translator.utils import TextBlock, parse_color
 
 logger = logging.getLogger('manga_translator')
 
@@ -132,8 +139,13 @@ def render_text_image_for_region(text_block: TextBlock, dst_points: np.ndarray, 
         render_h = round(norm_v)
         font_size = text_block.font_size
 
-        # 从 text_block 获取默认颜色
-        fg_color, bg_color_default = text_block.get_font_colors()
+        # 区域属性面板修改的颜色已经解析到 render_params。
+        # 直接从这份当次渲染快照取值，避免继续使用 TextBlock 中的
+        # 旧 fg_colors，导致画布预览在选色后仍保持原颜色。
+        text_block_fg, bg_color_default = text_block.get_font_colors()
+        fg_color = parse_color(render_params.get('font_color'), None)
+        if fg_color is None:
+            fg_color = text_block_fg
         
         # 优先使用 render_params 中用户设置的描边颜色
         bg_color = render_params.get('text_stroke_color', bg_color_default)
