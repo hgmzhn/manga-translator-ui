@@ -360,6 +360,9 @@ class ExportService:
             image_key,
             mask,
             config,
+            # 编辑器的 translation 字段恒为替换后终稿（translation_raw 才是替换前），
+            # 标记后 load_text 重渲染不再二次替换
+            skip_text_replacements=True,
             preserve_existing_preprocess_flags=True,
             last_export_dir=last_export_dir,
         )

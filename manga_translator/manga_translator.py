@@ -798,6 +798,13 @@ class MangaTranslator:
             data_to_save['skip_font_scaling'] = True
         elif preserved_skip_font_scaling is not None:
             data_to_save['skip_font_scaling'] = bool(preserved_skip_font_scaling)
+
+        # 渲染过的 ctx，region.translation 已被 prepare_text_replacements_for_layout
+        # 就地替换为终稿（translation_raw 保留替换前文本）；标记后 load_text 重渲染
+        # 不再二次替换。未渲染的导出（translate_json_only / 导出原文）译文仍是原始的，
+        # 保持缺省 False，导入渲染时才应用替换规则。
+        if getattr(ctx, 'img_rendered', None) is not None:
+            data_to_save['skip_text_replacements'] = True
         
         # 添加超分和上色配置信息
         if config:
