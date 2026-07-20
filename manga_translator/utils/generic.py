@@ -527,7 +527,9 @@ def dump_image(
                 return Image.fromarray(img)
             img = np.concatenate([img.astype(np.uint8), alpha_array[..., None]], axis = 2)
     else:
-        img = img.astype(np.uint8)
+        # 无 alpha 通道时 paste(mask=None) 就是全量覆盖，结果等价于渲染数组本身；
+        # 直接构造 RGB 结果，省去整页 convert('RGBA')/resize/paste 三次拷贝
+        return Image.fromarray(img.astype(np.uint8, copy=False))
     result = img_pil.convert('RGBA').resize((img.shape[1], img.shape[0]))
     result.paste(Image.fromarray(img), mask = mask_for_paste)
     return result

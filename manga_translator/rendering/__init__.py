@@ -1395,7 +1395,9 @@ def resize_regions_to_font_size(
 
     balloon_fill_mask = None
     balloon_fill_label_map = None
-    if mode == 'balloon_fill' and original_img is not None:
+    # skip_font_scaling（编辑器授权布局）恒用 center_box 锚点，气泡蒙版不参与摆放；
+    # 仅 verbose 调试图仍需要蒙版做可视化
+    if mode == 'balloon_fill' and original_img is not None and (not skip_font_scaling or return_debug_img):
         try:
             model_result = get_cached_bubbles_with_mangalens(original_img, return_annotated=False, verbose=False)
             if model_result is None:
@@ -1433,9 +1435,15 @@ def resize_regions_to_font_size(
             balloon_fill_label_map = None
 
     # Bubble mask for center_text_in_bubble: reuse balloon_fill_mask or try mangalens cache
+    # （skip_font_scaling 时锚点固定为 center_box，气泡居中不生效，不做无谓的蒙版构建）
     center_check_mask = balloon_fill_mask
     center_check_label_map = balloon_fill_label_map
-    if center_check_mask is None and config.render.center_text_in_bubble and original_img is not None:
+    if (
+        center_check_mask is None
+        and config.render.center_text_in_bubble
+        and original_img is not None
+        and not skip_font_scaling
+    ):
         try:
             _cr = get_cached_bubbles_with_mangalens(original_img, return_annotated=False, verbose=False)
             if _cr is not None:

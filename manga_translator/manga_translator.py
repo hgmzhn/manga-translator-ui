@@ -1229,12 +1229,15 @@ class MangaTranslator:
             return None
     
     def set_preloaded_load_text_payload(self, image_name: str, payload: Optional[dict]) -> None:
-        """注册内存直通的 load_text 载荷（编辑器导出用），跳过 JSON/蒙版/修复图的磁盘读取。
+        """注册内存直通的 load_text 载荷（编辑器导出通道）。
 
-        payload 结构与 _translations.json 中单图数据一致（regions、skip_font_scaling 等），
+        注册了载荷即视为编辑器导出（ctx.editor_export=True）：内容与布局是
+        编辑器授权的最终稿，后端只做纯渲染——跳过文本替换、跳过工程 JSON
+        回写；skip_font_scaling 默认 True（center_box 锚点，气泡蒙版不参与摆放）。
+
+        payload 结构与 _translations.json 中单图数据一致（regions 等），
         额外约定：mask_raw 可直接传 np.ndarray（跳过 base64+PNG 编解码）；
-        inpainted_rgb 传编辑器当前修复图（RGB ndarray，跳过修复图落盘/重读）；
-        skip_json_writeback（默认 True）阻止渲染后回写工程 JSON。
+        inpainted_rgb 传编辑器当前修复图（RGB ndarray，跳过修复图落盘/重读）。
         载荷会被解析过程原地消费，每次 translate 前需重新注册。
         """
         if not image_name:
@@ -1312,6 +1315,10 @@ class MangaTranslator:
         else:
             logger.warning(f"Invalid data format in JSON file {text_file_path}.")
             return None, None, False, True, False, 0
+
+        if preloaded is not None:
+            # 编辑器导出：文本替换在编辑阶段已生效，恒跳过
+            skip_text_replacements = True
 
         regions = []
         parse_failure_count = 0
@@ -1909,6 +1916,12 @@ class MangaTranslator:
         
         logger.info(f"模型 {tool}/{model} 已卸载，内存已清理")
 
+    # gc.collect() 的耗时取决于进程内对象总数（torch 进程约百毫秒级），与待释放内存无关；
+    # 大数组由引用计数即时回收，Python 自动分代 GC 兜底循环引用，
+    # 显式全堆扫描按时间限流（覆盖交互式导出的常见间隔）
+    _GC_MIN_INTERVAL_S = 60.0
+    _last_gc_collect_ts = 0.0
+
     def _cleanup_gpu_memory(self, aggressive: bool = False):
         """清理 GPU 显存的辅助方法。
 
@@ -1916,8 +1929,11 @@ class MangaTranslator:
             aggressive: 是否执行激进清理（empty_cache/ipc_collect）。
                         批次边界与模型卸载后建议 True。
         """
-        import gc
-        gc.collect()
+        now = time.monotonic()
+        if now - MangaTranslator._last_gc_collect_ts >= MangaTranslator._GC_MIN_INTERVAL_S:
+            import gc
+            gc.collect()
+            MangaTranslator._last_gc_collect_ts = now
 
         # 仅在 CUDA 设备下执行显存清理；MPS 目前无等价 empty_cache。
         device_str = str(getattr(self, 'device', ''))
@@ -3463,11 +3479,11 @@ class MangaTranslator:
                             ctx.config = config
                             ctx.inpainted_regenerated = False
 
-                            # 内存直通载荷（编辑器导出）：附带修复图与回写开关
+                            # 统一标志：注册过内存载荷 == 编辑器导出。
+                            # 后端视为授权终稿，只做纯渲染（不回写 JSON、不做文本替换、
+                            # 蒙版已精炼、修复图直接复用）。
                             preloaded_payload = self._preloaded_load_text_payloads.get(image_name) if image_name else None
-                            ctx.skip_json_writeback = (
-                                bool(preloaded_payload.get('skip_json_writeback', True)) if preloaded_payload else False
-                            )
+                            ctx.editor_export = preloaded_payload is not None
                             
                             # 加载翻译数据
                             loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling, skip_text_replacements, region_parse_failures = self._load_text_and_regions_from_file(image_name, config)
@@ -3510,11 +3526,25 @@ class MangaTranslator:
 
                             import_yolo_labels = bool(getattr(config.detector, 'import_yolo_labels', False))
                             if loaded_mask is not None or not import_yolo_labels:
-                                # load_text 跳过文本检测阶段；如果当前配置依赖气泡缓存
-                                # （例如 balloon_fill / 气泡内居中 / 模型气泡过滤），这里补做一次预热。
-                                # 导入 YOLO 框且需要重新跑检测生成 mask 的场景，后续 _run_detection 会自行预热，
-                                # 这里避免重复调用。
-                                self._prime_bubble_detection_cache(config, ctx.img_rgb)
+                                # load_text 不跑 OCR；skip_font_scaling（编辑器授权布局）恒用
+                                # center_box 锚点，气泡蒙版不参与摆放，渲染侧也不消费气泡缓存。
+                                # 只有自动布局（balloon_fill/气泡内居中）或仍需蒙版精炼且开启
+                                # "膨胀限制在气泡内"时才预热。
+                                # 导入 YOLO 框且需要重新跑检测生成 mask 的场景，后续 _run_detection 会自行预热。
+                                mask_refinement_will_run = not (loaded_mask is not None and mask_is_refined)
+                                render_needs_bubble_cache = (
+                                    not skip_font_scaling
+                                    and (
+                                        getattr(config.render, 'layout_mode', None) == 'balloon_fill'
+                                        or bool(getattr(config.render, 'center_text_in_bubble', False))
+                                    )
+                                )
+                                needs_bubble_cache = render_needs_bubble_cache or (
+                                    bool(getattr(config.ocr, 'limit_mask_dilation_to_bubble_mask', False))
+                                    and mask_refinement_will_run
+                                )
+                                if needs_bubble_cache:
+                                    self._prime_bubble_detection_cache(config, ctx.img_rgb)
 
                             # 处理 mask
                             if loaded_mask is not None:
@@ -3718,11 +3748,11 @@ class MangaTranslator:
                                 ctx = await self._revert_upscale(config, ctx)
 
                             # load_text模式：渲染后回写JSON（同步最新regions，包含translation/font_size等字段）
-                            # 内存直通导出（编辑器已自行持久化工程 JSON）时跳过回写
+                            # 编辑器导出（编辑器已自行持久化工程 JSON）时跳过回写
                             if (
                                 hasattr(ctx, 'text_regions') and ctx.text_regions is not None
                                 and hasattr(ctx, 'image_name') and ctx.image_name
-                                and not getattr(ctx, 'skip_json_writeback', False)
+                                and not getattr(ctx, 'editor_export', False)
                             ):
                                 parse_failures = getattr(ctx, 'load_text_parse_failures', 0)
                                 if parse_failures:
@@ -4032,12 +4062,8 @@ class MangaTranslator:
                         await report_completed_image_progress()
 
                         # ✅ 渲染完一张立即清理这张图片的中间数据（不等整个批次完成）
+                        # （内部 gc 已按时间限流，无需再周期性强制回收）
                         self._cleanup_context_memory(ctx, keep_result=True)
-
-                        # 每渲染3张图片就强制垃圾回收一次
-                        if (idx + 1) % 3 == 0:
-                            import gc
-                            gc.collect()
 
                     except Exception as e:
                         logger.error(f"Error rendering image in batch: {e}", exc_info=True)

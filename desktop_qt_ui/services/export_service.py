@@ -581,13 +581,13 @@ class ExportService:
     ) -> Dict[str, Any]:
         """构造后端 load_text 的内存直通载荷（等价于临时 _translations.json 的单图数据）。
 
+        载荷本身就是"编辑器导出"标识：后端视为已授权的最终稿，只做纯渲染
+        （跳过文本替换、JSON 回写，蒙版视为已精炼，修复图直接复用）。
         regions 经 CustomJSONEncoder 往返，保证与"写盘再读回"的解析结果一致；
         蒙版与修复图直接携带 ndarray，跳过 PNG/base64 编解码。
         """
         save_data = self._normalize_regions_for_backend(regions_data, config)
         payload = json.loads(json.dumps({'regions': save_data}, ensure_ascii=False, cls=CustomJSONEncoder))
-        payload['skip_text_replacements'] = True
-        payload['skip_json_writeback'] = True
         if mask is not None:
             # 编辑器蒙版视为已精炼，后端跳过蒙版优化（与旧临时 JSON 行为一致）
             payload['mask_raw'] = np.asarray(mask)
