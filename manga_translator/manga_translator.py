@@ -16,7 +16,7 @@ import numpy as np
 import py3langid as langid
 import regex as re
 import torch
-from PIL import Image
+from PIL import Image, ImageFile
 
 from .config import Colorizer, Config, Inpainter, Renderer, Translator
 from .server_paths import normalize_server_resource_path
@@ -350,6 +350,8 @@ class MangaTranslator:
         
         self._batch_contexts = []  # 存储批量处理的上下文
         self._batch_configs = []   # 存储批量处理的配置
+        # 内存直通载荷：image_name -> load_text 数据 dict（编辑器导出等场景跳过磁盘往返）
+        self._preloaded_load_text_payloads = {}
         # batch_concurrent 四并发模式（默认关闭，可通过配置开启）
         self.batch_concurrent = params.get('batch_concurrent', False)
         
@@ -1226,43 +1228,65 @@ class MangaTranslator:
             logger.warning(f"Failed to get/create default template: {e}")
             return None
     
+    def set_preloaded_load_text_payload(self, image_name: str, payload: Optional[dict]) -> None:
+        """注册内存直通的 load_text 载荷（编辑器导出用），跳过 JSON/蒙版/修复图的磁盘读取。
+
+        payload 结构与 _translations.json 中单图数据一致（regions、skip_font_scaling 等），
+        额外约定：mask_raw 可直接传 np.ndarray（跳过 base64+PNG 编解码）；
+        inpainted_rgb 传编辑器当前修复图（RGB ndarray，跳过修复图落盘/重读）；
+        skip_json_writeback（默认 True）阻止渲染后回写工程 JSON。
+        载荷会被解析过程原地消费，每次 translate 前需重新注册。
+        """
+        if not image_name:
+            return
+        if payload is None:
+            self._preloaded_load_text_payloads.pop(image_name, None)
+        else:
+            self._preloaded_load_text_payloads[image_name] = payload
+
     def _load_text_and_regions_from_file(self, image_path: str, config: Config):
         """加载翻译数据，支持新的目录结构和向后兼容"""
         if not image_path:
             return None, None, False, True, False, 0
 
-        # 使用path_manager查找JSON文件（新位置优先）
-        text_file_path = find_json_path(image_path)
+        preloaded = self._preloaded_load_text_payloads.get(image_path)
+        if preloaded is not None:
+            # 内存直通：编辑器导出直接注入数据，跳过 JSON 文件查找与解析
+            text_file_path = f"<preloaded:{os.path.basename(image_path)}>"
+            image_data = preloaded
+        else:
+            # 使用path_manager查找JSON文件（新位置优先）
+            text_file_path = find_json_path(image_path)
 
-        if not text_file_path:
-            # 检查旧的TXT格式
-            base_path, _ = os.path.splitext(image_path)
-            text_file_path_txt = base_path + '_translations.txt'
-            if os.path.exists(text_file_path_txt):
-                # If the old format is found, load from it
-                regions = self._load_text_and_regions_from_txt_file(image_path)
-                # Since old format doesn't have mask, we return None for mask and refined status
-                return regions, None, False, True, False, 0
-            else:
-                logger.info(f"Translation file not found for: {image_path}")
+            if not text_file_path:
+                # 检查旧的TXT格式
+                base_path, _ = os.path.splitext(image_path)
+                text_file_path_txt = base_path + '_translations.txt'
+                if os.path.exists(text_file_path_txt):
+                    # If the old format is found, load from it
+                    regions = self._load_text_and_regions_from_txt_file(image_path)
+                    # Since old format doesn't have mask, we return None for mask and refined status
+                    return regions, None, False, True, False, 0
+                else:
+                    logger.info(f"Translation file not found for: {image_path}")
+                    return None, None, False, True, False, 0
+
+            try:
+                # Force UTF-8 encoding to handle potential file encoding issues
+                with open(text_file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to read or parse translation file {text_file_path}: {e}")
                 return None, None, False, True, False, 0
 
-        try:
-            # Force UTF-8 encoding to handle potential file encoding issues
-            with open(text_file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to read or parse translation file {text_file_path}: {e}")
-            return None, None, False, True, False, 0
+            # Don't check the image key. Assume the user knows what they are doing
+            # and that the first entry in the JSON is the one they want to load.
+            if not data or len(data.values()) == 0:
+                logger.warning(f"JSON file {text_file_path} is empty or invalid.")
+                return None, None, False, True, False, 0
 
-        # Don't check the image key. Assume the user knows what they are doing
-        # and that the first entry in the JSON is the one they want to load.
-        if not data or len(data.values()) == 0:
-            logger.warning(f"JSON file {text_file_path} is empty or invalid.")
-            return None, None, False, True, False, 0
-
-        # Get the first value from the dictionary, regardless of the key.
-        image_data = next(iter(data.values()))
+            # Get the first value from the dictionary, regardless of the key.
+            image_data = next(iter(data.values()))
         mask_is_refined = False
         skip_font_scaling = True
         skip_text_replacements = False
@@ -1388,7 +1412,10 @@ class MangaTranslator:
                 continue
         
         mask_raw = None
-        if isinstance(mask_raw_data, str):
+        if isinstance(mask_raw_data, np.ndarray):
+            # 内存直通载荷直接携带 ndarray 蒙版，跳过 base64/PNG 编解码
+            mask_raw = mask_raw_data.astype(np.uint8, copy=False)
+        elif isinstance(mask_raw_data, str):
             try:
                 import base64
 
@@ -1988,6 +2015,44 @@ class MangaTranslator:
         # 强制垃圾回收和GPU显存清理
         self._cleanup_gpu_memory()
         logger.debug('[MEMORY] Context cleanup completed')
+
+    @staticmethod
+    def _detach_context_result(ctx):
+        """Make ctx.result independent from input images and lazy file handles."""
+        result = getattr(ctx, 'result', None)
+        if result is None:
+            return
+        aliased = (
+            result is getattr(ctx, 'input', None)
+            or result is getattr(ctx, 'upscaled', None)
+            or result is getattr(ctx, 'img_colorized', None)
+        )
+        # dump_image 产物是全新的内存图像；只有输入别名或仍持文件句柄的图才需要复制
+        file_backed = isinstance(result, ImageFile.ImageFile) or getattr(result, 'fp', None) is not None
+        if not aliased and not file_backed:
+            return
+        result.load()
+        ctx.result = result.copy()
+
+    @staticmethod
+    def _align_preloaded_inpainted(inpainted, img_rgb):
+        """将内存直通载荷里的修复图规整为与工作图同尺寸的 RGB uint8 数组。"""
+        if inpainted is None or img_rgb is None:
+            return None
+        arr = np.asarray(inpainted)
+        if arr.ndim == 2:
+            arr = np.repeat(arr[:, :, None], 3, axis=2)
+        elif arr.ndim == 3 and arr.shape[2] > 3:
+            arr = arr[:, :, :3]
+        elif arr.ndim != 3:
+            logger.warning(f"[load_text] preloaded inpainted shape invalid: {arr.shape}, ignored")
+            return None
+        if arr.dtype != np.uint8:
+            arr = np.clip(arr, 0, 255).astype(np.uint8)
+        target_h, target_w = img_rgb.shape[:2]
+        if arr.shape[0] != target_h or arr.shape[1] != target_w:
+            arr = cv2.resize(arr, (target_w, target_h), interpolation=cv2.INTER_LANCZOS4)
+        return np.ascontiguousarray(arr)
 
     
     def _cleanup_batch_memory(self, current_batch_images=None, preprocessed_contexts=None, translated_contexts=None, keep_results=True):
@@ -3396,6 +3461,13 @@ class MangaTranslator:
                             ctx.verbose = self.verbose
                             ctx.save_quality = self.save_quality
                             ctx.config = config
+                            ctx.inpainted_regenerated = False
+
+                            # 内存直通载荷（编辑器导出）：附带修复图与回写开关
+                            preloaded_payload = self._preloaded_load_text_payloads.get(image_name) if image_name else None
+                            ctx.skip_json_writeback = (
+                                bool(preloaded_payload.get('skip_json_writeback', True)) if preloaded_payload else False
+                            )
                             
                             # 加载翻译数据
                             loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling, skip_text_replacements, region_parse_failures = self._load_text_and_regions_from_file(image_name, config)
@@ -3415,7 +3487,11 @@ class MangaTranslator:
                             # 有区域解析失败时禁止回写 JSON，避免把丢失的区域覆盖进工程文件
                             ctx.load_text_parse_failures = region_parse_failures
                             
-                            existing_inpainted_path = find_inpainted_path(image_name) if image_name else None
+                            preloaded_inpainted_raw = preloaded_payload.get('inpainted_rgb') if preloaded_payload else None
+                            # 内存里已有编辑器修复图时，无需再扫描磁盘上的历史修复图
+                            existing_inpainted_path = None
+                            if preloaded_inpainted_raw is None and image_name:
+                                existing_inpainted_path = find_inpainted_path(image_name)
 
                             # load_text 始终基于原图处理，不走上色/超分，也不把已有修复图塞进 img_colorized/upscaled
                             ctx.img_colorized = ctx.input
@@ -3510,7 +3586,10 @@ class MangaTranslator:
                                     mask_arr = mask_arr.astype(np.uint8, copy=False)
 
                                 setattr(ctx, mask_attr, mask_arr)
-                            
+
+                            # 编辑器修复图对齐到工作图尺寸，供后续分支直接复用
+                            preloaded_inpainted = self._align_preloaded_inpainted(preloaded_inpainted_raw, ctx.img_rgb)
+
                             # load_text 支持“仅修复”模式：即使没有文字区域，只要 JSON 里有可用蒙版，也执行修复。
                             if not ctx.text_regions:
                                 mask_for_inpainting = ctx.mask if ctx.mask is not None else ctx.mask_raw
@@ -3534,7 +3613,10 @@ class MangaTranslator:
                                         ctx.mask = np.asarray(mask_for_inpainting, dtype=np.uint8)
 
                                     generated_inpainted_in_load_text = False
-                                    if existing_inpainted_path and loaded_mask is not None:
+                                    if preloaded_inpainted is not None:
+                                        ctx.img_inpainted = preloaded_inpainted
+                                        logger.info("Load text mode: using editor-provided inpainted image for mask-only import.")
+                                    elif existing_inpainted_path and loaded_mask is not None:
                                         try:
                                             existing_inpainted_image = open_pil_image(existing_inpainted_path, eager=False)
                                             existing_inpainted_rgb, _ = load_image(existing_inpainted_image)
@@ -3553,6 +3635,7 @@ class MangaTranslator:
                                         ctx.img_inpainted = await self._run_inpainting(config, ctx)
                                         generated_inpainted_in_load_text = True
 
+                                    ctx.inpainted_regenerated = generated_inpainted_in_load_text
                                     if (
                                         generated_inpainted_in_load_text
                                         and image_name
@@ -3585,6 +3668,9 @@ class MangaTranslator:
                                 if self._should_skip_inpainting_for_ai_renderer(config):
                                     logger.info("AI renderer selected: skipping inpainting and using original work image as render base.")
                                     ctx.img_inpainted = ctx.img_rgb
+                                elif preloaded_inpainted is not None:
+                                    ctx.img_inpainted = preloaded_inpainted
+                                    logger.info("Load text mode: using editor-provided inpainted image, skipping inpainting.")
                                 elif existing_inpainted_path and loaded_mask is not None:
                                     try:
                                         existing_inpainted_image = open_pil_image(existing_inpainted_path, eager=False)
@@ -3603,6 +3689,7 @@ class MangaTranslator:
                                     ctx.img_inpainted = await self._run_inpainting(config, ctx)
                                     generated_inpainted_in_load_text = True
 
+                                ctx.inpainted_regenerated = generated_inpainted_in_load_text
                                 if (
                                     generated_inpainted_in_load_text
                                     and image_name
@@ -3610,7 +3697,7 @@ class MangaTranslator:
                                     and self.save_text
                                 ):
                                     self._save_inpainted_image(image_name, ctx.img_inpainted)
-                                
+
                                 # Rendering - load_text按JSON中的skip_font_scaling控制：True=跳过字体缩放，False=执行字体缩放
                                 await self._report_progress('rendering')
                                 ctx.img_rendered = await self._run_text_rendering(
@@ -3631,7 +3718,12 @@ class MangaTranslator:
                                 ctx = await self._revert_upscale(config, ctx)
 
                             # load_text模式：渲染后回写JSON（同步最新regions，包含translation/font_size等字段）
-                            if hasattr(ctx, 'text_regions') and ctx.text_regions is not None and hasattr(ctx, 'image_name') and ctx.image_name:
+                            # 内存直通导出（编辑器已自行持久化工程 JSON）时跳过回写
+                            if (
+                                hasattr(ctx, 'text_regions') and ctx.text_regions is not None
+                                and hasattr(ctx, 'image_name') and ctx.image_name
+                                and not getattr(ctx, 'skip_json_writeback', False)
+                            ):
                                 parse_failures = getattr(ctx, 'load_text_parse_failures', 0)
                                 if parse_failures:
                                     # 保险丝：有区域解析失败时跳过覆盖回写，否则这些区域会
@@ -3647,7 +3739,14 @@ class MangaTranslator:
                                         logger.error(f"Error updating JSON in load_text mode for {os.path.basename(ctx.image_name)}: {save_json_err}")
                             
                             preprocessed_contexts.append((ctx, config))
-                            
+
+                            # load_text 的结果有时会复用输入图片（例如无文本区域时
+                            # ctx.result = ctx.upscaled），或仍持有输入文件的惰性句柄。
+                            # 后续内存清理会关闭输入图片，因此必须先生成完全独立的结果，
+                            # 否则调用方在 translate() 返回后 copy/save 会报：
+                            # ValueError: Operation on closed image
+                            self._detach_context_result(ctx)
+
                             # ✅ 每处理完一张图片后立即清理内存（保留result）
                             self._cleanup_context_memory(ctx, keep_result=True)
                             
