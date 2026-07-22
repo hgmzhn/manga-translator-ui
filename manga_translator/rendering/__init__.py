@@ -24,7 +24,7 @@ from ..utils import (
     get_logger,
     rotate_polygons,
 )
-from . import text_render, text_render_hq
+from . import text_render
 from .auto_linebreak import (
     _is_chinese_lang,
     solve_no_br_layout,
@@ -2697,45 +2697,14 @@ def render(
     if config:
         config._current_region = region
 
-    # 使用 Qt 离屏渲染器
-    # 检测是否需要使用高质量渲染（针对低分辨率优化）
-    text_is_structured = is_rich_text_document(text_to_render)
-    if text_is_structured:
-        # 仅由 BR 转换产生的"纯文本 + 换行"文档（无任何样式/注音/纵中横）
-        # 回退等价多行字符串，走纯字符串渲染路径，保住 HQ 超采样；
-        # 带样式的文档保持结构化路径（text_render_hq 不支持富文本）。
+    # 使用 Qt 离屏渲染器。仅由 BR 转换产生的无样式文档继续使用
+    # 等价多行字符串，保持现有纯文本布局行为。
+    if is_rich_text_document(text_to_render):
         plain_equivalent = plain_equivalent_text(text_to_render)
         if plain_equivalent is not None:
             text_to_render = plain_equivalent
-            text_is_structured = False
-    use_hq_render = (not text_is_structured) and text_render_hq.should_use_hq_rendering(
-        region.font_size,
-        (img.shape[1], img.shape[0]),
-    )
-    
-    if use_hq_render:
-        logger.debug(f"[HQ_RENDER] 使用高质量渲染模式 (font_size={region.font_size})")
-        temp_box = text_render_hq.render_text_with_upscale(
-            font_size=region.font_size,
-            text=text_to_render,
-            width=round(norm_h[0]),
-            height=round(norm_v[0]),
-            alignment=region.alignment,
-            fg=fg,
-            bg=bg,
-            line_spacing=line_spacing,
-            config=config,
-            is_horizontal=render_horizontally,
-            upscale_factor=None,  # 自动计算
-            region_count=len(region.lines),
-            # 横排专用参数
-            reversed_direction=(region.direction == 'hl'),
-            target_lang=region.target_lang,
-            hyphenate=hyphenate,
-            stroke_width=region.stroke_width,  # 传递区域的描边宽度
-            letter_spacing=letter_spacing,
-        )
-    elif render_horizontally:
+
+    if render_horizontally:
         temp_box = text_render.put_text_horizontal(
             region.font_size,
             text_to_render,

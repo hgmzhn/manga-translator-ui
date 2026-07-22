@@ -5,7 +5,7 @@ _shared（工具/缓存原语）→ _fonts（Qt 字体运行时）→ _glyphs（
 _compose（图层合成与特效，独立）→ _layout（横竖排布局与包络几何）→
 _render（put_text_*/measure_*/calc_* 入口）。
 
-外部消费方（rendering/__init__.py、text_render_hq、auto_linebreak、编辑器
+外部消费方（rendering/__init__.py、auto_linebreak、编辑器
 backend、server 路由、测试）只应通过本命名空间访问。
 """
 from ..rich_text import (

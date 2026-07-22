@@ -638,7 +638,12 @@ class TextBlock(object):
         if self.adjust_bg_color:
             frgb, brgb = fg_bg_compare(frgb, brgb)
 
-        return frgb, brgb
+        # 颜色是跨编辑器、JSON 和渲染器传递的普通 RGB 值，不应把
+        # TextBlock 内部用于计算的 numpy 类型泄漏给调用方。
+        return (
+            tuple(np.asarray(frgb).reshape(-1).tolist()),
+            tuple(np.asarray(brgb).reshape(-1).tolist()),
+        )
 
     @property
     def direction(self):
