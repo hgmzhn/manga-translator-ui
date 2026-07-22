@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import os
 import re
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import yaml
@@ -12,7 +13,14 @@ import yaml
 from manga_translator.runtime_paths import get_config_path
 
 from ..utils import get_logger
-from .rich_text import Paragraph, RichTextDocument, TcyRun, TextRun, TextStyle
+from .rich_text import (
+    Paragraph,
+    RichTextDocument,
+    TextRun,
+    TextStyle,
+    ensure_rich_text_document,
+    is_rich_text_document,
+)
 
 
 logger = get_logger("rich_text_rules")
@@ -22,8 +30,9 @@ _rules_cache: Dict[str, Tuple[float, dict]] = {}
 _LINE_BREAK_RE = re.compile(r"(?:\[BR\]|【BR】|<br\s*/?>|\r\n|\r|\n)", re.IGNORECASE)
 
 _DEFAULT_RULES_YAML = """# 富文本规则配置
-# 执行顺序：common -> horizontal / vertical；规则匹配的是文本替换完成后的译文。
-# 后面的规则会覆盖前面规则中重复设置的样式字段，但不会修改文字内容。
+# 界面顺序：通用（始终执行）-> 横排 / 竖排；YAML 键为 common -> horizontal / vertical。
+# 规则匹配文本替换完成后的译文。自动规则之间后面的规则可覆盖前面的同字段，
+# 但已有手工富文本的相同字段会保留，自动规则只追加尚未设置的字段。
 common:
   - enabled: false
     pattern: "示例"
@@ -132,8 +141,9 @@ def _iter_rules(rules: dict, direction: Any) -> Iterable[dict]:
 
 
 def _merge_style(base: dict, overlay: dict) -> dict:
-    result = copy.deepcopy(base)
-    for key, value in overlay.items():
+    """Merge one automatic rule over an earlier automatic rule."""
+    result = copy.deepcopy(base) if isinstance(base, dict) else {}
+    for key, value in (overlay or {}).items():
         if isinstance(value, dict) and isinstance(result.get(key), dict):
             result[key] = _merge_style(result[key], value)
         else:
@@ -141,83 +151,241 @@ def _merge_style(base: dict, overlay: dict) -> dict:
     return result
 
 
-def _runs_for_slice(text: str, styles: List[dict], start: int, end: int) -> List[TextRun]:
-    runs: List[TextRun] = []
-    cursor = start
-    while cursor < end:
-        style = styles[cursor]
-        next_cursor = cursor + 1
-        while next_cursor < end and styles[next_cursor] == style:
-            next_cursor += 1
-        runs.append(TextRun(text[cursor:next_cursor], TextStyle.from_dict(style)))
-        cursor = next_cursor
+def _add_missing_style(base: dict, automatic: dict) -> dict:
+    """Add automatic fields without replacing existing rich-text fields."""
+    result = copy.deepcopy(base) if isinstance(base, dict) else {}
+    for key, value in (automatic or {}).items():
+        if key not in result or result[key] is None:
+            result[key] = copy.deepcopy(value)
+        elif isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _add_missing_style(result[key], value)
+    return result
+
+
+@dataclass
+class _RuleEntry:
+    """One visible character while applying a rule.
+
+    ``node`` is the original ruby/tcy node (or ``None`` for a normal text
+    run).  Keeping that identity lets reconstruction split a run without
+    destroying manually-authored ruby/tcy structure.
+    """
+
+    char: str
+    style: dict
+    node: Optional[dict] = None
+    tcy: bool = False
+    automatic_style: dict = field(default_factory=dict)
+
+
+def _append_rule_run_entries(runs: Any, node: Optional[dict], entries: List[_RuleEntry]) -> None:
+    if not isinstance(runs, list):
+        return
+    for run in runs:
+        if not isinstance(run, dict) or run.get("type", "text") != "text":
+            continue
+        style = run.get("style") if isinstance(run.get("style"), dict) else {}
+        for char in str(run.get("text", "")):
+            entries.append(
+                _RuleEntry(
+                    char=char,
+                    style=copy.deepcopy(style),
+                    node=node,
+                    tcy=bool(node and node.get("type") == "tcy"),
+                )
+            )
+
+
+def _rule_entries_from_document(document: RichTextDocument) -> List[_RuleEntry]:
+    entries: List[_RuleEntry] = []
+    for block_index, block in enumerate(document.blocks):
+        for inline in block.inlines:
+            if isinstance(inline, TextRun):
+                _append_rule_run_entries(
+                    [{"type": "text", "text": inline.text, "style": inline.style.to_dict()}],
+                    None,
+                    entries,
+                )
+            elif inline.type == "ruby":
+                _append_rule_run_entries(
+                    [{"type": "text", "text": run.text, "style": run.style.to_dict()} for run in inline.base],
+                    {"type": "ruby", "text": [run.to_dict() for run in inline.text]},
+                    entries,
+                )
+            elif inline.type == "tcy":
+                _append_rule_run_entries(
+                    [{"type": "text", "text": run.text, "style": run.style.to_dict()} for run in inline.content],
+                    {"type": "tcy"},
+                    entries,
+                )
+        if block_index < len(document.blocks) - 1:
+            entries.append(_RuleEntry("\n", {}))
+    return entries
+
+
+def _rule_entries_from_text(text: str) -> List[_RuleEntry]:
+    return [_RuleEntry(char, {}) for char in text]
+
+
+def _runs_from_rule_entries(text: str, entries: List[_RuleEntry]) -> List[dict]:
+    if not text:
+        return []
+    runs: List[dict] = []
+    start = 0
+    current = entries[0].style if entries else {}
+    for index in range(1, len(text)):
+        style = entries[index].style if index < len(entries) else {}
+        if style == current:
+            continue
+        runs.append({"type": "text", "text": text[start:index], "style": copy.deepcopy(current)})
+        start = index
+        current = style
+    runs.append({"type": "text", "text": text[start:], "style": copy.deepcopy(current)})
     return runs
 
 
-def _inlines_for_slice(
-    text: str,
-    styles: List[dict],
-    tcy_flags: List[bool],
-    start: int,
-    end: int,
-) -> list:
-    inlines = []
-    cursor = start
-    while cursor < end:
-        tcy = tcy_flags[cursor]
-        next_cursor = cursor + 1
-        while next_cursor < end and tcy_flags[next_cursor] == tcy:
-            next_cursor += 1
-        runs = _runs_for_slice(text, styles, cursor, next_cursor)
-        if tcy:
-            inlines.append(TcyRun(content=runs))
-        else:
-            inlines.extend(runs)
-        cursor = next_cursor
-    return inlines
+def _document_from_rule_entries(text: str, entries: List[_RuleEntry]) -> RichTextDocument:
+    """Rebuild a document while retaining existing ruby/tcy node ownership."""
+    if len(entries) < len(text):
+        entries = entries + [_RuleEntry("", {}) for _ in range(len(text) - len(entries))]
+
+    blocks: List[Paragraph] = []
+    cursor = 0
+    for line in text.split("\n"):
+        line_end = cursor + len(line)
+        inlines: List[Any] = []
+        index = cursor
+        while index < line_end:
+            entry = entries[index]
+            node = entry.node
+            # A newly requested TCY range has no existing node.  Give this
+            # contiguous range a synthetic node, while preserving old nodes.
+            if node is None and entry.tcy:
+                node = {"type": "tcy"}
+                index_end = index + 1
+                while index_end < line_end and entries[index_end].node is None and entries[index_end].tcy:
+                    index_end += 1
+            elif node is None:
+                index_end = index + 1
+                while index_end < line_end and entries[index_end].node is None and not entries[index_end].tcy:
+                    index_end += 1
+            else:
+                index_end = index + 1
+                while index_end < line_end and entries[index_end].node is node:
+                    index_end += 1
+
+            runs = _runs_from_rule_entries(line[index - cursor:index_end - cursor], entries[index:index_end])
+            if node is None:
+                inlines.extend(runs)
+            elif node.get("type") == "ruby":
+                inlines.append({
+                    "type": "ruby",
+                    "base": runs,
+                    "text": copy.deepcopy(node.get("text", [])),
+                })
+            else:
+                inlines.append({"type": "tcy", "content": runs})
+            index = index_end
+        blocks.append(Paragraph.from_dict({"type": "paragraph", "inlines": inlines}))
+        cursor = line_end + 1
+    return RichTextDocument(blocks=blocks or [Paragraph()])
+
+
+def _rule_entry_has_manual_node(entry: _RuleEntry) -> bool:
+    return bool(entry.node and entry.node.get("type") == "ruby")
+
+
+def _normalize_rule_linebreak_entries(text: str, entries: List[_RuleEntry]) -> tuple[str, List[_RuleEntry]]:
+    """Convert legacy BR spellings to paragraph separators after matching.
+
+    Matching intentionally happens on the original string for backwards
+    compatibility (``.*`` can match a literal ``[BR]``).  The marker itself
+    is never allowed to carry an automatic style into the resulting document.
+    """
+    normalized_text: List[str] = []
+    normalized_entries: List[_RuleEntry] = []
+    cursor = 0
+    for match in _LINE_BREAK_RE.finditer(text):
+        for index in range(cursor, match.start()):
+            normalized_text.append(text[index])
+            normalized_entries.append(entries[index])
+        normalized_text.append("\n")
+        normalized_entries.append(_RuleEntry("\n", {}))
+        cursor = match.end()
+    for index in range(cursor, len(text)):
+        normalized_text.append(text[index])
+        normalized_entries.append(entries[index])
+    return "".join(normalized_text), normalized_entries
 
 
 def apply_rich_text_rules(
-    text: str,
+    text: Any,
     direction: Any,
     rules: Optional[dict] = None,
     file_path: Optional[str] = None,
 ) -> Optional[RichTextDocument]:
-    """Return a styled document, or ``None`` when no rule matched."""
-    if not isinstance(text, str) or not text:
+    """Return an additively styled document, or ``None`` when nothing changed.
+
+    ``text`` may be a plain string or an existing ``richtext.v1`` document.
+    Existing style fields are intentionally retained; rules only fill fields
+    that are absent, so automatic rules cannot overwrite editor-authored rich
+    text.
+    """
+    existing_document = None
+    if is_rich_text_document(text):
+        existing_document = ensure_rich_text_document(text)
+        match_text = existing_document.plain_text()
+        entries = _rule_entries_from_document(existing_document)
+    elif isinstance(text, str):
+        match_text = text
+        entries = _rule_entries_from_text(text)
+    else:
+        return None
+
+    if not match_text:
         return None
     rules = rules if rules is not None else load_rich_text_rules(file_path)
-    styles: List[dict] = [{} for _ in text]
-    tcy_flags = [False for _ in text]
     allow_tcy = _direction_group(direction) == "vertical"
     matched = False
+    changed = False
     for rule in _iter_rules(rules, direction):
-        for match in rule["pattern"].finditer(text):
+        for match in rule["pattern"].finditer(match_text):
             start, end = match.span()
             if start == end:
                 continue
             matched = True
             for index in range(start, end):
-                styles[index] = _merge_style(styles[index], rule["style"])
+                if index >= len(entries) or entries[index].char == "\n":
+                    continue
+                entry = entries[index]
+                entry.automatic_style = _merge_style(entry.automatic_style, rule["style"])
                 if allow_tcy and rule.get("tcy", False):
-                    tcy_flags[index] = True
-    if not matched:
+                    # Ruby cannot contain a nested TCY node.  Preserve the
+                    # hand-authored ruby and let the style portion still add.
+                    if not _rule_entry_has_manual_node(entry) and not entry.tcy:
+                        entry.tcy = True
+                        changed = True
+    for entry in entries:
+        if entry.char == "\n":
+            continue
+        merged_style = _add_missing_style(entry.style, entry.automatic_style)
+        if merged_style != entry.style:
+            entry.style = merged_style
+            changed = True
+    if not changed and (existing_document is not None or not matched):
         return None
 
-    blocks: List[Paragraph] = []
-    cursor = 0
-    for line_break in _LINE_BREAK_RE.finditer(text):
-        blocks.append(Paragraph(inlines=_inlines_for_slice(text, styles, tcy_flags, cursor, line_break.start())))
-        cursor = line_break.end()
-    blocks.append(Paragraph(inlines=_inlines_for_slice(text, styles, tcy_flags, cursor, len(text))))
-    return RichTextDocument(blocks=blocks)
+    normalized_text, normalized_entries = _normalize_rule_linebreak_entries(match_text, entries)
+    return _document_from_rule_entries(normalized_text, normalized_entries)
 
 
 def apply_rich_text_rules_to_region(region: Any, direction: Any = None) -> bool:
-    """Apply automatic rules without overwriting an existing rich-text document."""
-    if region is None or getattr(region, "translation_rich", None) is not None:
+    """Apply automatic rules while preserving existing rich-text fields."""
+    if region is None:
         return False
-    text = getattr(region, "translation", "")
+    text = getattr(region, "translation_rich", None)
+    if text is None:
+        text = getattr(region, "translation", "")
     resolved_direction = direction if direction is not None else getattr(region, "direction", "horizontal")
     try:
         document = apply_rich_text_rules(text, resolved_direction)
