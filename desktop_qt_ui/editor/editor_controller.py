@@ -487,10 +487,11 @@ class EditorController(QObject):
             if old_region_data.get("translation", "") == text:
                 continue
 
-            new_region_data = old_region_data.copy()
-            new_region_data["translation"] = text
-            # 译文批量更新时同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
-            new_region_data["translation_raw"] = text
+            new_region_data = self._replace_plain_translation(
+                old_region_data,
+                translation=text,
+                translation_raw=text,
+            )
             old_regions[index] = copy.deepcopy(old_region_data)
             new_regions[index] = new_region_data
             changed_count += 1
@@ -508,6 +509,29 @@ class EditorController(QObject):
                 description=f"Batch Update Translations ({changed_count})",
             )
         )
+
+    def _replace_plain_translation(
+        self,
+        region_data: dict,
+        *,
+        translation: str,
+        translation_raw: str,
+    ) -> dict:
+        """写入纯文本译文，并清理或按规则重建旧 ``translation_rich``。"""
+        new_region_data = region_data.copy()
+        new_region_data["translation"] = translation
+        new_region_data["translation_raw"] = translation_raw
+        new_region_data.pop("translation_rich", None)
+        try:
+            from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
+
+            direction_value = new_region_data.get("direction", "h")
+            rich_document = apply_rich_text_rules(translation, direction_value)
+            if rich_document is not None:
+                new_region_data["translation_rich"] = rich_document.to_dict()
+        except Exception as exc:
+            self.logger.warning("apply_rich_text_rules failed: %s", exc)
+        return new_region_data
 
     def _generate_export_snapshot(self) -> dict:
         return self.export_service.generate_export_snapshot()
@@ -786,19 +810,11 @@ class EditorController(QObject):
                 and old_region_data.get("translation_raw", "") == translation_raw):
             return False
 
-        new_region_data = old_region_data.copy()
-        new_region_data["translation"] = translation
-        new_region_data["translation_raw"] = translation_raw
-        new_region_data.pop("translation_rich", None)
-        try:
-            from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
-
-            direction_value = new_region_data.get("direction", "h")
-            rich_document = apply_rich_text_rules(translation, direction_value)
-            if rich_document is not None:
-                new_region_data["translation_rich"] = rich_document.to_dict()
-        except Exception as exc:
-            self.logger.warning(f"apply_rich_text_rules failed for region {region_index}: {exc}")
+        new_region_data = self._replace_plain_translation(
+            old_region_data,
+            translation=translation,
+            translation_raw=translation_raw,
+        )
 
         # translation 是 _FONT_AFFECTING_FIELDS 成员,改动后同步白框尺寸
         _sync_white_frame_size_for_font_change(
@@ -1575,12 +1591,25 @@ class EditorController(QObject):
                 if index is None or region_data is None:
                     skipped_count += 1
                     continue
-                new_region_data = applied.get(index, region_data).copy()
-                new_region_data[request.field_name] = value
+                current_region_data = applied.get(index, region_data)
+                if request.field_name == "translation":
+                    new_region_data = self._replace_plain_translation(
+                        current_region_data,
+                        translation=value,
+                        translation_raw=value,
+                    )
+                else:
+                    new_region_data = current_region_data.copy()
+                    new_region_data[request.field_name] = value
                 applied[index] = new_region_data
 
             if applied:
-                self.model.update_regions(applied, fields=[request.field_name], source="async")
+                fields = (
+                    ["translation", "translation_raw", "translation_rich"]
+                    if request.field_name == "translation"
+                    else [request.field_name]
+                )
+                self.model.update_regions(applied, fields=fields, source="async")
                 applied_count = len(applied)
         except Exception as exc:
             self.logger.error("Failed to apply async region updates: %s", exc, exc_info=True)

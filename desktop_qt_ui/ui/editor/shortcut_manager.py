@@ -274,8 +274,8 @@ class EditorShortcutManager(ShortcutManager):
     
     def _handle_export(self, focused_widget):
         """处理导出快捷键 (Ctrl+Q)"""
-        # 导出是全局操作
-        self.controller.export_image()
+        # 与工具栏共用同一入口，确保读取模型前先 flush 富文本正文和 Ruby。
+        self.editor_view.export_image()
         
     def _forward_key_to_widget(self, widget, key_code, text, shortcut_name):
         """

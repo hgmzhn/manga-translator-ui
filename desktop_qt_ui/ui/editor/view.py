@@ -414,6 +414,12 @@ class EditorView(QWidget):
         translations = self.region_list_view.get_all_translations()
         self.controller.update_multiple_translations(translations)
 
+    def export_image(self):
+        """统一导出入口：读取模型前同步提交浮动富文本编辑器。"""
+        if self.rich_text_editor is not None:
+            self.rich_text_editor.flush_pending_changes()
+        return self.controller.export_image()
+
     def _on_replace_all_clicked(self):
         """在所有译文中执行查找和替换"""
         find_text = self.find_input.text()
@@ -623,7 +629,7 @@ class EditorView(QWidget):
         self.logic.file_list_with_tree_changed.connect(self.update_file_list_with_tree)  # 支持树形结构
 
         # --- Toolbar (Top) to Controller/View ---
-        self.toolbar.export_requested.connect(self.controller.export_image)
+        self.toolbar.export_requested.connect(self.export_image)
         self.toolbar.undo_requested.connect(self.controller.undo)
         self.toolbar.redo_requested.connect(self.controller.redo)
         self.toolbar.zoom_in_requested.connect(self.graphics_view.zoom_in)

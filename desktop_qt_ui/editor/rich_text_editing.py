@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from manga_translator.rendering.rich_text import (
@@ -31,6 +32,45 @@ from manga_translator.rendering.rich_text import (
 
 def editor_text_to_plain_text(text: str) -> str:
     return str(text or "").replace("↵", "\n")
+
+
+def utf16_length(text: str) -> int:
+    """返回 Qt 文本 API 使用的 UTF-16 code unit 数。"""
+    return len(str(text or "").encode("utf-16-le")) // 2
+
+
+def python_index_to_utf16_offset(text: str, index: int) -> int:
+    """把 Python 字符索引转换为 QTextCursor/contentsChange offset。"""
+    text = str(text or "")
+    index = max(0, min(int(index), len(text)))
+    return utf16_length(text[:index])
+
+
+def utf16_offset_to_python_index(text: str, offset: int, *, round_up: bool = False) -> int:
+    """把 UTF-16 offset 转换为 Python 字符索引。
+
+    Qt 正常只会给出字符边界。若调用方传入代理对中间的位置，范围起点向下
+    取整、范围终点可通过 ``round_up=True`` 向上取整，避免拆开非 BMP 字符。
+    """
+    text = str(text or "")
+    offset = max(0, min(int(offset), utf16_length(text)))
+    units = 0
+    for index, char in enumerate(text):
+        next_units = units + (2 if ord(char) > 0xFFFF else 1)
+        if offset < next_units:
+            return index + 1 if round_up else index
+        if offset == next_units:
+            return index + 1
+        units = next_units
+    return len(text)
+
+
+def utf16_range_to_python_range(text: str, start: int, end: int) -> tuple[int, int]:
+    """把 Qt UTF-16 选区安全转换为 Python 半开区间。"""
+    start, end = sorted((int(start), int(end)))
+    py_start = utf16_offset_to_python_index(text, start)
+    py_end = utf16_offset_to_python_index(text, end, round_up=True)
+    return py_start, max(py_start, py_end)
 
 
 def plain_text_to_storage_text(text: str) -> str:
@@ -306,6 +346,50 @@ def apply_text_change(
     return _document_from_entries(new_text, new_entries[:len(new_text)])
 
 
+def apply_qt_text_change(
+    document: dict,
+    old_editor_text: str,
+    new_editor_text: str,
+    position: int,
+    chars_removed: int,
+    chars_added: int,
+) -> dict:
+    """按 ``QTextDocument.contentsChange`` 的 UTF-16 语义更新文档。
+
+    ``apply_text_change`` 的编辑逻辑使用 Python 字符索引；这里同时查看修改前
+    后文本，把 Qt 给出的 position/removed/added code units 转换成不会拆开
+    emoji 等非 BMP 字符的 Python 区间。
+    """
+    old_text = editor_text_to_plain_text(old_editor_text)
+    new_text = editor_text_to_plain_text(new_editor_text)
+    position = max(0, int(position))
+    chars_removed = max(0, int(chars_removed))
+    chars_added = max(0, int(chars_added))
+
+    old_start = utf16_offset_to_python_index(old_text, position)
+    old_end = utf16_offset_to_python_index(
+        old_text,
+        position + chars_removed,
+        round_up=True,
+    )
+    new_start = utf16_offset_to_python_index(new_text, position)
+    new_end = utf16_offset_to_python_index(
+        new_text,
+        position + chars_added,
+        round_up=True,
+    )
+    # 修改点之前的文本相同，理论上 old_start == new_start。遇到异常 signal
+    # 参数时取较小值，仍保证范围落在两份文本共同前缀内。
+    change_start = min(old_start, new_start)
+    return apply_text_change(
+        document,
+        new_text,
+        change_start,
+        max(0, old_end - change_start),
+        max(0, new_end - change_start),
+    )
+
+
 def _insertion_inheritance(entries: list[_CharEntry], position: int) -> tuple[dict, dict | None]:
     """插入字符的样式与节点归属。
 
@@ -409,11 +493,124 @@ def _wrap_range_as_node(document: dict, start: int, end: int, node_type: str, ru
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class StyledTextSegment:
+    """文档中一个真实、连续且带局部样式的可见文字区间。"""
+
+    start: int
+    end: int
+    text: str
+    style: dict
+    node_type: str | None = None
+    ruby_text: str = ""
+    node_start: int | None = None
+    node_end: int | None = None
+
+
+def styled_segments_for_range(
+    document: dict,
+    start: int = 0,
+    end: int | None = None,
+    *,
+    expand_empty: bool = True,
+) -> list[StyledTextSegment]:
+    """按文本顺序返回真实样式片段，不包含默认/空样式文字。
+
+    只合并相邻且样式、节点类型与 Ruby 文本完全相同的字符。中间只要隔着
+    无样式文字或其他样式，即使两端样式值相同也会保留为两个片段。
+    """
+    entries = _visible_entries(document)
+    if end is None:
+        end = len(entries)
+    start, end = _normalize_range(entries, start, end, expand_empty=expand_empty)
+    if start >= end:
+        return []
+
+    normalized_styles: dict[int, dict] = {}
+    node_ranges: dict[int, tuple[int, int]] = {}
+    for index, entry in enumerate(entries):
+        if entry.node is None or entry.char == "\n":
+            continue
+        node_id = id(entry.node)
+        node_start, node_end = node_ranges.get(node_id, (index, index + 1))
+        node_ranges[node_id] = (min(node_start, index), max(node_end, index + 1))
+    segments: list[StyledTextSegment] = []
+    current: dict[str, Any] | None = None
+
+    def finish_current() -> None:
+        nonlocal current
+        if current is None:
+            return
+        segments.append(StyledTextSegment(
+            start=current["start"],
+            end=current["end"],
+            text="".join(current["chars"]),
+            style=copy.deepcopy(current["style"]),
+            node_type=current["node_type"],
+            ruby_text=current["ruby_text"],
+            node_start=current["node_start"],
+            node_end=current["node_end"],
+        ))
+        current = None
+
+    for index in range(start, end):
+        entry = entries[index]
+        if entry.char == "\n":
+            finish_current()
+            continue
+
+        style_id = id(entry.style)
+        style = normalized_styles.get(style_id)
+        if style is None:
+            style = normalize_text_style(entry.style)
+            normalized_styles[style_id] = style
+
+        node = entry.node if isinstance(entry.node, dict) else None
+        node_type = node.get("type") if node is not None else None
+        ruby_text = _runs_text(node.get("text", [])) if node_type == "ruby" else ""
+        node_range = node_ranges.get(id(node)) if node is not None else None
+        if not style and node_type not in {"ruby", "tcy"}:
+            finish_current()
+            continue
+
+        can_merge = (
+            current is not None
+            and current["end"] == index
+            and current["style"] == style
+            and current["node_type"] == node_type
+            and current["ruby_text"] == ruby_text
+            and (
+                node_type is None
+                or (current["node_start"], current["node_end"]) == node_range
+            )
+        )
+        if not can_merge:
+            finish_current()
+            current = {
+                "start": index,
+                "end": index + 1,
+                "chars": [entry.char],
+                "style": style,
+                "node_type": node_type,
+                "ruby_text": ruby_text,
+                "node_start": node_range[0] if node_range else None,
+                "node_end": node_range[1] if node_range else None,
+            }
+        else:
+            current["end"] = index + 1
+            current["chars"].append(entry.char)
+
+    finish_current()
+    return segments
+
+
 def selected_range_from_editor(text_edit) -> tuple[int, int]:
     cursor = text_edit.textCursor()
-    start = min(cursor.selectionStart(), cursor.selectionEnd())
-    end = max(cursor.selectionStart(), cursor.selectionEnd())
-    return start, end
+    return utf16_range_to_python_range(
+        text_edit.toPlainText(),
+        cursor.selectionStart(),
+        cursor.selectionEnd(),
+    )
 
 
 def style_for_range(document: dict, start: int, end: int) -> dict:
@@ -526,37 +723,72 @@ def _ruby_texts_in_range(entries: list[_CharEntry], start: int, end: int) -> lis
 
 def styled_text_for_key(document: dict, start: int, end: int, row_key: str) -> str:
     entries = _visible_entries(document)
-    visible_text = _entries_text(entries)
-    visible_len = len(entries)
-    start = max(0, min(int(start), visible_len))
-    end = max(start, min(int(end), visible_len))
-    if start != end:
-        return _compact_display_text(visible_text[start:end])
-
+    start, end = _normalize_range(entries, start, end, expand_empty=True)
     matches: list[str] = []
-    index = 0
-    while index < visible_len:
-        node = entries[index].node
-        group_start = index
-        index += 1
-        while index < visible_len and entries[index].node is node:
-            index += 1
-        group_text = visible_text[group_start:index]
-        if isinstance(node, dict) and group_text:
-            if row_key == "R" and node.get("type") == "ruby":
-                matches.append(group_text)
-            elif row_key == "T" and node.get("type") == "tcy":
-                matches.append(group_text)
-        run_start = group_start
-        while run_start < index:
-            run_entry = entries[run_start]
-            run_end = run_start + 1
-            while run_end < index and entries[run_end].run is run_entry.run:
-                run_end += 1
-            if run_entry.char != "\n" and _style_matches_row_key(run_entry.style or {}, row_key):
-                matches.append(visible_text[run_start:run_end])
-            run_start = run_end
-    return _compact_display_text(" / ".join(item for item in matches if item))
+    current_chars: list[str] = []
+    current_signature: Any = _UNSET
+
+    def finish_match() -> None:
+        nonlocal current_signature
+        if not current_chars:
+            return
+        matches.append(_compact_display_text("".join(current_chars)))
+        current_chars.clear()
+        current_signature = _UNSET
+
+    for entry in entries[start:end]:
+        if entry.char == "\n":
+            finish_match()
+            continue
+        signature = _style_row_value(entry, row_key)
+        if signature is _UNSET:
+            finish_match()
+            continue
+        if current_chars and signature != current_signature:
+            finish_match()
+        current_signature = signature
+        current_chars.append(entry.char)
+    finish_match()
+    return " / ".join(item for item in matches if item)
+
+
+def _style_row_value(entry: _CharEntry, row_key: str) -> Any:
+    node = entry.node if isinstance(entry.node, dict) else None
+    if row_key == "R":
+        if node is not None and node.get("type") == "ruby":
+            return ("ruby", _runs_text(node.get("text", [])))
+        return _UNSET
+    if row_key == "T":
+        return True if node is not None and node.get("type") == "tcy" else _UNSET
+
+    style = entry.style or {}
+    if not _style_matches_row_key(style, row_key):
+        return _UNSET
+    if row_key == "B":
+        return bool(style.get("bold"))
+    if row_key == "C":
+        return style.get("color")
+    if row_key == "I":
+        return style.get("italic")
+    if row_key == "S":
+        return style.get("fontSize")
+    if row_key == "%":
+        return style.get("scale")
+    if row_key == "F":
+        return style.get("fontFamily")
+    if row_key in {"O", "G", "OS"}:
+        source = {"O": "stroke", "G": "glow", "OS": "outerStroke"}[row_key]
+        return copy.deepcopy(style.get(source))
+    if row_key == "D":
+        return bool(style.get("emphasis"))
+    if row_key in {"Rot", "XY", "M", "MV"}:
+        transform = style.get("transform") or {}
+        if row_key == "Rot":
+            return transform.get("rotation")
+        if row_key == "XY":
+            return (transform.get("offsetX"), transform.get("offsetY"))
+        return bool(transform.get("mirrorX" if row_key == "M" else "mirrorY"))
+    return style.get({"K": "kerning", "PK": "preKerning", "LK": "lineKerning", "NK": "nextKerning"}.get(row_key))
 
 
 def _style_matches_row_key(style: dict, row_key: str) -> bool:
