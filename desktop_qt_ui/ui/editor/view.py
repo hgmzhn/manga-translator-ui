@@ -4,7 +4,7 @@ from typing import Any
 from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
-from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QSizePolicy,
@@ -23,7 +23,7 @@ from qfluentwidgets import (
     SimpleCardWidget,
     ToolButton,
 )
-from services import get_i18n_manager
+from services import get_config_service, get_i18n_manager
 from ui.widgets.editor_toolbar import EditorToolbar
 from ui.widgets.file_list_view import FileListView
 from ui.widgets.hover_hint import set_hover_hint
@@ -43,9 +43,6 @@ class EditorView(QWidget):
     LEFT_TRANSLATION_ROUTE = "editor_left_translation"
     LEFT_PROPERTY_ROUTE = "editor_left_property"
 
-    # --- 定义信号 ---
-    back_to_main_requested = pyqtSignal()
-    
     def __init__(self, app_logic: Any, model: EditorModel, controller: EditorController, logic: EditorLogic, parent=None):
         super().__init__(parent)
         self.app_logic = app_logic
@@ -53,6 +50,9 @@ class EditorView(QWidget):
         self.controller = controller
         self.logic = logic
         self.i18n = get_i18n_manager()
+        self.config_service = getattr(controller, "config_service", None) or get_config_service()
+        self._snap_enabled = self._read_editor_snap_enabled()
+        self._rich_text_popup_enabled = self._read_editor_rich_text_popup_enabled()
         self._compare_mode_enabled = False
         self.toolbar: EditorToolbar | None = None
         self.main_splitter: QSplitter | None = None
@@ -88,7 +88,11 @@ class EditorView(QWidget):
         self.layout.setSpacing(0)
 
         # 1. 顶部工具栏
-        self.toolbar = EditorToolbar(self)
+        self.toolbar = EditorToolbar(
+            self,
+            snap_enabled=self._snap_enabled,
+            rich_text_popup_enabled=self._rich_text_popup_enabled,
+        )
         self.toolbar.setFixedHeight(56)
         self.layout.addWidget(self.toolbar)
 
@@ -130,6 +134,91 @@ class EditorView(QWidget):
         if self.i18n:
             return self.i18n.translate(key, **kwargs)
         return key
+
+    def _read_editor_snap_enabled(self, config=None) -> bool:
+        """兼容配置模型和 config_changed 字典载荷。"""
+        if config is None and self.config_service is not None:
+            config = self.config_service.get_config()
+
+        if isinstance(config, dict):
+            app_config = config.get("app", {})
+            return bool(app_config.get("editor_snap_enabled", False))
+
+        app_config = getattr(config, "app", None)
+        return bool(getattr(app_config, "editor_snap_enabled", False))
+
+    def _read_editor_rich_text_popup_enabled(self, config=None) -> bool:
+        """读取富文本浮窗开关，旧配置缺少字段时保持原有的默认显示行为。"""
+        if config is None and self.config_service is not None:
+            config = self.config_service.get_config()
+
+        if isinstance(config, dict):
+            app_config = config.get("app", {})
+            return bool(app_config.get("editor_rich_text_popup_enabled", True))
+
+        app_config = getattr(config, "app", None)
+        return bool(getattr(app_config, "editor_rich_text_popup_enabled", True))
+
+    def _apply_editor_snap_enabled(self, enabled: bool):
+        enabled = bool(enabled)
+        self._snap_enabled = enabled
+        if self.toolbar is not None:
+            self.toolbar.set_snap_enabled(enabled)
+        if self.graphics_view is not None:
+            self.graphics_view.set_snap_enabled(enabled)
+
+    def _apply_editor_rich_text_popup_enabled(self, enabled: bool):
+        enabled = bool(enabled)
+        changed = enabled != self._rich_text_popup_enabled
+        self._rich_text_popup_enabled = enabled
+        if self.toolbar is not None:
+            self.toolbar.set_rich_text_popup_enabled(enabled)
+
+        editor = self.rich_text_editor
+        if editor is None:
+            return
+        if not enabled:
+            self._rich_editor_anchor_region = -1
+            self._rich_editor_anchor_side = None
+            if changed or editor.isVisible():
+                # clear_region 会先刷新去抖期内的编辑内容，再解除绑定并隐藏。
+                editor.clear_region()
+            return
+        if changed:
+            self._on_selection_changed_for_rich_editor(self.model.get_selection())
+
+    @pyqtSlot(bool)
+    def _on_editor_snap_enabled_changed(self, enabled: bool):
+        """应用并持久化顶部通用菜单中的编辑器吸附开关。"""
+        enabled = bool(enabled)
+        self._apply_editor_snap_enabled(enabled)
+        if self.config_service is None:
+            return
+
+        current_config = self.config_service.get_config()
+        if self._read_editor_snap_enabled(current_config) != enabled:
+            self.config_service.update_config({"app": {"editor_snap_enabled": enabled}})
+        self.config_service.save_config_file()
+
+    @pyqtSlot(bool)
+    def _on_editor_rich_text_popup_enabled_changed(self, enabled: bool):
+        """应用并持久化富文本浮动编辑器的显示开关。"""
+        enabled = bool(enabled)
+        self._apply_editor_rich_text_popup_enabled(enabled)
+        if self.config_service is None:
+            return
+
+        current_config = self.config_service.get_config()
+        if self._read_editor_rich_text_popup_enabled(current_config) != enabled:
+            self.config_service.update_config(
+                {"app": {"editor_rich_text_popup_enabled": enabled}}
+            )
+        self.config_service.save_config_file()
+
+    @pyqtSlot(dict)
+    def _on_config_changed(self, config: dict):
+        self._apply_editor_snap_enabled(self._read_editor_snap_enabled(config))
+        self._apply_editor_rich_text_popup_enabled(self._read_editor_rich_text_popup_enabled(config))
 
     def force_save_property_panel_edits(self):
         """强制保存property panel中的文本编辑"""
@@ -352,6 +441,9 @@ class EditorView(QWidget):
     def _on_selection_changed_for_rich_editor(self, selected_indices: list):
         if self.rich_text_editor is None:
             return
+        if not self._rich_text_popup_enabled:
+            self.rich_text_editor.hide()
+            return
         if not selected_indices or len(selected_indices) != 1:
             self._rich_editor_anchor_region = -1
             self._rich_editor_anchor_side = None
@@ -407,6 +499,10 @@ class EditorView(QWidget):
         editor.refresh_region_if_changed(region_index, region_data)
 
     def _position_rich_text_editor_for_selection(self, *args):
+        if not self._rich_text_popup_enabled:
+            if self.rich_text_editor is not None:
+                self.rich_text_editor.hide()
+            return
         selected = self.model.get_selection()
         if selected and len(selected) == 1:
             if self.rich_text_editor is not None and self.rich_text_editor.is_manually_positioned():
@@ -420,10 +516,14 @@ class EditorView(QWidget):
             self.rich_text_editor.hide()
 
     def _restore_rich_text_editor_after_region_drag(self):
+        if not self._rich_text_popup_enabled:
+            return
         # 等几何提交和可能的 item 重建完成后，再按新位置恢复浮动编辑器。
         QTimer.singleShot(0, self._show_rich_text_editor_after_region_drag)
 
     def _show_rich_text_editor_after_region_drag(self):
+        if not self._rich_text_popup_enabled:
+            return
         editor = self.rich_text_editor
         selected = self.model.get_selection()
         if editor is None or not selected or len(selected) != 1:
@@ -438,7 +538,11 @@ class EditorView(QWidget):
         editor.raise_()
 
     def _position_rich_text_editor(self, region_index: int):
-        if self.rich_text_editor is None or self.graphics_view is None:
+        if (
+            not self._rich_text_popup_enabled
+            or self.rich_text_editor is None
+            or self.graphics_view is None
+        ):
             return
         region_items = getattr(self.graphics_view, "_region_items", [])
         if not (0 <= region_index < len(region_items)):
@@ -519,7 +623,6 @@ class EditorView(QWidget):
         self.logic.file_list_with_tree_changed.connect(self.update_file_list_with_tree)  # 支持树形结构
 
         # --- Toolbar (Top) to Controller/View ---
-        self.toolbar.back_requested.connect(self.back_to_main_requested)
         self.toolbar.export_requested.connect(self.controller.export_image)
         self.toolbar.undo_requested.connect(self.controller.undo)
         self.toolbar.redo_requested.connect(self.controller.redo)
@@ -530,6 +633,13 @@ class EditorView(QWidget):
         self.toolbar.original_image_alpha_changed.connect(self.controller.set_original_image_alpha)
         self.toolbar.align_requested.connect(self._on_align_requested)
         self.toolbar.distribute_requested.connect(self._on_distribute_requested)
+        self.toolbar.snap_enabled_changed.connect(self._on_editor_snap_enabled_changed)
+        self.toolbar.rich_text_popup_enabled_changed.connect(
+            self._on_editor_rich_text_popup_enabled_changed
+        )
+
+        if self.config_service is not None:
+            self.config_service.config_changed.connect(self._on_config_changed)
 
         # --- Model to Toolbar (同步滑块) ---
         self.model.original_image_alpha_changed.connect(self.toolbar.set_original_image_alpha_slider)
@@ -602,6 +712,7 @@ class EditorView(QWidget):
 
         # 画布（滚动条已在 GraphicsView 中配置）
         self.graphics_view = GraphicsView(self.model, controller=self.controller, parent=self)
+        self.graphics_view.set_snap_enabled(self._snap_enabled)
         self.original_compare_view.set_source_view(self.graphics_view)
         edit_canvas_layout.addWidget(self.graphics_view)
         self.rich_text_editor = RichTextFloatingEditor(self.graphics_view.viewport())

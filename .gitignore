@@ -277,6 +277,7 @@ manga-image-translator-ui-package-v2.2.0/
 # Codex local workspace metadata
 /.codex/
 /.agents/
+/AGENTS.md
 
 # Local GitHub command presets
 .github/commands/

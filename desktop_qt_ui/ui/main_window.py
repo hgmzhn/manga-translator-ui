@@ -6,7 +6,7 @@ from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, QUrl, p
 from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import FluentIcon as FIF
-from qfluentwidgets import MSFluentWindow, NavigationItemPosition
+from qfluentwidgets import FluentWindow, NavigationItemPosition
 
 from app_logic import MainAppLogic
 from services import (
@@ -22,10 +22,11 @@ from ui.secondary_pages.themed_message_box import show_error_dialog
 from utils.app_version import format_app_title, get_app_version
 
 
-class MainWindow(MSFluentWindow):
+class MainWindow(FluentWindow):
     """
-    应用主窗口，继承自 QMainWindow。
-    负责承载所有UI组件、菜单栏、工具栏等。
+    应用主窗口。
+    负责承载所有UI组件、侧边导航、页面切换等。
+    侧边栏默认收起为窄图标条，点左上角汉堡按钮可展开（参照 AiNiee 的配置）。
     """
     def __init__(self):
         super().__init__()
@@ -47,6 +48,15 @@ class MainWindow(MSFluentWindow):
         x = (screen.width() - self.width()) // 2
         y = (screen.height() - self.height()) // 2
         self.move(x, y)
+
+        # 侧边栏：默认收起（48px 窄图标条），悬停显示提示，点汉堡按钮展开
+        self.navigationInterface.setExpandWidth(200)
+        self.navigationInterface.setUpdateIndicatorPosOnCollapseFinished(True)
+        self.navigationInterface.setReturnButtonVisible(False)
+
+        # 顶部标题栏压窄：默认 48 → 36，内容区上边距同步收紧
+        self.titleBar.setFixedHeight(36)
+        self.widgetLayout.setContentsMargins(0, 36, 0, 0)
         
         # 窗口图标已在 main.py 中设置，这里不需要重复设置
         
@@ -191,7 +201,6 @@ class MainWindow(MSFluentWindow):
         )
 
         self.app_logic.config_loaded.connect(self.editor_view.property_panel.repopulate_options)
-        self.editor_view.back_to_main_requested.connect(lambda: self.switchTo(self.main_view.translation_interface))
 
         self.editor_view._apply_editor_style(self.current_applied_theme)
         self.editor_view.property_panel.repopulate_options()
@@ -682,6 +691,8 @@ class MainWindow(MSFluentWindow):
             item = getattr(self, "_main_navigation_items", {}).get(key)
             if item is not None and hasattr(item, "setText"):
                 item.setText(text)
+                # 收起状态下条目靠悬停提示识别，语言切换时一并刷新
+                item.setToolTip(text)
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""

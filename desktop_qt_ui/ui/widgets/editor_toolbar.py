@@ -1,16 +1,22 @@
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QProxyStyle,
     QSizePolicy,
+    QStyle,
     QWidget,
 )
 from qfluentwidgets import (
+    Action,
     BodyLabel,
     CardWidget,
-    ComboBox,
+    CheckableMenu,
+    DropDownPushButton,
     FluentIcon as FIF,
-    PushButton,
+    MenuIndicatorType,
+    RoundMenu,
     SingleDirectionScrollArea,
     Slider,
     ToolButton,
@@ -21,12 +27,54 @@ from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
 
 
+class _LeadingIndicatorMenuStyle(QProxyStyle):
+    """给左侧选中标记腾出独立列，排列为：标记 → 图标 → 文字。"""
+
+    CONTENT_OFFSET = 24
+
+    def subElementRect(self, element, option, widget=None):
+        rect = super().subElementRect(element, option, widget)
+        if element == QStyle.SubElement.SE_ItemViewItemDecoration:
+            rect.translate(self.CONTENT_OFFSET, 0)
+        elif element == QStyle.SubElement.SE_ItemViewItemText:
+            rect.setLeft(rect.left() + self.CONTENT_OFFSET)
+        return rect
+
+
+class _IconCheckableMenu(CheckableMenu):
+    """带独立左侧选中标记列和语义图标列的 CheckableMenu。"""
+
+    def __init__(self, title="", parent=None, indicatorType=MenuIndicatorType.CHECK):
+        super().__init__(title, parent, indicatorType)
+        self._leading_indicator_style = _LeadingIndicatorMenuStyle(self.view.style())
+        self._leading_indicator_style.setParent(self.view)
+        self.view.setStyle(self._leading_indicator_style)
+
+
+class _StayOpenCheckableMenu(_IconCheckableMenu):
+    """点击选项后不关闭的单选菜单。
+
+    排列菜单需要一次打开后连续操作（切参照、连续对齐/分布），
+    父类 _onItemClicked 会先 _hideMenu 再触发动作，这里跳过关闭。
+    菜单仍可通过点击外部/Esc 正常关闭。
+    """
+
+    def _onItemClicked(self, item):
+        action = item.data(Qt.ItemDataRole.UserRole)
+        if action not in self._actions or not action.isEnabled():
+            return
+        action.trigger()
+
+
 class EditorToolbar(CardWidget):
     """
-    编辑器顶部工具栏，包含返回、导出、撤销/重做、缩放、视图模式等全局操作。
+    编辑器顶部工具栏。常驻控件只保留适应窗口、原图不透明度滑条，
+    其余操作分装进三个单级下拉菜单（不分级）：
+    「菜单」= 导出/撤销重做/缩放 + 通用开关；「显示模式」= 画布显示单选；
+    「排列」= 参照单选 + 对齐/分布文字选项（点击不关闭，可连续操作）。
+    返回主页不设入口：主窗口侧边栏随时可切换页面。
     """
     # --- Define signals for all actions ---
-    back_requested = pyqtSignal()
     export_requested = pyqtSignal()
     undo_requested = pyqtSignal()
     redo_requested = pyqtSignal()
@@ -37,15 +85,34 @@ class EditorToolbar(CardWidget):
     original_image_alpha_changed = pyqtSignal(int)
     align_requested = pyqtSignal(str)
     distribute_requested = pyqtSignal(str)
+    snap_enabled_changed = pyqtSignal(bool)
+    rich_text_popup_enabled_changed = pyqtSignal(bool)
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        snap_enabled: bool = False,
+        rich_text_popup_enabled: bool = True,
+    ):
         super().__init__(parent)
         self.i18n = get_i18n_manager()
         self._themed_icon_buttons: list[tuple[ToolButton, str]] = []
         self.content_widget: QWidget | None = None
+        # 菜单在语言切换时整体重建，所有需要恢复的状态都存在字段里
+        self._display_mode = "full"
+        self._align_ref = "selection"
+        self._can_undo = False
+        self._can_redo = False
+        self._export_enabled = True
+        self._last_selection_count = 0
+        self._snap_enabled = bool(snap_enabled)
+        self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
+        self.main_menu: RoundMenu | None = None
+        self.display_menu: RoundMenu | None = None
+        self.arrange_menu: RoundMenu | None = None
         self._init_ui()
         self._connect_signals()
-    
+
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
         if self.i18n:
@@ -75,51 +142,27 @@ class EditorToolbar(CardWidget):
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(10)
 
-        # --- File Actions ---
-        self.back_button = ToolButton()
-        self.back_button.setIcon(FIF.RETURN)
-        set_hover_hint(self.back_button, self._t("Back to Main"))
-        layout.addWidget(self.back_button)
+        # --- 下拉菜单组：通用 / 显示模式 / 排列（每个都是单级菜单，功能不分级） ---
+        self.menu_button = DropDownPushButton()
+        self.menu_button.setIcon(FIF.MENU)
+        self.menu_button.setText(self._t("Menu"))
+        layout.addWidget(self.menu_button)
 
-        self.export_button = PushButton()
-        self.export_button.setIcon(FIF.IMAGE_EXPORT)
-        self.export_button.setText(self._t("Export Image"))
-        set_hover_hint(self.export_button, self._t("Export current rendered image") + " (Ctrl+Q)")
-        layout.addWidget(self.export_button)
+        self.display_mode_button = DropDownPushButton()
+        self.display_mode_button.setIcon(FIF.VIEW)
+        self.display_mode_button.setText(self._t("Display Mode"))
+        layout.addWidget(self.display_mode_button)
 
-        layout.addWidget(self._create_separator())
+        self.arrange_button = DropDownPushButton()
+        self.arrange_button.setIcon(FIF.LAYOUT)
+        self.arrange_button.setText(self._t("Arrange"))
+        layout.addWidget(self.arrange_button)
 
-        # --- Edit Actions ---
-        self.undo_button = ToolButton()
-        self.undo_button.setIcon(FIF.LEFT_ARROW)
-        self.undo_button.setEnabled(False)
-        set_hover_hint(self.undo_button, self._t("Undo last operation") + " (Ctrl+Z)")
-        layout.addWidget(self.undo_button)
-
-        self.redo_button = ToolButton()
-        self.redo_button.setIcon(FIF.RIGHT_ARROW)
-        self.redo_button.setEnabled(False)
-        set_hover_hint(self.redo_button, self._t("Redo last undone operation") + " (Ctrl+Y)")
-        layout.addWidget(self.redo_button)
+        self._build_menus()
 
         layout.addWidget(self._create_separator())
 
-        # --- View Actions ---
-        self.zoom_out_button = ToolButton()
-        self.zoom_out_button.setIcon(FIF.ZOOM_OUT)
-        set_hover_hint(self.zoom_out_button, self._t("Zoom Out (-)"))
-        layout.addWidget(self.zoom_out_button)
-
-        self.zoom_label = BodyLabel("100%")
-        self.zoom_label.setMinimumWidth(40)
-        self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.zoom_label)
-
-        self.zoom_in_button = ToolButton()
-        self.zoom_in_button.setIcon(FIF.ZOOM_IN)
-        set_hover_hint(self.zoom_in_button, self._t("Zoom In (+)"))
-        layout.addWidget(self.zoom_in_button)
-
+        # --- 常驻: 适应窗口 ---
         self.fit_window_button = ToolButton()
         self.fit_window_button.setIcon(FIF.FIT_PAGE)
         set_hover_hint(self.fit_window_button, self._t("Fit to Window"))
@@ -127,129 +170,242 @@ class EditorToolbar(CardWidget):
 
         layout.addWidget(self._create_separator())
 
-        self.display_mode_label = BodyLabel(self._t("Display Mode:"))
-        layout.addWidget(self.display_mode_label)
-        
-        self.display_mode_combo = ComboBox()
-        self._populate_display_mode_items()
-        # 需要容纳新增的“原图对比”模式
-        self.display_mode_combo.setFixedWidth(180)
-        layout.addWidget(self.display_mode_combo)
-        layout.addWidget(self._create_separator())
-
+        # --- 常驻: 原图不透明度 ---
         self.opacity_label = BodyLabel(self._t("Original Image Opacity:"))
         layout.addWidget(self.opacity_label)
         self.original_image_alpha_slider = Slider(Qt.Orientation.Horizontal)
         self.original_image_alpha_slider.setRange(0, 100)
-        self.original_image_alpha_slider.setValue(0) # Default to 0 (fully transparent, show inpainted)
-        # 设置滑块自适应，较小的最小宽度
-        self.original_image_alpha_slider.setMinimumWidth(80)
+        self.original_image_alpha_slider.setValue(0)  # Default to 0 (fully transparent, show inpainted)
+        self.original_image_alpha_slider.setMinimumWidth(140)
         layout.addWidget(self.original_image_alpha_slider)
 
-        layout.addWidget(self._create_separator())
-
-        # --- Align / Distribute ---
-        self._build_align_distribute_ui(layout)
-
-        layout.addStretch() # Pushes everything to the left
+        layout.addStretch()  # Pushes everything to the left
         self.content_widget.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.scroll_area.setWidget(self.content_widget)
         self.scroll_area.enableTransparentBackground()
         self._sync_content_width()
 
     # ------------------------------------------------------------------
-    # 对齐/分布 UI — 单行 PS 风格布局
+    # 主菜单
     # ------------------------------------------------------------------
 
-    def _build_align_distribute_ui(self, layout: QHBoxLayout):
-        """构建对齐/分布按钮组：单行 PS 风格。"""
-        BTN_W = 28
+    def _build_menus(self):
+        """构建三个独立的单级下拉菜单。语言切换时整体重建，状态从字段恢复。"""
+        old_menus = [self.main_menu, self.display_menu, self.arrange_menu]
+        # 旧菜单里的主题图标按钮即将销毁，先清空登记表防止悬空引用
+        self._themed_icon_buttons.clear()
 
-        def _make_icon_btn(icon_file: str, tip: str):
-            btn = ToolButton()
-            btn.setIcon(themed_fluent_svg_icon(icon_file))
-            btn.setToolTip(tip)
-            btn.setFixedSize(QSize(BTN_W + 2, BTN_W + 2))
-            btn.setIconSize(QSize(BTN_W, BTN_W))
-            btn.setEnabled(False)
-            self._themed_icon_buttons.append((btn, icon_file))
-            return btn
+        # --- 通用菜单：导出 / 撤销重做 / 缩放 / 持久化开关 ---
+        menu = _IconCheckableMenu(parent=self, indicatorType=MenuIndicatorType.CHECK)
 
-        # 参照模式切换（独立放在外面）
-        self.align_ref_button = PushButton()
-        self.align_ref_button.setText(self._t("Selection"))
-        self.align_ref_button.setIcon(FIF.LAYOUT)
-        self.align_ref_button.setToolTip(self._t("Align reference: selection (bounding box) / canvas (whole image)"))
-        self._align_ref = "selection"
-        self._last_selection_count = 0
-        self.align_ref_button.clicked.connect(self._toggle_align_ref)
-        layout.addWidget(self.align_ref_button)
-        layout.addWidget(self._create_separator())
+        # 导出的真实快捷键 Ctrl+Q 由 EditorShortcutManager 全局注册，这里只做文本提示
+        self.export_action = Action(FIF.IMAGE_EXPORT, self._t("Export Image") + " (Ctrl+Q)")
+        self.export_action.setEnabled(self._export_enabled)
+        self.export_action.triggered.connect(self.export_requested)
+        menu.addAction(self.export_action)
+        menu.addSeparator()
 
-        # ── 第 1 组: 左对齐 / 水平居中 / 右对齐 / 垂直间距分布 ──
-        self.align_buttons: dict[str, ToolButton] = {}
-        group1 = [
-            ("left", "align_left.svg", self._t("Align Left")),
-            ("horizontal_center", "align_horizontal_center.svg", self._t("Align Horizontal Center")),
-            ("right", "align_right.svg", self._t("Align Right")),
+        # 撤销/重做的真实快捷键由 EditorShortcutManager 全局注册（带焦点感知），
+        # 这里只在文本上做提示，不设 QAction shortcut，避免双重触发。
+        self.undo_action = Action(FIF.LEFT_ARROW, self._t("Undo") + " (Ctrl+Z)")
+        self.undo_action.setEnabled(self._can_undo)
+        self.undo_action.triggered.connect(self.undo_requested)
+        menu.addAction(self.undo_action)
+
+        self.redo_action = Action(FIF.RIGHT_ARROW, self._t("Redo") + " (Ctrl+Y)")
+        self.redo_action.setEnabled(self._can_redo)
+        self.redo_action.triggered.connect(self.redo_requested)
+        menu.addAction(self.redo_action)
+        menu.addSeparator()
+
+        self.zoom_in_action = Action(FIF.ZOOM_IN, self._t("Zoom In (+)"))
+        self.zoom_in_action.triggered.connect(self.zoom_in_requested)
+        menu.addAction(self.zoom_in_action)
+
+        self.zoom_out_action = Action(FIF.ZOOM_OUT, self._t("Zoom Out (-)"))
+        self.zoom_out_action.triggered.connect(self.zoom_out_requested)
+        menu.addAction(self.zoom_out_action)
+
+        menu.addSeparator()
+        self.snap_action = Action(
+            themed_fluent_svg_icon("ic_fluent_target_arrow_24_regular.svg"),
+            self._t("Enable Editor Snapping"),
+        )
+        self.snap_action.setCheckable(True)
+        self.snap_action.setChecked(self._snap_enabled)
+        self.snap_action.triggered.connect(self._on_snap_action_triggered)
+        menu.addAction(self.snap_action)
+
+        self.rich_text_popup_action = Action(
+            themed_fluent_svg_icon("ic_fluent_text_edit_style_24_regular.svg"),
+            self._t("Show Rich Text Editor Popup"),
+        )
+        self.rich_text_popup_action.setCheckable(True)
+        self.rich_text_popup_action.setChecked(self._rich_text_popup_enabled)
+        self.rich_text_popup_action.triggered.connect(self._on_rich_text_popup_action_triggered)
+        menu.addAction(self.rich_text_popup_action)
+
+        self.main_menu = menu
+        self.menu_button.setMenu(menu)
+
+        # --- 显示模式菜单：五种画布显示状态单选 ---
+        display_menu = CheckableMenu(parent=self, indicatorType=MenuIndicatorType.RADIO)
+        display_group = QActionGroup(display_menu)
+        display_group.setExclusive(True)
+        self.display_mode_actions: dict[str, Action] = {}
+        for mode, text_key in self._display_mode_definitions():
+            action = Action(self._t(text_key))
+            action.setCheckable(True)
+            action.setChecked(mode == self._display_mode)
+            action.triggered.connect(lambda checked, m=mode: self._on_display_mode_selected(m))
+            display_group.addAction(action)
+            display_menu.addAction(action)
+            self.display_mode_actions[mode] = action
+
+        self.display_menu = display_menu
+        self.display_mode_button.setMenu(display_menu)
+
+        # --- 排列菜单：参照单选 + 对齐/分布选项（文字+图标，点击不关闭） ---
+        arrange_menu = _StayOpenCheckableMenu(parent=self, indicatorType=MenuIndicatorType.RADIO)
+        ref_group = QActionGroup(arrange_menu)
+        ref_group.setExclusive(True)
+        self.align_ref_actions: dict[str, Action] = {}
+        for reference, icon_file, text_key in (
+            ("selection", "ic_fluent_select_object_24_regular.svg", "Reference: Selection"),
+            ("canvas", "ic_fluent_image_24_regular.svg", "Reference: Canvas"),
+        ):
+            action = Action(themed_fluent_svg_icon(icon_file), self._t(text_key))
+            action.setCheckable(True)
+            action.setChecked(reference == self._align_ref)
+            action.triggered.connect(lambda checked, r=reference: self._on_align_ref_selected(r))
+            ref_group.addAction(action)
+            arrange_menu.addAction(action)
+            self.align_ref_actions[reference] = action
+
+        arrange_menu.addSeparator()
+        self.align_actions: dict[str, Action] = {}
+        for mode, icon_file, text_key in (
+            ("left", "align_left.svg", "Align Left"),
+            ("horizontal_center", "align_horizontal_center.svg", "Align Horizontal Center"),
+            ("right", "align_right.svg", "Align Right"),
+            ("top", "align_top.svg", "Align Top"),
+            ("vertical_center", "align_vertical_center.svg", "Align Vertical Center"),
+            ("bottom", "align_bottom.svg", "Align Bottom"),
+        ):
+            action = Action(themed_fluent_svg_icon(icon_file), self._t(text_key))
+            action.setEnabled(False)
+            action.triggered.connect(lambda checked, m=mode: self.align_requested.emit(m))
+            arrange_menu.addAction(action)
+            self.align_actions[mode] = action
+
+        arrange_menu.addSeparator()
+        self._dist_v_action = Action(
+            themed_fluent_svg_icon("distribute_spacing_v.svg"), self._t("Distribute Vertical Spacing")
+        )
+        self._dist_v_action.setEnabled(False)
+        self._dist_v_action.triggered.connect(lambda: self.distribute_requested.emit("spacing_v"))
+        arrange_menu.addAction(self._dist_v_action)
+
+        self._dist_h_action = Action(
+            themed_fluent_svg_icon("distribute_spacing_h.svg"), self._t("Distribute Horizontal Spacing")
+        )
+        self._dist_h_action.setEnabled(False)
+        self._dist_h_action.triggered.connect(lambda: self.distribute_requested.emit("spacing_h"))
+        arrange_menu.addAction(self._dist_h_action)
+
+        # 重建（语言切换）后按当前选区数恢复启停状态
+        self._apply_align_button_states()
+
+        self.arrange_menu = arrange_menu
+        self.arrange_button.setMenu(arrange_menu)
+
+        for old in old_menus:
+            if old is not None:
+                old.deleteLater()
+
+    def _display_mode_definitions(self):
+        return [
+            ("full", "Show Text and Boxes"),
+            ("text_only", "Show Text Only"),
+            ("box_only", "Show Boxes Only"),
+            ("none", "Show Nothing"),
+            ("compare_original_split", "Compare with Original (Two Panels)"),
         ]
-        for mode, icon_file, tip in group1:
-            btn = _make_icon_btn(icon_file, tip)
-            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
-            self.align_buttons[mode] = btn
-            layout.addWidget(btn)
 
-        btn = _make_icon_btn("distribute_spacing_v.svg", self._t("Distribute Vertical Spacing"))
-        btn.clicked.connect(lambda: self._on_dist_spacing("vertical"))
-        self._dist_v_btn = btn
-        layout.addWidget(btn)
+    def _on_display_mode_selected(self, mode: str):
+        if mode == self._display_mode:
+            return
+        self._display_mode = mode
+        self.display_mode_changed.emit(mode)
 
-        # ── 第 2 组: 顶对齐 / 垂直居中 / 底对齐 / 水平间距分布 ──
-        group2 = [
-            ("top", "align_top.svg", self._t("Align Top")),
-            ("vertical_center", "align_vertical_center.svg", self._t("Align Vertical Center")),
-            ("bottom", "align_bottom.svg", self._t("Align Bottom")),
-        ]
-        for mode, icon_file, tip in group2:
-            btn = _make_icon_btn(icon_file, tip)
-            btn.clicked.connect(lambda checked, m=mode: self.align_requested.emit(m))
-            self.align_buttons[mode] = btn
-            layout.addWidget(btn)
+    def _on_snap_action_triggered(self, checked: bool = False):
+        self.set_snap_enabled(checked, emit=True)
 
-        btn = _make_icon_btn("distribute_spacing_h.svg", self._t("Distribute Horizontal Spacing"))
-        btn.clicked.connect(lambda: self._on_dist_spacing("horizontal"))
-        self._dist_h_btn = btn
-        layout.addWidget(btn)
+    def set_snap_enabled(self, enabled: bool, emit: bool = False):
+        """同步编辑器吸附开关；外部同步配置时默认不回发信号。"""
+        enabled = bool(enabled)
+        changed = enabled != self._snap_enabled
+        self._snap_enabled = enabled
 
-    def _on_dist_spacing(self, orientation: str):
-        """处理间距分布按钮点击（垂直/水平空白间隙均分）。"""
-        if orientation == "vertical":
-            self.distribute_requested.emit("spacing_v")
-        else:
-            self.distribute_requested.emit("spacing_h")
+        action = getattr(self, "snap_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
 
-    def _toggle_align_ref(self):
-        """切换对齐参照模式：选区 ↔ 画布。同时更新按钮启用状态。"""
-        if self._align_ref == "selection":
-            self._align_ref = "canvas"
-            self.align_ref_button.setText(self._t("Canvas"))
-        else:
-            self._align_ref = "selection"
-            self.align_ref_button.setText(self._t("Selection"))
-        self.update_align_distribute_buttons(self._last_selection_count)
+        if emit and changed:
+            self.snap_enabled_changed.emit(enabled)
+
+    def is_snap_enabled(self) -> bool:
+        return self._snap_enabled
+
+    def _on_rich_text_popup_action_triggered(self, checked: bool = False):
+        self.set_rich_text_popup_enabled(checked, emit=True)
+
+    def set_rich_text_popup_enabled(self, enabled: bool, emit: bool = False):
+        """同步富文本浮动编辑器开关；外部配置同步时默认不回发信号。"""
+        enabled = bool(enabled)
+        changed = enabled != self._rich_text_popup_enabled
+        self._rich_text_popup_enabled = enabled
+
+        action = getattr(self, "rich_text_popup_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.rich_text_popup_enabled_changed.emit(enabled)
+
+    def is_rich_text_popup_enabled(self) -> bool:
+        return self._rich_text_popup_enabled
+
+    def _on_align_ref_selected(self, reference: str):
+        if reference == self._align_ref:
+            return
+        self._align_ref = reference
+        self._apply_align_button_states()
 
     def get_align_reference(self) -> str:
         return self._align_ref
 
     def update_align_distribute_buttons(self, selection_count: int):
-        """根据选中数量和参照模式更新按钮启用状态。更多按钮始终可用。"""
+        """根据选中数量和参照模式更新对齐/分布选项的启用状态。"""
         self._last_selection_count = selection_count
-        align_enabled = (selection_count >= 1 and self._align_ref == "canvas") or (selection_count >= 2)
-        dist_enabled = selection_count >= 3
-        for btn in self.align_buttons.values():
-            btn.setEnabled(align_enabled)
-        self._dist_v_btn.setEnabled(dist_enabled)
-        self._dist_h_btn.setEnabled(dist_enabled)
+        self._apply_align_button_states()
+
+    def _apply_align_button_states(self):
+        count = self._last_selection_count
+        align_enabled = (count >= 1 and self._align_ref == "canvas") or (count >= 2)
+        dist_enabled = count >= 3
+        for action in self.align_actions.values():
+            action.setEnabled(align_enabled)
+        self._dist_v_action.setEnabled(dist_enabled)
+        self._dist_h_action.setEnabled(dist_enabled)
+
+    # ------------------------------------------------------------------
+    # 布局辅助
+    # ------------------------------------------------------------------
 
     def _create_separator(self):
         separator = VerticalSeparator()
@@ -284,45 +440,15 @@ class EditorToolbar(CardWidget):
         self._sync_content_width()
 
     def _connect_signals(self):
-        self.back_button.clicked.connect(self.back_requested)
-        self.export_button.clicked.connect(self.export_requested)
-        self.undo_button.clicked.connect(self.undo_requested)
-        self.redo_button.clicked.connect(self.redo_requested)
-        self.zoom_in_button.clicked.connect(self.zoom_in_requested)
-        self.zoom_out_button.clicked.connect(self.zoom_out_requested)
         self.fit_window_button.clicked.connect(self.fit_window_requested)
-        self.display_mode_combo.currentIndexChanged.connect(self._emit_display_mode_changed)
         self.original_image_alpha_slider.valueChanged.connect(self.original_image_alpha_changed)
-
-    def _display_mode_definitions(self):
-        return [
-            ("full", "Show Text and Boxes"),
-            ("text_only", "Show Text Only"),
-            ("box_only", "Show Boxes Only"),
-            ("none", "Show Nothing"),
-            ("compare_original_split", "Compare with Original (Two Panels)"),
-        ]
-
-    def _populate_display_mode_items(self, selected_mode: str | None = None):
-        self.display_mode_combo.clear()
-        for mode, text_key in self._display_mode_definitions():
-            self.display_mode_combo.addItem(self._t(text_key), userData=mode)
-
-        target_mode = selected_mode or "full"
-        mode_index = self.display_mode_combo.findData(target_mode)
-        if mode_index < 0:
-            mode_index = 0
-        self.display_mode_combo.setCurrentIndex(mode_index)
-
-    def _emit_display_mode_changed(self, index: int):
-        mode = self.display_mode_combo.itemData(index)
-        if mode:
-            self.display_mode_changed.emit(str(mode))
 
     # --- Public Slots ---
     def update_undo_redo_state(self, can_undo: bool, can_redo: bool):
-        self.undo_button.setEnabled(can_undo)
-        self.redo_button.setEnabled(can_redo)
+        self._can_undo = bool(can_undo)
+        self._can_redo = bool(can_redo)
+        self.undo_action.setEnabled(self._can_undo)
+        self.redo_action.setEnabled(self._can_redo)
 
     def set_original_image_alpha_slider(self, alpha: float):
         """同步滑块值（alpha: 0.0-1.0）"""
@@ -332,36 +458,19 @@ class EditorToolbar(CardWidget):
         self.original_image_alpha_slider.setValue(slider_value)
         self.original_image_alpha_slider.blockSignals(False)
 
-    def update_zoom_level(self, zoom_level: float):
-        self.zoom_label.setText(f"{zoom_level:.0%}")
-    
     def set_export_enabled(self, enabled: bool):
-        """设置导出按钮的启用状态"""
-        self.export_button.setEnabled(enabled)
-    
+        """设置导出选项的启用状态"""
+        self._export_enabled = bool(enabled)
+        self.export_action.setEnabled(self._export_enabled)
+
     def refresh_ui_texts(self):
-        """刷新所有UI文本（用于语言切换）"""
-        # 刷新按钮文本
-        set_hover_hint(self.back_button, self._t("Back to Main"))
-        self.export_button.setText(self._t("Export Image"))
-        set_hover_hint(self.export_button, self._t("Export current rendered image") + " (Ctrl+Q)")
-        set_hover_hint(self.undo_button, self._t("Undo last operation") + " (Ctrl+Z)")
-        set_hover_hint(self.redo_button, self._t("Redo last undone operation") + " (Ctrl+Y)")
-        set_hover_hint(self.zoom_out_button, self._t("Zoom Out (-)"))
-        set_hover_hint(self.zoom_in_button, self._t("Zoom In (+)"))
+        """刷新所有UI文本（用于语言切换）。菜单整体重建，状态从字段恢复。"""
+        self.menu_button.setText(self._t("Menu"))
+        self.display_mode_button.setText(self._t("Display Mode"))
+        self.arrange_button.setText(self._t("Arrange"))
         set_hover_hint(self.fit_window_button, self._t("Fit to Window"))
-        
-        # 刷新下拉菜单
-        current_mode = self.display_mode_combo.currentData()
-        self.display_mode_combo.blockSignals(True)
-        self._populate_display_mode_items(current_mode)
-        self.display_mode_combo.blockSignals(False)
-        
-        # 刷新标签
-        if hasattr(self, 'display_mode_label'):
-            self.display_mode_label.setText(self._t("Display Mode:"))
-        if hasattr(self, 'opacity_label'):
-            self.opacity_label.setText(self._t("Original Image Opacity:"))
+        self.opacity_label.setText(self._t("Original Image Opacity:"))
+        self._build_menus()
         self._sync_content_width()
 
     def refresh_theme(self):

@@ -429,16 +429,6 @@ python -m manga_translator --help
 - **模型协议**：CC BY-NC 4.0
 - **使用限制**：仅限非商业用途
 
-### 第三方资源声明
-
-本项目 `desktop_qt_ui/ui/icons/` 中的部分 SVG 图标来自 [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons)，遵循 MIT License；这些图标可能经过重命名，并在运行时按应用主题着色。
-
-Copyright (c) 2020 Microsoft Corporation.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the following conditions: the above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 ---
 
 ## ⚠️ 特别声明

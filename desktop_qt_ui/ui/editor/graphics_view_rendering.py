@@ -97,6 +97,7 @@ class GraphicsViewRenderingMixin:
                 index,
                 geometry_callback=self._on_region_geometry_changed,
             )
+            item.set_snap_enabled(getattr(self, "_snap_enabled", False))
             item.set_image_item(self._image_item)
             item.setZValue(100)
             self.scene.addItem(item)
@@ -450,6 +451,7 @@ class GraphicsViewRenderingMixin:
                     i,
                     geometry_callback=self._on_region_geometry_changed,
                 )
+                item.set_snap_enabled(getattr(self, "_snap_enabled", False))
                 item.set_image_item(self._image_item)
                 item.setZValue(100)
                 self.scene.addItem(item)

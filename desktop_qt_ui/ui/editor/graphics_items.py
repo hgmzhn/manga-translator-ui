@@ -178,7 +178,7 @@ class RegionTextItem(QGraphicsItemGroup):
         # 对齐辅助线（场景级别）
         self._guide_lines = []
         self._spacing_labels: list = []
-        # 按需求关闭编辑器吸附，避免移动/旋转文本框时自动贴齐其他框。
+        # 由编辑器通用菜单中的持久化开关统一控制。
         self._snap_enabled = False
         # 吸附阈值（像素）
         self._snap_threshold = 1.0
@@ -210,6 +210,12 @@ class RegionTextItem(QGraphicsItemGroup):
 
     def set_image_item(self, item):
         self._image_item = item
+
+    def set_snap_enabled(self, enabled: bool):
+        """启用或关闭移动/旋转吸附；关闭时立即清理吸附辅助线。"""
+        self._snap_enabled = bool(enabled)
+        if not self._snap_enabled:
+            self._clear_guide_lines()
 
     # ------------------------------------------------------------------
     # 数据更新

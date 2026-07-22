@@ -91,6 +91,7 @@ class GraphicsView(
         self.overlay_layers = OverlayLayerManager(self)
 
         self._region_items = []
+        self._snap_enabled = False
         self._pending_geometry_edit_kinds: dict[int, str] = {}
         self._immediate_render_update_pending = False
 
@@ -123,6 +124,14 @@ class GraphicsView(
 
     def set_controller(self, controller) -> None:
         self.controller = controller
+
+    def set_snap_enabled(self, enabled: bool) -> None:
+        """同步画布现有文本框，并作为后续新建文本框的默认吸附状态。"""
+        self._snap_enabled = bool(enabled)
+        for item in self._region_items:
+            if item is not None:
+                item.set_snap_enabled(self._snap_enabled)
+        self.scene.update()
 
     def paintEvent(self, event):
         paint_start = time.perf_counter()

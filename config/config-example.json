@@ -7,6 +7,8 @@
     "theme_user_preference": "light",
     "ui_language": "auto",
     "current_preset": "默认",
+    "editor_snap_enabled": false,
+    "editor_rich_text_popup_enabled": true,
     "unload_models_after_translation": false,
     "saved_colors": null,
     "saved_style_presets": null
@@ -16,7 +18,7 @@
   "mask_dilation_offset": 20,
   "use_custom_api_params": true,
   "translator": {
-    "translator": "original",
+    "translator": "openai",
     "target_lang": "CHS",
     "keep_lang": "none",
     "enable_streaming": false,
@@ -57,6 +59,7 @@
     "unclip_ratio": 2.5,
     "import_yolo_labels": false,
     "use_yolo_obb": true,
+    "use_sfx_filter": true,
     "yolo_obb_conf": 0.4,
     "yolo_obb_overlap_threshold": 0.1,
     "min_box_area_ratio": 0
@@ -65,7 +68,7 @@
     "inpainter": "lama_large",
     "inpainting_size": 2048,
     "inpainting_precision": "fp32",
-    "force_use_torch_inpainting": true
+    "force_use_torch_inpainting": false
   },
   "render": {
     "renderer": "default",
@@ -128,10 +131,10 @@
     "template": false,
     "save_quality": 100,
     "batch_size": 3,
-    "batch_concurrent": true,
+    "batch_concurrent": false,
     "generate_and_export": false,
     "colorize_only": false,
-    "upscale_only": true,
+    "upscale_only": false,
     "inpaint_only": false,
     "save_to_source_dir": false,
     "export_editable_psd": false,
