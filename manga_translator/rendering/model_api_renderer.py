@@ -7,11 +7,12 @@ from typing import List, Optional
 import numpy as np
 from PIL import Image
 
-from ..config import Renderer
-from ..custom_api_params import (
-    load_enabled_custom_api_params,
+from ..api_request_params import (
+    normalize_openai_image_request_params,
     split_gemini_request_params,
 )
+from ..config import Renderer
+from ..custom_api_params import resolve_custom_api_params
 from ..api_key_rotation import run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..utils import TextBlock, get_logger
@@ -265,7 +266,6 @@ class BaseAPIRenderer:
             offset_x=restore_info.offset_x,
             offset_y=restore_info.offset_y,
         )
-        custom_api_params = load_enabled_custom_api_params(config, self.logger, target="render")
         semaphore = _get_renderer_semaphore(self.PROVIDER_NAME, self._resolve_concurrency(config))
 
         async with semaphore:
@@ -276,7 +276,7 @@ class BaseAPIRenderer:
                 return await self._request_rendered_image(
                     image=request_image,
                     prompt_text=prompt_text,
-                    custom_api_params=custom_api_params,
+                    runtime_config=config,
                 )
 
             async def _do_request() -> Image.Image:
@@ -305,7 +305,7 @@ class BaseAPIRenderer:
         self,
         image: Image.Image,
         prompt_text: str,
-        custom_api_params: dict | None = None,
+        runtime_config=None,
     ) -> Image.Image:
         raise NotImplementedError
 
@@ -340,8 +340,15 @@ class OpenAIRenderer(BaseAPIRenderer):
         self,
         image: Image.Image,
         prompt_text: str,
-        custom_api_params: dict | None = None,
+        runtime_config=None,
     ) -> Image.Image:
+        custom_api_params = resolve_custom_api_params(
+            runtime_config,
+            self.logger,
+            model_name=self.model_name,
+            section="render",
+        )
+        request_params = normalize_openai_image_request_params(custom_api_params)
         return await request_openai_image_with_fallback(
             session=self.client.session,
             base_url=self.base_url,
@@ -355,7 +362,7 @@ class OpenAIRenderer(BaseAPIRenderer):
             fetch_remote_image=self._fetch_image_from_url,
             provider_name=self.PROVIDER_NAME,
             logger=self.logger,
-            extra_request_params=custom_api_params,
+            extra_request_params=request_params,
         )
 
 
@@ -394,9 +401,15 @@ class GeminiRenderer(BaseAPIRenderer):
         self,
         image: Image.Image,
         prompt_text: str,
-        custom_api_params: dict | None = None,
+        runtime_config=None,
     ) -> Image.Image:
         image_b64 = base64.b64encode(self._image_to_png_bytes(image)).decode("ascii")
+        custom_api_params = resolve_custom_api_params(
+            runtime_config,
+            self.logger,
+            model_name=self.model_name,
+            section="render",
+        )
         request_overrides, generation_overrides = split_gemini_request_params(custom_api_params)
         generation_config = {
             "responseModalities": ["TEXT", "IMAGE"],

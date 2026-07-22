@@ -1,18 +1,36 @@
 import json
 from typing import Any, Callable
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, FluentIcon as FIF, LineEdit, PlainTextEdit, PopUpAniStackedWidget, PrimaryPushButton, PushButton, ScrollArea, SegmentedWidget, SimpleCardWidget, TitleLabel
-from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
-from ui.theme import (
-    monospace_font as _monospace_font,
-)
-
 from manga_translator.custom_api_params import (
     CUSTOM_API_PARAM_SECTIONS,
+    DEFAULT_CUSTOM_API_PARAMS_PRESET,
     build_custom_api_params_payload,
-    normalize_custom_api_params_payload,
+    create_empty_custom_api_params_preset,
+    migrate_legacy_custom_api_params_payload,
+    normalize_custom_api_params_presets,
+)
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    ComboBox,
+    LineEdit,
+    PlainTextEdit,
+    PopUpAniStackedWidget,
+    PrimaryPushButton,
+    PushButton,
+    ScrollArea,
+    SegmentedWidget,
+    SimpleCardWidget,
+    TitleLabel,
+)
+from qfluentwidgets import FluentIcon as FIF
+
+from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
+from ui.secondary_pages.themed_text_input_dialog import themed_get_text
+from ui.theme import (
+    monospace_font as _monospace_font,
 )
 
 
@@ -212,6 +230,9 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         self._t = t_func or _identity_translate
         self._file_path = file_path
         self._original_content = ""
+        self._presets: dict[str, dict[str, dict[str, Any]]] = {}
+        self._current_preset: str | None = None
+        self._switching_preset = False
         self.section_segmented: SegmentedWidget | None = None
         self.section_stack: PopUpAniStackedWidget | None = None
         self.section_layouts: dict[str, QVBoxLayout] = {}
@@ -235,12 +256,41 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
 
         title = TitleLabel(self._t("Edit Custom API Params"), header_card)
         subtitle = BodyLabel(
-            self._t("Edit custom API request parameters passed directly to the translator backend."),
+            self._t(
+                "At runtime, each API module selects the preset named after its current model and falls back to General. "
+                "Only common and that module's section are merged."
+            ),
             header_card,
         )
         subtitle.setWordWrap(True)
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle)
+
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
+        preset_row.addWidget(BodyLabel(self._t("Model Preset"), header_card))
+
+        self.preset_combo = ComboBox(header_card)
+        self.preset_combo.setMinimumWidth(260)
+        self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
+        preset_row.addWidget(self.preset_combo, 1)
+
+        self.add_preset_button = PushButton(self._t("Add Preset"), header_card)
+        self.add_preset_button.setIcon(FIF.ADD)
+        self.add_preset_button.clicked.connect(self._add_preset)
+
+        self.rename_preset_button = PushButton(self._t("Rename"), header_card)
+        self.rename_preset_button.setIcon(FIF.EDIT)
+        self.rename_preset_button.clicked.connect(self._rename_preset)
+
+        self.delete_preset_button = PushButton(self._t("Delete"), header_card)
+        self.delete_preset_button.setIcon(FIF.DELETE)
+        self.delete_preset_button.clicked.connect(self._delete_preset)
+
+        preset_row.addWidget(self.add_preset_button)
+        preset_row.addWidget(self.rename_preset_button)
+        preset_row.addWidget(self.delete_preset_button)
+        header_layout.addLayout(preset_row)
         root.addWidget(header_card)
 
         self.tab_segmented = SegmentedWidget(self)
@@ -283,8 +333,8 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         title = BodyLabel(self._t("Grouped API Params"), page)
         hint = CaptionLabel(
             self._t(
-                "Parameters in each group are sent only to the matching AI backend. "
-                "Raw top-level keys are treated as common params."
+                "Each preset contains common, translator, OCR, colorizer, and render sections. "
+                "Parameters are never sent across modules."
             ),
             page,
         )
@@ -399,6 +449,140 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
             return self._t("label_colorizer")
         return section
 
+    def _refresh_preset_selector(self, selected_name: str | None = None):
+        names = list(self._presets)
+        if DEFAULT_CUSTOM_API_PARAMS_PRESET not in names:
+            self._presets = {
+                DEFAULT_CUSTOM_API_PARAMS_PRESET: create_empty_custom_api_params_preset(),
+                **self._presets,
+            }
+            names = list(self._presets)
+
+        target = selected_name if selected_name in self._presets else DEFAULT_CUSTOM_API_PARAMS_PRESET
+        self._switching_preset = True
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItems(names)
+        self.preset_combo.setCurrentText(target)
+        self.preset_combo.blockSignals(False)
+        self._switching_preset = False
+        self._current_preset = target
+        self._populate_rows(self._presets[target])
+        self._update_preset_buttons()
+
+    def _on_preset_changed(self, preset_name: str):
+        if self._switching_preset or not preset_name or preset_name == self._current_preset:
+            return
+        previous = self._current_preset
+        try:
+            self._store_current_preset()
+        except ValueError as exc:
+            self._set_status(str(exc), kind="error")
+            self._switching_preset = True
+            self.preset_combo.blockSignals(True)
+            self.preset_combo.setCurrentText(previous or DEFAULT_CUSTOM_API_PARAMS_PRESET)
+            self.preset_combo.blockSignals(False)
+            self._switching_preset = False
+            return
+
+        if preset_name not in self._presets:
+            return
+        self._current_preset = preset_name
+        self._populate_rows(self._presets[preset_name])
+        self._update_preset_buttons()
+
+    def _update_preset_buttons(self):
+        editable = self._current_preset not in {None, DEFAULT_CUSTOM_API_PARAMS_PRESET}
+        self.rename_preset_button.setEnabled(editable)
+        self.delete_preset_button.setEnabled(editable)
+
+    def _add_preset(self, *args):
+        del args
+        try:
+            self._store_current_preset()
+        except ValueError as exc:
+            self._set_status(str(exc), kind="error")
+            return
+
+        name, accepted = themed_get_text(
+            self,
+            title=self._t("Add Preset"),
+            label=self._t("Enter preset name:"),
+            ok_text=self._t("OK"),
+            cancel_text=self._t("Cancel"),
+        )
+        name = name.strip()
+        if not accepted:
+            return
+        if not name:
+            QMessageBox.warning(self, self._t("Warning"), self._t("Preset name cannot be empty"))
+            return
+        if name in self._presets:
+            QMessageBox.warning(
+                self,
+                self._t("Warning"),
+                self._t("Preset '{name}' already exists", name=name),
+            )
+            return
+
+        self._presets[name] = create_empty_custom_api_params_preset()
+        self._refresh_preset_selector(name)
+
+    def _rename_preset(self, *args):
+        del args
+        current = self._current_preset
+        if not current or current == DEFAULT_CUSTOM_API_PARAMS_PRESET:
+            return
+        try:
+            self._store_current_preset()
+        except ValueError as exc:
+            self._set_status(str(exc), kind="error")
+            return
+
+        name, accepted = themed_get_text(
+            self,
+            title=self._t("Rename Preset"),
+            label=self._t("Enter preset name:"),
+            text=current,
+            ok_text=self._t("OK"),
+            cancel_text=self._t("Cancel"),
+        )
+        name = name.strip()
+        if not accepted or name == current:
+            return
+        if not name:
+            QMessageBox.warning(self, self._t("Warning"), self._t("Preset name cannot be empty"))
+            return
+        if name in self._presets:
+            QMessageBox.warning(
+                self,
+                self._t("Warning"),
+                self._t("Preset '{name}' already exists", name=name),
+            )
+            return
+
+        self._presets = {
+            (name if preset_name == current else preset_name): preset
+            for preset_name, preset in self._presets.items()
+        }
+        self._refresh_preset_selector(name)
+
+    def _delete_preset(self, *args):
+        del args
+        current = self._current_preset
+        if not current or current == DEFAULT_CUSTOM_API_PARAMS_PRESET:
+            return
+        reply = QMessageBox.question(
+            self,
+            self._t("Confirm"),
+            self._t("Are you sure you want to delete preset '{name}'?", name=current),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._presets.pop(current, None)
+        self._refresh_preset_selector(DEFAULT_CUSTOM_API_PARAMS_PRESET)
+
     def _insert_row_widget(self, section: str, row: CustomApiParamRow):
         row.remove_requested.connect(self._remove_row)
         layout = self.section_layouts[section]
@@ -418,6 +602,7 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
                 item = layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
+                    widget.setParent(None)
                     widget.deleteLater()
 
     def _remove_row(self, row: QWidget):
@@ -437,36 +622,47 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
         if not content:
             content = "{}"
 
-        self._original_content = content
         self.raw_editor.setPlainText(content)
 
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as exc:
-            self._populate_rows({})
+            self._presets = {
+                DEFAULT_CUSTOM_API_PARAMS_PRESET: create_empty_custom_api_params_preset()
+            }
+            self._refresh_preset_selector()
+            self._original_content = content
             self._set_status(f"{self._t('JSON format error')}: {exc}", kind="error")
             return
 
         if not isinstance(parsed, dict):
-            self._populate_rows({})
+            self._presets = {
+                DEFAULT_CUSTOM_API_PARAMS_PRESET: create_empty_custom_api_params_preset()
+            }
+            self._refresh_preset_selector()
+            self._original_content = content
             self._set_status(self._t("JSON root must be an object"), kind="error")
             return
 
-        self._populate_rows(parsed)
+        migrated, _ = migrate_legacy_custom_api_params_payload(parsed)
+        self._presets = normalize_custom_api_params_presets(migrated)
+        canonical_content = json.dumps(self._presets, indent=2, ensure_ascii=False)
+        self._original_content = canonical_content
+        self.raw_editor.setPlainText(canonical_content)
+        self._refresh_preset_selector(DEFAULT_CUSTOM_API_PARAMS_PRESET)
         self._set_status(self._t("Loaded successfully"))
 
-    def _populate_rows(self, data: dict[str, Any]):
+    def _populate_rows(self, preset: dict[str, Any]):
         self._clear_rows()
-        section_data = normalize_custom_api_params_payload(data)
         for section in CUSTOM_API_PARAM_SECTIONS:
-            values = section_data.get(section) or {}
+            values = preset.get(section) or {}
             if not values:
                 self._append_row(section)
                 continue
             for key, value in values.items():
                 self._append_row(section, key, value)
 
-    def _collect_structured_data(self) -> dict[str, Any]:
+    def _collect_current_preset(self) -> dict[str, dict[str, Any]]:
         section_data: dict[str, dict[str, Any]] = {
             section: {} for section in CUSTOM_API_PARAM_SECTIONS
         }
@@ -488,14 +684,23 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
                     raise ValueError(self._t("Duplicate parameter name: {name}", name=key))
                 section_data[section][key] = value
 
-        return build_custom_api_params_payload(section_data)
+        return section_data
+
+    def _store_current_preset(self):
+        if self._current_preset:
+            self._presets[self._current_preset] = self._collect_current_preset()
+
+    def _collect_structured_data(self) -> dict[str, Any]:
+        self._store_current_preset()
+        return build_custom_api_params_payload(self._presets)
 
     def _collect_raw_data(self) -> dict[str, Any]:
         content = self.raw_editor.toPlainText().strip() or "{}"
         parsed = json.loads(content)
         if not isinstance(parsed, dict):
             raise ValueError(self._t("JSON root must be an object"))
-        return parsed
+        migrated, _ = migrate_legacy_custom_api_params_payload(parsed)
+        return build_custom_api_params_payload(migrated)
 
     def _set_status(self, message: str, kind: str = "default"):
         del kind
@@ -525,9 +730,21 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
 
         self._original_content = content
         self.raw_editor.setPlainText(content)
-        self._populate_rows(data)
+        selected_preset = self._current_preset
+        self._presets = normalize_custom_api_params_presets(data)
+        self._refresh_preset_selector(selected_preset)
         self._set_status(self._t("Saved successfully"), kind="success")
 
     def get_was_modified(self) -> bool:
-        current = self.raw_editor.toPlainText().strip()
+        try:
+            if self.tab_stack.currentIndex() == 0:
+                current = json.dumps(
+                    self._collect_structured_data(),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            else:
+                current = self.raw_editor.toPlainText().strip()
+        except (ValueError, json.JSONDecodeError):
+            return True
         return current != self._original_content.strip()

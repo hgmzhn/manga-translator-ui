@@ -94,51 +94,45 @@
 - **使用自定义 API 参数 (use_custom_api_params)**：启用自定义 API 参数
   - 位置：Qt UI 的“通用”页
   - 适用于：翻译、AI 识别（OCR）、AI 渲染、AI 上色
-  - 勾选后，程序会从 `config/custom_api_params.json` 读取自定义参数并传递给已启用的 AI API
-  - 点击"打开文件"按钮可自动创建并打开配置文件
-  - 配置文件为标准 JSON 格式，支持实时生效（每次翻译都会重新加载）
+  - 勾选后，各 API 通道会从 `config/custom_api_params.json` 读取当前模型对应的预设
+  - 点击“编辑”可打开统一的模型预设编辑器；顶部支持新增、删除、重命名和切换预设
+  - 运行时按当前实际使用的模型名精确匹配同名预设；找不到时回退“通用”
+  - 每个预设固定包含 `common`、`translator`、`ocr`、`colorizer`、`render`
+  - 每次请求只合并该预设的 `common` 与当前模块分组，再由对应 API 通道过滤和转换参数；模块之间不会透传参数
+  - 超分是本地处理，不属于自定义 API 参数
+  - 配置文件为标准 JSON 格式，每次请求前都会重新读取
   - 使用场景：
     - 控制 Ollama 等本地模型的特殊参数（如关闭思考模式）
     - 调整 API 的温度、最大 token 数等参数
     - 传递模型特定的配置选项
-  - 推荐按类型分组配置：
+  - 模型预设示例：
     ```json
     {
-      "translator": {
-        "thinking": {"type": "disabled"}
+      "通用": {
+        "common": {},
+        "translator": {
+          "temperature": 0.3,
+          "top_p": 0.95
+        },
+        "ocr": {
+          "temperature": 0.0
+        },
+        "colorizer": {},
+        "render": {}
       },
-      "ocr": {
-        "response_format": {"type": "json_object"}
-      },
-      "render": {
-        "quality": "high"
-      },
-      "colorizer": {
-        "size": "1536x1536"
+      "qwen2.5:7b": {
+        "common": {},
+        "translator": {
+          "thinking": {"type": "disabled"},
+          "thinking_budget": 0
+        },
+        "ocr": {},
+        "colorizer": {},
+        "render": {}
       }
     }
     ```
-  - 若某个参数要同时发给所有 AI 后端，可放到 `common`：
-    ```json
-    {
-      "common": {
-        "timeout": 120
-      },
-      "translator": {
-        "thinking": {"type": "disabled"}
-      }
-    }
-    ```
-  - 兼容旧格式：如果直接在 JSON 顶层写键，会按 `common` 通用参数处理
-  - 翻译器关闭思考模式示例：
-    ```json
-    {
-      "translator": {
-        "thinking": {"type": "disabled"},
-        "thinking_budget": 0
-      }
-    }
-    ```
+  - 旧版顶层参数和已有标准分组会一次性迁移到“通用”预设；新配置不要继续使用旧格式
 
 - **最大请求速率 (max_requests_per_minute)**：每分钟最大请求数（0 = 不限制）
 
@@ -744,9 +738,10 @@ glossary:
 - 默认：`config/custom_api_params.json`
 - 注意：在 CLI 模式下如果找不到此文件，请先启动一次程序，会自动根据内置模板生成该文件。
 - 用于翻译、AI OCR、AI 渲染、AI 上色的额外 API 参数
-- 推荐分组键：`translator`、`ocr`、`render`、`colorizer`
-- 可选共享键：`common`
-- 旧版兼容：直接写在 JSON 顶层的键会按 `common` 处理
+- 顶层键是模型名，例如“通用”、`gpt-4o`、`qwen2.5:7b`
+- 每个模型预设包含 `common`、`translator`、`ocr`、`colorizer`、`render`
+- 运行时精确匹配当前模型名，找不到时回退“通用”；每个模块只读取自己的分组
+- 旧版顶层参数和已有标准分组会自动迁移到“通用”预设
 
 **字体来源**：
 - 系统字体：先在操作系统中安装，然后在“设置 -> 排版 -> 字体”中选择

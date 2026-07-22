@@ -1395,7 +1395,7 @@ class CommonTranslator(InfererModule):
         self._global_attempt_count = 0  # 全局尝试计数器
         self._max_total_attempts = -1  # 全局最大尝试次数
         self._cancel_check_callback = None  # 取消检查回调
-        self._custom_api_params = {}  # 存储自定义API参数
+        self._custom_api_params_config = None
         self._enable_streaming = True
         self._stream_inline_last_len = 0
         self._stream_inline_buffer = ""
@@ -1435,37 +1435,25 @@ class CommonTranslator(InfererModule):
                 return bool(value)
         return bool(getattr(self, '_enable_streaming', True))
     
-    def _load_custom_api_params(self):
-        """从固定目录加载自定义API参数配置文件"""
-        from ..custom_api_params import load_enabled_custom_api_params
-
-        self._custom_api_params = load_enabled_custom_api_params(
-            {"use_custom_api_params": True},
-            self.logger,
-            target="translator",
-        )
-
     def _configure_custom_api_params(self, args) -> bool:
-        """
-        根据配置决定是否加载自定义 API 参数，并统一日志输出格式。
-        返回值表示是否启用。
-        """
-        from ..custom_api_params import (
-            is_custom_api_params_enabled,
-            load_enabled_custom_api_params,
-        )
+        """Remember the runtime config; model matching happens per API request."""
+        from ..custom_api_params import is_custom_api_params_enabled
 
         use_custom_params = is_custom_api_params_enabled(args)
-        if not use_custom_params:
-            self._custom_api_params = {}
-            return False
+        self._custom_api_params_config = args if use_custom_params else None
+        return use_custom_params
 
-        self._custom_api_params = load_enabled_custom_api_params(
-            args,
+    def _resolve_translator_custom_api_params(self, model_name: str | None) -> dict[str, Any]:
+        from ..custom_api_params import resolve_custom_api_params
+
+        if self._custom_api_params_config is None:
+            return {}
+        return resolve_custom_api_params(
+            self._custom_api_params_config,
             self.logger,
-            target="translator",
+            model_name=model_name,
+            section="translator",
         )
-        return True
     
     def set_cancel_check_callback(self, callback):
         """设置取消检查回调"""

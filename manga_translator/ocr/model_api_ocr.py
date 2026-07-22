@@ -10,12 +10,12 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ..config import OcrConfig
-from ..custom_api_params import (
-    load_enabled_custom_api_params,
-    merge_openai_request_params,
+from ..api_request_params import (
+    merge_openai_chat_request_params,
     split_gemini_request_params,
 )
+from ..config import OcrConfig
+from ..custom_api_params import resolve_custom_api_params
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..api_key_rotation import (
     APIRotationExhaustedError,
@@ -199,11 +199,6 @@ class BaseAPIOCR(OfflineOCR):
         self._model_bubble_cache_key = None
         self._model_bubble_cache_mask = None
         self._model_bubble_no_boxes_logged = False
-        custom_api_params = load_enabled_custom_api_params(
-            runtime_config if runtime_config is not None else config,
-            self.logger,
-            target="ocr",
-        )
         if bool(getattr(config, 'use_model_bubble_filter', False)):
             threshold = float(getattr(config, 'model_bubble_overlap_threshold', 0.1))
             self.logger.info(f"Model bubble filter enabled (overlap_threshold={threshold:.3f})")
@@ -213,7 +208,6 @@ class BaseAPIOCR(OfflineOCR):
             config,
             verbose,
             runtime_config=runtime_config,
-            custom_api_params=custom_api_params,
         )
 
     async def _load_color_model(self, device: str):
@@ -336,7 +330,7 @@ class BaseAPIOCR(OfflineOCR):
         prompt_text: str,
         runtime_config=None,
         runtime_settings=None,
-        custom_api_params: dict | None = None,
+        custom_params_config=None,
     ) -> str:
         settings = runtime_settings or self._read_runtime_config(runtime_config)
         if not settings.api_key:
@@ -351,7 +345,7 @@ class BaseAPIOCR(OfflineOCR):
                         model_name=endpoint.model_name,
                         img=img,
                         prompt_text=prompt_text,
-                        custom_api_params=custom_api_params,
+                        custom_params_config=custom_params_config,
                     )
                 )
                 if not text:
@@ -380,7 +374,6 @@ class BaseAPIOCR(OfflineOCR):
         config: OcrConfig,
         verbose: bool = False,
         runtime_config=None,
-        custom_api_params: dict | None = None,
     ) -> List[Quadrilateral]:
         text_height = 48
         ignore_bubble = config.ignore_bubble
@@ -424,7 +417,9 @@ class BaseAPIOCR(OfflineOCR):
                         ocr_prompt,
                         runtime_config=runtime_config,
                         runtime_settings=runtime_settings,
-                        custom_api_params=custom_api_params,
+                        custom_params_config=(
+                            runtime_config if runtime_config is not None else config
+                        ),
                     )
                     self.logger.info(f"[OCR] Region {idx}: {text}")
                     q.text = text
@@ -455,7 +450,14 @@ class BaseAPIOCR(OfflineOCR):
     def _create_client(self, api_key: str, base_url: str):
         raise NotImplementedError
 
-    async def _request_ocr_text(self, client, model_name: str, img: np.ndarray, prompt_text: str) -> str:
+    async def _request_ocr_text(
+        self,
+        client,
+        model_name: str,
+        img: np.ndarray,
+        prompt_text: str,
+        custom_params_config=None,
+    ) -> str:
         raise NotImplementedError
 
 
@@ -512,10 +514,16 @@ class ModelOpenAIOCR(BaseAPIOCR):
         model_name: str,
         img: np.ndarray,
         prompt_text: str,
-        custom_api_params: dict | None = None,
+        custom_params_config=None,
     ) -> str:
         image_b64 = self._encode_region_png_base64(img)
-        request_params = merge_openai_request_params(
+        custom_api_params = resolve_custom_api_params(
+            custom_params_config,
+            self.logger,
+            model_name=model_name,
+            section="ocr",
+        )
+        request_params = merge_openai_chat_request_params(
             {
                 "model": model_name,
                 "messages": [
@@ -585,9 +593,15 @@ class ModelGeminiOCR(BaseAPIOCR):
         model_name: str,
         img: np.ndarray,
         prompt_text: str,
-        custom_api_params: dict | None = None,
+        custom_params_config=None,
     ) -> str:
         image_b64 = self._encode_region_png_base64(img)
+        custom_api_params = resolve_custom_api_params(
+            custom_params_config,
+            self.logger,
+            model_name=model_name,
+            section="ocr",
+        )
         request_overrides, generation_overrides = split_gemini_request_params(custom_api_params)
         request_kwargs = {
             "model": model_name,

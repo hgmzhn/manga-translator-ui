@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 from google.genai import types
 from PIL import Image
 
+from ..api_request_params import apply_gemini_sdk_generation_params
 from ..api_key_rotation import APIRotationExhaustedError, run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..utils.dotenv_utils import load_app_dotenv
@@ -462,15 +463,6 @@ class GeminiHighQualityTranslator(CommonTranslator):
             if self.max_tokens is not None:
                 config_params["max_output_tokens"] = self.max_tokens
             
-            generation_config = types.GenerateContentConfig(**config_params)
-            generation_config.system_instruction = system_instruction
-            
-            # 合并自定义API参数
-            if self._custom_api_params:
-                for key, value in self._custom_api_params.items():
-                    if hasattr(generation_config, key):
-                        setattr(generation_config, key, value)
-
             try:
                 # RPM限制
                 if self._MAX_REQUESTS_PER_MINUTE > 0:
@@ -502,6 +494,12 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     streamed_text = None
                     streamed_finish_reason = None
                     streamed_diagnostics = None
+                    generation_config = types.GenerateContentConfig(**config_params)
+                    generation_config.system_instruction = system_instruction
+                    custom_api_params = self._resolve_translator_custom_api_params(self.model_name)
+                    apply_gemini_sdk_generation_params(generation_config, custom_api_params)
+                    if custom_api_params:
+                        self.logger.debug(f"使用翻译模型预设参数: {custom_api_params}")
                     if use_streaming:
                         try:
                             self._reset_stream_json_preview()

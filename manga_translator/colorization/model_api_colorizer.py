@@ -7,10 +7,11 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 
-from ..custom_api_params import (
-    load_enabled_custom_api_params,
+from ..api_request_params import (
+    normalize_openai_image_request_params,
     split_gemini_request_params,
 )
+from ..custom_api_params import resolve_custom_api_params
 from ..api_key_rotation import run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..utils import get_logger
@@ -318,12 +319,6 @@ class BaseAPIColorizer(CommonColorizer):
         request_image, restore_info = prepare_square_ai_image(image)
         prompt_text, reference_images = self._build_colorizer_request(image, kwargs)
         semaphore = _get_colorizer_semaphore(self.PROVIDER_NAME, self._resolve_concurrency(kwargs))
-        custom_api_params = load_enabled_custom_api_params(
-            runtime_config,
-            self.logger,
-            target="colorizer",
-        )
-
         async with semaphore:
             async def _request_with_endpoint(endpoint) -> Image.Image:
                 await self._ensure_client(runtime_config, runtime_settings=runtime_settings, endpoint=endpoint)
@@ -333,7 +328,7 @@ class BaseAPIColorizer(CommonColorizer):
                     image=request_image,
                     prompt_text=prompt_text,
                     reference_images=reference_images,
-                    custom_api_params=custom_api_params,
+                    runtime_config=runtime_config,
                 )
 
             async def _do_request() -> Image.Image:
@@ -363,7 +358,7 @@ class BaseAPIColorizer(CommonColorizer):
         image: Image.Image,
         prompt_text: str,
         reference_images: list[dict[str, bytes | str]],
-        custom_api_params: dict | None = None,
+        runtime_config=None,
     ) -> Image.Image:
         raise NotImplementedError
 
@@ -399,8 +394,15 @@ class OpenAIColorizer(BaseAPIColorizer):
         image: Image.Image,
         prompt_text: str,
         reference_images: list[dict[str, bytes | str]],
-        custom_api_params: dict | None = None,
+        runtime_config=None,
     ) -> Image.Image:
+        custom_api_params = resolve_custom_api_params(
+            runtime_config,
+            self.logger,
+            model_name=self.model_name,
+            section="colorizer",
+        )
+        request_params = normalize_openai_image_request_params(custom_api_params)
         return await request_openai_image_with_fallback(
             session=self.client.session,
             base_url=self.base_url,
@@ -415,7 +417,7 @@ class OpenAIColorizer(BaseAPIColorizer):
             provider_name=self.PROVIDER_NAME,
             logger=self.logger,
             extra_images=reference_images,
-            extra_request_params=custom_api_params,
+            extra_request_params=request_params,
         )
 
 
@@ -455,7 +457,7 @@ class GeminiColorizer(BaseAPIColorizer):
         image: Image.Image,
         prompt_text: str,
         reference_images: list[dict[str, bytes | str]],
-        custom_api_params: dict | None = None,
+        runtime_config=None,
     ) -> Image.Image:
         image_b64 = base64.b64encode(self._image_to_png_bytes(image)).decode("ascii")
         parts = [
@@ -478,6 +480,12 @@ class GeminiColorizer(BaseAPIColorizer):
                     }
                 }
             )
+        custom_api_params = resolve_custom_api_params(
+            runtime_config,
+            self.logger,
+            model_name=self.model_name,
+            section="colorizer",
+        )
         request_overrides, generation_overrides = split_gemini_request_params(custom_api_params)
         generation_config = {
             "responseModalities": ["TEXT", "IMAGE"],

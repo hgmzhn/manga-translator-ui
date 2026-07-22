@@ -58,7 +58,7 @@ $RECYCLE.BIN/
 
 # Tests
 test/
-tests/__pycache__/
+/tests/
 
 # Python eggs
 *.egg

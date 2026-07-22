@@ -108,51 +108,45 @@ Older versions grouped the interface into broad settings tabs. In the current de
 - **`Use Custom API Params` (`use_custom_api_params`)**: enable custom API parameters.
   - Current UI location: `Settings` -> `General` -> `Use Custom API Params`
   - Applies to: translation, AI OCR, AI rendering, and AI colorization
-  - When enabled, the app reads custom parameters from `config/custom_api_params.json` and passes them to enabled AI APIs
-  - Click the `Edit` button to create and open the config file automatically
-  - The file uses standard JSON format and takes effect dynamically because it is reloaded when translation runs
+  - When enabled, each API channel reads the preset for its current model from `config/custom_api_params.json`
+  - Click `Edit` to open the unified model-preset editor; presets can be added, deleted, renamed, and switched from the selector at the top
+  - At runtime, the current model name is matched exactly; if no preset exists, the app falls back to `通用` (`General`)
+  - Every preset contains `common`, `translator`, `ocr`, `colorizer`, and `render`
+  - Each request merges only `common` and the current module section, then lets that API channel filter and convert the parameters; sections are never forwarded across modules
+  - Upscaling is local processing and is not part of custom API parameters
+  - The file uses standard JSON and is reloaded before requests
   - Typical use cases:
     - control special parameters for local models such as Ollama, for example disabling thinking mode
     - adjust temperature, max tokens, and similar API parameters
     - pass provider-specific options for a specific model
-  - Recommended grouped structure:
+  - Model preset example:
     ```json
     {
-      "translator": {
-        "thinking": {"type": "disabled"}
+      "通用": {
+        "common": {},
+        "translator": {
+          "temperature": 0.3,
+          "top_p": 0.95
+        },
+        "ocr": {
+          "temperature": 0.0
+        },
+        "colorizer": {},
+        "render": {}
       },
-      "ocr": {
-        "response_format": {"type": "json_object"}
-      },
-      "render": {
-        "quality": "high"
-      },
-      "colorizer": {
-        "size": "1536x1536"
+      "qwen2.5:7b": {
+        "common": {},
+        "translator": {
+          "thinking": {"type": "disabled"},
+          "thinking_budget": 0
+        },
+        "ocr": {},
+        "colorizer": {},
+        "render": {}
       }
     }
     ```
-  - If a parameter should be sent to every AI backend, place it under `common`:
-    ```json
-    {
-      "common": {
-        "timeout": 120
-      },
-      "translator": {
-        "thinking": {"type": "disabled"}
-      }
-    }
-    ```
-  - Legacy compatibility: if keys are written directly at the top level, the app treats them as `common`
-  - Example for disabling translator thinking mode:
-    ```json
-    {
-      "translator": {
-        "thinking": {"type": "disabled"},
-        "thinking_budget": 0
-      }
-    }
-    ```
+  - Legacy top-level parameters and existing standard sections are migrated once into the `通用` preset; new files should not use the legacy layout
 
 - **`Max Requests Per Minute` (`max_requests_per_minute`)**: maximum number of requests per minute.
   - Current UI location: `Settings` -> `Translation` -> `Max Requests Per Minute`
@@ -922,9 +916,10 @@ Lazy shortcut:
 - Default: `config/custom_api_params.json`
 - Note: In CLI mode, if this file cannot be found, please start the application once first, and it will be generated automatically from a built-in template.
 - Used for extra request parameters for translation, AI OCR, AI rendering, and AI colorization
-- Recommended groups: `translator`, `ocr`, `render`, `colorizer`
-- Optional shared group: `common`
-- Legacy compatibility: top-level JSON keys are treated as `common`
+- Top-level keys are model names, for example `通用`, `gpt-4o`, or `qwen2.5:7b`
+- Every model preset contains `common`, `translator`, `ocr`, `colorizer`, and `render`
+- Runtime lookup matches the current model name exactly and falls back to `通用`; each module reads only its own section
+- Legacy top-level parameters and existing standard sections are migrated automatically into the `通用` preset
 
 **How to select a font**
 

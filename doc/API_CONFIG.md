@@ -286,9 +286,9 @@ Google Gemini 是 Google 最新的多模态 AI 模型，性能强劲。
   - `https://api.siliconflow.cn/v1`：自动使用硅基流动 `images/generations` 风格，请求体支持 `image` / `image2` / `image3`
   - `https://dashscope.aliyuncs.com/api/v1` 或 `https://dashscope-intl.aliyuncs.com/api/v1`：自动切换到百炼原生 `services/aigc/multimodal-generation/generation`
   - 火山引擎 / 其他 OpenAI 兼容图像接口：继续使用 OpenAI 兼容格式
-  - **OpenRouter**(`https://openrouter.ai/api/v1`):自动走 `chat/completions` 出图,自动注入 `modalities: ["image", "text"]`;模型选 `google/gemini-3-pro-image-preview` / `google/gemini-2.5-flash-image` 等。`image_config` 等参数通过 `custom_api_params.json` 的 `colorizer` 段传入
+  - **OpenRouter**(`https://openrouter.ai/api/v1`):自动走 `chat/completions` 出图,自动注入 `modalities: ["image", "text"]`;模型选 `google/gemini-3-pro-image-preview` / `google/gemini-2.5-flash-image` 等。`image_config` 等参数放在对应模型预设的 `colorizer` 段
 - AI 上色多图提示词会自动按图号说明角色：`Image 1` 为当前待上色页，`Image 2+` 会分别标注为提示词参考图或历史已上色页
-- 若启用 `use_custom_api_params`，上色器会自动把 `config/custom_api_params.json` 中 `colorizer` 分组的自定义参数并入对应后端请求体；例如：
+- 若启用 `use_custom_api_params`，上色通道会按当前实际模型名选择同名预设，找不到时回退“通用”，只合并该预设的 `common + colorizer`，再按当前 API 格式过滤和转换参数；例如：
   - 硅基流动：`cfg`、`num_inference_steps`、`image_size`、`guidance_scale`
   - 百炼原生：`n`、`watermark`、`negative_prompt`、`prompt_extend`、`size`
 - Google Cloud / Vertex 相关 API Key 也直接填写 `COLOR_GEMINI_*` 或普通 `GEMINI_*`；`COLOR_GEMINI_API_BASE` / `GEMINI_API_BASE` 保持默认官方地址即可，无需修改
@@ -339,12 +339,12 @@ Google Gemini 是 Google 最新的多模态 AI 模型，性能强劲。
 - 拟声词 / 音效也会按翻译结果一起发送给渲染模型
 - 并发由 `ai_renderer_concurrency` 控制，仅 Qt 桌面端显示
 - `openai_renderer` 也会根据 `RENDER_OPENAI_API_BASE` / `OPENAI_API_BASE` 自动适配图像接口,规则与 `openai_colorizer` 一致
-- 若启用 `use_custom_api_params`,渲染器会自动把 `config/custom_api_params.json` 中 `render` 分组的自定义参数并入对应后端请求体
+- 若启用 `use_custom_api_params`,渲染通道会按当前实际模型名选择同名预设，找不到时回退“通用”，只合并该预设的 `common + render`，再按当前 API 格式过滤和转换参数
 - **OpenRouter 出图**:`API_BASE` 设为 `https://openrouter.ai/api/v1`、模型选 `google/gemini-3-pro-image-preview` / `google/gemini-2.5-flash-image` 等支持出图的模型即可。程序会自动:
   - 优先走 `chat/completions`(跳过 `images/edits` / `images/generations` 的无效探测)
   - 注入 `modalities: ["image", "text"]`(OpenRouter 出图必须;用户在 `custom_api_params.json` 写的同名字段会覆盖默认值)
   - 默认 `max_tokens: 2048`(避免 OpenRouter 默认 32768 触发 402 余额不足;同样可被用户覆盖)
-  - `image_config` 等其他 OpenRouter 专有参数走 `custom_api_params.json` 顶层传入即可。**注意**:`aspect_ratio` 不要乱填,流水线会把原图 pad 成正方形发出去,目标输出比例 ≠ 方形会在裁回原页时失真
+  - `image_config` 等其他 OpenRouter 专有参数放在对应模型预设的 `render` 段。**注意**:`aspect_ratio` 不要乱填,流水线会把原图 pad 成正方形发出去,目标输出比例 ≠ 方形会在裁回原页时失真
 - Google Cloud / Vertex 相关 API Key 也直接填写 `RENDER_GEMINI_*` 或普通 `GEMINI_*`;`RENDER_GEMINI_API_BASE` / `GEMINI_API_BASE` 保持默认官方地址即可,无需修改
 
 ---

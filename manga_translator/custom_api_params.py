@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Mapping
@@ -7,57 +8,32 @@ from typing import Any
 
 from manga_translator.runtime_paths import get_config_dir
 
-CUSTOM_API_PARAM_SECTIONS = ("common", "translator", "ocr", "render", "colorizer")
-_SECTION_ALIASES = {
-    "common": "common",
-    "global": "common",
-    "shared": "common",
-    "all": "common",
-    "translator": "translator",
-    "translation": "translator",
-    "ocr": "ocr",
-    "render": "render",
-    "renderer": "render",
-    "rendering": "render",
-    "colorizer": "colorizer",
-    "colourizer": "colorizer",
-    "colorization": "colorizer",
-}
 
-_GEMINI_TOP_LEVEL_ALIASES = {
-    "safety_settings": "safetySettings",
-    "system_instruction": "systemInstruction",
-    "tool_config": "toolConfig",
-    "cached_content": "cachedContent",
-    "automatic_function_calling": "automaticFunctionCalling",
-}
-_GEMINI_TOP_LEVEL_KEYS = set(_GEMINI_TOP_LEVEL_ALIASES.values()) | {"tools"}
-
-_GEMINI_GENERATION_CONFIG_ALIASES = {
-    "top_p": "topP",
-    "top_k": "topK",
-    "max_output_tokens": "maxOutputTokens",
-    "stop_sequences": "stopSequences",
-    "candidate_count": "candidateCount",
-    "response_modalities": "responseModalities",
-    "response_mime_type": "responseMimeType",
-    "response_schema": "responseSchema",
-    "presence_penalty": "presencePenalty",
-    "frequency_penalty": "frequencyPenalty",
-    "thinking_budget": "thinkingBudget",
-}
+DEFAULT_CUSTOM_API_PARAMS_PRESET = "通用"
+CUSTOM_API_PARAM_SECTIONS = (
+    "common",
+    "translator",
+    "ocr",
+    "colorizer",
+    "render",
+)
 
 _DEFAULT_CUSTOM_API_PARAMS_DATA = {
-    "translator": {
-        "temperature": 0.3,
-        "top_p": 0.95,
-    },
-    "ocr": {
-        "temperature": 0.0,
-    },
+    DEFAULT_CUSTOM_API_PARAMS_PRESET: {
+        "common": {},
+        "translator": {
+            "temperature": 0.3,
+            "top_p": 0.95,
+        },
+        "ocr": {
+            "temperature": 0.0,
+        },
+        "colorizer": {},
+        "render": {},
+    }
 }
 
-
+_LEGACY_DEFAULT_CUSTOM_API_PARAMS_MD5 = "078a7568301d5d22db0d5b53b286115c"
 _CUSTOM_API_PARAMS_PATH = os.path.join(get_config_dir(), "custom_api_params.json")
 
 
@@ -67,20 +43,44 @@ def get_custom_api_params_path(path: str | None = None) -> str:
 
 def ensure_custom_api_params_file(path: str | None = None, logger=None) -> str:
     config_path = get_custom_api_params_path(path)
-    if os.path.exists(config_path):
+    if not os.path.exists(config_path):
+        _write_custom_api_params_file(config_path, _DEFAULT_CUSTOM_API_PARAMS_DATA)
+        _log(logger, "info", f"已创建自定义API参数配置文件: {config_path}")
         return config_path
 
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as file:
-        json.dump(_DEFAULT_CUSTOM_API_PARAMS_DATA, file, indent=2, ensure_ascii=False)
-        file.write("\n")
+    try:
+        with open(config_path, "r", encoding="utf-8") as file:
+            content = file.read()
+    except Exception as exc:
+        _log(logger, "warning", f"读取自定义API参数配置失败: {exc}")
+        return config_path
 
-    if logger:
-        logger.info(f"已创建自定义API参数配置文件: {config_path}")
+    if _normalized_md5(content) == _LEGACY_DEFAULT_CUSTOM_API_PARAMS_MD5:
+        try:
+            os.remove(config_path)
+            _write_custom_api_params_file(config_path, _DEFAULT_CUSTOM_API_PARAMS_DATA)
+            _log(logger, "info", f"已重建旧版默认自定义API参数配置: {config_path}")
+        except Exception as exc:
+            _log(logger, "warning", f"重建旧版默认自定义API参数配置失败: {exc}")
+        return config_path
+
+    try:
+        data = json.loads(content)
+    except Exception:
+        return config_path
+
+    migrated, was_legacy = migrate_legacy_custom_api_params_payload(data)
+    if was_legacy:
+        try:
+            _write_custom_api_params_file(config_path, migrated)
+            _log(logger, "info", f"已迁移旧版自定义API参数配置: {config_path}")
+        except Exception as exc:
+            _log(logger, "warning", f"迁移旧版自定义API参数配置失败: {exc}")
     return config_path
 
 
 def migrate_legacy_custom_api_params_config(data: Any) -> Any:
+    """Migrate the legacy main-config location of ``use_custom_api_params``."""
     if not isinstance(data, dict):
         return data
 
@@ -94,6 +94,47 @@ def migrate_legacy_custom_api_params_config(data: Any) -> Any:
     migrated["translator"] = migrated_translator
     migrated.setdefault("use_custom_api_params", legacy_value)
     return migrated
+
+
+def migrate_legacy_custom_api_params_payload(
+    data: Any,
+) -> tuple[dict[str, dict[str, dict[str, Any]]], bool]:
+    """Return the canonical model-preset payload and whether legacy migration ran."""
+    if not isinstance(data, dict):
+        return _empty_presets(), False
+
+    preset_entries = {
+        str(raw_name): raw_preset
+        for raw_name, raw_preset in data.items()
+        if _is_model_preset_entry(str(raw_name), raw_preset)
+    }
+    if preset_entries:
+        normalized = normalize_custom_api_params_presets(preset_entries)
+        legacy_entries = [
+            (str(raw_key), value)
+            for raw_key, value in data.items()
+            if str(raw_key) not in preset_entries
+        ]
+        general = normalized[DEFAULT_CUSTOM_API_PARAMS_PRESET]
+        for key, value in legacy_entries:
+            if key in CUSTOM_API_PARAM_SECTIONS and isinstance(value, Mapping):
+                general[key].update(dict(value))
+            else:
+                general["common"][key] = value
+        was_migrated = bool(legacy_entries) or (
+            DEFAULT_CUSTOM_API_PARAMS_PRESET not in preset_entries
+        )
+        return normalized, was_migrated
+
+    migrated_preset = _empty_preset()
+    for raw_key, value in data.items():
+        key = str(raw_key)
+        if key in CUSTOM_API_PARAM_SECTIONS and isinstance(value, Mapping):
+            migrated_preset[key].update(dict(value))
+        else:
+            migrated_preset["common"][key] = value
+
+    return {DEFAULT_CUSTOM_API_PARAMS_PRESET: migrated_preset}, True
 
 
 def is_custom_api_params_enabled(config: Any) -> bool:
@@ -113,125 +154,140 @@ def load_custom_api_params_file(logger, path: str | None = None) -> dict[str, An
         with open(config_path, "r", encoding="utf-8") as file:
             params = json.load(file)
         if not isinstance(params, dict):
-            logger.error(f"自定义API参数配置必须是 JSON 对象: {config_path}")
-            return {}
-        logger.info(f"已加载自定义API参数配置: {params}")
-        return params
-    except Exception as exc:
-        logger.error(f"加载自定义API参数配置失败: {exc}")
-    return {}
-
-
-def normalize_custom_api_params_payload(data: Any) -> dict[str, dict[str, Any]]:
-    normalized: dict[str, dict[str, Any]] = {
-        section: {} for section in CUSTOM_API_PARAM_SECTIONS
-    }
-    if not isinstance(data, dict):
+            _log(logger, "error", f"自定义API参数配置必须是 JSON 对象: {config_path}")
+            return _empty_presets()
+        normalized, _ = migrate_legacy_custom_api_params_payload(params)
         return normalized
+    except Exception as exc:
+        _log(logger, "error", f"加载自定义API参数配置失败: {exc}")
+        return _empty_presets()
 
-    for raw_key, value in data.items():
-        section = _SECTION_ALIASES.get(str(raw_key or "").strip().lower())
-        if section and isinstance(value, Mapping):
-            normalized[section].update(dict(value))
-        else:
-            normalized["common"][str(raw_key)] = value
 
+def normalize_custom_api_params_presets(
+    data: Any,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    normalized: dict[str, dict[str, dict[str, Any]]] = {}
+    if not isinstance(data, Mapping):
+        return _empty_presets()
+
+    for raw_name, raw_preset in data.items():
+        name = str(raw_name).strip()
+        if not name or not isinstance(raw_preset, Mapping):
+            continue
+
+        preset = _empty_preset()
+        for section in CUSTOM_API_PARAM_SECTIONS:
+            values = raw_preset.get(section)
+            if isinstance(values, Mapping):
+                preset[section].update(dict(values))
+        normalized[name] = preset
+
+    if DEFAULT_CUSTOM_API_PARAMS_PRESET not in normalized:
+        normalized = {
+            DEFAULT_CUSTOM_API_PARAMS_PRESET: _empty_preset(),
+            **normalized,
+        }
+    elif next(iter(normalized), None) != DEFAULT_CUSTOM_API_PARAMS_PRESET:
+        general = normalized.pop(DEFAULT_CUSTOM_API_PARAMS_PRESET)
+        normalized = {DEFAULT_CUSTOM_API_PARAMS_PRESET: general, **normalized}
     return normalized
 
 
-def build_custom_api_params_payload(section_data: Mapping[str, Mapping[str, Any]] | None) -> dict[str, Any]:
-    normalized = normalize_custom_api_params_payload(dict(section_data or {}))
-    payload: dict[str, Any] = {}
-    for section in CUSTOM_API_PARAM_SECTIONS:
-        values = normalized.get(section) or {}
-        if values:
-            payload[section] = dict(values)
-    return payload
+def build_custom_api_params_payload(
+    presets: Mapping[str, Mapping[str, Mapping[str, Any]]] | None,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    return normalize_custom_api_params_presets(dict(presets or {}))
 
 
-def resolve_custom_api_params_for_target(
+def create_empty_custom_api_params_preset() -> dict[str, dict[str, Any]]:
+    return _empty_preset()
+
+
+def resolve_custom_api_params_for_model(
     payload: Mapping[str, Any] | None,
-    target: str,
+    model_name: str | None,
+    section: str,
 ) -> dict[str, Any]:
-    normalized = normalize_custom_api_params_payload(dict(payload or {}))
-    section = _SECTION_ALIASES.get(str(target or "").strip().lower())
     if section not in CUSTOM_API_PARAM_SECTIONS:
-        raise ValueError(f"Unsupported custom API params target: {target}")
+        raise ValueError(f"Unsupported custom API params section: {section}")
 
-    resolved = dict(normalized["common"])
+    presets, _ = migrate_legacy_custom_api_params_payload(dict(payload or {}))
+    requested_model = str(model_name or "").strip()
+    preset_name = (
+        requested_model
+        if requested_model and requested_model in presets
+        else DEFAULT_CUSTOM_API_PARAMS_PRESET
+    )
+    preset = presets.get(preset_name) or _empty_preset()
+
+    resolved = dict(preset.get("common") or {})
     if section != "common":
-        resolved.update(normalized[section])
+        resolved.update(preset.get(section) or {})
     return resolved
 
 
-def load_enabled_custom_api_params(
+def resolve_custom_api_params(
     config: Any,
     logger,
-    target: str,
+    *,
+    model_name: str | None,
+    section: str,
     path: str | None = None,
 ) -> dict[str, Any]:
+    """Load, match and merge one model preset without applying API-specific rules."""
     if not is_custom_api_params_enabled(config):
         return {}
 
-    params = load_custom_api_params_file(logger, path=path)
-    resolved = resolve_custom_api_params_for_target(params, target)
+    presets = load_custom_api_params_file(logger, path=path)
+    resolved = resolve_custom_api_params_for_model(presets, model_name, section)
     if resolved:
-        logger.info(f"已启用自定义API参数[{target}]: {resolved}")
+        requested_model = str(model_name or "").strip()
+        preset_name = (
+            requested_model
+            if requested_model and requested_model in presets
+            else DEFAULT_CUSTOM_API_PARAMS_PRESET
+        )
+        _log(
+            logger,
+            "info",
+            f"已启用自定义API参数[{section}]，模型={requested_model or '(empty)'}，预设={preset_name}",
+        )
     return resolved
 
 
-def load_custom_api_params_sections(
-    config: Any,
-    logger,
-    path: str | None = None,
-) -> dict[str, dict[str, Any]]:
-    if not is_custom_api_params_enabled(config):
-        return {section: {} for section in CUSTOM_API_PARAM_SECTIONS}
-
-    params = load_custom_api_params_file(logger, path=path)
-    normalized = normalize_custom_api_params_payload(params)
-    if any(normalized.values()):
-        logger.info(f"已启用分类自定义API参数: {normalized}")
-    return normalized
+def _empty_preset() -> dict[str, dict[str, Any]]:
+    return {section: {} for section in CUSTOM_API_PARAM_SECTIONS}
 
 
-def merge_openai_request_params(
-    base_params: dict[str, Any],
-    custom_api_params: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    merged = dict(base_params)
-    if custom_api_params:
-        merged.update(dict(custom_api_params))
-    return merged
+def _is_model_preset_entry(name: str, value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if name == DEFAULT_CUSTOM_API_PARAMS_PRESET:
+        return True
+    return any(
+        section in value and isinstance(value[section], Mapping)
+        for section in CUSTOM_API_PARAM_SECTIONS
+    )
 
 
-def split_gemini_request_params(
-    custom_api_params: Mapping[str, Any] | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    request_overrides: dict[str, Any] = {}
-    generation_overrides: dict[str, Any] = {}
+def _empty_presets() -> dict[str, dict[str, dict[str, Any]]]:
+    return {DEFAULT_CUSTOM_API_PARAMS_PRESET: _empty_preset()}
 
-    if not custom_api_params:
-        return request_overrides, generation_overrides
 
-    for raw_key, value in dict(custom_api_params).items():
-        key = str(raw_key or "").strip()
-        if not key:
-            continue
+def _write_custom_api_params_file(path: str, data: Mapping[str, Any]) -> None:
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    temporary_path = f"{path}.tmp"
+    with open(temporary_path, "w", encoding="utf-8", newline="\n") as file:
+        json.dump(data, file, indent=2, ensure_ascii=False)
+        file.write("\n")
+    os.replace(temporary_path, path)
 
-        if key in {"generationConfig", "generation_config"} and isinstance(value, Mapping):
-            for nested_key, nested_value in dict(value).items():
-                generation_overrides[_normalize_gemini_generation_key(str(nested_key))] = nested_value
-            continue
 
-        normalized_request_key = _GEMINI_TOP_LEVEL_ALIASES.get(key)
-        if normalized_request_key or key in _GEMINI_TOP_LEVEL_KEYS:
-            request_overrides[normalized_request_key or key] = value
-            continue
-
-        generation_overrides[_normalize_gemini_generation_key(key)] = value
-
-    return request_overrides, generation_overrides
+def _normalized_md5(content: str) -> str:
+    normalized = (content or "").replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.md5(normalized.encode("utf-8")).hexdigest()
 
 
 def _get_value(config: Any, key: str, default: Any = None) -> Any:
@@ -240,16 +296,7 @@ def _get_value(config: Any, key: str, default: Any = None) -> Any:
     return getattr(config, key, default)
 
 
-def _normalize_gemini_generation_key(key: str) -> str:
-    if key in _GEMINI_GENERATION_CONFIG_ALIASES:
-        return _GEMINI_GENERATION_CONFIG_ALIASES[key]
-    if "_" in key:
-        return _camelize(key)
-    return key
-
-
-def _camelize(value: str) -> str:
-    parts = [part for part in value.split("_") if part]
-    if not parts:
-        return value
-    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+def _log(logger, level: str, message: str) -> None:
+    callback = getattr(logger, level, None)
+    if callable(callback):
+        callback(message)
