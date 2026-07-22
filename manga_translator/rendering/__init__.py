@@ -2472,7 +2472,11 @@ async def dispatch(
         from .model_api_renderer import dispatch_api_rendering
 
         result = await dispatch_api_rendering(img=img, text_regions=text_regions, config=config)
-        sync_translation_raw_from_layout(text_regions, config)
+        sync_translation_raw_from_layout(
+            text_regions,
+            config,
+            skip_text_replacements=skip_text_replacements,
+        )
         return result
 
     await download_chinese_linebreak_models_if_enabled(config)
@@ -2489,7 +2493,11 @@ async def dispatch(
         skip_font_scaling=skip_font_scaling,
         skip_text_replacements=skip_text_replacements,
     )
-    sync_translation_raw_from_layout(text_regions, config)
+    sync_translation_raw_from_layout(
+        text_regions,
+        config,
+        skip_text_replacements=skip_text_replacements,
+    )
 
     # Handle return value (may be tuple if debug image is included)
     if return_debug_img and isinstance(result, tuple):

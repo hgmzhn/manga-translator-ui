@@ -139,9 +139,12 @@ def prepare_text_replacements_for_layout(
         )
 
 
-def sync_translation_raw_from_layout(text_regions: List[TextBlock], config: Config = None) -> None:
-    from .rich_text_rules import apply_rich_text_rules_to_region
-
+def sync_translation_raw_from_layout(
+    text_regions: List[TextBlock],
+    config: Config = None,
+    *,
+    skip_text_replacements: bool = False,
+) -> None:
     for region in text_regions:
         record = getattr(region, '_replacement_layout_record', None)
         if record is not None:
@@ -157,9 +160,14 @@ def sync_translation_raw_from_layout(text_regions: List[TextBlock], config: Conf
             except Exception:
                 pass
 
-        # 富文本规则读取的是替换及断句完成后的 translation。规则引擎会把
-        # [BR]/【BR】/<br>/换行转换为 paragraph 边界，标记本身不会进入样式 run。
-        apply_rich_text_rules_to_region(region)
+        if not skip_text_replacements:
+            # 富文本规则读取的是替换及断句完成后的 translation。规则引擎会把
+            # [BR]/【BR】/<br>/换行转换为 paragraph 边界，标记本身不会进入样式 run。
+            from .rich_text_rules import apply_rich_text_rules_to_region
 
+            apply_rich_text_rules_to_region(region)
+
+        # 即使终稿通过 skip_text_replacements 跳过自动富文本规则，传统 BR
+        # 仍要转换成 paragraph，保证纯文本多行内容沿用统一结构化渲染路径。
         if hasattr(region, 'ensure_translation_rich_from_legacy_breaks'):
             region.ensure_translation_rich_from_legacy_breaks()
