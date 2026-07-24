@@ -1,11 +1,8 @@
-import time
-
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPalette, QTransform
 from PyQt6.QtWidgets import QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 from qfluentwidgets import isDarkTheme
 from services import get_logger
-from utils.canvas_lag_debug import last_canvas_interaction, record_canvas_debug
 
 from editor.editor_model import EditorModel
 from editor.render_coordinator import RenderCoordinator
@@ -120,7 +117,6 @@ class GraphicsView(
 
         self._setup_view()
         self._connect_model_signals()
-        self._canvas_debug_last_paint_ms: float | None = None
 
     def set_controller(self, controller) -> None:
         self.controller = controller
@@ -132,50 +128,6 @@ class GraphicsView(
             if item is not None:
                 item.set_snap_enabled(self._snap_enabled)
         self.scene.update()
-
-    def paintEvent(self, event):
-        paint_start = time.perf_counter()
-        frame_gap_ms = None
-        last_paint_ms = getattr(self, "_canvas_debug_last_paint_ms", None)
-        if last_paint_ms is not None:
-            frame_gap_ms = paint_start * 1000.0 - last_paint_ms
-        try:
-            super().paintEvent(event)
-        finally:
-            paint_end = time.perf_counter()
-            elapsed_ms = (paint_end - paint_start) * 1000.0
-            self._canvas_debug_last_paint_ms = paint_end * 1000.0
-
-            interaction = last_canvas_interaction()
-            input_to_paint_ms = None
-            if interaction is not None:
-                input_to_paint_ms = paint_start * 1000.0 - float(interaction.get("monotonic_ms", 0.0))
-
-            if (
-                elapsed_ms >= 33.0
-                or (input_to_paint_ms is not None and input_to_paint_ms >= 120.0)
-                or (frame_gap_ms is not None and frame_gap_ms >= 250.0)
-            ):
-                rect = event.rect()
-                viewport_size = self.viewport().size()
-                scale = self.transform().m11()
-                record_canvas_debug(
-                    "canvas_paint_event",
-                    include_system=elapsed_ms >= 80.0
-                    or (input_to_paint_ms is not None and input_to_paint_ms >= 250.0),
-                    elapsed_ms=round(elapsed_ms, 3),
-                    input_to_paint_ms=round(input_to_paint_ms, 3) if input_to_paint_ms is not None else None,
-                    frame_gap_ms=round(frame_gap_ms, 3) if frame_gap_ms is not None else None,
-                    interaction=interaction,
-                    update_rect=rect,
-                    update_rect_area=int(rect.width() * rect.height()),
-                    viewport_size=viewport_size,
-                    viewport_area=int(viewport_size.width() * viewport_size.height()),
-                    scene_item_count=len(self.scene.items()) if self.scene is not None else None,
-                    region_item_count=len(self._region_items),
-                    scale=round(float(scale), 4),
-                    viewport_update_mode=str(self.viewportUpdateMode()),
-                )
 
     def clear_pending_geometry_edits(self) -> None:
         self._clear_pending_geometry_edits()
