@@ -533,6 +533,11 @@ class MainWindow(FluentWindow):
             if not self._should_prompt_open_results_in_editor():
                 return
 
+            # qfluentwidgets 的无边框对话框若以最小化主窗口为父窗口弹出，
+            # Windows 11 上恢复后可能停止合成窗口新内容；弹框前先恢复可避免该状态。
+            if self.isMinimized():
+                self.showNormal()
+
             from PyQt6.QtWidgets import QMessageBox
 
             reply = show_error_dialog(
