@@ -1,4 +1,3 @@
-import copy
 import base64
 import math
 import os
@@ -364,9 +363,11 @@ def _solve_unified_no_br_layout(
     config: Config = None,
     target_lang: str = None,
     max_font_size: Optional[int] = None,
-    stroke_width: float = None,
-) -> Tuple[str, int, float, float, int]:
-    """Shared no-BR line-break solver for strict, smart_scaling, and balloon_fill."""
+) -> str:
+    """Shared no-BR auto-linebreak step: returns the final text (with [BR]) only.
+
+    按框适配字号与候选尺寸在断句完成后由调用方统一计算，不在此重复。
+    """
     safe_target_font_size = max(int(target_font_size), int(layout_min_font_size), 1)
     safe_max_font_size = max(
         safe_target_font_size,
@@ -468,33 +469,7 @@ def _solve_unified_no_br_layout(
         adjust_font_size=False,
         debug_context="ocr_box",
     )
-    text_with_br = no_br_result.text_with_br
-    layout_font_size, _ = _select_preserved_line_layout_font(
-        base_font_size=seed_font_size,
-        width=safe_bubble_width,
-        height=safe_bubble_height,
-        text=text_with_br,
-        is_horizontal=render_horizontally,
-        line_spacing=line_spacing_multiplier,
-        config=config,
-        target_lang=target_lang,
-        letter_spacing=letter_spacing_multiplier,
-        stroke_width=stroke_width,
-    )
-    layout_font_size = max(int(layout_font_size), int(layout_min_font_size), 1)
-    required_width, required_height, n_segments, _ = calc_box_from_font(
-        layout_font_size,
-        text_with_br,
-        render_horizontally,
-        line_spacing_multiplier,
-        config,
-        target_lang,
-        center=None,
-        angle=0,
-        letter_spacing=letter_spacing_multiplier,
-        stroke_width=stroke_width,
-    )
-    return text_with_br, layout_font_size, required_width, required_height, n_segments
+    return no_br_result.text_with_br
 
 
 def calc_text_block_metrics(text, is_horizontal: bool, line_spacing: float,
@@ -1182,6 +1157,33 @@ def _apply_final_font_constraints(layout_font_size: int, config: Config) -> int:
     return max(final_font_size, 1)
 
 
+def _resolve_strict_layout_font_size(
+    region: TextBlock,
+    config: Config,
+    layout_candidate_font_size: int,
+    box_fit_font_size: int,
+) -> int:
+    """strict 布局字号：最终文本按 OCR 框适配的字号作为布局上限。
+
+    box_fit_font_size <= 0（配置了固定字号、未做按框计算）时直接用候选字号，
+    最终仍由 _apply_final_font_constraints 收口。替换翻译模式下强制单行
+    （OCR 单行且方向未改写）的区域豁免按框上限：清除断行标记后按候选字号
+    渲染，允许超出 OCR 框。
+    """
+    min_shrink_font_size = 8
+    is_replace_mode = config.cli.replace_translation if (config and hasattr(config, 'cli')) else False
+    force_single_line_no_wrap = is_replace_mode and should_force_no_wrap_single_region(region)
+    if is_replace_mode and len(region.lines) == 1 and not force_single_line_no_wrap:
+        logger.debug("[STRICT MODE] 替换模式单行区域检测到方向改写，允许自动换行")
+    if force_single_line_no_wrap:
+        logger.debug("[STRICT MODE] 替换模式单行强制不换行 (OCR lines=1)，按候选字号渲染")
+        region.translation = re.sub(r'(\n|\[BR\]|【BR】|<br>)', '', region.translation, flags=re.IGNORECASE)
+        return max(int(layout_candidate_font_size), min_shrink_font_size)
+    if isinstance(box_fit_font_size, (int, float)) and box_fit_font_size > 0:
+        return max(min(int(layout_candidate_font_size), int(box_fit_font_size)), min_shrink_font_size)
+    return max(int(layout_candidate_font_size), min_shrink_font_size)
+
+
 def _compute_top_aligned_center(region: 'TextBlock', text_height: float) -> tuple:
     """Shift center toward bubble top so text is top-aligned within the bubble."""
     pts = region.min_rect  # (1, 4, 2)
@@ -1674,50 +1676,21 @@ def resize_regions_to_font_size(
                 dst_points_list.append(dst_points)
                 continue
 
-            if has_br and remove_linebreak_punctuation:
-                region.translation = strip_linebreak_edge_punctuation(region.translation)
-                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
-
-            if config.render.optimize_line_breaks and has_br and (mode != 'strict' or config.render.disable_auto_wrap):
-                optimized_text, _ = optimize_line_breaks_for_region(
-                    region,
-                    config,
-                    layout_candidate_font_size,
-                    float(line_box_width),
-                    float(line_box_height),
-                )
-                region.translation = optimized_text
+            # 入口唯一一次 BR 分支：有 BR 保留显式断句，无 BR 统一自动断句。
+            if has_br:
                 if remove_linebreak_punctuation:
                     region.translation = strip_linebreak_edge_punctuation(region.translation)
-                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
-
-            if has_br:
-                if configured_fixed_font_size <= 0:
-                    layout_candidate_font_size, _ = _select_preserved_line_layout_font(
-                        base_font_size=layout_candidate_font_size,
-                        width=float(line_box_width),
-                        height=float(line_box_height),
-                        text=region.translation,
-                        is_horizontal=render_horizontally,
-                        line_spacing=line_spacing_multiplier,
-                        config=config,
-                        target_lang=region.target_lang,
-                        letter_spacing=letter_spacing_multiplier,
-                        stroke_width=_resolve_region_stroke_width(region, config),
+                if config.render.optimize_line_breaks and (mode != 'strict' or config.render.disable_auto_wrap):
+                    optimized_text, _ = optimize_line_breaks_for_region(
+                        region,
+                        config,
+                        layout_candidate_font_size,
+                        float(line_box_width),
+                        float(line_box_height),
                     )
-                    layout_candidate_font_size = max(int(layout_candidate_font_size), layout_min_font_size)
-                candidate_required_width, candidate_required_height, candidate_n, _ = calc_box_from_font(
-                    layout_candidate_font_size,
-                    region.translation,
-                    render_horizontally,
-                    line_spacing_multiplier,
-                    config,
-                    region.target_lang,
-                    center=None,
-                    angle=0,
-                    letter_spacing=letter_spacing_multiplier,
-                    stroke_width=_resolve_region_stroke_width(region, config),
-                )
+                    region.translation = optimized_text
+                    if remove_linebreak_punctuation:
+                        region.translation = strip_linebreak_edge_punctuation(region.translation)
             else:
                 line_layout_max_font_size = int(
                     max(layout_candidate_font_size, line_box_width, line_box_height, layout_min_font_size)
@@ -1726,13 +1699,7 @@ def resize_regions_to_font_size(
                     line_layout_max_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
                     layout_candidate_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
 
-                (
-                    region.translation,
-                    unified_layout_font_size,
-                    candidate_required_width,
-                    candidate_required_height,
-                    candidate_n,
-                ) = _solve_unified_no_br_layout(
+                region.translation = _solve_unified_no_br_layout(
                     text=region.translation,
                     render_horizontally=render_horizontally,
                     target_font_size=layout_candidate_font_size,
@@ -1744,9 +1711,38 @@ def resize_regions_to_font_size(
                     config=config,
                     target_lang=region.target_lang,
                     max_font_size=line_layout_max_font_size,
+                )
+
+            # 断句完成后不再按 BR 二次分支：统一用最终文本计算按框适配字号
+            # （strict 的布局上限）与候选字号/候选尺寸（smart_scaling、
+            # balloon_fill 的缩放输入）。
+            box_fit_font_size = 0
+            if configured_fixed_font_size <= 0:
+                layout_candidate_font_size, box_fit_font_size = _select_preserved_line_layout_font(
+                    base_font_size=layout_candidate_font_size,
+                    width=float(line_box_width),
+                    height=float(line_box_height),
+                    text=region.translation,
+                    is_horizontal=render_horizontally,
+                    line_spacing=line_spacing_multiplier,
+                    config=config,
+                    target_lang=region.target_lang,
+                    letter_spacing=letter_spacing_multiplier,
                     stroke_width=_resolve_region_stroke_width(region, config),
                 )
-                layout_candidate_font_size = max(int(layout_candidate_font_size), int(unified_layout_font_size))
+                layout_candidate_font_size = max(int(layout_candidate_font_size), layout_min_font_size)
+            candidate_required_width, candidate_required_height, candidate_n, _ = calc_box_from_font(
+                layout_candidate_font_size,
+                region.translation,
+                render_horizontally,
+                line_spacing_multiplier,
+                config,
+                region.target_lang,
+                center=None,
+                angle=0,
+                letter_spacing=letter_spacing_multiplier,
+                stroke_width=_resolve_region_stroke_width(region, config),
+            )
 
             # --- Mode 5: balloon_fill (MUST BE FIRST to override other modes) ---
             if mode == 'balloon_fill':
@@ -1761,8 +1757,16 @@ def resize_regions_to_font_size(
                 min_font_size = max(configured_min_font_size if configured_min_font_size > 0 else 1, 1)
 
                 if original_img is None:
-                    logger.warning("balloon_fill mode requires original_img, fallback to geometry-based dst_points")
-                    fallback_font_size = _apply_final_font_constraints(layout_candidate_font_size, config)
+                    logger.warning("balloon_fill mode requires original_img, fallback to strict layout")
+                    fallback_font_size = _apply_final_font_constraints(
+                        _resolve_strict_layout_font_size(
+                            region=region,
+                            config=config,
+                            layout_candidate_font_size=layout_candidate_font_size,
+                            box_fit_font_size=box_fit_font_size,
+                        ),
+                        config,
+                    )
                     fallback_dst_points = _calc_region_dst_points_for_font(
                         region=region,
                         font_size=fallback_font_size,
@@ -1787,7 +1791,7 @@ def resize_regions_to_font_size(
                         np.count_nonzero(region_bubble_mask) > 0
                         and _region_lines_fully_inside_mask(region, region_bubble_mask)
                     )
-                    used_smart_scaling_fallback = False
+                    used_strict_fallback = False
                     chosen_dst_points = None
                     chosen_font_size = int(max(target_font_size, layout_min_font_size))
                     overflow_candidate_dst_points = None
@@ -1797,25 +1801,16 @@ def resize_regions_to_font_size(
                     line_budget = 0.0
 
                     if not lines_fully_enclosed:
-                        used_smart_scaling_fallback = True
-                        smart_scaling_config = copy.deepcopy(config)
-                        smart_scaling_config.render.layout_mode = 'smart_scaling'
-                        smart_result = resize_regions_to_font_size(
-                            img=img,
-                            text_regions=[region],
-                            config=smart_scaling_config,
-                            original_img=None,
-                            return_debug_img=False,
-                            skip_font_scaling=skip_font_scaling,
-                            skip_text_replacements=skip_text_replacements,
+                        # 气泡蒙版无效或区域未被气泡完整包裹：降级 strict 布局。
+                        used_strict_fallback = True
+                        chosen_font_size = _resolve_strict_layout_font_size(
+                            region=region,
+                            config=config,
+                            layout_candidate_font_size=layout_candidate_font_size,
+                            box_fit_font_size=box_fit_font_size,
                         )
-                        if isinstance(smart_result, list) and len(smart_result) > 0:
-                            chosen_dst_points = smart_result[0]
-                        if chosen_dst_points is None:
-                            chosen_dst_points = region.min_rect
-                        chosen_font_size = region.font_size if region.font_size > 0 else chosen_font_size
                         if not semantic_linebreak_debug:
-                            logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to smart_scaling")
+                            logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to strict")
                     else:
                         if (
                             not has_br
@@ -2118,8 +2113,8 @@ def resize_regions_to_font_size(
                         if render_poly.shape[0] >= 4:
                             cv2.polylines(debug_img, [render_poly], True, (0, 255, 0), 2)
                             label = f'B{region_idx}:{region.font_size}'
-                            if used_smart_scaling_fallback:
-                                label += ':SSF'
+                            if used_strict_fallback:
+                                label += ':STF'
                             elif lines_fully_enclosed:
                                 if preferred_font_size_for_debug is not None:
                                     label += f':ENC({preferred_font_size_for_debug}->{chosen_font_size})'
@@ -2158,111 +2153,14 @@ def resize_regions_to_font_size(
 
             # --- Mode: strict ---
             if mode == 'strict':
-                font_size = layout_candidate_font_size
-                min_shrink_font_size = 8
-
-                # AI 断句适配：如果开启了 AI 断句且有 BR 标记，使用无限宽度/高度
-
-                # 检测是否为替换翻译模式
-                is_replace_mode = config.cli.replace_translation if (config and hasattr(config, 'cli')) else False
-                
-                force_single_line_no_wrap = is_replace_mode and should_force_no_wrap_single_region(region)
-                if is_replace_mode and len(region.lines) == 1 and not force_single_line_no_wrap:
-                    logger.debug("[STRICT MODE] 替换模式单行区域检测到方向改写，允许自动换行")
-
-                use_ai_break = (config.render.disable_auto_wrap and has_br) or force_single_line_no_wrap
-
-                if not has_br:
-                    layout_font_size = max(layout_candidate_font_size, min_shrink_font_size)
-                    final_font_size = _apply_final_font_constraints(layout_font_size, config)
-                    dst_points = _calc_region_dst_points_for_font(
-                        region=region,
-                        font_size=final_font_size,
-                        render_horizontally=render_horizontally,
-                        line_spacing_multiplier=line_spacing_multiplier,
-                        letter_spacing_multiplier=letter_spacing_multiplier,
-                        config=config,
-                        anchor_mode=normal_anchor_mode,
-                    )
-                    if dst_points is None:
-                        dst_points = region.min_rect
-
-                    region.font_size = final_font_size
-                    dst_points_list.append(dst_points)
-                    continue
-
-                if use_ai_break:
-                    calc_max_width = 99999
-                    calc_max_height = 99999
-                    if force_single_line_no_wrap:
-                        logger.debug("[STRICT MODE] 替换模式单行强制不换行 (OCR lines=1)，使用无限尺寸")
-                        # 强制清洗文本：移除所有可能导致换行的字符（\n, [BR]等），确保它真的是单行
-                        region.translation = re.sub(r'(\n|\[BR\]|【BR】|<br>)', '', region.translation, flags=re.IGNORECASE)
-                    else:
-                        logger.debug("[STRICT MODE] AI断句开启，使用无限尺寸")
-                else:
-                    calc_max_width = region.unrotated_size[0]
-                    calc_max_height = region.unrotated_size[1]
-
-                # Step 1: 先缩小字体直到文本能放进文本框
-                while font_size >= min_shrink_font_size:
-                    if render_horizontally:
-                        lines, _ = text_render.calc_horizontal(
-                            font_size,
-                            region.translation,
-                            max_width=calc_max_width,
-                            max_height=calc_max_height,
-                            language=region.target_lang,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        if len(lines) <= len(region.texts):
-                            break
-                    else:
-                        lines, _ = text_render.calc_vertical(
-                            font_size,
-                            region.translation,
-                            max_height=calc_max_height,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        if len(lines) <= len(region.texts):
-                            break
-                    font_size -= 1
-
-                # Step 2: 尝试扩大字体以更好地填充空间（但不超过初始大小）
-                # 从当前能放下的字体大小开始，逐步增加
-                max_fitting_font_size = font_size
-                test_font_size = font_size + 1
-
-                while test_font_size <= layout_candidate_font_size:
-                    if render_horizontally:
-                        test_lines, _ = text_render.calc_horizontal(
-                            test_font_size,
-                            region.translation,
-                            max_width=calc_max_width,
-                            max_height=calc_max_height,
-                            language=region.target_lang,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        if len(test_lines) <= len(region.texts):
-                            max_fitting_font_size = test_font_size
-                            test_font_size += 1
-                        else:
-                            break
-                    else:
-                        test_lines, _ = text_render.calc_vertical(
-                            test_font_size,
-                            region.translation,
-                            max_height=calc_max_height,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        if len(test_lines) <= len(region.texts):
-                            max_fitting_font_size = test_font_size
-                            test_font_size += 1
-                        else:
-                            break
-
+                # 有 BR 与无 BR 同一规则：最终文本按 OCR 框适配的字号作布局上限。
+                layout_font_size = _resolve_strict_layout_font_size(
+                    region=region,
+                    config=config,
+                    layout_candidate_font_size=layout_candidate_font_size,
+                    box_fit_font_size=box_fit_font_size,
+                )
                 # Apply final post-layout constraints: offset, scale ratio, and min/max clamps.
-                layout_font_size = max(max_fitting_font_size, min_shrink_font_size)
                 final_font_size = _apply_final_font_constraints(layout_font_size, config)
                 dst_points = _calc_region_dst_points_for_font(
                     region=region,
