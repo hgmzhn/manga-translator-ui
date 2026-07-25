@@ -18,6 +18,7 @@ class PixmapOverlayLayer:
         self,
         view: "GraphicsView",
         *,
+        debug_name: str,
         z_value: int,
         convert_warning: str,
         empty_when_zero_size: bool = False,
@@ -25,6 +26,7 @@ class PixmapOverlayLayer:
         update_scene: bool = False,
     ):
         self.view = view
+        self.debug_name = debug_name
         self.z_value = z_value
         self.convert_warning = convert_warning
         self.empty_when_zero_size = empty_when_zero_size
@@ -100,12 +102,14 @@ class OverlayLayerManager:
         self.view = view
         self.inpainted = PixmapOverlayLayer(
             view,
+            debug_name="inpainted",
             z_value=1,
             convert_warning="Failed to convert inpainted image to QImage: %s",
         )
         # 位于修复图之上、文字区域之下
         self.paint_overlay = PixmapOverlayLayer(
             view,
+            debug_name="paint_overlay",
             z_value=5,
             convert_warning="Failed to convert paint overlay to QImage: %s",
             empty_when_zero_size=True,

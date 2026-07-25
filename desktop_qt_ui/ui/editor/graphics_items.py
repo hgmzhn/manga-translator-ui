@@ -18,7 +18,6 @@
 import copy
 import logging
 import math
-import time
 import traceback
 from typing import List
 
@@ -38,7 +37,6 @@ from PyQt6.QtGui import QBrush, QColor, QCursor, QFont, QPainter, QPainterPath, 
 from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsItemGroup,
-    QGraphicsLineItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsSceneMouseEvent,
@@ -46,7 +44,6 @@ from PyQt6.QtWidgets import (
     QStyle,
 )
 from qfluentwidgets import isDarkTheme, themeColor
-from utils.canvas_lag_debug import mark_canvas_interaction, record_canvas_duration
 
 logger = logging.getLogger("manga_translator")
 
@@ -361,8 +358,6 @@ class RegionTextItem(QGraphicsItemGroup):
             return QRectF(0, 0, 100, 100)
 
     def paint(self, painter, option, widget=None):
-        paint_start = time.perf_counter()
-        is_sel = False
         try:
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -411,23 +406,6 @@ class RegionTextItem(QGraphicsItemGroup):
                 painter.restore()
             except Exception:
                 pass
-        finally:
-            elapsed_ms = (time.perf_counter() - paint_start) * 1000.0
-            if elapsed_ms >= 12.0:
-                rect = self.boundingRect()
-                record_canvas_duration(
-                    "region_text_item_paint",
-                    elapsed_ms,
-                    threshold_ms=12.0,
-                    index=getattr(self, "region_index", None),
-                    selected=is_sel,
-                    has_text_pixmap=bool(
-                        getattr(self, "text_item", None) is not None
-                        and not self.text_item.pixmap().isNull()
-                    ),
-                    show_white_box=bool(getattr(self, "_show_white_box", False)),
-                    bounding_area=round(float(rect.width() * rect.height()), 2),
-                )
 
     def itemChange(self, change, value):
         try:
@@ -1257,11 +1235,6 @@ class RegionTextItem(QGraphicsItemGroup):
 
     def _handle_rotate_drag(self, event):
         """执行旋转拖拽逻辑，包含角度实时显示与吸附计算。"""
-        drag_start = time.perf_counter()
-        mark_canvas_interaction(
-            "region_rotate_drag",
-            region_index=getattr(self, "region_index", None),
-        )
         center_scene = self._drag_start_pivot_scene
         vec = event.scenePos() - center_scene
         new_angle_rad = np.arctan2(vec.y(), vec.x())
@@ -1332,13 +1305,6 @@ class RegionTextItem(QGraphicsItemGroup):
                 ((pts[3].x(), pts[3].y()), (pts[0].x(), pts[0].y())),
             ]
             self._show_guide_lines(rot_guides, is_rotation=True)
-        record_canvas_duration(
-            "region_rotate_drag",
-            (time.perf_counter() - drag_start) * 1000.0,
-            threshold_ms=16.0,
-            region_index=getattr(self, "region_index", None),
-            rotation=round(float(self.rotation()), 3),
-        )
 
     def _commit_rotation(self, event):
         new_angle = self.rotation()
@@ -1383,12 +1349,6 @@ class RegionTextItem(QGraphicsItemGroup):
     # ------------------------------------------------------------------
 
     def _handle_white_frame_edit(self, event: QGraphicsSceneMouseEvent):
-        edit_start = time.perf_counter()
-        mark_canvas_interaction(
-            "white_frame_edit",
-            region_index=getattr(self, "region_index", None),
-            mode=self._interaction_mode,
-        )
         try:
             if self._drag_handle_indices is None or self._drag_start_white_frame_local is None:
                 return
@@ -1446,22 +1406,9 @@ class RegionTextItem(QGraphicsItemGroup):
 
         except Exception as e:
             logger.error(f"[RegionTextItem] _handle_white_frame_edit: {e}\n{traceback.format_exc()}")
-        finally:
-            record_canvas_duration(
-                "white_frame_edit",
-                (time.perf_counter() - edit_start) * 1000.0,
-                threshold_ms=16.0,
-                region_index=getattr(self, "region_index", None),
-                mode=getattr(self, "_interaction_mode", None),
-            )
 
     def _handle_white_frame_move(self, event: QGraphicsSceneMouseEvent):
         """执行白框平移逻辑，包含位置对齐吸附与辅助线显示。"""
-        move_start = time.perf_counter()
-        mark_canvas_interaction(
-            "white_frame_move",
-            region_index=getattr(self, "region_index", None),
-        )
         try:
             if self._drag_start_white_frame_local is None:
                 return
@@ -1520,17 +1467,8 @@ class RegionTextItem(QGraphicsItemGroup):
 
         except Exception as e:
             logger.error(f"[RegionTextItem] _handle_white_frame_move: {e}\n{traceback.format_exc()}")
-        finally:
-            record_canvas_duration(
-                "white_frame_move",
-                (time.perf_counter() - move_start) * 1000.0,
-                threshold_ms=16.0,
-                region_index=getattr(self, "region_index", None),
-                batch_peer_count=len(getattr(self, "_batch_drag_peers", []) or []),
-            )
 
     def _commit_white_frame(self, event, edit_mode=None):
-        commit_start = time.perf_counter()
         scene = self.scene()
         if scene and hasattr(self, "_drag_start_scene_rect") and self._drag_start_scene_rect is not None:
             update_rect = self._drag_start_scene_rect.united(self.sceneBoundingRect())
@@ -1548,15 +1486,6 @@ class RegionTextItem(QGraphicsItemGroup):
 
         # 同步提交其他选中项的位移
         self._commit_batch_peers(event)
-        record_canvas_duration(
-            "white_frame_commit",
-            (time.perf_counter() - commit_start) * 1000.0,
-            threshold_ms=20.0,
-            force=True,
-            include_system=True,
-            region_index=getattr(self, "region_index", None),
-            edit_mode=edit_mode,
-        )
 
     def _white_handle_world_at_start(self):
         if self._drag_start_white_frame_local is None:
@@ -1586,20 +1515,11 @@ class RegionTextItem(QGraphicsItemGroup):
     # ------------------------------------------------------------------
 
     def _invalidate_scene_rect(self, old_rect):
-        invalidate_start = time.perf_counter()
         if self.scene() and old_rect is not None:
             new_rect = self.sceneBoundingRect()
             update_rect = old_rect.united(new_rect)
             self.scene().invalidate(update_rect, QGraphicsScene.SceneLayer.ItemLayer)
             self.scene().update(update_rect)
-            record_canvas_duration(
-                "region_invalidate_scene_rect",
-                (time.perf_counter() - invalidate_start) * 1000.0,
-                threshold_ms=8.0,
-                region_index=getattr(self, "region_index", None),
-                update_area=round(float(update_rect.width() * update_rect.height()), 2),
-                update_rect=update_rect,
-            )
 
     # ------------------------------------------------------------------
     # WYSIWYG 占位（实际渲染由 GraphicsView 驱动）

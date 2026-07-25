@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -13,8 +12,6 @@ from manga_translator.utils.path_manager import (
     find_json_path,
     find_paint_overlay_path,
 )
-from utils.canvas_lag_debug import record_canvas_debug, record_canvas_duration
-
 from .session import DocumentLoadFailure, DocumentSnapshot
 
 if TYPE_CHECKING:
@@ -36,68 +33,18 @@ class DocumentLoadWorker:
         return self.service.logger
 
     def load(self) -> DocumentSnapshot | DocumentLoadFailure:
-        load_start = time.perf_counter()
-        record_canvas_debug(
-            "document_load_worker_start",
-            include_system=True,
-            image_path=self.image_path,
-        )
         try:
-            snapshot = self._load_snapshot()
-            record_canvas_duration(
-                "document_load_worker_done",
-                (time.perf_counter() - load_start) * 1000.0,
-                threshold_ms=100.0,
-                force=True,
-                include_system=True,
-                image_path=self.image_path,
-                source_path=snapshot.source_path,
-                image_size=getattr(snapshot.image, "size", None),
-                region_count=len(snapshot.regions),
-                has_raw_mask=snapshot.raw_mask is not None,
-                has_inpainted=snapshot.inpainted_image is not None,
-                has_paint_overlay=snapshot.paint_overlay_image is not None,
-            )
-            return snapshot
+            return self._load_snapshot()
         except Exception as e:
-            record_canvas_duration(
-                "document_load_worker_error",
-                (time.perf_counter() - load_start) * 1000.0,
-                threshold_ms=0.0,
-                force=True,
-                include_system=True,
-                image_path=self.image_path,
-                error=str(e),
-            )
             self.logger.error(f"Error loading image data: {e}", exc_info=True)
             return DocumentLoadFailure(str(e))
 
     def _load_snapshot(self) -> DocumentSnapshot:
-        snapshot_start = time.perf_counter()
-        phase_start = snapshot_start
         source_path, display_image_path = self.service.resolve_editor_image_paths(self.image_path)
-        record_canvas_duration(
-            "document_load_resolve_paths",
-            (time.perf_counter() - phase_start) * 1000.0,
-            threshold_ms=20.0,
-            source_path=source_path,
-            display_image_path=display_image_path,
-        )
 
-        phase_start = time.perf_counter()
         image_resource = self.service.resource_manager.load_image(display_image_path)
         image = image_resource.image
         image_size = image.size
-        record_canvas_duration(
-            "document_load_base_image",
-            (time.perf_counter() - phase_start) * 1000.0,
-            threshold_ms=50.0,
-            force=True,
-            include_system=True,
-            display_image_path=display_image_path,
-            image_size=image_size,
-            qimage_cached=image_resource.qimage is not None,
-        )
 
         aux_paths = {
             "json": find_json_path(source_path),
@@ -116,72 +63,16 @@ class DocumentLoadWorker:
             )
 
             # 后台预转 QImage 到 ImageResource(走 LRU);命中缓存时跳过
-            phase_start = time.perf_counter()
             self._ensure_qimage(image_resource, image)
-            record_canvas_duration(
-                "document_load_ensure_qimage",
-                (time.perf_counter() - phase_start) * 1000.0,
-                threshold_ms=50.0,
-                force=True,
-                qimage_cached=image_resource.qimage is not None,
-            )
 
-            phase_start = time.perf_counter()
             compare_image = futures["compare"].result()
-            record_canvas_duration(
-                "document_load_compare_image",
-                (time.perf_counter() - phase_start) * 1000.0,
-                threshold_ms=50.0,
-                compare_is_base=compare_image is image,
-            )
 
-            phase_start = time.perf_counter()
             regions, raw_mask = futures["json"].result()
-            record_canvas_duration(
-                "document_load_regions_json",
-                (time.perf_counter() - phase_start) * 1000.0,
-                threshold_ms=50.0,
-                force=True,
-                json_path=aux_paths["json"],
-                region_count=len(regions),
-                has_raw_mask=raw_mask is not None,
-                raw_mask_shape=getattr(raw_mask, "shape", None),
-            )
 
-            phase_start = time.perf_counter()
             inpainted_path, inpainted_image = futures["inpainted"].result()
-            record_canvas_duration(
-                "document_load_inpainted_image",
-                (time.perf_counter() - phase_start) * 1000.0,
-                threshold_ms=50.0,
-                force=True,
-                inpainted_path=inpainted_path,
-                has_inpainted=inpainted_image is not None,
-                inpainted_shape=getattr(inpainted_image, "shape", None),
-            )
 
-            phase_start = time.perf_counter()
             paint_overlay_path, paint_overlay_image = futures["paint_overlay"].result()
-            record_canvas_duration(
-                "document_load_paint_overlay",
-                (time.perf_counter() - phase_start) * 1000.0,
-                threshold_ms=50.0,
-                paint_overlay_path=paint_overlay_path,
-                has_paint_overlay=paint_overlay_image is not None,
-                paint_overlay_shape=getattr(paint_overlay_image, "shape", None),
-            )
 
-        record_canvas_duration(
-            "document_load_snapshot_built",
-            (time.perf_counter() - snapshot_start) * 1000.0,
-            threshold_ms=100.0,
-            force=True,
-            include_system=True,
-            source_path=source_path,
-            display_image_path=display_image_path,
-            image_size=image_size,
-            region_count=len(regions),
-        )
         return DocumentSnapshot(
             source_path=source_path,
             image=image,

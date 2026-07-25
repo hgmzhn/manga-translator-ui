@@ -50,7 +50,6 @@ class MaskLayer:
             return
 
         item = self._set_mask_pixmap(mask_type, QPixmap.fromImage(display_frame.qimage))
-
         self.view.viewport().update()
 
         if item:
