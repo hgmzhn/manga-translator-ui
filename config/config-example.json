@@ -11,7 +11,8 @@
     "editor_rich_text_popup_enabled": true,
     "unload_models_after_translation": false,
     "saved_colors": null,
-    "saved_style_presets": null
+    "saved_style_presets": null,
+    "saved_rich_text_presets": null
   },
   "filter_text_enabled": false,
   "kernel_size": 3,

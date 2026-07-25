@@ -118,6 +118,7 @@ def _text_layer_parts(
     bg,
     letter_spacing: float,
     profile_stats: Optional[dict],
+    geometry: Optional[dict] = None,
 ):
     """一次光栅化，派生横排文字的 (effects, stroke, fill) 三层，位置对齐。
 
@@ -131,6 +132,7 @@ def _text_layer_parts(
         surface = _line_surface(
             text, font_size, border_size, stroke_ratio,
             reversed_direction, letter_spacing, effective_bold, profile_stats,
+            geometry,
         )
     if surface is None:
         return None
@@ -183,8 +185,18 @@ def _render_rich_text_horizontal(
     document = ensure_rich_text_document(text)
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
     _ = (width, height)  # 包络由内容决定，外部最小尺寸不再参与画布
+    # Layout and paint belong to one call.  Keep the handoff local instead of
+    # retaining glyph data across font/size/style changes.
+    glyph_geometries = {}
     layouts = _build_rich_horizontal_layout(
-        document, font_size, stroke_ratio, bg, reversed_direction, letter_spacing, profile_stats
+        document,
+        font_size,
+        stroke_ratio,
+        bg,
+        reversed_direction,
+        letter_spacing,
+        profile_stats,
+        glyph_geometries,
     )
     geometry = _rich_horizontal_layout_geometry(layouts, font_size, line_spacing)
     max_font_size = max(
@@ -219,6 +231,7 @@ def _render_rich_text_horizontal(
                 parts = _text_layer_parts(
                     span.text, span.style, run.font_size, run.stroke_ratio,
                     reversed_direction, fg, bg, letter_spacing, profile_stats,
+                    glyph_geometries.get(id(run)),
                 )
                 if parts is not None:
                     glyph_items.append((
@@ -234,6 +247,7 @@ def _render_rich_text_horizontal(
                     parts = _text_layer_parts(
                         glyph.char, ruby_style, ruby.font_size, ruby.stroke_ratio,
                         False, fg, bg, letter_spacing, profile_stats,
+                        glyph_geometries.get(id(glyph)),
                     )
                     if parts is not None:
                         glyph_items.append((

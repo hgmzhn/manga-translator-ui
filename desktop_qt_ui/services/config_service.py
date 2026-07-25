@@ -469,6 +469,7 @@ class ConfigService(QObject):
                     config_dict['app']['editor_rich_text_popup_enabled'] = True  # 模板默认显示富文本浮窗
                     config_dict['app']['saved_colors'] = None  # 模板配置中保存的颜色始终为空
                     config_dict['app']['saved_style_presets'] = None  # 模板配置中不保留用户自定义样式
+                    config_dict['app']['saved_rich_text_presets'] = None  # 模板配置中不保留富文本预设
                     
                     if 'cli' in config_dict:
                         config_dict['cli']['verbose'] = False

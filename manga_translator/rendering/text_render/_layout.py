@@ -388,17 +388,21 @@ def _line_surface(
     letter_spacing: float = 1.0,
     bold: bool = False,
     profile_stats: Optional[dict] = None,
+    geometry: Optional[dict] = None,
 ):
+    # ``geometry`` 只允许来自当前一次布局调用；它不是跨字号/字体的缓存。
+    # 省略时保留原有的独立测量路径，竖排和外部调用无需携带任何状态。
     effective_bold = bool(bold) or _state().bold
     with _bold_scope(effective_bold):
-        geometry = _line_ink_geometry(
-            line_text,
-            font_size,
-            stroke_ratio if border_size > 0 else 0.0,
-            reversed_direction,
-            letter_spacing,
-            profile_stats,
-        )
+        if geometry is None:
+            geometry = _line_ink_geometry(
+                line_text,
+                font_size,
+                stroke_ratio if border_size > 0 else 0.0,
+                reversed_direction,
+                letter_spacing,
+                profile_stats,
+            )
         path = geometry['path']
         if not geometry['has_ink']:
             return None
@@ -445,6 +449,7 @@ def _build_horizontal_run_plan(
     reversed_direction: bool,
     letter_spacing: float,
     profile_stats: Optional[dict] = None,
+    geometry_sink: Optional[dict] = None,
 ) -> HorizontalRunPlan:
     text = span.text
     font_size = _style_font_size(base_font_size, span.style)
@@ -462,7 +467,7 @@ def _build_horizontal_run_plan(
     left_rel = float(geometry['left_rel'])
     if reversed_direction:
         left_rel -= float(geometry['logical_width'])
-    return HorizontalRunPlan(
+    run = HorizontalRunPlan(
         span=span,
         font_size=font_size,
         stroke_ratio=stroke_ratio,
@@ -475,6 +480,9 @@ def _build_horizontal_run_plan(
         ink_width=int(geometry['width']),
         ink_height=int(geometry['height']),
     )
+    if geometry_sink is not None:
+        geometry_sink[id(run)] = geometry
+    return run
 
 
 def _build_horizontal_ruby_plan(
@@ -482,6 +490,7 @@ def _build_horizontal_ruby_plan(
     stroke_enabled,
     letter_spacing: float,
     profile_stats: Optional[dict] = None,
+    geometry_sink: Optional[dict] = None,
 ) -> Optional[RubyPlan]:
     """Lay ruby characters out in equal slots across the complete base run.
 
@@ -498,6 +507,7 @@ def _build_horizontal_ruby_plan(
     ruby_font = max(1, int(round(run.font_size * RICH_TEXT_POLICY.horizontal_ruby_size)))
     ruby_stroke_ratio = _style_stroke_ratio(ruby_style, ruby_font, 0.0, stroke_enabled)
     raw_glyphs = []
+    glyph_geometries = []
     with _style_font_scope(ruby_style):
         for char in ruby_text:
             geometry = _line_ink_geometry(
@@ -508,6 +518,7 @@ def _build_horizontal_ruby_plan(
                 letter_spacing,
                 profile_stats,
             )
+            glyph_geometries.append(geometry)
             if not geometry['has_ink']:
                 raw_glyphs.append((0, 0))
                 continue
@@ -536,6 +547,9 @@ def _build_horizontal_ruby_plan(
         )
         for placement, (width, height) in zip(placements, raw_glyphs)
     )
+    if geometry_sink is not None:
+        for glyph, geometry in zip(glyphs, glyph_geometries):
+            geometry_sink[id(glyph)] = geometry
     return RubyPlan(
         source=span,
         font_size=ruby_font,
@@ -662,12 +676,14 @@ def _build_rich_horizontal_layout(
     reversed_direction: bool,
     letter_spacing: float,
     profile_stats: Optional[dict] = None,
+    geometry_sink: Optional[dict] = None,
 ):
     """Build one content-derived ink plan for horizontal text.
 
     Pure and rich text share this plan.  QText baselines are retained only as
     drawing coordinates; line fitting and vertical placement consume the real
-    shaped glyph/effect rectangles.
+    shaped glyph/effect rectangles.  ``geometry_sink`` is an optional,
+    per-render handoff to the painter so shaping is not repeated immediately.
     """
     layouts = []
     for paragraph in document.paragraphs:
@@ -683,6 +699,7 @@ def _build_rich_horizontal_layout(
                 reversed_direction,
                 letter_spacing,
                 profile_stats,
+                geometry_sink,
             )
             if span.ruby and run.has_ink:
                 ruby_paint = _build_horizontal_ruby_plan(
@@ -690,6 +707,7 @@ def _build_rich_horizontal_layout(
                     bg,
                     letter_spacing,
                     profile_stats=profile_stats,
+                    geometry_sink=geometry_sink,
                 )
                 if ruby_paint is not None:
                     run.ruby = ruby_paint

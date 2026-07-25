@@ -6,6 +6,7 @@ from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
 from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSlot
 from PyQt6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QSizePolicy,
     QSplitter,
@@ -74,6 +75,7 @@ class EditorView(QWidget):
         self.rich_text_editor: RichTextFloatingEditor | None = None
         self._rich_editor_anchor_region = -1
         self._rich_editor_anchor_side: str | None = None
+        self._rich_editor_restore_on_show = False
         self.add_files_button: PushButton | None = None
         self.add_folder_button: PushButton | None = None
         self.clear_list_button: PushButton | None = None
@@ -178,6 +180,7 @@ class EditorView(QWidget):
         if editor is None:
             return
         if not enabled:
+            self._rich_editor_restore_on_show = False
             self._rich_editor_anchor_region = -1
             self._rich_editor_anchor_side = None
             if changed or editor.isVisible():
@@ -381,6 +384,9 @@ class EditorView(QWidget):
         # 刷新属性面板
         if self.property_panel is not None:
             self.property_panel.refresh_ui_texts()
+
+        if self.rich_text_editor is not None:
+            self.rich_text_editor.refresh_ui_texts()
         
         # 刷新右侧文件列表按钮
         if self.add_files_button is not None:
@@ -448,9 +454,19 @@ class EditorView(QWidget):
         if self.rich_text_editor is None:
             return
         if not self._rich_text_popup_enabled:
+            self._rich_editor_restore_on_show = False
             self.rich_text_editor.hide()
             return
-        if not selected_indices or len(selected_indices) != 1:
+        has_single_selection = bool(selected_indices) and len(selected_indices) == 1
+        if not self.isVisible():
+            # A top-level tool window is not hidden automatically with the
+            # stacked editor page. Remember whether it should appear when the
+            # page becomes visible, but never show it over another page.
+            self._rich_editor_restore_on_show = has_single_selection
+            self.rich_text_editor.hide()
+            return
+        self._rich_editor_restore_on_show = False
+        if not has_single_selection:
             self._rich_editor_anchor_region = -1
             self._rich_editor_anchor_side = None
             self.rich_text_editor.clear_region()
@@ -505,6 +521,7 @@ class EditorView(QWidget):
         editor.refresh_region_if_changed(region_index, region_data)
 
     def _position_rich_text_editor_for_selection(self, *args):
+        preserve_top = len(args) == 1 and isinstance(args[0], bool) and args[0]
         if not self._rich_text_popup_enabled:
             if self.rich_text_editor is not None:
                 self.rich_text_editor.hide()
@@ -513,7 +530,7 @@ class EditorView(QWidget):
         if selected and len(selected) == 1:
             if self.rich_text_editor is not None and self.rich_text_editor.is_manually_positioned():
                 return
-            self._position_rich_text_editor(int(selected[0]))
+            self._position_rich_text_editor(int(selected[0]), preserve_top=preserve_top)
         elif self.rich_text_editor is not None:
             self.rich_text_editor.hide()
 
@@ -543,7 +560,7 @@ class EditorView(QWidget):
         editor.show()
         editor.raise_()
 
-    def _position_rich_text_editor(self, region_index: int):
+    def _position_rich_text_editor(self, region_index: int, *, preserve_top: bool = False):
         if (
             not self._rich_text_popup_enabled
             or self.rich_text_editor is None
@@ -558,14 +575,41 @@ class EditorView(QWidget):
             return
 
         rect = item.sceneBoundingRect()
-        top_anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.top()))
-        bottom_anchor = self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.bottom()))
+        viewport = self.graphics_view.viewport()
+        # ``QGraphicsView.mapFromScene`` returns viewport-local coordinates.
+        # The editor is a top-level window, so convert both anchors to desktop
+        # coordinates before positioning it.
+        top_anchor = viewport.mapToGlobal(
+            self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.top()))
+        )
+        bottom_anchor = viewport.mapToGlobal(
+            self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.bottom()))
+        )
+        previous_top = self.rich_text_editor.y()
+        preserve_above_top = (
+            preserve_top
+            and self.rich_text_editor.isVisible()
+            and region_index == self._rich_editor_anchor_region
+            and self._rich_editor_anchor_side == "above"
+        )
         self.rich_text_editor.adjustSize()
         popup_w = self.rich_text_editor.width()
         popup_h = self.rich_text_editor.height()
-        viewport = self.graphics_view.viewport()
         margin = 8
         x = int(top_anchor.x() - popup_w / 2)
+
+        # Automatic placement is screen-aware rather than canvas-aware.  We
+        # only keep the popup on the active screen; it is otherwise free to
+        # occupy any area outside the canvas and can be dragged to another
+        # screen without being clipped by the viewport.
+        screen = QApplication.screenAt(top_anchor)
+        if screen is None:
+            screen = self.rich_text_editor.screen() or self.window().screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
 
         # 当前文本框的停靠侧保持稳定。样式区展开/收起只改变浮窗高度，
         # 不再在文本框上方和下方来回切换，避免浮窗扫过文本框造成抽搐。
@@ -573,8 +617,8 @@ class EditorView(QWidget):
             self._rich_editor_anchor_region = region_index
             self._rich_editor_anchor_side = None
         if self._rich_editor_anchor_side is None:
-            space_above = int(top_anchor.y()) - margin
-            space_below = viewport.height() - int(bottom_anchor.y()) - margin
+            space_above = int(top_anchor.y()) - available.top() - margin
+            space_below = available.bottom() - int(bottom_anchor.y()) - margin
             if space_above >= popup_h:
                 self._rich_editor_anchor_side = "above"
             elif space_below >= popup_h:
@@ -583,16 +627,46 @@ class EditorView(QWidget):
                 self._rich_editor_anchor_side = "above" if space_above >= space_below else "below"
 
         if self._rich_editor_anchor_side == "above":
-            y = int(top_anchor.y() - popup_h - margin)
+            y = previous_top if preserve_above_top else int(top_anchor.y() - popup_h - margin)
         else:
             y = int(bottom_anchor.y() + margin)
-        # 自动弹出必须完整位于画布 viewport 内；这个限制只作用于自动定位。
-        # 用户随后通过四周拖动热区移动时不经过这里，仍可自由拖出画布。
-        max_x = max(margin, viewport.width() - popup_w - margin)
-        max_y = max(margin, viewport.height() - popup_h - margin)
-        x = max(margin, min(x, max_x))
-        y = max(margin, min(y, max_y))
+        min_x = available.left() + margin
+        min_y = available.top() + margin
+        max_x = max(min_x, available.right() - popup_w - margin + 1)
+        max_y = max(min_y, available.bottom() - popup_h - margin + 1)
+        x = max(min_x, min(x, max_x))
+        y = max(min_y, min(y, max_y))
         self.rich_text_editor.move(x, y)
+
+    def hideEvent(self, event):
+        editor = self.rich_text_editor
+        if editor is not None:
+            # Preserve only an actually visible popup. If the user previously
+            # closed/hid it, switching pages must not resurrect it.
+            self._rich_editor_restore_on_show = (
+                self._rich_editor_restore_on_show
+                or (self._rich_text_popup_enabled and editor.isVisible())
+            )
+            editor.hide()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._rich_editor_restore_on_show:
+            # Wait until the stacked page and graphics viewport have their
+            # final geometry before restoring the desktop-positioned window.
+            QTimer.singleShot(0, self._restore_rich_text_editor_after_page_show)
+
+    def _restore_rich_text_editor_after_page_show(self):
+        if not self.isVisible():
+            return
+        should_restore = self._rich_editor_restore_on_show
+        self._rich_editor_restore_on_show = False
+        if not should_restore or not self._rich_text_popup_enabled:
+            return
+        selected = self.model.get_selection()
+        if selected and len(selected) == 1:
+            self._on_selection_changed_for_rich_editor(selected)
 
     def _connect_signals(self):
         # --- Model to View ---
@@ -721,7 +795,10 @@ class EditorView(QWidget):
         self.graphics_view.set_snap_enabled(self._snap_enabled)
         self.original_compare_view.set_source_view(self.graphics_view)
         edit_canvas_layout.addWidget(self.graphics_view)
-        self.rich_text_editor = RichTextFloatingEditor(self.graphics_view.viewport())
+        # Keep QObject ownership under the editor page (theme refresh/lifetime),
+        # while the Tool window flag makes it a real top-level window that is
+        # not clipped by the graphics-view canvas.
+        self.rich_text_editor = RichTextFloatingEditor(self)
 
         center_layout.addWidget(self.compare_preview_container, 1)
         center_layout.addWidget(self.edit_canvas_container, 1)
@@ -815,6 +892,8 @@ class EditorView(QWidget):
             self.original_compare_view.apply_theme(theme)
         if self.file_list is not None:
             self.file_list.refresh_empty_state_text()
+        if self.rich_text_editor is not None:
+            self.rich_text_editor.refresh_theme()
         for picker in self.findChildren(ColorPickerWidget):
             picker.refresh_theme()
 

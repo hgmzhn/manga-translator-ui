@@ -128,10 +128,16 @@ def text_style_to_control_values(style: Any) -> dict:
     stroke = style.get("stroke") or {}
     outer_stroke = style.get("outerStroke") or {}
     glow = style.get("glow") or {}
+    italic = style.get("italic")
+    # The renderer treats the legacy boolean form ``italic: true`` as the
+    # reference 15-degree shear.  Expose that same numeric value in the rule
+    # editor's angle control instead of coercing ``True`` to 1 degree.
+    if italic is True:
+        italic = 15.0
     return {
         "bold": bool(style.get("bold", False)),
         "emphasis": bool(style.get("emphasis", False)),
-        "italic": style.get("italic"),
+        "italic": italic,
         "color": style.get("color"),
         "fontSize": style.get("fontSize"),
         "scale": style.get("scale"),
@@ -462,6 +468,21 @@ def remove_tcy_from_range(document: dict, start: int, end: int) -> dict:
     for entry in entries[start:end]:
         if isinstance(entry.node, dict) and entry.node.get("type") == "tcy":
             entry.node = None
+    return _document_from_entries(_entries_text(entries), entries)
+
+
+def clear_styles_from_range(document: dict, start: int, end: int) -> dict:
+    """Remove every inline style and ruby/tcy wrapper from a visible range."""
+    entries = _visible_entries(document)
+    start, end = _normalize_range(entries, start, end, expand_empty=True)
+    if start == end:
+        return copy.deepcopy(document)
+
+    for entry in entries[start:end]:
+        if entry.char == "\n":
+            continue
+        entry.style = {}
+        entry.node = None
     return _document_from_entries(_entries_text(entries), entries)
 
 

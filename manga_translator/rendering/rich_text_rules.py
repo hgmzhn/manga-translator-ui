@@ -38,17 +38,19 @@ common:
     pattern: "示例"
     regex: false
     style: {}
+    ruby: ""
     tcy: false
     comment: "示例规则（启用前请配置需要的富文本样式）"
 
 horizontal: []
 vertical:
   - enabled: true
-    pattern: '["''ー⸺–—～﹏…⋯●•（《〈【〖〔［｛）》〉】〗〕］｝]'
+    pattern: '["''ー⸺–—～﹏●•（《〈【〖〔［｛）》〉】〗〕］｝]'
     regex: true
     style:
       transform:
         rotation: 90
+    ruby: ""
     tcy: false
     comment: "竖排中将无专用替换字形的符号包装为富文本并旋转90度"
 """
@@ -91,12 +93,17 @@ def _compile_rule(rule: dict) -> Optional[dict]:
     except (TypeError, ValueError, re.error) as exc:
         logger.warning("富文本规则编译失败: pattern=%r error=%s", pattern, exc)
         return None
+    ruby = rule.get("ruby", "")
+    if not isinstance(ruby, str):
+        logger.warning("富文本规则编译失败: pattern=%r ruby 必须是字符串", pattern)
+        return None
     tcy = bool(rule.get("tcy", False))
-    if not style and not tcy:
+    if not style and not ruby and not tcy:
         return None
     return {
         "pattern": compiled,
         "style": style,
+        "ruby": ruby,
         "tcy": tcy,
         "comment": str(rule.get("comment", "")),
     }
@@ -166,15 +173,14 @@ def _add_missing_style(base: dict, automatic: dict) -> dict:
 class _RuleEntry:
     """One visible character while applying a rule.
 
-    ``node`` is the original ruby/tcy node (or ``None`` for a normal text
-    run).  Keeping that identity lets reconstruction split a run without
-    destroying manually-authored ruby/tcy structure.
+    ``node`` is a manual or automatic ruby/tcy node (or ``None`` for a normal
+    text run). Keeping that identity lets reconstruction split a run without
+    destroying node structure.
     """
 
     char: str
     style: dict
     node: Optional[dict] = None
-    tcy: bool = False
     automatic_style: dict = field(default_factory=dict)
 
 
@@ -191,7 +197,6 @@ def _append_rule_run_entries(runs: Any, node: Optional[dict], entries: List[_Rul
                     char=char,
                     style=copy.deepcopy(style),
                     node=node,
-                    tcy=bool(node and node.get("type") == "tcy"),
                 )
             )
 
@@ -245,7 +250,7 @@ def _runs_from_rule_entries(text: str, entries: List[_RuleEntry]) -> List[dict]:
 
 
 def _document_from_rule_entries(text: str, entries: List[_RuleEntry]) -> RichTextDocument:
-    """Rebuild a document while retaining existing ruby/tcy node ownership."""
+    """Rebuild a document while retaining ruby/tcy node ownership."""
     if len(entries) < len(text):
         entries = entries + [_RuleEntry("", {}) for _ in range(len(text) - len(entries))]
 
@@ -258,16 +263,9 @@ def _document_from_rule_entries(text: str, entries: List[_RuleEntry]) -> RichTex
         while index < line_end:
             entry = entries[index]
             node = entry.node
-            # A newly requested TCY range has no existing node.  Give this
-            # contiguous range a synthetic node, while preserving old nodes.
-            if node is None and entry.tcy:
-                node = {"type": "tcy"}
+            if node is None:
                 index_end = index + 1
-                while index_end < line_end and entries[index_end].node is None and entries[index_end].tcy:
-                    index_end += 1
-            elif node is None:
-                index_end = index + 1
-                while index_end < line_end and entries[index_end].node is None and not entries[index_end].tcy:
+                while index_end < line_end and entries[index_end].node is None:
                     index_end += 1
             else:
                 index_end = index + 1
@@ -289,10 +287,6 @@ def _document_from_rule_entries(text: str, entries: List[_RuleEntry]) -> RichTex
         blocks.append(Paragraph.from_dict({"type": "paragraph", "inlines": inlines}))
         cursor = line_end + 1
     return RichTextDocument(blocks=blocks or [Paragraph()])
-
-
-def _rule_entry_has_manual_node(entry: _RuleEntry) -> bool:
-    return bool(entry.node and entry.node.get("type") == "ruby")
 
 
 def _normalize_rule_linebreak_entries(text: str, entries: List[_RuleEntry]) -> tuple[str, List[_RuleEntry]]:
@@ -359,12 +353,23 @@ def apply_rich_text_rules(
                     continue
                 entry = entries[index]
                 entry.automatic_style = _merge_style(entry.automatic_style, rule["style"])
-                if allow_tcy and rule.get("tcy", False):
-                    # Ruby cannot contain a nested TCY node.  Preserve the
-                    # hand-authored ruby and let the style portion still add.
-                    if not _rule_entry_has_manual_node(entry) and not entry.tcy:
-                        entry.tcy = True
-                        changed = True
+            node = None
+            if rule.get("ruby"):
+                node = {
+                    "type": "ruby",
+                    "text": [{"type": "text", "text": rule["ruby"], "style": {}}],
+                }
+            elif allow_tcy and rule.get("tcy", False):
+                node = {"type": "tcy"}
+            target = entries[start:end]
+            if (
+                node is not None
+                and _LINE_BREAK_RE.search(match_text, start, end) is None
+                and all(entry.node is None for entry in target)
+            ):
+                for entry in target:
+                    entry.node = node
+                changed = True
     for entry in entries:
         if entry.char == "\n":
             continue

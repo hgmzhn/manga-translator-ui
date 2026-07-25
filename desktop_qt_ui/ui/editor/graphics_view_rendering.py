@@ -19,7 +19,6 @@ from editor.text_render_pipeline import (
 )
 from editor.text_render_pipeline import (
     clear_region_text,
-    make_text_render_cache_key,
     render_region_text,
 )
 from services import get_render_parameter_service
@@ -57,7 +56,6 @@ class GraphicsViewRenderingMixin:
             self._handle_regions_removed(change.indices)
         else:
             self._clear_pending_geometry_edits()
-            self.render_coordinator.clear_text_render_cache()
             self.render_coordinator.clear_render_snapshots()
             self._schedule_render_update()
 
@@ -297,7 +295,7 @@ class GraphicsViewRenderingMixin:
             geo_state=geo_state,
         )
 
-    def _render_region_text_visual(self, index: int, use_cache: bool):
+    def _render_region_text_visual(self, index: int):
         if not (0 <= index < len(self._region_items)):
             return
         item = self._region_items[index]
@@ -347,28 +345,19 @@ class GraphicsViewRenderingMixin:
             unrotated_text_block,
         )
 
-        cache_key = None
-        if use_cache:
-            cache_key = make_text_render_cache_key(unrotated_text_block, dst_points, render_params)
+        render_result = render_region_text(
+            text_renderer_backend,
+            unrotated_text_block,
+            dst_points,
+            render_params,
+            len(self._text_blocks_cache),
+        )
 
-        cached_result = self.render_coordinator.get_text_render(cache_key) if cache_key is not None else None
-        if cached_result is None:
-            render_result = render_region_text(
-                text_renderer_backend,
-                unrotated_text_block,
-                dst_points,
-                render_params,
-                len(self._text_blocks_cache),
-            )
-            if render_result and cache_key is not None:
-                self.render_coordinator.store_text_render(cache_key, render_result)
-            cached_result = render_result
-
-        if cached_result:
-            if len(cached_result) >= 3:
-                pixmap, pos, actual_dst_points = cached_result[:3]
+        if render_result:
+            if len(render_result) >= 3:
+                pixmap, pos, actual_dst_points = render_result[:3]
             else:
-                pixmap, pos = cached_result
+                pixmap, pos = render_result
                 actual_dst_points = dst_points
             item.set_dst_points(actual_dst_points)
             self._persist_single_render_box(index, actual_dst_points)
@@ -440,7 +429,7 @@ class GraphicsViewRenderingMixin:
                 return
 
             for i in range(min(len(self._region_items), len(self._text_blocks_cache), len(self._dst_points_cache))):
-                self._render_region_text_visual(i, use_cache=True)
+                self._render_region_text_visual(i)
 
         except (RuntimeError, AttributeError) as e:
             self.logger.warning("Text visuals update failed: %s", e)
@@ -488,9 +477,9 @@ class GraphicsViewRenderingMixin:
             )
             self._dst_points_cache[index] = None
 
-    def _update_single_region_text_visual(self, index, use_cache=False):
+    def _update_single_region_text_visual(self, index):
         try:
-            self._render_region_text_visual(index, use_cache=use_cache)
+            self._render_region_text_visual(index)
         except (RuntimeError, AttributeError) as e:
             self.logger.warning("Text visual update failed for region %s: %s", index, e)
         except Exception as e:

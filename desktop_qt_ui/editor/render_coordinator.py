@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-from collections import OrderedDict
 from typing import Any, Optional
 
 
 class RenderCoordinator:
-    """集中管理视图派生出来的渲染缓存。"""
+    """集中管理视图派生出来的渲染状态。"""
 
-    def __init__(self, text_render_cache_limit: int = 64):
+    def __init__(self):
         self._document_revision: Optional[int] = None
-        self._text_render_cache_limit = max(8, int(text_render_cache_limit))
         self.reset()
 
     def reset(self) -> None:
-        self.text_render_cache: OrderedDict[Any, Any] = OrderedDict()
         self.text_blocks: list[Any] = []
         self.dst_points: list[Any] = []
         self.render_snapshots: list[Any] = []
@@ -25,25 +22,6 @@ class RenderCoordinator:
     def sync_document_revision(self, revision: Optional[int]) -> None:
         if revision != self._document_revision:
             self.invalidate_document(revision)
-
-    def clear_text_render_cache(self) -> None:
-        self.text_render_cache.clear()
-
-    def get_text_render(self, key: Any) -> Any:
-        if key is None:
-            return None
-        value = self.text_render_cache.get(key)
-        if value is not None:
-            self.text_render_cache.move_to_end(key)
-        return value
-
-    def store_text_render(self, key: Any, value: Any) -> None:
-        if key is None or value is None:
-            return
-        self.text_render_cache[key] = value
-        self.text_render_cache.move_to_end(key)
-        while len(self.text_render_cache) > self._text_render_cache_limit:
-            self.text_render_cache.popitem(last=False)
 
     def clear_render_snapshots(self) -> None:
         self.render_snapshots = []

@@ -175,6 +175,7 @@ class AppSection(BaseModel):
     unload_models_after_translation: bool = False  # 翻译完成后卸载模型（释放内存更彻底，但下次使用需要重新加载）
     saved_colors: Optional[List[str]] = None  # 保存的常用颜色列表
     saved_style_presets: Optional[Dict[str, Dict[str, Any]]] = None  # 编辑器保存的样式组合
+    saved_rich_text_presets: Optional[Dict[str, Dict[str, Any]]] = None  # 富文本片段样式预设
 
     @model_validator(mode="before")
     @classmethod

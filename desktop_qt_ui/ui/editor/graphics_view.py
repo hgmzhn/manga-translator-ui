@@ -38,14 +38,6 @@ class GraphicsView(
     INPAINT_PREVIEW_MAX_PIXELS = 6_000_000
 
     @property
-    def _text_render_cache(self):
-        return self.render_coordinator.text_render_cache
-
-    @_text_render_cache.setter
-    def _text_render_cache(self, value):
-        self.render_coordinator.text_render_cache = value
-
-    @property
     def _text_blocks_cache(self):
         return self.render_coordinator.text_blocks
 

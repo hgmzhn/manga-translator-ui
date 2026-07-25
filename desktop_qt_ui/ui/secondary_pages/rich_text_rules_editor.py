@@ -26,6 +26,7 @@ from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     CheckBox,
+    ComboBox,
     CompactDoubleSpinBox,
     CompactSpinBox,
     PlainTextEdit,
@@ -44,6 +45,7 @@ from qfluentwidgets import (
 )
 
 from editor.rich_text_editing import (
+    normalize_text_style,
     text_style_from_control_values,
     text_style_to_control_values,
 )
@@ -80,6 +82,7 @@ def _style_summary(style: dict, empty_text: str) -> str:
         "lineKerning": "LK",
         "nextKerning": "NK",
         "transform": "XY/Rot",
+        "ruby": "R",
         "tcy": "T",
     }
     return " ".join(labels.get(key, key) for key in style)
@@ -117,6 +120,19 @@ class RichTextStyleControls(SimpleCardWidget):
         form.setContentsMargins(12, 12, 12, 12)
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(8)
+        self._form_label_keys: dict[QWidget, str] = {}
+
+        def add_form_row(label_key: str, field: QWidget) -> None:
+            form.addRow(self._t(label_key), field)
+            label = form.labelForField(field)
+            if label is not None:
+                self._form_label_keys[label] = label_key
+
+        self.saved_style_combo = ComboBox(self)
+        self.saved_style_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.saved_style_combo.activated.connect(self._on_saved_style_activated)
+        self._refresh_saved_style_combo()
+        add_form_row("Saved rich text style:", self.saved_style_combo)
 
         self.bold = CheckBox(self._t("Bold"))
         self.emphasis = CheckBox(self._t("Emphasis"))
@@ -128,7 +144,12 @@ class RichTextStyleControls(SimpleCardWidget):
         switch_layout.addWidget(self.emphasis)
         switch_layout.addWidget(self.tcy)
         switch_layout.addStretch()
-        form.addRow(self._t("Switches"), switches)
+        add_form_row("Switches", switches)
+
+        ruby_editor = FluentLineEdit(self)
+        ruby_editor.setPlaceholderText(self._t("Ruby text"))
+        self.ruby = _OptionalStyleField("ruby", ruby_editor, self)
+        add_form_row("Ruby Text", self.ruby)
 
         self.italic = self._number("italic", -85, 85, 15, 1, 1)
         self.color = self._color("color", "#E53935", "saved_colors", "Select rich text color")
@@ -155,7 +176,7 @@ class RichTextStyleControls(SimpleCardWidget):
             ("Line Kerning", self.line_kerning), ("Next Kerning", self.next_kerning),
             ("Rotation", self.rotation), ("Offset X", self.offset_x), ("Offset Y", self.offset_y),
         ):
-            form.addRow(self._t(label), field)
+            add_form_row(label, field)
 
     @staticmethod
     def _spin_box(spin):
@@ -184,6 +205,8 @@ class RichTextStyleControls(SimpleCardWidget):
 
     def _color(self, key, default, config_key, title):
         editor = ColorPickerWidget(
+            # Keep the translation key here; ColorPickerWidget resolves it
+            # when the flyout opens so a live language switch is reflected.
             dialog_title=title,
             default_color=default,
             config_key=config_key,
@@ -203,7 +226,11 @@ class RichTextStyleControls(SimpleCardWidget):
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         picker = ColorPickerWidget(
-            dialog_title=f"Select rich text {key} color",
+            dialog_title={
+                "stroke": "Select stroke color",
+                "outerStroke": "Select outer stroke color",
+                "glow": "Select glow color",
+            }[key],
             default_color=color,
             config_key=config_key,
             config_service=self.config_service,
@@ -214,19 +241,101 @@ class RichTextStyleControls(SimpleCardWidget):
         value.setDecimals(2)
         value.setSingleStep(0.05)
         value.setValue(default)
-        layout.addWidget(CaptionLabel(self._t("Color")))
+        color_label = CaptionLabel(self._t("Color"))
+        value_label = CaptionLabel(self._t(value_name.title()))
+        layout.addWidget(color_label)
         layout.addWidget(picker, 1)
-        layout.addWidget(CaptionLabel(self._t(value_name.title())))
+        layout.addWidget(value_label)
         layout.addWidget(value)
         field = self._register(key, container)
         field.color_picker = picker
         field.value_input = value
         field.value_name = value_name
+        field.color_label = color_label
+        field.value_label = value_label
         return field
+
+    def _saved_rule_styles(self) -> dict[str, dict]:
+        config_service = self.config_service or get_config_service()
+        if config_service is None:
+            return {}
+        self.config_service = config_service
+        try:
+            config_ref = config_service.get_config_reference()
+        except Exception:
+            return {}
+        raw = getattr(getattr(config_ref, "app", None), "saved_rich_text_presets", None)
+        if not isinstance(raw, dict):
+            return {}
+
+        styles: dict[str, dict] = {}
+        for name, payload in raw.items():
+            if not isinstance(payload, dict):
+                continue
+            try:
+                style = normalize_text_style(payload.get("style") or {})
+            except (TypeError, ValueError):
+                continue
+            if payload.get("tcy", False):
+                style["tcy"] = True
+            ruby_text = payload.get("ruby", "")
+            if isinstance(ruby_text, str) and ruby_text:
+                style["ruby"] = ruby_text
+            clean_name = str(name).strip()
+            if clean_name and style:
+                styles[clean_name] = style
+        return styles
+
+    def _refresh_saved_style_combo(self) -> None:
+        styles = self._saved_rule_styles()
+        current_name = self.saved_style_combo.currentData() if self.saved_style_combo.count() else None
+        self.saved_style_combo.blockSignals(True)
+        try:
+            self.saved_style_combo.clear()
+            self.saved_style_combo.addItem(self._t("Select saved rich text style"), userData=None)
+            for name in styles:
+                self.saved_style_combo.addItem(name, userData=name)
+            index = self.saved_style_combo.findData(current_name)
+            self.saved_style_combo.setCurrentIndex(index if index >= 0 else 0)
+        finally:
+            self.saved_style_combo.blockSignals(False)
+        self.saved_style_combo.setToolTip(self._t("Choose a saved rich text style to load"))
+
+    def _on_saved_style_activated(self, index: int) -> None:
+        name = self.saved_style_combo.itemData(index)
+        if not name:
+            return
+        style = self._saved_rule_styles().get(str(name))
+        if style:
+            self.load_style(style)
+
+    def refresh_saved_styles(self) -> None:
+        """重新读取共享的富文本预设，供规则页重新激活时调用。"""
+        self._refresh_saved_style_combo()
+
+    def refresh_ui_texts(self) -> None:
+        self.bold.setText(self._t("Bold"))
+        self.emphasis.setText(self._t("Emphasis"))
+        self.tcy.setText(self._t("Vertical-in-Horizontal (TCY)"))
+        self.ruby.editor.setPlaceholderText(self._t("Ruby text"))
+        for label, key in self._form_label_keys.items():
+            if hasattr(label, "setText"):
+                label.setText(self._t(key))
+        for field in self._fields.values():
+            if hasattr(field, "color_label"):
+                field.color_label.setText(self._t("Color"))
+            if hasattr(field, "value_label"):
+                field.value_label.setText(self._t(field.value_name.title()))
+        for picker in self.findChildren(ColorPickerWidget):
+            picker.refresh_ui_texts()
+        self.refresh_saved_styles()
 
     def load_style(self, style: dict):
         style = copy.deepcopy(style or {})
+        ruby_text = str(style.pop("ruby", "") or "")
         self.tcy.setChecked(bool(style.pop("tcy", False)))
+        self.ruby.editor.setText(ruby_text)
+        self.ruby.set_active(bool(ruby_text))
         values = text_style_to_control_values(style)
         self.bold.setChecked(bool(values["bold"]))
         self.emphasis.setChecked(bool(values["emphasis"]))
@@ -266,6 +375,9 @@ class RichTextStyleControls(SimpleCardWidget):
             else:
                 values[key] = field.editor.value()
         style = text_style_from_control_values(values, enabled)
+        ruby_text = self.ruby.editor.text()
+        if self.ruby.enabled.isChecked() and ruby_text:
+            style["ruby"] = ruby_text
         if self.tcy.isChecked():
             style["tcy"] = True
         return style
@@ -284,10 +396,11 @@ class RichTextStyleDialog(FluentSecondaryDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 18, 20, 18)
         root.setSpacing(12)
-        root.addWidget(SubtitleLabel(self._t("Edit Rich Text Style")))
-        hint = BodyLabel(self._t("Enable only the style properties this rule should apply."))
-        hint.setWordWrap(True)
-        root.addWidget(hint)
+        self.title_label = SubtitleLabel(self._t("Edit Rich Text Style"))
+        root.addWidget(self.title_label)
+        self.hint_label = BodyLabel(self._t("Enable only the style properties this rule should apply."))
+        self.hint_label.setWordWrap(True)
+        root.addWidget(self.hint_label)
         self.controls = RichTextStyleControls(self._t, self)
         self.controls.load_style(style or {})
         root.addWidget(self.controls, 1)
@@ -304,6 +417,15 @@ class RichTextStyleDialog(FluentSecondaryDialog):
         self.reset_button.clicked.connect(self.controls.reset)
         self.cancel_button.clicked.connect(self.reject)
         self.ok_button.clicked.connect(self._accept)
+
+    def refresh_ui_texts(self) -> None:
+        self.setWindowTitle(self._t("Edit Rich Text Style"))
+        self.title_label.setText(self._t("Edit Rich Text Style"))
+        self.hint_label.setText(self._t("Enable only the style properties this rule should apply."))
+        self.controls.refresh_ui_texts()
+        self.reset_button.setText(self._t("Reset"))
+        self.cancel_button.setText(self._t("Cancel"))
+        self.ok_button.setText(self._t("OK"))
 
     def _accept(self):
         try:
@@ -360,7 +482,8 @@ class RichTextRulesEditorPanel(CardWidget):
         filter_card = SimpleCardWidget(self)
         filter_layout = QHBoxLayout(filter_card)
         filter_layout.setContentsMargins(10, 8, 10, 8)
-        filter_layout.addWidget(CaptionLabel(self._t("Filter:")))
+        self.filter_label = CaptionLabel(self._t("Filter:"))
+        filter_layout.addWidget(self.filter_label)
         self.search = FluentLineEdit()
         self.search.setPlaceholderText(self._t("Type to filter by pattern / style / comment..."))
         self.search.setClearButtonEnabled(True)
@@ -473,6 +596,9 @@ class RichTextRulesEditorPanel(CardWidget):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             table.setItem(row, column, item)
         editor_style = copy.deepcopy(rule.get("style") or {})
+        ruby = rule.get("ruby", "")
+        if isinstance(ruby, str) and ruby:
+            editor_style["ruby"] = ruby
         if rule.get("tcy", False):
             editor_style["tcy"] = True
         self._style_button(table, row, editor_style)
@@ -480,12 +606,14 @@ class RichTextRulesEditorPanel(CardWidget):
     def _row_data(self, table: TableWidget, row: int) -> dict:
         button = table.cellWidget(row, self.COL_STYLE)
         editor_style = copy.deepcopy(button.property("richStyle") or {})
+        ruby = str(editor_style.pop("ruby", "") or "")
         tcy = bool(editor_style.pop("tcy", False))
         return {
             "enabled": table.item(row, self.COL_ENABLED).text() == self._YES,
             "pattern": table.item(row, self.COL_PATTERN).text(),
             "regex": table.item(row, self.COL_REGEX).text() == self._YES,
             "style": editor_style,
+            "ruby": ruby,
             "tcy": tcy,
             "comment": table.item(row, self.COL_COMMENT).text(),
         }
@@ -526,7 +654,8 @@ class RichTextRulesEditorPanel(CardWidget):
             data = yaml.safe_load(self.raw_editor.toPlainText()) or {}
             if not isinstance(data, dict): raise ValueError(self._t("YAML root must be a mapping"))
             for group in ("common", "horizontal", "vertical"):
-                if group in data and not isinstance(data[group], list): raise ValueError(f"{group} must be a list")
+                if group in data and not isinstance(data[group], list):
+                    raise ValueError(self._t("Rule group '{group}' must be a list", group=group))
         except Exception as exc:
             if show_error: themed_warning(self, self._t("YAML Error"), str(exc))
             return False
@@ -630,7 +759,12 @@ class RichTextRulesEditorPanel(CardWidget):
         for table in self.tables.values():
             for row in range(table.rowCount()):
                 rule = self._row_data(table, row)
-                haystack = " ".join((rule["pattern"], rule["comment"], json.dumps(rule["style"], ensure_ascii=False))).lower()
+                haystack = " ".join((
+                    rule["pattern"],
+                    rule["comment"],
+                    rule["ruby"],
+                    json.dumps(rule["style"], ensure_ascii=False),
+                )).lower()
                 table.setRowHidden(row, bool(query and query not in haystack))
 
     def _restore(self):
@@ -659,6 +793,36 @@ class RichTextRulesEditorPanel(CardWidget):
         self.toggle_enabled_button.setText(self._t("Enable"))
         self.toggle_regex_button.setText(self._t("Regex"))
         self.restore_button.setText(self._t("Restore Default"))
+        self.filter_label.setText(self._t("Filter:"))
+        self.search.setPlaceholderText(self._t("Type to filter by pattern / style / comment..."))
+        self.raw_hint.setText(self._t("Edit raw YAML content directly. Changes are saved automatically."))
+        self.mode_segment.setItemText("table", self._t("Table View"))
+        self.mode_segment.setItemText("raw", self._t("Raw Edit"))
+        for key, label in (
+            ("common", "Common (Always)"),
+            ("horizontal", "Horizontal"),
+            ("vertical", "Vertical"),
+        ):
+            self.group_segment.setItemText(key, self._t(label))
+        for table in self.tables.values():
+            table.setHorizontalHeaderLabels([
+                self._t("Enabled"),
+                self._t("Pattern"),
+                self._t("Rich Text Style"),
+                self._t("Regex"),
+                self._t("Comment"),
+            ])
+            for row in range(table.rowCount()):
+                button = table.cellWidget(row, self.COL_STYLE)
+                if button is not None:
+                    button.setText(_style_summary(
+                        button.property("richStyle") or {},
+                        self._t("Edit Style"),
+                    ))
+        if not self._modified:
+            self.status.setText(self._t("All changes saved"))
 
     def apply_theme(self):
+        for picker in self.findChildren(ColorPickerWidget):
+            picker.refresh_theme()
         self.update()
