@@ -249,8 +249,21 @@ class RichTextFloatingEditor(SimpleCardWidget):
             self._commit_document(document)
             return
         patch = self._default_patch(key) if checked else self._clear_patch(key)
-        if patch:
-            self._apply_style_to_explicit_range(start, end, patch)
+        if not patch:
+            return
+        if not checked and self._state.discard_pending_style(key, start, end):
+            self._refresh_inspector()
+            return
+        if checked:
+            document = apply_style_to_range(self._state.document, start, end, patch)
+            if document == self._state.document:
+                self._state.begin_pending_style_edit(key, start, end)
+                self._refresh_inspector()
+            else:
+                self._state.discard_pending_style(key, start, end)
+                self._commit_document(document)
+            return
+        self._apply_style_to_explicit_range(start, end, key, patch)
 
     @staticmethod
     def _default_patch(key: str) -> dict:
@@ -288,14 +301,24 @@ class RichTextFloatingEditor(SimpleCardWidget):
             "M": {"transform": {"mirrorX": None}}, "MV": {"transform": {"mirrorY": None}},
         }.get(key, {})
 
-    def _apply_style_to_explicit_range(self, start: int, end: int, patch: dict) -> None:
+    def _apply_style_to_explicit_range(
+        self,
+        start: int,
+        end: int,
+        key: str,
+        patch: dict,
+    ) -> None:
         if self._updating or not self._state.has_region or start >= end:
             return
+        self._state.discard_pending_style(key, start, end)
         document = apply_style_to_range(self._state.document, start, end, patch)
         self._commit_document(document)
 
     def _remove_style_from_explicit_range(self, start: int, end: int, key: str) -> None:
         if self._updating or not self._state.has_region or start >= end:
+            return
+        if self._state.discard_pending_style(key, start, end):
+            self._refresh_inspector()
             return
         if key == "R":
             self._state.ruby_draft = None
@@ -374,7 +397,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
                 )
                 self.toolbar.set_checked(
                     key,
-                    fully_applied or (key == "R" and self._state.ruby_draft is not None),
+                    fully_applied
+                    or self._state.has_pending_style(key, start, end)
+                    or (key == "R" and self._state.ruby_draft is not None),
                 )
 
             segments = styled_segments_for_range(
@@ -392,7 +417,20 @@ class RichTextFloatingEditor(SimpleCardWidget):
                     self._state.editor_text[draft.target_start:draft.target_end],
                     draft.text,
                 )
-            self.run_list.set_segments(segments, ruby_draft=ruby_draft)
+            pending_styles = None
+            if self._state.pending_style_edit is not None:
+                draft = self._state.pending_style_edit
+                pending_styles = (
+                    draft.target_start,
+                    draft.target_end,
+                    self._state.editor_text[draft.target_start:draft.target_end],
+                    set(draft.keys),
+                )
+            self.run_list.set_segments(
+                segments,
+                ruby_draft=ruby_draft,
+                pending_styles=pending_styles,
+            )
         finally:
             self._updating = False
         self._refresh_layout_size()
@@ -419,10 +457,14 @@ class RichTextFloatingEditor(SimpleCardWidget):
 
     def hideEvent(self, event):
         self.flush_pending_changes()
+        if self._state.clear_pending_style_edit() and self._state.has_region:
+            self._refresh_inspector()
         super().hideEvent(event)
 
     def closeEvent(self, event):
         self.flush_pending_changes()
+        if self._state.clear_pending_style_edit() and self._state.has_region:
+            self._refresh_inspector()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------

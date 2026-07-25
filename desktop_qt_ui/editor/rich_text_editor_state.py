@@ -7,7 +7,7 @@ document mutations, debounced body changes, and the fixed target of a Ruby edit.
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .rich_text_editing import (
     apply_qt_text_change,
@@ -40,6 +40,17 @@ class RubyEditDraft:
         return self.target_start, self.target_end
 
 
+@dataclass
+class PendingStyleEdit:
+    target_start: int
+    target_end: int
+    keys: set[str] = field(default_factory=set)
+
+    @property
+    def target_range(self) -> tuple[int, int]:
+        return self.target_start, self.target_end
+
+
 class RichTextEditorState:
     """Non-visual editing state with Python character offsets only."""
 
@@ -52,6 +63,7 @@ class RichTextEditorState:
         self.selection_end = 0
         self.pending_document_change = False
         self.ruby_draft: RubyEditDraft | None = None
+        self.pending_style_edit: PendingStyleEdit | None = None
 
     @property
     def has_region(self) -> bool:
@@ -73,6 +85,7 @@ class RichTextEditorState:
         self.selection_end = 0
         self.pending_document_change = False
         self.ruby_draft = None
+        self.pending_style_edit = None
         return self.editor_text
 
     def clear_region(self) -> None:
@@ -84,6 +97,7 @@ class RichTextEditorState:
         self.selection_end = 0
         self.pending_document_change = False
         self.ruby_draft = None
+        self.pending_style_edit = None
 
     def set_selection(self, start: int, end: int) -> bool:
         text_length = len(self.editor_text)
@@ -94,6 +108,12 @@ class RichTextEditorState:
         changed = (start, end) != self.selected_range
         self.selection_start = start
         self.selection_end = end
+        if (
+            changed
+            and self.pending_style_edit is not None
+            and self.pending_style_edit.target_range != (start, end)
+        ):
+            self.pending_style_edit = None
         return changed
 
     def set_selection_from_qt(self, start: int, end: int) -> bool:
@@ -114,6 +134,7 @@ class RichTextEditorState:
         chars_removed: int,
         chars_added: int,
     ) -> bool:
+        self.pending_style_edit = None
         previous = self.document
         self.document = apply_qt_text_change(
             self.document,
@@ -179,6 +200,43 @@ class RichTextEditorState:
         changed = self.commit_ruby(text)
         self.ruby_draft = None
         return changed
+
+    def begin_pending_style_edit(self, key: str, start: int, end: int) -> bool:
+        start, end = sorted((int(start), int(end)))
+        start = max(0, min(start, len(self.editor_text)))
+        end = max(start, min(end, len(self.editor_text)))
+        if start == end:
+            return False
+        target = (start, end)
+        if self.pending_style_edit is None or self.pending_style_edit.target_range != target:
+            self.pending_style_edit = PendingStyleEdit(start, end)
+        if key in self.pending_style_edit.keys:
+            return False
+        self.pending_style_edit.keys.add(str(key))
+        return True
+
+    def discard_pending_style(self, key: str, start: int, end: int) -> bool:
+        draft = self.pending_style_edit
+        if draft is None or draft.target_range != (int(start), int(end)) or key not in draft.keys:
+            return False
+        draft.keys.remove(key)
+        if not draft.keys:
+            self.pending_style_edit = None
+        return True
+
+    def has_pending_style(self, key: str, start: int, end: int) -> bool:
+        draft = self.pending_style_edit
+        return bool(
+            draft is not None
+            and draft.target_range == (int(start), int(end))
+            and key in draft.keys
+        )
+
+    def clear_pending_style_edit(self) -> bool:
+        if self.pending_style_edit is None:
+            return False
+        self.pending_style_edit = None
+        return True
 
     def mark_document_emitted(self) -> tuple[int, dict, str] | None:
         if not self.has_region or not self.pending_document_change:

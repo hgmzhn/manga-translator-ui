@@ -420,7 +420,11 @@ def apply_style_to_range(document: dict, start: int, end: int, patch: dict) -> d
             continue
         merged = merged_by_style.get(id(entry.style))
         if merged is None:
-            merged = _merge_style(entry.style, patch)
+            # Style editing and run inspection must share the exact same
+            # richtext.v1 canonical form.  In particular, neutral transform
+            # and spacing values (rotation/offset/kerning = 0) are omitted by
+            # the protocol and must not survive only in the editor document.
+            merged = normalize_text_style(_merge_style(entry.style, patch))
             merged_by_style[id(entry.style)] = merged
         entry.style = merged
     return _document_from_entries(_entries_text(entries), entries)

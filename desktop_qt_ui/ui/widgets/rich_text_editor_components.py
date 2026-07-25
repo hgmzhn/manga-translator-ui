@@ -30,6 +30,29 @@ STYLE_KEYS = (
     "Rot", "K", "PK", "LK", "NK", "XY", "M", "MV",
 )
 
+STYLE_NAMES = {
+    "B": "加粗",
+    "I": "斜体",
+    "C": "文字颜色",
+    "S": "绝对字号",
+    "%": "字号倍率",
+    "F": "字体",
+    "O": "描边",
+    "G": "发光",
+    "OS": "外描边",
+    "D": "着重号",
+    "T": "纵中横",
+    "R": "注音",
+    "Rot": "旋转",
+    "K": "字后间距",
+    "PK": "字前间距",
+    "LK": "前行距",
+    "NK": "后行距",
+    "XY": "偏移",
+    "M": "水平镜像",
+    "MV": "垂直镜像",
+}
+
 STYLE_HINTS = {
     "B": "加粗",
     "I": "斜体角度",
@@ -89,13 +112,7 @@ def _spin_box(value: int, minimum: int, maximum: int) -> CompactSpinBox:
 class RichTextToolbar(QWidget):
     toggled = pyqtSignal(str, bool)
 
-    BUTTONS = (
-        ("B", "加粗"), ("I", "斜体"), ("C", "文字颜色"), ("S", "绝对字号"),
-        ("%", "字号倍率"), ("F", "字体"), ("O", "描边"), ("G", "发光"),
-        ("OS", "外描边"), ("D", "着重号"), ("T", "纵中横"), ("R", "注音"),
-        ("Rot", "旋转"), ("K", "字后距"), ("PK", "字前距"), ("LK", "前行距"),
-        ("NK", "后行距"), ("XY", "偏移"), ("M", "水平镜像"), ("MV", "垂直镜像"),
-    )
+    BUTTONS = tuple((key, STYLE_NAMES[key]) for key in STYLE_KEYS)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -202,7 +219,7 @@ def style_keys_for_segment(segment: StyledTextSegment, forced_keys: Iterable[str
 
 class StyleRunCard(QWidget):
     activated = pyqtSignal(int, int)
-    patch_requested = pyqtSignal(int, int, object)
+    patch_requested = pyqtSignal(int, int, str, object)
     remove_requested = pyqtSignal(int, int, str)
     ruby_started = pyqtSignal(int, int, str)
     ruby_apply_requested = pyqtSignal(int, int, str)
@@ -225,6 +242,7 @@ class StyleRunCard(QWidget):
         self.i18n_func = i18n_func
         self.keys = style_keys_for_segment(segment, forced_keys)
         self.controls: dict[str, QWidget] = {}
+        self.name_labels: dict[str, CaptionLabel] = {}
         self.setObjectName("richTextRunCard")
         self.setStyleSheet("""
             QWidget#richTextRunCard { background: rgba(249,250,252,252);
@@ -232,6 +250,7 @@ class StyleRunCard(QWidget):
             QWidget#richTextPropertyRow { background: white;
                 border: 1px solid rgba(125,135,150,60); border-radius: 5px; }
             CaptionLabel#styleKey { color: #20242a; font-weight: 700; border: none; }
+            CaptionLabel#styleName { color: #4b5563; border: none; }
             QToolButton#removeStyle { color: #b42318; background: #fff1f0;
                 border: 1px solid #f0a39d; border-radius: 6px; font-weight: 700; }
             QToolButton#runHeader { color: #005fb8; background: #f0f6ff;
@@ -269,6 +288,10 @@ class StyleRunCard(QWidget):
         key_label.setObjectName("styleKey")
         key_label.setFixedWidth(30 if len(key) <= 2 else 38)
         key_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name_label = CaptionLabel(STYLE_NAMES[key], row)
+        name_label.setObjectName("styleName")
+        name_label.setFixedWidth(68)
+        name_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         control = self._create_control(key, ruby_draft_text)
         remove = QToolButton(row)
         remove.setObjectName("removeStyle")
@@ -280,39 +303,45 @@ class StyleRunCard(QWidget):
             self.remove_requested.emit(a, b, style_key)
         )
         set_hover_hint(key_label, STYLE_HINTS[key])
+        set_hover_hint(name_label, STYLE_HINTS[key])
         layout.addWidget(key_label)
-        layout.addWidget(control, 1)
+        layout.addWidget(name_label)
+        if control is None:
+            layout.addStretch(1)
+        else:
+            layout.addWidget(control, 1)
+            self.controls[key] = control
         layout.addWidget(remove)
-        self.controls[key] = control
+        self.name_labels[key] = name_label
         return row
 
-    def _create_control(self, key: str, ruby_draft_text: str | None) -> QWidget:
+    def _create_control(self, key: str, ruby_draft_text: str | None) -> QWidget | None:
         style = self.segment.style or {}
         transform = style.get("transform") or {}
         if key in {"B", "D", "T", "M", "MV"}:
-            return CaptionLabel(STYLE_HINTS[key])
+            return None
         if key == "I":
             value = style.get("italic", 15.0)
             control = _double_spin_box(15.0 if isinstance(value, bool) else value, -85.0, 85.0, 1)
-            control.valueChanged.connect(lambda value: self._emit_patch({"italic": float(value)}))
+            control.valueChanged.connect(lambda value: self._emit_patch(key, {"italic": float(value)}))
             return control
         if key == "C":
             control = self._color_picker("Select rich text color", style.get("color", "#E53935"), "saved_colors")
-            control.color_changed.connect(lambda value: self._emit_patch({"color": value}))
+            control.color_changed.connect(lambda value: self._emit_patch(key, {"color": value}))
             return control
         if key == "S":
             control = _spin_box(int(style.get("fontSize", 24)), 1, 1000)
-            control.valueChanged.connect(lambda value: self._emit_patch({"fontSize": int(value)}))
+            control.valueChanged.connect(lambda value: self._emit_patch(key, {"fontSize": int(value)}))
             return control
         if key == "%":
             control = _double_spin_box(style.get("scale", 1.2), 0.1, 10.0)
-            control.valueChanged.connect(lambda value: self._emit_patch({"scale": float(value)}))
+            control.valueChanged.connect(lambda value: self._emit_patch(key, {"scale": float(value)}))
             return control
         if key == "F":
             control = QFontComboBox(self)
             control.setCurrentFont(QFont(str(style.get("fontFamily") or "")))
             control.currentIndexChanged.connect(
-                lambda _index: self._emit_patch({"fontFamily": control.currentFont().family()})
+                lambda _index: self._emit_patch(key, {"fontFamily": control.currentFont().family()})
             )
             return control
         if key in {"O", "G", "OS"}:
@@ -323,10 +352,12 @@ class StyleRunCard(QWidget):
             number_default = {"O": 0.07, "G": 0.10, "OS": 0.20}[key]
             color = self._color_picker(f"Select {source} color", values.get("color", color_default), f"saved_{source}_colors")
             number = _double_spin_box(values.get(number_key, number_default), 0.0, 5.0)
-            color.color_changed.connect(lambda value, field=source: self._emit_patch({field: {"color": value}}))
+            color.color_changed.connect(
+                lambda value, field=source: self._emit_patch(key, {field: {"color": value}})
+            )
             number.valueChanged.connect(
                 lambda value, field=source, part=number_key:
-                self._emit_patch({field: {part: float(value)}})
+                self._emit_patch(key, {field: {part: float(value)}})
             )
             return self._pair(color, number, "颜色", "模糊" if key == "G" else "宽度")
         if key == "R":
@@ -340,20 +371,28 @@ class StyleRunCard(QWidget):
             return control
         if key == "Rot":
             control = _double_spin_box(transform.get("rotation", 0.0), -180.0, 180.0, 1)
-            control.valueChanged.connect(lambda value: self._emit_patch({"transform": {"rotation": float(value)}}))
+            control.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"transform": {"rotation": float(value)}})
+            )
             return control
         if key in {"K", "PK", "LK", "NK"}:
             field = {"K": "kerning", "PK": "preKerning", "LK": "lineKerning", "NK": "nextKerning"}[key]
             control = _double_spin_box(style.get(field, 0.0), -5.0, 5.0)
-            control.valueChanged.connect(lambda value, name=field: self._emit_patch({name: float(value)}))
+            control.valueChanged.connect(
+                lambda value, name=field: self._emit_patch(key, {name: float(value)})
+            )
             return control
         if key == "XY":
             x_control = _double_spin_box(transform.get("offsetX", 0.0), -500.0, 500.0, 1)
             y_control = _double_spin_box(transform.get("offsetY", 0.0), -500.0, 500.0, 1)
-            x_control.valueChanged.connect(lambda value: self._emit_patch({"transform": {"offsetX": float(value)}}))
-            y_control.valueChanged.connect(lambda value: self._emit_patch({"transform": {"offsetY": float(value)}}))
+            x_control.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"transform": {"offsetX": float(value)}})
+            )
+            y_control.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"transform": {"offsetY": float(value)}})
+            )
             return self._pair(x_control, y_control, "X", "Y")
-        return QWidget(self)
+        return None
 
     def _color_picker(self, title: str, default: str, config_key: str) -> ColorPickerWidget:
         return ColorPickerWidget(
@@ -376,13 +415,13 @@ class StyleRunCard(QWidget):
         layout.addWidget(right, 1)
         return widget
 
-    def _emit_patch(self, patch: dict) -> None:
-        self.patch_requested.emit(self.segment.start, self.segment.end, patch)
+    def _emit_patch(self, key: str, patch: dict) -> None:
+        self.patch_requested.emit(self.segment.start, self.segment.end, key, patch)
 
 
 class StyledRunList(QScrollArea):
     range_selected = pyqtSignal(int, int)
-    patch_requested = pyqtSignal(int, int, object)
+    patch_requested = pyqtSignal(int, int, str, object)
     remove_requested = pyqtSignal(int, int, str)
     ruby_started = pyqtSignal(int, int, str)
     ruby_apply_requested = pyqtSignal(int, int, str)
@@ -411,13 +450,14 @@ class StyledRunList(QScrollArea):
         segments: Iterable[StyledTextSegment],
         *,
         ruby_draft: tuple[int, int, str, str] | None = None,
+        pending_styles: tuple[int, int, str, Iterable[str]] | None = None,
     ) -> None:
         values = list(segments)
         forced_by_range: dict[tuple[int, int], set[str]] = {}
         draft_text_by_range: dict[tuple[int, int], str] = {}
-        if ruby_draft is not None:
-            start, end, base_text, ruby_text = ruby_draft
-            target = (start, end)
+
+        def ensure_forced_target(start: int, end: int, text: str, keys: Iterable[str]) -> tuple[int, int]:
+            target = (int(start), int(end))
             matching = next(
                 (
                     segment for segment in values
@@ -427,10 +467,21 @@ class StyledRunList(QScrollArea):
                 None,
             )
             if matching is None:
-                values = [segment for segment in values if segment.end <= start or segment.start >= end]
-                values.append(StyledTextSegment(start, end, base_text, {}))
+                values[:] = [
+                    segment for segment in values
+                    if segment.end <= target[0] or segment.start >= target[1]
+                ]
+                values.append(StyledTextSegment(target[0], target[1], text, {}))
                 values.sort(key=lambda segment: segment.start)
-            forced_by_range[target] = {"R"}
+            forced_by_range.setdefault(target, set()).update(keys)
+            return target
+
+        if pending_styles is not None:
+            start, end, base_text, keys = pending_styles
+            ensure_forced_target(start, end, base_text, keys)
+        if ruby_draft is not None:
+            start, end, base_text, ruby_text = ruby_draft
+            target = ensure_forced_target(start, end, base_text, {"R"})
             draft_text_by_range[target] = ruby_text
 
         while self.content_layout.count():

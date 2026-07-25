@@ -367,6 +367,20 @@ def escape_jsx_string(text: str) -> str:
     return text
 
 
+def escape_jsx_path(path: str) -> str:
+    """将文件路径转换为可安全嵌入 JSX 单引号字符串的形式。
+
+    Photoshop 的 ExtendScript 使用单引号包裹路径；路径中的英文单引号
+    必须转义，否则会提前结束字符串并导致脚本语法错误。Windows 反斜杠
+    同时统一转换为正斜杠，避免被 JSX 当作转义序列解析。
+    """
+    if not path:
+        return ""
+
+    # 先统一路径分隔符，再转义 JSX 字符串中的特殊字符。
+    return path.replace("\\", "/").replace("'", "\\'")
+
+
 # 竖排文字中需要縦中横（横排显示）的符号映射
 # 将多字符符号替换为单个全角字符，避免竖排时分开显示
 VERTICAL_HORIZONTAL_MAP = {
@@ -725,14 +739,14 @@ def photoshop_export(output_file: str, ctx: Context, default_font: str = None, i
         inpainted_layer_code = ""
         if hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None and _save_image_like_to_temp(ctx.img_inpainted, inpainted_file):
             inpainted_layer_code = INPAINTED_LAYER_TEMPLATE.format(
-                inpainted_file=inpainted_file.replace("\\", "/")  # 使用正斜杠
+                inpainted_file=escape_jsx_path(inpainted_file)
             )
             logger.info("PSD修复图使用当前会话结果")
         elif image_path:
             inpainted_path = get_inpainted_path(image_path, create_dir=False)
             if os.path.exists(inpainted_path):
                 inpainted_layer_code = INPAINTED_LAYER_TEMPLATE.format(
-                    inpainted_file=inpainted_path.replace("\\", "/")  # 使用正斜杠
+                    inpainted_file=escape_jsx_path(inpainted_path)
                 )
                 logger.info(f"PSD修复图回退工作目录: {inpainted_path}")
             else:
@@ -754,11 +768,11 @@ def photoshop_export(output_file: str, ctx: Context, default_font: str = None, i
                 text_layers_code += generate_text_layer_jsx(i, region, default_font, line_spacing)
         
         # 生成完整的 JSX 脚本
-        # 路径转义：Windows路径的反斜杠需要转义为双反斜杠
+        # 路径转义：统一使用正斜杠，并转义单引号，避免破坏 JSX 字符串。
         jsx_script = JSX_TEMPLATE.format(
-            input_file=input_file.replace("\\", "/"),  # 使用正斜杠，JSX支持
-            output_file=output_file.replace("\\", "/"),
-            error_file=error_file.replace("\\", "/"),
+            input_file=escape_jsx_path(input_file),
+            output_file=escape_jsx_path(output_file),
+            error_file=escape_jsx_path(error_file),
             inpainted_layer_code=inpainted_layer_code,
             mask_layer_code=mask_layer_code,
             text_layers_code=text_layers_code,
