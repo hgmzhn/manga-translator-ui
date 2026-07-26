@@ -1,4 +1,4 @@
-# 卸载指南 / Uninstall Guide
+# 卸载指南
 
 ## 新版（便携版，目录里有 `packaging\python`）
 
@@ -32,16 +32,3 @@
 ### 2. 删除整个程序文件夹
 
 Miniconda 处理完后，把整个程序文件夹（含 `PortableGit`、代码、脚本）直接删除即可。
-
----
-
-## New version (portable, has `packaging\python` inside)
-
-Fully portable — Python, dependencies and caches all live inside this folder.
-
-**To uninstall, simply delete the whole folder.** That's all.
-
-## Legacy version (Conda-based, has `Miniconda3` inside)
-
-1. **Uninstall Miniconda**: open the `Miniconda3` folder and double-click `Uninstall-Miniconda3.exe`, then follow the prompts (it cleans up the registry, PATH and Start Menu entries; the `manga-env` environment is removed with it). Delete any leftover `Miniconda3` folder afterwards. If you installed Miniconda yourself and still need it, keep it and only remove this program's environment: `conda env remove -n manga-env -y`.
-2. **Delete the whole program folder.**

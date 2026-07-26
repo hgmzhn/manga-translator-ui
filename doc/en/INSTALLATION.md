@@ -107,7 +107,7 @@ Double-click `Win-Install-or-Update.bat` and choose **[2] Update**.
 
 ### Uninstall
 
-The new setup is fully portable: **just delete the whole folder**. For old conda-based installs, see the uninstall guide (`doc/卸载指南.md`, in Chinese).
+The new setup is fully portable: **just delete the whole folder**. For old conda-based installs, see the [Uninstall Guide](UNINSTALL.md).
 
 > 💡 **Compatibility with old installs**: if you previously installed with the old scripts (Miniconda3 plus a `manga-env` / `conda_env` environment), the new scripts fall back to that conda environment automatically when the bundled Python is not found. No reinstall is required.
 

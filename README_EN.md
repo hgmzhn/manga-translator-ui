@@ -120,7 +120,7 @@ The English companion versions of the documents below are being added one by one
 
 4. **Uninstall**
    - Portable version: just delete the whole folder
-   - Legacy version: see the [Uninstall Guide](doc/卸载指南.md)
+   - Legacy version: see the [Uninstall Guide](doc/en/UNINSTALL.md)
 
 #### Method 2: Download the Packaged Release
 
