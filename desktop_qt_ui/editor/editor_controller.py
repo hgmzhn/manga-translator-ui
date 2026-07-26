@@ -564,12 +564,6 @@ class EditorController(QObject):
             new_region_data.pop("translation_rich", None)
         return new_region_data
 
-    @staticmethod
-    def _direction_int(region_data: dict) -> int:
-        """区域排版方向 → 替换规则的 direction 参数(0=横排, 1=竖排)。"""
-        direction_val = region_data.get("direction", "h")
-        return 0 if direction_val in ("h", "horizontal", "hr") else 1
-
     def _sync_rich_for_plain_edit(
         self,
         old_region_data: dict,
@@ -578,54 +572,16 @@ class EditorController(QObject):
         raw_mode: bool,
         new_translation: str,
     ) -> Optional[dict]:
-        """按编辑操作记录把旧 ``translation_rich`` 同步到新文本。
+        """对齐逻辑在后端 rich_text_sync;这里只取字段转发。"""
+        from manga_translator.rendering.rich_text_sync import sync_region_rich_translation
 
-        返回同步好的文档 dict;没有旧富文本、没有操作记录或任何校验失败时
-        返回 ``None``(调用方会删除富文本字段退回纯文本)。
-        """
-        old_rich = old_region_data.get("translation_rich")
-        if not old_rich:
-            return None
-        info = edit_info if isinstance(edit_info, dict) else None
-        ops = info.get("ops") if info else None
-        if not ops:
-            self.logger.info("译文整段替换,无编辑操作记录,富文本退回纯文本")
-            return None
-
-        from manga_translator.rendering import rich_text_sync
-
-        try:
-            if raw_mode:
-                document = rich_text_sync.sync_document_for_raw_edit(
-                    old_rich,
-                    info.get("pre_text", ""),
-                    ops,
-                    info.get("post_text", ""),
-                    self._direction_int(old_region_data),
-                )
-            else:
-                document = rich_text_sync.document_after_edit_ops(
-                    old_rich,
-                    ops,
-                    info.get("pre_text", ""),
-                    info.get("post_text", ""),
-                )
-        except Exception as exc:
-            self.logger.warning("富文本样式同步异常,退回纯文本: %s", exc)
-            return None
-        if document is None:
-            self.logger.warning("富文本样式同步校验失败,退回纯文本")
-            return None
-
-        # 文档正文(\n 口径)折算回模型口径([BR]),必须与新译文一致
-        import re
-
-        if re.sub(r"\n+", "[BR]", document.plain_text()) != new_translation:
-            self.logger.warning("同步后富文本正文与译文不一致,退回纯文本")
-            return None
-        if not rich_text_sync.document_has_styling(document):
-            return None
-        return document.to_dict()
+        return sync_region_rich_translation(
+            old_region_data.get("translation_rich"),
+            edit_info,
+            raw_mode=raw_mode,
+            new_translation=new_translation,
+            direction_value=old_region_data.get("direction", "h"),
+        )
 
     def _clear_editor_state(self, release_image_cache: bool = False):
         self.document_service.clear_editor_state(release_image_cache=release_image_cache)

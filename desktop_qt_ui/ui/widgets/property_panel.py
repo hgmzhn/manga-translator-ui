@@ -195,9 +195,9 @@ class PropertyPanel(QWidget):
         self._paint_route_indexes: dict[str, int] = {}
         self._updating_paint_route = False
 
-        # 译文框编辑操作记录:[pos, removed, inserted] 列表 + 上次发射时的文本(\n 口径)
-        self._translation_edit_ops: list = []
-        self._translation_box_prev_text = ""
+        # 译文框编辑操作记录器(采集/收窄逻辑在后端 text_edit_ops)
+        from manga_translator.utils.text_edit_ops import EditOpRecorder
+        self._translation_edit_recorder = EditOpRecorder()
 
         self._init_ui()
         self._connect_signals()
@@ -1625,8 +1625,7 @@ class PropertyPanel(QWidget):
             ) and self.translated_text_box.toPlainText() != display_text:
                 self.translated_text_box.setText(display_text)
             # 重置编辑操作基线:无论是否覆盖了文本,都以框内当前内容为准
-            self._translation_edit_ops = []
-            self._translation_box_prev_text = self._canonical_translated_box_text()
+            self._translation_edit_recorder.reset(self.translated_text_box.toPlainText())
 
             font_size = int(region_data.get("font_size", 12) or 12)
             self.font_size_input.setValue(font_size)
@@ -1753,33 +1752,21 @@ class PropertyPanel(QWidget):
             text = self.original_text_box.toPlainText()
             self.original_text_modified.emit(self.current_region_index, text)
 
-    def _canonical_translated_box_text(self) -> str:
-        """译文框内容的规范形:字面 ↵ 与真实换行统一为 \\n(位置一一对应)。"""
-        return self.translated_text_box.toPlainText().replace('↵', '\n')
-
     def _take_translation_edit_info(self) -> dict:
-        """取走累积的编辑操作记录,并推进 pre/post 文本基线。"""
-        post_text = self._canonical_translated_box_text()
-        edit_info = {
-            "ops": self._translation_edit_ops,
-            "pre_text": self._translation_box_prev_text,
-            "post_text": post_text,
-        }
-        self._translation_edit_ops = []
-        self._translation_box_prev_text = post_text
-        return edit_info
+        """取走累积的编辑操作记录(采集/收窄逻辑在后端 EditOpRecorder)。"""
+        return self._translation_edit_recorder.take_edit_info(
+            self.translated_text_box.toPlainText()
+        )
 
     def _on_translated_contents_change(self, position: int, chars_removed: int, chars_added: int):
-        """记录译文框的精确编辑操作(在 textChanged 之前触发)。"""
+        """转发译文框的编辑事件(在 textChanged 之前触发);逻辑在后端。"""
+        current = self.translated_text_box.toPlainText()
         if getattr(self, 'block_updates', True):
-            # 程序化 setText:操作记录作废,基线由 _update_display 统一重置
-            self._translation_edit_ops = []
+            # 程序化 setText:操作作废,基线由 _update_display 统一重置
+            self._translation_edit_recorder.invalidate(current)
             return
-        added_text = ""
-        if chars_added:
-            added_text = self.translated_text_box.toPlainText()[position:position + chars_added]
-        self._translation_edit_ops.append(
-            [int(position), int(chars_removed), added_text.replace('↵', '\n')]
+        self._translation_edit_recorder.record_change(
+            current, position, chars_removed, chars_added
         )
 
     def _on_translated_text_changed(self):
