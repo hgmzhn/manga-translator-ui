@@ -2400,6 +2400,19 @@ def check_all_updates():
     return code_needs_update, deps_needs_update, current_version, remote_version, req_file, missing_packages
 
 
+def cleanup_caches():
+    """清理 uv/pip 下载缓存，释放磁盘空间（自动执行，不询问）"""
+    print()
+    print('正在清理下载缓存...')
+    uv = find_uv()
+    if uv:
+        subprocess.run(f'{uv} cache clean', shell=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(f'"{python}" -m pip cache purge', shell=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print('[OK] 缓存已清理')
+
+
 def run_install(args):
     """安装：选择线路 → 检测显卡并选择 CPU/GPU 版本 → 安装依赖"""
     print()
@@ -2438,6 +2451,7 @@ def run_install(args):
     print()
     try:
         prepare_environment(args)
+        cleanup_caches()
         print()
         print("=" * 40)
         print("[完成] 安装完成")
@@ -2500,6 +2514,8 @@ def run_full_update(args):
         print("[2/2] 依赖已满足，跳过")
 
     if update_success:
+        if deps_needs_update:
+            cleanup_caches()
         print()
         print("=" * 40)
         print("[完成] 更新完成")
