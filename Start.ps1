@@ -158,7 +158,16 @@ $exitCode = $LASTEXITCODE
 if ($exitCode -ne 0) {
     Write-Host ''
     Write-Host "[ERROR] Application exited with code $exitCode"
+    Write-Host ''
+    Write-Host 'Please try reinstalling first: run Install-or-Update.ps1 and choose [1] Install.'
+    Write-Host ''
+    Write-Host 'If it still fails, please take a screenshot of this window and report it via:'
+    Write-Host '  GitHub Issues: https://github.com/hgmzhn/manga-translator-ui/issues'
+    Write-Host '  or the QQ group'
     Suggest-MaintenanceScript
     exit $exitCode
 }
+
+Write-Host ''
+Read-Host 'Application closed. Press Enter to exit'
 exit 0
