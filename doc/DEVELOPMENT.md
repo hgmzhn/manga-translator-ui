@@ -10,22 +10,33 @@
 - `packaging/launch.py` 和 GitHub Actions 也都按 Python 3.12 运行。
 - 可以使用 `venv`、Conda 或项目安装脚本创建环境，不强制要求环境名必须叫 `manga-env`。
 
+### 依赖声明方式
+
+依赖现在统一声明在仓库根目录的 `pyproject.toml`：
+
+- 公共依赖写在 `[project] dependencies`。
+- 四种后端是互斥的 optional-dependencies extras：`cpu` / `gpu` / `amd` / `metal`（`[tool.uv] conflicts` 保证互斥）。
+- PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cpu` 用 `download.pytorch.org/whl/cpu`，`gpu` 用 `whl/cu128`，`metal` 走默认 PyPI；`amd` 的 ROCm 版 torch 由 `packaging/launch.py` 从 `repo.radeon.com` 单独安装。
+- `uv.lock` 是锁定文件，已提交在仓库里，请勿手改。
+
+旧的 `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` 已删除。
+
 ### 依赖安装
 
-按你的运行目标只安装一套依赖即可：
+推荐使用 uv，按你的运行目标只装一套 extra：
 
 ```bash
-# CPU
-pip install -r requirements_cpu.txt
-
 # NVIDIA GPU（CUDA 12.x）
-pip install -r requirements_gpu.txt
+uv sync --extra gpu
 
-# AMD GPU（实验性）
-pip install -r requirements_amd.txt
+# 其他后端把 gpu 换成 cpu / amd / metal
+uv sync --extra cpu
+```
 
-# Apple Silicon / Metal
-pip install -r requirements_metal.txt
+`uv sync` 会自动创建 `.venv` 并按 `uv.lock` 复现依赖。如果想装进已有环境，也可以：
+
+```bash
+uv pip install -r pyproject.toml --extra gpu
 ```
 
 如果你要做 PyInstaller 打包，还需要：
@@ -183,14 +194,11 @@ python -m manga_translator local -i path/to/image.png -o path/to/output
 ### 5.1 推荐启动顺序
 
 ```bash
-# 1. 创建并激活环境
-python -m venv .venv
+# 1. 安装依赖（示例：GPU；会自动创建 .venv 并按 uv.lock 复现）
+uv sync --extra gpu
 
-# Windows PowerShell
+# 2. 激活环境（Windows PowerShell）
 .venv\Scripts\Activate.ps1
-
-# 2. 安装依赖（示例：CPU）
-pip install -r requirements_cpu.txt
 
 # 3. 启动桌面端
 python -m desktop_qt_ui.main
@@ -274,7 +282,7 @@ ruff check desktop_qt_ui manga_translator --config desktop_qt_ui/ruff.toml
 
 这个结论的边界是：
 
-- 仓库中没有其他已跟踪的 `pyproject.toml`、`setup.cfg`、`tox.ini`、`.flake8`、第二份 `ruff.toml` 等配置文件。
+- 仓库根目录的 `pyproject.toml` 只负责依赖声明，不包含 lint 配置；此外没有其他已跟踪的 `setup.cfg`、`tox.ini`、`.flake8`、第二份 `ruff.toml` 等配置文件。
 - 当前 GitHub Actions 里也没有显式执行 lint 步骤。
 - 所以上面的命令更适合作为本地自检入口，不表示仓库 CI 当前已经把它当成必过步骤。
 
@@ -308,10 +316,8 @@ python packaging/build_packages.py <version> --build both
 
 面向最终用户的脚本主要在仓库根目录：
 
-- `步骤1-首次安装.bat`
-- `步骤2-启动Qt界面.bat`
-- `步骤3-检查更新并启动.bat`
-- `步骤4-更新维护.bat`
+- `Win-Start.bat`（启动）
+- `Win-Install-or-Update.bat`（安装或更新维护菜单）
 - `macOS_*.sh`
 
 这些脚本的实际逻辑集中在 `packaging/launch.py`、`packaging/git_update.py` 等文件里。修改安装/更新行为时，不要只改 `.bat` 或 `.sh` 外壳。

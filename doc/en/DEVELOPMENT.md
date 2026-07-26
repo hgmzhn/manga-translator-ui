@@ -15,22 +15,33 @@ This guide only lists Git-tracked directories and files that are maintained toge
 - You can use `venv`, Conda, or the project install scripts to create the environment.
 - The environment name does **not** have to be `manga-env`.
 
+### Dependency declaration
+
+Dependencies are now declared in `pyproject.toml` at the repository root:
+
+- Common dependencies live in `[project] dependencies`.
+- The four backends are mutually exclusive optional-dependencies extras: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
+- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu128`, `metal` uses the default PyPI; the ROCm torch for `amd` is installed separately from `repo.radeon.com` by `packaging/launch.py`.
+- `uv.lock` is the lockfile. It is committed to the repository; do not edit it by hand.
+
+The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` files have been removed.
+
 ### Dependency installation
 
-Install only one dependency set based on your target runtime:
+uv is recommended. Install only one extra based on your target runtime:
 
 ```bash
-# CPU
-pip install -r requirements_cpu.txt
-
 # NVIDIA GPU (CUDA 12.x)
-pip install -r requirements_gpu.txt
+uv sync --extra gpu
 
-# AMD GPU (experimental)
-pip install -r requirements_amd.txt
+# For other backends, replace gpu with cpu / amd / metal
+uv sync --extra cpu
+```
 
-# Apple Silicon / Metal
-pip install -r requirements_metal.txt
+`uv sync` automatically creates `.venv` and reproduces the dependencies from `uv.lock`. To install into an existing environment instead:
+
+```bash
+uv pip install -r pyproject.toml --extra gpu
 ```
 
 If you want to build a PyInstaller package, you also need:
@@ -215,14 +226,11 @@ If you add a new resource directory, template file, or config file, check both o
 ### 5.1 Recommended startup order
 
 ```bash
-# 1. Create and activate an environment
-python -m venv .venv
+# 1. Install dependencies (GPU example; creates .venv and reproduces uv.lock automatically)
+uv sync --extra gpu
 
-# Windows PowerShell
+# 2. Activate the environment (Windows PowerShell)
 .venv\Scripts\Activate.ps1
-
-# 2. Install dependencies (CPU example)
-pip install -r requirements_cpu.txt
 
 # 3. Start the desktop app
 python -m desktop_qt_ui.main
@@ -330,7 +338,7 @@ ruff check desktop_qt_ui manga_translator --config desktop_qt_ui/ruff.toml
 
 The boundary of that statement is:
 
-- the repository does not currently include other tracked config files such as `pyproject.toml`, `setup.cfg`, `tox.ini`, `.flake8`, or a second `ruff.toml`
+- the `pyproject.toml` at the repository root only declares dependencies and contains no lint configuration; beyond that, the repository does not include other tracked config files such as `setup.cfg`, `tox.ini`, `.flake8`, or a second `ruff.toml`
 - the current GitHub Actions workflows also do not explicitly run a lint step
 - so the command above is better treated as a local self-check, not proof that CI currently treats it as a required pass gate
 
@@ -370,10 +378,8 @@ Related files:
 
 The main end-user scripts live in the repository root:
 
-- `步骤1-首次安装.bat`
-- `步骤2-启动Qt界面.bat`
-- `步骤3-检查更新并启动.bat`
-- `步骤4-更新维护.bat`
+- `Win-Start.bat` (launcher)
+- `Win-Install-or-Update.bat` (install / update maintenance menu)
 - `macOS_*.sh`
 
 The actual logic behind those scripts is concentrated in files such as:

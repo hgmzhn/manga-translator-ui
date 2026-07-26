@@ -7,7 +7,7 @@ This document provides detailed installation steps, system requirements, first-r
 ## 📋 Table of Contents
 
 - [System Requirements](#system-requirements)
-- [Method 1: Install Script](#method-1-install-script)
+- [Method 1: Portable Installer](#method-1-portable-installer)
 - [Method 2: Packaged Release](#method-2-packaged-release)
 - [Method 3: Run from Source](#method-3-run-from-source)
 - [Method 4: Docker Deployment](#method-4-docker-deployment)
@@ -37,135 +37,79 @@ This document provides detailed installation steps, system requirements, first-r
   - **AMD GPU**: ROCm support is experimental
     - Supported cards: **RX 7000 / 9000 only**
     - ⚠️ RX 5000 / 6000 should use the CPU build
-    - ⚠️ AMD GPU is supported through the install-script path, not the packaged release
+    - ⚠️ AMD GPU is supported through the portable-installer path, not the packaged release
     - ⚠️ ROCm support on Windows is limited. Linux usually works better
 - **Storage**: SSD with 10 GB or more free space
 
 ---
 
-## Method 1: Install Script
+## Method 1: Portable Installer
 
-This is the recommended path for Windows users. It handles environment setup automatically and supports later updates.
+This is the recommended path for Windows users. Download the portable installer package from GitHub Releases, extract it, and it is ready to use. The package ships with a bundled Python 3.12 (`packaging\python\python.exe`) and the uv package manager (`packaging\uv.exe`). It is fully portable: no registry writes and **no Python pre-install required**.
 
-> ⚠️ **Network note**: the installer downloads code from GitHub. If your network is unstable, use a proxy or a faster mirror.
->
-> 💡 **No Python pre-install required**: the script can install Miniconda automatically.
+> ⚠️ **Network note**: installation downloads code and dependencies. Users in mainland China can pick the Gitee mirror and domestic PyPI mirrors from the menu.
 
 ### Prerequisites
 
-- **No Python pre-install needed**
-- **Git is optional**: the script can download a portable Git build for you
+- **No Python pre-install needed**: bundled Python 3.12 and uv are included
+- Download the portable installer package from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) and extract it to any folder
 
-### Detailed Steps
+### Two entry scripts
 
-#### 1. Get the install script
+After extraction, the folder contains two entry scripts. Just double-click them:
 
-- Visit the repository: [https://github.com/hgmzhn/manga-translator-ui](https://github.com/hgmzhn/manga-translator-ui)
-- Download [`步骤1-首次安装.bat`](https://github.com/hgmzhn/manga-translator-ui/raw/main/步骤1-首次安装.bat)
-- Save it into the folder where you want the app installed, for example `D:\manga-translator-ui\`
+| Script | Purpose |
+|------|------|
+| `Win-Start.bat` | Start the program |
+| `Win-Install-or-Update.bat` | Open the install / update maintenance menu |
 
-#### 2. Run the install script
+### First-time install
 
-Double-click `步骤1-首次安装.bat`.
+Double-click `Win-Install-or-Update.bat` and choose **[1] Install** in the maintenance menu. The flow is:
 
-The script will:
+1. **Choose a download route**: GitHub official / Gitee mirror (recommended in mainland China)
+2. **Force-sync the latest code**: if the sync fails, you are prompted to retry with the other route
+3. **GPU detection**: automatically detects NVIDIA / AMD / integrated graphics; with multiple GPUs you get a list to pick from
+4. **Choose a PyTorch build**:
+   - **NVIDIA**: CUDA 12.x (driver `>= 525.60.13` required)
+   - **AMD**: ROCm, experimental, **RX 7000 / 9000 series only**
+   - **Other / integrated graphics**: CPU build
+5. **Fast batch dependency install with uv**:
+   - PyTorch comes from the official source or a domestic mirror
+   - Everything else uses PyPI with mirror fallback: Tsinghua → Aliyun → Douban → official
+   - Failed installs can be retried; already-installed packages are kept
+6. **Download caches are cleaned up automatically** when finished
 
-**2.1 Detect and install Miniconda**
+### Maintenance menu
 
-- ✓ If Python or Conda already exists, it uses what is available
-- ✗ If not installed:
-  - It offers a download source such as the Tsinghua mirror or the official Anaconda source
-  - Downloads a Miniconda installer, about 50 MB
-  - Silently installs to `<project_dir>\Miniconda3`
-  - Configures environment variables automatically
-  - **Important**: after the first Miniconda install, you may need to run the script again so the refreshed environment is picked up
+The menu detects your system language and displays Chinese or English automatically. Its configuration is persisted in `packaging\maintenance_config.json`. Menu options:
 
-**2.2 Detect and install Git**
+- **[1] Install**: full install flow, see above
+- **[2] Update**: checks code (compares remote VERSION and commit count on the current branch) and dependencies (installs only missing packages)
+- **[3] Switch branch**: `main` stable / `beta` testing
+- **[4] Switch to a historical version by tag**
+- **[5] Switch mirror source**
+- **[6] Re-check versions**
+- **[7] Switch language** (Chinese / English)
+- **[8] Exit**
 
-- ✓ If Git already exists, it uses the system Git
-- ✗ If Git is missing, it offers:
-  - **Option 1**: download portable Git automatically, recommended
-  - **Option 2**: install Git manually and run the script again
+### Dependency management
 
-**2.3 Choose a download source**
+Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive extras: `cpu` / `gpu` / `amd` / `metal`) and locked with `uv.lock`. The old `requirements_*.txt` files have been removed.
 
-- **Option 1**: official GitHub source
-- **Option 2**: mirror source, usually faster in some regions
+### Start the program
 
-**2.4 Clone or update the repository**
+After installation, just double-click `Win-Start.bat` whenever you want to use the app.
 
-- First install: clone the repository
-- Existing install: update to the latest version automatically
+### Update later
 
-**2.5 Create the Conda environment**
+Double-click `Win-Install-or-Update.bat` and choose **[2] Update**.
 
-- Creates `conda_env` in the project directory using Python 3.12
-- Path: `<project_dir>\conda_env\`
-- The environment stays inside the project folder and does not consume system Python space
+### Uninstall
 
-**2.6 Install dependencies**
+The new setup is fully portable: **just delete the whole folder**. For old conda-based installs, see the uninstall guide (`doc/卸载指南.md`, in Chinese).
 
-- Detects hardware automatically:
-  - ✓ **NVIDIA GPU**
-    - Checks CUDA version
-    - CUDA 12 or newer: installs `requirements_gpu.txt`
-    - Older CUDA: prompts you to update the driver or use the CPU build
-  - ✓ **AMD GPU**
-    - Detects the GPU model and gfx version
-    - After confirmation, installs `requirements_amd.txt`
-    - **RX 7000 / 9000 only**
-    - RX 5000 / 6000 automatically falls back to CPU
-  - ✗ **Other GPU / integrated graphics**
-    - Installs `requirements_cpu.txt`
-- Uses `launch.py` to install the required packages
-
-**2.7 Finish installation**
-
-- Shows the install location
-- Optionally launches the app immediately
-
-### Miniconda Layout
-
-**Advantages**
-
-- ✅ Small initial installer, about 50 MB
-- ✅ Supports multiple Python versions
-- ✅ Keeps environments isolated
-- ✅ Includes pip support
-- ✅ Installs entirely inside the project directory
-
-**Typical folder layout**
-
-```text
-D:\manga-translator-ui\
-├── 步骤1-首次安装.bat
-├── 步骤2-启动Qt界面.bat
-├── 步骤3-检查更新并启动.bat
-├── 步骤4-更新维护.bat
-├── Miniconda3\
-├── conda_env\
-├── PortableGit\
-├── desktop_qt_ui\
-├── manga_translator\
-└── ...
-```
-
-#### 3. Start the program
-
-After installation, your normal start entry is:
-
-- Double-click `步骤2-启动Qt界面.bat`
-
-You can also use:
-
-- `步骤3-检查更新并启动.bat` to check for updates before launch
-
-#### 4. Update later
-
-When you want the latest version:
-
-- Double-click `步骤4-更新维护.bat`
-- Choose the full update option
+> 💡 **Compatibility with old installs**: if you previously installed with the old scripts (Miniconda3 plus a `manga-env` / `conda_env` environment), the new scripts fall back to that conda environment automatically when the bundled Python is not found. No reinstall is required.
 
 ---
 
@@ -245,19 +189,23 @@ cd manga-translator-ui
 
 ### 2. Install dependencies
 
+Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive extras: `cpu` / `gpu` / `amd` / `metal`). Install them with [uv](https://docs.astral.sh/uv/):
+
 ```bash
 # CPU
-pip install -r requirements_cpu.txt
+uv sync --extra cpu
 
-# NVIDIA GPU
-pip install -r requirements_gpu.txt
+# NVIDIA GPU (CUDA 12.x)
+uv sync --extra gpu
 
 # AMD GPU (experimental)
-pip install -r requirements_amd.txt
+uv sync --extra amd
 
 # Apple Silicon / Metal
-pip install -r requirements_metal.txt
+uv sync --extra metal
 ```
+
+> 💡 **pip users**: run `uv export` to generate a requirements file, then install it with pip.
 
 ### 3. Run the program
 
@@ -469,7 +417,7 @@ Designed for Apple Silicon Macs and uses MPS acceleration when available.
 
 | Script | Purpose | Windows equivalent |
 |---------|------|-------------|
-| `macOS_1_首次安装.sh` | First-time install, clone, Miniforge install, dependency install | `步骤1-首次安装.bat` |
+| `macOS_1_首次安装.sh` | First-time install, clone, Miniforge install, dependency install | `Win-Install-or-Update.bat` → [1] Install |
 | `macOS_2_启动Qt界面.sh` | Start the Qt UI | `步骤2-启动Qt界面.bat` |
 | `macOS_3_检查更新并启动.sh` | Update check then launch | `步骤3-检查更新并启动.bat` |
 | `macOS_4_更新维护.sh` | Maintenance menu | `步骤4-更新维护.bat` |
@@ -541,7 +489,7 @@ This section uses the current Qt UI labels from `en_US.json`.
 
 Start one of these:
 
-- `步骤2-启动Qt界面.bat`
+- `Win-Start.bat`
 - `app.exe`
 - `python -m desktop_qt_ui.main`
 

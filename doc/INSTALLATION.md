@@ -7,7 +7,7 @@
 ## 📋 目录
 
 - [系统要求](#系统要求)
-- [安装方式一：使用安装脚本（推荐，支持自动更新）](#安装方式一使用安装脚本推荐支持自动更新)
+- [安装方式一：便携安装包（推荐，支持自动更新）](#安装方式一便携安装包推荐支持自动更新)
 - [安装方式二：下载打包版本](#安装方式二下载打包版本)
 - [安装方式三：从源码运行](#安装方式三从源码运行)
 - [安装方式四：Docker部署](#安装方式四docker部署)
@@ -35,128 +35,79 @@
   - **AMD 显卡**：支持 ROCm（实验性）
     - 支持的显卡：**仅 RX 7000/9000 系列（RDNA 3/4）**
     - ⚠️ RX 5000/6000 系列请使用 CPU 版本
-    - ⚠️ AMD GPU 仅支持安装脚本方式，不支持打包版本
+    - ⚠️ AMD GPU 仅支持便携安装包方式，不支持打包版本
     - ⚠️ Windows 上 ROCm 支持有限，Linux 下体验更好
 - **存储空间**：10 GB SSD
 
 ---
 
-## 安装方式一：使用安装脚本（⭐ 推荐，自动安装 Miniconda）
+## 安装方式一：便携安装包（⭐ 推荐，支持自动更新）
 
-脚本会自动完成所有配置，并支持一键更新。
+从 GitHub Releases 下载便携安装包，解压即用。安装包内置打包版 Python 3.12（`packaging\python\python.exe`）和 uv 包管理器（`packaging\uv.exe`），完全绿色、不写注册表、**无需预装 Python**。
 
-> ⚠️ **网络提示**：下载过程需要从 GitHub 拉取代码，网络不好建议开代理。
-> 💡 **新特性**：无需预装 Python，脚本会自动安装 Miniconda（轻量级Python环境管理）
+> ⚠️ **网络提示**：安装过程需要下载代码和依赖，国内网络可在菜单中选择 Gitee 镜像和国内 PyPI 镜像。
 
 ### 前提条件
 
-- **无需预装 Python**：脚本会自动下载安装 Miniconda
-- **Git**（可选）：脚本可以自动下载便携版 Git
+- **无需预装 Python**：安装包自带打包版 Python 3.12 和 uv
+- 从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载便携安装包并解压到任意目录
 
-### 详细步骤
+### 两个入口脚本
 
-#### 1. 获取安装脚本
+解压后目录中有两个入口脚本，双击即可运行：
 
-- 访问仓库：[https://github.com/hgmzhn/manga-translator-ui](https://github.com/hgmzhn/manga-translator-ui)
-- 下载 [`步骤1-首次安装.bat`](https://github.com/hgmzhn/manga-translator-ui/raw/main/步骤1-首次安装.bat)
-- 保存到你想安装程序的目录（如 `D:\manga-translator-ui\`）
+| 脚本 | 作用 |
+|------|------|
+| `Win-Start.bat` | 启动程序 |
+| `Win-Install-or-Update.bat` | 打开安装/更新维护菜单 |
 
-#### 2. 运行安装脚本
+### 首次安装
 
-双击 `步骤1-首次安装.bat`，脚本会：
+双击 `Win-Install-or-Update.bat`，在维护菜单中选择 **[1] 安装**，流程如下：
 
-**2.1 检测并安装 Miniconda**
-- ✓ 如果系统已有 Python/Conda，直接使用
-- ✗ 如果未安装：
-  - 提供下载源选择：清华大学镜像（国内推荐）或 Anaconda 官方
-  - 自动下载 Miniconda3 安装程序（约 50MB）
-  - 静默安装到：`<项目目录>\Miniconda3`（不占用C盘）
-  - 自动配置环境变量
-  - **注意**：安装完成后需要重新运行脚本（重新加载环境变量）
+1. **选择下载线路**：GitHub 官方 / Gitee 镜像（国内推荐）
+2. **强制同步最新代码**：同步失败会提示切换到另一条线路重试
+3. **检测显卡**：自动识别 NVIDIA / AMD / 集显；多显卡时列出让用户选择
+4. **选择 PyTorch 版本**：
+   - **NVIDIA**：CUDA 12.x（需驱动版本 >= 525.60.13）
+   - **AMD**：ROCm（实验性，**仅 RX 7000/9000 系列**）
+   - **其他/集显**：CPU 版本
+5. **uv 高速批量安装依赖**：
+   - PyTorch 走官方源或国内镜像
+   - 其余依赖走 PyPI 多镜像回退：清华 → 阿里 → 豆瓣 → 官方
+   - 安装失败可重试（已装的包会保留，不会重复下载）
+6. **完成后自动清理下载缓存**
 
-**2.2 检测/安装 Git**
-- ✓ 如果系统已有 Git，使用系统 Git
-- ✗ 如果没有 Git，提供两个选项：
-  - **选项 1**（推荐）：自动下载便携版 Git（约 50MB）
-  - **选项 2**：手动安装 Git 后重新运行
+### 维护菜单说明
 
-**2.3 选择下载源**
-- **选项 1**：GitHub 官方源（国外网络）
-- **选项 2**（推荐）：gh-proxy.com 镜像（国内更快）
+维护菜单会自动检测系统语言显示中文或英文，配置持久化在 `packaging\maintenance_config.json`。菜单选项：
 
-**2.4 克隆/更新代码**
-- 如果是首次安装：从 GitHub 克隆代码
-- 如果已有代码：自动更新到最新版本
+- **[1] 安装**：完整安装流程（见上）
+- **[2] 更新**：检查代码（按当前分支比对远程 VERSION 和提交数）+ 依赖（只安装缺失的包）
+- **[3] 切换分支**：main 稳定版 / beta 测试版
+- **[4] 按 tag 切换历史版本**
+- **[5] 切换镜像源**
+- **[6] 重新检查版本**
+- **[7] 切换语言**（中/英）
+- **[8] 退出**
 
-**2.5 创建 Conda 环境**
-- 在项目目录创建 `conda_env` 环境（Python 3.12）
-- 位置：`<项目目录>\conda_env\`
-- **不占用C盘系统空间**，环境在项目目录内
-- 隔离项目依赖，不影响系统
+### 依赖管理说明
 
-**2.6 安装依赖**
-- 自动检测 GPU：
-  - ✓ **NVIDIA 显卡**：
-    - 检测 CUDA 版本
-    - CUDA >= 12: 安装 GPU 版本依赖（requirements_gpu.txt）
-    - CUDA < 12: 提示更新驱动或使用 CPU 版本
-  - ✓ **AMD 显卡**：
-    - 自动识别显卡型号和 gfx 版本
-    - 询问用户确认后安装 AMD ROCm PyTorch（requirements_amd.txt）
-    - **仅支持 RX 7000/9000 系列（RDNA 3/4）**
-    - RX 5000/6000 系列会自动使用 CPU 版本
-  - ✗ **其他显卡/集显**：安装 CPU 版本依赖（requirements_cpu.txt）
-- 使用 `launch.py` 智能安装所有必需的包
+依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 extras），并由 `uv.lock` 锁定版本，原有的 `requirements_*.txt` 已删除。
 
-**2.7 完成安装**
-- 显示安装位置
-- 询问是否立即运行程序
+### 启动程序
 
-### Miniconda 特点
+安装完成后，以后每次使用只需双击 `Win-Start.bat`。
 
-**优势：**
-- ✅ 体积小（约 50MB）
-- ✅ 可管理多个 Python 版本
-- ✅ 环境隔离，互不干扰
-- ✅ 自带 pip 包管理
-- ✅ **完全安装在项目目录，不占用 C 盘系统空间**
+### 更新程序
 
-**目录结构：**
-```
-D:\manga-translator-ui\          # 你选择的安装目录
-├── 步骤1-首次安装.bat            # 安装脚本
-├── 步骤2-启动Qt界面.bat          # 启动脚本
-├── 步骤3-检查更新并启动.bat      # 更新并启动
-├── 步骤4-更新维护.bat            # 维护工具
-├── Miniconda3\                   # Miniconda主程序（约600MB）
-│   ├── python.exe
-│   ├── Scripts\
-│   ├── pkgs\
-│   └── ...
-├── conda_env\                    # 项目虚拟环境（约2-5GB）
-│   ├── python.exe
-│   ├── Scripts\
-│   ├── Lib\
-│   └── ...
-├── PortableGit\                  # 便携版Git（如果下载）
-├── desktop_qt_ui\                # Qt界面源码
-├── manga_translator\             # 核心翻译模块
-└── ...                           # 其他项目文件
-```
+双击 `Win-Install-or-Update.bat`，选择 **[2] 更新** 即可。
 
-#### 3. 启动程序
+### 卸载
 
-安装完成后，以后每次使用只需：
+新版为完全绿色安装，**直接删除整个文件夹即可卸载**。旧版（conda 方式）的卸载请参考 [卸载指南](卸载指南.md)。
 
-双击 `步骤2-启动Qt界面.bat`
-
-> **提示**：也可以双击 `步骤3-检查更新并启动.bat` 在启动前自动检查更新
-
-#### 4. 更新程序（可选）
-
-需要更新到最新版本时：
-
-双击 `步骤4-更新维护.bat`，选择"完整更新"
+> 💡 **旧版用户兼容说明**：如果你之前用旧版脚本安装了 Miniconda3 + `manga-env` / `conda_env` 环境，新脚本在找不到打包版 Python 时会自动回退使用旧的 conda 环境，无需重装。
 
 ---
 
@@ -243,13 +194,23 @@ cd manga-translator-ui
 
 ### 2. 安装依赖
 
+依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 extras），使用 [uv](https://docs.astral.sh/uv/) 安装：
+
 ```bash
 # CPU 版本
-pip install -r requirements_cpu.txt
+uv sync --extra cpu
 
-# GPU 版本（需要 CUDA 12.x）
-pip install -r requirements_gpu.txt
+# NVIDIA GPU 版本（需要 CUDA 12.x）
+uv sync --extra gpu
+
+# AMD GPU 版本（实验性）
+uv sync --extra amd
+
+# Apple Silicon / Metal
+uv sync --extra metal
 ```
+
+> 💡 **pip 用户**：可用 `uv export` 生成 requirements 文件后再用 pip 安装。
 
 ### 3. 运行程序
 
@@ -505,10 +466,10 @@ services:
 
 | 脚本文件 | 说明 | 对应 Windows |
 |---------|------|-------------|
-| `macOS_1_首次安装.sh` | 首次环境配置、代码克隆、Miniforge 安装、依赖安装 | 步骤1-首次安装.bat |
-| `macOS_2_启动Qt界面.sh` | 启动图形界面 | 步骤2-启动Qt界面.bat |
-| `macOS_3_检查更新并启动.sh` | 检查版本更新后启动 | 步骤3-检查更新并启动.bat |
-| `macOS_4_更新维护.sh` | 运行维护菜单（更新代码、更新依赖、清理缓存等） | 步骤4-更新维护.bat |
+| `macOS_1_首次安装.sh` | 首次环境配置、代码克隆、Miniforge 安装、依赖安装 | Win-Install-or-Update.bat → [1] 安装 |
+| `macOS_2_启动Qt界面.sh` | 启动图形界面 | Win-Start.bat |
+| `macOS_3_检查更新并启动.sh` | 检查版本更新后启动 | （无单独对应，可用 Win-Install-or-Update.bat 更新后启动） |
+| `macOS_4_更新维护.sh` | 运行维护菜单（更新代码、更新依赖、清理缓存等） | Win-Install-or-Update.bat |
 
 ### 安装步骤
 
