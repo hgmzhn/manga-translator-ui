@@ -518,23 +518,31 @@ def run_uv_packages(uv, packages, primary_index_url, desc=None):
         pytorch_pkgs = []
     normal_pkgs = [p for p in packages if p not in pytorch_pkgs]
 
-    def uv_install(pkgs, install_index_url):
+    def uv_install(pkgs, install_index_url, find_links=None):
         quoted = ' '.join(f'"{p}"' for p in pkgs)
-        index_line = f' --index-url {install_index_url}' if install_index_url else ''
-        cmd = f'{uv} pip install --python "{python}"{index_line} {quoted}'
+        cmd = f'{uv} pip install --python "{python}"'
+        if find_links:
+            cmd += f' --find-links {find_links}'
+        if install_index_url:
+            cmd += f' --index-url {install_index_url}'
+        cmd += f' {quoted}'
         result = subprocess.run(cmd, shell=True, env=os.environ)
         return result.returncode == 0
 
-    # 先装 PyTorch 相关包（走专用源，按优先级回退）
-    # uv 需要标准 PEP 503 索引，国内镜像多为静态目录 uv 无法解析，因此官方源优先
+    # 先装 PyTorch 相关包（按优先级回退：国内镜像优先，官方源兜底）
+    # 官方源是标准 PEP 503 索引，直接当 --index-url 用；
+    # 国内镜像是静态 wheel 目录，用 --find-links 解析，其余依赖走 PyPI 镜像
     if pytorch_pkgs:
-        candidates = get_pytorch_index_candidates(primary_index_url)
-        official = [c for c in candidates if 'download.pytorch.org' in c]
-        others = [c for c in candidates if 'download.pytorch.org' not in c]
+        pypi_mirror = index_url or MIRROR_URLS[0]
         installed = False
-        for candidate in official + others:
-            print(f'[uv] 安装 PyTorch 相关包 ({len(pytorch_pkgs)} 个)，源: {candidate}')
-            if uv_install(pytorch_pkgs, candidate):
+        for candidate in get_pytorch_index_candidates(primary_index_url):
+            if 'download.pytorch.org' in candidate:
+                print(f'[uv] 安装 PyTorch 相关包 ({len(pytorch_pkgs)} 个)，源: {candidate}')
+                ok = uv_install(pytorch_pkgs, candidate)
+            else:
+                print(f'[uv] 安装 PyTorch 相关包 ({len(pytorch_pkgs)} 个)，镜像: {candidate} (find-links)')
+                ok = uv_install(pytorch_pkgs, pypi_mirror, find_links=candidate)
+            if ok:
                 installed = True
                 break
             print(f'[uv][失败] PyTorch 源 {candidate} 安装失败，尝试下一个源...')
