@@ -117,9 +117,7 @@
    - 双击 `1-Start.ps1`
 
 4. **卸载**：
-   - 参见 [卸载指南](卸载指南.md)
-   - 新版：直接删除整个文件夹即可
-   - 旧版（Conda 版）：先双击 `Miniconda3\Uninstall-Miniconda3.exe` 卸载 Miniconda，再删除整个文件夹
+   - 参考 [卸载指南](卸载指南.md)
 
 #### 方式二：下载打包版本
 

@@ -120,8 +120,6 @@ The English companion versions of the documents below are being added one by one
 
 4. **Uninstall**
    - See the [Uninstall Guide](卸载指南.md)
-   - Portable version: just delete the whole folder
-   - Legacy (Conda) version: double-click `Miniconda3\Uninstall-Miniconda3.exe` to uninstall Miniconda first, then delete the whole folder
 
 #### Method 2: Download the Packaged Release
 
