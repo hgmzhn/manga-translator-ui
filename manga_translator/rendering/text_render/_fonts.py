@@ -241,6 +241,47 @@ def _register_project_fonts() -> None:
             register_font_file(os.path.join(root, filename))
 
 
+def _system_font_dirs() -> list:
+    if sys.platform == 'win32':
+        dirs = [os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts')]
+        local_appdata = os.environ.get('LOCALAPPDATA')
+        if local_appdata:
+            # 当前 Windows 默认把用户安装的字体放这里
+            dirs.append(os.path.join(local_appdata, 'Microsoft', 'Windows', 'Fonts'))
+    elif sys.platform == 'darwin':
+        dirs = ['/System/Library/Fonts', '/Library/Fonts', os.path.expanduser('~/Library/Fonts')]
+    else:
+        dirs = ['/usr/share/fonts', '/usr/local/share/fonts',
+                os.path.expanduser('~/.local/share/fonts'), os.path.expanduser('~/.fonts')]
+    return [font_dir for font_dir in dirs if os.path.isdir(font_dir)]
+
+
+_system_fonts_registered = False
+
+
+def _register_system_fonts() -> bool:
+    """offscreen/minimal 平台的字体库不枚举系统字体（只扫 QT_QPA_FONTDIR），
+    桌面模式选的系统字体在 CLI/服务端会查不到；首次未命中家族名时把系统
+    字体目录整体注册进 Qt，进程内只扫一次。返回是否值得重查家族名。"""
+    global _system_fonts_registered
+    if _system_fonts_registered:
+        return False
+    _system_fonts_registered = True
+    app = QGuiApplication.instance()
+    if app is None or app.platformName() not in ('offscreen', 'minimal'):
+        return False
+    count = 0
+    for font_dir in _system_font_dirs():
+        for root, _, filenames in os.walk(font_dir):
+            for filename in filenames:
+                if not filename.lower().endswith(('.ttf', '.otf', '.ttc', '.otc')):
+                    continue
+                register_font_file(os.path.join(root, filename))
+                count += 1
+    logger.info('Registered system fonts for headless Qt: %d files', count)
+    return count > 0
+
+
 def _state() -> FontState:
     state = getattr(_thread_state, 'value', None)
     if state is None:
@@ -323,6 +364,30 @@ def _set_family(state: FontState, family: str):
     state.vertical.clear()
 
 
+def _match_family(requested: str):
+    """在 Qt 字体库中解析家族名；返回可用家族名或 None。"""
+    if not requested:
+        return None
+    available = {name.casefold(): name for name in QFontDatabase.families()}
+    family = available.get(requested.casefold())
+    if family is None or qt_family_is_ambiguous(family):
+        # 旧配置/系统安装的 "[工具箱]xxx" 家族名走不了 QFont 匹配（foundry 语法），
+        # 映射到注册环节生成的去括号名字。
+        stripped = strip_qt_foundry_brackets(requested)
+        stripped_family = available.get(stripped.casefold()) if stripped else None
+        if stripped_family and not qt_family_is_ambiguous(stripped_family):
+            return stripped_family
+        # offscreen 等环境的字体库可能拿不到中文家族名，退回按文件注册并改用其家族名
+        alias_path = _font_family_aliases.get(requested.casefold()) or (
+            _font_family_aliases.get(stripped.casefold()) if stripped else None)
+        if alias_path and os.path.exists(alias_path):
+            try:
+                return _font_descriptor(alias_path).family
+            except Exception:
+                logger.exception('Could not load font file: %s', alias_path)
+    return family
+
+
 def set_font(font: str):
     """Select a Qt font family; a legacy font file path is mapped to its family."""
     state = getattr(_thread_state, 'value', None) or FontState()
@@ -338,29 +403,15 @@ def set_font(font: str):
 
     _ensure_qt_runtime()
     _register_project_fonts()
-    available = {name.casefold(): name for name in QFontDatabase.families()}
-    family = available.get(requested.casefold()) if requested else None
-    if requested and (family is None or qt_family_is_ambiguous(family)):
-        # 旧配置/系统安装的 "[工具箱]xxx" 家族名走不了 QFont 匹配（foundry 语法），
-        # 映射到注册环节生成的去括号名字。
-        stripped = strip_qt_foundry_brackets(requested)
-        stripped_family = available.get(stripped.casefold()) if stripped else None
-        if stripped_family and not qt_family_is_ambiguous(stripped_family):
-            family = stripped_family
-        else:
-            # offscreen 等环境的字体库可能拿不到中文家族名，退回按文件注册并改用其家族名
-            alias_path = _font_family_aliases.get(requested.casefold()) or (
-                _font_family_aliases.get(stripped.casefold()) if stripped else None)
-            if alias_path and os.path.exists(alias_path):
-                try:
-                    _set_family(state, _font_descriptor(alias_path).family)
-                    return
-                except Exception:
-                    logger.exception('Could not load font file: %s', alias_path)
+    family = _match_family(requested)
+    if family is None and requested and _register_system_fonts():
+        family = _match_family(requested)
     if family is not None and qt_family_is_ambiguous(family):
         logger.warning('Bracketed font family may not match correctly in Qt: %s', family)
     if family is None:
-        family = QGuiApplication.font().family() or DEFAULT_FONT_FAMILY
+        # 无头下 QGuiApplication.font() 是逻辑字体 "Sans Serif"，匹配结果随机，
+        # 直接回退到自带字体目录里保证存在的默认家族。
+        family = DEFAULT_FONT_FAMILY
         if requested:
             logger.warning('Qt font family not found: %s; using %s', requested, family)
     _set_family(state, family)
