@@ -1921,10 +1921,24 @@ def git_fetch_with_mirror_prompt(fetch_args=None, desc='获取远程更新'):
             pass
         print("[错误] 同步失败（网络问题或当前镜像源不可用）")
         print(f"当前镜像源: {get_mirror_display_name()}")
-        choice = input("是否切换镜像源并重试? (y/n, 默认y): ").strip().lower()
-        if choice in ['', 'y', 'yes']:
-            if switch_mirror():
+        # 直接推荐另一条线路（GitHub 失败推荐 Gitee，反之亦然）
+        current = get_remote_url().removesuffix('.git')
+        suggestion = None
+        for name, url in GIT_MIRRORS:
+            if url.removesuffix('.git') != current:
+                suggestion = (name, url)
+                break
+        if suggestion:
+            choice = input(f"是否切换到 {suggestion[0]} 并重试? (y/n, 默认y): ").strip().lower()
+            if choice in ['', 'y', 'yes']:
+                subprocess.run([git, 'remote', 'set-url', 'origin', suggestion[1]], capture_output=True)
+                print(f"[OK] 已切换到 {suggestion[0]}")
                 continue
+        else:
+            choice = input("是否切换镜像源并重试? (y/n, 默认y): ").strip().lower()
+            if choice in ['', 'y', 'yes']:
+                if switch_mirror():
+                    continue
         return False
 
 
@@ -2461,18 +2475,25 @@ def run_install(args):
     args.frozen = False
 
     print()
-    try:
-        prepare_environment(args)
-        cleanup_caches()
-        print()
-        print("=" * 40)
-        print("[完成] 安装完成")
-        print("=" * 40)
-    except Exception as e:
-        print()
-        print("=" * 40)
-        print(f"[错误] 安装失败: {e}")
-        print("=" * 40)
+    while True:
+        try:
+            prepare_environment(args)
+            cleanup_caches()
+            print()
+            print("=" * 40)
+            print("[完成] 安装完成")
+            print("=" * 40)
+            break
+        except Exception as e:
+            print()
+            print("=" * 40)
+            print(f"[错误] 依赖安装失败: {e}")
+            print("=" * 40)
+            print("已安装成功的包会被保留，重试只会安装剩余的包")
+            choice = input("是否重试? (y/n, 默认y): ").strip().lower()
+            if choice not in ['', 'y', 'yes']:
+                print("已取消，请检查网络后重新运行 [安装]")
+                break
 
 
 def run_full_update(args):
@@ -2516,11 +2537,19 @@ def run_full_update(args):
         if req_file:
             args.requirements = req_file
         # 如果有缺失包列表，只安装缺失的包
-        if missing_packages:
-            print(f"只安装缺失的 {len(missing_packages)} 个包...")
-            update_dependencies_selective(args, missing_packages)
-        else:
-            update_dependencies(args)
+        while True:
+            if missing_packages:
+                print(f"只安装缺失的 {len(missing_packages)} 个包...")
+                ok = update_dependencies_selective(args, missing_packages)
+            else:
+                ok = update_dependencies(args)
+            if ok:
+                break
+            print("已安装成功的包会被保留，重试只会安装剩余的包")
+            choice = input("依赖更新失败，是否重试? (y/n, 默认y): ").strip().lower()
+            if choice not in ['', 'y', 'yes']:
+                print("已取消，请检查网络后重新运行 [更新]")
+                break
     elif update_success:
         print()
         print("[2/2] 依赖已满足，跳过")
