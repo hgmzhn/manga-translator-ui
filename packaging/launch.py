@@ -2142,8 +2142,9 @@ def update_code_force(skip_confirm=False, target_branch=None):
     elif platform.system() == 'Darwin':
         # macOS 环境清理 Windows 文件
         files_to_remove = [
-            'Start.ps1',
-            'Install-or-Update.ps1',
+            '1-Start.ps1',
+            '2-Install-or-Update.ps1',
+            '3-Uninstall-Legacy.ps1',
             '.gitattributes',
             '.gitignore',
             'LICENSE.txt'
