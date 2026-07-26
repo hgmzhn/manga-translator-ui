@@ -1171,8 +1171,11 @@ except OSError as e:
             output = result.stdout.strip()
             if '|' in output:
                 pytorch_type, detail = output.split('|', 1)
+                # 子进程输出 "None|未安装" 是字符串，转成真正的 None（未安装不算版本不匹配）
+                if pytorch_type == 'None':
+                    return None, detail
                 return pytorch_type, detail
-        
+
         return None, "检测失败"
     except Exception:
         return None, "检测失败"
