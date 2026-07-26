@@ -2234,7 +2234,6 @@ def update_code_force(skip_confirm=False, target_branch=None):
         files_to_remove = [
             '1-Start.ps1',
             '2-Install-or-Update.ps1',
-            '3-Uninstall-Legacy.ps1',
             '.gitattributes',
             '.gitignore',
             'LICENSE.txt'
