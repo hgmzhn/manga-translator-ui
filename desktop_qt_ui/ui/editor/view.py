@@ -759,6 +759,13 @@ class EditorView(QWidget):
         # --- Connect Paint Overlay Tools ---
         self.property_panel.brush_color_changed.connect(self.controller.set_brush_color)
         self.property_panel.clear_paint_overlay_requested.connect(self.controller.clear_paint_overlay)
+        self.property_panel.clear_stamp_overlay_requested.connect(self.controller.clear_stamp_overlay)
+        self.property_panel.paint_overlay_visibility_changed.connect(
+            self.graphics_view.overlay_layers.set_paint_overlay_visible
+        )
+        self.property_panel.stamp_overlay_visibility_changed.connect(
+            self.graphics_view.overlay_layers.set_stamp_overlay_visible
+        )
 
         if self.rich_text_editor is not None:
             self.rich_text_editor.rich_text_changed.connect(self.controller.update_translation_rich)

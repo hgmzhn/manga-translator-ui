@@ -240,9 +240,10 @@ class MaskEditCommand(QUndoCommand):
 
 
 class PaintOverlayEditCommand(QUndoCommand):
-    """用于彩色画笔图层编辑的撤销/重做命令。
+    """用于彩色画笔/印章图层编辑的撤销/重做命令。
 
     图层为 RGBA uint8 数组（H, W, 4）。为了减少内存，只记录变化包围盒内的像素。
+    layer='paint' 作用于画笔层，layer='stamp' 作用于印章层。
     """
 
     def __init__(
@@ -250,9 +251,11 @@ class PaintOverlayEditCommand(QUndoCommand):
         model: "EditorModel",
         old_overlay: Optional[np.ndarray],
         new_overlay: Optional[np.ndarray],
+        layer: str = "paint",
     ):
-        super().__init__("Paint Overlay Edit")
+        super().__init__("Stamp Overlay Edit" if layer == "stamp" else "Paint Overlay Edit")
         self._model = model
+        self._layer = layer
         self._shape: Optional[tuple[int, int, int]] = None
         self._bounds: Optional[tuple[int, int, int, int]] = None
         self._old_patch: Optional[np.ndarray] = None
@@ -311,16 +314,27 @@ class PaintOverlayEditCommand(QUndoCommand):
             return arr.astype(np.uint8, copy=False)
         return None
 
+    def _set_layer_image(self, image: Optional[np.ndarray]) -> None:
+        if self._layer == "stamp":
+            self._model.set_stamp_overlay_image(image)
+        else:
+            self._model.set_paint_overlay_image(image)
+
+    def _get_layer_image(self):
+        if self._layer == "stamp":
+            return self._model.get_stamp_overlay_image()
+        return self._model.get_paint_overlay_image()
+
     def _apply(self, full: Optional[np.ndarray], patch: Optional[np.ndarray]) -> None:
         if full is not None:
-            self._model.set_paint_overlay_image(full.copy())
+            self._set_layer_image(full.copy())
             return
 
         if self._shape is None:
-            self._model.set_paint_overlay_image(None)
+            self._set_layer_image(None)
             return
 
-        current = self._normalize_overlay(self._model.get_paint_overlay_image())
+        current = self._normalize_overlay(self._get_layer_image())
         if current is None or current.shape != self._shape:
             current = np.zeros(self._shape, dtype=np.uint8)
         else:
@@ -332,9 +346,9 @@ class PaintOverlayEditCommand(QUndoCommand):
 
         # 如果图层全透明，降级为 None 以节省内存
         if not np.any(current[..., 3]):
-            self._model.set_paint_overlay_image(None)
+            self._set_layer_image(None)
         else:
-            self._model.set_paint_overlay_image(current)
+            self._set_layer_image(current)
 
     def redo(self):
         self._apply(self._full_new, self._new_patch)

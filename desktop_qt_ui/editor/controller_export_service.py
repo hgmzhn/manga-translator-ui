@@ -19,7 +19,6 @@ from manga_translator.utils.path_manager import (
     find_json_path,
     get_inpainted_path,
     get_json_path,
-    get_paint_overlay_path,
 )
 
 from .image_utils import image_like_to_pil, image_like_to_rgb_array
@@ -79,12 +78,14 @@ class EditorControllerExportService:
         if mask is not None:
             mask_signature = f"{mask.shape}_{mask.sum()}_{np.count_nonzero(mask)}"
 
-        overlay = self.model.get_paint_overlay_image()
         overlay_signature = ""
-        if overlay is not None:
+        for overlay in (self.model.get_paint_overlay_image(), self.model.get_stamp_overlay_image()):
+            if overlay is None:
+                overlay_signature += "|none"
+                continue
             overlay_arr = np.asarray(overlay)
-            overlay_signature = (
-                f"{overlay_arr.shape}_{int(overlay_arr.sum())}_{int(np.count_nonzero(overlay_arr))}"
+            overlay_signature += (
+                f"|{overlay_arr.shape}_{int(overlay_arr.sum())}_{int(np.count_nonzero(overlay_arr))}"
             )
 
         return {
@@ -145,23 +146,15 @@ class EditorControllerExportService:
                 self.controller._export_toast = toast_manager.show_info("正在导出...", duration=0)
 
             image_snapshot = self.controller._snapshot_image_for_export(image, "base image")
-            paint_overlay = self.model.get_paint_overlay_image()
-            overlay_snapshot = None
-            if paint_overlay is not None:
-                overlay_arr = np.asarray(paint_overlay)
-                if overlay_arr.ndim == 3 and overlay_arr.shape[2] == 4 and np.any(overlay_arr[..., 3]):
-                    overlay_snapshot = overlay_arr.copy()
+            paint_snapshot = self._snapshot_overlay(self.model.get_paint_overlay_image())
+            stamp_snapshot = self._snapshot_overlay(self.model.get_stamp_overlay_image())
 
-            # 有画板涂层时，inpainted snapshot 就取「inpainted ⊕ 画板」合成图。
-            # 没有实时 inpainted 但磁盘上有旧 inpainted 时回退加载，
-            # 避免后端因拿不到 inpainted 而重跑修复、把画板涂层丢掉。
+            # 画笔/印章层以 base64 写入 JSON，由后端渲染前合成到 inpainted 上；
+            # 前端不再预合成。没有实时 inpainted 但有涂层时回退加载磁盘旧修复图，
+            # 避免后端因拿不到 inpainted 而重跑修复。
             inpainted_base = self.model.get_inpainted_image()
-            if inpainted_base is None and overlay_snapshot is not None and source_path:
+            if inpainted_base is None and (paint_snapshot is not None or stamp_snapshot is not None) and source_path:
                 inpainted_base = self._load_existing_inpainted_for_compose(source_path)
-            if overlay_snapshot is not None and inpainted_base is not None:
-                composed = self.compose_image_with_overlay(inpainted_base, overlay_snapshot)
-                if composed is not None and composed is not inpainted_base:
-                    inpainted_base = composed
             inpainted_snapshot = self.controller._snapshot_image_for_export(
                 inpainted_base,
                 "inpainted image",
@@ -180,7 +173,8 @@ class EditorControllerExportService:
                     mask_snapshot,
                     source_path,
                     inpainted_snapshot,
-                    overlay_snapshot,
+                    paint_snapshot,
+                    stamp_snapshot,
                 )
             )
         except Exception as e:
@@ -333,38 +327,17 @@ class EditorControllerExportService:
         except Exception as e:
             self.logger.warning(f"更新inpainted图片失败: {e}")
 
-    def save_paint_overlay_image(
-        self,
-        source_path: str,
-        overlay: Optional[np.ndarray],
-    ) -> Optional[str]:
-        """将 paint overlay 落盘到 manga_translator_work/paint_overlay 目录。
-
-        若 overlay 为 None 或全透明，且已存在旧文件，则保留旧文件不删除；
-        若从未保存过则不创建空文件。
-        """
-        try:
-            if overlay is None:
-                return None
-            overlay_arr = np.asarray(overlay)
-            if overlay_arr.ndim != 3 or overlay_arr.shape[2] < 4:
-                return None
-            if not np.any(overlay_arr[..., 3]):
-                return None
-
-            from PIL import Image as _PILImage
-
-            overlay_path = get_paint_overlay_path(source_path, create_dir=True)
-            pil_overlay = _PILImage.fromarray(overlay_arr.astype(np.uint8, copy=False), mode="RGBA")
-            try:
-                pil_overlay.save(overlay_path, format="PNG", optimize=False)
-            finally:
-                pil_overlay.close()
-            self.logger.info(f"已更新彩色画笔图层: {overlay_path}")
-            return overlay_path
-        except Exception as e:
-            self.logger.warning(f"保存彩色画笔图层失败: {e}")
+    @staticmethod
+    def _snapshot_overlay(overlay) -> Optional[np.ndarray]:
+        """有有效 alpha 内容时返回 overlay 的 RGBA 副本，否则 None。"""
+        if overlay is None:
             return None
+        overlay_arr = np.asarray(overlay)
+        if overlay_arr.ndim != 3 or overlay_arr.shape[2] != 4:
+            return None
+        if not np.any(overlay_arr[..., 3]):
+            return None
+        return overlay_arr.copy()
 
     def _load_existing_inpainted_for_compose(self, source_path: str):
         """无实时 inpainted 预览时，从磁盘加载旧 inpainted 作为画板合成底图。"""
@@ -432,6 +405,8 @@ class EditorControllerExportService:
         config_dict: dict,
         inpainted_image: Optional[object] = None,
         last_export_dir: Optional[str] = None,
+        paint_overlay: Optional[np.ndarray] = None,
+        stamp_overlay: Optional[np.ndarray] = None,
     ) -> str:
         json_path = self.resolve_editor_json_path(source_path)
         # 写盘的 region 保持 center=源区域中心、white_frame_rect_local 相对该中心。
@@ -445,6 +420,8 @@ class EditorControllerExportService:
             mask,
             config_dict,
             last_export_dir=last_export_dir,
+            paint_overlay=paint_overlay,
+            stamp_overlay=stamp_overlay,
         )
         self.save_current_inpainted_image(
             source_path,
@@ -550,6 +527,7 @@ class EditorControllerExportService:
         source_path: Optional[str] = None,
         inpainted_image=None,
         paint_overlay: Optional[np.ndarray] = None,
+        stamp_overlay: Optional[np.ndarray] = None,
     ):
         outcome = {
             "success": False,
@@ -577,15 +555,14 @@ class EditorControllerExportService:
                     config_dict=config_dict,
                     inpainted_image=inpainted_image,
                     last_export_dir=os.path.dirname(output_path),
+                    paint_overlay=paint_overlay,
+                    stamp_overlay=stamp_overlay,
                 )
                 outcome["json_path"] = persisted_json_path
-                # 同步持久化彩色画笔图层
-                self.save_paint_overlay_image(source_path, paint_overlay)
             else:
                 self.logger.warning("Exporting without source image path, skipped JSON persistence")
 
-            # inpainted_image 已在 export_image() 入口完成「inpainted ⊕ 画板」合成，
-            # 直接交给后端复用即可。
+            # 画笔/印章层已 base64 写入 JSON，后端渲染前自行合成到 inpainted 上。
             render_inpainted_image = inpainted_image
 
             def progress_callback(_message):
@@ -625,6 +602,8 @@ class EditorControllerExportService:
                 source_path,
                 False,
                 render_inpainted_image,
+                paint_overlay,
+                stamp_overlay,
             )
             if not outcome["success"] and outcome["error"] is None:
                 outcome["error"] = "导出未返回成功状态"

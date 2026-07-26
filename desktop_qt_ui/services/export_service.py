@@ -244,7 +244,9 @@ class ExportService:
                                      error_callback: Optional[callable] = None,
                                      source_image_path: Optional[str] = None,
                                      save_inpainted_only: bool = False,
-                                     editor_inpainted_image: Optional[Any] = None):
+                                     editor_inpainted_image: Optional[Any] = None,
+                                     paint_overlay: Optional[np.ndarray] = None,
+                                     stamp_overlay: Optional[np.ndarray] = None):
         """在后台线程中执行后端渲染导出"""
         import os
 
@@ -276,6 +278,8 @@ class ExportService:
                 backend_config,
                 editor_inpainted_image=editor_inpainted_image,
                 base_size=render_image.size,
+                paint_overlay=paint_overlay,
+                stamp_overlay=stamp_overlay,
             )
 
             if progress_callback:
@@ -350,6 +354,8 @@ class ExportService:
         mask: Optional[np.ndarray] = None,
         config: Optional[Dict[str, Any]] = None,
         last_export_dir: Optional[str] = None,
+        paint_overlay: Optional[np.ndarray] = None,
+        stamp_overlay: Optional[np.ndarray] = None,
     ):
         """保存区域数据到JSON文件，使用正确的图片路径作为键（用于编辑器保存）"""
         # 使用图片的绝对路径作为键，与加载时保持一致
@@ -365,6 +371,8 @@ class ExportService:
             skip_text_replacements=True,
             preserve_existing_preprocess_flags=True,
             last_export_dir=last_export_dir,
+            paint_overlay=paint_overlay,
+            stamp_overlay=stamp_overlay,
         )
 
     def _save_regions_data(self, regions_data: List[Dict[str, Any]], json_path: str, mask: Optional[np.ndarray] = None, config: Optional[Dict[str, Any]] = None):
@@ -581,6 +589,8 @@ class ExportService:
         config: Optional[Dict[str, Any]],
         editor_inpainted_image: Optional[Any] = None,
         base_size=None,
+        paint_overlay: Optional[np.ndarray] = None,
+        stamp_overlay: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """构造后端 load_text 的内存直通载荷（等价于临时 _translations.json 的单图数据）。
 
@@ -598,6 +608,11 @@ class ExportService:
         inpainted_rgb = self._prepare_inpainted_payload(editor_inpainted_image, base_size)
         if inpainted_rgb is not None:
             payload['inpainted_rgb'] = inpainted_rgb
+        # 画笔/印章层直接携带 ndarray（RGBA），后端渲染前合成到 inpainted 上
+        if paint_overlay is not None:
+            payload['paint_overlay'] = np.asarray(paint_overlay)
+        if stamp_overlay is not None:
+            payload['stamp_overlay'] = np.asarray(stamp_overlay)
         self.logger.info(f"已构建内存导出载荷: 区域数={len(payload['regions'])}, 蒙版={'有' if mask is not None else '无'}, 修复图={'有' if inpainted_rgb is not None else '无'}")
         return payload
 
@@ -611,6 +626,8 @@ class ExportService:
         skip_text_replacements: bool = False,
         preserve_existing_preprocess_flags: bool = False,
         last_export_dir: Optional[str] = None,
+        paint_overlay: Optional[np.ndarray] = None,
+        stamp_overlay: Optional[np.ndarray] = None,
     ):
         """保存区域数据到JSON文件的内部实现"""
         save_data = self._normalize_regions_for_backend(regions_data, config)
@@ -661,6 +678,24 @@ class ExportService:
             self.logger.info("蒙版已保存（base64编码），标记为已精炼，后端将跳过蒙版优化")
         if skip_text_replacements:
             formatted_data[image_key]['skip_text_replacements'] = True
+
+        # 画笔层/印章层以 base64 PNG 存入 JSON（RGBA），由后端渲染前合成
+        for overlay_key, overlay in (('paint_overlay', paint_overlay), ('stamp_overlay', stamp_overlay)):
+            if overlay is None:
+                continue
+            overlay_arr = np.asarray(overlay)
+            if overlay_arr.ndim != 3 or overlay_arr.shape[2] != 4 or not np.any(overlay_arr[..., 3]):
+                continue
+            import base64
+
+            import cv2
+            bgra = cv2.cvtColor(overlay_arr.astype(np.uint8, copy=False), cv2.COLOR_RGBA2BGRA)
+            ok, encoded = cv2.imencode('.png', bgra)
+            if not ok:
+                self.logger.warning(f"编码 {overlay_key} 失败，跳过写入")
+                continue
+            formatted_data[image_key][overlay_key] = base64.b64encode(encoded).decode('utf-8')
+            self.logger.info(f"{overlay_key} 已保存（base64 PNG）")
 
         # 添加调试信息
         self.logger.info(f"保存区域数据到: {json_path}")

@@ -67,11 +67,19 @@ class DocumentLoadWorker:
 
             compare_image = futures["compare"].result()
 
-            regions, raw_mask = futures["json"].result()
+            regions, raw_mask, json_overlays = futures["json"].result()
 
             inpainted_path, inpainted_image = futures["inpainted"].result()
 
-            paint_overlay_path, paint_overlay_image = futures["paint_overlay"].result()
+            paint_overlay_path, legacy_paint_overlay = futures["paint_overlay"].result()
+
+        # JSON 内的 base64 图层优先；旧版单文件 PNG 仅作画笔层兜底
+        paint_overlay_image = self._align_overlay_array(json_overlays.get("paint"), image_size)
+        if paint_overlay_image is None:
+            paint_overlay_image = legacy_paint_overlay
+        else:
+            paint_overlay_path = None
+        stamp_overlay_image = self._align_overlay_array(json_overlays.get("stamp"), image_size)
 
         return DocumentSnapshot(
             source_path=source_path,
@@ -83,6 +91,7 @@ class DocumentLoadWorker:
             inpainted_image=inpainted_image,
             paint_overlay_path=paint_overlay_path,
             paint_overlay_image=paint_overlay_image,
+            stamp_overlay_image=stamp_overlay_image,
         )
 
     def _submit_aux_loads(
@@ -135,9 +144,9 @@ class DocumentLoadWorker:
 
     def _load_regions_and_mask(self, source_path: str, json_path: str | None):
         if not json_path:
-            return [], None
-        regions, raw_mask, _ = self.service.file_service.load_translation_json(source_path)
-        return regions, raw_mask
+            return [], None, {}
+        regions, raw_mask, _, overlays = self.service.file_service.load_translation_json(source_path)
+        return regions, raw_mask, overlays or {}
 
     def _load_inpainted_image(self, inpainted_path: str | None, image_size):
         if not inpainted_path:
@@ -155,6 +164,25 @@ class DocumentLoadWorker:
         if overlay_image is None:
             return None, None
         return paint_overlay_path, overlay_image
+
+    def _align_overlay_array(self, overlay, target_size):
+        """把 JSON 解码出的 RGBA 图层数组对齐到底图尺寸（W, H）。"""
+        if overlay is None:
+            return None
+        try:
+            arr = np.asarray(overlay)
+            if arr.ndim != 3 or arr.shape[2] != 4:
+                return None
+            if target_size is not None:
+                target_w, target_h = target_size
+                if arr.shape[:2] != (target_h, target_w):
+                    import cv2
+
+                    arr = cv2.resize(arr, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+            return arr.astype(np.uint8, copy=False)
+        except Exception as e:
+            self.logger.error(f"Failed to align overlay layer: {e}")
+            return None
 
     def _load_paint_overlay_array(self, overlay_path: str, target_size):
         """加载 paint overlay 图层并对齐到底图尺寸，返回 RGBA uint8 numpy 数组。"""

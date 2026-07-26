@@ -92,6 +92,19 @@ class GraphicsView(
         self._current_draw_mask_points: list[tuple[int, int]] = []
         self._current_draw_mask_shape: tuple[int, int] | None = None
 
+        # 仿制印章：右键取样点（图像像素坐标）；偏移在采样后首次落笔锁定，
+        # 跨笔画保持（传递仿制），再次右键取样时重置
+        self._clone_sample_image_point = None
+        self._clone_offset = None  # (dx, dy)：src = dest + offset
+        self._clone_marker_item = None
+        # 笔画进行时状态
+        self._clone_drawing = False
+        self._clone_old_overlay = None
+        self._clone_working_overlay = None
+        self._clone_composite = None
+        self._clone_last_dab = None
+        self._clone_preview_pixmap = None
+
         self._potential_drag = False
         self._drag_start_pos = None
         self._drag_threshold = 5
@@ -196,6 +209,7 @@ class GraphicsView(
         self.model.display_mask_type_changed.connect(self.mask_layer.on_display_mask_type_changed)
         self.model.inpainted_image_changed.connect(self.overlay_layers.on_inpainted_image_changed)
         self.model.paint_overlay_changed.connect(self.overlay_layers.on_paint_overlay_changed)
+        self.model.stamp_overlay_changed.connect(self.overlay_layers.on_stamp_overlay_changed)
         self.model.region_display_mode_changed.connect(self.on_region_display_mode_changed)
         self.model.original_image_alpha_changed.connect(self.on_original_image_alpha_changed)
         self.model.active_tool_changed.connect(self._on_active_tool_changed)

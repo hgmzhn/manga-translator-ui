@@ -3,8 +3,16 @@ from __future__ import annotations
 import cv2
 import numpy as np
 from PyQt6.QtCore import QPointF, Qt, pyqtSlot
-from PyQt6.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QGraphicsView
+from PyQt6.QtGui import (
+    QColor,
+    QCursor,
+    QImage,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+)
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsView
 from qfluentwidgets import Action, RoundMenu
 from services import get_config_service
 
@@ -54,7 +62,17 @@ class GraphicsViewInputMixin:
             event.accept()
             return
 
-        if self._active_tool in ["pen", "eraser", "brush", "paint", "paint_erase"] and event.button() == Qt.MouseButton.LeftButton:
+        if self._active_tool == "clone":
+            if event.button() == Qt.MouseButton.RightButton:
+                self._set_clone_sample_point(event.pos())
+                event.accept()
+                return
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._start_clone_stroke(event.pos())
+                event.accept()
+                return
+
+        if self._active_tool in ["pen", "eraser", "brush", "paint", "paint_erase", "stamp_erase"] and event.button() == Qt.MouseButton.LeftButton:
             self._start_drawing(event.pos())
             event.accept()
             return
@@ -106,6 +124,14 @@ class GraphicsViewInputMixin:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._active_tool == "clone":
+            image_pos = self._scene_to_image_point(self.mapToScene(event.pos()))
+            self._update_clone_marker(image_pos)
+            if self._clone_drawing and bool(event.buttons() & Qt.MouseButton.LeftButton):
+                self._clone_dab_segment(image_pos)
+                event.accept()
+                return
+
         if self.selection_manager.is_box_selecting:
             current_pos = self.mapToScene(event.pos())
             if self.selection_manager.update_box_select(current_pos):
@@ -141,6 +167,11 @@ class GraphicsViewInputMixin:
 
         if self._is_drawing_textbox and event.button() == Qt.MouseButton.LeftButton:
             self._finish_textbox_drawing()
+            event.accept()
+            return
+
+        if self._clone_drawing and event.button() == Qt.MouseButton.LeftButton:
+            self._finish_clone_stroke()
             event.accept()
             return
 
@@ -211,7 +242,7 @@ class GraphicsViewInputMixin:
                     Qt.PenCapStyle.RoundCap,
                     Qt.PenJoinStyle.RoundJoin,
                 )
-            elif self._active_tool == "paint_erase":
+            elif self._active_tool in ("paint_erase", "stamp_erase"):
                 preview_pen = QPen(
                     QColor(0, 200, 255, 120),
                     self._brush_size,
@@ -252,8 +283,8 @@ class GraphicsViewInputMixin:
         self.viewport().update()
 
     def _get_edit_mask_shape(self):
-        # paint 模式：始终匹配底图像素尺寸
-        if self._active_tool in ("paint", "paint_erase"):
+        # paint / stamp 模式：始终匹配底图像素尺寸
+        if self._active_tool in ("paint", "paint_erase", "stamp_erase"):
             if self._image_item is None:
                 return None
             pixmap = self._image_item.pixmap()
@@ -361,8 +392,14 @@ class GraphicsViewInputMixin:
             self._clear_preview()
             return
 
-        # Paint overlay 彩色画笔 / 擦除路径
-        if self._active_tool in ("paint", "paint_erase"):
+        # 仿制印章：把取样像素写入 paint overlay
+        if self._active_tool == "clone":
+            self._finish_clone_stroke()
+            self._reset_drawing_state()
+            return
+
+        # Paint / Stamp overlay 画笔与擦除路径
+        if self._active_tool in ("paint", "paint_erase", "stamp_erase"):
             self._finish_paint_overlay_drawing()
             self._reset_drawing_state()
             return
@@ -417,7 +454,8 @@ class GraphicsViewInputMixin:
         self._reset_drawing_state()
 
     def _finish_paint_overlay_drawing(self):
-        """把当前笔画应用到 paint overlay 图层。"""
+        """把当前笔画应用到 paint / stamp overlay 图层。"""
+        layer = "stamp" if self._active_tool == "stamp_erase" else "paint"
         try:
             shape = self._current_draw_mask_shape
             stroke_mask = self._build_stroke_mask(self._current_draw_mask_points, shape)
@@ -425,32 +463,7 @@ class GraphicsViewInputMixin:
                 self._clear_preview()
                 return
 
-            overlay = self.model.get_paint_overlay_image()
-            h, w = shape
-            if overlay is None:
-                old_overlay = None
-                new_overlay = np.zeros((h, w, 4), dtype=np.uint8)
-            else:
-                old_arr = np.asarray(overlay)
-                if old_arr.ndim == 2:
-                    tmp = np.zeros((old_arr.shape[0], old_arr.shape[1], 4), dtype=np.uint8)
-                    tmp[..., 3] = old_arr.astype(np.uint8)
-                    old_arr = tmp
-                elif old_arr.ndim == 3 and old_arr.shape[2] == 3:
-                    tmp = np.zeros((old_arr.shape[0], old_arr.shape[1], 4), dtype=np.uint8)
-                    tmp[..., :3] = old_arr
-                    tmp[..., 3] = 255
-                    old_arr = tmp
-                elif old_arr.ndim != 3 or old_arr.shape[2] != 4:
-                    old_arr = None
-
-                if old_arr is None or old_arr.shape[:2] != (h, w):
-                    # 尺寸不匹配：重置图层
-                    old_overlay = None
-                    new_overlay = np.zeros((h, w, 4), dtype=np.uint8)
-                else:
-                    old_overlay = old_arr.astype(np.uint8, copy=False)
-                    new_overlay = old_overlay.copy()
+            old_overlay, new_overlay = self._prepare_overlay_pair(shape, layer)
 
             pixel_mask = stroke_mask > 0
 
@@ -462,7 +475,7 @@ class GraphicsViewInputMixin:
                 new_overlay[pixel_mask, 1] = color.green()
                 new_overlay[pixel_mask, 2] = color.blue()
                 new_overlay[pixel_mask, 3] = 255
-            else:  # paint_erase
+            else:  # paint_erase / stamp_erase
                 new_overlay[pixel_mask] = 0
 
             controller = self._get_controller()
@@ -480,12 +493,301 @@ class GraphicsViewInputMixin:
                 model=self.model,
                 old_overlay=old_overlay,
                 new_overlay=new_overlay,
+                layer=layer,
             )
             controller.execute_command(command)
         except Exception as e:
             self.logger.error("Paint overlay stroke failed: %s", e, exc_info=True)
         finally:
             self._clear_preview()
+
+    def _prepare_overlay_pair(self, shape: tuple[int, int], layer: str = "paint"):
+        """取当前 paint/stamp overlay，规范成 (h,w,4) uint8，返回 (old_overlay, new_overlay 副本)。"""
+        h, w = shape
+        overlay = (
+            self.model.get_stamp_overlay_image()
+            if layer == "stamp"
+            else self.model.get_paint_overlay_image()
+        )
+        if overlay is None:
+            return None, np.zeros((h, w, 4), dtype=np.uint8)
+
+        old_arr = np.asarray(overlay)
+        if old_arr.ndim == 2:
+            tmp = np.zeros((old_arr.shape[0], old_arr.shape[1], 4), dtype=np.uint8)
+            tmp[..., 3] = old_arr.astype(np.uint8)
+            old_arr = tmp
+        elif old_arr.ndim == 3 and old_arr.shape[2] == 3:
+            tmp = np.zeros((old_arr.shape[0], old_arr.shape[1], 4), dtype=np.uint8)
+            tmp[..., :3] = old_arr
+            tmp[..., 3] = 255
+            old_arr = tmp
+        elif old_arr.ndim != 3 or old_arr.shape[2] != 4:
+            old_arr = None
+
+        if old_arr is None or old_arr.shape[:2] != (h, w):
+            # 尺寸不匹配：重置图层
+            return None, np.zeros((h, w, 4), dtype=np.uint8)
+        old_overlay = old_arr.astype(np.uint8, copy=False)
+        return old_overlay, old_overlay.copy()
+
+    # ------------------------- 仿制印章 -------------------------
+
+    def _set_clone_sample_point(self, view_pos):
+        """右键取样：记录取样点并清空偏移锁（再次落笔时重新锁定相对位移）。"""
+        if self._image_item is None:
+            return
+        self._clone_sample_image_point = self._scene_to_image_point(self.mapToScene(view_pos))
+        self._clone_offset = None
+        self._update_clone_marker(None)
+
+    def _update_clone_marker(self, cursor_image_point):
+        """更新取样圈位置：偏移锁定后跟随光标（src = 光标 + offset），否则停在取样点。"""
+        if self._clone_sample_image_point is None or self._image_item is None:
+            self._clear_clone_marker()
+            return
+        if self._clone_offset is not None and cursor_image_point is not None:
+            center_x = cursor_image_point.x() + self._clone_offset[0]
+            center_y = cursor_image_point.y() + self._clone_offset[1]
+        else:
+            center_x = self._clone_sample_image_point.x()
+            center_y = self._clone_sample_image_point.y()
+
+        if self._clone_marker_item is None or self._clone_marker_item.parentItem() is not self._image_item:
+            self._clear_clone_marker()
+            marker = QGraphicsEllipseItem(self._image_item)
+            pen = QPen(QColor(239, 68, 68, 240), 0)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            marker.setPen(pen)
+            marker.setBrush(Qt.GlobalColor.transparent)
+            marker.setZValue(1001)
+            self._clone_marker_item = marker
+        radius = max(2.0, self._brush_size / 2.0)
+        self._clone_marker_item.setRect(
+            center_x - radius, center_y - radius, radius * 2, radius * 2
+        )
+
+    def _clear_clone_marker(self):
+        if self._clone_marker_item is not None:
+            try:
+                scene = self._clone_marker_item.scene()
+                if scene is not None:
+                    scene.removeItem(self._clone_marker_item)
+            except RuntimeError:
+                pass
+            self._clone_marker_item = None
+
+    def _start_clone_stroke(self, view_pos):
+        """左键按下：偏移未锁定时用（取样点 - 落笔点）锁定；随后逐点实时盖印。"""
+        if self._clone_sample_image_point is None or self._image_item is None:
+            return
+        pos = self._scene_to_image_point(self.mapToScene(view_pos))
+        if self._clone_offset is None:
+            self._clone_offset = (
+                int(round(self._clone_sample_image_point.x() - pos.x())),
+                int(round(self._clone_sample_image_point.y() - pos.y())),
+            )
+
+        pixmap = self._image_item.pixmap()
+        h, w = pixmap.height(), pixmap.width()
+        if h <= 0 or w <= 0:
+            return
+        old_overlay, working = self._prepare_overlay_pair((h, w), "stamp")
+        composite = self._build_clone_composite_rgb((h, w), working)
+        if composite is None:
+            return
+        self._clone_old_overlay = old_overlay
+        self._clone_working_overlay = working
+        self._clone_composite = composite
+        self._clone_last_dab = None
+        self._clone_drawing = True
+
+        # 预览层：与其它绘制工具共用 preview item，自维护一张持久 pixmap 做增量盖印
+        if self._preview_item is None:
+            preview = QPixmap(pixmap.size())
+            preview.fill(Qt.GlobalColor.transparent)
+            self._preview_item = self.scene.addPixmap(preview)
+            self._preview_item.setZValue(12)
+            self._scale_mask_item(self._preview_item)
+        self._clone_preview_pixmap = QPixmap(pixmap.size())
+        self._clone_preview_pixmap.fill(Qt.GlobalColor.transparent)
+        self._preview_item.setVisible(True)
+
+        self._clone_dab_segment(pos)
+
+    def _build_clone_composite_rgb(self, shape: tuple[int, int], working_overlay):
+        """活体取样源 = 画布可见内容：修复图(有则盖住底图) + 画笔层 + 印章层工作副本。
+
+        盖印时同步更新，保证同一笔里刚盖的内容可继续被取样传递。
+        """
+        if self._image_item is None:
+            return None
+        h, w = shape
+
+        # 底：修复图优先（画布上它盖在底图之上），没有才用底图
+        base_rgb = None
+        inpainted = self.model.get_inpainted_image()
+        if inpainted is not None:
+            arr = np.asarray(inpainted)
+            if arr.ndim == 3 and arr.shape[2] >= 3 and arr.size > 0:
+                arr = arr[..., :3].astype(np.uint8, copy=False)
+                if arr.shape[:2] != (h, w):
+                    arr = cv2.resize(arr, (w, h), interpolation=cv2.INTER_LINEAR)
+                base_rgb = arr
+        if base_rgb is None:
+            base = self._qimage_to_rgba_array(self._image_item.pixmap().toImage())
+            if base.shape[:2] != (h, w):
+                return None
+            base_rgb = base[..., :3]
+
+        composite = base_rgb.astype(np.float32)
+        for overlay in (self.model.get_paint_overlay_image(), working_overlay):
+            if overlay is None:
+                continue
+            arr = np.asarray(overlay)
+            if arr.ndim != 3 or arr.shape[2] != 4 or arr.shape[:2] != (h, w):
+                continue
+            alpha = arr[..., 3:4].astype(np.float32) / 255.0
+            composite = composite * (1.0 - alpha) + arr[..., :3].astype(np.float32) * alpha
+        return np.clip(composite, 0, 255).astype(np.uint8)
+
+    def _clone_dab_segment(self, image_pos):
+        """从上一个 dab 点插值到当前点，逐点盖印，并增量刷新预览。"""
+        if not self._clone_drawing or self._clone_composite is None:
+            return
+        px, py = float(image_pos.x()), float(image_pos.y())
+        points = []
+        last = self._clone_last_dab
+        if last is None:
+            points.append((px, py))
+        else:
+            dist = ((px - last[0]) ** 2 + (py - last[1]) ** 2) ** 0.5
+            spacing = max(1.0, self._brush_size / 4.0)
+            steps = max(1, int(dist / spacing))
+            for i in range(1, steps + 1):
+                t = i / steps
+                points.append((last[0] + (px - last[0]) * t, last[1] + (py - last[1]) * t))
+        self._clone_last_dab = (px, py)
+
+        dirty = []
+        for x, y in points:
+            rect = self._clone_dab(x, y)
+            if rect is not None:
+                dirty.append(rect)
+        if dirty:
+            self._refresh_clone_preview(dirty)
+
+    def _clone_dab(self, px: float, py: float):
+        """单次盖印：硬边像素圆，从合成源按锁定偏移取样写入工作层与合成源。"""
+        working = self._clone_working_overlay
+        composite = self._clone_composite
+        if working is None or composite is None or self._clone_offset is None:
+            return None
+        h, w = composite.shape[:2]
+        r = max(0.5, self._brush_size / 2.0)
+        # 像素格子对齐（同参考实现），保证印章边缘不随移动方向变化
+        snap_x = float(np.floor(px)) + 0.5
+        snap_y = float(np.floor(py)) + 0.5
+        left = int(np.floor(snap_x - r))
+        top = int(np.floor(snap_y - r))
+        right = int(np.ceil(snap_x + r))
+        bottom = int(np.ceil(snap_y + r))
+
+        ox, oy = self._clone_offset  # src = dest + offset
+        # 目标窗口与取样窗口同时裁进图像边界
+        x0 = max(left, 0, -ox)
+        y0 = max(top, 0, -oy)
+        x1 = min(right, w, w - ox)
+        y1 = min(bottom, h, h - oy)
+        if x0 >= x1 or y0 >= y1:
+            return None
+
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+        mask = ((xx + 0.5) - snap_x) ** 2 + ((yy + 0.5) - snap_y) ** 2 <= r * r
+        if not np.any(mask):
+            # 1 像素单点保底
+            cx, cy = int(np.floor(px)), int(np.floor(py))
+            if not (x0 <= cx < x1 and y0 <= cy < y1):
+                return None
+            mask = np.zeros((y1 - y0, x1 - x0), dtype=bool)
+            mask[cy - y0, cx - x0] = True
+
+        src_patch = composite[y0 + oy : y1 + oy, x0 + ox : x1 + ox].copy()
+        dest_work = working[y0:y1, x0:x1]
+        dest_work[mask, :3] = src_patch[mask]
+        dest_work[mask, 3] = 255
+        composite[y0:y1, x0:x1][mask] = src_patch[mask]
+        return (x0, y0, x1, y1)
+
+    def _refresh_clone_preview(self, dirty_rects):
+        """把工作层的脏区增量画进预览 pixmap 并提交显示。"""
+        if self._preview_item is None or self._clone_preview_pixmap is None:
+            return
+        working = self._clone_working_overlay
+        if working is None:
+            return
+        painter = QPainter(self._clone_preview_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        for x0, y0, x1, y1 in dirty_rects:
+            patch = np.ascontiguousarray(working[y0:y1, x0:x1])
+            patch_h, patch_w = patch.shape[:2]
+            patch_image = QImage(
+                patch.data, patch_w, patch_h, patch_w * 4, QImage.Format.Format_RGBA8888
+            )
+            painter.drawImage(x0, y0, patch_image)
+        painter.end()
+        self._preview_item.setPixmap(self._clone_preview_pixmap)
+        self.scene.update()
+        self.viewport().update()
+
+    @staticmethod
+    def _qimage_to_rgba_array(image: QImage) -> np.ndarray:
+        img = image.convertToFormat(QImage.Format.Format_RGBA8888)
+        h, w = img.height(), img.width()
+        ptr = img.constBits()
+        ptr.setsize(img.sizeInBytes())
+        buf = np.frombuffer(ptr, dtype=np.uint8).reshape(h, img.bytesPerLine())[:, : w * 4]
+        return buf.reshape(h, w, 4).copy()
+
+    def _finish_clone_stroke(self):
+        """笔画结束：以整笔为单位提交撤销命令（偏移保持锁定，供下一笔传递仿制）。"""
+        try:
+            if not self._clone_drawing:
+                return
+            old_overlay = self._clone_old_overlay
+            new_overlay = self._clone_working_overlay
+            if new_overlay is None:
+                return
+            controller = self._get_controller()
+            if not controller:
+                return
+            if old_overlay is not None and np.array_equal(old_overlay, new_overlay):
+                return
+            if old_overlay is None and not np.any(new_overlay[..., 3]):
+                return
+
+            from editor.commands import PaintOverlayEditCommand
+
+            command = PaintOverlayEditCommand(
+                model=self.model,
+                old_overlay=old_overlay,
+                new_overlay=new_overlay,
+                layer="stamp",
+            )
+            controller.execute_command(command)
+        except Exception as e:
+            self.logger.error("Clone stamp stroke failed: %s", e, exc_info=True)
+        finally:
+            self._reset_clone_stroke_state()
+            self._clear_preview()
+
+    def _reset_clone_stroke_state(self):
+        self._clone_drawing = False
+        self._clone_old_overlay = None
+        self._clone_working_overlay = None
+        self._clone_composite = None
+        self._clone_last_dab = None
+        self._clone_preview_pixmap = None
 
     def _reset_drawing_state(self):
         self._is_drawing = False
@@ -503,6 +805,11 @@ class GraphicsViewInputMixin:
     @pyqtSlot(str)
     def _on_active_tool_changed(self, tool: str):
         self._active_tool = tool
+        if tool != "clone":
+            self._clone_sample_image_point = None
+            self._clone_offset = None
+            self._reset_clone_stroke_state()
+            self._clear_clone_marker()
         self._update_cursor()
         self.viewport().update()
 
@@ -519,7 +826,7 @@ class GraphicsViewInputMixin:
             self._update_cursor()
 
     def _update_cursor(self):
-        if self._active_tool in ["pen", "eraser", "brush", "paint", "paint_erase"]:
+        if self._active_tool in ["pen", "eraser", "brush", "paint", "paint_erase", "clone", "stamp_erase"]:
             size = max(10, int(self._brush_size * self.transform().m11()))
             cursor_size = size + 6
             pixmap = QPixmap(cursor_size, cursor_size)
@@ -539,9 +846,11 @@ class GraphicsViewInputMixin:
                 inner_color = QColor(self._brush_color)
                 if not inner_color.isValid():
                     inner_color = QColor(255, 0, 0)
+            elif self._active_tool == "clone":
+                inner_color = QColor(0, 200, 120)
             elif self._active_tool in ["pen", "brush"]:
                 inner_color = QColor(Qt.GlobalColor.red)
-            elif self._active_tool == "paint_erase":
+            elif self._active_tool in ("paint_erase", "stamp_erase"):
                 inner_color = QColor(0, 200, 255)
             else:
                 inner_color = QColor(Qt.GlobalColor.blue)
@@ -586,6 +895,10 @@ class GraphicsViewInputMixin:
             self._emit_view_state_changed()
 
     def contextMenuEvent(self, event):
+        # 仿制印章模式下右键用于取样，完全屏蔽右键菜单
+        if self._active_tool == "clone":
+            event.accept()
+            return
         selected_regions = self.model.get_selection()
         selection_count = len(selected_regions)
         menu = RoundMenu(parent=self)

@@ -143,6 +143,7 @@ class PropertyPanel(QWidget):
     """
     MASK_ROUTE = "property_mask_page"
     PAINT_ROUTE = "property_paint_page"
+    STAMP_ROUTE = "property_stamp_page"
 
     # --- Define all required signals ---
     translated_text_modified = pyqtSignal(int, str)
@@ -172,6 +173,9 @@ class PropertyPanel(QWidget):
     # Paint overlay signals
     brush_color_changed = pyqtSignal(str)
     clear_paint_overlay_requested = pyqtSignal()
+    clear_stamp_overlay_requested = pyqtSignal()
+    paint_overlay_visibility_changed = pyqtSignal(bool)
+    stamp_overlay_visibility_changed = pyqtSignal(bool)
 
     def __init__(self, model, app_logic, parent=None):
         super().__init__(parent)
@@ -217,7 +221,6 @@ class PropertyPanel(QWidget):
         content_layout.setSpacing(10)
         content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
-        self._create_region_info_section(content_layout)
         self._create_mask_edit_section(content_layout)
         self._create_text_section(content_layout)
         self._create_style_section(content_layout)
@@ -263,29 +266,8 @@ class PropertyPanel(QWidget):
             if isinstance(child, (TextEdit, ComboBox, QFontComboBox, Slider, QAbstractSpinBox)):
                 child.blockSignals(blocked)
 
-    def _create_region_info_section(self, layout):
-        self.info_group, info_card = self._make_group(self._t("Region Info"))
-        info_layout = QFormLayout(info_card)
-        info_layout.setContentsMargins(8, 8, 8, 6)
-        info_layout.setHorizontalSpacing(10)
-        info_layout.setVerticalSpacing(6)
-        self.index_label = CaptionLabel("-")
-        self.bbox_label = CaptionLabel("-")
-        self.size_label = CaptionLabel("-")
-        self.angle_label = CaptionLabel("-")
-        self.index_row_label = BodyLabel(self._t("Index:"))
-        self.bbox_row_label = BodyLabel(self._t("Position:"))
-        self.size_row_label = BodyLabel(self._t("Size:"))
-        self.angle_row_label = BodyLabel(self._t("Angle:"))
-        info_layout.addRow(self.index_row_label, self.index_label)
-        info_layout.addRow(self.bbox_row_label, self.bbox_label)
-        info_layout.addRow(self.size_row_label, self.size_label)
-        info_layout.addRow(self.angle_row_label, self.angle_label)
-        self._finish_group(self.info_group, info_card)
-        layout.addWidget(self.info_group)
-
     def _create_mask_edit_section(self, layout):
-        self.mask_edit_frame, mask_card = self._make_group(self._t("Mask Editing"))
+        self.mask_edit_frame, mask_card = self._make_group(self._t("Image Editing"))
         frame_layout = QVBoxLayout(mask_card)
         frame_layout.setContentsMargins(6, 8, 6, 6)
         frame_layout.setSpacing(6)
@@ -429,14 +411,81 @@ class PropertyPanel(QWidget):
         color_row.addStretch()
         paint_layout.addLayout(color_row)
 
+        self.show_paint_overlay_checkbox = CheckBox(self._t("Show Paint Layer"))
+        self.show_paint_overlay_checkbox.setChecked(True)
+        paint_layout.addWidget(self.show_paint_overlay_checkbox)
+
         self.clear_paint_overlay_button = PushButton()
         self.clear_paint_overlay_button.setText(self._t("Clear Paint Layer"))
         self.clear_paint_overlay_button.setIcon(FIF.BROOM)
         paint_layout.addWidget(self.clear_paint_overlay_button)
         paint_layout.addStretch()
 
+        # ======= Tab 3：印章（仿制印章，与画笔页结构一致） =======
+        stamp_tab = SimpleCardWidget(self.paint_stack)
+        stamp_layout = QVBoxLayout(stamp_tab)
+        stamp_layout.setContentsMargins(6, 8, 6, 6)
+        stamp_layout.setSpacing(8)
+
+        stamp_tools_layout = QHBoxLayout()
+        stamp_tools_layout.setContentsMargins(0, 0, 0, 0)
+        stamp_tools_layout.setSpacing(6)
+
+        self.stamp_select_button = TogglePushButton()
+        self.stamp_select_button.setText(self._t("No Selection"))
+        self.stamp_select_button.setIcon(FIF.CLEAR_SELECTION)
+        set_hover_hint(self.stamp_select_button, self._t("Selection Tool") + " (Q)")
+
+        self.paint_clone_button = TogglePushButton()
+        self.paint_clone_button.setText(self._t("Clone Stamp"))
+        self.paint_clone_button.setIcon(FIF.COPY)
+        set_hover_hint(self.paint_clone_button, self._t("Clone Stamp Hint"))
+
+        self.stamp_eraser_button = TogglePushButton()
+        self.stamp_eraser_button.setText(self._t("Eraser"))
+        self.stamp_eraser_button.setIcon(FIF.ERASE_TOOL)
+        set_hover_hint(self.stamp_eraser_button, self._t("Eraser Tool"))
+
+        self.mask_tool_group.addButton(self.stamp_select_button, 6)
+        self.mask_tool_group.addButton(self.paint_clone_button, 7)
+        self.mask_tool_group.addButton(self.stamp_eraser_button, 8)
+        for button in (self.stamp_select_button, self.paint_clone_button, self.stamp_eraser_button):
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        stamp_tools_layout.addWidget(self.stamp_select_button)
+        stamp_tools_layout.addWidget(self.paint_clone_button)
+        stamp_tools_layout.addWidget(self.stamp_eraser_button)
+        stamp_layout.addLayout(stamp_tools_layout)
+
+        # 印章大小（与蒙版/画笔页共享同一个模型字段）
+        stamp_size_layout = QHBoxLayout()
+        stamp_size_layout.setContentsMargins(0, 0, 0, 0)
+        stamp_size_layout.setSpacing(6)
+        self.stamp_size_title_label = BodyLabel(self._t("Brush Size:"))
+        stamp_size_layout.addWidget(self.stamp_size_title_label)
+        self.stamp_size_slider = Slider(Qt.Orientation.Horizontal)
+        self.stamp_size_slider.setRange(5, 200)
+        self.stamp_size_slider.setValue(30)
+        self.stamp_size_value_label = CaptionLabel("30")
+        self.stamp_size_value_label.setFixedWidth(28)
+        self.stamp_size_value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        stamp_size_layout.addWidget(self.stamp_size_slider)
+        stamp_size_layout.addWidget(self.stamp_size_value_label)
+        stamp_layout.addLayout(stamp_size_layout)
+
+        self.show_stamp_overlay_checkbox = CheckBox(self._t("Show Stamp Layer"))
+        self.show_stamp_overlay_checkbox.setChecked(True)
+        stamp_layout.addWidget(self.show_stamp_overlay_checkbox)
+
+        self.clear_stamp_overlay_button = PushButton()
+        self.clear_stamp_overlay_button.setText(self._t("Clear Stamp Layer"))
+        self.clear_stamp_overlay_button.setIcon(FIF.BROOM)
+        stamp_layout.addWidget(self.clear_stamp_overlay_button)
+        stamp_layout.addStretch()
+
         self._add_paint_page(self.MASK_ROUTE, mask_tab, self._t("Mask"))
         self._add_paint_page(self.PAINT_ROUTE, paint_tab, self._t("Paint"))
+        self._add_paint_page(self.STAMP_ROUTE, stamp_tab, self._t("Clone Stamp"))
         self._set_paint_route(self.MASK_ROUTE, emit_changed=False)
         frame_layout.addWidget(self.paint_segmented_widget)
         frame_layout.addWidget(self.paint_stack)
@@ -492,7 +541,7 @@ class PropertyPanel(QWidget):
         return self.paint_stack.currentIndex()
 
     def _paint_route_for_index(self, index: int) -> str:
-        return self.PAINT_ROUTE if index == 1 else self.MASK_ROUTE
+        return {1: self.PAINT_ROUTE, 2: self.STAMP_ROUTE}.get(index, self.MASK_ROUTE)
 
     def _create_text_section(self, layout):
         self.text_edit_frame, text_card = self._make_group(self._t("Text Content"))
@@ -769,12 +818,16 @@ class PropertyPanel(QWidget):
         self.mask_tool_group.buttonClicked.connect(self._on_mask_tool_changed)
         self.brush_size_slider.valueChanged.connect(self._on_brush_size_changed)
         self.paint_size_slider.valueChanged.connect(self._on_brush_size_changed)
+        self.stamp_size_slider.valueChanged.connect(self._on_brush_size_changed)
         self.show_refined_mask_checkbox.stateChanged.connect(lambda state: self.toggle_mask_visibility.emit(bool(state)))
         self.clear_all_masks_button.clicked.connect(self.clear_all_masks_requested.emit)
 
         # Paint overlay
         self.paint_color_picker.color_changed.connect(self._on_paint_color_changed)
         self.clear_paint_overlay_button.clicked.connect(self.clear_paint_overlay_requested.emit)
+        self.clear_stamp_overlay_button.clicked.connect(self.clear_stamp_overlay_requested.emit)
+        self.show_paint_overlay_checkbox.toggled.connect(self.paint_overlay_visibility_changed.emit)
+        self.show_stamp_overlay_checkbox.toggled.connect(self.stamp_overlay_visibility_changed.emit)
         self.paint_segmented_widget.currentItemChanged.connect(self._on_paint_route_changed)
 
         # Style
@@ -890,10 +943,8 @@ class PropertyPanel(QWidget):
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）"""
         # 刷新分组框标题
-        if hasattr(self, 'info_group'):
-            self._set_group_title(self.info_group, self._t("Region Info"))
         if hasattr(self, 'mask_edit_frame'):
-            self._set_group_title(self.mask_edit_frame, self._t("Mask Editing"))
+            self._set_group_title(self.mask_edit_frame, self._t("Image Editing"))
         if hasattr(self, 'text_edit_frame'):
             self._set_group_title(self.text_edit_frame, self._t("Text Content"))
         if hasattr(self, 'style_edit_frame'):
@@ -902,14 +953,6 @@ class PropertyPanel(QWidget):
             self._set_group_title(self.action_frame, self._t("Actions"))
         
         # 刷新标签
-        if hasattr(self, 'index_row_label'):
-            self.index_row_label.setText(self._t("Index:"))
-        if hasattr(self, 'bbox_row_label'):
-            self.bbox_row_label.setText(self._t("Position:"))
-        if hasattr(self, 'size_row_label'):
-            self.size_row_label.setText(self._t("Size:"))
-        if hasattr(self, 'angle_row_label'):
-            self.angle_row_label.setText(self._t("Angle:"))
         if hasattr(self, 'brush_size_title_label'):
             self.brush_size_title_label.setText(self._t("Brush Size:"))
         if hasattr(self, 'ocr_model_row_label'):
@@ -979,6 +1022,23 @@ class PropertyPanel(QWidget):
         if hasattr(self, 'paint_eraser_button'):
             self.paint_eraser_button.setText(self._t("Eraser"))
             set_hover_hint(self.paint_eraser_button, self._t("Eraser Tool"))
+        if hasattr(self, 'stamp_select_button'):
+            self.stamp_select_button.setText(self._t("No Selection"))
+            set_hover_hint(self.stamp_select_button, self._t("Selection Tool") + " (Q)")
+        if hasattr(self, 'paint_clone_button'):
+            self.paint_clone_button.setText(self._t("Clone Stamp"))
+            set_hover_hint(self.paint_clone_button, self._t("Clone Stamp Hint"))
+        if hasattr(self, 'stamp_eraser_button'):
+            self.stamp_eraser_button.setText(self._t("Eraser"))
+            set_hover_hint(self.stamp_eraser_button, self._t("Eraser Tool"))
+        if hasattr(self, 'stamp_size_title_label'):
+            self.stamp_size_title_label.setText(self._t("Brush Size:"))
+        if hasattr(self, 'clear_stamp_overlay_button'):
+            self.clear_stamp_overlay_button.setText(self._t("Clear Stamp Layer"))
+        if hasattr(self, 'show_paint_overlay_checkbox'):
+            self.show_paint_overlay_checkbox.setText(self._t("Show Paint Layer"))
+        if hasattr(self, 'show_stamp_overlay_checkbox'):
+            self.show_stamp_overlay_checkbox.setText(self._t("Show Stamp Layer"))
         if hasattr(self, 'paint_size_title_label'):
             self.paint_size_title_label.setText(self._t("Brush Size:"))
         if hasattr(self, 'paint_color_label'):
@@ -1435,7 +1495,6 @@ class PropertyPanel(QWidget):
             self.clear_and_disable_selection_dependent()
         elif len(selected_indices) == 1:
             # 单选，显示该区域的详细信息
-            self.info_group.setEnabled(True)
             self.text_edit_frame.setEnabled(True)
             self.style_edit_frame.setEnabled(True)
             self.action_frame.setEnabled(True)
@@ -1445,8 +1504,7 @@ class PropertyPanel(QWidget):
             if 0 <= region_index < len(regions):
                 self._update_display(regions[region_index], region_index, update_focused_text=True)
         else:
-            # 多选，启用样式编辑，但禁用文本编辑和信息显示
-            self.info_group.setEnabled(False)
+            # 多选，启用样式编辑，但禁用文本编辑
             self.text_edit_frame.setEnabled(False)
             self.style_edit_frame.setEnabled(True)  # 启用样式编辑
             self.action_frame.setEnabled(True)
@@ -1454,7 +1512,6 @@ class PropertyPanel(QWidget):
             
             # 清空显示但不禁用样式控件
             self.block_updates = True
-            self.index_label.setText(f"多选 ({len(selected_indices)})")
             self.original_text_box.clear()
             self.translated_text_box.clear()
             self._refresh_style_preset_combo(selected_name="")
@@ -1463,7 +1520,6 @@ class PropertyPanel(QWidget):
     def clear_and_disable_selection_dependent(self):
         """Clears selection-dependent fields and disables their sections."""
         # Disable sections that depend on a selection
-        self.info_group.setEnabled(False)
         self.text_edit_frame.setEnabled(False)
         self.style_edit_frame.setEnabled(False)
         self.action_frame.setEnabled(False)
@@ -1483,10 +1539,6 @@ class PropertyPanel(QWidget):
             default_color = self.config_service.get_config().render.font_color or "#000000"
             self.font_color_picker.reset(default_color)
             self.stroke_color_picker.reset("#ffffff")
-            self.index_label.setText("-")
-            self.bbox_label.setText("-")
-            self.size_label.setText("-")
-            self.angle_label.setText("-")
             self._refresh_style_preset_combo(selected_name="")
         finally:
             self._set_selection_controls_blocked(False)
@@ -1511,9 +1563,6 @@ class PropertyPanel(QWidget):
         self.block_updates = True
         self._set_selection_controls_blocked(True)
         try:
-            # --- Update Region Info ---
-            self._update_info_labels(region_data, region_index)
-
             # --- Update Text & Styles ---
             # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
             original_text = region_data.get("text", "")
@@ -1618,19 +1667,6 @@ class PropertyPanel(QWidget):
         finally:
             self._set_selection_controls_blocked(False)
             self.block_updates = False
-
-    def _update_info_labels(self, region_data, region_index):
-        self.index_label.setText(str(region_index))
-        wf_info = self._calculate_white_frame_info(region_data)
-        if wf_info:
-            cx, cy, w, h = wf_info
-            self.bbox_label.setText(f"({cx:.0f}, {cy:.0f})")
-            self.size_label.setText(f"{w:.0f} × {h:.0f}")
-        else:
-            self.bbox_label.setText("-")
-            self.size_label.setText("-")
-        angle = region_data.get('angle', 0)
-        self.angle_label.setText(f"{angle:.1f}°")
 
     @staticmethod
     def _editor_text_to_model_text(raw_text: str) -> str:
@@ -1812,7 +1848,7 @@ class PropertyPanel(QWidget):
             self.angle_changed.emit(region_index, float(value))
 
     def _on_mask_tool_changed(self, button):
-        if button is self.select_button or button is self.paint_select_button:
+        if button is self.select_button or button is self.paint_select_button or button is self.stamp_select_button:
             self.mask_tool_changed.emit('select')
         elif button is self.brush_button:
             self.mask_tool_changed.emit('brush')
@@ -1822,23 +1858,24 @@ class PropertyPanel(QWidget):
             self.mask_tool_changed.emit('paint')
         elif button is self.paint_eraser_button:
             self.mask_tool_changed.emit('paint_erase')
+        elif button is self.paint_clone_button:
+            self.mask_tool_changed.emit('clone')
+        elif button is self.stamp_eraser_button:
+            self.mask_tool_changed.emit('stamp_erase')
 
     def _on_brush_size_changed(self, value):
-        """两个画笔大小滑块共享同一个模型字段；同步另一个滑块显示。"""
-        self.brush_size_value_label.setText(str(value))
-        self.paint_size_value_label.setText(str(value))
-        # 同步另一个滑块，避免循环触发
+        """三个大小滑块共享同一个模型字段；同步其余滑块显示，避免循环触发。"""
         sender = self.sender()
-        if sender is self.brush_size_slider:
-            if self.paint_size_slider.value() != value:
-                self.paint_size_slider.blockSignals(True)
-                self.paint_size_slider.setValue(value)
-                self.paint_size_slider.blockSignals(False)
-        else:
-            if self.brush_size_slider.value() != value:
-                self.brush_size_slider.blockSignals(True)
-                self.brush_size_slider.setValue(value)
-                self.brush_size_slider.blockSignals(False)
+        for slider, label in (
+            (self.brush_size_slider, self.brush_size_value_label),
+            (self.paint_size_slider, self.paint_size_value_label),
+            (self.stamp_size_slider, self.stamp_size_value_label),
+        ):
+            label.setText(str(value))
+            if slider is not sender and slider.value() != value:
+                slider.blockSignals(True)
+                slider.setValue(value)
+                slider.blockSignals(False)
         self.brush_size_changed.emit(value)
 
     def _on_paint_color_changed(self, hex_color: str):
@@ -1847,17 +1884,16 @@ class PropertyPanel(QWidget):
     def _on_paint_tab_changed(self, index: int):
         """切换标签页时，自动把活跃工具切回当前页的选择工具，避免跨页工具冲突。"""
         try:
-            if index == 0:
-                # 蒙版页：若当前按钮在 paint 页，切回蒙版选择工具
-                checked = self.mask_tool_group.checkedButton()
-                if checked in (self.paint_select_button, self.paint_brush_button, self.paint_eraser_button):
-                    self.select_button.setChecked(True)
-                    self.mask_tool_changed.emit('select')
-            else:
-                checked = self.mask_tool_group.checkedButton()
-                if checked in (self.select_button, self.brush_button, self.eraser_button):
-                    self.paint_select_button.setChecked(True)
-                    self.mask_tool_changed.emit('select')
+            page_buttons = {
+                0: (self.select_button, self.brush_button, self.eraser_button),
+                1: (self.paint_select_button, self.paint_brush_button, self.paint_eraser_button),
+                2: (self.stamp_select_button, self.paint_clone_button, self.stamp_eraser_button),
+            }
+            buttons = page_buttons.get(index, page_buttons[0])
+            checked = self.mask_tool_group.checkedButton()
+            if checked not in buttons:
+                buttons[0].setChecked(True)
+                self.mask_tool_changed.emit('select')
         except Exception:
             pass
 
@@ -1866,6 +1902,7 @@ class PropertyPanel(QWidget):
         for slider, label in (
             (self.brush_size_slider, self.brush_size_value_label),
             (getattr(self, 'paint_size_slider', None), getattr(self, 'paint_size_value_label', None)),
+            (getattr(self, 'stamp_size_slider', None), getattr(self, 'stamp_size_value_label', None)),
         ):
             if slider is None:
                 continue
@@ -1885,16 +1922,22 @@ class PropertyPanel(QWidget):
         # 'select' 在蒙版页和画板页都有按钮，按当前所在标签页决定亮哪个，
         # 避免在画板页点击「选择」时被强制切回蒙版页。
         if tool == 'select':
-            if self._paint_current_index() == 1:
-                button, tab_index = self.paint_select_button, 1
-            else:
-                button, tab_index = self.select_button, 0
+            current_index = self._paint_current_index()
+            select_buttons = {
+                0: self.select_button,
+                1: self.paint_select_button,
+                2: self.stamp_select_button,
+            }
+            button = select_buttons.get(current_index, self.select_button)
+            tab_index = current_index if current_index in select_buttons else 0
         else:
             mapping = {
                 'brush': (self.brush_button, 0),
                 'eraser': (self.eraser_button, 0),
                 'paint': (getattr(self, 'paint_brush_button', None), 1),
                 'paint_erase': (getattr(self, 'paint_eraser_button', None), 1),
+                'clone': (getattr(self, 'paint_clone_button', None), 2),
+                'stamp_erase': (getattr(self, 'stamp_eraser_button', None), 2),
             }
             info = mapping.get(tool)
             if not info:

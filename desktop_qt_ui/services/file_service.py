@@ -9,7 +9,7 @@ import mimetypes
 import os
 import shutil
 import sys
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -41,21 +41,23 @@ class FileService:
             '.json', '.yaml', '.yml', '.toml'
         }
 
-    def load_translation_json(self, image_path: str, image: Image.Image = None) -> Tuple[List[dict], Optional[np.ndarray], Optional[Tuple[int, int]]]:
+    def load_translation_json(self, image_path: str, image: Image.Image = None) -> Tuple[List[dict], Optional[np.ndarray], Optional[Tuple[int, int]], Dict[str, Optional[np.ndarray]]]:
         """
         根据给定的图片路径，加载关联的 _translations.json 文件。
         优先从新目录结构加载，支持向后兼容。
-        返回 regions, raw_mask, original_size。
+        返回 regions, raw_mask, original_size, overlays。
+        overlays 为 {'paint': RGBA数组|None, 'stamp': RGBA数组|None}（base64 PNG 解码，未对齐尺寸）。
         """
         # 使用path_manager查找JSON文件（新位置优先）
         json_path = find_json_path(image_path)
         regions = []
         raw_mask = None
         original_size = None
+        overlays: Dict[str, Optional[np.ndarray]] = {'paint': None, 'stamp': None}
 
         if not json_path:
             self.logger.warning(f"JSON file not found for {os.path.basename(image_path)}")
-            return regions, raw_mask, original_size
+            return regions, raw_mask, original_size, overlays
 
         self.logger.debug(f"Loading JSON from: {json_path}")
 
@@ -105,15 +107,28 @@ class FileService:
             
             original_size = (image_data.get('original_width'), image_data.get('original_height'))
 
+            # 画笔层/印章层（base64 PNG，RGBA）
+            for overlay_name, json_key in (('paint', 'paint_overlay'), ('stamp', 'stamp_overlay')):
+                overlay_b64 = image_data.get(json_key)
+                if not isinstance(overlay_b64, str) or not overlay_b64:
+                    continue
+                try:
+                    overlay_bytes = np.frombuffer(base64.b64decode(overlay_b64), dtype=np.uint8)
+                    overlay_bgra = cv2.imdecode(overlay_bytes, cv2.IMREAD_UNCHANGED)
+                    if overlay_bgra is not None and overlay_bgra.ndim == 3 and overlay_bgra.shape[2] == 4:
+                        overlays[overlay_name] = cv2.cvtColor(overlay_bgra, cv2.COLOR_BGRA2RGBA)
+                except Exception as e:
+                    self.logger.error(f"Failed to decode base64 {json_key} in {os.path.basename(json_path)}: {e}")
+
             self.logger.debug(f"Loaded {len(regions)} regions from {os.path.basename(json_path)}")
 
         except Exception as e:
             import traceback
             self.logger.error(f"Failed to load or parse JSON file {json_path}: {e}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return [], None, None
+            return [], None, None, {'paint': None, 'stamp': None}
 
-        return regions, raw_mask, original_size
+        return regions, raw_mask, original_size, overlays
         
     def validate_image_file(self, file_path: str) -> bool:
         """验证是否为有效的图片文件或压缩包文件"""

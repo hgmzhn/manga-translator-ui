@@ -33,6 +33,7 @@ class EditorModel(QObject):
     brush_size_changed = pyqtSignal(int)
     brush_color_changed = pyqtSignal(str)
     paint_overlay_changed = pyqtSignal(object)
+    stamp_overlay_changed = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,6 +55,7 @@ class EditorModel(QObject):
         self.refined_mask_changed.emit(self.get_refined_mask())
         self.inpainted_image_changed.emit(self.get_inpainted_image())
         self.paint_overlay_changed.emit(self.get_paint_overlay_image())
+        self.stamp_overlay_changed.emit(self.get_stamp_overlay_image())
         current_selection = self.get_selection()
         if current_selection != previous_selection:
             self.selection_changed.emit(current_selection)
@@ -67,6 +69,7 @@ class EditorModel(QObject):
         self.refined_mask_changed.emit(self.get_refined_mask())
         self.inpainted_image_changed.emit(self.get_inpainted_image())
         self.paint_overlay_changed.emit(self.get_paint_overlay_image())
+        self.stamp_overlay_changed.emit(self.get_stamp_overlay_image())
         self.selection_changed.emit(self.get_selection())
 
     def set_source_image_path(self, path: Optional[str]):
@@ -254,3 +257,10 @@ class EditorModel(QObject):
 
     def get_paint_overlay_image(self) -> Optional[Any]:
         return self.session.get_paint_overlay_image()
+
+    def set_stamp_overlay_image(self, image: Any):
+        self.session.set_stamp_overlay_image(image)
+        self.stamp_overlay_changed.emit(image)
+
+    def get_stamp_overlay_image(self) -> Optional[Any]:
+        return self.session.get_stamp_overlay_image()

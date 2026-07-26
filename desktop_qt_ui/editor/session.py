@@ -12,6 +12,7 @@ from .region_geometry_state import normalize_region_geometry_data
 
 INPAINTED_IMAGE_CACHE_KEY = "inpainted_image"
 PAINT_OVERLAY_IMAGE_CACHE_KEY = "paint_overlay_image"
+STAMP_OVERLAY_IMAGE_CACHE_KEY = "stamp_overlay_image"
 
 
 @dataclass(slots=True)
@@ -25,6 +26,7 @@ class DocumentSnapshot:
     inpainted_image: Any = None
     paint_overlay_path: Optional[str] = None
     paint_overlay_image: Any = None
+    stamp_overlay_image: Any = None
 
 
 @dataclass(slots=True)
@@ -268,6 +270,16 @@ class EditorSession:
     def get_paint_overlay_image(self) -> Any:
         return self.resource_manager.get_cache(PAINT_OVERLAY_IMAGE_CACHE_KEY)
 
+    def set_stamp_overlay_image(self, image: Any) -> None:
+        if image is None:
+            self.resource_manager.clear_cache(STAMP_OVERLAY_IMAGE_CACHE_KEY)
+        else:
+            self.resource_manager.set_cache(STAMP_OVERLAY_IMAGE_CACHE_KEY, image)
+        self._bump_document_revision()
+
+    def get_stamp_overlay_image(self) -> Any:
+        return self.resource_manager.get_cache(STAMP_OVERLAY_IMAGE_CACHE_KEY)
+
     def load_document(self, snapshot: DocumentSnapshot) -> None:
         self.set_source_image_path(snapshot.source_path)
         self.set_image(snapshot.image)
@@ -279,6 +291,7 @@ class EditorSession:
         self.set_inpainted_image(snapshot.inpainted_image)
         self.set_paint_overlay_path(snapshot.paint_overlay_path)
         self.set_paint_overlay_image(snapshot.paint_overlay_image)
+        self.set_stamp_overlay_image(snapshot.stamp_overlay_image)
         self.set_selection([])
 
     def clear_document(self) -> None:
@@ -292,4 +305,5 @@ class EditorSession:
         self.set_inpainted_image(None)
         self.set_paint_overlay_path(None)
         self.set_paint_overlay_image(None)
+        self.set_stamp_overlay_image(None)
         self.set_selection([])

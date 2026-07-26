@@ -34,6 +34,7 @@ class PixmapOverlayLayer:
         self.update_scene = update_scene
         self.item: TransparentPixmapItem | None = None
         self.qimage_ref = None
+        self.layer_visible = True
 
     def clear(self) -> None:
         if self.item and self.item.scene():
@@ -73,7 +74,7 @@ class PixmapOverlayLayer:
         item.setPixmap(pixmap)
         item.setOpacity(1.0)
         self.view._scale_mask_item(item)
-        item.setVisible(True)
+        item.setVisible(self.layer_visible)
         if self.update_scene:
             self.view.scene.update()
             self.view.viewport().update()
@@ -86,6 +87,15 @@ class PixmapOverlayLayer:
         self.item.setOpacity(1.0)
         self.view.scene.addItem(self.item)
         return self.item
+
+    def set_layer_visible(self, visible: bool) -> None:
+        """仅切换显示，不清数据；重新 set_image 时也遵循该标志。"""
+        self.layer_visible = bool(visible)
+        if self.item is not None and not self.item.pixmap().isNull():
+            self.item.setVisible(self.layer_visible)
+            if self.update_scene:
+                self.view.scene.update()
+                self.view.viewport().update()
 
     def _hide(self, *, clear_pixmap: bool = False) -> None:
         if self.item is None:
@@ -116,10 +126,21 @@ class OverlayLayerManager:
             clear_pixmap_on_empty=True,
             update_scene=True,
         )
+        # 印章层位于画笔层之上
+        self.stamp_overlay = PixmapOverlayLayer(
+            view,
+            debug_name="stamp_overlay",
+            z_value=6,
+            convert_warning="Failed to convert stamp overlay to QImage: %s",
+            empty_when_zero_size=True,
+            clear_pixmap_on_empty=True,
+            update_scene=True,
+        )
 
     def clear(self) -> None:
         self.inpainted.clear()
         self.paint_overlay.clear()
+        self.stamp_overlay.clear()
 
     def on_inpainted_image_changed(self, image) -> None:
         self.inpainted.set_image(image)
@@ -127,3 +148,13 @@ class OverlayLayerManager:
     def on_paint_overlay_changed(self, overlay) -> None:
         """彩色画笔图层数据变化时刷新对应 pixmap。"""
         self.paint_overlay.set_image(overlay)
+
+    def on_stamp_overlay_changed(self, overlay) -> None:
+        """印章图层数据变化时刷新对应 pixmap。"""
+        self.stamp_overlay.set_image(overlay)
+
+    def set_paint_overlay_visible(self, visible: bool) -> None:
+        self.paint_overlay.set_layer_visible(visible)
+
+    def set_stamp_overlay_visible(self, visible: bool) -> None:
+        self.stamp_overlay.set_layer_visible(visible)

@@ -848,6 +848,21 @@ class MangaTranslator:
             except Exception as e:
                 logger.error(f"Failed to encode mask to base64: {e}")
 
+        # 保留编辑器写入的画笔/印章图层（后端回写不生产这两个键，避免覆盖丢失）
+        if os.path.exists(text_output_file):
+            try:
+                with open(text_output_file, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                if existing_data and len(existing_data.values()) > 0:
+                    existing_image_data = next(iter(existing_data.values()))
+                    if isinstance(existing_image_data, dict):
+                        for overlay_key in ('paint_overlay', 'stamp_overlay'):
+                            overlay_value = existing_image_data.get(overlay_key)
+                            if isinstance(overlay_value, str) and overlay_value:
+                                data_to_save[overlay_key] = overlay_value
+            except Exception as e:
+                logger.debug(f"Failed to preserve overlay layers from existing JSON {text_output_file}: {e}")
+
         # 记录本次主翻译流程的输出目录，编辑器再次导出时回写到原目录
         final_output_dir = getattr(ctx, 'final_output_dir', None)
         if final_output_dir:
@@ -1254,8 +1269,57 @@ class MangaTranslator:
         else:
             self._preloaded_load_text_payloads[image_name] = payload
 
+    def _extract_render_overlays(self, image_data: dict):
+        """从 JSON/内存载荷提取画笔层与印章层（RGBA），按合成顺序返回列表。
+
+        兼容两种形态：内存直通的 ndarray、JSON 里的 base64 PNG 字符串。
+        """
+        import base64
+
+        overlays = []
+        for key in ('paint_overlay', 'stamp_overlay'):
+            value = image_data.get(key)
+            arr = None
+            if isinstance(value, np.ndarray):
+                arr = value
+            elif isinstance(value, str) and value:
+                try:
+                    buf = np.frombuffer(base64.b64decode(value), dtype=np.uint8)
+                    bgra = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+                    if bgra is not None and bgra.ndim == 3 and bgra.shape[2] == 4:
+                        arr = cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA)
+                except Exception as e:
+                    logger.warning(f"Failed to decode {key} from JSON: {e}")
+            if arr is not None and arr.ndim == 3 and arr.shape[2] == 4 and np.any(arr[..., 3]):
+                overlays.append(arr.astype(np.uint8, copy=False))
+        return overlays or None
+
+    def _compose_render_overlays_on_inpainted(self, ctx):
+        """把加载到的画笔/印章层按顺序 alpha 合成到 ctx.img_inpainted 上（渲染前调用）。"""
+        overlays = getattr(self, '_loaded_render_overlays', None)
+        if not overlays:
+            return
+        base = getattr(ctx, 'img_inpainted', None)
+        if base is None:
+            return
+        base_arr = np.asarray(base)
+        if base_arr.ndim != 3 or base_arr.shape[2] < 3:
+            return
+        h, w = base_arr.shape[:2]
+        composed = base_arr[..., :3].astype(np.float32)
+        for overlay in overlays:
+            if overlay.shape[:2] != (h, w):
+                overlay = cv2.resize(overlay, (w, h), interpolation=cv2.INTER_NEAREST)
+            alpha = overlay[..., 3:4].astype(np.float32) / 255.0
+            composed = composed * (1.0 - alpha) + overlay[..., :3].astype(np.float32) * alpha
+        result = base_arr.copy()
+        result[..., :3] = np.clip(composed, 0, 255).astype(np.uint8)
+        ctx.img_inpainted = result
+        logger.info(f"Composited {len(overlays)} paint/stamp overlay layer(s) onto inpainted image")
+
     def _load_text_and_regions_from_file(self, image_path: str, config: Config):
         """加载翻译数据，支持新的目录结构和向后兼容"""
+        self._loaded_render_overlays = None
         if not image_path:
             return None, None, False, True, False, 0
 
@@ -1319,6 +1383,7 @@ class MangaTranslator:
                 image_data.get('skip_text_replacements', False),
                 default=False,
             )
+            self._loaded_render_overlays = self._extract_render_overlays(image_data)
         else:
             logger.warning(f"Invalid data format in JSON file {text_file_path}.")
             return None, None, False, True, False, 0
@@ -3681,6 +3746,9 @@ class MangaTranslator:
                                     ):
                                         self._save_inpainted_image(image_name, ctx.img_inpainted)
 
+                                    # 画笔/印章层合成（放在保存 inpainted 之后，避免涂层被烤进修复图文件）
+                                    self._compose_render_overlays_on_inpainted(ctx)
+
                                     await self._report_progress('finished', True)
                                     ctx.result = dump_image(ctx.input, ctx.img_inpainted, ctx.img_alpha, mask=ctx.mask)
                                     if mask_injected_from_raw:
@@ -3734,6 +3802,9 @@ class MangaTranslator:
                                     and self.save_text
                                 ):
                                     self._save_inpainted_image(image_name, ctx.img_inpainted)
+
+                                # 画笔/印章层合成（放在保存 inpainted 之后，避免涂层被烤进修复图文件）
+                                self._compose_render_overlays_on_inpainted(ctx)
 
                                 # Rendering - load_text按JSON中的skip_font_scaling控制：True=跳过字体缩放，False=执行字体缩放
                                 await self._report_progress('rendering')
