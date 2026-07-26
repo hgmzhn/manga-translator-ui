@@ -91,37 +91,35 @@ The English companion versions of the documents below are being added one by one
 
 ### 📥 Installation Methods
 
-#### Method 1: Use the Install Script (⭐ Recommended, supports updates)
+#### Method 1: Portable Package (⭐ Recommended, supports updates)
 
-> ⚠️ **No Python pre-install required**: the script automatically installs Miniconda, a lightweight Python environment
+> ⚠️ **No Python pre-install required**: the package bundles a portable Python 3.12 and the uv package manager — fully portable, no registry writes
 >  
-> 💡 **One-click update**: existing users can run `步骤4-更新维护.bat` to update to the latest version
+> 💡 **One-click update**: run `2-Install-or-Update.ps1` and choose `[2] Update` to get the latest version
 
-1. **Download the install script**
-   - [Download 步骤1-首次安装.bat](https://github.com/hgmzhn/manga-translator-ui/raw/main/步骤1-首次安装.bat)
-   - Save it to the folder where you want to install the app, for example `D:\manga-translator-ui\`
-   - ⚠️ **That folder becomes the installation root**
-   - ⚠️ **Cleanup warning**: the cleanup function can wipe files in the root folder, while preserving Python and Git configuration related files
+1. **Download the portable package**
+   - Get it from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases)
+   - Extract it to any folder, for example `D:\manga-translator-ui\`
 
 2. **Run the installer**
-   - Double-click `步骤1-首次安装.bat`
+   - Double-click `2-Install-or-Update.ps1` (or right-click → Run with PowerShell) and choose `[1] Install`
    - The script will automatically:
-     - ✓ Detect and install Miniconda if needed
-       - Lets you choose a download source such as Tsinghua mirror or the official Anaconda source
-       - Downloads and installs automatically, about 50 MB
-       - Installs into the project folder instead of your system drive
-     - ✓ Install portable Git if needed
-     - ✓ Clone the repository
-     - ✓ Create a Conda environment with Python 3.12
+     - ✓ Let you pick a download route (GitHub official / Gitee mirror), and suggest switching routes if syncing fails
+     - ✓ Sync the latest code
      - ✓ Detect your GPU type: NVIDIA, AMD, or integrated graphics
      - ✓ Automatically choose the matching PyTorch build
        - NVIDIA: CUDA 12.x build, requires driver `>= 525.60.13`
        - AMD: ROCm build, experimental, **RX 7000 / 9000 only**. RX 5000 / 6000 should use the CPU build
        - Others: CPU build, slower but widely compatible
-     - ✓ Install all dependencies
+     - ✓ Install all dependencies with uv (fast batch install with mirror fallback)
+     - ✓ Clean download caches automatically when done
+   - The maintenance menu also supports: switching branch (main/beta), switching version by tag, switching mirror, and a Chinese/English interface toggle
 
 3. **Start the program**
-   - Double-click `步骤2-启动Qt界面.bat`
+   - Double-click `1-Start.ps1`
+
+4. **Uninstall**
+   - See the [Uninstall Guide](卸载指南.md) — for the portable version, just delete the whole folder
 
 #### Method 2: Download the Packaged Release
 
