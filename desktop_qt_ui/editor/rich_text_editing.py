@@ -414,16 +414,33 @@ def _insertion_inheritance(entries: list[_CharEntry], position: int) -> tuple[di
     return style, node
 
 
-def apply_style_to_range(document: dict, start: int, end: int, patch: dict) -> dict:
+def _mutate_range(document: dict, start: int, end: int, mutate) -> dict:
+    """对区间内每个非换行条目应用 ``mutate`` 后重建文档。
+
+    区间为空时返回原文档深拷贝；空区间不再展开为全文 —— 所有调用方都已
+    持有真实选区，隐式改写整篇文本只会掩盖上层守卫的缺失。
+    """
     entries = _visible_entries(document)
-    start, end = _normalize_range(entries, start, end, expand_empty=True)
+    start, end = _normalize_range(entries, start, end, expand_empty=False)
     if start == end:
         return copy.deepcopy(document)
-
-    merged_by_style: dict[int, dict] = {}
     for entry in entries[start:end]:
-        if entry.char == "\n":
-            continue
+        if entry.char != "\n":
+            mutate(entry)
+    return _document_from_entries(_entries_text(entries), entries)
+
+
+def _drop_node_of_type(node_type: str):
+    def drop(entry: _CharEntry) -> None:
+        if isinstance(entry.node, dict) and entry.node.get("type") == node_type:
+            entry.node = None
+    return drop
+
+
+def apply_style_to_range(document: dict, start: int, end: int, patch: dict) -> dict:
+    merged_by_style: dict[int, dict] = {}
+
+    def restyle(entry: _CharEntry) -> None:
         merged = merged_by_style.get(id(entry.style))
         if merged is None:
             # Style editing and run inspection must share the exact same
@@ -433,7 +450,8 @@ def apply_style_to_range(document: dict, start: int, end: int, patch: dict) -> d
             merged = normalize_text_style(_merge_style(entry.style, patch))
             merged_by_style[id(entry.style)] = merged
         entry.style = merged
-    return _document_from_entries(_entries_text(entries), entries)
+
+    return _mutate_range(document, start, end, restyle)
 
 
 def apply_tcy_to_range(document: dict, start: int, end: int) -> dict:
@@ -448,42 +466,21 @@ def apply_ruby_to_range(document: dict, start: int, end: int, ruby_text: str) ->
 
 
 def remove_ruby_from_range(document: dict, start: int, end: int) -> dict:
-    entries = _visible_entries(document)
-    start, end = _normalize_range(entries, start, end, expand_empty=True)
-    if start == end:
-        return copy.deepcopy(document)
-
-    for entry in entries[start:end]:
-        if isinstance(entry.node, dict) and entry.node.get("type") == "ruby":
-            entry.node = None
-    return _document_from_entries(_entries_text(entries), entries)
+    return _mutate_range(document, start, end, _drop_node_of_type("ruby"))
 
 
 def remove_tcy_from_range(document: dict, start: int, end: int) -> dict:
-    entries = _visible_entries(document)
-    start, end = _normalize_range(entries, start, end, expand_empty=True)
-    if start == end:
-        return copy.deepcopy(document)
-
-    for entry in entries[start:end]:
-        if isinstance(entry.node, dict) and entry.node.get("type") == "tcy":
-            entry.node = None
-    return _document_from_entries(_entries_text(entries), entries)
+    return _mutate_range(document, start, end, _drop_node_of_type("tcy"))
 
 
 def clear_styles_from_range(document: dict, start: int, end: int) -> dict:
     """Remove every inline style and ruby/tcy wrapper from a visible range."""
-    entries = _visible_entries(document)
-    start, end = _normalize_range(entries, start, end, expand_empty=True)
-    if start == end:
-        return copy.deepcopy(document)
 
-    for entry in entries[start:end]:
-        if entry.char == "\n":
-            continue
+    def reset(entry: _CharEntry) -> None:
         entry.style = {}
         entry.node = None
-    return _document_from_entries(_entries_text(entries), entries)
+
+    return _mutate_range(document, start, end, reset)
 
 
 def _wrap_range_as_node(document: dict, start: int, end: int, node_type: str, ruby_text: str = "") -> dict:

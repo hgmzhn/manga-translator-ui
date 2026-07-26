@@ -1,20 +1,23 @@
-"""Composable widgets for the floating rich-text editor."""
+"""Composable widgets for the floating rich-text editor.
+
+Every control here is a stock qfluentwidgets component; theming is left to the
+library instead of hand-written style sheets.
+"""
 
 from __future__ import annotations
 
 import copy
 from collections.abc import Iterable
+from dataclasses import dataclass
 
-from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QFontComboBox,
+    QGridLayout,
     QHBoxLayout,
-    QLineEdit,
-    QScrollArea,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -23,70 +26,90 @@ from qfluentwidgets import (
     CompactDoubleSpinBox,
     CompactSpinBox,
     FluentIcon as FIF,
+    LineEdit,
     PushButton,
+    ScrollArea,
+    SimpleCardWidget,
     TextEdit,
+    TogglePushButton,
     ToolButton,
     TransparentToolButton,
-    isDarkTheme,
-    themeColor,
 )
 
 from editor.rich_text_editing import StyledTextSegment
+from services import get_config_service, get_i18n_manager
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
 
 
-STYLE_KEYS = (
-    "B", "I", "C", "S", "%", "F", "O", "G", "OS", "D", "T", "R",
-    "Rot", "K", "PK", "LK", "NK", "XY", "M", "MV",
-)
+def _tr(key: str, **kwargs) -> str:
+    """Translate through the app-wide i18n singleton (identity before init)."""
+    i18n = get_i18n_manager()
+    return i18n.translate(key, **kwargs) if i18n else key
 
-STYLE_NAME_KEYS = {
-    "B": "Bold",
-    "I": "Italic",
-    "C": "Text Color",
-    "S": "Font Size",
-    "%": "Scale",
-    "F": "Font",
-    "O": "Stroke",
-    "G": "Glow",
-    "OS": "Outer Stroke",
-    "D": "Emphasis",
-    "T": "TCY",
-    "R": "Ruby",
-    "Rot": "Rotation",
-    "K": "Kerning",
-    "PK": "Pre Kerning",
-    "LK": "Line Kerning",
-    "NK": "Next Kerning",
-    "XY": "Offset",
-    "M": "Mirror Horizontal",
-    "MV": "Mirror Vertical",
+
+@dataclass(frozen=True)
+class StyleSpec:
+    """Single source of truth for one style key."""
+
+    name: str            # property-row label (i18n key)
+    hint: str            # toolbar / tooltip text (i18n key)
+    default_patch: dict  # style patch applied when the toolbar button is checked
+
+
+# ``F`` resolves its default family lazily (QFont queries the runtime font
+# database); ``T``/``R`` are node operations rather than style patches.
+STYLE_SPECS: dict[str, StyleSpec] = {
+    "B": StyleSpec("Bold", "Bold", {"bold": True}),
+    "I": StyleSpec("Italic", "Italic Angle", {"italic": 15.0}),
+    "C": StyleSpec("Text Color", "Text Color", {"color": "#E53935"}),
+    "S": StyleSpec("Font Size", "Font Size", {"fontSize": 24}),
+    "%": StyleSpec("Scale", "Scale", {"scale": 1.20}),
+    "F": StyleSpec("Font", "Font Family", {}),
+    "O": StyleSpec("Stroke", "Stroke", {"stroke": {"color": "#ffffff", "width": 0.07}}),
+    "G": StyleSpec("Glow", "Glow", {"glow": {"color": "#00ffff", "blur": 0.10}}),
+    "OS": StyleSpec("Outer Stroke", "Outer Stroke", {"outerStroke": {"color": "#000000", "width": 0.20}}),
+    "D": StyleSpec("Emphasis", "Emphasis", {"emphasis": True}),
+    "T": StyleSpec("TCY", "Vertical-in-Horizontal (TCY)", {}),
+    "R": StyleSpec("Ruby", "Ruby Text", {}),
+    "Rot": StyleSpec("Rotation", "Rotation", {"transform": {"rotation": 0.0}}),
+    "K": StyleSpec("Kerning", "Kerning", {"kerning": 0.0}),
+    "PK": StyleSpec("Pre Kerning", "Pre Kerning", {"preKerning": 0.0}),
+    "LK": StyleSpec("Line Kerning", "Line Kerning", {"lineKerning": 0.0}),
+    "NK": StyleSpec("Next Kerning", "Next Kerning", {"nextKerning": 0.0}),
+    "XY": StyleSpec("Offset", "X / Y Offset", {"transform": {"offsetX": 0.0, "offsetY": 0.0}}),
+    "M": StyleSpec("Mirror Horizontal", "Mirror Horizontal", {"transform": {"mirrorX": True}}),
+    "MV": StyleSpec("Mirror Vertical", "Mirror Vertical", {"transform": {"mirrorY": True}}),
 }
 
-STYLE_HINT_KEYS = {
-    "B": "Bold",
-    "I": "Italic Angle",
-    "C": "Text Color",
-    "S": "Font Size",
-    "%": "Scale",
-    "F": "Font Family",
-    "O": "Stroke",
-    "G": "Glow",
-    "OS": "Outer Stroke",
-    "D": "Emphasis",
-    "T": "Vertical-in-Horizontal (TCY)",
-    "R": "Ruby Text",
-    "Rot": "Rotation",
-    "K": "Kerning",
-    "PK": "Pre Kerning",
-    "LK": "Line Kerning",
-    "NK": "Next Kerning",
-    "XY": "X / Y Offset",
-    "M": "Mirror Horizontal",
-    "MV": "Mirror Vertical",
+STYLE_KEYS = tuple(STYLE_SPECS)
+
+# key -> (style field, color dialog title, default color, number field, number default)
+_EFFECT_SPECS = {
+    "O": ("stroke", "Select stroke color", "#ffffff", "width", 0.07),
+    "G": ("glow", "Select glow color", "#00ffff", "blur", 0.10),
+    "OS": ("outerStroke", "Select outer stroke color", "#000000", "width", 0.20),
 }
+
+
+def default_style_patch(key: str) -> dict:
+    if key == "F":
+        return {"fontFamily": QFont().family()}
+    spec = STYLE_SPECS.get(key)
+    return copy.deepcopy(spec.default_patch) if spec else {}
+
+
+def clear_style_patch(key: str) -> dict:
+    """Derive the removing patch from the default patch structure.
+
+    Top-level style fields clear as ``field: None``; ``transform`` clears its
+    individual sub-keys so sibling transform values survive.
+    """
+    return {
+        field: ({sub: None for sub in value} if field == "transform" else None)
+        for field, value in default_style_patch(key).items()
+    }
 
 
 class RichTextBodyEdit(TextEdit):
@@ -108,6 +131,10 @@ def _double_spin_box(value: float, minimum: float, maximum: float, decimals: int
     control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     control.setRange(minimum, maximum)
     control.setDecimals(decimals)
+    # 步进跟随精度：两位小数的量（缩放/字距/描边宽度）按 0.05 微调，
+    # 一位小数的量（角度/像素偏移)按 1 步进。
+    control.setSingleStep(0.05 if decimals >= 2 else 1.0)
+    control.setAccelerated(True)
     control.setValue(float(value))
     return control
 
@@ -117,69 +144,41 @@ def _spin_box(value: int, minimum: int, maximum: int) -> CompactSpinBox:
     control.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
     control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     control.setRange(minimum, maximum)
+    control.setAccelerated(True)
     control.setValue(int(value))
     return control
 
 
 class RichTextToolbar(QWidget):
+    """Grid of Fluent toggle buttons, one per style key."""
+
     toggled = pyqtSignal(str, bool)
 
-    BUTTONS = STYLE_KEYS
+    _COLUMNS = 8
 
-    def __init__(self, parent=None, i18n_func=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        from PyQt6.QtWidgets import QGridLayout
-
-        self._t = i18n_func or (lambda key, **_kwargs: key)
-
         layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setHorizontalSpacing(4)
         layout.setVerticalSpacing(4)
-        self.buttons: dict[str, QToolButton] = {}
-        for index, key in enumerate(self.BUTTONS):
-            button = QToolButton(self)
-            button.setText(key)
-            button.setCheckable(True)
-            button.setFixedSize(34, 30)
-            button.setIconSize(QSize(14, 14))
+        self.buttons: dict[str, TogglePushButton] = {}
+        for index, key in enumerate(STYLE_KEYS):
+            button = TogglePushButton(key, self)
+            button.setFixedSize(48, 30)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(
                 lambda checked=False, style_key=key: self.toggled.emit(style_key, checked)
             )
-            layout.addWidget(button, index // 10, index % 10)
+            layout.addWidget(button, index // self._COLUMNS, index % self._COLUMNS)
             self.buttons[key] = button
-        self.refresh_theme()
         self.refresh_ui_texts()
 
     def refresh_ui_texts(self) -> None:
         for key, button in self.buttons.items():
-            text = self._t(STYLE_HINT_KEYS[key])
+            text = _tr(STYLE_SPECS[key].hint)
             set_hover_hint(button, text)
             button.setAccessibleName(text)
-
-    def refresh_theme(self) -> None:
-        dark = isDarkTheme()
-        accent = QColor(themeColor())
-        accent_hover = QColor(accent).lighter(110 if dark else 106)
-        accent_pressed = QColor(accent).darker(108)
-        text = "rgba(255,255,255,230)" if dark else "rgba(0,0,0,220)"
-        background = "rgba(255,255,255,13)" if dark else "rgba(255,255,255,235)"
-        border = "rgba(255,255,255,24)" if dark else "rgba(0,0,0,28)"
-        hover = "rgba(255,255,255,20)" if dark else "rgba(0,0,0,10)"
-        self.setStyleSheet(f"""
-            QToolButton {{
-                color: {text}; background: {background}; border: 1px solid {border};
-                border-radius: 6px; font-size: 13px; font-weight: 600;
-            }}
-            QToolButton:hover {{ background: {hover}; }}
-            QToolButton:pressed {{ background: rgba(128,128,128,32); }}
-            QToolButton:checked {{
-                color: white; background: {accent.name()}; border-color: {accent.name()};
-            }}
-            QToolButton:checked:hover {{ background: {accent_hover.name()}; }}
-            QToolButton:checked:pressed {{ background: {accent_pressed.name()}; }}
-        """)
 
     def set_checked(self, key: str, checked: bool) -> None:
         button = self.buttons.get(key)
@@ -188,7 +187,7 @@ class RichTextToolbar(QWidget):
 
 
 class RichTextPresetSidebar(QWidget):
-    """Collapsible preset list used by the floating rich-text editor."""
+    """Collapsible saved-preset list; the floating editor owns the payloads."""
 
     preset_applied = pyqtSignal(str)
     rename_requested = pyqtSignal(str)
@@ -198,14 +197,11 @@ class RichTextPresetSidebar(QWidget):
     EXPANDED_WIDTH = 248
     COLLAPSED_WIDTH = 38
 
-    def __init__(self, i18n_func=None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._t = i18n_func or (lambda key, **_kwargs: key)
-        self._presets: dict[str, dict] = {}
+        self._names: list[str] = []
         self._collapsed = False
-        self.setObjectName("richTextPresetSidebar")
         self.setFixedWidth(self.EXPANDED_WIDTH)
-        self.refresh_theme()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -214,56 +210,32 @@ class RichTextPresetSidebar(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(4)
-        self.title = CaptionLabel(self._t("Rich Text Presets"), self)
+        self.title = CaptionLabel(_tr("Rich Text Presets"), self)
         self.title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.toggle_button = TransparentToolButton(FIF.CARE_LEFT_SOLID, self)
         self.toggle_button.setFixedSize(26, 28)
-        self.toggle_button.setObjectName("richTextPresetAction")
         self.toggle_button.clicked.connect(self._toggle_collapsed)
         header.addWidget(self.title, 1)
         header.addWidget(self.toggle_button)
         root.addLayout(header)
 
-        self.scroll = QScrollArea(self)
+        self.scroll = ScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self.scroll.enableTransparentBackground()
         self.content = QWidget(self.scroll)
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(5)
-        self.empty_label = CaptionLabel(self._t("No saved styles"), self.content)
-        self.empty_label.setWordWrap(True)
-        self.content_layout.addWidget(self.empty_label)
-        self.content_layout.addStretch(1)
         self.scroll.setWidget(self.content)
         root.addWidget(self.scroll, 1)
+
+        self._rebuild_rows()
         self._refresh_toggle_state(emit=False)
 
-    def presets(self) -> dict[str, dict]:
-        return copy.deepcopy(self._presets)
-
-    def set_presets(self, presets: dict | None) -> None:
-        self._presets = {
-            str(name): copy.deepcopy(value)
-            for name, value in (presets or {}).items()
-            if str(name).strip() and isinstance(value, dict)
-        }
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        if not self._presets:
-            self.empty_label = CaptionLabel(self._t("No saved styles"), self.content)
-            self.empty_label.setWordWrap(True)
-            self.content_layout.addWidget(self.empty_label)
-        else:
-            self.empty_label = None
-            for name in self._presets:
-                self.content_layout.addWidget(self._create_preset_row(name))
-        self.content_layout.addStretch(1)
+    def set_presets(self, names: Iterable[str] | None) -> None:
+        self._names = [str(name) for name in (names or ()) if str(name).strip()]
+        self._rebuild_rows()
 
     def set_collapsed(self, collapsed: bool, *, emit: bool = True) -> None:
         collapsed = bool(collapsed)
@@ -277,19 +249,24 @@ class RichTextPresetSidebar(QWidget):
         return self._collapsed
 
     def refresh_ui_texts(self) -> None:
-        self.title.setText(self._t("Rich Text Presets"))
-        self.set_presets(self._presets)
+        self.title.setText(_tr("Rich Text Presets"))
+        self._rebuild_rows()
         self._refresh_toggle_state(emit=False)
 
-    def refresh_theme(self) -> None:
-        dark = isDarkTheme()
-        background = "rgba(32,32,32,245)" if dark else "rgba(249,249,249,245)"
-        border = "rgba(255,255,255,22)" if dark else "rgba(0,0,0,20)"
-        self.setStyleSheet(f"""
-            QWidget#richTextPresetSidebar {{
-                background: {background}; border-left: 1px solid {border};
-            }}
-        """)
+    def _rebuild_rows(self) -> None:
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        if not self._names:
+            empty = CaptionLabel(_tr("No saved styles"), self.content)
+            empty.setWordWrap(True)
+            self.content_layout.addWidget(empty)
+        else:
+            for name in self._names:
+                self.content_layout.addWidget(self._create_preset_row(name))
+        self.content_layout.addStretch(1)
 
     def _create_preset_row(self, name: str) -> QWidget:
         row = QWidget(self.content)
@@ -298,24 +275,21 @@ class RichTextPresetSidebar(QWidget):
         layout.setSpacing(3)
 
         apply_button = PushButton(name, row)
-        apply_button.setObjectName("richTextPresetItem")
         apply_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        set_hover_hint(apply_button, self._t("Choose a saved style to apply"))
-        apply_button.setAccessibleName(self._t("Choose a saved style to apply"))
+        set_hover_hint(apply_button, _tr("Choose a saved style to apply"))
+        apply_button.setAccessibleName(_tr("Choose a saved style to apply"))
         apply_button.clicked.connect(lambda _checked=False, preset_name=name: self.preset_applied.emit(preset_name))
 
         rename_button = TransparentToolButton(FIF.EDIT, row)
-        rename_button.setObjectName("richTextPresetAction")
         rename_button.setFixedSize(24, 28)
-        set_hover_hint(rename_button, self._t("Rename preset"))
-        rename_button.setAccessibleName(self._t("Rename preset"))
+        set_hover_hint(rename_button, _tr("Rename preset"))
+        rename_button.setAccessibleName(_tr("Rename preset"))
         rename_button.clicked.connect(lambda _checked=False, preset_name=name: self.rename_requested.emit(preset_name))
 
         delete_button = TransparentToolButton(FIF.DELETE, row)
-        delete_button.setObjectName("richTextPresetAction")
         delete_button.setFixedSize(24, 28)
-        set_hover_hint(delete_button, self._t("Delete preset"))
-        delete_button.setAccessibleName(self._t("Delete preset"))
+        set_hover_hint(delete_button, _tr("Delete preset"))
+        delete_button.setAccessibleName(_tr("Delete preset"))
         delete_button.clicked.connect(lambda _checked=False, preset_name=name: self.delete_requested.emit(preset_name))
 
         layout.addWidget(apply_button, 1)
@@ -333,7 +307,7 @@ class RichTextPresetSidebar(QWidget):
         self.toggle_button.setIcon(
             FIF.CARE_RIGHT_SOLID if self._collapsed else FIF.CARE_LEFT_SOLID
         )
-        hint = self._t("Expand preset sidebar") if self._collapsed else self._t("Collapse preset sidebar")
+        hint = _tr("Expand preset sidebar") if self._collapsed else _tr("Collapse preset sidebar")
         set_hover_hint(self.toggle_button, hint)
         self.toggle_button.setAccessibleName(hint)
         if emit:
@@ -346,13 +320,12 @@ class RubyEditBar(QWidget):
     editing_started = pyqtSignal()
     text_changed = pyqtSignal(str)
 
-    def __init__(self, text: str = "", parent=None, i18n_func=None):
+    def __init__(self, text: str = "", parent=None):
         super().__init__(parent)
-        self._t = i18n_func or (lambda key, **_kwargs: key)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        self.input = QLineEdit(self)
+        self.input = LineEdit(self)
         self.input.setText(str(text or ""))
         self.input.installEventFilter(self)
         self.apply_button = PushButton(self)
@@ -366,9 +339,9 @@ class RubyEditBar(QWidget):
         self.refresh_ui_texts()
 
     def refresh_ui_texts(self) -> None:
-        self.input.setPlaceholderText(self._t("Ruby text"))
-        self.apply_button.setText(self._t("Apply"))
-        self.apply_button.setAccessibleName(self._t("Apply"))
+        self.input.setPlaceholderText(_tr("Ruby text"))
+        self.apply_button.setText(_tr("Apply"))
+        self.apply_button.setAccessibleName(_tr("Apply"))
 
     def eventFilter(self, watched, event):
         if watched is self.input and event.type() == QEvent.Type.FocusIn:
@@ -412,11 +385,25 @@ def style_keys_for_segment(segment: StyledTextSegment, forced_keys: Iterable[str
     return [key for key in STYLE_KEYS if present.get(key)]
 
 
-class StyleRunCard(QWidget):
-    activated = pyqtSignal(int, int)
+# ``StyleRunCard`` signals are re-emitted 1:1 by ``StyledRunList``.
+RUN_CARD_SIGNALS = (
+    "range_selected",
+    "patch_requested",
+    "remove_requested",
+    "save_preset_requested",
+    "clear_styles_requested",
+    "ruby_started",
+    "ruby_apply_requested",
+    "ruby_finished",
+    "ruby_changed",
+)
+
+
+class StyleRunCard(SimpleCardWidget):
+    range_selected = pyqtSignal(int, int)
     patch_requested = pyqtSignal(int, int, str, object)
     remove_requested = pyqtSignal(int, int, str)
-    save_preset_requested = pyqtSignal(int, int, object)
+    save_preset_requested = pyqtSignal(int, int)
     clear_styles_requested = pyqtSignal(int, int)
     ruby_started = pyqtSignal(int, int, str)
     ruby_apply_requested = pyqtSignal(int, int, str)
@@ -426,8 +413,6 @@ class StyleRunCard(QWidget):
     def __init__(
         self,
         segment: StyledTextSegment,
-        config_service,
-        i18n_func,
         *,
         forced_keys: Iterable[str] = (),
         ruby_draft_text: str | None = None,
@@ -435,15 +420,12 @@ class StyleRunCard(QWidget):
     ):
         super().__init__(parent)
         self.segment = segment
-        self.config_service = config_service
-        self.i18n_func = i18n_func
         self.keys = style_keys_for_segment(segment, forced_keys)
         self.controls: dict[str, QWidget] = {}
         self.name_labels: dict[str, CaptionLabel] = {}
-        self.setObjectName("richTextRunCard")
-        self.refresh_theme()
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(5)
         header_row = QWidget(self)
         header_layout = QHBoxLayout(header_row)
@@ -451,33 +433,28 @@ class StyleRunCard(QWidget):
         header_layout.setSpacing(5)
 
         self.header = PushButton(segment.text, header_row)
-        self.header.setObjectName("runHeader")
         self.header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.header.clicked.connect(lambda: self.activated.emit(segment.start, segment.end))
+        self.header.clicked.connect(lambda: self.range_selected.emit(segment.start, segment.end))
         save_preset = ToolButton(FIF.ADD, header_row)
-        save_preset.setObjectName("savePreset")
         save_preset.setFixedSize(28, 30)
-        set_hover_hint(save_preset, self.i18n_func("Save Style"))
-        save_preset.setAccessibleName(self.i18n_func("Save Style"))
+        set_hover_hint(save_preset, _tr("Save Style"))
+        save_preset.setAccessibleName(_tr("Save Style"))
         clear_styles = ToolButton(FIF.REMOVE, header_row)
-        clear_styles.setObjectName("clearStyles")
         clear_styles.setFixedSize(28, 30)
-        set_hover_hint(clear_styles, self.i18n_func("Clear all styles from this text"))
-        clear_styles.setAccessibleName(self.i18n_func("Clear all styles from this text"))
+        set_hover_hint(clear_styles, _tr("Clear all styles from this text"))
+        clear_styles.setAccessibleName(_tr("Clear all styles from this text"))
         header_layout.addWidget(self.header, 1)
         header_layout.addWidget(save_preset)
         header_layout.addWidget(clear_styles)
         layout.addWidget(header_row)
 
+        # The floating editor reads the live document when these fire, so the
+        # card never snapshots its style payload (it would go stale after
+        # in-place spin-box edits).
         target_start, target_end = self._target_range()
-        preset_payload = {
-            "style": copy.deepcopy(segment.style or {}),
-            "ruby": str(segment.ruby_text or "") if segment.node_type == "ruby" else "",
-            "tcy": segment.node_type == "tcy",
-        }
         save_preset.clicked.connect(
-            lambda _checked=False, a=target_start, b=target_end, payload=preset_payload:
-            self.save_preset_requested.emit(a, b, copy.deepcopy(payload))
+            lambda _checked=False, a=target_start, b=target_end:
+            self.save_preset_requested.emit(a, b)
         )
         clear_styles.clicked.connect(
             lambda _checked=False, a=target_start, b=target_end:
@@ -499,16 +476,17 @@ class StyleRunCard(QWidget):
 
     def _create_property_row(self, key: str, ruby_draft_text: str | None) -> QWidget:
         row = QWidget(self)
-        row.setObjectName("richTextPropertyRow")
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(5, 3, 5, 3)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
         key_label = CaptionLabel(key)
-        key_label.setObjectName("styleKey")
+        key_font = key_label.font()
+        key_font.setBold(True)
+        key_label.setFont(key_font)
         key_label.setFixedWidth(30 if len(key) <= 2 else 38)
         key_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        name_label = CaptionLabel(self.i18n_func(STYLE_NAME_KEYS[key]), row)
-        name_label.setObjectName("styleName")
+        name_label = CaptionLabel(_tr(STYLE_SPECS[key].name), row)
+        name_label.setTextColor(QColor(0, 0, 0, 150), QColor(255, 255, 255, 158))
         name_label.setMinimumWidth(84)
         name_label.setMaximumWidth(116)
         name_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
@@ -521,11 +499,11 @@ class StyleRunCard(QWidget):
             lambda _checked=False, a=start, b=end, style_key=key:
             self.remove_requested.emit(a, b, style_key)
         )
-        hint = self.i18n_func(STYLE_HINT_KEYS[key])
+        hint = _tr(STYLE_SPECS[key].hint)
         set_hover_hint(key_label, hint)
         set_hover_hint(name_label, hint)
-        set_hover_hint(remove, self.i18n_func("Remove this style"))
-        remove.setAccessibleName(self.i18n_func("Remove this style"))
+        set_hover_hint(remove, _tr("Remove this style"))
+        remove.setAccessibleName(_tr("Remove this style"))
         layout.addWidget(key_label)
         layout.addWidget(name_label)
         if control is None:
@@ -570,17 +548,9 @@ class StyleRunCard(QWidget):
                 lambda _index: self._emit_patch(key, {"fontFamily": control.currentFont().family()})
             )
             return control
-        if key in {"O", "G", "OS"}:
-            source = {"O": "stroke", "G": "glow", "OS": "outerStroke"}[key]
+        if key in _EFFECT_SPECS:
+            source, color_title, color_default, number_key, number_default = _EFFECT_SPECS[key]
             values = style.get(source) or {}
-            color_default = {"O": "#ffffff", "G": "#00ffff", "OS": "#000000"}[key]
-            number_key = "blur" if key == "G" else "width"
-            number_default = {"O": 0.07, "G": 0.10, "OS": 0.20}[key]
-            color_title = {
-                "O": "Select stroke color",
-                "G": "Select glow color",
-                "OS": "Select outer stroke color",
-            }[key]
             color = self._color_picker(
                 color_title,
                 values.get("color", color_default),
@@ -597,12 +567,12 @@ class StyleRunCard(QWidget):
             return self._pair(
                 color,
                 number,
-                self.i18n_func("Color"),
-                self.i18n_func("Blur" if key == "G" else "Width"),
+                _tr("Color"),
+                _tr("Blur" if key == "G" else "Width"),
             )
         if key == "R":
             text = self.segment.ruby_text if ruby_draft_text is None else ruby_draft_text
-            control = RubyEditBar(text, self, self.i18n_func)
+            control = RubyEditBar(text, self)
             start, end = self._target_for_key(key)
             control.editing_started.connect(lambda: self.ruby_started.emit(start, end, control.text()))
             control.apply_requested.connect(lambda value: self.ruby_apply_requested.emit(start, end, value))
@@ -639,8 +609,8 @@ class StyleRunCard(QWidget):
             dialog_title=title,
             default_color=str(default),
             config_key=config_key,
-            config_service=self.config_service,
-            i18n_func=self.i18n_func,
+            config_service=get_config_service(),
+            i18n_func=_tr,
             parent=self,
         )
 
@@ -658,32 +628,12 @@ class StyleRunCard(QWidget):
     def _emit_patch(self, key: str, patch: dict) -> None:
         self.patch_requested.emit(self.segment.start, self.segment.end, key, patch)
 
-    def refresh_theme(self) -> None:
-        for picker in self.findChildren(ColorPickerWidget):
-            picker.refresh_theme()
-        dark = isDarkTheme()
-        card_background = "rgba(39,39,39,248)" if dark else "rgba(250,250,250,248)"
-        row_background = "rgba(255,255,255,10)" if dark else "rgba(255,255,255,235)"
-        border = "rgba(255,255,255,24)" if dark else "rgba(0,0,0,24)"
-        key_color = "rgba(255,255,255,230)" if dark else "rgba(0,0,0,220)"
-        name_color = "rgba(255,255,255,158)" if dark else "rgba(0,0,0,150)"
-        self.setStyleSheet(f"""
-            QWidget#richTextRunCard {{
-                background: {card_background}; border: 1px solid {border}; border-radius: 9px;
-            }}
-            QWidget#richTextPropertyRow {{
-                background: {row_background}; border: 1px solid {border}; border-radius: 5px;
-            }}
-            CaptionLabel#styleKey {{ color: {key_color}; font-weight: 700; border: none; }}
-            CaptionLabel#styleName {{ color: {name_color}; border: none; }}
-        """)
 
-
-class StyledRunList(QScrollArea):
+class StyledRunList(ScrollArea):
     range_selected = pyqtSignal(int, int)
     patch_requested = pyqtSignal(int, int, str, object)
     remove_requested = pyqtSignal(int, int, str)
-    save_preset_requested = pyqtSignal(int, int, object)
+    save_preset_requested = pyqtSignal(int, int)
     clear_styles_requested = pyqtSignal(int, int)
     ruby_started = pyqtSignal(int, int, str)
     ruby_apply_requested = pyqtSignal(int, int, str)
@@ -693,16 +643,14 @@ class StyledRunList(QScrollArea):
     MIN_VISIBLE_HEIGHT = 52
     MAX_VISIBLE_HEIGHT = 360
 
-    def __init__(self, config_service, i18n_func, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.config_service = config_service
-        self.i18n_func = i18n_func
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(0)
-        self.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self.enableTransparentBackground()
         self.content = QWidget(self)
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(0, 0, 0, 0)
@@ -710,10 +658,8 @@ class StyledRunList(QScrollArea):
         self.setWidget(self.content)
         self.run_cards: list[StyleRunCard] = []
         self._content_height = 0
+        self._cards_signature: tuple = ()
         self.hide()
-
-    def content_height(self) -> int:
-        return self._content_height
 
     def set_segments(
         self,
@@ -721,6 +667,7 @@ class StyledRunList(QScrollArea):
         *,
         ruby_draft: tuple[int, int, str, str] | None = None,
         pending_styles: tuple[int, int, str, Iterable[str]] | None = None,
+        allow_reuse: bool = False,
     ) -> None:
         values = list(segments)
         forced_by_range: dict[tuple[int, int], set[str]] = {}
@@ -754,6 +701,37 @@ class StyledRunList(QScrollArea):
             target = ensure_forced_target(start, end, base_text, {"R"})
             draft_text_by_range[target] = ruby_text
 
+        plans: list[tuple[StyledTextSegment, set[str], str | None]] = []
+        forced_assigned: set[tuple[int, int]] = set()
+        for segment in values:
+            node_target = (segment.node_start, segment.node_end)
+            own_target = (segment.start, segment.end)
+            matched_target = node_target if node_target in forced_by_range else own_target
+            forced: set[str] = set()
+            draft_text = None
+            if matched_target in forced_by_range and matched_target not in forced_assigned:
+                forced = forced_by_range[matched_target]
+                draft_text = draft_text_by_range.get(matched_target)
+                forced_assigned.add(matched_target)
+            plans.append((segment, forced, draft_text))
+
+        # Card layout identity: everything except style *values*.  When only a
+        # value changed (spin box, color swatch), the existing controls already
+        # display it — rebuilding them mid-interaction would tear the widget
+        # out from under the user's cursor and break spin auto-repeat.
+        signature = tuple(
+            (
+                segment.start, segment.end, segment.text,
+                segment.node_type, segment.ruby_text,
+                segment.node_start, segment.node_end,
+                tuple(style_keys_for_segment(segment, forced)),
+            )
+            for segment, forced, _draft in plans
+        )
+        if allow_reuse and self.run_cards and signature == self._cards_signature:
+            return
+        self._cards_signature = signature
+
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             widget = item.widget()
@@ -761,34 +739,15 @@ class StyledRunList(QScrollArea):
                 widget.setParent(None)
                 widget.deleteLater()
         self.run_cards = []
-        forced_assigned: set[tuple[int, int]] = set()
-        for segment in values:
-            node_target = (segment.node_start, segment.node_end)
-            own_target = (segment.start, segment.end)
-            matched_target = node_target if node_target in forced_by_range else own_target
-            forced = set()
-            draft_text = None
-            if matched_target in forced_by_range and matched_target not in forced_assigned:
-                forced = forced_by_range[matched_target]
-                draft_text = draft_text_by_range.get(matched_target)
-                forced_assigned.add(matched_target)
+        for segment, forced, draft_text in plans:
             card = StyleRunCard(
                 segment,
-                self.config_service,
-                self.i18n_func,
                 forced_keys=forced,
                 ruby_draft_text=draft_text,
                 parent=self.content,
             )
-            card.activated.connect(self.range_selected)
-            card.patch_requested.connect(self.patch_requested)
-            card.remove_requested.connect(self.remove_requested)
-            card.save_preset_requested.connect(self.save_preset_requested)
-            card.clear_styles_requested.connect(self.clear_styles_requested)
-            card.ruby_started.connect(self.ruby_started)
-            card.ruby_apply_requested.connect(self.ruby_apply_requested)
-            card.ruby_finished.connect(self.ruby_finished)
-            card.ruby_changed.connect(self.ruby_changed)
+            for signal_name in RUN_CARD_SIGNALS:
+                getattr(card, signal_name).connect(getattr(self, signal_name))
             self.content_layout.addWidget(card)
             self.run_cards.append(card)
         self.setVisible(bool(values))

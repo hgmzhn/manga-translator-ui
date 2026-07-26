@@ -578,10 +578,16 @@ class RichTextRulesEditorPanel(CardWidget):
 
     def _style_button(self, table: TableWidget, row: int, style: dict) -> PushButton:
         button = PushButton(_style_summary(style, self._t("Edit Style")))
-        button.setProperty("richStyle", copy.deepcopy(style))
+        self._set_button_style(button, style)
         button.clicked.connect(lambda checked=False, target=button: self._edit_style(target))
         table.setCellWidget(row, self.COL_STYLE, button)
         return button
+
+    @staticmethod
+    def _set_button_style(button: PushButton, style: dict) -> None:
+        """样式与它的搜索文本一起缓存，过滤时不再逐行序列化 JSON。"""
+        button.setProperty("richStyle", copy.deepcopy(style))
+        button.setProperty("styleHaystack", json.dumps(style, ensure_ascii=False).lower())
 
     def _insert(self, table: TableWidget, rule: dict, row: int | None = None):
         row = table.rowCount() if row is None else row
@@ -596,7 +602,7 @@ class RichTextRulesEditorPanel(CardWidget):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             table.setItem(row, column, item)
         editor_style = copy.deepcopy(rule.get("style") or {})
-        ruby = rule.get("ruby", "")
+        ruby = rule.get("ruby") or ""
         if isinstance(ruby, str) and ruby:
             editor_style["ruby"] = ruby
         if rule.get("tcy", False):
@@ -750,20 +756,20 @@ class RichTextRulesEditorPanel(CardWidget):
         dialog = RichTextStyleDialog(button.property("richStyle") or {}, self._t, self)
         if dialog.exec() == DialogCode.Accepted:
             style = dialog.style()
-            button.setProperty("richStyle", style)
+            self._set_button_style(button, style)
             button.setText(_style_summary(style, self._t("Edit Style")))
             self._changed()
 
     def _filter(self, text: str):
+        # 样式(含 ruby/tcy)的搜索文本在设置样式时已缓存到按钮属性，
+        # 每次按键只做字符串拼接与包含判断。
         query = text.strip().lower()
         for table in self.tables.values():
             for row in range(table.rowCount()):
-                rule = self._row_data(table, row)
                 haystack = " ".join((
-                    rule["pattern"],
-                    rule["comment"],
-                    rule["ruby"],
-                    json.dumps(rule["style"], ensure_ascii=False),
+                    table.item(row, self.COL_PATTERN).text(),
+                    table.item(row, self.COL_COMMENT).text(),
+                    str(table.cellWidget(row, self.COL_STYLE).property("styleHaystack") or ""),
                 )).lower()
                 table.setRowHidden(row, bool(query and query not in haystack))
 

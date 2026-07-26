@@ -93,7 +93,8 @@ def _compile_rule(rule: dict) -> Optional[dict]:
     except (TypeError, ValueError, re.error) as exc:
         logger.warning("富文本规则编译失败: pattern=%r error=%s", pattern, exc)
         return None
-    ruby = rule.get("ruby", "")
+    # ``ruby: null``（YAML 空值）等价于没有注音，而不是整条规则非法。
+    ruby = rule.get("ruby") or ""
     if not isinstance(ruby, str):
         logger.warning("富文本规则编译失败: pattern=%r ruby 必须是字符串", pattern)
         return None

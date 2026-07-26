@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterable
 
 from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
-from qfluentwidgets import SimpleCardWidget
+from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor
+from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
+from qfluentwidgets import SimpleCardWidget, VerticalSeparator, themeColor
 
 from editor.rich_text_editing import (
     apply_ruby_to_range,
     apply_style_to_range,
     apply_tcy_to_range,
     clear_styles_from_range,
-    normalize_text_style,
     remove_ruby_from_range,
     remove_tcy_from_range,
     style_for_range,
@@ -21,14 +21,20 @@ from editor.rich_text_editing import (
     utf16_range_to_python_range,
 )
 from editor.rich_text_editor_state import RichTextEditorState
+from editor.rich_text_presets import RichTextPresetStore, normalize_rich_text_preset
 from services import get_config_service, get_i18n_manager
+from ui.secondary_pages.themed_message_box import themed_critical, themed_question, themed_warning
+from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 
+from .color_picker import ColorPickerWidget
 from .rich_text_editor_components import (
     STYLE_KEYS,
     RichTextBodyEdit,
     RichTextPresetSidebar,
     RichTextToolbar,
     StyledRunList,
+    clear_style_patch,
+    default_style_patch,
 )
 
 
@@ -66,6 +72,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._state = RichTextEditorState()
         self._updating = False
         self._applying_own_change = False
+        self._inspector_reuse_cards = False
         self._dragging = False
         self._drag_offset = QPoint()
         self._manually_positioned = False
@@ -85,7 +92,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
 
         self.i18n = get_i18n_manager()
         self.config_service = get_config_service()
-        self._rich_text_presets_memory: dict[str, dict] = {}
+        self._preset_store = RichTextPresetStore(self.config_service)
 
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -105,17 +112,19 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.text_box.setUndoRedoEnabled(True)
         layout.addWidget(self.text_box)
 
-        self.toolbar = RichTextToolbar(self.main_panel, self._t)
+        self.toolbar = RichTextToolbar(self.main_panel)
         self.toolbar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.toolbar)
 
         # One card per actual contiguous run; every property is its own row.
-        self.run_list = StyledRunList(self.config_service, self._t, self.main_panel)
+        self.run_list = StyledRunList(self.main_panel)
         layout.addWidget(self.run_list)
 
-        self.preset_sidebar = RichTextPresetSidebar(self._t, self)
+        self.preset_sidebar = RichTextPresetSidebar(self)
         self.preset_sidebar.setFixedHeight(self.minimumHeight())
+        self._sidebar_separator = VerticalSeparator(self)
         root_layout.addWidget(self.main_panel)
+        root_layout.addWidget(self._sidebar_separator)
         root_layout.addWidget(self.preset_sidebar)
         self._sync_window_width_to_sidebar()
         self._refresh_preset_sidebar()
@@ -195,11 +204,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
             self._queue_layout_refresh()
 
     def refresh_theme(self) -> None:
-        """Refresh custom surfaces while Fluent controls follow the app theme."""
-        self.toolbar.refresh_theme()
-        self.preset_sidebar.refresh_theme()
-        for card in self.run_list.run_cards:
-            card.refresh_theme()
+        """Fluent controls restyle themselves; push the change to color swatches."""
+        for picker in self.findChildren(ColorPickerWidget):
+            picker.refresh_theme()
         self.update()
 
     # ------------------------------------------------------------------
@@ -285,7 +292,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
         selection = QTextEdit.ExtraSelection()
         selection.cursor = cursor
         selection.format = QTextCharFormat()
-        selection.format.setBackground(QColor(80, 145, 255, 70))
+        highlight = QColor(themeColor())
+        highlight.setAlpha(70)
+        selection.format.setBackground(highlight)
         self.text_box.setExtraSelections([selection])
 
     # ------------------------------------------------------------------
@@ -297,8 +306,13 @@ class RichTextFloatingEditor(SimpleCardWidget):
             return
         start, end = self._state.selected_range
         if start == end:
-            self._refresh_inspector()
-            return
+            # 未选中 = 作用于全文：先把选区扩到全文再走正常流程，
+            # 与查询侧「空选区显示全文概览」的语义对齐。
+            self._select_python_range(0, len(self._state.editor_text))
+            start, end = self._state.selected_range
+            if start == end:  # 空文本
+                self._refresh_inspector()
+                return
         if key == "R":
             if checked:
                 existing = str(style_for_range(self._state.document, start, end).get("rubyText") or "")
@@ -317,7 +331,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
             )
             self._commit_document(document)
             return
-        patch = self._default_patch(key) if checked else self._clear_patch(key)
+        patch = default_style_patch(key) if checked else clear_style_patch(key)
         if not patch:
             return
         if not checked and self._state.discard_pending_style(key, start, end):
@@ -334,42 +348,6 @@ class RichTextFloatingEditor(SimpleCardWidget):
             return
         self._apply_style_to_explicit_range(start, end, key, patch)
 
-    @staticmethod
-    def _default_patch(key: str) -> dict:
-        return {
-            "B": {"bold": True},
-            "I": {"italic": 15.0},
-            "C": {"color": "#E53935"},
-            "S": {"fontSize": 24},
-            "%": {"scale": 1.20},
-            "F": {"fontFamily": QFont().family()},
-            "O": {"stroke": {"color": "#ffffff", "width": 0.07}},
-            "G": {"glow": {"color": "#00ffff", "blur": 0.10}},
-            "OS": {"outerStroke": {"color": "#000000", "width": 0.20}},
-            "D": {"emphasis": True},
-            "Rot": {"transform": {"rotation": 0.0}},
-            "K": {"kerning": 0.0},
-            "PK": {"preKerning": 0.0},
-            "LK": {"lineKerning": 0.0},
-            "NK": {"nextKerning": 0.0},
-            "XY": {"transform": {"offsetX": 0.0, "offsetY": 0.0}},
-            "M": {"transform": {"mirrorX": True}},
-            "MV": {"transform": {"mirrorY": True}},
-        }.get(key, {})
-
-    @staticmethod
-    def _clear_patch(key: str) -> dict:
-        return {
-            "B": {"bold": None}, "I": {"italic": None}, "C": {"color": None},
-            "S": {"fontSize": None}, "%": {"scale": None}, "F": {"fontFamily": None},
-            "O": {"stroke": None}, "G": {"glow": None}, "OS": {"outerStroke": None},
-            "D": {"emphasis": None}, "Rot": {"transform": {"rotation": None}},
-            "K": {"kerning": None}, "PK": {"preKerning": None},
-            "LK": {"lineKerning": None}, "NK": {"nextKerning": None},
-            "XY": {"transform": {"offsetX": None, "offsetY": None}},
-            "M": {"transform": {"mirrorX": None}}, "MV": {"transform": {"mirrorY": None}},
-        }.get(key, {})
-
     def _apply_style_to_explicit_range(
         self,
         start: int,
@@ -381,7 +359,14 @@ class RichTextFloatingEditor(SimpleCardWidget):
             return
         self._state.discard_pending_style(key, start, end)
         document = apply_style_to_range(self._state.document, start, end, patch)
-        self._commit_document(document)
+        # The emitting control already shows the new value; let the run list
+        # keep its widgets when only values changed (spin arrows would vanish
+        # mid auto-repeat if the box under the cursor were rebuilt).
+        self._inspector_reuse_cards = True
+        try:
+            self._commit_document(document)
+        finally:
+            self._inspector_reuse_cards = False
 
     def _remove_style_from_explicit_range(self, start: int, end: int, key: str) -> None:
         if self._updating or not self._state.has_region or start >= end:
@@ -395,7 +380,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         elif key == "T":
             document = remove_tcy_from_range(self._state.document, start, end)
         else:
-            patch = self._clear_patch(key)
+            patch = clear_style_patch(key)
             if not patch:
                 return
             document = apply_style_to_range(self._state.document, start, end, patch)
@@ -405,43 +390,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
     # Rich-text presets and whole-run clearing
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _normalize_rich_text_preset(payload: object) -> dict | None:
-        if not isinstance(payload, dict):
-            return None
-        try:
-            style = normalize_text_style(payload.get("style") or {})
-        except (TypeError, ValueError):
-            return None
-        ruby = payload.get("ruby", "")
-        if not isinstance(ruby, str):
-            return None
-        tcy = bool(payload.get("tcy", False))
-        if not style and not ruby and not tcy:
-            return None
-        return {
-            "style": style,
-            "ruby": ruby,
-            "tcy": tcy,
-        }
-
-    def _saved_rich_text_presets(self) -> dict[str, dict]:
-        if self.config_service is None:
-            return copy.deepcopy(self._rich_text_presets_memory)
-        config_ref = self.config_service.get_config_reference()
-        raw = getattr(getattr(config_ref, "app", None), "saved_rich_text_presets", None)
-        if not isinstance(raw, dict):
-            return {}
-        presets: dict[str, dict] = {}
-        for name, payload in raw.items():
-            normalized = self._normalize_rich_text_preset(payload)
-            clean_name = str(name).strip()
-            if clean_name and normalized is not None:
-                presets[clean_name] = normalized
-        return presets
-
     def _refresh_preset_sidebar(self) -> None:
-        self.preset_sidebar.set_presets(self._saved_rich_text_presets())
+        self.preset_sidebar.set_presets(self._preset_store.load())
         self._queue_layout_refresh()
 
     def _persist_rich_text_presets(
@@ -449,102 +399,98 @@ class RichTextFloatingEditor(SimpleCardWidget):
         presets: dict[str, dict],
         previous: dict[str, dict],
     ) -> bool:
-        from PyQt6.QtWidgets import QMessageBox
-
-        if self.config_service is None:
-            self._rich_text_presets_memory = copy.deepcopy(presets)
+        if self._preset_store.save_all(presets, previous):
             self.preset_sidebar.set_presets(presets)
             return True
-        config_ref = self.config_service.get_config_reference()
-        config_ref.app.saved_rich_text_presets = copy.deepcopy(presets) or None
-        if self.config_service.save_config_file():
-            self.preset_sidebar.set_presets(presets)
-            return True
-        config_ref.app.saved_rich_text_presets = copy.deepcopy(previous) or None
-        QMessageBox.critical(self, self._t("Error"), self._t("Failed to save style preset"))
+        themed_critical(self, self._t("Error"), self._t("Failed to save style preset"))
         return False
 
-    def _save_preset_from_explicit_range(
+    def _confirm(self, title: str, text: str) -> bool:
+        reply = themed_question(self, title, text, default_button=QMessageBox.StandardButton.No)
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _prompt_preset_name(
         self,
-        start: int,
-        end: int,
-        payload: object,
-    ) -> None:
-        if self._updating or not self._state.has_region or start >= end:
-            return
-        preset = self._normalize_rich_text_preset(payload)
-        if preset is None:
-            return
-
-        from PyQt6.QtWidgets import QMessageBox
-        from ui.secondary_pages.themed_text_input_dialog import themed_get_text
-
-        self._select_python_range(start, end)
-        current = self._saved_rich_text_presets()
-        default_name = f"{self._t('Rich Text Preset')} {len(current) + 1}"
+        *,
+        title: str,
+        label: str,
+        initial: str,
+        ok_text: str,
+        existing: Iterable[str],
+        skip: str | None = None,
+    ) -> str | None:
+        """Shared name prompt with empty-name and overwrite validation."""
         name, accepted = themed_get_text(
             self,
-            title=self._t("Save Style"),
-            label=self._t("Enter style preset name:"),
-            text=default_name,
-            ok_text=self._t("Save"),
+            title=title,
+            label=label,
+            text=initial,
+            ok_text=ok_text,
             cancel_text=self._t("Cancel"),
         )
         if not accepted:
-            return
+            return None
         name = str(name).strip()
         if not name:
-            QMessageBox.warning(self, self._t("Warning"), self._t("Style preset name cannot be empty"))
+            themed_warning(self, self._t("Warning"), self._t("Style preset name cannot be empty"))
+            return None
+        if name != skip and name in existing and not self._confirm(
+            self._t("Confirm"),
+            self._t("Style preset '{name}' already exists. Overwrite?", name=name),
+        ):
+            return None
+        return name
+
+    def _preset_payload_for_range(self, start: int, end: int) -> dict | None:
+        """Read the live document so in-place spin edits are never stale."""
+        segments = styled_segments_for_range(self._state.document, start, end, expand_empty=False)
+        if len(segments) != 1:
+            return None
+        segment = segments[0]
+        if (segment.start, segment.end) != (int(start), int(end)):
+            return None
+        return {
+            "style": segment.style,
+            "ruby": segment.ruby_text if segment.node_type == "ruby" else "",
+            "tcy": segment.node_type == "tcy",
+        }
+
+    def _save_preset_from_explicit_range(self, start: int, end: int) -> None:
+        if self._updating or not self._state.has_region or start >= end:
             return
-        if name in current:
-            reply = QMessageBox.question(
-                self,
-                self._t("Confirm"),
-                self._t("Style preset '{name}' already exists. Overwrite?", name=name),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        preset = normalize_rich_text_preset(self._preset_payload_for_range(start, end))
+        if preset is None:
+            return
+        self._select_python_range(start, end)
+        current = self._preset_store.load()
+        name = self._prompt_preset_name(
+            title=self._t("Save Style"),
+            label=self._t("Enter style preset name:"),
+            initial=f"{self._t('Rich Text Preset')} {len(current) + 1}",
+            ok_text=self._t("Save"),
+            existing=current,
+        )
+        if name is None:
+            return
         updated = copy.deepcopy(current)
         updated[name] = preset
         self._persist_rich_text_presets(updated, current)
 
     def _rename_rich_text_preset(self, old_name: str) -> None:
-        from PyQt6.QtWidgets import QMessageBox
-        from ui.secondary_pages.themed_text_input_dialog import themed_get_text
-
-        current = self._saved_rich_text_presets()
+        current = self._preset_store.load()
         if old_name not in current:
             self._refresh_preset_sidebar()
             return
-        new_name, accepted = themed_get_text(
-            self,
+        new_name = self._prompt_preset_name(
             title=self._t("Rename style preset"),
             label=self._t("Enter a new style preset name:"),
-            text=old_name,
+            initial=old_name,
             ok_text=self._t("Rename"),
-            cancel_text=self._t("Cancel"),
+            existing=current,
+            skip=old_name,
         )
-        if not accepted:
+        if new_name is None or new_name == old_name:
             return
-        new_name = str(new_name).strip()
-        if not new_name:
-            QMessageBox.warning(self, self._t("Warning"), self._t("Style preset name cannot be empty"))
-            return
-        if new_name == old_name:
-            return
-        if new_name in current:
-            reply = QMessageBox.question(
-                self,
-                self._t("Confirm"),
-                self._t("Style preset '{name}' already exists. Overwrite?", name=new_name),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
         updated: dict[str, dict] = {}
         for name, payload in current.items():
             if name == old_name:
@@ -554,20 +500,11 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._persist_rich_text_presets(updated, current)
 
     def _delete_rich_text_preset(self, name: str) -> None:
-        from PyQt6.QtWidgets import QMessageBox
-
-        current = self._saved_rich_text_presets()
+        current = self._preset_store.load()
         if name not in current:
             self._refresh_preset_sidebar()
             return
-        reply = QMessageBox.question(
-            self,
-            self._t("Confirm"),
-            self._t("Delete style preset '{name}'?", name=name),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        if not self._confirm(self._t("Confirm"), self._t("Delete style preset '{name}'?", name=name)):
             return
         updated = copy.deepcopy(current)
         del updated[name]
@@ -579,7 +516,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         start, end = self._state.selected_range
         if start >= end:
             return
-        preset = self._saved_rich_text_presets().get(name)
+        preset = self._preset_store.load().get(name)
         if preset is None:
             self._refresh_preset_sidebar()
             return
@@ -604,7 +541,11 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._commit_document(clear_styles_from_range(self._state.document, start, end))
 
     def _sync_window_width_to_sidebar(self) -> None:
-        self.setFixedWidth(self._MAIN_PANEL_WIDTH + self.preset_sidebar.width())
+        self.setFixedWidth(
+            self._MAIN_PANEL_WIDTH
+            + self._sidebar_separator.width()
+            + self.preset_sidebar.width()
+        )
 
     def _on_preset_sidebar_collapsed(self, _collapsed: bool) -> None:
         self._sync_window_width_to_sidebar()
@@ -708,6 +649,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
                 segments,
                 ruby_draft=ruby_draft,
                 pending_styles=pending_styles,
+                allow_reuse=self._inspector_reuse_cards,
             )
         finally:
             self._updating = False
