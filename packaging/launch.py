@@ -512,6 +512,9 @@ def run_uv_packages(uv, packages, primary_index_url, desc=None):
     """
     import urllib.parse
 
+    # 缓存放到包目录所在磁盘：跨盘无法硬链接会退化成整份复制（慢且占双倍空间）
+    os.environ.setdefault('UV_CACHE_DIR', str(PATH_ROOT / 'packaging' / 'uv_cache'))
+
     if primary_index_url:
         pytorch_pkgs = [p for p in packages if is_pytorch_source_package(_dep_base_name(p))]
     else:
@@ -2404,6 +2407,7 @@ def cleanup_caches():
     """清理 uv/pip 下载缓存，释放磁盘空间（自动执行，不询问）"""
     print()
     print('正在清理下载缓存...')
+    os.environ.setdefault('UV_CACHE_DIR', str(PATH_ROOT / 'packaging' / 'uv_cache'))
     uv = find_uv()
     if uv:
         subprocess.run(f'{uv} cache clean', shell=True,
