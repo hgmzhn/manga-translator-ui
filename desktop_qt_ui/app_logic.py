@@ -138,8 +138,10 @@ class MainAppLogic(QObject):
         self.i18n = get_i18n_manager()
         self.preset_service = get_preset_service()
 
-        # ✅ 使用普通线程替代线程池
-        self.current_thread = None  # 当前运行的线程
+        # ✅ 使用普通线程替代线程池；扫描/翻译线程分开持有，
+        # 避免共用一个引用导致先启动的扫描线程失去 join 目标
+        self._scan_thread: Optional[threading.Thread] = None  # 文件扫描线程
+        self._translate_thread: Optional[threading.Thread] = None  # 翻译线程
         self.current_worker = None  # 当前运行的worker
         self._shutdown_started = False
         self.current_task_id = 0  # 任务ID，用于区分不同的翻译任务
@@ -2040,7 +2042,7 @@ class MainAppLogic(QObject):
         
         # 使用普通线程启动
         thread = threading.Thread(target=scanner_worker.run, daemon=True)
-        self.current_thread = thread
+        self._scan_thread = thread
         thread.start()
         
         self._ui_log("文件扫描任务已启动")
@@ -2116,7 +2118,7 @@ class MainAppLogic(QObject):
         
         # 使用普通线程启动
         thread = threading.Thread(target=translation_worker.run, daemon=True)
-        self.current_thread = thread
+        self._translate_thread = thread
         thread.start()
         
         self._ui_log(f"翻译任务已启动 (任务ID: {task_id})")
@@ -2152,14 +2154,16 @@ class MainAppLogic(QObject):
             self._ui_log("一个任务已经在运行中。", "WARNING")
             return
         
-        # ✅ 等待旧线程完全结束（防止ONNX Runtime冲突）
-        if self.current_thread is not None and self.current_thread.is_alive():
-            self._ui_log("等待上一个任务完全结束...")
-            self.current_thread.join(timeout=3.0)  # 最多等3秒
-            if self.current_thread.is_alive():
-                self._ui_log("上一个任务未能在3秒内结束，强制继续", "WARNING")
-            self.current_thread = None
-            self.current_worker = None
+        # ✅ 等待旧线程完全结束（防止ONNX Runtime冲突）：扫描/翻译线程逐一等待
+        for thread_label, old_thread in (("扫描", self._scan_thread), ("翻译", self._translate_thread)):
+            if old_thread is not None and old_thread.is_alive():
+                self._ui_log(f"等待上一个{thread_label}任务完全结束...")
+                old_thread.join(timeout=3.0)  # 最多等3秒
+                if old_thread.is_alive():
+                    self._ui_log(f"上一个{thread_label}任务未能在3秒内结束，强制继续", "WARNING")
+        self._scan_thread = None
+        self._translate_thread = None
+        self.current_worker = None
 
         # 检查输出目录是否合法 (提前检查)
         output_path = self.config_service.get_config().app.last_output_path
@@ -2421,21 +2425,22 @@ class MainAppLogic(QObject):
             # 通知worker停止
             self.current_worker.stop()
             
-            # ✅ 在后台线程中等待任务真正结束
+            # ✅ 在后台线程中等待任务真正结束（扫描/翻译线程都要等）
             def wait_for_thread_finish():
-                if self.current_thread and self.current_thread.is_alive():
-                    self._ui_log("等待翻译进程结束...")
-                    self.current_thread.join(timeout=10.0)  # 增加到10秒
-                    if self.current_thread.is_alive():
-                        self._ui_log("翻译进程未能在10秒内结束，继续等待...", "WARNING")
-                        # 继续等待，直到线程真正结束
-                        self.current_thread.join(timeout=30.0)  # 再等30秒
-                        if self.current_thread.is_alive():
-                            self._ui_log("翻译进程未能在40秒内结束，强制标记为已停止", "ERROR")
+                for thread_label, task_thread in (("扫描", self._scan_thread), ("翻译", self._translate_thread)):
+                    if task_thread and task_thread.is_alive():
+                        self._ui_log(f"等待{thread_label}进程结束...")
+                        task_thread.join(timeout=10.0)  # 增加到10秒
+                        if task_thread.is_alive():
+                            self._ui_log(f"{thread_label}进程未能在10秒内结束，继续等待...", "WARNING")
+                            # 继续等待，直到线程真正结束
+                            task_thread.join(timeout=30.0)  # 再等30秒
+                            if task_thread.is_alive():
+                                self._ui_log(f"{thread_label}进程未能在40秒内结束，强制标记为已停止", "ERROR")
+                            else:
+                                self._ui_log(f"{thread_label}进程已结束")
                         else:
-                            self._ui_log("翻译进程已结束")
-                    else:
-                        self._ui_log("翻译进程已结束")
+                            self._ui_log(f"{thread_label}进程已结束")
                 
                 # 在主线程中更新UI
                 from PyQt6.QtCore import QMetaObject, Qt
@@ -2463,7 +2468,8 @@ class MainAppLogic(QObject):
         if hasattr(self, 'main_view') and self.main_view:
             self.main_view.reset_progress()
         self._cleanup_after_task()
-        self.current_thread = None
+        self._scan_thread = None
+        self._translate_thread = None
         self.current_worker = None
     # endregion
 
@@ -2514,18 +2520,20 @@ class MainAppLogic(QObject):
                     except Exception as e:
                         self._ui_log(f"停止worker时出错: {e}", "WARNING")
                 
-                # ✅ 等待线程完成（最多5秒）
-                if self.current_thread and self.current_thread.is_alive():
-                    self.current_thread.join(timeout=5.0)
-                    if self.current_thread.is_alive():
-                        self._ui_log("线程5秒内未完成任务", "WARNING")
-                    else:
-                        self._ui_log("所有任务已正常停止")
-                
-                self.current_thread = None
+                # ✅ 等待线程完成（扫描/翻译各最多5秒）
+                for thread_label, task_thread in (("扫描", self._scan_thread), ("翻译", self._translate_thread)):
+                    if task_thread and task_thread.is_alive():
+                        task_thread.join(timeout=5.0)
+                        if task_thread.is_alive():
+                            self._ui_log(f"{thread_label}线程5秒内未完成任务", "WARNING")
+                        else:
+                            self._ui_log(f"{thread_label}线程已正常停止")
+
+                self._scan_thread = None
+                self._translate_thread = None
                 self.current_worker = None
                 self.state_manager.set_translating(False)
-            
+
             # 关闭缩略图加载线程池
             try:
                 from ui.widgets.file_list_view import (
@@ -2534,7 +2542,7 @@ class MainAppLogic(QObject):
                 shutdown_thumbnail_executor()
             except Exception:
                 pass
-            
+
             # 关闭轻量级修复器线程池
             try:
                 from desktop_qt_ui.services.lightweight_inpainter import (
@@ -2545,9 +2553,39 @@ class MainAppLogic(QObject):
                     inpainter.shutdown()
             except Exception:
                 pass
+
+            # 关闭编辑器文档服务的常驻线程池（加载/预读）。
+            # 只在编辑器模块已加载过时清理，避免退出路径反而把整个编辑器栈 import 进来
+            try:
+                import sys
+                for module_name in ("editor.editor_controller", "desktop_qt_ui.editor.editor_controller"):
+                    editor_module = sys.modules.get(module_name)
+                    if editor_module is None:
+                        continue
+                    for controller in editor_module.get_active_editor_controllers():
+                        try:
+                            controller.shutdown()
+                        except Exception:
+                            pass
             except Exception:
                 pass
-            
+
+            # 有序停止后台协程事件循环线程（inpaint/OCR 协程），
+            # 避免退出时事件循环线程被强杀
+            try:
+                from services import get_async_service
+                async_service = get_async_service()
+                if async_service is not None:
+                    async_service.shutdown()
+            except Exception as e:
+                self._ui_log(f"关闭异步服务时出错: {e}", "WARNING")
+            try:
+                # 模块级单例（若有代码直接使用过 services.async_service 的全局实例）
+                from services.async_service import shutdown_async_service
+                shutdown_async_service()
+            except Exception:
+                pass
+
             if self.translation_service:
                 pass
         except Exception as e:

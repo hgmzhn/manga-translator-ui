@@ -39,6 +39,7 @@ from services import get_config_service, get_i18n_manager
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
 from .sidebar import FluentScrollArea
+from .wheel_filter import install_wheel_filter
 
 # from .collapsible_frame import CollapsibleFrame  # 不再使用折叠框
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
@@ -106,20 +107,22 @@ def strip_legacy_horizontal_tags(text: str) -> str:
 
 
 class CustomSlider(Slider):
-    """自定义滑块，鼠标滚轮滚动一次数字变1"""
+    """自定义滑块：持焦点时滚轮一格步进 1；无焦点时滚轮直通父级滚动。
+
+    与 wheel_filter.install_wheel_filter 的约定一致：控件未获得键盘焦点时
+    不改值、不 accept，让滚动区域接管滚轮事件。
+    """
 
     def wheelEvent(self, event: QWheelEvent):
-        """重写滚轮事件，让滚动一次数字变1"""
-        # 获取滚轮滚动方向
-        delta = event.angleDelta().y()
+        if not self.hasFocus():
+            event.ignore()
+            return
 
-        # 根据滚动方向增加或减少1
+        delta = event.angleDelta().y()
         if delta > 0:
             self.setValue(self.value() + 1)
         elif delta < 0:
             self.setValue(self.value() - 1)
-
-        # 接受事件，防止传递给父控件
         event.accept()
 
 
@@ -146,8 +149,10 @@ class PropertyPanel(QWidget):
     STAMP_ROUTE = "property_stamp_page"
 
     # --- Define all required signals ---
-    translated_text_modified = pyqtSignal(int, str)
-    translation_raw_modified = pyqtSignal(int, str)
+    # 第三个参数是编辑操作记录 {'ops': [[pos, removed, inserted], ...],
+    # 'pre_text': str, 'post_text': str}(\n 口径),供富文本样式同步用
+    translated_text_modified = pyqtSignal(int, str, object)
+    translation_raw_modified = pyqtSignal(int, str, object)
     original_text_modified = pyqtSignal(int, str)
     ocr_requested = pyqtSignal()
     translation_requested = pyqtSignal()
@@ -189,6 +194,10 @@ class PropertyPanel(QWidget):
         self.paint_stack: PopUpAniStackedWidget | None = None
         self._paint_route_indexes: dict[str, int] = {}
         self._updating_paint_route = False
+
+        # 译文框编辑操作记录:[pos, removed, inserted] 列表 + 上次发射时的文本(\n 口径)
+        self._translation_edit_ops: list = []
+        self._translation_box_prev_text = ""
 
         self._init_ui()
         self._connect_signals()
@@ -233,6 +242,8 @@ class PropertyPanel(QWidget):
         scroll_area.setWidget(content_widget)
         scroll_area.enableTransparentBackground()
         main_layout.addWidget(scroll_area)
+        # 统一滚轮语义：无焦点的滑块/数值框/下拉框不吞滚轮，事件直通滚动区域
+        self._wheel_filter = install_wheel_filter(self)
         self.sync_sidebar_layout()
 
         # 不再使用语法高亮器,改用符号替换
@@ -265,6 +276,35 @@ class PropertyPanel(QWidget):
         for child in self.findChildren(QWidget):
             if isinstance(child, (TextEdit, ComboBox, QFontComboBox, Slider, QAbstractSpinBox)):
                 child.blockSignals(blocked)
+
+    @staticmethod
+    def _repopulate_combo(combo, items, *, current_text=None, current_index=None):
+        """clear+addItems 的统一入口：全程 blockSignals，并恢复选中项。
+
+        重新填充是纯 UI 刷新，绝不能触发 currentTextChanged/currentIndexChanged
+        把「变成第一项」当成用户操作写回所有选中 region。
+
+        Args:
+            combo: 目标下拉框
+            items: 新选项列表
+            current_text: 优先按文本恢复选中；None 时保持原选中文本（仍存在才恢复）
+            current_index: 按索引恢复选中（用于语言切换后文本变化的场景）
+        """
+        items = list(items)
+        if current_text is None and current_index is None:
+            current_text = combo.currentText()
+
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItems(items)
+            if current_index is not None:
+                if 0 <= current_index < combo.count():
+                    combo.setCurrentIndex(current_index)
+            elif current_text and current_text in items:
+                combo.setCurrentText(current_text)
+        finally:
+            combo.blockSignals(False)
 
     def _create_mask_edit_section(self, layout):
         self.mask_edit_frame, mask_card = self._make_group(self._t("Image Editing"))
@@ -844,6 +884,10 @@ class PropertyPanel(QWidget):
         self.save_style_preset_button.clicked.connect(self._on_save_style_preset_clicked)
         self.delete_style_preset_button.clicked.connect(self._on_delete_style_preset_clicked)
         # 实时更新（textChanged）
+        # contentsChange 在 textChanged 之前触发,提供精确的编辑位置记录
+        self.translated_text_box.document().contentsChange.connect(
+            self._on_translated_contents_change
+        )
         self.translated_text_box.textChanged.connect(self._on_translated_text_changed)
         self.alignment_combo.currentTextChanged.connect(self._on_alignment_changed)
         self.direction_combo.currentTextChanged.connect(self._on_direction_changed)
@@ -890,55 +934,43 @@ class PropertyPanel(QWidget):
         ocr_config = config.ocr
         translator_config = config.translator
 
-        # OCR - 阻止信号避免触发不必要的配置更新
-        self.ocr_model_combo.blockSignals(True)
+        # OCR
         ocr_options = self.app_logic.get_options_for_key('ocr')
         if ocr_options:
-            self.ocr_model_combo.clear()
-            self.ocr_model_combo.addItems(ocr_options)
-            current_ocr = ocr_config.ocr
-            if current_ocr in ocr_options:
-                self.ocr_model_combo.setCurrentText(current_ocr)
-        self.ocr_model_combo.blockSignals(False)
+            self._repopulate_combo(self.ocr_model_combo, ocr_options, current_text=ocr_config.ocr)
 
-        # Translator - 阻止信号避免触发不必要的配置更新
-        self.translator_combo.blockSignals(True)
+        # Translator
         translator_map = self.app_logic.get_display_mapping('translator')
         if translator_map:
             self.translator_display_to_key = {v: k for k, v in translator_map.items()}
-            self.translator_combo.clear()
-            self.translator_combo.addItems(list(translator_map.values()))
-            current_translator_key = translator_config.translator
-            current_translator_display = translator_map.get(current_translator_key)
-            if current_translator_display:
-                self.translator_combo.setCurrentText(current_translator_display)
-        self.translator_combo.blockSignals(False)
+            self._repopulate_combo(
+                self.translator_combo,
+                list(translator_map.values()),
+                current_text=translator_map.get(translator_config.translator),
+            )
 
-        # Target Language - 阻止信号避免触发不必要的配置更新
-        self.target_language_combo.blockSignals(True)
+        # Target Language
         lang_map = self.app_logic.get_display_mapping('target_lang')
         if lang_map:
             self.lang_name_to_code = {v: k for k, v in lang_map.items()}
-            self.target_language_combo.clear()
-            self.target_language_combo.addItems(list(lang_map.values()))
-            current_lang_key = translator_config.target_lang
-            current_lang_display = lang_map.get(current_lang_key)
-            if current_lang_display:
-                self.target_language_combo.setCurrentText(current_lang_display)
-        self.target_language_combo.blockSignals(False)
+            self._repopulate_combo(
+                self.target_language_combo,
+                list(lang_map.values()),
+                current_text=lang_map.get(translator_config.target_lang),
+            )
 
-        # Alignment
+        # Alignment（保持原选中文本，绝不能借机改写选中 region 的对齐）
         alignment_map = self.app_logic.get_display_mapping('alignment')
         if alignment_map:
-            self.alignment_combo.clear()
-            self.alignment_combo.addItems(list(alignment_map.values()))
+            self._repopulate_combo(self.alignment_combo, list(alignment_map.values()))
 
-        # Direction
+        # Direction（同上，保持原选中文本）
         direction_map = self.app_logic.get_display_mapping('direction')
         if direction_map:
-            self.direction_combo.clear()
-            direction_items = [v for k, v in direction_map.items() if k != 'auto']
-            self.direction_combo.addItems(direction_items)
+            self._repopulate_combo(
+                self.direction_combo,
+                [v for k, v in direction_map.items() if k != 'auto'],
+            )
     
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）"""
@@ -1090,47 +1122,38 @@ class PropertyPanel(QWidget):
         # 重新填充翻译器下拉菜单
         translator_map = self.app_logic.get_display_mapping('translator')
         if translator_map:
-            self.translator_combo.blockSignals(True)
-            self.translator_combo.clear()
-            self.translator_combo.addItems(list(translator_map.values()))
-            # 恢复选中的索引
-            if 0 <= current_translator_index < self.translator_combo.count():
-                self.translator_combo.setCurrentIndex(current_translator_index)
-            self.translator_combo.blockSignals(False)
-        
+            self._repopulate_combo(
+                self.translator_combo,
+                list(translator_map.values()),
+                current_index=current_translator_index,
+            )
+
         # 重新填充目标语言下拉菜单
         lang_map = self.app_logic.get_display_mapping('target_lang')
         if lang_map:
-            self.target_language_combo.blockSignals(True)
-            self.target_language_combo.clear()
-            self.target_language_combo.addItems(list(lang_map.values()))
-            # 恢复选中的索引
-            if 0 <= current_target_lang_index < self.target_language_combo.count():
-                self.target_language_combo.setCurrentIndex(current_target_lang_index)
-            self.target_language_combo.blockSignals(False)
-        
+            self._repopulate_combo(
+                self.target_language_combo,
+                list(lang_map.values()),
+                current_index=current_target_lang_index,
+            )
+
         # 重新填充对齐下拉菜单
         alignment_map = self.app_logic.get_display_mapping('alignment')
         if alignment_map:
-            self.alignment_combo.blockSignals(True)
-            self.alignment_combo.clear()
-            self.alignment_combo.addItems(list(alignment_map.values()))
-            # 恢复选中的索引
-            if 0 <= current_alignment_index < self.alignment_combo.count():
-                self.alignment_combo.setCurrentIndex(current_alignment_index)
-            self.alignment_combo.blockSignals(False)
-        
+            self._repopulate_combo(
+                self.alignment_combo,
+                list(alignment_map.values()),
+                current_index=current_alignment_index,
+            )
+
         # 重新填充方向下拉菜单
         direction_map = self.app_logic.get_display_mapping('direction')
         if direction_map:
-            self.direction_combo.blockSignals(True)
-            self.direction_combo.clear()
-            direction_items = [v for k, v in direction_map.items() if k != 'auto']
-            self.direction_combo.addItems(direction_items)
-            # 恢复选中的索引
-            if 0 <= current_direction_index < self.direction_combo.count():
-                self.direction_combo.setCurrentIndex(current_direction_index)
-            self.direction_combo.blockSignals(False)
+            self._repopulate_combo(
+                self.direction_combo,
+                [v for k, v in direction_map.items() if k != 'auto'],
+                current_index=current_direction_index,
+            )
 
     def _get_saved_style_presets(self):
         config_ref = self.config_service.get_config_reference()
@@ -1512,10 +1535,12 @@ class PropertyPanel(QWidget):
             
             # 清空显示但不禁用样式控件
             self.block_updates = True
-            self.original_text_box.clear()
-            self.translated_text_box.clear()
-            self._refresh_style_preset_combo(selected_name="")
-            self.block_updates = False
+            try:
+                self.original_text_box.clear()
+                self.translated_text_box.clear()
+                self._refresh_style_preset_combo(selected_name="")
+            finally:
+                self.block_updates = False
 
     def clear_and_disable_selection_dependent(self):
         """Clears selection-dependent fields and disables their sections."""
@@ -1599,6 +1624,9 @@ class PropertyPanel(QWidget):
                 update_translation_text or not self.translated_text_box.hasFocus()
             ) and self.translated_text_box.toPlainText() != display_text:
                 self.translated_text_box.setText(display_text)
+            # 重置编辑操作基线:无论是否覆盖了文本,都以框内当前内容为准
+            self._translation_edit_ops = []
+            self._translation_box_prev_text = self._canonical_translated_box_text()
 
             font_size = int(region_data.get("font_size", 12) or 12)
             self.font_size_input.setValue(font_size)
@@ -1714,29 +1742,60 @@ class PropertyPanel(QWidget):
         if region_data:
             field_key = "translation_raw" if show_raw else "translation"
             if region_data.get(field_key, "") != text_with_br:
+                edit_info = self._take_translation_edit_info()
                 if show_raw:
-                    self.translation_raw_modified.emit(self.current_region_index, text_with_br)
+                    self.translation_raw_modified.emit(self.current_region_index, text_with_br, edit_info)
                 else:
-                    self.translated_text_modified.emit(self.current_region_index, text_with_br)
+                    self.translated_text_modified.emit(self.current_region_index, text_with_br, edit_info)
 
     def _on_original_text_changed(self):
         if self.current_region_index != -1 and not self.block_updates:
             text = self.original_text_box.toPlainText()
             self.original_text_modified.emit(self.current_region_index, text)
 
+    def _canonical_translated_box_text(self) -> str:
+        """译文框内容的规范形:字面 ↵ 与真实换行统一为 \\n(位置一一对应)。"""
+        return self.translated_text_box.toPlainText().replace('↵', '\n')
+
+    def _take_translation_edit_info(self) -> dict:
+        """取走累积的编辑操作记录,并推进 pre/post 文本基线。"""
+        post_text = self._canonical_translated_box_text()
+        edit_info = {
+            "ops": self._translation_edit_ops,
+            "pre_text": self._translation_box_prev_text,
+            "post_text": post_text,
+        }
+        self._translation_edit_ops = []
+        self._translation_box_prev_text = post_text
+        return edit_info
+
+    def _on_translated_contents_change(self, position: int, chars_removed: int, chars_added: int):
+        """记录译文框的精确编辑操作(在 textChanged 之前触发)。"""
+        if getattr(self, 'block_updates', True):
+            # 程序化 setText:操作记录作废,基线由 _update_display 统一重置
+            self._translation_edit_ops = []
+            return
+        added_text = ""
+        if chars_added:
+            added_text = self.translated_text_box.toPlainText()[position:position + chars_added]
+        self._translation_edit_ops.append(
+            [int(position), int(chars_removed), added_text.replace('↵', '\n')]
+        )
+
     def _on_translated_text_changed(self):
         if self.current_region_index != -1 and not self.block_updates:
             raw_text = self.translated_text_box.toPlainText()
             text_with_br = self._editor_text_to_model_text(raw_text)
+            edit_info = self._take_translation_edit_info()
 
             # 复选框选中 → 当前编辑的是"替换前译文",走 raw 信号(controller 会跑替换更新 translation);
             # 否则编辑的是"译文",走原信号
             show_raw = bool(getattr(self, 'translation_raw_checkbox', None)
                             and self.translation_raw_checkbox.isChecked())
             if show_raw:
-                self.translation_raw_modified.emit(self.current_region_index, text_with_br)
+                self.translation_raw_modified.emit(self.current_region_index, text_with_br, edit_info)
             else:
-                self.translated_text_modified.emit(self.current_region_index, text_with_br)
+                self.translated_text_modified.emit(self.current_region_index, text_with_br, edit_info)
 
     def _on_translation_raw_mode_toggled(self, checked: bool):
         """复选框切换:重新刷新当前 region 的文本框内容(读取对应字段)。"""

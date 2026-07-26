@@ -15,7 +15,6 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QRegularExpressionValidator,
-    QRegion,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -95,6 +94,8 @@ class ScreenColorPicker(QWidget):
         self.show()
         self.activateWindow()
         self.raise_()
+        # 确保键盘焦点在取色器上，ESC 取消可达
+        self.setFocus()
 
     # ── 内部 ──────────────────────────────────────────────────
 
@@ -110,6 +111,11 @@ class ScreenColorPicker(QWidget):
 
     def paintEvent(self, event):
         if self._shot is None:
+            # WA_OpaquePaintEvent 契约：每个像素都必须被绘制，
+            # 否则会把陈旧的 backing store 内容显示出来。
+            p = QPainter(self)
+            p.fillRect(self.rect(), QColor(0, 0, 0))
+            p.end()
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -232,6 +238,9 @@ class ScreenColorPicker(QWidget):
         if ev.key() == Qt.Key.Key_Escape:
             self.canceled.emit()
             self.close()
+        else:
+            # 其余按键不吞，交给默认处理
+            super().keyPressEvent(ev)
 
 
 class _ColorEntryButton(DropDownPushButton):
@@ -679,6 +688,11 @@ class _ColorPaletteView(FlyoutViewBase):
                 self._recent_swatches.append(swatch)
             grid.addWidget(swatch, row, column)
 
+    def update_saved_colors(self, colors: list[str]) -> None:
+        """颜色被确认（记入最近使用）后刷新「最近使用」分组。"""
+        self._saved_colors = list(colors)
+        self._refresh_recent_swatches()
+
     def _refresh_recent_swatches(self):
         if self._recent_layout is None:
             return
@@ -691,6 +705,8 @@ class _ColorPaletteView(FlyoutViewBase):
                 self._swatches.remove(widget)
             if widget in self._recent_swatches:
                 self._recent_swatches.remove(widget)
+            # 先脱离父级再延迟删除，避免布局重排期间还画着待删控件
+            widget.setParent(None)
             widget.deleteLater()
         self._fill_swatch_grid(self._recent_layout, self._saved_colors[:20], recent=True)
         self._set_selected_color(self._selected, emit=False)
@@ -788,6 +804,7 @@ class ColorPickerWidget(QWidget):
         self._palette_view = None
         self._pending_palette_color = None
         self._ignore_next_color_click = False
+        self._screen_picker = None
 
         self._saved_colors = []
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
@@ -958,14 +975,22 @@ class ColorPickerWidget(QWidget):
             if reopen_dialog:
                 QTimer.singleShot(150, self._open_color_flyout)
             else:
-                self.activateWindow()
-                self.raise_()
+                # 取消后要重新激活的是所属顶层窗口；
+                # 对非窗口控件调 activateWindow/raise_ 无效
+                window = self.window()
+                if window is not None:
+                    window.activateWindow()
+                    window.raise_()
 
         picker.color_picked.connect(on_picked)
         picker.canceled.connect(on_cancel)
-        # 保持引用防止被 GC
+        # 保持引用防止被 GC；取色器 WA_DeleteOnClose，销毁时清引用防悬空
+        picker.destroyed.connect(self._on_screen_picker_destroyed)
         self._screen_picker = picker
         picker.start()
+
+    def _on_screen_picker_destroyed(self, _obj=None):
+        self._screen_picker = None
 
     def _apply_color(self, hex_color: str):
         """应用颜色并发射信号。"""
@@ -982,6 +1007,9 @@ class ColorPickerWidget(QWidget):
         self._saved_colors.insert(0, normalized)
         self._saved_colors = self._saved_colors[:20]
         self._persist_saved_colors()
+        # 弹层还开着时同步刷新「最近使用」分组
+        if self._palette_view is not None:
+            self._palette_view.update_saved_colors(self._saved_colors)
 
     # ── RGB 标签 ──────────────────────────────────────────────────
 
@@ -1029,14 +1057,16 @@ class ColorPickerWidget(QWidget):
             logger.error(f"保存颜色失败 ({self._config_key}): {e}")
 
 def _show_color_flyout_above_target(view: FlyoutViewBase, target: QWidget, parent=None) -> Flyout:
+    """算好位置后只走一次 exec 显示弹层。
+
+    先 show() 再 exec() 会在左上角闪一帧并两次抢焦点。布局边距已收为 0，
+    弹层矩形即内容矩形，无需再打 setMask（一次性 mask 在尺寸变化后会失效）。
+    """
     flyout = Flyout(view, parent)
     # Keep the Fluent flyout animation, but remove the transparent shadow margin
     # from the mouse hit area so the popup only catches clicks on its content.
     flyout.hBoxLayout.setContentsMargins(0, 0, 0, 0)
     flyout.view.setGraphicsEffect(None)
-    flyout.show()
-    flyout.adjustSize()
-    _apply_flyout_content_mask(flyout)
 
     size = flyout.sizeHint()
     target_pos = target.mapToGlobal(QPoint(0, 0))
@@ -1044,12 +1074,6 @@ def _show_color_flyout_above_target(view: FlyoutViewBase, target: QWidget, paren
     y = target_pos.y() - size.height() - 6
     flyout.exec(QPoint(x, y), FlyoutAnimationType.PULL_UP)
     return flyout
-
-
-def _apply_flyout_content_mask(flyout: Flyout):
-    content_rect = flyout.view.geometry()
-    if content_rect.isValid():
-        flyout.setMask(QRegion(content_rect))
 
 
 def _normalize_hex(value: str | None) -> str | None:

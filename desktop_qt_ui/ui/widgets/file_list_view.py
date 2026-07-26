@@ -33,6 +33,20 @@ def shutdown_thumbnail_executor():
             pass
 
 
+def _single_shot(msec: int, owner: QObject, slot) -> None:
+    """带接收者上下文的 singleShot：owner 销毁后回调不再触发。
+
+    PyQt6 的 QTimer.singleShot 没有 (msec, receiver, callable) 重载，
+    这里用父对象为 owner 的一次性 QTimer 实现等价的存活保护，
+    避免回调在控件销毁后触发导致 RuntimeError。
+    """
+    timer = QTimer(owner)
+    timer.setSingleShot(True)
+    timer.timeout.connect(slot)
+    timer.timeout.connect(timer.deleteLater)
+    timer.start(msec)
+
+
 class ThumbnailSignals(QObject):
     """用于从工作线程发送信号到主线程"""
     thumbnail_loaded = pyqtSignal(str, object)  # file_path, pixmap or None
@@ -111,7 +125,8 @@ class FileItemWidget(CardWidget):
     _thumbnail_cache: 'OrderedDict[str, QPixmap]' = OrderedDict()
     # 类级别的信号对象（所有实例共享）
     _signals = ThumbnailSignals()
-    # 存储所有活动的实例，用于分发信号
+    # 存储所有活动的实例，用于分发缩略图信号。
+    # 条目在 destroyed 信号里移除（不能靠 __del__：注册表本身持强引用时它永不触发）。
     _active_instances: Dict[str, List['FileItemWidget']] = {}
 
     def __init__(self, file_path, is_folder=False, parent=None, defer_thumbnail: bool = False):
@@ -127,21 +142,24 @@ class FileItemWidget(CardWidget):
         self.setFixedHeight(self.ROW_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # 注册实例
+        # 注册实例；C++ 对象销毁时从注册表移除，保证注册表只含存活实例
         if not is_folder and not os.path.isdir(file_path):
-            if file_path not in FileItemWidget._active_instances:
-                FileItemWidget._active_instances[file_path] = []
-            FileItemWidget._active_instances[file_path].append(self)
+            FileItemWidget._active_instances.setdefault(file_path, []).append(self)
+            self.destroyed.connect(
+                lambda _obj=None, path=file_path, instance_id=id(self):
+                FileItemWidget._unregister_instance(path, instance_id)
+            )
 
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(10, 8, 8, 8)
-        self.layout.setSpacing(10)
+        # 注意：不要占用 self.layout（会遮蔽 QWidget.layout()）
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(10, 8, 8, 8)
+        self._layout.setSpacing(10)
 
         # Thumbnail
         self.thumbnail_label = QLabel(self)
         self.thumbnail_label.setFixedSize(40, 40)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.layout.addWidget(self.thumbnail_label)
+        self._layout.addWidget(self.thumbnail_label)
 
         if is_folder or os.path.isdir(self.file_path):
             self.thumbnail_label.setPixmap(FIF.FOLDER.icon().pixmap(QSize(32, 32)))
@@ -169,7 +187,7 @@ class FileItemWidget(CardWidget):
         self.name_label.setMinimumWidth(0)
         self.name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.name_label.setToolTip(file_path)
-        self.layout.addWidget(self.name_label, 1)  # Stretch factor
+        self._layout.addWidget(self.name_label, 1)  # Stretch factor
 
         # Remove Button
         self.remove_button = ToolButton(FIF.CLOSE, self)
@@ -178,8 +196,8 @@ class FileItemWidget(CardWidget):
         self.remove_button.setToolTip("Remove")
         self.remove_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # 防止获取焦点
         self.remove_button.clicked.connect(self._emit_remove_request)
-        self.layout.addWidget(self.remove_button)
-        QTimer.singleShot(0, self._update_elided_name)
+        self._layout.addWidget(self.remove_button)
+        _single_shot(0, self, self._update_elided_name)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -202,22 +220,28 @@ class FileItemWidget(CardWidget):
         if self.name_label.text() != next_text:
             self.name_label.setText(next_text)
     
-    def __del__(self):
-        """析构时从活动实例列表中移除"""
-        if self.file_path in FileItemWidget._active_instances:
-            try:
-                FileItemWidget._active_instances[self.file_path].remove(self)
-                if not FileItemWidget._active_instances[self.file_path]:
-                    del FileItemWidget._active_instances[self.file_path]
-            except (ValueError, KeyError):
-                pass
-    
+    @classmethod
+    def _unregister_instance(cls, file_path: str, instance_id: int):
+        """destroyed 回调：把已销毁的实例从注册表移除。
+
+        此时 C++ 对象已析构，不能触碰实例本身，只按 id 比对移除。
+        """
+        instances = cls._active_instances.get(file_path)
+        if not instances:
+            return
+        instances[:] = [instance for instance in instances if id(instance) != instance_id]
+        if not instances:
+            del cls._active_instances[file_path]
+
     @classmethod
     def _dispatch_thumbnail(cls, file_path: str, pixmap: Optional[QPixmap]):
-        """分发缩略图到所有相关实例"""
-        if file_path in cls._active_instances:
-            for instance in cls._active_instances[file_path]:
+        """分发缩略图到目标文件对应的存活实例"""
+        for instance in list(cls._active_instances.get(file_path, ())):
+            try:
                 instance._on_thumbnail_loaded(file_path, pixmap)
+            except RuntimeError:
+                # destroyed 尚未派发完成的窗口期兜底
+                cls._unregister_instance(file_path, id(instance))
 
     def update_file_count(self, count: int):
         """更新文件夹显示的文件数量"""
@@ -423,7 +447,7 @@ class FileListView(TreeWidget):
         if self._root_decoration_update_scheduled:
             return
         self._root_decoration_update_scheduled = True
-        QTimer.singleShot(0, self._run_root_decoration_refresh)
+        _single_shot(0, self, self._run_root_decoration_refresh)
 
     def _run_root_decoration_refresh(self):
         self._root_decoration_update_scheduled = False
@@ -433,7 +457,7 @@ class FileListView(TreeWidget):
         if self._item_width_sync_scheduled:
             return
         self._item_width_sync_scheduled = True
-        QTimer.singleShot(self._UI_COALESCE_MS, self._run_item_widget_width_sync)
+        _single_shot(self._UI_COALESCE_MS, self, self._run_item_widget_width_sync)
 
     def _run_item_widget_width_sync(self):
         self._item_width_sync_scheduled = False
@@ -468,7 +492,7 @@ class FileListView(TreeWidget):
         if self._thumbnail_update_scheduled:
             return
         self._thumbnail_update_scheduled = True
-        QTimer.singleShot(self._UI_COALESCE_MS, self._load_visible_thumbnails)
+        _single_shot(self._UI_COALESCE_MS, self, self._load_visible_thumbnails)
 
     def _load_visible_thumbnails(self):
         self._thumbnail_update_scheduled = False
@@ -499,14 +523,6 @@ class FileListView(TreeWidget):
                     visible_items[id(item)] = item
         return list(visible_items.values())
 
-    def _item_depth(self, item: QTreeWidgetItem) -> int:
-        depth = 0
-        parent = item.parent()
-        while parent is not None:
-            depth += 1
-            parent = parent.parent()
-        return depth
-
     def _materialize_file_item_widget(self, item: QTreeWidgetItem) -> Optional[FileItemWidget]:
         file_path = item.data(0, Qt.ItemDataRole.UserRole)
         if not isinstance(file_path, str) or os.path.isdir(file_path):
@@ -525,21 +541,14 @@ class FileListView(TreeWidget):
         return file_widget
 
     def _sync_item_widget_widths(self):
+        """只同步列宽；行内控件几何交给 QTreeView 自己管理。
+
+        item widget 由视图按 visualRect 摆放（updateEditorGeometries），
+        手动 setFixedWidth 会与视图的几何管理抢控制权，且只覆盖可见行。
+        控件宽度变化后省略号文本由 FileItemWidget.resizeEvent 自行刷新。
+        """
         viewport_width = max(120, self.viewport().width() - 6)
         self.setColumnWidth(0, viewport_width)
-
-        for item in self._collect_visible_items():
-            widget = self.itemWidget(item, 0)
-            if widget is None and item.data(0, self._FS_DEFERRED_WIDGET_ROLE):
-                widget = self._materialize_file_item_widget(item)
-            if not isinstance(widget, FileItemWidget):
-                continue
-            rect = self.visualItemRect(item)
-            left = rect.left() if rect.isValid() else self._item_depth(item) * self.indentation()
-            width = max(120, self.viewport().width() - left - 10)
-            if widget.width() != width:
-                widget.setFixedWidth(width)
-            widget._update_elided_name()
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -757,7 +766,7 @@ class FileListView(TreeWidget):
             'file_index': 0,
             'placeholder_removed': False,
         }
-        QTimer.singleShot(0, lambda key=folder_key: self._process_filesystem_populate_chunk(key))
+        _single_shot(0, self, lambda key=folder_key: self._process_filesystem_populate_chunk(key))
 
     def _process_filesystem_populate_chunk(self, folder_key: str):
         job = self._fs_populate_jobs.get(folder_key)
@@ -799,7 +808,7 @@ class FileListView(TreeWidget):
 
         has_more = job['subdir_index'] < len(job['subdirs']) or job['file_index'] < len(job['files'])
         if has_more:
-            QTimer.singleShot(1, lambda key=folder_key: self._process_filesystem_populate_chunk(key))
+            _single_shot(1, self, lambda key=folder_key: self._process_filesystem_populate_chunk(key))
             return
 
         folder_item.setData(0, self._FS_LOADED_ROLE, True)

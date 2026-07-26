@@ -72,7 +72,6 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._state = RichTextEditorState()
         self._updating = False
         self._applying_own_change = False
-        self._inspector_reuse_cards = False
         self._dragging = False
         self._drag_offset = QPoint()
         self._manually_positioned = False
@@ -359,14 +358,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
             return
         self._state.discard_pending_style(key, start, end)
         document = apply_style_to_range(self._state.document, start, end, patch)
-        # The emitting control already shows the new value; let the run list
-        # keep its widgets when only values changed (spin arrows would vanish
-        # mid auto-repeat if the box under the cursor were rebuilt).
-        self._inspector_reuse_cards = True
-        try:
-            self._commit_document(document)
-        finally:
-            self._inspector_reuse_cards = False
+        # 结构签名不变时 run list 会自动就地复用卡片（持焦点的控件不覆盖），
+        # 无需再显式标记 allow_reuse。
+        self._commit_document(document)
 
     def _remove_style_from_explicit_range(self, start: int, end: int, key: str) -> None:
         if self._updating or not self._state.has_region or start >= end:
@@ -647,7 +641,6 @@ class RichTextFloatingEditor(SimpleCardWidget):
                 segments,
                 ruby_draft=ruby_draft,
                 pending_styles=pending_styles,
-                allow_reuse=self._inspector_reuse_cards,
             )
         finally:
             self._updating = False
@@ -705,13 +698,21 @@ class RichTextFloatingEditor(SimpleCardWidget):
         if self.height() != target_height:
             self.resize(self.width(), target_height)
 
+    def _end_drag(self) -> None:
+        """复位拖拽状态并恢复光标；隐藏/关闭时左键 release 不会再来。"""
+        if self._dragging:
+            self._dragging = False
+            self.unsetCursor()
+
     def hideEvent(self, event):
+        self._end_drag()
         self.flush_pending_changes()
         if self._state.clear_pending_style_edit() and self._state.has_region:
             self._refresh_inspector()
         super().hideEvent(event)
 
     def closeEvent(self, event):
+        self._end_drag()
         self.flush_pending_changes()
         if self._state.clear_pending_style_edit() and self._state.has_region:
             self._refresh_inspector()

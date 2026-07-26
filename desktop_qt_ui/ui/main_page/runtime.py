@@ -140,27 +140,27 @@ def sync_workflow_mode_from_config(self):
     try:
         config = self.config_service.get_config()
         self.workflow_mode_combo.blockSignals(True)
-
-        if config.cli.replace_translation:
-            self.workflow_mode_combo.setCurrentIndex(8)
-        elif config.cli.inpaint_only:
-            self.workflow_mode_combo.setCurrentIndex(7)
-        elif config.cli.upscale_only:
-            self.workflow_mode_combo.setCurrentIndex(6)
-        elif config.cli.colorize_only:
-            self.workflow_mode_combo.setCurrentIndex(5)
-        elif config.cli.load_text:
-            self.workflow_mode_combo.setCurrentIndex(4)
-        elif config.cli.translate_json_only:
-            self.workflow_mode_combo.setCurrentIndex(3)
-        elif config.cli.template:
-            self.workflow_mode_combo.setCurrentIndex(2)
-        elif config.cli.generate_and_export:
-            self.workflow_mode_combo.setCurrentIndex(1)
-        else:
-            self.workflow_mode_combo.setCurrentIndex(0)
-
-        self.workflow_mode_combo.blockSignals(False)
+        try:
+            if config.cli.replace_translation:
+                self.workflow_mode_combo.setCurrentIndex(8)
+            elif config.cli.inpaint_only:
+                self.workflow_mode_combo.setCurrentIndex(7)
+            elif config.cli.upscale_only:
+                self.workflow_mode_combo.setCurrentIndex(6)
+            elif config.cli.colorize_only:
+                self.workflow_mode_combo.setCurrentIndex(5)
+            elif config.cli.load_text:
+                self.workflow_mode_combo.setCurrentIndex(4)
+            elif config.cli.translate_json_only:
+                self.workflow_mode_combo.setCurrentIndex(3)
+            elif config.cli.template:
+                self.workflow_mode_combo.setCurrentIndex(2)
+            elif config.cli.generate_and_export:
+                self.workflow_mode_combo.setCurrentIndex(1)
+            else:
+                self.workflow_mode_combo.setCurrentIndex(0)
+        finally:
+            self.workflow_mode_combo.blockSignals(False)
         update_workflow_mode_description(self, self.workflow_mode_combo.currentIndex())
     except Exception as e:
         print(f"Error syncing workflow mode: {e}")

@@ -45,7 +45,7 @@ class SimplePromptEditorDialog(FluentSecondaryDialog):
 
     def _setup_ui(self):
         self.setWindowTitle(self._t("Edit") + f": {os.path.basename(self._file_path)}")
-        self.setMinimumSize(880, 620)
+        self.setMinimumSize(680, 480)
         self.resize(980, 720)
         self.setModal(True)
 

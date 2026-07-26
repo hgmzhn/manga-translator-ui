@@ -250,17 +250,16 @@ class MainWindow(FluentWindow):
 
         apply_application_theme(theme, app)
 
-        # 通知各视图刷新局部 Fluent 主题状态
+        # 通知各视图刷新局部 Fluent 主题状态（MainView 是纯逻辑对象，无需 update）
         if hasattr(self, 'main_view') and self.main_view:
             self.main_view.apply_fluent_theme(theme)
-            self.main_view.update()
         if hasattr(self, 'editor_view') and self.editor_view:
             self.editor_view._apply_editor_style(theme)
             self.editor_view.update()
         if hasattr(self, "stacked_widget") and self.stacked_widget:
             self.stacked_widget.update()
         self.update()
-        self._apply_native_title_bar_theme(theme)
+        # 延迟到事件循环下一拍统一应用一次原生标题栏主题，避免同一次切换重复设置
         QTimer.singleShot(0, lambda active_theme=theme: self._apply_native_title_bar_theme(active_theme))
 
     def _apply_native_title_bar_theme(self, theme: str):
@@ -461,6 +460,7 @@ class MainWindow(FluentWindow):
 
         if self._qt_translator is not None:
             app.removeTranslator(self._qt_translator)
+            self._qt_translator.deleteLater()
             self._qt_translator = None
 
         translator = QTranslator(self)
@@ -701,5 +701,9 @@ class MainWindow(FluentWindow):
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        # 先等待 API 测试/取模型等后台线程结束（带超时），
+        # 避免 QThread: Destroyed while thread is still running。
+        if hasattr(self, "main_view") and self.main_view:
+            self.main_view.shutdown_background_threads(3000)
         self.app_logic.shutdown()
         event.accept()

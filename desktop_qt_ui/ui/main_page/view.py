@@ -1,5 +1,5 @@
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
@@ -21,10 +21,13 @@ from ui.main_page.pages.translation_page import create_translation_page
 from utils.app_version import get_app_version
 
 
-class MainView(QWidget):
+class MainView(QObject):
     """
-    主翻译视图，对应旧UI的 MainView。
-    包含文件列表、设置和日志。
+    主页面逻辑控制器（纯 QObject，不是控件）。
+
+    各页面控件（translation_interface / settings_page / env_page 等）由本对象
+    创建后交给 FluentWindow.addSubInterface 托管；MainView 自身从不进入任何
+    布局，只负责信号、状态与页面构建逻辑。需要控件父级时用 _dialog_parent()。
     """
     setting_changed = pyqtSignal(str, object)
     env_var_changed = pyqtSignal(str, str)
@@ -74,6 +77,8 @@ class MainView(QWidget):
     _debounced_save_env_var = main_view_env.debounced_save_env_var
     _flush_env_var_immediately = main_view_env.flush_env_var_immediately
     _flush_all_pending_env_vars = main_view_env.flush_all_pending_env_vars
+    _refresh_api_slot_status_styles = main_view_env.refresh_api_slot_status_styles
+    shutdown_background_threads = main_view_env.shutdown_background_threads
     _on_open_custom_api_params_file = main_view_env.on_open_custom_api_params_file
     _refresh_api_feature_selectors = main_view_env.refresh_api_feature_selectors
     _on_api_feature_combo_changed = main_view_env.on_api_feature_combo_changed
@@ -110,13 +115,14 @@ class MainView(QWidget):
         self.i18n = get_i18n_manager()
         self.app_version = get_app_version()
         self.env_widgets = {}
+        self._pending_env_vars = {}
+        self._active_threads = {}
         self._env_debounce_timer = QTimer(self)
         self._env_debounce_timer.setSingleShot(True)
         self._env_debounce_timer.setInterval(500) # 500ms debounce delay
+        self._env_debounce_timer.timeout.connect(self._flush_all_pending_env_vars)
 
-        self.layout = QVBoxLayout(self)
         self.env_var_changed.connect(self.controller.save_env_var)
-        self.layout.setContentsMargins(0, 0, 0, 0)
         self._navigation_switcher = None
 
         self.translation_page = self._create_translation_page()
@@ -134,7 +140,6 @@ class MainView(QWidget):
             "replacements": self.replacements_page,
             "rich_text_rules": self.rich_text_rules_page,
         }
-        self.layout.addWidget(self.translation_interface)
 
         # 不在这里调用 _create_dynamic_settings，等待 app_logic.initialize 发送 config_loaded 信号
         # self._create_dynamic_settings()  # 删除这行，避免重复创建
@@ -188,6 +193,15 @@ class MainView(QWidget):
             return self.i18n.translate(key, **kwargs)
         return key
 
+    def _dialog_parent(self) -> QWidget | None:
+        """返回可用作对话框/控件父级的 QWidget。
+
+        MainView 是纯逻辑 QObject，不能充当控件父级；这里返回创建时传入的
+        父对象（主窗口）——若它不是 QWidget 则返回 None，让对话框顶层显示。
+        """
+        parent = self.parent()
+        return parent if isinstance(parent, QWidget) else None
+
     def apply_fluent_theme(self, theme: str | None = None):
         del theme
         if hasattr(self, "prompt_preview_panel") and self.prompt_preview_panel:
@@ -198,6 +212,7 @@ class MainView(QWidget):
             self.rich_text_rules_editor_panel.apply_theme()
         if hasattr(self, "settings_page") and self.settings_page:
             self.settings_page.update()
+        self._refresh_api_slot_status_styles()
         self.file_list.refresh_empty_state_text()
         self.progress_bar.update()
 
@@ -318,22 +333,24 @@ class MainView(QWidget):
         if hasattr(self, "workflow_mode_combo"):
             current_index = self.workflow_mode_combo.currentIndex()
             self.workflow_mode_combo.blockSignals(True)
-            self.workflow_mode_combo.clear()
-            self.workflow_mode_combo.addItems(
-                [
-                    self._t("Normal Translation"),
-                    self._t("Export Translation"),
-                    self._t("Export Original Text"),
-                    self._t("Translate JSON Only"),
-                    self._t("Import Translation and Render"),
-                    self._t("Colorize Only"),
-                    self._t("Upscale Only"),
-                    self._t("Inpaint Only"),
-                    self._t("Replace Translation"),
-                ]
-            )
-            self.workflow_mode_combo.setCurrentIndex(current_index)
-            self.workflow_mode_combo.blockSignals(False)
+            try:
+                self.workflow_mode_combo.clear()
+                self.workflow_mode_combo.addItems(
+                    [
+                        self._t("Normal Translation"),
+                        self._t("Export Translation"),
+                        self._t("Export Original Text"),
+                        self._t("Translate JSON Only"),
+                        self._t("Import Translation and Render"),
+                        self._t("Colorize Only"),
+                        self._t("Upscale Only"),
+                        self._t("Inpaint Only"),
+                        self._t("Replace Translation"),
+                    ]
+                )
+                self.workflow_mode_combo.setCurrentIndex(current_index)
+            finally:
+                self.workflow_mode_combo.blockSignals(False)
         self._update_workflow_mode_description(current_index)
 
         self.update_start_button_text()
@@ -423,18 +440,12 @@ class MainView(QWidget):
         self._env_api_groups_signature = None
 
         if hasattr(self, "env_group_container_layout"):
-            while self.env_group_container_layout.count():
-                item = self.env_group_container_layout.takeAt(0)
-                if item.widget():
-                    main_view_dynamic._delete_later_safely(item.widget())
+            main_view_dynamic._clear_layout_widgets(self.env_group_container_layout)
 
         for panel in getattr(self, "tab_frames", {}).values():
             if panel and panel.layout():
-                layout = panel.layout()
-                while layout.count():
-                    item = layout.takeAt(0)
-                    if item.widget():
-                        main_view_dynamic._delete_later_safely(item.widget())
+                main_view_dynamic._clear_layout_widgets(panel.layout(), restore_stretch=True)
+        main_view_dynamic._drop_cached_settings_widget_refs(self)
 
     @pyqtSlot(bool)
     def on_translation_state_changed(self, is_translating: bool):

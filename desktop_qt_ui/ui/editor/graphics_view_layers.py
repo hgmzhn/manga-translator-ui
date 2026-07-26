@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import QRectF, Qt, pyqtSlot
 from PyQt6.QtGui import QPixmap, QTransform
 from PyQt6.QtWidgets import QGraphicsPixmapItem
 from editor.image_utils import image_like_to_qimage
@@ -53,19 +53,38 @@ class GraphicsViewLayersMixin:
                 self.scene.removeItem(self._textbox_preview_item)
                 self._textbox_preview_item = None
 
-            if self._preview_item and self._preview_item.scene():
-                self.scene.removeItem(self._preview_item)
-                self._preview_item = None
+            self._clear_preview()
+
+            # 仿制印章：取样圈是场景顶层 item，取样点/偏移属于当前图片，
+            # 切图时必须一并清掉，否则旧取样点会带到新图
+            self._reset_clone_stroke_state()
+            self._clone_sample_image_point = None
+            self._clone_offset = None
+            self._clear_clone_marker()
 
             self.selection_manager.clear_state()
             self.render_coordinator.reset()
             self._is_drawing = False
             self._is_drawing_textbox = False
+            self._textbox_start_pos = None
             self._clear_pending_geometry_edits()
         except (RuntimeError, AttributeError) as e:
             self.logger.warning("Error during clear_all_state: %s", e)
         finally:
             self.selection_manager.suppress_forward_sync(False)
+
+    def _apply_image_scene_rect(self):
+        """换图时显式钉住 sceneRect（图片矩形适当外扩）。
+
+        不能依赖隐式 sceneRect：它取 itemsBoundingRect 且只增不减，
+        旋转辅助线等超长临时 item 会把滚动范围永久撑大。"""
+        if self._image_item is None:
+            self.scene.setSceneRect(QRectF())
+            return
+        rect = self._image_item.sceneBoundingRect()
+        margin_x = max(rect.width() * 0.25, 64.0)
+        margin_y = max(rect.height() * 0.25, 64.0)
+        self.scene.setSceneRect(rect.adjusted(-margin_x, -margin_y, margin_x, margin_y))
 
     def on_image_changed(self, image):
         """切图: 复用 _image_item + 用 LRU 里的预转 QImage,主线程零阻塞、无中间帧。
@@ -95,6 +114,7 @@ class GraphicsViewLayersMixin:
                     self.scene.removeItem(self._image_item)
                 self._image_item = None
                 self._q_image_ref = None
+                self._apply_image_scene_rect()
                 return
 
             # 3) 优先用 LRU 缓存的预转 QImage(主线程零阻塞)
@@ -116,6 +136,7 @@ class GraphicsViewLayersMixin:
                     self.scene.removeItem(self._image_item)
                 self._image_item = None
                 self._q_image_ref = None
+                self._apply_image_scene_rect()
                 return
 
             self._q_image_ref = qimage
@@ -130,6 +151,7 @@ class GraphicsViewLayersMixin:
                 self._image_item.setZValue(2)
 
             self._image_item.setOpacity(self.model.get_original_image_alpha())
+            self._apply_image_scene_rect()
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
             self._emit_view_state_changed()
         finally:

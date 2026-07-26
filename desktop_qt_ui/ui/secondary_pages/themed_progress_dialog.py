@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QHBoxLayout
 from qfluentwidgets import (
     Dialog,
     FluentIcon as FIF,
@@ -9,6 +9,8 @@ from qfluentwidgets import (
     ProgressBar,
     TransparentToolButton,
 )
+
+from ui.secondary_pages.fluent_dialog import normalize_dialog_parent
 
 
 class ThemedProgressDialog(Dialog):
@@ -19,8 +21,12 @@ class ThemedProgressDialog(Dialog):
         self._maximum = 0
         self._value = 0
 
-        self.setModal(True)
-        self.setWindowModality(Qt.WindowModality.WindowModal)
+        # parent 归一化后仍为 None 时 WindowModal 等于不模态，退到 ApplicationModal
+        self.setWindowModality(
+            Qt.WindowModality.WindowModal
+            if self.parent() is not None
+            else Qt.WindowModality.ApplicationModal
+        )
         self.setTitleBarVisible(False)
         self.setMinimumWidth(420)
 
@@ -31,16 +37,36 @@ class ThemedProgressDialog(Dialog):
         if cancel_button_text:
             self.close_button.setToolTip(cancel_button_text)
 
-        self.progress_bar = IndeterminateProgressBar(self, start=True)
-        self.progress_bar.setFixedHeight(4)
-        self.textLayout.addWidget(self.progress_bar)
+        # 顶部真正的标题行：标题 + stretch + 关闭按钮，取代手动 move/raise_
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        self.textLayout.removeWidget(self.titleLabel)
+        header_layout.addWidget(self.titleLabel, 1, Qt.AlignmentFlag.AlignVCenter)
+        header_layout.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.textLayout.insertLayout(0, header_layout)
+
+        # 两条进度条常驻布局、按模式切换可见性，不再销毁重建
+        self._indeterminate_bar = IndeterminateProgressBar(self, start=True)
+        self._indeterminate_bar.setFixedHeight(4)
+        self._determinate_bar = ProgressBar(self)
+        self._determinate_bar.setFixedHeight(4)
+        self._determinate_bar.hide()
+        self.textLayout.addWidget(self._indeterminate_bar)
+        self.textLayout.addWidget(self._determinate_bar)
 
         self.yesButton.hide()
         self.cancelButton.hide()
         self.buttonGroup.hide()
 
         self.setFixedSize(460, 150)
-        self._sync_close_button_geometry()
+
+    @property
+    def progress_bar(self):
+        """当前生效的进度条（兼容旧属性访问）。"""
+        if self._determinate_bar.isVisibleTo(self):
+            return self._determinate_bar
+        return self._indeterminate_bar
 
     def setWindowTitle(self, title: str):
         super().setWindowTitle(title)
@@ -70,14 +96,14 @@ class ThemedProgressDialog(Dialog):
     def setRange(self, minimum: int, maximum: int):
         self._minimum = minimum
         self._maximum = maximum
-        if maximum > minimum and isinstance(self.progress_bar, IndeterminateProgressBar):
-            old_bar = self.progress_bar
-            self.textLayout.removeWidget(old_bar)
-            old_bar.deleteLater()
-            self.progress_bar = ProgressBar(self)
-            self.progress_bar.setFixedHeight(4)
-            self.textLayout.addWidget(self.progress_bar)
-        self.progress_bar.setRange(minimum, maximum)
+        determinate = maximum > minimum
+        if determinate:
+            self._determinate_bar.setRange(minimum, maximum)
+            self._indeterminate_bar.stop()
+        else:
+            self._indeterminate_bar.start()
+        self._determinate_bar.setVisible(determinate)
+        self._indeterminate_bar.setVisible(not determinate)
 
     def setMinimum(self, minimum: int):
         self.setRange(minimum, self._maximum)
@@ -87,8 +113,7 @@ class ThemedProgressDialog(Dialog):
 
     def setValue(self, value: int):
         self._value = value
-        if hasattr(self.progress_bar, "setValue"):
-            self.progress_bar.setValue(value)
+        self._determinate_bar.setValue(value)
 
     def value(self) -> int:
         return self._value
@@ -100,28 +125,12 @@ class ThemedProgressDialog(Dialog):
     def wasCanceled(self) -> bool:
         return self._was_canceled
 
-    def _sync_close_button_geometry(self):
-        self.close_button.move(self.width() - self.close_button.width() - 12, 10)
-        self.close_button.raise_()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._sync_close_button_geometry()
-
 
 def apply_progress_dialog_style(dialog: Dialog) -> Dialog:
     return dialog
 
 
-def _dialog_parent(parent):
-    candidate = parent if isinstance(parent, QWidget) else QApplication.activeWindow()
-    if candidate is None:
-        return None
-    top_level = candidate.window()
-    return top_level if top_level is not None else candidate
-
-
 def create_progress_dialog(parent, title: str, label_text: str, cancel_button_text: str | None = None) -> ThemedProgressDialog:
-    dialog = ThemedProgressDialog(label_text, cancel_button_text, _dialog_parent(parent))
+    dialog = ThemedProgressDialog(label_text, cancel_button_text, normalize_dialog_parent(parent))
     dialog.setWindowTitle(title)
     return dialog

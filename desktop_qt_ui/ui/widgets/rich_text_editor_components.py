@@ -14,6 +14,7 @@ from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
+    QApplication,
     QFontComboBox,
     QGridLayout,
     QHBoxLayout,
@@ -258,6 +259,8 @@ class RichTextPresetSidebar(QWidget):
             item = self.content_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # 先脱离父级再延迟删除，避免重排期间还画着待删控件
+                widget.setParent(None)
                 widget.deleteLater()
         if not self._names:
             empty = CaptionLabel(_tr("No saved styles"), self.content)
@@ -423,6 +426,8 @@ class StyleRunCard(SimpleCardWidget):
         self.keys = style_keys_for_segment(segment, forced_keys)
         self.controls: dict[str, QWidget] = {}
         self.name_labels: dict[str, CaptionLabel] = {}
+        # key -> [applier(style, transform, segment, draft)]：结构不变时就地刷新控件值
+        self._value_appliers: dict[str, list] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -468,6 +473,44 @@ class StyleRunCard(SimpleCardWidget):
         if self.segment.node_type in {"ruby", "tcy"} and self.segment.node_start is not None:
             return self.segment.node_start, self.segment.node_end or self.segment.end
         return self.segment.start, self.segment.end
+
+    # ------------------------------------------------------------------
+    # 结构签名相同时的就地刷新（避免整卡重建打断用户输入/点击）
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _apply_control_value(control: QWidget, setter, value) -> None:
+        """把新值写进控件；持焦点的控件不覆盖（值本来就来自它）。"""
+        focus_widget = QApplication.focusWidget()
+        if focus_widget is not None and (
+            focus_widget is control or control.isAncestorOf(focus_widget)
+        ):
+            return
+        control.blockSignals(True)
+        try:
+            setter(value)
+        finally:
+            control.blockSignals(False)
+
+    def _register_applier(self, key: str, control: QWidget, getter, setter) -> None:
+        def applier(style, transform, segment, draft, _control=control, _getter=getter, _setter=setter):
+            self._apply_control_value(_control, _setter, _getter(style, transform, segment, draft))
+
+        self._value_appliers.setdefault(key, []).append(applier)
+
+    def update_values(self, segment: StyledTextSegment, ruby_draft_text: str | None = None) -> None:
+        """结构签名相同时就地刷新：把新的样式值写进现有控件，不重建行。
+
+        由 StyledRunList.set_segments 在签名比对通过后调用；start/end、
+        node 边界、key 集合都包含在签名里，所以构造时捕获的目标范围
+        （header/删除按钮等连接）在复用期间保持有效。
+        """
+        self.segment = segment
+        style = segment.style or {}
+        transform = style.get("transform") or {}
+        for appliers in self._value_appliers.values():
+            for applier in appliers:
+                applier(style, transform, segment, ruby_draft_text)
 
     def _target_for_key(self, key: str) -> tuple[int, int]:
         if key in {"R", "T"} and self.segment.node_start is not None:
@@ -524,6 +567,11 @@ class StyleRunCard(SimpleCardWidget):
             value = style.get("italic", 15.0)
             control = _double_spin_box(15.0 if isinstance(value, bool) else value, -85.0, 85.0, 1)
             control.valueChanged.connect(lambda value: self._emit_patch(key, {"italic": float(value)}))
+            self._register_applier(
+                key, control,
+                lambda s, *_: 15.0 if isinstance(s.get("italic", 15.0), bool) else float(s.get("italic", 15.0)),
+                control.setValue,
+            )
             return control
         if key == "C":
             control = self._color_picker(
@@ -532,20 +580,40 @@ class StyleRunCard(SimpleCardWidget):
                 "saved_colors",
             )
             control.color_changed.connect(lambda value: self._emit_patch(key, {"color": value}))
+            self._register_applier(
+                key, control,
+                lambda s, *_: str(s.get("color", "#E53935")),
+                control.set_color,
+            )
             return control
         if key == "S":
             control = _spin_box(int(style.get("fontSize", 24)), 1, 1000)
             control.valueChanged.connect(lambda value: self._emit_patch(key, {"fontSize": int(value)}))
+            self._register_applier(
+                key, control,
+                lambda s, *_: int(s.get("fontSize", 24)),
+                control.setValue,
+            )
             return control
         if key == "%":
             control = _double_spin_box(style.get("scale", 1.2), 0.1, 10.0)
             control.valueChanged.connect(lambda value: self._emit_patch(key, {"scale": float(value)}))
+            self._register_applier(
+                key, control,
+                lambda s, *_: float(s.get("scale", 1.2)),
+                control.setValue,
+            )
             return control
         if key == "F":
             control = QFontComboBox(self)
             control.setCurrentFont(QFont(str(style.get("fontFamily") or "")))
             control.currentIndexChanged.connect(
                 lambda _index: self._emit_patch(key, {"fontFamily": control.currentFont().family()})
+            )
+            self._register_applier(
+                key, control,
+                lambda s, *_: str(s.get("fontFamily") or ""),
+                lambda value, _control=control: _control.setCurrentFont(QFont(value)),
             )
             return control
         if key in _EFFECT_SPECS:
@@ -564,6 +632,18 @@ class StyleRunCard(SimpleCardWidget):
                 lambda value, field=source, part=number_key:
                 self._emit_patch(key, {field: {part: float(value)}})
             )
+            self._register_applier(
+                key, color,
+                lambda s, *_, field=source, default=color_default:
+                str((s.get(field) or {}).get("color", default)),
+                color.set_color,
+            )
+            self._register_applier(
+                key, number,
+                lambda s, *_, field=source, part=number_key, default=number_default:
+                float((s.get(field) or {}).get(part, default)),
+                number.setValue,
+            )
             return self._pair(
                 color,
                 number,
@@ -578,11 +658,21 @@ class StyleRunCard(SimpleCardWidget):
             control.apply_requested.connect(lambda value: self.ruby_apply_requested.emit(start, end, value))
             control.editing_finished.connect(lambda value: self.ruby_finished.emit(start, end, value))
             control.text_changed.connect(lambda value: self.ruby_changed.emit(start, end, value))
+            self._register_applier(
+                key, control.input,
+                lambda s, t, seg, draft: str(seg.ruby_text if draft is None else draft),
+                control.input.setText,
+            )
             return control
         if key == "Rot":
             control = _double_spin_box(transform.get("rotation", 0.0), -180.0, 180.0, 1)
             control.valueChanged.connect(
                 lambda value: self._emit_patch(key, {"transform": {"rotation": float(value)}})
+            )
+            self._register_applier(
+                key, control,
+                lambda s, t, *_: float(t.get("rotation", 0.0)),
+                control.setValue,
             )
             return control
         if key in {"K", "PK", "LK", "NK"}:
@@ -590,6 +680,11 @@ class StyleRunCard(SimpleCardWidget):
             control = _double_spin_box(style.get(field, 0.0), -5.0, 5.0)
             control.valueChanged.connect(
                 lambda value, name=field: self._emit_patch(key, {name: float(value)})
+            )
+            self._register_applier(
+                key, control,
+                lambda s, *_, name=field: float(s.get(name, 0.0)),
+                control.setValue,
             )
             return control
         if key == "XY":
@@ -600,6 +695,16 @@ class StyleRunCard(SimpleCardWidget):
             )
             y_control.valueChanged.connect(
                 lambda value: self._emit_patch(key, {"transform": {"offsetY": float(value)}})
+            )
+            self._register_applier(
+                key, x_control,
+                lambda s, t, *_: float(t.get("offsetX", 0.0)),
+                x_control.setValue,
+            )
+            self._register_applier(
+                key, y_control,
+                lambda s, t, *_: float(t.get("offsetY", 0.0)),
+                y_control.setValue,
             )
             return self._pair(x_control, y_control, "X", "Y")
         return None
@@ -667,7 +772,6 @@ class StyledRunList(ScrollArea):
         *,
         ruby_draft: tuple[int, int, str, str] | None = None,
         pending_styles: tuple[int, int, str, Iterable[str]] | None = None,
-        allow_reuse: bool = False,
     ) -> None:
         values = list(segments)
         forced_by_range: dict[tuple[int, int], set[str]] = {}
@@ -715,20 +819,29 @@ class StyledRunList(ScrollArea):
                 forced_assigned.add(matched_target)
             plans.append((segment, forced, draft_text))
 
-        # Card layout identity: everything except style *values*.  When only a
-        # value changed (spin box, color swatch), the existing controls already
-        # display it — rebuilding them mid-interaction would tear the widget
-        # out from under the user's cursor and break spin auto-repeat.
+        # Card layout identity: everything except style *values* (ruby text
+        # included — it is a value edited through a live input).  When only a
+        # value changed (spin box, color swatch, ruby text), the existing
+        # cards are refreshed in place: rebuilding them would tear the widget
+        # out from under the user's cursor, break spin auto-repeat and swallow
+        # the first click after a ruby ``editingFinished``.
         signature = tuple(
             (
                 segment.start, segment.end, segment.text,
-                segment.node_type, segment.ruby_text,
+                segment.node_type,
                 segment.node_start, segment.node_end,
                 tuple(style_keys_for_segment(segment, forced)),
             )
             for segment, forced, _draft in plans
         )
-        if allow_reuse and self.run_cards and signature == self._cards_signature:
+        if (
+            self.run_cards
+            and signature == self._cards_signature
+            and len(self.run_cards) == len(plans)
+        ):
+            for card, (segment, _forced, draft_text) in zip(self.run_cards, plans):
+                card.update_values(segment, draft_text)
+            self.setVisible(bool(values))
             return
         self._cards_signature = signature
 

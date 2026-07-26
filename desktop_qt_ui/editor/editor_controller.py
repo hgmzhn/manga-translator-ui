@@ -1,5 +1,6 @@
 import copy
 import os
+import weakref
 from dataclasses import dataclass
 from typing import Optional
 
@@ -31,6 +32,15 @@ from .render_text_value import has_renderable_text, render_text_value_from_regio
 from .session import DocumentSnapshot
 
 _UNSET = object()
+
+# 活跃控制器弱引用注册表：退出路径（app_logic.shutdown）需要在不持有
+# 编辑器引用的情况下找到控制器做线程池清理；弱引用避免延长其生命周期。
+_ACTIVE_CONTROLLERS: "weakref.WeakSet" = weakref.WeakSet()
+
+
+def get_active_editor_controllers() -> list:
+    """返回当前仍存活的 EditorController 实例列表（供退出清理使用）。"""
+    return list(_ACTIVE_CONTROLLERS)
 
 
 @dataclass(slots=True)
@@ -183,7 +193,16 @@ class EditorController(QObject):
         
         self._connect_model_signals()
         self.history_service.undo_redo_state_changed.connect(self._on_history_undo_redo_state_changed)
-    
+
+        _ACTIVE_CONTROLLERS.add(self)
+
+    def shutdown(self) -> None:
+        """退出清理：取消在途加载/预读任务并关闭文档服务的常驻线程池。"""
+        try:
+            self.document_service.shutdown()
+        except Exception as e:
+            self.logger.warning(f"EditorController shutdown failed: {e}")
+
     # ========== Resource Access Helpers (新的资源访问辅助方法) ==========
     
     def _get_current_image(self) -> Optional[Image.Image]:
@@ -433,11 +452,16 @@ class EditorController(QObject):
         graphics_view = self.get_graphics_view()
         if graphics_view is not None:
             graphics_view.set_controller(self)
-        # 初始化Toast管理器
-        from ui.widgets.toast_notification import ToastManager
-        self.toast_manager = ToastManager(view)
-        # 连接Toast信号到主线程槽函数
-        self._show_toast_signal.connect(self._show_toast_in_main_thread)
+        # Toast管理器与信号连接只建立一次：set_view 被重复调用时复用，
+        # 避免重复 connect 导致同一条 Toast 弹出多次
+        existing_toast_manager = getattr(self, "toast_manager", None)
+        if existing_toast_manager is None or getattr(existing_toast_manager, "parent", None) is not view:
+            from ui.widgets.toast_notification import ToastManager
+            self.toast_manager = ToastManager(view)
+        if not getattr(self, "_toast_signal_connected", False):
+            # 连接Toast信号到主线程槽函数
+            self._show_toast_signal.connect(self._show_toast_in_main_thread)
+            self._toast_signal_connected = True
         # 初始化撤销/重做按钮状态
         self._update_undo_redo_buttons()
     
@@ -523,22 +547,85 @@ class EditorController(QObject):
         *,
         translation: str,
         translation_raw: str,
+        translation_rich: Optional[dict] = None,
     ) -> dict:
-        """写入纯文本译文，并清理或按规则重建旧 ``translation_rich``。"""
+        """写入纯文本译文。
+
+        ``translation_rich`` 传入同步好的文档就写入;传 ``None`` 表示没有
+        可靠的样式迁移结果(整段替换/同步失败),删除旧富文本退回纯文本,
+        避免画布继续渲染过期的富文本正文。
+        """
         new_region_data = region_data.copy()
         new_region_data["translation"] = translation
         new_region_data["translation_raw"] = translation_raw
-        new_region_data.pop("translation_rich", None)
-        try:
-            from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
-
-            direction_value = new_region_data.get("direction", "h")
-            rich_document = apply_rich_text_rules(translation, direction_value)
-            if rich_document is not None:
-                new_region_data["translation_rich"] = rich_document.to_dict()
-        except Exception as exc:
-            self.logger.warning("apply_rich_text_rules failed: %s", exc)
+        if translation_rich is not None:
+            new_region_data["translation_rich"] = translation_rich
+        else:
+            new_region_data.pop("translation_rich", None)
         return new_region_data
+
+    @staticmethod
+    def _direction_int(region_data: dict) -> int:
+        """区域排版方向 → 替换规则的 direction 参数(0=横排, 1=竖排)。"""
+        direction_val = region_data.get("direction", "h")
+        return 0 if direction_val in ("h", "horizontal", "hr") else 1
+
+    def _sync_rich_for_plain_edit(
+        self,
+        old_region_data: dict,
+        edit_info,
+        *,
+        raw_mode: bool,
+        new_translation: str,
+    ) -> Optional[dict]:
+        """按编辑操作记录把旧 ``translation_rich`` 同步到新文本。
+
+        返回同步好的文档 dict;没有旧富文本、没有操作记录或任何校验失败时
+        返回 ``None``(调用方会删除富文本字段退回纯文本)。
+        """
+        old_rich = old_region_data.get("translation_rich")
+        if not old_rich:
+            return None
+        info = edit_info if isinstance(edit_info, dict) else None
+        ops = info.get("ops") if info else None
+        if not ops:
+            self.logger.info("译文整段替换,无编辑操作记录,富文本退回纯文本")
+            return None
+
+        from manga_translator.rendering import rich_text_sync
+
+        try:
+            if raw_mode:
+                document = rich_text_sync.sync_document_for_raw_edit(
+                    old_rich,
+                    info.get("pre_text", ""),
+                    ops,
+                    info.get("post_text", ""),
+                    self._direction_int(old_region_data),
+                )
+            else:
+                document = rich_text_sync.document_after_edit_ops(
+                    old_rich,
+                    ops,
+                    info.get("pre_text", ""),
+                    info.get("post_text", ""),
+                )
+        except Exception as exc:
+            self.logger.warning("富文本样式同步异常,退回纯文本: %s", exc)
+            return None
+        if document is None:
+            self.logger.warning("富文本样式同步校验失败,退回纯文本")
+            return None
+
+        # 文档正文(\n 口径)折算回模型口径([BR]),必须与新译文一致
+        import re
+
+        if re.sub(r"\n+", "[BR]", document.plain_text()) != new_translation:
+            self.logger.warning("同步后富文本正文与译文不一致,退回纯文本")
+            return None
+        if not rich_text_sync.document_has_styling(document):
+            return None
+        return document.to_dict()
 
     def _clear_editor_state(self, release_image_cache: bool = False):
         self.document_service.clear_editor_state(release_image_cache=release_image_cache)
@@ -720,13 +807,20 @@ class EditorController(QObject):
             return "horizontal"
         return "horizontal"
 
-    @pyqtSlot(int, str)
-    def update_translated_text(self, region_index: int, text: str):
+    @pyqtSlot(int, str, object)
+    def update_translated_text(self, region_index: int, text: str, edit_info=None):
         # 译文编辑:同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
+        old_region_data = self._get_region_by_index(region_index)
+        if not old_region_data:
+            return
+        new_rich = self._sync_rich_for_plain_edit(
+            old_region_data, edit_info, raw_mode=False, new_translation=text
+        )
         self._update_translation_pair(
             region_index,
             translation=text,
             translation_raw=text,
+            translation_rich=new_rich,
             description=f"Update Translation Region {region_index}",
             merge_key=f"region:{region_index}:translation",
         )
@@ -744,19 +838,23 @@ class EditorController(QObject):
             self.logger.warning(f"apply_replacements failed: {e}")
             return raw_text
 
-    @pyqtSlot(int, str)
-    def update_translation_raw(self, region_index: int, raw_text: str):
+    @pyqtSlot(int, str, object)
+    def update_translation_raw(self, region_index: int, raw_text: str, edit_info=None):
         """编辑替换前译文:实时跑 apply_replacements 同步到 translation 字段。"""
         old_region_data = self._get_region_by_index(region_index)
         if not old_region_data:
             return
 
         new_translation = self._apply_translation_replacements(old_region_data, raw_text)
+        new_rich = self._sync_rich_for_plain_edit(
+            old_region_data, edit_info, raw_mode=True, new_translation=new_translation
+        )
 
         self._update_translation_pair(
             region_index,
             translation=new_translation,
             translation_raw=raw_text,
+            translation_rich=new_rich,
             description=f"Update Translation Raw Region {region_index}",
             merge_key=f"region:{region_index}:translation_raw",
         )
@@ -803,6 +901,7 @@ class EditorController(QObject):
         translation_raw: str,
         description: str,
         merge_key: str,
+        translation_rich: Optional[dict] = None,
     ) -> bool:
         """同时更新 translation 和 translation_raw,共用一个 Undo Command(撤销时一起回滚)。"""
         old_region_data = self._get_region_by_index(region_index)
@@ -819,6 +918,7 @@ class EditorController(QObject):
             old_region_data,
             translation=translation,
             translation_raw=translation_raw,
+            translation_rich=translation_rich,
         )
 
         # translation 是 _FONT_AFFECTING_FIELDS 成员,改动后同步白框尺寸

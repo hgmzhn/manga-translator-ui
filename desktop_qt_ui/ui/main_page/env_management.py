@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import textwrap
@@ -37,6 +38,70 @@ from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 
 API_ROTATION_UI_MAX_SLOTS = min(10, MAX_ROTATION_SLOTS)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# 后台 QThread 统一生命周期管理
+# ---------------------------------------------------------------------------
+
+def _request_thread_interruption(thread) -> None:
+    try:
+        if thread.isRunning():
+            thread.requestInterruption()
+    except RuntimeError:
+        pass
+
+
+def _is_managed_thread_running(self, kind: str) -> bool:
+    """同类后台线程是否仍在运行（用于启动前守卫，防止属性覆盖导致崩溃）。"""
+    thread = getattr(self, "_active_threads", {}).get(kind)
+    if thread is None:
+        return False
+    try:
+        return thread.isRunning()
+    except RuntimeError:
+        return False
+
+
+def _start_managed_thread(self, kind: str, thread, progress=None) -> None:
+    """启动并登记一个后台线程。
+
+    - 线程持有在 self._active_threads[kind]，finished 后自动移除并 deleteLater，
+      避免旧的"单属性覆盖 + 无等待"导致 QThread: Destroyed while running；
+    - 传入 progress 时，取消/关闭进度框会向线程发出中断请求
+      （线程内部可用 isInterruptionRequested 检查；结果回调已按 wasCanceled 忽略）。
+    """
+    threads = getattr(self, "_active_threads", None)
+    if threads is None:
+        threads = {}
+        self._active_threads = threads
+    threads[kind] = thread
+
+    if progress is not None:
+        progress.rejected.connect(lambda t=thread: _request_thread_interruption(t))
+
+    def _on_thread_finished():
+        if threads.get(kind) is thread:
+            threads.pop(kind, None)
+        thread.deleteLater()
+
+    thread.finished.connect(_on_thread_finished)
+    thread.start()
+
+
+def shutdown_background_threads(self, timeout_ms: int = 3000) -> None:
+    """关闭窗口前等待所有登记的后台线程结束（带超时）。"""
+    threads = list(getattr(self, "_active_threads", {}).values())
+    for thread in threads:
+        _request_thread_interruption(thread)
+    for thread in threads:
+        try:
+            if thread.isRunning() and not thread.wait(timeout_ms):
+                logger.warning("后台线程 %s 在 %dms 内未结束，放弃等待", thread, timeout_ms)
+        except RuntimeError:
+            pass
 
 
 class QLineEdit(FluentLineEdit):
@@ -372,6 +437,19 @@ def _refresh_api_groups_after_dialog(self) -> None:
     QTimer.singleShot(0, lambda: self._refresh_env_api_groups(force=True))
 
 
+def refresh_api_slot_status_styles(self) -> None:
+    """主题切换后按各状态条自带的 state 重算样式（_api_slot_status_style 每次取当前主题色）。"""
+    alive = []
+    for widget in getattr(self, "_api_slot_status_widgets", []):
+        try:
+            state = str(widget.property("apiSlotState") or "")
+            widget.setStyleSheet(_api_slot_status_style(state))
+        except RuntimeError:
+            continue
+        alive.append(widget)
+    self._api_slot_status_widgets = alive
+
+
 def _api_slot_status_style(state: str) -> str:
     dark = isDarkTheme()
     if state == "cooldown":
@@ -416,7 +494,11 @@ def _add_api_slot_status_notice(self, slot_card_layout, endpoint: APIEndpoint | 
 
     status_widget = QWidget()
     status_widget.setObjectName("apiSlotStatusNotice")
+    status_widget.setProperty("apiSlotState", state)
     status_widget.setStyleSheet(_api_slot_status_style(state))
+    if not hasattr(self, "_api_slot_status_widgets"):
+        self._api_slot_status_widgets = []
+    self._api_slot_status_widgets.append(status_widget)
 
     status_layout = QHBoxLayout(status_widget)
     status_layout.setContentsMargins(10, 6, 8, 6)
@@ -495,16 +577,14 @@ def get_env_default_placeholder(self, key: str) -> str:
 
 
 def debounced_save_env_var(self, key: str, text: str):
-    """防抖保存.env变量，支持多个 Key 同时暂存。"""
+    """防抖保存.env变量，支持多个 Key 同时暂存。
+
+    timeout 已在 MainView.__init__ 固定连接到 _flush_all_pending_env_vars，
+    这里只暂存参数并重启计时器。
+    """
     if not hasattr(self, '_pending_env_vars'):
         self._pending_env_vars = {}
     self._pending_env_vars[key] = text
-    self._env_debounce_timer.stop()
-    try:
-        self._env_debounce_timer.timeout.disconnect()
-    except TypeError:
-        pass
-    self._env_debounce_timer.timeout.connect(lambda: flush_all_pending_env_vars(self))
     self._env_debounce_timer.start()
 
 
@@ -562,13 +642,15 @@ def _populate_api_feature_selector(self, label, combo, label_key: str, setting_k
     display_map = self.controller.get_display_mapping(options_key) or {}
 
     combo.blockSignals(True)
-    combo.clear()
-    for option in options:
-        combo.addItem(display_map.get(option, option), option)
-    index = combo.findData(current_value)
-    if index >= 0:
-        combo.setCurrentIndex(index)
-    combo.blockSignals(False)
+    try:
+        combo.clear()
+        for option in options:
+            combo.addItem(display_map.get(option, option), option)
+        index = combo.findData(current_value)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+    finally:
+        combo.blockSignals(False)
 
 
 def create_api_feature_selector_row(self, section_key: str):
@@ -616,8 +698,24 @@ def on_api_feature_combo_changed(self, combo):
     if not setting_key or value is None:
         return
     self.setting_changed.emit(str(setting_key), str(value))
-    QTimer.singleShot(100, lambda: self._refresh_env_api_groups())
-    QTimer.singleShot(120, lambda: refresh_api_feature_selectors(self))
+    _schedule_api_feature_refresh(self)
+
+
+def _schedule_api_feature_refresh(self) -> None:
+    """合并 API 分组 + 功能选择器刷新为一个可重启的去抖定时器。"""
+    timer = getattr(self, "_api_feature_refresh_timer", None)
+    if timer is None:
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(120)
+
+        def _do_refresh():
+            self._refresh_env_api_groups()
+            refresh_api_feature_selectors(self)
+
+        timer.timeout.connect(_do_refresh)
+        self._api_feature_refresh_timer = timer
+    timer.start()
 
 
 def _detect_test_target(env_key: str, translator_key: str) -> str:
@@ -1090,7 +1188,7 @@ def validate_api_candidate_availability(self) -> bool:
     if hasattr(self.controller, "_ui_log"):
         self.controller._ui_log(f"API 候选池无可用候选，已阻止开始翻译: {log_message}", "WARNING")
     QMessageBox.warning(
-        self,
+        self._dialog_parent(),
         self._t("API candidate availability failed"),
         self._t("API candidate availability failed details", details=details),
     )
@@ -1125,7 +1223,7 @@ def _show_api_batch_test_results(self, results: list[dict]) -> None:
         unavailable=unavailable,
     )
     show_error_dialog(
-        self,
+        self._dialog_parent(),
         self._t("API Batch Test Results"),
         heading,
         _format_api_batch_result_text(self, results),
@@ -1143,12 +1241,15 @@ def _run_api_batch_test(self, items: list[dict]):
     from utils.asyncio_cleanup import shutdown_event_loop
 
     if not items:
-        themed_information(self, self._t("API Batch Test"), self._t("No API channels to test"))
+        themed_information(self._dialog_parent(), self._t("API Batch Test"), self._t("No API channels to test"))
+        return
+
+    if _is_managed_thread_running(self, "api_batch_test"):
         return
 
     concurrency = 3
     progress = create_progress_dialog(
-        self,
+        self._dialog_parent(),
         self._t("API Batch Test"),
         self._t("Testing API channels", count=len(items), concurrency=concurrency),
         self._t("Cancel"),
@@ -1217,8 +1318,7 @@ def _run_api_batch_test(self, items: list[dict]):
 
     thread = BatchTestThread()
     thread.finished_signal.connect(on_finished)
-    thread.start()
-    self._api_batch_test_thread = thread
+    _start_managed_thread(self, "api_batch_test", thread, progress)
 
 
 def on_test_current_api_section_clicked(self, section_key: str):
@@ -1238,7 +1338,7 @@ def on_open_custom_api_params_file(self):
     except Exception as e:
         from PyQt6.QtWidgets import QMessageBox
 
-        QMessageBox.warning(self, self._t("Error"), f"创建配置文件失败: {e}")
+        QMessageBox.warning(self._dialog_parent(), self._t("Error"), f"创建配置文件失败: {e}")
         return
 
     try:
@@ -1246,12 +1346,12 @@ def on_open_custom_api_params_file(self):
             CustomApiParamsEditorDialog,
         )
 
-        dialog = CustomApiParamsEditorDialog(config_path, t_func=self._t, parent=self)
+        dialog = CustomApiParamsEditorDialog(config_path, t_func=self._t, parent=self._dialog_parent())
         dialog.exec()
     except Exception as e:
         from PyQt6.QtWidgets import QMessageBox
 
-        QMessageBox.warning(self, self._t("Error"), f"打开编辑器失败: {e}")
+        QMessageBox.warning(self._dialog_parent(), self._t("Error"), f"打开编辑器失败: {e}")
 
 
 def on_test_api_clicked(self, key: str):
@@ -1267,12 +1367,15 @@ def on_test_api_clicked(self, key: str):
     if key not in self.env_widgets:
         return
 
+    if _is_managed_thread_running(self, "api_test"):
+        return
+
     translator_key = _get_current_translator_key(self)
     test_target, api_key, api_base, model = _resolve_api_context(self, key, translator_key)
     status_endpoint = _build_test_status_endpoint(self, key, test_target, api_key, api_base, model)
 
     progress = create_progress_dialog(
-        self,
+        self._dialog_parent(),
         self._t("Testing"),
         self._t("Testing API connection, please wait..."),
         self._t("Cancel"),
@@ -1312,7 +1415,7 @@ def on_test_api_clicked(self, key: str):
         if success:
             success_details = _wrap_error_text(message) if message else self._t("API connection test successful!")
             _show_api_success_dialog(
-                self,
+                self._dialog_parent(),
                 self._t("Success"),
                 self._t("API connection test successful!"),
                 success_details,
@@ -1320,7 +1423,7 @@ def on_test_api_clicked(self, key: str):
         else:
             friendly_message = _format_test_connection_error(test_target, message)
             _show_api_error_dialog(
-                self,
+                self._dialog_parent(),
                 self._t("Error"),
                 self._t("API connection test failed"),
                 friendly_message,
@@ -1330,8 +1433,7 @@ def on_test_api_clicked(self, key: str):
 
     test_thread = TestThread()
     test_thread.finished_signal.connect(on_test_finished)
-    test_thread.start()
-    self._test_thread = test_thread
+    _start_managed_thread(self, "api_test", test_thread, progress)
 
 
 def on_get_models_clicked(self, key: str):
@@ -1346,11 +1448,14 @@ def on_get_models_clicked(self, key: str):
     from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
     from utils.asyncio_cleanup import shutdown_event_loop
 
+    if _is_managed_thread_running(self, "get_models"):
+        return
+
     translator_key = _get_current_translator_key(self)
     model_api_type, api_key, api_base, _ = _resolve_api_context(self, key, translator_key)
 
     progress = create_progress_dialog(
-        self,
+        self._dialog_parent(),
         self._t("Get Models"),
         self._t("Fetching models, please wait..."),
         self._t("Cancel"),
@@ -1387,7 +1492,7 @@ def on_get_models_clicked(self, key: str):
                     models,
                     self._t("Select Model"),
                     self._t("Available models:"),
-                    parent=self,
+                    parent=self._dialog_parent(),
                     t_func=self._t,
                 )
                 if ok and selected_model and key in self.env_widgets:
@@ -1395,11 +1500,11 @@ def on_get_models_clicked(self, key: str):
                     widget.setText(selected_model)
                     self.env_var_changed.emit(key, selected_model)
             else:
-                QMessageBox.warning(self, self._t("Warning"), self._t("No models available"))
+                QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("No models available"))
         else:
             friendly_message = _format_test_connection_error(model_api_type, message)
             _show_api_error_dialog(
-                self,
+                self._dialog_parent(),
                 self._t("Error"),
                 self._t("Failed to get models"),
                 friendly_message,
@@ -1407,8 +1512,7 @@ def on_get_models_clicked(self, key: str):
 
     get_models_thread = GetModelsThread()
     get_models_thread.finished_signal.connect(on_get_models_finished)
-    get_models_thread.start()
-    self._get_models_thread = get_models_thread
+    _start_managed_thread(self, "get_models", get_models_thread, progress)
 
 
 def refresh_preset_list(self):
@@ -1419,29 +1523,30 @@ def refresh_preset_list(self):
     current_text = self.preset_combo.currentText()
     current_index = self.preset_combo.currentIndex()
 
+    pending_preset_change = None
     self.preset_combo.blockSignals(True)
-    self.preset_combo.clear()
+    try:
+        self.preset_combo.clear()
 
-    presets = self.controller.get_presets_list()
-    if not presets:
-        self.controller.save_preset("默认", copy_current=False)
         presets = self.controller.get_presets_list()
+        if not presets:
+            self.controller.save_preset("默认", copy_current=False)
+            presets = self.controller.get_presets_list()
 
-    if presets:
-        self.preset_combo.addItems(presets)
+        if presets:
+            self.preset_combo.addItems(presets)
 
-        if current_text and current_text in presets:
-            self.preset_combo.setCurrentText(current_text)
-            self.preset_combo.blockSignals(False)
-        else:
-            new_index = min(current_index, len(presets) - 1)
-            self.preset_combo.setCurrentIndex(new_index)
-            new_preset = self.preset_combo.currentText()
-            self.preset_combo.blockSignals(False)
-            self._on_preset_changed(new_preset)
-            return
+            if current_text and current_text in presets:
+                self.preset_combo.setCurrentText(current_text)
+            else:
+                new_index = min(current_index, len(presets) - 1)
+                self.preset_combo.setCurrentIndex(new_index)
+                pending_preset_change = self.preset_combo.currentText()
+    finally:
+        self.preset_combo.blockSignals(False)
 
-    self.preset_combo.blockSignals(False)
+    if pending_preset_change is not None:
+        self._on_preset_changed(pending_preset_change)
 
 
 def on_add_preset_clicked(self):
@@ -1451,7 +1556,7 @@ def on_add_preset_clicked(self):
     from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 
     preset_name, ok = themed_get_text(
-        self,
+        self._dialog_parent(),
         title=self._t("Add Preset"),
         label=self._t("Enter preset name:"),
         ok_text=self._t("OK"),
@@ -1461,13 +1566,13 @@ def on_add_preset_clicked(self):
     if ok and preset_name:
         preset_name = preset_name.strip()
         if not preset_name:
-            QMessageBox.warning(self, self._t("Warning"), self._t("Preset name cannot be empty"))
+            QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Preset name cannot be empty"))
             return
 
         existing_presets = self.controller.get_presets_list()
         if preset_name in existing_presets:
             reply = QMessageBox.question(
-                self,
+                self._dialog_parent(),
                 self._t("Confirm"),
                 self._t("Preset '{name}' already exists. Overwrite?", name=preset_name),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1480,7 +1585,7 @@ def on_add_preset_clicked(self):
             self._refresh_preset_list()
             self.preset_combo.setCurrentText(preset_name)
         else:
-            QMessageBox.critical(self, self._t("Error"), self._t("Failed to create preset"))
+            QMessageBox.critical(self._dialog_parent(), self._t("Error"), self._t("Failed to create preset"))
 
 
 def on_delete_preset_clicked(self):
@@ -1489,11 +1594,11 @@ def on_delete_preset_clicked(self):
 
     preset_name = self.preset_combo.currentText()
     if not preset_name:
-        QMessageBox.warning(self, self._t("Warning"), self._t("Please select a preset to delete"))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Please select a preset to delete"))
         return
 
     reply = QMessageBox.question(
-        self,
+        self._dialog_parent(),
         self._t("Confirm"),
         self._t("Are you sure you want to delete preset '{name}'?", name=preset_name),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1503,9 +1608,9 @@ def on_delete_preset_clicked(self):
         success = self.controller.delete_preset(preset_name)
         if success:
             self._refresh_preset_list()
-            QMessageBox.information(self, self._t("Success"), self._t("Preset deleted successfully"))
+            QMessageBox.information(self._dialog_parent(), self._t("Success"), self._t("Preset deleted successfully"))
         else:
-            QMessageBox.critical(self, self._t("Error"), self._t("Failed to delete preset"))
+            QMessageBox.critical(self._dialog_parent(), self._t("Error"), self._t("Failed to delete preset"))
 
 
 def on_preset_changed(self, new_preset_name: str):
@@ -1538,10 +1643,12 @@ def on_preset_changed(self, new_preset_name: str):
         for key, (label, widget) in self.env_widgets.items():
             new_value = current_env_values.get(key, "")
             widget.blockSignals(True)
-            _set_env_widget_value(widget, str(new_value) if new_value else "")
-            if hasattr(widget, "setPlaceholderText"):
-                widget.setPlaceholderText(self._get_env_default_placeholder(key))
-            widget.blockSignals(False)
+            try:
+                _set_env_widget_value(widget, str(new_value) if new_value else "")
+                if hasattr(widget, "setPlaceholderText"):
+                    widget.setPlaceholderText(self._get_env_default_placeholder(key))
+            finally:
+                widget.blockSignals(False)
         self._refresh_env_api_groups()
         self._refresh_api_feature_selectors()
 
@@ -1555,7 +1662,7 @@ def trigger_add_files(self):
     """触发添加文件对话框。"""
     last_dir = self.controller.get_last_open_dir()
     file_paths, _ = QFileDialog.getOpenFileNames(
-        self,
+        self._dialog_parent(),
         self._t("Add Files"),
         last_dir,
         "All Supported Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif *.heic *.heif *.pdf *.epub *.cbz *.cbr *.zip);;"

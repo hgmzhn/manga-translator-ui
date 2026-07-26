@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import QPointF, Qt, pyqtSlot
+from PyQt6.QtCore import QEvent, QPointF, Qt, pyqtSlot
 from PyQt6.QtGui import (
     QColor,
     QCursor,
@@ -20,6 +20,10 @@ from .graphics_items import RegionTextItem
 
 
 class GraphicsViewInputMixin:
+    # 视图缩放上下限：防止滚轮缩放跑飞（极小 lod 还会造成 item 描边溢出 boundingRect 残影）
+    MIN_VIEW_SCALE = 0.05
+    MAX_VIEW_SCALE = 50.0
+
     def _region_item_at_view_pos(self, view_pos):
         item_at_pos = self.itemAt(view_pos)
         check_item = item_at_pos
@@ -37,23 +41,145 @@ class GraphicsViewInputMixin:
         super().scrollContentsBy(dx, dy)
         self._emit_view_state_changed()
 
-    def wheelEvent(self, event):
-        zoom_in_factor = 1.15
-        zoom_out_factor = 1 / zoom_in_factor
-        delta_y = int(event.angleDelta().y())
-
-        if delta_y > 0:
-            self.scale(zoom_in_factor, zoom_in_factor)
-        else:
-            self.scale(zoom_out_factor, zoom_out_factor)
-
+    def _apply_zoom(self, factor: float):
+        """按倍率缩放视图，并钳制在 [MIN_VIEW_SCALE, MAX_VIEW_SCALE]。"""
+        current = abs(float(self.transform().m11()))
+        if current <= 0.0:
+            current = 1.0
+        target = min(max(current * factor, self.MIN_VIEW_SCALE), self.MAX_VIEW_SCALE)
+        effective = target / current
+        if abs(effective - 1.0) > 1e-9:
+            self.scale(effective, effective)
         self._update_cursor()
         self._emit_view_state_changed()
 
+    def wheelEvent(self, event):
+        delta_y = int(event.angleDelta().y())
+        if delta_y == 0:
+            # 横向滚轮/触摸板：不是缩放手势，交回默认处理
+            super().wheelEvent(event)
+            return
+        zoom_in_factor = 1.15
+        self._apply_zoom(zoom_in_factor if delta_y > 0 else 1.0 / zoom_in_factor)
+
+    # ------------------------- 统一交互终结 -------------------------
+
+    def _has_active_interaction(self) -> bool:
+        return bool(
+            self.selection_manager.is_box_selecting
+            or self._is_drawing
+            or self._is_drawing_textbox
+            or self._clone_drawing
+            or self._region_drag_active
+            or self._hand_scroll_active
+        )
+
+    def _cancel_active_interaction(self, commit: bool, *, ctrl_pressed: bool = False, allow_tool_switch: bool = True):
+        """集中终结所有"进行中"的画布交互。
+
+        右键菜单(menu.exec 抓鼠标)、模态框、窗口失活、快捷键切工具都会让
+        mouseRelease 丢失，进行中状态若不在这里统一清理，框选矩形/绘制预览
+        会永久留在场景里挡住输入。
+
+        commit=True: 按当前(调用时的旧)工具语义提交——正常 release 和切工具前走这里；
+        commit=False: 直接丢弃——右键菜单、Escape、焦点丢失等场合。
+        allow_tool_switch=False: 提交文本框时不再回切 select 工具（切工具入口用，防重入）。
+        """
+        if self.selection_manager.is_box_selecting:
+            if commit:
+                self.selection_manager.finish_box_select(ctrl_pressed)
+            else:
+                self.selection_manager.cancel_box_select()
+
+        if self._is_drawing_textbox:
+            if commit:
+                self._finish_textbox_drawing(switch_to_select=allow_tool_switch)
+            else:
+                self._abort_textbox_drawing()
+
+        if self._clone_drawing:
+            if commit:
+                self._finish_clone_stroke()
+            else:
+                self._reset_clone_stroke_state()
+                self._clear_preview()
+
+        if self._is_drawing:
+            if commit:
+                self._finish_drawing()
+            else:
+                self._reset_drawing_state()
+                self._clear_preview()
+
+        if self._region_drag_active:
+            self.region_drag_finished.emit()
+        self._region_drag_candidate = False
+        self._region_drag_active = False
+        self._potential_drag = False
+        self._drag_start_pos = None
+
+        self._end_hand_scroll()
+
+    # ------------------------- 中键平移（对称合成左键） -------------------------
+
+    def _begin_hand_scroll(self, event):
+        """中键按下：切 ScrollHandDrag 并合成左键 press 喂给 QGraphicsView。"""
+        if self._hand_scroll_active:
+            return
+        self._hand_scroll_active = True
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        press = QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            event.position(),
+            event.globalPosition(),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            event.modifiers(),
+        )
+        super().mousePressEvent(press)
+
+    def _end_hand_scroll(self, event=None):
+        """与 _begin_hand_scroll 对称：合成左键 release 喂给 QGraphicsView，
+        让内部 handScrolling 状态正常复位，然后才切回 NoDrag。"""
+        if not self._hand_scroll_active:
+            return
+        self._hand_scroll_active = False
+        if event is not None:
+            position = event.position()
+            global_position = event.globalPosition()
+            modifiers = event.modifiers()
+        else:
+            global_pos = QCursor.pos()
+            position = QPointF(self.viewport().mapFromGlobal(global_pos))
+            global_position = QPointF(global_pos)
+            modifiers = Qt.KeyboardModifier.NoModifier
+        release = QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            position,
+            global_position,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            modifiers,
+        )
+        super().mouseReleaseEvent(release)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self._has_active_interaction():
+            self._cancel_active_interaction(commit=False)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event):
+        # 模态框/窗口失活/焦点转移都会吞掉后续 release：统一丢弃进行中交互
+        self._cancel_active_interaction(commit=False)
+        super().focusOutEvent(event)
+
     def mousePressEvent(self, event):
-        parent_view = self.parent()
-        if hasattr(parent_view, "force_save_property_panel_edits"):
-            parent_view.force_save_property_panel_edits()
+        editor_view = getattr(self, "editor_view", None)
+        if editor_view is not None and hasattr(editor_view, "force_save_property_panel_edits"):
+            editor_view.force_save_property_panel_edits()
 
         self.setFocus()
 
@@ -78,16 +204,7 @@ class GraphicsViewInputMixin:
             return
 
         if event.button() == Qt.MouseButton.MiddleButton:
-            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            dummy_event = QMouseEvent(
-                event.type(),
-                event.position(),
-                event.globalPosition(),
-                Qt.MouseButton.LeftButton,
-                Qt.MouseButton.LeftButton,
-                event.modifiers(),
-            )
-            super().mousePressEvent(dummy_event)
+            self._begin_hand_scroll(event)
         elif event.button() == Qt.MouseButton.RightButton:
             clicked_region_item = self._region_item_at_view_pos(event.pos())
             if clicked_region_item is not None:
@@ -159,34 +276,23 @@ class GraphicsViewInputMixin:
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self.selection_manager.is_box_selecting and event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.MiddleButton and self._hand_scroll_active:
+            self._end_hand_scroll(event)
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 这三种交互原本各自 accept 并 return，保持该行为
+            exclusive = (
+                self.selection_manager.is_box_selecting
+                or self._is_drawing_textbox
+                or self._clone_drawing
+            )
             ctrl_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            self.selection_manager.finish_box_select(ctrl_pressed)
-            event.accept()
-            return
-
-        if self._is_drawing_textbox and event.button() == Qt.MouseButton.LeftButton:
-            self._finish_textbox_drawing()
-            event.accept()
-            return
-
-        if self._clone_drawing and event.button() == Qt.MouseButton.LeftButton:
-            self._finish_clone_stroke()
-            event.accept()
-            return
-
-        if self._is_drawing and event.button() == Qt.MouseButton.LeftButton:
-            self._finish_drawing()
-
-        if event.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton):
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            if event.button() == Qt.MouseButton.LeftButton and self._region_drag_active:
-                self.region_drag_finished.emit()
-            self._region_drag_candidate = False
-            self._region_drag_active = False
-            if self._drag_start_pos:
-                self._potential_drag = False
-                self._drag_start_pos = None
+            self._cancel_active_interaction(commit=True, ctrl_pressed=ctrl_pressed)
+            if exclusive:
+                event.accept()
+                return
         super().mouseReleaseEvent(event)
 
     def _start_drawing(self, pos):
@@ -553,19 +659,34 @@ class GraphicsViewInputMixin:
             center_x = self._clone_sample_image_point.x()
             center_y = self._clone_sample_image_point.y()
 
-        if self._clone_marker_item is None or self._clone_marker_item.parentItem() is not self._image_item:
+        # 取样圈是场景顶层 item：挂在底图下 Z 值只在父项内部生效，
+        # 会被 overlay/mask/preview 图层盖住
+        marker = self._clone_marker_item
+        marker_alive = marker is not None
+        if marker_alive:
+            try:
+                marker_alive = marker.scene() is self.scene
+            except RuntimeError:
+                marker_alive = False
+        if not marker_alive:
             self._clear_clone_marker()
-            marker = QGraphicsEllipseItem(self._image_item)
+            marker = QGraphicsEllipseItem()
             pen = QPen(QColor(239, 68, 68, 240), 0)
             pen.setStyle(Qt.PenStyle.DashLine)
             marker.setPen(pen)
             marker.setBrush(Qt.GlobalColor.transparent)
-            marker.setZValue(1001)
+            marker.setZValue(10_000)
+            self.scene.addItem(marker)
             self._clone_marker_item = marker
+
+        # 图像像素坐标 → 场景坐标（底图可能带降采样补偿变换）
         radius = max(2.0, self._brush_size / 2.0)
-        self._clone_marker_item.setRect(
-            center_x - radius, center_y - radius, radius * 2, radius * 2
-        )
+        center_scene = self._image_item.mapToScene(QPointF(center_x, center_y))
+        edge_x = self._image_item.mapToScene(QPointF(center_x + radius, center_y))
+        edge_y = self._image_item.mapToScene(QPointF(center_x, center_y + radius))
+        rx = abs(edge_x.x() - center_scene.x()) or radius
+        ry = abs(edge_y.y() - center_scene.y()) or radius
+        marker.setRect(center_scene.x() - rx, center_scene.y() - ry, rx * 2, ry * 2)
 
     def _clear_clone_marker(self):
         if self._clone_marker_item is not None:
@@ -796,19 +917,33 @@ class GraphicsViewInputMixin:
         self._current_draw_mask_shape = None
 
     def _clear_preview(self):
-        if self._preview_item:
-            self._preview_item.pixmap().fill(Qt.GlobalColor.transparent)
-            self._preview_item.setVisible(False)
-            self.scene.update()
-            self.viewport().update()
+        """移除预览 item 并置 None，与两个创建路径（懒创建）保持对称。
+
+        注意不能 pixmap().fill()：QPixmap 隐式共享，fill 的是取出的副本，
+        item 上的真像素不变，下次 setVisible(True) 时旧笔迹会整条闪回。
+        """
+        if self._preview_item is None:
+            return
+        try:
+            if self._preview_item.scene() is not None:
+                self.scene.removeItem(self._preview_item)
+        except RuntimeError:
+            pass
+        self._preview_item = None
+        self.scene.update()
+        self.viewport().update()
 
     @pyqtSlot(str)
     def _on_active_tool_changed(self, tool: str):
+        if tool == self._active_tool:
+            return
+        # 先按旧工具语义提交进行中的笔画/框选，再切换 _active_tool，
+        # 绝不能让旧笔画落进新工具的提交分支
+        self._cancel_active_interaction(commit=True, allow_tool_switch=False)
         self._active_tool = tool
         if tool != "clone":
             self._clone_sample_image_point = None
             self._clone_offset = None
-            self._reset_clone_stroke_state()
             self._clear_clone_marker()
         self._update_cursor()
         self.viewport().update()
@@ -880,13 +1015,11 @@ class GraphicsViewInputMixin:
 
     @pyqtSlot()
     def zoom_in(self):
-        self.scale(1.15, 1.15)
-        self._emit_view_state_changed()
+        self._apply_zoom(1.15)
 
     @pyqtSlot()
     def zoom_out(self):
-        self.scale(1 / 1.15, 1 / 1.15)
-        self._emit_view_state_changed()
+        self._apply_zoom(1 / 1.15)
 
     @pyqtSlot()
     def fit_to_window(self):
@@ -899,6 +1032,8 @@ class GraphicsViewInputMixin:
         if self._active_tool == "clone":
             event.accept()
             return
+        # menu.exec 会抓走鼠标，进行中交互的 release 必然丢失：先统一丢弃
+        self._cancel_active_interaction(commit=False)
         selected_regions = self.model.get_selection()
         selection_count = len(selected_regions)
         menu = RoundMenu(parent=self)
@@ -1008,25 +1143,28 @@ class GraphicsViewInputMixin:
         if self._textbox_preview_item:
             self._textbox_preview_item.setRect(left, top, width, height)
 
-    def _finish_textbox_drawing(self):
-        if not self._is_drawing_textbox or self._textbox_start_pos is None:
-            return
-
-        rect = self._textbox_preview_item.rect()
-        if self._textbox_preview_item:
+    def _abort_textbox_drawing(self):
+        """丢弃进行中的文本框绘制：清状态 + 隐藏预览矩形。"""
+        self._is_drawing_textbox = False
+        self._textbox_start_pos = None
+        if self._textbox_preview_item is not None:
             self._textbox_preview_item.setVisible(False)
             self._textbox_preview_item.setRect(0, 0, 0, 0)
 
+    def _finish_textbox_drawing(self, switch_to_select: bool = True):
+        if not self._is_drawing_textbox or self._textbox_start_pos is None:
+            return
+
+        rect = self._textbox_preview_item.rect() if self._textbox_preview_item else None
+        self._abort_textbox_drawing()
+
         min_size = 20
-        if rect.width() < min_size or rect.height() < min_size:
-            self._is_drawing_textbox = False
-            self._textbox_start_pos = None
+        if rect is None or rect.width() < min_size or rect.height() < min_size:
             return
 
         self._create_new_text_region(rect)
-        self._is_drawing_textbox = False
-        self._textbox_start_pos = None
-        self.model.set_active_tool("select")
+        if switch_to_select:
+            self.model.set_active_tool("select")
 
     def _create_new_text_region(self, rect):
         if not self._image_item:

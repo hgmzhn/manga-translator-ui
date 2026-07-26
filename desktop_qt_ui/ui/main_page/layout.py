@@ -96,14 +96,16 @@ def populate_theme_combo(self):
     config = self.config_service.get_config()
     theme_options = [(theme_key, self._t(theme_label)) for theme_key, theme_label in THEME_OPTIONS]
     self.theme_combo.blockSignals(True)
-    self.theme_combo.clear()
-    selected_index = 0
-    for idx, (theme_key, theme_label) in enumerate(theme_options):
-        self.theme_combo.addItem(theme_label, theme_key)
-        if config.app.theme == theme_key:
-            selected_index = idx
-    self.theme_combo.setCurrentIndex(selected_index)
-    self.theme_combo.blockSignals(False)
+    try:
+        self.theme_combo.clear()
+        selected_index = 0
+        for idx, (theme_key, theme_label) in enumerate(theme_options):
+            self.theme_combo.addItem(theme_label, theme_key)
+            if config.app.theme == theme_key:
+                selected_index = idx
+        self.theme_combo.setCurrentIndex(selected_index)
+    finally:
+        self.theme_combo.blockSignals(False)
 
 
 def populate_language_combo(self):
@@ -111,17 +113,19 @@ def populate_language_combo(self):
         return
     current_language = self.config_service.get_config().app.ui_language
     self.language_combo.blockSignals(True)
-    self.language_combo.clear()
-    if self.i18n:
-        available_locales = self.i18n.get_available_locales()
-        selected_index = 0
-        for idx, (locale_code, locale_info) in enumerate(available_locales.items()):
-            self.language_combo.addItem(locale_info.name, locale_code)
-            if current_language == locale_code:
-                selected_index = idx
-        if self.language_combo.count() > 0:
-            self.language_combo.setCurrentIndex(selected_index)
-    self.language_combo.blockSignals(False)
+    try:
+        self.language_combo.clear()
+        if self.i18n:
+            available_locales = self.i18n.get_available_locales()
+            selected_index = 0
+            for idx, (locale_code, locale_info) in enumerate(available_locales.items()):
+                self.language_combo.addItem(locale_info.name, locale_code)
+                if current_language == locale_code:
+                    selected_index = idx
+            if self.language_combo.count() > 0:
+                self.language_combo.setCurrentIndex(selected_index)
+    finally:
+        self.language_combo.blockSignals(False)
 
 
 def on_theme_combo_changed(self, index: int):
@@ -174,16 +178,18 @@ def refresh_prompt_manager(self):
         return
 
     self.prompt_list_widget.blockSignals(True)
-    self.prompt_list_widget.clear()
-    for prompt in prompt_files:
-        item = _create_asset_list_item(
-            self,
-            prompt,
-            is_current=(prompt == selected_filename),
-            tooltip_text=self._t("Current prompt: {filename}", filename=prompt),
-        )
-        self.prompt_list_widget.addItem(item)
-    self.prompt_list_widget.blockSignals(False)
+    try:
+        self.prompt_list_widget.clear()
+        for prompt in prompt_files:
+            item = _create_asset_list_item(
+                self,
+                prompt,
+                is_current=(prompt == selected_filename),
+                tooltip_text=self._t("Current prompt: {filename}", filename=prompt),
+            )
+            self.prompt_list_widget.addItem(item)
+    finally:
+        self.prompt_list_widget.blockSignals(False)
 
     if preferred_filename:
         matching_item = _find_asset_item(self.prompt_list_widget, preferred_filename)
@@ -235,11 +241,11 @@ def open_prompt_editor(self, file_path: str):
     )
 
     if is_ai_colorizer_prompt_file(file_path):
-        dlg = AIColorizerPromptEditorDialog(file_path, t_func=self._t, parent=self)
+        dlg = AIColorizerPromptEditorDialog(file_path, t_func=self._t, parent=self._dialog_parent())
     else:
         from ui.secondary_pages.prompt_preview import PromptEditorDialog
 
-        dlg = PromptEditorDialog(file_path, t_func=self._t, parent=self)
+        dlg = PromptEditorDialog(file_path, t_func=self._t, parent=self._dialog_parent())
     dlg.exec()
     # 编辑器关闭后刷新预览
     if dlg.get_was_modified() and hasattr(self, "prompt_preview_panel"):
@@ -270,7 +276,7 @@ def create_new_prompt(self):
     """弹出输入框，创建新的 YAML 提示词文件。"""
     from ui.secondary_pages.themed_text_input_dialog import themed_get_text
     name, ok = themed_get_text(
-        self,
+        self._dialog_parent(),
         title=self._t("New Prompt"),
         label=self._t("Enter prompt file name (without extension):"),
         ok_text=self._t("OK"),
@@ -280,14 +286,14 @@ def create_new_prompt(self):
         return
     filename = _normalize_prompt_filename(name.strip(), ".yaml")
     if not filename:
-        QMessageBox.warning(self, self._t("Warning"), self._t("Invalid file name."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Invalid file name."))
         return
     dict_dir = resource_path("dict")
     os.makedirs(dict_dir, exist_ok=True)
     file_path = os.path.join(dict_dir, filename)
 
     if os.path.exists(file_path):
-        QMessageBox.warning(self, self._t("Warning"), self._t("File already exists") + f": {filename}")
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("File already exists") + f": {filename}")
         return
 
     # 默认 YAML 模板
@@ -321,7 +327,7 @@ def create_new_prompt(self):
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(default_content)
     except Exception as e:
-        QMessageBox.critical(self, self._t("Error"), str(e))
+        QMessageBox.critical(self._dialog_parent(), self._t("Error"), str(e))
         return
 
     self._refresh_prompt_manager()
@@ -335,18 +341,18 @@ def copy_selected_prompt(self):
 
     filename = _get_selected_prompt_filename(self)
     if not filename:
-        QMessageBox.warning(self, self._t("Warning"), self._t("Please select a prompt file first."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Please select a prompt file first."))
         return
 
     source_path = _prompt_file_path(filename)
     if not os.path.isfile(source_path):
-        QMessageBox.warning(self, self._t("Warning"), self._t("Selected prompt file does not exist."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Selected prompt file does not exist."))
         return
 
     stem, ext = os.path.splitext(filename)
     default_name = f"{stem}_copy"
     new_name, ok = themed_get_text(
-        self,
+        self._dialog_parent(),
         title=self._t("Copy Prompt"),
         label=self._t("Enter new prompt file name (without extension):"),
         text=default_name,
@@ -358,18 +364,18 @@ def copy_selected_prompt(self):
 
     target_filename = _normalize_prompt_filename(new_name.strip(), ext or ".yaml")
     if not target_filename:
-        QMessageBox.warning(self, self._t("Warning"), self._t("Invalid file name."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Invalid file name."))
         return
 
     target_path = _prompt_file_path(target_filename)
     if os.path.exists(target_path):
-        QMessageBox.warning(self, self._t("Warning"), self._t("File already exists") + f": {target_filename}")
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("File already exists") + f": {target_filename}")
         return
 
     try:
         shutil.copy2(source_path, target_path)
     except Exception as e:
-        QMessageBox.critical(self, self._t("Error"), str(e))
+        QMessageBox.critical(self._dialog_parent(), self._t("Error"), str(e))
         return
 
     self._refresh_prompt_manager()
@@ -383,17 +389,17 @@ def rename_selected_prompt(self):
 
     filename = _get_selected_prompt_filename(self)
     if not filename:
-        QMessageBox.warning(self, self._t("Warning"), self._t("Please select a prompt file first."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Please select a prompt file first."))
         return
 
     source_path = _prompt_file_path(filename)
     if not os.path.isfile(source_path):
-        QMessageBox.warning(self, self._t("Warning"), self._t("Selected prompt file does not exist."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Selected prompt file does not exist."))
         return
 
     stem, ext = os.path.splitext(filename)
     new_name, ok = themed_get_text(
-        self,
+        self._dialog_parent(),
         title=self._t("Rename Prompt"),
         label=self._t("Enter new prompt file name (without extension):"),
         text=stem,
@@ -405,20 +411,20 @@ def rename_selected_prompt(self):
 
     target_filename = _normalize_prompt_filename(new_name.strip(), ext or ".yaml")
     if not target_filename:
-        QMessageBox.warning(self, self._t("Warning"), self._t("Invalid file name."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Invalid file name."))
         return
     if target_filename == filename:
         return
 
     target_path = _prompt_file_path(target_filename)
     if os.path.exists(target_path):
-        QMessageBox.warning(self, self._t("Warning"), self._t("File already exists") + f": {target_filename}")
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("File already exists") + f": {target_filename}")
         return
 
     try:
         os.replace(source_path, target_path)
     except Exception as e:
-        QMessageBox.critical(self, self._t("Error"), str(e))
+        QMessageBox.critical(self._dialog_parent(), self._t("Error"), str(e))
         return
 
     current_prompt_path = self.config_service.get_config().translator.high_quality_prompt_path or ""
@@ -437,14 +443,14 @@ def delete_selected_prompt(self):
     """删除选中的提示词文件。"""
     filename = _get_selected_prompt_filename(self)
     if not filename:
-        QMessageBox.warning(self, self._t("Warning"), self._t("Please select a prompt file first."))
+        QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Please select a prompt file first."))
         return
 
     current_prompt_path = self.config_service.get_config().translator.high_quality_prompt_path or ""
     was_active_prompt = os.path.basename(current_prompt_path) == filename
 
     reply = QMessageBox.question(
-        self, self._t("Confirm Delete"),
+        self._dialog_parent(), self._t("Confirm Delete"),
         self._t("Are you sure you want to delete this prompt file?") + f"\n\n{filename}",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
@@ -456,11 +462,11 @@ def delete_selected_prompt(self):
     file_path = os.path.join(dict_dir, filename)
     try:
         if not os.path.exists(file_path):
-            QMessageBox.warning(self, self._t("Warning"), self._t("Selected prompt file does not exist."))
+            QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Selected prompt file does not exist."))
             return
         os.remove(file_path)
     except Exception as e:
-        QMessageBox.critical(self, self._t("Error"), str(e))
+        QMessageBox.critical(self._dialog_parent(), self._t("Error"), str(e))
         return
 
     if was_active_prompt:

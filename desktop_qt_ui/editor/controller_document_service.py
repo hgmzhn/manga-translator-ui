@@ -27,6 +27,21 @@ class EditorControllerDocumentService:
     def __init__(self, controller: "EditorController"):
         self.controller = controller
 
+        # 常驻单 worker 线程池：max_workers=1 保证加载请求严格按提交顺序执行。
+        # 不随 clear_editor_state 销毁——每次切图重建线程池会打破"单 worker
+        # 按序"的前提，导致旧图结果晚于新图到达（画面与选中文件错位）。
+        self._load_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="editor-doc-load"
+        )
+        self._prefetch_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="editor-prefetch"
+        )
+        # 加载代号：每次作废在途加载时 +1；结果只有携带当前代号才会被应用
+        self._load_generation = 0
+        self._active_load_future: Optional[concurrent.futures.Future] = None
+        self._active_prefetch_future: Optional[concurrent.futures.Future] = None
+        self._is_shutdown = False
+
     @property
     def model(self):
         return self.controller.model
@@ -93,24 +108,47 @@ class EditorControllerDocumentService:
         if graphics_view is not None:
             graphics_view.render_coordinator.reset()
 
-        load_executor = getattr(self.controller, "_load_executor", None)
-        if load_executor is not None:
-            try:
-                load_executor.shutdown(wait=False)
-            except Exception:
-                pass
-            delattr(self.controller, "_load_executor")
+        # 作废在途加载：代号 +1 让晚到的结果被丢弃，未开跑的排队任务直接 cancel。
+        # 线程池本身常驻复用，不在这里销毁。
+        self._cancel_pending_load()
 
         if release_image_cache:
-            prefetch_executor = getattr(self.controller, "_prefetch_executor", None)
-            if prefetch_executor is not None:
-                try:
-                    prefetch_executor.shutdown(wait=False)
-                except Exception:
-                    pass
-                delattr(self.controller, "_prefetch_executor")
+            self._cancel_pending_prefetch()
 
         self.logger.debug("Editor state cleared and memory released")
+
+    def _cancel_pending_load(self) -> int:
+        """作废所有在途加载请求，返回新的当前代号。
+
+        已在执行的任务无法中断，靠代号校验在完成时丢弃其结果。"""
+        self._load_generation += 1
+        future = self._active_load_future
+        if future is not None:
+            future.cancel()
+            self._active_load_future = None
+        return self._load_generation
+
+    def _cancel_pending_prefetch(self) -> None:
+        future = self._active_prefetch_future
+        if future is not None:
+            future.cancel()
+            self._active_prefetch_future = None
+
+    def shutdown(self) -> None:
+        """退出清理：取消挂起任务并关闭常驻线程池。
+
+        wait=False + cancel_futures=True，避免 concurrent.futures 的 atexit
+        钩子 join 未关闭的线程池卡住进程退出。"""
+        if self._is_shutdown:
+            return
+        self._is_shutdown = True
+        self._cancel_pending_load()
+        self._cancel_pending_prefetch()
+        for executor in (self._load_executor, self._prefetch_executor):
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
 
     def find_source_from_translation_map(self, image_path: str) -> Optional[str]:
         try:
@@ -259,29 +297,58 @@ class EditorControllerDocumentService:
         )
 
     def do_load_image(self, image_path: str) -> None:
+        if self._is_shutdown:
+            return
+
         # 切图:保留旧画面 + 旧 LRU 缓存,等新数据信号到达再覆盖,避免黑闪
+        # （内部会作废上一张图的在途加载：_load_generation +1）
         self.clear_editor_state(keep_document=True)
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:
             self.controller._loading_toast = toast_manager.show_info("正在加载...", duration=0)
 
-        if not hasattr(self.controller, "_load_executor"):
-            self.controller._load_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        generation = self._load_generation
 
         def on_load_complete(future):
+            if future.cancelled():
+                return
             try:
                 result = future.result()
-                self.controller._load_result_ready.emit(result)
             except Exception as e:
                 self.logger.error(f"Load failed: {e}", exc_info=True)
-                self.controller._load_result_ready.emit(DocumentLoadFailure(str(e)))
+                result = DocumentLoadFailure(str(e))
+            # 工作线程侧先粗筛，避免给主线程发注定作废的信号；
+            # 权威校验在主线程 apply_load_result 里再做一次
+            if generation != self._load_generation:
+                self.logger.debug("Discarding stale load result for %s", image_path)
+                return
+            self.controller._load_result_ready.emit((generation, result))
 
         worker = DocumentLoadWorker(self, image_path)
-        future = self.controller._load_executor.submit(worker.load)
+        future = self._load_executor.submit(worker.load)
+        self._active_load_future = future
         future.add_done_callback(on_load_complete)
 
-    def apply_load_result(self, result: object) -> None:
+    def apply_load_result(self, payload: object) -> None:
+        # 载荷为 (generation, result)：主线程权威校验"仍是当前代"，
+        # 过期结果（快速翻页时旧图晚到）直接丢弃，防止画面与选中文件错位
+        if isinstance(payload, tuple) and len(payload) == 2:
+            generation, result = payload
+        else:
+            generation, result = self._load_generation, payload
+
+        if generation != self._load_generation:
+            self.logger.debug(
+                "Ignoring stale load result (generation %s, current %s)",
+                generation,
+                self._load_generation,
+            )
+            return
+
+        if self._active_load_future is not None and self._active_load_future.done():
+            self._active_load_future = None
+
         if isinstance(result, DocumentLoadFailure):
             self.handle_load_error(result.error)
             return
@@ -321,16 +388,17 @@ class EditorControllerDocumentService:
 
     def prefetch_images(self, image_paths: list[str]) -> None:
         """后台预读相邻图片和 QImage，降低下一次切图等待。"""
+        if self._is_shutdown:
+            return
         paths = [path for path in image_paths if path]
         if not paths:
             return
 
-        executor = getattr(self.controller, "_prefetch_executor", None)
-        if executor is None:
-            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            self.controller._prefetch_executor = executor
-
-        executor.submit(self._prefetch_images_worker, paths)
+        # 只保留最新一批相邻图预读：还没开跑的旧批次直接取消
+        self._cancel_pending_prefetch()
+        self._active_prefetch_future = self._prefetch_executor.submit(
+            self._prefetch_images_worker, paths
+        )
 
     def _prefetch_images_worker(self, image_paths: list[str]) -> None:
         for image_path in image_paths:

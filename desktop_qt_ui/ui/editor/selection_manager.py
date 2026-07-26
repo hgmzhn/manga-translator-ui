@@ -98,18 +98,21 @@ class SelectionManager(QObject):
                 self._box_select_rect_item = None
 
         if need_create:
-            accent = themeColor().toRgb()
-            if not accent.isValid():
-                accent = QColor("#0F6CBD")
-            fill = QColor(accent)
-            accent.setAlpha(190)
-            fill.setAlpha(36)
-            pen = QPen(accent)
-            pen.setWidth(2)
-            pen.setStyle(Qt.PenStyle.DashLine)
-            brush = QBrush(fill)
-            self._box_select_rect_item = self._scene.addRect(0, 0, 0, 0, pen, brush)
+            self._box_select_rect_item = self._scene.addRect(0, 0, 0, 0)
             self._box_select_rect_item.setZValue(300)
+
+        # 每次开始框选时现取主题色，避免缓存的旧 themeColor 在换主题后残留
+        accent = themeColor().toRgb()
+        if not accent.isValid():
+            accent = QColor("#0F6CBD")
+        fill = QColor(accent)
+        accent.setAlpha(190)
+        fill.setAlpha(36)
+        pen = QPen(accent)
+        pen.setWidth(2)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        self._box_select_rect_item.setPen(pen)
+        self._box_select_rect_item.setBrush(QBrush(fill))
 
         self._box_select_rect_item.setVisible(True)
 
@@ -174,6 +177,16 @@ class SelectionManager(QObject):
             # 手动触发一次同步
             self._on_scene_selection_changed()
 
+        except RuntimeError:
+            self._box_select_rect_item = None
+
+    def cancel_box_select(self):
+        """中断框选（右键菜单/失焦/Escape 等 release 会丢失的场合）：
+        不改变选择，只清理进行中状态与预览矩形。"""
+        self._is_box_selecting = False
+        self._box_select_start_pos = None
+        try:
+            self._clear_box_select_rect()
         except RuntimeError:
             self._box_select_rect_item = None
 

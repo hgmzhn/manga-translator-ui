@@ -1,13 +1,9 @@
 from editor.image_utils import build_display_image_frame
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPalette, QPixmap, QTransform
+from PyQt6.QtGui import QPainter, QPalette, QPixmap, QTransform
 from PyQt6.QtWidgets import QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
-from qfluentwidgets import isDarkTheme
 
-
-def _canvas_background_color(theme: str | None = None) -> QColor:
-    is_dark = str(theme or "").lower() == "dark" if theme is not None else isDarkTheme()
-    return QColor("#1A1C20" if is_dark else "#F7F7F7")
+from .graphics_view import canvas_background_color
 
 
 class OriginalCompareView(QGraphicsView):
@@ -43,7 +39,7 @@ class OriginalCompareView(QGraphicsView):
         self.apply_theme()
 
     def apply_theme(self, theme: str | None = None):
-        canvas_color = _canvas_background_color(theme)
+        canvas_color = canvas_background_color(theme)
         self.scene.setBackgroundBrush(canvas_color)
         self.setBackgroundBrush(canvas_color)
         self.setAutoFillBackground(True)
@@ -125,9 +121,14 @@ class OriginalCompareView(QGraphicsView):
         self.viewport().update()
 
     def _resolve_source_scene_rect(self) -> QRectF | None:
+        # 只取图片 item 矩形：主场景 itemsBoundingRect 会被旋转辅助线等
+        # 临时超长 item 污染，导致对比视图滚动范围失控
         if self._source_view is None:
             return None
-        return self._source_view.get_content_scene_rect()
+        getter = getattr(self._source_view, "get_image_scene_rect", None)
+        if getter is None:
+            return None
+        return getter()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

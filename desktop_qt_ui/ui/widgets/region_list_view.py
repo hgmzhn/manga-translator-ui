@@ -1,5 +1,5 @@
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QListWidgetItem,
     QVBoxLayout,
@@ -45,7 +45,12 @@ class RegionListView(ListWidget):
         self.flush_pending_regions()
 
     def flush_pending_regions(self):
-        """在「可编辑译文」标签页真正可见时再重建列表。"""
+        """在「可编辑译文」标签页真正可见时按差量更新列表。
+
+        按行位置复用现有行（只更新文本/数据），仅增删数量变化的行，
+        避免整表 clear+重建销毁正在输入的 TextEdit（丢焦点/光标/吃 IME
+        组合字）；持有焦点的译文框不覆盖文本。
+        """
         if self._pending_regions is None:
             return
 
@@ -56,13 +61,26 @@ class RegionListView(ListWidget):
         self._block_signals = True
         self.setUpdatesEnabled(False)
         try:
-            self.clear()
             for i, region in enumerate(regions):
-                self._add_region_item(i, region, drafts.get(self._region_key(i)))
+                draft = drafts.get(self._region_key(i))
+                if i < self.count():
+                    self._update_region_item(i, region, draft)
+                else:
+                    self._add_region_item(i, region, draft)
+            while self.count() > len(regions):
+                self._remove_region_row(self.count() - 1)
             self._apply_selection(self._pending_selection)
         finally:
             self.setUpdatesEnabled(True)
             self._block_signals = False
+
+    def _remove_region_row(self, row: int) -> None:
+        item = self.item(row)
+        widget = self.itemWidget(item)
+        if widget is not None:
+            widget.setParent(None)
+            widget.deleteLater()
+        self.takeItem(row)
 
     def _region_key(self, index: int) -> str:
         region_id = self.model.get_region_id(index)
@@ -101,12 +119,64 @@ class RegionListView(ListWidget):
         layout.addWidget(original_label)
         layout.addWidget(translated_edit)
 
+        # 差量更新时直接取用，避免 findChild
+        item_container.original_label = original_label
+        item_container.translated_edit = translated_edit
+
         item = QListWidgetItem()
-        item.setSizeHint(item_container.sizeHint())
         self.addItem(item)
         self.setItemWidget(item, item_container)
         item.setData(Qt.ItemDataRole.UserRole, index)
         item.setData(_REGION_KEY_ROLE, self._region_key(index))
+        self._sync_row_size(item, item_container)
+
+    def _update_region_item(self, index: int, region: dict, draft_text: str | None) -> None:
+        """就地刷新已有行；正在编辑（持焦点）的译文框不覆盖文本。"""
+        item = self.item(index)
+        widget = self.itemWidget(item)
+        if widget is None:
+            return
+
+        original_label = getattr(widget, "original_label", None)
+        if original_label is None:
+            original_label = widget.findChild(BodyLabel)
+        if original_label is not None:
+            new_text = f"{index + 1}: {region.get('text', '')}"
+            if original_label.text() != new_text:
+                original_label.setText(new_text)
+
+        translated_edit = getattr(widget, "translated_edit", None)
+        if translated_edit is None:
+            translated_edit = widget.findChild(TextEdit)
+        if translated_edit is not None:
+            model_text = region.get("translation", "")
+            translated_edit.setProperty("modelText", model_text)
+            target_text = model_text if draft_text is None else draft_text
+            if not translated_edit.hasFocus() and translated_edit.toPlainText() != target_text:
+                translated_edit.setPlainText(target_text)
+
+        item.setData(Qt.ItemDataRole.UserRole, index)
+        item.setData(_REGION_KEY_ROLE, self._region_key(index))
+        self._sync_row_size(item, widget)
+
+    def _sync_row_size(self, item: QListWidgetItem, widget) -> None:
+        """按当前视口宽度计算行高：原文 label 折行后高度会变化，
+        不能用加入列表前的 sizeHint 定死（那时 label 还没有真实宽度）。"""
+        width = max(50, self.viewport().width())
+        layout = widget.layout()
+        if layout is not None and layout.hasHeightForWidth():
+            height = layout.heightForWidth(width)
+        else:
+            height = widget.sizeHint().height()
+        item.setSizeHint(QSize(width, height))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        for row in range(self.count()):
+            item = self.item(row)
+            widget = self.itemWidget(item)
+            if widget is not None:
+                self._sync_row_size(item, widget)
 
     def get_all_translations(self):
         """获取列表中所有编辑后的译文"""

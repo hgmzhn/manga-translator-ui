@@ -188,9 +188,13 @@ class AsyncJobManager:
         self.logger.info("AsyncJobManager shutdown complete")
     
     def __del__(self):
-        """析构函数"""
+        """析构函数。
+
+        解释器退出期对象可能处于半初始化状态（__init__ 中途失败）或依赖的
+        模块已被清理，全部防御式访问，绝不让异常从 __del__ 泄漏。"""
         try:
-            self.shutdown(wait=False)
+            if getattr(self, "_running", False):
+                self.shutdown(wait=False)
         except Exception:
             # 忽略析构时的错误
             pass

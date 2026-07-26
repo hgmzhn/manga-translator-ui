@@ -1,8 +1,8 @@
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPalette, QTransform
 from PyQt6.QtWidgets import QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
-from qfluentwidgets import isDarkTheme
 from services import get_logger
+from ui.theme import is_dark_theme
 
 from editor.editor_model import EditorModel
 from editor.render_coordinator import RenderCoordinator
@@ -15,9 +15,9 @@ from .overlay_layer import OverlayLayerManager
 from .selection_manager import SelectionManager
 
 
-def _canvas_background_color(theme: str | None = None) -> QColor:
-    is_dark = str(theme or "").lower() == "dark" if theme is not None else isDarkTheme()
-    return QColor("#1A1C20" if is_dark else "#F7F7F7")
+def canvas_background_color(theme: str | None = None) -> QColor:
+    """画布底色。深浅判定统一走 ui.theme（gray/forest/sunset/rose 也是深色主题）。"""
+    return QColor("#1A1C20" if is_dark_theme(theme) else "#F7F7F7")
 
 
 class GraphicsView(
@@ -61,10 +61,13 @@ class GraphicsView(
     def _render_snapshot_cache(self, value):
         self.render_coordinator.render_snapshots = value
 
-    def __init__(self, model: EditorModel, controller=None, parent=None):
+    def __init__(self, model: EditorModel, controller=None, parent=None, editor_view=None):
         super().__init__(parent)
         self.model = model
         self.controller = controller
+        # 显式保存 EditorView 引用：addWidget 会把本视图换父到画布容器，
+        # 事后再靠 parent() 摸 EditorView 已经失效
+        self.editor_view = editor_view if editor_view is not None else parent
         self.logger = get_logger(__name__)
         self.render_coordinator = RenderCoordinator()
 
@@ -110,6 +113,7 @@ class GraphicsView(
         self._drag_threshold = 5
         self._region_drag_candidate = False
         self._region_drag_active = False
+        self._hand_scroll_active = False
 
         self._is_drawing_textbox = False
         self._textbox_start_pos = None
@@ -158,16 +162,6 @@ class GraphicsView(
                 return QRectF(r)
         return None
 
-    def get_content_scene_rect(self) -> QRectF | None:
-        rect = self.scene.itemsBoundingRect()
-        if (not rect.isValid() or rect.isNull()) and self._image_item is not None:
-            rect = self._image_item.sceneBoundingRect()
-        if not rect.isValid() or rect.isNull():
-            rect = self.scene.sceneRect()
-        if rect.isValid() and not rect.isNull():
-            return QRectF(rect)
-        return None
-
     def _setup_view(self):
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -176,9 +170,9 @@ class GraphicsView(
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.SmartViewportUpdate)
-        self.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
-        self.setOptimizationFlag(QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, True)
-
+        # 不用 CacheBackground：背景是纯色，缓存反而多付一张视口大小 pixmap 的分配+blit。
+        # 不用 DontAdjustForAntialiasing：它把更新区域余量从 2px 砍到 0，
+        # 与 1/lod 缩放的粗描边组合会留下残影。
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -189,7 +183,7 @@ class GraphicsView(
         self.selection_manager = SelectionManager(self.model, self.scene, lambda: self._region_items)
 
     def apply_theme(self, theme: str | None = None):
-        canvas_color = _canvas_background_color(theme)
+        canvas_color = canvas_background_color(theme)
         self.scene.setBackgroundBrush(canvas_color)
         self.setBackgroundBrush(canvas_color)
         self.setAutoFillBackground(True)

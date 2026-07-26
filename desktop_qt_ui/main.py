@@ -399,16 +399,25 @@ def main():
     if app_icon and not app_icon.isNull():
         main_window.setWindowIcon(app_icon)
     
-    main_window.show()
-
+    # WM_SETICON 在 show() 之前设置：winId() 会提前创建原生句柄，
+    # 避免 show 之后再改图标触发一次非客户区刷新
     if sys.platform == 'win32' and native_windows_icon_path:
         _apply_windows_native_window_icon(main_window, native_windows_icon_path)
+
+    main_window.show()
 
     # 避免在 Windows 初始 show 流程内同步处理事件。
     # 这会触发 Qt/Windows 的重入消息处理，可能导致 RPC_E_CANTCALLOUT_ININPUTSYNCCALL。
     from PyQt6.QtCore import QTimer
 
     def finalize_window_activation():
+        """启动置前的最小集合。
+
+        Windows 上普通进程直接调 SetForegroundWindow 常被系统拒绝
+        （前台锁定），因此保留 AttachThreadInput 技巧：临时挂接到当前
+        前台窗口所在线程的输入队列后再置前。TOPMOST/NOTOPMOST 往返、
+        重复 ShowWindow、SetActiveWindow/SetFocus 等冗余调用已移除——
+        它们对已完成首帧的窗口只产生一轮 z-order 抖动（启动闪烁）。"""
         try:
             if main_window.isMinimized():
                 main_window.showNormal()
@@ -429,38 +438,14 @@ def main():
                     user32.GetWindowThreadProcessId.restype = wintypes.DWORD
                     user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
                     user32.AttachThreadInput.restype = wintypes.BOOL
-                    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-                    user32.ShowWindow.restype = wintypes.BOOL
-                    user32.SetWindowPos.argtypes = [
-                        wintypes.HWND,
-                        wintypes.HWND,
-                        ctypes.c_int,
-                        ctypes.c_int,
-                        ctypes.c_int,
-                        ctypes.c_int,
-                        ctypes.c_uint,
-                    ]
-                    user32.SetWindowPos.restype = wintypes.BOOL
                     user32.BringWindowToTop.argtypes = [wintypes.HWND]
                     user32.BringWindowToTop.restype = wintypes.BOOL
                     user32.SetForegroundWindow.argtypes = [wintypes.HWND]
                     user32.SetForegroundWindow.restype = wintypes.BOOL
-                    user32.SetActiveWindow.argtypes = [wintypes.HWND]
-                    user32.SetActiveWindow.restype = wintypes.HWND
-                    user32.SetFocus.argtypes = [wintypes.HWND]
-                    user32.SetFocus.restype = wintypes.HWND
                     kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
                     hwnd = int(main_window.winId())
                     if hwnd:
-                        SW_RESTORE = 9
-                        SW_SHOW = 5
-                        SWP_NOMOVE = 0x0002
-                        SWP_NOSIZE = 0x0001
-                        SWP_SHOWWINDOW = 0x0040
-                        HWND_TOPMOST = -1
-                        HWND_NOTOPMOST = -2
-
                         foreground_hwnd = user32.GetForegroundWindow()
                         current_thread_id = kernel32.GetCurrentThreadId()
                         foreground_thread_id = 0
@@ -481,30 +466,8 @@ def main():
                             )
 
                         try:
-                            user32.ShowWindow(wintypes.HWND(hwnd), SW_RESTORE)
-                            user32.ShowWindow(wintypes.HWND(hwnd), SW_SHOW)
-                            user32.SetWindowPos(
-                                wintypes.HWND(hwnd),
-                                wintypes.HWND(HWND_TOPMOST),
-                                0,
-                                0,
-                                0,
-                                0,
-                                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                            )
-                            user32.SetWindowPos(
-                                wintypes.HWND(hwnd),
-                                wintypes.HWND(HWND_NOTOPMOST),
-                                0,
-                                0,
-                                0,
-                                0,
-                                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                            )
                             user32.BringWindowToTop(wintypes.HWND(hwnd))
                             user32.SetForegroundWindow(wintypes.HWND(hwnd))
-                            user32.SetActiveWindow(wintypes.HWND(hwnd))
-                            user32.SetFocus(wintypes.HWND(hwnd))
                         finally:
                             if attached:
                                 user32.AttachThreadInput(
@@ -517,11 +480,9 @@ def main():
         except Exception as exc:
             logging.debug(f"激活主窗口失败: {exc}")
 
-    if sys.platform == 'win32':
-        QTimer.singleShot(0, finalize_window_activation)
-        QTimer.singleShot(250, finalize_window_activation)
-    else:
-        QTimer.singleShot(0, finalize_window_activation)
+    # 只调度一次：250ms 后的第二轮完整激活序列对已显示窗口毫无必要，
+    # 且是启动阶段窗口闪烁的来源
+    QTimer.singleShot(0, finalize_window_activation)
 
     # 4. 启动事件循环
     ret = app.exec()

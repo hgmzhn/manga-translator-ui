@@ -66,7 +66,7 @@ class FilterListEditorDialog(FluentSecondaryDialog):
 
     def _setup_ui(self):
         self.setWindowTitle(self._t("Edit Filter List"))
-        self.setMinimumSize(880, 620)
+        self.setMinimumSize(680, 480)
         self.resize(980, 720)
 
         root = QVBoxLayout(self)

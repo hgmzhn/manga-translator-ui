@@ -191,11 +191,40 @@ def _add_api_section_panel(
     container_layout.addWidget(section_card, 1 if not group_keys else 0)
 
 
-def _clear_layout_widgets(layout):
+_CACHED_SETTINGS_WIDGET_ATTRS = (
+    "theme_combo",
+    "language_combo",
+    "theme_label",
+    "language_label",
+    "translator_combo",
+    "upscale_ratio_combo",
+)
+
+
+def _drop_cached_settings_widget_refs(view):
+    """丢弃随设置页重建而销毁的控件缓存引用，避免重建窗口期悬空访问。"""
+    for attr in _CACHED_SETTINGS_WIDGET_ATTRS:
+        if hasattr(view, attr):
+            delattr(view, attr)
+    view._highlighted_rows = []
+
+
+def _clear_layout_widgets(layout, *, restore_stretch: bool = False):
+    """清空布局：删光 widget 项、丢弃 spacer 项。
+
+    - widget 先 setParent(None) 立即脱离父级（避免刷新链路 processEvents
+      期间旧卡片残影），再 _delete_later_safely 释放；
+    - restore_stretch=True 时清空后补回底部 addStretch(1)，维持
+      _append_settings_row“插在末尾 spacer 前”的约定。
+    """
     while layout.count():
-        child = layout.takeAt(0)
-        if child.widget():
-            _delete_later_safely(child.widget())
+        item = layout.takeAt(0)
+        widget = item.widget()
+        if widget is not None:
+            widget.setParent(None)
+            _delete_later_safely(widget)
+    if restore_stretch:
+        layout.addStretch(1)
 
 
 def _refresh_env_api_groups(self, *, force: bool = False):
@@ -227,6 +256,7 @@ def _refresh_env_api_groups(self, *, force: bool = False):
 
     self._env_api_groups_signature = signature
     self.env_widgets.clear()
+    self._api_slot_status_widgets = []
     for layout in [
         self.env_group_container_layout,
         self.ocr_container_layout,
@@ -308,7 +338,7 @@ def _open_filter_list(self):
     filter_path = ensure_filter_list_exists()
     from ui.secondary_pages.filter_list_editor import FilterListEditorDialog
 
-    dialog = FilterListEditorDialog(filter_path, t_func=self._t, parent=self)
+    dialog = FilterListEditorDialog(filter_path, t_func=self._t, parent=self._dialog_parent())
     dialog.exec()
 
 
@@ -399,7 +429,7 @@ def _open_fixed_prompt_editor(self, full_key: str):
             AIColorizerPromptEditorDialog,
         )
 
-        dialog = AIColorizerPromptEditorDialog(abs_path, t_func=self._t, parent=self)
+        dialog = AIColorizerPromptEditorDialog(abs_path, t_func=self._t, parent=self._dialog_parent())
         dialog.exec()
         return
 
@@ -415,7 +445,7 @@ def _open_fixed_prompt_editor(self, full_key: str):
         load_prompt_func=spec["load_func"],
         save_prompt_func=spec["save_func"],
         t_func=self._t,
-        parent=self,
+        parent=self._dialog_parent(),
     )
     dialog.exec()
 
@@ -460,17 +490,19 @@ def set_parameters(self, config: dict):
     self._settings_ui_ready = False
     self._settings_pending_signature = config_signature
 
-    # Clear existing widgets immediately
+    # 构建代号：每次重建自增，链中每步校验，过期构建链自行终止，
+    # 避免二次 config_loaded 并发开出第二条构建链导致控件重复。
+    self._settings_build_seq = getattr(self, "_settings_build_seq", 0) + 1
+    build_seq = self._settings_build_seq
+
+    # Clear existing widgets immediately（补回底部 stretch，保持 spacer 约定）
     for panel in self.tab_frames.values():
-        layout = panel.layout()
-        while layout.count():
-            child = layout.takeAt(0)
-            if child.widget():
-                _delete_later_safely(child.widget())
+        _clear_layout_widgets(panel.layout(), restore_stretch=True)
+    _drop_cached_settings_widget_refs(self)
 
     if getattr(self, "_settings_tabs_use_reclassify", False):
         _populate_settings_by_reclassify_layout(self, config)
-        self._finalize_settings_ui()
+        self._finalize_settings_ui(build_seq)
         return
 
     # Store config and sections to process
@@ -481,7 +513,7 @@ def set_parameters(self, config: dict):
     ]
 
     # Schedule the first chunk of work
-    QTimer.singleShot(0, self._process_next_setting_chunk)
+    QTimer.singleShot(0, lambda: self._process_next_setting_chunk(build_seq))
 
 
 def _resolve_config_value(config: dict, full_key: str):
@@ -570,12 +602,15 @@ def _populate_settings_by_reclassify_layout(self, config: dict):
     return rendered_rows
 
 
-def _process_next_setting_chunk(self):
+def _process_next_setting_chunk(self, build_seq: int):
     """
     Processes one section of the settings UI and schedules the next one.
+    build_seq 与当前构建代号不一致时说明本链已过期，直接终止。
     """
+    if build_seq != getattr(self, "_settings_build_seq", None):
+        return
     if not self._sections_to_process:
-        self._finalize_settings_ui()
+        self._finalize_settings_ui(build_seq)
         return
 
     section = self._sections_to_process.pop(0)
@@ -605,12 +640,14 @@ def _process_next_setting_chunk(self):
         self._create_param_widgets(config[section], panel.layout(), section)
 
     # Schedule the next chunk
-    QTimer.singleShot(0, self._process_next_setting_chunk)
+    QTimer.singleShot(0, lambda: self._process_next_setting_chunk(build_seq))
 
-def _finalize_settings_ui(self):
+def _finalize_settings_ui(self, build_seq: int | None = None):
     """
     Called after all incremental updates are done. Sets up dependent UI like .env section.
     """
+    if build_seq is not None and build_seq != getattr(self, "_settings_build_seq", None):
+        return
     # 在 CLI 配置区域最上面添加"翻译完成后卸载模型"复选框
     cli_panel = self.tab_frames.get("Basic Settings")
     if cli_panel and not getattr(self, "_settings_tabs_use_reclassify", False):
@@ -792,12 +829,18 @@ def _update_upscale_ratio_options(self, upscaler):
     if not upscale_ratio_widget:
         return
     
-    # 阻止信号触发
+    # 阻止信号触发（try/finally 保证异常路径也恢复）
     upscale_ratio_widget.blockSignals(True)
-    
-    # 清空并重新填充
+    try:
+        _repopulate_upscale_ratio_options(self, upscale_ratio_widget, upscaler)
+    finally:
+        upscale_ratio_widget.blockSignals(False)
+
+
+def _repopulate_upscale_ratio_options(self, upscale_ratio_widget, upscaler):
+    """清空并按当前 upscaler 重新填充 upscale_ratio 下拉框（调用方负责 blockSignals）。"""
     upscale_ratio_widget.clear()
-    
+
     if upscaler == "realcugan":
         # 显示 Real-CUGAN 模型列表（使用中文显示）
         realcugan_models = self.controller.get_options_for_key("realcugan_model")
@@ -856,9 +899,6 @@ def _update_upscale_ratio_options(self, upscaler):
             upscale_ratio_widget.setCurrentText(self._t("upscale_ratio_not_use"))
         else:
             upscale_ratio_widget.setCurrentText(str(config.upscale.upscale_ratio))
-    
-    # 恢复信号
-    upscale_ratio_widget.blockSignals(False)
 
 def _create_param_widgets(self, data, parent_layout, prefix=""):
     if not isinstance(data, dict):

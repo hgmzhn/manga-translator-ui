@@ -83,6 +83,20 @@ def _divider() -> HorizontalSeparator:
     return HorizontalSeparator()
 
 
+def _auto_size_table_height(table: QTableWidget, rows: int, cap: int, row_h: int = 28) -> None:
+    """按内容行数约束只读表格高度。
+
+    以前用 horizontalHeader().height() 计算——控件未 polish 时该值不可信；
+    改用表头 sizeHint（不依赖 polish/显示时机），并用 min/max 高度交给布局
+    在区间内分配，替代 setFixedHeight。
+    """
+    table.verticalHeader().setDefaultSectionSize(row_h)
+    header_h = max(table.horizontalHeader().sizeHint().height(), 24)
+    desired = header_h + row_h * rows + 4
+    table.setMinimumHeight(min(desired, 120))
+    table.setMaximumHeight(min(desired, cap))
+
+
 def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     """生成一个只读的 original → translation 表。"""
     table = QTableWidget()
@@ -103,11 +117,7 @@ def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
         table.setItem(row, 1, QTableWidgetItem(entry.get("translation", "")))
 
     # auto-size height: header + rows (capped at 300px)
-    row_h = 28
-    header_h = table.horizontalHeader().height() if table.horizontalHeader().isVisible() else 28
-    desired = header_h + row_h * len(entries) + 4
-    table.setFixedHeight(min(desired, 300))
-    table.verticalHeader().setDefaultSectionSize(row_h)
+    _auto_size_table_height(table, max(len(entries), 1), 300)
     return table
 
 
@@ -201,12 +211,10 @@ def _make_person_glossary_table(entries: List[Dict[str, Any]], editable: bool = 
     for row, entry in enumerate(entries):
         _set_person_glossary_row(table, row, entry)
 
-    row_h = 28
-    header_h = table.horizontalHeader().height() if table.horizontalHeader().isVisible() else 28
-    if not editable:
-        desired = header_h + row_h * max(len(entries), 1) + 4
-        table.setFixedHeight(min(desired, 300))
-    table.verticalHeader().setDefaultSectionSize(row_h)
+    if editable:
+        table.verticalHeader().setDefaultSectionSize(28)
+    else:
+        _auto_size_table_height(table, max(len(entries), 1), 300)
     return table
 
 
@@ -262,11 +270,7 @@ def _make_reference_images_table(entries: List[Dict[str, str]], editable: bool =
         table.setItem(row, 0, QTableWidgetItem(entry.get("path", "")))
         table.setItem(row, 1, QTableWidgetItem(entry.get("description", "")))
 
-    row_h = 28
-    header_h = table.horizontalHeader().height() if table.horizontalHeader().isVisible() else 28
-    desired = header_h + row_h * max(len(entries), 1) + 4
-    table.setFixedHeight(min(desired, 260))
-    table.verticalHeader().setDefaultSectionSize(row_h)
+    _auto_size_table_height(table, max(len(entries), 1), 260)
     return table
 
 
@@ -813,7 +817,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
     # ─── UI ────────────────────────────────────────────
     def _setup_ui(self):
         self.setWindowTitle(self._t("Edit Prompt") + f" – {os.path.basename(self._file_path)}")
-        self.setMinimumSize(820, 580)
+        self.setMinimumSize(680, 480)
         self.resize(1000, 700)
 
         root = QVBoxLayout(self)
@@ -895,7 +899,8 @@ class PromptEditorDialog(FluentSecondaryDialog):
         self._template_sections_layout = QVBoxLayout()
         self._template_sections_layout.setContentsMargins(0, 0, 0, 0)
         self._template_sections_layout.setSpacing(10)
-        layout.addLayout(self._template_sections_layout)
+        # 带 stretch：对话框放大时多余空间进入各字段区（编辑框跟着长）
+        layout.addLayout(self._template_sections_layout, 1)
         # 有序容器列表 [(key, container_widget), ...]
         self._section_containers: list = []
 
@@ -1008,10 +1013,22 @@ class PromptEditorDialog(FluentSecondaryDialog):
         body = QVBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(6)
-        outer.addLayout(body)
+        outer.addLayout(body, 1)
         outer.addWidget(_divider())
 
         return container, body
+
+    # 各字段区在纵向多余空间中的分配权重（0 = 保持内容高度）
+    _SECTION_STRETCHES = {
+        "system_prompt": 3,
+        "terminology": 2,
+        "style_guide": 1,
+        "translation_rules": 1,
+        "glossary": 3,
+    }
+
+    def _section_stretch(self, key: str) -> int:
+        return self._SECTION_STRETCHES.get(key, 0)
 
     def _insert_section(self, key: str, idx: int = -1, **kwargs):
         """创建并插入一个字段区域到 layout。"""
@@ -1033,18 +1050,18 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
         section_layout = self._template_sections_layout
         if idx < 0:
-            section_layout.addWidget(container)
+            section_layout.addWidget(container, self._section_stretch(key))
             self._section_containers.append((key, container))
         else:
-            section_layout.insertWidget(idx, container)
+            section_layout.insertWidget(idx, container, self._section_stretch(key))
             self._section_containers.insert(idx, (key, container))
         self._refresh_section_move_buttons()
 
     # ─── 各字段的填充方法 ──────────────────────────────
     def _fill_system_prompt(self, layout: QVBoxLayout, text: str = ""):
         self._system_prompt_edit = _styled_text_edit(text)
-        self._system_prompt_edit.setFixedHeight(180)
-        layout.addWidget(self._system_prompt_edit)
+        self._system_prompt_edit.setMinimumHeight(180)
+        layout.addWidget(self._system_prompt_edit, 1)
 
     def _fill_project_title(self, layout: QVBoxLayout, title: str = ""):
         self._title_edit = QLineEdit()
@@ -1057,7 +1074,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
         entries = [{"original": k, "translation": v} for k, v in term.items()]
         self._term_table = _make_editable_glossary_table(entries)
         self._term_table.setMinimumHeight(100)
-        layout.addWidget(self._term_table)
+        layout.addWidget(self._term_table, 1)
 
         btn_row = QHBoxLayout()
         add_btn = QPushButton(self._t("Add Row"))
@@ -1083,15 +1100,15 @@ class PromptEditorDialog(FluentSecondaryDialog):
         layout.addWidget(_dim_label(self._t("One rule per line")))
         text = "\n".join(str(x) for x in rules) if rules else ""
         self._style_guide_edit = _styled_text_edit(text)
-        self._style_guide_edit.setFixedHeight(100)
-        layout.addWidget(self._style_guide_edit)
+        self._style_guide_edit.setMinimumHeight(100)
+        layout.addWidget(self._style_guide_edit, 1)
 
     def _fill_translation_rules(self, layout: QVBoxLayout, rules: list = None):
         layout.addWidget(_dim_label(self._t("One rule per line")))
         text = "\n".join(str(x) for x in rules) if rules else ""
         self._rules_edit = _styled_text_edit(text)
-        self._rules_edit.setFixedHeight(100)
-        layout.addWidget(self._rules_edit)
+        self._rules_edit.setMinimumHeight(100)
+        layout.addWidget(self._rules_edit, 1)
 
     def _fill_glossary(self, layout: QVBoxLayout, glossary: dict = None):
         if glossary is None:
@@ -1122,7 +1139,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
                 entries = []
             self._add_glossary_category_tab(cat_key, entries)
 
-        layout.addWidget(glossary_tabs)
+        layout.addWidget(glossary_tabs, 1)
 
     def _glossary_tab_title(self, cat_key: str, count: int) -> str:
         icon = _GLOSSARY_CATEGORY_ICONS.get(cat_key, "📌")
@@ -1355,8 +1372,8 @@ class PromptEditorDialog(FluentSecondaryDialog):
         )
         for _, widget in self._section_containers:
             layout.removeWidget(widget)
-        for _, widget in self._section_containers:
-            layout.addWidget(widget)
+        for key, widget in self._section_containers:
+            layout.addWidget(widget, self._section_stretch(key))
             widget.show()
         self._refresh_section_move_buttons()
         layout.invalidate()

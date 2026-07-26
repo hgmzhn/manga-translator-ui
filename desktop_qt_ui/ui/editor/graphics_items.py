@@ -22,6 +22,7 @@ import traceback
 from typing import List
 
 import numpy as np
+from PyQt6 import sip
 from editor.desktop_ui_geometry import (
     calculate_new_edge_on_drag,
     calculate_new_vertices_on_drag,
@@ -353,7 +354,10 @@ class RegionTextItem(QGraphicsItemGroup):
 
     def boundingRect(self) -> QRectF:
         try:
-            return self.shape().boundingRect().adjusted(-10, -10, 10, 10)
+            # 余量随 1/lod 增长：选中态描边/手柄阴影的笔宽按 1/lod 缩放，
+            # 极小缩放下固定余量会小于笔宽外扩，拖动时留下残影
+            margin = 10.0 + 6.0 / self._lod()
+            return self.shape().boundingRect().adjusted(-margin, -margin, margin, margin)
         except Exception:
             return QRectF(0, 0, 100, 100)
 
@@ -625,7 +629,7 @@ class RegionTextItem(QGraphicsItemGroup):
         """对批量 peers 应用相同的场景位移。"""
         for peer in self._batch_drag_peers:
             item = peer["item"]
-            if item.scene() is None:
+            if sip.isdeleted(item) or item.scene() is None:
                 continue
             angle_rad = np.radians(item.rotation())
             cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
@@ -641,10 +645,12 @@ class RegionTextItem(QGraphicsItemGroup):
             item._invalidate_scene_rect(peer["old_rect"])
 
     def _commit_batch_peers(self, event):
-        """提交批量 peers 的位置变更到模型。"""
+        """提交批量 peers 的位置变更到模型。
+
+        每个 peer 的提交回调都可能触发 item 重建，逐项做存活检查。"""
         for peer in self._batch_drag_peers:
             item = peer["item"]
-            if item.scene() is None:
+            if sip.isdeleted(item) or item.scene() is None:
                 continue
             patch = item.geo.to_region_data_patch()
             new_data = build_white_frame_region_data(
@@ -1210,24 +1216,36 @@ class RegionTextItem(QGraphicsItemGroup):
             logger.error(f"[RegionTextItem] mouseMoveEvent: {e}\n{traceback.format_exc()}")
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
-        try:
-            if self._interaction_mode == "none":
+        if event.button() != Qt.MouseButton.LeftButton:
+            # 拖拽过程中释放右键/中键：绝不提交几何、也不打断进行中的拖拽
+            try:
                 super().mouseReleaseEvent(event)
-                self._reset_interaction_state()
-                return
+            except RuntimeError:
+                pass
+            return
 
-            mode = self._interaction_mode
-
+        # 提交回调可能触发 regions_changed → item 重建，销毁本对象；
+        # 回调返回后访问 self 必须先做存活检查，reset 只在最后调一次。
+        mode = self._interaction_mode
+        try:
             if mode == "rotate":
                 self._commit_rotation(event)
             elif mode in ("white_corner", "white_edge", "white_move"):
                 self._commit_white_frame(event, mode)
             else:
                 super().mouseReleaseEvent(event)
-            self._reset_interaction_state()
+        except RuntimeError:
+            # item 已在回调里被销毁，任何后续访问都会从虚函数抛异常导致 abort
+            return
         except Exception as e:
-            self._reset_interaction_state()
             logger.error(f"[RegionTextItem] mouseReleaseEvent: {e}\n{traceback.format_exc()}")
+
+        if sip.isdeleted(self):
+            return
+        try:
+            self._reset_interaction_state()
+        except RuntimeError:
+            pass
 
     # ------------------------------------------------------------------
     # 旋转拖拽
@@ -1484,7 +1502,9 @@ class RegionTextItem(QGraphicsItemGroup):
         )
         self._emit_region_update(event, new_data)
 
-        # 同步提交其他选中项的位移
+        # 回调可能已销毁本 item：存活时才继续提交批量 peers
+        if sip.isdeleted(self):
+            return
         self._commit_batch_peers(event)
 
     def _white_handle_world_at_start(self):

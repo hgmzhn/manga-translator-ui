@@ -1,10 +1,16 @@
 """
 滚轮事件过滤器
-解决下拉框、数字输入框等控件捕获滚轮事件导致页面无法滚动的问题
+
+统一约定：滑块 / 数值框 / 下拉框在未获得键盘焦点时不响应滚轮，
+事件直通父级滚动区域；获得键盘焦点（点击 / Tab）后保持控件默认滚轮行为。
 """
 
-from PyQt6.QtCore import QEvent, QObject
-from qfluentwidgets import ComboBox, DoubleSpinBox, SpinBox
+from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox, QSlider, QWidget
+from qfluentwidgets import ComboBox
+
+# 需要接管滚轮语义的控件类型（注意：不含 QScrollBar，滚动条必须始终响应滚轮）
+_WHEEL_TARGET_TYPES = (QAbstractSpinBox, QComboBox, QSlider, ComboBox)
 
 
 class NoWheelComboBox(ComboBox):
@@ -35,7 +41,7 @@ class NoWheelComboBox(ComboBox):
 
     def hidePopup(self):
         self._closeComboMenu()
-    
+
     def wheelEvent(self, event):
         """完全忽略滚轮事件"""
         event.ignore()
@@ -44,53 +50,50 @@ class NoWheelComboBox(ComboBox):
 class WheelEventFilter(QObject):
     """
     滚轮事件过滤器
-    阻止未获得焦点的控件响应滚轮事件，从而让滚轮事件传递给父控件（滚动区域）
+
+    无焦点时拦下控件自身的滚轮处理并保持事件未接受状态——Qt 的滚轮
+    传播机制会把未接受的事件继续交给父级（滚动区域）；有焦点时不干预。
     """
-    
+
     def eventFilter(self, obj, event):
-        """
-        过滤事件
-        完全阻止下拉菜单响应滚轮事件
-        """
-        if event.type() == QEvent.Type.Wheel:
-            # 检查是否是需要特殊处理的控件
-            if isinstance(obj, (ComboBox, SpinBox, DoubleSpinBox)):
-                # 完全忽略滚轮事件，无论是否有焦点
-                event.ignore()
-                return True
-        
-        # 继续正常处理其他事件
+        if (
+            event.type() == QEvent.Type.Wheel
+            and isinstance(obj, QWidget)
+            and not obj.hasFocus()
+        ):
+            event.ignore()
+            return True
         return super().eventFilter(obj, event)
 
 
-def install_wheel_filter(widget):
+def _demote_wheel_focus(widget: QWidget):
+    """WheelFocus → StrongFocus：滚轮不再夺取焦点，点击 / Tab 仍可聚焦。"""
+    if widget.focusPolicy() == Qt.FocusPolicy.WheelFocus:
+        widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+
+def install_wheel_filter(widget: QWidget) -> WheelEventFilter:
     """
-    为指定控件及其所有子控件安装滚轮事件过滤器
-    
+    为指定控件及其所有滑块 / 数值框 / 下拉框子控件安装滚轮事件过滤器
+
     Args:
         widget: 需要安装过滤器的顶层控件
+
+    Returns:
+        安装好的过滤器实例（父对象为 widget，随其销毁）
     """
     wheel_filter = WheelEventFilter(widget)
-    
-    # 递归为所有子控件安装过滤器
-    def install_recursive(w):
-        if isinstance(w, (ComboBox, SpinBox, DoubleSpinBox)):
-            w.installEventFilter(wheel_filter)
-            # 禁用控件的焦点策略为滚轮焦点
-            w.setFocusPolicy(w.focusPolicy() & ~0x0008)  # 移除 WheelFocus
-        
-        # 递归处理子控件
-        for child in w.findChildren(ComboBox):
-            child.installEventFilter(wheel_filter)
-            child.setFocusPolicy(child.focusPolicy() & ~0x0008)
-        
-        for child in w.findChildren(SpinBox):
-            child.installEventFilter(wheel_filter)
-            child.setFocusPolicy(child.focusPolicy() & ~0x0008)
-        
-        for child in w.findChildren(DoubleSpinBox):
-            child.installEventFilter(wheel_filter)
-            child.setFocusPolicy(child.focusPolicy() & ~0x0008)
-    
-    install_recursive(widget)
+
+    targets = {
+        child
+        for target_type in _WHEEL_TARGET_TYPES
+        for child in widget.findChildren(target_type)
+    }
+    if isinstance(widget, _WHEEL_TARGET_TYPES):
+        targets.add(widget)
+
+    for target in targets:
+        target.installEventFilter(wheel_filter)
+        _demote_wheel_focus(target)
+
     return wheel_filter

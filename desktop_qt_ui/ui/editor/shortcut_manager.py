@@ -47,11 +47,19 @@ class ShortcutManager(QObject):
             创建的QShortcut对象
         """
         shortcut = QShortcut(key_sequence, self.parent_widget)
-        
+
         if context_aware:
             # 包装回调函数，添加上下文检查
             def context_aware_callback():
-                focused_widget = self.parent_widget.focusWidget()
+                # parent_widget.focusWidget() 不跨窗口：焦点在浮动编辑器
+                # （Qt.Tool 顶层窗）里时它仍返回主窗口内旧焦点，导致误删画布选中区。
+                focused_widget = QApplication.focusWidget()
+                if (
+                    focused_widget is not None
+                    and focused_widget.window() is not self.parent_widget.window()
+                ):
+                    # 焦点在其它顶层窗口（如浮动富文本编辑器）：编辑器快捷键一律不处理
+                    return
                 callback(focused_widget)
             shortcut.activated.connect(context_aware_callback)
         else:
@@ -365,8 +373,10 @@ class EditorShortcutManager(ShortcutManager):
                     self.controller.set_brush_size(new_size)
                     return True  # 阻止事件继续传递
                 
-                # Ctrl + 滚轮：调整选中文本框的字体大小
-                elif modifiers == Qt.KeyboardModifier.ControlModifier:
+                # Ctrl + 滚轮（含 Ctrl+Shift 等组合）：调整选中文本框的字体大小。
+                # 无论有无选中都吞掉事件——这是"调字号"语义，
+                # 决不能穿透成画布缩放，让用户以为在调字号实际在缩放。
+                elif modifiers & Qt.KeyboardModifier.ControlModifier:
                     selected_regions = self.editor_view.model.get_selection()
                     if selected_regions:
                         angle_delta = event.angleDelta().y()
@@ -379,7 +389,7 @@ class EditorShortcutManager(ShortcutManager):
                                 delta = max(1, int(old_size * 0.05))
                                 new_size = max(1, old_size + (delta if angle_delta > 0 else -delta))
                                 self.controller.update_font_size(region_index, new_size)
-                        return True  # 阻止事件继续传递
+                    return True  # 阻止事件继续传递
         
         # 其他事件继续传递
         return super().eventFilter(obj, event)

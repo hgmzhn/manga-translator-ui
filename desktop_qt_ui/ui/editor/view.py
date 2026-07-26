@@ -263,8 +263,10 @@ class EditorView(QWidget):
     def _create_left_panel(self) -> QWidget:
         """创建左侧的标签页，包含区域列表和属性面板"""
         left_panel = SimpleCardWidget(self)
-        left_panel.setFixedWidth(360)
-        left_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        # 不能 setFixedWidth：在 QSplitter 里 min==max 会让分割条拖不动。
+        # 初始宽度由 _apply_initial_splitter_sizes 按 sizeHint 设置。
+        left_panel.setMinimumWidth(280)
+        left_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(8, 8, 8, 8)
         left_layout.setSpacing(8)
@@ -602,7 +604,8 @@ class EditorView(QWidget):
             and region_index == self._rich_editor_anchor_region
             and self._rich_editor_anchor_side == "above"
         )
-        self.rich_text_editor.adjustSize()
+        # 不调用 adjustSize()：浮窗尺寸由它自己的 _refresh_layout_size 管理，
+        # 这里再 adjustSize 会和浮窗抢尺寸导致抖动
         popup_w = self.rich_text_editor.width()
         popup_h = self.rich_text_editor.height()
         margin = 8
@@ -811,7 +814,9 @@ class EditorView(QWidget):
         edit_canvas_layout.setSpacing(0)
 
         # 画布（滚动条已在 GraphicsView 中配置）
-        self.graphics_view = GraphicsView(self.model, controller=self.controller, parent=self)
+        self.graphics_view = GraphicsView(
+            self.model, controller=self.controller, parent=self, editor_view=self
+        )
         self.graphics_view.set_snap_enabled(self._snap_enabled)
         self.original_compare_view.set_source_view(self.graphics_view)
         edit_canvas_layout.addWidget(self.graphics_view)

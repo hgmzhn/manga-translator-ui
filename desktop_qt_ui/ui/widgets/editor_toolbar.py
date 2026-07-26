@@ -2,10 +2,12 @@
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QProxyStyle,
     QSizePolicy,
     QStyle,
+    QStyleFactory,
     QWidget,
 )
 from qfluentwidgets import (
@@ -28,9 +30,25 @@ from ui.widgets.hover_hint import set_hover_hint
 
 
 class _LeadingIndicatorMenuStyle(QProxyStyle):
-    """给左侧选中标记腾出独立列，排列为：标记 → 图标 → 文字。"""
+    """给左侧选中标记腾出独立列，排列为：标记 → 图标 → 文字。
+
+    QProxyStyle 会接管传入基类 style 的所有权，因此绝不能把全局共享的
+    QApplication.style() 实例交给它（菜单 view 销毁时会连带删掉全应用
+    style）。这里用 QStyleFactory 按同名重新创建一个私有实例作为基类。
+    """
 
     CONTENT_OFFSET = 24
+
+    def __init__(self):
+        app_style = QApplication.style()
+        base_style = (
+            QStyleFactory.create(app_style.objectName()) if app_style is not None else None
+        )
+        if base_style is not None:
+            super().__init__(base_style)
+        else:
+            # 无参构造：代理惰性使用应用 style，且不接管其所有权
+            super().__init__()
 
     def subElementRect(self, element, option, widget=None):
         rect = super().subElementRect(element, option, widget)
@@ -46,7 +64,7 @@ class _IconCheckableMenu(CheckableMenu):
 
     def __init__(self, title="", parent=None, indicatorType=MenuIndicatorType.CHECK):
         super().__init__(title, parent, indicatorType)
-        self._leading_indicator_style = _LeadingIndicatorMenuStyle(self.view.style())
+        self._leading_indicator_style = _LeadingIndicatorMenuStyle()
         self._leading_indicator_style.setParent(self.view)
         self.view.setStyle(self._leading_indicator_style)
 
@@ -140,7 +158,8 @@ class EditorToolbar(CardWidget):
         self.scroll_area.enableTransparentBackground()
         outer_layout.addWidget(self.scroll_area)
 
-        self.content_widget = QWidget(self.scroll_area)
+        # 无父构造：setWidget 会认领所有权，先挂在框架上会产生幽灵坯子
+        self.content_widget = QWidget()
         layout = QHBoxLayout(self.content_widget)
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(10)

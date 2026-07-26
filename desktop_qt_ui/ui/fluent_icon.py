@@ -1,11 +1,29 @@
 import os
 
-from PyQt6.QtCore import QRect, Qt
+from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QIconEngine, QImage, QPainter, QPixmap
+from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import isDarkTheme, themeColor
 from qfluentwidgets.common.icon import drawSvgIcon, writeSvg
 
 from utils.resource_helper import resource_path
+
+# (SVG 路径, 颜色) -> 改写好填充色的 SVG bytes。writeSvg 每次都要重新解析
+# 改写 XML，这里做个小缓存；主题切换后颜色变化，键自然失效。
+_SVG_BYTES_CACHE: dict[tuple[str, str], bytes] = {}
+_SVG_BYTES_CACHE_MAX = 256
+
+
+def _themed_svg_bytes(icon_path: str, color_name: str) -> bytes:
+    key = (icon_path, color_name)
+    cached = _SVG_BYTES_CACHE.get(key)
+    if cached is None:
+        svg = writeSvg(icon_path, fill=color_name)
+        cached = svg.encode() if svg else b""
+        if len(_SVG_BYTES_CACHE) >= _SVG_BYTES_CACHE_MAX:
+            _SVG_BYTES_CACHE.clear()
+        _SVG_BYTES_CACHE[key] = cached
+    return cached
 
 
 class _ThemedFluentSvgIconEngine(QIconEngine):
@@ -16,8 +34,8 @@ class _ThemedFluentSvgIconEngine(QIconEngine):
 
     def paint(self, painter: QPainter, rect, mode, state):
         color = _resolve_icon_color(self.color_token).name()
-        svg = writeSvg(self.icon_path, fill=color)
-        if not svg:
+        svg_bytes = _themed_svg_bytes(self.icon_path, color)
+        if not svg_bytes:
             QIcon(self.icon_path).paint(painter, rect, Qt.AlignmentFlag.AlignCenter, mode, state)
             return
 
@@ -27,18 +45,31 @@ class _ThemedFluentSvgIconEngine(QIconEngine):
         elif mode == QIcon.Mode.Selected:
             painter.setOpacity(0.7)
 
-        drawSvgIcon(svg.encode(), painter, rect)
+        drawSvgIcon(svg_bytes, painter, rect)
         painter.restore()
 
     def clone(self):
         return _ThemedFluentSvgIconEngine(self.icon_path, self.color_token)
 
     def pixmap(self, size, mode, state):
-        image = QImage(size, QImage.Format.Format_ARGB32)
+        app = QApplication.instance()
+        scale = app.devicePixelRatio() if app is not None else 1.0
+        return self.scaledPixmap(size, mode, state, scale)
+
+    def scaledPixmap(self, size, mode, state, scale):
+        """按目标 DPR 渲染大图并 setDevicePixelRatio，高 DPI 下不发糊。"""
+        scale = max(1.0, float(scale))
+        device_size = QSize(
+            max(1, round(size.width() * scale)),
+            max(1, round(size.height() * scale)),
+        )
+        image = QImage(device_size, QImage.Format.Format_ARGB32_Premultiplied)
         image.fill(Qt.GlobalColor.transparent)
-        pixmap = QPixmap.fromImage(image, Qt.ImageConversionFlag.NoFormatConversion)
+        image.setDevicePixelRatio(scale)
+        pixmap = QPixmap.fromImage(image)
 
         painter = QPainter(pixmap)
+        # 绘制坐标使用设备无关像素；QPainter 依据 pixmap 的 DPR 放大
         self.paint(painter, QRect(0, 0, size.width(), size.height()), mode, state)
         painter.end()
         return pixmap

@@ -50,7 +50,8 @@ def create_translation_page(self) -> QWidget:
     file_buttons_layout.addStretch()
     input_layout.addWidget(file_button_widget)
 
-    self.file_list = FileListView(None, self)
+    # MainView 是纯逻辑 QObject，不能当控件父级；file_list 随 addWidget 进布局后自动认领父级
+    self.file_list = FileListView(None)
     input_layout.addWidget(self.file_list, 1)
     page_layout.addWidget(self.translation_input_card, 1)
 

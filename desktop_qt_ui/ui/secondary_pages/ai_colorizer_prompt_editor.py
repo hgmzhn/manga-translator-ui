@@ -154,7 +154,7 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
 
     def _setup_ui(self):
         self.setWindowTitle(self._t("Edit Prompt") + f" - {os.path.basename(self._file_path)}")
-        self.setMinimumSize(820, 580)
+        self.setMinimumSize(680, 480)
         self.resize(980, 680)
         self.setModal(True)
 
@@ -224,7 +224,8 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         self._template_sections_layout = QVBoxLayout()
         self._template_sections_layout.setContentsMargins(0, 0, 0, 0)
         self._template_sections_layout.setSpacing(10)
-        layout.addLayout(self._template_sections_layout)
+        # 带 stretch：对话框放大时多余空间进入各字段区（编辑框跟着长）
+        layout.addLayout(self._template_sections_layout, 1)
         self._insert_section("prompt_text", text=str(self._data.get("ai_colorizer_prompt", "")))
         self._insert_section(
             "colorization_rules",
@@ -320,9 +321,19 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         body = QVBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(6)
-        outer.addLayout(body)
+        outer.addLayout(body, 1)
         outer.addWidget(_divider())
         return container, body
+
+    # 各字段区在纵向多余空间中的分配权重（0 = 保持内容高度）
+    _SECTION_STRETCHES = {
+        "prompt_text": 3,
+        "colorization_rules": 1,
+        "reference_images": 1,
+    }
+
+    def _section_stretch(self, key: str) -> int:
+        return self._SECTION_STRETCHES.get(key, 0)
 
     def _insert_section(self, key: str, idx: int = -1, **kwargs):
         container, body = self._make_section_container(key)
@@ -335,29 +346,29 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
 
         section_layout = self._template_sections_layout
         if idx < 0:
-            section_layout.addWidget(container)
+            section_layout.addWidget(container, self._section_stretch(key))
             self._section_containers.append((key, container))
         else:
-            section_layout.insertWidget(idx, container)
+            section_layout.insertWidget(idx, container, self._section_stretch(key))
             self._section_containers.insert(idx, (key, container))
         self._refresh_section_move_buttons()
 
     def _fill_prompt_text(self, layout: QVBoxLayout, text: str):
         self._prompt_text_edit = _styled_text_edit(text)
-        self._prompt_text_edit.setFixedHeight(180)
-        layout.addWidget(self._prompt_text_edit)
+        self._prompt_text_edit.setMinimumHeight(180)
+        layout.addWidget(self._prompt_text_edit, 1)
 
     def _fill_colorization_rules(self, layout: QVBoxLayout, rules: List[str]):
         layout.addWidget(_dim_label(self._t("One rule per line")))
         text = "\n".join(str(item) for item in rules) if isinstance(rules, list) else ""
         self._rules_edit = _styled_text_edit(text)
-        self._rules_edit.setFixedHeight(110)
-        layout.addWidget(self._rules_edit)
+        self._rules_edit.setMinimumHeight(110)
+        layout.addWidget(self._rules_edit, 1)
 
     def _fill_reference_images(self, layout: QVBoxLayout, images: List[Dict[str, str]]):
         self._reference_images_table = _make_reference_images_table(images, t_func=self._t)
         self._reference_images_table.setMinimumHeight(120)
-        layout.addWidget(self._reference_images_table)
+        layout.addWidget(self._reference_images_table, 1)
 
         row_buttons = QHBoxLayout()
         add_btn = PushButton(self._t("Add Reference Image"))
@@ -504,8 +515,8 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
         )
         for _, widget in self._section_containers:
             layout.removeWidget(widget)
-        for _, widget in self._section_containers:
-            layout.addWidget(widget)
+        for key, widget in self._section_containers:
+            layout.addWidget(widget, self._section_stretch(key))
             widget.show()
         self._refresh_section_move_buttons()
         layout.invalidate()

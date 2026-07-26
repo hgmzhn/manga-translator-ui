@@ -34,7 +34,6 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSplitter,
     QStyle,
-    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
@@ -48,6 +47,7 @@ from qfluentwidgets import (
     FluentStyleSheet,
     PrimaryPushButton,
     RoundMenu,
+    TreeItemDelegate,
     TreeView,
     isDarkTheme,
     themeColor,
@@ -57,7 +57,7 @@ from qfluentwidgets import PushButton as QPushButton
 from qfluentwidgets import ToolButton as QToolButton
 
 from services import get_i18n_manager
-from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
+from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog, normalize_dialog_parent
 from ui.widgets.hover_hint import set_hover_hint
 from manga_translator.runtime_paths import get_config_path
 
@@ -98,35 +98,34 @@ class CaseInsensitiveSortProxyModel(QSortFilterProxyModel):
         return super().headerData(section, orientation, role)
 
 
-class FavoriteDelegate(QStyledItemDelegate):
-    """带收藏星星的自定义委托"""
-    
-    def __init__(self, parent=None, favorite_folders=None, fs_model=None, proxy_model=None):
-        super().__init__(parent)
-        self.favorite_folders = favorite_folders if favorite_folders is not None else []
-        self.fs_model = fs_model
-        self.proxy_model = proxy_model
-        self.star_size = 16  # 和图标一样大
-        self.star_margin = 4  # 星星和图标之间的间距
-        self.icon_size = 16  # 文件夹图标大小
-        
+class _FavoriteStarDelegate(TreeItemDelegate):
+    """在 Fluent 树样式之上叠加收藏星标的委托基类。
+
+    继承 qfluentwidgets 的 TreeItemDelegate（parent 必须是树视图），
+    保留原生悬停/选中样式；星标在悬停/选中/已收藏时显示，点击切换收藏。
+    收藏状态与配色实时读取对话框，避免持有过期引用。
+    """
+
+    STAR_SIZE = 16  # 和图标一样大
+    STAR_MARGIN = 4  # 星星和图标之间的间距
+
+    def __init__(self, tree: TreeView, dialog: "FolderDialog"):
+        super().__init__(tree)
+        self._dialog = dialog
+
+    def _folder_path(self, index: QModelIndex) -> str:
+        """由子类实现：从 index 解析出文件夹路径。"""
+        raise NotImplementedError
+
     def paint(self, painter: QPainter, option, index: QModelIndex):
-        """绘制项目"""
-        # 先绘制默认内容
+        # 先绘制 Fluent 默认样式
         super().paint(painter, option, index)
-        
-        # 获取文件夹路径
-        if self.proxy_model and self.fs_model:
-            source_index = self.proxy_model.mapToSource(index)
-            folder_path = self.fs_model.filePath(source_index)
-        else:
-            return
-        
+
+        folder_path = self._folder_path(index)
         if not folder_path or not os.path.isdir(folder_path):
             return
-        
-        # 检查是否收藏
-        is_favorited = folder_path in self.favorite_folders
+
+        is_favorited = folder_path in self._dialog.favorite_folders
         is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
         is_hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
@@ -134,42 +133,38 @@ class FavoriteDelegate(QStyledItemDelegate):
         if not (is_favorited or is_selected or is_hovered):
             return
 
-        # 计算星星位置（放在行右侧，避免与文件夹图标和文本重叠）
+        # 星星画在行右侧，避免与图标和文本重叠
         star_rect = self.get_star_rect(option.rect)
-        
-        # 绘制星星
+
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        dialog = self.parent()
-        favorite_color = QColor("#ffc107")
-        outline_color = QColor("#c7cdd6")
-        if isinstance(dialog, FolderDialog):
-            favorite_color = QColor(dialog._favorite_star_color)
-            outline_color = QColor(dialog._border_hover_color if is_selected else dialog._border_color)
-        
         if is_favorited:
             # 实心星星（已收藏）
+            favorite_color = QColor(self._dialog._favorite_star_color)
             painter.setPen(QPen(favorite_color, 1))
             painter.setBrush(favorite_color)
         else:
             # 空心星星（未收藏）
+            outline_color = QColor(
+                self._dialog._border_hover_color if is_selected else self._dialog._border_color
+            )
             painter.setPen(QPen(outline_color, 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-        
-        # 绘制五角星
+
         self.draw_star(painter, star_rect)
-        
         painter.restore()
-    
+
     def draw_star(self, painter: QPainter, rect: QRect):
         """绘制五角星"""
         from math import cos, pi, sin
-        
+
+        from PyQt6.QtGui import QPolygon
+
         center_x = rect.center().x()
         center_y = rect.center().y()
         radius = min(rect.width(), rect.height()) / 2 - 1
-        
+
         points = []
         for i in range(10):
             angle = pi / 2 + (2 * pi * i / 10)
@@ -177,162 +172,63 @@ class FavoriteDelegate(QStyledItemDelegate):
             x = center_x + r * cos(angle)
             y = center_y - r * sin(angle)
             points.append(QPoint(int(x), int(y)))
-        
-        from PyQt6.QtGui import QPolygon
-        polygon = QPolygon(points)
-        painter.drawPolygon(polygon)
-    
+
+        painter.drawPolygon(QPolygon(points))
+
     def get_star_rect(self, item_rect: QRect) -> QRect:
-        """获取星星的绘制区域 - 在右侧"""
-        x = item_rect.right() - self.star_size - self.star_margin - 6
-        y = item_rect.top() + (item_rect.height() - self.star_size) // 2
-        return QRect(x, y, self.star_size, self.star_size)
-    
-    def initStyleOption(self, option, index):
-        """调整样式选项，为星星留出空间"""
-        super().initStyleOption(option, index)
-        # 不再偏移 rect，避免选中高亮被截断
-    
+        """获取星星的绘制区域 - 在行右侧"""
+        x = item_rect.right() - self.STAR_SIZE - self.STAR_MARGIN - 6
+        y = item_rect.top() + (item_rect.height() - self.STAR_SIZE) // 2
+        return QRect(x, y, self.STAR_SIZE, self.STAR_SIZE)
+
     def editorEvent(self, event, model, option, index):
-        """处理鼠标点击事件"""
+        """点击星标区域切换收藏状态"""
         from PyQt6.QtCore import QEvent
         from PyQt6.QtGui import QMouseEvent
-        
-        if event.type() == QEvent.Type.MouseButtonRelease:
-            if isinstance(event, QMouseEvent):
-                star_rect = self.get_star_rect(option.rect)
-                if star_rect.contains(event.pos()):
-                    # 点击了星星区域
-                    if self.proxy_model and self.fs_model:
-                        source_index = self.proxy_model.mapToSource(index)
-                        folder_path = self.fs_model.filePath(source_index)
-                        
-                        if folder_path and os.path.isdir(folder_path):
-                            # 切换收藏状态
-                            dialog = self.parent()
-                            if isinstance(dialog, FolderDialog):
-                                if folder_path in dialog.favorite_folders:
-                                    dialog._remove_favorite_by_path(folder_path)
-                                else:
-                                    dialog._add_favorite(folder_path)
-                            return True
-        
+
+        if event.type() == QEvent.Type.MouseButtonRelease and isinstance(event, QMouseEvent):
+            star_rect = self.get_star_rect(option.rect)
+            if star_rect.contains(event.position().toPoint()):
+                folder_path = self._folder_path(index)
+                if folder_path and os.path.isdir(folder_path):
+                    if folder_path in self._dialog.favorite_folders:
+                        self._dialog._remove_favorite_by_path(folder_path)
+                    else:
+                        self._dialog._add_favorite(folder_path)
+                    return True
+
         return super().editorEvent(event, model, option, index)
 
 
-class ShortcutFavoriteDelegate(QStyledItemDelegate):
-    """左侧快捷栏的收藏委托"""
-    
-    def __init__(self, parent=None, favorite_folders=None, shortcuts_model=None):
-        super().__init__(parent)
-        self.favorite_folders = favorite_folders if favorite_folders is not None else []
+class FavoriteDelegate(_FavoriteStarDelegate):
+    """目录树（QFileSystemModel + 排序代理）的收藏星标委托"""
+
+    def __init__(self, tree: TreeView, dialog: "FolderDialog", fs_model, proxy_model):
+        super().__init__(tree, dialog)
+        self.fs_model = fs_model
+        self.proxy_model = proxy_model
+
+    def _folder_path(self, index: QModelIndex) -> str:
+        if self.fs_model is None or self.proxy_model is None:
+            return ""
+        source_index = self.proxy_model.mapToSource(index)
+        return self.fs_model.filePath(source_index) or ""
+
+
+class ShortcutFavoriteDelegate(_FavoriteStarDelegate):
+    """左侧快捷栏的收藏星标委托"""
+
+    def __init__(self, tree: TreeView, dialog: "FolderDialog", shortcuts_model):
+        super().__init__(tree, dialog)
         self.shortcuts_model = shortcuts_model
-        self.star_size = 16  # 和图标一样大
-        self.star_margin = 4  # 星星和图标之间的间距
-        self.icon_size = 16  # 图标大小
-        
-    def paint(self, painter: QPainter, option, index: QModelIndex):
-        """绘制项目"""
-        super().paint(painter, option, index)
-        
-        if not self.shortcuts_model:
-            return
-        
+
+    def _folder_path(self, index: QModelIndex) -> str:
+        if self.shortcuts_model is None:
+            return ""
         item = self.shortcuts_model.itemFromIndex(index)
-        if not item:
-            return
-        
-        folder_path = item.data(Qt.ItemDataRole.UserRole)
-        if not folder_path or not os.path.isdir(folder_path):
-            return
-        
-        is_favorited = folder_path in self.favorite_folders
-        is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        is_hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
-
-        if not (is_favorited or is_selected or is_hovered):
-            return
-
-        star_rect = self.get_star_rect(option.rect)
-        
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        dialog = self.parent()
-        favorite_color = QColor("#ffc107")
-        outline_color = QColor("#c7cdd6")
-        if isinstance(dialog, FolderDialog):
-            favorite_color = QColor(dialog._favorite_star_color)
-            outline_color = QColor(dialog._border_hover_color if is_selected else dialog._border_color)
-        
-        if is_favorited:
-            painter.setPen(QPen(favorite_color, 1))
-            painter.setBrush(favorite_color)
-        else:
-            painter.setPen(QPen(outline_color, 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-        
-        self.draw_star(painter, star_rect)
-        painter.restore()
-    
-    def draw_star(self, painter: QPainter, rect: QRect):
-        """绘制五角星"""
-        from math import cos, pi, sin
-        
-        center_x = rect.center().x()
-        center_y = rect.center().y()
-        radius = min(rect.width(), rect.height()) / 2 - 1
-        
-        points = []
-        for i in range(10):
-            angle = pi / 2 + (2 * pi * i / 10)
-            r = radius if i % 2 == 0 else radius * 0.4
-            x = center_x + r * cos(angle)
-            y = center_y - r * sin(angle)
-            points.append(QPoint(int(x), int(y)))
-        
-        from PyQt6.QtGui import QPolygon
-        polygon = QPolygon(points)
-        painter.drawPolygon(polygon)
-    
-    def get_star_rect(self, item_rect: QRect) -> QRect:
-        """获取星星的绘制区域 - 在右侧"""
-        x = item_rect.right() - self.star_size - self.star_margin - 6
-        y = item_rect.top() + (item_rect.height() - self.star_size) // 2
-        return QRect(x, y, self.star_size, self.star_size)
-    
-    def initStyleOption(self, option, index):
-        """调整样式选项，为星星留出空间"""
-        super().initStyleOption(option, index)
-        # 不再偏移 rect，避免选中高亮被截断
-    
-    def editorEvent(self, event, model, option, index):
-        """处理鼠标点击事件"""
-        from PyQt6.QtCore import QEvent
-        from PyQt6.QtGui import QMouseEvent
-        
-        if event.type() == QEvent.Type.MouseButtonRelease:
-            if isinstance(event, QMouseEvent):
-                star_rect = self.get_star_rect(option.rect)
-                if star_rect.contains(event.pos()):
-                    if not self.shortcuts_model:
-                        return False
-                    
-                    item = self.shortcuts_model.itemFromIndex(index)
-                    if not item:
-                        return False
-                    
-                    folder_path = item.data(Qt.ItemDataRole.UserRole)
-                    if folder_path and os.path.isdir(folder_path):
-                        dialog = self.parent()
-                        if isinstance(dialog, FolderDialog):
-                            if folder_path in dialog.favorite_folders:
-                                dialog._remove_favorite_by_path(folder_path)
-                            else:
-                                dialog._add_favorite(folder_path)
-                        return True
-        
-        return super().editorEvent(event, model, option, index)
+        if item is None:
+            return ""
+        return item.data(Qt.ItemDataRole.UserRole) or ""
 
 
 class FolderDialog(FluentSecondaryDialog):
@@ -345,13 +241,14 @@ class FolderDialog(FluentSecondaryDialog):
         self.history: List[str] = []  # 导航历史
         self.history_index = -1  # 当前历史位置
         self.favorite_folders: List[str] = []  # 收藏的文件夹
+        self._path_error_dialog_active = False  # 路径校验弹窗期间不因 FocusOut 取消编辑
         self.config_service = config_service
         self.i18n = get_i18n_manager()
         self._setup_fluent_colors()
 
         self.setWindowTitle(self._t("Select Folder") + (self._t(" (Multi-select)") if multi_select else ""))
         self.setWindowIcon(FluentIcon.FOLDER.qicon())
-        self.setMinimumSize(1000, 650)
+        self.setMinimumSize(760, 520)
         self.resize(1000, 650)
         
         # 初始化文件系统模型
@@ -519,6 +416,12 @@ class FolderDialog(FluentSecondaryDialog):
         self.folder_tree.setModel(self.proxy_model)
         self._theme_tree_view(self.folder_tree)
 
+        # 名称列启用收藏星标委托（悬停/选中显示，点击切换收藏）
+        self.favorite_delegate = FavoriteDelegate(
+            self.folder_tree, self, self.fs_model, self.proxy_model
+        )
+        self.folder_tree.setItemDelegateForColumn(0, self.favorite_delegate)
+
         # 仅显示两列：名称、修改日期
         self.folder_tree.showColumn(0)  # Name
         self.folder_tree.showColumn(3)  # Date Modified
@@ -613,6 +516,12 @@ class FolderDialog(FluentSecondaryDialog):
 
         self.shortcuts_tree_model = QStandardItemModel()
         self.shortcuts_tree.setModel(self.shortcuts_tree_model)
+
+        # 快捷栏同样启用收藏星标委托
+        self.shortcut_favorite_delegate = ShortcutFavoriteDelegate(
+            self.shortcuts_tree, self, self.shortcuts_tree_model
+        )
+        self.shortcuts_tree.setItemDelegateForColumn(0, self.shortcut_favorite_delegate)
 
         # 构建快捷访问树
         self._build_shortcuts_tree()
@@ -1041,17 +950,24 @@ class FolderDialog(FluentSecondaryDialog):
             # 切换回面包屑显示
             self._cancel_path_edit()
         else:
-            QMessageBox.warning(
-                self,
-                self._t("Path Error"),
-                self._t("Path does not exist or is not a valid directory:\n{path}", path=path),
-            )
-            # 保持输入框显示，让用户修改
+            # 模态警告会抢走输入框焦点；置位标志，让 FocusOut 不取消编辑，
+            # 警告关闭后恢复焦点，保留用户已输入的内容供修改。
+            self._path_error_dialog_active = True
+            try:
+                QMessageBox.warning(
+                    self,
+                    self._t("Path Error"),
+                    self._t("Path does not exist or is not a valid directory:\n{path}", path=path),
+                )
+            finally:
+                self._path_error_dialog_active = False
+            self.path_edit.setFocus()
+            self.path_edit.selectAll()
 
     def eventFilter(self, obj, event):
         """事件过滤器：处理 Esc 键取消路径编辑和点击外部区域"""
         from PyQt6.QtCore import QEvent
-        
+
         if obj == self.path_edit:
             if event.type() == QEvent.Type.KeyPress:
                 if event.key() == Qt.Key.Key_Escape:
@@ -1059,10 +975,11 @@ class FolderDialog(FluentSecondaryDialog):
                     self._cancel_path_edit()
                     return True
             elif event.type() == QEvent.Type.FocusOut:
-                # 失去焦点时恢复面包屑
-                self._cancel_path_edit()
+                # 校验警告弹窗抢焦点导致的 FocusOut 不算用户离开编辑
+                if not self._path_error_dialog_active:
+                    self._cancel_path_edit()
                 return False
-        
+
         return super().eventFilter(obj, event)
     
     def _cancel_path_edit(self):
@@ -1292,7 +1209,9 @@ def select_folders(parent=None, start_dir: str = "", multi_select: bool = True, 
     Returns:
         选中的文件夹路径列表，如果取消则返回 None
     """
-    dialog = FolderDialog(parent, start_dir, multi_select, config_service)
+    # parent 归一化到顶层窗口；parent=None 时回退当前活动窗口
+    # （FluentSecondaryDialog 基类同样兜底，这里显式声明对话框侧契约）
+    dialog = FolderDialog(normalize_dialog_parent(parent), start_dir, multi_select, config_service)
     if dialog.exec() == DialogCode.Accepted:
         return dialog.get_selected_folders()
     return None

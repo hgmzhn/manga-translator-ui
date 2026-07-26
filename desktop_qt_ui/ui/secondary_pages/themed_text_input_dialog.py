@@ -4,6 +4,7 @@ from PyQt6.QtGui import QShowEvent
 from qfluentwidgets import Dialog, FluentIcon as FIF, LineEdit
 
 from ui.secondary_pages.fluent_dialog import DialogCode
+from ui.secondary_pages.themed_message_box import _apply_flexible_size
 
 
 class ThemedTextInputDialog(Dialog):
@@ -40,7 +41,9 @@ class ThemedTextInputDialog(Dialog):
         self.yesButton.setDefault(True)
         self.yesButton.setAutoDefault(True)
 
-        self.setFixedSize(460, max(self.sizeHint().height() + 24, 230))
+        # 布局激活前的 sizeHint 不可信，且硬钉宽度会被 _adjustText 的布局
+        # 最小宽覆盖；改为最小尺寸 + 布局激活后 adjustSize 按内容取真实尺寸。
+        _apply_flexible_size(self, 460, 230)
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)

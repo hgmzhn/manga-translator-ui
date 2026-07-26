@@ -70,7 +70,8 @@ def create_prompt_page(self) -> QWidget:
 
     prompt_splitter.addWidget(self.prompt_card)
 
-    self.prompt_preview_panel = PromptPreviewPanel(t_func=self._t, parent=self)
+    # MainView 是纯逻辑 QObject，不能当控件父级；面板随 addWidget 进布局后自动认领父级
+    self.prompt_preview_panel = PromptPreviewPanel(t_func=self._t)
     prompt_splitter.addWidget(self.prompt_preview_panel)
 
     prompt_splitter.setStretchFactor(0, 2)

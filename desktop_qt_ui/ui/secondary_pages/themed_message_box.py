@@ -4,23 +4,12 @@ import textwrap
 from typing import Callable
 
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
+from PyQt6.QtWidgets import QMessageBox
 from qfluentwidgets import Dialog, FluentIcon as FIF, PlainTextEdit, PushButton
 
+from ui.secondary_pages.fluent_dialog import normalize_dialog_parent as _dialog_parent
+
 _INSTALLED = False
-
-
-def _dialog_parent(parent):
-    candidate = parent if isinstance(parent, QWidget) else QApplication.activeWindow()
-    if candidate is None:
-        return None
-
-    # Fluent dialogs are real top-level windows.  Passing a native child page
-    # (for example main_env_page inside MSFluentWindow's stacked widget) can
-    # make Qt try to use a non-top-level QWidgetWindow as transient parent.
-    # Always anchor dialogs to the containing application window instead.
-    top_level = candidate.window()
-    return top_level if top_level is not None else candidate
 
 
 def _wrap_dialog_text(text: str, width: int = 92) -> str:
@@ -140,6 +129,23 @@ def _exec_fluent_dialog(
     return QMessageBox.StandardButton.NoButton
 
 
+def _apply_flexible_size(dialog: Dialog, min_width: int, min_height: int) -> None:
+    """按内容自适应尺寸，替代布局激活前的 setFixedSize。
+
+    qfluentwidgets 的 Dialog 在构造末尾会 setFixedSize(布局激活前的尺寸)，
+    此时读到的 width/height 是无意义的初始值。这里先解除固定尺寸约束，
+    在内容装配完、布局激活之后取真实的内容 sizeHint，再与给定下限取大。
+    注意：Dialog 的 vBoxLayout 是 SetMinimumSize 约束，每次布局激活都会
+    重写控件 minimumSize，所以下限必须通过 resize 落地而不是 setMinimumSize。
+    """
+    dialog.setMaximumSize(16777215, 16777215)
+    layout = dialog.layout()
+    if layout is not None:
+        layout.activate()
+    hint = dialog.sizeHint()
+    dialog.resize(max(hint.width(), min_width), max(hint.height(), min_height))
+
+
 def apply_message_box_style(box: QMessageBox) -> QMessageBox:
     box.setTextFormat(box.textFormat())
     return box
@@ -177,10 +183,11 @@ def show_error_dialog(
         details_edit.setReadOnly(True)
         details_edit.setPlainText(detail_text)
         details_edit.setMinimumHeight(260)
-        dialog.textLayout.addWidget(details_edit)
-        dialog.setFixedSize(720, 460)
+        # 详情区带 stretch，对话框放大时详情区跟着长
+        dialog.textLayout.addWidget(details_edit, 1)
+        min_size = (720, 460)
     else:
-        dialog.setFixedSize(max(dialog.width(), 520), max(dialog.height(), 220))
+        min_size = (520, 220)
 
     if extra_button_text and extra_button_callback:
         extra_button = PushButton(str(extra_button_text), dialog.buttonGroup)
@@ -190,6 +197,9 @@ def show_error_dialog(
             )
         extra_button.clicked.connect(extra_button_callback)
         dialog.buttonLayout.insertWidget(0, extra_button, 1)
+
+    # 内容（含额外按钮）全部装配完成后再定尺寸
+    _apply_flexible_size(dialog, *min_size)
 
     return _exec_fluent_dialog(dialog, buttons, default_button)
 

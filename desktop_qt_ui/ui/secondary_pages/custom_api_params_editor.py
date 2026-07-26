@@ -242,7 +242,7 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
 
     def _setup_ui(self):
         self.setWindowTitle(self._t("Edit Custom API Params"))
-        self.setMinimumSize(880, 620)
+        self.setMinimumSize(680, 480)
         self.resize(980, 720)
 
         root = QVBoxLayout(self)

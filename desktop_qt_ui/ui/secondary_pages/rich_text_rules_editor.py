@@ -34,6 +34,7 @@ from qfluentwidgets import (
     PushButton,
     SegmentedWidget,
     SimpleCardWidget,
+    SingleDirectionScrollArea,
     SubtitleLabel,
     TableWidget,
 )
@@ -392,7 +393,8 @@ class RichTextStyleDialog(FluentSecondaryDialog):
         self._t = t_func
         self._result_style = copy.deepcopy(style or {})
         self.setWindowTitle(self._t("Edit Rich Text Style"))
-        self.setMinimumSize(620, 760)
+        self.setMinimumSize(620, 520)
+        self.resize(660, 760)
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 18, 20, 18)
         root.setSpacing(12)
@@ -401,9 +403,15 @@ class RichTextStyleDialog(FluentSecondaryDialog):
         self.hint_label = BodyLabel(self._t("Enable only the style properties this rule should apply."))
         self.hint_label.setWordWrap(True)
         root.addWidget(self.hint_label)
+        # 19 行表单包进纵向滚动区，小屏时内容可滚动而不是把窗口撑出屏
+        self.controls_scroll = SingleDirectionScrollArea(self, orient=Qt.Orientation.Vertical)
+        self.controls_scroll.setWidgetResizable(True)
+        self.controls_scroll.setFrameShape(SingleDirectionScrollArea.Shape.NoFrame)
         self.controls = RichTextStyleControls(self._t, self)
         self.controls.load_style(style or {})
-        root.addWidget(self.controls, 1)
+        self.controls_scroll.setWidget(self.controls)
+        self.controls_scroll.enableTransparentBackground()
+        root.addWidget(self.controls_scroll, 1)
         buttons = QHBoxLayout()
         self.reset_button = PushButton(self._t("Reset"))
         self.cancel_button = PushButton(self._t("Cancel"))
