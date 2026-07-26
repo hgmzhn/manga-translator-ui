@@ -2446,7 +2446,15 @@ def run_install(args):
         subprocess.run([git, 'remote', 'set-url', 'origin', selected[1]], capture_output=True)
     print(f"✓ 使用线路: {selected[0]}")
 
+    # 同步代码到远程分支
+    print()
+    print("[1/2] 同步代码...")
+    if not update_code_force(skip_confirm=True):
+        print("[警告] 代码同步失败，将使用当前本地代码继续安装")
+
     # 显卡检测 + CPU/GPU/AMD 版本选择 + 依赖安装（prepare_environment 内部完成交互）
+    print()
+    print("[2/2] 安装依赖...")
     args.requirements = 'auto'
     args.reinstall_torch = False
     args.update_deps = True
