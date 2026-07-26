@@ -2431,6 +2431,33 @@ def cleanup_caches():
     print('[OK] 缓存已清理')
 
 
+def run_deps_with_retry(task, action_label):
+    """执行依赖安装任务，失败时询问是否重试（安装/更新共用）
+
+    Args:
+        task: 无参函数，返回 False 或抛异常表示失败
+        action_label: 动作名称，用于提示文案（安装/更新）
+    Returns:
+        bool: 是否最终成功
+    """
+    while True:
+        try:
+            ok = task()
+        except Exception as e:
+            print()
+            print("=" * 40)
+            print(f"[错误] 依赖安装失败: {e}")
+            print("=" * 40)
+            ok = False
+        if ok is not False:
+            return True
+        print("已安装成功的包会被保留，重试只会安装剩余的包")
+        choice = input("是否重试? (y/n, 默认y): ").strip().lower()
+        if choice not in ['', 'y', 'yes']:
+            print(f"已取消，请检查网络后重新运行 [{action_label}]")
+            return False
+
+
 def run_install(args):
     """安装：选择线路 → 检测显卡并选择 CPU/GPU 版本 → 安装依赖"""
     print()
@@ -2475,25 +2502,12 @@ def run_install(args):
     args.frozen = False
 
     print()
-    while True:
-        try:
-            prepare_environment(args)
-            cleanup_caches()
-            print()
-            print("=" * 40)
-            print("[完成] 安装完成")
-            print("=" * 40)
-            break
-        except Exception as e:
-            print()
-            print("=" * 40)
-            print(f"[错误] 依赖安装失败: {e}")
-            print("=" * 40)
-            print("已安装成功的包会被保留，重试只会安装剩余的包")
-            choice = input("是否重试? (y/n, 默认y): ").strip().lower()
-            if choice not in ['', 'y', 'yes']:
-                print("已取消，请检查网络后重新运行 [安装]")
-                break
+    if run_deps_with_retry(lambda: (prepare_environment(args), True)[1], "安装"):
+        cleanup_caches()
+        print()
+        print("=" * 40)
+        print("[完成] 安装完成")
+        print("=" * 40)
 
 
 def run_full_update(args):
@@ -2536,20 +2550,15 @@ def run_full_update(args):
         print("[2/2] 更新依赖...")
         if req_file:
             args.requirements = req_file
+
         # 如果有缺失包列表，只安装缺失的包
-        while True:
+        def do_update_deps():
             if missing_packages:
                 print(f"只安装缺失的 {len(missing_packages)} 个包...")
-                ok = update_dependencies_selective(args, missing_packages)
-            else:
-                ok = update_dependencies(args)
-            if ok:
-                break
-            print("已安装成功的包会被保留，重试只会安装剩余的包")
-            choice = input("依赖更新失败，是否重试? (y/n, 默认y): ").strip().lower()
-            if choice not in ['', 'y', 'yes']:
-                print("已取消，请检查网络后重新运行 [更新]")
-                break
+                return update_dependencies_selective(args, missing_packages)
+            return update_dependencies(args)
+
+        run_deps_with_retry(do_update_deps, "更新")
     elif update_success:
         print()
         print("[2/2] 依赖已满足，跳过")
