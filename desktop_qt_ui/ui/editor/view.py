@@ -94,6 +94,7 @@ class EditorView(QWidget):
             self,
             snap_enabled=self._snap_enabled,
             rich_text_popup_enabled=self._rich_text_popup_enabled,
+            auto_export_on_switch=self._read_editor_auto_export_on_switch(),
         )
         self.toolbar.setFixedHeight(56)
         self.layout.addWidget(self.toolbar)
@@ -137,29 +138,23 @@ class EditorView(QWidget):
             return self.i18n.translate(key, **kwargs)
         return key
 
-    def _read_editor_snap_enabled(self, config=None) -> bool:
-        """兼容配置模型和 config_changed 字典载荷。"""
+    def _read_app_flag(self, key: str, default: bool, config=None) -> bool:
+        """读取 app 段布尔开关；兼容配置模型和 config_changed 字典载荷，缺字段用默认值。"""
         if config is None and self.config_service is not None:
             config = self.config_service.get_config()
 
         if isinstance(config, dict):
-            app_config = config.get("app", {})
-            return bool(app_config.get("editor_snap_enabled", False))
+            return bool(config.get("app", {}).get(key, default))
+        return bool(getattr(getattr(config, "app", None), key, default))
 
-        app_config = getattr(config, "app", None)
-        return bool(getattr(app_config, "editor_snap_enabled", False))
+    def _read_editor_snap_enabled(self, config=None) -> bool:
+        return self._read_app_flag("editor_snap_enabled", False, config)
 
     def _read_editor_rich_text_popup_enabled(self, config=None) -> bool:
-        """读取富文本浮窗开关，旧配置缺少字段时保持原有的默认显示行为。"""
-        if config is None and self.config_service is not None:
-            config = self.config_service.get_config()
+        return self._read_app_flag("editor_rich_text_popup_enabled", True, config)
 
-        if isinstance(config, dict):
-            app_config = config.get("app", {})
-            return bool(app_config.get("editor_rich_text_popup_enabled", True))
-
-        app_config = getattr(config, "app", None)
-        return bool(getattr(app_config, "editor_rich_text_popup_enabled", True))
+    def _read_editor_auto_export_on_switch(self, config=None) -> bool:
+        return self._read_app_flag("editor_auto_export_on_switch", True, config)
 
     def _apply_editor_snap_enabled(self, enabled: bool):
         enabled = bool(enabled)
@@ -218,10 +213,26 @@ class EditorView(QWidget):
             )
         self.config_service.save_config_file()
 
+    @pyqtSlot(bool)
+    def _on_editor_auto_export_on_switch_changed(self, enabled: bool):
+        """持久化切图自动导出开关；消费方在切图时直接读配置，无需视图状态。"""
+        enabled = bool(enabled)
+        if self.config_service is None:
+            return
+
+        current_config = self.config_service.get_config()
+        if self._read_editor_auto_export_on_switch(current_config) != enabled:
+            self.config_service.update_config(
+                {"app": {"editor_auto_export_on_switch": enabled}}
+            )
+        self.config_service.save_config_file()
+
     @pyqtSlot(dict)
     def _on_config_changed(self, config: dict):
         self._apply_editor_snap_enabled(self._read_editor_snap_enabled(config))
         self._apply_editor_rich_text_popup_enabled(self._read_editor_rich_text_popup_enabled(config))
+        if self.toolbar is not None:
+            self.toolbar.set_auto_export_on_switch(self._read_editor_auto_export_on_switch(config))
 
     def force_save_property_panel_edits(self):
         """强制保存property panel中的文本编辑"""
@@ -421,9 +432,8 @@ class EditorView(QWidget):
         self.controller.update_multiple_translations(translations)
 
     def export_image(self):
-        """统一导出入口：读取模型前同步提交浮动富文本编辑器。"""
-        if self.rich_text_editor is not None:
-            self.rich_text_editor.flush_pending_changes()
+        """统一导出入口。草稿提交由 controller.export_image 内的
+        commit_pending_edits() 兜底，这里不再重复 flush。"""
         return self.controller.export_image()
 
     def _on_replace_all_clicked(self):
@@ -714,6 +724,9 @@ class EditorView(QWidget):
         self.toolbar.align_requested.connect(self._on_align_requested)
         self.toolbar.distribute_requested.connect(self._on_distribute_requested)
         self.toolbar.snap_enabled_changed.connect(self._on_editor_snap_enabled_changed)
+        self.toolbar.auto_export_on_switch_changed.connect(
+            self._on_editor_auto_export_on_switch_changed
+        )
         self.toolbar.rich_text_popup_enabled_changed.connect(
             self._on_editor_rich_text_popup_enabled_changed
         )

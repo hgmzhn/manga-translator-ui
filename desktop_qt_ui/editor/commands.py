@@ -366,11 +366,15 @@ class MultiRegionUpdateCommand(QUndoCommand):
         old_regions: list[dict],
         new_regions: list[dict],
         description: str = "Batch Update Regions",
+        fields: Optional[list[str]] = None,
+        source: str = "",
     ):
         super().__init__(description)
         if len(old_regions) != len(new_regions):
             raise ValueError("MultiRegionUpdateCommand requires old_regions and new_regions to have the same length")
         self._model = model
+        self._fields = fields
+        self._source = source
         # index → (old_patch, new_patch)，只保存有实际差异的条目
         self._patches: Dict[int, tuple[Dict[str, Any], Dict[str, Any]]] = {}
         for index, (old_data, new_data) in enumerate(zip(old_regions, new_regions)):
@@ -378,6 +382,9 @@ class MultiRegionUpdateCommand(QUndoCommand):
             if not new_patch:
                 continue
             self._patches[index] = (_build_region_patch(new_data, old_data), new_patch)
+
+    def has_changes(self) -> bool:
+        return bool(self._patches)
 
     def _apply(self, patch_slot: int) -> None:
         updates: Dict[int, Dict[str, Any]] = {}
@@ -387,7 +394,7 @@ class MultiRegionUpdateCommand(QUndoCommand):
                 continue
             updates[index] = UpdateRegionCommand._apply_patch_to_region(region_data, patches[patch_slot])
         if updates:
-            self._model.update_regions(updates)
+            self._model.update_regions(updates, fields=self._fields, source=self._source)
 
     def redo(self):
         self._apply(1)

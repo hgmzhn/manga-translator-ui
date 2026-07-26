@@ -129,7 +129,6 @@ class EditorController(QObject):
     它响应来自视图(View)的信号，调用服务(Service)执行任务，并更新模型(Model)。
     """
     # Signal for thread-safe model updates
-    _update_refined_mask = pyqtSignal(object)
     _update_display_mask_type = pyqtSignal(str)
     _regions_update_finished = pyqtSignal(object)
     _ocr_finished = pyqtSignal(str, str)
@@ -164,9 +163,6 @@ class EditorController(QObject):
         
         # 用户透明度调整标志
         self._user_adjusted_alpha = False
-        
-        # 上次导出时的状态快照（用于检测是否有更改）
-        self._last_export_snapshot = None
 
         # 只允许最新一笔/最新一次蒙版变更写回修复结果。
         self._active_inpaint_future = None
@@ -178,7 +174,6 @@ class EditorController(QObject):
         self.export_service = EditorControllerExportService(self)
 
         # Connect internal signals for thread-safe updates
-        self._update_refined_mask.connect(self.model.set_refined_mask)
         self._update_display_mask_type.connect(self.model.set_display_mask_type)
         self._regions_update_finished.connect(self.on_regions_update_finished)
         self._ocr_finished.connect(self._on_ocr_finished)
@@ -412,6 +407,19 @@ class EditorController(QObject):
     def get_toast_manager(self):
         return getattr(self, "toast_manager", None)
 
+    def commit_pending_edits(self) -> None:
+        """读模型做持久化决策（脏检测/导出）前，同步提交视图层攒着的本地草稿。
+
+        目前唯一来源是浮动富文本编辑器的 debounce 草稿；将来任何"本地攒批、
+        延迟写模型"的控件都应挂到这里，而不是靠各读取路径自己记得 flush。"""
+        editor = getattr(self.view, "rich_text_editor", None) if self.view else None
+        if editor is None:
+            return
+        try:
+            editor.flush_pending_changes()
+        except Exception as e:
+            self.logger.warning(f"commit_pending_edits failed: {e}")
+
     def set_compare_mode(self, enabled: bool) -> None:
         if self.view is None:
             return
@@ -531,15 +539,6 @@ class EditorController(QObject):
         except Exception as exc:
             self.logger.warning("apply_rich_text_rules failed: %s", exc)
         return new_region_data
-
-    def _generate_export_snapshot(self) -> dict:
-        return self.export_service.generate_export_snapshot()
-    
-    def _has_changes_since_last_export(self) -> bool:
-        return self.export_service.has_changes_since_last_export()
-    
-    def _save_export_snapshot(self):
-        self.export_service.save_export_snapshot()
 
     def _clear_editor_state(self, release_image_cache: bool = False):
         self.document_service.clear_editor_state(release_image_cache=release_image_cache)
@@ -732,24 +731,27 @@ class EditorController(QObject):
             merge_key=f"region:{region_index}:translation",
         )
 
+    def _apply_translation_replacements(self, region_data: dict, raw_text: str) -> str:
+        """对译文跑 text_replacements 规则；规则失败时回退原文。"""
+        from manga_translator.rendering.text_replacements import apply_replacements
+
+        # 推 direction(参考 L57: ('h','horizontal','hr') 为横排,其它视为竖排)
+        direction_val = region_data.get("direction", "h")
+        direction = 0 if direction_val in ("h", "horizontal", "hr") else 1
+        try:
+            return apply_replacements(raw_text, direction)
+        except Exception as e:
+            self.logger.warning(f"apply_replacements failed: {e}")
+            return raw_text
+
     @pyqtSlot(int, str)
     def update_translation_raw(self, region_index: int, raw_text: str):
         """编辑替换前译文:实时跑 apply_replacements 同步到 translation 字段。"""
-        from manga_translator.rendering.text_replacements import apply_replacements
-
         old_region_data = self._get_region_by_index(region_index)
         if not old_region_data:
             return
 
-        # 推 direction(参考 L57: ('h','horizontal','hr') 为横排,其它视为竖排)
-        direction_val = old_region_data.get("direction", "h")
-        direction = 0 if direction_val in ("h", "horizontal", "hr") else 1
-        try:
-            new_translation = apply_replacements(raw_text, direction)
-        except Exception as e:
-            # 替换规则编译失败等,回退用原文
-            self.logger.warning(f"apply_replacements failed for region {region_index}: {e}")
-            new_translation = raw_text
+        new_translation = self._apply_translation_replacements(old_region_data, raw_text)
 
         self._update_translation_pair(
             region_index,
@@ -1389,6 +1391,7 @@ class EditorController(QObject):
 
     @pyqtSlot()
     def export_image(self):
+        self.commit_pending_edits()
         return self.export_service.export_image()
 
     @staticmethod
@@ -1551,9 +1554,10 @@ class EditorController(QObject):
                     continue
                 current_region_data = applied.get(index, region_data)
                 if request.field_name == "translation":
+                    # 与手动编辑同一条路：译文先过替换规则，raw 保留原始译文
                     new_region_data = self._replace_plain_translation(
                         current_region_data,
-                        translation=value,
+                        translation=self._apply_translation_replacements(current_region_data, value),
                         translation_raw=value,
                     )
                 else:
@@ -1562,12 +1566,29 @@ class EditorController(QObject):
                 applied[index] = new_region_data
 
             if applied:
+                # 走撤销栈：OCR/翻译结果可 Ctrl+Z，且切图时"未保存"检测能感知到
+                from .commands import MultiRegionUpdateCommand
+
                 fields = (
                     ["translation", "translation_raw", "translation_rich"]
                     if request.field_name == "translation"
                     else [request.field_name]
                 )
-                self.model.update_regions(applied, fields=fields, source="async")
+                old_regions = self.model.get_regions()
+                new_regions = list(old_regions)
+                for index, new_region_data in applied.items():
+                    new_regions[index] = new_region_data
+                description = "OCR Update" if request.task_kind == "ocr" else "Translation Update"
+                command = MultiRegionUpdateCommand(
+                    self.model,
+                    old_regions,
+                    new_regions,
+                    description=description,
+                    fields=fields,
+                    source="async",
+                )
+                if command.has_changes():
+                    self.execute_command(command)
                 applied_count = len(applied)
         except Exception as exc:
             self.logger.error("Failed to apply async region updates: %s", exc, exc_info=True)

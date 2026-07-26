@@ -174,6 +174,7 @@ class AppSection(BaseModel):
     current_preset: str = "默认"  # 当前使用的预设名称
     editor_snap_enabled: bool = False  # 编辑器文本框移动/旋转时是否启用吸附
     editor_rich_text_popup_enabled: bool = True  # 是否显示编辑器富文本浮动弹窗
+    editor_auto_export_on_switch: bool = True  # 切图时自动导出未保存的编辑（关闭则弹确认框）
     unload_models_after_translation: bool = False  # 翻译完成后卸载模型（释放内存更彻底，但下次使用需要重新加载）
     saved_colors: Optional[List[str]] = None  # 保存的常用颜色列表
     saved_style_presets: Optional[Dict[str, Dict[str, Any]]] = None  # 编辑器保存的样式组合

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import json
 import math
 import os
 from datetime import datetime
@@ -54,65 +53,13 @@ class EditorControllerExportService:
     def async_service(self):
         return self.controller.async_service
 
-    def generate_export_snapshot(self) -> dict:
-        regions = self.controller._get_regions()
-        snapshot_data = []
-        for region in regions:
-            region_key = {
-                "translation": region.get("translation", ""),
-                "translation_raw": region.get("translation_raw", ""),
-                "translation_rich": region.get("translation_rich"),
-                "font_size": region.get("font_size"),
-                "font_color": region.get("font_color"),
-                "alignment": region.get("alignment"),
-                "direction": region.get("direction"),
-                "xyxy": region.get("xyxy"),
-                "lines": str(region.get("lines", [])),
-            }
-            snapshot_data.append(json.dumps(region_key, ensure_ascii=False, sort_keys=True, default=str))
-
-        mask = self.model.get_refined_mask()
-        if mask is None:
-            mask = self.model.get_raw_mask()
-        mask_signature = ""
-        if mask is not None:
-            mask_signature = f"{mask.shape}_{mask.sum()}_{np.count_nonzero(mask)}"
-
-        overlay_signature = ""
-        for overlay in (self.model.get_paint_overlay_image(), self.model.get_stamp_overlay_image()):
-            if overlay is None:
-                overlay_signature += "|none"
-                continue
-            overlay_arr = np.asarray(overlay)
-            overlay_signature += (
-                f"|{overlay_arr.shape}_{int(overlay_arr.sum())}_{int(np.count_nonzero(overlay_arr))}"
-            )
-
-        return {
-            "regions_hash": hash("|".join(snapshot_data)),
-            "mask_signature": mask_signature,
-            "overlay_signature": overlay_signature,
-            "source_path": self.model.get_source_image_path(),
-        }
-
     def has_changes_since_last_export(self) -> bool:
-        if self.controller._last_export_snapshot is None:
-            return self.controller.history_service.can_undo()
+        """脏检测唯一真相源：QUndoStack 的 clean 状态。
 
-        current_snapshot = self.generate_export_snapshot()
-        if current_snapshot["source_path"] != self.controller._last_export_snapshot["source_path"]:
-            return self.controller.history_service.can_undo()
-
-        return (
-            current_snapshot["regions_hash"] != self.controller._last_export_snapshot["regions_hash"]
-            or current_snapshot["mask_signature"] != self.controller._last_export_snapshot["mask_signature"]
-            or current_snapshot.get("overlay_signature", "")
-            != self.controller._last_export_snapshot.get("overlay_signature", "")
-        )
-
-    def save_export_snapshot(self) -> None:
-        self.controller._last_export_snapshot = self.generate_export_snapshot()
-        self.logger.debug(f"Export snapshot saved: {self.controller._last_export_snapshot}")
+        所有会改动导出结果的编辑都必须走 QUndoCommand；
+        导出成功即 mark_clean()，撤销回到 clean 点自动视为无改动。
+        """
+        return not self.controller.history_service.is_clean()
 
     def export_image(self):
         try:
@@ -162,9 +109,9 @@ class EditorControllerExportService:
             regions_snapshot = copy.deepcopy(regions)
             mask_snapshot = None if mask is None else np.array(mask, copy=True)
 
-            # 乐观更新：提交异步任务前先打快照，避免 Ctrl+Q 后立刻切图弹"未保存的编辑"。
-            # 失败时 success_callback 不会再次刷新快照，用户重新 Ctrl+Q 即可。
-            self.save_export_snapshot()
+            # 乐观更新：提交异步任务时即标记已保存，避免 Ctrl+Q 后立刻切图弹"未保存的编辑"。
+            # 失败时 error_callback 会 mark_dirty() 回退，重新弹出保存提示。
+            self.controller.history_service.mark_clean()
 
             return self.async_service.submit_task(
                 self.async_export_with_desktop_ui_service(
@@ -576,16 +523,18 @@ class EditorControllerExportService:
                 self.controller._show_toast_signal.emit(success_message, 5000, True, output_path)
 
                 if self.controller._is_same_source_image(self.model.get_source_image_path(), source_path):
-                    self.save_export_snapshot()
                     self.resource_manager.release_memory_after_export()
                     self.resource_manager.release_image_cache_except_current()
                     self.controller._log_memory_snapshot("after-export-cleanup")
                 else:
-                    self.logger.debug("Skipped export snapshot update because active image changed during export")
+                    self.logger.debug("Skipped export cleanup because active image changed during export")
 
             def error_callback(message):
                 outcome["error"] = str(message)
                 self.logger.error(f"Export error: {message}")
+                # 回退提交时的乐观 mark_clean()，让未保存提示恢复生效
+                if self.controller._is_same_source_image(self.model.get_source_image_path(), source_path):
+                    self.controller.history_service.mark_dirty()
                 self.controller._show_toast_signal.emit(f"导出失败：{message}", 5000, False, "")
 
             enhanced_regions = self._build_enhanced_regions(regions)

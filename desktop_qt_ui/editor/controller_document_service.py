@@ -81,7 +81,6 @@ class EditorControllerDocumentService:
         self.controller._update_undo_redo_buttons()
 
         self.controller._user_adjusted_alpha = False
-        self.controller._last_export_snapshot = None
         self.controller._log_memory_snapshot("after-clear-editor-state")
 
         if not keep_document:
@@ -186,39 +185,62 @@ class EditorControllerDocumentService:
             self.logger.warning(f"Failed to remove stale editor_base image {work_image_path}: {e}")
 
     def load_image_and_regions(self, image_path: str) -> None:
+        # 脏检测前先提交视图层草稿（如浮动编辑器 debounce 期内容），
+        # 否则刚打完字 180ms 内切图会漏检并丢草稿
+        self.controller.commit_pending_edits()
         if self.controller.export_service.has_changes_since_last_export():
-            dialog_parent = self.view if self.view is not None else QApplication.activeWindow()
-            dialog = Dialog(
-                "未保存的编辑",
-                "当前图片有未保存的编辑\n\n导出图片时会同时保存 JSON。",
-                dialog_parent,
-            )
-            dialog.setTitleBarVisible(True)
-            dialog.yesButton.setText("导出图片")
-            dialog.cancelButton.setText("取消")
-            discard_button = PushButton("不保存", dialog.buttonGroup)
-            dialog.buttonLayout.insertWidget(1, discard_button, 1)
-            selected_action = {"value": "export"}
-            discard_button.clicked.connect(lambda: selected_action.update(value="discard"))
-            discard_button.clicked.connect(dialog.accept)
-            dialog.setFixedSize(max(dialog.width(), 460), max(dialog.height(), 220))
-
-            if dialog.exec() != Dialog.DialogCode.Accepted:
-                return
-            if selected_action["value"] == "export":
-                export_future = self.controller.export_image()
-                if export_future is None:
-                    self.logger.warning("Export request was not scheduled; aborted deferred image load.")
+            if self._auto_export_on_switch_enabled():
+                # 自动导出：export_image() 同步打完全部快照后才异步渲染，
+                # 立即切图不影响导出内容；失败由 error_callback Toast 提示
+                if self.controller.export_image() is None:
+                    self.logger.warning("Auto-export could not be scheduled; switching anyway")
+            else:
+                action = self._ask_unsaved_action()
+                if action == "cancel":
                     return
-                export_future.add_done_callback(
-                    lambda future, target_path=image_path: self._continue_load_after_export(
-                        target_path,
-                        future,
+                if action == "export":
+                    export_future = self.controller.export_image()
+                    if export_future is None:
+                        self.logger.warning("Export request was not scheduled; aborted deferred image load.")
+                        return
+                    export_future.add_done_callback(
+                        lambda future, target_path=image_path: self._continue_load_after_export(
+                            target_path,
+                            future,
+                        )
                     )
-                )
-                return
+                    return
 
         self.do_load_image(image_path)
+
+    def _auto_export_on_switch_enabled(self) -> bool:
+        try:
+            config = self.controller.config_service.get_config()
+            return bool(getattr(getattr(config, "app", None), "editor_auto_export_on_switch", True))
+        except Exception:
+            return True
+
+    def _ask_unsaved_action(self) -> str:
+        """弹"未保存的编辑"三键对话框，返回 'export' | 'discard' | 'cancel'。"""
+        dialog_parent = self.view if self.view is not None else QApplication.activeWindow()
+        dialog = Dialog(
+            "未保存的编辑",
+            "当前图片有未保存的编辑\n\n导出图片时会同时保存 JSON。",
+            dialog_parent,
+        )
+        dialog.setTitleBarVisible(True)
+        dialog.yesButton.setText("导出图片")
+        dialog.cancelButton.setText("取消")
+        discard_button = PushButton("不保存", dialog.buttonGroup)
+        dialog.buttonLayout.insertWidget(1, discard_button, 1)
+        selected_action = {"value": "export"}
+        discard_button.clicked.connect(lambda: selected_action.update(value="discard"))
+        discard_button.clicked.connect(dialog.accept)
+        dialog.setFixedSize(max(dialog.width(), 460), max(dialog.height(), 220))
+
+        if dialog.exec() != Dialog.DialogCode.Accepted:
+            return "cancel"
+        return selected_action["value"]
 
     def _continue_load_after_export(self, image_path: str, future) -> None:
         try:

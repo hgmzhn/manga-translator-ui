@@ -136,14 +136,13 @@ class EditorStateManager(QObject):
         """标记当前状态为已保存。"""
         self.undo_stack.setClean()
 
+    def mark_dirty(self):
+        """清除已保存标记（如导出失败后回退乐观标记）。"""
+        self.undo_stack.resetClean()
+
     def is_clean(self) -> bool:
         """是否处于已保存状态。"""
         return self.undo_stack.isClean()
-
-    @property
-    def undo_stack_size(self) -> int:
-        """获取撤销栈的索引，用于检查是否有未保存的修改。"""
-        return self.undo_stack.index()
 
     def create_undo_action(self, parent, text: str = "撤销"):
         """创建撤销动作（用于菜单/工具栏）。"""

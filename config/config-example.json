@@ -9,6 +9,7 @@
     "current_preset": "默认",
     "editor_snap_enabled": false,
     "editor_rich_text_popup_enabled": true,
+    "editor_auto_export_on_switch": true,
     "unload_models_after_translation": false,
     "saved_colors": null,
     "saved_style_presets": null,

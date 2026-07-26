@@ -87,12 +87,14 @@ class EditorToolbar(CardWidget):
     distribute_requested = pyqtSignal(str)
     snap_enabled_changed = pyqtSignal(bool)
     rich_text_popup_enabled_changed = pyqtSignal(bool)
+    auto_export_on_switch_changed = pyqtSignal(bool)
 
     def __init__(
         self,
         parent=None,
         snap_enabled: bool = False,
         rich_text_popup_enabled: bool = True,
+        auto_export_on_switch: bool = True,
     ):
         super().__init__(parent)
         self.i18n = get_i18n_manager()
@@ -107,6 +109,7 @@ class EditorToolbar(CardWidget):
         self._last_selection_count = 0
         self._snap_enabled = bool(snap_enabled)
         self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
+        self._auto_export_on_switch = bool(auto_export_on_switch)
         self.main_menu: RoundMenu | None = None
         self.display_menu: RoundMenu | None = None
         self.arrange_menu: RoundMenu | None = None
@@ -245,6 +248,15 @@ class EditorToolbar(CardWidget):
         self.rich_text_popup_action.triggered.connect(self._on_rich_text_popup_action_triggered)
         menu.addAction(self.rich_text_popup_action)
 
+        self.auto_export_action = Action(
+            FIF.SAVE_AS,
+            self._t("Auto Export on Image Switch"),
+        )
+        self.auto_export_action.setCheckable(True)
+        self.auto_export_action.setChecked(self._auto_export_on_switch)
+        self.auto_export_action.triggered.connect(self._on_auto_export_action_triggered)
+        menu.addAction(self.auto_export_action)
+
         self.main_menu = menu
         self.menu_button.setMenu(menu)
 
@@ -379,6 +391,27 @@ class EditorToolbar(CardWidget):
 
     def is_rich_text_popup_enabled(self) -> bool:
         return self._rich_text_popup_enabled
+
+    def _on_auto_export_action_triggered(self, checked: bool = False):
+        self.set_auto_export_on_switch(checked, emit=True)
+
+    def set_auto_export_on_switch(self, enabled: bool, emit: bool = False):
+        """同步切图自动导出开关；外部配置同步时默认不回发信号。"""
+        enabled = bool(enabled)
+        changed = enabled != self._auto_export_on_switch
+        self._auto_export_on_switch = enabled
+
+        action = getattr(self, "auto_export_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.auto_export_on_switch_changed.emit(enabled)
+
+    def is_auto_export_on_switch(self) -> bool:
+        return self._auto_export_on_switch
 
     def _on_align_ref_selected(self, reference: str):
         if reference == self._align_ref:
