@@ -1850,19 +1850,35 @@ def L(zh, en):
     return zh if LANG == 'zh' else en
 
 
+def _detect_system_language():
+    """检测系统语言：中文环境返回 zh，其他返回 en"""
+    lang = ''
+    try:
+        import locale
+        try:
+            import ctypes
+            lcid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+            lang = locale.windows_locale.get(lcid, '')
+        except Exception:
+            pass
+        if not lang:
+            lang = (locale.getlocale()[0] or '')
+    except Exception:
+        pass
+    if not lang:
+        lang = os.environ.get('LANG', '')
+    lang = lang.lower()
+    return 'zh' if ('zh' in lang or 'chinese' in lang) else 'en'
+
+
 def init_language():
-    """首次运行询问语言并保存，之后从配置文件读取"""
+    """首次运行按系统语言自动选择并保存，之后从配置文件读取（菜单可随时切换）"""
     global LANG
     lang = load_maint_config().get('language')
     if lang in ('zh', 'en'):
         LANG = lang
         return
-    print()
-    print('请选择语言 / Select language:')
-    print('[1] 中文')
-    print('[2] English')
-    choice = input('(1/2, 默认1 / default 1): ').strip()
-    LANG = 'en' if choice == '2' else 'zh'
+    LANG = _detect_system_language()
     save_maint_config(language=LANG)
 
 
