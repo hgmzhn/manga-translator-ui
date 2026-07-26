@@ -119,7 +119,8 @@ The English companion versions of the documents below are being added one by one
    - Double-click `1-Start.ps1`
 
 4. **Uninstall**
-   - See the [Uninstall Guide](卸载指南.md)
+   - Portable version: just delete the whole folder
+   - Legacy version: see the [Uninstall Guide](卸载指南.md)
 
 #### Method 2: Download the Packaged Release
 
