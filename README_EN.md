@@ -95,14 +95,14 @@ The English companion versions of the documents below are being added one by one
 
 > ⚠️ **No Python pre-install required**: the package bundles a portable Python 3.12 and the uv package manager — fully portable, no registry writes
 >  
-> 💡 **One-click update**: run `Win-Install-or-Update.ps1` and choose `[2] Update` to get the latest version
+> 💡 **One-click update**: run `Win-Install-or-Update.bat` and choose `[2] Update` to get the latest version
 
 1. **Download the portable package**
    - Get it from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases)
    - Extract it to any folder, for example `D:\manga-translator-ui\`
 
 2. **Run the installer**
-   - Double-click `Win-Install-or-Update.ps1` (or right-click → Run with PowerShell) and choose `[1] Install`
+   - Double-click `Win-Install-or-Update.bat` and choose `[1] Install`
    - The script will automatically:
      - ✓ Let you pick a download route (GitHub official / Gitee mirror), and suggest switching routes if syncing fails
      - ✓ Sync the latest code
@@ -116,7 +116,7 @@ The English companion versions of the documents below are being added one by one
    - The maintenance menu also supports: switching branch (main/beta), switching version by tag, switching mirror, and a Chinese/English interface toggle
 
 3. **Start the program**
-   - Double-click `Win-Start.ps1`
+   - Double-click `Win-Start.bat`
 
 4. **Uninstall**
    - Portable version: just delete the whole folder

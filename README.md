@@ -93,14 +93,14 @@
 #### 方式一：便携安装包（⭐ 推荐，支持更新）
 
 > ⚠️ **无需预装 Python**：安装包内自带便携版 Python 3.12 和 uv 包管理器，完全绿色，不写注册表  
-> 💡 **一键更新**：运行 `Win-Install-or-Update.ps1` 选择 [2] 更新，即可更新到最新版本
+> 💡 **一键更新**：运行 `Win-Install-or-Update.bat` 选择 [2] 更新，即可更新到最新版本
 
 1. **下载便携安装包**：
    - 前往 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载便携安装包
    - 解压到任意目录（如 `D:\manga-translator-ui\`）
 
 2. **运行安装**：
-   - 双击 `Win-Install-or-Update.ps1`（如无法直接运行，右键 → 使用 PowerShell 运行），选择 `[1] 安装`
+   - 双击 `Win-Install-or-Update.bat`，选择 `[1] 安装`
    - 脚本会自动：
      - ✓ 选择下载线路（GitHub 官方 / Gitee 国内镜像），同步失败自动提示换线路
      - ✓ 同步最新代码
@@ -114,7 +114,7 @@
    - 维护菜单还支持：切换分支（main/beta）、按 tag 切换版本、切换镜像源、中英文界面切换
 
 3. **启动程序**：
-   - 双击 `Win-Start.ps1`
+   - 双击 `Win-Start.bat`
 
 4. **卸载**：
    - 新版：直接删除整个文件夹即可
