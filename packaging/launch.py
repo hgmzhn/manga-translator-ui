@@ -1814,11 +1814,65 @@ def update_repository(args):
 # Git 镜像源 / 分支 / 版本(tag) 管理
 # ============================================================
 GIT_MIRRORS = [
-    ('GitHub 官方', 'https://github.com/hgmzhn/manga-translator-ui.git'),
-    ('Gitee 镜像 (国内推荐)', 'https://gitee.com/hgmzhn/manga-translator-ui.git'),
+    ('GitHub 官方', 'GitHub official', 'https://github.com/hgmzhn/manga-translator-ui.git'),
+    ('Gitee 镜像 (国内推荐)', 'Gitee mirror (recommended in China)', 'https://gitee.com/hgmzhn/manga-translator-ui.git'),
 ]
 
 SUPPORTED_BRANCHES = ['main', 'beta']
+
+# 维护菜单语言配置（持久化在 packaging/maintenance_config.json）
+MAINT_CONFIG_FILE = PATH_ROOT / 'packaging' / 'maintenance_config.json'
+LANG = 'zh'
+
+
+def load_maint_config():
+    try:
+        import json
+        with open(MAINT_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def save_maint_config(**updates):
+    try:
+        import json
+        cfg = load_maint_config()
+        cfg.update(updates)
+        with open(MAINT_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def L(zh, en):
+    """双语文案：按当前语言返回中文或英文"""
+    return zh if LANG == 'zh' else en
+
+
+def init_language():
+    """首次运行询问语言并保存，之后从配置文件读取"""
+    global LANG
+    lang = load_maint_config().get('language')
+    if lang in ('zh', 'en'):
+        LANG = lang
+        return
+    print()
+    print('请选择语言 / Select language:')
+    print('[1] 中文')
+    print('[2] English')
+    choice = input('(1/2, 默认1 / default 1): ').strip()
+    LANG = 'en' if choice == '2' else 'zh'
+    save_maint_config(language=LANG)
+
+
+def switch_language():
+    """中英文互切并持久化"""
+    global LANG
+    LANG = 'en' if LANG == 'zh' else 'zh'
+    save_maint_config(language=LANG)
+    print(L('[OK] 已切换为中文', '[OK] Language switched to English'))
+
 
 
 def _git_output(cmd_args, timeout=15):
@@ -1845,10 +1899,10 @@ def get_mirror_display_name(url=None):
     """把远程地址转成可读的镜像源名称"""
     url = (url if url is not None else get_remote_url()).strip()
     normalized = url.removesuffix('.git')
-    for name, mirror_url in GIT_MIRRORS:
+    for zh_name, en_name, mirror_url in GIT_MIRRORS:
         if normalized == mirror_url.removesuffix('.git'):
-            return name
-    return url or '未配置'
+            return L(zh_name, en_name)
+    return url or L('未配置', 'not configured')
 
 
 def get_current_branch():
@@ -1876,66 +1930,73 @@ def switch_mirror():
     current = get_remote_url().removesuffix('.git')
     print()
     print("=" * 40)
-    print("切换镜像源")
+    print(L("切换镜像源", "Switch Mirror"))
     print("=" * 40)
-    for i, (name, url) in enumerate(GIT_MIRRORS, 1):
-        mark = '  (当前)' if url.removesuffix('.git') == current else ''
-        print(f"[{i}] {name}: {url}{mark}")
-    print(f"[{len(GIT_MIRRORS) + 1}] 手动输入仓库地址")
+    for i, (zh_name, en_name, url) in enumerate(GIT_MIRRORS, 1):
+        mark = L('  (当前)', '  (current)') if url.removesuffix('.git') == current else ''
+        print(f"[{i}] {L(zh_name, en_name)}: {url}{mark}")
+    print(L(f"[{len(GIT_MIRRORS) + 1}] 手动输入仓库地址",
+            f"[{len(GIT_MIRRORS) + 1}] Enter repository URL manually"))
     print()
-    choice = input(f"请选择 (1-{len(GIT_MIRRORS) + 1}, 回车取消): ").strip()
+    choice = input(L(f"请选择 (1-{len(GIT_MIRRORS) + 1}, 回车取消): ",
+                     f"Select (1-{len(GIT_MIRRORS) + 1}, Enter to cancel): ")).strip()
     if not choice:
-        print("已取消")
+        print(L("已取消", "Cancelled"))
         return False
     if not choice.isdigit():
-        print("无效选项")
+        print(L("无效选项", "Invalid option"))
         return False
     idx = int(choice)
     if 1 <= idx <= len(GIT_MIRRORS):
-        new_url = GIT_MIRRORS[idx - 1][1]
+        new_url = GIT_MIRRORS[idx - 1][2]
     elif idx == len(GIT_MIRRORS) + 1:
-        new_url = input("请输入仓库地址: ").strip()
+        new_url = input(L("请输入仓库地址: ", "Repository URL: ")).strip()
         if not new_url:
-            print("已取消")
+            print(L("已取消", "Cancelled"))
             return False
     else:
-        print("无效选项")
+        print(L("无效选项", "Invalid option"))
         return False
     result = subprocess.run([git, 'remote', 'set-url', 'origin', new_url], capture_output=True)
     if result.returncode == 0:
-        print(f"[OK] 镜像源已切换为: {get_mirror_display_name(new_url)}")
+        print(L(f"[OK] 镜像源已切换为: {get_mirror_display_name(new_url)}",
+                f"[OK] Mirror switched to: {get_mirror_display_name(new_url)}"))
         return True
-    print("[错误] 切换镜像源失败")
+    print(L("[错误] 切换镜像源失败", "[ERROR] Failed to switch mirror"))
     return False
 
 
-def git_fetch_with_mirror_prompt(fetch_args=None, desc='获取远程更新'):
-    """git fetch，失败时提示是否切换镜像源并重试"""
+def git_fetch_with_mirror_prompt(fetch_args=None, desc=None):
+    """git fetch，失败时推荐切换到另一条线路并重试"""
     while True:
-        print(f"{desc}...")
+        print((desc or L('获取远程更新', 'Fetching remote updates')) + '...')
         try:
             result = subprocess.run([git, 'fetch', 'origin'] + (fetch_args or []), check=False, timeout=300)
             if result.returncode == 0:
                 return True
         except Exception:
             pass
-        print("[错误] 同步失败（网络问题或当前镜像源不可用）")
-        print(f"当前镜像源: {get_mirror_display_name()}")
+        print(L("[错误] 同步失败（网络问题或当前镜像源不可用）",
+                "[ERROR] Sync failed (network issue or current mirror unavailable)"))
+        print(L(f"当前镜像源: {get_mirror_display_name()}",
+                f"Current mirror: {get_mirror_display_name()}"))
         # 直接推荐另一条线路（GitHub 失败推荐 Gitee，反之亦然）
         current = get_remote_url().removesuffix('.git')
         suggestion = None
-        for name, url in GIT_MIRRORS:
+        for zh_name, en_name, url in GIT_MIRRORS:
             if url.removesuffix('.git') != current:
-                suggestion = (name, url)
+                suggestion = (L(zh_name, en_name), url)
                 break
         if suggestion:
-            choice = input(f"是否切换到 {suggestion[0]} 并重试? (y/n, 默认y): ").strip().lower()
+            choice = input(L(f"是否切换到 {suggestion[0]} 并重试? (y/n, 默认y): ",
+                             f"Switch to {suggestion[0]} and retry? (y/n, default y): ")).strip().lower()
             if choice in ['', 'y', 'yes']:
                 subprocess.run([git, 'remote', 'set-url', 'origin', suggestion[1]], capture_output=True)
-                print(f"[OK] 已切换到 {suggestion[0]}")
+                print(L(f"[OK] 已切换到 {suggestion[0]}", f"[OK] Switched to {suggestion[0]}"))
                 continue
         else:
-            choice = input("是否切换镜像源并重试? (y/n, 默认y): ").strip().lower()
+            choice = input(L("是否切换镜像源并重试? (y/n, 默认y): ",
+                             "Switch mirror and retry? (y/n, default y): ")).strip().lower()
             if choice in ['', 'y', 'yes']:
                 if switch_mirror():
                     continue
@@ -1947,38 +2008,40 @@ def switch_branch():
     branch, detached = get_current_branch()
     print()
     print("=" * 40)
-    print("切换分支")
+    print(L("切换分支", "Switch Branch"))
     print("=" * 40)
-    current_note = f"{branch}" + (" (tag/游离状态)" if detached else "")
-    print(f"当前: {current_note}")
+    note = L(" (tag/游离状态)", " (tag/detached)") if detached else ""
+    print(L(f"当前: {branch}{note}", f"Current: {branch}{note}"))
     print()
     for i, b in enumerate(SUPPORTED_BRANCHES, 1):
-        desc = '稳定版' if b == 'main' else '测试版'
-        mark = '  (当前)' if (not detached and b == branch) else ''
+        desc = L('稳定版', 'stable') if b == 'main' else L('测试版', 'beta/testing')
+        mark = L('  (当前)', '  (current)') if (not detached and b == branch) else ''
         print(f"[{i}] {b} ({desc}){mark}")
     print()
-    choice = input(f"请选择 (1-{len(SUPPORTED_BRANCHES)}, 回车取消): ").strip()
+    choice = input(L(f"请选择 (1-{len(SUPPORTED_BRANCHES)}, 回车取消): ",
+                     f"Select (1-{len(SUPPORTED_BRANCHES)}, Enter to cancel): ")).strip()
     if not choice or not choice.isdigit() or not (1 <= int(choice) <= len(SUPPORTED_BRANCHES)):
-        print("已取消")
+        print(L("已取消", "Cancelled"))
         return False
     target = SUPPORTED_BRANCHES[int(choice) - 1]
     if not detached and target == branch:
-        print(f"[信息] 已在 {target} 分支")
+        print(L(f"[信息] 已在 {target} 分支", f"[INFO] Already on branch {target}"))
         return False
     print()
-    print(f"[警告] 切换到 {target} 分支将强制同步远程代码，本地修改将被覆盖")
-    confirm = input("是否继续? (y/n): ").strip().lower()
+    print(L(f"[警告] 切换到 {target} 分支将强制同步远程代码，本地修改将被覆盖",
+            f"[WARNING] Switching to {target} will force-sync remote code; local changes will be overwritten"))
+    confirm = input(L("是否继续? (y/n): ", "Continue? (y/n): ")).strip().lower()
     if confirm not in ['y', 'yes']:
-        print("已取消")
+        print(L("已取消", "Cancelled"))
         return False
     if not git_fetch_with_mirror_prompt():
         return False
     result = subprocess.run([git, 'checkout', '-f', '-B', target, f'origin/{target}'], check=False)
     if result.returncode == 0:
-        print(f"[OK] 已切换到 {target} 分支")
-        print("[提示] 建议执行一次 [安装或更新] 以同步依赖")
+        print(L(f"[OK] 已切换到 {target} 分支", f"[OK] Switched to branch {target}"))
+        print(L("[提示] 建议执行一次 [更新] 以同步依赖", "[HINT] Run [Update] once to sync dependencies"))
         return True
-    print("[错误] 切换分支失败")
+    print(L("[错误] 切换分支失败", "[ERROR] Failed to switch branch"))
     return False
 
 
@@ -1986,45 +2049,50 @@ def switch_version_by_tag():
     """按 tag 切换版本（切换后处于游离状态）"""
     print()
     print("=" * 40)
-    print("切换版本 (按 tag)")
+    print(L("切换版本 (按 tag)", "Switch Version (by tag)"))
     print("=" * 40)
-    if not git_fetch_with_mirror_prompt(['--tags', '--force'], '获取版本列表'):
+    if not git_fetch_with_mirror_prompt(['--tags', '--force'], L('获取版本列表', 'Fetching version list')):
         return False
     tags_out = _git_output(['tag', '--sort=-creatordate'])
     if not tags_out:
-        print("[信息] 仓库中没有任何版本 tag")
+        print(L("[信息] 仓库中没有任何版本 tag", "[INFO] No version tags found in the repository"))
         return False
     tags = [t for t in tags_out.split('\n') if t.strip()][:20]
     current_tag = _git_output(['describe', '--tags', '--exact-match'])
     print()
     for i, tag in enumerate(tags, 1):
-        mark = '  (当前)' if tag == current_tag else ''
+        mark = L('  (当前)', '  (current)') if tag == current_tag else ''
         print(f"[{i}] {tag}{mark}")
     print()
-    choice = input(f"请选择序号或直接输入 tag 名 (回车取消): ").strip()
+    choice = input(L("请选择序号或直接输入 tag 名 (回车取消): ",
+                     "Select a number or type a tag name (Enter to cancel): ")).strip()
     if not choice:
-        print("已取消")
+        print(L("已取消", "Cancelled"))
         return False
     if choice.isdigit() and 1 <= int(choice) <= len(tags):
         target_tag = tags[int(choice) - 1]
     else:
         target_tag = choice
     if target_tag == current_tag:
-        print(f"[信息] 已在版本 {target_tag}")
+        print(L(f"[信息] 已在版本 {target_tag}", f"[INFO] Already at version {target_tag}"))
         return False
     print()
-    print(f"[警告] 切换到版本 {target_tag} 将覆盖本地修改，并进入游离状态")
-    confirm = input("是否继续? (y/n): ").strip().lower()
+    print(L(f"[警告] 切换到版本 {target_tag} 将覆盖本地修改，并进入游离状态",
+            f"[WARNING] Switching to {target_tag} will overwrite local changes and enter detached state"))
+    confirm = input(L("是否继续? (y/n): ", "Continue? (y/n): ")).strip().lower()
     if confirm not in ['y', 'yes']:
-        print("已取消")
+        print(L("已取消", "Cancelled"))
         return False
     result = subprocess.run([git, 'checkout', '-f', target_tag], check=False)
     if result.returncode == 0:
-        print(f"[OK] 已切换到版本 {target_tag}")
-        print("[提示] 建议执行一次 [安装或更新] 以同步该版本的依赖")
-        print("[提示] 如需回到最新代码，请使用 [切换分支]")
+        print(L(f"[OK] 已切换到版本 {target_tag}", f"[OK] Switched to version {target_tag}"))
+        print(L("[提示] 建议执行一次 [更新] 以同步该版本的依赖",
+                "[HINT] Run [Update] once to sync this version's dependencies"))
+        print(L("[提示] 如需回到最新代码，请使用 [切换分支]",
+                "[HINT] To return to the latest code, use [Switch branch]"))
         return True
-    print(f"[错误] 切换版本失败，请确认 tag 名称: {target_tag}")
+    print(L(f"[错误] 切换版本失败，请确认 tag 名称: {target_tag}",
+            f"[ERROR] Failed to switch version, please check the tag name: {target_tag}"))
     return False
 
 
@@ -2032,7 +2100,7 @@ def check_version_info():
     """检查版本信息（基于当前分支/镜像源）"""
     ensure_git_safe_directory()  # 确保 safe.directory 已配置
     print()
-    print("正在检查版本...")
+    print(L("正在检查版本...", "Checking version..."))
     print("=" * 40)
 
     branch, detached = get_current_branch()
@@ -2048,8 +2116,9 @@ def check_version_info():
     except Exception:
         current_version = "unknown"
 
-    print(f"当前分支 - {branch}" + (" (tag/游离状态)" if detached else ""))
-    print(f"镜像源   - {get_mirror_display_name()}")
+    note = L(" (tag/游离状态)", " (tag/detached)") if detached else ""
+    print(L(f"当前分支 - {branch}{note}", f"Branch  - {branch}{note}"))
+    print(L(f"镜像源   - {get_mirror_display_name()}", f"Mirror  - {get_mirror_display_name()}"))
 
     # fetch远程（静默，失败不中断）
     try:
@@ -2061,22 +2130,26 @@ def check_version_info():
     remote_version = _git_output(['show', f'origin/{update_branch}:packaging/VERSION']) or "unknown"
     behind = _git_output(['rev-list', '--count', f'HEAD..origin/{update_branch}'])
 
-    print(f"当前版本 - {current_version}")
-    print(f"远程版本 - {remote_version} (origin/{update_branch})")
+    print(L(f"当前版本 - {current_version}", f"Local   - {current_version}"))
+    print(L(f"远程版本 - {remote_version} (origin/{update_branch})",
+            f"Remote  - {remote_version} (origin/{update_branch})"))
 
     if remote_version == "unknown":
         print()
-        print("[警告] 无法获取远程版本信息（网络或镜像源问题）")
-        print("       可在菜单中使用 [切换镜像源] 后重试")
+        print(L("[警告] 无法获取远程版本信息（网络或镜像源问题）",
+                "[WARNING] Failed to get remote version (network or mirror issue)"))
+        print(L("       可在菜单中使用 [切换镜像源] 后重试",
+                "        Try [Switch mirror] in the menu and retry"))
     elif current_version == remote_version and behind in (None, '0'):
         print()
-        print("[信息] 当前已是最新版本")
+        print(L("[信息] 当前已是最新版本", "[INFO] Already up to date"))
     else:
         print()
         if behind and behind != '0':
-            print(f"[发现新版本] 当前落后远程 {behind} 个提交")
+            print(L(f"[发现新版本] 当前落后远程 {behind} 个提交",
+                    f"[NEW VERSION] {behind} commit(s) behind remote"))
         else:
-            print("[发现新版本]")
+            print(L("[发现新版本]", "[NEW VERSION available]"))
 
     print("=" * 40)
     return current_version, remote_version
@@ -2093,15 +2166,16 @@ def update_code_force(skip_confirm=False, target_branch=None):
     branch = target_branch or get_update_branch()
     print()
     print("=" * 40)
-    print(f"更新代码 (强制同步到 origin/{branch})")
+    print(L(f"更新代码 (强制同步到 origin/{branch})", f"Updating code (force sync to origin/{branch})"))
     print("=" * 40)
     print()
 
     if not skip_confirm:
-        print("[警告] 将强制同步到远程分支,本地修改将被覆盖")
-        confirm = input("是否继续更新? (y/n): ").strip().lower()
+        print(L("[警告] 将强制同步到远程分支,本地修改将被覆盖",
+                "[WARNING] This will force-sync to the remote branch; local changes will be overwritten"))
+        confirm = input(L("是否继续更新? (y/n): ", "Continue? (y/n): ")).strip().lower()
         if confirm not in ['y', 'yes']:
-            print("取消更新")
+            print(L("取消更新", "Update cancelled"))
             return False
 
     print()
@@ -2110,14 +2184,15 @@ def update_code_force(skip_confirm=False, target_branch=None):
 
     while True:
         print()
-        print(f"正在强制同步到 origin/{branch}...")
+        print(L(f"正在强制同步到 origin/{branch}...", f"Force syncing to origin/{branch}..."))
         result = subprocess.run([git, 'checkout', '-f', '-B', branch, f'origin/{branch}'], check=False)
         if result.returncode == 0:
-            print("[OK] 代码更新完成")
+            print(L("[OK] 代码更新完成", "[OK] Code updated"))
             break
-        print("[错误] 同步失败")
-        print(f"当前镜像源: {get_mirror_display_name()}")
-        choice = input("是否切换镜像源并重试? (y/n, 默认n): ").strip().lower()
+        print(L("[错误] 同步失败", "[ERROR] Sync failed"))
+        print(L(f"当前镜像源: {get_mirror_display_name()}", f"Current mirror: {get_mirror_display_name()}"))
+        choice = input(L("是否切换镜像源并重试? (y/n, 默认n): ",
+                         "Switch mirror and retry? (y/n, default n): ")).strip().lower()
         if choice in ['y', 'yes']:
             if switch_mirror() and git_fetch_with_mirror_prompt():
                 continue
@@ -2138,7 +2213,6 @@ def update_code_force(skip_confirm=False, target_branch=None):
             '.gitignore',
             'LICENSE.txt'
         ]
-        print("[OK] 已清理 macOS 脚本和 Git 配置文件")
     elif platform.system() == 'Darwin':
         # macOS 环境清理 Windows 文件
         files_to_remove = [
@@ -2149,7 +2223,6 @@ def update_code_force(skip_confirm=False, target_branch=None):
             '.gitignore',
             'LICENSE.txt'
         ]
-        print("[OK] 已清理 Windows 脚本和 Git 配置文件")
     else:
         files_to_remove = []
 
@@ -2161,6 +2234,7 @@ def update_code_force(skip_confirm=False, target_branch=None):
                 pass  # 忽略删除失败
 
     return True
+
 
 def update_dependencies(args):
     """更新依赖"""
@@ -2432,12 +2506,12 @@ def cleanup_caches():
     print('[OK] 缓存已清理')
 
 
-def run_deps_with_retry(task, action_label):
+def run_deps_with_retry(task, action_label_zh, action_label_en):
     """执行依赖安装任务，失败时询问是否重试（安装/更新共用）
 
     Args:
         task: 无参函数，返回 False 或抛异常表示失败
-        action_label: 动作名称，用于提示文案（安装/更新）
+        action_label_zh/en: 动作名称，用于提示文案
     Returns:
         bool: 是否最终成功
     """
@@ -2447,67 +2521,71 @@ def run_deps_with_retry(task, action_label):
         except Exception as e:
             print()
             print("=" * 40)
-            print(f"[错误] 依赖安装失败: {e}")
+            print(L(f"[错误] 依赖安装失败: {e}", f"[ERROR] Dependency installation failed: {e}"))
             print("=" * 40)
             ok = False
         if ok is not False:
             return True
-        print("已安装成功的包会被保留，重试只会安装剩余的包")
-        choice = input("是否重试? (y/n, 默认y): ").strip().lower()
+        print(L("已安装成功的包会被保留，重试只会安装剩余的包",
+                "Already-installed packages are kept; retry only installs the rest"))
+        choice = input(L("是否重试? (y/n, 默认y): ", "Retry? (y/n, default y): ")).strip().lower()
         if choice not in ['', 'y', 'yes']:
-            print(f"已取消，请检查网络后重新运行 [{action_label}]")
+            print(L(f"已取消，请检查网络后重新运行 [{action_label_zh}]",
+                    f"Cancelled. Please check your network and run [{action_label_en}] again"))
             return False
 
 
 def run_install(args):
-    """安装：选择线路 → 检测显卡并选择 CPU/GPU 版本 → 安装依赖"""
+    """安装：选择线路 → 同步代码 → 检测显卡并选择 CPU/GPU 版本 → 安装依赖"""
     print()
     print("=" * 40)
-    print("安装")
+    print(L("安装", "Install"))
     print("=" * 40)
     print()
 
     # 选择线路（镜像源）
     current = get_remote_url().removesuffix('.git')
     default_idx = 1
-    for i, (name, url) in enumerate(GIT_MIRRORS, 1):
+    for i, (zh_name, en_name, url) in enumerate(GIT_MIRRORS, 1):
         if url.removesuffix('.git') == current:
             default_idx = i
             break
-    print("请选择下载线路:")
-    for i, (name, url) in enumerate(GIT_MIRRORS, 1):
-        mark = '  (当前)' if i == default_idx else ''
-        print(f"[{i}] {name}{mark}")
+    print(L("请选择下载线路:", "Select download route:"))
+    for i, (zh_name, en_name, url) in enumerate(GIT_MIRRORS, 1):
+        mark = L('  (当前)', '  (current)') if i == default_idx else ''
+        print(f"[{i}] {L(zh_name, en_name)}{mark}")
     print()
-    choice = input(f"请选择 (1-{len(GIT_MIRRORS)}, 默认{default_idx}): ").strip()
+    choice = input(L(f"请选择 (1-{len(GIT_MIRRORS)}, 默认{default_idx}): ",
+                     f"Select (1-{len(GIT_MIRRORS)}, default {default_idx}): ")).strip()
     if choice.isdigit() and 1 <= int(choice) <= len(GIT_MIRRORS):
         selected = GIT_MIRRORS[int(choice) - 1]
     else:
         selected = GIT_MIRRORS[default_idx - 1]
-    if selected[1].removesuffix('.git') != current:
-        subprocess.run([git, 'remote', 'set-url', 'origin', selected[1]], capture_output=True)
-    print(f"✓ 使用线路: {selected[0]}")
+    if selected[2].removesuffix('.git') != current:
+        subprocess.run([git, 'remote', 'set-url', 'origin', selected[2]], capture_output=True)
+    print(L(f"✓ 使用线路: {selected[0]}", f"✓ Route: {selected[1]}"))
 
     # 同步代码到远程分支
     print()
-    print("[1/2] 同步代码...")
+    print(L("[1/2] 同步代码...", "[1/2] Syncing code..."))
     if not update_code_force(skip_confirm=True):
-        print("[警告] 代码同步失败，将使用当前本地代码继续安装")
+        print(L("[警告] 代码同步失败，将使用当前本地代码继续安装",
+                "[WARNING] Code sync failed; continuing installation with current local code"))
 
     # 显卡检测 + CPU/GPU/AMD 版本选择 + 依赖安装（prepare_environment 内部完成交互）
     print()
-    print("[2/2] 安装依赖...")
+    print(L("[2/2] 安装依赖...", "[2/2] Installing dependencies..."))
     args.requirements = 'auto'
     args.reinstall_torch = False
     args.update_deps = True
     args.frozen = False
 
     print()
-    if run_deps_with_retry(lambda: (prepare_environment(args), True)[1], "安装"):
+    if run_deps_with_retry(lambda: (prepare_environment(args), True)[1], "安装", "Install"):
         cleanup_caches()
         print()
         print("=" * 40)
-        print("[完成] 安装完成")
+        print(L("[完成] 安装完成", "[DONE] Installation complete"))
         print("=" * 40)
 
 
@@ -2517,68 +2595,70 @@ def run_full_update(args):
 
     print()
     if not code_needs_update and not deps_needs_update:
-        print("[信息] 代码和依赖都已是最新，无需更新")
+        print(L("[信息] 代码和依赖都已是最新，无需更新", "[INFO] Code and dependencies are up to date"))
         return
 
     print()
-    confirm = input("是否继续更新? (y/n): ").strip().lower()
+    confirm = input(L("是否继续更新? (y/n): ", "Continue update? (y/n): ")).strip().lower()
     if confirm not in ['y', 'yes']:
-        print("取消更新")
+        print(L("取消更新", "Update cancelled"))
         return
 
     print()
     print("=" * 40)
-    print("开始更新")
+    print(L("开始更新", "Starting update"))
     print("=" * 40)
 
     update_success = True
 
     if code_needs_update:
         print()
-        print("[1/2] 更新代码...")
+        print(L("[1/2] 更新代码...", "[1/2] Updating code..."))
         if not update_code_force(skip_confirm=True):
             update_success = False
-            print("[错误] 代码更新失败，跳过依赖更新")
+            print(L("[错误] 代码更新失败，跳过依赖更新",
+                    "[ERROR] Code update failed; skipping dependency update"))
         else:
-            print("基于更新后的代码重新检查依赖...")
+            print(L("基于更新后的代码重新检查依赖...", "Re-checking dependencies against updated code..."))
             _, deps_needs_update, _, _, req_file, missing_packages = check_all_updates()
     else:
         print()
-        print("[1/2] 代码已是最新，跳过")
+        print(L("[1/2] 代码已是最新，跳过", "[1/2] Code already up to date, skipping"))
 
     if update_success and deps_needs_update:
         print()
-        print("[2/2] 更新依赖...")
+        print(L("[2/2] 更新依赖...", "[2/2] Updating dependencies..."))
         if req_file:
             args.requirements = req_file
 
         # 如果有缺失包列表，只安装缺失的包
         def do_update_deps():
             if missing_packages:
-                print(f"只安装缺失的 {len(missing_packages)} 个包...")
+                print(L(f"只安装缺失的 {len(missing_packages)} 个包...",
+                        f"Installing only the {len(missing_packages)} missing package(s)..."))
                 return update_dependencies_selective(args, missing_packages)
             return update_dependencies(args)
 
-        run_deps_with_retry(do_update_deps, "更新")
+        run_deps_with_retry(do_update_deps, "更新", "Update")
     elif update_success:
         print()
-        print("[2/2] 依赖已满足，跳过")
+        print(L("[2/2] 依赖已满足，跳过", "[2/2] Dependencies satisfied, skipping"))
 
     if update_success:
         if deps_needs_update:
             cleanup_caches()
         print()
         print("=" * 40)
-        print("[完成] 更新完成")
+        print(L("[完成] 更新完成", "[DONE] Update complete"))
         print("=" * 40)
 
 
 def maintenance_menu():
     """安装或更新 菜单"""
+    init_language()
     print()
     print("=" * 40)
-    print("漫画翻译器 - 安装或更新")
-    print("Manga Translator UI - Install / Update")
+    print(L("漫画翻译器 - 安装或更新", "Manga Translator UI - Install / Update"))
     print("=" * 40)
 
     # 创建一个简单的 args 对象用于依赖更新
@@ -2597,50 +2677,57 @@ def maintenance_menu():
     while True:
         branch, detached = get_current_branch()
         print()
-        print(f"当前分支: {branch}" + (" (tag/游离状态)" if detached else "") + f"    镜像源: {get_mirror_display_name()}")
+        note = L(" (tag/游离状态)", " (tag/detached)") if detached else ""
+        print(L(f"当前分支: {branch}{note}    镜像源: {get_mirror_display_name()}",
+                f"Branch: {branch}{note}    Mirror: {get_mirror_display_name()}"))
         print()
-        print("请选择操作:")
-        print("[1] 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖)")
-        print("[2] 更新 (代码+依赖)")
-        print("[3] 切换分支 (main/beta)")
-        print("[4] 切换版本 (按 tag)")
-        print("[5] 切换镜像源")
-        print("[6] 重新检查版本")
-        print("[7] 退出")
+        print(L("请选择操作:", "Select an action:"))
+        print(L("[1] 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖)",
+                "[1] Install (detect GPU, choose CPU/GPU build, install dependencies)"))
+        print(L("[2] 更新 (代码+依赖)", "[2] Update (code + dependencies)"))
+        print(L("[3] 切换分支 (main/beta)", "[3] Switch branch (main/beta)"))
+        print(L("[4] 切换版本 (按 tag)", "[4] Switch version (by tag)"))
+        print(L("[5] 切换镜像源", "[5] Switch mirror"))
+        print(L("[6] 重新检查版本", "[6] Re-check version"))
+        print(L("[7] 切换语言 (中文/English)", "[7] Language (中文/English)"))
+        print(L("[8] 退出", "[8] Exit"))
         print()
 
-        choice = input("请选择 (1-7): ").strip()
+        choice = input(L("请选择 (1-8): ", "Select (1-8): ")).strip()
 
         if choice == '1':
             run_install(args)
-            input("\n按回车键继续...")
+            input(L("\n按回车键继续...", "\nPress Enter to continue..."))
 
         elif choice == '2':
             run_full_update(args)
-            input("\n按回车键继续...")
+            input(L("\n按回车键继续...", "\nPress Enter to continue..."))
 
         elif choice == '3':
             switch_branch()
-            input("\n按回车键继续...")
+            input(L("\n按回车键继续...", "\nPress Enter to continue..."))
 
         elif choice == '4':
             switch_version_by_tag()
-            input("\n按回车键继续...")
+            input(L("\n按回车键继续...", "\nPress Enter to continue..."))
 
         elif choice == '5':
             switch_mirror()
-            input("\n按回车键继续...")
+            input(L("\n按回车键继续...", "\nPress Enter to continue..."))
 
         elif choice == '6':
             check_version_info()
 
         elif choice == '7':
+            switch_language()
+
+        elif choice == '8':
             print()
-            print("退出")
+            print(L("退出", "Exit"))
             break
 
         else:
-            print("无效选项")
+            print(L("无效选项", "Invalid option"))
 
 
 def launch_ui(args):
