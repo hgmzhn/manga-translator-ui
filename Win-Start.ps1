@@ -13,7 +13,7 @@ Set-Location $ScriptDir
 # Legacy layout (kept for compatibility):
 #   Miniconda3 / system Conda with env 'manga-env' or path env 'conda_env'
 $BundledPython = Join-Path $ScriptDir 'packaging\python\python.exe'
-$MaintenanceScript = Join-Path $ScriptDir '2-Install-or-Update.ps1'
+$MaintenanceScript = Join-Path $ScriptDir 'Win-Install-or-Update.ps1'
 
 $CondaEnvName     = 'manga-env'
 $LegacyEnvPath    = Join-Path $ScriptDir 'conda_env'
@@ -128,7 +128,7 @@ function Add-PortableGitToPath {
 function Suggest-MaintenanceScript {
     Write-Host ''
     Write-Host "[HINT] Startup failed. Running the install/update tool may fix this."
-    $answer = Read-Host "Open 2-Install-or-Update.ps1 now? (y/n)"
+    $answer = Read-Host "Open Win-Install-or-Update.ps1 now? (y/n)"
     if ($answer -match '^[Yy]') {
         if (Test-Path $MaintenanceScript) {
             Start-Process powershell -ArgumentList '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "`"$MaintenanceScript`""
@@ -159,7 +159,7 @@ if ($exitCode -ne 0) {
     Write-Host ''
     Write-Host "[ERROR] Application exited with code $exitCode"
     Write-Host ''
-    Write-Host 'Please try reinstalling first: run 2-Install-or-Update.ps1 and choose [1] Install.'
+    Write-Host 'Please try reinstalling first: run Win-Install-or-Update.ps1 and choose [1] Install.'
     Write-Host ''
     Write-Host 'If it still fails, please take a screenshot of this window and report it via:'
     Write-Host '  GitHub Issues: https://github.com/hgmzhn/manga-translator-ui/issues'
