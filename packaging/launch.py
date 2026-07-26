@@ -526,9 +526,13 @@ def run_uv_packages(uv, packages, primary_index_url, desc=None):
         return result.returncode == 0
 
     # 先装 PyTorch 相关包（走专用源，按优先级回退）
+    # uv 需要标准 PEP 503 索引，国内镜像多为静态目录 uv 无法解析，因此官方源优先
     if pytorch_pkgs:
+        candidates = get_pytorch_index_candidates(primary_index_url)
+        official = [c for c in candidates if 'download.pytorch.org' in c]
+        others = [c for c in candidates if 'download.pytorch.org' not in c]
         installed = False
-        for candidate in get_pytorch_index_candidates(primary_index_url):
+        for candidate in official + others:
             print(f'[uv] 安装 PyTorch 相关包 ({len(pytorch_pkgs)} 个)，源: {candidate}')
             if uv_install(pytorch_pkgs, candidate):
                 installed = True
@@ -718,7 +722,8 @@ def detect_gpu():
                 full_output = subprocess.check_output(cmd_full, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5, encoding='gbk', errors='ignore')
                 # 解析 "CUDA Version: X.Y" 格式
                 import re
-                cuda_match = re.search(r'CUDA Version:\s*(\d+\.\d+)', full_output)
+                # 兼容新旧 nvidia-smi 输出格式: "CUDA Version: 12.8" / "CUDA UMD Version: 13.3"
+                cuda_match = re.search(r'CUDA (?:UMD )?Version:\s*(\d+\.\d+)', full_output)
                 if cuda_match:
                     cuda_version = cuda_match.group(1)
                     cuda_major = int(cuda_version.split('.')[0])
