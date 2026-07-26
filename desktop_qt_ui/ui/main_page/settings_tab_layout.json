@@ -107,6 +107,8 @@
         "mask_dilation_offset",
         "ocr.limit_mask_dilation_to_bubble_mask",
         "ocr.use_model_bubble_repair_intersection",
+        "inpainter.solid_fill_pure_bubbles",
+        "inpainter.per_block_inpainting",
         {
           "kind": "divider",
           "title": "Advanced"

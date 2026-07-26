@@ -1448,6 +1448,8 @@ class MainAppLogic(QObject):
                     "inpainting_size": self._t("label_inpainting_size"),
                     "inpainting_precision": self._t("label_inpainting_precision"),
                     "force_use_torch_inpainting": self._t("label_force_use_torch_inpainting"),
+                    "solid_fill_pure_bubbles": self._t("label_solid_fill_pure_bubbles"),
+                    "per_block_inpainting": self._t("label_per_block_inpainting"),
                     "renderer": self._t("label_renderer"),
                     "font_family": self._t("label_font_family"),
                     "alignment": self._t("label_alignment"),

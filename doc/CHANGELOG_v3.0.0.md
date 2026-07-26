@@ -14,6 +14,12 @@
 ### 拟声词过滤
 - 新增 `detector.use_sfx_filter` 拟声词过滤选项；启用 YOLO 辅助检测后，会过滤既未被 YOLO `other` 框包裹、也未与其他 YOLO OBB 框达到重叠阈值的主检测框，减少拟声词和装饰字误检。关联 [#204](https://github.com/hgmzhn/manga-translator-ui/issues/204)。
 
+### 纯色气泡直接填色与逐块修复
+- 修复设置新增两个独立开关（默认关闭），移植自 BallonsTranslator 的 `check_need_inpaint` 机制。关联 [#172](https://github.com/hgmzhn/manga-translator-ui/issues/172)。
+- 纯色气泡直接填色 `inpainter.solid_fill_pure_bubbles`：修复前检测每个文本区域所在气泡，气泡内非文字背景接近纯色时直接用背景中位色填充、跳过修复模型；判定使用检测原始掩码外扩 2px 的瘦掩码，避免精修膨胀掩码盖过气泡边线导致找不到气泡轮廓。
+- 逐块修复 `inpainter.per_block_inpainting`：文本区域按 1.7 倍窗口逐块裁剪，用贴合笔画的瘦掩码、图与掩码同步反射补成正方形后单独修复再贴回；通常比整页修复更干净（整页长条掩码易留文字鬼影，膨胀掩码压住气泡边线会糊边），速度略慢。
+- 两个开关可自由组合，全关时保持原有整页修复行为；已接入桌面设置页（修复 Tab）、Web 权限编辑器与中英文设置文档。
+
 ### 错误弹窗辅助排查
 - 通用错误提示现在会显示当前日志文件的完整路径，并提示可将日志发给 AI 分析；仍无法判断时，提示带日志提交 GitHub issue 反馈。
 - 翻译错误弹窗底部新增“打开日志文件夹”按钮，可直接打开 `result/` 日志目录，方便定位并上传 `log_*.txt`。

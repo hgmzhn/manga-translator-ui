@@ -368,6 +368,10 @@ class InpainterConfig(BaseModel):
     """Inpainting precision for lama, use bf16 while you can."""
     force_use_torch_inpainting: bool = False
     """Force use PyTorch for inpainting instead of ONNX (useful if ONNX has memory issues)"""
+    solid_fill_pure_bubbles: bool = False
+    """Fill solid-color bubbles with their background color directly, skipping the inpainting model for them"""
+    per_block_inpainting: bool = False
+    """Inpaint text regions per-block (cropped windows) instead of feeding the whole page to the model"""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576

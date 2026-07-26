@@ -55,6 +55,7 @@ from .detection import unload as unload_detection
 from .inpainting import dispatch as dispatch_inpainting
 from .inpainting import prepare as prepare_inpainting
 from .inpainting import unload as unload_inpainting
+from .inpainting.ballon_fill import inpaint_regions_per_block, solid_fill_pure_bubbles
 from .mask_refinement import dispatch as dispatch_mask_refinement
 from .ocr import dispatch as dispatch_ocr
 from .ocr import prepare as prepare_ocr
@@ -3035,13 +3036,65 @@ class MangaTranslator:
                 pass
             self._log_cuda_memory_snapshot("inpainting/before_dispatch", include_peak=False)
         
+        # BT 式修复，两个独立开关：
+        # solid_fill_pure_bubbles - 纯色气泡直接填背景色跳过模型
+        # per_block_inpainting - 逐块裁窗+瘦掩码修复（整页长条掩码会留文字鬼影，胖掩码会压住气泡边线糊边）
+        img_for_inpaint = ctx.img_rgb
+        mask_for_inpaint = ctx.mask
+        solid_fill = getattr(config.inpainter, 'solid_fill_pure_bubbles', False)
+        per_block = getattr(config.inpainter, 'per_block_inpainting', False)
+        if (solid_fill or per_block) and ctx.text_regions:
+            try:
+                # 气泡检测/逐块修复需要贴合笔画的瘦掩码；精修掩码膨胀过大会盖住气泡边线
+                mask_tight = getattr(ctx, 'mask_raw', None)
+                if mask_tight is not None:
+                    if mask_tight.shape[:2] != ctx.mask.shape[:2]:
+                        mask_tight = cv2.resize(mask_tight, (ctx.mask.shape[1], ctx.mask.shape[0]),
+                                                interpolation=cv2.INTER_LINEAR)
+                    # BT REFINEMASK_INPAINT 等效：笔画掩码外扩 2px，
+                    # 盖住文字边缘抗锯齿像素，否则背景纯度采样会被灰边顶爆
+                    mask_tight = cv2.dilate(np.where(mask_tight >= 127, 255, 0).astype(np.uint8),
+                                            np.ones((5, 5), np.uint8), iterations=1)
+
+                filled_img = ctx.img_rgb
+                remaining_mask = ctx.mask
+                if solid_fill:
+                    filled_img, remaining_mask, filled_count = solid_fill_pure_bubbles(
+                        ctx.img_rgb, ctx.mask, ctx.text_regions, mask_tight)
+                    logger.info(f"[修复] 纯色气泡直接填色: {filled_count}/{len(ctx.text_regions)} 个区域跳过修复模型")
+
+                if per_block:
+                    if remaining_mask is ctx.mask:
+                        remaining_mask = ctx.mask.copy()
+
+                    async def _inpaint_block(crop, msk):
+                        self._check_cancelled()
+                        return await dispatch_inpainting(
+                            config.inpainter.inpainter, crop, msk, config.inpainter,
+                            config.inpainter.inpainting_size, self.device, self.verbose)
+
+                    result, block_count = await inpaint_regions_per_block(
+                        filled_img, remaining_mask, ctx.text_regions, mask_tight, _inpaint_block)
+                    logger.info(f"[修复] 逐块修复完成: {block_count} 个区域")
+                    return result
+
+                img_for_inpaint, mask_for_inpaint = filled_img, remaining_mask
+                if not np.any(mask_for_inpaint):
+                    logger.info("[修复] 剩余掩码为空，跳过修复模型")
+                    return img_for_inpaint
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"BT 式修复失败，回退到整页修复: {e}")
+                img_for_inpaint, mask_for_inpaint = ctx.img_rgb, ctx.mask
+
         current_time = time.time()
         self._model_usage_timestamps[("inpainting", config.inpainter.inpainter)] = current_time
         try:
             result = await dispatch_inpainting(
                 config.inpainter.inpainter,
-                ctx.img_rgb,
-                ctx.mask,
+                img_for_inpaint,
+                mask_for_inpaint,
                 config.inpainter,
                 config.inpainter.inpainting_size,
                 self.device,

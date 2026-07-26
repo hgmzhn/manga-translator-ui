@@ -62,6 +62,8 @@ class InpainterSettings(BaseModel):
     inpainting_size: int = 2048
     inpainting_precision: str = "fp32"
     force_use_torch_inpainting: bool = False
+    solid_fill_pure_bubbles: bool = False
+    per_block_inpainting: bool = False
 
 class RenderSettings(BaseModel):
     renderer: str = "default"
