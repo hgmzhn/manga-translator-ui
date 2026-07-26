@@ -1815,7 +1815,7 @@ def update_repository(args):
 # ============================================================
 GIT_MIRRORS = [
     ('GitHub 官方', 'https://github.com/hgmzhn/manga-translator-ui.git'),
-    ('Gitee 镜像', 'https://gitee.com/hgmzhn/manga-translator-ui.git'),
+    ('Gitee 镜像 (国内推荐)', 'https://gitee.com/hgmzhn/manga-translator-ui.git'),
 ]
 
 SUPPORTED_BRANCHES = ['main', 'beta']
