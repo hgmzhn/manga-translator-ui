@@ -461,7 +461,6 @@ class RichTextFloatingEditor(SimpleCardWidget):
         preset = normalize_rich_text_preset(self._preset_payload_for_range(start, end))
         if preset is None:
             return
-        self._select_python_range(start, end)
         current = self._preset_store.load()
         name = self._prompt_preset_name(
             title=self._t("Save Style"),
@@ -535,7 +534,6 @@ class RichTextFloatingEditor(SimpleCardWidget):
     def _clear_all_styles_from_explicit_range(self, start: int, end: int) -> None:
         if self._updating or not self._state.has_region or start >= end:
             return
-        self._select_python_range(start, end)
         self._state.ruby_draft = None
         self._state.clear_pending_style_edit()
         self._commit_document(clear_styles_from_range(self._state.document, start, end))
