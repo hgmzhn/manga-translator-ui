@@ -2393,10 +2393,25 @@ def run_install(args):
     print()
 
     # 选择线路（镜像源）
-    print(f"当前镜像源: {get_mirror_display_name()}")
-    choice = input("是否切换镜像源/线路? (y/n, 默认n): ").strip().lower()
-    if choice in ['y', 'yes']:
-        switch_mirror()
+    current = get_remote_url().removesuffix('.git')
+    default_idx = 1
+    for i, (name, url) in enumerate(GIT_MIRRORS, 1):
+        if url.removesuffix('.git') == current:
+            default_idx = i
+            break
+    print("请选择下载线路:")
+    for i, (name, url) in enumerate(GIT_MIRRORS, 1):
+        mark = '  (当前)' if i == default_idx else ''
+        print(f"[{i}] {name}{mark}")
+    print()
+    choice = input(f"请选择 (1-{len(GIT_MIRRORS)}, 默认{default_idx}): ").strip()
+    if choice.isdigit() and 1 <= int(choice) <= len(GIT_MIRRORS):
+        selected = GIT_MIRRORS[int(choice) - 1]
+    else:
+        selected = GIT_MIRRORS[default_idx - 1]
+    if selected[1].removesuffix('.git') != current:
+        subprocess.run([git, 'remote', 'set-url', 'origin', selected[1]], capture_output=True)
+    print(f"✓ 使用线路: {selected[0]}")
 
     # 显卡检测 + CPU/GPU/AMD 版本选择 + 依赖安装（prepare_environment 内部完成交互）
     args.requirements = 'auto'
