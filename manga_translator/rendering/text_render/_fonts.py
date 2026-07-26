@@ -5,11 +5,11 @@ FontState（字体选择与各级缓存）、QFont/QTextLayout 构造、连字�
 """
 import logging
 import os
+import sys
 import threading
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Tuple
 
 from hyphen import Hyphenator
 from hyphen.dictools import LANGUAGES as HYPHENATOR_LANGUAGES
@@ -30,13 +30,7 @@ try:
 except Exception:
     pass
 
-DEFAULT_FONT = os.path.join(BASE_PATH, 'fonts', 'Arial-Unicode-Regular.ttf')
 DEFAULT_FONT_FAMILY = 'Microsoft YaHei UI'
-FALLBACK_FONTS = [
-    os.path.join(BASE_PATH, 'fonts/Arial-Unicode-Regular.ttf'),
-    os.path.join(BASE_PATH, 'fonts/msyh.ttc'),
-    os.path.join(BASE_PATH, 'fonts/msgothic.ttc'),
-]
 _thread_state = threading.local()
 _qt_runtime_lock = threading.Lock()
 _qt_runtime_app = None
@@ -55,10 +49,8 @@ class LayoutFontDescriptor:
 
 @dataclass
 class FontState:
-    font: str = ''
     font_family: str = ''
     bold: bool = False
-    font_selection: list = field(default_factory=list)
     raw_fonts: dict = field(default_factory=OrderedDict)
     qfonts: dict = field(default_factory=OrderedDict)
     glyph_specs: dict = field(default_factory=OrderedDict)
@@ -320,40 +312,26 @@ def _font_descriptor(path: str) -> LayoutFontDescriptor:
     return descriptor
 
 
-def _refresh_font_selection(state: FontState):
-    selection = [state.font] if state.font else []
-    for font_path in FALLBACK_FONTS:
-        try:
-            resolved = _resolve_existing_font_path(font_path)
-            if resolved:
-                _raw_font(resolved, _QT_FONT_PROBE_SIZE)
-                if resolved not in selection:
-                    selection.append(resolved)
-        except Exception as exc:
-            logger.error(f'Failed to load fallback font: {font_path} - {exc}')
-    if selection != state.font_selection:
-        state.font_selection = selection
-        state.qfonts.clear()
-        # glyph_specs/glyphs 的 key 含字体路径，切换字体时无需清空，
-        # 保留缓存避免重复解析大字体文件的字形数据
-        state.measures.clear()
-        state.vertical.clear()
+def _set_family(state: FontState, family: str):
+    if state.font_family == family:
+        return
+    state.font_family = family
+    state.qfonts.clear()
+    # glyph_specs/glyphs 的 key 含字体家族，切换字体时无需清空，
+    # 保留缓存避免重复解析大字体文件的字形数据
+    state.measures.clear()
+    state.vertical.clear()
 
 
 def set_font(font: str):
-    """Select a Qt font family, while still accepting a legacy font file path."""
+    """Select a Qt font family; a legacy font file path is mapped to its family."""
     state = getattr(_thread_state, 'value', None) or FontState()
     _thread_state.value = state
     requested = str(font or '').strip()
     resolved = _resolve_existing_font_path(requested)
     if resolved:
-        if state.font == resolved:
-            return
         try:
-            descriptor = _font_descriptor(resolved)
-            state.font = resolved
-            state.font_family = descriptor.family
-            _refresh_font_selection(state)
+            _set_family(state, _font_descriptor(resolved).family)
             return
         except Exception:
             logger.exception('Could not load font file: %s', resolved)
@@ -370,26 +348,22 @@ def set_font(font: str):
         if stripped_family and not qt_family_is_ambiguous(stripped_family):
             family = stripped_family
         else:
-            # offscreen 等环境的字体库可能拿不到中文家族名，退回文件路径精确加载
+            # offscreen 等环境的字体库可能拿不到中文家族名，退回按文件注册并改用其家族名
             alias_path = _font_family_aliases.get(requested.casefold()) or (
                 _font_family_aliases.get(stripped.casefold()) if stripped else None)
             if alias_path and os.path.exists(alias_path):
-                set_font(alias_path)
-                return
+                try:
+                    _set_family(state, _font_descriptor(alias_path).family)
+                    return
+                except Exception:
+                    logger.exception('Could not load font file: %s', alias_path)
     if family is not None and qt_family_is_ambiguous(family):
         logger.warning('Bracketed font family may not match correctly in Qt: %s', family)
     if family is None:
         family = QGuiApplication.font().family() or DEFAULT_FONT_FAMILY
         if requested:
             logger.warning('Qt font family not found: %s; using %s', requested, family)
-    if not state.font and state.font_family == family:
-        return
-    state.font = ''
-    state.font_family = family
-    state.font_selection = []
-    state.qfonts.clear()
-    state.measures.clear()
-    state.vertical.clear()
+    _set_family(state, family)
 
 
 def load_font_file(path: str) -> str:
@@ -424,7 +398,6 @@ def _bold_scope(bold: bool):
 @contextmanager
 def _style_font_scope(style: TextStyle):
     state = _state()
-    previous_font = state.font
     previous_family = state.font_family
     previous_bold = state.bold
     requested_font = getattr(style, 'font_family', None)
@@ -434,55 +407,20 @@ def _style_font_scope(style: TextStyle):
     try:
         yield
     finally:
-        if previous_font:
-            set_font(previous_font)
-        else:
-            set_font(previous_family or DEFAULT_FONT_FAMILY)
+        set_font(previous_family or DEFAULT_FONT_FAMILY)
         state.bold = previous_bold
-
-
-def _layout_font_descriptor(state: FontState) -> Tuple[Tuple[str, ...], str]:
-    if state.font_family:
-        return (state.font_family,), ''
-    families, seen = [], set()
-    primary_style = ''
-    selection = state.font_selection or [state.font or DEFAULT_FONT]
-    for index, path in enumerate(selection):
-        try:
-            descriptor = _font_descriptor(path)
-        except Exception as exc:
-            logger.error(f'Failed to resolve layout font family: {path} - {exc}')
-            continue
-        if index == 0 and descriptor.style:
-            primary_style = descriptor.style
-        if descriptor.family and descriptor.family not in seen:
-            seen.add(descriptor.family)
-            families.append(descriptor.family)
-
-    if families:
-        return tuple(families), primary_style
-
-    fallback_path = _resolve_existing_font_path(DEFAULT_FONT)
-    fallback_descriptor = _font_descriptor(fallback_path)
-    return (fallback_descriptor.family,), fallback_descriptor.style
 
 
 def _layout_font(font_size: int, letter_spacing: float) -> QFont:
     state = _state()
-    families, primary_style = _layout_font_descriptor(state)
-    font_key = state.font_family or tuple(
-        _normalize_font_path(path)
-        for path in (state.font_selection or [state.font or DEFAULT_FONT])
-    )
-    key = (font_key, primary_style, bool(state.bold), int(max(font_size, 1)), round(float(letter_spacing), 4))
+    family = state.font_family or DEFAULT_FONT_FAMILY
+    key = (family, bool(state.bold), int(max(font_size, 1)), round(float(letter_spacing), 4))
     qfont = _cache_get(state.qfonts, key)
     if qfont is None:
         qfont = QFont()
-        qfont.setFamilies(list(families))
-        if primary_style:
-            qfont.setStyleName(primary_style)
+        qfont.setFamilies([family])
         qfont.setBold(state.bold)
-        qfont.setPixelSize(key[3])
+        qfont.setPixelSize(key[2])
         qfont.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         qfont.setStyleStrategy(QFont.StyleStrategy.PreferOutline)
         qfont.setKerning(True)

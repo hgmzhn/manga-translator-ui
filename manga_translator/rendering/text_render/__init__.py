@@ -23,9 +23,7 @@ from ._compose import (
     add_color,
 )
 from ._fonts import (
-    DEFAULT_FONT,
     DEFAULT_FONT_FAMILY,
-    FALLBACK_FONTS,
     _sanitized_font_bytes,
     _state,
     _style_font_scope,

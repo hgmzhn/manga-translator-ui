@@ -7,7 +7,7 @@ import numpy as np
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QRawFont
 
-from ._fonts import _create_text_layout, _normalize_font_path, _raw_font, _state
+from ._fonts import _create_text_layout, _state
 from ._shared import _GLYPH_RASTER_CACHE_MAX, _GLYPH_SPEC_CACHE_MAX, _cache_get, _cache_put
 
 @dataclass(frozen=True)
@@ -88,35 +88,14 @@ def _glyph_spec_via_layout(cdpt: str, font_size: int) -> Optional[GlyphSpec]:
     return whitespace
 
 
-def _glyph_spec_from_selection(cdpt: str, font_size: int) -> Optional[GlyphSpec]:
-    state = _state()
-    if state.font_family or state.bold:
-        return None
-    for path in state.font_selection:
-        raw_font = _raw_font(path, font_size)
-        # Avoid raw_font.supportsCharacter() because it freezes on some fonts
-        glyphs = raw_font.glyphIndexesForString(cdpt)
-        glyph_id = glyphs[0] if glyphs else 0
-        # glyph_id > 0 足以判断字体支持该字符，跳过 _glyph_renderable 避免
-        # 对复杂字形调 pathForGlyph 导致首次渲染极慢
-        if glyph_id > 0:
-            return GlyphSpec(raw_font, int(glyph_id), ('font-path', _normalize_font_path(path)))
-        # Space character might legitimately have glyph_id == 0 or map to advance
-        if glyph_id == 0 and cdpt.isspace() and _glyph_has_advance(raw_font, glyph_id):
-            return GlyphSpec(raw_font, int(glyph_id), ('font-path', _normalize_font_path(path)))
-    return None
-
-
 def _glyph_spec(cdpt: str, font_size: int) -> GlyphSpec:
     state = _state()
-    # 缓存 key 含当前主字体路径，避免切换字体后命中旧缓存
-    font_key = state.font_family or (state.font_selection[0] if state.font_selection else '')
-    key = (cdpt, int(font_size), font_key, bool(state.bold))
+    # 缓存 key 含当前字体家族，避免切换字体后命中旧缓存
+    key = (cdpt, int(font_size), state.font_family, bool(state.bold))
     cached = _cache_get(state.glyph_specs, key)
     if cached is not None:
         return cached
-    # 优先使用 font_selection 手动查找，修复 Qt layout 找不到某些字体的问题
-    spec = _glyph_spec_from_selection(cdpt, font_size) or _glyph_spec_via_layout(cdpt, font_size)
+    spec = _glyph_spec_via_layout(cdpt, font_size)
     if spec is None:
         if cdpt in (' ', '?', '□'):
             raise RuntimeError(f"Character '{cdpt}' not found in any font.")

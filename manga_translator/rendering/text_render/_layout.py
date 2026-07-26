@@ -1184,7 +1184,7 @@ def _vertical_space_advance(font_size: int, letter_spacing: float = 1.0) -> int:
 
 def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> VerticalGlyphBase:
     state = _state()
-    key = (state.font_family or tuple(state.font_selection), bool(state.bold), int(font_size), cdpt, round(_normalize_letter_spacing(letter_spacing), 4))
+    key = (state.font_family, bool(state.bold), int(font_size), cdpt, round(_normalize_letter_spacing(letter_spacing), 4))
     cached = _cache_get(state.vertical, key)
     if cached is not None:
         return cached
@@ -1320,7 +1320,7 @@ def _measure_horizontal_text_width(text: str, font_size: int, letter_spacing: fl
     if '\n' in normalized or '\r' in normalized:
         return max((_measure_horizontal_text_width(part, font_size, letter_spacing) for part in normalized.splitlines()), default=0)
     state = _state()
-    key = ('logical-width', state.font_family or tuple(state.font_selection), bool(state.bold), int(font_size), round(_normalize_letter_spacing(letter_spacing), 4), normalized)
+    key = ('logical-width', state.font_family, bool(state.bold), int(font_size), round(_normalize_letter_spacing(letter_spacing), 4), normalized)
     cached = state.measures.get(key)
     if cached is not None:
         return cached
