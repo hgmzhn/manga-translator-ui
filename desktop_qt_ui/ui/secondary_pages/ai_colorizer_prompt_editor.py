@@ -18,12 +18,11 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import (
     Action,
     BodyLabel,
-    CardWidget,
     CaptionLabel,
-    FluentIcon as FIF,
+    CardWidget,
     HorizontalSeparator,
-    PrimaryPushButton,
     PopUpAniStackedWidget,
+    PrimaryPushButton,
     PushButton,
     RoundMenu,
     ScrollArea,
@@ -31,6 +30,9 @@ from qfluentwidgets import (
     SimpleCardWidget,
     TitleLabel,
     ToolButton,
+)
+from qfluentwidgets import (
+    FluentIcon as FIF,
 )
 from qfluentwidgets import (
     PlainTextEdit as QPlainTextEdit,

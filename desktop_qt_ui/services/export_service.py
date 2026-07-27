@@ -10,6 +10,7 @@ import copy
 import json
 import logging
 import os
+import tempfile
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -702,8 +703,27 @@ class ExportService:
         self.logger.info(f"保存区域数据到: {json_path}")
         self.logger.info(f"区域数量: {len(save_data)}")
         
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(formatted_data, f, indent=2, ensure_ascii=False, cls=CustomJSONEncoder)
+        output_dir = os.path.dirname(os.path.abspath(json_path))
+        os.makedirs(output_dir, exist_ok=True)
+        temp_path = None
+        try:
+            fd, temp_path = tempfile.mkstemp(
+                prefix=f".{os.path.basename(json_path)}.",
+                suffix=".tmp",
+                dir=output_dir,
+            )
+            with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as f:
+                json.dump(formatted_data, f, indent=2, ensure_ascii=False, cls=CustomJSONEncoder)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, json_path)
+            temp_path = None
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
     
     def _save_rendered_image(
         self,
@@ -749,7 +769,6 @@ class ExportService:
                     os.remove(temp_output_path)
                 except Exception:
                     pass
-            raise
             raise
     
     def _prepare_translator_params(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -932,23 +951,16 @@ class ExportService:
                                 resolve_photoshop_font,
                             )
                             
-                            # 优先使用原图路径生成PSD路径，其次使用输出路径，最后使用临时路径
-                            if source_image_path:
-                                # 使用原图路径生成PSD路径（正确的做法）
-                                psd_path = get_psd_output_path(source_image_path)
-                            elif output_path:
-                                # 如果没有原图路径，使用输出路径
-                                psd_path = get_psd_output_path(output_path)
-                            else:
-                                # 如果都没有，使用临时路径（向后兼容）
-                                psd_path = get_psd_output_path(image_path)
+                            psd_base_path = source_image_path or output_path
+                            if not psd_base_path:
+                                raise ValueError("PSD export requires a source or output path")
+                            psd_path = get_psd_output_path(psd_base_path)
                             
                             default_font = resolve_photoshop_font(cfg)
                             line_spacing = cfg.render.line_spacing if hasattr(cfg.render, 'line_spacing') else None
                             script_only = cfg.cli.psd_script_only
                             
-                            # 使用原图路径查找inpainted图片，而不是临时路径
-                            image_path_for_psd = source_image_path if source_image_path else (output_path if output_path else image_path)
+                            image_path_for_psd = psd_base_path
                             
                             self.logger.info(f"开始导出PSD: {psd_path}")
                             self.logger.info(f"使用图片路径查找inpainted: {image_path_for_psd}")

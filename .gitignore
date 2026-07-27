@@ -57,12 +57,9 @@ desktop.ini
 $RECYCLE.BIN/
 
 # Tests
-test/
+/test/**
+!/test/*.py
 /tests/
-!/tests/
-/tests/*
-!/tests/test_per_block_inpainting.py
-!/tests/test_editor_export_executor.py
 
 # Python eggs
 *.egg

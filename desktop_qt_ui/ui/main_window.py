@@ -701,6 +701,27 @@ class MainWindow(FluentWindow):
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        unfinished_exports = 0
+        if self.editor_controller is not None:
+            unfinished_exports = self.editor_controller.export_service.unfinished_count()
+        if unfinished_exports:
+            from PyQt6.QtWidgets import QMessageBox
+
+            reply = show_error_dialog(
+                self,
+                "导出任务尚未完成",
+                "",
+                f"还有 {unfinished_exports} 个导出任务正在处理。\n\n等待全部导出完成后退出？",
+                icon=QMessageBox.Icon.Question,
+                buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                default_button=QMessageBox.StandardButton.Yes,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+
+            self.editor_controller.shutdown()
+
         # 先等待 API 测试/取模型等后台线程结束（带超时），
         # 避免 QThread: Destroyed while thread is still running。
         if hasattr(self, "main_view") and self.main_view:

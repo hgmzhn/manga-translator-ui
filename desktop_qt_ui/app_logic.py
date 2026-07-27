@@ -2557,7 +2557,7 @@ class MainAppLogic(QObject):
             except Exception:
                 pass
 
-            # 关闭编辑器文档服务的常驻线程池（加载/预读）。
+            # 关闭编辑器文档线程池，并排空专属导出队列。
             # 只在编辑器模块已加载过时清理，避免退出路径反而把整个编辑器栈 import 进来
             try:
                 import sys

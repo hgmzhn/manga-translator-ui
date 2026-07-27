@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
 from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
+from manga_translator.utils import open_pil_image
 from PyQt6.QtCore import QObject, QRectF, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QFontMetrics, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
@@ -15,9 +16,15 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CardWidget, FluentIcon as FIF, StrongBodyLabel, ToolButton, TreeWidget, isDarkTheme
-
-from manga_translator.utils import open_pil_image
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    StrongBodyLabel,
+    ToolButton,
+    TreeWidget,
+    isDarkTheme,
+)
+from qfluentwidgets import FluentIcon as FIF
 
 # 全局线程池，用于异步加载缩略图
 _thumbnail_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="thumbnail_loader")

@@ -2216,6 +2216,7 @@ def update_code_force(skip_confirm=False, target_branch=None):
 
     # 清理平台特定文件
     import platform
+    import shutil
 
     if platform.system() == 'Windows':
         # Windows 环境清理 macOS 文件
@@ -2225,6 +2226,7 @@ def update_code_force(skip_confirm=False, target_branch=None):
             'macOS_3_检查更新并启动.sh',
             'macOS_4_更新维护.sh',
             'macOS_common.sh',
+            'test',
             '.gitattributes',
             '.gitignore',
             'LICENSE.txt'
@@ -2234,6 +2236,7 @@ def update_code_force(skip_confirm=False, target_branch=None):
         files_to_remove = [
             'Win-Start.bat',
             'Win-Install-or-Update.bat',
+            'test',
             '.gitattributes',
             '.gitignore',
             'LICENSE.txt'
@@ -2242,9 +2245,13 @@ def update_code_force(skip_confirm=False, target_branch=None):
         files_to_remove = []
 
     for file in files_to_remove:
-        if os.path.exists(file):
+        path = PATH_ROOT / file
+        if path.exists():
             try:
-                os.remove(file)
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
             except Exception:
                 pass  # 忽略删除失败
 

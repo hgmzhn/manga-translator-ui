@@ -35,7 +35,17 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CaptionLabel, FluentIcon as FIF, HorizontalSeparator, PushButton, SimpleCardWidget, StrongBodyLabel, ToolButton, isDarkTheme
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    HorizontalSeparator,
+    PushButton,
+    SimpleCardWidget,
+    StrongBodyLabel,
+    ToolButton,
+    isDarkTheme,
+)
+from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import LineEdit as FluentLineEdit
 
 from ui.fluent_icon import themed_fluent_svg_icon
