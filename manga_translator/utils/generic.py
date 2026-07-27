@@ -1568,6 +1568,10 @@ def det_unrearrange_patch_maps(
     """
     Merge rearranged patch outputs back into original image coordinates.
     Supports patch inputs in CHW / HWC / HW.
+
+    重叠区按「离条带切割边缘的距离」羽化加权：条带在自己被切断的上/下边缘附近
+    权重线性趋 0，由相邻条带的完整视角主导接缝区，避免被切断文字的近零响应
+    把完整视角的强响应等权摊薄导致丢框。全图首尾不是切割边，不做羽化。
     """
     if not patch_lst:
         raise ValueError('patch_lst must not be empty')
@@ -1604,25 +1608,40 @@ def det_unrearrange_patch_maps(
         patch_h = int(p.shape[-2])
         packed_w = int(p.shape[-1])
         patch_w = max(int(packed_w / pw_num), 1)
+
+        def _stripe_span(idx: int) -> Tuple[int, int]:
+            st = int(round(float(rel_step_list[idx]) * _h))
+            return st, min(st + patch_h, _h)
+
         for jj in range(pw_num):
             pidx = ii * pw_num + jj
             if pidx >= len(rel_step_list):
                 break
-            rel_t = float(rel_step_list[pidx])
-            t = int(round(rel_t * _h))
-            b = min(t + patch_h, _h)
+            t, b = _stripe_span(pidx)
             if b <= t:
                 continue
             l = jj * patch_w
             src_w = min(patch_w, packed_w - l, _w)
             if src_w <= 0:
                 continue
-            tgtmap[..., t:b, :src_w] += p[..., : b - t, l:l + src_w]
-            weightmap[..., t:b, :src_w] += 1.
+            n_rows = b - t
+            wvec = np.ones((n_rows,), dtype=np.float32)
+            if pidx > 0:
+                ov = min(_stripe_span(pidx - 1)[1] - t, n_rows)
+                if ov > 0:
+                    ramp = (np.arange(ov, dtype=np.float32) + 0.5) / ov
+                    wvec[:ov] = np.minimum(wvec[:ov], ramp)
+            if pidx < num_patches - 1:
+                ov = min(b - _stripe_span(pidx + 1)[0], n_rows)
+                if ov > 0:
+                    ramp = (np.arange(ov, dtype=np.float32) + 0.5) / ov
+                    wvec[n_rows - ov:] = np.minimum(wvec[n_rows - ov:], ramp[::-1])
+            tgtmap[..., t:b, :src_w] += p[..., : b - t, l:l + src_w] * wvec[:, None]
+            weightmap[..., t:b, :src_w] += wvec[:, None]
             if pidx >= num_patches - 1:
                 break
 
-    np.divide(tgtmap, np.maximum(weightmap, 1.), out=tgtmap)
+    np.divide(tgtmap, np.maximum(weightmap, 1e-6), out=tgtmap)
 
     if transpose:
         tgtmap = einops.rearrange(tgtmap, 'c h w -> c w h')
