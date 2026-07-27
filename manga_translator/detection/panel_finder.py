@@ -148,7 +148,7 @@ def save_draw_contours(pth: Path | str):
 
     # Glob get all images in folder
 
-    pths = [i for i in pth.iterdir() if i.suffix in [".png", ".jpg", ".jpeg"]]
+    pths = [i for i in pth.iterdir() if i.suffix.lower() in (".png", ".jpg", ".jpeg", ".jfif")]
     for t in pths:
         print(t)
         im = Image.open(t)

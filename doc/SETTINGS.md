@@ -168,7 +168,7 @@
 - **上下文页数 (context_size)**：翻译上下文页面数（用于多页联合翻译）
 
 - **输出格式 (format)**：输出图片格式
-  - PNG、JPEG、WEBP、不指定（保持原格式）
+  - PNG、JPG/JPEG/JFIF、WebP、AVIF、BMP、TIFF/TIF、HEIC/HEIF、不指定（保持原格式）
 
 - **覆盖已存在文件 (overwrite)**：覆盖已存在的翻译文件
 
@@ -194,7 +194,7 @@
 
 - **导出原文 (template)**：导出原文到文本文件（用于手动翻译）
 
-- **图像保存质量 (save_quality)**：JPEG 保存质量（0-100）
+- **图像保存质量 (save_quality)**：JPEG/JFIF、WebP、AVIF、HEIC/HEIF 保存质量（0-100）
 
 - **批量大小 (batch_size)**：批量处理大小
   - 默认：1

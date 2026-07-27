@@ -7,11 +7,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional
 
+from manga_translator.image_formats import (
+    SUPPORTED_IMAGE_EXTENSIONS as _SUPPORTED_IMAGE_EXTENSIONS,
+)
 from manga_translator.utils.path_manager import resolve_original_image_path
 
-SUPPORTED_IMAGE_EXTENSIONS = {
-    '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.avif', '.tiff', '.tif', '.heic', '.heif'
-}
+# Backward-compatible export for editor callers; the canonical definition lives
+# in manga_translator.image_formats.
+SUPPORTED_IMAGE_EXTENSIONS = _SUPPORTED_IMAGE_EXTENSIONS
 
 
 class FileType(Enum):

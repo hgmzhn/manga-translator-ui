@@ -2463,7 +2463,7 @@ async function processBatch(files, config) {
                 console.log('ZIP content files:', Object.keys(zipContent.files));
                 
                 // 遍历 ZIP 中的所有图片文件（支持多种格式）
-                const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+                const imageExtensions = configOptions.image_extensions || [];
                 const imageFiles = Object.keys(zipContent.files).filter(name => {
                     const lowerName = name.toLowerCase();
                     return imageExtensions.some(ext => lowerName.endsWith(ext));
@@ -2480,9 +2480,14 @@ async function processBatch(files, config) {
                         'png': 'image/png',
                         'jpg': 'image/jpeg',
                         'jpeg': 'image/jpeg',
+                        'jfif': 'image/jpeg',
                         'webp': 'image/webp',
-                        'gif': 'image/gif',
-                        'bmp': 'image/bmp'
+                        'avif': 'image/avif',
+                        'bmp': 'image/bmp',
+                        'tif': 'image/tiff',
+                        'tiff': 'image/tiff',
+                        'heic': 'image/heic',
+                        'heif': 'image/heif'
                     };
                     const mimeType = mimeTypes[ext] || 'image/png';
                     

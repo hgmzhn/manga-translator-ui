@@ -7,6 +7,12 @@ import numpy as np
 import tqdm
 from PIL import Image, ImageOps
 
+from ..image_formats import (
+    QUALITY_PIL_FORMATS,
+    RGB_PIL_FORMATS,
+    resolve_pil_image_format,
+)
+
 # 解除 PIL 图片大小限制（防止 DecompressionBombWarning）
 # 可通过环境变量 PIL_MAX_IMAGE_PIXELS 自定义，设为 0 表示无限制
 _max_pixels = os.environ.get('PIL_MAX_IMAGE_PIXELS', '0')
@@ -269,6 +275,11 @@ def open_pil_image(source, eager: bool = False, apply_exif: bool = True) -> Imag
     eager=False: 尽量懒加载，只在需要 EXIF 方向修正时提前解码。
     """
     image = Image.open(source)
+    try:
+        resolve_pil_image_format(image.format)
+    except Exception:
+        image.close()
+        raise
     try:
         if getattr(image, 'name', None) is None and getattr(image, 'filename', None):
             image.name = image.filename
@@ -536,23 +547,7 @@ def dump_image(
 
 
 def _infer_pil_save_format(output_path: str, format: Optional[str] = None) -> str:
-    if format:
-        return format.upper()
-
-    ext = os.path.splitext(output_path)[1].lower()
-    format_map = {
-        '.jpg': 'JPEG',
-        '.jpeg': 'JPEG',
-        '.png': 'PNG',
-        '.webp': 'WEBP',
-        '.bmp': 'BMP',
-        '.tif': 'TIFF',
-        '.tiff': 'TIFF',
-        '.avif': 'AVIF',
-        '.heic': 'HEIF',
-        '.heif': 'HEIF',
-    }
-    return format_map.get(ext, 'PNG')
+    return resolve_pil_image_format(format or output_path)
 
 
 def build_preserved_pil_save_kwargs(source_image: Optional[Image.Image] = None) -> dict:
@@ -590,7 +585,7 @@ def save_pil_image(
     converted_image = None
 
     try:
-        if target_format in {'JPEG', 'BMP'}:
+        if target_format in RGB_PIL_FORMATS:
             if image_to_save.mode != 'RGB':
                 converted_image = normalize_rgb_image(image_to_save)
                 image_to_save = converted_image
@@ -601,13 +596,11 @@ def save_pil_image(
         for key, value in build_preserved_pil_save_kwargs(source_image).items():
             save_kwargs.setdefault(key, value)
 
-        if quality is not None and target_format in {'JPEG', 'WEBP', 'AVIF', 'HEIF'}:
+        if quality is not None and target_format in QUALITY_PIL_FORMATS:
             save_kwargs.setdefault('quality', quality)
 
-        if format is not None:
-            image_to_save.save(output_path, format=target_format, **save_kwargs)
-        else:
-            image_to_save.save(output_path, **save_kwargs)
+        # Always pass an explicit encoder so atomic ``.tmp`` writes still work.
+        image_to_save.save(output_path, format=target_format, **save_kwargs)
     finally:
         if converted_image is not None:
             converted_image.close()

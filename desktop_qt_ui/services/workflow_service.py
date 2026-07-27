@@ -8,6 +8,10 @@ from typing import List, Tuple
 
 # 添加项目根目录到路径以便导入path_manager
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from manga_translator.image_formats import (
+    IMAGE_FILE_GLOB_PATTERNS,
+    SUPPORTED_IMAGE_EXTENSIONS,
+)
 from manga_translator.runtime_paths import get_application_dir, get_config_path
 from manga_translator.utils.path_manager import (
     find_json_path,
@@ -360,8 +364,7 @@ def generate_original_text(
             work_dir = os.path.dirname(json_dir)
             image_dir = os.path.dirname(work_dir)
             image_name = json_basename.replace('_translations.json', '')
-            # 尝试常见图片扩展名
-            for ext in ['.jpg', '.png', '.jpeg', '.webp', '.avif']:
+            for ext in SUPPORTED_IMAGE_EXTENSIONS:
                 image_path = os.path.join(image_dir, image_name + ext)
                 if os.path.exists(image_path):
                     output_path = get_original_txt_path(
@@ -449,8 +452,7 @@ def generate_translated_text(
             work_dir = os.path.dirname(json_dir)
             image_dir = os.path.dirname(work_dir)
             image_name = json_basename.replace('_translations.json', '')
-            # 尝试常见图片扩展名
-            for ext in ['.jpg', '.png', '.jpeg', '.webp', '.avif']:
+            for ext in SUPPORTED_IMAGE_EXTENSIONS:
                 image_path = os.path.join(image_dir, image_name + ext)
                 if os.path.exists(image_path):
                     output_path = get_translated_txt_path(
@@ -756,11 +758,9 @@ def auto_detect_and_update_translations(
         if os.path.isdir(directory_or_files):
             import glob
             
-            # 常见图片格式
-            image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tiff', '*.webp', '*.avif', '*.heic', '*.heif']
             image_files = []
             
-            for ext in image_extensions:
+            for ext in IMAGE_FILE_GLOB_PATTERNS:
                 pattern = os.path.join(directory_or_files, "**", ext)
                 image_files.extend(glob.glob(pattern, recursive=True))
                 # 也搜索大写扩展名
@@ -1166,9 +1166,8 @@ def batch_update_directory_translations(
             image_dir = os.path.dirname(work_dir)
             image_name = json_basename.replace('_translations.json', '')
 
-            # 尝试常见图片扩展名
             image_path = None
-            for ext in ['.jpg', '.png', '.jpeg', '.webp', '.avif']:
+            for ext in SUPPORTED_IMAGE_EXTENSIONS:
                 candidate = os.path.join(image_dir, image_name + ext)
                 if os.path.exists(candidate):
                     image_path = candidate

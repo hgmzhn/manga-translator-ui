@@ -94,7 +94,7 @@ python -m manga_translator -i <输入> [选项]
 | `--overwrite` | 覆盖已存在文件 | 关闭 |
 | `--use-gpu` | 使用 GPU 加速 | 配置文件 |
 | `--disable-onnx-gpu` | 禁用 ONNX Runtime GPU 加速 | 配置文件 |
-| `--format` | 输出格式（png/jpg/webp/avif） | 配置文件 |
+| `--format` | 输出格式（png/jpg/jpeg/jfif/webp/avif/bmp/tiff/tif/heic/heif） | 配置文件 |
 | `--batch-size` | 批量处理大小 | 配置文件 |
 | `--attempts` | 翻译失败重试次数（-1=无限） | 配置文件 |
 
@@ -248,7 +248,7 @@ python -m manga_translator -i manga.jpg -v
 python -m manga_translator -i manga.jpg
 ```
 
-支持格式：`.png`, `.jpg`, `.jpeg`, `.bmp`, `.webp`
+支持格式：`.png`, `.jpg`, `.jpeg`, `.jfif`, `.webp`, `.avif`, `.bmp`, `.tiff`, `.tif`, `.heic`, `.heif`
 
 #### 2. 多个图片
 

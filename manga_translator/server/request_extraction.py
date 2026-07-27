@@ -17,6 +17,10 @@ from PIL import Image
 from pydantic import BaseModel
 
 from manga_translator import Config
+from manga_translator.image_formats import (
+    RGB_PIL_FORMATS,
+    resolve_output_image_format,
+)
 from manga_translator.utils import normalize_pil_image, open_pil_image
 from manga_translator.utils.image_modes import normalize_rgb_image
 
@@ -857,16 +861,6 @@ async def save_translation_to_history(ctx, username: str, task_id: str, workflow
             if fmt and fmt != '不指定':
                 output_format = fmt.lower()
         
-        # 格式映射
-        format_map = {
-            'jpg': ('JPEG', '.jpg'),
-            'jpeg': ('JPEG', '.jpg'),
-            'png': ('PNG', '.png'),
-            'webp': ('WEBP', '.webp'),
-            'gif': ('GIF', '.gif'),
-            'bmp': ('BMP', '.bmp'),
-        }
-        
         # 安全过滤文件名，防止路径遍历攻击
         def sanitize_filename(filename: str) -> str:
             if not filename:
@@ -888,23 +882,15 @@ async def save_translation_to_history(ctx, username: str, task_id: str, workflow
         
         if safe_filename:
             base_name = os.path.splitext(safe_filename)[0]
-            if output_format and output_format in format_map:
-                # 使用配置指定的格式
-                save_format, ext = format_map[output_format]
-                result_filename = f"{base_name}{ext}"
-            else:
-                # 保持原始扩展名
-                result_filename = safe_filename
-                ext = os.path.splitext(safe_filename)[1].lower()
-                save_format = format_map.get(ext.lstrip('.'), ('PNG', '.png'))[0]
+            save_format, ext = resolve_output_image_format(
+                output_format,
+                original_path=safe_filename,
+            )
+            result_filename = f"{base_name}{ext}"
         else:
             timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
-            if output_format and output_format in format_map:
-                save_format, ext = format_map[output_format]
-                result_filename = f"translated_{timestamp}{ext}"
-            else:
-                result_filename = f"translated_{timestamp}.png"
-                save_format = 'PNG'
+            save_format, ext = resolve_output_image_format(output_format)
+            result_filename = f"translated_{timestamp}{ext}"
         
         result_path = os.path.join(temp_dir, result_filename)
         
@@ -917,13 +903,9 @@ async def save_translation_to_history(ctx, username: str, task_id: str, workflow
                 # 如果复制失败，尝试直接使用原图
                 img_to_save = ctx.result
             
-            # 根据文件扩展名也检查是否需要转换（PIL 可能根据扩展名决定格式）
-            is_jpeg = save_format == 'JPEG' or result_path.lower().endswith(('.jpg', '.jpeg'))
-            
-            # JPEG does not support alpha or non-RGB color modes.
-            if is_jpeg and img_to_save.mode not in ('RGB', 'L'):
+            if save_format in RGB_PIL_FORMATS and img_to_save.mode not in ('RGB', 'L'):
                 img_to_save = normalize_rgb_image(img_to_save)
-                add_log(f"Converted {ctx.result.mode} to RGB for JPEG format", "DEBUG")
+                add_log(f"Converted {ctx.result.mode} to RGB for {save_format} format", "DEBUG")
             
             img_to_save.save(result_path, save_format)
             temp_files.append(result_path)

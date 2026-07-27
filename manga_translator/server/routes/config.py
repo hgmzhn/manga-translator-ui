@@ -452,6 +452,10 @@ async def get_config_options(
     """
     from manga_translator.config import Alignment, Direction, InpaintPrecision
     from manga_translator.detection import Detector
+    from manga_translator.image_formats import (
+        OUTPUT_IMAGE_FORMATS,
+        SUPPORTED_IMAGE_EXTENSIONS,
+    )
     from manga_translator.inpainting import Inpainter
     from manga_translator.translators import VALID_LANGUAGES
     from manga_translator.upscaling import Upscaler
@@ -559,7 +563,8 @@ async def get_config_options(
             'Polish',
             'Ukrainian'
         ],
-        'format': ['png', 'webp', 'jpg', 'avif']  # 移除了 xcf, psd, pdf（使用 export_editable_psd 配置项代替）
+        'format': ['不指定', *OUTPUT_IMAGE_FORMATS],
+        'image_extensions': list(SUPPORTED_IMAGE_EXTENSIONS),
     }
 
     if session_token:

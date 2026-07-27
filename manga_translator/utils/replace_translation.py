@@ -27,8 +27,8 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .generic import Context, dump_image, imwrite_unicode, open_pil_image
-from .image_modes import normalize_rgb_image
+from ..image_formats import SUPPORTED_IMAGE_EXTENSIONS
+from .generic import Context, dump_image, imwrite_unicode, open_pil_image, save_pil_image
 from .path_manager import TRANSLATED_IMAGES_SUBDIR, get_work_dir
 from .textblock import TextBlock
 
@@ -600,13 +600,12 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                     if hasattr(raw_ctx, 'result') and raw_ctx.result is not None:
                         os.makedirs(final_output_dir, exist_ok=True)
                         
-                        # 处理RGBA到RGB转换（JPEG格式不支持透明通道）
-                        image_to_save = raw_ctx.result
-                        if final_output_path.lower().endswith(('.jpg', '.jpeg')):
-                            image_to_save = normalize_rgb_image(image_to_save)
-                        
-                        # raw_ctx.result 已经是 PIL Image，直接保存
-                        image_to_save.save(final_output_path, quality=translator.save_quality)
+                        save_pil_image(
+                            raw_ctx.result,
+                            final_output_path,
+                            source_image=raw_ctx.input,
+                            quality=translator.save_quality,
+                        )
                         logger.info(f"  -> 已保存: {os.path.basename(final_output_path)}")
                         
                         # 标记成功
@@ -752,8 +751,8 @@ def find_translated_image(raw_image_path: str) -> Optional[str]:
     if os.path.exists(same_ext_path):
         return same_ext_path
     
-    # 尝试其他常见图片扩展名
-    for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif']:
+    # 尝试其他受支持的图片扩展名
+    for ext in SUPPORTED_IMAGE_EXTENSIONS:
         translated_path = os.path.join(translated_dir, f"{raw_basename}{ext}")
         if os.path.exists(translated_path):
             return translated_path

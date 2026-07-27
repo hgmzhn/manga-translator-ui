@@ -15,13 +15,14 @@ import time
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+from manga_translator.image_formats import resolve_pil_image_format
+from manga_translator.utils import open_pil_image, save_pil_image
+from manga_translator.utils.path_manager import get_inpainted_path
 from PIL import Image
+
 from editor.image_utils import image_like_to_pil, image_like_to_rgb_array
 from utils.asyncio_cleanup import shutdown_event_loop
 from utils.json_encoder import CustomJSONEncoder
-
-from manga_translator.utils import open_pil_image, save_pil_image
-from manga_translator.utils.path_manager import get_inpainted_path
 
 # 全局输出目录存储
 _global_output_directory = None
@@ -722,85 +723,15 @@ class ExportService:
         temp_output_path = output_path + ".tmp"
         
         try:
-            output_lower = output_path.lower()
             save_quality = config.get('cli', {}).get('save_quality', 95)
-            
-            # 需要转换为RGB的格式（不支持透明度或CMYK）
-            if output_lower.endswith(('.jpg', '.jpeg')):
-                save_pil_image(
-                    image,
-                    temp_output_path,
-                    source_image=source_image,
-                    quality=save_quality,
-                    format='JPEG',
-                )
-                
-            elif output_lower.endswith('.webp'):
-                save_pil_image(
-                    image,
-                    temp_output_path,
-                    source_image=source_image,
-                    quality=save_quality,
-                    format='WEBP',
-                )
-                
-            elif output_lower.endswith('.avif'):
-                save_pil_image(
-                    image,
-                    temp_output_path,
-                    source_image=source_image,
-                    quality=save_quality,
-                    format='AVIF',
-                )
-                
-            elif output_lower.endswith(('.heic', '.heif')):
-                # HEIC/HEIF格式：需要 pillow-heif 库支持
-                try:
-                    import pillow_heif
-                    # 注册 HEIF 插件
-                    pillow_heif.register_heif_opener()
-                    save_pil_image(
-                        image,
-                        temp_output_path,
-                        source_image=source_image,
-                        quality=save_quality,
-                        format='HEIF',
-                    )
-                except ImportError:
-                    self.logger.warning("HEIC/HEIF 格式需要安装 pillow-heif 库，降级为 PNG 格式")
-                    # 修改输出路径为 PNG
-                    temp_output_path = output_path.rsplit('.', 1)[0] + '.png.tmp'
-                    output_path = output_path.rsplit('.', 1)[0] + '.png'
-                    save_pil_image(
-                        image,
-                        temp_output_path,
-                        source_image=source_image,
-                        format='PNG',
-                    )
-                
-            elif output_lower.endswith('.bmp'):
-                save_pil_image(
-                    image,
-                    temp_output_path,
-                    source_image=source_image,
-                    format='BMP',
-                )
-                
-            elif output_lower.endswith(('.tiff', '.tif')):
-                save_pil_image(
-                    image,
-                    temp_output_path,
-                    source_image=source_image,
-                    format='TIFF',
-                )
-                
-            else:
-                save_pil_image(
-                    image,
-                    temp_output_path,
-                    source_image=source_image,
-                    format='PNG',
-                )
+            image_format = resolve_pil_image_format(output_path)
+            save_pil_image(
+                image,
+                temp_output_path,
+                source_image=source_image,
+                quality=save_quality,
+                format=image_format,
+            )
             
             # 确保文件已写入
             if not os.path.exists(temp_output_path):

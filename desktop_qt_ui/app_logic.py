@@ -14,29 +14,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from PIL import Image
-from PyQt6.QtCore import (
-    QObject,
-    QRunnable,
-    Qt,
-    QTimer,
-    pyqtSignal,
-    pyqtSlot,
-)
-from PyQt6.QtWidgets import QFileDialog
-from services import (
-    get_config_service,
-    get_file_service,
-    get_i18n_manager,
-    get_logger,
-    get_preset_service,
-    get_state_manager,
-    get_translation_service,
-)
-from services.state_manager import AppStateKey
-from utils.asyncio_cleanup import shutdown_event_loop
-from utils.font_list import fonts_directory
-
 from manga_translator.config import (
     Alignment,
     Colorizer,
@@ -49,9 +26,35 @@ from manga_translator.config import (
     Translator,
     Upscaler,
 )
-from manga_translator.save import OUTPUT_FORMATS
-from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
+from manga_translator.image_formats import (
+    OUTPUT_IMAGE_FORMATS,
+    SUPPORTED_IMAGE_EXTENSIONS,
+)
 from manga_translator.utils import open_pil_image, save_pil_image
+from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
+from PIL import Image
+from PyQt6.QtCore import (
+    QObject,
+    QRunnable,
+    Qt,
+    QTimer,
+    pyqtSignal,
+    pyqtSlot,
+)
+from PyQt6.QtWidgets import QFileDialog
+
+from services import (
+    get_config_service,
+    get_file_service,
+    get_i18n_manager,
+    get_logger,
+    get_preset_service,
+    get_state_manager,
+    get_translation_service,
+)
+from services.state_manager import AppStateKey
+from utils.asyncio_cleanup import shutdown_event_loop
+from utils.font_list import fonts_directory
 
 
 @dataclass
@@ -1550,7 +1553,7 @@ class MainAppLogic(QObject):
 
     def get_options_for_key(self, key: str) -> Optional[List[str]]:
         options_map = {
-            "format": [self._t("format_not_specified")] + [fmt for fmt in OUTPUT_FORMATS.keys() if fmt not in ['xcf', 'psd', 'pdf']],
+            "format": [self._t("format_not_specified"), *OUTPUT_IMAGE_FORMATS],
             "renderer": [member.value for member in Renderer],
             "alignment": [member.value for member in Alignment],
             "direction": [member.value for member in Direction],
@@ -1983,7 +1986,7 @@ class MainAppLogic(QObject):
             }
         
         all_files = []
-        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
+        image_extensions = SUPPORTED_IMAGE_EXTENSIONS
         
         try:
             items = os.listdir(folder_path)

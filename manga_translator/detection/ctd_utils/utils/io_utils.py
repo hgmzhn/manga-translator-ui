@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-IMG_EXT = ['.bmp', '.jpg', '.png', '.jpeg']
+IMG_EXT = ['.bmp', '.jpg', '.png', '.jpeg', '.jfif']
 
 NP_BOOL_TYPES = (np.bool_, np.bool8)
 NP_FLOAT_TYPES = (np.float_, np.float16, np.float32, np.float64)

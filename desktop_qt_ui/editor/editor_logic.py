@@ -1,9 +1,11 @@
 import os
 from typing import List
 
-from editor.file_list_model import SUPPORTED_IMAGE_EXTENSIONS, FileListModel, FileType
+from manga_translator.image_formats import IMAGE_FILE_DIALOG_FILTER
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QFileDialog
+
+from editor.file_list_model import SUPPORTED_IMAGE_EXTENSIONS, FileListModel, FileType
 from services import get_config_service, get_logger
 from ui.secondary_pages.folder_dialog import select_folders
 from ui.widgets.file_list_view import natural_sort_key
@@ -38,7 +40,7 @@ class EditorLogic(QObject):
             None, 
             "添加文件到编辑器", 
             last_dir, 
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif *.heic *.heif)"
+            IMAGE_FILE_DIALOG_FILTER
         )
         if file_paths:
             self.add_files(file_paths)

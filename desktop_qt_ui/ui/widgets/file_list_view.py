@@ -4,6 +4,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
+from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
 from PyQt6.QtCore import QObject, QRectF, QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QFontMetrics, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
@@ -371,9 +372,9 @@ class FileListView(TreeWidget):
     _FS_TREE_BACKED_ROLE = Qt.ItemDataRole.UserRole + 5
     _FS_POPULATE_CHUNK_SIZE = 120
     _UI_COALESCE_MS = 16
-    _SUPPORTED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
+    _SUPPORTED_IMAGE_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS
     _SUPPORTED_ARCHIVE_EXTENSIONS = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
-    _SUPPORTED_LIST_EXTENSIONS = _SUPPORTED_IMAGE_EXTENSIONS | _SUPPORTED_ARCHIVE_EXTENSIONS
+    _SUPPORTED_LIST_EXTENSIONS = set(_SUPPORTED_IMAGE_EXTENSIONS) | _SUPPORTED_ARCHIVE_EXTENSIONS
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -848,9 +849,7 @@ class FileListView(TreeWidget):
     
     def _scan_folder_structure(self, folder_path: str):
         """兼容旧调用：递归扫描文件夹结构（不创建UI元素）"""
-        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
-        archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
-        all_extensions = image_extensions | archive_extensions
+        all_extensions = self._SUPPORTED_LIST_EXTENSIONS
         structure = {'subdirs': [], 'files': [], 'subdir_data': {}}
         try:
             with os.scandir(folder_path) as entries:
@@ -1267,9 +1266,7 @@ class FileListView(TreeWidget):
         if not os.path.isdir(folder_path):
             return 0
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
-            archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
-            all_extensions = image_extensions | archive_extensions
+            all_extensions = self._SUPPORTED_LIST_EXTENSIONS
             count = 0
             for root, dirs, files in os.walk(folder_path):
                 # 忽略 manga_translator_work 目录
@@ -1286,9 +1283,7 @@ class FileListView(TreeWidget):
     def _populate_folder_tree(self, parent_item: QTreeWidgetItem, folder_path: str):
         """递归填充文件夹树形结构"""
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
-            archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
-            all_extensions = image_extensions | archive_extensions
+            all_extensions = self._SUPPORTED_LIST_EXTENSIONS
             
             # 获取当前文件夹的直接子项
             items = os.listdir(folder_path)
@@ -1367,9 +1362,7 @@ class FileListView(TreeWidget):
         
         # 添加文件夹中的文件
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.heic', '.heif'}
-            archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
-            all_extensions = image_extensions | archive_extensions
+            all_extensions = self._SUPPORTED_LIST_EXTENSIONS
             files = [
                 os.path.join(folder_path, f)
                 for f in os.listdir(folder_path)

@@ -13,6 +13,10 @@ import zipfile
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
+from manga_translator.image_formats import (
+    RGB_PIL_FORMATS,
+    resolve_output_image_format,
+)
 from manga_translator.server.core.config_manager import admin_settings, parse_config
 from manga_translator.server.core.logging_manager import add_log
 from manga_translator.server.core.response_utils import (
@@ -526,7 +530,6 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     filenames = data.filenames if data.filenames else []
     
     # 立即将结果图片转换为字节数据，避免图片被关闭后无法访问
-    from PIL import Image
     result_images = []
     for i, ctx in enumerate(results):
         if ctx and ctx.result:
@@ -548,16 +551,6 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
         if fmt and fmt != '不指定':
             output_format = fmt.lower()
     
-    # 格式映射
-    format_map = {
-        'jpg': ('JPEG', '.jpg'),
-        'jpeg': ('JPEG', '.jpg'),
-        'png': ('PNG', '.png'),
-        'webp': ('WEBP', '.webp'),
-        'gif': ('GIF', '.gif'),
-        'bmp': ('BMP', '.bmp'),
-    }
-    
     # Create temporary ZIP file
     with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
         tmp_file_name = tmp_file.name
@@ -572,15 +565,10 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             # 获取原始文件名
             original_name = filenames[i] if i < len(filenames) else None
             
-            # 确定输出格式和扩展名
-            if output_format and output_format in format_map:
-                save_format, ext = format_map[output_format]
-            elif original_name:
-                # 保持原始扩展名
-                orig_ext = os.path.splitext(original_name)[1].lower()
-                save_format, ext = format_map.get(orig_ext.lstrip('.'), ('PNG', '.png'))
-            else:
-                save_format, ext = 'PNG', '.png'
+            save_format, ext = resolve_output_image_format(
+                output_format,
+                original_path=original_name,
+            )
             
             # 生成输出文件名
             if original_name:
@@ -590,9 +578,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
                 output_name = f"translated_{i+1}{ext}"
             
             img_byte_arr = io.BytesIO()
-            # JPEG 不支持 RGBA，需要转换为 RGB
-            is_jpeg = save_format == 'JPEG' or output_name.lower().endswith(('.jpg', '.jpeg'))
-            if is_jpeg and img_to_save.mode not in ('RGB', 'L'):
+            if save_format in RGB_PIL_FORMATS and img_to_save.mode not in ('RGB', 'L'):
                 img_to_save = normalize_rgb_image(img_to_save)
             img_to_save.save(img_byte_arr, format=save_format)
             zip_file.writestr(output_name, img_byte_arr.getvalue())

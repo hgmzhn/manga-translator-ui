@@ -114,7 +114,7 @@ You can add input pages in three ways:
    - Drag images or folders directly into the file list
    - Multiple items are supported
 
-**Supported formats**: `.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`
+**Supported formats**: `.png`, `.jpg`, `.jpeg`, `.jfif`, `.webp`, `.avif`, `.bmp`, `.tiff`, `.tif`, `.heic`, `.heif`
 
 ### Choose a translator
 

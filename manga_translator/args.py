@@ -2,6 +2,8 @@ import argparse
 import os
 import sys
 
+from .image_formats import OUTPUT_IMAGE_FORMATS
+
 
 def _env_true(name: str) -> bool:
     return os.getenv(name, '').strip().lower() in ('true', '1', 'yes', 'on')
@@ -64,7 +66,7 @@ def create_parser():
     local_parser.add_argument('--disable-onnx-gpu', action='store_true', default=None,
                              help='禁用 ONNX Runtime GPU 加速（覆盖配置文件）')
     local_parser.add_argument('--format', default=None,
-                             help='输出格式：png/jpg/webp/avif（覆盖配置文件）')
+                             help=f"输出格式：{'/'.join(OUTPUT_IMAGE_FORMATS)}（覆盖配置文件）")
     local_parser.add_argument('--batch-size', type=int, default=None,
                              help='批量处理大小（覆盖配置文件）')
     local_parser.add_argument('--attempts', type=int, default=None,

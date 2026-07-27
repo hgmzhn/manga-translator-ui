@@ -17,6 +17,7 @@ from PIL import Image
 
 # 添加项目根目录到路径以便导入path_manager
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
 from manga_translator.utils import open_pil_image
 from manga_translator.utils.path_manager import find_json_path
 
@@ -29,9 +30,7 @@ class FileService:
         self.logger = logging.getLogger(__name__)
         self.config_service = get_config_service()
         # 支持的图片格式
-        self.supported_image_extensions = {
-            '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.avif', '.tiff', '.tif', '.heic', '.heif'
-        }
+        self.supported_image_extensions = set(SUPPORTED_IMAGE_EXTENSIONS)
         # 支持的压缩包/文档格式
         self.supported_archive_extensions = {
             '.pdf', '.epub', '.cbz', '.cbr', '.zip'

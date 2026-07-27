@@ -9,11 +9,13 @@ import tempfile
 import zipfile
 from typing import List, Optional, Tuple
 
+from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
+
 # 支持的压缩包/文档格式
 ARCHIVE_EXTENSIONS = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
 
 # 支持的图片格式
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.gif', '.tiff', '.tif', '.heic', '.heif'}
+IMAGE_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS
 
 ORIGINAL_IMAGE_DIRNAME = 'original_images'
 ARCHIVE_SOURCE_MARKER_FILENAME = '.archive_source.txt'

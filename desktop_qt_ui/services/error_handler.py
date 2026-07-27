@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List
 
+from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
+
 
 class ErrorLevel(Enum):
     INFO = "info"
@@ -67,10 +69,9 @@ class InputValidator:
         result = self.validate_file_path(file_path)
         
         if result.is_valid:
-            valid_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.avif', '.heic', '.heif'}
             _, ext = os.path.splitext(file_path)
             
-            if ext.lower() not in valid_extensions:
+            if ext.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
                 result.add_error(f"不支持的图片格式: {ext}")
         
         return result

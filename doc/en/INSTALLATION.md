@@ -539,7 +539,7 @@ You can add input pages in three ways:
 - Click `Add Folder`
 - Drag and drop files or folders into the file list
 
-Supported formats include `.jpg`, `.jpeg`, `.png`, `.webp`, and `.bmp`.
+Supported formats include `.png`, `.jpg`, `.jpeg`, `.jfif`, `.webp`, `.avif`, `.bmp`, `.tiff`, `.tif`, `.heic`, and `.heif`.
 
 ### 6. Start translation
 

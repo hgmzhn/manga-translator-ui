@@ -113,7 +113,7 @@ python -m manga_translator -i <input> [options]
 | `--overwrite` | Overwrite existing files | Off |
 | `--use-gpu` | Use GPU acceleration | From config |
 | `--disable-onnx-gpu` | Disable ONNX Runtime GPU acceleration | From config |
-| `--format` | Output format (`png` / `jpg` / `webp` / `avif`) | From config |
+| `--format` | Output format (`png` / `jpg` / `jpeg` / `jfif` / `webp` / `avif` / `bmp` / `tiff` / `tif` / `heic` / `heif`) | From config |
 | `--batch-size` | Batch size | From config |
 | `--attempts` | Retry count when translation fails (`-1` = unlimited) | From config |
 
@@ -296,8 +296,14 @@ Supported formats include:
 - `.png`
 - `.jpg`
 - `.jpeg`
-- `.bmp`
+- `.jfif`
 - `.webp`
+- `.avif`
+- `.bmp`
+- `.tiff`
+- `.tif`
+- `.heic`
+- `.heif`
 
 #### 2. Multiple images
 

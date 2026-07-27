@@ -20,6 +20,10 @@ from manga_translator.api_key_rotation import (
     record_api_failure,
     record_api_success,
 )
+from manga_translator.image_formats import (
+    IMAGE_FILE_DIALOG_FILTER,
+    IMAGE_FILE_DIALOG_PATTERNS,
+)
 from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
@@ -1661,12 +1665,13 @@ def update_output_path_display(self, path: str):
 def trigger_add_files(self):
     """触发添加文件对话框。"""
     last_dir = self.controller.get_last_open_dir()
+    archive_patterns = "*.pdf *.epub *.cbz *.cbr *.zip"
     file_paths, _ = QFileDialog.getOpenFileNames(
         self._dialog_parent(),
         self._t("Add Files"),
         last_dir,
-        "All Supported Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif *.heic *.heif *.pdf *.epub *.cbz *.cbr *.zip);;"
-        "Image Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif *.heic *.heif);;"
+        f"All Supported Files ({IMAGE_FILE_DIALOG_PATTERNS} {archive_patterns});;"
+        f"{IMAGE_FILE_DIALOG_FILTER};;"
         "PDF Files (*.pdf);;"
         "EPUB Files (*.epub);;"
         "Comic Book Archives (*.cbz *.cbr *.zip)",

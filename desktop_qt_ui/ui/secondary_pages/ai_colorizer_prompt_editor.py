@@ -6,6 +6,7 @@ from typing import Callable, Dict, List, Optional
 from manga_translator.colorization.prompt_loader import (
     load_ai_colorizer_prompt_template,
 )
+from manga_translator.image_formats import IMAGE_FILE_DIALOG_FILTER
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -403,7 +404,7 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
             self,
             self._t("Reference Images"),
             start_dir,
-            "Image Files (*.png *.jpg *.jpeg *.webp *.bmp *.gif);;All Files (*)",
+            f"{IMAGE_FILE_DIALOG_FILTER};;All Files (*)",
         )
         if not file_path:
             return

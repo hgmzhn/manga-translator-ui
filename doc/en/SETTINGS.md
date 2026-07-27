@@ -190,7 +190,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
 
 - **`Output Format` (`format`)**: output image format.
   - Current UI location: `Settings` -> `General` -> `Output Format`
-  - Choices: `PNG`, `JPEG`, `WEBP`, `Not Specified` to keep the original format
+  - Choices: `PNG`, `JPG/JPEG/JFIF`, `WebP`, `AVIF`, `BMP`, `TIFF/TIF`, `HEIC/HEIF`, or `Not Specified` to keep the original format
 
 - **`Overwrite Existing Files` (`overwrite`)**: overwrite existing translated files.
   - Current UI location: `Settings` -> `General` -> `Overwrite Existing Files`
@@ -222,7 +222,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
 - **`Export Original Text` (`template`)**: export original text to a text file for manual translation.
   - Current UI entry: `Translation Workflow Mode:` -> `Export Original Text`
 
-- **`Image Save Quality` (`save_quality`)**: JPEG save quality from `0` to `100`.
+- **`Image Save Quality` (`save_quality`)**: JPEG/JFIF, WebP, AVIF, and HEIC/HEIF save quality from `0` to `100`.
   - Current UI location: `Settings` -> `General` -> `Image Save Quality`
 
 - **`Batch Size` (`batch_size`)**: batch processing size.

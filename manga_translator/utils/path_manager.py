@@ -8,6 +8,7 @@
 import os
 from typing import Optional, Tuple
 
+from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
 from manga_translator.utils.translation_template import (
     get_translation_output_format,
     normalize_translation_output_format,
@@ -350,8 +351,8 @@ def find_translated_source_json(target_image_path: str, translated_dir: str) -> 
     if os.path.exists(old_json_path):
         return old_json_path
     
-    # 尝试匹配任意图片扩展名
-    for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif']:
+    # 尝试匹配任意受支持的图片扩展名
+    for ext in SUPPORTED_IMAGE_EXTENSIONS:
         # 构造可能的已翻译图片路径
         possible_translated_image = os.path.join(translated_dir, f"{target_basename}{ext}")
         if os.path.exists(possible_translated_image):
