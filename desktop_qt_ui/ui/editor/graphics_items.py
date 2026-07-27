@@ -24,6 +24,7 @@ from typing import List
 import numpy as np
 from PyQt6 import sip
 from editor.desktop_ui_geometry import (
+    calculate_center_scaled_rect,
     calculate_new_edge_on_drag,
     calculate_new_vertices_on_drag,
     rotate_point,
@@ -565,6 +566,10 @@ class RegionTextItem(QGraphicsItemGroup):
         if view is None:
             return None
         return getattr(view, "_active_tool", None)
+
+    def _is_center_scale_enabled(self) -> bool:
+        view = self._primary_view()
+        return bool(getattr(view, "_center_scale_enabled", False)) if view is not None else False
 
     def _rotated_world_point(self, point: tuple[float, float], cx: float, cy: float, angle: float):
         x, y = point
@@ -1385,26 +1390,38 @@ class RegionTextItem(QGraphicsItemGroup):
             else:
                 mouse = (event.scenePos().x(), event.scenePos().y())
 
-            if self._interaction_mode == "white_corner":
-                new_verts = calculate_new_vertices_on_drag(
-                    start_verts, self._drag_handle_indices,
-                    mouse, self.rotation_angle, (cx, cy),
-                )
-            elif self._interaction_mode == "white_edge":
-                new_verts = calculate_new_edge_on_drag(
-                    start_verts, self._drag_handle_indices,
-                    mouse, self.rotation_angle, (cx, cy),
+            if self._is_center_scale_enabled():
+                angle = self.rotation()
+                local_mouse = rotate_point(
+                    mouse[0], mouse[1], -angle, cx, cy
+                ) if angle else mouse
+                nl, nt, nr, nb = calculate_center_scaled_rect(
+                    self._drag_start_white_frame_local,
+                    "corner" if self._interaction_mode == "white_corner" else "edge",
+                    self._drag_handle_indices,
+                    (local_mouse[0] - cx, local_mouse[1] - cy),
                 )
             else:
-                return
+                if self._interaction_mode == "white_corner":
+                    new_verts = calculate_new_vertices_on_drag(
+                        start_verts, self._drag_handle_indices,
+                        mouse, self.rotation_angle, (cx, cy),
+                    )
+                elif self._interaction_mode == "white_edge":
+                    new_verts = calculate_new_edge_on_drag(
+                        start_verts, self._drag_handle_indices,
+                        mouse, self.rotation_angle, (cx, cy),
+                    )
+                else:
+                    return
 
-            if not new_verts or len(new_verts) != 4:
-                return
+                if not new_verts or len(new_verts) != 4:
+                    return
 
-            nl = min(p[0] for p in new_verts) - cx
-            nr = max(p[0] for p in new_verts) - cx
-            nt = min(p[1] for p in new_verts) - cy
-            nb = max(p[1] for p in new_verts) - cy
+                nl = min(p[0] for p in new_verts) - cx
+                nr = max(p[0] for p in new_verts) - cx
+                nt = min(p[1] for p in new_verts) - cy
+                nb = max(p[1] for p in new_verts) - cy
             min_s = 8.0
             if nr - nl < min_s:
                 e = (min_s - (nr - nl)) / 2.0

@@ -12,6 +12,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,21 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
 
 from PyQt6.QtWidgets import QApplication  # noqa: E402
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _qt_app():
+    app = QApplication.instance() or QApplication([])
+    app.setQuitOnLastWindowClosed(False)
+    return app
+
+
+@pytest.fixture(autouse=True)
+def _flush_qt_events():
+    yield
+    app = QApplication.instance()
+    if app is not None:
+        app.processEvents()
 
 
 def _make_toolbar():
@@ -84,10 +101,15 @@ def test_menu_actions_emit_signals():
         redos = _collect(toolbar.redo_requested)
         zoom_ins = _collect(toolbar.zoom_in_requested)
         zoom_outs = _collect(toolbar.zoom_out_requested)
+        center_scales = _collect(toolbar.center_scale_enabled_changed)
 
         toolbar.zoom_in_action.trigger()
         toolbar.zoom_out_action.trigger()
         assert len(zoom_ins) == len(zoom_outs) == 1
+
+        toolbar.center_scale_action.trigger()
+        assert center_scales == [(True,)]
+        assert toolbar.is_center_scale_enabled()
 
         # 撤销/重做初始禁用；启停跟随 update_undo_redo_state
         assert not toolbar.undo_action.isEnabled()
@@ -158,14 +180,18 @@ def test_align_reference_and_actions():
 
 def test_arrange_menu_stays_open_on_click():
     """点击排列菜单里的任意选项（参照/对齐/分布）都不关闭菜单。"""
-    from PyQt6.QtCore import QPoint, Qt
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
 
     toolbar = _make_toolbar()
     try:
         aligns = _collect(toolbar.align_requested)
         toolbar.update_align_distribute_buttons(2)
         menu = toolbar.arrange_menu
-        menu.exec(QPoint(100, 100), ani=False)
+        # exec() blocks until the menu closes, so code below it cannot close it
+        # in the offscreen test process. Show non-modally and flush Qt events.
+        menu.show()
+        QApplication.processEvents()
         assert menu.isVisible()
 
         view = menu.view
@@ -205,6 +231,7 @@ def test_refresh_ui_texts_rebuilds_menu_preserving_state():
         toolbar.update_undo_redo_state(True, True)
         toolbar.update_align_distribute_buttons(3)
         toolbar.set_export_enabled(False)
+        toolbar.set_center_scale_enabled(True)
         old_menus = (toolbar.main_menu, toolbar.display_menu, toolbar.arrange_menu)
         icon_count = len(toolbar._themed_icon_buttons)
 
@@ -222,6 +249,7 @@ def test_refresh_ui_texts_rebuilds_menu_preserving_state():
         assert toolbar.undo_action.isEnabled()
         assert toolbar.redo_action.isEnabled()
         assert not toolbar.export_action.isEnabled()  # 导出禁用状态跨重建保持
+        assert toolbar.center_scale_action.isChecked()
         assert toolbar.align_actions["left"].isEnabled()
         assert toolbar._dist_v_action.isEnabled()
         # 排列菜单改用 Action 后不再登记主题图标按钮，重建也不累积

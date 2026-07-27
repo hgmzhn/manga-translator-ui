@@ -53,6 +53,7 @@ class EditorView(QWidget):
         self.i18n = get_i18n_manager()
         self.config_service = getattr(controller, "config_service", None) or get_config_service()
         self._snap_enabled = self._read_editor_snap_enabled()
+        self._center_scale_enabled = self._read_editor_center_scale_enabled()
         self._rich_text_popup_enabled = self._read_editor_rich_text_popup_enabled()
         self._compare_mode_enabled = False
         self.toolbar: EditorToolbar | None = None
@@ -93,6 +94,7 @@ class EditorView(QWidget):
         self.toolbar = EditorToolbar(
             self,
             snap_enabled=self._snap_enabled,
+            center_scale_enabled=self._center_scale_enabled,
             rich_text_popup_enabled=self._rich_text_popup_enabled,
             auto_export_on_switch=self._read_editor_auto_export_on_switch(),
         )
@@ -150,6 +152,9 @@ class EditorView(QWidget):
     def _read_editor_snap_enabled(self, config=None) -> bool:
         return self._read_app_flag("editor_snap_enabled", False, config)
 
+    def _read_editor_center_scale_enabled(self, config=None) -> bool:
+        return self._read_app_flag("editor_center_scale_enabled", False, config)
+
     def _read_editor_rich_text_popup_enabled(self, config=None) -> bool:
         return self._read_app_flag("editor_rich_text_popup_enabled", True, config)
 
@@ -163,6 +168,14 @@ class EditorView(QWidget):
             self.toolbar.set_snap_enabled(enabled)
         if self.graphics_view is not None:
             self.graphics_view.set_snap_enabled(enabled)
+
+    def _apply_editor_center_scale_enabled(self, enabled: bool):
+        enabled = bool(enabled)
+        self._center_scale_enabled = enabled
+        if self.toolbar is not None:
+            self.toolbar.set_center_scale_enabled(enabled)
+        if self.graphics_view is not None:
+            self.graphics_view.set_center_scale_enabled(enabled)
 
     def _apply_editor_rich_text_popup_enabled(self, enabled: bool):
         enabled = bool(enabled)
@@ -199,6 +212,21 @@ class EditorView(QWidget):
         self.config_service.save_config_file()
 
     @pyqtSlot(bool)
+    def _on_editor_center_scale_enabled_changed(self, enabled: bool):
+        """应用并持久化文本框中心点缩放开关。"""
+        enabled = bool(enabled)
+        self._apply_editor_center_scale_enabled(enabled)
+        if self.config_service is None:
+            return
+
+        current_config = self.config_service.get_config()
+        if self._read_editor_center_scale_enabled(current_config) != enabled:
+            self.config_service.update_config(
+                {"app": {"editor_center_scale_enabled": enabled}}
+            )
+        self.config_service.save_config_file()
+
+    @pyqtSlot(bool)
     def _on_editor_rich_text_popup_enabled_changed(self, enabled: bool):
         """应用并持久化富文本浮动编辑器的显示开关。"""
         enabled = bool(enabled)
@@ -230,6 +258,9 @@ class EditorView(QWidget):
     @pyqtSlot(dict)
     def _on_config_changed(self, config: dict):
         self._apply_editor_snap_enabled(self._read_editor_snap_enabled(config))
+        self._apply_editor_center_scale_enabled(
+            self._read_editor_center_scale_enabled(config)
+        )
         self._apply_editor_rich_text_popup_enabled(self._read_editor_rich_text_popup_enabled(config))
         if self.toolbar is not None:
             self.toolbar.set_auto_export_on_switch(self._read_editor_auto_export_on_switch(config))
@@ -727,6 +758,9 @@ class EditorView(QWidget):
         self.toolbar.align_requested.connect(self._on_align_requested)
         self.toolbar.distribute_requested.connect(self._on_distribute_requested)
         self.toolbar.snap_enabled_changed.connect(self._on_editor_snap_enabled_changed)
+        self.toolbar.center_scale_enabled_changed.connect(
+            self._on_editor_center_scale_enabled_changed
+        )
         self.toolbar.auto_export_on_switch_changed.connect(
             self._on_editor_auto_export_on_switch_changed
         )
@@ -818,6 +852,7 @@ class EditorView(QWidget):
             self.model, controller=self.controller, parent=self, editor_view=self
         )
         self.graphics_view.set_snap_enabled(self._snap_enabled)
+        self.graphics_view.set_center_scale_enabled(self._center_scale_enabled)
         self.original_compare_view.set_source_view(self.graphics_view)
         edit_canvas_layout.addWidget(self.graphics_view)
         # Keep QObject ownership under the editor page (theme refresh/lifetime),

@@ -8,6 +8,7 @@
     "ui_language": "auto",
     "current_preset": "默认",
     "editor_snap_enabled": false,
+    "editor_center_scale_enabled": false,
     "editor_rich_text_popup_enabled": true,
     "editor_auto_export_on_switch": true,
     "unload_models_after_translation": false,

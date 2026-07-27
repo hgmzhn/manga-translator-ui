@@ -46,6 +46,38 @@ def _project_vector(v_to_project: Tuple[float, float], v_target: Tuple[float, fl
     scale = dot_product / target_len_sq
     return (v_target[0] * scale, v_target[1] * scale)
 
+
+def calculate_center_scaled_rect(
+    original_rect: List[float],
+    handle_kind: str,
+    handle_index: int,
+    new_point: Tuple[float, float],
+    min_size: float = 8.0,
+) -> List[float]:
+    """围绕矩形中心实时对称缩放边或角。"""
+    left, top, right, bottom = map(float, original_rect)
+    center_x = (left + right) / 2.0
+    center_y = (top + bottom) / 2.0
+    half_width = (right - left) / 2.0
+    half_height = (bottom - top) / 2.0
+    min_half = max(0.0, float(min_size)) / 2.0
+
+    if handle_kind == "corner" and 0 <= handle_index < 4:
+        half_width = max(abs(float(new_point[0]) - center_x), min_half)
+        half_height = max(abs(float(new_point[1]) - center_y), min_half)
+    elif handle_kind == "edge" and handle_index in (0, 2):
+        half_height = max(abs(float(new_point[1]) - center_y), min_half)
+    elif handle_kind == "edge" and handle_index in (1, 3):
+        half_width = max(abs(float(new_point[0]) - center_x), min_half)
+
+    return [
+        center_x - half_width,
+        center_y - half_height,
+        center_x + half_width,
+        center_y + half_height,
+    ]
+
+
 def calculate_new_vertices_on_drag(
     original_vertices: List[Tuple[float, float]],
     dragged_vertex_index: int,
@@ -199,5 +231,3 @@ def calculate_new_edge_on_drag(
     new_vertices[v2_model_idx] = new_v2_model
         
     return new_vertices
-
-

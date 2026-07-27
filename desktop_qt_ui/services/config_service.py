@@ -466,6 +466,7 @@ class ConfigService(QObject):
                     config_dict['app']['ui_language'] = 'auto'  # 模板配置始终为 auto
                     config_dict['app']['current_preset'] = '默认'  # 模板配置始终为默认预设
                     config_dict['app']['editor_snap_enabled'] = False  # 模板配置默认关闭编辑器吸附
+                    config_dict['app']['editor_center_scale_enabled'] = False  # 模板默认关闭中心点缩放
                     config_dict['app']['editor_rich_text_popup_enabled'] = True  # 模板默认显示富文本浮窗
                     config_dict['app']['editor_auto_export_on_switch'] = True  # 模板默认切图自动导出
                     config_dict['app']['saved_colors'] = None  # 模板配置中保存的颜色始终为空

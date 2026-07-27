@@ -84,6 +84,7 @@ class GraphicsView(
 
         self._region_items = []
         self._snap_enabled = False
+        self._center_scale_enabled = False
         self._pending_geometry_edit_kinds: dict[int, str] = {}
         self._immediate_render_update_pending = False
 
@@ -137,6 +138,10 @@ class GraphicsView(
             if item is not None:
                 item.set_snap_enabled(self._snap_enabled)
         self.scene.update()
+
+    def set_center_scale_enabled(self, enabled: bool) -> None:
+        """设置文本框边/角拖拽是否围绕中心对称缩放。"""
+        self._center_scale_enabled = bool(enabled)
 
     def clear_pending_geometry_edits(self) -> None:
         self._clear_pending_geometry_edits()

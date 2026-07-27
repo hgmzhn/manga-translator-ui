@@ -104,6 +104,7 @@ class EditorToolbar(CardWidget):
     align_requested = pyqtSignal(str)
     distribute_requested = pyqtSignal(str)
     snap_enabled_changed = pyqtSignal(bool)
+    center_scale_enabled_changed = pyqtSignal(bool)
     rich_text_popup_enabled_changed = pyqtSignal(bool)
     auto_export_on_switch_changed = pyqtSignal(bool)
 
@@ -113,6 +114,7 @@ class EditorToolbar(CardWidget):
         snap_enabled: bool = False,
         rich_text_popup_enabled: bool = True,
         auto_export_on_switch: bool = True,
+        center_scale_enabled: bool = False,
     ):
         super().__init__(parent)
         self.i18n = get_i18n_manager()
@@ -126,6 +128,7 @@ class EditorToolbar(CardWidget):
         self._export_enabled = True
         self._last_selection_count = 0
         self._snap_enabled = bool(snap_enabled)
+        self._center_scale_enabled = bool(center_scale_enabled)
         self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
         self._auto_export_on_switch = bool(auto_export_on_switch)
         self.main_menu: RoundMenu | None = None
@@ -258,6 +261,15 @@ class EditorToolbar(CardWidget):
         self.snap_action.triggered.connect(self._on_snap_action_triggered)
         menu.addAction(self.snap_action)
 
+        self.center_scale_action = Action(
+            FIF.ZOOM_IN,
+            self._t("Scale Text Boxes from Center"),
+        )
+        self.center_scale_action.setCheckable(True)
+        self.center_scale_action.setChecked(self._center_scale_enabled)
+        self.center_scale_action.triggered.connect(self._on_center_scale_action_triggered)
+        menu.addAction(self.center_scale_action)
+
         self.rich_text_popup_action = Action(
             themed_fluent_svg_icon("ic_fluent_text_edit_style_24_regular.svg"),
             self._t("Show Rich Text Editor Popup"),
@@ -389,6 +401,27 @@ class EditorToolbar(CardWidget):
 
     def is_snap_enabled(self) -> bool:
         return self._snap_enabled
+
+    def _on_center_scale_action_triggered(self, checked: bool = False):
+        self.set_center_scale_enabled(checked, emit=True)
+
+    def set_center_scale_enabled(self, enabled: bool, emit: bool = False):
+        """同步中心点缩放开关；外部配置同步时默认不回发信号。"""
+        enabled = bool(enabled)
+        changed = enabled != self._center_scale_enabled
+        self._center_scale_enabled = enabled
+
+        action = getattr(self, "center_scale_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.center_scale_enabled_changed.emit(enabled)
+
+    def is_center_scale_enabled(self) -> bool:
+        return self._center_scale_enabled
 
     def _on_rich_text_popup_action_triggered(self, checked: bool = False):
         self.set_rich_text_popup_enabled(checked, emit=True)
