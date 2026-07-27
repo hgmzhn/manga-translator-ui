@@ -23,7 +23,6 @@ from .text_render import (
 )
 from .chinese_linebreak import append_chinese_linebreak_debug_record, layout_chinese_cjk
 from ..utils.log import get_logger
-from ..utils.textblock import LANGUAGE_ORIENTATION_PRESETS
 
 logger = get_logger('render')
 
@@ -185,12 +184,8 @@ def _resolve_current_region_render_horizontal(region: Any) -> bool:
     return bool(getattr(region, "horizontal", False))
 
 
-def _resolve_current_region_auto_direction(region: Any) -> str:
-    target_lang = getattr(region, "target_lang", None)
-    preset_direction = LANGUAGE_ORIENTATION_PRESETS.get(target_lang)
-    if preset_direction in ("h", "v", "hr", "vr"):
-        return preset_direction
-
+def _resolve_current_region_source_direction(region: Any) -> str:
+    """Infer the source bubble direction from OCR geometry, not the target language."""
     lines = getattr(region, "lines", None)
     if lines is not None and len(lines) > 0:
         max_area = -1.0
@@ -222,8 +217,8 @@ def _resolve_current_region_auto_direction(region: Any) -> str:
 
 
 def _current_region_direction_mismatch(region: Any) -> bool:
-    auto_direction = _resolve_current_region_auto_direction(region)
-    return auto_direction.startswith("h") != _resolve_current_region_render_horizontal(region)
+    source_direction = _resolve_current_region_source_direction(region)
+    return source_direction.startswith("h") != _resolve_current_region_render_horizontal(region)
 
 
 def should_force_no_wrap_single_region(region: Any) -> bool:
