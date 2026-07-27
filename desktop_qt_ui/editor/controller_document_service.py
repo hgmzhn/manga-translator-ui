@@ -14,6 +14,7 @@ from qfluentwidgets import Dialog, PushButton
 
 from services import get_render_parameter_service
 
+from .controller_export_service import ExportOutcome
 from .document_load_worker import DocumentLoadWorker
 from .session import DocumentLoadFailure, DocumentSnapshot
 
@@ -79,6 +80,8 @@ class EditorControllerDocumentService:
                 pass
             self.controller._loading_toast = None
 
+        # Only cancellable editor work lives in AsyncService. Export jobs use a
+        # dedicated queue and intentionally survive document switches.
         self.async_service.cancel_all_tasks()
         self.controller.inpaint_service.invalidate_inpaint_requests()
 
@@ -223,15 +226,16 @@ class EditorControllerDocumentService:
             self.logger.warning(f"Failed to remove stale editor_base image {work_image_path}: {e}")
 
     def load_image_and_regions(self, image_path: str) -> None:
+        if self._is_shutdown:
+            return
         # 脏检测前先提交视图层草稿（如浮动编辑器 debounce 期内容），
         # 否则刚打完字 180ms 内切图会漏检并丢草稿
         self.controller.commit_pending_edits()
         if self.controller.export_service.has_changes_since_last_export():
             if self._auto_export_on_switch_enabled():
-                # 自动导出：export_image() 同步打完全部快照后才异步渲染，
-                # 立即切图不影响导出内容；失败由 error_callback Toast 提示
-                if self.controller.export_image() is None:
-                    self.logger.warning("Auto-export could not be scheduled; switching anyway")
+                if self.controller.export_image(automatic=True) is None:
+                    self.logger.warning("Auto-export rejected; image switch aborted")
+                    return
             else:
                 action = self._ask_unsaved_action()
                 if action == "cancel":
@@ -287,7 +291,7 @@ class EditorControllerDocumentService:
             self.logger.error("Deferred image load skipped because export task failed: %s", e, exc_info=True)
             return
 
-        if isinstance(result, dict) and result.get("success"):
+        if isinstance(result, ExportOutcome) and result.success:
             self.controller._deferred_load_requested.emit(image_path)
             return
 

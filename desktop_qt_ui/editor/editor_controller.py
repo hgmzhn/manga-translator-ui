@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+from PIL import Image
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+
 from editor.commands import UpdateRegionCommand
 from editor.geometry_commit_pipeline import build_rotate_region_data
 from editor.region_geometry_state import RegionGeometryState
-from PIL import Image
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from services import (
     get_async_service,
     get_config_service,
@@ -18,16 +19,16 @@ from services import (
     get_i18n_manager,
     get_logger,
     get_ocr_service,
-    get_resource_manager,
     get_render_parameter_service,
+    get_resource_manager,
     get_translation_service,
 )
 
-from .image_utils import copy_image_like, image_like_to_display_array
 from .controller_document_service import EditorControllerDocumentService
-from .controller_export_service import EditorControllerExportService
+from .controller_export_service import EditorControllerExportService, ExportOutcome
 from .controller_inpaint_service import EditorControllerInpaintService
 from .editor_model import EditorModel
+from .image_utils import copy_image_like, image_like_to_display_array
 from .render_text_value import has_renderable_text, render_text_value_from_region
 from .session import DocumentSnapshot
 
@@ -144,8 +145,9 @@ class EditorController(QObject):
     _ocr_finished = pyqtSignal(str, str)
     _translation_finished = pyqtSignal(str, str)
     
-    # Signal for thread-safe Toast notifications
-    _show_toast_signal = pyqtSignal(str, int, bool, str)  # message, duration, success, clickable_path
+    # Export queue worker -> GUI thread signals
+    _export_queue_status_signal = pyqtSignal(object)
+    _export_job_finished_signal = pyqtSignal(object)
     
     # Signal for thread-safe image loading
     _load_result_ready = pyqtSignal(object)  # 加载结果信号
@@ -182,6 +184,8 @@ class EditorController(QObject):
         self.document_service = EditorControllerDocumentService(self)
         self.inpaint_service = EditorControllerInpaintService(self)
         self.export_service = EditorControllerExportService(self)
+        self._export_status_text = ""
+        self._export_toast = None
 
         # Connect internal signals for thread-safe updates
         self._update_display_mask_type.connect(self.model.set_display_mask_type)
@@ -190,6 +194,8 @@ class EditorController(QObject):
         self._translation_finished.connect(self._on_translation_finished)
         self._load_result_ready.connect(self._apply_load_result)  # 连接加载结果信号
         self._deferred_load_requested.connect(self.document_service.do_load_image)
+        self._export_queue_status_signal.connect(self._on_export_queue_status_changed)
+        self._export_job_finished_signal.connect(self._on_export_job_finished)
         
         self._connect_model_signals()
         self.history_service.undo_redo_state_changed.connect(self._on_history_undo_redo_state_changed)
@@ -197,11 +203,15 @@ class EditorController(QObject):
         _ACTIVE_CONTROLLERS.add(self)
 
     def shutdown(self) -> None:
-        """退出清理：取消在途加载/预读任务并关闭文档服务的常驻线程池。"""
+        """Stop cancellable editor work, then drain the durable export queue."""
         try:
             self.document_service.shutdown()
         except Exception as e:
-            self.logger.warning(f"EditorController shutdown failed: {e}")
+            self.logger.warning(f"Editor document service shutdown failed: {e}")
+        try:
+            self.export_service.shutdown()
+        except Exception as e:
+            self.logger.warning(f"Editor export queue shutdown failed: {e}")
 
     # ========== Resource Access Helpers (新的资源访问辅助方法) ==========
     
@@ -458,34 +468,66 @@ class EditorController(QObject):
         if existing_toast_manager is None or getattr(existing_toast_manager, "parent", None) is not view:
             from ui.widgets.toast_notification import ToastManager
             self.toast_manager = ToastManager(view)
-        if not getattr(self, "_toast_signal_connected", False):
-            # 连接Toast信号到主线程槽函数
-            self._show_toast_signal.connect(self._show_toast_in_main_thread)
-            self._toast_signal_connected = True
         # 初始化撤销/重做按钮状态
         self._update_undo_redo_buttons()
-    
-    @pyqtSlot(str, int, bool, str)
-    def _show_toast_in_main_thread(self, message: str, duration: int, success: bool, clickable_path: str):
-        """在主线程显示Toast通知的槽函数"""
-        try:
-            # 先关闭"正在导出"Toast（在主线程中安全关闭）
-            if hasattr(self, '_export_toast') and self._export_toast:
-                try:
-                    self._export_toast.close()
-                    self._export_toast = None
-                except Exception as e:
-                    self.logger.warning(f"Failed to close export toast: {e}")
 
-            # 显示新Toast
-            toast_manager = self.get_toast_manager()
-            if toast_manager is not None:
-                if success:
-                    toast_manager.show_success(message, duration, clickable_path if clickable_path else None)
-                else:
-                    toast_manager.show_error(message, duration)
-        except Exception as e:
-            self.logger.error(f"Exception in _show_toast_in_main_thread: {e}", exc_info=True)
+    def _close_export_progress_toast(self) -> None:
+        toast = getattr(self, "_export_toast", None)
+        if toast is not None:
+            try:
+                toast.close()
+            except Exception:
+                pass
+        self._export_toast = None
+        self._export_status_text = ""
+
+    @pyqtSlot(object)
+    def _on_export_queue_status_changed(self, unfinished_count: object) -> None:
+        try:
+            unfinished_count = int(unfinished_count)
+        except (TypeError, ValueError):
+            return
+
+        toast_manager = self.get_toast_manager()
+        if unfinished_count <= 0:
+            self._close_export_progress_toast()
+            return
+
+        message = "正在导出..." if unfinished_count == 1 else f"正在导出（{unfinished_count} 个任务）"
+        if message == self._export_status_text:
+            return
+
+        self._close_export_progress_toast()
+        self._export_status_text = message
+        if toast_manager is not None:
+            self._export_toast = toast_manager.show_info(message, duration=0)
+
+    @pyqtSlot(object)
+    def _on_export_job_finished(self, outcome: ExportOutcome) -> None:
+        if not isinstance(outcome, ExportOutcome):
+            return
+
+        toast_manager = self.get_toast_manager()
+        file_name = os.path.basename(outcome.source_path)
+        if outcome.success:
+            if not outcome.automatic and toast_manager is not None:
+                toast_manager.show_success(
+                    f"导出成功\n{outcome.output_path}\n已同步 JSON",
+                    5000,
+                    outcome.output_path,
+                )
+
+            if self._is_same_source_image(self.model.get_source_image_path(), outcome.source_path):
+                self.resource_manager.release_memory_after_export()
+                self.resource_manager.release_image_cache_except_current()
+                self._log_memory_snapshot("after-export-cleanup")
+            return
+
+        if toast_manager is not None:
+            toast_manager.show_error(
+                f"{file_name} 导出失败：{outcome.error or '未知错误'}",
+                7000,
+            )
 
     def _connect_model_signals(self):
         """监听模型的变化，可能需要触发一些后续逻辑"""
@@ -573,7 +615,9 @@ class EditorController(QObject):
         new_translation: str,
     ) -> Optional[dict]:
         """对齐逻辑在后端 rich_text_sync;这里只取字段转发。"""
-        from manga_translator.rendering.rich_text_sync import sync_region_rich_translation
+        from manga_translator.rendering.rich_text_sync import (
+            sync_region_rich_translation,
+        )
 
         return sync_region_rich_translation(
             old_region_data.get("translation_rich"),
@@ -1446,65 +1490,12 @@ class EditorController(QObject):
         self._on_history_undo_redo_state_changed(can_undo, can_redo)
 
     @pyqtSlot()
-    def export_image(self):
+    def export_image(
+        self,
+        automatic: bool = False,
+    ):
         self.commit_pending_edits()
-        return self.export_service.export_image()
-
-    @staticmethod
-    def _apply_white_frame_center(region: dict):
-        EditorControllerExportService.apply_white_frame_center(region)
-
-    @staticmethod
-    def _resolve_effective_box_local(region: dict):
-        return EditorControllerExportService.resolve_effective_box_local(region)
-
-    def _resolve_editor_json_path(self, source_path: str) -> str:
-        return self.export_service.resolve_editor_json_path(source_path)
-
-    def _save_current_inpainted_image(
-        self,
-        source_path: str,
-        config_dict: dict,
-        mask: Optional[np.ndarray],
-        current_inpainted_image: Optional[object] = None,
-        has_regions: bool = False,
-    ) -> None:
-        self.export_service.save_current_inpainted_image(
-            source_path,
-            config_dict,
-            mask,
-            current_inpainted_image=current_inpainted_image,
-            has_regions=has_regions,
-        )
-
-    def _persist_editor_state_for_export(
-        self,
-        export_service,
-        source_path: str,
-        regions: list,
-        mask: Optional[np.ndarray],
-        config_dict: dict,
-        inpainted_image: Optional[object] = None,
-    ) -> str:
-        return self.export_service.persist_editor_state_for_export(
-            export_service=export_service,
-            source_path=source_path,
-            regions=regions,
-            mask=mask,
-            config_dict=config_dict,
-            inpainted_image=inpainted_image,
-        )
-
-    async def _async_export_with_desktop_ui_service(self, image, regions, mask, source_path=None, inpainted_image=None, paint_overlay=None, stamp_overlay=None):
-        return await self.export_service.async_export_with_desktop_ui_service(
-            image,
-            regions,
-            mask,
-            source_path=source_path,
-            inpainted_image=inpainted_image,
-            paint_overlay=paint_overlay,
-            stamp_overlay=stamp_overlay,
-        )
+        return self.export_service.export_image(automatic=automatic)
 
     @pyqtSlot(str)
     def set_display_mode(self, mode: str):
