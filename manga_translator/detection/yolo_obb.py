@@ -6,6 +6,7 @@ YOLO 辅助检测器
 import os
 from typing import Any, Optional, Tuple
 
+import cv2
 import numpy as np
 import torch
 from ultralytics import YOLO
@@ -172,6 +173,99 @@ class YOLOOBBDetector(OfflineDetector):
                 keep.append(i)
 
         return boxes[keep], scores[keep], class_ids[keep]
+
+    @staticmethod
+    def _merge_edge_other_boxes(
+        boxes: np.ndarray,
+        scores: np.ndarray,
+        class_ids: np.ndarray,
+        source_indices: np.ndarray,
+        edge_sides: np.ndarray,
+        other_class_id: int = 5,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """合并跨重排切片边缘重复出的 ``other`` 框。
+
+        只处理相邻切片的 ``bottom -> top`` 边缘框，普通图像内部的重叠
+        ``other`` 框保持不变。
+        """
+        if len(boxes) < 2:
+            return boxes, scores, class_ids
+
+        work_boxes = [np.asarray(box, dtype=np.float32).copy() for box in boxes]
+        work_scores = [float(score) for score in scores]
+        work_class_ids = [int(class_id) for class_id in class_ids]
+        work_edges = [
+            {int(source): int(sides)}
+            for source, sides in zip(source_indices, edge_sides)
+        ]
+
+        def _can_merge(index_a: int, index_b: int) -> bool:
+            seam_pair = any(
+                (
+                    source_a + 1 == source_b
+                    and sides_a & 2
+                    and sides_b & 1
+                )
+                or (
+                    source_b + 1 == source_a
+                    and sides_b & 2
+                    and sides_a & 1
+                )
+                for source_a, sides_a in work_edges[index_a].items()
+                for source_b, sides_b in work_edges[index_b].items()
+            )
+            if not seam_pair:
+                return False
+
+            box_a = work_boxes[index_a]
+            box_b = work_boxes[index_b]
+            ax1, ay1 = np.min(box_a, axis=0)
+            ax2, ay2 = np.max(box_a, axis=0)
+            bx1, by1 = np.min(box_b, axis=0)
+            bx2, by2 = np.max(box_b, axis=0)
+            area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+            area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+            smaller_area = min(area_a, area_b)
+            if smaller_area <= 0:
+                return False
+
+            inter_w = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+            inter_h = max(0.0, min(ay2, by2) - max(ay1, by1))
+            return inter_w * inter_h / smaller_area >= 0.4
+
+        changed = True
+        while changed:
+            changed = False
+            for i in range(len(work_boxes)):
+                if work_class_ids[i] != other_class_id:
+                    continue
+                for j in range(i + 1, len(work_boxes)):
+                    if work_class_ids[j] != other_class_id:
+                        continue
+                    if not _can_merge(i, j):
+                        continue
+
+                    merged_points = np.concatenate((work_boxes[i], work_boxes[j]), axis=0)
+                    merged_rect = cv2.minAreaRect(merged_points.astype(np.float32))
+                    work_boxes[i] = cv2.boxPoints(merged_rect).astype(np.float32)
+                    work_scores[i] = max(work_scores[i], work_scores[j])
+                    for source, sides in work_edges[j].items():
+                        work_edges[i][source] = work_edges[i].get(source, 0) | sides
+
+                    del work_boxes[j]
+                    del work_scores[j]
+                    del work_class_ids[j]
+                    del work_edges[j]
+                    changed = True
+                    break
+                if changed:
+                    break
+
+        return (
+            np.asarray(work_boxes, dtype=np.float32),
+            np.asarray(work_scores, dtype=np.float32),
+            np.asarray(work_class_ids, dtype=np.int32),
+        )
 
     def _extract_prediction_arrays(
         self,
@@ -347,6 +441,11 @@ class YOLOOBBDetector(OfflineDetector):
         mapped_boxes = []
         mapped_scores = []
         mapped_class_ids = []
+        mapped_source_indices = []
+        mapped_edge_sides = []
+
+        edge_margin = max(16.0, float(patch_size) * 0.03)
+        source_starts = [int(round(float(rel_t) * h)) for rel_t in rel_step_list]
 
         for boxes, scores, class_ids, (patch_idx, patch_shape) in zip(
             all_boxes, all_scores, all_class_ids, all_patch_info
@@ -362,6 +461,9 @@ class YOLOOBBDetector(OfflineDetector):
                 jj_start = max(0, int(np.floor(x_min / _pw)))
                 jj_end = min(pw_num - 1, int(np.floor(max(x_max - 1e-6, x_min) / _pw)))
 
+                y_min = float(np.min(box[:, 1]))
+                y_max = float(np.max(box[:, 1]))
+
                 for jj in range(jj_start, jj_end + 1):
                     pidx = patch_idx * pw_num + jj
                     if pidx >= len(rel_step_list):
@@ -371,6 +473,19 @@ class YOLOOBBDetector(OfflineDetector):
                     stripe_r = (jj + 1) * _pw
                     if x_max <= stripe_l or x_min >= stripe_r:
                         continue
+
+                    # 重排条带之间有重叠区；把重叠区视为该条带的边缘，
+                    # 这样同一个气泡在相邻条带中被截断时才能配对。
+                    edge_sides = 0
+                    if pidx > 0:
+                        previous_end = source_starts[pidx - 1] + patch_size
+                        previous_overlap = max(0, previous_end - source_starts[pidx])
+                        if y_min <= previous_overlap + edge_margin:
+                            edge_sides |= 1
+                    if pidx + 1 < len(source_starts):
+                        next_step = source_starts[pidx + 1] - source_starts[pidx]
+                        if y_max >= next_step - edge_margin:
+                            edge_sides |= 2
 
                     rel_t = rel_step_list[pidx]
                     t = int(round(rel_t * h))
@@ -387,6 +502,8 @@ class YOLOOBBDetector(OfflineDetector):
                     mapped_boxes.append(mapped_box)
                     mapped_scores.append(score)
                     mapped_class_ids.append(class_id)
+                    mapped_source_indices.append(pidx)
+                    mapped_edge_sides.append(edge_sides)
 
         if len(mapped_boxes) == 0:
             return self._empty_results()
@@ -397,6 +514,23 @@ class YOLOOBBDetector(OfflineDetector):
 
         if transpose:
             boxes_corners = boxes_corners[:, :, ::-1].copy()
+
+        if not transpose:
+            boxes_before_edge_merge = len(boxes_corners)
+            boxes_corners, scores, class_ids = self._merge_edge_other_boxes(
+                boxes_corners,
+                scores,
+                class_ids,
+                np.asarray(mapped_source_indices, dtype=np.int32),
+                np.asarray(mapped_edge_sides, dtype=np.int32),
+                other_class_id=next(
+                    (class_id for class_id, label in self.class_id_to_label.items() if label == "other"),
+                    5,
+                ),
+            )
+            edge_merge_count = boxes_before_edge_merge - len(boxes_corners)
+            if edge_merge_count > 0:
+                self.logger.info(f"YOLO OBB重排边缘other框合并: {edge_merge_count} 个重复框")
 
         boxes_corners, scores, class_ids = self.deduplicate_boxes(
             boxes_corners,
