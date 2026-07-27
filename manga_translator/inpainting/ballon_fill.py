@@ -133,15 +133,17 @@ def solid_fill_pure_bubbles(img: np.ndarray, mask: np.ndarray, text_regions: Lis
 
 
 async def inpaint_regions_per_block(img: np.ndarray, remaining_mask: np.ndarray, text_regions: List,
-                                    mask_tight: Optional[np.ndarray], inpaint_fn) -> Tuple[np.ndarray, int]:
+                                    inpaint_fn) -> Tuple[np.ndarray, int]:
     """
-    BT 式逐块修复：对填色后仍有剩余掩码的文本区域，裁 1.7 倍窗口单独修复再贴回。
+    BT 式逐块修复：对填色后优化蒙版中仍有剩余掩码的文本区域，
+    裁 1.7 倍窗口单独修复再贴回。
 
     与整页修复的差异（均为对齐 BT 的行为，实测决定成图干净度）：
     - 逐块小窗口内掩码占比大，LaMa 修复质量远好于整页长条掩码（整页会留文字鬼影）
-    - 修复用贴合笔画的瘦掩码而非膨胀掩码，避免掩码压住气泡边线导致模型重绘糊边
+    - 修复直接使用 mask refinement 生成的优化蒙版，不再回退使用 mask_raw
     - 图与掩码一起反射补成正方形：给模型足够上下文；掩码同步反射，
       否则镜像出来的文字没有掩码，模型会照着镜像把文字原样画回来
+    - 补成正方形后调用普通修复入口，长宽比为 1，不会进入长图切片流程
 
     Args:
         inpaint_fn: async (crop, mask) -> inpainted crop
@@ -164,12 +166,9 @@ async def inpaint_regions_per_block(img: np.ndarray, remaining_mask: np.ndarray,
         ex1, ey1, ex2, ey2 = enlarge_window([x1, y1, x2, y2], im_w, im_h, ratio=1.7)
         if ex2 <= ex1 or ey2 <= ey1:
             continue
-        msk_fat = remaining_mask[ey1:ey2, ex1:ex2]
-        if not (msk_fat > 0).any():
-            continue
-        msk = mask_tight[ey1:ey2, ex1:ex2] if mask_tight is not None else msk_fat
+        msk = remaining_mask[ey1:ey2, ex1:ex2]
         if not (msk > 0).any():
-            msk = msk_fat
+            continue
         crop = result[ey1:ey2, ex1:ex2].copy()
         ch, cw = crop.shape[:2]
         longer = max(ch, cw)

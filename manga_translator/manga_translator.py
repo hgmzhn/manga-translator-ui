@@ -3038,27 +3038,26 @@ class MangaTranslator:
         
         # BT 式修复，两个独立开关：
         # solid_fill_pure_bubbles - 纯色气泡直接填背景色跳过模型
-        # per_block_inpainting - 逐块裁窗+瘦掩码修复（整页长条掩码会留文字鬼影，胖掩码会压住气泡边线糊边）
+        # per_block_inpainting - 使用优化蒙版逐块裁窗修复；补方后不会进入长图切片流程
         img_for_inpaint = ctx.img_rgb
         mask_for_inpaint = ctx.mask
         solid_fill = getattr(config.inpainter, 'solid_fill_pure_bubbles', False)
         per_block = getattr(config.inpainter, 'per_block_inpainting', False)
         if (solid_fill or per_block) and ctx.text_regions:
             try:
-                # 气泡检测/逐块修复需要贴合笔画的瘦掩码；精修掩码膨胀过大会盖住气泡边线
-                mask_tight = getattr(ctx, 'mask_raw', None)
-                if mask_tight is not None:
-                    if mask_tight.shape[:2] != ctx.mask.shape[:2]:
-                        mask_tight = cv2.resize(mask_tight, (ctx.mask.shape[1], ctx.mask.shape[0]),
-                                                interpolation=cv2.INTER_LINEAR)
-                    # BT REFINEMASK_INPAINT 等效：笔画掩码外扩 2px，
-                    # 盖住文字边缘抗锯齿像素，否则背景纯度采样会被灰边顶爆
-                    mask_tight = cv2.dilate(np.where(mask_tight >= 127, 255, 0).astype(np.uint8),
-                                            np.ones((5, 5), np.uint8), iterations=1)
-
                 filled_img = ctx.img_rgb
                 remaining_mask = ctx.mask
                 if solid_fill:
+                    # raw 蒙版只用于纯色气泡判断；逐块模型始终使用优化后的 ctx.mask。
+                    mask_tight = getattr(ctx, 'mask_raw', None)
+                    if mask_tight is not None:
+                        if mask_tight.shape[:2] != ctx.mask.shape[:2]:
+                            mask_tight = cv2.resize(mask_tight, (ctx.mask.shape[1], ctx.mask.shape[0]),
+                                                    interpolation=cv2.INTER_LINEAR)
+                        # BT REFINEMASK_INPAINT 等效：笔画掩码外扩 2px，
+                        # 盖住文字边缘抗锯齿像素，否则背景纯度采样会被灰边顶爆
+                        mask_tight = cv2.dilate(np.where(mask_tight >= 127, 255, 0).astype(np.uint8),
+                                                np.ones((5, 5), np.uint8), iterations=1)
                     filled_img, remaining_mask, filled_count = solid_fill_pure_bubbles(
                         ctx.img_rgb, ctx.mask, ctx.text_regions, mask_tight)
                     logger.info(f"[修复] 纯色气泡直接填色: {filled_count}/{len(ctx.text_regions)} 个区域跳过修复模型")
@@ -3074,7 +3073,7 @@ class MangaTranslator:
                             config.inpainter.inpainting_size, self.device, self.verbose)
 
                     result, block_count = await inpaint_regions_per_block(
-                        filled_img, remaining_mask, ctx.text_regions, mask_tight, _inpaint_block)
+                        filled_img, remaining_mask, ctx.text_regions, _inpaint_block)
                     logger.info(f"[修复] 逐块修复完成: {block_count} 个区域")
                     return result
 

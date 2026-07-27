@@ -504,7 +504,7 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_inpainting_precision', '修复精度'), this.createSelect('inpainter', 'inpainting_precision', opts.inpainting_precision), '', 'inpainter', 'inpainting_precision')}
                 ${this.createFormRow(this.t('label_force_use_torch_inpainting', '强制使用PyTorch修复'), this.createCheckbox('inpainter', 'force_use_torch_inpainting'), '不使用ONNX，在ONNX内存问题时有用', 'inpainter', 'force_use_torch_inpainting')}
                 ${this.createFormRow(this.t('label_solid_fill_pure_bubbles', '纯色气泡直接填色'), this.createCheckbox('inpainter', 'solid_fill_pure_bubbles'), '纯色背景气泡跳过修复模型，直接用背景色填充', 'inpainter', 'solid_fill_pure_bubbles')}
-                ${this.createFormRow(this.t('label_per_block_inpainting', '逐块修复'), this.createCheckbox('inpainter', 'per_block_inpainting'), '对文本区域逐块裁窗修复，比整页修复更干净', 'inpainter', 'per_block_inpainting')}
+                ${this.createFormRow(this.t('label_per_block_inpainting', '逐块修复'), this.createCheckbox('inpainter', 'per_block_inpainting'), '使用优化蒙版逐块裁窗并补成正方形，不走长图切片流程', 'inpainter', 'per_block_inpainting')}
             </div>
             <div class="form-section">
                 <h3>${this.t('label_upscaler', '放大设置')}</h3>
@@ -1340,4 +1340,3 @@ class PermissionEditor {
 }
 
 window.PermissionEditor = PermissionEditor;
-

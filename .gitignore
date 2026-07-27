@@ -59,6 +59,9 @@ $RECYCLE.BIN/
 # Tests
 test/
 /tests/
+!/tests/
+/tests/*
+!/tests/test_per_block_inpainting.py
 
 # Python eggs
 *.egg
