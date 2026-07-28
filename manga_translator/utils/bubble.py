@@ -2,6 +2,44 @@ import cv2
 import numpy as np
 
 
+def calc_bbox_mask_overlap_ratio(
+    text_bbox: tuple[int, int, int, int],
+    bubble_mask: np.ndarray,
+) -> float:
+    """Return the fraction of a text bounding box covered by a bubble mask."""
+    x, y, box_w, box_h = map(int, text_bbox)
+    x1, y1 = max(x, 0), max(y, 0)
+    x2 = min(x + box_w, bubble_mask.shape[1])
+    y2 = min(y + box_h, bubble_mask.shape[0])
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    return np.count_nonzero(bubble_mask[y1:y2, x1:x2]) / max(float(box_w * box_h), 1.0)
+
+
+def build_region_reference_mask(
+    region,
+    bubble_mask: np.ndarray,
+    label_map: np.ndarray,
+) -> np.ndarray:
+    """Return complete bubble components intersecting a text region."""
+    h, w = bubble_mask.shape[:2]
+    region_mask = np.zeros((h, w), dtype=np.uint8)
+    polygons = np.asarray(getattr(region, 'lines', []))
+    if not polygons.size:
+        polygons = np.asarray(region.min_rect)
+    try:
+        polygons = polygons.astype(np.int32).reshape(-1, 4, 2)
+    except (TypeError, ValueError):
+        return region_mask
+    polygons[..., 0] = np.clip(polygons[..., 0], 0, max(w - 1, 0))
+    polygons[..., 1] = np.clip(polygons[..., 1], 0, max(h - 1, 0))
+    cv2.fillPoly(region_mask, list(polygons), 255)
+
+    labels = np.unique(label_map[(region_mask > 0) & (bubble_mask > 0)])
+    labels = labels[labels > 0]
+    return np.where(np.isin(label_map, labels), 255, 0).astype(np.uint8)
+
+
 def check_color(image):
     """
     Determine whether there are colors in non-black, gray, white, and other gray areas in an RGB color image.
@@ -334,4 +372,3 @@ def is_ignore(region_img, ignore_bubble=0, full_img=None, bbox=None):
     
     # Fall back to simple method
     return is_ignore_simple(region_img, ignore_bubble)
-

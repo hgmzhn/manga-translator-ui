@@ -2,7 +2,7 @@ import itertools
 import os
 from abc import abstractmethod
 from collections import Counter
-from typing import List, Tuple, Union
+from typing import List, Union
 
 import networkx as nx
 import numpy as np
@@ -14,31 +14,12 @@ from ..utils import (
     Quadrilateral,
     TextBlock,
     build_bubble_mask_from_mangalens_result,
+    calc_bbox_mask_overlap_ratio,
     get_cached_bubbles_with_mangalens,
 )
 
 
 class CommonOCR(InfererModule):
-    @staticmethod
-    def _calc_bbox_mask_overlap_ratio(
-        text_bbox: Tuple[int, int, int, int],
-        bubble_mask: np.ndarray,
-    ) -> float:
-        """
-        Calculates overlap ratio of text box covered by bubble mask.
-        """
-        tx, ty, tw, th = text_bbox
-        text_area = max(float(tw * th), 1.0)
-        h, w = bubble_mask.shape[:2]
-        x1 = max(0, min(w, int(tx)))
-        y1 = max(0, min(h, int(ty)))
-        x2 = max(0, min(w, int(tx + tw)))
-        y2 = max(0, min(h, int(ty + th)))
-        if x2 <= x1 or y2 <= y1:
-            return 0.0
-        covered = int(np.count_nonzero(bubble_mask[y1:y2, x1:x2] > 0))
-        return covered / text_area
-
     def _get_model_bubble_mask(self, full_image: np.ndarray) -> np.ndarray:
         """
         Reads the precomputed bubble mask from cache.
@@ -128,7 +109,7 @@ class CommonOCR(InfererModule):
             else:
                 overlap_threshold = float(getattr(ocr_config, 'model_bubble_overlap_threshold', 0.1))
                 overlap_threshold = max(0.0, min(1.0, overlap_threshold))
-                overlap_ratio = self._calc_bbox_mask_overlap_ratio(text_bbox, bubble_mask)
+                overlap_ratio = calc_bbox_mask_overlap_ratio(text_bbox, bubble_mask)
                 if overlap_ratio < overlap_threshold:
                     self.logger.info(
                         f"Model bubble filter: overlap={overlap_ratio:.3f} < threshold={overlap_threshold:.3f}, filtering region"

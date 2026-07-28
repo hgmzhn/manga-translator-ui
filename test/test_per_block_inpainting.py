@@ -31,6 +31,7 @@ def _translator_for_inpainting():
 
 def _per_block_config(*, solid_fill=False):
     return SimpleNamespace(
+        ocr=SimpleNamespace(model_bubble_overlap_threshold=0.1),
         inpainter=SimpleNamespace(
             inpainter="none",
             inpainting_precision="fp32",
@@ -144,9 +145,13 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
     )
 
     captured = {}
+    model_bubble_mask = np.zeros((8, 10), dtype=np.uint8)
+    model_bubble_mask[1:6, 1:9] = 255
 
-    def fake_solid_fill(img, mask, text_regions, mask_tight):
+    def fake_solid_fill(img, mask, text_regions, mask_tight, bubble_mask, overlap_threshold):
         captured["solid_fill_mask"] = mask_tight.copy()
+        captured["bubble_mask"] = bubble_mask.copy()
+        captured["overlap_threshold"] = overlap_threshold
         return img.copy(), mask.copy(), 0
 
     async def fake_dispatch(inpainter, crop, mask, config, inpainting_size, device, verbose):
@@ -155,6 +160,16 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
 
     monkeypatch.setattr(translator_module, "solid_fill_pure_bubbles", fake_solid_fill)
     monkeypatch.setattr(translator_module, "dispatch_inpainting", fake_dispatch)
+    monkeypatch.setattr(
+        translator_module,
+        "detect_bubbles_with_mangalens",
+        lambda *args, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        translator_module,
+        "build_bubble_mask_from_mangalens_result",
+        lambda result, shape: model_bubble_mask.copy(),
+    )
 
     asyncio.run(
         _translator_for_inpainting()._run_inpainting(
@@ -178,4 +193,43 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
     )
 
     np.testing.assert_array_equal(captured["solid_fill_mask"], expected_raw)
+    np.testing.assert_array_equal(captured["bubble_mask"], model_bubble_mask)
+    assert captured["overlap_threshold"] == 0.1
     np.testing.assert_array_equal(captured["inpaint_mask"], expected_refined)
+
+
+def test_solid_fill_handles_connected_bubbles_and_excludes_all_raw_text():
+    image = np.full((24, 64, 3), 80, dtype=np.uint8)
+    image[2:22, 2:42] = 200
+    image[2:22, 2] = (0, 0, 255)
+    image[9:13, 9:13] = 0
+    image[9:13, 29:33] = 0
+
+    raw_mask = np.zeros((24, 64), dtype=np.uint8)
+    raw_mask[9:13, 9:13] = 255
+    raw_mask[9:13, 29:33] = 255
+    refined_mask = raw_mask.copy()
+    bubble_mask = np.zeros((24, 64), dtype=np.uint8)
+    bubble_mask[2:22, 2:22] = 255
+    bubble_mask[6:22, 18:42] = 255
+    bubble_mask[2:22, 46:62] = 255
+    regions = [
+        SimpleNamespace(xyxy=(9, 9, 13, 13)),
+        SimpleNamespace(xyxy=(29, 9, 33, 13)),
+    ]
+
+    result, remaining_mask, count = ballon_fill.solid_fill_pure_bubbles(
+        image,
+        refined_mask,
+        regions,
+        raw_mask,
+        bubble_mask,
+        overlap_threshold=0.1,
+    )
+
+    assert count == 2
+    np.testing.assert_array_equal(result[10, 10], (200, 200, 200))
+    np.testing.assert_array_equal(result[10, 30], (200, 200, 200))
+    np.testing.assert_array_equal(result[10, 2], (0, 0, 255))
+    np.testing.assert_array_equal(result[10, 50], (80, 80, 80))
+    assert not remaining_mask.any()

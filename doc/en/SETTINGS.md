@@ -392,10 +392,13 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Use case: ONNX has problems or higher precision is needed
   - This option does not matter in GPU mode because GPU already uses PyTorch
 
-- **`Solid Fill Pure Bubbles` (`solid_fill_pure_bubbles`)**: skip the inpainting model for solid-color bubbles.
+- **`Solid Fill Pure Bubbles` (`solid_fill_pure_bubbles`)**: use the bubble model to identify solid-color bubbles and skip inpainting for them.
   - Current UI location: `Settings` -> `Inpainting` -> `Solid Fill Pure Bubbles`
-  - Each text region's surrounding bubble is detected; if the non-text background inside the bubble is close to a solid color, the bubble interior is filled with the median background color directly, skipping the model
-  - Benefit: most plain bubbles skip the model entirely — faster and free of model artifacts
+  - Reuses the model bubble overlap threshold to decide whether text is inside a bubble, then reuses the layout component matcher to select the complete corresponding bubble component
+  - Shrinks each model bubble mask inward by 3% of its shorter side (at least 1px) so model overshoot does not cross the real bubble border
+  - Subtracts the roughly 2px-dilated `mask_raw` and checks only the remaining background pixels for near-solid color
+  - A matching solid bubble is filled with its median background color and removed from the repair mask; model misses and non-solid backgrounds are left for inpainting
+  - The old Canny closed-contour detector is no longer used as a fallback
   - Disabled by default
 
 - **`Per-Block Inpainting` (`per_block_inpainting`)**: split the refined mask into isolated connected components and inpaint them separately instead of processing the whole page.

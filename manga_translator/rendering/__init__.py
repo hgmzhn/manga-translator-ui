@@ -17,6 +17,7 @@ from ..config import Config, Renderer
 # 只使用 Qt 离屏渲染器
 from ..utils import (
     TextBlock,
+    build_region_reference_mask as _build_region_reference_mask,
     build_bubble_mask_from_mangalens_result,
     fg_bg_compare,
     get_cached_bubbles_with_mangalens,
@@ -1027,60 +1028,6 @@ def _region_lines_fully_inside_mask(region: TextBlock, bubble_mask: np.ndarray) 
         if not _polygon_fully_inside_mask(poly, bubble_mask):
             return False
     return True
-
-
-def _extract_region_polygons(region: TextBlock) -> List[np.ndarray]:
-    lines = np.asarray(region.lines)
-    polygons: List[np.ndarray] = []
-
-    if lines.size > 0:
-        if lines.ndim == 2 and lines.shape[1] == 8:
-            polygons.extend(np.asarray(poly, dtype=np.float32) for poly in lines.reshape(-1, 4, 2))
-        elif lines.ndim == 3 and lines.shape[1:] == (4, 2):
-            polygons.extend(np.asarray(poly, dtype=np.float32) for poly in lines)
-
-    if not polygons:
-        rect = np.asarray(region.min_rect)
-        if rect.ndim == 3 and rect.shape[0] > 0 and rect.shape[1:] == (4, 2):
-            polygons.append(np.asarray(rect[0], dtype=np.float32))
-        elif rect.ndim == 2 and rect.shape == (4, 2):
-            polygons.append(np.asarray(rect, dtype=np.float32))
-
-    return polygons
-
-
-def _build_region_reference_mask(
-    region: TextBlock,
-    bubble_mask: np.ndarray,
-    label_map: Optional[np.ndarray],
-) -> np.ndarray:
-    if bubble_mask is None or np.count_nonzero(bubble_mask) == 0:
-        return np.zeros((0, 0), dtype=np.uint8)
-
-    h, w = bubble_mask.shape[:2]
-    region_mask = np.zeros((h, w), dtype=np.uint8)
-    for poly in _extract_region_polygons(region):
-        pts = np.asarray(poly, dtype=np.int32)
-        if pts.ndim != 2 or pts.shape[0] < 3:
-            continue
-        pts[:, 0] = np.clip(pts[:, 0], 0, max(w - 1, 0))
-        pts[:, 1] = np.clip(pts[:, 1], 0, max(h - 1, 0))
-        cv2.fillPoly(region_mask, [pts], 255)
-
-    overlap_pixels = (region_mask > 0) & (bubble_mask > 0)
-    if not np.any(overlap_pixels):
-        return np.zeros((h, w), dtype=np.uint8)
-
-    if label_map is None or label_map.shape[:2] != bubble_mask.shape[:2]:
-        return np.where(bubble_mask > 0, 255, 0).astype(np.uint8)
-
-    labels = np.unique(label_map[overlap_pixels])
-    labels = labels[labels > 0]
-    if labels.size == 0:
-        return np.zeros((h, w), dtype=np.uint8)
-
-    selected = np.isin(label_map, labels)
-    return np.where(selected, 255, 0).astype(np.uint8)
 
 
 def _resolve_line_spacing_multiplier(region: TextBlock, config: Config) -> float:

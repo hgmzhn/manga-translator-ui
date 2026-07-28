@@ -1053,7 +1053,7 @@
   "desc_inpainter_inpainting_precision": "修复精度。fp32 最准确但最慢；fp16 平衡；bf16 推荐。",
   "desc_kernel_size": "文本擦除卷积核大小 (默认 3)。控制文本擦除的精细程度。",
   "desc_inpainter_force_use_torch_inpainting": "强制使用 PyTorch 引擎修复 (默认 CPU 优先用 ONNX)。适用于 ONNX 出问题时。",
-  "desc_inpainter_solid_fill_pure_bubbles": "检测每个文本区域所在气泡，背景为纯色则直接用背景色填充、跳过修复模型。速度更快且无模型糊边。",
+  "desc_inpainter_solid_fill_pure_bubbles": "使用气泡模型匹配文本所在气泡，先将模型蒙版按比例内缩，再扣除膨胀后的原始文字蒙版；剩余背景接近纯色时直接填色并跳过修复模型。模型未命中时交给修复模型处理。",
   "desc_inpainter_per_block_inpainting": "将优化蒙版按孤立连通块分别裁取 2 倍窗口修复，并将每块反射补成正方形，因此不会进入长图切片流程。由于每块可用上下文更少，复杂背景的修复效果可能变差；在 CPU 下，小裁窗可能提高推理速度。关闭则整页一次喂给模型。",
   "desc_render_renderer": "渲染引擎。default 默认渲染器；openai_renderer / gemini_renderer 需要先在 API密钥(.env) 中填写对应 API Key，否则 UI 不会开始翻译。Google Cloud / Vertex 相关 API Key 也直接填写 Gemini 对应配置；Base URL 保持默认官方地址即可，无需修改。",
   "desc_render_font_family": "选择嵌字和可编辑 PSD 文本层使用的字体。下拉列表包含操作系统已安装的系统字体，以及项目 fonts 目录中的字体文件；把 .ttf、.otf 或 .ttc 文件放入该目录后，重新打开下拉列表即可刷新。",

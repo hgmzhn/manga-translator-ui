@@ -25,6 +25,7 @@ from .utils import (
     Context,
     ModelWrapper,
     TextBlock,
+    build_bubble_mask_from_mangalens_result,
     build_det_rearrange_plan,
     detect_bubbles_with_mangalens,
     dump_image,
@@ -3049,19 +3050,31 @@ class MangaTranslator:
                 filled_img = ctx.img_rgb
                 remaining_mask = ctx.mask
                 if solid_fill and text_regions:
-                    # raw 蒙版只用于纯色气泡判断；逐块模型始终使用优化后的 ctx.mask。
+                    # 膨胀后的 raw 蒙版从模型气泡中扣除文字；逐块模型仍使用优化后的 ctx.mask。
                     mask_tight = getattr(ctx, 'mask_raw', None)
                     if mask_tight is not None:
                         if mask_tight.shape[:2] != ctx.mask.shape[:2]:
-                            mask_tight = cv2.resize(mask_tight, (ctx.mask.shape[1], ctx.mask.shape[0]),
+                            mask_tight = cv2.resize(mask_tight, ctx.mask.shape[:2][::-1],
                                                     interpolation=cv2.INTER_LINEAR)
                         # BT REFINEMASK_INPAINT 等效：笔画掩码外扩 2px，
                         # 盖住文字边缘抗锯齿像素，否则背景纯度采样会被灰边顶爆
-                        mask_tight = cv2.dilate(np.where(mask_tight >= 127, 255, 0).astype(np.uint8),
-                                                np.ones((5, 5), np.uint8), iterations=1)
-                    filled_img, remaining_mask, filled_count = solid_fill_pure_bubbles(
-                        ctx.img_rgb, ctx.mask, text_regions, mask_tight)
-                    logger.info(f"[修复] 纯色气泡直接填色: {filled_count}/{len(text_regions)} 个区域跳过修复模型")
+                        mask_tight = cv2.dilate(
+                            np.where(mask_tight >= 127, 255, 0).astype(np.uint8), None, iterations=2)
+                        try:
+                            bubble_mask = build_bubble_mask_from_mangalens_result(
+                                detect_bubbles_with_mangalens(
+                                    ctx.img_rgb, return_annotated=False, verbose=False),
+                                ctx.img_rgb.shape[:2],
+                            )
+                        except Exception as bubble_exc:
+                            logger.warning(f"[修复] 气泡模型检测失败，跳过纯色填充: {bubble_exc}")
+                            bubble_mask = np.zeros(ctx.img_rgb.shape[:2], dtype=np.uint8)
+                        filled_img, remaining_mask, filled_count = solid_fill_pure_bubbles(
+                            ctx.img_rgb, ctx.mask, text_regions, mask_tight, bubble_mask,
+                            config.ocr.model_bubble_overlap_threshold)
+                        logger.info(
+                            f"[修复] 纯色气泡直接填色: "
+                            f"{filled_count}/{len(text_regions)} 个文本区域跳过修复模型")
 
                 if per_block:
                     if remaining_mask is ctx.mask:
