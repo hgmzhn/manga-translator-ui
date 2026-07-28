@@ -1,16 +1,16 @@
-name: Sync to Gitee
+name: Sync to Gitee and GitCode
 
 on:
   push:
   workflow_dispatch:
 
 concurrency:
-  group: sync-to-gitee
+  group: sync-mirrors
   cancel-in-progress: false
 
 jobs:
   mirror:
-    name: Mirror GitHub repo to Gitee
+    name: Mirror GitHub repo
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -22,12 +22,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate Gitee token
+      - name: Validate mirror tokens
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
         run: |
           if [ -z "$GITEE_TOKEN" ]; then
             echo "Missing required secret: GITEE_TOKEN"
+            exit 1
+          fi
+          if [ -z "$GITCODE_TOKEN" ]; then
+            echo "Missing required secret: GITCODE_TOKEN"
             exit 1
           fi
 
@@ -36,15 +41,24 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Add Gitee remote
+      - name: Add mirror remotes
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
         run: |
           git remote remove gitee 2>/dev/null || true
           git remote add gitee "https://hgmzhn:${GITEE_TOKEN}@gitee.com/hgmzhn/manga-translator-ui.git"
+          git remote remove gitcode 2>/dev/null || true
+          git remote add gitcode "https://hgmzhn:${GITCODE_TOKEN}@gitcode.com/hgmzhn/manga-translator-ui.git"
 
       - name: Mirror to Gitee
         run: |
           git push --prune gitee \
+            '+refs/remotes/origin/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*'
+
+      - name: Mirror to GitCode
+        run: |
+          git push --prune gitcode \
             '+refs/remotes/origin/*:refs/heads/*' \
             '+refs/tags/*:refs/tags/*'
