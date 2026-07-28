@@ -106,7 +106,7 @@ class DocumentLoadWorker:
         return {
             "compare": executor.submit(self._load_compare_image, source_path, display_image_path, image, image_size),
             "json": executor.submit(self._load_regions_and_mask, source_path, aux_paths["json"]),
-            "inpainted": executor.submit(self._load_inpainted_image, aux_paths["inpainted"], image_size),
+            "inpainted": executor.submit(self._load_inpainted_image, aux_paths["inpainted"], image, image_size),
             "paint_overlay": executor.submit(self._load_paint_overlay_image, aux_paths["paint_overlay"], image_size),
         }
 
@@ -148,14 +148,14 @@ class DocumentLoadWorker:
         regions, raw_mask, _, overlays = self.service.file_service.load_translation_json(source_path)
         return regions, raw_mask, overlays or {}
 
-    def _load_inpainted_image(self, inpainted_path: str | None, image_size):
+    def _load_inpainted_image(self, inpainted_path: str | None, source_image, image_size):
         if not inpainted_path:
-            return None, None
+            return None, source_image
         try:
             return inpainted_path, self.controller._load_detached_image_array(inpainted_path, image_size)
         except Exception as e:
             self.logger.error(f"Error loading inpainted image: {e}")
-            return None, None
+            return None, source_image
 
     def _load_paint_overlay_image(self, paint_overlay_path: str | None, image_size):
         if not paint_overlay_path:
