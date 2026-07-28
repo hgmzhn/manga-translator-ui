@@ -371,7 +371,7 @@ class InpainterConfig(BaseModel):
     solid_fill_pure_bubbles: bool = False
     """Fill solid-color bubbles with their background color directly, skipping the inpainting model for them"""
     per_block_inpainting: bool = False
-    """Inpaint text regions per-block with the refined mask instead of feeding the whole page to the model"""
+    """Inpaint each isolated refined-mask component in a 2x crop instead of feeding the whole page to the model"""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576

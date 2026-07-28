@@ -132,15 +132,15 @@ def solid_fill_pure_bubbles(img: np.ndarray, mask: np.ndarray, text_regions: Lis
     return filled_img, remaining_mask, filled_count
 
 
-async def inpaint_regions_per_block(img: np.ndarray, remaining_mask: np.ndarray, text_regions: List,
+async def inpaint_regions_per_block(img: np.ndarray, remaining_mask: np.ndarray,
                                     inpaint_fn) -> Tuple[np.ndarray, int]:
     """
-    BT 式逐块修复：对填色后优化蒙版中仍有剩余掩码的文本区域，
-    裁 1.7 倍窗口单独修复再贴回。
+    逐块修复：将填色后优化蒙版的每个孤立连通块，
+    按自身外接框裁 2 倍窗口单独修复再贴回。
 
-    与整页修复的差异（均为对齐 BT 的行为，实测决定成图干净度）：
+    与整页修复的差异：
     - 逐块小窗口内掩码占比大，LaMa 修复质量远好于整页长条掩码（整页会留文字鬼影）
-    - 修复直接使用 mask refinement 生成的优化蒙版，不再回退使用 mask_raw
+    - 每次只传入当前连通块的优化蒙版，不受文本行框和邻近蒙版影响
     - 图与掩码一起反射补成正方形：给模型足够上下文；掩码同步反射，
       否则镜像出来的文字没有掩码，模型会照着镜像把文字原样画回来
     - 补成正方形后调用普通修复入口，长宽比为 1，不会进入长图切片流程
@@ -149,26 +149,22 @@ async def inpaint_regions_per_block(img: np.ndarray, remaining_mask: np.ndarray,
         inpaint_fn: async (crop, mask) -> inpainted crop
     Returns:
         (result_img, inpainted_block_count)。img 不被修改；
-        remaining_mask 会被原地清零已修复区域，残余碎块不再交给整页修复（对齐 BT 直接丢弃）。
+        remaining_mask 会被原地清零已修复连通块。
     """
     result = img.copy()
     im_h, im_w = result.shape[:2]
+    mask_bin = np.where(remaining_mask > 0, 255, 0).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask_bin, connectivity=8)
     count = 0
-    for region in text_regions:
-        try:
-            x1, y1, x2, y2 = [int(round(float(v))) for v in region.xyxy]
-        except Exception:
+    for label_idx in range(1, num_labels):
+        x1, y1, w, h, area = map(int, stats[label_idx])
+        if area <= 0:
             continue
-        x1, x2 = max(x1, 0), min(x2, im_w)
-        y1, y2 = max(y1, 0), min(y2, im_h)
-        if x2 <= x1 or y2 <= y1:
-            continue
-        ex1, ey1, ex2, ey2 = enlarge_window([x1, y1, x2, y2], im_w, im_h, ratio=1.7)
+        x2, y2 = x1 + w, y1 + h
+        ex1, ey1, ex2, ey2 = enlarge_window([x1, y1, x2, y2], im_w, im_h, ratio=2.0)
         if ex2 <= ex1 or ey2 <= ey1:
             continue
-        msk = remaining_mask[ey1:ey2, ex1:ex2]
-        if not (msk > 0).any():
-            continue
+        msk = np.where(labels[ey1:ey2, ex1:ex2] == label_idx, 255, 0).astype(np.uint8)
         crop = result[ey1:ey2, ex1:ex2].copy()
         ch, cw = crop.shape[:2]
         longer = max(ch, cw)
@@ -177,6 +173,7 @@ async def inpaint_regions_per_block(img: np.ndarray, remaining_mask: np.ndarray,
         msk_sq = cv2.copyMakeBorder(np.ascontiguousarray(msk), 0, pad_bottom, 0, pad_right, cv2.BORDER_REFLECT)
         out = await inpaint_fn(crop_sq, msk_sq)
         result[ey1:ey2, ex1:ex2] = out[:ch, :cw]
-        remaining_mask[ey1:ey2, ex1:ex2] = 0
+        remaining_view = remaining_mask[y1:y2, x1:x2]
+        remaining_view[labels[y1:y2, x1:x2] == label_idx] = 0
         count += 1
     return result, count

@@ -398,13 +398,14 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Benefit: most plain bubbles skip the model entirely — faster and free of model artifacts
   - Disabled by default
 
-- **`Per-Block Inpainting` (`per_block_inpainting`)**: inpaint text regions per-block with the refined mask instead of whole-page.
+- **`Per-Block Inpainting` (`per_block_inpainting`)**: split the refined mask into isolated connected components and inpaint them separately instead of processing the whole page.
   - Current UI location: `Settings` -> `Inpainting` -> `Per-Block Inpainting`
-  - Each (not solid-filled) text region is cropped with a 1.7x window, uses the mask-refinement output, is padded to square with reflection, inpainted, and pasted back
+  - Each remaining refined-mask component is cropped in a 2x window around its bounding box, padded to square with reflection, inpainted, and pasted back
+  - Only the current component is included in each mask, even when neighboring crop windows overlap
   - The square crop has an aspect ratio of 1, so it does not enter the long-image splitting path
-  - Usually cleaner than whole-page inpainting and avoids text ghosts from page-wide masks
-  - Slightly slower than whole-page inpainting (multiple model calls have fixed overhead)
-  - Mask fragments not belonging to any text region are dropped
+  - This can avoid text ghosts from page-wide masks, but reduced context can worsen results on complex backgrounds
+  - Smaller crops may improve CPU inference speed; with many components, fixed overhead from repeated model calls can offset the gain
+  - All remaining refined-mask components are processed without relying on text regions or text-line boxes
   - Disabled by default; when off, the original whole-page inpainting behavior is unchanged
   - The two switches combine freely; turning both off fully restores the old behavior
 

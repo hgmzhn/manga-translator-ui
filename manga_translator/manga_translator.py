@@ -3038,16 +3038,17 @@ class MangaTranslator:
         
         # BT 式修复，两个独立开关：
         # solid_fill_pure_bubbles - 纯色气泡直接填背景色跳过模型
-        # per_block_inpainting - 使用优化蒙版逐块裁窗修复；补方后不会进入长图切片流程
+        # per_block_inpainting - 按优化蒙版孤立连通块逐块裁窗修复；补方后不会进入长图切片流程
         img_for_inpaint = ctx.img_rgb
         mask_for_inpaint = ctx.mask
         solid_fill = getattr(config.inpainter, 'solid_fill_pure_bubbles', False)
         per_block = getattr(config.inpainter, 'per_block_inpainting', False)
-        if (solid_fill or per_block) and ctx.text_regions:
+        text_regions = getattr(ctx, 'text_regions', None) or []
+        if (solid_fill and text_regions) or per_block:
             try:
                 filled_img = ctx.img_rgb
                 remaining_mask = ctx.mask
-                if solid_fill:
+                if solid_fill and text_regions:
                     # raw 蒙版只用于纯色气泡判断；逐块模型始终使用优化后的 ctx.mask。
                     mask_tight = getattr(ctx, 'mask_raw', None)
                     if mask_tight is not None:
@@ -3059,8 +3060,8 @@ class MangaTranslator:
                         mask_tight = cv2.dilate(np.where(mask_tight >= 127, 255, 0).astype(np.uint8),
                                                 np.ones((5, 5), np.uint8), iterations=1)
                     filled_img, remaining_mask, filled_count = solid_fill_pure_bubbles(
-                        ctx.img_rgb, ctx.mask, ctx.text_regions, mask_tight)
-                    logger.info(f"[修复] 纯色气泡直接填色: {filled_count}/{len(ctx.text_regions)} 个区域跳过修复模型")
+                        ctx.img_rgb, ctx.mask, text_regions, mask_tight)
+                    logger.info(f"[修复] 纯色气泡直接填色: {filled_count}/{len(text_regions)} 个区域跳过修复模型")
 
                 if per_block:
                     if remaining_mask is ctx.mask:
@@ -3073,8 +3074,8 @@ class MangaTranslator:
                             config.inpainter.inpainting_size, self.device, self.verbose)
 
                     result, block_count = await inpaint_regions_per_block(
-                        filled_img, remaining_mask, ctx.text_regions, _inpaint_block)
-                    logger.info(f"[修复] 逐块修复完成: {block_count} 个区域")
+                        filled_img, remaining_mask, _inpaint_block)
+                    logger.info(f"[修复] 逐块修复完成: {block_count} 个孤立蒙版")
                     return result
 
                 img_for_inpaint, mask_for_inpaint = filled_img, remaining_mask

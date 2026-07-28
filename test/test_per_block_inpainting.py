@@ -51,7 +51,7 @@ def test_per_block_inpainting_uses_refined_mask_and_square_crop(monkeypatch):
         img_rgb=image,
         mask=refined_mask,
         mask_raw=raw_mask,
-        text_regions=[_Region()],
+        text_regions=[],
     )
 
     monkeypatch.setattr(
@@ -89,6 +89,39 @@ def test_per_block_inpainting_uses_refined_mask_and_square_crop(monkeypatch):
     assert captured["crop"].shape[:2] == (6, 6)
     np.testing.assert_array_equal(captured["mask"], expected_mask)
     assert not np.array_equal(captured["mask"], raw_padded)
+
+
+def test_per_block_inpainting_isolates_refined_mask_components(monkeypatch):
+    image = np.zeros((8, 14, 3), dtype=np.uint8)
+    remaining_mask = np.zeros((8, 14), dtype=np.uint8)
+    remaining_mask[2:4, 2:4] = 255
+    remaining_mask[2:4, 9:11] = 255
+    windows = []
+    captured_masks = []
+
+    def fake_enlarge_window(xyxy, im_w, im_h, ratio):
+        windows.append((list(xyxy), ratio))
+        return [0, 0, im_w, im_h]
+
+    async def fake_inpaint(crop, mask):
+        captured_masks.append(mask.copy())
+        return crop.copy()
+
+    monkeypatch.setattr(ballon_fill, "enlarge_window", fake_enlarge_window)
+
+    result, count = asyncio.run(
+        ballon_fill.inpaint_regions_per_block(image, remaining_mask, fake_inpaint)
+    )
+
+    assert count == 2
+    assert windows == [([2, 2, 4, 4], 2.0), ([9, 2, 11, 4], 2.0)]
+    assert [np.count_nonzero(mask[:8, :14]) for mask in captured_masks] == [4, 4]
+    assert captured_masks[0][2:4, 2:4].all()
+    assert not captured_masks[0][2:4, 9:11].any()
+    assert captured_masks[1][2:4, 9:11].all()
+    assert not captured_masks[1][2:4, 2:4].any()
+    assert not remaining_mask.any()
+    np.testing.assert_array_equal(result, image)
 
 
 def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
