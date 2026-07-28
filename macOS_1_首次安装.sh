@@ -20,7 +20,7 @@ REPO_URL="${MANGAT_REPO_URL:-$REPO_URL_DEFAULT}"
 MINIFORGE_URL_ARM64="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh"
 MINIFORGE_URL_X86_64="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh"
 MINIFORGE_URL="$MINIFORGE_URL_ARM64"
-REQUIREMENTS_FILE="requirements_metal.txt"
+DEPENDENCY_GROUP="metal"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -103,11 +103,11 @@ check_architecture() {
     if [ "$arch" = "arm64" ]; then
         ok "检测到 Apple Silicon (arm64)"
         MINIFORGE_URL="$MINIFORGE_URL_ARM64"
-        REQUIREMENTS_FILE="requirements_metal.txt"
+        DEPENDENCY_GROUP="metal"
     elif [ "$arch" = "x86_64" ]; then
         warn "检测到 Intel Mac (x86_64)，将使用 CPU 模式"
         MINIFORGE_URL="$MINIFORGE_URL_X86_64"
-        REQUIREMENTS_FILE="requirements_cpu.txt"
+        DEPENDENCY_GROUP="cpu"
     else
         fail "不支持的 macOS 架构: $arch"
         exit 1
@@ -371,9 +371,9 @@ run_env_python() {
 }
 
 install_dependencies() {
-    info "安装依赖..."
-    if [ ! -f "$SCRIPT_DIR/$REQUIREMENTS_FILE" ]; then
-        fail "未找到 $REQUIREMENTS_FILE"
+    info "安装依赖组: $DEPENDENCY_GROUP..."
+    if [ ! -f "$SCRIPT_DIR/pyproject.toml" ]; then
+        fail "未找到 pyproject.toml"
         exit 1
     fi
     if [ ! -f "$SCRIPT_DIR/packaging/launch.py" ]; then
@@ -382,7 +382,7 @@ install_dependencies() {
     fi
 
     run_env_python -m pip install --upgrade pip
-    run_env_python packaging/launch.py --requirements "$REQUIREMENTS_FILE" --install-deps-only
+    run_env_python packaging/launch.py --requirements "$DEPENDENCY_GROUP" --install-deps-only
 }
 
 verify_installation() {

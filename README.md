@@ -182,24 +182,30 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
    git clone https://github.com/hgmzhn/manga-translator-ui.git
    cd manga-translator-ui
    ```
-3. **安装依赖**：
+3. **安装依赖**（按硬件只执行对应的一组命令）：
    ```bash
-   # NVIDIA GPU
-   pip install -r requirements_gpu.txt
-   
-   # AMD GPU（仅 RX 7000/9000 系列）
-   pip install -r requirements_amd.txt
-   
-   # CPU 版本
-   pip install -r requirements_cpu.txt
+   python -m pip install uv
+
+   # NVIDIA GPU（CUDA 12.8，默认）
+   uv sync
+
+   # CPU 版本（与上面的 GPU 命令二选一）
+   uv sync --no-default-groups --group cpu
+
+   # AMD GPU（实验性；ROCm PyTorch 由安装入口单独安装）
+   uv sync --no-default-groups --group amd
+   uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
+
+   # Apple Silicon / Metal
+   uv sync --no-default-groups --group metal
    ```
 4. **运行程序**：
    ```bash
    # 桌面 UI
-   python -m desktop_qt_ui.main
+   uv run --no-sync python -m desktop_qt_ui.main
    
    # Web UI（可选）
-   python -m manga_translator web
+   uv run --no-sync python -m manga_translator web
    ```
 
 > 📖 **详细安装教程**：[安装指南](doc/INSTALLATION.md)  

@@ -10,6 +10,7 @@ import sys
 import argparse
 import subprocess
 import importlib.util
+import shutil
 from pathlib import Path
 
 # 项目配置
@@ -113,8 +114,8 @@ def get_pytorch_index_candidates(primary_index_url):
 
 
 # ============================================================
-# pyproject.toml 依赖读取（替代原 requirements_*.txt 文件）
-# 依赖声明在 pyproject.toml 中：公共依赖 + cpu/gpu/amd/metal 四个 extra
+# pyproject.toml dependency groups 读取
+# 依赖声明在 pyproject.toml 中：公共依赖 + cpu/gpu/amd/metal 四个 dependency group
 # ============================================================
 PYPROJECT_FILE = PATH_ROOT / 'pyproject.toml'
 DEP_VARIANTS = ('cpu', 'gpu', 'amd', 'metal')
@@ -176,9 +177,9 @@ def _resolve_platform_source(name, sources):
 
 
 def get_variant_packages(variant):
-    """从 pyproject.toml 取出 公共依赖 + 指定 extra 的依赖列表。
+    """从 pyproject.toml 取出公共依赖和指定 dependency group 的依赖列表。
 
-    返回内容等价于原 requirements_<variant>.txt 中的包列表。
+    返回公共依赖与指定后端依赖组的完整包列表。
     """
     variant = normalize_variant(variant)
     if variant is None:
@@ -189,7 +190,7 @@ def get_variant_packages(variant):
     source_names = {k.lower() for k in sources}
 
     deps = list(project.get('dependencies', []))
-    deps += list(project.get('optional-dependencies', {}).get(variant, []))
+    deps += list(data.get('dependency-groups', {}).get(variant, []))
 
     packages = []
     for dep in deps:
@@ -204,7 +205,7 @@ def get_variant_packages(variant):
 
 
 def get_variant_index_url(variant):
-    """获取变体对应的 PyTorch 主源（等价于原 requirements 文件中的 --index-url）"""
+    """获取变体对应的 PyTorch 主源。"""
     variant = normalize_variant(variant)
     if variant is None:
         return None
@@ -218,7 +219,7 @@ def get_variant_index_url(variant):
     if isinstance(torch_sources, dict):
         torch_sources = [torch_sources]
     for entry in torch_sources:
-        if entry.get('extra') == variant and entry.get('index') in indexes:
+        if entry.get('group') == variant and entry.get('index') in indexes:
             return indexes[entry['index']]
     return None
 
@@ -425,11 +426,14 @@ def is_pytorch_source_package(pkg_name):
 def find_uv():
     """查找 uv 命令（返回可直接拼进命令行的字符串），找不到返回 None
 
-    查找顺序: 打包目录自带 uv.exe -> 当前环境已安装的 uv 模块（不检测系统 PATH）
+    查找顺序: 打包目录自带 uv -> 系统 PATH -> 当前环境已安装的 uv 模块
     """
     for candidate in (PATH_ROOT / 'packaging' / 'uv.exe', PATH_ROOT / 'uv.exe'):
         if candidate.exists():
             return f'"{candidate}"'
+    system_uv = shutil.which('uv')
+    if system_uv:
+        return f'"{system_uv}"'
     # 环境内 pip 安装过 uv 的情况（conda 旧环境兼容）
     try:
         import importlib.util
@@ -573,7 +577,7 @@ def run_uv_packages(uv, packages, primary_index_url, desc=None):
 
 
 def run_pip_requirements(variant, desc=None, exclude_packages=None):
-    """逐个安装指定依赖方案（pyproject.toml extra）中的包，失败时从失败的包开始切换镜像重试
+    """安装指定 dependency group 中的包，失败时从失败的包开始切换镜像重试
 
     Args:
         variant: 依赖方案 (cpu/gpu/amd/metal)
@@ -1256,7 +1260,7 @@ def prepare_environment(args):
         print('   将跳过增量检查,强制重新安装所有依赖')
         check_variant_deps = lambda v: False
 
-    # 检测GPU并选择对应的依赖文件
+    # 检测 GPU 并选择对应的依赖方案
     gpu_type, gpu_name, cuda_major, cuda_version, driver_version = detect_gpu()
     print(f'\n检测到的计算设备: {gpu_type}')
     if gpu_name:
@@ -1267,7 +1271,7 @@ def prepare_environment(args):
             print(f'驱动版本: {driver_version}')
     print()
     
-    # 根据GPU类型选择requirements文件
+    # 根据 GPU 类型选择 dependency group
     use_amd_pytorch = False  # 初始化AMD PyTorch标志
     amd_gfx_version = None    # 初始化gfx版本
     
@@ -1507,7 +1511,7 @@ except:
                         use_amd_pytorch = True
                         print(f'✓ 自动识别并使用: {amd_gfx_version}')
                         print(f'✓ 将使用 AMD ROCm PyTorch ({amd_gfx_version})')
-                        print(f'✓ 依赖文件: {requirements_file}')
+                        print(f'✓ 依赖方案: {requirements_file}')
                         break
                     elif choice in ['', '2']:
                         requirements_file = 'cpu'
@@ -1572,7 +1576,7 @@ except:
                         use_amd_pytorch = True
                         print(f'✓ 自动识别架构: {arch_name}')
                         print(f'✓ 将使用 AMD ROCm PyTorch ({amd_gfx_version})')
-                        print(f'✓ 依赖文件: {requirements_file}')
+                        print(f'✓ 依赖方案: {requirements_file}')
                         break
                     else:
                         user_action = choose_when_amd_unsupported()
@@ -1624,8 +1628,8 @@ except:
                 else:
                     print('无效输入,请输入 1 或 2')
     
-    # 选择对应的PyTorch版本 (根据 pyproject.toml 中 gpu extra 的版本)
-    # 注意: 不再单独安装 PyTorch，而是通过 requirements 文件统一安装
+    # 选择对应的 PyTorch 版本（根据 pyproject.toml 中 gpu dependency group 的版本）
+    # 注意: 非 AMD PyTorch 由所选 dependency group 统一安装
     # 这样可以避免版本冲突和 DLL 损坏问题
     
     # 检查是否需要卸载不匹配的 PyTorch 版本
@@ -2271,7 +2275,7 @@ def update_dependencies(args):
     args.frozen = False
     args.reinstall_torch = False
     
-    # 检测已安装的 PyTorch 类型来决定 requirements 文件
+    # 检测已安装的 PyTorch 类型来决定 dependency group
     req_file, pytorch_type, detail = get_requirements_file_from_env()
     if req_file:
         args.requirements = req_file

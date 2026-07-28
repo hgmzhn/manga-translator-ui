@@ -189,27 +189,33 @@ Best for developers or users who want full customization.
    cd manga-translator-ui
    ```
 
-3. **Install dependencies**:
+3. **Install dependencies** (run only the block for your hardware):
 
    ```bash
-   # NVIDIA GPU
-   pip install -r requirements_gpu.txt
+   python -m pip install uv
 
-   # AMD GPU (RX 7000 / 9000 only)
-   pip install -r requirements_amd.txt
+   # NVIDIA GPU (CUDA 12.8, default)
+   uv sync
 
-   # CPU build
-   pip install -r requirements_cpu.txt
+   # CPU build (choose this instead of the GPU command above)
+   uv sync --no-default-groups --group cpu
+
+   # AMD GPU (experimental; the installer handles ROCm PyTorch separately)
+   uv sync --no-default-groups --group amd
+   uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
+
+   # Apple Silicon / Metal
+   uv sync --no-default-groups --group metal
    ```
 
 4. **Run the app**:
 
    ```bash
    # Desktop UI
-   python -m desktop_qt_ui.main
+   uv run --no-sync python -m desktop_qt_ui.main
 
    # Web UI (optional)
-   python -m manga_translator web
+   uv run --no-sync python -m manga_translator web
    ```
 
 > 📖 **Detailed installation**: [Installation Guide](doc/en/INSTALLATION.md)

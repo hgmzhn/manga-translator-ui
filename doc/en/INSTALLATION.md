@@ -95,7 +95,7 @@ The menu detects your system language and displays Chinese or English automatica
 
 ### Dependency management
 
-Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive extras: `cpu` / `gpu` / `amd` / `metal`) and locked with `uv.lock`. The old `requirements_*.txt` files have been removed.
+Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal`) and locked with `uv.lock`. The portable installer installs them directly into bundled `packaging\python`; it **does not create `.venv`**. `.venv` is only for source development.
 
 ### Start the program
 
@@ -189,20 +189,21 @@ cd manga-translator-ui
 
 ### 2. Install dependencies
 
-Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive extras: `cpu` / `gpu` / `amd` / `metal`). Install them with [uv](https://docs.astral.sh/uv/):
+Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal`). Install one backend with [uv](https://docs.astral.sh/uv/):
 
 ```bash
+# NVIDIA GPU (CUDA 12.8, default; also installs the packaging group)
+uv sync
+
 # CPU
-uv sync --extra cpu
+uv sync --no-default-groups --group cpu
 
-# NVIDIA GPU (CUDA 12.x)
-uv sync --extra gpu
-
-# AMD GPU (experimental)
-uv sync --extra amd
+# AMD GPU (experimental; launch.py installs ROCm PyTorch separately)
+uv sync --no-default-groups --group amd
+uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 
 # Apple Silicon / Metal
-uv sync --extra metal
+uv sync --no-default-groups --group metal
 ```
 
 > 💡 **pip users**: run `uv export` to generate a requirements file, then install it with pip.
@@ -211,10 +212,10 @@ uv sync --extra metal
 
 ```bash
 # Qt desktop UI
-python -m desktop_qt_ui.main
+uv run --no-sync python -m desktop_qt_ui.main
 
 # Web UI / API server
-python -m manga_translator web
+uv run --no-sync python -m manga_translator web
 ```
 
 ---
@@ -443,7 +444,7 @@ The script automatically:
 - Clones the project
 - Installs Miniforge if needed
 - Creates the `manga-env` environment with Python 3.12
-- Installs `requirements_metal.txt`
+- Installs the `metal` dependency group from `pyproject.toml` (or `cpu` on Intel Mac)
 - Configures MPS acceleration
 
 **Option 2: Clone manually first**

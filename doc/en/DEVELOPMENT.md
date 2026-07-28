@@ -20,7 +20,8 @@ This guide only lists Git-tracked directories and files that are maintained toge
 Dependencies are now declared in `pyproject.toml` at the repository root:
 
 - Common dependencies live in `[project] dependencies`.
-- The four backends are mutually exclusive optional-dependencies extras: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
+- The four backends are mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
+- The default groups are `gpu` + `packaging`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 12.8 and keeps PyInstaller installed.
 - PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu128`, `metal` uses the default PyPI; the ROCm torch for `amd` is installed separately from `repo.radeon.com` by `packaging/launch.py`.
 - `uv.lock` is the lockfile. It is committed to the repository; do not edit it by hand.
 
@@ -28,26 +29,31 @@ The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt`
 
 ### Dependency installation
 
-uv is recommended. Install only one extra based on your target runtime:
+uv is recommended. Install only one dependency group for the target runtime:
 
 ```bash
-# NVIDIA GPU (CUDA 12.x)
-uv sync --extra gpu
+# NVIDIA GPU (CUDA 12.8, default)
+uv sync
 
-# For other backends, replace gpu with cpu / amd / metal
-uv sync --extra cpu
+# For other backends, disable the defaults and select one group
+uv sync --no-default-groups --group cpu
+uv sync --no-default-groups --group metal
+
+# AMD: sync common/AMD dependencies, then let launch.py install ROCm PyTorch
+uv sync --no-default-groups --group amd
+uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 ```
 
-`uv sync` automatically creates `.venv` and reproduces the dependencies from `uv.lock`. To install into an existing environment instead:
+In a source checkout, `uv sync` creates `.venv` and reproduces dependencies from `uv.lock`. The Windows portable installer uses bundled `packaging\python` and does not create `.venv`. To install source dependencies into an existing environment instead:
 
 ```bash
-uv pip install -r pyproject.toml --extra gpu
+uv sync --active
 ```
 
-If you want to build a PyInstaller package, you also need:
+The default GPU environment already includes the `packaging` group. For another backend, add it explicitly when building:
 
 ```bash
-pip install pyinstaller
+uv sync --no-default-groups --group cpu --group packaging
 ```
 
 ---
@@ -226,8 +232,8 @@ If you add a new resource directory, template file, or config file, check both o
 ### 5.1 Recommended startup order
 
 ```bash
-# 1. Install dependencies (GPU example; creates .venv and reproduces uv.lock automatically)
-uv sync --extra gpu
+# 1. Install the default GPU dependencies (creates .venv and reproduces uv.lock automatically)
+uv sync
 
 # 2. Activate the environment (Windows PowerShell)
 .venv\Scripts\Activate.ps1

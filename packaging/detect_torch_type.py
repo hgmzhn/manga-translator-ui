@@ -37,21 +37,26 @@ def detect_torch_type():
         # PyTorch 未安装
         return None, None
 
-def get_requirements_file():
-    """获取对应的 requirements 文件路径"""
+def get_dependency_group():
+    """获取对应的 pyproject dependency group"""
     torch_type, variant = detect_torch_type()
     
     if torch_type == "GPU":
-        return "requirements_gpu.txt"
+        return "gpu"
     elif torch_type == "AMD":
-        return "requirements_amd.txt"
+        return "amd"
     elif torch_type == "Metal":
-        return "requirements_metal.txt"
+        return "metal"
     elif torch_type == "CPU":
-        return "requirements_cpu.txt"
+        return "cpu"
     else:
         # PyTorch 未安装，无法确定
         return None
+
+
+def get_requirements_file():
+    """兼容旧调用；现在返回 dependency group 名称。"""
+    return get_dependency_group()
 
 if __name__ == "__main__":
     torch_type, variant = detect_torch_type()
@@ -61,12 +66,12 @@ if __name__ == "__main__":
         if variant:
             print(f"变体: {variant}")
         
-        req_file = get_requirements_file()
-        print(f"对应的依赖文件: {req_file}")
+        group = get_dependency_group()
+        print(f"对应的依赖组: {group}")
         
-        # 输出文件名供批处理脚本使用
-        if len(sys.argv) > 1 and sys.argv[1] == "--file-only":
-            print(req_file, end="")
+        # --file-only 保留为旧调用兼容别名
+        if len(sys.argv) > 1 and sys.argv[1] in ("--group-only", "--file-only"):
+            print(group, end="")
     else:
         print("未检测到 PyTorch，无法确定版本类型")
         print("将在安装依赖时重新选择")

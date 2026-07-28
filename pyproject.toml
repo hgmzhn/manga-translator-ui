@@ -1,10 +1,11 @@
 # uv 依赖配置（替代 requirements_cpu/gpu/amd/metal.txt）
 #
-# 安装方式（四选一，extras 互斥）:
-#   uv sync --extra cpu      # CPU 版
-#   uv sync --extra gpu      # NVIDIA CUDA 12.8 版
-#   uv sync --extra amd      # AMD ROCm 版（torch 由 packaging/launch.py 单独安装，见下方说明）
-#   uv sync --extra metal    # macOS Apple Silicon (MPS) 版
+# 安装方式（四选一，dependency groups 互斥）:
+#   uv sync                                      # 默认：NVIDIA CUDA 12.8 + 打包工具
+#   uv sync --no-default-groups --group cpu      # CPU 版
+#   uv sync --no-default-groups --group amd      # AMD 公共依赖
+#   uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only  # 安装 AMD ROCm torch
+#   uv sync --no-default-groups --group metal    # macOS Apple Silicon (MPS) 版
 
 [project]
 name = "manga-translator-ui"
@@ -97,7 +98,7 @@ dependencies = [
     "pytest-anyio==0.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 cpu = [
     "torch==2.8.0",
     "torchvision==0.23.0",
@@ -138,36 +139,42 @@ metal = [
     # macOS 原生 Dock 图标支持（AppKit）
     "pyobjc-framework-Cocoa>=10.0",
 ]
+packaging = [
+    "pyinstaller==6.17.0",
+    "pyinstaller-hooks-contrib==2025.9",
+]
 
 [tool.uv]
 # 本项目按应用管理，不构建/安装自身
 package = false
+# 本仓库默认使用 NVIDIA GPU 环境，并保留项目打包工具
+default-groups = ["gpu", "packaging"]
 # 四种后端互斥，不能同时安装
 conflicts = [
     [
-        { extra = "cpu" },
-        { extra = "gpu" },
-        { extra = "amd" },
-        { extra = "metal" },
+        { group = "cpu" },
+        { group = "gpu" },
+        { group = "amd" },
+        { group = "metal" },
     ],
 ]
 
 [tool.uv.sources]
-# torch 索引按 extra 绑定；metal 不绑定，回落到默认 PyPI（自动 MPS 版）
+# torch 索引按 dependency group 绑定；metal 不绑定，回落到默认 PyPI（自动 MPS 版）
 torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu128", extra = "gpu" },
+    { index = "pytorch-cpu", group = "cpu" },
+    { index = "pytorch-cu128", group = "gpu" },
 ]
 torchvision = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu128", extra = "gpu" },
+    { index = "pytorch-cpu", group = "cpu" },
+    { index = "pytorch-cu128", group = "gpu" },
 ]
 torchaudio = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu128", extra = "gpu" },
+    { index = "pytorch-cpu", group = "cpu" },
+    { index = "pytorch-cu128", group = "gpu" },
 ]
 xformers = [
-    { index = "pytorch-cu128", extra = "gpu" },
+    { index = "pytorch-cu128", group = "gpu" },
 ]
 # pydensecrf 按平台选择安装来源
 # Windows/macOS: 预编译 wheel（避免本地编译失败）; Linux: 从源码安装（需 C++ 编译工具）

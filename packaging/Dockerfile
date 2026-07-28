@@ -87,23 +87,10 @@ COPY . /app/
 
 # 安装 Python 依赖
 ARG BUILD_TYPE=cpu
-RUN if [ "$BUILD_TYPE" = "gpu" ]; then \
-        # GPU 版本：从源码编译 pydensecrf
-        echo "Building pydensecrf from source for GPU" && \
-        pip install --no-cache-dir setuptools wheel && \
-        pip install --no-cache-dir Cython numpy && \
-        pip install --no-cache-dir --verbose git+https://github.com/lucasb-eyer/pydensecrf.git && \
-        grep -v "^pydensecrf" requirements_gpu.txt > /tmp/requirements_gpu_no_pydensecrf.txt && \
-        pip install --no-cache-dir -r /tmp/requirements_gpu_no_pydensecrf.txt; \
-    else \
-        # CPU 版本：从源码编译 pydensecrf
-        echo "Building pydensecrf from source for CPU" && \
-        pip install --no-cache-dir setuptools wheel && \
-        pip install --no-cache-dir Cython numpy && \
-        pip install --no-cache-dir --verbose git+https://github.com/lucasb-eyer/pydensecrf.git && \
-        grep -v "^pydensecrf" requirements_cpu.txt > /tmp/requirements_cpu_no_pydensecrf.txt && \
-        pip install --no-cache-dir -r /tmp/requirements_cpu_no_pydensecrf.txt; \
-    fi
+RUN pip install --no-cache-dir uv && \
+    uv sync --locked --no-default-groups --group "$BUILD_TYPE"
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 # 创建必要的目录，并由代码内置模板生成所有运行时配置表和提示词表。
 # 这些文件属于用户配置且多被 .gitignore 忽略，不能依赖宿主机已有文件。

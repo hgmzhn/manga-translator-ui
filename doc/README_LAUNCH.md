@@ -51,24 +51,26 @@
 
 ## 3. 依赖安装机制
 
-### 3.1 依赖声明：pyproject.toml + extras
+### 3.1 依赖声明：pyproject.toml + dependency groups
 
 依赖不再使用 `requirements_*.txt`，全部声明在 `pyproject.toml` 中：
 
 - `[project].dependencies`：公共依赖；
-- `[project.optional-dependencies]`：`cpu` / `gpu` / `amd` / `metal` 四个 extra；
+- `[dependency-groups]`：`cpu` / `gpu` / `amd` / `metal` 四个互斥后端组，以及独立的 `packaging` 打包组；
+- `[tool.uv].default-groups`：源码开发默认使用 `gpu` + `packaging`；
 - `[[tool.uv.index]]` + `[tool.uv.sources].torch`：定义各变体对应的 PyTorch 主源（如 cpu → `download.pytorch.org/whl/cpu`，gpu → `.../cu128`）；
 - `tool.uv.sources` 中 url/git 类型来源（如 pydensecrf）按平台 marker 解析成 `name @ url` 形式交给安装器。
 
-`get_variant_packages(variant)` 返回 公共依赖 + 指定 extra 的完整包列表；`get_variant_index_url(variant)` 返回该变体的 PyTorch 主源。
+`get_variant_packages(variant)` 返回公共依赖 + 指定 dependency group 的完整包列表；`get_variant_index_url(variant)` 返回该变体的 PyTorch 主源。便携安装流程把这些依赖直接装入 `packaging\python`，不会创建 `.venv`。
 
 ### 3.2 uv 查找顺序
 
-`find_uv()` 依次尝试（**不查系统 PATH**）：
+`find_uv()` 依次尝试：
 
 1. `packaging\uv.exe`
 2. 项目根目录 `uv.exe`
-3. 当前 Python 环境已安装 uv 模块时用 `python -m uv`（conda 旧环境兼容）
+3. 系统 PATH 中的 `uv`
+4. 当前 Python 环境已安装 uv 模块时用 `python -m uv`（conda 旧环境兼容）
 
 找到 uv 走批量安装快速路径，否则回退 pip 逐包安装。
 
@@ -158,8 +160,8 @@ arm64 Mac 自动选择 `metal` 方案（MPS 加速），无需交互。
 | `packaging/VERSION` | 版本号文件，更新检查以此比对 |
 | `packaging/maintenance_config.json` | 维护菜单语言等配置的持久化 |
 | `packaging/uv_cache/` | uv 下载缓存（装完自动清理） |
-| `packaging/uv.exe`、根目录 `uv.exe` | uv 查找位置 |
-| `pyproject.toml` | 依赖声明（公共 + cpu/gpu/amd/metal extras + PyTorch 源） |
+| `packaging/uv.exe`、根目录 `uv.exe`、系统 PATH | uv 查找位置 |
+| `pyproject.toml` | 依赖声明（公共依赖 + dependency groups + PyTorch 源） |
 | `PortableGit/cmd/git.exe` | 便携版 Git，存在时优先使用 |
 | `INDEX_URL` | 环境变量：指定首选 PyPI 镜像 |
 | `MANGAT_SELECTED_GPU` | 环境变量：多显卡时跳过交互选择（序号/类型/名称模糊匹配） |

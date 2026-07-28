@@ -93,7 +93,7 @@
 
 ### 依赖管理说明
 
-依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 extras），并由 `uv.lock` 锁定版本，原有的 `requirements_*.txt` 已删除。
+依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 dependency groups），并由 `uv.lock` 锁定版本。便携安装脚本直接把依赖装入自带的 `packaging\python`，**不会创建 `.venv`**；`.venv` 仅用于源码开发。
 
 ### 启动程序
 
@@ -194,20 +194,21 @@ cd manga-translator-ui
 
 ### 2. 安装依赖
 
-依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 extras），使用 [uv](https://docs.astral.sh/uv/) 安装：
+依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 dependency groups），使用 [uv](https://docs.astral.sh/uv/) 安装。下面四种后端只选一种：
 
 ```bash
+# NVIDIA GPU（CUDA 12.8，默认；同时安装 packaging 组）
+uv sync
+
 # CPU 版本
-uv sync --extra cpu
+uv sync --no-default-groups --group cpu
 
-# NVIDIA GPU 版本（需要 CUDA 12.x）
-uv sync --extra gpu
-
-# AMD GPU 版本（实验性）
-uv sync --extra amd
+# AMD GPU 版本（实验性；ROCm PyTorch 由 launch.py 单独安装）
+uv sync --no-default-groups --group amd
+uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 
 # Apple Silicon / Metal
-uv sync --extra metal
+uv sync --no-default-groups --group metal
 ```
 
 > 💡 **pip 用户**：可用 `uv export` 生成 requirements 文件后再用 pip 安装。
@@ -216,10 +217,10 @@ uv sync --extra metal
 
 ```bash
 # 运行 PyQt6 界面
-python -m desktop_qt_ui.main
+uv run --no-sync python -m desktop_qt_ui.main
 
 # 或运行旧版 CustomTkinter 界面
-python -m desktop-ui.main
+uv run --no-sync python -m desktop-ui.main
 ```
 
 ---
@@ -493,7 +494,7 @@ chmod +x macOS_1_首次安装.sh
 - 克隆项目代码
 - 检测并安装 Miniforge（如未安装）
 - 创建独立的 `manga-env` 虚拟环境（Python 3.12）
-- 安装所有依赖（使用 `requirements_metal.txt`）
+- 从 `pyproject.toml` 安装 `metal` dependency group（Intel Mac 使用 `cpu`）
 - 配置 MPS GPU 加速
 
 **方式二：手动克隆**

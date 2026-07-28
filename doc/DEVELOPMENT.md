@@ -15,7 +15,8 @@
 依赖现在统一声明在仓库根目录的 `pyproject.toml`：
 
 - 公共依赖写在 `[project] dependencies`。
-- 四种后端是互斥的 optional-dependencies extras：`cpu` / `gpu` / `amd` / `metal`（`[tool.uv] conflicts` 保证互斥）。
+- 四种后端是互斥的 dependency groups：`cpu` / `gpu` / `amd` / `metal`（`[tool.uv] conflicts` 保证互斥）。
+- 默认组是 `gpu` + `packaging`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 12.8，并保留 PyInstaller。
 - PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cpu` 用 `download.pytorch.org/whl/cpu`，`gpu` 用 `whl/cu128`，`metal` 走默认 PyPI；`amd` 的 ROCm 版 torch 由 `packaging/launch.py` 从 `repo.radeon.com` 单独安装。
 - `uv.lock` 是锁定文件，已提交在仓库里，请勿手改。
 
@@ -23,26 +24,31 @@
 
 ### 依赖安装
 
-推荐使用 uv，按你的运行目标只装一套 extra：
+推荐使用 uv，按你的运行目标只装一套 dependency group：
 
 ```bash
-# NVIDIA GPU（CUDA 12.x）
-uv sync --extra gpu
+# NVIDIA GPU（CUDA 12.8，默认）
+uv sync
 
-# 其他后端把 gpu 换成 cpu / amd / metal
-uv sync --extra cpu
+# 其他后端关闭默认组后显式选择
+uv sync --no-default-groups --group cpu
+uv sync --no-default-groups --group metal
+
+# AMD：先同步公共/AMD 依赖，再由 launch.py 安装 ROCm PyTorch
+uv sync --no-default-groups --group amd
+uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 ```
 
-`uv sync` 会自动创建 `.venv` 并按 `uv.lock` 复现依赖。如果想装进已有环境，也可以：
+源码仓库中的 `uv sync` 会自动创建 `.venv` 并按 `uv.lock` 复现依赖；Windows 便携安装包使用自带的 `packaging\python`，不会创建 `.venv`。如果想把源码依赖装进已有环境，也可以：
 
 ```bash
-uv pip install -r pyproject.toml --extra gpu
+uv sync --active
 ```
 
-如果你要做 PyInstaller 打包，还需要：
+默认 GPU 环境已经包含 `packaging` 组。其他后端做 PyInstaller 打包时加上：
 
 ```bash
-pip install pyinstaller
+uv sync --no-default-groups --group cpu --group packaging
 ```
 
 ## 2. 仓库结构
@@ -194,8 +200,8 @@ python -m manga_translator local -i path/to/image.png -o path/to/output
 ### 5.1 推荐启动顺序
 
 ```bash
-# 1. 安装依赖（示例：GPU；会自动创建 .venv 并按 uv.lock 复现）
-uv sync --extra gpu
+# 1. 安装默认 GPU 依赖（会自动创建 .venv 并按 uv.lock 复现）
+uv sync
 
 # 2. 激活环境（Windows PowerShell）
 .venv\Scripts\Activate.ps1
