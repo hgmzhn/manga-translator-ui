@@ -780,6 +780,8 @@ def _put_cache(key: Tuple[Any, ...], value: BubbleDetectionResult):
 def build_bubble_mask_from_mangalens_result(
     result: Optional[BubbleDetectionResult],
     image_shape: Tuple[int, int],
+    erode_ratio: float = 0.0,
+    erode_per_component: bool = True,
 ) -> np.ndarray:
     h, w = int(image_shape[0]), int(image_shape[1])
     mask = np.zeros((h, w), dtype=np.uint8)
@@ -829,7 +831,30 @@ def build_bubble_mask_from_mangalens_result(
             if ix2 > ix1 and iy2 > iy1:
                 cv2.rectangle(mask, (ix1, iy1), (ix2, iy2), 255, -1)
 
-    return mask
+    erode_ratio = max(float(erode_ratio), 0.0)
+    if np.count_nonzero(mask) == 0 or erode_ratio == 0:
+        return mask
+
+    if not erode_per_component:
+        erode_px = max(round(min(h, w) * erode_ratio), 1)
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (erode_px * 2 + 1,) * 2)
+        eroded = cv2.erode(mask, kernel, iterations=1)
+        return eroded if np.count_nonzero(eroded) > 0 else mask
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    eroded = np.zeros_like(mask)
+    for label_idx in range(1, num_labels):
+        x, y, box_w, box_h, _ = map(int, stats[label_idx])
+        component_erode_px = max(round(min(box_w, box_h) * erode_ratio), 1)
+        component = np.where(
+            labels[y:y + box_h, x:x + box_w] == label_idx, 255, 0
+        ).astype(np.uint8)
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (component_erode_px * 2 + 1,) * 2)
+        eroded[y:y + box_h, x:x + box_w] |= cv2.erode(
+            component, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+    return eroded
 
 
 def detect_bubbles_with_mangalens(

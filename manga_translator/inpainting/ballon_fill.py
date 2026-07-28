@@ -8,28 +8,7 @@ from ..rendering.ballon_extractor import enlarge_window
 from ..utils.bubble import calc_bbox_mask_overlap_ratio
 
 
-MODEL_BUBBLE_SHRINK_RATIO = 0.03
-
-
-def _shrink_bubble_mask(mask: np.ndarray) -> np.ndarray:
-    """Erode each bubble component by a fraction of its smaller dimension."""
-    mask_bin = np.where(mask > 0, 255, 0).astype(np.uint8)
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask_bin, connectivity=8)
-    shrunk = np.zeros_like(mask_bin)
-
-    for label_idx in range(1, num_labels):
-        x, y, w, h, _ = map(int, stats[label_idx])
-        erode_px = max(round(min(w, h) * MODEL_BUBBLE_SHRINK_RATIO), 1)
-        component = np.where(labels[y:y + h, x:x + w] == label_idx, 255, 0).astype(np.uint8)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_px * 2 + 1,) * 2)
-        shrunk[y:y + h, x:x + w] |= cv2.erode(
-            component,
-            kernel,
-            borderType=cv2.BORDER_CONSTANT,
-            borderValue=0,
-        )
-
-    return shrunk
+MODEL_BUBBLE_SHRINK_RATIO = 0.02
 
 
 def solid_fill_pure_bubbles(
@@ -48,7 +27,7 @@ def solid_fill_pure_bubbles(
         mask: 精修（膨胀）后的修复掩码，与 img 同宽高；已填色区域会从中清零
         text_regions: 文本区域列表，用现有模型气泡重叠逻辑选择对应气泡
         mask_tight: 膨胀后的原始文字蒙版，用于从气泡中扣除文字像素
-        bubble_mask: 气泡模型输出蒙版
+        bubble_mask: 已按比例内缩的气泡模型输出蒙版
         overlap_threshold: 文本框位于模型气泡内的最小重叠率
 
     Returns:
@@ -87,10 +66,7 @@ def solid_fill_pure_bubbles(
         if not matched_regions:
             continue
 
-        safe_bubble = _shrink_bubble_mask(region_bubble)
-        if not np.any(safe_bubble):
-            continue
-        non_text_mask = cv2.bitwise_and(safe_bubble, 255 - tight_bin)
+        non_text_mask = cv2.bitwise_and(region_bubble, 255 - tight_bin)
         non_text_px = rgb[non_text_mask > 0]
         if not non_text_px.size:
             continue
@@ -100,7 +76,7 @@ def solid_fill_pure_bubbles(
         if np.max(std_rgb) >= inpaint_thresh:
             continue
 
-        fill_region = safe_bubble > 0
+        fill_region = region_bubble > 0
         rgb[fill_region] = np.clip(np.round(average_bg_color), 0, 255).astype(np.uint8)
         remaining_mask[fill_region] = 0
         filled_regions.update(matched_regions)

@@ -56,7 +56,11 @@ from .detection import unload as unload_detection
 from .inpainting import dispatch as dispatch_inpainting
 from .inpainting import prepare as prepare_inpainting
 from .inpainting import unload as unload_inpainting
-from .inpainting.ballon_fill import inpaint_regions_per_block, solid_fill_pure_bubbles
+from .inpainting.ballon_fill import (
+    MODEL_BUBBLE_SHRINK_RATIO,
+    inpaint_regions_per_block,
+    solid_fill_pure_bubbles,
+)
 from .mask_refinement import dispatch as dispatch_mask_refinement
 from .ocr import dispatch as dispatch_ocr
 from .ocr import prepare as prepare_ocr
@@ -3065,6 +3069,7 @@ class MangaTranslator:
                                 detect_bubbles_with_mangalens(
                                     ctx.img_rgb, return_annotated=False, verbose=False),
                                 ctx.img_rgb.shape[:2],
+                                erode_ratio=MODEL_BUBBLE_SHRINK_RATIO,
                             )
                         except Exception as bubble_exc:
                             logger.warning(f"[修复] 气泡模型检测失败，跳过纯色填充: {bubble_exc}")

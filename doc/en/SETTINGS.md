@@ -395,7 +395,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
 - **`Solid Fill Pure Bubbles` (`solid_fill_pure_bubbles`)**: use the bubble model to identify solid-color bubbles and skip inpainting for them.
   - Current UI location: `Settings` -> `Inpainting` -> `Solid Fill Pure Bubbles`
   - Reuses the model bubble overlap threshold to decide whether text is inside a bubble, then reuses the layout component matcher to select the complete corresponding bubble component
-  - Shrinks each model bubble mask inward by 3% of its shorter side (at least 1px) so model overshoot does not cross the real bubble border
+  - Shrinks each model bubble mask inward by 2% of its shorter side (at least 1px) so model overshoot does not cross the real bubble border
   - Subtracts the roughly 2px-dilated `mask_raw` and checks only the remaining background pixels for near-solid color
   - A matching solid bubble is filled with its median background color and removed from the repair mask; model misses and non-solid backgrounds are left for inpainting
   - The old Canny closed-contour detector is no longer used as a fallback
@@ -734,7 +734,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
 - **`Keep Dilation Inside Bubble Mask` (`limit_mask_dilation_to_bubble_mask`)**: keep mask dilation from growing outside the bubble area.
   - Current UI location: `Settings` -> `Inpainting` -> `Keep Dilation Inside Bubble Mask`
   - Default: `false`
-  - When enabled: the post-processing stage constrains the final repair mask using the model bubble area, preventing repair from spilling outside the bubble
+  - When enabled: the post-processing stage constrains the final repair mask using each model bubble component shrunk by 1% of its shorter side, preventing repair from spilling outside the bubble
   - Use case: protect bubble borders and avoid unwanted repair outside the dialogue box
 
 - **`Text Region Min Probability` (`prob`)**: OCR recognition probability threshold.

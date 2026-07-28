@@ -1,4 +1,4 @@
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -15,39 +15,11 @@ from .text_mask_utils import complete_mask, complete_mask_fill
 
 logger = get_logger('mask_refinement')
 
-# 气泡 mask 向内收缩像素，避免气泡边框被修复模型擦除
-BUBBLE_MASK_ERODE_PX = 3
+# “扩大气泡修复范围”保持原有整图短边比例；“膨胀不超过气泡蒙版”按气泡短边比例
+BUBBLE_MASK_ERODE_RATIO = 0.02
+BUBBLE_MASK_DILATION_LIMIT_ERODE_RATIO = 0.01
 # line 最小外接矩形保护区外扩像素；0 表示只保护原始外接矩形内
 LINE_MIN_RECT_PROTECT_EXPAND_PX = 0
-
-
-def _erode_bubble_mask(bubble_mask: np.ndarray) -> np.ndarray:
-    """Erode the bubble mask inward by a fixed number of pixels."""
-    if np.count_nonzero(bubble_mask) == 0:
-        return bubble_mask
-    h, w = bubble_mask.shape[:2]
-    erode_px = max(int(BUBBLE_MASK_ERODE_PX), 0)
-    if erode_px == 0:
-        return bubble_mask
-    kernel_size = 2 * erode_px + 1
-    erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    logger.info(f"Bubble mask erosion: image={w}x{h}, erode_px={erode_px}")
-    eroded = cv2.erode(bubble_mask, erode_kernel, iterations=1)
-    if np.count_nonzero(eroded) == 0:
-        logger.warning("Bubble mask fully eroded; falling back to original mask")
-        return bubble_mask
-    return eroded
-
-
-def _build_model_bubble_mask(image_shape: Tuple[int, int], result: Any) -> Tuple[np.ndarray, str]:
-    bubble_mask = build_bubble_mask_from_mangalens_result(result, image_shape)
-    if np.count_nonzero(bubble_mask) == 0:
-        return bubble_mask, 'none'
-
-    raw_result = getattr(result, 'raw_result', None) if result is not None else None
-    raw_masks = getattr(raw_result, 'masks', None) if raw_result is not None else None
-    source = 'mask' if raw_masks is not None else 'box'
-    return _erode_bubble_mask(bubble_mask), source
 
 
 def _build_line_protect_mask(
@@ -249,33 +221,49 @@ async def dispatch(
             if result is None:
                 logger.warning("Model bubble mask cache miss in mask refinement; skip bubble-constrained post-process")
                 detections = []
-                bubble_mask = np.zeros(final_mask.shape[:2], dtype=np.uint8)
                 bubble_source = 'none'
             else:
                 detections = result.detections
-                bubble_mask, bubble_source = _build_model_bubble_mask(final_mask.shape[:2], result)
+                raw_result = getattr(result, 'raw_result', None)
+                bubble_source = 'mask' if getattr(raw_result, 'masks', None) is not None else 'box'
 
-            if np.count_nonzero(bubble_mask) == 0:
-                logger.info(
-                    "Model bubble mask post-process enabled, but no bubble detections found; keep refined mask unchanged"
+            if use_model_bubble_repair_intersection:
+                bubble_mask = build_bubble_mask_from_mangalens_result(
+                    result,
+                    final_mask.shape[:2],
+                    erode_ratio=BUBBLE_MASK_ERODE_RATIO,
+                    erode_per_component=False,
                 )
-            elif use_model_bubble_repair_intersection:
-                filtered_mask, total_components, kept_components = _keep_bubble_components_intersecting_refined_mask(
-                    bubble_mask=bubble_mask,
-                    refined_mask=final_mask,
-                )
-                merged_mask = cv2.bitwise_or(final_mask, filtered_mask)
-                added_pixels = int(np.count_nonzero((filtered_mask > 0) & (final_mask == 0)))
-                logger.info(
-                    f"Bubble repair intersection: detections={len(detections)}, source={bubble_source}, "
-                    f"bubble_components={total_components}, kept_components={kept_components}, "
-                    f"refined_pixels={int(np.count_nonzero(final_mask))}, "
-                    f"bubble_pixels={int(np.count_nonzero(filtered_mask))}, "
-                    f"added_pixels={added_pixels}, output_pixels={int(np.count_nonzero(merged_mask))}"
-                )
-                final_mask = merged_mask
+                if np.count_nonzero(bubble_mask) == 0:
+                    logger.info(
+                        "Bubble repair intersection enabled, but no bubble detections found; keep refined mask unchanged"
+                    )
+                else:
+                    filtered_mask, total_components, kept_components = _keep_bubble_components_intersecting_refined_mask(
+                        bubble_mask=bubble_mask,
+                        refined_mask=final_mask,
+                    )
+                    merged_mask = cv2.bitwise_or(final_mask, filtered_mask)
+                    added_pixels = int(np.count_nonzero((filtered_mask > 0) & (final_mask == 0)))
+                    logger.info(
+                        f"Bubble repair intersection: detections={len(detections)}, source={bubble_source}, "
+                        f"bubble_components={total_components}, kept_components={kept_components}, "
+                        f"refined_pixels={int(np.count_nonzero(final_mask))}, "
+                        f"bubble_pixels={int(np.count_nonzero(filtered_mask))}, "
+                        f"added_pixels={added_pixels}, output_pixels={int(np.count_nonzero(merged_mask))}"
+                    )
+                    final_mask = merged_mask
 
-            if np.count_nonzero(bubble_mask) > 0 and limit_mask_dilation_to_bubble_mask:
+            if limit_mask_dilation_to_bubble_mask:
+                bubble_mask = build_bubble_mask_from_mangalens_result(
+                    result, final_mask.shape[:2],
+                    erode_ratio=BUBBLE_MASK_DILATION_LIMIT_ERODE_RATIO)
+                if np.count_nonzero(bubble_mask) == 0:
+                    logger.info(
+                        "Bubble constrained dilation enabled, but no bubble detections found; keep refined mask unchanged"
+                    )
+                    return final_mask
+
                 mask_before_clip = final_mask.copy()
                 clipped_mask, total_components, intersected_components, preserved_components = _clip_refined_components_by_bubble_mask(
                     refined_mask=final_mask,

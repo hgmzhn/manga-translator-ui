@@ -12,7 +12,7 @@ sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from manga_translator import manga_translator as translator_module  # noqa: E402
 from manga_translator.inpainting import ballon_fill  # noqa: E402
-from manga_translator.utils import Context  # noqa: E402
+from manga_translator.utils import Context, build_bubble_mask_from_mangalens_result  # noqa: E402
 
 
 class _Region:
@@ -165,10 +165,14 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
         "detect_bubbles_with_mangalens",
         lambda *args, **kwargs: object(),
     )
+    def fake_build_bubble_mask(result, shape, erode_ratio=0.0):
+        captured["bubble_erode_ratio"] = erode_ratio
+        return model_bubble_mask.copy()
+
     monkeypatch.setattr(
         translator_module,
         "build_bubble_mask_from_mangalens_result",
-        lambda result, shape: model_bubble_mask.copy(),
+        fake_build_bubble_mask,
     )
 
     asyncio.run(
@@ -194,6 +198,7 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
 
     np.testing.assert_array_equal(captured["solid_fill_mask"], expected_raw)
     np.testing.assert_array_equal(captured["bubble_mask"], model_bubble_mask)
+    assert captured["bubble_erode_ratio"] == 0.02
     assert captured["overlap_threshold"] == 0.1
     np.testing.assert_array_equal(captured["inpaint_mask"], expected_refined)
 
@@ -213,6 +218,16 @@ def test_solid_fill_handles_connected_bubbles_and_excludes_all_raw_text():
     bubble_mask[2:22, 2:22] = 255
     bubble_mask[6:22, 18:42] = 255
     bubble_mask[2:22, 46:62] = 255
+    bubble_mask = build_bubble_mask_from_mangalens_result(
+        SimpleNamespace(
+            raw_result=SimpleNamespace(
+                masks=SimpleNamespace(data=(bubble_mask > 0)[None, ...]),
+            ),
+            detections=[],
+        ),
+        bubble_mask.shape,
+        erode_ratio=0.02,
+    )
     regions = [
         SimpleNamespace(xyxy=(9, 9, 13, 13)),
         SimpleNamespace(xyxy=(29, 9, 33, 13)),
@@ -233,3 +248,20 @@ def test_solid_fill_handles_connected_bubbles_and_excludes_all_raw_text():
     np.testing.assert_array_equal(result[10, 2], (0, 0, 255))
     np.testing.assert_array_equal(result[10, 50], (80, 80, 80))
     assert not remaining_mask.any()
+
+
+def test_bubble_mask_builder_supports_component_and_image_ratios():
+    masks = np.zeros((1, 200, 200), dtype=np.uint8)
+    masks[0, 50:100, 50:100] = 1
+    result = SimpleNamespace(
+        raw_result=SimpleNamespace(masks=SimpleNamespace(data=masks)),
+        detections=[],
+    )
+
+    component = build_bubble_mask_from_mangalens_result(
+        result, masks.shape[1:], erode_ratio=0.02)
+    image = build_bubble_mask_from_mangalens_result(
+        result, masks.shape[1:], erode_ratio=0.02, erode_per_component=False)
+
+    assert component[50, 75] == 0 and component[51, 75] == 255
+    assert image[53, 75] == 0 and image[54, 75] == 255
