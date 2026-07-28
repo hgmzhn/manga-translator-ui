@@ -20,6 +20,7 @@ try:
     from manga_translator.config import Ocr, OcrConfig
     from manga_translator.ocr import dispatch as dispatch_ocr
     from manga_translator.ocr import prepare as prepare_ocr
+    from manga_translator.ocr import unload as unload_ocr
     from manga_translator.utils import Quadrilateral
     OCR_AVAILABLE = True
 except ImportError as e:
@@ -62,6 +63,7 @@ class OcrService:
             
         # OCR模型缓存
         self.model_prepared = False
+        self.current_prepared_ocr = None
 
         # YOLO OBB 检测缓存
         self._yolo_detector = None
@@ -137,21 +139,50 @@ class OcrService:
             return False
     
     async def prepare_model(self, ocr_type: Optional[Ocr] = None):
-        """准备OCR模型"""
+        """准备OCR模型（若切换了模型，自动销毁卸载旧模型）"""
         if not OCR_AVAILABLE:
             raise RuntimeError("OCR后端模块不可用")
-        if self.model_prepared:
-            return
             
         ocr_to_use = ocr_type or self._get_current_config().ocr
-        
+        if isinstance(ocr_to_use, str):
+            try:
+                ocr_to_use = Ocr(ocr_to_use)
+            except ValueError:
+                pass
+
+        # 切换模型时自动卸载销毁旧模型，释放显存与内存
+        if self.current_prepared_ocr and self.current_prepared_ocr != ocr_to_use:
+            self.logger.info(f"检测到编辑器 OCR 模型切换: {self.current_prepared_ocr} -> {ocr_to_use}，正在销毁卸载旧模型...")
+            try:
+                await unload_ocr(self.current_prepared_ocr)
+                self.logger.info(f"旧 OCR 模型 {self.current_prepared_ocr} 销毁成功")
+            except Exception as e:
+                self.logger.warning(f"销毁旧 OCR 模型 {self.current_prepared_ocr} 失败: {e}")
+            self.model_prepared = False
+
+        if self.model_prepared and self.current_prepared_ocr == ocr_to_use:
+            return
+
         try:
             await prepare_ocr(ocr_to_use, self.device)
             self.model_prepared = True
-            self.logger.info(f"OCR模型准备完成: {ocr_to_use.value}")
+            self.current_prepared_ocr = ocr_to_use
+            self.logger.info(f"OCR模型准备完成: {getattr(ocr_to_use, 'value', ocr_to_use)}")
         except Exception as e:
             self.logger.error(f"OCR模型准备失败: {e}")
             raise
+
+    async def unload_current_model(self):
+        """显式销毁当前已加载的 OCR 模型"""
+        if self.current_prepared_ocr and OCR_AVAILABLE:
+            try:
+                await unload_ocr(self.current_prepared_ocr)
+                self.logger.info(f"当前 OCR 模型 {self.current_prepared_ocr} 已销毁卸载")
+            except Exception as e:
+                self.logger.warning(f"销毁当前 OCR 模型 {self.current_prepared_ocr} 失败: {e}")
+            finally:
+                self.current_prepared_ocr = None
+                self.model_prepared = False
     
     def _region_to_quadrilateral(self, region: Dict[str, Any], image_shape: Tuple[int, int]) -> Quadrilateral:
         """将文本框区域转换为OCR所需的Quadrilateral格式"""
@@ -328,7 +359,7 @@ class OcrService:
                     poly[i] = [int(round(point[0])), int(round(point[1]))]
         # --- END FIX ---
             
-        if not self.model_prepared:
+        if not self.model_prepared or self.current_prepared_ocr != ocr_key:
             await self.prepare_model(ocr_key)
         
         # Convert PIL Image to numpy array if necessary
@@ -344,9 +375,11 @@ class OcrService:
             if not all_polygons:
                 return None
 
-            should_try_split = len(all_polygons) == 1 and ocr_key not in {
-                Ocr.mocr, Ocr.paddleocr_vl
+            unsegmented_ocr_models = {
+                Ocr.mocr, Ocr.paddleocr_vl, Ocr.openai_ocr, Ocr.gemini_ocr,
+                "mocr", "paddleocr_vl", "openai_ocr", "gemini_ocr"
             }
+            should_try_split = len(all_polygons) == 1 and ocr_key not in unsegmented_ocr_models
 
             # YOLO OBB 检测（对大框裁剪区域检测）
             yolo_lines = None
@@ -433,7 +466,7 @@ class OcrService:
         ocr_config = self._resolve_ocr_config(config)
         ocr_key = ocr_config.ocr if hasattr(ocr_config, 'ocr') else ocr_config
               
-        if not self.model_prepared:
+        if not self.model_prepared or self.current_prepared_ocr != ocr_key:
             await self.prepare_model(ocr_key)
         
         try:
