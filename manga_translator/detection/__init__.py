@@ -5,6 +5,7 @@ import numpy as np
 
 from ..config import Detector
 from ..utils import Quadrilateral
+from ..utils.bubble import is_bubble_advanced
 from .common import CommonDetector, OfflineDetector
 from .craft import CRAFTDetector
 from .ctd import ComicTextDetector
@@ -48,7 +49,7 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
     
     Args:
         use_yolo_obb: 是否启用YOLO OBB辅助检测器
-        use_sfx_filter: 是否过滤既未被 other 包裹、也未与 YOLO 文本框重叠的主检测框
+        use_sfx_filter: 是否过滤既不在气泡内、也未被 other 包裹、也未与 YOLO 文本框重叠的主检测框
         yolo_obb_conf: YOLO OBB检测器的置信度阈值
         min_box_area_ratio: 最小检测框面积占比（相对图片总像素）
         result_path_fn: 结果路径生成函数（用于保存调试图）
@@ -87,21 +88,17 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
         )
         
         # 智能合并：YOLO框可以替换过小的主检测器框，或添加新框
-        sfx_filtered_count = (
-            len(_get_sfx_filtered_main_indices(main_textlines, yolo_textlines, yolo_obb_overlap_threshold))
-            if use_sfx_filter
-            else 0
-        )
         combined_textlines = merge_detection_boxes(
             yolo_textlines,
             main_textlines,
             overlap_threshold=yolo_obb_overlap_threshold,
             use_sfx_filter=use_sfx_filter,
+            image=image,
         )
         
         replaced_count = len(main_textlines) + len(yolo_textlines) - len(combined_textlines)
         detector.logger.info(f"混合检测: 主检测器={len(main_textlines)}, YOLO OBB={len(yolo_textlines)}, "
-                           f"替换/移除={replaced_count}, 拟声词过滤={sfx_filtered_count}, "
+                           f"替换/移除={replaced_count}, "
                            f"总计={len(combined_textlines)}")
         
         # 生成调试图片（如果verbose=True）
@@ -266,12 +263,13 @@ def _get_sfx_filtered_main_indices(
     yolo_boxes: List[Quadrilateral],
     overlap_threshold: float,
     wrap_eps: float = 2.0,
+    image: Optional[np.ndarray] = None,
 ) -> set[int]:
     """
     找出缺少 YOLO 支持的主检测框：
     - YOLO `other` 必须完整包裹主框；或
     - 任一非 `other` YOLO 框与主框的重叠率达到阈值。
-    两项均不满足时视为拟声词/装饰字候选并过滤。
+    两项均不满足时，再复用气泡检测；气泡内文本仍保留。
     """
     # 即使用户把合并阈值设为 0，也仍要求存在真实交集，避免任意 YOLO 框
     # 让整页所有主检测框都通过过滤。
@@ -293,6 +291,16 @@ def _get_sfx_filtered_main_indices(
                 supported = True
                 break
 
+        if not supported and image is not None:
+            min_x, max_x, min_y, max_y = main_aabb
+            image_h, image_w = image.shape[:2]
+            x1 = max(0, int(np.floor(min_x)))
+            y1 = max(0, int(np.floor(min_y)))
+            x2 = min(image_w, int(np.ceil(max_x)))
+            y2 = min(image_h, int(np.ceil(max_y)))
+            supported = x2 > x1 and y2 > y1 and is_bubble_advanced(
+                image, x1, y1, x2 - x1, y2 - y1)
+
         if not supported:
             filtered_indices.add(main_idx)
 
@@ -304,6 +312,7 @@ def merge_detection_boxes(
     main_boxes: List[Quadrilateral],
     overlap_threshold: float = 0.1,
     use_sfx_filter: bool = False,
+    image: Optional[np.ndarray] = None,
 ) -> List[Quadrilateral]:
     """
     合并主检测器和YOLO检测器的框，智能替换逻辑：
@@ -322,7 +331,8 @@ def merge_detection_boxes(
         yolo_boxes: YOLO OBB检测器的检测框
         main_boxes: 主检测器的检测框
         overlap_threshold: 重叠率阈值（0.0-1.0）。重叠率 >= 该值时删除YOLO框。设为1.0则保留所有框。
-        use_sfx_filter: 过滤既未被 YOLO other 框包裹、也未与其他 YOLO 框达到重叠阈值的主检测框。
+        use_sfx_filter: 过滤既不在气泡内、也未被 YOLO other 框包裹、也未与其他 YOLO 框达到重叠阈值的主检测框。
+        image: 原图，供现有气泡检测函数判断未获 YOLO 支持的主框。
     
     Returns:
         合并后的检测框列表
@@ -330,16 +340,18 @@ def merge_detection_boxes(
     if len(main_boxes) == 0:
         return yolo_boxes
     
-    if len(yolo_boxes) == 0:
-        return [] if use_sfx_filter else main_boxes
-
     # 先进行标签感染：每个 YOLO 框最多感染一个主框
     _apply_yolo_label_infection(main_boxes, yolo_boxes, min_overlap_ratio=max(0.01, overlap_threshold * 0.5))
     
     # 标记要移除的主检测器框索引。拟声词过滤只作用于主检测器框，
     # YOLO 自身框仍按下方原有的替换/去重规则处理。
     main_boxes_to_remove = (
-        _get_sfx_filtered_main_indices(main_boxes, yolo_boxes, overlap_threshold)
+        _get_sfx_filtered_main_indices(
+            main_boxes,
+            yolo_boxes,
+            overlap_threshold,
+            image=image,
+        )
         if use_sfx_filter
         else set()
     )
