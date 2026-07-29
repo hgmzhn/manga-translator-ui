@@ -26,6 +26,7 @@ from ._compose import (
     _rgba_for_paint_part,
     _style_fill_color,
     _style_font_size,
+    _style_italic_shear,
     _style_stroke_color,
     _stroke_bitmap_from_alpha,
 )
@@ -58,9 +59,10 @@ def _paint_vertical_ruby(canvas: np.ndarray, plan: RubyPlan, body_right: float, 
     fill = _style_fill_color(ruby_style, fg)
     stroke = _style_stroke_color(ruby_style, None)
     x = body_right + plan.cross_center
+    ruby_shear = _style_italic_shear(ruby_style)
     with _style_font_scope(ruby_style):
         for glyph in plan.glyphs:
-            base = _vertical_base(ruby_size, glyph.char, letter_spacing)
+            base = _vertical_base(ruby_size, glyph.char, letter_spacing, ruby_shear)
             if base.bitmap is None:
                 continue
             layer, off_x, off_y = _glyph_pair_rgba(base.bitmap, None, fill, stroke)
@@ -80,7 +82,11 @@ def _paint_vertical_ruby(canvas: np.ndarray, plan: RubyPlan, body_right: float, 
 
 
 def _finish_layer(base_layer, style, font_size: int, effect_part: str):
-    """特效 + 图层几何（斜体/旋转/镜像）后处理，effects/stroke/fill 三层共用。"""
+    """特效 + 图层几何（旋转/镜像）后处理，effects/stroke/fill 三层共用。
+
+    斜体已在字形路径阶段完成（_glyph_raster/_horizontal_glyph_path 的 shear），
+    进入本函数的图层就是剪切后的形状。
+    """
     if base_layer is None:
         return None
     layer = _apply_style_paint_effects(base_layer, style, font_size, effect_part)
@@ -132,7 +138,7 @@ def _text_layer_parts(
         surface = _line_surface(
             text, font_size, border_size, stroke_ratio,
             reversed_direction, letter_spacing, effective_bold, profile_stats,
-            geometry,
+            geometry, _style_italic_shear(style),
         )
     if surface is None:
         return None
@@ -346,7 +352,7 @@ def _render_rich_text_vertical(
                 y = (
                     line_origin_y
                     + item.main_start
-                    + item.source.style.transform.offset_y
+                    + item.source.style.transform.offset_y * item.font_size / 100.0
                     + item.paint_offset_y
                 )
                 glyph_items.append((parts, int(round(x)), int(round(y))))
@@ -363,7 +369,7 @@ def _render_rich_text_vertical(
                 line_origin_y
                 + item.cursor_y
                 + item.base.y
-                + item.span.style.transform.offset_y
+                + item.span.style.transform.offset_y * item.font_size / 100.0
                 + item.paint_offset_y
             )
             glyph_items.append((parts, int(round(char_x)), int(round(char_y))))

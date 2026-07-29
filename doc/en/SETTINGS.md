@@ -285,7 +285,7 @@ Older versions grouped the interface into broad settings tabs. In the current de
   - Supports many-to-one matching, where multiple raw boxes can map to one translated box
   - Automatically saves optimized masks so the Qt editor can skip mask optimization later
   - Supports editable PSD export
-  - Does not support parallel processing and automatically uses sequential processing
+  - Does not support the concurrent pipeline and uses the standard backend batch path
   - How to use it:
     1. prepare raw pages and their matching translated pages
     2. put the translated pages in `source_image_dir/manga_translator_work/translated_images/`

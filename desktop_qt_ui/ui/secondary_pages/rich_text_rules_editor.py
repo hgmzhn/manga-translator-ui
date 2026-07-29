@@ -78,6 +78,7 @@ def _style_summary(style: dict, empty_text: str) -> str:
         "outerStroke": "OS",
         "glow": "G",
         "emphasis": "D",
+        "verticalAdvance": "FA",
         "kerning": "K",
         "preKerning": "PK",
         "lineKerning": "LK",
@@ -156,6 +157,12 @@ class RichTextStyleControls(SimpleCardWidget):
         self.color = self._color("color", "#E53935", "saved_colors", "Select rich text color")
         self.font_size = self._integer("fontSize", 1, 1000, 24)
         self.scale = self._number("scale", 0.1, 10, 1.2, 0.05, 2)
+        advance_choices = (("Half Advance", "half"), ("Full Advance", "full"))
+        advance_editor = ComboBox(self)
+        for label, value in advance_choices:
+            advance_editor.addItem(self._t(label), userData=value)
+        self.vertical_advance = self._register("verticalAdvance", advance_editor)
+        self.vertical_advance.choice_labels = advance_choices
         self.font_family = self._font("fontFamily")
         self.stroke = self._effect("stroke", "#FFFFFF", "saved_stroke_colors", "width", 0.07)
         self.outer_stroke = self._effect("outerStroke", "#000000", "saved_outer_stroke_colors", "width", 0.20)
@@ -167,10 +174,13 @@ class RichTextStyleControls(SimpleCardWidget):
         self.rotation = self._number("rotation", -180, 180, 0, 1, 1)
         self.offset_x = self._number("offsetX", -500, 500, 0, 1, 1)
         self.offset_y = self._number("offsetY", -500, 500, 0, 1, 1)
+        self.offset_x.editor.setSuffix("%")
+        self.offset_y.editor.setSuffix("%")
 
         for label, field in (
             ("Italic Angle", self.italic), ("Text Color", self.color),
             ("Font Size", self.font_size), ("Scale", self.scale),
+            ("Force Advance", self.vertical_advance),
             ("Font Family", self.font_family), ("Stroke", self.stroke),
             ("Outer Stroke", self.outer_stroke), ("Glow", self.glow),
             ("Kerning", self.kerning), ("Pre Kerning", self.pre_kerning),
@@ -323,6 +333,9 @@ class RichTextStyleControls(SimpleCardWidget):
             if hasattr(label, "setText"):
                 label.setText(self._t(key))
         for field in self._fields.values():
+            if hasattr(field, "choice_labels"):
+                for index, (label_key, _value) in enumerate(field.choice_labels):
+                    field.editor.setItemText(index, self._t(label_key))
             if hasattr(field, "color_label"):
                 field.color_label.setText(self._t("Color"))
             if hasattr(field, "value_label"):
@@ -352,6 +365,8 @@ class RichTextStyleControls(SimpleCardWidget):
                 field.editor.set_color(str(value))
             elif isinstance(field.editor, QFontComboBox):
                 field.editor.setCurrentFont(QFont(str(value)))
+            elif isinstance(field.editor, ComboBox):
+                field.editor.setCurrentIndex(max(0, field.editor.findData(value)))
             else:
                 field.editor.setValue(value)
 
@@ -373,6 +388,8 @@ class RichTextStyleControls(SimpleCardWidget):
                 values[key] = field.editor.get_color()
             elif isinstance(field.editor, QFontComboBox):
                 values[key] = field.editor.currentFont().family()
+            elif isinstance(field.editor, ComboBox):
+                values[key] = field.editor.currentData()
             else:
                 values[key] = field.editor.value()
         style = text_style_from_control_values(values, enabled)

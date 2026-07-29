@@ -137,6 +137,7 @@ def text_style_to_control_values(style: Any) -> dict:
     return {
         "bold": bool(style.get("bold", False)),
         "emphasis": bool(style.get("emphasis", False)),
+        "verticalAdvance": style.get("verticalAdvance"),
         "italic": italic,
         "color": style.get("color"),
         "fontSize": style.get("fontSize"),
@@ -161,7 +162,7 @@ def text_style_from_control_values(values: dict, enabled: set[str]) -> dict:
     for key in (
         "bold", "emphasis", "italic", "color", "fontSize", "scale",
         "fontFamily", "stroke", "outerStroke", "glow", "kerning",
-        "preKerning", "lineKerning", "nextKerning",
+        "preKerning", "lineKerning", "nextKerning", "verticalAdvance",
     ):
         if key in enabled:
             style[key] = copy.deepcopy(values.get(key))
@@ -649,7 +650,7 @@ def style_for_range(document: dict, start: int, end: int) -> dict:
     for style in styles:
         if not isinstance(style, dict):
             continue
-        for key in ("bold", "italic", "scale", "emphasis", "noTcy", "kerning", "preKerning", "lineKerning", "nextKerning"):
+        for key in ("bold", "italic", "scale", "emphasis", "noTcy", "verticalAdvance", "kerning", "preKerning", "lineKerning", "nextKerning"):
             if key in style and key not in result:
                 result[key] = style.get(key)
         if "color" in style and "color" not in result:
@@ -803,6 +804,8 @@ def _style_row_value(entry: _CharEntry, row_key: str) -> Any:
         return copy.deepcopy(style.get(source))
     if row_key == "D":
         return bool(style.get("emphasis"))
+    if row_key == "FA":
+        return style.get("verticalAdvance")
     if row_key in {"Rot", "XY", "M", "MV"}:
         transform = style.get("transform") or {}
         if row_key == "Rot":
@@ -834,6 +837,8 @@ def _style_matches_row_key(style: dict, row_key: str) -> bool:
         return isinstance(style.get("outerStroke"), dict) and bool(style.get("outerStroke"))
     if row_key == "D":
         return bool(style.get("emphasis"))
+    if row_key == "FA":
+        return "verticalAdvance" in style
     if row_key == "Rot":
         transform = style.get("transform")
         return isinstance(transform, dict) and "rotation" in transform

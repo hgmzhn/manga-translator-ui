@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QRawFont
+from PyQt6.QtGui import QColor, QImage, QPainter, QPainterPath, QRawFont, QTransform
 
 from ._fonts import _create_text_layout, _state
 from ._shared import _GLYPH_RASTER_CACHE_MAX, _GLYPH_SPEC_CACHE_MAX, _cache_get, _cache_put
@@ -139,14 +139,22 @@ def _rasterize_path(path: QPainterPath) -> Tuple[np.ndarray, int, int]:
     return _qimage_alpha_to_array(image), left, top
 
 
-def _glyph_raster(cdpt: str, font_size: int) -> GlyphRaster:
+def _glyph_raster(cdpt: str, font_size: int, shear: float = 0.0) -> GlyphRaster:
+    """字形 alpha 位图与度量；shear 为斜体切变系数（PS 语义）。
+
+    pathForGlyph 的轮廓坐标以基线为原点，此处对轮廓做 x' = x + shear·y
+    即天然绕基线剪切：advance 不变，left/top 随剪切后包围盒自动成立，
+    下游（描边/特效/布局）把斜体字形当普通字形处理。
+    """
     spec = _glyph_spec(cdpt, font_size)
     state = _state()
-    key = (spec.cache_key, spec.glyph_id, int(font_size))
+    key = (spec.cache_key, spec.glyph_id, int(font_size), round(float(shear), 4))
     cached = _cache_get(state.glyphs, key)
     if cached is not None:
         return cached
     path = spec.raw_font.pathForGlyph(spec.glyph_id)
+    if shear:
+        path = QTransform(1.0, 0.0, float(shear), 1.0, 0.0, 0.0).map(path)
     alpha, left, top = _rasterize_path(path)
     advances = spec.raw_font.advancesForGlyphIndexes([spec.glyph_id]) if spec.glyph_id else []
     advance = advances[0] if advances else QPointF(float(font_size), float(font_size))

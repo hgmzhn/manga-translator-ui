@@ -3455,15 +3455,14 @@ class MangaTranslator:
                 if is_hq_translator and is_import_export_mode:
                     logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
         
-        # === 步骤3: 检查是否需要使用顺序处理模式 ===
-        # 注意：不要在这里调用 translate()，因为 translate() 会调用 translate_batch()，造成无限循环
-        # 相反，我们直接使用批量处理逻辑，但 batch_size 设置为 1
+        # === 步骤3: 规范单项批次 ===
+        # 始终留在 translate_batch() 内；导出原文需要逐张落盘，因此使用 batch_size=1。
         is_template_save_mode = self.template and self.save_text
         if is_template_save_mode:
-            logger.info("Template+SaveText mode detected. Forcing sequential processing to save files one by one.")
+            logger.info("Template+SaveText mode detected. Using one-item backend batches.")
             batch_size = 1  # 强制使用 batch_size=1
         elif batch_size <= 1 and not self.batch_concurrent:
-            logger.debug('Batch size <= 1, using sequential processing')
+            logger.debug('Batch size <= 1, using one-item backend batches')
             batch_size = 1
         
         # === 步骤3: 检查是否使用并发流水线模式 ===
@@ -3551,7 +3550,7 @@ class MangaTranslator:
 
             return contexts
         
-        # === 步骤4: 批量处理模式（顺序处理） ===
+        # === 步骤4: 标准非并发批量处理 ===
         logger.info(f'Starting batch translation: {len(images_with_configs)} images, batch size: {batch_size}')
         logger.info('[阶段] 批量翻译任务启动')
         
@@ -3563,7 +3562,7 @@ class MangaTranslator:
         total_images = len(images_with_configs)
 
         async def report_completed_image_progress():
-            """顺序批处理按单张图片完成推进整体进度，避免整批处理期间长时间停滞。"""
+            """非并发批处理按单张图片完成推进整体进度，避免整批处理期间长时间停滞。"""
             if display_total <= 0:
                 return
             completed = min(global_offset + len(results), display_total)

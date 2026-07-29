@@ -21,7 +21,7 @@ class SelectionManager(QObject):
             scene: QGraphicsScene 实例
             get_region_items_fn: Callable，返回当前 region items 列表
         """
-        super().__init__()
+        super().__init__(scene)
         self._model = model
         self._scene = scene
         self._get_region_items = get_region_items_fn

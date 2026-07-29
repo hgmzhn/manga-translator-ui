@@ -206,18 +206,17 @@ def _warp_rgba_layer(layer: np.ndarray, matrix: np.ndarray):
     return warped, float(min_x), float(min_y)
 
 
-DEFAULT_ITALIC_ANGLE = 15.0
+DEFAULT_ITALIC_ANGLE = 10.0
 _MAX_ITALIC_ANGLE = 85.0
 
 
 def _style_italic_shear(style: TextStyle) -> float:
-    """italic 协议值 → 图层水平切变系数。
+    """italic 协议值 → 字形轮廓切变系数（Photoshop 仿斜体语义）。
 
-    True = 参考实现（mtu-json-gui）斜体按钮的默认 15°；数字 = 角度（度）。
-    图层坐标 y 向下，向右倾斜的切变系数为 -tan(angle)。竖排横躺字符的位图
-    在 _vertical_base 已按 90° 预旋转，对旋转后的位图施加同一切变矩阵 M
-    恰好满足 M·R = R·S（S 为参考实现在旋转坐标系内的换轴切变），因此
-    所有字符统一用本系数，无需按是否旋转分支。
+    True = PS 仿斜体实测默认 10°（见 test/ps_italic_angle.py）；数字 = 角度
+    （度）。切变在字形路径阶段施加（基线原点坐标系 x' = x + shear·y），
+    天然绕基线、advance 不变；竖排横躺字先剪切后旋转（R·S）。路径坐标
+    y 向下，向右倾斜的系数为 -tan(angle)。
     """
     italic = style.italic
     if italic is True:
@@ -232,18 +231,8 @@ def _style_italic_shear(style: TextStyle) -> float:
     return -math.tan(math.radians(angle))
 
 
-def _italic_shear_matrix(shear: float, height: float) -> np.ndarray:
-    """斜体切变矩阵，轴在图层竖直中心。
-
-    参考实现先 translate 到字符中心再 skew（上半右移、下半左移对称）；
-    平移项 -shear·h/2 把切变轴从图层顶边挪到中线，经 _warp_rgba_layer /
-    _warp_geometry 的 min_x 归一后，dx 会带回这一平移，绘制位置随之对称，
-    否则字身相对槽位整体滑向一侧（横排左滑 tan(角度)·ascent）。
-    """
-    return np.float32([[1.0, shear, -shear * (float(height) / 2.0)], [0.0, 1.0, 0.0]])
-
-
 def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: int):
+    """镜像/自由旋转的图层几何后处理。斜体在字形路径阶段完成，不经此处。"""
     if layer is None or layer.size == 0:
         return layer, 0.0, 0.0
 
@@ -255,13 +244,6 @@ def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: i
         result = cv2.flip(result, 1)
     if style.transform.mirror_y:
         result = cv2.flip(result, 0)
-
-    shear = _style_italic_shear(style)
-    if shear:
-        matrix = _italic_shear_matrix(shear, result.shape[0])
-        result, dx, dy = _warp_rgba_layer(result, matrix)
-        offset_x += dx
-        offset_y += dy
 
     if style.transform.rotation:
         h, w = result.shape[:2]
@@ -276,8 +258,9 @@ def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: i
 def _style_layer_effects_geometry(height: int, width: int, style: TextStyle, font_size: int):
     """_apply_style_layer_effects 的纯几何版本（度量用，F21）。
 
-    mirror 不改变尺寸；italic/rotation 用与渲染路径相同的矩阵经 _warp_geometry
-    按角点计算输出框与偏移，不做实际 warp。返回 (height, width, offset_x, offset_y)。
+    mirror 不改变尺寸；rotation 用与渲染路径相同的矩阵经 _warp_geometry 按
+    角点计算输出框与偏移，不做实际 warp。斜体在字形路径阶段完成，不经此处。
+    返回 (height, width, offset_x, offset_y)。
     """
     if height <= 0 or width <= 0:
         return height, width, 0.0, 0.0
@@ -288,13 +271,6 @@ def _style_layer_effects_geometry(height: int, width: int, style: TextStyle, fon
         width += paint_pad * 2
     offset_x = float(-paint_pad)
     offset_y = float(-paint_pad)
-
-    shear = _style_italic_shear(style)
-    if shear:
-        matrix = _italic_shear_matrix(shear, height)
-        height, width, dx, dy = _warp_geometry(height, width, matrix)
-        offset_x += float(dx)
-        offset_y += float(dy)
 
     if style.transform.rotation:
         matrix = cv2.getRotationMatrix2D((width / 2.0, height / 2.0), float(style.transform.rotation), 1.0)

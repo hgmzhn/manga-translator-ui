@@ -93,6 +93,7 @@ class TextStyle:
     glow: Optional[GlowStyle] = None
     emphasis: bool = False
     no_tcy: bool = False
+    vertical_advance: Optional[Literal['half', 'full']] = None
     kerning: float = 0.0
     pre_kerning: float = 0.0
     line_kerning: Optional[float] = None
@@ -121,6 +122,7 @@ class TextStyle:
                 'glow',
                 'emphasis',
                 'noTcy',
+                'verticalAdvance',
                 'kerning',
                 'preKerning',
                 'lineKerning',
@@ -142,6 +144,7 @@ class TextStyle:
             glow=GlowStyle.from_dict(value.get('glow')),
             emphasis=bool(value.get('emphasis', False)),
             no_tcy=bool(value.get('noTcy', False)),
+            vertical_advance=_parse_vertical_advance(value.get('verticalAdvance')),
             kerning=float(value.get('kerning', 0.0) or 0.0),
             pre_kerning=float(value.get('preKerning', 0.0) or 0.0),
             line_kerning=_safe_float(value.get('lineKerning'), None),
@@ -162,6 +165,7 @@ class TextStyle:
             'glow': self.glow.to_dict() if self.glow else None,
             'emphasis': self.emphasis or None,
             'noTcy': self.no_tcy or None,
+            'verticalAdvance': self.vertical_advance,
             'kerning': self.kerning or None,
             'preKerning': self.pre_kerning or None,
             'lineKerning': self.line_kerning,
@@ -432,6 +436,12 @@ def _parse_italic(value) -> Union[bool, float]:
     if number is None:
         raise ValueError('style.italic must be a bool or a number (degrees)')
     return number if number else False
+
+
+def _parse_vertical_advance(value) -> Optional[Literal['half', 'full']]:
+    if value is not None and value not in ('half', 'full'):
+        raise ValueError('style.verticalAdvance must be "half" or "full"')
+    return value
 
 
 def _drop_none(value: dict) -> dict:

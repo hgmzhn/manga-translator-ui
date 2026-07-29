@@ -73,16 +73,13 @@ class TcyPlan:
     height: int
     paint_offset_x: float
     paint_offset_y: float
+    advance_main: int
     pre_advance: int
     post_advance: int
     main_start: float = 0.0
     # 整组水平压缩系数（<=1）：墨迹宽超过 tcy_max_width*基准字号时按比例
     # 压缩，作用于最终图层（含描边/特效）。width/paint_offset_x 已按此压缩。
     scale_x: float = 1.0
-
-    @property
-    def advance_main(self) -> int:
-        return self.height
 
 @dataclass
 class HorizontalRunPlan:

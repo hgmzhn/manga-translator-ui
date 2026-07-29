@@ -14,7 +14,7 @@ def test_styles_literal_match_without_changing_replaced_text():
         "enabled": True,
         "pattern": "替换后",
         "regex": False,
-        "style": {"bold": True, "color": "#ff0000"},
+        "style": {"bold": True, "color": "#ff0000", "verticalAdvance": "half"},
     })
     document = apply_rich_text_rules("这是替换后的文字", 0, rules)
 
@@ -23,6 +23,7 @@ def test_styles_literal_match_without_changing_replaced_text():
     assert [run.text for run in document.blocks[0].inlines] == ["这是", "替换后", "的文字"]
     assert document.blocks[0].inlines[1].style.bold is True
     assert document.blocks[0].inlines[1].style.color == "#ff0000"
+    assert document.blocks[0].inlines[1].style.vertical_advance == "half"
 
 
 def test_common_then_direction_rule_overrides_only_explicit_fields():

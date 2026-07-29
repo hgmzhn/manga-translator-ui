@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFontMetricsF, QPainterPath
+from PyQt6.QtGui import QFontMetricsF, QPainterPath, QTransform
 
 from ..rich_text import RenderSpan, RichTextDocument, normalize_rich_linebreaks
 from ._compose import (
@@ -23,6 +23,7 @@ from ._compose import (
     _stroke_pad_px,
     _style_fill_color,
     _style_font_size,
+    _style_italic_shear,
     _style_layer_effects_geometry,
     _style_stroke_color,
     _style_stroke_ratio,
@@ -57,7 +58,7 @@ _VERTICAL_ROTATE_OPEN_SPECIALS = {'“', '‘', '「', '『'}
 _VERTICAL_ROTATE_CLOSE_SPECIALS = {'”', '’', '」', '』'}
 _VERTICAL_OPEN_BRACKETS = _VERTICAL_ROTATE_OPEN_SPECIALS | {'﹁', '﹃', '︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
 _VERTICAL_CLOSE_BRACKETS = _VERTICAL_ROTATE_CLOSE_SPECIALS | {'﹂', '﹄', '︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
-_VERTICAL_PUNCT_UP = {'。', '．', '，', '、', '·', '：', '；', '！', '？', '︒', '︐', '︑', '︓', '︔', '︕', '︖', '﹅', '﹆'}
+_VERTICAL_PUNCT_UP = {'。', '．', '，', '、', '·', '：', '；', '！', '？', '!', '?', '︒', '︐', '︑', '︓', '︔', '︕', '︖', '﹅', '﹆'}
 _VERTICAL_ROTATE_CHARS = _VERTICAL_ROTATE_OPEN_SPECIALS | _VERTICAL_ROTATE_CLOSE_SPECIALS
 _VERTICAL_COMPACT_SLOT = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS | _VERTICAL_PUNCT_UP
 _VERTICAL_HALF_ADVANCE = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS
@@ -262,6 +263,14 @@ def _scale_advance(advance: int, letter_spacing: float) -> int:
     return max(1, int(round(advance * _normalize_letter_spacing(letter_spacing))))
 
 
+def _forced_vertical_advance(font_size: int, mode: Optional[str]) -> Optional[int]:
+    if mode == 'half':
+        return max(1, int(round(font_size * 0.5)))
+    if mode == 'full':
+        return max(1, int(font_size))
+    return None
+
+
 def _horizontal_line(text: str, font_size: int, letter_spacing: float = 1.0):
     return _create_text_layout(text or '', font_size, letter_spacing)
 
@@ -284,12 +293,16 @@ def _horizontal_glyph_path(
     reversed_direction: bool,
     letter_spacing: float,
     profile_stats: Optional[dict] = None,
+    shear: float = 0.0,
 ):
     """Shape one horizontal span and return its exact vector ink path.
 
     QTextLayout remains responsible for glyph selection and baseline positions,
     but line fitting never consumes its ascent/descent box.  The returned path
     is the actual union of the shaped glyph outlines in QTextLine coordinates.
+
+    ``shear`` 为斜体切变系数：pathForGlyph 轮廓以基线为原点，剪切在平移到
+    笔位之前施加，因此天然绕各字形基线、不改变 advance（PS 仿斜体语义）。
     """
     stage_t0 = perf_counter() if profile_stats is not None else None
     normalized, _, layout, line = _horizontal_line(line_text, font_size, letter_spacing)
@@ -297,6 +310,7 @@ def _horizontal_glyph_path(
     if not line_text or line is None:
         return normalized, layout, line, QPainterPath()
 
+    shear_transform = QTransform(1.0, 0.0, float(shear), 1.0, 0.0, 0.0) if shear else None
     path = QPainterPath()
     path.setFillRule(Qt.FillRule.WindingFill)
     stage_t0 = perf_counter() if profile_stats is not None else None
@@ -306,6 +320,8 @@ def _horizontal_glyph_path(
             glyph_path = raw_font.pathForGlyph(glyph_id)
             if glyph_path.isEmpty():
                 continue
+            if shear_transform is not None:
+                glyph_path = shear_transform.map(glyph_path)
             glyph_path.translate(pos.x(), pos.y())
             path.addPath(glyph_path)
     _profile_add(profile_stats, "tr_path_ms", stage_t0)
@@ -319,6 +335,7 @@ def _line_ink_geometry(
     reversed_direction: bool = False,
     letter_spacing: float = 1.0,
     profile_stats: Optional[dict] = None,
+    shear: float = 0.0,
 ) -> dict:
     """Return the fixed pixel frame of the shaped glyph ink.
 
@@ -332,6 +349,7 @@ def _line_ink_geometry(
         reversed_direction,
         letter_spacing,
         profile_stats,
+        shear,
     )
     logical_width = 0.0 if line is None else _line_logical_width(line)
     ascent = float(_line_metrics('', font_size, letter_spacing)['ascent']) if line is None else float(line.ascent())
@@ -389,9 +407,11 @@ def _line_surface(
     bold: bool = False,
     profile_stats: Optional[dict] = None,
     geometry: Optional[dict] = None,
+    shear: float = 0.0,
 ):
     # ``geometry`` 只允许来自当前一次布局调用；它不是跨字号/字体的缓存。
     # 省略时保留原有的独立测量路径，竖排和外部调用无需携带任何状态。
+    # 携带 geometry 时其 path 已含 shear，本参数只在重算分支生效。
     effective_bold = bool(bold) or _state().bold
     with _bold_scope(effective_bold):
         if geometry is None:
@@ -402,6 +422,7 @@ def _line_surface(
                 reversed_direction,
                 letter_spacing,
                 profile_stats,
+                shear,
             )
         path = geometry['path']
         if not geometry['has_ink']:
@@ -463,6 +484,7 @@ def _build_horizontal_run_plan(
             reversed_direction,
             letter_spacing,
             profile_stats,
+            _style_italic_shear(span.style),
         )
     left_rel = float(geometry['left_rel'])
     if reversed_direction:
@@ -508,6 +530,7 @@ def _build_horizontal_ruby_plan(
     ruby_stroke_ratio = _style_stroke_ratio(ruby_style, ruby_font, 0.0, stroke_enabled)
     raw_glyphs = []
     glyph_geometries = []
+    ruby_shear = _style_italic_shear(ruby_style)
     with _style_font_scope(ruby_style):
         for char in ruby_text:
             geometry = _line_ink_geometry(
@@ -517,6 +540,7 @@ def _build_horizontal_ruby_plan(
                 False,
                 letter_spacing,
                 profile_stats,
+                ruby_shear,
             )
             glyph_geometries.append(geometry)
             if not geometry['has_ink']:
@@ -575,8 +599,8 @@ def _rich_horizontal_main_rect(run: HorizontalRunPlan) -> Rect:
     width = run.ink_width
     out_h, out_w, dx, dy = _style_layer_effects_geometry(height, width, span.style, run.font_size)
     return Rect(
-        left + float(dx) + span.style.transform.offset_x,
-        top + float(dy) + span.style.transform.offset_y,
+        left + float(dx) + span.style.transform.offset_x * run.font_size / 100.0,
+        top + float(dy) + span.style.transform.offset_y * run.font_size / 100.0,
         float(out_w),
         float(out_h),
     )
@@ -790,6 +814,7 @@ def _build_tcy_plan(
             False,
             letter_spacing,
             profile_stats,
+            _style_italic_shear(span.style),
         )
     if not geometry['has_ink']:
         return None
@@ -805,6 +830,11 @@ def _build_tcy_plan(
     if scale_x < 1.0:
         width = max(1, int(math.ceil(width * scale_x)))
         layer_dx = float(layer_dx) * scale_x
+    forced_advance = _forced_vertical_advance(font_size, span.style.vertical_advance)
+    advance_main = int(height)
+    if forced_advance is not None:
+        advance_main = _scale_advance(forced_advance, letter_spacing)
+        layer_dy += (float(advance_main) - float(height)) / 2.0
     return TcyPlan(
         source=span,
         text=text,
@@ -814,6 +844,7 @@ def _build_tcy_plan(
         height=int(height),
         paint_offset_x=float(layer_dx),
         paint_offset_y=float(layer_dy),
+        advance_main=advance_main,
         pre_advance=int(round(span.style.pre_kerning * font_size)),
         post_advance=int(round(span.style.kerning * font_size)),
         scale_x=float(scale_x),
@@ -845,7 +876,7 @@ def _build_vertical_char_plan(
         off_x += layer_dx
         off_y += layer_dy
     advance_y = int(base.advance_y)
-    if span.style.transform.rotation and height > 0:
+    if span.style.transform.rotation and height > 0 and span.style.vertical_advance is None:
         advance_y = _vertical_free_rotation_advance(
             base,
             height,
@@ -875,14 +906,20 @@ def _rich_vertical_tcy_layer_x(body_left: float, thickness: float, item: TcyPlan
     return (
         body_center
         - float(item.width) / 2.0
-        + item.source.style.transform.offset_x
+        + item.source.style.transform.offset_x * item.font_size / 100.0
         + item.paint_offset_x
     )
 
 
 def _rich_vertical_char_layer_x(body_left: float, thickness: float, item: VerticalCharPlan) -> float:
-    char_x = _vertical_char_bitmap_x(body_left, thickness, item.base, item.font_size)
-    return char_x + item.span.style.transform.offset_x + item.paint_offset_x
+    char_x = _vertical_char_bitmap_x(
+        body_left,
+        thickness,
+        item.base,
+        item.font_size,
+        ink_center=item.span.style.vertical_advance is not None,
+    )
+    return char_x + item.span.style.transform.offset_x * item.font_size / 100.0 + item.paint_offset_x
 
 
 def _vertical_item_span(item) -> Optional[RenderSpan]:
@@ -913,13 +950,13 @@ def _rich_vertical_item_paint_extent_y(item) -> Optional[Tuple[float, float]]:
     无图层的占位/空白项返回 None。
     """
     if isinstance(item, TcyPlan):
-        y0 = item.main_start + item.source.style.transform.offset_y + item.paint_offset_y
+        y0 = item.main_start + item.source.style.transform.offset_y * item.font_size / 100.0 + item.paint_offset_y
         return y0, y0 + float(item.height)
     if isinstance(item, VerticalCharPlan) and item.paint_height > 0:
         y0 = (
             float(item.cursor_y)
             + float(item.base.y)
-            + item.span.style.transform.offset_y
+            + item.span.style.transform.offset_y * item.font_size / 100.0
             + item.paint_offset_y
         )
         return y0, y0 + float(item.paint_height)
@@ -964,6 +1001,7 @@ def _build_rich_vertical_layout(
             ruby_extra = max(ruby_extra, span_ruby_extra)
             # 字体作用域提升到 span 层，避免带 fontFamily 的 span 逐字符
             # 反复 set_font（每次都会清空测量/竖排缓存导致缓存永不命中）
+            span_shear = _style_italic_shear(span.style)
             with _style_font_scope(span.style):
                 for char in span.text:
                     if char == '＿':
@@ -975,7 +1013,13 @@ def _build_rich_vertical_layout(
                             post_advance_y=int(round(span.style.kerning * font_size)),
                         ))
                         continue
-                    base = _vertical_base(font_size, char, letter_spacing)
+                    base = _vertical_base(
+                        font_size,
+                        char,
+                        letter_spacing,
+                        span_shear,
+                        span.style.vertical_advance,
+                    )
                     item = _build_vertical_char_plan(
                         span, base, font_size, fill, stroke, stroke_ratio
                     )
@@ -1182,19 +1226,39 @@ def _vertical_space_advance(font_size: int, letter_spacing: float = 1.0) -> int:
     return _scale_advance(width, letter_spacing)
 
 
-def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> VerticalGlyphBase:
+def _vertical_base(
+    font_size: int,
+    cdpt: str,
+    letter_spacing: float = 1.0,
+    shear: float = 0.0,
+    advance_mode: Optional[str] = None,
+) -> VerticalGlyphBase:
     state = _state()
-    key = (state.font_family, bool(state.bold), int(font_size), cdpt, round(_normalize_letter_spacing(letter_spacing), 4))
+    key = (
+        state.font_family,
+        bool(state.bold),
+        int(font_size),
+        cdpt,
+        round(_normalize_letter_spacing(letter_spacing), 4),
+        round(float(shear), 4),
+        advance_mode,
+    )
     cached = _cache_get(state.vertical, key)
     if cached is not None:
         return cached
+    forced_advance = _forced_vertical_advance(font_size, advance_mode)
+    forced = forced_advance is not None
     translated, rot = CJK_Compatibility_Forms_translate(cdpt, 1)
     if translated == ' ':
         base = VerticalGlyphBase(
             translated=translated,
             rot_degree=0,
             bitmap=None,
-            advance_y=_vertical_space_advance(font_size, letter_spacing),
+            advance_y=(
+                _scale_advance(forced_advance, letter_spacing)
+                if forced_advance is not None
+                else _vertical_space_advance(font_size, letter_spacing)
+            ),
             ink_x=0.0,
             ink_w=0.0,
             y=0,
@@ -1205,7 +1269,8 @@ def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> Ve
         return _cache_put(state.vertical, key, base, _VERTICAL_CACHE_MAX)
 
     rotated = rot == 90
-    glyph = _glyph_raster(translated, font_size)
+    # 斜体在字形路径阶段绕基线剪切；横躺字先剪切后旋转（R·S，PS 语义）
+    glyph = _glyph_raster(translated, font_size, shear)
     bitmap = glyph.alpha if glyph.alpha.size else None
     if bitmap is not None and rotated:
         bitmap = cv2.rotate(bitmap, cv2.ROTATE_90_CLOCKWISE)
@@ -1217,8 +1282,10 @@ def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> Ve
         if rect is not None:
             ink_x, ink_y, ink_w, ink_h = rect
 
-    force_compact = _vertical_force_compact_slot(translated)
-    if translated in _VERTICAL_HALF_ADVANCE:
+    force_compact = not forced and _vertical_force_compact_slot(translated)
+    if forced:
+        advance_y = forced_advance
+    elif translated in _VERTICAL_HALF_ADVANCE:
         advance_y = font_size * 0.5
     elif rotated:
         advance_y = _vertical_rotated_advance(glyph, font_size, bitmap)
@@ -1227,36 +1294,32 @@ def _vertical_base(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> Ve
     else:
         advance_y = glyph.advance_y if glyph.advance_y > 0 else font_size
 
-    if translated in _VERTICAL_HALF_ADVANCE:
-        advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
-    elif force_compact and ink_h > 0:
+    if force_compact and ink_h > 0:
         if translated in _VERTICAL_PUNCT_CENTER:
             metrics = QFontMetricsF(_layout_font(font_size, letter_spacing))
             advance_y = ink_h + max(0.0, float(metrics.descent()))
         else:
             advance_y = ink_h
-        advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
-    else:
-        advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
+    advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
 
-    slot_height = advance_y if (translated in _VERTICAL_HALF_ADVANCE or force_compact or rotated) else max(1, advance_y)
     frame_width = max(font_size, int(round(ink_w)) if ink_w else 0, 1)
     if not rotated:
         frame_width = max(frame_width, int(glyph.advance_x))
-    slot_origin_y = max(0, int(round((advance_y - slot_height) / 2.0)))
-    
-    # 默认居中对齐真实墨迹（考虑到 ink_y 和 ink_h）
-    y = slot_origin_y + max(0, int(round((slot_height - ink_h) / 2.0))) - ink_y
-    
-    padding = max(1, int(round(font_size * 0.05)))
-    if translated in _VERTICAL_ALIGN_TOP_RIGHT or translated in _VERTICAL_ALIGN_TOP_CENTER:
-        y = padding - ink_y
-    elif translated in _VERTICAL_ALIGN_BOTTOM_LEFT or translated in _VERTICAL_ALIGN_BOTTOM_CENTER:
-        y = advance_y - ink_h - padding - ink_y
-    elif force_compact:
-        y = slot_origin_y - ink_y
-        if translated in _VERTICAL_PUNCT_CENTER:
-            y += max(0.0, (slot_height - ink_h) / 2.0)
+
+    # 强制推进只保留真实墨迹居中；墨迹可溢出槽位，但不会反向放大推进量。
+    center_gap = (advance_y - ink_h) / 2.0
+    y = (center_gap if forced else max(0.0, center_gap)) - ink_y
+
+    if not forced:
+        padding = max(1, int(round(font_size * 0.05)))
+        if translated in _VERTICAL_ALIGN_TOP_RIGHT or translated in _VERTICAL_ALIGN_TOP_CENTER:
+            y = padding - ink_y
+        elif translated in _VERTICAL_ALIGN_BOTTOM_LEFT or translated in _VERTICAL_ALIGN_BOTTOM_CENTER:
+            y = advance_y - ink_h - padding - ink_y
+        elif force_compact:
+            y = -ink_y
+            if translated in _VERTICAL_PUNCT_CENTER:
+                y += max(0.0, center_gap)
 
     base = VerticalGlyphBase(
         translated=translated,
@@ -1282,20 +1345,21 @@ def _vertical_char_bitmap_x(
     frame_width: float,
     base: VerticalGlyphBase,
     padding_size: Optional[float] = None,
+    ink_center: bool = False,
 ) -> float:
     """返回竖排字符位图左边缘，普通直立字按 advance 居中。
 
     对应 Canvas 的 textAlign='center'：先把字体 advance box 的中心放到列中心，
     再加 glyph left bearing 得到位图原点。旋转字符已经在光栅层转过 90°，其
     原始 advance 轴也随之转为纵轴，因此横向仍使用旋转后位图框居中。标点的
-    顶右/底左贴边规则最后覆盖默认居中。
+    顶右/底左贴边规则最后覆盖默认居中；强制推进时只保留墨迹居中。
     """
     frame_left = float(frame_left)
     frame_width = float(frame_width)
     ink_w = base.ink_w
     ink_x = base.ink_x
     translated = base.translated
-    if translated in _VERTICAL_PUNCT_UP:
+    if ink_center or translated in _VERTICAL_PUNCT_UP:
         # 竖排标点的 advance/side bearing 常按横排标点设计，不能用于列内居中。
         # 它们仍按实际标点墨迹居中；正文直立字继续使用 advance box。
         x = frame_left + (frame_width - ink_w) / 2.0 - ink_x
@@ -1305,11 +1369,12 @@ def _vertical_char_bitmap_x(
     else:
         x = frame_left + (frame_width - ink_w) / 2.0 - ink_x
 
-    padding = max(1, int(round(float(padding_size if padding_size is not None else frame_width) * 0.05)))
-    if translated in _VERTICAL_ALIGN_TOP_RIGHT:
-        x = frame_left + frame_width - ink_w - ink_x - padding
-    elif translated in _VERTICAL_ALIGN_BOTTOM_LEFT:
-        x = frame_left - ink_x + padding
+    if not ink_center:
+        padding = max(1, int(round(float(padding_size if padding_size is not None else frame_width) * 0.05)))
+        if translated in _VERTICAL_ALIGN_TOP_RIGHT:
+            x = frame_left + frame_width - ink_w - ink_x - padding
+        elif translated in _VERTICAL_ALIGN_BOTTOM_LEFT:
+            x = frame_left - ink_x + padding
     return x
 
 

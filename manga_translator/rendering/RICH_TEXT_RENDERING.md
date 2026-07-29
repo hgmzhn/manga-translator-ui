@@ -75,9 +75,10 @@
 - `text` inline 只允许 `type`、`text`、`style`。
 - `ruby` inline 只允许 `type`、`base`、`text`。
 - `tcy` inline 只允许 `type`、`content`。
-- `style` 字段只认 camelCase 协议名，例如 `fontSize`、`fontFamily`、`outerStroke`、`noTcy`、`preKerning`、`lineKerning`、`nextKerning`。
-- `italic` 接受布尔或数字：数字是切变角度（度，正值向右倾），对齐 mtu-json-gui 参考实现的 `[i=15]`；`true` 是旧值，渲染时按参考默认 15° 处理；`0` 归一为无斜体。
-- `transform` 字段只认 `offsetX`、`offsetY`、`rotation`、`mirrorX`、`mirrorY`。
+- `style` 字段只认 camelCase 协议名，例如 `fontSize`、`fontFamily`、`outerStroke`、`noTcy`、`verticalAdvance`、`preKerning`、`lineKerning`、`nextKerning`。
+- `italic` 接受布尔或数字：数字是切变角度（度，正值向右倾）；`true` 是旧值，渲染时按默认 10°（Photoshop 仿斜体实测角度）处理；`0` 归一为无斜体。
+- `verticalAdvance` 只接受 `half` 或 `full`，仅作用于竖排。它把当前实际字号对应的推进强制为半格或全角，覆盖标点、旋转、省略号和字体自带推进规则；字形只按真实墨迹居中，溢出只扩绘制包络，不扩大推进量。
+- `transform` 字段只认 `offsetX`、`offsetY`、`rotation`、`mirrorX`、`mirrorY`；偏移值是当前实际字号的百分比，像素偏移 = `offset / 100 × fontSize`。
 - `source`、`document`、`font_size`、`fontFamily`、`outer_stroke` 这类非协议字段会直接报错。
 
 唯一保留的旧输入兼容是普通字符串里的强制换行标记：`[BR]`、`【BR】`、`<br>` 和真实换行。它们不会在翻译赋值或布局前提前转换，而是在替换、断句、去换行标点等字符串处理结束后，由 `sync_translation_raw_from_layout()` 统一收口成多个 `paragraph` block。
@@ -100,6 +101,7 @@ BR 收口只负责把传统换行字符串拆成多个 `paragraph`，不会从 `
 - `style.glow.color` / `style.glow.blur`：局部发光颜色和相对字号的模糊半径比例。
 - `style.fontSize`：当前区域字号。
 - `style.fontFamily`：Qt 字体 family。字体文件仅在加载阶段注册，协议不保存路径。
+- `style.verticalAdvance`：竖排强制半格（`half`）或全角（`full`）推进。
 
 ## 模块职责
 
@@ -178,9 +180,11 @@ string
 - 局部描边颜色和描边宽度。
 - 局部外描边和发光；宽度、模糊半径均使用相对字号的比例值。
 - 局部行距：`lineKerning` 控制与上一行的附加间距，`nextKerning` 控制与下一行的附加间距；当前行 `lineKerning` 优先，数值使用相对字号的比例值。
-- 斜体：`italic` 布尔（默认 15° 切变）或数字角度切变；竖排横躺字符与正常
-  字符共用同一切变矩阵（旋转坐标系下等价于换轴切变，无需分支）。
-- 局部旋转、镜像、`transform` 偏移，均计入渲染框包络。
+- 斜体：`italic` 布尔（默认 10°）或数字角度，Photoshop 对齐语义——绕字形
+  基线剪切、不改 advance（墨迹可溢出到邻位，包络只扩不推挤）；竖排横躺
+  字符等价于在字形坐标系先绕基线剪切再旋转（图像系为 y 向剪切）。
+- 局部旋转、镜像、`transform` 偏移，均计入渲染框包络；`offsetX/offsetY` 的 `100` 等于移动一个当前实际字号。
+- 竖排强制推进：`verticalAdvance: half/full` 覆盖字符原有推进规则，真实墨迹在固定槽位内居中，前后字距仍照常叠加。
 - 着重号。
 - 从 `richtext.v1` 直接横排和竖排渲染。
 - 结构化文档测量入口：

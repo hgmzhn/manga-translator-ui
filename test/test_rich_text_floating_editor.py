@@ -19,6 +19,7 @@ from qfluentwidgets import CompactDoubleSpinBox
 from desktop_qt_ui.editor.editor_controller import EditorController
 from desktop_qt_ui.editor.rich_text_editing import visible_text_from_document
 from desktop_qt_ui.ui.editor.view import EditorView
+from desktop_qt_ui.ui.secondary_pages.rich_text_rules_editor import RichTextStyleControls
 from desktop_qt_ui.ui.widgets.rich_text_editor_components import RubyEditBar
 from desktop_qt_ui.ui.widgets.rich_text_floating_editor import RichTextFloatingEditor
 
@@ -293,7 +294,7 @@ class RichTextFloatingEditorTests(unittest.TestCase):
 
     def test_every_toolbar_style_opens_a_property_row(self):
         for key in (
-            "B", "I", "C", "S", "%", "F", "O", "G", "OS", "D", "T", "R",
+            "B", "I", "C", "S", "%", "F", "O", "G", "OS", "D", "FA", "T", "R",
             "Rot", "K", "PK", "LK", "NK", "XY", "M", "MV",
         ):
             with self.subTest(key=key):
@@ -308,6 +309,29 @@ class RichTextFloatingEditorTests(unittest.TestCase):
                     f"{key} did not open a property row",
                 )
                 editor.close()
+
+    def test_force_advance_controls_write_half_and_full(self):
+        editor = self._editor({"translation": "推进"})
+        editor._select_python_range(0, 2)
+        editor.toolbar.buttons["FA"].click()
+        self.app.processEvents()
+
+        control = editor.run_list.run_cards[0].controls["FA"]
+        style = editor._state.document["blocks"][0]["inlines"][0]["style"]
+        self.assertEqual((control.currentData(), style["verticalAdvance"]), ("half", "half"))
+
+        control.setCurrentIndex(control.findData("full"))
+        self.app.processEvents()
+        self.assertEqual(
+            editor._state.document["blocks"][0]["inlines"][0]["style"]["verticalAdvance"],
+            "full",
+        )
+
+        rules = RichTextStyleControls(lambda text: text)
+        self.widgets.append(rules)
+        rules.load_style({"verticalAdvance": "full"})
+        self.assertTrue(rules.vertical_advance.enabled.isChecked())
+        self.assertEqual(rules.style()["verticalAdvance"], "full")
 
     def test_unedited_pending_style_is_discarded_when_hidden(self):
         editor = self._editor({"translation": "旋转"})

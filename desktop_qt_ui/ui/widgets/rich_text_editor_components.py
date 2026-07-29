@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     CaptionLabel,
+    ComboBox,
     CompactDoubleSpinBox,
     CompactSpinBox,
     FluentIcon as FIF,
@@ -73,6 +74,7 @@ STYLE_SPECS: dict[str, StyleSpec] = {
     "G": StyleSpec("Glow", "Glow", {"glow": {"color": "#00ffff", "blur": 0.10}}),
     "OS": StyleSpec("Outer Stroke", "Outer Stroke", {"outerStroke": {"color": "#000000", "width": 0.20}}),
     "D": StyleSpec("Emphasis", "Emphasis", {"emphasis": True}),
+    "FA": StyleSpec("Force Advance", "Force Advance", {"verticalAdvance": "half"}),
     "T": StyleSpec("TCY", "Vertical-in-Horizontal (TCY)", {}),
     "R": StyleSpec("Ruby", "Ruby Text", {}),
     "Rot": StyleSpec("Rotation", "Rotation", {"transform": {"rotation": 0.0}}),
@@ -368,6 +370,7 @@ def style_keys_for_segment(segment: StyledTextSegment, forced_keys: Iterable[str
         "G": bool(style.get("glow")),
         "OS": bool(style.get("outerStroke")),
         "D": bool(style.get("emphasis")),
+        "FA": "verticalAdvance" in style,
         "T": segment.node_type == "tcy" and segment.start == segment.node_start,
         "R": segment.node_type == "ruby" and segment.start == segment.node_start,
         "Rot": "rotation" in transform,
@@ -599,6 +602,26 @@ class StyleRunCard(SimpleCardWidget):
                 control.setValue,
             )
             return control
+        if key == "FA":
+            control = ComboBox(self)
+            control.addItem(_tr("Half Advance"), userData="half")
+            control.addItem(_tr("Full Advance"), userData="full")
+            control.setCurrentIndex(max(0, control.findData(style.get("verticalAdvance", "half"))))
+            control.currentIndexChanged.connect(
+                lambda _index: self._emit_patch(
+                    key,
+                    {"verticalAdvance": str(control.currentData() or "half")},
+                )
+            )
+            self._register_applier(
+                key,
+                control,
+                lambda s, *_: str(s.get("verticalAdvance", "half")),
+                lambda value, _control=control: _control.setCurrentIndex(
+                    max(0, _control.findData(value))
+                ),
+            )
+            return control
         if key == "F":
             control = QFontComboBox(self)
             control.setCurrentFont(QFont(str(style.get("fontFamily") or "")))
@@ -685,6 +708,8 @@ class StyleRunCard(SimpleCardWidget):
         if key == "XY":
             x_control = _double_spin_box(transform.get("offsetX", 0.0), -500.0, 500.0, 1)
             y_control = _double_spin_box(transform.get("offsetY", 0.0), -500.0, 500.0, 1)
+            x_control.setSuffix("%")
+            y_control.setSuffix("%")
             x_control.valueChanged.connect(
                 lambda value: self._emit_patch(key, {"transform": {"offsetX": float(value)}})
             )

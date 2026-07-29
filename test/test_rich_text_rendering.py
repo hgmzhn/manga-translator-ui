@@ -15,6 +15,8 @@ from manga_translator.rendering.text_replacement_layout import (
 )
 from manga_translator.rendering.text_render._layout import (
     CJK_Compatibility_Forms_translate,
+    _build_tcy_plan,
+    _build_vertical_char_plan,
     _vertical_free_rotation_advance,
 )
 from manga_translator.rendering.text_render._vertical_types import VerticalGlyphBase
@@ -175,6 +177,46 @@ class RichTextRenderingTest(unittest.TestCase):
                     ],
                 }
             )
+
+    def test_vertical_advance_forces_slot_and_ink_center(self):
+        import cv2
+
+        document = ensure_rich_text_document(self._single_span_document(
+            "字", {"verticalAdvance": "half", "transform": {"rotation": 45}}
+        ))
+        span = document.blocks[0].spans[0]
+        self.assertEqual(span.style.vertical_advance, "half")
+        self.assertEqual(
+            document.to_dict()["blocks"][0]["inlines"][0]["style"]["verticalAdvance"],
+            "half",
+        )
+
+        with self.assertRaises(ValueError):
+            ensure_rich_text_document(
+                self._single_span_document("字", {"verticalAdvance": "quarter"})
+            )
+
+        for char in "字。︙“":
+            self.assertEqual(text_render._vertical_base(32, char, 1.0, 0.0, "half").advance_y, 16)
+        self.assertEqual(text_render._vertical_base(32, "字", 1.0, 0.0, "full").advance_y, 32)
+
+        half = text_render._vertical_base(32, "字", 1.0, 0.0, "half")
+        _x, ink_y, _width, ink_height = cv2.boundingRect(cv2.findNonZero(half.bitmap))
+        self.assertAlmostEqual(
+            half.y + ink_y,
+            (half.advance_y - ink_height) / 2.0,
+            delta=1.0,
+        )
+
+        punctuation = VerticalGlyphBase("。", 0, None, 32, 2, 8, 0, 20, 1, 32)
+        self.assertEqual(
+            text_render._vertical_char_bitmap_x(0.0, 32.0, punctuation, ink_center=True),
+            10.0,
+        )
+
+        plan = _build_vertical_char_plan(span, half, 32, (0, 0, 0), None, 0.0)
+        self.assertEqual(plan.advance_y, 16)
+        self.assertEqual(_build_tcy_plan(span, 32, 0.0, None, 1.0).advance_main, 16)
 
     def test_textblock_stores_rich_text_as_canonical_dict(self):
         document = _sample_document()
@@ -1313,7 +1355,7 @@ class RichTextRenderingTest(unittest.TestCase):
         return cv2.boundingRect(nz)
 
     def test_italic_angle_parses_and_legacy_bool_maps_to_default(self):
-        # 数字 = 切变角度；true = 参考实现默认 15°；0 归一为 False
+        # 数字 = 切变角度；true = 默认角度（DEFAULT_ITALIC_ANGLE，PS 实测 10°）；0 归一为 False
         document = ensure_rich_text_document(self._single_span_document("字", {"italic": 24}))
         self.assertEqual(document.blocks[0].spans[0].style.italic, 24.0)
         self.assertEqual(document.to_dict()["blocks"][0]["inlines"][0]["style"]["italic"], 24.0)
@@ -1331,7 +1373,7 @@ class RichTextRenderingTest(unittest.TestCase):
             32, self._single_span_document("測試文字", {}), True, 1.0, stroke_width=0.0
         )
         angled = text_render.measure_rich_text_metrics(
-            32, self._single_span_document("測試文字", {"italic": 15}), True, 1.0, stroke_width=0.0
+            32, self._single_span_document("測試文字", {"italic": text_render.DEFAULT_ITALIC_ANGLE}), True, 1.0, stroke_width=0.0
         )
         legacy_m = text_render.measure_rich_text_metrics(
             32, self._single_span_document("測試文字", {"italic": True}), True, 1.0, stroke_width=0.0
@@ -1343,7 +1385,7 @@ class RichTextRenderingTest(unittest.TestCase):
         # 统一偏移不再被墨迹紧裁抵消：包络向偏移方向扩，墨迹真实移动，
         # 输出面尺寸与测量框逐像素一致（无描边时严格相等）。
         plain_doc = self._single_span_document("測試文字", {})
-        offset_doc = self._single_span_document("測試文字", {"transform": {"offsetX": 20}})
+        offset_doc = self._single_span_document("測試文字", {"transform": {"offsetX": 50}})
 
         plain_m = text_render.measure_rich_text_metrics(32, plain_doc, True, 1.0, stroke_width=0.0)
         offset_m = text_render.measure_rich_text_metrics(32, offset_doc, True, 1.0, stroke_width=0.0)
@@ -1359,11 +1401,13 @@ class RichTextRenderingTest(unittest.TestCase):
         )
         self.assertEqual((plain_surface.shape[1], plain_surface.shape[0]), (plain_m["width"], plain_m["height"]))
         self.assertEqual((offset_surface.shape[1], offset_surface.shape[0]), (offset_m["width"], offset_m["height"]))
-        self.assertGreaterEqual(self._ink_rect(offset_surface)[0], self._ink_rect(plain_surface)[0] + 15)
+        shift = self._ink_rect(offset_surface)[0] - self._ink_rect(plain_surface)[0]
+        self.assertGreaterEqual(shift, 12)
+        self.assertLessEqual(shift, 20)
 
     def test_vertical_offset_y_expands_envelope_and_moves_ink(self):
         plain_doc = self._single_span_document("縦書", {})
-        offset_doc = self._single_span_document("縦書", {"transform": {"offsetY": 25}})
+        offset_doc = self._single_span_document("縦書", {"transform": {"offsetY": 75}})
 
         plain_m = text_render.measure_rich_text_metrics(32, plain_doc, False, 1.0, stroke_width=0.0)
         offset_m = text_render.measure_rich_text_metrics(32, offset_doc, False, 1.0, stroke_width=0.0)
@@ -1377,7 +1421,9 @@ class RichTextRenderingTest(unittest.TestCase):
         )
         self.assertEqual((plain_surface.shape[1], plain_surface.shape[0]), (plain_m["width"], plain_m["height"]))
         self.assertEqual((offset_surface.shape[1], offset_surface.shape[0]), (offset_m["width"], offset_m["height"]))
-        self.assertGreaterEqual(self._ink_rect(offset_surface)[1], self._ink_rect(plain_surface)[1] + 20)
+        shift = self._ink_rect(offset_surface)[1] - self._ink_rect(plain_surface)[1]
+        self.assertGreaterEqual(shift, 20)
+        self.assertLessEqual(shift, 28)
 
     def test_offset_reports_body_center_for_anchoring(self):
         # 横排正文中心按实际主墨迹计算；transform 偏移属于正文几何，
@@ -1389,7 +1435,7 @@ class RichTextRenderingTest(unittest.TestCase):
                     "type": "paragraph",
                     "inlines": [
                         {"type": "text", "text": "正文", "style": {}},
-                        {"type": "text", "text": "上浮", "style": {"transform": {"offsetY": -30}}},
+                        {"type": "text", "text": "上浮", "style": {"transform": {"offsetY": -100}}},
                     ],
                 }
             ],
