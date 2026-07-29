@@ -684,7 +684,6 @@
   "\n⚠️ Batch translation completed: {success}/{total} succeeded, {failed}/{total} failed": "\n⚠️ 배치 번역 완료: {success}/{total} 성공, {failed}/{total} 실패",
   "✅ Batch translation completed: {success}/{total} succeeded": "✅ 배치 번역 완료: {success}/{total} 성공",
   "💾 Files saved to: {dir}": "💾 파일 저장 위치: {dir}",
-  "📊 Sequential processing mode: {total} images": "📊 순차 처리 모드: {total}개 이미지",
   "📥 Importing translations from TXT files to JSON...": "📥 TXT 파일에서 JSON으로 번역 가져오는 중...",
   "Import result: {result}": "가져오기 결과: {result}",
   "⚠️ Warning: Cannot find template file, skipping auto-import": "⚠️ 경고: 템플릿 파일을 찾을 수 없어 자동 가져오기를 건너뜁니다",
@@ -1225,5 +1224,7 @@
   "Clone Stamp Hint": "복제 도장: 우클릭 샘플, 좌클릭 드래그로 칠하기",
   "Clear Stamp Layer": "도장 레이어 지우기",
   "Show Paint Layer": "페인트 레이어 표시",
-  "Show Stamp Layer": "도장 레이어 표시"
+  "Show Stamp Layer": "도장 레이어 표시",
+  "Translated": "번역됨",
+  "Untranslated": "미번역"
 }

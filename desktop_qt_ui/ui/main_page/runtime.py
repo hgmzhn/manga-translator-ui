@@ -95,6 +95,17 @@ def reset_progress(self):
 
 def on_translation_state_changed(self, is_translating: bool):
     """根据翻译状态更新开始/停止按钮。"""
+    for name in (
+        "add_files_button",
+        "add_folder_button",
+        "clear_list_button",
+        "file_list",
+        "env_page",
+    ):
+        widget = getattr(self, name, None)
+        if widget is not None:
+            widget.setEnabled(not is_translating)
+
     if is_translating:
         self.start_button.setEnabled(False)
         self.start_button.setText(self._t("Starting..."))
@@ -113,7 +124,10 @@ def on_translation_state_changed(self, is_translating: bool):
 
 def enable_stop_button(self):
     """启用停止按钮（延迟调用）。"""
-    if self.controller.state_manager.is_translating():
+    if (
+        self.controller.state_manager.is_translating()
+        and not getattr(self.controller, "_stop_requested", False)
+    ):
         self.start_button.setEnabled(True)
         self.start_button.setText(self._t("Stop Translation"))
         _set_start_button_state(self, "stop")

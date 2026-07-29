@@ -42,6 +42,7 @@ from services import get_config_service, get_i18n_manager
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
+from .widget_cleanup import clear_layout
 
 
 def _tr(key: str, **kwargs) -> str:
@@ -255,13 +256,7 @@ class RichTextPresetSidebar(QWidget):
         self._refresh_toggle_state(emit=False)
 
     def _rebuild_rows(self) -> None:
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                # 先脱离父级再延迟删除，避免重排期间还画着待删控件
-                widget.setParent(None)
-                widget.deleteLater()
+        clear_layout(self.content_layout)
         if not self._names:
             empty = CaptionLabel(_tr("No saved styles"), self.content)
             empty.setWordWrap(True)
@@ -845,12 +840,7 @@ class StyledRunList(ScrollArea):
             return
         self._cards_signature = signature
 
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
+        clear_layout(self.content_layout)
         self.run_cards = []
         for segment, forced, draft_text in plans:
             card = StyleRunCard(

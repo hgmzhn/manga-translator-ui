@@ -166,6 +166,7 @@ class PropertyPanel(QWidget):
     font_family_changed = pyqtSignal(int, str)  # New signal for font family
     alignment_changed = pyqtSignal(int, str)
     direction_changed = pyqtSignal(int, str)
+    style_patch_requested = pyqtSignal(list, dict)
     copy_region_requested = pyqtSignal()
     paste_region_requested = pyqtSignal()
     delete_region_requested = pyqtSignal()
@@ -1389,15 +1390,7 @@ class PropertyPanel(QWidget):
         finally:
             self.block_updates = False
 
-        for region_index in selected_indices:
-            self.font_family_changed.emit(region_index, style_data.get("font_family", ""))
-            self.font_color_changed.emit(region_index, style_data.get("font_color", "#000000"))
-            self.stroke_color_changed.emit(region_index, style_data.get("stroke_color", "#ffffff"))
-            self.stroke_width_changed.emit(region_index, style_data.get("stroke_width", 0.07))
-            self.line_spacing_changed.emit(region_index, style_data.get("line_spacing", 1.0))
-            self.letter_spacing_changed.emit(region_index, style_data.get("letter_spacing", 1.0))
-            self.alignment_changed.emit(region_index, style_data.get("alignment", "auto"))
-            self.direction_changed.emit(region_index, style_data.get("direction", "horizontal"))
+        self.style_patch_requested.emit(list(selected_indices), dict(style_data))
 
         self._refresh_style_preset_combo(selected_name=preset_name)
 
@@ -1808,90 +1801,82 @@ class PropertyPanel(QWidget):
         if hasattr(self, 'lang_name_to_code'):
             return self.lang_name_to_code.get(display_name, display_name)
         return display_name
+
+    def _emit_style_patch(self, patch: dict) -> None:
+        if self.block_updates or not patch:
+            return
+        selected_indices = self.model.get_selection()
+        if selected_indices:
+            self.style_patch_requested.emit(list(selected_indices), dict(patch))
+
     def _on_font_size_input_changed(self, value: int):
         if self.block_updates:
             return
         value = max(8, min(1000, int(value)))
         if self.font_size_slider.minimum() <= value <= self.font_size_slider.maximum():
             if self.font_size_slider.value() != value:
-                self.font_size_slider.setValue(value)
-
-        selected_indices = self.model.get_selection()
-        for region_index in selected_indices:
-            self.font_size_changed.emit(region_index, value)
+                self.font_size_slider.blockSignals(True)
+                try:
+                    self.font_size_slider.setValue(value)
+                finally:
+                    self.font_size_slider.blockSignals(False)
+        self._emit_style_patch({"font_size": value})
 
     def _on_font_size_slider_changed(self, value):
         if self.block_updates:
             return
-        # 支持多选批量设置
-        selected_indices = self.model.get_selection()
-        if selected_indices:
-            if self.font_size_input.value() != value:
+        if self.font_size_input.value() != value:
+            self.font_size_input.blockSignals(True)
+            try:
                 self.font_size_input.setValue(value)
-            for region_index in selected_indices:
-                self.font_size_changed.emit(region_index, value)
+            finally:
+                self.font_size_input.blockSignals(False)
+        self._emit_style_patch({"font_size": int(value)})
+
     def _on_font_family_changed(self, index):
         if self.block_updates:
             return
         if index < 0:
             return
         
-        # 支持多选批量设置
-        selected_indices = self.model.get_selection()
-        if not selected_indices:
-            return
-        
         # Get the font filename from combo box data
         font_filename = self.font_family_combo.currentFont().family()
-        
-        # 批量应用到所有选中的区域
-        for region_index in selected_indices:
-            self.font_family_changed.emit(region_index, font_filename)
+        self._emit_style_patch({"font_family": font_filename})
 
     def _on_font_color_changed(self, hex_color):
         """字体颜色变化时的处理"""
         if self.block_updates:
             return
-        for idx in self.model.get_selection():
-            self.font_color_changed.emit(idx, hex_color)
+        self._emit_style_patch({"font_color": hex_color})
 
     def _on_stroke_color_changed(self, hex_color):
         """描边颜色变化时的处理"""
         if self.block_updates:
             return
-        for idx in self.model.get_selection():
-            self.stroke_color_changed.emit(idx, hex_color)
+        self._emit_style_patch({"stroke_color": hex_color})
 
     def _on_stroke_width_changed(self, value):
         """处理描边宽度变化"""
         if self.block_updates:
             return
-        for region_index in self.model.get_selection():
-            self.stroke_width_changed.emit(region_index, value)
+        self._emit_style_patch({"stroke_width": float(value)})
 
     def _on_line_spacing_changed(self, value):
         """处理行间距倍率变化"""
         if self.block_updates:
             return
-        # 支持多选批量设置
-        selected_indices = self.model.get_selection()
-        for region_index in selected_indices:
-            self.line_spacing_changed.emit(region_index, value)
+        self._emit_style_patch({"line_spacing": float(value)})
 
     def _on_letter_spacing_changed(self, value):
         """处理字间距倍率变化"""
         if self.block_updates:
             return
-        selected_indices = self.model.get_selection()
-        for region_index in selected_indices:
-            self.letter_spacing_changed.emit(region_index, value)
+        self._emit_style_patch({"letter_spacing": float(value)})
 
     def _on_angle_changed(self, value):
         if self.block_updates:
             return
-        selected_indices = self.model.get_selection()
-        for region_index in selected_indices:
-            self.angle_changed.emit(region_index, float(value))
+        self._emit_style_patch({"angle": float(value)})
 
     def _on_mask_tool_changed(self, button):
         if button is self.select_button or button is self.paint_select_button or button is self.stamp_select_button:
@@ -2007,18 +1992,12 @@ class PropertyPanel(QWidget):
     def _on_alignment_changed(self, text: str):
         if self.block_updates:
             return
-        # 支持多选批量设置
-        selected_indices = self.model.get_selection()
-        for region_index in selected_indices:
-            self.alignment_changed.emit(region_index, text)
+        self._emit_style_patch({"alignment": text})
 
     def _on_direction_changed(self, text: str):
         if self.block_updates:
             return
-        # 支持多选批量设置
-        selected_indices = self.model.get_selection()
-        for region_index in selected_indices:
-            self.direction_changed.emit(region_index, text)
+        self._emit_style_patch({"direction": text})
 
     def _calculate_white_frame_info(self, region_data):
         """计算白框中心世界坐标和宽高，返回 (cx, cy, w, h) 或 None。"""

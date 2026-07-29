@@ -16,6 +16,7 @@ from services import (
     get_logger,
     get_state_manager,
 )
+from services.file_list_data_service import FileCatalogSnapshot, FileListDataService
 from theme_registry import THEME_OPTIONS
 from ui.main_page.view import MainView
 from ui.secondary_pages.themed_message_box import show_error_dialog
@@ -108,6 +109,12 @@ class MainWindow(FluentWindow):
 
         # --- Logic Controllers ---
         self.app_logic = MainAppLogic()
+        self.file_list_data_service = FileListDataService(self, max_workers=2)
+        self.app_logic.file_list_data_service = self.file_list_data_service
+        self._file_catalog_snapshot = FileCatalogSnapshot.empty()
+        self._main_catalog_generation = 0
+        self._main_catalog_loading = False
+        self._pending_editor_open = None
         ServiceManager.register_service('app_logic', self.app_logic)
         self.editor_model = None
         self.editor_controller = None
@@ -184,7 +191,11 @@ class MainWindow(FluentWindow):
 
         self.editor_model = EditorModel()
         self.editor_controller = EditorController(self.editor_model)
-        self.editor_logic = EditorLogic(self.editor_controller)
+        self.editor_logic = EditorLogic(
+            self.editor_controller,
+            parent=self,
+            file_data_service=self.file_list_data_service,
+        )
         self.editor_view = EditorView(
             self.app_logic,
             self.editor_model,
@@ -357,15 +368,25 @@ class MainWindow(FluentWindow):
     def _connect_signals(self):
         # --- MainAppLogic Connections ---
         self.app_logic.config_loaded.connect(self.main_view.set_parameters)
-        self.app_logic.files_added.connect(self.main_view.file_list.add_files)
-        self.app_logic.files_cleared.connect(self.main_view.file_list.clear)
-        self.app_logic.file_removed.connect(self.main_view.file_list.remove_file)
+        self.app_logic.file_sources_changed.connect(self._request_main_file_snapshot)
         self.app_logic.file_removed.connect(self._on_file_removed_update_editor)
         self.app_logic.files_cleared.connect(self._on_files_cleared_update_editor)
         self.app_logic.output_path_updated.connect(self.main_view.update_output_path_display)
         self.app_logic.task_completed.connect(self.on_task_completed, type=Qt.ConnectionType.QueuedConnection)
         self.app_logic.error_dialog_requested.connect(self._show_error_dialog, type=Qt.ConnectionType.QueuedConnection)
         self.app_logic.warning_dialog_requested.connect(self._show_warning_dialog, type=Qt.ConnectionType.QueuedConnection)
+        self.file_list_data_service.loading.connect(
+            self._on_main_catalog_loading,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
+        self.file_list_data_service.snapshot_ready.connect(
+            self._on_main_catalog_ready,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
+        self.file_list_data_service.error.connect(
+            self._on_main_catalog_error,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
 
         # --- View to Logic Connections ---
         self.main_view.setting_changed.connect(self.app_logic.update_single_config)
@@ -389,6 +410,60 @@ class MainWindow(FluentWindow):
         # --- 主题切换连接 ---
         for theme_key, action in getattr(self, "theme_actions", {}).items():
             action.triggered.connect(lambda checked=False, selected_theme=theme_key: self._change_theme(selected_theme))
+
+    @pyqtSlot()
+    def _request_main_file_snapshot(self):
+        self._main_catalog_loading = True
+        self.main_view.file_list.set_loading()
+        try:
+            self._main_catalog_generation = self.file_list_data_service.request_snapshot(
+                "main",
+                tuple(self.app_logic.source_files),
+                tuple(self.app_logic.excluded_subfolders),
+                tuple(self.app_logic.excluded_files),
+            )
+        except RuntimeError as exc:
+            self._main_catalog_loading = False
+            self.main_view.file_list.set_error(str(exc))
+
+    @pyqtSlot(str, int)
+    def _on_main_catalog_loading(self, channel: str, generation: int):
+        if channel != "main":
+            return
+        self._main_catalog_loading = True
+        self._main_catalog_generation = generation
+
+    @pyqtSlot(str, int, object)
+    def _on_main_catalog_ready(self, channel: str, generation: int, snapshot: object):
+        if (
+            channel != "main"
+            or generation != self._main_catalog_generation
+        ):
+            return
+        self._main_catalog_loading = False
+        self._file_catalog_snapshot = snapshot
+        self.main_view.file_list.set_snapshot(snapshot)
+        for warning in snapshot.warnings:
+            self.logger.warning(warning)
+
+        pending = self._pending_editor_open
+        self._pending_editor_open = None
+        if pending is not None:
+            file_to_load, files_to_load = pending
+            QTimer.singleShot(
+                0,
+                lambda: self.enter_editor_mode(
+                    file_to_load=file_to_load,
+                    files_to_load=files_to_load,
+                ),
+            )
+
+    @pyqtSlot(str, int, str)
+    def _on_main_catalog_error(self, channel: str, generation: int, message: str):
+        if channel != "main" or generation != self._main_catalog_generation:
+            return
+        self._main_catalog_loading = False
+        self.main_view.file_list.set_error(message)
 
     @pyqtSlot(str)
     def on_file_selected_from_main_list(self, file_path: str):
@@ -432,11 +507,8 @@ class MainWindow(FluentWindow):
         """当文件列表被清空时，清空编辑器"""
         if not self.editor_view or not self.editor_logic:
             return
-        if self.stacked_widget.currentWidget() == self.editor_view:
-            # 如果当前在编辑器视图，清空编辑器
-            self.logger.info("Files cleared. Clearing editor.")
-            # 清空文件列表（内部会自动清空画布和状态）
-            self.editor_logic.clear_list()
+        self.logger.info("Files cleared. Clearing editor.")
+        self.editor_logic.clear_list()
 
     def _change_language(self, locale_code: str):
         """切换语言"""
@@ -529,6 +601,9 @@ class MainWindow(FluentWindow):
         try:
             if not saved_files:
                 return
+
+            # 翻译会新建/更新 JSON 元数据；先刷新完整快照，编辑器打开请求会自动等待。
+            self._request_main_file_snapshot()
 
             if not self._should_prompt_open_results_in_editor():
                 return
@@ -653,29 +728,42 @@ class MainWindow(FluentWindow):
             if self.editor_view and self.editor_view.property_panel:
                 self.editor_view.property_panel.repopulate_options()
 
-            # 获取完整的文件夹树结构
-            tree_structure = self.app_logic.get_folder_tree_structure()
-            expanded_files = tree_structure['files']
-            folder_tree = tree_structure['tree']
+            if self._main_catalog_loading:
+                self._pending_editor_open = (
+                    file_to_load,
+                    list(files_to_load) if files_to_load else None,
+                )
+                self.editor_view.file_list.set_loading()
+                self.switchTo(self.editor_view)
+                return
 
-            # 判断是否从翻译完成进入（有 files_to_load 参数）
-            if files_to_load and len(files_to_load) > 0:
-                self.editor_logic.load_file_lists(
-                    source_files=expanded_files,
-                    folder_tree=folder_tree,
+            if self.app_logic.source_files and not self._file_catalog_snapshot.sources:
+                self._pending_editor_open = (
+                    file_to_load,
+                    list(files_to_load) if files_to_load else None,
                 )
-                self.editor_logic.load_image_into_editor(files_to_load[0])
-            else:
-                # 手动打开编辑器：显示源文件列表
-                self.editor_logic.load_file_lists(
-                    source_files=expanded_files,
-                    folder_tree=folder_tree
+                self.editor_view.file_list.set_loading()
+                self._request_main_file_snapshot()
+                self.switchTo(self.editor_view)
+                return
+
+            editor_snapshot = self._file_catalog_snapshot.images_only()
+            self.editor_logic.apply_file_snapshot(
+                editor_snapshot,
+                excluded_folders=self.app_logic.excluded_subfolders,
+                excluded_files=self.app_logic.excluded_files,
+            )
+
+            target_path = file_to_load
+            if files_to_load:
+                target_path = (
+                    self.app_logic.resolve_completed_source(files_to_load[0])
+                    or files_to_load[0]
                 )
-                # 如果指定了要加载的文件
-                if file_to_load:
-                    self.editor_logic.load_image_into_editor(file_to_load)
-                elif expanded_files:
-                    self.editor_logic.load_image_into_editor(expanded_files[0])
+            if target_path:
+                self.editor_logic.load_image_into_editor(target_path)
+            elif editor_snapshot.editor_files:
+                self.editor_logic.load_image_into_editor(editor_snapshot.editor_files[0])
 
             self.switchTo(self.editor_view)
         except Exception as e:
@@ -726,5 +814,8 @@ class MainWindow(FluentWindow):
         # 避免 QThread: Destroyed while thread is still running。
         if hasattr(self, "main_view") and self.main_view:
             self.main_view.shutdown_background_threads(3000)
+        if self.editor_logic is not None:
+            self.editor_logic.shutdown()
+        self.file_list_data_service.shutdown()
         self.app_logic.shutdown()
         event.accept()

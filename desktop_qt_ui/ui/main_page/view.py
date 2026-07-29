@@ -31,6 +31,7 @@ class MainView(QObject):
     """
     setting_changed = pyqtSignal(str, object)
     env_var_changed = pyqtSignal(str, str)
+    api_task_finished = pyqtSignal(str, object)
     editor_view_requested = pyqtSignal()
     theme_change_requested = pyqtSignal(str)
     language_change_requested = pyqtSignal(str)
@@ -79,6 +80,7 @@ class MainView(QObject):
     _flush_all_pending_env_vars = main_view_env.flush_all_pending_env_vars
     _refresh_api_slot_status_styles = main_view_env.refresh_api_slot_status_styles
     shutdown_background_threads = main_view_env.shutdown_background_threads
+    _on_api_task_future_finished = main_view_env.on_api_task_future_finished
     _on_open_custom_api_params_file = main_view_env.on_open_custom_api_params_file
     _refresh_api_feature_selectors = main_view_env.refresh_api_feature_selectors
     _on_api_feature_combo_changed = main_view_env.on_api_feature_combo_changed
@@ -115,12 +117,8 @@ class MainView(QObject):
         self.i18n = get_i18n_manager()
         self.app_version = get_app_version()
         self.env_widgets = {}
-        self._pending_env_vars = {}
-        self._active_threads = {}
-        self._env_debounce_timer = QTimer(self)
-        self._env_debounce_timer.setSingleShot(True)
-        self._env_debounce_timer.setInterval(500) # 500ms debounce delay
-        self._env_debounce_timer.timeout.connect(self._flush_all_pending_env_vars)
+        self._active_api_tasks = {}
+        self.api_task_finished.connect(self._on_api_task_future_finished)
 
         self.env_var_changed.connect(self.controller.save_env_var)
         self._navigation_switcher = None

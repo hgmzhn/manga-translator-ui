@@ -37,6 +37,10 @@ class EditorControllerDocumentService:
         self._prefetch_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="editor-prefetch"
         )
+        self._aux_load_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=DocumentLoadWorker.AUX_WORKERS,
+            thread_name_prefix="editor-doc-aux",
+        )
         # 加载代号：每次作废在途加载时 +1；结果只有携带当前代号才会被应用
         self._load_generation = 0
         self._active_load_future: Optional[concurrent.futures.Future] = None
@@ -147,7 +151,7 @@ class EditorControllerDocumentService:
         self._is_shutdown = True
         self._cancel_pending_load()
         self._cancel_pending_prefetch()
-        for executor in (self._load_executor, self._prefetch_executor):
+        for executor in (self._load_executor, self._prefetch_executor, self._aux_load_executor):
             try:
                 executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
@@ -329,7 +333,7 @@ class EditorControllerDocumentService:
                 return
             self.controller._load_result_ready.emit((generation, result))
 
-        worker = DocumentLoadWorker(self, image_path)
+        worker = DocumentLoadWorker(self, image_path, self._aux_load_executor)
         future = self._load_executor.submit(worker.load)
         self._active_load_future = future
         future.add_done_callback(on_load_complete)

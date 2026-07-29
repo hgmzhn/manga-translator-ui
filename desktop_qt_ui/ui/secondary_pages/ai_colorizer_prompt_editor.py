@@ -43,6 +43,7 @@ from qfluentwidgets import (
 
 from ui.secondary_pages.fluent_dialog import FluentSecondaryDialog
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
+from ui.widgets.widget_cleanup import delete_widget
 from ui.theme import (
     monospace_font as _monospace_font,
 )
@@ -536,8 +537,7 @@ class AIColorizerPromptEditorDialog(FluentSecondaryDialog):
     def _remove_section(self, container: QWidget, key: str):
         self._section_containers = [(k, c) for k, c in self._section_containers if c is not container]
         self._template_sections_layout.removeWidget(container)
-        container.setParent(None)
-        container.deleteLater()
+        delete_widget(container)
         self._refresh_section_move_buttons()
 
         if key == "prompt_text":

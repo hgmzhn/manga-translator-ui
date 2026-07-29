@@ -684,7 +684,6 @@
   "\n⚠️ Batch translation completed: {success}/{total} succeeded, {failed}/{total} failed": "\n⚠️ Traducción por lotes completada: {success}/{total} exitosas, {failed}/{total} fallidas",
   "✅ Batch translation completed: {success}/{total} succeeded": "✅ Traducción por lotes completada: {success}/{total} exitosas",
   "💾 Files saved to: {dir}": "💾 Archivos guardados en: {dir}",
-  "📊 Sequential processing mode: {total} images": "📊 Modo de procesamiento secuencial: {total} imágenes",
   "📥 Importing translations from TXT files to JSON...": "📥 Importando traducciones de archivos TXT a JSON...",
   "Import result: {result}": "Resultado de importación: {result}",
   "⚠️ Warning: Cannot find template file, skipping auto-import": "⚠️ Advertencia: No se puede encontrar el archivo de plantilla, omitiendo importación automática",
@@ -1225,5 +1224,7 @@
   "Clone Stamp Hint": "Tampón de clonar: clic der. para muestrear, arrastre izq. para pintar",
   "Clear Stamp Layer": "Borrar capa de tampón",
   "Show Paint Layer": "Mostrar capa de pintura",
-  "Show Stamp Layer": "Mostrar capa de tampón"
+  "Show Stamp Layer": "Mostrar capa de tampón",
+  "Translated": "Traducido",
+  "Untranslated": "Sin traducir"
 }

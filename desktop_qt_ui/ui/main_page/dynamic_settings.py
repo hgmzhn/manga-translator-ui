@@ -1,7 +1,7 @@
 import json
 import os
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import QSignalBlocker, Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QGridLayout,
@@ -24,27 +24,9 @@ from qfluentwidgets import PushButton as QPushButton
 
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
+from ui.widgets.widget_cleanup import clear_layout
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 from utils.font_list import list_font_families
-
-
-def _close_combo_popups_before_delete(widget: QWidget):
-    for candidate in [widget, *widget.findChildren(QWidget)]:
-        drop_menu = getattr(candidate, "dropMenu", None)
-        if drop_menu is None:
-            continue
-        try:
-            candidate.hidePopup()
-        except Exception:
-            pass
-
-
-def _delete_later_safely(widget: QWidget):
-    _close_combo_popups_before_delete(widget)
-    cleanup_event_filters = getattr(widget, "_cleanup_event_filters", None)
-    if callable(cleanup_event_filters):
-        cleanup_event_filters()
-    widget.deleteLater()
 
 
 class QLineEdit(FluentLineEdit):
@@ -200,6 +182,52 @@ _CACHED_SETTINGS_WIDGET_ATTRS = (
     "upscale_ratio_combo",
 )
 
+_FIXED_PROMPT_KEYS = frozenset({
+    "ocr.ai_ocr_prompt_path",
+    "colorizer.ai_colorizer_prompt_path",
+    "render.ai_renderer_prompt_path",
+})
+
+_SKIPPED_SETTING_KEYS = frozenset({
+    "cli.load_text",
+    "cli.translate_json_only",
+    "cli.template",
+    "cli.generate_and_export",
+    "cli.colorize_only",
+    "cli.upscale_only",
+    "cli.inpaint_only",
+    "cli.replace_translation",
+    "cli.replace_translation_mode",
+    "upscale.realcugan_model",
+    "render.gimp_font",
+    "translator.high_quality_prompt_path",
+    "app.last_open_dir",
+    "app.last_output_path",
+    "app.favorite_folders",
+    "app.current_preset",
+})
+
+_OPTIONAL_INPUT_KEYS = frozenset({
+    "tile_size",
+    "line_spacing",
+    "letter_spacing",
+    "font_size",
+    "ocr_vl_custom_prompt",
+    "ai_ocr_custom_prompt",
+})
+
+_LEGACY_SETTING_SECTIONS = (
+    "translator",
+    "cli",
+    "detector",
+    "inpainter",
+    "render",
+    "upscale",
+    "colorizer",
+    "ocr",
+    "app",
+)
+
 
 def _drop_cached_settings_widget_refs(view):
     """丢弃随设置页重建而销毁的控件缓存引用，避免重建窗口期悬空访问。"""
@@ -210,21 +238,44 @@ def _drop_cached_settings_widget_refs(view):
 
 
 def _clear_layout_widgets(layout, *, restore_stretch: bool = False):
-    """清空布局：删光 widget 项、丢弃 spacer 项。
+    """递归隐藏并延迟删除布局内容；可补回设置页末尾 stretch。"""
+    clear_layout(layout, restore_stretch=restore_stretch)
 
-    - widget 先 setParent(None) 立即脱离父级（避免刷新链路 processEvents
-      期间旧卡片残影），再 _delete_later_safely 释放；
-    - restore_stretch=True 时清空后补回底部 addStretch(1)，维持
-      _append_settings_row“插在末尾 spacer 前”的约定。
-    """
-    while layout.count():
-        item = layout.takeAt(0)
-        widget = item.widget()
-        if widget is not None:
-            widget.setParent(None)
-            _delete_later_safely(widget)
-    if restore_stretch:
-        layout.addStretch(1)
+
+def _env_group_structure_signature(active_api_groups: dict, current_env_values: dict) -> str:
+    from manga_translator.api_key_rotation import get_rotation_slot_count
+    from ui.main_page.env_management import API_ROTATION_UI_MAX_SLOTS
+
+    slot_counts = {}
+    for group_keys in active_api_groups.values():
+        for group_key in group_keys:
+            slot_keys = API_GROUP_SPECS.get(group_key)
+            if slot_keys:
+                slot_counts[group_key] = get_rotation_slot_count(
+                    current_env_values,
+                    slot_keys,
+                    default=1,
+                    maximum=API_ROTATION_UI_MAX_SLOTS,
+                )
+    return json.dumps(
+        {"groups": active_api_groups, "slot_counts": slot_counts},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+def _sync_env_widget_values(self, current_env_values: dict) -> None:
+    from ui.main_page.env_management import _set_env_widget_value
+
+    for key, (_label, widget) in list(self.env_widgets.items()):
+        blocker = QSignalBlocker(widget)
+        try:
+            _set_env_widget_value(widget, current_env_values.get(key, ""))
+            if hasattr(widget, "setPlaceholderText"):
+                widget.setPlaceholderText(self._get_env_default_placeholder(key))
+        finally:
+            del blocker
 
 
 def _refresh_env_api_groups(self, *, force: bool = False):
@@ -241,9 +292,9 @@ def _refresh_env_api_groups(self, *, force: bool = False):
 
     active_api_groups = _selected_api_group_keys(self.controller.config_service.get_config())
     current_env_values = self.controller.config_service.load_env_vars()
-    signature = json.dumps(
+    structure_signature = _env_group_structure_signature(active_api_groups, current_env_values)
+    value_signature = json.dumps(
         {
-            "groups": active_api_groups,
             "env": current_env_values,
             "preset": self.controller.config_service.get_current_preset(),
         },
@@ -251,10 +302,16 @@ def _refresh_env_api_groups(self, *, force: bool = False):
         ensure_ascii=False,
         default=str,
     )
-    if not force and getattr(self, "_env_api_groups_signature", None) == signature:
+    if not force and getattr(self, "_env_api_groups_structure_signature", None) == structure_signature:
+        self._refresh_api_feature_selectors()
+        if getattr(self, "_env_api_groups_signature", None) == value_signature:
+            return
+        _sync_env_widget_values(self, current_env_values)
+        self._env_api_groups_signature = value_signature
         return
 
-    self._env_api_groups_signature = signature
+    self._env_api_groups_structure_signature = structure_signature
+    self._env_api_groups_signature = value_signature
     self.env_widgets.clear()
     self._api_slot_status_widgets = []
     for layout in [
@@ -470,6 +527,132 @@ def _create_fixed_prompt_editor_row(self, parent_layout, full_key: str):
     _append_settings_row(parent_layout, row)
     return True
 
+
+def _iter_rendered_setting_values(self, config: dict):
+    if getattr(self, "_settings_tabs_use_reclassify", False):
+        seen = set()
+        for tab in getattr(self, "settings_tab_layout", []) or []:
+            for item in tab.get("items", []):
+                if isinstance(item, dict):
+                    continue
+                full_key = str(item or "").strip()
+                if not full_key or full_key in seen:
+                    continue
+                seen.add(full_key)
+                exists, value = _resolve_config_value(config, full_key)
+                if exists:
+                    yield full_key, full_key.rsplit(".", 1)[-1], value
+        return
+
+    for section in _LEGACY_SETTING_SECTIONS:
+        values = config.get(section)
+        if not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            yield f"{section}.{key}", str(key), value
+    for key, value in config.items():
+        if key not in _LEGACY_SETTING_SECTIONS:
+            yield str(key), str(key), value
+
+
+def _setting_control_kind(full_key: str, key: str, value, options, display_map) -> str | None:
+    if full_key in _SKIPPED_SETTING_KEYS:
+        return None
+    if full_key in _FIXED_PROMPT_KEYS:
+        return "prompt-button"
+    if full_key in {"app.theme", "app.ui_language", "upscale.upscale_ratio"}:
+        return "combo"
+    if full_key == "filter_text_enabled":
+        return "toggle-action"
+    if full_key == "render.font_family":
+        return "font-action"
+    if isinstance(value, bool):
+        return "toggle-action" if full_key == "use_custom_api_params" else "toggle"
+    if isinstance(value, float):
+        return "float-input"
+    if isinstance(value, int):
+        return "int-input"
+    if value is None and key in _OPTIONAL_INPUT_KEYS:
+        return "optional-input"
+    if (isinstance(value, str) or value is None) and (options or display_map):
+        return "combo"
+    if isinstance(value, str):
+        return "text-input"
+    return None
+
+
+def _settings_structure_signature(self, config: dict) -> str | None:
+    try:
+        rows = []
+        for full_key, key, value in _iter_rendered_setting_values(self, config):
+            options = self.controller.get_options_for_key(key) or []
+            display_map = self.controller.get_display_mapping(key) or {}
+            kind = _setting_control_kind(full_key, key, value, options, display_map)
+            if kind is not None:
+                rows.append((full_key, kind, list(options), dict(display_map)))
+        rows.sort(key=lambda row: row[0])
+        return json.dumps(
+            {
+                "rows": rows,
+                "tab_layout": getattr(self, "settings_tab_layout", None),
+                "reclassify": bool(getattr(self, "_settings_tabs_use_reclassify", False)),
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+    except Exception:
+        return None
+
+
+def _sync_setting_widget_values(self, config: dict) -> bool:
+    bindings = getattr(self, "_settings_value_bindings", {})
+    try:
+        for full_key, (widget, display_map) in list(bindings.items()):
+            exists, value = _resolve_config_value(config, full_key)
+            if not exists:
+                return False
+
+            blocker = QSignalBlocker(widget)
+            try:
+                if isinstance(widget, ToggleSwitch):
+                    widget.setChecked(bool(value))
+                elif isinstance(widget, QFontComboBox):
+                    widget.setCurrentFont(QFont(str(value or "")))
+                elif isinstance(widget, QComboBox):
+                    if full_key == "upscale.upscale_ratio":
+                        continue
+                    if full_key in {"app.theme", "app.ui_language"}:
+                        index = widget.findData(value)
+                        if index >= 0:
+                            widget.setCurrentIndex(index)
+                    else:
+                        target = display_map.get(value, value) if display_map else value
+                        if full_key == "translator.high_quality_prompt_path":
+                            target = os.path.basename(value) if value else ""
+                        if target is None and widget.count():
+                            widget.setCurrentIndex(0)
+                        else:
+                            widget.setCurrentText(str(target or ""))
+                elif hasattr(widget, "setText"):
+                    widget.setText("" if value is None else str(value))
+            finally:
+                del blocker
+
+        upscale_binding = bindings.get("upscale.upscale_ratio")
+        exists, upscaler = _resolve_config_value(config, "upscale.upscaler")
+        if upscale_binding is not None and exists:
+            widget = upscale_binding[0]
+            blocker = QSignalBlocker(widget)
+            try:
+                _repopulate_upscale_ratio_options(self, widget, upscaler)
+            finally:
+                del blocker
+        return True
+    except (AttributeError, RuntimeError):
+        return False
+
+
 @pyqtSlot(dict)
 def set_parameters(self, config: dict):
     """
@@ -480,6 +663,8 @@ def set_parameters(self, config: dict):
     except Exception:
         config_signature = None
 
+    structure_signature = _settings_structure_signature(self, config)
+
     if (
         config_signature is not None
         and getattr(self, "_settings_ui_ready", False)
@@ -487,8 +672,23 @@ def set_parameters(self, config: dict):
     ):
         return
 
+    if (
+        structure_signature is not None
+        and getattr(self, "_settings_ui_ready", False)
+        and getattr(self, "_settings_rendered_structure_signature", None) == structure_signature
+        and _sync_setting_widget_values(self, config)
+    ):
+        self._settings_pending_signature = config_signature
+        self._settings_rendered_signature = config_signature
+        _refresh_env_api_groups(self)
+        self._refresh_api_feature_selectors()
+        self._refresh_prompt_manager()
+        return
+
     self._settings_ui_ready = False
     self._settings_pending_signature = config_signature
+    self._settings_pending_structure_signature = structure_signature
+    self._settings_value_bindings = {}
 
     # 构建代号：每次重建自增，链中每步校验，过期构建链自行终止，
     # 避免二次 config_loaded 并发开出第二条构建链导致控件重复。
@@ -554,11 +754,7 @@ def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False)
 
 
 def _create_widget_from_full_key(self, config: dict, full_key: str, parent_layout):
-    if full_key in {
-        "ocr.ai_ocr_prompt_path",
-        "colorizer.ai_colorizer_prompt_path",
-        "render.ai_renderer_prompt_path",
-    }:
+    if full_key in _FIXED_PROMPT_KEYS:
         return _create_fixed_prompt_editor_row(self, parent_layout, full_key)
 
     exists, value = _resolve_config_value(config, full_key)
@@ -727,6 +923,11 @@ def _finalize_settings_ui(self, build_seq: int | None = None):
 
     self._refresh_prompt_manager()
     self._settings_rendered_signature = getattr(self, "_settings_pending_signature", None)
+    self._settings_rendered_structure_signature = getattr(
+        self,
+        "_settings_pending_structure_signature",
+        None,
+    )
     self._settings_ui_ready = True
 
 def _create_dynamic_settings(self):
@@ -913,7 +1114,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         # gimp_font 已废弃；字体统一使用 font_family。
         # replace_translation 和 replace_translation_mode 通过工作流模式下拉框控制
         # app 配置组的字段：last_open_dir, last_output_path, favorite_folders, current_preset 是内部状态，不显示在UI中
-        if full_key in ["cli.load_text", "cli.translate_json_only", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "cli.inpaint_only", "cli.replace_translation", "cli.replace_translation_mode", "upscale.realcugan_model", "render.gimp_font", "translator.high_quality_prompt_path", "app.last_open_dir", "app.last_output_path", "app.favorite_folders", "app.current_preset"]:
+        if full_key in _SKIPPED_SETTING_KEYS:
             continue
 
         label_text = key
@@ -1090,7 +1291,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             widget = QLineEdit(str(value))
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int))
 
-        elif value is None and key in ['tile_size', 'line_spacing', 'letter_spacing', 'font_size', 'ocr_vl_custom_prompt', 'ai_ocr_custom_prompt']:
+        elif value is None and key in _OPTIONAL_INPUT_KEYS:
             # 处理值为 None 的可选参数（数值/字符串）
             widget = QLineEdit("")
             # 根据参数名设置提示文本
@@ -1153,6 +1354,8 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         
         if widget is not None:
             row = _ClickableRow(self, full_key, label_text, widget)
+            value_widget = widget[0] if isinstance(widget, (list, tuple)) else widget
+            self._settings_value_bindings[full_key] = (value_widget, dict(display_map or {}))
             if full_key == "app.theme":
                 self.theme_label = row
             elif full_key == "app.ui_language":

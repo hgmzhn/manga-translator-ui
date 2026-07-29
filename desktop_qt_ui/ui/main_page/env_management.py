@@ -25,10 +25,9 @@ from manga_translator.image_formats import (
     IMAGE_FILE_DIALOG_PATTERNS,
 )
 from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtWidgets import (
-    QApplication,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -57,65 +56,77 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# 后台 QThread 统一生命周期管理
+# AsyncService Future lifecycle management
 # ---------------------------------------------------------------------------
 
-def _request_thread_interruption(thread) -> None:
-    try:
-        if thread.isRunning():
-            thread.requestInterruption()
-    except RuntimeError:
-        pass
-
-
 def _is_managed_thread_running(self, kind: str) -> bool:
-    """同类后台线程是否仍在运行（用于启动前守卫，防止属性覆盖导致崩溃）。"""
-    thread = getattr(self, "_active_threads", {}).get(kind)
-    if thread is None:
+    """Compatibility name: return whether an API Future of this kind is active."""
+    entry = getattr(self, "_active_api_tasks", {}).get(kind)
+    return entry is not None
+
+
+def _start_managed_api_task(self, kind: str, coro, progress, on_finished) -> bool:
+    from services import get_async_service
+
+    async_service = get_async_service()
+    if async_service is None:
+        coro.close()
+        progress.close()
+        on_finished(None, RuntimeError("AsyncService is unavailable"))
         return False
+
+    future = async_service.submit_task(coro)
+    if future is None:
+        progress.close()
+        on_finished(None, RuntimeError("AsyncService rejected the task"))
+        return False
+
+    tasks = getattr(self, "_active_api_tasks", None)
+    if tasks is None:
+        tasks = {}
+        self._active_api_tasks = tasks
+    tasks[kind] = (future, progress, on_finished)
+    progress.rejected.connect(future.cancel)
+
+    def notify_gui(done_future, task_kind=kind):
+        try:
+            self.api_task_finished.emit(task_kind, done_future)
+        except RuntimeError:
+            pass
+
+    future.add_done_callback(notify_gui)
+    return True
+
+
+def on_api_task_future_finished(self, kind: str, future) -> None:
+    tasks = getattr(self, "_active_api_tasks", {})
+    entry = tasks.get(kind)
+    if entry is None or entry[0] is not future:
+        return
+    tasks.pop(kind, None)
+    _, progress, on_finished = entry
+    progress.close()
+    if future.cancelled() or progress.wasCanceled():
+        return
     try:
-        return thread.isRunning()
-    except RuntimeError:
-        return False
-
-
-def _start_managed_thread(self, kind: str, thread, progress=None) -> None:
-    """启动并登记一个后台线程。
-
-    - 线程持有在 self._active_threads[kind]，finished 后自动移除并 deleteLater，
-      避免旧的"单属性覆盖 + 无等待"导致 QThread: Destroyed while running；
-    - 传入 progress 时，取消/关闭进度框会向线程发出中断请求
-      （线程内部可用 isInterruptionRequested 检查；结果回调已按 wasCanceled 忽略）。
-    """
-    threads = getattr(self, "_active_threads", None)
-    if threads is None:
-        threads = {}
-        self._active_threads = threads
-    threads[kind] = thread
-
-    if progress is not None:
-        progress.rejected.connect(lambda t=thread: _request_thread_interruption(t))
-
-    def _on_thread_finished():
-        if threads.get(kind) is thread:
-            threads.pop(kind, None)
-        thread.deleteLater()
-
-    thread.finished.connect(_on_thread_finished)
-    thread.start()
+        result, error = future.result(), None
+    except Exception as exc:
+        result, error = None, exc
+    try:
+        on_finished(result, error)
+    except Exception:
+        logger.exception("处理 API 后台任务结果失败: %s", kind)
 
 
 def shutdown_background_threads(self, timeout_ms: int = 3000) -> None:
-    """关闭窗口前等待所有登记的后台线程结束（带超时）。"""
-    threads = list(getattr(self, "_active_threads", {}).values())
-    for thread in threads:
-        _request_thread_interruption(thread)
-    for thread in threads:
-        try:
-            if thread.isRunning() and not thread.wait(timeout_ms):
-                logger.warning("后台线程 %s 在 %dms 内未结束，放弃等待", thread, timeout_ms)
-        except RuntimeError:
-            pass
+    """Cancel only this page's API Futures; AsyncService owns the worker thread."""
+    _ = timeout_ms  # Retained for closeEvent compatibility.
+    tasks = getattr(self, "_active_api_tasks", {})
+    entries = list(tasks.values())
+    tasks.clear()
+    for future, progress, _on_finished in entries:
+        future.cancel()
+        progress.close()
 
 
 class QLineEdit(FluentLineEdit):
@@ -591,34 +602,20 @@ def get_env_default_placeholder(self, key: str) -> str:
 
 
 def debounced_save_env_var(self, key: str, text: str):
-    """防抖保存.env变量，支持多个 Key 同时暂存。
-
-    timeout 已在 MainView.__init__ 固定连接到 _flush_all_pending_env_vars，
-    这里只暂存参数并重启计时器。
-    """
-    if not hasattr(self, '_pending_env_vars'):
-        self._pending_env_vars = {}
-    self._pending_env_vars[key] = text
-    self._env_debounce_timer.start()
+    """立即更新内存；ConfigService 统一负责 250ms 合并落盘。"""
+    self.env_var_changed.emit(key, text)
 
 
 def flush_env_var_immediately(self, key: str):
-    """立即保存指定 Key（失去焦点/回车时调用）。"""
-    pending = getattr(self, '_pending_env_vars', {})
-    if key in pending:
-        value = pending.pop(key)
-        self.env_var_changed.emit(key, value)
+    """兼容既有 editingFinished 接线；值已在 textChanged 时提交内存。"""
 
 
-def flush_all_pending_env_vars(self):
-    """立即保存所有暂存的环境变量。"""
-    self._env_debounce_timer.stop()
-    pending = getattr(self, '_pending_env_vars', {})
-    if not pending:
-        return
-    for key, value in list(pending.items()):
-        self.env_var_changed.emit(key, value)
-    pending.clear()
+def flush_all_pending_env_vars(self, wait: bool = True):
+    """显式 API/预设操作可等待 ConfigService 原子落盘。"""
+    config_service = getattr(self.controller, 'config_service', None)
+    flush = getattr(config_service, 'flush_pending_writes', None)
+    if wait and callable(flush):
+        flush()
 
 
 API_FEATURE_SELECTOR_SPECS = [
@@ -1248,11 +1245,8 @@ def _show_api_batch_test_results(self, results: list[dict]) -> None:
 def _run_api_batch_test(self, items: list[dict]):
     import asyncio
 
-    from PyQt6.QtCore import QThread
-
     from ui.secondary_pages.themed_message_box import themed_information
     from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
-    from utils.asyncio_cleanup import shutdown_event_loop
 
     if not items:
         themed_information(self._dialog_parent(), self._t("API Batch Test"), self._t("No API channels to test"))
@@ -1299,40 +1293,24 @@ def _run_api_batch_test(self, items: list[dict]):
 
         return await asyncio.gather(*(run_one(item) for item in items))
 
-    def run_test_thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(run_all_tests())
-        finally:
-            shutdown_event_loop(loop, label="API batch test loop")
-
-    class BatchTestThread(QThread):
-        finished_signal = pyqtSignal(list)
-
-        def run(self):
-            try:
-                self.finished_signal.emit(run_test_thread())
-            except Exception as exc:
-                fallback_results = []
-                for item in items:
-                    result = dict(item)
-                    result["success"] = False
-                    result["message"] = str(exc)
-                    fallback_results.append(result)
-                self.finished_signal.emit(fallback_results)
-
-    def on_finished(results):
-        progress.close()
-        if progress.wasCanceled():
-            return
-        QApplication.processEvents()
+    def on_finished(results, error):
+        if error is not None:
+            results = []
+            for item in items:
+                result = dict(item)
+                result["success"] = False
+                result["message"] = str(error)
+                results.append(result)
         _show_api_batch_test_results(self, results)
         _refresh_api_groups_after_dialog(self)
 
-    thread = BatchTestThread()
-    thread.finished_signal.connect(on_finished)
-    _start_managed_thread(self, "api_batch_test", thread, progress)
+    _start_managed_api_task(
+        self,
+        "api_batch_test",
+        run_all_tests(),
+        progress,
+        on_finished,
+    )
 
 
 def on_test_current_api_section_clicked(self, section_key: str):
@@ -1371,12 +1349,8 @@ def on_open_custom_api_params_file(self):
 def on_test_api_clicked(self, key: str):
     """测试API连接。"""
     flush_all_pending_env_vars(self)
-    import asyncio
-
-    from PyQt6.QtCore import QThread
 
     from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
-    from utils.asyncio_cleanup import shutdown_event_loop
 
     if key not in self.env_widgets:
         return
@@ -1396,31 +1370,11 @@ def on_test_api_clicked(self, key: str):
     )
     progress.show()
 
-    def run_test():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(
-                self.controller.test_api_connection_async(test_target, api_key, api_base, model)
-            )
-        finally:
-            shutdown_event_loop(loop, label="API test loop")
-
-    class TestThread(QThread):
-        finished_signal = pyqtSignal(bool, str)
-
-        def run(self):
-            try:
-                success, message = run_test()
-                self.finished_signal.emit(success, message)
-            except Exception as e:
-                self.finished_signal.emit(False, str(e))
-
-    def on_test_finished(success, message):
-        progress.close()
-        if progress.wasCanceled():
-            return
-        QApplication.processEvents()
+    def on_test_finished(result, error):
+        if error is not None:
+            success, message = False, str(error)
+        else:
+            success, message = result
         if status_endpoint is not None:
             if success:
                 record_api_success(status_endpoint)
@@ -1445,22 +1399,22 @@ def on_test_api_clicked(self, key: str):
         if status_endpoint is not None:
             _refresh_api_groups_after_dialog(self)
 
-    test_thread = TestThread()
-    test_thread.finished_signal.connect(on_test_finished)
-    _start_managed_thread(self, "api_test", test_thread, progress)
+    _start_managed_api_task(
+        self,
+        "api_test",
+        self.controller.test_api_connection_async(test_target, api_key, api_base, model),
+        progress,
+        on_test_finished,
+    )
 
 
 def on_get_models_clicked(self, key: str):
     """获取可用模型列表。"""
     flush_all_pending_env_vars(self)
-    import asyncio
-
-    from PyQt6.QtCore import QThread
     from PyQt6.QtWidgets import QMessageBox
 
     from ui.secondary_pages.model_selector_dialog import ModelSelectorDialog
     from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
-    from utils.asyncio_cleanup import shutdown_event_loop
 
     if _is_managed_thread_running(self, "get_models"):
         return
@@ -1476,30 +1430,11 @@ def on_get_models_clicked(self, key: str):
     )
     progress.show()
 
-    def run_get_models():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(
-                self.controller.get_available_models_async(model_api_type, api_key, api_base)
-            )
-        finally:
-            shutdown_event_loop(loop, label="model fetch loop")
-
-    class GetModelsThread(QThread):
-        finished_signal = pyqtSignal(bool, list, str)
-
-        def run(self):
-            try:
-                success, models, message = run_get_models()
-                self.finished_signal.emit(success, models, message)
-            except Exception as e:
-                self.finished_signal.emit(False, [], str(e))
-
-    def on_get_models_finished(success, models, message):
-        progress.close()
-        if progress.wasCanceled():
-            return
+    def on_get_models_finished(result, error):
+        if error is not None:
+            success, models, message = False, [], str(error)
+        else:
+            success, models, message = result
         if success:
             if models:
                 selected_model, ok = ModelSelectorDialog.get_model(
@@ -1524,9 +1459,13 @@ def on_get_models_clicked(self, key: str):
                 friendly_message,
             )
 
-    get_models_thread = GetModelsThread()
-    get_models_thread.finished_signal.connect(on_get_models_finished)
-    _start_managed_thread(self, "get_models", get_models_thread, progress)
+    _start_managed_api_task(
+        self,
+        "get_models",
+        self.controller.get_available_models_async(model_api_type, api_key, api_base),
+        progress,
+        on_get_models_finished,
+    )
 
 
 def refresh_preset_list(self):
@@ -1636,12 +1575,6 @@ def on_preset_changed(self, new_preset_name: str):
     old_preset_name = getattr(self, "_current_preset_name", "")
     if old_preset_name == new_preset_name:
         return
-
-    if self._env_debounce_timer.isActive():
-        self._env_debounce_timer.stop()
-        for key, (label, widget) in self.env_widgets.items():
-            current_value = _get_env_widget_value(widget)
-            self.controller.save_env_var(key, current_value)
 
     if old_preset_name:
         existing_presets = self.controller.get_presets_list()

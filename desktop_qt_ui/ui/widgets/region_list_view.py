@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import BodyLabel, CardWidget, ListWidget, TextEdit
 
+from .widget_cleanup import delete_widget
+
 
 _REGION_KEY_ROLE = Qt.ItemDataRole.UserRole.value + 1
 
@@ -25,8 +27,60 @@ class RegionListView(ListWidget):
         self._pending_selection = []
         self.currentItemChanged.connect(self._on_item_changed)
 
-    def on_regions_changed(self, _change):
-        self.update_regions(self.model.get_regions())
+    def on_regions_changed(self, change):
+        regions = self.model.get_regions()
+        kind = getattr(change, "kind", "reset")
+        if kind == "reset" or self._pending_regions is not None or not self.isVisible():
+            self.update_regions(regions)
+            return
+
+        indices = tuple(getattr(change, "indices", ()) or ())
+        if kind not in {"updated", "inserted", "removed"} or not indices:
+            self.update_regions(regions)
+            return
+
+        drafts = self._collect_dirty_translations()
+        fallback_to_full_sync = False
+        self._block_signals = True
+        self.setUpdatesEnabled(False)
+        try:
+            if kind == "updated":
+                for index in indices:
+                    if 0 <= index < min(self.count(), len(regions)):
+                        self._update_region_item(
+                            index,
+                            regions[index],
+                            drafts.get(self._region_key(index)),
+                        )
+            elif kind == "inserted" and self.count() + len(indices) == len(regions):
+                first_changed = min(indices)
+                for index in sorted(indices):
+                    if 0 <= index < len(regions):
+                        self._add_region_item(
+                            index,
+                            regions[index],
+                            drafts.get(self._region_key(index)),
+                            insert=True,
+                        )
+                self._update_rows_from(first_changed, regions, drafts)
+            elif kind == "removed" and self.count() - len(indices) == len(regions):
+                first_changed = min(indices)
+                for index in sorted(indices, reverse=True):
+                    if 0 <= index < self.count():
+                        self._remove_region_row(index)
+                self._update_rows_from(first_changed, regions, drafts)
+            else:
+                self._pending_regions = list(regions)
+                self._pending_drafts = drafts
+                fallback_to_full_sync = True
+            if not fallback_to_full_sync:
+                self._apply_selection(self._pending_selection)
+        finally:
+            self.setUpdatesEnabled(True)
+            self._block_signals = False
+
+        if self._pending_regions is not None:
+            self.flush_pending_regions()
 
     def update_regions(self, regions):
         """用新的区域列表填充UI,现在显示原文和可编辑的译文。"""
@@ -78,9 +132,17 @@ class RegionListView(ListWidget):
         item = self.item(row)
         widget = self.itemWidget(item)
         if widget is not None:
-            widget.setParent(None)
-            widget.deleteLater()
+            self.removeItemWidget(item)
+            delete_widget(widget)
         self.takeItem(row)
+
+    def _update_rows_from(self, start: int, regions, drafts: dict[str, str]) -> None:
+        for index in range(max(0, start), min(self.count(), len(regions))):
+            self._update_region_item(
+                index,
+                regions[index],
+                drafts.get(self._region_key(index)),
+            )
 
     def _region_key(self, index: int) -> str:
         region_id = self.model.get_region_id(index)
@@ -100,7 +162,14 @@ class RegionListView(ListWidget):
                 drafts[item.data(_REGION_KEY_ROLE)] = current_text
         return drafts
 
-    def _add_region_item(self, index: int, region: dict, draft_text: str | None = None) -> None:
+    def _add_region_item(
+        self,
+        index: int,
+        region: dict,
+        draft_text: str | None = None,
+        *,
+        insert: bool = False,
+    ) -> None:
         item_container = CardWidget()
         layout = QVBoxLayout(item_container)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -124,7 +193,10 @@ class RegionListView(ListWidget):
         item_container.translated_edit = translated_edit
 
         item = QListWidgetItem()
-        self.addItem(item)
+        if insert:
+            self.insertItem(index, item)
+        else:
+            self.addItem(item)
         self.setItemWidget(item, item_container)
         item.setData(Qt.ItemDataRole.UserRole, index)
         item.setData(_REGION_KEY_ROLE, self._region_key(index))

@@ -693,7 +693,6 @@
   "\n⚠️ Batch translation completed: {success}/{total} succeeded, {failed}/{total} failed": "\n⚠️ Batch translation completed: {success}/{total} succeeded, {failed}/{total} failed",
   "✅ Batch translation completed: {success}/{total} succeeded": "✅ Batch translation completed: {success}/{total} succeeded",
   "💾 Files saved to: {dir}": "💾 Files saved to: {dir}",
-  "📊 Sequential processing mode: {total} images": "📊 Sequential processing mode: {total} images",
   "📥 Importing translations from TXT files to JSON...": "📥 Importing translations from TXT files to JSON...",
   "Import result: {result}": "Import result: {result}",
   "⚠️ Warning: Cannot find template file, skipping auto-import": "⚠️ Warning: Cannot find template file, skipping auto-import",
@@ -1236,5 +1235,7 @@
   "Clone Stamp Hint": "Clone stamp: right-click to sample, left-drag to paint",
   "Clear Stamp Layer": "Clear Stamp Layer",
   "Show Paint Layer": "Show Paint Layer",
-  "Show Stamp Layer": "Show Stamp Layer"
+  "Show Stamp Layer": "Show Stamp Layer",
+  "Translated": "Translated",
+  "Untranslated": "Untranslated"
 }

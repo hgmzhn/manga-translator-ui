@@ -193,77 +193,17 @@ def main():
     """
     应用主入口
     """
-    # --- 日志配置（异步优化）---
+    # --- 日志配置：所有格式化/控制台/文件/recent 写入都在监听线程 ---
     import atexit
-    import queue
-    import threading
-    
-    # 创建异步日志处理器
-    class AsyncStreamHandler(logging.Handler):
-        """异步日志处理器，避免阻塞主线程"""
-        def __init__(self, stream=sys.stdout):
-            super().__init__()
-            self.stream = stream
-            # 限制队列大小为1000，避免日志过多导致内存占用
-            self.log_queue = queue.Queue(maxsize=1000)
-            self.running = True
-            self.thread = threading.Thread(target=self._worker, daemon=True)
-            self.thread.start()
-        
-        def _worker(self):
-            while self.running:
-                try:
-                    # ✅ 减少超时时间，更快处理日志
-                    record = self.log_queue.get(timeout=0.01)
-                    if record is None:
-                        break
-                    msg = self.format(record)
-                    self.stream.write(msg + '\n')
-                    # ✅ 每条日志立即刷新
-                    self.stream.flush()
-                except queue.Empty:
-                    # ✅ 即使队列为空也刷新一次，确保之前的输出显示
-                    try:
-                        self.stream.flush()
-                    except Exception:
-                        pass
-                    continue
-                except Exception:
-                    pass
-        
-        def emit(self, record):
-            try:
-                self.log_queue.put_nowait(record)
-            except queue.Full:
-                pass  # 队列满时丢弃日志，避免阻塞
-        
-        def close(self):
-            self.running = False
-            self.log_queue.put(None)
-            self.thread.join(timeout=1)
-            super().close()
-    
-    # 配置异步日志（控制台）
-    async_handler = AsyncStreamHandler(sys.stdout)
+    from services.log_service import configure_queue_logging, shutdown_queue_logging
+
     log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
-    async_handler.setFormatter(log_formatter)
-    
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)  # 根日志器设为 DEBUG 以允许所有日志通过
-    root_logger.addHandler(async_handler)
-    
-    # 确保程序退出时正确关闭日志处理器
-    atexit.register(async_handler.close)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(log_formatter)
     
     # --- 日志文件配置 ---
     from datetime import datetime
-    
-    # 创建强制刷新的文件处理器类（确保日志立即写入磁盘，防止丢失）
-    class FlushingFileHandler(logging.FileHandler):
-        """每次写入后立即刷新到磁盘的文件处理器"""
-        def emit(self, record):
-            super().emit(record)
-            self.flush()  # 强制刷新缓冲区
     
     # 日志目录放在 app.exe 同级的 result/ 下
     if getattr(sys, 'frozen', False):
@@ -277,14 +217,11 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
     log_file_path = os.path.normpath(os.path.abspath(os.path.join(log_dir, f'log_{timestamp}.txt')))
     
-    # 使用强制刷新的文件处理器
-    file_handler = FlushingFileHandler(log_file_path, encoding='utf-8', delay=False)
+    file_handler = logging.FileHandler(log_file_path, encoding='utf-8', delay=False)
     file_handler.setLevel(logging.DEBUG)  # 始终为 DEBUG 级别
     file_handler.setFormatter(log_formatter)
-    root_logger.addHandler(file_handler)
-    
-    # 确保程序退出时关闭文件处理器
-    atexit.register(file_handler.close)
+    configure_queue_logging((console_handler, file_handler), queue_size=10_000)
+    atexit.register(shutdown_queue_logging)
     
     logging.info(f"UI日志文件: {log_file_path}")
     
@@ -488,34 +425,30 @@ def main():
     ret = app.exec()
     logging.info("Exiting application...")
 
+    # Persist the latest coalesced config/.env snapshots before services vanish.
+    try:
+        from services import get_config_service
+        config_service = get_config_service()
+        if config_service is not None and not config_service.shutdown():
+            logging.error("配置服务关闭前未能保存全部待处理写入")
+    except Exception as e:
+        logging.error(f"关闭配置服务时出错: {e}", exc_info=True)
+
     try:
         from services import shutdown_services
         shutdown_services()
     except Exception as e:
         logging.error(f"关闭服务时出错: {e}", exc_info=True)
-    
-    # 确保所有日志都写入文件
+
     try:
-        # 刷新所有日志处理器
-        for handler in logging.root.handlers:
-            handler.flush()
-        
-        # 关闭异步日志处理器
-        if 'async_handler' in locals():
-            async_handler.close()
-        
-        # 关闭文件日志处理器
-        if 'file_handler' in locals():
-            file_handler.flush()
-            file_handler.close()
+        faulthandler.disable()
+        shutdown_queue_logging()
     except Exception as e:
         print(f"关闭日志处理器时出错: {e}", file=sys.stderr)
-    
-    # 使用 os._exit 强制退出，防止守护线程阻塞
-    os._exit(ret)
+    return ret
 
 if __name__ == '__main__':
     # 在创建QApplication之前设置DPI策略，这是解决DPI问题的另一种稳妥方式
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-    main()
+    raise SystemExit(main())

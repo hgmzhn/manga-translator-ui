@@ -65,6 +65,19 @@ _FONT_AFFECTING_FIELDS = frozenset({
     "stroke_width", "disable_font_border",
 })
 
+_STYLE_PATCH_FIELDS = frozenset({
+    "font_size",
+    "font_family",
+    "font_color",
+    "stroke_color",
+    "stroke_width",
+    "line_spacing",
+    "letter_spacing",
+    "angle",
+    "alignment",
+    "direction",
+})
+
 
 def _sync_white_frame_size_for_font_change(
     region_data: dict,
@@ -1019,17 +1032,12 @@ class EditorController(QObject):
             current_value=current_value,
         )
 
-    @pyqtSlot(int, float)
-    def update_angle(self, region_index: int, value: float):
-        old_region_data = self._get_region_by_index(region_index)
-        if not old_region_data:
-            return
-
-        old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
+    @staticmethod
+    def _build_rotated_region_data(old_region_data: dict, value: float) -> Optional[dict]:
         target_angle = float(value)
         current_angle = float(old_region_data.get("angle", 0.0) or 0.0)
         if np.isclose(current_angle, target_angle, atol=1e-6):
-            return
+            return None
 
         geo = RegionGeometryState.from_region_data(old_region_data)
         wf_local = geo.white_frame_local
@@ -1038,8 +1046,7 @@ class EditorController(QObject):
             pivot_lx = (left + right) / 2.0
             pivot_ly = (top + bottom) / 2.0
         else:
-            pivot_lx = 0.0
-            pivot_ly = 0.0
+            pivot_lx = pivot_ly = 0.0
 
         pivot_scene_x, pivot_scene_y = geo.local_to_world(pivot_lx, pivot_ly)
         theta = np.radians(target_angle)
@@ -1050,7 +1057,6 @@ class EditorController(QObject):
         old_center = geo.center if len(geo.center) >= 2 else [new_cx, new_cy]
         delta_x = float(new_cx) - float(old_center[0])
         delta_y = float(new_cy) - float(old_center[1])
-
         new_lines = []
         for poly in old_region_data.get("lines", []):
             new_poly = []
@@ -1060,12 +1066,23 @@ class EditorController(QObject):
             if new_poly:
                 new_lines.append(new_poly)
 
-        new_region_data = build_rotate_region_data(
+        return build_rotate_region_data(
             old_region_data,
             target_angle,
             new_center=[new_cx, new_cy],
             new_lines=new_lines or None,
         )
+
+    @pyqtSlot(int, float)
+    def update_angle(self, region_index: int, value: float):
+        old_region_data = self._get_region_by_index(region_index)
+        if not old_region_data:
+            return
+
+        old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
+        new_region_data = self._build_rotated_region_data(old_region_data, value)
+        if new_region_data is None:
+            return
         command = self._build_region_update_command(
             region_index=region_index,
             old_data=old_region_data,
@@ -1250,6 +1267,127 @@ class EditorController(QObject):
             direction_value,
             description=f"Update Direction to {direction_value}",
         )
+
+    @pyqtSlot(list, dict)
+    def update_region_style_patch(self, region_indices: list, patch: dict) -> None:
+        """Apply one style patch to a selection as one undo command/model notification."""
+        if not isinstance(patch, dict):
+            return
+
+        normalized_patch = {}
+        for key, value in patch.items():
+            if key not in _STYLE_PATCH_FIELDS:
+                continue
+            try:
+                if key == "font_size":
+                    normalized_patch[key] = max(1, int(value))
+                elif key in {"stroke_width", "line_spacing", "letter_spacing", "angle"}:
+                    normalized_patch[key] = float(value)
+                elif key == "alignment":
+                    normalized_patch[key] = self._normalize_alignment_value(value)
+                elif key == "direction":
+                    normalized_patch[key] = self._normalize_direction_value(value)
+                else:
+                    normalized_patch[key] = str(value or "")
+            except (TypeError, ValueError):
+                continue
+        if not normalized_patch:
+            return
+
+        regions = self.model.get_regions()
+        indices = set()
+        for raw_index in region_indices or []:
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= index < len(regions):
+                indices.add(index)
+        indices = sorted(indices)
+        if not indices:
+            return
+
+        from PyQt6.QtGui import QColor
+        from .commands import MultiRegionUpdateCommand
+
+        old_regions = list(regions)
+        new_regions = list(regions)
+        changed_fields = set()
+        changed_count = 0
+        render_defaults = self.config_service.get_config().render
+
+        for index in indices:
+            old_region_data = self._merge_live_geometry_state(index, regions[index])
+            new_region_data = old_region_data.copy()
+            region_changed = False
+            font_metrics_changed = False
+
+            if "angle" in normalized_patch:
+                rotated = self._build_rotated_region_data(old_region_data, normalized_patch["angle"])
+                if rotated is not None:
+                    new_region_data = rotated
+                    region_changed = True
+                    changed_fields.add("angle")
+
+            for field_name, value in normalized_patch.items():
+                if field_name == "angle":
+                    continue
+
+                stored_field = field_name
+                stored_value = value
+                if field_name == "stroke_color":
+                    color = QColor(value)
+                    if not color.isValid():
+                        continue
+                    stored_field = "bg_colors"
+                    stored_value = [color.red(), color.green(), color.blue()]
+
+                current_value = new_region_data.get(stored_field)
+                if field_name in {"line_spacing", "letter_spacing"} and current_value is None:
+                    current_value = getattr(render_defaults, field_name, None) or 1.0
+                try:
+                    unchanged = (
+                        np.isclose(float(current_value), float(stored_value), atol=1e-9)
+                        if field_name in {"stroke_width", "line_spacing", "letter_spacing"}
+                        and current_value is not None
+                        else current_value == stored_value
+                    )
+                except (TypeError, ValueError):
+                    unchanged = current_value == stored_value
+                if unchanged:
+                    continue
+
+                new_region_data[stored_field] = copy.deepcopy(stored_value)
+                region_changed = True
+                changed_fields.add(stored_field)
+                if stored_field in _FONT_AFFECTING_FIELDS:
+                    font_metrics_changed = True
+
+            if not region_changed:
+                continue
+            if font_metrics_changed:
+                _sync_white_frame_size_for_font_change(
+                    new_region_data,
+                    old_region_data,
+                    self._resolve_region_render_params(index, new_region_data),
+                    self._resolve_region_render_params(index, old_region_data),
+                )
+            old_regions[index] = copy.deepcopy(old_region_data)
+            new_regions[index] = new_region_data
+            changed_count += 1
+
+        if not changed_count:
+            return
+        command = MultiRegionUpdateCommand(
+            self.model,
+            old_regions,
+            new_regions,
+            description=f"Update Region Style ({changed_count})",
+            fields=sorted(changed_fields),
+            source="property-panel",
+        )
+        if command.has_changes():
+            self.execute_command(command)
 
     def _execute_command_batch(self, commands: list, macro_name: str) -> None:
         with self.history_service.macro(macro_name):

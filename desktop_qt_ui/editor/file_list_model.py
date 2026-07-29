@@ -17,6 +17,10 @@ from manga_translator.utils.path_manager import resolve_original_image_path
 SUPPORTED_IMAGE_EXTENSIONS = _SUPPORTED_IMAGE_EXTENSIONS
 
 
+def _path_key(path: str) -> str:
+    return os.path.normcase(os.path.abspath(os.path.normpath(path)))
+
+
 class FileType(Enum):
     """文件类型枚举"""
     SOURCE = "source"           # 原图（有JSON）
@@ -45,6 +49,7 @@ class FileListModel:
     def __init__(self):
         self.files: List[FileItem] = []
         self._map_cache: Dict[str, dict] = {}  # 缓存 translation_map.json
+        self._path_index: Dict[str, FileItem] = {}
 
     @staticmethod
     def is_supported_image_file(file_path: str) -> bool:
@@ -56,6 +61,7 @@ class FileListModel:
         """清空文件列表"""
         self.files.clear()
         self._map_cache.clear()
+        self._path_index.clear()
     
     def add_files(self, file_paths: List[str]) -> List[FileItem]:
         """
@@ -79,13 +85,15 @@ class FileListModel:
                 continue
             
             # 检查是否已存在
-            norm_path = os.path.normpath(file_path)
-            if any(os.path.normpath(item.path) == norm_path for item in self.files):
+            norm_path = os.path.abspath(os.path.normpath(file_path))
+            path_key = _path_key(norm_path)
+            if path_key in self._path_index:
                 continue
             
             # 识别文件类型
             file_item = self._identify_file(file_path)
             self.files.append(file_item)
+            self._path_index[path_key] = file_item
             added_items.append(file_item)
         
         return added_items
@@ -100,12 +108,12 @@ class FileListModel:
         Returns:
             是否成功移除
         """
-        norm_path = os.path.normpath(file_path)
-        for i, item in enumerate(self.files):
-            if os.path.normpath(item.path) == norm_path:
-                self.files.pop(i)
-                return True
-        return False
+        path_key = _path_key(file_path)
+        item = self._path_index.pop(path_key, None)
+        if item is None:
+            return False
+        self.files.remove(item)
+        return True
     
     def get_file_item(self, file_path: str) -> Optional[FileItem]:
         """
@@ -117,21 +125,32 @@ class FileListModel:
         Returns:
             文件项，如果不存在返回 None
         """
-        norm_path = os.path.normpath(file_path)
-        for item in self.files:
-            if os.path.normpath(item.path) == norm_path:
-                return item
-        return None
+        return self._path_index.get(_path_key(file_path))
+
+    def replace_from_snapshot(self, snapshot) -> List[FileItem]:
+        """用后台快照一次性替换编辑器列表，不在 GUI 线程读取元数据。"""
+        self.clear()
+        for file_path in snapshot.editor_files:
+            normalized = os.path.abspath(os.path.normpath(file_path))
+            json_path = snapshot.json_by_file.get(normalized)
+            item = FileItem(
+                path=normalized,
+                file_type=FileType.SOURCE if json_path else FileType.UNTRANSLATED,
+                json_path=json_path,
+            )
+            self.files.append(item)
+            self._path_index[_path_key(normalized)] = item
+        return list(self.files)
     
     def resolve_entry_path(self, file_path: str) -> str:
         """将工作底图/翻译结果图统一解析为原图路径。"""
-        norm_path = os.path.normpath(file_path)
+        norm_path = os.path.abspath(os.path.normpath(file_path))
 
         source_from_map = self._find_source_from_map(norm_path)
         if source_from_map:
-            return source_from_map
+            return os.path.abspath(os.path.normpath(source_from_map))
 
-        return os.path.normpath(resolve_original_image_path(norm_path))
+        return os.path.abspath(os.path.normpath(resolve_original_image_path(norm_path)))
 
     def _identify_file(self, file_path: str) -> FileItem:
         """
@@ -204,10 +223,15 @@ class FileListModel:
             # 使用缓存
             if map_path not in self._map_cache:
                 with open(map_path, 'r', encoding='utf-8') as f:
-                    self._map_cache[map_path] = json.load(f)
+                    raw_map = json.load(f)
+                self._map_cache[map_path] = {
+                    _path_key(key): value
+                    for key, value in raw_map.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
              
             translation_map = self._map_cache[map_path]
-            norm_translated = os.path.normpath(translated_path)
+            norm_translated = _path_key(translated_path)
             
             # translation_map 的格式：{translated_path: source_path}
             source_path = translation_map.get(norm_translated)

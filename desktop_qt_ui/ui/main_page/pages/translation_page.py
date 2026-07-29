@@ -8,6 +8,7 @@ from qfluentwidgets import (
     PrimaryPushButton,
     PushButton,
     TitleLabel,
+    FluentIcon as FIF,
 )
 
 from ui.widgets.file_list_view import FileListView
@@ -44,6 +45,9 @@ def create_translation_page(self) -> QWidget:
     self.add_files_button = PushButton(self._t("Add Files"))
     self.add_folder_button = PushButton(self._t("Add Folder"))
     self.clear_list_button = PushButton(self._t("Clear List"))
+    self.add_files_button.setIcon(FIF.ADD)
+    self.add_folder_button.setIcon(FIF.FOLDER_ADD)
+    self.clear_list_button.setIcon(FIF.DELETE)
     file_buttons_layout.addWidget(self.add_files_button)
     file_buttons_layout.addWidget(self.add_folder_button)
     file_buttons_layout.addWidget(self.clear_list_button)
@@ -51,7 +55,10 @@ def create_translation_page(self) -> QWidget:
     input_layout.addWidget(file_button_widget)
 
     # MainView 是纯逻辑 QObject，不能当控件父级；file_list 随 addWidget 进布局后自动认领父级
-    self.file_list = FileListView(None)
+    self.file_list = FileListView(
+        None,
+        data_service=getattr(self.controller, "file_list_data_service", None),
+    )
     input_layout.addWidget(self.file_list, 1)
     page_layout.addWidget(self.translation_input_card, 1)
 

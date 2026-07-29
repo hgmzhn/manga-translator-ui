@@ -32,6 +32,7 @@ from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 from ui.theme import (
     monospace_font as _monospace_font,
 )
+from ui.widgets.widget_cleanup import delete_widget
 
 
 def _identity_translate(text: str, **kwargs) -> str:
@@ -602,12 +603,15 @@ class CustomApiParamsEditorDialog(FluentSecondaryDialog):
                 item = layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
-                    widget.setParent(None)
-                    widget.deleteLater()
+                    delete_widget(widget)
 
     def _remove_row(self, row: QWidget):
-        row.setParent(None)
-        row.deleteLater()
+        for layout in self.section_layouts.values():
+            index = layout.indexOf(row)
+            if index >= 0:
+                layout.takeAt(index)
+                break
+        delete_widget(row)
 
     def _load_from_disk(self):
         try:

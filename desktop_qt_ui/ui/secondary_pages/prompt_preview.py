@@ -43,6 +43,7 @@ from qfluentwidgets import (
 from qfluentwidgets import (
     PushButton as QPushButton,
 )
+from ui.widgets.widget_cleanup import delete_widget
 from qfluentwidgets import (
     ScrollArea as QScrollArea,
 )
@@ -1434,8 +1435,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
         # 从 layout 中移除
         self._template_sections_layout.removeWidget(container)
-        container.setParent(None)
-        container.deleteLater()
+        delete_widget(container)
         self._refresh_section_move_buttons()
 
         # 清空控件引用

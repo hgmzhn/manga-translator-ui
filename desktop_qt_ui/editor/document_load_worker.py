@@ -23,10 +23,16 @@ class DocumentLoadWorker:
 
     AUX_WORKERS = 4
 
-    def __init__(self, service: "EditorControllerDocumentService", image_path: str):
+    def __init__(
+        self,
+        service: "EditorControllerDocumentService",
+        image_path: str,
+        aux_executor: concurrent.futures.ThreadPoolExecutor,
+    ):
         self.service = service
         self.controller = service.controller
         self.image_path = image_path
+        self.aux_executor = aux_executor
 
     @property
     def logger(self):
@@ -52,16 +58,15 @@ class DocumentLoadWorker:
             "paint_overlay": find_paint_overlay_path(source_path),
         }
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.AUX_WORKERS) as executor:
-            futures = self._submit_aux_loads(
-                executor,
-                source_path,
-                display_image_path,
-                image,
-                image_size,
-                aux_paths,
-            )
-
+        futures = self._submit_aux_loads(
+            self.aux_executor,
+            source_path,
+            display_image_path,
+            image,
+            image_size,
+            aux_paths,
+        )
+        try:
             # 后台预转 QImage 到 ImageResource(走 LRU);命中缓存时跳过
             self._ensure_qimage(image_resource, image)
 
@@ -72,6 +77,10 @@ class DocumentLoadWorker:
             inpainted_path, inpainted_image = futures["inpainted"].result()
 
             paint_overlay_path, legacy_paint_overlay = futures["paint_overlay"].result()
+        finally:
+            for future in futures.values():
+                if not future.done():
+                    future.cancel()
 
         # JSON 内的 base64 图层优先；旧版单文件 PNG 仅作画笔层兜底
         paint_overlay_image = self._align_overlay_array(json_overlays.get("paint"), image_size)

@@ -691,7 +691,6 @@
   "\n⚠️ Batch translation completed: {success}/{total} succeeded, {failed}/{total} failed": "\n⚠️ 批量翻译完成：成功 {success}/{total} 张，失败 {failed}/{total} 张",
   "✅ Batch translation completed: {success}/{total} succeeded": "✅ 批量翻译完成：成功 {success}/{total} 张",
   "💾 Files saved to: {dir}": "💾 文件已保存到：{dir}",
-  "📊 Sequential processing mode: {total} images": "📊 顺序处理模式：共 {total} 张图片",
   "📥 Importing translations from TXT files to JSON...": "📥 正在从TXT文件导入翻译到JSON...",
   "Import result: {result}": "导入结果：{result}",
   "⚠️ Warning: Cannot find template file, skipping auto-import": "⚠️ 警告：无法找到模板文件，跳过自动导入翻译",
@@ -1235,5 +1234,7 @@
   "Clone Stamp Hint": "仿制印章：右键取样，左键拖动涂抹",
   "Clear Stamp Layer": "清除印章层",
   "Show Paint Layer": "显示画笔层",
-  "Show Stamp Layer": "显示印章层"
+  "Show Stamp Layer": "显示印章层",
+  "Translated": "已翻译",
+  "Untranslated": "未翻译"
 }

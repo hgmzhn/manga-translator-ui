@@ -465,8 +465,9 @@ class EditorView(QWidget):
         self.controller.update_multiple_translations(translations)
 
     def export_image(self):
-        """统一导出入口。草稿提交由 controller.export_image 内的
-        commit_pending_edits() 兜底，这里不再重复 flush。"""
+        """统一导出入口，先提交浮动编辑器中尚在防抖期内的内容。"""
+        if self.rich_text_editor is not None:
+            self.rich_text_editor.flush_pending_changes()
         return self.controller.export_image()
 
     def _on_replace_all_clicked(self):
@@ -743,8 +744,9 @@ class EditorView(QWidget):
         self.file_list.file_remove_requested.connect(self._on_file_remove_requested)
         self.file_list.file_selected.connect(self.logic.load_image_into_editor)
         self.file_list.files_dropped.connect(self.logic.add_files_from_paths)  # 拖放文件支持
-        self.logic.file_list_changed.connect(self.update_file_list)
-        self.logic.file_list_with_tree_changed.connect(self.update_file_list_with_tree)  # 支持树形结构
+        self.logic.file_list_loading.connect(self.file_list.set_loading)
+        self.logic.file_snapshot_changed.connect(self.file_list.set_snapshot)
+        self.logic.file_list_error.connect(self.file_list.set_error)
 
         # --- Toolbar (Top) to Controller/View ---
         self.toolbar.export_requested.connect(self.export_image)
@@ -798,6 +800,7 @@ class EditorView(QWidget):
         self.property_panel.font_family_changed.connect(self.controller.update_font_family)
         self.property_panel.alignment_changed.connect(self.controller.update_alignment)
         self.property_panel.direction_changed.connect(self.controller.update_direction)
+        self.property_panel.style_patch_requested.connect(self.controller.update_region_style_patch)
         self.property_panel.toggle_mask_visibility.connect(lambda state: self.controller.set_display_mask_type('refined', state))
         self.property_panel.copy_region_requested.connect(self._handle_copy_from_panel)
         self.property_panel.paste_region_requested.connect(self._handle_paste_from_panel)
@@ -911,7 +914,11 @@ class EditorView(QWidget):
         file_list_layout = QVBoxLayout(file_list_card)
         file_list_layout.setContentsMargins(8, 8, 8, 8)
         file_list_layout.setSpacing(0)
-        self.file_list = FileListView(None, self)
+        self.file_list = FileListView(
+            None,
+            self,
+            data_service=getattr(self.app_logic, "file_list_data_service", None),
+        )
         file_list_layout.addWidget(self.file_list)
         right_layout.addWidget(file_list_card, 1)
         

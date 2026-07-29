@@ -37,6 +37,7 @@ from qfluentwidgets import (
 )
 from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
+from ui.widgets.widget_cleanup import delete_widget
 
 logger = logging.getLogger('manga_translator')
 
@@ -705,9 +706,7 @@ class _ColorPaletteView(FlyoutViewBase):
                 self._swatches.remove(widget)
             if widget in self._recent_swatches:
                 self._recent_swatches.remove(widget)
-            # 先脱离父级再延迟删除，避免布局重排期间还画着待删控件
-            widget.setParent(None)
-            widget.deleteLater()
+            delete_widget(widget)
         self._fill_swatch_grid(self._recent_layout, self._saved_colors[:20], recent=True)
         self._set_selected_color(self._selected, emit=False)
 
