@@ -13,7 +13,7 @@
 
 ### 拟声词过滤
 - 新增 `detector.use_sfx_filter` 拟声词过滤选项；启用 YOLO 辅助检测后，会过滤既未被 YOLO `other` 框包裹、也未与其他 YOLO OBB 框达到重叠阈值的主检测框，减少拟声词和装饰字误检。关联 [#204](https://github.com/hgmzhn/manga-translator-ui/issues/204)。
-- 主检测框缺少 YOLO 支持时会复用现有气泡边界检测；判断为气泡内文本时仍会保留，避免正常对白被误过滤。
+- 主检测框缺少 YOLO 支持时会用 MangaLens 气泡掩码判定；判断为气泡内文本时仍会保留，避免正常对白被误过滤。
 
 ### 纯色气泡直接填色与逐块修复
 - 修复设置新增两个独立开关（默认关闭），移植自 BallonsTranslator 的 `check_need_inpaint` 机制。关联 [#172](https://github.com/hgmzhn/manga-translator-ui/issues/172)。

@@ -4,8 +4,13 @@ import cv2
 import numpy as np
 
 from ..config import Detector
-from ..utils import Quadrilateral
-from ..utils.bubble import is_bubble_advanced
+from ..utils import (
+    Quadrilateral,
+    build_bubble_mask_from_mangalens_result,
+    calc_bbox_mask_overlap_ratio,
+    detect_bubbles_with_mangalens,
+)
+from ..utils.log import get_logger
 from .common import CommonDetector, OfflineDetector
 from .craft import CRAFTDetector
 from .ctd import ComicTextDetector
@@ -258,23 +263,37 @@ def _aabb_overlap_ratio(box_a: Quadrilateral, box_b: Quadrilateral) -> float:
     return (inter_w * inter_h) / min_area
 
 
+def _detect_sfx_bubble_mask(image: np.ndarray) -> Optional[np.ndarray]:
+    """用 MangaLens 生成全图气泡掩码；失败时返回 None，此时不做气泡豁免。"""
+    try:
+        result = detect_bubbles_with_mangalens(image, return_annotated=False, verbose=False)
+        return build_bubble_mask_from_mangalens_result(result, image.shape[:2])
+    except Exception as exc:
+        get_logger('sfx_filter').warning(
+            f'MangaLens bubble detection failed, no bubble exemption for this image: {exc}')
+        return None
+
+
 def _get_sfx_filtered_main_indices(
     main_boxes: List[Quadrilateral],
     yolo_boxes: List[Quadrilateral],
     overlap_threshold: float,
     wrap_eps: float = 2.0,
     image: Optional[np.ndarray] = None,
+    model_bubble_overlap_threshold: float = 0.1,
 ) -> set[int]:
     """
     找出缺少 YOLO 支持的主检测框：
     - YOLO `other` 必须完整包裹主框；或
     - 任一非 `other` YOLO 框与主框的重叠率达到阈值。
-    两项均不满足时，再复用气泡检测；气泡内文本仍保留。
+    两项均不满足时，再用 MangaLens 模型掩码判定是否在气泡内；气泡内文本仍保留。
     """
     # 即使用户把合并阈值设为 0，也仍要求存在真实交集，避免任意 YOLO 框
     # 让整页所有主检测框都通过过滤。
     threshold = max(1e-6, min(1.0, float(overlap_threshold)))
     filtered_indices = set()
+    bubble_mask: Optional[np.ndarray] = None
+    bubble_mask_ready = False
 
     for main_idx, main_box in enumerate(main_boxes):
         main_aabb = _box_aabb(main_box)
@@ -292,14 +311,20 @@ def _get_sfx_filtered_main_indices(
                 break
 
         if not supported and image is not None:
-            min_x, max_x, min_y, max_y = main_aabb
-            image_h, image_w = image.shape[:2]
-            x1 = max(0, int(np.floor(min_x)))
-            y1 = max(0, int(np.floor(min_y)))
-            x2 = min(image_w, int(np.ceil(max_x)))
-            y2 = min(image_h, int(np.ceil(max_y)))
-            supported = x2 > x1 and y2 > y1 and is_bubble_advanced(
-                image, x1, y1, x2 - x1, y2 - y1)
+            if not bubble_mask_ready:
+                bubble_mask = _detect_sfx_bubble_mask(image)
+                bubble_mask_ready = True
+            if bubble_mask is not None:
+                min_x, max_x, min_y, max_y = main_aabb
+                image_h, image_w = image.shape[:2]
+                x1 = max(0, int(np.floor(min_x)))
+                y1 = max(0, int(np.floor(min_y)))
+                x2 = min(image_w, int(np.ceil(max_x)))
+                y2 = min(image_h, int(np.ceil(max_y)))
+                if x2 > x1 and y2 > y1:
+                    supported = calc_bbox_mask_overlap_ratio(
+                        (x1, y1, x2 - x1, y2 - y1), bubble_mask
+                    ) >= model_bubble_overlap_threshold
 
         if not supported:
             filtered_indices.add(main_idx)
@@ -332,7 +357,7 @@ def merge_detection_boxes(
         main_boxes: 主检测器的检测框
         overlap_threshold: 重叠率阈值（0.0-1.0）。重叠率 >= 该值时删除YOLO框。设为1.0则保留所有框。
         use_sfx_filter: 过滤既不在气泡内、也未被 YOLO other 框包裹、也未与其他 YOLO 框达到重叠阈值的主检测框。
-        image: 原图，供现有气泡检测函数判断未获 YOLO 支持的主框。
+        image: 原图，供 MangaLens 气泡掩码判断未获 YOLO 支持的主框；模型失败时不做气泡豁免。
     
     Returns:
         合并后的检测框列表
