@@ -525,6 +525,7 @@
   "Enable Editor Snapping": "啟用編輯器吸附",
   "Scale Text Boxes from Center": "中心點縮放",
   "Show Rich Text Editor Popup": "顯示富文字編輯彈窗",
+  "Auto Apply Rich Text Rules While Editing": "編輯時自動套用富文字規則",
   "Auto Export on Image Switch": "切圖時自動匯出",
   "Reference: Selection": "參照：選區",
   "Reference: Canvas": "參照：畫布",

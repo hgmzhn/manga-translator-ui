@@ -107,6 +107,7 @@ class EditorToolbar(CardWidget):
     center_scale_enabled_changed = pyqtSignal(bool)
     rich_text_popup_enabled_changed = pyqtSignal(bool)
     auto_export_on_switch_changed = pyqtSignal(bool)
+    auto_rich_text_rules_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -115,6 +116,7 @@ class EditorToolbar(CardWidget):
         rich_text_popup_enabled: bool = True,
         auto_export_on_switch: bool = True,
         center_scale_enabled: bool = False,
+        auto_rich_text_rules: bool = True,
     ):
         super().__init__(parent)
         self.i18n = get_i18n_manager()
@@ -131,6 +133,7 @@ class EditorToolbar(CardWidget):
         self._center_scale_enabled = bool(center_scale_enabled)
         self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
         self._auto_export_on_switch = bool(auto_export_on_switch)
+        self._auto_rich_text_rules = bool(auto_rich_text_rules)
         self.main_menu: RoundMenu | None = None
         self.display_menu: RoundMenu | None = None
         self.arrange_menu: RoundMenu | None = None
@@ -278,6 +281,15 @@ class EditorToolbar(CardWidget):
         self.rich_text_popup_action.setChecked(self._rich_text_popup_enabled)
         self.rich_text_popup_action.triggered.connect(self._on_rich_text_popup_action_triggered)
         menu.addAction(self.rich_text_popup_action)
+
+        self.auto_rich_text_rules_action = Action(
+            FIF.FONT,
+            self._t("Auto Apply Rich Text Rules While Editing"),
+        )
+        self.auto_rich_text_rules_action.setCheckable(True)
+        self.auto_rich_text_rules_action.setChecked(self._auto_rich_text_rules)
+        self.auto_rich_text_rules_action.triggered.connect(self._on_auto_rich_text_rules_action_triggered)
+        menu.addAction(self.auto_rich_text_rules_action)
 
         self.auto_export_action = Action(
             FIF.SAVE_AS,
@@ -443,6 +455,27 @@ class EditorToolbar(CardWidget):
 
     def is_rich_text_popup_enabled(self) -> bool:
         return self._rich_text_popup_enabled
+
+    def _on_auto_rich_text_rules_action_triggered(self, checked: bool = False):
+        self.set_auto_rich_text_rules(checked, emit=True)
+
+    def set_auto_rich_text_rules(self, enabled: bool, emit: bool = False):
+        """同步编辑时自动应用富文本规则开关；外部配置同步时默认不回发信号。"""
+        enabled = bool(enabled)
+        changed = enabled != self._auto_rich_text_rules
+        self._auto_rich_text_rules = enabled
+
+        action = getattr(self, "auto_rich_text_rules_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.auto_rich_text_rules_changed.emit(enabled)
+
+    def is_auto_rich_text_rules(self) -> bool:
+        return self._auto_rich_text_rules
 
     def _on_auto_export_action_triggered(self, checked: bool = False):
         self.set_auto_export_on_switch(checked, emit=True)

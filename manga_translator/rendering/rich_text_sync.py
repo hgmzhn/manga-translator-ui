@@ -26,11 +26,12 @@ import logging
 import re
 from typing import Any, List, Optional, Sequence
 
-from .rich_text import RichTextDocument, ensure_rich_text_document
+from .rich_text import RichTextDocument, ensure_rich_text_document, normalize_rich_linebreaks
 from .rich_text_rules import (
     _document_from_rule_entries,
     _rule_entries_from_document,
     _RuleEntry,
+    apply_rich_text_rules,
 )
 from .text_replacements import load_replacements
 
@@ -259,6 +260,54 @@ def _direction_to_int(direction_value: Any) -> int:
     return 0 if direction_value in ("h", "horizontal", "hr") else 1
 
 
+def _model_text_matches(document: RichTextDocument, model_text: str) -> bool:
+    """文档正文折算回模型口径（\\n+ → [BR]）后与译文字段比对。"""
+    return re.sub(r"\n+", "[BR]", document.plain_text()) == model_text
+
+
+def _apply_editor_rules_stage(
+    document: Optional[RichTextDocument],
+    incremental: bool,
+    new_translation: str,
+    old_translation: Optional[str],
+    direction_value: Any,
+    rules: Optional[dict],
+) -> Optional[RichTextDocument]:
+    """编辑器管道第三级：在同步产物（或纯文本）上应用自动富文本规则。
+
+    ``incremental``（有精确操作记录）时与旧译文做新旧匹配对比，只应用
+    编辑新产生的命中——即使旧富文本不存在或同步失败，也不给未改动的老
+    命中重新上样式（清掉的样式不顶回）。整段替换按全量语义（等同渲染
+    管线，全部命中视为新）。规则只加样式不改字，产物正文与译文对不上
+    时丢弃规则结果保底。
+    """
+    previous_text = None
+    if incremental and old_translation is not None:
+        previous_text = normalize_rich_linebreaks(str(old_translation))
+    base: Any = (
+        document
+        if document is not None
+        else normalize_rich_linebreaks(str(new_translation or ""))
+    )
+    try:
+        ruled = apply_rich_text_rules(
+            base,
+            direction_value,
+            rules,
+            previous_text=previous_text,
+            styled_match_policy="skip",
+        )
+    except Exception as exc:
+        logger.warning("编辑器自动富文本规则应用失败,保留同步结果: %s", exc)
+        return document
+    if ruled is None:
+        return document
+    if not _model_text_matches(ruled, new_translation):
+        logger.warning("自动富文本规则产物与译文不一致,保留同步结果")
+        return document
+    return ruled
+
+
 def sync_region_rich_translation(
     old_rich: Any,
     edit_info: Any,
@@ -267,48 +316,66 @@ def sync_region_rich_translation(
     new_translation: str,
     direction_value: Any = "h",
     replacements: Optional[dict] = None,
+    apply_rules: bool = False,
+    old_translation: Optional[str] = None,
+    rules: Optional[dict] = None,
 ) -> Optional[dict]:
     """区域译文编辑的富文本对齐统一入口。
 
     校验操作记录 → 同步文档 → 正文折算回模型口径([BR])与新译文比对 →
-    无样式则退化。返回可直接写回 ``translation_rich`` 的 dict;没有旧富文本、
-    没有操作记录或任何校验失败返回 ``None``(调用方删除富文本退回纯文本)。
+    （可选）应用自动富文本规则 → 无样式则退化。返回可直接写回
+    ``translation_rich`` 的 dict。
+
+    ``apply_rules=False`` 时行为与旧版完全一致：没有旧富文本、没有操作
+    记录或任何校验失败返回 ``None``（调用方删除富文本退回纯文本）。
+    ``apply_rules=True`` 时同步失败/整段替换仍会在纯文本上跑规则，可能
+    从无到有长出富文本；``old_translation`` 传编辑前的译文字段（[BR]
+    口径）用于新旧匹配对比，整段替换路径传 ``None`` 即全量语义。
     """
-    if not old_rich:
-        return None
     info = edit_info if isinstance(edit_info, dict) else None
     ops = info.get("ops") if info else None
-    if not ops:
+
+    document: Optional[RichTextDocument] = None
+    if old_rich and not ops:
         logger.info("译文整段替换,无编辑操作记录,富文本退回纯文本")
-        return None
-
-    try:
-        if raw_mode:
-            document = sync_document_for_raw_edit(
-                old_rich,
-                info.get("pre_text", ""),
-                ops,
-                info.get("post_text", ""),
-                _direction_to_int(direction_value),
-                replacements,
-            )
+    elif old_rich:
+        try:
+            if raw_mode:
+                document = sync_document_for_raw_edit(
+                    old_rich,
+                    info.get("pre_text", ""),
+                    ops,
+                    info.get("post_text", ""),
+                    _direction_to_int(direction_value),
+                    replacements,
+                )
+            else:
+                document = document_after_edit_ops(
+                    old_rich,
+                    ops,
+                    info.get("pre_text", ""),
+                    info.get("post_text", ""),
+                )
+        except Exception as exc:
+            logger.warning("富文本样式同步异常,退回纯文本: %s", exc)
+            document = None
         else:
-            document = document_after_edit_ops(
-                old_rich,
-                ops,
-                info.get("pre_text", ""),
-                info.get("post_text", ""),
-            )
-    except Exception as exc:
-        logger.warning("富文本样式同步异常,退回纯文本: %s", exc)
-        return None
-    if document is None:
-        logger.warning("富文本样式同步校验失败,退回纯文本")
-        return None
+            if document is None:
+                logger.warning("富文本样式同步校验失败,退回纯文本")
+            elif not _model_text_matches(document, new_translation):
+                logger.warning("同步后富文本正文与译文不一致,退回纯文本")
+                document = None
 
-    if re.sub(r"\n+", "[BR]", document.plain_text()) != new_translation:
-        logger.warning("同步后富文本正文与译文不一致,退回纯文本")
-        return None
-    if not document_has_styling(document):
+    if apply_rules:
+        document = _apply_editor_rules_stage(
+            document,
+            bool(ops),
+            new_translation,
+            old_translation,
+            direction_value,
+            rules,
+        )
+
+    if document is None or not document_has_styling(document):
         return None
     return document.to_dict()

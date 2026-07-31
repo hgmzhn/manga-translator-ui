@@ -14,6 +14,7 @@ from .rich_text_editing import (
     apply_ruby_to_range,
     document_from_region,
     document_to_storage_text,
+    editor_text_to_plain_text,
     python_index_to_utf16_offset,
     storage_text_to_editor_text,
     utf16_range_to_python_range,
@@ -64,6 +65,8 @@ class RichTextEditorState:
         self.pending_document_change = False
         self.ruby_draft: RubyEditDraft | None = None
         self.pending_style_edit: PendingStyleEdit | None = None
+        # 编辑时自动应用富文本规则的开关查询（由 UI 层注入，None=关闭）
+        self.auto_rules_provider = None
 
     @property
     def has_region(self) -> bool:
@@ -136,6 +139,7 @@ class RichTextEditorState:
     ) -> bool:
         self.pending_style_edit = None
         previous = self.document
+        old_editor_text = self.editor_text
         self.document = apply_qt_text_change(
             self.document,
             self.editor_text,
@@ -144,11 +148,40 @@ class RichTextEditorState:
             chars_removed,
             chars_added,
         )
+        if self._auto_rules_enabled():
+            self.document = self._with_auto_rules(old_editor_text, self.document)
         self.editor_text = str(new_editor_text or "")
         self.set_selection(self.selection_start, self.selection_end)
         changed = self.document != previous
         self.pending_document_change = self.pending_document_change or changed
         return changed
+
+    def _auto_rules_enabled(self) -> bool:
+        provider = self.auto_rules_provider
+        try:
+            return bool(provider()) if callable(provider) else False
+        except Exception:
+            return False
+
+    def _with_auto_rules(self, old_editor_text: str, document: dict) -> dict:
+        """打字后按新旧文本匹配对比应用自动富文本规则（规则只加样式不改字）。"""
+        from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
+
+        try:
+            ruled = apply_rich_text_rules(
+                document,
+                self.region_data.get("direction", "h"),
+                previous_text=editor_text_to_plain_text(old_editor_text),
+                styled_match_policy="skip",
+            )
+        except Exception:
+            return document
+        if ruled is None:
+            return document
+        ruled_dict = ruled.to_dict()
+        if visible_text_from_document(ruled_dict) != visible_text_from_document(document):
+            return document
+        return ruled_dict
 
     def replace_document(self, document: dict) -> bool:
         if document == self.document:

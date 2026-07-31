@@ -159,6 +159,117 @@ def _merge_style(base: dict, overlay: dict) -> dict:
     return result
 
 
+def _common_affixes(old_text: str, new_text: str) -> Tuple[int, int]:
+    """两份文本的公共前缀/后缀长度（后缀不与前缀重叠）。"""
+    limit = min(len(old_text), len(new_text))
+    prefix = 0
+    while prefix < limit and old_text[prefix] == new_text[prefix]:
+        prefix += 1
+    suffix = 0
+    while (
+        suffix < limit - prefix
+        and old_text[len(old_text) - 1 - suffix] == new_text[len(new_text) - 1 - suffix]
+    ):
+        suffix += 1
+    return prefix, suffix
+
+
+def _is_old_match(
+    start: int,
+    end: int,
+    affixes: Tuple[int, int],
+    old_len: int,
+    new_len: int,
+    old_spans: set,
+) -> bool:
+    """新文本命中是否在编辑前就已存在（编辑器增量语义）。
+
+    完全落在公共前缀/后缀里的命中可以平移回旧文本坐标，去旧命中集查表；
+    查不到（如锚点/环视让旧文本同位置不命中）仍算新命中。碰到变化窗的
+    命中在旧文本里不可能有对应 —— 一律算新命中。
+    """
+    prefix, suffix = affixes
+    if end <= prefix:
+        return (start, end) in old_spans
+    if start >= new_len - suffix:
+        shift = old_len - new_len
+        return (start + shift, end + shift) in old_spans
+    return False
+
+
+def _style_is_subset(style: Any, product: Any) -> bool:
+    """style 的每个字段是否都能由 product（规则产物）原样给出。"""
+    if not style:
+        return True
+    if not isinstance(style, dict) or not isinstance(product, dict):
+        return False
+    for key, value in style.items():
+        if key not in product:
+            return False
+        expected = product[key]
+        if isinstance(value, dict) or isinstance(expected, dict):
+            if not (
+                isinstance(value, dict)
+                and isinstance(expected, dict)
+                and _style_is_subset(value, expected)
+            ):
+                return False
+        elif value != expected:
+            return False
+    return True
+
+
+def _node_ruby_text(node: dict) -> str:
+    runs = node.get("text", [])
+    if not isinstance(runs, list):
+        return ""
+    return "".join(str(run.get("text", "")) for run in runs if isinstance(run, dict))
+
+
+def _match_has_manual_trace(
+    entries: List["_RuleEntry"],
+    start: int,
+    end: int,
+    rule: dict,
+    allow_tcy: bool,
+) -> bool:
+    """命中区间是否带有"本规则给不出"的富文本（手工痕迹）。
+
+    区间上只有与规则产物一致的残留样式/节点 → 视为上次自动应用的残余，
+    允许整体补齐；出现任何规则产不出的字段、注音文本不同、节点越出命中
+    区间等情况 → 视为手工痕迹，调用方应整段跳过该命中。
+    """
+    rule_style = rule.get("style") or {}
+    rule_ruby = rule.get("ruby") or ""
+    rule_tcy = bool(allow_tcy and rule.get("tcy", False))
+    nodes_inside: set = set()
+    for entry in entries[start:end]:
+        if entry.char == "\n":
+            continue
+        if not _style_is_subset(entry.style, rule_style):
+            return True
+        node = entry.node
+        if node is None:
+            continue
+        nodes_inside.add(id(node))
+        node_type = node.get("type")
+        if node_type == "ruby":
+            if not rule_ruby or _node_ruby_text(node) != rule_ruby:
+                return True
+        elif node_type == "tcy":
+            if not rule_tcy:
+                return True
+        else:
+            return True
+    if nodes_inside:
+        for index, entry in enumerate(entries):
+            if start <= index < end:
+                continue
+            if entry.node is not None and id(entry.node) in nodes_inside:
+                return True
+    return False
+
+
 def _add_missing_style(base: dict, automatic: dict) -> dict:
     """Add automatic fields without replacing existing rich-text fields."""
     result = copy.deepcopy(base) if isinstance(base, dict) else {}
@@ -318,13 +429,22 @@ def apply_rich_text_rules(
     direction: Any,
     rules: Optional[dict] = None,
     file_path: Optional[str] = None,
+    *,
+    previous_text: Optional[str] = None,
+    styled_match_policy: str = "fill",
 ) -> Optional[RichTextDocument]:
     """Return an additively styled document, or ``None`` when nothing changed.
 
     ``text`` may be a plain string or an existing ``richtext.v1`` document.
-    Existing style fields are intentionally retained; rules only fill fields
-    that are absent, so automatic rules cannot overwrite editor-authored rich
-    text.
+
+    ``previous_text``（编辑器增量语义）：给出编辑前正文时，规则在新旧两份
+    文本上各匹配一遍，只应用"编辑前不存在"的新命中 —— 未改动文字上的老
+    命中永不重复应用（手动清掉的样式不会被顶回来）。``None`` 时全部命中
+    都算新命中（渲染管线语义）。
+
+    ``styled_match_policy``：``fill``（管线现行为）按字段补缺，已有字段
+    保留；``skip``（编辑器）命中区间带任何本规则给不出的富文本（手工
+    痕迹）时整段跳过，只有规则自己的残留样式允许整体补齐。
     """
     existing_document = None
     if is_rich_text_document(text):
@@ -340,13 +460,29 @@ def apply_rich_text_rules(
     if not match_text:
         return None
     rules = rules if rules is not None else load_rich_text_rules(file_path)
+    affixes = (
+        _common_affixes(previous_text, match_text) if previous_text is not None else None
+    )
     allow_tcy = _direction_group(direction) == "vertical"
     matched = False
     changed = False
     for rule in _iter_rules(rules, direction):
+        old_spans = (
+            {m.span() for m in rule["pattern"].finditer(previous_text)}
+            if previous_text is not None
+            else None
+        )
         for match in rule["pattern"].finditer(match_text):
             start, end = match.span()
             if start == end:
+                continue
+            if old_spans is not None and _is_old_match(
+                start, end, affixes, len(previous_text), len(match_text), old_spans
+            ):
+                continue
+            if styled_match_policy == "skip" and _match_has_manual_trace(
+                entries, start, end, rule, allow_tcy
+            ):
                 continue
             matched = True
             for index in range(start, end):
@@ -363,14 +499,22 @@ def apply_rich_text_rules(
             elif allow_tcy and rule.get("tcy", False):
                 node = {"type": "tcy"}
             target = entries[start:end]
-            if (
-                node is not None
-                and _LINE_BREAK_RE.search(match_text, start, end) is None
-                and all(entry.node is None for entry in target)
-            ):
-                for entry in target:
-                    entry.node = node
-                changed = True
+            if node is not None and _LINE_BREAK_RE.search(match_text, start, end) is None:
+                if all(entry.node is None for entry in target):
+                    for entry in target:
+                        entry.node = node
+                    changed = True
+                elif styled_match_policy == "skip":
+                    # 手工痕迹检查已保证区间内只有本规则的残留节点；若尚未被
+                    # 单个节点完整覆盖（部分删除后的残余、相邻两个同注音节点），
+                    # 整体重包补齐，已完整覆盖则维持原节点不动。
+                    first_node = target[0].node
+                    if first_node is None or any(
+                        entry.node is not first_node for entry in target
+                    ):
+                        for entry in target:
+                            entry.node = node
+                        changed = True
     for entry in entries:
         if entry.char == "\n":
             continue

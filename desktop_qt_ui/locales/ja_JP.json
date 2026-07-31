@@ -524,6 +524,7 @@
   "Enable Editor Snapping": "エディターのスナップを有効化",
   "Scale Text Boxes from Center": "テキストボックスを中心から拡大縮小",
   "Show Rich Text Editor Popup": "リッチテキスト編集ポップアップを表示",
+  "Auto Apply Rich Text Rules While Editing": "編集時にリッチテキストルールを自動適用",
   "Auto Export on Image Switch": "画像切替時に自動エクスポート",
   "Reference: Selection": "基準：選択範囲",
   "Reference: Canvas": "基準：キャンバス",

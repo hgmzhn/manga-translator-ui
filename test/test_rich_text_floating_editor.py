@@ -454,6 +454,10 @@ class RichTextFloatingEditorTests(unittest.TestCase):
             def _merge_live_geometry_state(self, _index, region_data):
                 return region_data
 
+            def _rules_rich_for_full_replacement(self, _region_data, _translation):
+                # 本用例只关注旧富文本被丢弃；自动规则开关视为关闭
+                return None
+
             def execute_command(self, command):
                 command.redo()
 

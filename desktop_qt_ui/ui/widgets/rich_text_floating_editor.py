@@ -92,6 +92,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.i18n = get_i18n_manager()
         self.config_service = get_config_service()
         self._preset_store = RichTextPresetStore(self.config_service)
+        self._state.auto_rules_provider = self._auto_rich_text_rules_enabled
 
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
@@ -231,6 +232,17 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.preset_sidebar.rename_requested.connect(self._rename_rich_text_preset)
         self.preset_sidebar.delete_requested.connect(self._delete_rich_text_preset)
         self.preset_sidebar.collapsed_changed.connect(self._on_preset_sidebar_collapsed)
+
+    def _auto_rich_text_rules_enabled(self) -> bool:
+        """编辑时自动应用富文本规则的开关（与编辑器菜单/配置共用）。"""
+        service = self.config_service
+        if service is None:
+            return False
+        try:
+            config = service.get_config()
+        except Exception:
+            return False
+        return bool(getattr(getattr(config, "app", None), "editor_auto_rich_text_rules", True))
 
     def _on_text_changed(self, position: int, chars_removed: int, chars_added: int):
         if self._updating or not self._state.has_region:

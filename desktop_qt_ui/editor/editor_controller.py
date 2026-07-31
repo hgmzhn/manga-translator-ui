@@ -577,6 +577,7 @@ class EditorController(QObject):
                 old_region_data,
                 translation=text,
                 translation_raw=text,
+                translation_rich=self._rules_rich_for_full_replacement(old_region_data, text),
             )
             old_regions[index] = copy.deepcopy(old_region_data)
             new_regions[index] = new_region_data
@@ -619,6 +620,14 @@ class EditorController(QObject):
             new_region_data.pop("translation_rich", None)
         return new_region_data
 
+    def _auto_rich_text_rules_enabled(self) -> bool:
+        """编辑时自动应用富文本规则的开关（编辑器菜单，持久化在 app 配置）。"""
+        try:
+            config = self.config_service.get_config()
+        except Exception:
+            return True
+        return bool(getattr(getattr(config, "app", None), "editor_auto_rich_text_rules", True))
+
     def _sync_rich_for_plain_edit(
         self,
         old_region_data: dict,
@@ -638,7 +647,30 @@ class EditorController(QObject):
             raw_mode=raw_mode,
             new_translation=new_translation,
             direction_value=old_region_data.get("direction", "h"),
+            apply_rules=self._auto_rich_text_rules_enabled(),
+            old_translation=old_region_data.get("translation", ""),
         )
+
+    def _rules_rich_for_full_replacement(self, region_data: dict, translation: str) -> Optional[dict]:
+        """整段替换路径:旧富文本被丢弃,新译文按全量语义跑自动富文本规则。"""
+        if not self._auto_rich_text_rules_enabled():
+            return None
+        from manga_translator.rendering.rich_text_sync import (
+            sync_region_rich_translation,
+        )
+
+        try:
+            return sync_region_rich_translation(
+                None,
+                None,
+                raw_mode=False,
+                new_translation=translation,
+                direction_value=region_data.get("direction", "h"),
+                apply_rules=True,
+            )
+        except Exception as e:
+            self.logger.warning(f"auto rich text rules failed: {e}")
+            return None
 
     def _clear_editor_state(self, release_image_cache: bool = False):
         self.document_service.clear_editor_state(release_image_cache=release_image_cache)
@@ -1740,10 +1772,14 @@ class EditorController(QObject):
                 current_region_data = applied.get(index, region_data)
                 if request.field_name == "translation":
                     # 与手动编辑同一条路：译文先过替换规则，raw 保留原始译文
+                    replaced_value = self._apply_translation_replacements(current_region_data, value)
                     new_region_data = self._replace_plain_translation(
                         current_region_data,
-                        translation=self._apply_translation_replacements(current_region_data, value),
+                        translation=replaced_value,
                         translation_raw=value,
+                        translation_rich=self._rules_rich_for_full_replacement(
+                            current_region_data, replaced_value
+                        ),
                     )
                 else:
                     new_region_data = current_region_data.copy()

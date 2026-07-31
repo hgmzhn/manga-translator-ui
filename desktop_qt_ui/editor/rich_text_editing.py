@@ -388,12 +388,27 @@ def apply_qt_text_change(
     # 修改点之前的文本相同，理论上 old_start == new_start。遇到异常 signal
     # 参数时取较小值，仍保证范围落在两份文本共同前缀内。
     change_start = min(old_start, new_start)
+    removed_seg = old_text[change_start:old_end]
+    added_seg = new_text[change_start:new_end]
+    # IME 提交可能把整篇文档报成一次"全量替换"。对照前后文本裁掉报告区间
+    # 首尾未变的部分，收窄成最小真实操作——未改动字符原地保留自己的样式
+    # 与节点归属，而不是被当作新插入重建（样式丢失）。
+    prefix = 0
+    limit = min(len(removed_seg), len(added_seg))
+    while prefix < limit and removed_seg[prefix] == added_seg[prefix]:
+        prefix += 1
+    suffix = 0
+    while (
+        suffix < limit - prefix
+        and removed_seg[len(removed_seg) - 1 - suffix] == added_seg[len(added_seg) - 1 - suffix]
+    ):
+        suffix += 1
     return apply_text_change(
         document,
         new_text,
-        change_start,
-        max(0, old_end - change_start),
-        max(0, new_end - change_start),
+        change_start + prefix,
+        len(removed_seg) - prefix - suffix,
+        len(added_seg) - prefix - suffix,
     )
 
 
