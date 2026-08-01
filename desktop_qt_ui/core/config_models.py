@@ -53,7 +53,7 @@ class DetectorSettings(BaseModel):
     import_yolo_labels: bool = False
     use_yolo_obb: bool = False
     use_sfx_filter: bool = False
-    sfx_filter_ignore_bubbles: bool = False
+    sfx_filter_include_bubble_text: bool = False
     yolo_obb_conf: float = 0.4
     yolo_obb_overlap_threshold: float = 0.1
     min_box_area_ratio: float = 0.0009  # 最小检测框面积占比（相对图片总像素），默认0.09%

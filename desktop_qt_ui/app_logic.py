@@ -1219,7 +1219,7 @@ class MainAppLogic(QObject):
                     "import_yolo_labels": self._t("label_import_yolo_labels"),
                     "use_yolo_obb": self._t("label_use_yolo_obb"),
                     "use_sfx_filter": self._t("label_use_sfx_filter"),
-                    "sfx_filter_ignore_bubbles": self._t("label_sfx_filter_ignore_bubbles"),
+                    "sfx_filter_include_bubble_text": self._t("label_sfx_filter_include_bubble_text"),
                     "yolo_obb_conf": self._t("label_yolo_obb_conf"),
                     "yolo_obb_overlap_threshold": self._t("label_yolo_obb_overlap_threshold"),
                     "box_threshold": self._t("label_box_threshold"),

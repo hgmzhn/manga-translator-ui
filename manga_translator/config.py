@@ -348,8 +348,8 @@ class DetectorConfig(BaseModel):
     """Enable YOLO OBB auxiliary detector for hybrid detection"""
     use_sfx_filter: bool = False
     """Filter main-detector boxes that are neither wrapped by YOLO 'other' boxes nor overlapping YOLO text boxes"""
-    sfx_filter_ignore_bubbles: bool = False
-    """Apply the SFX filter to bubble text instead of preserving it unconditionally"""
+    sfx_filter_include_bubble_text: bool = False
+    """Include text inside bubbles in SFX filtering instead of preserving it unconditionally"""
     yolo_obb_conf: float = 0.4
     """Confidence threshold for YOLO OBB detector"""
     yolo_obb_overlap_threshold: float = 0.1
