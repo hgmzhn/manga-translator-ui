@@ -879,10 +879,9 @@ def _build_vertical_char_plan(
     if span.style.transform.rotation and height > 0 and span.style.vertical_advance is None:
         advance_y = _vertical_free_rotation_advance(
             base,
-            height,
             span.style.transform.rotation,
         )
-        # 扩大的槽位上下均分，保持旋转墨迹以原槽位中心为锚点。
+        # 槽位上下均分伸缩量，保持旋转墨迹以原槽位中心为锚点。
         off_y += (float(advance_y) - float(base.advance_y)) / 2.0
     return VerticalCharPlan(
         span=span,
@@ -1200,23 +1199,15 @@ def _vertical_rotated_advance(glyph: GlyphRaster, font_size: int, bitmap_char: O
 
 def _vertical_free_rotation_advance(
     base: VerticalGlyphBase,
-    paint_height: int,
     rotation: float,
 ) -> int:
-    """按任意旋转角度计算竖排槽位，只扩大、不压缩原推进量。"""
-    base_advance = max(float(base.advance_y), 1.0)
+    """按旋转角度投影竖排槽位：0° 取竖排推进，±90° 取横排推进（对齐 BallonsTranslator）。"""
     angle = math.radians(float(rotation or 0.0))
-    logical_width = max(float(base.frame_width), float(base.advance_x), 1.0)
     projected_height = (
-        abs(logical_width * math.sin(angle))
-        + abs(base_advance * math.cos(angle))
+        abs(max(float(base.advance_x), 1.0) * math.sin(angle))
+        + abs(max(float(base.advance_y), 1.0) * math.cos(angle))
     )
-    return max(
-        int(base.advance_y),
-        int(math.ceil(projected_height)),
-        int(math.ceil(max(float(paint_height), 0.0))),
-        1,
-    )
+    return max(int(math.ceil(round(projected_height, 6))), 1)
 
 
 def _vertical_space_advance(font_size: int, letter_spacing: float = 1.0) -> int:

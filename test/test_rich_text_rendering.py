@@ -68,7 +68,7 @@ class RichTextRenderingTest(unittest.TestCase):
         for char in '“‘”’「『」』':
             self.assertEqual(CJK_Compatibility_Forms_translate(char, 1)[1], 90, char)
 
-    def test_free_rotation_advance_uses_projected_slot_and_only_expands(self):
+    def test_free_rotation_advance_projects_between_axes(self):
         base = VerticalGlyphBase(
             translated='字',
             rot_degree=0,
@@ -81,10 +81,15 @@ class RichTextRenderingTest(unittest.TestCase):
             glyph_left=0.0,
             frame_width=30,
         )
-        self.assertEqual(_vertical_free_rotation_advance(base, 40, 0), 40)
-        self.assertGreater(_vertical_free_rotation_advance(base, 45, 15), 40)
-        self.assertGreaterEqual(_vertical_free_rotation_advance(base, 50, -45), 50)
-        self.assertEqual(_vertical_free_rotation_advance(base, 30, 90), 40)
+        # 0° 保持竖排推进
+        self.assertEqual(_vertical_free_rotation_advance(base, 0), 40)
+        # ±90° 取横排 advance（对齐 BallonsTranslator，允许小于原竖排推进）
+        self.assertEqual(_vertical_free_rotation_advance(base, 90), 30)
+        self.assertEqual(_vertical_free_rotation_advance(base, -90), 30)
+        # 中间角度为两轴投影之和，介于两端点之间且不小于最小端点
+        mid = _vertical_free_rotation_advance(base, 45)
+        self.assertGreater(mid, 30)
+        self.assertEqual(mid, _vertical_free_rotation_advance(base, -45))
 
     def setUp(self):
         # Rendering mutates thread-local font state per region.  Reset for every

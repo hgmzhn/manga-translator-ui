@@ -77,7 +77,7 @@ STYLE_SPECS: dict[str, StyleSpec] = {
     "FA": StyleSpec("Force Advance", "Force Advance", {"verticalAdvance": "half"}),
     "T": StyleSpec("TCY", "Vertical-in-Horizontal (TCY)", {}),
     "R": StyleSpec("Ruby", "Ruby Text", {}),
-    "Rot": StyleSpec("Rotation", "Rotation", {"transform": {"rotation": 0.0}}),
+    "Rot": StyleSpec("Rotation", "Rotation", {"transform": {"rotation": 90.0}}),
     "K": StyleSpec("Kerning", "Kerning", {"kerning": 0.0}),
     "PK": StyleSpec("Pre Kerning", "Pre Kerning", {"preKerning": 0.0}),
     "LK": StyleSpec("Line Kerning", "Line Kerning", {"lineKerning": 0.0}),

@@ -206,7 +206,7 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         self.assertEqual(editor._state.selected_range, (4, 5))
         self.assertEqual(editor.text_box.textCursor().selectedText(), "戏")
 
-    def test_rotation_and_offset_are_only_written_after_value_input(self):
+    def test_rotation_writes_90_immediately_and_offset_after_value_input(self):
         editor = self._editor({"translation": "偏移"})
         changes = []
         editor.rich_text_changed.connect(lambda *_args: changes.append(1))
@@ -215,17 +215,19 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         editor.toolbar.buttons["Rot"].click()
         self.app.processEvents()
 
-        self.assertEqual(changes, [])
-        self.assertEqual(editor._state.document["blocks"][0]["inlines"][0]["style"], {})
+        style = editor._state.document["blocks"][0]["inlines"][0]["style"]
+        self.assertEqual(style["transform"]["rotation"], 90.0)
+        self.assertEqual(len(changes), 1)
         self.assertEqual(editor.run_list.run_cards[0].keys, ["Rot"])
 
         rotation = editor.run_list.run_cards[0].controls["Rot"]
+        self.assertEqual(rotation.value(), 90.0)
         rotation.setValue(15)
         self.app.processEvents()
 
         style = editor._state.document["blocks"][0]["inlines"][0]["style"]
         self.assertEqual(style["transform"]["rotation"], 15.0)
-        self.assertEqual(len(changes), 1)
+        self.assertEqual(len(changes), 2)
 
         editor.toolbar.buttons["XY"].click()
         self.app.processEvents()
@@ -233,7 +235,7 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         style = editor._state.document["blocks"][0]["inlines"][0]["style"]
         self.assertNotIn("offsetX", style["transform"])
         self.assertNotIn("offsetY", style["transform"])
-        self.assertEqual(len(changes), 1)
+        self.assertEqual(len(changes), 2)
         self.assertEqual(editor.run_list.run_cards[0].keys, ["Rot", "XY"])
 
         offset_editor = editor.run_list.run_cards[0].controls["XY"]
@@ -244,7 +246,7 @@ class RichTextFloatingEditorTests(unittest.TestCase):
 
         style = editor._state.document["blocks"][0]["inlines"][0]["style"]
         self.assertEqual(style["transform"]["offsetX"], 8.0)
-        self.assertEqual(len(changes), 2)
+        self.assertEqual(len(changes), 3)
 
     def test_toolbar_without_selection_targets_whole_text(self):
         """未选中文字时点工具栏 = 样式作用于全文（选区随之扩到全文）。"""
@@ -334,11 +336,12 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         self.assertEqual(rules.style()["verticalAdvance"], "full")
 
     def test_unedited_pending_style_is_discarded_when_hidden(self):
+        # Rot 现在立即写入 90°，待定路径改用默认仍为 0 的 XY（偏移）覆盖。
         editor = self._editor({"translation": "旋转"})
         changes = []
         editor.rich_text_changed.connect(lambda *_args: changes.append(1))
         editor._select_python_range(0, 2)
-        editor.toolbar.buttons["Rot"].click()
+        editor.toolbar.buttons["XY"].click()
         self.app.processEvents()
 
         editor.hide()
