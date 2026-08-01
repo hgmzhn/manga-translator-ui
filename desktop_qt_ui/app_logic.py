@@ -141,7 +141,7 @@ class MainAppLogic(QObject):
         self.preset_service = get_preset_service()
 
         # 扫描与翻译严格串行，避免模型/ONNX 资源并发冲突；执行器常驻，
-        # 不在每次任务时创建线程，也不允许 GUI 线程 join 等待。
+        # 运行期间不在 GUI 线程 join，应用退出时再等待任务完成清理。
         self._task_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="translation-task",
@@ -2188,7 +2188,7 @@ class MainAppLogic(QObject):
                         self._ui_log(f"停止worker时出错: {e}", "WARNING")
             self.current_worker = None
             self.state_manager.set_translating(False)
-            self._task_executor.shutdown(wait=False, cancel_futures=True)
+            self._task_executor.shutdown(wait=True, cancel_futures=True)
 
             # 关闭缩略图加载线程池
             try:

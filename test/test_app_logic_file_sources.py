@@ -177,3 +177,32 @@ def test_stopping_state_remains_until_worker_and_cleanup_finish(monkeypatch):
     assert not state.translating
     assert state.status == "任务已停止"
     assert main_view.reset
+
+
+def test_shutdown_waits_for_worker_before_qt_teardown():
+    calls = []
+
+    class Worker:
+        def stop(self):
+            calls.append("worker.stop")
+
+    class Executor:
+        def shutdown(self, *, wait, cancel_futures):
+            calls.append(("executor.shutdown", wait, cancel_futures))
+            raise RuntimeError("stop after executor assertion")
+
+    logic = SimpleNamespace(
+        _shutdown_started=False,
+        _scan_request_id=0,
+        current_task_id=0,
+        current_worker=Worker(),
+        state_manager=SimpleNamespace(set_translating=lambda _value: None),
+        _task_executor=Executor(),
+        _ui_log=lambda *_args: None,
+    )
+
+    MainAppLogic.shutdown(logic)
+
+    assert calls == ["worker.stop", ("executor.shutdown", True, True)]
+    assert logic._shutdown_started
+    assert logic.current_worker is None
