@@ -53,6 +53,13 @@ vertical:
     ruby: ""
     tcy: false
     comment: "竖排中将无专用替换字形的符号包装为富文本并旋转90度（引擎正角度为逆时针，竖排取顺时针即 -90；有竖排形字符的括号已在文本替换表映射）"
+  - enabled: true
+    pattern: '[!?！？]{2,4}'
+    regex: true
+    style: {}
+    ruby: ""
+    tcy: true
+    comment: "竖排中将连续的问号和感叹号按每组 2–4 个应用纵中横"
 """
 
 
