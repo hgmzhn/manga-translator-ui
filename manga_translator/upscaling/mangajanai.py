@@ -1,5 +1,6 @@
 import os
 import shutil
+from functools import partial
 from typing import List
 
 import einops
@@ -432,7 +433,13 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
         try:
             from spandrel import ModelLoader
             loader = ModelLoader()
-            model_desc = loader.load_from_file(model_path)
+            meshgrid = torch.meshgrid
+            # ponytail: temporary spandrel DAT patch; remove once it passes indexing itself.
+            torch.meshgrid = partial(meshgrid, indexing="ij")
+            try:
+                model_desc = loader.load_from_file(model_path)
+            finally:
+                torch.meshgrid = meshgrid
             self.model = model_desc.model
             self.scale = model_desc.scale
             logger.info(f"Loaded model via spandrel: {filename}, scale={self.scale}x")

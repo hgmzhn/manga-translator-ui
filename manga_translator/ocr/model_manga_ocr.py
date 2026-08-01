@@ -24,7 +24,7 @@ os.environ['REQUESTS_CA_BUNDLE'] = ''
 os.environ['HF_HUB_DISABLE_SSL_VERIFY'] = '1'
 
 # 直接导入 transformers 组件，不依赖 manga_ocr 库
-from transformers import AutoTokenizer, VisionEncoderDecoderModel, ViTImageProcessor
+from transformers import BertJapaneseTokenizer, VisionEncoderDecoderModel, ViTImageProcessor
 
 from ..config import OcrConfig
 from ..utils import Quadrilateral, TextBlock, chunks, imwrite_unicode, open_pil_image
@@ -44,7 +44,7 @@ class InternalMangaOcr:
 
         # 加载模型组件
         self.processor = ViTImageProcessor.from_pretrained(pretrained_model_name_or_path)
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
+        self.tokenizer = BertJapaneseTokenizer.from_pretrained(pretrained_model_name_or_path)
         self.model = VisionEncoderDecoderModel.from_pretrained(pretrained_model_name_or_path)
         
         # 移动到指定设备

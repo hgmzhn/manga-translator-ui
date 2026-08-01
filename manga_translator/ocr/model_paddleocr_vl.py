@@ -7,10 +7,8 @@ PaddleOCR-VL-1.6 OCR Model
 
 import os
 import re
-import sys
 from typing import List
 
-import cv2
 import einops
 import numpy as np
 import torch
@@ -172,27 +170,6 @@ class ModelPaddleOCRVL(OfflineOCR):
         """加载模型"""
         # 确定模型路径 - 使用 models/ocr/PaddleOCR-VL-1.6
         model_path = os.path.join(self.model_dir, self.MODEL_DIR_NAME)
-        
-        # 自动修补模型文件
-        from .paddleocr_vl_patcher import (
-            patch_paddleocr_vl_files,
-            register_ernie_modules,
-        )
-        if os.path.exists(model_path):
-            patch_paddleocr_vl_files(model_path)
-            register_ernie_modules(model_path)
-        
-        use_relative_path = False
-        original_cwd = None
-
-        # Windows 中文路径兼容：使用 tokenizers 后端（use_fast=True）避免 sentencepiece 路径问题
-        # 通过切换工作目录使用相对路径来规避
-        if sys.platform == 'win32':
-            try:
-                # 检测路径是否包含非 ASCII 字符
-                model_path.encode('ascii')
-            except UnicodeEncodeError:
-                use_relative_path = True
 
         # 设置设备
         if device == 'cuda' and torch.cuda.is_available():
@@ -209,84 +186,41 @@ class ModelPaddleOCRVL(OfflineOCR):
             self.use_gpu = False
             model_dtype = torch.float32
 
-        try:
-            # 如果需要使用相对路径，切换工作目录
-            if use_relative_path:
-                original_cwd = os.getcwd()
-                os.chdir(model_path)
-                load_path = "."
-            else:
-                load_path = model_path
+        from transformers import (
+            AutoImageProcessor,
+            AutoTokenizer,
+            PaddleOCRVLForConditionalGeneration,
+        )
+        from transformers.models.paddleocr_vl.configuration_paddleocr_vl import PaddleOCRTextConfig
+        from transformers.models.paddleocr_vl.processing_paddleocr_vl import PaddleOCRVLProcessor
 
-            # 直接从 tokenizer.json 加载纯快速 tokenizer，完全避免 sentencepiece
-            import json
-
-            from transformers import PreTrainedTokenizerFast
-            
-            tokenizer_json_path = os.path.join(load_path if not use_relative_path else ".", "tokenizer.json")
-            tokenizer_config_path = os.path.join(load_path if not use_relative_path else ".", "tokenizer_config.json")
-            chat_template_path = os.path.join(load_path if not use_relative_path else ".", "chat_template.jinja")
-            
-            # 读取 tokenizer 配置
-            with open(tokenizer_config_path, 'r', encoding='utf-8') as f:
-                tokenizer_config = json.load(f)
-            
-            # 读取 chat_template
-            chat_template = None
-            if os.path.exists(chat_template_path):
-                with open(chat_template_path, 'r', encoding='utf-8') as f:
-                    chat_template = f.read()
-            
-            # 使用 PreTrainedTokenizerFast 直接加载，不依赖 sentencepiece
-            tokenizer = PreTrainedTokenizerFast(
-                tokenizer_file=tokenizer_json_path,
-                bos_token=tokenizer_config.get('bos_token', '<s>'),
-                eos_token=tokenizer_config.get('eos_token', '</s>'),
-                unk_token=tokenizer_config.get('unk_token', '<unk>'),
-                pad_token=tokenizer_config.get('pad_token'),
-                model_max_length=tokenizer_config.get('model_max_length', 1000000000000000019884624838656),
-                clean_up_tokenization_spaces=tokenizer_config.get('clean_up_tokenization_spaces', False)
-            )
-            
-            # 手动设置 chat_template
-            if chat_template:
-                tokenizer.chat_template = chat_template
-            
-            # 加载 image processor（显式使用模型自带的 Python processor）
-            from transformers import AutoImageProcessor
-            image_processor = AutoImageProcessor.from_pretrained(
-                load_path,
-                trust_remote_code=True,
-                use_fast=False,
-                local_files_only=True
-            )
-            
-            # 手动创建 processor，直接导入自定义类避免 AutoProcessor 再次加载 tokenizer
-            sys.path.insert(0, load_path if not use_relative_path else ".")
-            try:
-                from processing_paddleocr_vl import PaddleOCRVLProcessor
-                self.processor = PaddleOCRVLProcessor(
-                    image_processor=image_processor,
-                    tokenizer=tokenizer,
-                    chat_template=tokenizer.chat_template if hasattr(tokenizer, 'chat_template') else None
-                )
-            finally:
-                if (load_path if not use_relative_path else ".") in sys.path:
-                    sys.path.remove(load_path if not use_relative_path else ".")
-
-            # 使用 AutoModel 加载自定义模型架构
-            from transformers import AutoModel
-            self.model = AutoModel.from_pretrained(
-                load_path,
-                trust_remote_code=True,
-                torch_dtype=model_dtype,
-                device_map=self.device if self.device != 'cpu' else None,
-                local_files_only=True
-            )
-        finally:
-            # 恢复原工作目录
-            if original_cwd is not None:
-                os.chdir(original_cwd)
+        PaddleOCRTextConfig.ignore_keys_at_rope_validation = {"mrope_section"}
+        image_processor = AutoImageProcessor.from_pretrained(
+            model_path,
+            trust_remote_code=False,
+            local_files_only=True,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path,
+            trust_remote_code=False,
+            local_files_only=True,
+        )
+        self.processor = PaddleOCRVLProcessor(
+            image_processor=image_processor,
+            tokenizer=tokenizer,
+            chat_template=getattr(tokenizer, "chat_template", None),
+        )
+        self.model = PaddleOCRVLForConditionalGeneration.from_pretrained(
+            model_path,
+            key_mapping={
+                r"^visual\.": r"model.visual.",
+                r"^mlp_AR\.": r"model.projector.",
+                r"^model\.(?!visual\.|projector\.|language_model\.)": r"model.language_model.",
+            },
+            dtype=model_dtype,
+            device_map=self.device if self.device != 'cpu' else None,
+            local_files_only=True,
+        )
 
         if self.device == 'cpu':
             self.model = self.model.to(self.device)
@@ -467,7 +401,7 @@ class ModelPaddleOCRVL(OfflineOCR):
         return '' if self._looks_like_repeated_hallucination(last_output) else last_output
 
 
-    def _estimate_colors_48px(self, region: np.ndarray, textline: Quadrilateral):
+    def _estimate_colors_48px(self, image: np.ndarray, textline: Quadrilateral, direction: str):
         """使用 48px 模型预测前景色和背景色"""
         try:
             # 如果 48px 模型未加载，使用默认颜色
@@ -476,16 +410,9 @@ class ModelPaddleOCRVL(OfflineOCR):
                 textline.bg_r = textline.bg_g = textline.bg_b = 255
                 return
 
-            # 调整大小到 48px 高度
             text_height = 48
-            h, w = region.shape[:2]
-            ratio = w / float(h)
-            new_w = int(round(ratio * text_height))
-
-            if new_w == 0:
-                new_w = 1
-
-            region_resized = cv2.resize(region, (new_w, text_height), interpolation=cv2.INTER_AREA)
+            region_resized = textline.get_transformed_region(image, direction, text_height)
+            new_w = region_resized.shape[1]
 
             canvas_w = self._get_ocr_canvas_width([new_w], base_align=4)
             batch_region = np.zeros((1, text_height, canvas_w, 3), dtype=np.uint8)
@@ -567,10 +494,11 @@ class ModelPaddleOCRVL(OfflineOCR):
         Returns:
             带有识别文本的 Quadrilateral 列表
         """
-        text_height = 48  # 默认文本高度
+        text_height = 48  # 仅供气泡过滤和颜色预测使用
         ignore_bubble = config.ignore_bubble
         use_model_bubble_filter = bool(getattr(config, 'use_model_bubble_filter', False))
         ocr_prompt = self._build_ocr_prompt(config)
+        image_height, image_width = image.shape[:2]
 
         # 生成文本方向信息
         quadrilaterals = list(self._generate_text_direction(textlines))
@@ -578,13 +506,24 @@ class ModelPaddleOCRVL(OfflineOCR):
         output_regions = []
 
         for idx, (q, direction) in enumerate(quadrilaterals):
-            # 获取变换后的区域图像
-            region_img = q.get_transformed_region(image, direction, text_height)
+            q.assigned_direction = direction
+            # VLM 直接识别原尺寸文本框；48px 变换只留给传统过滤和颜色模型。
+            x1 = max(int(np.floor(q.pts[:, 0].min())), 0)
+            y1 = max(int(np.floor(q.pts[:, 1].min())), 0)
+            x2 = min(int(np.ceil(q.pts[:, 0].max())) + 1, image_width)
+            y2 = min(int(np.ceil(q.pts[:, 1].max())) + 1, image_height)
+            region_img = image[y1:y2, x1:x2].copy()
+            if region_img.size == 0:
+                region_img = np.full((2, 2, 3), 255, dtype=np.uint8)
 
             # 过滤非气泡区域
             if ignore_bubble > 0 or use_model_bubble_filter:
-                if self._should_ignore_region(region_img, ignore_bubble, image, q, config):
+                filter_region = q.get_transformed_region(image, direction, text_height)
+                should_ignore = self._should_ignore_region(filter_region, ignore_bubble, image, q, config)
+                self._cleanup_ocr_memory(filter_region)
+                if should_ignore:
                     self.logger.info(f'[FILTERED] Region {idx} ignored - Non-bubble area detected (ignore_bubble={ignore_bubble}, model_filter={use_model_bubble_filter})')
+                    self._cleanup_ocr_memory(region_img)
                     continue
 
             try:
@@ -601,7 +540,7 @@ class ModelPaddleOCRVL(OfflineOCR):
                     q.prob = 0.9  # VLM 模型没有置信度输出，使用固定值
 
                 # 使用 48px 模型预测颜色
-                self._estimate_colors_48px(region_img, q)
+                self._estimate_colors_48px(image, q, direction)
 
                 output_regions.append(q)
 

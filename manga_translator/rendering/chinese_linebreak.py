@@ -156,11 +156,31 @@ def _get_models() -> Optional[tuple[Any, Any]]:
         if _load_failed:
             return None
         try:
-            warnings.filterwarnings("ignore", message=".*pynvml package is deprecated.*", category=FutureWarning)
-            import hanlp
+            from transformers import PreTrainedTokenizerBase
+            from transformers.models.bert import tokenization_bert
 
-            _tokenizer = hanlp.load(COARSE_MODEL_DIR)
-            _parser = hanlp.load(CONSTITUENCY_MODEL_DIR)
+            # HanLP 2.1.3 still calls APIs which Transformers 5 removed.
+            if not hasattr(PreTrainedTokenizerBase, "encode_plus"):
+                setattr(PreTrainedTokenizerBase, "encode_plus", PreTrainedTokenizerBase.__call__)
+            if not hasattr(PreTrainedTokenizerBase, "batch_encode_plus"):
+                setattr(PreTrainedTokenizerBase, "batch_encode_plus", PreTrainedTokenizerBase.__call__)
+
+            wordpiece_model = tokenization_bert.WordPiece
+
+            # ponytail: temporary upstream patch; remove when Transformers uses WordPiece.from_file.
+            def build_wordpiece(vocab=None, **kwargs):
+                if isinstance(vocab, (str, os.PathLike)):
+                    return wordpiece_model.from_file(os.fspath(vocab), **kwargs)
+                return wordpiece_model(vocab, **kwargs)
+
+            tokenization_bert.WordPiece = build_wordpiece
+            try:
+                import hanlp
+
+                _tokenizer = hanlp.load(COARSE_MODEL_DIR)
+                _parser = hanlp.load(CONSTITUENCY_MODEL_DIR)
+            finally:
+                tokenization_bert.WordPiece = wordpiece_model
         except Exception as exc:
             _tokenizer = None
             _parser = None
