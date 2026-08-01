@@ -21,7 +21,7 @@ class SelectionManager(QObject):
             scene: QGraphicsScene 实例
             get_region_items_fn: Callable，返回当前 region items 列表
         """
-        super().__init__(scene)
+        super().__init__(model)
         self._model = model
         self._scene = scene
         self._get_region_items = get_region_items_fn
@@ -49,14 +49,12 @@ class SelectionManager(QObject):
         except (RuntimeError, AttributeError):
             return False
 
-    def _set_item_selected(self, item, selected: bool, *, update: bool = False) -> None:
+    def _set_item_selected(self, item, selected: bool) -> None:
         if not self._is_live_item(item):
             return
         try:
             if item.isSelected() != selected:
                 item.setSelected(selected)
-            if update:
-                item.update()
         except (RuntimeError, AttributeError):
             pass
 
@@ -216,16 +214,12 @@ class SelectionManager(QObject):
 
             # 清除所有 item 的选择
             for item in region_items:
-                self._set_item_selected(item, False, update=True)
+                self._set_item_selected(item, False)
 
             # 设置新选中的 items
             for idx in selected_indices:
                 if 0 <= idx < len(region_items):
-                    self._set_item_selected(region_items[idx], True, update=True)
-
-            # 强制场景更新
-            if self._scene:
-                self._scene.update()
+                    self._set_item_selected(region_items[idx], True)
         except Exception as e:
             self._logger.warning("Selection sync failed: %s", e, exc_info=True)
         finally:
