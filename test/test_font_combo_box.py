@@ -32,6 +32,21 @@ from qfluentwidgets import ComboBox
 from utils import font_list
 
 
+def test_font_list_skips_non_scalable_families():
+    app = QApplication.instance() or QApplication([])
+    database = types.SimpleNamespace(
+        families=lambda: ["Outline Font", "Fixedsys"],
+        isScalable=lambda family: family == "Outline Font",
+    )
+
+    with (
+        patch.object(font_list, "list_font_files"),
+        patch.object(font_list, "QFontDatabase", database),
+    ):
+        assert font_list.list_font_families() == ["Outline Font"]
+    app.processEvents()
+
+
 def test_font_combo_box_keeps_fluent_style_and_font_preview():
     app = QApplication.instance() or QApplication([])
     families = ["Preview Sans", "预览Sans", "Preview Serif"]
@@ -90,6 +105,7 @@ def test_font_combo_box_keeps_fluent_style_and_font_preview():
 
 
 def main() -> int:
+    test_font_list_skips_non_scalable_families()
     test_font_combo_box_keeps_fluent_style_and_font_preview()
     print("font combo box check passed")
     return 0

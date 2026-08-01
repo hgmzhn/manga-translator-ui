@@ -67,13 +67,15 @@ def list_font_families() -> list[str]:
 
     过滤掉以 ``[`` 开头的家族名——它们经 Qt 的 foundry 语法解析后家族名为空，
     QFont 选中的永远是错误字体（系统级安装的工具箱字体会产生这类条目）。
+    同时排除无法用于任意字号排版的位图字体，避免 Windows DirectWrite 加载旧式
+    GDI 字体时持续报 ``CreateFontFaceFromHDC() failed``。
     """
     if QGuiApplication.instance() is None:
         return []
     list_font_files()
     families = {
         name for name in QFontDatabase.families()
-        if name and not qt_family_is_ambiguous(name)
+        if name and not qt_family_is_ambiguous(name) and QFontDatabase.isScalable(name)
     }
     return sorted(families, key=str.casefold)
 
