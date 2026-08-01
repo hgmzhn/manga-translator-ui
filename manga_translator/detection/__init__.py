@@ -48,13 +48,14 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
                    device: str = 'cpu', verbose: bool = False,
                    use_yolo_obb: bool = False, yolo_obb_conf: float = 0.4, yolo_obb_overlap_threshold: float = 0.1, min_box_area_ratio: float = 0.0009,
                    result_path_fn=None, det_rearrange_min_effective_short_side: float = 341.0,
-                   use_sfx_filter: bool = False):
+                   use_sfx_filter: bool = False, sfx_filter_ignore_bubbles: bool = False):
     """
     检测调度函数，支持混合检测模式
     
     Args:
         use_yolo_obb: 是否启用YOLO OBB辅助检测器
-        use_sfx_filter: 是否过滤既不在气泡内、也未被 other 包裹、也未与 YOLO 文本框重叠的主检测框
+        use_sfx_filter: 是否过滤既未被 other 包裹、也未与 YOLO 文本框重叠的主检测框
+        sfx_filter_ignore_bubbles: 是否忽略气泡判定，让气泡内文本也参与拟声词过滤
         yolo_obb_conf: YOLO OBB检测器的置信度阈值
         min_box_area_ratio: 最小检测框面积占比（相对图片总像素）
         result_path_fn: 结果路径生成函数（用于保存调试图）
@@ -98,6 +99,7 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
             main_textlines,
             overlap_threshold=yolo_obb_overlap_threshold,
             use_sfx_filter=use_sfx_filter,
+            sfx_filter_ignore_bubbles=sfx_filter_ignore_bubbles,
             image=image,
         )
         
@@ -281,12 +283,14 @@ def _get_sfx_filtered_main_indices(
     wrap_eps: float = 2.0,
     image: Optional[np.ndarray] = None,
     model_bubble_overlap_threshold: float = 0.1,
+    sfx_filter_ignore_bubbles: bool = False,
 ) -> set[int]:
     """
     找出缺少 YOLO 支持的主检测框：
     - YOLO `other` 必须完整包裹主框；或
     - 任一非 `other` YOLO 框与主框的重叠率达到阈值。
     两项均不满足时，再用 MangaLens 模型掩码判定是否在气泡内；气泡内文本仍保留。
+    sfx_filter_ignore_bubbles=True 时跳过气泡判定。
     """
     # 即使用户把合并阈值设为 0，也仍要求存在真实交集，避免任意 YOLO 框
     # 让整页所有主检测框都通过过滤。
@@ -310,7 +314,7 @@ def _get_sfx_filtered_main_indices(
                 supported = True
                 break
 
-        if not supported and image is not None:
+        if not supported and not sfx_filter_ignore_bubbles and image is not None:
             if not bubble_mask_ready:
                 bubble_mask = _detect_sfx_bubble_mask(image)
                 bubble_mask_ready = True
@@ -338,6 +342,7 @@ def merge_detection_boxes(
     overlap_threshold: float = 0.1,
     use_sfx_filter: bool = False,
     image: Optional[np.ndarray] = None,
+    sfx_filter_ignore_bubbles: bool = False,
 ) -> List[Quadrilateral]:
     """
     合并主检测器和YOLO检测器的框，智能替换逻辑：
@@ -356,8 +361,9 @@ def merge_detection_boxes(
         yolo_boxes: YOLO OBB检测器的检测框
         main_boxes: 主检测器的检测框
         overlap_threshold: 重叠率阈值（0.0-1.0）。重叠率 >= 该值时删除YOLO框。设为1.0则保留所有框。
-        use_sfx_filter: 过滤既不在气泡内、也未被 YOLO other 框包裹、也未与其他 YOLO 框达到重叠阈值的主检测框。
+        use_sfx_filter: 过滤既未被 YOLO other 框包裹、也未与其他 YOLO 框达到重叠阈值的主检测框。
         image: 原图，供 MangaLens 气泡掩码判断未获 YOLO 支持的主框；模型失败时不做气泡豁免。
+        sfx_filter_ignore_bubbles: 忽略气泡判定，让气泡内文本也参与拟声词过滤。
     
     Returns:
         合并后的检测框列表
@@ -376,6 +382,7 @@ def merge_detection_boxes(
             yolo_boxes,
             overlap_threshold,
             image=image,
+            sfx_filter_ignore_bubbles=sfx_filter_ignore_bubbles,
         )
         if use_sfx_filter
         else set()

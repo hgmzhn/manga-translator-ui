@@ -66,6 +66,7 @@
         "detector.import_yolo_labels",
         "detector.use_yolo_obb",
         "detector.use_sfx_filter",
+        "detector.sfx_filter_ignore_bubbles",
         "detector.min_box_area_ratio",
         {
           "kind": "divider",

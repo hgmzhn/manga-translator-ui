@@ -46,6 +46,23 @@ def test_sfx_filter_keeps_box_inside_model_bubble_mask():
     assert merge_detection_boxes([], [outside_box]) == [outside_box]
 
 
+def test_sfx_filter_ignore_bubbles_filters_box_inside_model_bubble_mask():
+    bubble_box = _box(2, 2, 12, 12)
+    image = np.zeros((40, 40, 3), dtype=np.uint8)
+
+    with patch("manga_translator.detection.detect_bubbles_with_mangalens") as detect_bubbles:
+        result = merge_detection_boxes(
+            [],
+            [bubble_box],
+            use_sfx_filter=True,
+            sfx_filter_ignore_bubbles=True,
+            image=image,
+        )
+
+    assert result == []
+    detect_bubbles.assert_not_called()
+
+
 def test_sfx_filter_removes_all_unsupported_boxes_when_model_fails():
     bubble_box = _box(2, 2, 12, 12)
     image = np.zeros((40, 40, 3), dtype=np.uint8)
@@ -88,6 +105,7 @@ def test_sfx_filter_removes_unsupported_boxes_when_no_bubble_detected():
 
 def main():
     test_sfx_filter_keeps_box_inside_model_bubble_mask()
+    test_sfx_filter_ignore_bubbles_filters_box_inside_model_bubble_mask()
     test_sfx_filter_removes_all_unsupported_boxes_when_model_fails()
     test_sfx_filter_removes_unsupported_boxes_when_no_bubble_detected()
     print("all tests passed")
