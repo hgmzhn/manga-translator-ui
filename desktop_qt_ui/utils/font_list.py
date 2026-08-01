@@ -10,8 +10,10 @@ QFont 匹配固定落到同一字体；注册层会自动改写为去掉方括�
 import logging
 import os
 
+from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication
-from PyQt6.QtWidgets import QFontComboBox
+from qfluentwidgets import ComboBox
+from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
 
 from manga_translator.rendering.text_render import qt_family_is_ambiguous, register_font_file
 
@@ -78,12 +80,6 @@ def populate_font_combo(combo, current: str | None = None) -> None:
     ``current`` 传当前 family 时选中对应条目；
     条目不在列表里则追加一条（userData 保留原值）再选中。
     """
-    if isinstance(combo, QFontComboBox):
-        list_font_families()
-        combo.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
-        if current:
-            combo.setCurrentFont(QFont(current))
-        return
     combo.clear()
     for family in list_font_families():
         combo.addItem(family, userData=family)
@@ -96,3 +92,65 @@ def populate_font_combo(combo, current: str | None = None) -> None:
             return
     combo.addItem(current, userData=current)
     combo.setCurrentIndex(combo.count() - 1)
+
+
+class _FontComboBoxMenu(ComboBoxMenu):
+    """Fluent menu whose rows preview their font family."""
+
+    def _createActionItem(self, action, before=None):
+        item = super()._createActionItem(action, before)
+        font = QFont(item.font())
+        font.setFamily(action.text())
+        item.setFont(font)
+        return item
+
+
+class FontComboBox(ComboBox):
+    """QFontComboBox-compatible selector backed by Fluent ComboBox styling."""
+
+    currentFontChanged = pyqtSignal(QFont)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentIndexChanged.connect(self._emit_current_font_changed)
+        self.refresh(QFont().family())
+
+    def _createComboMenu(self):
+        return _FontComboBoxMenu(self)
+
+    def _showComboMenu(self):
+        self.refresh()
+        super()._showComboMenu()
+
+    def refresh(self, current_family: str | None = None) -> None:
+        family = self.currentFamily() if current_family is None else str(current_family or "")
+        blocker = QSignalBlocker(self)
+        try:
+            populate_font_combo(self, family or None)
+            if not family:
+                self.setCurrentIndex(-1)
+        finally:
+            del blocker
+
+    def currentFamily(self) -> str:
+        return str(self.currentData() or self.currentText() or "")
+
+    def setCurrentFamily(self, family: str) -> None:
+        family = str(family or "")
+        if not family:
+            self.setCurrentIndex(-1)
+            return
+        index = self.findData(family)
+        if index < 0:
+            self.addItem(family, userData=family)
+            index = self.count() - 1
+        self.setCurrentIndex(index)
+
+    def currentFont(self) -> QFont:
+        return QFont(self.currentFamily())
+
+    def setCurrentFont(self, font: QFont) -> None:
+        self.setCurrentFamily(font.family())
+
+    def _emit_current_font_changed(self, _index: int) -> None:
+        self.currentFontChanged.emit(self.currentFont())

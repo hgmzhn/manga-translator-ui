@@ -1,6 +1,6 @@
 """Composable widgets for the floating rich-text editor.
 
-Every control here is a stock qfluentwidgets component; theming is left to the
+Every control here is backed by qfluentwidgets, so theming stays with the
 library instead of hand-written style sheets.
 """
 
@@ -15,7 +15,6 @@ from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
-    QFontComboBox,
     QGridLayout,
     QHBoxLayout,
     QSizePolicy,
@@ -40,6 +39,7 @@ from qfluentwidgets import (
 
 from editor.rich_text_editing import StyledTextSegment
 from services import get_config_service, get_i18n_manager
+from utils.font_list import FontComboBox
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
@@ -623,15 +623,15 @@ class StyleRunCard(SimpleCardWidget):
             )
             return control
         if key == "F":
-            control = QFontComboBox(self)
-            control.setCurrentFont(QFont(str(style.get("fontFamily") or "")))
+            control = FontComboBox(self)
+            control.setCurrentFamily(str(style.get("fontFamily") or ""))
             control.currentIndexChanged.connect(
-                lambda _index: self._emit_patch(key, {"fontFamily": control.currentFont().family()})
+                lambda _index: self._emit_patch(key, {"fontFamily": control.currentFamily()})
             )
             self._register_applier(
                 key, control,
                 lambda s, *_: str(s.get("fontFamily") or ""),
-                lambda value, _control=control: _control.setCurrentFont(QFont(value)),
+                lambda value, _control=control: _control.setCurrentFamily(value),
             )
             return control
         if key in _EFFECT_SPECS:

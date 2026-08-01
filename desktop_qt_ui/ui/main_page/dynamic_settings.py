@@ -2,11 +2,9 @@ import json
 import os
 
 from PyQt6.QtCore import QSignalBlocker, Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
-    QFontComboBox,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -26,7 +24,7 @@ from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
 from ui.widgets.widget_cleanup import clear_layout
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
-from utils.font_list import list_font_families
+from utils.font_list import FontComboBox
 
 
 class QLineEdit(FluentLineEdit):
@@ -617,8 +615,8 @@ def _sync_setting_widget_values(self, config: dict) -> bool:
             try:
                 if isinstance(widget, ToggleSwitch):
                     widget.setChecked(bool(value))
-                elif isinstance(widget, QFontComboBox):
-                    widget.setCurrentFont(QFont(str(value or "")))
+                elif isinstance(widget, FontComboBox):
+                    widget.setCurrentFamily(str(value or ""))
                 elif isinstance(widget, QComboBox):
                     if full_key == "upscale.upscale_ratio":
                         continue
@@ -1154,20 +1152,10 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             widget = [checkbox, open_btn]
 
         elif full_key == "render.font_family":
-            class RefreshableFamilyComboBox(QFontComboBox):
-                def showPopup(self):
-                    current_font = self.currentFont()
-                    list_font_families()
-                    self.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
-                    self.setCurrentFont(current_font)
-                    super().showPopup()
-
-            combo = RefreshableFamilyComboBox()
+            combo = FontComboBox()
             combo.setMinimumWidth(260)
-            list_font_families()
-            combo.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
             if value:
-                combo.setCurrentFont(QFont(str(value)))
+                combo.setCurrentFamily(str(value))
             combo.currentFontChanged.connect(
                 lambda font, k=full_key: self._on_setting_changed(font.family(), k, None)
             )

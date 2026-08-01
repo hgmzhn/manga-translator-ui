@@ -2,12 +2,11 @@
 import logging
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QWheelEvent
+from PyQt6.QtGui import QColor, QWheelEvent
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
     QFormLayout,
-    QFontComboBox,
     QHBoxLayout,
     QSizePolicy,
     QVBoxLayout,
@@ -35,6 +34,7 @@ from qfluentwidgets import (
 )
 from editor.region_geometry_state import normalize_region_geometry_data
 from services import get_config_service, get_i18n_manager
+from utils.font_list import FontComboBox
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
@@ -275,7 +275,7 @@ class PropertyPanel(QWidget):
     def _set_selection_controls_blocked(self, blocked: bool):
         """统一阻止/恢复与区域样式相关控件信号，避免切换选区时误写回。"""
         for child in self.findChildren(QWidget):
-            if isinstance(child, (TextEdit, ComboBox, QFontComboBox, Slider, QAbstractSpinBox)):
+            if isinstance(child, (TextEdit, ComboBox, Slider, QAbstractSpinBox)):
                 child.blockSignals(blocked)
 
     @staticmethod
@@ -711,33 +711,8 @@ class PropertyPanel(QWidget):
         style_layout.addRow(style_preset_row)
         self._refresh_style_preset_combo()
         
-        # Font family selector with refresh capability
-        class RefreshableFontComboBox(QFontComboBox):
-            """可刷新的下拉框，在下拉时自动刷新字体列表"""
-            def __init__(self, parent_widget, parent=None):
-                super().__init__(parent)
-                self.parent_widget = parent_widget
-            
-            def showPopup(self):
-                # 保存当前选中的文本
-                current_family = self.currentFont().family()
-                
-                # 刷新字体列表
-                self.blockSignals(True)
-                try:
-                    self.parent_widget._populate_font_list()
-                    self.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
-                    if current_family:
-                        self.setCurrentFont(QFont(current_family))
-                finally:
-                    self.blockSignals(False)
-                
-                super().showPopup()
-        
-        self.font_family_combo = RefreshableFontComboBox(self)
-        self.font_family_combo.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
+        self.font_family_combo = FontComboBox(self)
         self.font_family_combo.setMinimumWidth(120)
-        self._populate_font_list()
         self.font_label = BodyLabel(self._t("Font:"))
         style_layout.addRow(self.font_label, self.font_family_combo)
         
@@ -822,13 +797,6 @@ class PropertyPanel(QWidget):
         self._finish_group(self.style_edit_frame, style_card)
         layout.addWidget(self.style_edit_frame)
     
-    def _populate_font_list(self):
-        """Populate font combo box with available fonts from fonts folder"""
-        # F15：字体目录枚举收口到共享 helper（显示名去扩展名，userData=文件名）
-        from utils.font_list import populate_font_combo
-
-        populate_font_combo(self.font_family_combo)
-
     def _create_action_section(self, layout):
         self.action_frame, action_card = self._make_group(self._t("Actions"))
         action_layout = QHBoxLayout(action_card)
@@ -1298,10 +1266,7 @@ class PropertyPanel(QWidget):
         return vertical_text if normalized_value == "vertical" else horizontal_text
 
     def _set_font_family_combo_value(self, font_value: str):
-        if not font_value:
-            self.font_family_combo.setCurrentIndex(-1)
-            return
-        self.font_family_combo.setCurrentFont(QFont(font_value))
+        self.font_family_combo.setCurrentFamily(font_value)
 
     def _normalize_saved_style_preset(self, style_data):
         if not isinstance(style_data, dict):
@@ -1342,7 +1307,7 @@ class PropertyPanel(QWidget):
         return normalized
 
     def _collect_current_style_preset(self):
-        current_font = self.font_family_combo.currentFont().family()
+        current_font = self.font_family_combo.currentFamily()
 
         return {
             "font_family": str(current_font or ""),
@@ -1840,7 +1805,7 @@ class PropertyPanel(QWidget):
             return
         
         # Get the font filename from combo box data
-        font_filename = self.font_family_combo.currentFont().family()
+        font_filename = self.font_family_combo.currentFamily()
         self._emit_style_patch({"font_family": font_filename})
 
     def _on_font_color_changed(self, hex_color):

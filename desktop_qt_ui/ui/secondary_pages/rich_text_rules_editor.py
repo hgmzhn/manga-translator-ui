@@ -8,10 +8,8 @@ from typing import Callable, Dict
 
 import yaml
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
-    QFontComboBox,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
@@ -55,7 +53,7 @@ from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
 from ui.secondary_pages.replacements_editor import YamlHighlighter, _fixed_width_font
 from ui.secondary_pages.themed_message_box import themed_question, themed_warning
 from ui.widgets.color_picker import ColorPickerWidget
-from utils.font_list import populate_font_combo
+from utils.font_list import FontComboBox
 
 
 def _rules_path() -> str:
@@ -227,9 +225,7 @@ class RichTextStyleControls(SimpleCardWidget):
         return self._register(key, editor)
 
     def _font(self, key):
-        editor = QFontComboBox(self)
-        editor.setFontFilters(QFontComboBox.FontFilter.ScalableFonts)
-        populate_font_combo(editor)
+        editor = FontComboBox(self)
         return self._register(key, editor)
 
     def _effect(self, key, color, config_key, value_name, default):
@@ -363,8 +359,8 @@ class RichTextStyleControls(SimpleCardWidget):
                 field.value_input.setValue(float(value.get(field.value_name, 0) or 0))
             elif isinstance(field.editor, ColorPickerWidget):
                 field.editor.set_color(str(value))
-            elif isinstance(field.editor, QFontComboBox):
-                field.editor.setCurrentFont(QFont(str(value)))
+            elif isinstance(field.editor, FontComboBox):
+                field.editor.setCurrentFamily(str(value))
             elif isinstance(field.editor, ComboBox):
                 field.editor.setCurrentIndex(max(0, field.editor.findData(value)))
             else:
@@ -386,8 +382,8 @@ class RichTextStyleControls(SimpleCardWidget):
                 }
             elif isinstance(field.editor, ColorPickerWidget):
                 values[key] = field.editor.get_color()
-            elif isinstance(field.editor, QFontComboBox):
-                values[key] = field.editor.currentFont().family()
+            elif isinstance(field.editor, FontComboBox):
+                values[key] = field.editor.currentFamily()
             elif isinstance(field.editor, ComboBox):
                 values[key] = field.editor.currentData()
             else:
