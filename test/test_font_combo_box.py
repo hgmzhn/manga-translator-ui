@@ -34,22 +34,52 @@ from utils import font_list
 
 def test_font_combo_box_keeps_fluent_style_and_font_preview():
     app = QApplication.instance() or QApplication([])
-    families = ["Preview Sans", "Preview Serif"]
+    families = ["Preview Sans", "预览Sans", "Preview Serif"]
+    locale = ["en_US"]
 
-    with patch.object(font_list, "list_font_families", return_value=families):
-        combo = font_list.FontComboBox()
+    def name_records(family):
+        if family not in families:
+            return ()
+        suffix = "Sans" if family.endswith("Sans") else "Serif"
+        return (
+            (1, "en", f"Preview {suffix}"),
+            (1, "zh", f"预览{suffix}"),
+            (1, "ja", f"プレビュー{suffix}"),
+        )
+
+    with (
+        patch.object(font_list, "list_font_families", return_value=families),
+        patch.object(font_list, "_font_family_name_records", side_effect=name_records),
+    ):
+        combo = font_list.FontComboBox(locale_getter=lambda: locale[0])
         changes = []
         combo.currentFontChanged.connect(lambda font: changes.append(font.family()))
 
         combo.setCurrentFamily("Preview Serif")
         assert isinstance(combo, ComboBox)
+        assert combo.currentText() == "Preview Serif"
         assert combo.currentFamily() == "Preview Serif"
         assert combo.currentFont().family() == "Preview Serif"
         assert changes == ["Preview Serif"]
 
+        locale[0] = "zh_CN"
+        combo.refresh_ui_texts()
+        assert combo.count() == 2
+        assert combo.currentText() == "预览Serif"
+        assert combo.currentFamily() == "Preview Serif"
+
         menu = combo._createComboMenu()
-        menu.addAction(QAction("Preview Serif", menu))
-        assert menu.view.item(0).font().family() == "Preview Serif"
+        for item in combo.items:
+            menu.addAction(QAction(item.text, menu))
+        assert menu.view.item(1).font().family() == "Preview Serif"
+
+        menu.search_edit.setText("preview serif")
+        assert menu.view.item(0).isHidden()
+        assert not menu.view.item(1).isHidden()
+
+        menu.search_edit.setText("预览sans")
+        assert not menu.view.item(0).isHidden()
+        assert menu.view.item(1).isHidden()
 
         combo.refresh()
         assert combo.currentFamily() == "Preview Serif"

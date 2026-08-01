@@ -52,6 +52,11 @@ def _tr(key: str, **kwargs) -> str:
     return i18n.translate(key, **kwargs) if i18n else key
 
 
+def _current_locale() -> str:
+    i18n = get_i18n_manager()
+    return i18n.get_current_locale() if i18n else "en_US"
+
+
 @dataclass(frozen=True)
 class StyleSpec:
     """Single source of truth for one style key."""
@@ -623,7 +628,7 @@ class StyleRunCard(SimpleCardWidget):
             )
             return control
         if key == "F":
-            control = FontComboBox(self)
+            control = FontComboBox(self, locale_getter=_current_locale)
             control.setCurrentFamily(str(style.get("fontFamily") or ""))
             control.currentIndexChanged.connect(
                 lambda _index: self._emit_patch(key, {"fontFamily": control.currentFamily()})

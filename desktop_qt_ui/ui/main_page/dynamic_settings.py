@@ -1152,7 +1152,8 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             widget = [checkbox, open_btn]
 
         elif full_key == "render.font_family":
-            combo = FontComboBox()
+            locale_getter = self.i18n.get_current_locale if self.i18n else None
+            combo = FontComboBox(locale_getter=locale_getter)
             combo.setMinimumWidth(260)
             if value:
                 combo.setCurrentFamily(str(value))

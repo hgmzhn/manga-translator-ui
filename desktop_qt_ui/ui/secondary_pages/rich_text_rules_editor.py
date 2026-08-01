@@ -225,7 +225,8 @@ class RichTextStyleControls(SimpleCardWidget):
         return self._register(key, editor)
 
     def _font(self, key):
-        editor = FontComboBox(self)
+        locale_getter = self.i18n.get_current_locale if self.i18n else None
+        editor = FontComboBox(self, locale_getter=locale_getter)
         return self._register(key, editor)
 
     def _effect(self, key, color, config_key, value_name, default):
@@ -321,6 +322,7 @@ class RichTextStyleControls(SimpleCardWidget):
         self._refresh_saved_style_combo()
 
     def refresh_ui_texts(self) -> None:
+        self.font_family.editor.refresh_ui_texts()
         self.bold.setText(self._t("Bold"))
         self.emphasis.setText(self._t("Emphasis"))
         self.tcy.setText(self._t("Vertical-in-Horizontal (TCY)"))

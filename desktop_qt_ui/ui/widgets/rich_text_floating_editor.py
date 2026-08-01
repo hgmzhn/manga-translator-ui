@@ -25,6 +25,7 @@ from editor.rich_text_presets import RichTextPresetStore, normalize_rich_text_pr
 from services import get_config_service, get_i18n_manager
 from ui.secondary_pages.themed_message_box import themed_critical, themed_question, themed_warning
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
+from utils.font_list import FontComboBox
 
 from .color_picker import ColorPickerWidget
 from .rich_text_editor_components import (
@@ -196,6 +197,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
 
     def refresh_ui_texts(self) -> None:
         """Retranslate the complete floating editor after a locale change."""
+        for combo in self.findChildren(FontComboBox):
+            combo.refresh_ui_texts()
         self.toolbar.refresh_ui_texts()
         self.preset_sidebar.refresh_ui_texts()
         if self._state.has_region:

@@ -711,7 +711,8 @@ class PropertyPanel(QWidget):
         style_layout.addRow(style_preset_row)
         self._refresh_style_preset_combo()
         
-        self.font_family_combo = FontComboBox(self)
+        locale_getter = self.i18n.get_current_locale if self.i18n else None
+        self.font_family_combo = FontComboBox(self, locale_getter=locale_getter)
         self.font_family_combo.setMinimumWidth(120)
         self.font_label = BodyLabel(self._t("Font:"))
         style_layout.addRow(self.font_label, self.font_family_combo)
@@ -964,6 +965,8 @@ class PropertyPanel(QWidget):
             self.target_lang_row_label.setText(self._t("Target Language:"))
         if hasattr(self, 'font_label'):
             self.font_label.setText(self._t("Font:"))
+        if hasattr(self, 'font_family_combo'):
+            self.font_family_combo.refresh_ui_texts()
         if hasattr(self, 'style_preset_label'):
             self.style_preset_label.setText(self._t("Style Preset:"))
         if hasattr(self, 'font_size_label'):

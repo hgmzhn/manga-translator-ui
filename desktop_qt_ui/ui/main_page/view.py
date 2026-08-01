@@ -261,6 +261,9 @@ class MainView(QObject):
 
     def _refresh_dynamic_setting_texts(self):
         """Refresh dynamic settings labels in place during language switch."""
+        for widget, _display_map in getattr(self, "_settings_value_bindings", {}).values():
+            if hasattr(widget, "refresh_ui_texts"):
+                widget.refresh_ui_texts()
         for panel in getattr(self, "tab_frames", {}).values():
             layout = panel.layout() if panel is not None else None
             if layout is None:
