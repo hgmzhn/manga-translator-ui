@@ -2291,10 +2291,15 @@ function updateFileCount() {
 
 function addFileToUI(file) {
     const li = document.createElement('li');
-    li.innerHTML = `
-        <span>${file.name} <small>(${formatSize(file.size)})</small></span>
-        <span class="remove-btn" onclick="removeFile('${file.name}')">✖</span>
-    `;
+    const label = document.createElement('span');
+    const size = document.createElement('small');
+    const removeBtn = document.createElement('span');
+    size.textContent = `(${formatSize(file.size)})`;
+    label.append(`${file.name} `, size);
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '✖';
+    removeBtn.addEventListener('click', () => removeFile(file.name));
+    li.append(label, removeBtn);
     els.fileList.appendChild(li);
 }
 

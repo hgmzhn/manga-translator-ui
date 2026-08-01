@@ -7,6 +7,7 @@
 import logging
 import mimetypes
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -15,7 +16,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from manga_translator.server.core.download_ticket_service import DownloadTicketService
+from manga_translator.server.core.download_ticket_service import (
+    DownloadTicketService,
+    resolve_path_within,
+)
 from manga_translator.server.core.history_service import HistoryManagementService
 from manga_translator.server.core.middleware import require_admin, require_auth
 from manga_translator.server.core.models import Session
@@ -93,14 +97,25 @@ def _sanitize_history_filename(filename: str) -> str:
     return filename
 
 
-def _resolve_history_file_path(result_path: str, filename: str) -> Path:
+def _resolve_history_file_path(
+    result_directory: str | Path,
+    result_path: str,
+    filename: str,
+) -> Path:
     safe_filename = _sanitize_history_filename(filename)
-    session_dir = Path(result_path).resolve()
+    try:
+        session_dir = resolve_path_within(result_directory, result_path)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="会话文件目录不存在")
+
+    if session_dir == Path(result_directory):
+        raise HTTPException(status_code=404, detail="会话文件目录不存在")
     if not session_dir.exists() or not session_dir.is_dir():
         raise HTTPException(status_code=404, detail="会话文件目录不存在")
 
-    file_path = (session_dir / safe_filename).resolve()
-    if file_path.parent != session_dir:
+    try:
+        file_path = resolve_path_within(session_dir, session_dir / safe_filename)
+    except ValueError:
         raise HTTPException(status_code=400, detail="无效的文件名")
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -108,12 +123,11 @@ def _resolve_history_file_path(result_path: str, filename: str) -> Path:
 
 
 def _sanitize_download_filename(filename: Optional[str], default_name: str) -> str:
-    if not filename:
-        return default_name
-
-    sanitized = Path(filename).name.strip().replace('\r', '').replace('\n', '')
+    sanitized = Path(filename or default_name).name.strip().replace('\r', '').replace('\n', '')
     if not sanitized or sanitized in {'.', '..'}:
-        return default_name
+        sanitized = Path(default_name).name.strip().replace('\r', '').replace('\n', '')
+    if not sanitized or sanitized in {'.', '..'}:
+        sanitized = 'download.zip'
     if not sanitized.endswith('.zip'):
         sanitized += '.zip'
     return sanitized
@@ -135,12 +149,14 @@ def _build_ticket_response(ticket, url: str) -> dict:
 
 def _issue_download_ticket(
     path: str | Path,
+    allowed_root: str | Path,
     filename: str,
     media_type: str,
     delete_on_cleanup: bool = False,
 ) -> dict:
     ticket = _download_ticket_service.issue_ticket(
         path=path,
+        allowed_root=allowed_root,
         filename=filename,
         media_type=media_type,
         delete_on_cleanup=delete_on_cleanup,
@@ -314,6 +330,7 @@ async def create_session_download_ticket(
     )
     return _issue_download_ticket(
         path=zip_path,
+        allowed_root=tempfile.gettempdir(),
         filename=download_filename,
         media_type="application/zip",
         delete_on_cleanup=True,
@@ -572,6 +589,7 @@ async def create_batch_download_ticket(
     download_filename = _sanitize_download_filename(request.filename, os.path.basename(zip_path))
     return _issue_download_ticket(
         path=zip_path,
+        allowed_root=tempfile.gettempdir(),
         filename=download_filename,
         media_type="application/zip",
         delete_on_cleanup=True,
@@ -691,7 +709,11 @@ async def get_history_file(
             raise HTTPException(status_code=404, detail="会话不存在或您没有访问权限")
         
         # 构建文件路径
-        file_path = _resolve_history_file_path(result.result_path, filename)
+        file_path = _resolve_history_file_path(
+            history_service.result_directory,
+            result.result_path,
+            filename,
+        )
         media_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         
         # 返回文件
@@ -726,10 +748,15 @@ async def create_history_file_download_ticket(
     if not result:
         raise HTTPException(status_code=404, detail="会话不存在或您没有访问权限")
 
-    file_path = _resolve_history_file_path(result.result_path, filename)
+    file_path = _resolve_history_file_path(
+        history_service.result_directory,
+        result.result_path,
+        filename,
+    )
     media_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
     return _issue_download_ticket(
         path=file_path,
+        allowed_root=history_service.result_directory,
         filename=file_path.name,
         media_type=media_type,
         delete_on_cleanup=False,

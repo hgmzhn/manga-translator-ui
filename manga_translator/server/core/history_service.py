@@ -11,11 +11,14 @@ This service handles:
 import logging
 import os
 import shutil
+import tempfile
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from manga_translator.server.core.download_ticket_service import resolve_path_within
 from manga_translator.server.models import TranslationResult
 from manga_translator.server.repositories.translation_repository import (
     TranslationRepository,
@@ -39,7 +42,7 @@ class HistoryManagementService:
             result_directory: Base directory for storing translation results
             translation_repo: Optional translation repository instance
         """
-        self.result_directory = Path(result_directory)
+        self.result_directory = Path(os.path.normcase(os.path.realpath(result_directory)))
         self.translation_repo = translation_repo or TranslationRepository(
             os.path.join('manga_translator', 'server', 'data', 'translation_history.json')
         )
@@ -57,6 +60,14 @@ class HistoryManagementService:
         Validates: Requirement 35.9 - UUID v4 for unpredictable tokens
         """
         return str(uuid.uuid4())
+
+    def _resolve_session_directory(self, result_path: str | Path) -> Optional[Path]:
+        try:
+            session_dir = resolve_path_within(self.result_directory, result_path)
+        except ValueError:
+            logger.warning("Rejected history path outside result directory: %s", result_path)
+            return None
+        return None if session_dir == self.result_directory else session_dir
     
     def save_translation_result(
         self,
@@ -79,8 +90,14 @@ class HistoryManagementService:
             
         Validates: Requirements 3.1, 9.1-9.5
         """
+        if not session_token or '/' in session_token or '\\' in session_token or '\x00' in session_token:
+            raise ValueError("Invalid history session token")
+
         # Create session directory
-        session_dir = self.result_directory / session_token
+        session_dir = resolve_path_within(
+            self.result_directory,
+            self.result_directory / session_token,
+        )
         session_dir.mkdir(parents=True, exist_ok=True)
         
         # Calculate total size and copy files
@@ -88,13 +105,14 @@ class HistoryManagementService:
         saved_files = []
         
         for file_path in files:
-            if os.path.exists(file_path):
-                file_size = os.path.getsize(file_path)
+            source_path = resolve_path_within(tempfile.gettempdir(), file_path)
+            if source_path.is_file():
+                file_size = source_path.stat().st_size
                 total_size += file_size
-                
+
                 # Copy file to session directory
-                dest_path = session_dir / os.path.basename(file_path)
-                shutil.copy2(file_path, dest_path)
+                dest_path = resolve_path_within(session_dir, session_dir / source_path.name)
+                shutil.copy2(source_path, dest_path)
                 saved_files.append(str(dest_path))
         
         # Create metadata file
@@ -252,8 +270,8 @@ class HistoryManagementService:
             return False
         
         # Delete files from filesystem
-        session_dir = Path(session.result_path)
-        if session_dir.exists():
+        session_dir = self._resolve_session_directory(session.result_path)
+        if session_dir is not None and session_dir.exists():
             shutil.rmtree(session_dir)
         
         # Delete from repository
@@ -283,7 +301,9 @@ class HistoryManagementService:
             logger.warning(f"get_session_files: session not found for token={session_token[:8]}, user_id={user_id}")
             return []
         
-        session_dir = Path(session.result_path)
+        session_dir = self._resolve_session_directory(session.result_path)
+        if session_dir is None:
+            return []
         logger.debug(f"get_session_files: session_dir={session_dir}, exists={session_dir.exists()}")
         
         if not session_dir.exists():
@@ -342,9 +362,6 @@ class HistoryManagementService:
             
         Validates: Requirement 3.4
         """
-        import tempfile
-        import zipfile
-        
         # Get session files
         files = self.get_session_files(session_token, user_id)
         
@@ -353,17 +370,20 @@ class HistoryManagementService:
         
         # Create temporary ZIP file
         temp_dir = tempfile.gettempdir()
-        zip_path = os.path.join(temp_dir, f"{session_token}_{uuid.uuid4().hex[:8]}.zip")
+        zip_path = resolve_path_within(
+            temp_dir,
+            os.path.join(temp_dir, f"history_{uuid.uuid4().hex}.zip"),
+        )
         
         try:
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for file_path in files:
-                    if os.path.exists(file_path):
+                    source_path = Path(file_path)
+                    if source_path.is_file():
                         # Add file to ZIP with just the filename (no path)
-                        arcname = os.path.basename(file_path)
-                        zipf.write(file_path, arcname)
-            
-            return zip_path
+                        zipf.write(source_path, source_path.name)
+
+            return str(zip_path)
         
         except Exception as e:
             logger.error(f"Failed to create ZIP archive: {e}")
@@ -387,8 +407,6 @@ class HistoryManagementService:
         Validates: Requirements 4.2, 4.3
         """
         import logging
-        import tempfile
-        import zipfile
         logger = logging.getLogger(__name__)
         
         logger.info(f"Creating batch download for {len(session_tokens)} sessions, user_id={user_id}")
@@ -399,14 +417,14 @@ class HistoryManagementService:
             f"batch_download_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_"
             f"{uuid.uuid4().hex[:8]}.zip"
         )
-        zip_path = os.path.join(temp_dir, zip_filename)
+        zip_path = resolve_path_within(temp_dir, os.path.join(temp_dir, zip_filename))
         
         try:
             total_files = 0
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for session_token in session_tokens:
+                for session_number, session_token in enumerate(session_tokens, 1):
                     logger.info(f"Processing session: {session_token}")
-                    
+
                     # Get session files
                     files = self.get_session_files(session_token, user_id)
                     logger.info(f"  Found {len(files)} files for session {session_token[:8]}")
@@ -417,15 +435,16 @@ class HistoryManagementService:
                     
                     # Add files to ZIP with session token as folder
                     for file_path in files:
-                        if os.path.exists(file_path):
+                        source_path = Path(file_path)
+                        if source_path.is_file():
                             # Add file to ZIP with session token folder
-                            arcname = os.path.join(session_token[:8], os.path.basename(file_path))
-                            zipf.write(file_path, arcname)
+                            arcname = os.path.join(f"session_{session_number}", source_path.name)
+                            zipf.write(source_path, arcname)
                             total_files += 1
                             logger.info(f"  Added: {arcname}")
             
             logger.info(f"Batch ZIP created with {total_files} files: {zip_path}")
-            return zip_path
+            return str(zip_path)
         
         except Exception as e:
             logger.error(f"Failed to create batch ZIP archive: {e}")
@@ -446,8 +465,9 @@ class HistoryManagementService:
         time.sleep(1)
         
         try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                _logger.debug(f"Cleaned up temp file: {file_path}")
+            temp_path = resolve_path_within(tempfile.gettempdir(), file_path)
+            if temp_path.is_file():
+                temp_path.unlink()
+                _logger.debug(f"Cleaned up temp file: {temp_path}")
         except Exception as e:
             _logger.warning(f"Failed to cleanup temp file {file_path}: {e}")

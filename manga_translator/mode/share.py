@@ -1,21 +1,45 @@
 import asyncio
+import base64
+import io
 import pickle
 from threading import Lock
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Path, Request, Response
-from pydantic import BaseModel
+from PIL import Image
 from starlette.responses import StreamingResponse
 
-from manga_translator import MangaTranslator
+from manga_translator import Config, MangaTranslator
 
 
-class MethodCall(BaseModel):
-    method_name: str
-    attributes: bytes
+def _decode_image(value: str) -> Image.Image:
+    try:
+        raw = base64.b64decode(value, validate=True)
+        with Image.open(io.BytesIO(raw)) as image:
+            image.load()
+            return image.copy()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid image data")
 
 
+def _decode_attributes(method_name: str, payload: dict) -> dict:
+    try:
+        config = Config.model_validate(payload["config"])
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid translation config")
 
+    if method_name == "translate":
+        return {"image": _decode_image(payload.get("image", "")), "config": config}
+
+    try:
+        images = [_decode_image(value) for value in payload["images"]]
+        batch_size = payload.get("batch_size")
+    except (KeyError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid batch request")
+    return {
+        "images_with_configs": [(image, config) for image in images],
+        "batch_size": batch_size,
+    }
 
 
 class MangaShare:
@@ -70,8 +94,9 @@ class MangaShare:
 
             encoded_result = b'\x00' + len(result_bytes).to_bytes(4, 'big') + result_bytes
             await self.progress_queue.put(encoded_result)
-        except Exception as e:
-            err_bytes = str(e).encode("utf-8")
+        except Exception as exc:
+            print(f"[SHARED ERROR] {type(exc).__name__}")
+            err_bytes = b"Shared worker failed"
             encoded_result = b'\x02' + len(err_bytes).to_bytes(4, 'big') + err_bytes
             await self.progress_queue.put(encoded_result)
         finally:
@@ -89,7 +114,7 @@ class MangaShare:
             raise HTTPException(status_code=429, detail="some Method is already being executed.")
 
     def get_fn(self, method_name: str):
-        if method_name.startswith("__"):
+        if method_name not in {"translate", "translate_batch"}:
             raise HTTPException(status_code=403, detail="These functions are not allowed to be executed remotely")
         method = getattr(self.manga, method_name, None)
         if not method:
@@ -108,27 +133,34 @@ class MangaShare:
         @app.post("/simple_execute/{method_name}")
         async def execute_method(request: Request, method_name: str = Path(...)):
             self.check_nonce(request)
-            self.check_lock()
             method = self.get_fn(method_name)
-            attr = pickle.loads(await request.body())
+            self.check_lock()
             try:
+                attr = _decode_attributes(method_name, await request.json())
                 if asyncio.iscoroutinefunction(method):
                     result = await method(**attr)
                 else:
                     result = method(**attr)
-                self.lock.release()
                 result_bytes = pickle.dumps(result)
                 return Response(content=result_bytes, media_type="application/octet-stream")
-            except Exception as e:
+            except HTTPException:
+                raise
+            except Exception:
+                print("[SHARED ERROR] Worker execution failed")
+                raise HTTPException(status_code=500, detail="Shared worker failed")
+            finally:
                 self.lock.release()
-                raise HTTPException(status_code=500, detail=str(e))
 
         @app.post("/execute/{method_name}")
         async def execute_method_stream(request: Request, method_name: str = Path(...)):
             self.check_nonce(request)
-            self.check_lock()
             method = self.get_fn(method_name)
-            attr = pickle.loads(await request.body())
+            self.check_lock()
+            try:
+                attr = _decode_attributes(method_name, await request.json())
+            except Exception:
+                self.lock.release()
+                raise
 
             # streaming response
             streaming_response = StreamingResponse(self.progress_stream(), media_type="application/octet-stream")

@@ -345,8 +345,15 @@ def load_translation(locale: str) -> dict:
     if locale in translations_cache:
         return translations_cache[locale]
     
-    locale_file = os.path.join(desktop_locales_dir, f"{locale}.json")
-    if os.path.exists(locale_file):
+    locales_dir = os.path.realpath(desktop_locales_dir)
+    locale_file = os.path.realpath(os.path.join(locales_dir, f"{locale}.json"))
+    if not locale_file.startswith(locales_dir + os.sep):
+        print(f"[WARNING] Invalid locale: {locale}")
+        return {}
+    if os.path.dirname(locale_file) != locales_dir:
+        print(f"[WARNING] Invalid locale: {locale}")
+        return {}
+    if os.path.isfile(locale_file):
         try:
             with open(locale_file, 'r', encoding='utf-8') as f:
                 translations = json.load(f)

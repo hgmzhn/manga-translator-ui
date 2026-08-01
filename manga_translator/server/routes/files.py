@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from manga_translator.server.core.config_manager import FONTS_DIR, admin_settings
+from manga_translator.server.core.download_ticket_service import resolve_path_within
 from manga_translator.server.core.middleware import require_admin
 from manga_translator.server.core.models import Session
 from manga_translator.utils import BASE_PATH
@@ -18,15 +19,14 @@ router = APIRouter(tags=["files"])
 PROMPTS_DIR = Path(BASE_PATH) / 'dict'
 
 
-def _resolve_prompt_path(filename: str) -> Path:
+def _resolve_managed_path(directory: str | Path, filename: str) -> Path:
     if not filename or '..' in filename or '/' in filename or '\\' in filename:
         raise HTTPException(400, detail="Invalid filename")
 
-    prompt_path = (PROMPTS_DIR / filename).resolve()
-    if prompt_path.parent != PROMPTS_DIR.resolve():
+    try:
+        return resolve_path_within(directory, os.path.join(directory, filename))
+    except ValueError:
         raise HTTPException(400, detail="Invalid filename")
-
-    return prompt_path
 
 
 # ============================================================================
@@ -42,22 +42,19 @@ async def upload_font(
     # Check permissions
     if not admin_settings.get('permissions', {}).get('can_upload_fonts', True):
         raise HTTPException(403, detail="Font upload is disabled")
-    
-    if not file.filename.lower().endswith(('.ttf', '.otf', '.ttc')):
+
+    filename = file.filename or ''
+    if not filename.lower().endswith(('.ttf', '.otf', '.ttc')):
         raise HTTPException(400, detail="Invalid font file format")
-    
-    # 防止路径遍历攻击
-    if '..' in file.filename or '/' in file.filename or '\\' in file.filename:
-        raise HTTPException(400, detail="Invalid filename")
-    
+
     os.makedirs(FONTS_DIR, exist_ok=True)
-    
-    file_path = os.path.join(FONTS_DIR, file.filename)
+
+    file_path = _resolve_managed_path(FONTS_DIR, filename)
     with open(file_path, 'wb') as f:
         content = await file.read()
         f.write(content)
-    
-    return {"success": True, "filename": file.filename}
+
+    return {"success": True, "filename": filename}
 
 
 @router.delete("/fonts/{filename}")
@@ -70,12 +67,8 @@ async def delete_font(
     if not admin_settings.get('permissions', {}).get('can_delete_fonts', True):
         raise HTTPException(403, detail="Font deletion is disabled")
     
-    # 防止路径遍历攻击
-    if '..' in filename or '/' in filename or '\\' in filename:
-        raise HTTPException(400, detail="Invalid filename")
-    
     # Find in fonts directory
-    file_path = os.path.join(FONTS_DIR, filename)
+    file_path = _resolve_managed_path(FONTS_DIR, filename)
     
     if not os.path.exists(file_path):
         raise HTTPException(404, detail="Font file not found")
@@ -101,13 +94,10 @@ async def upload_prompt(
     if not admin_settings.get('permissions', {}).get('can_upload_prompts', True):
         raise HTTPException(403, detail="Prompt upload is disabled")
     
-    if not file.filename.lower().endswith(('.json', '.yaml', '.yml')):
+    filename = file.filename or ''
+    if not filename.lower().endswith(('.json', '.yaml', '.yml')):
         raise HTTPException(400, detail="Invalid prompt file format (must be .json, .yaml, or .yml)")
-    
-    # 防止路径遍历攻击
-    if '..' in file.filename or '/' in file.filename or '\\' in file.filename:
-        raise HTTPException(400, detail="Invalid filename")
-    
+
     # Prohibit uploading system prompt filenames
     SYSTEM_PROMPT_FILES = {
         'system_prompt_hq.json', 'system_prompt_hq.yaml', 'system_prompt_hq.yml',
@@ -115,18 +105,17 @@ async def upload_prompt(
         'system_prompt_line_break.json', 'system_prompt_line_break.yaml', 'system_prompt_line_break.yml',
         'glossary_extraction_prompt.json', 'glossary_extraction_prompt.yaml', 'glossary_extraction_prompt.yml',
     }
-    if file.filename in SYSTEM_PROMPT_FILES:
+    if filename in SYSTEM_PROMPT_FILES:
         raise HTTPException(403, detail="Cannot overwrite system prompt files")
-    
-    dict_dir = os.path.join(BASE_PATH, 'dict')
-    os.makedirs(dict_dir, exist_ok=True)
-    
-    file_path = os.path.join(dict_dir, file.filename)
+
+    PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    file_path = _resolve_managed_path(PROMPTS_DIR, filename)
     with open(file_path, 'wb') as f:
         content = await file.read()
         f.write(content)
-    
-    return {"success": True, "filename": file.filename}
+
+    return {"success": True, "filename": filename}
 
 
 @router.get("/prompts")
@@ -161,7 +150,7 @@ async def get_prompt(
     session: Session = Depends(require_admin)
 ):
     """Get prompt file content (admin only)"""
-    file_path = _resolve_prompt_path(filename)
+    file_path = _resolve_managed_path(PROMPTS_DIR, filename)
 
     if not file_path.exists():
         raise HTTPException(404, detail="Prompt file not found")
@@ -182,10 +171,6 @@ async def delete_prompt(
     if not admin_settings.get('permissions', {}).get('can_delete_prompts', True):
         raise HTTPException(403, detail="Prompt deletion is disabled")
     
-    # 防止路径遍历攻击
-    if '..' in filename or '/' in filename or '\\' in filename:
-        raise HTTPException(400, detail="Invalid filename")
-    
     # Prohibit deleting system prompts
     SYSTEM_PROMPT_BASES = {
         'system_prompt_hq', 'system_prompt_hq_format', 'system_prompt_line_break', 'glossary_extraction_prompt',
@@ -194,7 +179,7 @@ async def delete_prompt(
     if name_without_ext in SYSTEM_PROMPT_BASES:
         raise HTTPException(403, detail="Cannot delete system prompt files")
 
-    file_path = _resolve_prompt_path(filename)
+    file_path = _resolve_managed_path(PROMPTS_DIR, filename)
 
     if not file_path.exists():
         raise HTTPException(404, detail="Prompt file not found")

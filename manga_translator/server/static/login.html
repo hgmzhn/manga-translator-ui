@@ -579,6 +579,10 @@
             el.classList.add('show');
         }
 
+        function getSafeRedirectUrl() {
+            return new URLSearchParams(window.location.search).get('redirect') === '/admin' ? '/admin' : '/';
+        }
+
         // 初始设置处理
         async function handleSetup(event) {
             event.preventDefault();
@@ -610,7 +614,7 @@
                     localStorage.setItem('user_info', JSON.stringify(data.user));
                     showSuccess('管理员账户创建成功，正在跳转...');
                     setTimeout(() => {
-                        window.location.href = new URLSearchParams(window.location.search).get('redirect') || '/';
+                        window.location.href = getSafeRedirectUrl();
                     }, 1000);
                 } else {
                     showError(data.detail || data.message || '创建失败');
@@ -702,7 +706,7 @@
                     localStorage.setItem('user_info', JSON.stringify(data.user));
                     showSuccess('注册成功，正在跳转...');
                     setTimeout(() => {
-                        window.location.href = new URLSearchParams(window.location.search).get('redirect') || '/';
+                        window.location.href = getSafeRedirectUrl();
                     }, 1000);
                 } else {
                     showError(data.detail || data.message || '注册失败');
@@ -775,8 +779,7 @@
         function saveTokenAndRedirect() {
             localStorage.setItem('session_token', tempToken);
             localStorage.setItem('user_info', JSON.stringify(tempUser));
-            const redirectUrl = new URLSearchParams(window.location.search).get('redirect') || '/';
-            window.location.href = redirectUrl;
+            window.location.href = getSafeRedirectUrl();
         }
 
         function checkExistingSession() {
@@ -788,8 +791,7 @@
                 .then(res => res.json())
                 .then(data => {
                     if (data.valid) {
-                        const redirectUrl = new URLSearchParams(window.location.search).get('redirect') || '/';
-                        window.location.href = redirectUrl;
+                        window.location.href = getSafeRedirectUrl();
                     }
                 })
                 .catch(e => console.error('Session check error:', e));

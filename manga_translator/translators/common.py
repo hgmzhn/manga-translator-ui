@@ -3227,7 +3227,7 @@ def parse_hq_response(result_text: str) -> Tuple[List[str], List[Dict[str, str]]
     logger.warning("JSON parsing failed, falling back to Regex extraction")
     
     # 3.1 尝试提取带ID的对象: {"id": 1, "translation": "..."}
-    object_pattern = r'\{\s*"id"\s*:\s*(\d+)\s*,\s*"translation"\s*:\s*"([^"]*(?:\\.[^"]*)*)"\s*\}'
+    object_pattern = r'\{\s*"id"\s*:\s*(\d+)\s*,\s*"translation"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}'
     matches = re.findall(object_pattern, result_text)
     
     if matches:
@@ -3245,7 +3245,7 @@ def parse_hq_response(result_text: str) -> Tuple[List[str], List[Dict[str, str]]
         return translations, new_terms
 
     # 3.2 尝试只提取 translation 字段
-    translation_pattern = r'"translation"\s*:\s*"([^"]*(?:\\.[^"]*)*)"'
+    translation_pattern = r'"translation"\s*:\s*"((?:[^"\\]|\\.)*)"'
     matches = re.findall(translation_pattern, result_text)
     if matches:
          logger.warning(f"Regex extracted {len(matches)} translations (no IDs)")

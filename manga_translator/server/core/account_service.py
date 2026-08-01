@@ -332,7 +332,7 @@ class AccountService:
             
             logger.warning(
                 f"Created default admin account - "
-                f"Username: {username}, Password: {password} "
+                f"Username: {username} "
                 f"(PLEASE CHANGE THIS PASSWORD IMMEDIATELY!)"
             )
             return admin

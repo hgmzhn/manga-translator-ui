@@ -36,7 +36,7 @@ dependencies = [
     "kornia==0.8.1",
     "langcodes==3.5.0",
     "loguru==0.7.3",
-    "matplotlib==3.10.5",
+    "matplotlib==3.11.1",
     "networkx==3.5",
     "omegaconf==2.3.0",
     "openai==2.14.0",
@@ -182,6 +182,23 @@ pydensecrf = [
 [[tool.uv.dependency-metadata]]
 name = "pydensecrf"
 requires-dist = []
+
+# HanLP 仍依赖已弃用的 pynvml 兼容包；nvidia-ml-py 提供同名模块，
+# 可直接替代且不会在导入时产生弃用警告。
+[[tool.uv.dependency-metadata]]
+name = "hanlp"
+version = "2.1.3"
+requires-dist = [
+    "hanlp-common>=0.0.23",
+    "hanlp-downloader",
+    "hanlp-trie>=0.0.4",
+    "nvidia-ml-py>=12.0.0",
+    "sentencepiece>=0.1.91",
+    "termcolor",
+    "toposort==1.5",
+    "torch>=1.6.0",
+    "transformers>=4.1.1",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

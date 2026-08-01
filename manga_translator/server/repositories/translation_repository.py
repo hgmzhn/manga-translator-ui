@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from manga_translator.server.core.download_ticket_service import resolve_path_within
 from manga_translator.server.models import TranslationResult
 
 
@@ -68,7 +69,7 @@ class TranslationRepository:
         """获取用户的历史文件路径"""
         # 使用安全的文件名
         safe_name = "".join(c if c.isalnum() or c in '-_' else '_' for c in user_id)
-        return self.base_dir / f'{safe_name}.json'
+        return resolve_path_within(self.base_dir, self.base_dir / f'{safe_name}.json')
     
     def _read_user_data(self, user_id: str) -> Dict[str, Any]:
         """读取用户数据"""

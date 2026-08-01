@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import hmac
 import re
+import secrets
 import threading
 import time
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ _INDEXED_ENV_RE = re.compile(r"^(?P<base>.+)_(?P<index>[1-9]\d*)$")
 _STATUS_LOCK = threading.RLock()
 _API_STATUS: dict[str, dict[str, Any]] = {}
 _ROUND_ROBIN_CURSORS: dict[str, int] = {}
+_STATUS_KEY_SECRET = secrets.token_bytes(32)
 
 T = TypeVar("T")
 
@@ -139,7 +141,7 @@ def make_endpoint_status_key(
 ) -> str:
     api_key_text = str(api_key or "").strip()
     api_key_fingerprint = (
-        hashlib.sha256(api_key_text.encode("utf-8")).hexdigest()[:12]
+        hmac.digest(_STATUS_KEY_SECRET, api_key_text.encode("utf-8"), "sha256").hex()[:12]
         if api_key_text
         else "no-key"
     )

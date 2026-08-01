@@ -140,7 +140,6 @@ class SystemInitializer:
                 logger.warning("DEFAULT ADMIN ACCOUNT CREATED")
                 logger.warning("=" * 60)
                 logger.warning(f"Username: {default_username}")
-                logger.warning(f"Password: {default_password}")
                 logger.warning("=" * 60)
                 logger.warning("PLEASE CHANGE THIS PASSWORD IMMEDIATELY!")
                 logger.warning("=" * 60)

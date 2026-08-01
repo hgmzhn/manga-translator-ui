@@ -7,6 +7,16 @@ from threading import Lock
 from typing import Dict, Optional
 
 
+def resolve_path_within(root: str | Path, path: str | Path) -> Path:
+    """Resolve *path* and reject anything outside *root*."""
+    root_path = os.path.normcase(os.path.realpath(os.fspath(root)))
+    file_path = os.path.normcase(os.path.realpath(os.fspath(path)))
+    root_prefix = root_path if root_path.endswith(os.sep) else root_path + os.sep
+    if not file_path.startswith(root_prefix):
+        raise ValueError(f"Path is outside the allowed directory: {path}")
+    return Path(file_path)
+
+
 @dataclass
 class DownloadTicket:
     token: str
@@ -27,12 +37,14 @@ class DownloadTicketService:
     def issue_ticket(
         self,
         path: str | Path,
+        *,
+        allowed_root: str | Path,
         filename: Optional[str] = None,
         media_type: str = "application/octet-stream",
         ttl: Optional[timedelta] = None,
         delete_on_cleanup: bool = False,
     ) -> DownloadTicket:
-        file_path = Path(path).resolve()
+        file_path = resolve_path_within(allowed_root, path)
         if not file_path.exists() or not file_path.is_file():
             raise FileNotFoundError(f"Download source does not exist: {file_path}")
 

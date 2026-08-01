@@ -10,7 +10,6 @@ from base64 import b64decode
 from contextlib import asynccontextmanager
 from typing import Union
 
-import requests
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from PIL import Image
@@ -124,15 +123,17 @@ async def to_pil_image(image: Union[str, bytes, Image.Image]) -> Image.Image:
         else:
             if re.match(r'^data:image/.+;base64,', image):
                 value = image.split(',', 1)[1]
-                image_data = b64decode(value)
+                image_data = b64decode(value, validate=True)
                 image = open_pil_image(io.BytesIO(image_data), eager=False)
                 return image
-            else:
-                response = requests.get(image)
-                image = open_pil_image(io.BytesIO(response.content), eager=False)
-                return image
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=str(e))
+            raise HTTPException(
+                status_code=422,
+                detail="Image must be uploaded as bytes or a base64 data URI",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid image data")
 
 
 def _run_translate_sync(pil_image, config: Config, task_id: str = None, cancel_check_callback=None):
@@ -578,11 +579,8 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                     
                     yield pack_message(1, json.dumps({"stage": "translate_done", "message": "Processing result..."}, ensure_ascii=False).encode('utf-8'))
                 except Exception as translate_error:
-                    error_msg = f"Translation failed: {str(translate_error)}"
-                    print(f"[STREAMING ERROR] {error_msg}")
-                    import traceback
-                    traceback.print_exc()
-                    yield pack_message(2, json.dumps({"error": error_msg, "stage": "translate"}, ensure_ascii=False).encode('utf-8'))
+                    print(f"[STREAMING ERROR] Translation failed: {type(translate_error).__name__}")
+                    yield pack_message(2, json.dumps({"error": "Translation failed", "stage": "translate"}, ensure_ascii=False).encode('utf-8'))
                     return
             
             has_result = ctx.result is not None if hasattr(ctx, 'result') else False
@@ -618,11 +616,8 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                 
                 yield pack_message(1, json.dumps({"stage": "complete", "message": "Done!"}, ensure_ascii=False).encode('utf-8'))
             except Exception as transform_error:
-                error_msg = f"Transform failed: {type(transform_error).__name__}: {str(transform_error)}"
-                print(f"[STREAMING ERROR] {error_msg}")
-                import traceback
-                traceback.print_exc()
-                yield pack_message(2, json.dumps({"error": error_msg, "stage": "transform"}, ensure_ascii=False).encode('utf-8'))
+                print(f"[STREAMING ERROR] Transform failed: {type(transform_error).__name__}")
+                yield pack_message(2, json.dumps({"error": "Transform failed", "stage": "transform"}, ensure_ascii=False).encode('utf-8'))
                 return
             
         except asyncio.CancelledError:
@@ -632,12 +627,9 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
             except Exception:
                 pass
         except Exception as e:
-            error_msg = f"Translation failed: {type(e).__name__}: {str(e)}"
-            print(f"[STREAMING ERROR] {error_msg}")
-            import traceback
-            traceback.print_exc()
+            print(f"[STREAMING ERROR] Translation failed: {type(e).__name__}")
             try:
-                yield pack_message(2, json.dumps({"error": error_msg, "stage": "unknown"}, ensure_ascii=False).encode('utf-8'))
+                yield pack_message(2, json.dumps({"error": "Translation failed", "stage": "unknown"}, ensure_ascii=False).encode('utf-8'))
             except Exception:
                 pass
         finally:
@@ -946,9 +938,7 @@ async def save_translation_to_history(ctx, username: str, task_id: str, workflow
         add_log(f"Translation saved to history successfully, session: {task_id[:8]}", "INFO")
         
     except Exception as e:
-        import traceback
-        add_log(f"Failed to save translation to history: {e}", "ERROR")
-        add_log(f"Traceback: {traceback.format_exc()}", "DEBUG")
+        add_log(f"Failed to save translation to history ({type(e).__name__})", "ERROR")
     finally:
         # 清理临时目录
         try:

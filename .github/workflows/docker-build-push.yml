@@ -15,6 +15,10 @@ on:
           - 'true'
           - 'false'
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   # Docker Hub 用户名（硬编码）
   DOCKERHUB_USERNAME: hgmzhn

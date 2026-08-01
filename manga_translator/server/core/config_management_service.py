@@ -199,7 +199,16 @@ class ConfigManagementService:
             True if successful, False otherwise
         """
         try:
-            if not os.path.exists(backup_path):
+            backup_dir = os.path.realpath(SERVER_DATA_DIR / "backups")
+            resolved_backup_path = os.path.realpath(backup_path)
+            if not resolved_backup_path.startswith(backup_dir + os.sep):
+                logger.error(f"Invalid backup path: {backup_path}")
+                return False
+            if (
+                os.path.dirname(resolved_backup_path) != backup_dir
+                or not os.path.basename(resolved_backup_path).startswith(".env.backup.")
+                or not os.path.isfile(resolved_backup_path)
+            ):
                 logger.error(f"Backup file not found: {backup_path}")
                 return False
             
@@ -208,12 +217,12 @@ class ConfigManagementService:
             logger.info(f"Created backup of current state: {current_backup}")
             
             # Restore from backup
-            shutil.copy2(backup_path, self.env_file)
+            shutil.copy2(resolved_backup_path, self.env_file)
             
             # Reload environment variables
             self.env_service.reload_env()
             
-            logger.info(f"Restored .env from backup {backup_path} by admin {admin_id}")
+            logger.info(f"Restored .env from backup {resolved_backup_path} by admin {admin_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to restore from backup: {e}")
