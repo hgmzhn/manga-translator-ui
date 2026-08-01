@@ -911,12 +911,17 @@ def _rich_vertical_tcy_layer_x(body_left: float, thickness: float, item: TcyPlan
 
 
 def _rich_vertical_char_layer_x(body_left: float, thickness: float, item: VerticalCharPlan) -> float:
+    # 自由旋转字符按墨迹居中（对齐 BallonsTranslator）：旋转绕图层中心，
+    # advance box 居中会把标点的 side bearing 偏心带进横向，墨迹居中不会。
     char_x = _vertical_char_bitmap_x(
         body_left,
         thickness,
         item.base,
         item.font_size,
-        ink_center=item.span.style.vertical_advance is not None,
+        ink_center=(
+            item.span.style.vertical_advance is not None
+            or bool(item.span.style.transform.rotation)
+        ),
     )
     return char_x + item.span.style.transform.offset_x * item.font_size / 100.0 + item.paint_offset_x
 
