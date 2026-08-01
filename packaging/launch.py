@@ -56,18 +56,18 @@ PYTORCH_INDEX_FALLBACKS = {
         "https://mirror.sjtu.edu.cn/pytorch-wheels/cpu/",
         "https://mirrors.aliyun.com/pytorch-wheels/cpu/",
     ],
-    "https://download.pytorch.org/whl/cu128": [
-        "https://mirrors.aliyun.com/pytorch-wheels/cu128/",
+    "https://download.pytorch.org/whl/cu130": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
     ],
 }
 
 # 对部分 PyTorch 源使用自定义尝试顺序。
-# 例如 cu128 优先走国内镜像，失败后再回退官方源。
+# 例如 cu130 优先走国内镜像，失败后再回退官方源。
 PYTORCH_INDEX_PRIORITY = {
-    "https://download.pytorch.org/whl/cu128": [
-        "https://mirrors.aliyun.com/pytorch-wheels/cu128/",
-        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/",
-        "https://download.pytorch.org/whl/cu128",
+    "https://download.pytorch.org/whl/cu130": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
+        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu130/",
+        "https://download.pytorch.org/whl/cu130",
     ],
 }
 
@@ -1020,7 +1020,7 @@ def detect_amd_gfx_version(gpu_name):
     
     gpu_name_upper = gpu_name.upper()
     
-    # AMD 显卡型号到 gfx 版本的映射（Windows ROCm 7.2 + PyTorch 支持列表）
+    # AMD 显卡型号到 gfx 版本的映射（Windows ROCm 7.2.1 + PyTorch 支持列表）
     amd_gpu_mapping = {
         # CDNA 数据中心系列 - 支持
         'gfx94X-dcgpu': {
@@ -1109,7 +1109,7 @@ def print_supported_amd_gpu_types():
     print('  - RX 7900 XTX / RX 7800 XT / RX 7700S (Framework Laptop 16) (gfx110X-dgpu)')
     print('  - AMD Strix Halo iGPU (gfx1151)')
     print('  - RX 9060 / RX 9060 XT / RX 9070 / RX 9070 XT (gfx120X-all)')
-    print('  ⚠️  Windows 版 ROCm 7.2 PyTorch 需要 AMD 显卡驱动 26.1.1')
+    print('  ⚠️  Windows 版 ROCm 7.2.1 PyTorch 需要 AMD 显卡驱动 26.2.2')
 
 
 def choose_when_amd_unsupported():
@@ -1383,11 +1383,11 @@ except:
             
             # 检查 CUDA 版本
             if cuda_major is not None:
-                if cuda_major < 12:
-                    print('⚠️  警告: 检测到 CUDA 版本低于 12')
+                if cuda_major < 13:
+                    print('⚠️  警告: 检测到 CUDA 版本低于 13')
                     print(f'   当前 CUDA 版本: {cuda_version}')
-                    print(f'   GPU 版本需要: CUDA 12.x')
-                    print(f'   驱动版本要求: >= 525.60.13')
+                    print(f'   GPU 版本需要: CUDA 13.x')
+                    print(f'   驱动需支持 CUDA 13.0')
                     print('')
                     print('您的 CUDA 版本过低，无法使用 GPU 版本。')
                     print('请选择:')
@@ -1411,8 +1411,8 @@ except:
                 else:
                     # CUDA 版本符合要求
                     print('GPU 版本需要:')
-                    print('  - NVIDIA 显卡支持 CUDA 12.x')
-                    print('  - 显卡驱动版本 >= 525.60.13')
+                    print('  - NVIDIA 显卡支持 CUDA 13.x')
+                    print('  - 显卡驱动需支持 CUDA 13.0')
                     print('')
                     print(f'✓ 您的 CUDA 版本 {cuda_version} 符合要求')
                     print('')
@@ -1436,8 +1436,8 @@ except:
                 print('⚠️  无法检测 CUDA 版本 (可能未安装 nvidia-smi)')
                 print('')
                 print('GPU 版本需要:')
-                print('  - NVIDIA 显卡支持 CUDA 12.x')
-                print('  - 显卡驱动版本 >= 525.60.13')
+                print('  - NVIDIA 显卡支持 CUDA 13.x')
+                print('  - 显卡驱动需支持 CUDA 13.0')
                 print('')
                 print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
                 print('')
@@ -1477,7 +1477,7 @@ except:
             print('AMD GPU 支持选项:')
             print('  [1] AMD ROCm GPU 版本 (实验性,需要兼容的 AMD 显卡)')
             print('  [2] CPU 版本 (推荐,兼容性好)')
-            print('  ⚠️ Windows 版 ROCm 7.2 PyTorch 需要 AMD 显卡驱动 26.1.1')
+            print('  ⚠️ Windows 版 ROCm 7.2.1 PyTorch 需要 AMD 显卡驱动 26.2.2')
             print('')
             
             if detected_gfx and has_torch:
@@ -1694,23 +1694,23 @@ except:
         print('=' * 50)
         if amd_gfx_version:
             print(f'gfx 版本: {amd_gfx_version}')
-        print('模式: ROCm SDK 7.2 固定 URL 安装')
-        print('⚠️  前置要求: Windows 版 ROCm 7.2 PyTorch 必须安装 AMD 显卡驱动 26.1.1')
+        print('模式: ROCm SDK 7.2.1 固定 URL 安装')
+        print('⚠️  前置要求: Windows 版 ROCm 7.2.1 PyTorch 必须安装 AMD 显卡驱动 26.2.2')
         print('')
 
         # 第1步：先安装 ROCm SDK 依赖
         rocm_sdk_urls = [
-            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_core-7.2.0.dev0-py3-none-win_amd64.whl",
-            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_devel-7.2.0.dev0-py3-none-win_amd64.whl",
-            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_libraries_custom-7.2.0.dev0-py3-none-win_amd64.whl",
-            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm-7.2.0.dev0.tar.gz",
+            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl",
+            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl",
+            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl",
+            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm-7.2.1.tar.gz",
         ]
 
         # 第2步：再安装 PyTorch 三件套
         rocm_torch_urls = [
-            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torch-2.9.1%2Brocmsdk20260116-cp312-cp312-win_amd64.whl",
-            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torchaudio-2.9.1%2Brocmsdk20260116-cp312-cp312-win_amd64.whl",
-            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torchvision-0.24.1%2Brocmsdk20260116-cp312-cp312-win_amd64.whl",
+            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl",
+            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchaudio-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl",
+            "https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchvision-0.24.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl",
         ]
 
         sdk_urls_str = " ".join([f'"{u}"' for u in rocm_sdk_urls])

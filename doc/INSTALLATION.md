@@ -29,7 +29,7 @@
 
 - **内存**：16 GB RAM 或更多
 - **GPU**：
-  - **NVIDIA 显卡**：支持 CUDA 12.x（需驱动版本 >= 525.60.13）
+  - **NVIDIA 显卡**：支持 CUDA 13.x（驱动需支持 CUDA 13.0）
     - 建议显存：6 GB 或更多
     - 支持的 NVIDIA 显卡：GTX 1060 及以上
   - **AMD 显卡**：支持 ROCm（实验性）
@@ -69,7 +69,7 @@
 2. **强制同步最新代码**：同步失败会提示切换到另一条线路重试
 3. **检测显卡**：自动识别 NVIDIA / AMD / 集显；多显卡时列出让用户选择
 4. **选择 PyTorch 版本**：
-   - **NVIDIA**：CUDA 12.x（需驱动版本 >= 525.60.13）
+   - **NVIDIA**：CUDA 13.x（驱动需支持 CUDA 13.0）
    - **AMD**：ROCm（实验性，**仅 RX 7000/9000 系列**）
    - **其他/集显**：CPU 版本
 5. **uv 高速批量安装依赖**：
@@ -132,7 +132,7 @@
 **GPU 版本**：
 - 文件名：`manga-translator-gpu-vX.X.X.zip` 或分卷文件
 - 适用范围：拥有 NVIDIA 显卡的电脑
-- 要求：CUDA 12.x 支持
+- 要求：CUDA 13.x 支持
 - 优点：翻译速度快
 - 缺点：需要兼容的 NVIDIA 显卡
 
@@ -197,7 +197,7 @@ cd manga-translator-ui
 依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 dependency groups），使用 [uv](https://docs.astral.sh/uv/) 安装。下面四种后端只选一种：
 
 ```bash
-# NVIDIA GPU（CUDA 12.8，默认；同时安装 packaging 组）
+# NVIDIA GPU（CUDA 13.0，默认；同时安装 packaging 组）
 uv sync
 
 # CPU 版本
@@ -629,7 +629,7 @@ A: 运行 `./macOS_4_更新维护.sh`，选择"完整更新"即可。
 **问题**：GPU 版本运行时崩溃或报错
 
 **解决方法**：
-1. 确认显卡支持 CUDA 12.x
+1. 确认显卡支持 CUDA 13.x
 2. 安装或更新 NVIDIA 显卡驱动
 3. 下载并安装 [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads)
 4. 如果仍然失败，使用 CPU 版本

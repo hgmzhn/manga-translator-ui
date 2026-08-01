@@ -21,8 +21,8 @@ Dependencies are now declared in `pyproject.toml` at the repository root:
 
 - Common dependencies live in `[project] dependencies`.
 - The four backends are mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
-- The default groups are `gpu` + `packaging`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 12.8 and keeps PyInstaller installed.
-- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu128`, `metal` uses the default PyPI; the ROCm torch for `amd` is installed separately from `repo.radeon.com` by `packaging/launch.py`.
+- The default groups are `gpu` + `packaging`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 13.0 and keeps PyInstaller installed.
+- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu130`, `metal` uses the default PyPI; the ROCm torch for `amd` is installed separately from `repo.radeon.com` by `packaging/launch.py`.
 - `uv.lock` is the lockfile. It is committed to the repository; do not edit it by hand.
 
 The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` files have been removed.
@@ -32,7 +32,7 @@ The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt`
 uv is recommended. Install only one dependency group for the target runtime:
 
 ```bash
-# NVIDIA GPU (CUDA 12.8, default)
+# NVIDIA GPU (CUDA 13.0, default)
 uv sync
 
 # For other backends, disable the defaults and select one group

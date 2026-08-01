@@ -31,7 +31,7 @@ This document provides detailed installation steps, system requirements, first-r
 
 - **Memory**: 16 GB RAM or more
 - **GPU**:
-  - **NVIDIA GPU**: CUDA 12.x compatible, driver `>= 525.60.13`
+  - **NVIDIA GPU**: CUDA 13.x compatible, with a driver that supports CUDA 13.0
     - Recommended VRAM: 6 GB or more
     - Typical supported class: GTX 1060 and above
   - **AMD GPU**: ROCm support is experimental
@@ -71,7 +71,7 @@ Double-click `Win-Install-or-Update.bat` and choose **[1] Install** in the maint
 2. **Force-sync the latest code**: if the sync fails, you are prompted to retry with the other route
 3. **GPU detection**: automatically detects NVIDIA / AMD / integrated graphics; with multiple GPUs you get a list to pick from
 4. **Choose a PyTorch build**:
-   - **NVIDIA**: CUDA 12.x (driver `>= 525.60.13` required)
+   - **NVIDIA**: CUDA 13.x (driver must support CUDA 13.0)
    - **AMD**: ROCm, experimental, **RX 7000 / 9000 series only**
    - **Other / integrated graphics**: CPU build
 5. **Fast batch dependency install with uv**:
@@ -134,7 +134,7 @@ Go to [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases).
 
 - Filename pattern: `manga-translator-gpu-vX.X.X.zip` or split archives
 - For NVIDIA GPUs
-- Requires CUDA 12.x support
+- Requires CUDA 13.x support
 - Faster, but needs compatible hardware
 
 ### 3. Split archive notes
@@ -192,7 +192,7 @@ cd manga-translator-ui
 Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal`). Install one backend with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-# NVIDIA GPU (CUDA 12.8, default; also installs the packaging group)
+# NVIDIA GPU (CUDA 13.0, default; also installs the packaging group)
 uv sync
 
 # CPU
@@ -589,7 +589,7 @@ If you want to fine-tune the result later, open it in `Editor View`.
 
 **Try this**
 
-1. Confirm the GPU supports CUDA 12.x
+1. Confirm the GPU supports CUDA 13.x
 2. Update the NVIDIA driver
 3. If the issue is ONNX-specific, open `Settings` -> `General` and enable `Disable ONNX GPU Acceleration`
 4. If the machine is not compatible, switch to the CPU build

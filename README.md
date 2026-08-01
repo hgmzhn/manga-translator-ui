@@ -106,7 +106,7 @@
      - ✓ 同步最新代码
      - ✓ 检测显卡类型（NVIDIA / AMD / 集显）
      - ✓ 自动选择对应的 PyTorch 版本
-       - NVIDIA: CUDA 12.x 版本（需驱动 >= 525.60.13）
+       - NVIDIA: CUDA 13.x 版本（驱动需支持 CUDA 13.0）
        - AMD: ROCm 版本（实验性支持，**仅支持 RX 7000/9000 系列**，RX 5000/6000 请使用 CPU 版本）
        - 其他: CPU 版本（通用，速度较慢）
      - ✓ 使用 uv 高速批量安装所有依赖（支持多镜像源回退）
@@ -126,7 +126,7 @@
    - 前往 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases)
    - 选择版本：
      - **CPU 版本**：适用于所有电脑
-     - **GPU 版本 (NVIDIA)**：需要支持 CUDA 12.x 的 NVIDIA 显卡
+     - **GPU 版本 (NVIDIA)**：需要支持 CUDA 13.x 的 NVIDIA 显卡
      - ⚠️ **AMD GPU 不支持打包版本**，请使用"方式一：安装脚本"安装
 
 2. **解压运行**：
@@ -186,7 +186,7 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
    ```bash
    python -m pip install uv
 
-   # NVIDIA GPU（CUDA 12.8，默认）
+   # NVIDIA GPU（CUDA 13.0，默认）
    uv sync
 
    # CPU 版本（与上面的 GPU 命令二选一）

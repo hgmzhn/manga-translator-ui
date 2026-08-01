@@ -108,7 +108,7 @@ The English companion versions of the documents below are being added one by one
      - ✓ Sync the latest code
      - ✓ Detect your GPU type: NVIDIA, AMD, or integrated graphics
      - ✓ Automatically choose the matching PyTorch build
-       - NVIDIA: CUDA 12.x build, requires driver `>= 525.60.13`
+       - NVIDIA: CUDA 13.x build, with a driver that supports CUDA 13.0
        - AMD: ROCm build, experimental, **RX 7000 / 9000 only**. RX 5000 / 6000 should use the CPU build
        - Others: CPU build, slower but widely compatible
      - ✓ Install all dependencies with uv (fast batch install with mirror fallback)
@@ -128,7 +128,7 @@ The English companion versions of the documents below are being added one by one
    - Open [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases)
    - Choose a package:
      - **CPU build**: works on all computers
-     - **GPU build (NVIDIA)**: requires an NVIDIA GPU with CUDA 12.x support
+     - **GPU build (NVIDIA)**: requires an NVIDIA GPU with CUDA 13.x support
      - ⚠️ **AMD GPU is not supported in the packaged release**, please use Method 1 instead
 
 2. **Extract and run**
@@ -194,7 +194,7 @@ Best for developers or users who want full customization.
    ```bash
    python -m pip install uv
 
-   # NVIDIA GPU (CUDA 12.8, default)
+   # NVIDIA GPU (CUDA 13.0, default)
    uv sync
 
    # CPU build (choose this instead of the GPU command above)
