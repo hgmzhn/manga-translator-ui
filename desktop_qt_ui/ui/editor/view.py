@@ -338,7 +338,7 @@ class EditorView(QWidget):
 
         # --- 查找和替换 ---
         replace_widget = SimpleCardWidget(translation_widget)
-        replace_layout = QHBoxLayout(replace_widget)
+        replace_layout = QVBoxLayout(replace_widget)
         replace_layout.setContentsMargins(8, 8, 8, 8)
         replace_layout.setSpacing(6)
         self.find_input = LineEdit()
