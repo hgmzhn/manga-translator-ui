@@ -1758,7 +1758,51 @@ except:
             run_pip_requirements(requirements_file, f"{requirements_file} 方案依赖")
     else:
         print(f'依赖已满足 ✓')
-    
+
+    # 清理残留的 torchaudio（依赖方案中已不包含它；旧版本残留会因 ABI 不匹配
+    # 导致 transformers 导入时加载 libtorchaudio.pyd 失败，OCR 报错）
+    # AMD ROCm 方案的 torchaudio 是配套安装的，不清理
+    if not use_amd_pytorch:
+        try:
+            result = subprocess.run(f'"{python}" -m pip show torchaudio', shell=True,
+                                    capture_output=True, text=True)
+            if result.returncode == 0:
+                print('检测到残留的 torchaudio，正在卸载...')
+                run(f'"{python}" -m pip uninstall torchaudio -y', "卸载残留 torchaudio", "无法卸载 torchaudio")
+        except Exception:
+            pass
+
+    # uv 精确同步：按 uv.lock 卸掉清单之外的残留包（上面的 pip 安装路径只装不卸）
+    # 仅限仓库自带环境（便携 Python / venv）；conda 旧环境只做上面的特例清理；
+    # AMD 的 ROCm PyTorch 是固定 URL 单独安装、不在 lock 中，精确同步会把它卸掉，跳过
+    env_root = Path(python).parent
+    if env_root.name.lower() == 'scripts':
+        env_root = env_root.parent
+    uv = find_uv()
+    if (not use_amd_pytorch and uv and not skip_install
+            and PATH_ROOT in env_root.parents):
+        try:
+            # pip/uv 等自举工具不在 lock 中，同步时保留（只保留已安装的）
+            import importlib.metadata as _md
+            keep = []
+            for _tool in ('pip', 'setuptools', 'wheel', 'uv'):
+                try:
+                    _md.version(_tool)
+                    keep.append(_tool)
+                except _md.PackageNotFoundError:
+                    pass
+            req_file = PATH_ROOT / 'packaging' / 'sync_requirements.txt'
+            run(f'{uv} export --frozen --no-hashes --emit-index-url --no-default-groups '
+                f'--group {requirements_file} --project "{PATH_ROOT}" -o "{req_file}"',
+                "导出依赖清单", "导出依赖清单失败")
+            if keep:
+                with open(req_file, 'a', encoding='utf-8') as f:
+                    f.write('\n' + '\n'.join(keep) + '\n')
+            run(f'{uv} pip sync --python "{python}" "{req_file}"',
+                "同步依赖环境（清理多余包）", "依赖同步失败", live=True)
+        except Exception as e:
+            print(f'[警告] uv 精确同步失败（不影响使用）: {e}')
+
     # 自动设置 AMD APU 越狱环境变量 (HSA Override)
     if use_amd_pytorch:
         target_gfx = amd_gfx_version
