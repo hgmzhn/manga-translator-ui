@@ -133,6 +133,10 @@ class EditorControllerExportService:
             paint_snapshot = self._snapshot_overlay(self.model.get_paint_overlay_image())
             stamp_snapshot = self._snapshot_overlay(self.model.get_stamp_overlay_image())
             inpainted_base = self.model.get_inpainted_image()
+            if inpainted_base is None:
+                # 没有修复图时导出仍以底图充当修复图：既写出 _inpainted.jpg，
+                # 也让后端 load_text 跳过自己的修复步骤，行为与历史一致。
+                inpainted_base = image
             inpainted_snapshot = self.controller._snapshot_image_for_export(
                 inpainted_base,
                 "inpainted image",

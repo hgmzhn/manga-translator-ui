@@ -62,17 +62,6 @@ class EditorSession:
             mask_np = mask_np[:, :, 0]
         return np.where(mask_np > 0, 255, 0).astype(np.uint8)
 
-    @staticmethod
-    def _close_if_detached(image: Any, *, protected: tuple[Any, ...] = ()) -> None:
-        if image is None or any(image is item for item in protected):
-            return
-        close = getattr(image, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:
-                pass
-
     def _bump_document_revision(self) -> None:
         self._document_revision += 1
 
@@ -86,12 +75,8 @@ class EditorSession:
         return self._source_image_path
 
     def set_image(self, image: Any) -> None:
-        protected = tuple(
-            item
-            for item in (*self.resource_manager.get_managed_images(), image)
-            if item is not None
-        )
-        self._close_if_detached(self._image, protected=protected)
+        # 图以 eager 方式打开，不持有文件句柄，也可能同时被 ResourceManager
+        # 缓存和导出快照持有，因此换图时只丢引用，不做任何关闭判断。
         self._image = image
         self._bump_document_revision()
 
@@ -198,10 +183,7 @@ class EditorSession:
         return self.resource_manager.get_cache(INPAINTED_IMAGE_CACHE_KEY)
 
     def set_compare_image(self, image: Any) -> None:
-        protected = tuple(
-            item for item in (*self.resource_manager.get_managed_images(), self._image, image) if item is not None
-        )
-        self._close_if_detached(self._compare_image, protected=protected)
+        # 对照图可能就是底图本身（无独立原图时），同样只丢引用，不做关闭判断。
         self._compare_image = image
         self._bump_document_revision()
 

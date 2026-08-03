@@ -6,6 +6,7 @@
 import copy
 import logging
 import os
+import threading
 import time
 import weakref
 from typing import Any, Dict, List, Optional
@@ -106,7 +107,11 @@ class ResourceManager:
     def __init__(self):
         """初始化资源管理器"""
         self.logger = logging.getLogger(__name__)
-        
+
+        # 图片缓存与 current 会被预读线程、加载线程和主线程同时访问，
+        # 用可重入锁保护；解码（open_pil_image）一律放在锁外，只锁字典读写。
+        self._lock = threading.RLock()
+
         # 当前加载的资源
         self._current_image: Optional[ImageResource] = None
         self._masks: Dict[MaskType, MaskResource] = {}
@@ -124,43 +129,6 @@ class ResourceManager:
         self._weak_cache: Dict[str, weakref.ReferenceType[Any]] = {}
         self._export_cleanup_threshold_bytes = 2 * 1024 * 1024 * 1024
 
-    def _release_cached_value(self, value: Any) -> None:
-        """释放缓存中的大对象，避免等待 GC 才回收文件句柄和内存。"""
-        if value is None:
-            return
-
-        protected_images = [
-            resource.image
-            for resource in self._image_cache.values()
-            if resource is not None and getattr(resource, "image", None) is not None
-        ]
-        current_image = self._current_image.image if self._current_image is not None else None
-        if current_image is not None:
-            protected_images.append(current_image)
-
-        if isinstance(value, Image.Image):
-            if not any(value is image for image in protected_images):
-                try:
-                    value.close()
-                except Exception:
-                    pass
-            return
-
-        release = getattr(value, "release", None)
-        if callable(release):
-            try:
-                release()
-            except Exception:
-                pass
-            return
-
-        close = getattr(value, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:
-                pass
-    
     # ==================== 图片管理 ====================
 
     @staticmethod
@@ -179,15 +147,30 @@ class ResourceManager:
         """加载当前编辑底图资源，并更新 current_image。"""
         image_path = self._resolve_image_path(image_path)
 
-        if image_path in self._image_cache:
-            self.logger.debug(f"Image loaded from cache: {image_path}")
-            resource = self._image_cache[image_path]
-            self._current_image = resource
-            return resource
+        with self._lock:
+            cached = self._image_cache.get(image_path)
+            if cached is not None:
+                self.logger.debug(f"Image loaded from cache: {image_path}")
+                cached.touch()
+                self._current_image = cached
+                return cached
 
         try:
             self.logger.debug(f"Loading image: {image_path}")
-            image = open_pil_image(image_path, eager=False)
+            # 解码放在锁外：慢操作不该阻塞其他线程读缓存
+            image = open_pil_image(image_path, eager=True)
+        except Exception as e:
+            self.logger.error(f"Failed to load image {image_path}: {e}")
+            raise
+
+        with self._lock:
+            # 双检：解码期间可能已被别的线程（如预读）放进缓存
+            cached = self._image_cache.get(image_path)
+            if cached is not None:
+                cached.touch()
+                self._current_image = cached
+                return cached
+
             resource = ImageResource(
                 path=image_path,
                 image=image,
@@ -198,79 +181,93 @@ class ResourceManager:
             self._current_image = resource
             self.logger.debug(f"Image loaded successfully: {image_path} ({image.width}x{image.height})")
             return resource
-        except Exception as e:
-            self.logger.error(f"Failed to load image {image_path}: {e}")
-            raise
 
     def prefetch_image(self, image_path: str) -> ImageResource:
         """预读图片资源到 LRU，不切换 current_image。"""
         image_path = self._resolve_image_path(image_path)
 
-        if image_path in self._image_cache:
-            return self._image_cache[image_path]
+        with self._lock:
+            cached = self._image_cache.get(image_path)
+            if cached is not None:
+                return cached
 
-        image = open_pil_image(image_path, eager=False)
-        resource = ImageResource(
-            path=image_path,
-            image=image,
-            width=image.width,
-            height=image.height,
-        )
-        self._add_to_cache(image_path, resource)
-        return resource
+        image = open_pil_image(image_path, eager=True)
+
+        with self._lock:
+            cached = self._image_cache.get(image_path)
+            if cached is not None:
+                return cached
+
+            resource = ImageResource(
+                path=image_path,
+                image=image,
+                width=image.width,
+                height=image.height,
+            )
+            self._add_to_cache(image_path, resource)
+            return resource
 
     def load_detached_image(self, image_path: str) -> Image.Image:
         """加载辅助图片，不写入 current_image，也不污染缓存。"""
         image_path = self._resolve_image_path(image_path)
         self.logger.debug(f"Loading detached image: {image_path}")
-        return open_pil_image(image_path, eager=False)
-    
+        return open_pil_image(image_path, eager=True)
+
     def _add_to_cache(self, path: str, resource: ImageResource) -> None:
-        """添加图片到缓存
-        
+        """添加图片到缓存（调用方须持有 self._lock）
+
+        淘汰策略为真 LRU：按 last_access 取最久未访问者，且**永不淘汰当前页**——
+        当前页被淘汰会让 _current_image 与缓存失联，切回时还要重新解码。
+
         Args:
             path: 图片路径
             resource: 图片资源
         """
-        # 如果缓存已满，删除最旧的
         if len(self._image_cache) >= self._cache_limit:
-            # 按加载时间排序，删除最旧的
-            oldest_path = min(self._image_cache.items(), key=lambda x: x[1].load_time)[0]
-            old_resource = self._image_cache.pop(oldest_path)
-            old_resource.release()
-            self.logger.debug(f"Removed oldest image from cache: {oldest_path}")
-            
-            # 释放内存
-            pass
+            current = self._current_image
+            candidates = [
+                (cached_path, cached)
+                for cached_path, cached in self._image_cache.items()
+                if cached is not current and cached_path != path
+            ]
+            if candidates:
+                oldest_path = min(candidates, key=lambda item: item[1].last_access)[0]
+                old_resource = self._image_cache.pop(oldest_path)
+                old_resource.release()
+                self.logger.debug(f"Removed least recently used image from cache: {oldest_path}")
+            else:
+                # 极端情况：缓存里只剩当前页，宁可超限也不淘汰它
+                self.logger.debug("Cache eviction skipped: only the current image is cached")
+
         self._image_cache[path] = resource
     
     def release_image_from_cache(self, path: str) -> bool:
         """从缓存中释放指定图片
-        
+
         Args:
             path: 图片路径
-        
+
         Returns:
             bool: 是否成功释放
         """
         from pathlib import Path
-        
+
         # 规范化路径以匹配缓存中的键
         path = str(Path(path).resolve())
-        if path in self._image_cache:
-            resource = self._image_cache.pop(path)
+        with self._lock:
+            resource = self._image_cache.pop(path, None)
+            if resource is None:
+                return False
             resource.release()
-            pass
-            self.logger.debug(f"Released image from cache: {path}")
-            return True
-        return False
-    
+        self.logger.debug(f"Released image from cache: {path}")
+        return True
+
     def clear_image_cache(self) -> None:
         """清空所有图片缓存"""
-        for resource in self._image_cache.values():
-            resource.release()
-        self._image_cache.clear()
-        pass
+        with self._lock:
+            for resource in self._image_cache.values():
+                resource.release()
+            self._image_cache.clear()
         _release_gpu_memory()
         self.logger.info("Cleared all image cache")
 
@@ -279,64 +276,68 @@ class ResourceManager:
         if not force and _current_process_memory_bytes() < self._export_cleanup_threshold_bytes:
             return 0
 
-        current_path = self._current_image.path if self._current_image is not None else None
         removed = 0
+        with self._lock:
+            current = self._current_image
+            current_path = current.path if current is not None else None
 
-        for path in list(self._image_cache.keys()):
-            if path == current_path:
-                continue
-            resource = self._image_cache.pop(path, None)
-            if resource is not None:
-                resource.release()
-                removed += 1
+            for path in list(self._image_cache.keys()):
+                if path == current_path:
+                    continue
+                resource = self._image_cache.pop(path, None)
+                if resource is not None and resource is not current:
+                    resource.release()
+                    removed += 1
         return removed
-    
+
     def unload_image(self, release_from_cache: bool = False) -> None:
         """卸载当前图片及所有关联资源
-        
+
         Args:
             release_from_cache: 是否同时从缓存中释放该图片
         """
-        if self._current_image:
-            current_path = self._current_image.path
-            
-            # 如果需要从缓存中释放
-            if release_from_cache and current_path in self._image_cache:
-                resource = self._image_cache.pop(current_path)
-                resource.release()
-                self.logger.debug(f"Released image from cache: {current_path}")
-            
-            self._current_image = None
+        with self._lock:
+            if self._current_image:
+                current_path = self._current_image.path
+
+                # 如果需要从缓存中释放
+                if release_from_cache and current_path in self._image_cache:
+                    resource = self._image_cache.pop(current_path)
+                    resource.release()
+                    self.logger.debug(f"Released image from cache: {current_path}")
+
+                self._current_image = None
 
         if release_from_cache:
             self.clear_image_cache()
-        
+
         # 清空所有关联资源
         self.clear_masks()
         self.clear_regions()
         self.clear_cache()
         self.clear_weak_cache()
-        
-        # 强制垃圾回收
-        pass
+
         _release_gpu_memory()
-        
+
         self.logger.debug("Image unloaded and memory released")
-    
+
     def get_current_image(self) -> Optional[ImageResource]:
         """获取当前图片资源
-        
+
         Returns:
             Optional[ImageResource]: 当前图片资源，如果没有加载返回None
         """
-        return self._current_image
+        with self._lock:
+            return self._current_image
 
     def get_managed_images(self) -> List[Image.Image]:
         """返回当前资源管理器仍在持有的图像对象。"""
         images: List[Image.Image] = []
-        if self._current_image is not None and getattr(self._current_image, "image", None) is not None:
-            images.append(self._current_image.image)
-        for resource in self._image_cache.values():
+        with self._lock:
+            if self._current_image is not None and getattr(self._current_image, "image", None) is not None:
+                images.append(self._current_image.image)
+            cached_resources = list(self._image_cache.values())
+        for resource in cached_resources:
             image = getattr(resource, "image", None)
             if image is not None and not any(image is existing for existing in images):
                 images.append(image)
@@ -533,14 +534,14 @@ class ResourceManager:
     
     def set_cache(self, key: str, value: Any) -> None:
         """设置缓存数据
-        
+
+        缓存里放的都是普通数据（ndarray 等），不持有 OS 资源，覆盖旧值时
+        直接丢引用即可，由引用计数回收。
+
         Args:
             key: 缓存键
             value: 缓存值
         """
-        old_value = self._temp_cache.get(key)
-        if old_value is not value:
-            self._release_cached_value(old_value)
         self._temp_cache[key] = value
         self.logger.debug(f"Set cache: {key}")
     
@@ -588,52 +589,44 @@ class ResourceManager:
     
     def clear_cache(self, key: Optional[str] = None) -> None:
         """清空缓存
-        
+
         Args:
             key: 如果指定，只清空该键；否则清空所有缓存
         """
         if key:
-            if key in self._temp_cache:
-                value = self._temp_cache.pop(key)
-                self._release_cached_value(value)
+            if self._temp_cache.pop(key, None) is not None:
                 self.logger.debug(f"Cleared cache: {key}")
         else:
-            for value in self._temp_cache.values():
-                self._release_cached_value(value)
             self._temp_cache.clear()
             self.logger.debug("Cleared all cache")
-    
+
     # ==================== 资源清理 ====================
-    
+
     def cleanup_all(self) -> None:
         """清理所有资源"""
         self.logger.info("Cleaning up all resources")
-        
-        # 卸载当前图片（不从缓存释放，因为下面会清空缓存）
-        if self._current_image:
-            self._current_image = None
-        
+
         # 清空蒙版
         self.clear_masks()
-        
+
         # 清空区域
         self.clear_regions()
-        
+
         # 清空临时缓存
         self.clear_cache()
         self.clear_weak_cache()
-        
-        # 清理图片缓存
-        for resource in self._image_cache.values():
-            resource.release()
-        self._image_cache.clear()
-        
-        # 强制垃圾回收和GPU显存释放
-        pass
+
+        # 卸载当前图片并清理图片缓存
+        with self._lock:
+            self._current_image = None
+            for resource in self._image_cache.values():
+                resource.release()
+            self._image_cache.clear()
+
         _release_gpu_memory()
-        
+
         self.logger.info("All resources cleaned up")
-    
+
     def release_memory_after_export(self) -> None:
         """导出后释放内存
         
