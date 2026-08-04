@@ -339,6 +339,20 @@ def _draw_rgba_disc(dst: np.ndarray, center_x: float, center_y: float, radius: f
     _paste_rgba(dst, layer, int(round(center_x)) - size // 2, int(round(center_y)) - size // 2)
 
 
+def _draw_rgba_bar(dst: np.ndarray, left: float, top: float, width: float, height: float, color):
+    """实心矩形条（竖排下划线用，着重号圆点的矩形对应物）。
+
+    与 _draw_rgba_disc 同构：只产出 fill 层的纯色不透明块，不参与描边/发光
+    ——装饰与正文字形的图层职责在此保持一致。
+    """
+    width = max(1, int(round(width)))
+    height = max(1, int(round(height)))
+    layer = np.zeros((height, width, 4), dtype=np.uint8)
+    layer[:, :, :3] = np.asarray(_parse_rgb(color), dtype=np.uint8)
+    layer[:, :, 3] = 255
+    _paste_rgba(dst, layer, int(round(left)), int(round(top)))
+
+
 def _paste_bitmap(canvas: np.ndarray, bitmap_arr: np.ndarray, x: int, y: int, mode: str = 'max'):
     if bitmap_arr is None or bitmap_arr.size == 0:
         return

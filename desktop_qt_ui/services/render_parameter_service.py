@@ -32,11 +32,7 @@ class RenderParameters:
     # 字体参数
     font_size: int = 12
     font_family: str = ""
-    font_weight: int = 50  # 字重
-    bold: bool = False
-    italic: bool = False
-    underline: bool = False
-    
+
     # 颜色参数
     fg_color: Tuple[int, int, int] = (255, 255, 255)  # 前景色
     bg_color: Tuple[int, int, int] = (0, 0, 0)  # 背景色/描边色
@@ -350,10 +346,7 @@ class RenderParameterService:
             # 字体参数
             'font_size': params.font_size,
             'font_family': font_to_use,
-            'bold': params.bold,
-            'italic': params.italic,
-            'font_weight': params.font_weight,
-            
+
             # 颜色参数
             'font_color': f"#{params.fg_color[0]:02x}{params.fg_color[1]:02x}{params.fg_color[2]:02x}" if isinstance(params.fg_color, (list, tuple)) and len(params.fg_color) == 3 else params.fg_color,
             'opacity': params.opacity,

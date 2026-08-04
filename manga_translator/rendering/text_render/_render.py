@@ -20,6 +20,7 @@ from ._compose import (
     _apply_style_paint_effects,
     _apply_style_layer_effects,
     _crop_rgba_fixed,
+    _draw_rgba_bar,
     _draw_rgba_disc,
     _glyph_pair_rgba,
     _paste_rgba,
@@ -56,6 +57,7 @@ def _paint_vertical_ruby(canvas: np.ndarray, plan: RubyPlan, body_right: float, 
     ruby_size = max(1, int(round(plan.font_size * RICH_TEXT_POLICY.vertical_ruby_size)))
     ruby_style = plan.source.style.copy()
     ruby_style.emphasis = False
+    ruby_style.underline = False
     fill = _style_fill_color(ruby_style, fg)
     stroke = _style_stroke_color(ruby_style, None)
     x = body_right + plan.cross_center
@@ -218,9 +220,10 @@ def _render_rich_text_horizontal(
 
     # 一次遍历构建绘制项（每个字形只光栅化一次，派生 effects/stroke/fill
     # 三层），再按全局 effects → stroke → fill 顺序三次粘贴；emphasis 圆点
-    # 属 fill 层，按其在遍历序中的位置插入，逐像素等价于旧的三遍光栅化。
+    # 与下划线属 fill 层，按其在遍历序中的位置插入，逐像素等价于旧的三遍
+    # 光栅化。
     glyph_items = []  # (parts, x, y)
-    disc_items = []   # (index_in_glyph_items, cx, cy, radius, color)
+    fill_extras = []  # (index_in_glyph_items, 'disc'|'underline', args)
     for layout, normalized_baseline in zip(layouts, geometry['baselines']):
         line_width = layout.logical_width
         if reversed_direction:
@@ -249,6 +252,7 @@ def _render_rich_text_horizontal(
             if ruby is not None:
                 ruby_style = span.style.copy()
                 ruby_style.emphasis = False
+                ruby_style.underline = False
                 for glyph in ruby.glyphs:
                     parts = _text_layer_parts(
                         glyph.char, ruby_style, ruby.font_size, ruby.stroke_ratio,
@@ -264,28 +268,44 @@ def _render_rich_text_horizontal(
             if run.emphasis is not None:
                 dot_color = _style_fill_color(run.emphasis.source.style, fg)
                 for main_center in run.emphasis.main_centers:
-                    disc_items.append((
-                        len(glyph_items),
-                        cursor_x + main_center,
-                        baseline_y + run.emphasis.cross_center,
-                        run.emphasis.radius, dot_color,
+                    fill_extras.append((
+                        len(glyph_items), 'disc',
+                        (cursor_x + main_center,
+                         baseline_y + run.emphasis.cross_center,
+                         run.emphasis.radius, dot_color),
                     ))
+            if run.underline is not None:
+                fill_extras.append((
+                    len(glyph_items), 'underline',
+                    (cursor_x + run.underline.main_start,
+                     cursor_x + run.underline.main_end,
+                     baseline_y + run.underline.cross_center,
+                     run.underline.thickness,
+                     _style_fill_color(run.underline.source.style, fg)),
+                ))
             cursor_x += run.logical_width
+
+    def _run_fill_extra(kind, args):
+        if kind == 'disc':
+            cx, cy, radius, color = args
+            _draw_rgba_disc(canvas, cx, cy, radius, color)
+        else:
+            # 下划线：主轴 [x0, x1) × 交叉轴以 center_y 为中心的实心横条
+            x0, x1, center_y, thickness, color = args
+            _draw_rgba_bar(canvas, x0, center_y - thickness / 2.0, x1 - x0, thickness, color)
 
     for part_index in (0, 1):  # effects, stroke
         for parts, x, y in glyph_items:
             _paste_rgba(canvas, parts[part_index], x, y)
-    disc_cursor = 0
+    extra_cursor = 0
     for glyph_index, (parts, x, y) in enumerate(glyph_items):
-        while disc_cursor < len(disc_items) and disc_items[disc_cursor][0] == glyph_index:
-            _, cx, cy, radius, color = disc_items[disc_cursor]
-            _draw_rgba_disc(canvas, cx, cy, radius, color)
-            disc_cursor += 1
+        while extra_cursor < len(fill_extras) and fill_extras[extra_cursor][0] == glyph_index:
+            _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+            extra_cursor += 1
         _paste_rgba(canvas, parts[2], x, y)
-    while disc_cursor < len(disc_items):
-        _, cx, cy, radius, color = disc_items[disc_cursor]
-        _draw_rgba_disc(canvas, cx, cy, radius, color)
-        disc_cursor += 1
+    while extra_cursor < len(fill_extras):
+        _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+        extra_cursor += 1
 
     return _crop_rgba_fixed(
         canvas,
@@ -386,11 +406,24 @@ def _render_rich_text_vertical(
                 len(glyph_items), 'ruby',
                 (ruby_plan, body_right, line_origin_y),
             ))
+        for underline in layout.underline_plans:
+            fill_extras.append((
+                len(glyph_items), 'underline',
+                (line_origin_y + underline.main_start,
+                 line_origin_y + underline.main_end,
+                 body_right + underline.cross_center,
+                 underline.thickness,
+                 _style_fill_color(underline.source.style, fg)),
+            ))
 
     def _run_fill_extra(kind, args):
         if kind == 'disc':
             cx, cy, radius, color = args
             _draw_rgba_disc(canvas, cx, cy, radius, color)
+        elif kind == 'underline':
+            # 下划线：主轴 [y0, y1) × 交叉轴以 center_x 为中心的实心竖条
+            y0, y1, center_x, thickness, color = args
+            _draw_rgba_bar(canvas, center_x - thickness / 2.0, y0, thickness, y1 - y0, color)
         else:
             ruby_plan, right, origin_y = args
             _paint_vertical_ruby(canvas, ruby_plan, right, origin_y, fg, letter_spacing)

@@ -1423,7 +1423,6 @@ def resize_regions_to_font_size(
                 text_render.set_font(region_font_family)
             else:
                 text_render.set_font(text_render.DEFAULT_FONT_FAMILY)
-            text_render.set_bold(getattr(region, 'bold', False))
 
             # 如果 translation 为空,直接返回 min_rect,避免触发复杂的布局计算
             render_value = _region_render_value(region)
@@ -2482,7 +2481,6 @@ def render(
         text_render.set_font(region_font_family)
     else:
         text_render.set_font(text_render.DEFAULT_FONT_FAMILY)
-    text_render.set_bold(getattr(region, 'bold', False))
 
     # --- START BRUTEFORCE COLOR FIX ---
     fg = (0, 0, 0) # Default to black

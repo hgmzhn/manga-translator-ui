@@ -63,6 +63,24 @@ class EmphasisPlan:
     cross_center: float = 0.0
 
 
+@dataclass
+class UnderlinePlan:
+    """下划线：沿排版主轴（横排行方向 / 竖排列方向）的一条实心线。
+
+    与着重号同构的列/行级装饰：``main_start``/``main_end`` 是主轴上的区间，
+    ``cross_center`` 是交叉轴上线条中心的位置（横排相对基线向下，竖排相对
+    列正文右边缘向右）。装饰跟排版方向走，不跟单个字形走 —— 字形自身的
+    旋转/镜像/斜体切变都不作用在它上面（竖排里被旋转 90° 的括号旁边，线
+    仍然是上下方向的一条）。
+    """
+
+    source: RenderSpan
+    main_start: float
+    main_end: float
+    thickness: int
+    cross_center: float = 0.0
+
+
 @dataclass(frozen=True)
 class TcyPlan:
     source: RenderSpan
@@ -97,6 +115,7 @@ class HorizontalRunPlan:
     main_rect: Rect | None = None
     ruby: RubyPlan | None = None
     emphasis: EmphasisPlan | None = None
+    underline: UnderlinePlan | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +139,25 @@ def plan_emphasis(
         main_centers=tuple((start + end) / 2.0 for start, end in main_intervals),
         radius=radius,
         frame_size=radius * 2 + 3,
+    )
+
+
+def _underline_thickness_px(font_size: int) -> int:
+    """下划线线宽（像素）：按字号比例缩放，横竖排共用一个口径。"""
+    return max(1, int(round(font_size * RICH_TEXT_POLICY.underline_thickness)))
+
+
+def plan_underline(
+    source: RenderSpan,
+    main_start: float,
+    main_end: float,
+    font_size: int,
+) -> UnderlinePlan:
+    return UnderlinePlan(
+        source=source,
+        main_start=float(main_start),
+        main_end=float(main_end),
+        thickness=_underline_thickness_px(font_size),
     )
 
 

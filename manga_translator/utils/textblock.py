@@ -145,14 +145,10 @@ class TextBlock(object):
                  line_spacing = 1.,
                  letter_spacing = 1.,
                  font_family: str = "",
-                 bold: bool = False,
-                 underline: bool = False,
-                 italic: bool = False,
                  direction: str = 'auto',
                  alignment: str = 'auto',
                  _bounding_rect: List = None,
                  default_stroke_width = 0.2,
-                 font_weight = 50,
                  source_lang: str = "",
                  target_lang: str = "",
                  opacity: float = 1.,
@@ -239,9 +235,6 @@ class TextBlock(object):
 
         # self.stroke_width = stroke_width
         self.font_family: str = font_family
-        self.bold: bool = bold
-        self.underline: bool = underline
-        self.italic: bool = italic
         self.line_spacing = line_spacing
         self.letter_spacing = letter_spacing
         self._alignment = alignment
@@ -250,7 +243,6 @@ class TextBlock(object):
 
         self._bounding_rect = _bounding_rect
         self.default_stroke_width = default_stroke_width
-        self.font_weight = font_weight
         self.adjust_bg_color = adjust_bg_color  # 使用传入的参数
 
         self.opacity = opacity
@@ -504,10 +496,6 @@ class TextBlock(object):
             'stroke_width': self.default_stroke_width,
             'prob': self.prob,
             'font_family': getattr(self, 'font_family', ''),
-            'bold': getattr(self, 'bold', False),
-            'italic': getattr(self, 'italic', False),
-            'underline': getattr(self, 'underline', False),
-            'font_weight': getattr(self, 'font_weight', 50),
         }
         if self.translation_rich is not None:
             result['translation_rich'] = self.translation_rich

@@ -1,3 +1,5 @@
+import _bootstrap  # noqa: F401  —— sys.path / offscreen / torch 先于 PyQt6
+
 import copy
 import logging
 import os
@@ -6,11 +8,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+ROOT = _bootstrap.ROOT
 
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import QApplication, QToolButton

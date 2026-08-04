@@ -89,6 +89,7 @@ logs/
 # Ignore user config (这是用户自己的配置，防止推送到git)
 config/text_replacements.yaml
 config/rich_text_rules.yaml
+config/batch_edit_schemes.yaml
 config/translation_template.json
 config/config.json
 config/custom_api_params.json

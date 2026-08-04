@@ -84,6 +84,7 @@ class TextStyle:
     # italic: True = 默认斜体角度（渲染层按参考实现取 15°）；数字 = 切变角度
     # （度，正值向右倾）。False/0 = 无斜体。
     italic: Union[bool, float] = False
+    underline: bool = False
     color: Optional[str] = None
     scale: float = 1.0
     font_size: Optional[float] = None
@@ -113,6 +114,7 @@ class TextStyle:
             {
                 'bold',
                 'italic',
+                'underline',
                 'color',
                 'scale',
                 'fontSize',
@@ -135,6 +137,7 @@ class TextStyle:
         return cls(
             bold=bool(value.get('bold', False)),
             italic=_parse_italic(value.get('italic', False)),
+            underline=bool(value.get('underline', False)),
             color=value.get('color'),
             scale=float(value.get('scale', 1.0) or 1.0),
             font_size=font_size,
@@ -156,6 +159,7 @@ class TextStyle:
         return _drop_none({
             'bold': self.bold or None,
             'italic': self.italic or None,
+            'underline': self.underline or None,
             'color': self.color,
             'scale': None if self.scale == 1.0 else self.scale,
             'fontSize': self.font_size,

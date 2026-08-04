@@ -2,16 +2,15 @@
 异步翻译写回应用替换规则且可撤销。"""
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401  —— sys.path / offscreen / torch 先于 PyQt6
+
 import os
 import sys
 from concurrent.futures import Future
 from pathlib import Path
 from types import SimpleNamespace
 
-ROOT = Path(__file__).resolve().parents[1]
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
+ROOT = _bootstrap.ROOT
 
 
 def _ensure_app():
@@ -103,6 +102,13 @@ def test_async_translation_write_back_applies_replacements_and_is_undoable() -> 
     controller._replace_plain_translation = (
         lambda *args, **kwargs: EditorController._replace_plain_translation(controller, *args, **kwargs)
     )
+    # 写回路径上还会同步富文本；漏了这些绑定会 AttributeError，而 on_regions_update_finished
+    # 把异常吞进 logger.error（这里是空函数），表现成"什么都没写"而不是报错
+    controller._rules_rich_for_full_replacement = (
+        lambda *args, **kwargs: EditorController._rules_rich_for_full_replacement(controller, *args, **kwargs)
+    )
+    # 本例只验"译文过替换规则 + 可撤销"，自动富文本规则关掉，让 translation_rich 恒为 None
+    controller._auto_rich_text_rules_enabled = lambda: False
 
     raw_value = "wait..."
     request = _AsyncRegionUpdateRequest("translation", [(7, raw_value)], "translation")

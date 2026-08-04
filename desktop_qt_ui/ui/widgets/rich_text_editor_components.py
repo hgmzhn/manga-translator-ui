@@ -71,6 +71,7 @@ class StyleSpec:
 STYLE_SPECS: dict[str, StyleSpec] = {
     "B": StyleSpec("Bold", "Bold", {"bold": True}),
     "I": StyleSpec("Italic", "Italic Angle", {"italic": 15.0}),
+    "U": StyleSpec("Underline", "Underline", {"underline": True}),
     "C": StyleSpec("Text Color", "Text Color", {"color": "#E53935"}),
     "S": StyleSpec("Font Size", "Font Size", {"fontSize": 24}),
     "%": StyleSpec("Scale", "Scale", {"scale": 1.20}),
@@ -367,6 +368,7 @@ def style_keys_for_segment(segment: StyledTextSegment, forced_keys: Iterable[str
     present = {
         "B": bool(style.get("bold")),
         "I": "italic" in style,
+        "U": bool(style.get("underline")),
         "C": "color" in style,
         "S": "fontSize" in style,
         "%": "scale" in style,
@@ -564,7 +566,7 @@ class StyleRunCard(SimpleCardWidget):
     def _create_control(self, key: str, ruby_draft_text: str | None) -> QWidget | None:
         style = self.segment.style or {}
         transform = style.get("transform") or {}
-        if key in {"B", "D", "T", "M", "MV"}:
+        if key in {"B", "U", "D", "T", "M", "MV"}:
             return None
         if key == "I":
             value = style.get("italic", 15.0)

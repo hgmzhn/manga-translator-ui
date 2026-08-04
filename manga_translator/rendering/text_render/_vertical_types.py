@@ -7,7 +7,7 @@ from typing import Optional, Union
 import numpy as np
 
 from ..rich_text import RenderSpan
-from ._plans import Bounds, EmphasisPlan, RubyPlan, TcyPlan
+from ._plans import Bounds, EmphasisPlan, RubyPlan, TcyPlan, UnderlinePlan
 
 
 @dataclass(frozen=True)
@@ -65,5 +65,6 @@ class VerticalColumnPlan:
     items: tuple[VerticalItemPlan, ...]
     ruby_plans: tuple[RubyPlan, ...]
     emphasis_plans: tuple[EmphasisPlan, ...]
+    underline_plans: tuple[UnderlinePlan, ...] = ()
     line_kerning: float | None = None
     next_kerning: float | None = None

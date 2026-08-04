@@ -41,6 +41,7 @@ from ._plans import (
     TcyPlan,
     plan_emphasis,
     plan_ruby_glyphs,
+    plan_underline,
 )
 from ._policy import RICH_TEXT_POLICY
 from ._shared import _VERTICAL_CACHE_MAX, _cache_get, _cache_put, _profile_add
@@ -526,6 +527,8 @@ def _build_horizontal_ruby_plan(
         return None
     ruby_style = span.style.copy()
     ruby_style.emphasis = False
+    # 注音不继承正文的着重号与下划线（装饰只作用于正文行）
+    ruby_style.underline = False
     ruby_font = max(1, int(round(run.font_size * RICH_TEXT_POLICY.horizontal_ruby_size)))
     ruby_stroke_ratio = _style_stroke_ratio(ruby_style, ruby_font, 0.0, stroke_enabled)
     raw_glyphs = []
@@ -665,6 +668,23 @@ def _finalize_rich_horizontal_line(
                         float(emphasis.frame_size),
                         float(emphasis.frame_size),
                     ))
+
+        if run.span.style.underline and run.logical_width > 0:
+            # 下划线沿行方向铺满 run 的 advance 宽，纵向位置只由基线和字号
+            # 决定（不看墨迹框）：相邻 run 无论字形高低都接成一条连续线，
+            # 纯空格 run 也能画出线来。
+            underline = plan_underline(run.span, 0.0, run.logical_width, run.font_size)
+            underline.cross_center = (
+                run.font_size * RICH_TEXT_POLICY.underline_offset
+                + underline.thickness / 2.0
+            )
+            run.underline = underline
+            paint_rects.append((
+                cursor,
+                underline.cross_center - underline.thickness / 2.0,
+                float(run.logical_width),
+                float(underline.thickness),
+            ))
         cursor += run.logical_width
 
     logical_width = sum(run.logical_width for run in runs)
@@ -680,7 +700,9 @@ def _finalize_rich_horizontal_line(
         bottom = max(rect[1] + rect[3] for rect in rects)
         return left, top, right, bottom
 
-    body_left, body_top, body_right, body_bottom = bounds(body_rects)
+    # 只有装饰没有正文墨迹时（例如整行都是带下划线的空格），正文框退化为
+    # 装饰框，避免 body_rects 为空。
+    body_left, body_top, body_right, body_bottom = bounds(body_rects or paint_rects)
     paint_left, paint_top, paint_right, paint_bottom = bounds(paint_rects)
     return HorizontalLinePlan(
         tuple(runs),
@@ -967,6 +989,21 @@ def _rich_vertical_item_paint_extent_y(item) -> Optional[Tuple[float, float]]:
     return None
 
 
+def _vertical_item_main_interval(item) -> Optional[Tuple[float, float]]:
+    """item 在列（主轴）上占用的槽位区间 [start, end)，相对列顶。
+
+    与 _rich_vertical_item_paint_extent_y 的区别：那个是图层墨迹的纵向包络
+    （含偏移/特效），这里是排版槽位——下划线沿槽位铺，才不会随单字墨迹高低
+    忽长忽短。
+    """
+    if isinstance(item, TcyPlan):
+        return float(item.main_start), float(item.main_start) + float(item.advance_main)
+    cursor_y = getattr(item, 'cursor_y', None)
+    if cursor_y is None:
+        return None
+    return float(cursor_y), float(cursor_y) + float(item.advance_y)
+
+
 def _build_rich_vertical_layout(
     document: RichTextDocument,
     base_font_size: int,
@@ -984,6 +1021,7 @@ def _build_rich_vertical_layout(
         paint_right_extra = 0
         ruby_extra = 0
         emphasis_cross_extent = 0
+        underline_cross_extent = 0
         for span in paragraph.spans:
             font_size = _style_font_size(base_font_size, span.style)
             if span.tcy:
@@ -1052,12 +1090,10 @@ def _build_rich_vertical_layout(
         column_height = max(0, int(cursor))
         ruby_plans = []
         emphasis_plans = []
+        underline_plans = []
         item_index = 0
         while item_index < len(laid):
             item = laid[item_index]
-            if isinstance(item, TcyPlan):
-                item_index += 1
-                continue
             span = _vertical_item_span(item)
             if span is None:
                 item_index += 1
@@ -1066,6 +1102,39 @@ def _build_rich_vertical_layout(
             while group_end < len(laid) and _vertical_item_span(laid[group_end]) is span:
                 group_end += 1
             group_items = laid[item_index:group_end]
+            if span.style.underline:
+                # 下划线沿列方向铺满本 span 的槽位区间（纵中横块按块高计入），
+                # 与着重号同侧（列右）以复用 annotation_cross_extent 的列间避让。
+                # 它是列级装饰：单字的 transform.rotation 不作用在它上面，
+                # 竖排里被旋转 90° 的括号旁边线仍然是上下方向的一条。
+                intervals = [
+                    interval for interval in
+                    (_vertical_item_main_interval(candidate) for candidate in group_items)
+                    if interval is not None
+                ]
+                if intervals:
+                    group_font_size = group_items[0].font_size
+                    underline = plan_underline(
+                        span,
+                        min(start for start, _ in intervals),
+                        max(end for _, end in intervals),
+                        group_font_size,
+                    )
+                    underline.cross_center = (
+                        ruby_extra
+                        + group_font_size * RICH_TEXT_POLICY.vertical_underline_offset
+                    )
+                    underline_plans.append(underline)
+                    underline_cross_extent = max(
+                        underline_cross_extent,
+                        int(math.ceil(
+                            group_font_size * RICH_TEXT_POLICY.vertical_underline_offset
+                            + underline.thickness / 2.0
+                        )),
+                    )
+            if isinstance(item, TcyPlan):
+                item_index = group_end
+                continue
             ruby_items = [
                 candidate for candidate in group_items
                 if isinstance(candidate, (VerticalCharPlan, VerticalPlaceholderPlan))
@@ -1161,10 +1230,13 @@ def _build_rich_vertical_layout(
                 bottom=int(column_height + bottom_extra),
             ),
             ruby_cross_extent=int(ruby_extra),
-            annotation_cross_extent=int(ruby_extra + emphasis_cross_extent),
+            annotation_cross_extent=int(
+                ruby_extra + max(emphasis_cross_extent, underline_cross_extent)
+            ),
             items=tuple(laid),
             ruby_plans=tuple(ruby_plans),
             emphasis_plans=tuple(emphasis_plans),
+            underline_plans=tuple(underline_plans),
             line_kerning=line_kerning,
             next_kerning=next_kerning,
         ))

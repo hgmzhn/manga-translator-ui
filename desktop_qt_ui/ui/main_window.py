@@ -145,6 +145,7 @@ class MainWindow(FluentWindow):
             ("prompts", self.main_view.prompt_page, FIF.DOCUMENT, self._t("Prompt Management")),
             ("replacements", self.main_view.replacements_page, FIF.EDIT, self._t("Replacement Rules")),
             ("rich_text_rules", self.main_view.rich_text_rules_page, FIF.FONT, self._t("Rich Text Rules")),
+            ("batch_edit", self.main_view.batch_edit_page, FIF.LIBRARY, self._t("Batch Management")),
         ]
         for key, page, icon, text in pages:
             page.setObjectName(f"main_{key}_page")
@@ -179,6 +180,10 @@ class MainWindow(FluentWindow):
         elif page_key == "rich_text_rules":
             if hasattr(self.main_view, "rich_text_rules_editor_panel"):
                 self.main_view.rich_text_rules_editor_panel.refresh()
+        elif page_key == "batch_edit":
+            if hasattr(self.main_view, "batch_edit_panel"):
+                self.main_view.batch_edit_panel.set_catalog_snapshot(self._file_catalog_snapshot)
+                self.main_view.batch_edit_panel.refresh()
 
     def _ensure_editor_initialized(self):
         if self.editor_view is not None:
@@ -215,6 +220,14 @@ class MainWindow(FluentWindow):
 
         self.editor_view._apply_editor_style(self.current_applied_theme)
         self.editor_view.property_panel.repopulate_options()
+
+        if hasattr(self.main_view, "batch_edit_panel"):
+            # 编辑器把 region 常驻内存且不监听文件变化，批量写回后必须让它重新
+            # 加载，否则切图时的自动导出会用旧数据覆盖掉刚写进去的修改。
+            self.main_view.batch_edit_panel.set_editor_context(
+                self.editor_model.get_source_image_path,
+                self.editor_controller.load_image_and_regions,
+            )
 
     def _create_ui_actions(self):
         """创建内部动作对象（无顶部菜单栏）"""
@@ -443,6 +456,9 @@ class MainWindow(FluentWindow):
         self._main_catalog_loading = False
         self._file_catalog_snapshot = snapshot
         self.main_view.file_list.set_snapshot(snapshot)
+        if hasattr(self.main_view, "batch_edit_panel"):
+            # 批量管理的作用范围跟随主页文件列表，快照一变就同步过去
+            self.main_view.batch_edit_panel.set_catalog_snapshot(snapshot)
         for warning in snapshot.warnings:
             self.logger.warning(warning)
 
@@ -779,6 +795,7 @@ class MainWindow(FluentWindow):
             "prompts": self._t("Prompt Management"),
             "replacements": self._t("Replacement Rules"),
             "rich_text_rules": self._t("Rich Text Rules"),
+            "batch_edit": self._t("Batch Management"),
         }
         for key, text in nav_labels.items():
             item = getattr(self, "_main_navigation_items", {}).get(key)
@@ -814,6 +831,8 @@ class MainWindow(FluentWindow):
         # 避免 QThread: Destroyed while thread is still running。
         if hasattr(self, "main_view") and self.main_view:
             self.main_view.shutdown_background_threads(3000)
+            if hasattr(self.main_view, "batch_edit_panel"):
+                self.main_view.batch_edit_panel.shutdown()
         if self.editor_logic is not None:
             self.editor_logic.shutdown()
         self.file_list_data_service.shutdown()

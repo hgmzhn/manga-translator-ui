@@ -1,15 +1,13 @@
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401  —— sys.path / offscreen / torch 先于 PyQt6
+
 import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
+ROOT = _bootstrap.ROOT
 
 from PyQt6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 

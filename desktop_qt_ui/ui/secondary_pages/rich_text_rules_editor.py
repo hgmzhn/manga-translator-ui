@@ -68,6 +68,7 @@ def _style_summary(style: dict, empty_text: str) -> str:
     labels = {
         "bold": "B",
         "italic": "I",
+        "underline": "U",
         "color": "C",
         "scale": "%",
         "fontSize": "S",
@@ -135,12 +136,14 @@ class RichTextStyleControls(SimpleCardWidget):
         add_form_row("Saved rich text style:", self.saved_style_combo)
 
         self.bold = CheckBox(self._t("Bold"))
+        self.underline = CheckBox(self._t("Underline"))
         self.emphasis = CheckBox(self._t("Emphasis"))
         self.tcy = CheckBox(self._t("Vertical-in-Horizontal (TCY)"))
         switches = QWidget(self)
         switch_layout = QHBoxLayout(switches)
         switch_layout.setContentsMargins(0, 0, 0, 0)
         switch_layout.addWidget(self.bold)
+        switch_layout.addWidget(self.underline)
         switch_layout.addWidget(self.emphasis)
         switch_layout.addWidget(self.tcy)
         switch_layout.addStretch()
@@ -324,6 +327,7 @@ class RichTextStyleControls(SimpleCardWidget):
     def refresh_ui_texts(self) -> None:
         self.font_family.editor.refresh_ui_texts()
         self.bold.setText(self._t("Bold"))
+        self.underline.setText(self._t("Underline"))
         self.emphasis.setText(self._t("Emphasis"))
         self.tcy.setText(self._t("Vertical-in-Horizontal (TCY)"))
         self.ruby.editor.setPlaceholderText(self._t("Ruby text"))
@@ -350,6 +354,7 @@ class RichTextStyleControls(SimpleCardWidget):
         self.ruby.set_active(bool(ruby_text))
         values = text_style_to_control_values(style)
         self.bold.setChecked(bool(values["bold"]))
+        self.underline.setChecked(bool(values["underline"]))
         self.emphasis.setChecked(bool(values["emphasis"]))
         for key, field in self._fields.items():
             value = values.get(key)
@@ -369,9 +374,10 @@ class RichTextStyleControls(SimpleCardWidget):
                 field.editor.setValue(value)
 
     def style(self) -> dict:
-        values = {"bold": True, "emphasis": True}
+        values = {"bold": True, "underline": True, "emphasis": True}
         enabled = set()
         if self.bold.isChecked(): enabled.add("bold")
+        if self.underline.isChecked(): enabled.add("underline")
         if self.emphasis.isChecked(): enabled.add("emphasis")
         for key, field in self._fields.items():
             if not field.enabled.isChecked():
