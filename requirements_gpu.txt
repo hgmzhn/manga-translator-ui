@@ -32,7 +32,7 @@ matplotlib==3.10.5
 networkx==3.5
 numpy>=2.0,<2.3
 omegaconf==2.3.0
-onnxruntime-gpu==1.20.1
+onnxruntime-gpu==1.20.2
 openai==2.14.0
 curl_cffi>=0.7.0
 opencv-contrib-python>=4.10.0
