@@ -14,7 +14,7 @@ from collections import Counter
 from collections.abc import Callable
 from functools import lru_cache
 
-from PyQt6.QtCore import QLocale, QSignalBlocker, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QLocale, QSignalBlocker, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QRawFont
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import ComboBox, LineEdit, MenuAnimationType
@@ -254,12 +254,27 @@ def populate_font_combo(combo, current: str | None = None, locale_code: str = "e
 
 
 class _FontComboBoxMenu(ComboBoxMenu):
-    """Fluent searchable menu whose rows preview their font family."""
+    """Fluent searchable menu whose rows preview their font family.
+
+    菜单刻意不用 ``Qt.Popup``：Popup 窗口拿不到 Windows 键盘焦点，Qt 的
+    ``focusObject`` 会停在主窗口原来那个控件上，于是持有键盘焦点的窗口被解除
+    输入法关联——搜索框只剩 ASCII 敲得进去，中文等靠输入法的文字全被挡掉。
+    改成普通工具窗口后菜单自己拿焦点，代价是 Popup 白送的"点别处即关闭"要由
+    ``event``/``mousePressEvent`` 自己接管。
+    """
+
+    _WINDOW_FLAGS = (
+        Qt.WindowType.Tool
+        | Qt.WindowType.FramelessWindowHint
+        | Qt.WindowType.NoDropShadowWindowHint
+    )
 
     def __init__(self, families, search_terms, placeholder, parent=None):
         self._families = families
         self._search_terms = search_terms
+        self._was_activated = False
         super().__init__(parent)
+        self.setWindowFlags(self._WINDOW_FLAGS)
         self.hBoxLayout.removeWidget(self.view)
         self._container = QWidget(self)
         self._content_layout = QVBoxLayout(self._container)
@@ -301,8 +316,32 @@ class _FontComboBoxMenu(ComboBoxMenu):
 
     def exec(self, pos, ani=True, aniType=MenuAnimationType.DROP_DOWN):
         result = super().exec(pos, ani, aniType)
+        # 工具窗口不像 Popup 那样自动接管键盘，要主动激活才拿得到输入法。
+        self.activateWindow()
         QTimer.singleShot(0, self.search_edit.setFocus)
         return result
+
+    def event(self, e):
+        result = super().event(e)
+        if e.type() == QEvent.Type.WindowActivate:
+            self._was_activated = True
+        elif e.type() == QEvent.Type.WindowDeactivate and self._was_activated:
+            # 顶替 Popup 的自动收起：点到别的窗口、或切走应用就关闭。激活之前
+            # 的失活事件要忽略，否则菜单在拿到焦点前就把自己关了。
+            self._hideMenu(True)
+        return result
+
+    def mousePressEvent(self, e):
+        # 基类靠 Popup 的鼠标捕获在这里收"点到菜单外部"的点击；工具窗口只会收到
+        # 菜单内部的点击（例如搜索框四周的留白），不能当成关闭信号。
+        pass
+
+    def keyPressEvent(self, e):
+        # 焦点在搜索框上，Esc 先到这里；补上 Popup 原本负责的取消语义。
+        if e.key() == Qt.Key.Key_Escape:
+            self._hideMenu(True)
+            return
+        super().keyPressEvent(e)
 
 
 class FontComboBox(ComboBox):
