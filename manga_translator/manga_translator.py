@@ -41,7 +41,6 @@ from .utils.onnx_runtime import set_onnx_gpu_disabled
 from .utils.text_filter import match_filter
 
 matplotlib.use('Agg')  # 使用非GUI后端
-from matplotlib import cm
 
 from .colorization import dispatch as dispatch_colorization
 from .colorization import prepare as prepare_colorization
@@ -3249,7 +3248,7 @@ class MangaTranslator:
             mask_normalized = np.clip((mask_normalized - vmin) / (vmax - vmin), 0, 1)
         
         # 应用颜色映射（使用jet colormap）
-        colormap = cm.get_cmap('jet')
+        colormap = matplotlib.colormaps['jet']
         colored_mask = colormap(mask_normalized)
         
         # 转换为BGR格式 (matplotlib返回RGBA)

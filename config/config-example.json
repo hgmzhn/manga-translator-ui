@@ -11,6 +11,7 @@
     "editor_center_scale_enabled": false,
     "editor_rich_text_popup_enabled": true,
     "editor_auto_export_on_switch": true,
+    "editor_auto_rich_text_rules": true,
     "unload_models_after_translation": false,
     "saved_colors": null,
     "saved_style_presets": null,
@@ -43,7 +44,7 @@
     "model_bubble_overlap_threshold": 0.1,
     "use_model_bubble_repair_intersection": false,
     "limit_mask_dilation_to_bubble_mask": true,
-    "prob": 0.5,
+    "prob": 0.1,
     "merge_gamma": 0.8,
     "merge_sigma": 2.5,
     "merge_edge_ratio_threshold": 0.0,
@@ -62,7 +63,8 @@
     "unclip_ratio": 2.5,
     "import_yolo_labels": false,
     "use_yolo_obb": true,
-    "use_sfx_filter": true,
+    "use_sfx_filter": false,
+    "sfx_filter_include_bubble_text": false,
     "yolo_obb_conf": 0.4,
     "yolo_obb_overlap_threshold": 0.1,
     "min_box_area_ratio": 0
@@ -72,8 +74,8 @@
     "inpainting_size": 2048,
     "inpainting_precision": "fp32",
     "force_use_torch_inpainting": false,
-    "solid_fill_pure_bubbles": true,
-    "per_block_inpainting": true
+    "solid_fill_pure_bubbles": false,
+    "per_block_inpainting": false
   },
   "render": {
     "renderer": "default",
