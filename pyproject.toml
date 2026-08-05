@@ -171,11 +171,11 @@ xformers = [
     { index = "pytorch-cu130", group = "gpu" },
 ]
 # pydensecrf 按平台选择安装来源
-# Windows/macOS: 预编译 wheel（避免本地编译失败）; Linux: 从源码安装（需 C++ 编译工具）
+# Windows/macOS/Linux x86_64: 预编译 wheel（避免本地编译失败）
 pydensecrf = [
     { url = "https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.6/pydensecrf-1.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
     { url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-macosx_10_13_universal2.whl", marker = "sys_platform == 'darwin'" },
-    { git = "https://github.com/lucasb-eyer/pydensecrf.git", marker = "sys_platform == 'linux'" },
+    { url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 
 # pydensecrf 无运行时依赖；直接声明元数据，避免 lock 时为 Linux 分支从 git 源码构建

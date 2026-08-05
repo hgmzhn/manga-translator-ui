@@ -4,24 +4,29 @@ requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal')",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal') or (platform_machine == 'aarch64' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal')",
     "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
 ]
 conflicts = [[
@@ -1259,10 +1264,10 @@ dependencies = [
     { name = "py7zr" },
     { name = "pyclipper" },
     { name = "pydantic" },
-    { name = "pydensecrf", version = "1.0rc3", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal')" },
-    { name = "pydensecrf", version = "1.0", source = { git = "https://github.com/lucasb-eyer/pydensecrf.git#2723c7fa4f2ead16ae1ce3d8afe977724bb8f87f" }, marker = "sys_platform == 'linux' or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal')" },
+    { name = "pydensecrf", version = "1.0rc3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal')" },
     { name = "pydensecrf", version = "1.0", source = { url = "https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.6/pydensecrf-1.0-cp312-cp312-win_amd64.whl" }, marker = "sys_platform == 'win32' or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal')" },
     { name = "pydensecrf", version = "1.0", source = { url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-macosx_10_13_universal2.whl" }, marker = "sys_platform == 'darwin' or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal')" },
+    { name = "pydensecrf", version = "1.0", source = { url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" }, marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine != 'x86_64' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (platform_machine != 'x86_64' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (platform_machine != 'x86_64' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (platform_machine != 'x86_64' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (platform_machine != 'x86_64' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (platform_machine != 'x86_64' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform != 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu') or (sys_platform != 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform != 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform != 'linux' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (sys_platform != 'linux' and extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (sys_platform != 'linux' and extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal')" },
     { name = "pyhyphen" },
     { name = "pymupdf" },
     { name = "pyperclip" },
@@ -1382,9 +1387,9 @@ requires-dist = [
     { name = "py7zr", specifier = "==1.1.3" },
     { name = "pyclipper", specifier = "==1.3.0.post6" },
     { name = "pydantic", specifier = "==2.11.7" },
-    { name = "pydensecrf", marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "pydensecrf", marker = "(platform_machine != 'x86_64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')" },
     { name = "pydensecrf", marker = "sys_platform == 'darwin'", url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-macosx_10_13_universal2.whl" },
-    { name = "pydensecrf", marker = "sys_platform == 'linux'", git = "https://github.com/lucasb-eyer/pydensecrf.git" },
+    { name = "pydensecrf", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" },
     { name = "pydensecrf", marker = "sys_platform == 'win32'", url = "https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.6/pydensecrf-1.0-cp312-cp312-win_amd64.whl" },
     { name = "pyhyphen", specifier = "==4.0.4" },
     { name = "pymupdf", specifier = "==1.25.5" },
@@ -1619,20 +1624,24 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "sys_platform == 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal')",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal') or (platform_machine == 'aarch64' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal')",
     "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform == 'darwin' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/76/21/7d2a95e4bba9dc13d043ee156a356c0a8f0c6309dff6b21b4d71a073b8a8/numpy-2.2.6.tar.gz", hash = "sha256:e29554e2bef54a90aa5cc07da6ce955accb83f21ab5de01a62c8478897b264fd", size = 20276440, upload-time = "2025-05-17T22:38:04.611Z" }
@@ -1656,7 +1665,8 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "sys_platform == 'win32'",
     "sys_platform == 'darwin'",
-    "sys_platform == 'linux'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d7/9f/b8cef5bffa569759033adda9481211426f12f53299629b410340795c2514/numpy-2.4.4.tar.gz", hash = "sha256:2d390634c5182175533585cc89f3608a4682ccb173cc9bb940b2881c8d6f8fa0", size = 20731587, upload-time = "2026-03-29T13:22:01.298Z" }
@@ -2348,22 +2358,19 @@ name = "pydensecrf"
 version = "1.0rc3"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
+    "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal') or (platform_machine == 'aarch64' and platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal')",
+    "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
+    "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/31/5a/1c2ab48e8019d282c128bc5c621332267bb954d32eecdda3ba57306b1551/pydensecrf-1.0rc3.tar.gz", hash = "sha256:08be1603af2bede05c7697b6018e8e3059de7cc181e4e784b334889dcc749aa5", size = 1036569, upload-time = "2018-04-01T22:52:22.567Z" }
-
-[[package]]
-name = "pydensecrf"
-version = "1.0"
-source = { git = "https://github.com/lucasb-eyer/pydensecrf.git#2723c7fa4f2ead16ae1ce3d8afe977724bb8f87f" }
-resolution-markers = [
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal')",
-    "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra == 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-    "sys_platform == 'linux' and extra != 'group-19-manga-translator-ui-amd' and extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra != 'group-19-manga-translator-ui-metal'",
-]
 
 [[package]]
 name = "pydensecrf"
@@ -2385,6 +2392,17 @@ resolution-markers = [
 ]
 wheels = [
     { url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:2fe0f91b6afa3db900efc455db2f96fcd50c39c074a93f9ef6df00e2ce933fb3" },
+]
+
+[[package]]
+name = "pydensecrf"
+version = "1.0"
+source = { url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" }
+resolution-markers = [
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+]
+wheels = [
+    { url = "https://github.com/hgmzhn/pydensecrf/releases/download/v1.0.0/pydensecrf-1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1b554d28701784d2a74f9dcf4282eb5aeb8ed9f5c704778e1a05a8a314a0d64a" },
 ]
 
 [[package]]
@@ -5503,7 +5521,8 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "sys_platform == 'win32'",
     "sys_platform == 'darwin'",
-    "sys_platform == 'linux'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
@@ -5535,7 +5554,8 @@ version = "2.13.0+cpu"
 source = { registry = "https://download.pytorch.org/whl/cpu" }
 resolution-markers = [
     "sys_platform == 'win32'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux')",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (platform_machine == 'aarch64' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
     "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
@@ -5563,7 +5583,8 @@ source = { registry = "https://download.pytorch.org/whl/cu130" }
 resolution-markers = [
     "sys_platform == 'win32'",
     "sys_platform == 'darwin'",
-    "sys_platform == 'linux'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
@@ -5620,7 +5641,8 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "sys_platform == 'win32'",
     "sys_platform == 'darwin'",
-    "sys_platform == 'linux'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
@@ -5642,7 +5664,8 @@ version = "0.28.0+cpu"
 source = { registry = "https://download.pytorch.org/whl/cpu" }
 resolution-markers = [
     "sys_platform == 'win32'",
-    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux')",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform == 'linux') or (platform_machine == 'aarch64' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
     "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
@@ -5664,7 +5687,8 @@ source = { registry = "https://download.pytorch.org/whl/cu130" }
 resolution-markers = [
     "sys_platform == 'win32'",
     "sys_platform == 'darwin'",
-    "sys_platform == 'linux'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "platform_machine != 'x86_64' and sys_platform == 'linux'",
     "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
