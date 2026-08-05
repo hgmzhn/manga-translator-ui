@@ -2184,21 +2184,31 @@ def check_version_info():
     print(L(f"当前分支 - {branch}{note}", f"Branch  - {branch}{note}"))
     print(L(f"镜像源   - {get_mirror_display_name()}", f"Mirror  - {get_mirror_display_name()}"))
 
-    # fetch远程（静默，失败不中断）
+    fetch_ok = False
     try:
-        subprocess.run([git, 'fetch', 'origin'], capture_output=True, check=False, timeout=30)
+        fetch_result = subprocess.run(
+            [git, 'fetch', 'origin'],
+            capture_output=True,
+            check=False,
+            timeout=30
+        )
+        fetch_ok = (fetch_result.returncode == 0)
     except Exception:
-        pass
+        fetch_ok = False
 
-    # 获取远程版本（按当前分支比对；游离状态按 main 比对）
-    remote_version = _git_output(['show', f'origin/{update_branch}:packaging/VERSION']) or "unknown"
-    behind = _git_output(['rev-list', '--count', f'HEAD..origin/{update_branch}'])
+    # 只有本次 fetch 成功，后续远程版本/提交对比才可信；
+    # 否则避免拿旧的 origin/* 引用误报“已是最新”。
+    remote_version = "unknown"
+    behind = None
+    if fetch_ok:
+        remote_version = _git_output(['show', f'origin/{update_branch}:packaging/VERSION']) or "unknown"
+        behind = _git_output(['rev-list', '--count', f'HEAD..origin/{update_branch}'])
 
     print(L(f"当前版本 - {current_version}", f"Local   - {current_version}"))
     print(L(f"远程版本 - {remote_version} (origin/{update_branch})",
             f"Remote  - {remote_version} (origin/{update_branch})"))
 
-    if remote_version == "unknown":
+    if not fetch_ok or remote_version == "unknown":
         print()
         print(L("[警告] 无法获取远程版本信息（网络或镜像源问题）",
                 "[WARNING] Failed to get remote version (network or mirror issue)"))
@@ -2434,27 +2444,33 @@ def check_all_updates():
     except Exception:
         current_version = "unknown"
     
-    # fetch远程
+    fetch_ok = False
     try:
-        subprocess.run([git, 'fetch', 'origin'], capture_output=True, check=False, timeout=10)
-    except Exception:
-        pass
-    
-    # 获取远程版本
-    try:
-        result = subprocess.run(
-            [git, 'show', f'origin/{update_branch}:packaging/VERSION'],
+        fetch_result = subprocess.run(
+            [git, 'fetch', 'origin'],
             capture_output=True,
-            text=True,
             check=False,
-            timeout=5
+            timeout=10
         )
-        if result.returncode == 0:
-            remote_version = result.stdout.strip()
-        else:
-            remote_version = "unknown"
+        fetch_ok = (fetch_result.returncode == 0)
     except Exception:
-        remote_version = "unknown"
+        fetch_ok = False
+
+    # 获取远程版本
+    remote_version = "unknown"
+    if fetch_ok:
+        try:
+            result = subprocess.run(
+                [git, 'show', f'origin/{update_branch}:packaging/VERSION'],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5
+            )
+            if result.returncode == 0:
+                remote_version = result.stdout.strip()
+        except Exception:
+            remote_version = "unknown"
     
     # 获取本地和远程的 commit hash
     try:
@@ -2468,28 +2484,32 @@ def check_all_updates():
     except Exception:
         local_commit = "unknown"
     
-    try:
-        remote_commit = subprocess.run(
-            [git, 'rev-parse', f'origin/{update_branch}'],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5
-        ).stdout.strip()
-    except Exception:
-        remote_commit = "unknown"
+    remote_commit = "unknown"
+    if fetch_ok:
+        try:
+            remote_commit = subprocess.run(
+                [git, 'rev-parse', f'origin/{update_branch}'],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5
+            ).stdout.strip()
+        except Exception:
+            remote_commit = "unknown"
     
     # 判断是否需要更新：版本号不同 或 提交不同
     version_differs = (current_version != remote_version and remote_version != "unknown")
     commit_differs = (local_commit != remote_commit and remote_commit != "unknown" and local_commit != "unknown")
-    code_needs_update = version_differs or commit_differs
+    code_needs_update = (not fetch_ok) or version_differs or commit_differs
     
     print(f"  当前版本: {current_version}")
     print(f"  远程版本: {remote_version}")
     print(f"  本地提交: {local_commit[:8] if local_commit != 'unknown' else 'unknown'}")
     print(f"  远程提交: {remote_commit[:8] if remote_commit != 'unknown' else 'unknown'}")
     
-    if code_needs_update:
+    if not fetch_ok:
+        print("  状态: [无法获取远程更新，请切换镜像源或检查网络后重试]")
+    elif code_needs_update:
         if version_differs:
             print("  状态: [需要更新 - 版本不同]")
         else:

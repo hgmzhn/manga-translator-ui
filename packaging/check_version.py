@@ -48,6 +48,19 @@ def get_remote_version():
     except Exception:
         return "unknown"
 
+def fetch_remote_refs(git_cmd):
+    """同步远程引用，失败时返回 False。"""
+    try:
+        result = subprocess.run(
+            [git_cmd, 'fetch', 'origin'],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='版本检查脚本')
@@ -57,14 +70,9 @@ def main():
     
     current_version = get_current_version()
     
-    # 先fetch
     git_cmd = get_git_command()
-    try:
-        subprocess.run([git_cmd, 'fetch', 'origin'], capture_output=True, check=False)
-    except Exception:
-        pass
-    
-    remote_version = get_remote_version()
+    fetch_ok = fetch_remote_refs(git_cmd)
+    remote_version = get_remote_version() if fetch_ok else "unknown"
     
     # 导出环境变量格式（用于bat脚本）
     if args.export_vars:
@@ -80,13 +88,18 @@ def main():
         print("========================================")
         print(f"当前版本 - {current_version}")
         
-        if remote_version != "unknown" and current_version != remote_version:
+        if remote_version == "unknown":
+            print("")
+            print("[警告] 无法获取远程版本信息,可能网络问题")
+            print("")
+            return 1
+        if current_version != remote_version:
             print(f"远程版本 - {remote_version}")
             print("")
             print("[提示] 发现新版本可用！")
             print("请运行 步骤4-更新维护.bat 进行更新")
             print("")
-        elif remote_version == current_version:
+        else:
             print("")
             print("[信息] 已是最新版本")
             print("")
@@ -96,14 +109,14 @@ def main():
         print(f"远程版本 - {remote_version}")
         
         # 检查是否有更新
-        if current_version == remote_version:
-            print("")
-            print("[信息] 当前已是最新版本")
-            return 0
-        elif remote_version == "unknown":
+        if remote_version == "unknown":
             print("")
             print("[警告] 无法获取远程版本信息,可能网络问题")
             return 1
+        elif current_version == remote_version:
+            print("")
+            print("[信息] 当前已是最新版本")
+            return 0
         else:
             print("")
             print("[发现新版本]")
@@ -157,4 +170,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
