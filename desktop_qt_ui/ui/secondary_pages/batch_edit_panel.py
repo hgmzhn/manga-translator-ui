@@ -31,8 +31,8 @@ from qfluentwidgets import (
     ComboBox,
     FluentIcon as FIF,
     PushButton,
+    ScrollArea,
     SimpleCardWidget,
-    SingleDirectionScrollArea,
     StrongBodyLabel,
     TableWidget,
 )
@@ -107,10 +107,11 @@ class BatchEditPanel(CardWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(10)
 
-        scroll = SingleDirectionScrollArea(self, orient=Qt.Orientation.Vertical)
+        scroll = ScrollArea(self)
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(SingleDirectionScrollArea.Shape.NoFrame)
-        content = QWidget(scroll)
+        scroll.setFrameShape(ScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(10)

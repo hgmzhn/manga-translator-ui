@@ -23,6 +23,7 @@ from services import batch_edit_schemes as scheme_store  # noqa: E402
 
 from PyQt6.QtCore import Qt  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
+from qfluentwidgets import ScrollArea, SingleDirectionScrollArea  # noqa: E402
 
 from ui.secondary_pages.batch_edit_panel import BatchEditPanel  # noqa: E402
 
@@ -85,6 +86,21 @@ def test_panel_builds_and_roundtrips_a_scheme():
             panel._save_current_scheme()
             reloaded = scheme_store.load_schemes(scheme_store.get_schemes_path())
             assert reloaded[panel._current_index]["match"]["conditions"] == scheme["match"]["conditions"]
+        finally:
+            panel.shutdown()
+
+
+def test_batch_page_uses_regular_fluent_scroll_area():
+    with tempfile.TemporaryDirectory() as directory:
+        panel = _panel(directory)
+        try:
+            scrolls = panel.findChildren(ScrollArea)
+            assert len(scrolls) == 1
+            assert panel.findChildren(SingleDirectionScrollArea) == []
+            assert (
+                scrolls[0].horizontalScrollBarPolicy()
+                == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
         finally:
             panel.shutdown()
 
@@ -286,6 +302,13 @@ def test_clear_style_keys_dialog_selection():
             )
 
             dialog = ClearStyleKeysDialog(["bold", "ruby"], lambda value, **kwargs: value, panel)
+            scrolls = dialog.findChildren(ScrollArea)
+            assert len(scrolls) == 1
+            assert dialog.findChildren(SingleDirectionScrollArea) == []
+            assert (
+                scrolls[0].horizontalScrollBarPolicy()
+                == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
             assert dialog.keys() == ["bold", "ruby"]
             dialog._set_all(True)
             assert dialog.keys() == [key for key, _label in CLEAR_STYLE_KEYS]

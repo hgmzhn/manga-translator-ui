@@ -22,8 +22,8 @@ from qfluentwidgets import (
     FluentIcon as FIF,
     LineEdit,
     PushButton,
+    ScrollArea,
     SimpleCardWidget,
-    SingleDirectionScrollArea,
     SubtitleLabel,
     ToolButton,
 )
@@ -716,10 +716,11 @@ class ClearStyleKeysDialog(FluentSecondaryDialog):
         self.hint_label.setWordWrap(True)
         root.addWidget(self.hint_label)
 
-        scroll = SingleDirectionScrollArea(self, orient=Qt.Orientation.Vertical)
+        scroll = ScrollArea(self)
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(SingleDirectionScrollArea.Shape.NoFrame)
-        host = QWidget(scroll)
+        scroll.setFrameShape(ScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        host = QWidget()
         grid = QGridLayout(host)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(6)
