@@ -23,6 +23,7 @@ from qfluentwidgets import (
     CardWidget,
     FluentIcon as FIF,
     HorizontalSeparator,
+    IconWidget,
     PopUpAniStackedWidget,
     PrimaryPushButton,
     RoundMenu,
@@ -52,19 +53,66 @@ from qfluentwidgets import (
 )
 
 from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
+from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import install_hover_hint
 
 logger = logging.getLogger("manga_translator")
+
+_PROMPT_ICON_FILES = {
+    "system_prompt": "ic_fluent_bot_24_regular.svg",
+    "project_title": "ic_fluent_book_information_24_regular.svg",
+    "terminology": "ic_fluent_text_bullet_list_square_24_regular.svg",
+    "style_guide": "ic_fluent_color_24_regular.svg",
+    "translation_rules": "ic_fluent_ruler_24_regular.svg",
+    "glossary": "ic_fluent_book_open_24_regular.svg",
+    "template_edit": "ic_fluent_document_edit_24_regular.svg",
+    "raw_edit": "ic_fluent_document_text_24_regular.svg",
+    "prompt_text": "ic_fluent_document_text_24_regular.svg",
+    "colorization_rules": "ic_fluent_color_24_regular.svg",
+    "reference_images": "ic_fluent_image_24_regular.svg",
+}
+_DEFAULT_PROMPT_ICON_FILE = "ic_fluent_pin_24_regular.svg"
+_GLOSSARY_CATEGORIES = ["Person", "Location", "Org", "Item", "Skill", "Creature"]
+_GLOSSARY_CATEGORY_ICON_FILES = {
+    "Person": "ic_fluent_person_24_regular.svg",
+    "Location": "ic_fluent_location_24_regular.svg",
+    "Org": "ic_fluent_building_24_regular.svg",
+    "Item": "ic_fluent_box_24_regular.svg",
+    "Skill": "ic_fluent_flash_24_regular.svg",
+    "Creature": "ic_fluent_animal_paw_print_24_regular.svg",
+}
+
+
+def _prompt_icon(key: str):
+    return themed_fluent_svg_icon(_PROMPT_ICON_FILES.get(key, _DEFAULT_PROMPT_ICON_FILE))
+
+
+def _glossary_category_icon(category: str):
+    return themed_fluent_svg_icon(
+        _GLOSSARY_CATEGORY_ICON_FILES.get(category, _DEFAULT_PROMPT_ICON_FILE)
+    )
+
 
 # 模块级翻译函数（由 Panel / Dialog 初始化时设置）
 def _current_t(text):
     return text
 
 
-def _section_label(text: str) -> BodyLabel:
-    """可复用的小标题 Label。"""
-    lbl = BodyLabel(text)
-    return lbl
+def _section_label(text: str, icon=None) -> QWidget:
+    """带主题自适应 Fluent 图标的小标题。"""
+    container = QWidget()
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+
+    if icon is not None:
+        icon_widget = IconWidget(icon, container)
+        icon_widget.setFixedSize(18, 18)
+        layout.addWidget(icon_widget)
+
+    layout.addWidget(BodyLabel(text, container))
+    layout.addStretch()
+    return container
 
 
 def _dim_label(text: str) -> CaptionLabel:
@@ -435,7 +483,7 @@ class PromptPreviewPanel(CardWidget):
         # 1. System prompt
         system_prompt = data.get("system_prompt")
         if isinstance(system_prompt, str) and system_prompt.strip():
-            layout.addWidget(_section_label("🧭 " + self._t("System Prompt")))
+            layout.addWidget(_section_label(self._t("System Prompt"), _prompt_icon("system_prompt")))
             layout.addWidget(_body_label(system_prompt.strip()))
             layout.addWidget(_divider())
 
@@ -447,9 +495,10 @@ class PromptPreviewPanel(CardWidget):
             has_project_content = bool(title) or (isinstance(term, dict) and term)
             if has_project_content:
                 if title:
-                    layout.addWidget(_section_label("📚 " + self._t("Project") + f": {title}"))
+                    project_text = self._t("Project") + f": {title}"
                 else:
-                    layout.addWidget(_section_label("📚 " + self._t("Project Data")))
+                    project_text = self._t("Project Data")
+                layout.addWidget(_section_label(project_text, _prompt_icon("project_title")))
 
             if isinstance(term, dict) and term:
                 layout.addWidget(_dim_label(self._t("Terminology") + f" ({len(term)})"))
@@ -462,7 +511,7 @@ class PromptPreviewPanel(CardWidget):
         # 3. Style Guide
         sg = data.get("style_guide")
         if isinstance(sg, list) and sg:
-            layout.addWidget(_section_label("🎨 " + self._t("Style Guide")))
+            layout.addWidget(_section_label(self._t("Style Guide"), _prompt_icon("style_guide")))
             for item in sg:
                 layout.addWidget(_body_label("• " + str(item)))
             layout.addWidget(_divider())
@@ -470,7 +519,9 @@ class PromptPreviewPanel(CardWidget):
         # 4. Translation Rules
         tr = data.get("translation_rules")
         if isinstance(tr, list) and tr:
-            layout.addWidget(_section_label("📏 " + self._t("Translation Rules")))
+            layout.addWidget(
+                _section_label(self._t("Translation Rules"), _prompt_icon("translation_rules"))
+            )
             for item in tr:
                 layout.addWidget(_body_label("• " + str(item)))
             layout.addWidget(_divider())
@@ -479,7 +530,9 @@ class PromptPreviewPanel(CardWidget):
         glossary = data.get("glossary")
         if isinstance(glossary, dict) and glossary:
             total = sum(len(v) for v in glossary.values() if isinstance(v, list))
-            layout.addWidget(_section_label("📖 " + self._t("Glossary") + f" ({total})"))
+            layout.addWidget(
+                _section_label(self._t("Glossary") + f" ({total})", _prompt_icon("glossary"))
+            )
 
             if total <= 0:
                 layout.addWidget(_dim_label(self._t("No glossary entries")))
@@ -494,20 +547,10 @@ class PromptPreviewPanel(CardWidget):
                 glossary_tab_layout.addWidget(glossary_segmented)
                 glossary_tab_layout.addWidget(glossary_stack, 1)
 
-                category_icons = {
-                    "Person": "👤",
-                    "Location": "📍",
-                    "Org": "🏢",
-                    "Item": "🔮",
-                    "Skill": "⚡",
-                    "Creature": "🐾",
-                }
-
-                for cat_key in ["Person", "Location", "Org", "Item", "Skill", "Creature"]:
+                for cat_key in _GLOSSARY_CATEGORIES:
                     entries = glossary.get(cat_key, [])
                     if not isinstance(entries, list) or not entries:
                         continue
-                    icon = category_icons.get(cat_key, "")
                     tab_page = SimpleCardWidget(glossary_stack)
                     tab_lay = QVBoxLayout(tab_page)
                     tab_lay.setContentsMargins(4, 4, 4, 4)
@@ -517,18 +560,19 @@ class PromptPreviewPanel(CardWidget):
                     glossary_stack.addWidget(tab_page)
                     glossary_segmented.addItem(
                         route_key,
-                        f"{icon} {self._t(cat_key)} ({len(entries)})",
+                        f"{self._t(cat_key)} ({len(entries)})",
                         onClick=lambda checked=False, key=route_key, index=page_index: (
                             glossary_stack.setCurrentIndex(index),
                             glossary_segmented.setCurrentItem(key),
                         ),
+                        icon=_glossary_category_icon(cat_key),
                     )
                     if page_index == 0:
                         glossary_stack.setCurrentIndex(page_index)
                         glossary_segmented.setCurrentItem(route_key)
 
                 # 处理非标准分类
-                standard_keys = {"Person", "Location", "Org", "Item", "Skill", "Creature"}
+                standard_keys = set(_GLOSSARY_CATEGORIES)
                 for cat_key, entries in glossary.items():
                     if cat_key in standard_keys:
                         continue
@@ -548,6 +592,7 @@ class PromptPreviewPanel(CardWidget):
                             glossary_stack.setCurrentIndex(index),
                             glossary_segmented.setCurrentItem(key),
                         ),
+                        icon=_glossary_category_icon(cat_key),
                     )
                     if page_index == 0:
                         glossary_stack.setCurrentIndex(page_index)
@@ -587,20 +632,27 @@ class PromptPreviewPanel(CardWidget):
 
         prompt_text = data.get("ai_colorizer_prompt")
         if prompt_text:
-            layout.addWidget(_section_label("🖌 " + self._t("Prompt Text")))
+            layout.addWidget(_section_label(self._t("Prompt Text"), _prompt_icon("prompt_text")))
             layout.addWidget(_body_label(str(prompt_text)))
             layout.addWidget(_divider())
 
         rules = data.get("colorization_rules")
         if isinstance(rules, list) and rules:
-            layout.addWidget(_section_label("🎨 " + self._t("Colorization Rules")))
+            layout.addWidget(
+                _section_label(self._t("Colorization Rules"), _prompt_icon("colorization_rules"))
+            )
             for item in rules:
                 layout.addWidget(_body_label("• " + str(item)))
             layout.addWidget(_divider())
 
         reference_images = _normalize_reference_images(data.get("reference_images"))
         if reference_images:
-            layout.addWidget(_section_label("🖼 " + self._t("Reference Images") + f" ({len(reference_images)})"))
+            layout.addWidget(
+                _section_label(
+                    self._t("Reference Images") + f" ({len(reference_images)})",
+                    _prompt_icon("reference_images"),
+                )
+            )
             layout.addWidget(_make_reference_images_table(reference_images, editable=False))
 
         layout.addStretch()
@@ -659,17 +711,6 @@ def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit
     te.setTabStopDistance(28)
     te.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
     return te
-
-_GLOSSARY_CATEGORIES = ["Person", "Location", "Org", "Item", "Skill", "Creature"]
-_GLOSSARY_CATEGORY_ICONS = {
-    "Person": "👤",
-    "Location": "📍",
-    "Org": "🏢",
-    "Item": "🔮",
-    "Skill": "⚡",
-    "Creature": "🐾",
-}
-
 
 class PersonGlossaryEntryDialog(FluentSecondaryDialog):
     def __init__(
@@ -952,28 +993,29 @@ class PromptEditorDialog(FluentSecondaryDialog):
         self._tab_stack.addWidget(page)
         self._tab_segmented.addItem(
             route_key,
-            "📝 " + self._t("Template Edit"),
+            self._t("Template Edit"),
             onClick=lambda checked=False: (
                 self._tab_stack.setCurrentIndex(page_index),
                 self._tab_segmented.setCurrentItem(route_key),
             ),
+            icon=_prompt_icon("template_edit"),
         )
         self._tab_stack.setCurrentIndex(page_index)
         self._tab_segmented.setCurrentItem(route_key)
 
     # ─── 容器创建 & 操作栏 ─────────────────────────────
     _SECTION_META = {
-        "system_prompt":     ("🧭", "System Prompt"),
-        "project_title":     ("📚", "Project Title"),
-        "terminology":       ("📝", "Terminology"),
-        "style_guide":       ("🎨", "Style Guide"),
-        "translation_rules": ("📏", "Translation Rules"),
-        "glossary":          ("📖", "Glossary"),
+        "system_prompt": "System Prompt",
+        "project_title": "Project Title",
+        "terminology": "Terminology",
+        "style_guide": "Style Guide",
+        "translation_rules": "Translation Rules",
+        "glossary": "Glossary",
     }
 
     def _make_section_container(self, key: str) -> tuple:
         """创建带操作栏的容器 Widget，返回 (container, body_layout)。"""
-        icon, label = self._SECTION_META.get(key, ("📌", key))
+        label = self._SECTION_META.get(key, key)
         container = SimpleCardWidget(self)
         outer = QVBoxLayout(container)
         outer.setContentsMargins(12, 10, 12, 10)
@@ -982,7 +1024,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
         # 标题行
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        title_lbl = _section_label(f"{icon} {self._t(label)}")
+        title_lbl = _section_label(self._t(label), _prompt_icon(key))
         header.addWidget(title_lbl)
         header.addStretch()
 
@@ -1143,8 +1185,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
         layout.addWidget(glossary_tabs, 1)
 
     def _glossary_tab_title(self, cat_key: str, count: int) -> str:
-        icon = _GLOSSARY_CATEGORY_ICONS.get(cat_key, "📌")
-        return f"{icon} {self._t(cat_key)} ({count})"
+        return f"{self._t(cat_key)} ({count})"
 
     def _glossary_category_options(self) -> List[str]:
         categories = list(_GLOSSARY_CATEGORIES)
@@ -1221,6 +1262,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
                 self._glossary_tab_stack.setCurrentIndex(index),
                 self._glossary_tab_segmented.setCurrentItem(key),
             ),
+            icon=_glossary_category_icon(cat_key),
         )
         if page_index == 0:
             self._glossary_tab_stack.setCurrentIndex(page_index)
@@ -1457,12 +1499,12 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
     # ─── 添加字段菜单 ──────────────────────────────────
     _SECTION_DEFS = [
-        ("system_prompt",     "🧭", "System Prompt"),
-        ("project_title",     "📚", "Project Title"),
-        ("terminology",       "📝", "Terminology"),
-        ("style_guide",       "🎨", "Style Guide"),
-        ("translation_rules", "📏", "Translation Rules"),
-        ("glossary",          "📖", "Glossary"),
+        ("system_prompt", "System Prompt"),
+        ("project_title", "Project Title"),
+        ("terminology", "Terminology"),
+        ("style_guide", "Style Guide"),
+        ("translation_rules", "Translation Rules"),
+        ("glossary", "Glossary"),
     ]
 
     def _get_existing_sections(self) -> set:
@@ -1472,9 +1514,9 @@ class PromptEditorDialog(FluentSecondaryDialog):
         menu = RoundMenu(parent=self)
         existing = self._get_existing_sections()
         has_items = False
-        for key, icon, label in self._SECTION_DEFS:
+        for key, label in self._SECTION_DEFS:
             if key not in existing:
-                action = Action(f"{icon}  {self._t(label)}", self)
+                action = Action(_prompt_icon(key), self._t(label), self)
                 action.triggered.connect(lambda checked=False, k=key: self._on_add_section(k))
                 menu.addAction(action)
                 has_items = True
@@ -1506,11 +1548,12 @@ class PromptEditorDialog(FluentSecondaryDialog):
         self._tab_stack.addWidget(page)
         self._tab_segmented.addItem(
             route_key,
-            "📄 " + self._t("Raw Edit"),
+            self._t("Raw Edit"),
             onClick=lambda checked=False: (
                 self._tab_stack.setCurrentIndex(page_index),
                 self._tab_segmented.setCurrentItem(route_key),
             ),
+            icon=_prompt_icon("raw_edit"),
         )
         if page_index == 0:
             self._tab_stack.setCurrentIndex(page_index)
