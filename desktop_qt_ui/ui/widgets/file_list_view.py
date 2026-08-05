@@ -32,13 +32,11 @@ from PyQt6.QtGui import (
     QPixmap,
 )
 from PyQt6.QtWidgets import (
-    QLabel,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
-    QTreeView,
 )
-from qfluentwidgets import FluentIcon as FIF
+from qfluentwidgets import FluentIcon as FIF, StrongBodyLabel, TreeView, isDarkTheme
 
 from services.file_list_data_service import (
     KIND_ARCHIVE,
@@ -310,10 +308,6 @@ class FileCatalogDelegate(QStyledItemDelegate):
     def __init__(self, parent: Optional[QObject] = None, translate=None):
         super().__init__(parent)
         self._translate = translate or (lambda key: key)
-        self._folder_icon = FIF.FOLDER.icon()
-        self._archive_icon = FIF.ZIP_FOLDER.icon()
-        self._file_icon = FIF.DOCUMENT.icon()
-        self._close_icon = FIF.CLOSE.icon()
 
     def sizeHint(self, _option: QStyleOptionViewItem, _index: QModelIndex) -> QSize:
         return QSize(120, self.ROW_HEIGHT)
@@ -341,22 +335,26 @@ class FileCatalogDelegate(QStyledItemDelegate):
 
         kind = index.data(KIND_ROLE)
         pixmap = index.data(THUMBNAIL_ROLE)
-        if not isinstance(pixmap, QPixmap) or pixmap.isNull():
-            if kind == KIND_FOLDER:
-                pixmap = self._folder_icon.pixmap(32, 32)
-            elif kind == KIND_ARCHIVE:
-                pixmap = self._archive_icon.pixmap(32, 32)
-            else:
-                pixmap = self._file_icon.pixmap(32, 32)
-
         icon_rect = QRect(rect.left() + 8, rect.center().y() - 20, self.ICON_SIZE, self.ICON_SIZE)
-        target = QRect(
-            icon_rect.center().x() - pixmap.width() // 2,
-            icon_rect.center().y() - pixmap.height() // 2,
-            pixmap.width(),
-            pixmap.height(),
-        )
-        painter.drawPixmap(target, pixmap)
+        if isinstance(pixmap, QPixmap) and not pixmap.isNull():
+            target = QRect(
+                icon_rect.center().x() - pixmap.width() // 2,
+                icon_rect.center().y() - pixmap.height() // 2,
+                pixmap.width(),
+                pixmap.height(),
+            )
+            painter.drawPixmap(target, pixmap)
+        else:
+            if kind == KIND_FOLDER:
+                icon = FIF.FOLDER
+            elif kind == KIND_ARCHIVE:
+                icon = FIF.ZIP_FOLDER
+            else:
+                icon = FIF.DOCUMENT
+            icon.render(
+                painter,
+                QRect(icon_rect.center().x() - 16, icon_rect.center().y() - 16, 32, 32),
+            )
 
         close_rect = self._close_rect(rect)
         text_rect = QRect(
@@ -368,7 +366,8 @@ class FileCatalogDelegate(QStyledItemDelegate):
         text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
         metrics = QFontMetrics(option.font)
         painter.setFont(option.font)
-        painter.setPen(option.palette.highlightedText().color() if selected else option.palette.text().color())
+        dark = isDarkTheme()
+        painter.setPen(QColor(255, 255, 255) if dark else QColor(31, 31, 31))
         node = index.data(NODE_ROLE)
         if kind == KIND_IMAGE and node is not None:
             title_rect = QRect(text_rect.left(), rect.top() + 7, text_rect.width(), 24)
@@ -378,7 +377,10 @@ class FileCatalogDelegate(QStyledItemDelegate):
                 metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, title_rect.width()),
             )
             translated = bool(getattr(node, "json_path", None))
-            status_color = QColor("#0F9D58") if translated else option.palette.placeholderText().color()
+            if translated:
+                status_color = QColor("#6BCB77" if dark else "#0F9D58")
+            else:
+                status_color = QColor(255, 255, 255, 150) if dark else QColor(0, 0, 0, 130)
             status_rect = QRect(text_rect.left(), rect.top() + 33, text_rect.width(), 20)
             dot_rect = QRect(status_rect.left(), status_rect.center().y() - 3, 6, 6)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -397,14 +399,10 @@ class FileCatalogDelegate(QStyledItemDelegate):
                 metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, text_rect.width()),
             )
 
-        close_pixmap = self._close_icon.pixmap(16, 16)
-        close_target = QRect(
-            close_rect.center().x() - close_pixmap.width() // 2,
-            close_rect.center().y() - close_pixmap.height() // 2,
-            close_pixmap.width(),
-            close_pixmap.height(),
+        FIF.CLOSE.render(
+            painter,
+            QRect(close_rect.center().x() - 8, close_rect.center().y() - 8, 16, 16),
         )
-        painter.drawPixmap(close_target, close_pixmap)
         painter.restore()
 
     def editorEvent(self, event, model, option, index) -> bool:
@@ -422,7 +420,7 @@ class FileCatalogDelegate(QStyledItemDelegate):
         return True
 
 
-class FileListView(QTreeView):
+class FileListView(TreeView):
     """主页和编辑器共用的虚拟化文件树。"""
 
     file_remove_requested = pyqtSignal(str)
@@ -452,7 +450,7 @@ class FileListView(QTreeView):
         self.setAnimated(False)
         self.setUniformRowHeights(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollMode(QTreeView.ScrollMode.ScrollPerPixel)
+        self.setVerticalScrollMode(TreeView.ScrollMode.ScrollPerPixel)
         self.setMouseTracking(True)
         self.setAcceptDrops(True)
         self.setDragEnabled(False)
@@ -471,10 +469,11 @@ class FileListView(QTreeView):
         self._thumbnail_pending: set[tuple[int, tuple[str, int, int]]] = set()
         self._thumbnail_bridge = _ThumbnailBridge(self)
 
-        self.empty_hint_label = QLabel(self._empty_state_text(), self.viewport())
+        self.empty_hint_label = StrongBodyLabel(self._empty_state_text(), self.viewport())
         self.empty_hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_hint_label.setWordWrap(True)
         self.empty_hint_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._set_empty_hint_color()
         self._state = "empty"
 
         self._delegate.remove_requested.connect(self.file_remove_requested)
@@ -517,6 +516,15 @@ class FileListView(QTreeView):
     def _empty_state_text(self) -> str:
         return self._t("Drag and drop files or folders here\nor click the buttons above to add")
 
+    def _set_empty_hint_color(self, *, error: bool = False) -> None:
+        if error:
+            self.empty_hint_label.setTextColor(QColor("#D13438"), QColor("#FF7B7B"))
+            return
+        self.empty_hint_label.setTextColor(
+            QColor(0, 0, 0, 130),
+            QColor(255, 255, 255, 150),
+        )
+
     def refresh_empty_state_text(self) -> None:
         if self._state == "empty":
             self.empty_hint_label.setText(self._empty_state_text())
@@ -553,7 +561,7 @@ class FileListView(QTreeView):
         self._thumbnail_pending.clear()
         self.catalog_model.clear()
         self._state = "loading"
-        self.empty_hint_label.setStyleSheet("")
+        self._set_empty_hint_color()
         self.empty_hint_label.setText(text or self._t("正在加载文件列表..."))
         self._sync_empty_state_overlay()
 
@@ -567,7 +575,7 @@ class FileListView(QTreeView):
         self._excluded_files = {canonical_path_key(path) for path in snapshot.excluded_files}
         self.setRootIsDecorated(any(node.kind == KIND_FOLDER for node in snapshot.roots))
         self._state = "empty" if not snapshot.roots else "ready"
-        self.empty_hint_label.setStyleSheet("")
+        self._set_empty_hint_color()
         self.empty_hint_label.setText(self._empty_state_text())
         self._restore_view_state()
         self._sync_empty_state_overlay()
@@ -578,7 +586,7 @@ class FileListView(QTreeView):
         self._thumbnail_pending.clear()
         self.catalog_model.clear()
         self._state = "error"
-        self.empty_hint_label.setStyleSheet("color: #d13438;")
+        self._set_empty_hint_color(error=True)
         self.empty_hint_label.setText(message)
         self._sync_empty_state_overlay()
 
@@ -690,7 +698,7 @@ class FileListView(QTreeView):
         if clear_cache:
             self._thumbnail_cache.clear()
         self._state = "empty"
-        self.empty_hint_label.setStyleSheet("")
+        self._set_empty_hint_color()
         self.empty_hint_label.setText(self._empty_state_text())
         self._sync_empty_state_overlay()
 
@@ -809,7 +817,7 @@ class FileListView(QTreeView):
         for ancestor in reversed(ancestors):
             self.expand(ancestor)
         self.setCurrentIndex(index)
-        self.scrollTo(index, QTreeView.ScrollHint.EnsureVisible)
+        self.scrollTo(index, TreeView.ScrollHint.EnsureVisible)
         return True
 
     def select_next_image(self) -> None:

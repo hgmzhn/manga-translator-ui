@@ -11,15 +11,18 @@ from pathlib import Path
 
 ROOT = _bootstrap.ROOT
 
-from PyQt6.QtCore import QPoint, Qt
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtCore import QPoint, QRect, Qt
+from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
+from qfluentwidgets import Theme, TreeView, qconfig, setTheme
 
 import desktop_qt_ui.services.file_list_data_service as catalog_module
 from desktop_qt_ui.editor.file_list_model import FileListModel
 from desktop_qt_ui.services.file_list_data_service import (
+    KIND_FOLDER,
     FileCatalogCancelled,
+    FileCatalogNode,
     FileCatalogSnapshot,
     FileListDataService,
     build_file_catalog_snapshot,
@@ -32,8 +35,13 @@ from desktop_qt_ui.ui.widgets.file_list_view import (
 )
 
 
+_APPLICATION: QApplication | None = None
+
+
 def _app() -> QApplication:
-    return QApplication.instance() or QApplication([])
+    global _APPLICATION
+    _APPLICATION = QApplication.instance() or QApplication([])
+    return _APPLICATION
 
 
 def _save_image(path: Path) -> None:
@@ -188,6 +196,59 @@ def test_view_uses_model_delegate_and_gui_thread_pixmap() -> None:
             service.shutdown()
 
 
+def test_view_and_empty_hint_follow_fluent_theme() -> None:
+    app = _app()
+    previous_theme = qconfig.theme
+    view = FileListView()
+    try:
+        assert isinstance(view, TreeView)
+        assert "background-color: transparent" in view.styleSheet()
+        assert view.empty_hint_label.lightColor == QColor(0, 0, 0, 130)
+        assert view.empty_hint_label.darkColor == QColor(255, 255, 255, 150)
+
+        setTheme(Theme.DARK)
+        app.processEvents()
+        assert "treeviewopen_white.svg" in view.styleSheet().lower()
+        assert "color:#96ffffff" in view.empty_hint_label.styleSheet().replace(" ", "").lower()
+
+        setTheme(Theme.LIGHT)
+        app.processEvents()
+        assert "treeviewopen_black.svg" in view.styleSheet().lower()
+        assert "color:#82000000" in view.empty_hint_label.styleSheet().replace(" ", "").lower()
+
+        folder = FileCatalogNode(r"C:\book", KIND_FOLDER, file_count=2)
+        view.set_snapshot(FileCatalogSnapshot(1, (), (folder,), (), (), (), {}, {}, {}))
+        index = view.catalog_model.index(0, 0)
+
+        def render_folder_icon_brightness(theme: Theme) -> float:
+            setTheme(theme)
+            app.processEvents()
+            image = QImage(320, 66, QImage.Format.Format_ARGB32)
+            image.fill(Qt.GlobalColor.transparent)
+            option = QStyleOptionViewItem()
+            option.rect = QRect(0, 0, 320, 66)
+            option.font = app.font()
+            option.state = QStyle.StateFlag.State_Enabled
+            painter = QPainter(image)
+            view.itemDelegate().paint(painter, option, index)
+            painter.end()
+            pixels = [
+                image.pixelColor(x, y)
+                for y in range(10, 56)
+                for x in range(10, 56)
+                if image.pixelColor(x, y).alpha() > 20
+            ]
+            return sum(pixel.lightness() for pixel in pixels) / len(pixels)
+
+        assert render_folder_icon_brightness(Theme.LIGHT) < 32
+        assert render_folder_icon_brightness(Theme.DARK) > 223
+    finally:
+        setTheme(previous_theme)
+        view.close()
+        view.deleteLater()
+        app.processEvents()
+
+
 def test_images_only_keeps_json_for_resolved_editor_source() -> None:
     translated = r"C:\book\translated.png"
     source = r"C:\book\source.png"
@@ -211,6 +272,7 @@ def main() -> int:
     test_snapshot_is_complete_sorted_deduplicated_and_metadata_ready()
     test_service_only_delivers_latest_generation()
     test_view_uses_model_delegate_and_gui_thread_pixmap()
+    test_view_and_empty_hint_follow_fluent_theme()
     test_images_only_keeps_json_for_resolved_editor_source()
     print("file-list snapshot/model-view checks passed")
     return 0
