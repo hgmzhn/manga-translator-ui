@@ -1,3 +1,4 @@
+import ctypes
 import logging
 import os
 import re
@@ -33,6 +34,7 @@ class MainWindow(FluentWindow):
         super().__init__()
 
         self.logger = get_logger(__name__)
+        self._disable_mica_backdrop()
         self.i18n = get_i18n_manager()
         self.app_version = get_app_version()
         self._qt_translator = None
@@ -79,6 +81,35 @@ class MainWindow(FluentWindow):
             self.theme_check_timer.timeout.connect(self._check_system_theme_change)
             self.theme_check_timer.start(5000)  # 每5秒检查一次
     
+    def _disable_mica_backdrop(self):
+        """Disable Fluent Mica and clear the native Windows backdrop state."""
+        self.setMicaEffectEnabled(False)
+        if os.name != "nt":
+            return
+
+        try:
+            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+            dwmapi.DwmSetWindowAttribute.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_uint,
+                ctypes.c_void_p,
+                ctypes.c_uint,
+            ]
+            dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
+            backdrop_none = ctypes.c_int(1)  # DWMSBT_NONE
+            result = int(
+                dwmapi.DwmSetWindowAttribute(
+                    ctypes.c_void_p(int(self.winId())),
+                    38,  # DWMWA_SYSTEMBACKDROP_TYPE
+                    ctypes.byref(backdrop_none),
+                    ctypes.sizeof(backdrop_none),
+                )
+            )
+            if result != 0:
+                self.logger.debug("关闭 DWM Mica 背景失败，HRESULT=%s", result)
+        except (AttributeError, OSError, ValueError) as exc:
+            self.logger.debug("关闭 DWM Mica 背景失败: %s", exc)
+
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
         if self.i18n:
