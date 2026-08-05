@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -35,6 +35,7 @@ from qfluentwidgets import (
     TogglePushButton,
     ToolButton,
     TransparentToolButton,
+    isDarkTheme,
 )
 
 from editor.rich_text_editing import StyledTextSegment
@@ -196,7 +197,7 @@ class RichTextToolbar(QWidget):
             button.setChecked(bool(checked))
 
 
-class RichTextPresetSidebar(QWidget):
+class RichTextPresetSidebar(SimpleCardWidget):
     """Collapsible saved-preset list; the floating editor owns the payloads."""
 
     preset_applied = pyqtSignal(str)
@@ -207,8 +208,15 @@ class RichTextPresetSidebar(QWidget):
     EXPANDED_WIDTH = 248
     COLLAPSED_WIDTH = 38
 
+    def _normalBackgroundColor(self) -> QColor:
+        """Use an opaque Fluent surface because the panel owns its background."""
+        return QColor(32, 32, 32) if isDarkTheme() else QColor(250, 250, 250)
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        # This is a panel inside the floating card, not another rounded card.
+        # Keeping it Fluent-backed makes qconfig.themeChanged propagate to it.
+        self.setBorderRadius(0)
         self._names: list[str] = []
         self._collapsed = False
         self.setFixedWidth(self.EXPANDED_WIDTH)
@@ -262,6 +270,31 @@ class RichTextPresetSidebar(QWidget):
         self.title.setText(_tr("Rich Text Presets"))
         self._rebuild_rows()
         self._refresh_toggle_state(emit=False)
+
+    def refresh_theme(self) -> None:
+        """Bridge the native scroll viewport to the Fluent panel surface."""
+        surface = self._normalBackgroundColor()
+        palette = self.palette()
+        roles = (
+            QPalette.ColorRole.Window,
+            QPalette.ColorRole.Base,
+            QPalette.ColorRole.AlternateBase,
+            QPalette.ColorRole.Button,
+            QPalette.ColorRole.Mid,
+            QPalette.ColorRole.Dark,
+            QPalette.ColorRole.Midlight,
+        )
+        for group in (
+            QPalette.ColorGroup.Active,
+            QPalette.ColorGroup.Inactive,
+            QPalette.ColorGroup.Disabled,
+        ):
+            for role in roles:
+                palette.setColor(group, role, surface)
+        for widget in (self, self.scroll, self.scroll.viewport(), self.content):
+            widget.setPalette(palette)
+            widget.setAutoFillBackground(True)
+            widget.update()
 
     def _rebuild_rows(self) -> None:
         clear_layout(self.content_layout)

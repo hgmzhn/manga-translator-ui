@@ -7,12 +7,13 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = _bootstrap.ROOT
 
-from PyQt6.QtGui import QTextCursor
+from PyQt6.QtGui import QColor, QTextCursor
 from PyQt6.QtWidgets import QApplication, QToolButton
-from qfluentwidgets import CompactDoubleSpinBox
+from qfluentwidgets import CompactDoubleSpinBox, SimpleCardWidget
 
 from desktop_qt_ui.editor.editor_controller import EditorController
 from desktop_qt_ui.editor.rich_text_editing import visible_text_from_document
@@ -83,6 +84,26 @@ class RichTextFloatingEditorTests(unittest.TestCase):
 
         self.assertFalse(editor.isVisible())
         self.assertFalse(editor._state.has_region)
+
+    def test_editor_surface_follows_fluent_theme(self):
+        editor = RichTextFloatingEditor()
+        self.widgets.append(editor)
+        self.assertIsInstance(editor.preset_sidebar, SimpleCardWidget)
+        self.assertEqual(editor.preset_sidebar.getBorderRadius(), 0)
+
+        with patch(
+            "desktop_qt_ui.ui.widgets.rich_text_floating_editor.isDarkTheme",
+            return_value=True,
+        ):
+            editor.refresh_theme()
+            self.assertEqual(editor.backgroundColor, QColor(32, 32, 32))
+
+        with patch(
+            "desktop_qt_ui.ui.widgets.rich_text_floating_editor.isDarkTheme",
+            return_value=False,
+        ):
+            editor.refresh_theme()
+            self.assertEqual(editor.backgroundColor, QColor(250, 250, 250))
 
     def _open_new_ruby(self, editor):
         editor._select_python_range(0, 2)

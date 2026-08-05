@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
-from qfluentwidgets import SimpleCardWidget, VerticalSeparator, themeColor
+from qfluentwidgets import SimpleCardWidget, VerticalSeparator, isDarkTheme, themeColor
 
 from editor.rich_text_editing import (
     apply_ruby_to_range,
@@ -55,6 +55,10 @@ class RichTextFloatingEditor(SimpleCardWidget):
     _DRAG_BORDER_WIDTH = 12
     _WINDOW_FLAGS = Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
     _MAIN_PANEL_WIDTH = 440
+
+    def _normalBackgroundColor(self) -> QColor:
+        """Provide the opaque surface a top-level Fluent card normally inherits."""
+        return QColor(32, 32, 32) if isDarkTheme() else QColor(250, 250, 250)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -207,7 +211,10 @@ class RichTextFloatingEditor(SimpleCardWidget):
             self._queue_layout_refresh()
 
     def refresh_theme(self) -> None:
-        """Fluent controls restyle themselves; push the change to color swatches."""
+        """Synchronize the top-level surface and custom color swatches."""
+        self.backgroundColorAni.stop()
+        self.setBackgroundColor(self._normalBackgroundColor())
+        self.preset_sidebar.refresh_theme()
         for picker in self.findChildren(ColorPickerWidget):
             picker.refresh_theme()
         self.update()
