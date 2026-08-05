@@ -19,9 +19,6 @@ VERSION = '1.7.6'
 PYTHON_VERSION_MIN = (3, 12)
 PYTHON_VERSION_MAX = (3, 12)  # 仅支持Python 3.12,不支持3.13+
 
-# AMD APU HSA 架构伪装版本 (针对不支持的 gfx1103/gfx1150 核显)
-HSA_APU_JAILBREAK_VERSION = '11.0.0'
-
 # 路径配置
 PATH_ROOT = Path(__file__).parent.parent
 stored_commit_hash = None
@@ -147,6 +144,29 @@ def _dep_base_name(dep):
     return m.group(1) if m else (dep or '').strip()
 
 
+def _marker_applies(marker):
+    """Evaluate a PEP 508 marker in the current interpreter environment."""
+    if not marker:
+        return True
+    try:
+        from packaging.markers import Marker
+        return Marker(marker).evaluate()
+    except Exception:
+        # packaging is a bootstrap dependency; keep a dependency rather than
+        # silently dropping it if marker evaluation is temporarily unavailable.
+        return True
+
+
+def _dependency_applies(dep):
+    """Return whether a dependency string applies to this platform."""
+    try:
+        from packaging.requirements import Requirement
+        marker = Requirement(dep).marker
+    except Exception:
+        return True
+    return marker is None or marker.evaluate()
+
+
 def _resolve_platform_source(name, sources):
     """把 tool.uv.sources 中按平台区分的 url/git 来源转成 pip 可用的依赖串。
 
@@ -160,15 +180,8 @@ def _resolve_platform_source(name, sources):
         entries = [entries]
     for entry in entries:
         marker = entry.get('marker')
-        if marker:
-            try:
-                from packaging.markers import Marker
-                if not Marker(marker).evaluate():
-                    continue
-            except Exception:
-                # packaging 不可用时退化为简单平台名匹配
-                if f"'{sys.platform}'" not in marker:
-                    continue
+        if not _marker_applies(marker):
+            continue
         if 'url' in entry:
             return f"{name} @ {entry['url']}"
         if 'git' in entry:
@@ -194,6 +207,8 @@ def get_variant_packages(variant):
 
     packages = []
     for dep in deps:
+        if not _dependency_applies(dep):
+            continue
         base_name = _dep_base_name(dep)
         if base_name.lower() in source_names:
             resolved = _resolve_platform_source(base_name, sources)
@@ -219,7 +234,9 @@ def get_variant_index_url(variant):
     if isinstance(torch_sources, dict):
         torch_sources = [torch_sources]
     for entry in torch_sources:
-        if entry.get('group') == variant and entry.get('index') in indexes:
+        if (entry.get('group') == variant
+                and entry.get('index') in indexes
+                and _marker_applies(entry.get('marker'))):
             return indexes[entry['index']]
     return None
 
@@ -1628,10 +1645,12 @@ except:
                 else:
                     print('无效输入,请输入 1 或 2')
     
-    # 选择对应的 PyTorch 版本（根据 pyproject.toml 中 gpu dependency group 的版本）
-    # 注意: 非 AMD PyTorch 由所选 dependency group 统一安装
+    # 选择对应的 PyTorch 版本（根据 pyproject.toml 中 dependency group 的版本）
+    # Windows AMD 使用固定 Radeon URL；Linux AMD 使用 pyproject.toml 中的 ROCm 索引。
     # 这样可以避免版本冲突和 DLL 损坏问题
     
+    windows_amd_install = use_amd_pytorch and sys.platform == 'win32'
+
     # 检查是否需要卸载不匹配的 PyTorch 版本
     need_reinstall = args.reinstall_torch
     
@@ -1687,8 +1706,9 @@ except:
         except:
             pass
     
-    # 如果用户选择了 AMD ROCm PyTorch，先安装它
-    if use_amd_pytorch:
+    # Windows AMD 需要先安装 Radeon ROCm SDK，再安装配套 PyTorch wheels。
+    # Linux AMD 的 ROCm 依赖由 amd dependency group 统一交给 uv 处理。
+    if windows_amd_install:
         print('\n' + '=' * 50)
         print('正在安装 AMD ROCm PyTorch')
         print('=' * 50)
@@ -1744,8 +1764,8 @@ except:
     if not check_variant_deps(requirements_file) or need_reinstall:
         if need_reinstall:
             print(f'强制重新安装所有依赖...')
-            # 只有 AMD 用户才会在前面单独安装 PyTorch，其他用户需要从 requirements 安装
-            if use_amd_pytorch:
+            # 只有 Windows AMD 用户才会在前面单独安装 PyTorch，其他平台从 dependency group 安装。
+            if windows_amd_install:
                 print('跳过依赖方案中的 PyTorch（AMD ROCm 已单独安装）')
                 # 排除 PyTorch 及其生态包（这些包依赖 torch，会触发 torch 安装）
                 pytorch_related = ['torch', 'torchvision', 'torchaudio', 'xformers', 'torchsummary', 'open_clip_torch']
@@ -1774,12 +1794,12 @@ except:
 
     # uv 精确同步：按 uv.lock 卸掉清单之外的残留包（上面的 pip 安装路径只装不卸）
     # 仅限仓库自带环境（便携 Python / venv）；conda 旧环境只做上面的特例清理；
-    # AMD 的 ROCm PyTorch 是固定 URL 单独安装、不在 lock 中，精确同步会把它卸掉，跳过
+    # Windows AMD 的固定 URL wheels 不在 uv.lock 中，精确同步会把它们卸掉，因此跳过。
     env_root = Path(python).parent
     if env_root.name.lower() == 'scripts':
         env_root = env_root.parent
     uv = find_uv()
-    if (not use_amd_pytorch and uv and not skip_install
+    if (not windows_amd_install and uv and not skip_install
             and PATH_ROOT in env_root.parents):
         try:
             # pip/uv 等自举工具不在 lock 中，同步时保留（只保留已安装的）
@@ -1802,27 +1822,6 @@ except:
                 "同步依赖环境（清理多余包）", "依赖同步失败", live=True)
         except Exception as e:
             print(f'[警告] uv 精确同步失败（不影响使用）: {e}')
-
-    # 自动设置 AMD APU 越狱环境变量 (HSA Override)
-    if use_amd_pytorch:
-        target_gfx = amd_gfx_version
-        if not target_gfx and gpu_name:
-            name_upper = gpu_name.upper()
-            if any(kw in name_upper for kw in ['780M', '760M', '740M']):
-                target_gfx = 'gfx1103'
-            elif any(kw in name_upper for kw in ['890M', '880M', '860M']):
-                target_gfx = 'gfx1150'
-                
-        if target_gfx in ['gfx1103', 'gfx1150']:
-            print('\n[INFO] 检测到 AMD APU 核显 (780M/890M等)')
-            print(f'       正在自动注入架构越狱环境变量: HSA_OVERRIDE_GFX_VERSION={HSA_APU_JAILBREAK_VERSION} 以启用核显加速...')
-            print('       [提示] 核显显存优化建议:')
-            print('              由于 AMD 核显共享内存机制，若您的 BIOS 预分配显存过低（如 512MB），')
-            print('              运行本地模型时极易遭遇 "Out of Memory" 报错或卡顿。')
-            print('              💡 建议：进入您的电脑 BIOS 或品牌控制软件，')
-            print('              将 "UMA Frame Buffer Size" (预分配显存) 修改为 4G、8G 或更高，')
-            print('              以获得最稳定、最流畅的核显加速体验！\n')
-            os.environ['HSA_OVERRIDE_GFX_VERSION'] = HSA_APU_JAILBREAK_VERSION
 
     # 返回 AMD PyTorch 相关信息
     return use_amd_pytorch, amd_gfx_version
@@ -2279,25 +2278,18 @@ def update_code_force(skip_confirm=False, target_branch=None):
     if platform.system() == 'Windows':
         # Windows 环境清理 macOS 文件
         files_to_remove = [
-            'macOS_1_首次安装.sh',
-            'macOS_2_启动Qt界面.sh',
-            'macOS_3_检查更新并启动.sh',
-            'macOS_4_更新维护.sh',
-            'macOS_common.sh',
+            'Unix-Install-or-Update.sh',
+            'Unix-Start.sh',
             'test',
             '.gitattributes',
             '.gitignore',
             'LICENSE.txt'
         ]
-    elif platform.system() == 'Darwin':
-        # macOS 环境清理 Windows 文件
+    elif platform.system() in ('Darwin', 'Linux'):
+        # Linux/macOS 环境只清理 Windows 启动文件，保留仓库元数据和 Unix 脚本。
         files_to_remove = [
             'Win-Start.bat',
             'Win-Install-or-Update.bat',
-            'test',
-            '.gitattributes',
-            '.gitignore',
-            'LICENSE.txt'
         ]
     else:
         files_to_remove = []
@@ -2729,7 +2721,11 @@ def run_full_update(args):
                 return update_dependencies_selective(args, missing_packages)
             return update_dependencies(args)
 
-        run_deps_with_retry(do_update_deps, "更新", "Update")
+        deps_update_success = run_deps_with_retry(do_update_deps, "更新", "Update")
+        if not deps_update_success:
+            update_success = False
+            print(L("[错误] 依赖更新失败，未完成本次更新",
+                    "[ERROR] Dependency update failed; this update was not completed"))
     elif update_success:
         print()
         print(L("[2/2] 依赖已满足，跳过", "[2/2] Dependencies satisfied, skipping"))
@@ -2740,6 +2736,12 @@ def run_full_update(args):
         print()
         print("=" * 40)
         print(L("[完成] 更新完成", "[DONE] Update complete"))
+        print("=" * 40)
+    else:
+        print()
+        print("=" * 40)
+        print(L("[失败] 更新未完成，请修复问题后重试",
+                "[FAILED] Update was not completed; fix the problem and retry"))
         print("=" * 40)
 
 

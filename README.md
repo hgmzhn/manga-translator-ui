@@ -192,9 +192,8 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
    # CPU 版本（与上面的 GPU 命令二选一）
    uv sync --no-default-groups --group cpu
 
-   # AMD GPU（实验性；ROCm PyTorch 由安装入口单独安装）
+   # AMD GPU（实验性；Linux 使用 ROCm 7.2 索引）
    uv sync --no-default-groups --group amd
-   uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 
    # Apple Silicon / Metal
    uv sync --no-default-groups --group metal
@@ -211,9 +210,9 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 > 📖 **详细安装教程**：[安装指南](doc/INSTALLATION.md)  
 > 📖 **使用教程**：[命令行使用指南](doc/CLI_USAGE.md)
 
-#### 方式五：macOS
+#### 方式五：Linux/macOS
 
-适用于 macOS 12 或更高版本。Apple Silicon 会使用 Metal/MPS 加速；Intel Mac 会使用 CPU 依赖。
+Linux 和 macOS 共用同一套安装脚本。Apple Silicon 会使用 Metal/MPS；Linux 会自动选择 NVIDIA、AMD ROCm 或 CPU 依赖组。
 
 **快速安装**：
 
@@ -221,37 +220,32 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 mkdir -p ~/manga-translator-ui
 cd ~/manga-translator-ui
 
-curl -L -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/macOS_1_首次安装.sh
-chmod +x macOS_1_首次安装.sh
-./macOS_1_首次安装.sh
+curl -L -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/Unix-Install-or-Update.sh
+chmod +x Unix-Install-or-Update.sh
+./Unix-Install-or-Update.sh
 ```
 
-> 安装脚本会检查 Xcode Command Line Tools、Git 和 Conda；没有项目代码时会克隆仓库；没有可用 Conda 时会安装 Miniforge。若系统 Conda 的环境目录不可写，脚本会改用项目目录下的 `conda_env`。
+> 安装脚本启动时只询问一次 `Start installation now? [Y/n]`。确认后会检查 Git，使用 `uv` 安装 Python 3.12，在项目目录创建 `.venv`，然后直接进入双语 Python 安装/更新菜单。没有项目代码时会自动克隆仓库。
 
 **已有仓库时安装依赖**：
 
 ```bash
 cd manga-translator-ui
-chmod +x macOS_*.sh
-./macOS_1_首次安装.sh
+chmod +x Unix-*.sh
+./Unix-Install-or-Update.sh
 ```
 
 **启动程序**：
 
 ```bash
-./macOS_2_启动Qt界面.sh
+./Unix-Start.sh
 ```
 
-**检查更新提示并启动**：
+**更新代码和依赖**：
 
 ```bash
-./macOS_3_检查更新并启动.sh
-```
-
-**更新维护**：
-
-```bash
-./macOS_4_更新维护.sh
+./Unix-Install-or-Update.sh
+# 在 Python 菜单中选择 [2] Update
 ```
 
 
@@ -289,7 +283,7 @@ chmod +x macOS_*.sh
 > conda activate manga-env
 > 
 > # Linux/macOS
-> conda activate manga-env
+> source .venv/bin/activate
 > ```
 
 快速开始：

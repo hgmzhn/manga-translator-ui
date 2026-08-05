@@ -11,7 +11,7 @@
 - [安装方式二：下载打包版本](#安装方式二下载打包版本)
 - [安装方式三：从源码运行](#安装方式三从源码运行)
 - [安装方式四：Docker部署](#安装方式四docker部署)
-- [安装方式五：macOS 原生运行（Apple Silicon）](#安装方式五macos原生运行apple-silicon)
+- [安装方式五：Linux/macOS 原生运行](#安装方式五linuxmacos原生运行)
 - [故障排除](#故障排除)
 
 ---
@@ -203,9 +203,8 @@ uv sync
 # CPU 版本
 uv sync --no-default-groups --group cpu
 
-# AMD GPU 版本（实验性；ROCm PyTorch 由 launch.py 单独安装）
+# AMD GPU 版本（实验性；Linux 使用 ROCm 7.2 索引）
 uv sync --no-default-groups --group amd
-uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 
 # Apple Silicon / Metal
 uv sync --no-default-groups --group metal
@@ -451,26 +450,24 @@ services:
 
 ---
 
-## 安装方式五：macOS 原生运行（Apple Silicon）
+## 安装方式五：Linux/macOS 原生运行
 
-专为搭载 Apple Silicon (M1/M2/M3/M4) 芯片的 Mac 设备设计，利用 MPS (Metal Performance Shaders) 提供原生 GPU 加速。
+Linux/macOS 共用同一套安装脚本。Apple Silicon 使用 MPS (Metal Performance Shaders)，Linux 根据设备选择 NVIDIA、AMD ROCm 或 CPU 依赖组。
 
 ### 系统要求
 
-- **硬件**：Mac 电脑 (M1/M2/M3/M4 芯片，Intel Mac 也可运行但使用 CPU 模式)
-- **系统**：macOS 12.0 或更高版本
-- **软件**：Xcode Command Line Tools（脚本会自动检查并提示安装）
+- **硬件**：Linux x86_64 或 macOS；Intel Mac 使用 CPU 模式
+- **系统**：Linux；macOS 12.0 或更高版本
+- **软件**：Git 和 `uv`（脚本会自动安装 `uv`）
 
 ### 脚本说明
 
-项目提供了 4 个 macOS 专用脚本，对应 Windows 的批处理脚本：
+Linux 和 macOS 共用 2 个脚本，对应 Windows 的两个批处理脚本：
 
 | 脚本文件 | 说明 | 对应 Windows |
 |---------|------|-------------|
-| `macOS_1_首次安装.sh` | 首次环境配置、代码克隆、Miniforge 安装、依赖安装 | Win-Install-or-Update.bat → [1] 安装 |
-| `macOS_2_启动Qt界面.sh` | 启动图形界面 | Win-Start.bat |
-| `macOS_3_检查更新并启动.sh` | 检查版本更新后启动 | （无单独对应，可用 Win-Install-or-Update.bat 更新后启动） |
-| `macOS_4_更新维护.sh` | 运行维护菜单（更新代码、更新依赖、清理缓存等） | Win-Install-or-Update.bat |
+| `Unix-Install-or-Update.sh` | 开头确认一次后，引导 Git、uv、Python 3.12 和 `packaging`，然后直接进入双语安装/更新菜单 | Win-Install-or-Update.bat |
+| `Unix-Start.sh` | 启动图形界面 | Win-Start.bat |
 
 ### 安装步骤
 
@@ -480,22 +477,23 @@ services:
 
 ```bash
 # 1. 下载安装脚本
-curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/macOS_1_首次安装.sh
+curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/Unix-Install-or-Update.sh
 
 # 2. 赋予执行权限
-chmod +x macOS_1_首次安装.sh
+chmod +x Unix-Install-or-Update.sh
 
 # 3. 运行安装
-./macOS_1_首次安装.sh
+./Unix-Install-or-Update.sh
 ```
 
 脚本会自动完成：
-- 检查并提示安装 Xcode Command Line Tools（包含 Git）
+- 检查 Git
 - 克隆项目代码
-- 检测并安装 Miniforge（如未安装）
-- 创建独立的 `manga-env` 虚拟环境（Python 3.12）
-- 从 `pyproject.toml` 安装 `metal` dependency group（Intel Mac 使用 `cpu`）
-- 配置 MPS GPU 加速
+- 使用 `uv` 安装 Python 3.12
+- 创建项目本地 `.venv`
+- 进入双语 Python 菜单，由 `launch.py` 选择并安装 `cpu`、`gpu`、`amd` 或 `metal`
+
+启动时仅会询问一次 `Start installation now? [Y/n]`；正常确认后，初始化过程不会再次要求确认，完成即进入双语菜单。
 
 **方式二：手动克隆**
 
@@ -507,10 +505,10 @@ git clone https://github.com/hgmzhn/manga-translator-ui.git
 cd manga-translator-ui
 
 # 2. 赋予执行权限
-chmod +x macOS_*.sh
+chmod +x Unix-*.sh
 
 # 3. 运行安装
-./macOS_1_首次安装.sh
+./Unix-Install-or-Update.sh
 ```
 
 ### 验证与启动
@@ -519,23 +517,14 @@ chmod +x macOS_*.sh
 
 - **正常启动**：
   ```bash
-  ./macOS_2_启动Qt界面.sh
+  ./Unix-Start.sh
   ```
 
-- **检查更新并启动**：
+- **更新代码和依赖**：
   ```bash
-  ./macOS_3_检查更新并启动.sh
+  ./Unix-Install-or-Update.sh
+  # 在 Python 菜单中选择 [2] 更新
   ```
-
-- **更新维护**：
-  ```bash
-  ./macOS_4_更新维护.sh
-  ```
-  维护菜单提供：
-  - 更新代码（强制同步到远程）
-  - 更新/安装依赖
-  - 完整更新（代码+依赖）
-  - 修复模式（重装所有依赖）
 
 ### 常见问题
 
@@ -543,10 +532,10 @@ chmod +x macOS_*.sh
 A: 约 10-20 分钟，取决于网络速度。需要下载约 2GB 的依赖包。
 
 **Q: Intel Mac 可以使用吗？**
-A: 可以，脚本会自动检测并使用 Intel 版本的 Miniforge，但只能使用 CPU 模式（无 MPS 加速）。
+A: 可以，脚本会使用项目本地的 `uv` 环境；Intel Mac 会使用 CPU 模式，Apple Silicon 会使用 Metal/MPS。
 
 **Q: 如何更新到最新版本？**
-A: 运行 `./macOS_4_更新维护.sh`，选择"完整更新"即可。
+A: 运行 `./Unix-Install-or-Update.sh`，在 Python 菜单中选择 [2] 更新。
 
 ---
 

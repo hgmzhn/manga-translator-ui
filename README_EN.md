@@ -200,9 +200,8 @@ Best for developers or users who want full customization.
    # CPU build (choose this instead of the GPU command above)
    uv sync --no-default-groups --group cpu
 
-   # AMD GPU (experimental; the installer handles ROCm PyTorch separately)
+   # AMD GPU (experimental; Linux uses the ROCm 7.2 index)
    uv sync --no-default-groups --group amd
-   uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 
    # Apple Silicon / Metal
    uv sync --no-default-groups --group metal
@@ -222,41 +221,45 @@ Best for developers or users who want full customization.
 >  
 > 📖 **Usage guide**: [CLI usage guide](doc/en/CLI_USAGE.md)
 
-#### Method 5: Native macOS Run (Apple Silicon)
+#### Method 5: Linux/macOS Run
 
-Optimized for M1 / M2 / M3 / M4 Macs, with MPS (Metal Performance Shaders) GPU acceleration support.
+Linux and macOS use the same `uv`-based installer. Apple Silicon uses MPS when available; Linux selects NVIDIA, AMD ROCm, or CPU dependencies.
 
 **Quick start (recommended)**:
 
 1. **Download the install script**:
 
    ```bash
-   curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/macOS_1_首次安装.sh
-   chmod +x macOS_1_首次安装.sh
+   curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/Unix-Install-or-Update.sh
+   chmod +x Unix-Install-or-Update.sh
    ```
 
 2. **Run the installer**:
 
    ```bash
-   ./macOS_1_首次安装.sh
+   ./Unix-Install-or-Update.sh
    ```
 
    The script will automatically:
-   - Check and install required components such as Xcode Command Line Tools and Git
+   - Check for Git
    - Clone the project
-   - Install Miniforge and the Python environment
-   - Configure MPS GPU acceleration
+   - Install Python 3.12 through `uv`
+   - Create a project-local `.venv`
+   - Open the bilingual Python installer/update menu, where you select the dependency group
+
+   At startup, the script asks once: `Start installation now? [Y/n]`. After confirmation, it continues directly to the Python menu.
 
 3. **Start the app**:
 
    ```bash
-   ./macOS_2_启动Qt界面.sh
+   ./Unix-Start.sh
    ```
 
 4. **Update later**:
 
    ```bash
-   ./macOS_4_更新维护.sh
+   ./Unix-Install-or-Update.sh
+   # Choose [2] Update in the Python menu
    ```
 
 **Or clone manually**:
@@ -264,8 +267,8 @@ Optimized for M1 / M2 / M3 / M4 Macs, with MPS (Metal Performance Shaders) GPU a
 ```bash
 git clone https://github.com/hgmzhn/manga-translator-ui.git
 cd manga-translator-ui
-chmod +x macOS_*.sh
-./macOS_1_首次安装.sh
+chmod +x Unix-*.sh
+./Unix-Install-or-Update.sh
 ```
 
 > ⚠️ **Notes**:
@@ -308,7 +311,7 @@ Best for batch processing and automation scripts.
 > conda activate manga-env
 >
 > # Linux/macOS
-> conda activate manga-env
+> source .venv/bin/activate
 > ```
 
 Quick start:

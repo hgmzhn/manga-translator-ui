@@ -11,7 +11,7 @@ This document provides detailed installation steps, system requirements, first-r
 - [Method 2: Packaged Release](#method-2-packaged-release)
 - [Method 3: Run from Source](#method-3-run-from-source)
 - [Method 4: Docker Deployment](#method-4-docker-deployment)
-- [Method 5: Native macOS Run Apple Silicon](#method-5-native-macos-run-apple-silicon)
+- [Method 5: Native Linux/macOS Run](#method-5-native-linuxmacos-run)
 - [First Run](#first-run)
 - [Troubleshooting](#troubleshooting)
 - [Next Steps](#next-steps)
@@ -198,9 +198,8 @@ uv sync
 # CPU
 uv sync --no-default-groups --group cpu
 
-# AMD GPU (experimental; launch.py installs ROCm PyTorch separately)
+# AMD GPU (experimental; Linux uses the ROCm 7.2 index)
 uv sync --no-default-groups --group amd
-uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
 
 # Apple Silicon / Metal
 uv sync --no-default-groups --group metal
@@ -404,24 +403,22 @@ After deployment:
 
 ---
 
-## Method 5: Native macOS Run Apple Silicon
+## Method 5: Native Linux/macOS Run
 
-Designed for Apple Silicon Macs and uses MPS acceleration when available.
+Linux and macOS share the same installer. Apple Silicon uses MPS when available; Linux selects NVIDIA, AMD ROCm, or CPU dependencies.
 
 ### System requirements
 
-- **Hardware**: Mac with Apple Silicon preferred. Intel Mac can still run in CPU mode
-- **OS**: macOS 12.0 or later
-- **Tools**: Xcode Command Line Tools, the script checks and prompts if needed
+- **Hardware**: Linux x86_64 or macOS; Intel Mac runs in CPU mode
+- **OS**: Linux or macOS 12.0 or later
+- **Tools**: Git; the script installs `uv` when needed
 
 ### Script mapping
 
 | Script | Purpose | Windows equivalent |
 |---------|------|-------------|
-| `macOS_1_首次安装.sh` | First-time install, clone, Miniforge install, dependency install | `Win-Install-or-Update.bat` → [1] Install |
-| `macOS_2_启动Qt界面.sh` | Start the Qt UI | `步骤2-启动Qt界面.bat` |
-| `macOS_3_检查更新并启动.sh` | Update check then launch | `步骤3-检查更新并启动.bat` |
-| `macOS_4_更新维护.sh` | Maintenance menu | `步骤4-更新维护.bat` |
+| `Unix-Install-or-Update.sh` | After one confirmation, bootstrap Git, uv, Python 3.12, and `packaging`, then open the bilingual install/update menu | `Win-Install-or-Update.bat` |
+| `Unix-Start.sh` | Start the Qt UI | `Win-Start.bat` |
 
 ### Install steps
 
@@ -429,44 +426,47 @@ Designed for Apple Silicon Macs and uses MPS acceleration when available.
 
 ```bash
 # 1. Download script
-curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/macOS_1_首次安装.sh
+curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/Unix-Install-or-Update.sh
 
 # 2. Make it executable
-chmod +x macOS_1_首次安装.sh
+chmod +x Unix-Install-or-Update.sh
 
 # 3. Run installer
-./macOS_1_首次安装.sh
+./Unix-Install-or-Update.sh
 ```
 
 The script automatically:
 
-- Checks Xcode Command Line Tools
+- Checks Git
 - Clones the project
-- Installs Miniforge if needed
-- Creates the `manga-env` environment with Python 3.12
-- Installs the `metal` dependency group from `pyproject.toml` (or `cpu` on Intel Mac)
-- Configures MPS acceleration
+- Installs Python 3.12 through `uv`
+- Creates a project-local `.venv`
+- Opens the bilingual Python menu; `launch.py` selects and installs `cpu`, `gpu`, `amd`, or `metal`
+
+At startup, the script asks only once: `Start installation now? [Y/n]`. After confirmation, the normal bootstrap flow proceeds directly to the bilingual menu.
 
 **Option 2: Clone manually first**
 
 ```bash
 git clone https://github.com/hgmzhn/manga-translator-ui.git
 cd manga-translator-ui
-chmod +x macOS_*.sh
-./macOS_1_首次安装.sh
+chmod +x Unix-*.sh
+./Unix-Install-or-Update.sh
 ```
 
 ### Verify and run
 
 ```bash
 # Normal launch
-./macOS_2_启动Qt界面.sh
+./Unix-Start.sh
 
 # Update check and launch
-./macOS_3_检查更新并启动.sh
+./Unix-Install-or-Update.sh
+# Choose [2] Update in the Python menu
 
 # Maintenance menu
-./macOS_4_更新维护.sh
+./Unix-Install-or-Update.sh
+# Choose [2] Update in the Python menu
 ```
 
 ### FAQ
@@ -478,7 +478,7 @@ About 10 to 20 minutes depending on your network.
 Yes, but it will use CPU mode.
 
 **Q: How do I update later?**
-Run `./macOS_4_更新维护.sh` and choose the full update option.
+Run `./Unix-Install-or-Update.sh` and choose [2] Update in the Python menu.
 
 ---
 

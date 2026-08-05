@@ -22,7 +22,7 @@ Dependencies are now declared in `pyproject.toml` at the repository root:
 - Common dependencies live in `[project] dependencies`.
 - The four backends are mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
 - The default groups are `gpu` + `packaging`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 13.0 and keeps PyInstaller installed.
-- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu130`, `metal` uses the default PyPI; the ROCm torch for `amd` is installed separately from `repo.radeon.com` by `packaging/launch.py`.
+- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu130`, Linux `amd` uses `whl/rocm7.2`, and `metal` uses the default PyPI; Windows AMD Radeon wheels remain installed separately by `packaging/launch.py`.
 - `uv.lock` is the lockfile. It is committed to the repository; do not edit it by hand.
 
 The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` files have been removed.
@@ -39,9 +39,9 @@ uv sync
 uv sync --no-default-groups --group cpu
 uv sync --no-default-groups --group metal
 
-# AMD: sync common/AMD dependencies, then let launch.py install ROCm PyTorch
+# AMD (Linux): use the official PyTorch ROCm 7.2 index
 uv sync --no-default-groups --group amd
-uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
+# Windows AMD is handled by the Windows installer in Radeon SDK -> PyTorch order
 ```
 
 In a source checkout, `uv sync` creates `.venv` and reproduces dependencies from `uv.lock`. The Windows portable installer uses bundled `packaging\python` and does not create `.venv`. To install source dependencies into an existing environment instead:
@@ -386,7 +386,7 @@ The main end-user scripts live in the repository root:
 
 - `Win-Start.bat` (launcher)
 - `Win-Install-or-Update.bat` (install / update maintenance menu)
-- `macOS_*.sh`
+- `Unix-Install-or-Update.sh` / `Unix-Start.sh` (Linux/macOS)
 
 The actual logic behind those scripts is concentrated in files such as:
 

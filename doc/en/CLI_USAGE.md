@@ -26,8 +26,11 @@ This English CLI document mirrors the current Chinese source while updating UI n
 Before using the CLI, activate the virtual environment in the project directory first:
 
 ```bash
-# Windows / Linux / macOS
+# Windows legacy Conda environment
 conda activate manga-env
+
+# Linux / macOS
+source .venv/bin/activate
 ```
 
 ---

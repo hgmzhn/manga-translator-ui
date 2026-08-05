@@ -10,9 +10,8 @@
 |------|------|
 | `Win-Start.bat` | 定位 Python 环境后**直接运行 `desktop_qt_ui\main.py`**（不经过 launch.py）；异常退出时提示运行安装/更新脚本 |
 | `Win-Install-or-Update.bat` | 定位 Python 环境后运行 `packaging\launch.py --maintenance`，进入维护菜单 |
-| `macOS_1_首次安装.sh` | 调用 `launch.py --requirements <方案> --install-deps-only` 安装依赖 |
-| `macOS_2_启动Qt界面.sh` / `macOS_3_检查更新并启动.sh` | 直接运行 `desktop_qt_ui/main.py` |
-| `macOS_4_更新维护.sh` | 调用 `launch.py --maintenance` |
+| `Unix-Install-or-Update.sh` | 开头确认一次后，引导 Git、uv、Python 3.12 和 `packaging`，然后直接进入双语维护菜单 |
+| `Unix-Start.sh` | 使用 `.venv` 直接运行 `desktop_qt_ui/main.py` |
 
 ### 1.2 Windows 批处理定位 Python 的顺序
 
@@ -110,12 +109,13 @@
 - 通过 `nvidia-smi` 读取驱动版本和 CUDA 版本，正则**兼容新旧输出格式**：`CUDA Version: 12.8` 与新版的 `CUDA UMD Version: 13.3`；
 - CUDA ≥ 13 时默认推荐 GPU 方案（cu130）；CUDA < 13 时提示更新驱动或改用 CPU；无法检测时由用户自行选择 y/n。
 
-### 4.4 AMD（Windows ROCm 7.2.1）
+### 4.4 AMD（Linux ROCm 7.2 / Windows Radeon ROCm 7.2.1）
 
 - `detect_amd_gfx_version()` 按显卡名称映射 gfx 架构。支持 PyTorch 的有：MI300/MI350 系列、RX 7900 XTX / 7800 XT / 7700S（gfx110X-dgpu）、Strix Halo iGPU（gfx1151）、RX 9060/9070 系列（gfx120X-all）；RX 5000/6000、Vega 明确不支持；
 - 不支持或无法识别时提供选择：CPU（默认）/ 强制安装 AMD（实验性）/ 退出；
-- AMD PyTorch 采用**两阶段固定 URL 安装**（repo.radeon.com ROCm 7.2.1）：第 1 步装 ROCm SDK 依赖（core/devel/libraries_custom + rocm tar.gz），第 2 步装 torch 2.9.1 / torchaudio 2.9.1 / torchvision 0.24.1；前置要求 [AMD 显卡驱动 26.2.2](https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-2-2.html)；
-- **APU 越狱**：780M/760M/740M（gfx1103）与 890M/880M/860M（gfx1150）官方不支持，安装后自动注入 `HSA_OVERRIDE_GFX_VERSION=11.0.0` 启用核显加速，并提示到 BIOS 调大 UMA 预分配显存。
+- Linux AMD 使用 `pyproject.toml` 中的 PyTorch ROCm 7.2 索引，并由 uv 安装 `torch`、`torchvision` 和 `triton-rocm`；
+- Windows AMD 保留 `packaging/launch.py` 中的两阶段固定 URL 安装：先装 Radeon ROCm SDK，再装配套 Torch wheels，前置要求 [AMD 显卡驱动 26.2.2](https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-2-2.html)；
+- 不自动设置 `HSA_OVERRIDE_GFX_VERSION`。需要该变量时由用户在当前启动会话中显式设置，不写入系统或项目持久化配置。
 
 ### 4.5 Apple Silicon
 
@@ -149,8 +149,8 @@ arm64 Mac 自动选择 `metal` 方案（MPS 加速），无需交互。
 
 `update_code_force()` 同步代码成功后按平台删除无关文件（删除失败静默忽略）：
 
-- **Windows**：删除 `macOS_1_首次安装.sh`、`macOS_2_启动Qt界面.sh`、`macOS_3_检查更新并启动.sh`、`macOS_4_更新维护.sh`、`macOS_common.sh`，以及 `.gitattributes`、`.gitignore`、`LICENSE.txt`；
-- **macOS**：删除 `Win-Start.bat`、`Win-Install-or-Update.bat`，以及 `.gitattributes`、`.gitignore`、`LICENSE.txt`。
+- **Windows**：删除 `Unix-Install-or-Update.sh`、`Unix-Start.sh`，以及 `.gitattributes`、`.gitignore`、`LICENSE.txt`；
+- **Linux/macOS**：只删除 `Win-Start.bat` 和 `Win-Install-or-Update.bat`，保留 `.gitattributes`、`.gitignore`、`LICENSE.txt` 和 Unix 脚本。
 
 ## 7. 相关文件与环境变量速查
 
@@ -166,4 +166,4 @@ arm64 Mac 自动选择 `metal` 方案（MPS 加速），无需交互。
 | `INDEX_URL` | 环境变量：指定首选 PyPI 镜像 |
 | `MANGAT_SELECTED_GPU` | 环境变量：多显卡时跳过交互选择（序号/类型/名称模糊匹配） |
 | `GIT` | 环境变量：无便携版 Git 时指定 git 可执行文件 |
-| `HSA_OVERRIDE_GFX_VERSION` | AMD APU 越狱时由脚本自动设置为 11.0.0 |
+| `HSA_OVERRIDE_GFX_VERSION` | 不由安装/启动脚本自动设置；需要时由用户临时显式设置 |

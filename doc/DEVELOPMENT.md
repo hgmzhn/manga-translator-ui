@@ -17,7 +17,7 @@
 - 公共依赖写在 `[project] dependencies`。
 - 四种后端是互斥的 dependency groups：`cpu` / `gpu` / `amd` / `metal`（`[tool.uv] conflicts` 保证互斥）。
 - 默认组是 `gpu` + `packaging`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 13.0，并保留 PyInstaller。
-- PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cpu` 用 `download.pytorch.org/whl/cpu`，`gpu` 用 `whl/cu130`，`metal` 走默认 PyPI；`amd` 的 ROCm 版 torch 由 `packaging/launch.py` 从 `repo.radeon.com` 单独安装。
+- PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cpu` 用 `download.pytorch.org/whl/cpu`，`gpu` 用 `whl/cu130`，Linux `amd` 用 `whl/rocm7.2`，`metal` 走默认 PyPI；Windows AMD 的 Radeon wheels 仍由 `packaging/launch.py` 单独安装。
 - `uv.lock` 是锁定文件，已提交在仓库里，请勿手改。
 
 旧的 `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` 已删除。
@@ -34,9 +34,9 @@ uv sync
 uv sync --no-default-groups --group cpu
 uv sync --no-default-groups --group metal
 
-# AMD：先同步公共/AMD 依赖，再由 launch.py 安装 ROCm PyTorch
+# AMD（Linux）：使用 PyTorch 官方 ROCm 7.2 索引
 uv sync --no-default-groups --group amd
-uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only
+# Windows AMD 由 Windows 安装脚本按 Radeon SDK -> PyTorch 顺序处理
 ```
 
 源码仓库中的 `uv sync` 会自动创建 `.venv` 并按 `uv.lock` 复现依赖；Windows 便携安装包使用自带的 `packaging\python`，不会创建 `.venv`。如果想把源码依赖装进已有环境，也可以：
@@ -324,7 +324,7 @@ python packaging/build_packages.py <version> --build both
 
 - `Win-Start.bat`（启动）
 - `Win-Install-or-Update.bat`（安装或更新维护菜单）
-- `macOS_*.sh`
+- `Unix-Install-or-Update.sh` / `Unix-Start.sh`（Linux/macOS）
 
 这些脚本的实际逻辑集中在 `packaging/launch.py`、`packaging/git_update.py` 等文件里。修改安装/更新行为时，不要只改 `.bat` 或 `.sh` 外壳。
 

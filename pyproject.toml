@@ -3,8 +3,8 @@
 # 安装方式（四选一，dependency groups 互斥）:
 #   uv sync                                      # 默认：NVIDIA CUDA 13.0 + 打包工具
 #   uv sync --no-default-groups --group cpu      # CPU 版
-#   uv sync --no-default-groups --group amd      # AMD 公共依赖
-#   uv run --no-sync python packaging/launch.py --requirements amd --install-deps-only  # 安装 AMD ROCm torch
+#   uv sync --no-default-groups --group amd      # Linux AMD ROCm 7.2
+#   # Windows AMD: use the Windows installer; it installs Radeon SDK before PyTorch.
 #   uv sync --no-default-groups --group metal    # macOS Apple Silicon (MPS) 版
 
 [project]
@@ -116,14 +116,16 @@ gpu = [
     "numpy>=2.0,<2.3",
     "xformers==0.0.35",
 ]
-# AMD ROCm: PyTorch 不在此处，由 packaging/launch.py 从 repo.radeon.com 两阶段安装
-# (ROCm 7.2.1 SDK + torch/torchaudio/torchvision wheels，需 AMD 驱动 26.2.2，仅 Python 3.12)
-# NumPy 与其他后端保持相同兼容上限
+# AMD ROCm: Linux 使用 PyTorch 官方 ROCm 7.2 索引。
+# Windows AMD 依赖由 packaging/launch.py 脚本按 ROCm SDK -> PyTorch 顺序安装。
 amd = [
     "onnxruntime==1.28.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
     "numpy>=2.0,<2.3",
+    "torch==2.13.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "torchvision==0.28.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "triton-rocm==3.7.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 metal = [
     # 使用默认 PyPI 源，自动安装 MPS 版本
@@ -157,15 +159,25 @@ conflicts = [
     ],
 ]
 
+[tool.pytest.ini_options]
+# 固定到当前仓库，避免 pytest 向上继承相邻旧仓库的配置和源码路径。
+testpaths = ["test"]
+pythonpath = [".", "desktop_qt_ui"]
+
 [tool.uv.sources]
 # torch 索引按 dependency group 绑定；metal 不绑定，回落到默认 PyPI（自动 MPS 版）
 torch = [
     { index = "pytorch-cpu", group = "cpu" },
     { index = "pytorch-cu130", group = "gpu" },
+    { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 torchvision = [
     { index = "pytorch-cpu", group = "cpu" },
     { index = "pytorch-cu130", group = "gpu" },
+    { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+triton-rocm = [
+    { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 xformers = [
     { index = "pytorch-cu130", group = "gpu" },
@@ -208,4 +220,9 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm72"
+url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
