@@ -133,6 +133,18 @@ def test_bool_and_derived_conditions():
         {"type": "paragraph", "inlines": [{"type": "text", "text": "x", "style": {"bold": True}}]}]}
     assert engine.evaluate_condition(styled, {"field": "has_rich_text", "op": "is_true"})
 
+    paragraph_only = make_region(translation="a[BR]b")
+    paragraph_only["translation_rich"] = {
+        "format": "richtext.v1",
+        "blocks": [
+            {"type": "paragraph", "inlines": [{"type": "text", "text": "a", "style": {}}]},
+            {"type": "paragraph", "inlines": [{"type": "text", "text": "b", "style": {}}]},
+        ],
+    }
+    assert engine.evaluate_condition(
+        paragraph_only, {"field": "has_rich_text", "op": "is_false"}
+    )
+
 
 def test_dead_region_flags_are_not_exposed():
     """region 级 bold/italic/underline/font_weight 没有任何 UI 会写、渲染也基本不读，
@@ -278,64 +290,64 @@ def test_rich_text_fill_covers_unstyled_gaps():
     assert styles["bc"].get("bold") in (None, False) and styles["bc"]["color"] == "#ff0000"
 
 
-def test_rich_text_clear_removes_only_selected_keys():
-    region = _styled_region("ab", "ab", {"color": "#0000ff", "bold": True, "fontSize": 30})
-    scheme = make_scheme(actions=[{"type": "rich_text", "mode": "clear", "pattern": "ab",
-                                   "clear": ["color", "bold"]}])
-    style = _first_style(engine.apply_scheme_to_region(region, scheme))
-    assert "color" not in style and "bold" not in style
-    # 没勾的不动
-    assert style["fontSize"] == 30
-
-
-def test_rich_text_clear_without_keys_wipes_everything():
-    region = make_region(translation="漢字")
+def test_rich_text_style_filter_is_anded_with_text_match():
+    region = make_region(translation="aba")
     region["translation_rich"] = {"format": "richtext.v1", "blocks": [{"type": "paragraph", "inlines": [
-        {"type": "ruby", "base": [{"type": "text", "text": "漢", "style": {"bold": True}}],
-         "text": [{"type": "text", "text": "かん", "style": {}}]},
-        {"type": "text", "text": "字", "style": {"color": "#ff0000"}},
+        {"type": "text", "text": "a", "style": {"bold": True}},
+        {"type": "text", "text": "b", "style": {"bold": True}},
+        {"type": "text", "text": "a", "style": {"italic": 15}},
     ]}]}
-    scheme = make_scheme(actions=[{"type": "rich_text", "mode": "clear", "pattern": "", "clear": []}])
-    updated = engine.apply_scheme_to_region(region, scheme)
-    # 一项没勾 + pattern 留空 = 整条打回纯文本，字段本身也不留
-    assert "translation_rich" not in updated
-    assert updated["translation"] == "漢字"
-
-
-def test_rich_text_clear_can_target_ruby_only():
-    region = make_region(translation="漢字")
-    region["translation_rich"] = {"format": "richtext.v1", "blocks": [{"type": "paragraph", "inlines": [
-        {"type": "ruby", "base": [{"type": "text", "text": "漢", "style": {"bold": True}}],
-         "text": [{"type": "text", "text": "かん", "style": {}}]},
-        {"type": "text", "text": "字", "style": {}},
-    ]}]}
-    scheme = make_scheme(actions=[{"type": "rich_text", "mode": "clear", "pattern": "漢",
-                                   "clear": ["ruby"]}])
+    scheme = make_scheme(actions=[{
+        "type": "rich_text", "mode": "overwrite", "pattern": "a",
+        "match_style": {"bold": True}, "match_style_logic": "all",
+        "style": {"color": "#ff0000"},
+    }])
     inlines = engine.apply_scheme_to_region(region, scheme)["translation_rich"]["blocks"][0]["inlines"]
-    assert not any(item.get("type") == "ruby" for item in inlines)
-    # 只清注音，字上的样式留着
-    assert any(item.get("style", {}).get("bold") for item in inlines)
+    assert inlines[0]["text"] == "a" and inlines[0]["style"] == {"bold": True, "color": "#ff0000"}
+    assert inlines[-1]["text"] == "a" and inlines[-1]["style"] == {"italic": 15.0}
 
 
-def test_rich_text_clear_targets_a_transform_subfield():
-    """旋转和偏移是两码事，样式编辑器里也是分开的三个控件，清空也得能分开点。"""
-    region = _styled_region("ab", "ab", {"transform": {"rotation": -90, "offsetX": 3}})
-    scheme = make_scheme(actions=[{"type": "rich_text", "mode": "clear", "pattern": "ab",
-                                   "clear": ["transform.rotation"]}])
-    style = _first_style(engine.apply_scheme_to_region(region, scheme))
-    assert "rotation" not in style["transform"]
-    assert style["transform"]["offsetX"] == 3
+def test_rich_text_match_all_vs_any_and_replace_preserves_br():
+    region = make_region(translation="ab[BR]c")
+    region["translation_rich"] = {"format": "richtext.v1", "blocks": [
+        {"type": "paragraph", "inlines": [
+            {"type": "text", "text": "a", "style": {"bold": True}},
+            {"type": "text", "text": "b", "style": {"color": "#0000ff"}},
+        ]},
+        {"type": "paragraph", "inlines": [
+            {"type": "text", "text": "c", "style": {"bold": True, "color": "#0000ff"}},
+        ]},
+    ]}
+    all_scheme = make_scheme(actions=[{
+        "type": "rich_text", "mode": "replace", "pattern": "",
+        "match_style": {"bold": True, "color": "#0000FF"}, "match_style_logic": "all",
+        "style": {"underline": True},
+    }])
+    updated = engine.apply_scheme_to_region(region, all_scheme)
+    assert updated["translation"] == "ab[BR]c"
+    assert len(updated["translation_rich"]["blocks"]) == 2
+    styles = {
+        run["text"]: run.get("style") or {}
+        for block in updated["translation_rich"]["blocks"] for run in block["inlines"]
+    }
+    assert styles["a"] == {"bold": True}
+    assert styles["b"] == {"color": "#0000ff"}
+    assert styles["c"] == {"underline": True}
 
-    # 子字段删空了，整个 transform 跟着没，样式全空后字段本身也不留
-    scheme = make_scheme(actions=[{"type": "rich_text", "mode": "clear", "pattern": "ab",
-                                   "clear": ["transform.rotation", "transform.offsetX"]}])
-    assert "translation_rich" not in engine.apply_scheme_to_region(region, scheme)
+    any_scheme = make_scheme(actions=[{
+        "type": "rich_text", "mode": "overwrite", "pattern": "",
+        "match_style": {"bold": True, "color": "#0000ff"}, "match_style_logic": "any",
+        "style": {"underline": True},
+    }])
+    spans = engine._rich_text_spans(engine.document_from_region(region), any_scheme["actions"][0])
+    assert spans == [(0, 2), (3, 4)]
 
 
-def test_rich_text_clear_whole_key_beats_its_subfields():
-    """手写 yaml 才会同时出现整块和子字段；整块清赢，顺序无关。"""
-    for keys in (["transform", "transform.rotation"], ["transform.rotation", "transform"]):
-        assert engine._clear_style_patch(keys) == {"transform": None}
+def test_legacy_rich_text_clear_action_is_dropped():
+    scheme = make_scheme(actions=[{
+        "type": "rich_text", "mode": "clear", "pattern": "", "clear": [],
+    }])
+    assert scheme["actions"] == []
 
 
 def test_rich_text_empty_pattern_targets_whole_region():
@@ -348,16 +360,16 @@ def test_rich_text_empty_pattern_targets_whole_region():
 
 def test_multiple_rich_text_actions_run_in_authoring_order():
     scheme = make_scheme(actions=[
-        {"type": "rich_text", "mode": "clear", "pattern": "", "clear": []},
+        {"type": "rich_text", "mode": "replace", "pattern": "", "style": {"underline": True}},
         {"type": "rich_text", "mode": "overwrite", "pattern": "好", "style": {"bold": True}},
     ])
     assert len(scheme["actions"]) == 2
     region = _styled_region("你好", "你好", {"color": "#0000ff"})
     inlines = engine.apply_scheme_to_region(region, scheme)["translation_rich"]["blocks"][0]["inlines"]
     styles = {run["text"]: run.get("style") or {} for run in inlines}
-    # 先全清再上样式：原来的蓝色没了，只剩"好"的加粗
-    assert styles["你"] == {}
-    assert styles["好"] == {"bold": True}
+    # 先整套替换再覆盖局部：原来的蓝色没了，下划线保留。
+    assert styles["你"] == {"underline": True}
+    assert styles["好"] == {"underline": True, "bold": True}
 
 
 def test_replace_text_carries_style_onto_new_text():

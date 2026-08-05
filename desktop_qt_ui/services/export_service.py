@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 from manga_translator.image_formats import resolve_pil_image_format
+from manga_translator.rendering.rich_text import is_redundant_plain_document
 from manga_translator.utils import open_pil_image, save_pil_image
 from manga_translator.utils.path_manager import get_inpainted_path
 from PIL import Image
@@ -469,6 +470,15 @@ class ExportService:
         save_data = []
         for idx, region in enumerate(regions_data):
             region_copy = region.copy()
+
+            rich = region_copy.get('translation_rich')
+            if rich is not None:
+                try:
+                    if is_redundant_plain_document(rich, region_copy.get('translation', '')):
+                        region_copy.pop('translation_rich', None)
+                except (TypeError, ValueError):
+                    # 后端加载边界负责把非法富文本降级；这里不扩大既有保存行为。
+                    pass
 
             # 确保必要字段存在
             if 'translation' not in region_copy:

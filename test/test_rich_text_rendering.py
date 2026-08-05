@@ -1339,6 +1339,23 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertEqual(first_style, {})
         self.assertFalse(hasattr(region, "_replacement_layout_record"))
 
+    def test_replacement_sync_projects_space_replaced_by_break_to_raw(self):
+        region = TextBlock(
+            lines=[[[0, 0], [100, 0], [100, 80], [0, 80]]],
+            texts=["source"],
+            translation="hello world",
+        )
+        region._replacement_layout_record = ReplacementLayoutRecord(
+            raw_text="hello world",
+            replaced_text="hello world",
+        )
+        region.translation = "hello[BR]world"
+
+        sync_translation_raw_from_layout([region], Config())
+
+        self.assertEqual(region.translation, "hello[BR]world")
+        self.assertEqual(region.translation_raw, "hello[BR]world")
+
     # ------------------------------------------------------------------
     # 斜体角度化 + 偏移包络（对齐 mtu-json-gui 参考实现）
     # ------------------------------------------------------------------

@@ -246,6 +246,25 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         self.assertEqual(style["transform"]["offsetX"], 8.0)
         self.assertEqual(len(changes), 3)
 
+    def test_style_only_edit_preserves_pre_replacement_translation(self):
+        editor = self._editor({
+            "translation": "AB",
+            "translation_raw": "A_B",
+            "translation_rich": {
+                "format": "richtext.v1",
+                "blocks": [{"type": "paragraph", "inlines": [
+                    {"type": "text", "text": "AB", "style": {"bold": True}},
+                ]}],
+            },
+        })
+        editor._select_python_range(0, 2)
+
+        editor.toolbar.buttons["I"].click()
+        self.app.processEvents()
+
+        self.assertEqual(editor._state.region_data["translation"], "AB")
+        self.assertEqual(editor._state.region_data["translation_raw"], "A_B")
+
     def test_toolbar_without_selection_targets_whole_text(self):
         """未选中文字时点工具栏 = 样式作用于全文（选区随之扩到全文）。"""
         editor = self._editor({"translation": "漢字かな"})
@@ -470,6 +489,50 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         self.assertNotEqual(region.get("translation_rich"), old_document)
         if region.get("translation_rich") is not None:
             self.assertEqual(visible_text_from_document(region["translation_rich"]), "新")
+
+    def test_controller_style_only_rich_edit_preserves_translation_raw(self):
+        old_document = {
+            "format": "richtext.v1",
+            "blocks": [{"type": "paragraph", "inlines": [
+                {"type": "text", "text": "AB", "style": {"bold": True}},
+            ]}],
+        }
+        new_document = copy.deepcopy(old_document)
+        new_document["blocks"][0]["inlines"][0]["style"]["italic"] = 10
+
+        class ControllerHarness:
+            update_translation_rich = EditorController.update_translation_rich
+
+            def __init__(self):
+                self.region = {
+                    "translation": "AB",
+                    "translation_raw": "A_B",
+                    "translation_rich": old_document,
+                    "font_size": 0,
+                }
+                self.updated = None
+
+            def _get_region_by_index(self, _index):
+                return self.region
+
+            def _merge_live_geometry_state(self, _index, region_data):
+                return region_data
+
+            def _resolve_region_render_params(self, _index, _region_data):
+                return SimpleNamespace(font_size=0)
+
+            def _build_region_update_command(self, **kwargs):
+                self.updated = kwargs["new_data"]
+                return object()
+
+            def execute_command(self, _command):
+                pass
+
+        controller = ControllerHarness()
+        controller.update_translation_rich(0, new_document, "AB")
+
+        self.assertIsNotNone(controller.updated)
+        self.assertEqual(controller.updated["translation_raw"], "A_B")
 
 
 if __name__ == "__main__":

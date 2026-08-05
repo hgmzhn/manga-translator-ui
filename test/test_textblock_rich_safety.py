@@ -134,6 +134,26 @@ class ValidRichTranslationTest(unittest.TestCase):
         self.assertEqual(region.translation, "普通红字")
         self.assertEqual(region.translation_rich, document)
 
+    def test_plain_break_document_is_runtime_only(self):
+        region = _make_block(translation="第一行[BR]第二行")
+
+        self.assertTrue(region.ensure_translation_rich_from_legacy_breaks())
+        self.assertIsNotNone(region.translation_rich)
+        self.assertNotIn("translation_rich", region.to_dict())
+
+    def test_non_equivalent_empty_paragraph_is_persisted(self):
+        document = {
+            "format": RICH_TEXT_FORMAT,
+            "blocks": [
+                {"type": "paragraph", "inlines": [{"type": "text", "text": "甲", "style": {}}]},
+                {"type": "paragraph", "inlines": []},
+                {"type": "paragraph", "inlines": [{"type": "text", "text": "乙", "style": {}}]},
+            ],
+        }
+        region = _make_block(translation="甲[BR]乙", translation_rich=document)
+
+        self.assertEqual(region.to_dict()["translation_rich"], document)
+
 
 class TranslationSetterRichInvalidationTest(unittest.TestCase):
     """F02：等值赋值不视为编辑，不清 translation_rich。"""

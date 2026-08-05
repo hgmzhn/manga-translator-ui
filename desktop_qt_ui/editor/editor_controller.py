@@ -918,8 +918,11 @@ class EditorController(QObject):
             return
 
         new_region_data = old_region_data.copy()
+        text_changed = old_region_data.get("translation", "") != plain_text
         new_region_data["translation"] = plain_text
-        new_region_data["translation_raw"] = plain_text
+        if text_changed or "translation_raw" not in old_region_data:
+            # 富文本正文改变后无法可靠反推替换前译文；纯样式修改保留原 raw。
+            new_region_data["translation_raw"] = plain_text
         new_region_data["translation_rich"] = rich_document
 
         _sync_white_frame_size_for_font_change(

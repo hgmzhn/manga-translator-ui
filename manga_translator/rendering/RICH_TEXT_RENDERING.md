@@ -91,6 +91,8 @@
 - `translation_raw`：替换前译文字符串。布局阶段如果插入或调整了 `[BR]`，会通过现有 BR 定位/投影逻辑同步回 raw。
 - `translation_rich`：结构化 `richtext.v1` 文档。渲染时优先读取这个字段；如果为空，就退回 `translation` 字符串。
 
+运行时仍会把传统 BR 转成 paragraph，保证统一测量和渲染；保存 JSON 时，如果文档完全无样式且 paragraph 正文与 `translation` 的 BR 表示无损等价，则省略重复的 `translation_rich`。带样式、ruby/TCY、额外空段或正文不一致的文档始终保留。
+
 传统 BR 的收口位置在 `text_replacement_layout.sync_translation_raw_from_layout()`：这里已经完成字符串替换、断句优化和 raw 同步，适合作为“字符串世界”到“富文本世界”的边界。这样前面的字符串处理不会因为中途变成 dict 而跳过。
 
 BR 收口只负责把传统换行字符串拆成多个 `paragraph`，不会从 `TextBlock` 区域字段迁移字体、字号、颜色或描边。样式必须直接存在于 `translation_rich` 的 `style` 里：

@@ -11,9 +11,8 @@ import copy
 from typing import Any, Callable, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (
-    BodyLabel,
     CaptionLabel,
     CheckBox,
     ComboBox,
@@ -22,9 +21,7 @@ from qfluentwidgets import (
     FluentIcon as FIF,
     LineEdit,
     PushButton,
-    ScrollArea,
     SimpleCardWidget,
-    SubtitleLabel,
     ToolButton,
 )
 
@@ -45,11 +42,13 @@ from services.batch_edit_schemes import (
     ACTION_REPLACE_TEXT,
     ACTION_RICH_TEXT,
     ACTION_SET_FIELDS,
-    RICH_MODE_CLEAR,
+    LOGIC_ALL,
+    LOGIC_ANY,
     RICH_MODE_FILL,
     RICH_MODE_OVERWRITE,
+    RICH_MODE_REPLACE,
 )
-from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
+from ui.secondary_pages.fluent_dialog import DialogCode
 from ui.widgets.color_picker import ColorPickerWidget
 from utils.font_list import FontComboBox
 
@@ -664,101 +663,6 @@ class SetFieldsActionCard(_ActionCard):
                 editor.refresh_ui_texts()
 
 
-# 清空模式能勾的项 = richtext.v1 TextStyle 的顶层键（json 里的 camelCase 形态）
-# + ruby/tcy 两个节点。文案沿用富文本样式编辑器的既有 key，不另起一套近义词。
-# transform 用 "顶层.子字段" 的点号路径拆到子项，因为旋转和偏移是两码事，
-# 样式编辑器里也是分开的三个控件；stroke/glow 那几个不拆 —— "只清描边宽度
-# 留着描边颜色"这种状态没人看得懂。
-# noTcy 不在列：样式编辑器本来就设不了它，单给个"清空"入口没有对应的"设置"入口。
-CLEAR_STYLE_KEYS: tuple[tuple[str, str], ...] = (
-    ("bold", "Bold"),
-    ("italic", "Italic"),
-    ("underline", "Underline"),
-    ("emphasis", "Emphasis"),
-    ("color", "Color"),
-    ("stroke", "Stroke"),
-    ("outerStroke", "Outer Stroke"),
-    ("glow", "Glow"),
-    ("fontSize", "Font Size"),
-    ("fontFamily", "Font Family"),
-    ("scale", "Scale"),
-    ("kerning", "Kerning"),
-    ("preKerning", "Pre Kerning"),
-    ("lineKerning", "Line Kerning"),
-    ("nextKerning", "Next Kerning"),
-    ("verticalAdvance", "Force Advance"),
-    ("transform.rotation", "Rotation"),
-    ("transform.offsetX", "Offset X"),
-    ("transform.offsetY", "Offset Y"),
-    ("ruby", "Ruby"),
-    ("tcy", "TCY"),
-)
-
-
-class ClearStyleKeysDialog(FluentSecondaryDialog):
-    """勾选清空模式要删掉哪些项；一项不勾 = 全清。"""
-
-    def __init__(self, keys: list[str], t_func: Callable, parent=None):
-        super().__init__(parent)
-        self._t = t_func
-        self._boxes: dict[str, CheckBox] = {}
-        self.setWindowTitle(self._t("Choose properties to clear"))
-        self.setMinimumSize(420, 420)
-        self.resize(460, 560)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 18)
-        root.setSpacing(12)
-        self.title_label = SubtitleLabel(self._t("Choose properties to clear"))
-        root.addWidget(self.title_label)
-        self.hint_label = BodyLabel(
-            self._t("Select none to wipe the whole style, ruby and TCY included")
-        )
-        self.hint_label.setWordWrap(True)
-        root.addWidget(self.hint_label)
-
-        scroll = ScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(ScrollArea.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        host = QWidget()
-        grid = QGridLayout(host)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(6)
-        selected = set(keys or [])
-        for index, (key, label) in enumerate(CLEAR_STYLE_KEYS):
-            box = CheckBox(self._t(label), host)
-            box.setChecked(key in selected)
-            self._boxes[key] = box
-            grid.addWidget(box, index // 2, index % 2)
-        scroll.setWidget(host)
-        scroll.enableTransparentBackground()
-        root.addWidget(scroll, 1)
-
-        buttons = QHBoxLayout()
-        self.all_button = PushButton(self._t("Select All"))
-        self.all_button.clicked.connect(lambda: self._set_all(True))
-        self.none_button = PushButton(self._t("Select None"))
-        self.none_button.clicked.connect(lambda: self._set_all(False))
-        self.cancel_button = PushButton(self._t("Cancel"))
-        self.cancel_button.clicked.connect(self.reject)
-        self.ok_button = PushButton(self._t("OK"))
-        self.ok_button.setIcon(FIF.ACCEPT)
-        self.ok_button.clicked.connect(self.accept)
-        buttons.addWidget(self.all_button)
-        buttons.addWidget(self.none_button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.cancel_button)
-        buttons.addWidget(self.ok_button)
-        root.addLayout(buttons)
-
-    def _set_all(self, checked: bool) -> None:
-        for box in self._boxes.values():
-            box.setChecked(checked)
-
-    def keys(self) -> list[str]:
-        return [key for key, _label in CLEAR_STYLE_KEYS if self._boxes[key].isChecked()]
-
-
 class _ActionEntry(QWidget):
     """条目列表里的一条。左边内容、右边一个删除按钮。"""
     changed = pyqtSignal()
@@ -831,18 +735,18 @@ class _ReplaceEntry(_ActionEntry):
 
 
 class _RichTextEntry(_ActionEntry):
-    """一条富文本条目：模式 + 匹配 + （样式 | 要清空的项）。"""
+    """一条富文本条目：文字匹配 AND 现有富文本匹配 → 应用目标样式。"""
 
     _MODES = (
         (RICH_MODE_OVERWRITE, "Overwrite", "Your properties win; the rest of the hit keeps what it has"),
         (RICH_MODE_FILL, "Fill in", "Properties the hit already has win; only the missing ones are added"),
-        (RICH_MODE_CLEAR, "Clear", "Remove the selected properties; select none to wipe style, ruby and TCY"),
+        (RICH_MODE_REPLACE, "Replace", "Replace the entire rich text style on the hit"),
     )
 
     def __init__(self, t_func: Callable, parent=None):
         super().__init__(t_func, "Remove style entry", parent)
         self._style: dict = {}
-        self._clear_keys: list[str] = []
+        self._match_style: dict = {}
 
         head = QWidget(self.content)
         head_layout = _row(head)
@@ -857,15 +761,28 @@ class _RichTextEntry(_ActionEntry):
         head_layout.addWidget(self.pattern_row, 1)
         self.content_layout.addWidget(head)
 
+        match_detail = QWidget(self.content)
+        match_layout = _row(match_detail)
+        self.match_style_label = CaptionLabel(self._t("Match rich text"), match_detail)
+        self.match_logic_combo = ComboBox(match_detail)
+        self.match_logic_combo.addItem(self._t("Match all"), userData=LOGIC_ALL)
+        self.match_logic_combo.addItem(self._t("Match any"), userData=LOGIC_ANY)
+        self.match_logic_combo.currentIndexChanged.connect(self.changed)
+        self.match_style_button = PushButton(self._t("Edit Style"), match_detail, FIF.SEARCH)
+        self.match_style_button.clicked.connect(self._edit_match_style)
+        self.match_summary = CaptionLabel("", match_detail)
+        match_layout.addWidget(self.match_style_label)
+        match_layout.addWidget(self.match_logic_combo)
+        match_layout.addWidget(self.match_style_button)
+        match_layout.addWidget(self.match_summary, 1)
+        self.content_layout.addWidget(match_detail)
+
         detail = QWidget(self.content)
         detail_layout = _row(detail)
         self.style_button = PushButton(self._t("Edit Style"), detail, FIF.FONT)
         self.style_button.clicked.connect(self._edit_style)
-        self.clear_button = PushButton(self._t("Choose properties to clear"), detail, FIF.ERASE_TOOL)
-        self.clear_button.clicked.connect(self._edit_clear_keys)
         self.summary = CaptionLabel("", detail)
         detail_layout.addWidget(self.style_button)
-        detail_layout.addWidget(self.clear_button)
         detail_layout.addWidget(self.summary, 1)
         self.content_layout.addWidget(detail)
 
@@ -878,9 +795,6 @@ class _RichTextEntry(_ActionEntry):
         return self.mode_combo.currentData() or RICH_MODE_OVERWRITE
 
     def _on_mode_changed(self) -> None:
-        clearing = self._mode() == RICH_MODE_CLEAR
-        self.style_button.setVisible(not clearing)
-        self.clear_button.setVisible(clearing)
         for mode, _label, tip in self._MODES:
             if mode == self._mode():
                 self.mode_combo.setToolTip(self._t(tip))
@@ -897,25 +811,20 @@ class _RichTextEntry(_ActionEntry):
             self._update_summary()
             self.changed.emit()
 
-    def _edit_clear_keys(self) -> None:
-        dialog = ClearStyleKeysDialog(self._clear_keys, self._t, self)
+    def _edit_match_style(self) -> None:
+        from ui.secondary_pages.rich_text_rules_editor import RichTextStyleDialog
+
+        dialog = RichTextStyleDialog(copy.deepcopy(self._match_style), self._t, self)
         if dialog.exec() == DialogCode.Accepted:
-            self._clear_keys = dialog.keys()
+            self._match_style = dialog.style()
             self._update_summary()
             self.changed.emit()
 
     def _update_summary(self) -> None:
-        if self._mode() == RICH_MODE_CLEAR:
-            if not self._clear_keys:
-                self.summary.setText(self._t("Everything, ruby and TCY included"))
-            else:
-                labels = dict(CLEAR_STYLE_KEYS)
-                self.summary.setText("、".join(self._t(labels[key]) for key in self._clear_keys
-                                               if key in labels))
-            return
         from ui.secondary_pages.rich_text_rules_editor import _style_summary
 
         self.summary.setText(_style_summary(self._style, self._t("No style set")))
+        self.match_summary.setText(_style_summary(self._match_style, self._t("No style filter")))
 
     def to_action(self) -> Optional[dict]:
         # pattern 留空 = 整条 region 的全部文字，所以这里不拦空 pattern
@@ -926,9 +835,9 @@ class _RichTextEntry(_ActionEntry):
             "pattern": self.pattern_row.pattern.text(),
             "regex": self.pattern_row.regex.isChecked(),
         }
-        if mode == RICH_MODE_CLEAR:
-            action["clear"] = list(self._clear_keys)
-            return action
+        if self._match_style:
+            action["match_style"] = copy.deepcopy(self._match_style)
+            action["match_style_logic"] = self.match_logic_combo.currentData() or LOGIC_ALL
         # 控件把 ruby/tcy 塞在 style dict 里，方案文件要求它们与 style 平级
         style = copy.deepcopy(self._style)
         ruby = str(style.pop("ruby", "") or "")
@@ -945,7 +854,11 @@ class _RichTextEntry(_ActionEntry):
         self.mode_combo.blockSignals(False)
         self.pattern_row.pattern.setText(str(action.get("pattern", "") or ""))
         self.pattern_row.regex.setChecked(bool(action.get("regex", False)))
-        self._clear_keys = [str(key) for key in action.get("clear") or []]
+        self._match_style = copy.deepcopy(action.get("match_style") or {})
+        logic_index = self.match_logic_combo.findData(
+            str(action.get("match_style_logic", "") or LOGIC_ALL)
+        )
+        self.match_logic_combo.setCurrentIndex(logic_index if logic_index >= 0 else 0)
         style = copy.deepcopy(action.get("style") or {})
         if action.get("ruby"):
             style["ruby"] = action["ruby"]
@@ -959,8 +872,11 @@ class _RichTextEntry(_ActionEntry):
         self.pattern_row.refresh_ui_texts()
         for position, (_mode, label, _tip) in enumerate(self._MODES):
             self.mode_combo.setItemText(position, self._t(label))
+        self.match_style_label.setText(self._t("Match rich text"))
+        self.match_logic_combo.setItemText(0, self._t("Match all"))
+        self.match_logic_combo.setItemText(1, self._t("Match any"))
+        self.match_style_button.setText(self._t("Edit Style"))
         self.style_button.setText(self._t("Edit Style"))
-        self.clear_button.setText(self._t("Choose properties to clear"))
         self.hint.setText(self._t("Leave the pattern empty to target the whole region"))
         self._update_summary()
 

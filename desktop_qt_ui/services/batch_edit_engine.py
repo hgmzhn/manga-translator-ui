@@ -35,9 +35,8 @@ from editor.rich_text_editing import (
     apply_tcy_to_range,
     clear_styles_from_range,
     document_from_region,
+    normalize_text_style,
     plain_text_to_storage_text,
-    remove_ruby_from_range,
-    remove_tcy_from_range,
     storage_text_to_editor_text,
     styled_segments_for_range,
     visible_text_from_document,
@@ -51,10 +50,11 @@ from .batch_edit_schemes import (
     ACTION_REPLACE_TEXT,
     ACTION_RICH_TEXT,
     ACTION_SET_FIELDS,
+    LOGIC_ALL,
     LOGIC_ANY,
-    RICH_MODE_CLEAR,
     RICH_MODE_FILL,
     RICH_MODE_OVERWRITE,
+    RICH_MODE_REPLACE,
 )
 
 
@@ -203,7 +203,11 @@ def region_field_value(region: dict, key: str, region_index: int = 0) -> Any:
     if key == "translation":
         return region_visible_text(region)
     if key == "has_rich_text":
-        return isinstance(region.get("translation_rich"), dict)
+        try:
+            document = ensure_rich_text_document(region.get("translation_rich"))
+        except (TypeError, ValueError):
+            return False
+        return document_has_styling(document)
     if key == "line_count":
         return region_visible_text(region).count("\n") + 1
     if key == "region_index":
@@ -316,6 +320,73 @@ def _match_color(value: Any, op: str, expected: Any) -> bool:
 def _match_bool(value: Any, op: str) -> bool:
     truthy = bool(value)
     return truthy if op == "is_true" else not truthy
+
+
+def _style_value_matches(actual: Any, expected: Any) -> bool:
+    """富文本样式值比较；嵌套对象按所选子项做包含比较。"""
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return False
+        return all(
+            key in actual and _style_value_matches(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(actual, (int, float)) and isinstance(expected, (int, float)):
+        return math.isclose(float(actual), float(expected), rel_tol=1e-9, abs_tol=1e-9)
+    if isinstance(actual, str) and isinstance(expected, str) \
+            and actual.startswith("#") and expected.startswith("#"):
+        return actual.casefold() == expected.casefold()
+    return actual == expected
+
+
+def _rich_text_style_criteria(value: Any) -> Optional[list[tuple[str, Any]]]:
+    """卡片中的扁平样式值转成可逐项比较的标准属性。"""
+    if not isinstance(value, dict):
+        return None
+    selected = copy.deepcopy(value)
+    ruby = selected.pop("ruby", None)
+    tcy = selected.pop("tcy", None)
+    try:
+        style = normalize_text_style(selected)
+    except (TypeError, ValueError):
+        return None
+    criteria = list(style.items())
+    if isinstance(ruby, str) and ruby:
+        criteria.append(("ruby", ruby))
+    if bool(tcy):
+        criteria.append(("tcy", True))
+    return criteria
+
+
+def _segment_matches_style_criterion(segment: Any, key: str, expected: Any) -> bool:
+    if key == "ruby":
+        return segment.node_type == "ruby" and segment.ruby_text == expected
+    if key == "tcy":
+        return segment.node_type == "tcy"
+    return key in segment.style and _style_value_matches(segment.style[key], expected)
+
+
+def _matching_rich_text_spans(
+    document: dict,
+    start: int,
+    end: int,
+    expected: Any,
+    logic: str,
+) -> list[tuple[int, int]]:
+    """返回文字区间内同时满足现有富文本条件的字符片段。"""
+    criteria = _rich_text_style_criteria(expected)
+    if not criteria:
+        return []
+    segments = styled_segments_for_range(document, start, end, expand_empty=False)
+    matches: list[tuple[int, int]] = []
+    for segment in segments:
+        results = [
+            _segment_matches_style_criterion(segment, key, value)
+            for key, value in criteria
+        ]
+        if any(results) if logic == LOGIC_ANY else all(results):
+            matches.append((max(start, segment.start), min(end, segment.end)))
+    return [(span_start, span_end) for span_start, span_end in matches if span_start < span_end]
 
 
 def evaluate_condition(region: dict, condition: dict, region_index: int = 0) -> bool:
@@ -586,11 +657,29 @@ def _rich_text_spans(document: dict, action: dict) -> list[tuple[int, int]]:
     if not text:
         return []
     if not str(action.get("pattern", "") or ""):
-        return [(0, len(text))]
-    pattern = _compile_pattern(action)
-    if pattern is None:
-        return []
-    return [item.span() for item in pattern.finditer(text) if item.start() != item.end()]
+        spans = [(0, len(text))]
+    else:
+        pattern = _compile_pattern(action)
+        if pattern is None:
+            return []
+        spans = [item.span() for item in pattern.finditer(text) if item.start() != item.end()]
+
+    match_style = action.get("match_style")
+    if not isinstance(match_style, dict) or not match_style:
+        return spans
+    logic = str(action.get("match_style_logic", LOGIC_ALL) or LOGIC_ALL).lower()
+    matched_spans = [
+        matched
+        for start, end in spans
+        for matched in _matching_rich_text_spans(document, start, end, match_style, logic)
+    ]
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(matched_spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
 
 
 def _uniform_style_spans(document: dict, start: int, end: int) -> list[tuple[int, int, dict, bool]]:
@@ -644,38 +733,10 @@ def _fill_rich_text(document: dict, start: int, end: int, preset: dict) -> dict:
     return document
 
 
-def _clear_style_patch(keys: Sequence[str]) -> dict:
-    """勾选的项 → 一份全是 ``None`` 的 patch（``_merge_style`` 里 None 就是删键）。
-
-    键可以是 ``transform.rotation`` 这样的点号路径，展开成嵌套 patch 后
-    ``_merge_style`` 会只删这个子字段，删空了再把整个 transform 一起丢掉。
-    """
-    patch: dict = {}
-    for key in keys:
-        if key in ("ruby", "tcy"):
-            continue
-        head, _, tail = key.partition(".")
-        if not tail:
-            patch[head] = None            # 整块清，盖掉先前收集的子字段
-            continue
-        if patch.get(head, {}) is None:
-            continue                      # 整块已经要清了，子字段不用再管
-        patch.setdefault(head, {})[tail] = None
-    return patch
-
-
-def _clear_rich_text(document: dict, start: int, end: int, keys: Sequence[str]) -> dict:
-    """清空：删掉勾选的项；一项没勾 = 连样式带 ruby/tcy 全清。"""
-    if not keys:
-        return clear_styles_from_range(document, start, end)
-    patch = _clear_style_patch(keys)
-    if patch:
-        document = apply_style_to_range(document, start, end, patch)
-    if "ruby" in keys:
-        document = remove_ruby_from_range(document, start, end)
-    if "tcy" in keys:
-        document = remove_tcy_from_range(document, start, end)
-    return document
+def _replace_rich_text(document: dict, start: int, end: int, preset: dict) -> dict:
+    """替换：清掉命中区间原有的样式与节点，再应用新样式。"""
+    document = clear_styles_from_range(document, start, end)
+    return _overwrite_rich_text(document, start, end, preset)
 
 
 def _apply_rich_text(region: dict, action: dict) -> None:
@@ -685,14 +746,6 @@ def _apply_rich_text(region: dict, action: dict) -> None:
         return
 
     mode = str(action.get("mode", "") or RICH_MODE_OVERWRITE)
-    if mode == RICH_MODE_CLEAR:
-        keys = [str(key) for key in action.get("clear") or []]
-        # 这几个原语都不改字符序列，下标稳定；逆序只为与替换动作保持同一习惯
-        for start, end in reversed(spans):
-            document = _clear_rich_text(document, start, end, keys)
-        _store_document(region, document)
-        return
-
     preset = normalize_rich_text_preset({
         "style": action.get("style") or {},
         "ruby": action.get("ruby", ""),
@@ -700,7 +753,10 @@ def _apply_rich_text(region: dict, action: dict) -> None:
     })
     if preset is None:
         return
-    apply_span = _fill_rich_text if mode == RICH_MODE_FILL else _overwrite_rich_text
+    apply_span = {
+        RICH_MODE_FILL: _fill_rich_text,
+        RICH_MODE_REPLACE: _replace_rich_text,
+    }.get(mode, _overwrite_rich_text)
     for start, end in reversed(spans):
         document = apply_span(document, start, end, preset)
     _store_document(region, document)

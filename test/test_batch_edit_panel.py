@@ -232,7 +232,8 @@ def test_refresh_ui_texts_does_not_crash_with_rows_present():
             panel.set_fields_card.load_actions([{"type": "set_fields", "fields": {"font_family": "Arial"}}])
             panel.rich_text_card.load_actions([
                 {"type": "rich_text", "mode": "overwrite", "pattern": "x", "style": {"bold": True}},
-                {"type": "rich_text", "mode": "clear", "pattern": "", "clear": ["color"]},
+                {"type": "rich_text", "mode": "replace", "pattern": "",
+                 "match_style": {"color": "#FF0000"}, "style": {"bold": True}},
             ])
             panel.refresh_ui_texts()
             panel.apply_theme()
@@ -271,51 +272,19 @@ def test_rich_text_entry_modes_round_trip():
             loaded = [
                 {"type": "rich_text", "mode": "overwrite", "pattern": "喂", "style": {"bold": True}},
                 {"type": "rich_text", "mode": "fill", "pattern": "", "style": {"color": "#FF0000"}},
-                {"type": "rich_text", "mode": "clear", "pattern": "！", "clear": ["color", "stroke"]},
+                {"type": "rich_text", "mode": "replace", "pattern": "！",
+                 "match_style": {"bold": True, "color": "#00FF00"},
+                 "match_style_logic": "any", "style": {"underline": True}},
             ]
             panel.rich_text_card.load_actions(loaded)
             actions = panel.rich_text_card.to_actions()
-            assert [item["mode"] for item in actions] == ["overwrite", "fill", "clear"]
+            assert [item["mode"] for item in actions] == ["overwrite", "fill", "replace"]
             # pattern 留空 = 整条 region，不该被当成"没填完"丢掉
             assert actions[1]["pattern"] == "" and actions[1]["style"] == {"color": "#FF0000"}
-            assert actions[2]["clear"] == ["color", "stroke"]
-            assert "style" not in actions[2]
-
-            # 清空模式下只露"要清哪些项"的按钮，其他模式露样式编辑
-            # （面板没 show 出来，isVisible 恒为 False，只能看显式隐藏状态）
-            entries = panel.rich_text_card._entries
-            assert entries[0].clear_button.isHidden() is True
-            assert entries[0].style_button.isHidden() is False
-            assert entries[2].clear_button.isHidden() is False
-            assert entries[2].style_button.isHidden() is True
-        finally:
-            panel.shutdown()
-
-
-def test_clear_style_keys_dialog_selection():
-    with tempfile.TemporaryDirectory() as directory:
-        panel = _panel(directory)
-        try:
-            from ui.secondary_pages.batch_edit_condition_widgets import (
-                CLEAR_STYLE_KEYS,
-                ClearStyleKeysDialog,
-            )
-
-            dialog = ClearStyleKeysDialog(["bold", "ruby"], lambda value, **kwargs: value, panel)
-            scrolls = dialog.findChildren(ScrollArea)
-            assert len(scrolls) == 1
-            assert dialog.findChildren(SingleDirectionScrollArea) == []
-            assert (
-                scrolls[0].horizontalScrollBarPolicy()
-                == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-            )
-            assert dialog.keys() == ["bold", "ruby"]
-            dialog._set_all(True)
-            assert dialog.keys() == [key for key, _label in CLEAR_STYLE_KEYS]
-            dialog._set_all(False)
-            # 一项不勾 = 全清，引擎靠空列表识别
-            assert dialog.keys() == []
-            dialog.deleteLater()
+            assert actions[2]["match_style"] == {"bold": True, "color": "#00FF00"}
+            assert actions[2]["match_style_logic"] == "any"
+            assert actions[2]["style"] == {"underline": True}
+            assert panel.rich_text_card._entries[2].match_logic_combo.currentData() == "any"
         finally:
             panel.shutdown()
 

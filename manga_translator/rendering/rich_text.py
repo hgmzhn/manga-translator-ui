@@ -372,6 +372,14 @@ def plain_equivalent_text(value: Any) -> Optional[str]:
     return '\n'.join(lines)
 
 
+def is_redundant_plain_document(value: Any, fallback_text: Any) -> bool:
+    """文档是否只是 ``fallback_text`` 的无样式 paragraph 表示。"""
+    equivalent = plain_equivalent_text(value)
+    if equivalent is None:
+        return False
+    return equivalent == normalize_rich_linebreaks(str(fallback_text or ''))
+
+
 def ensure_rich_text_document(value: Any) -> RichTextDocument:
     if isinstance(value, RichTextDocument):
         return value

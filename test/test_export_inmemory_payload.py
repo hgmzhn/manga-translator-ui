@@ -181,6 +181,36 @@ def test_project_json_marks_replacements_done():
     print("PASS: project json marks replacements done")
 
 
+def test_project_json_omits_redundant_plain_rich_document():
+    """仅承载 BR 的无样式文档不写盘，带样式文档仍保留。"""
+    from services.export_service import ExportService
+
+    service = ExportService()
+    plain_region = _make_regions()[0]
+    plain_region["translation"] = "A[BR]B"
+    plain_region["translation_rich"] = {
+        "format": "richtext.v1",
+        "blocks": [
+            {"type": "paragraph", "inlines": [{"type": "text", "text": "A", "style": {}}]},
+            {"type": "paragraph", "inlines": [{"type": "text", "text": "B", "style": {}}]},
+        ],
+    }
+    styled_region = dict(plain_region)
+    styled_region["translation_rich"] = {
+        "format": "richtext.v1",
+        "blocks": [{"type": "paragraph", "inlines": [
+            {"type": "text", "text": "A", "style": {"bold": True}},
+            {"type": "text", "text": "B", "style": {}},
+        ]}],
+    }
+
+    plain_saved = service._normalize_regions_for_backend([plain_region])[0]
+    styled_saved = service._normalize_regions_for_backend([styled_region])[0]
+
+    assert "translation_rich" not in plain_saved
+    assert "translation_rich" in styled_saved
+
+
 def test_project_json_write_is_atomic(monkeypatch):
     """A serialization failure must preserve the previous complete JSON."""
     from services import export_service as export_service_module
@@ -260,6 +290,7 @@ def main():
     test_export_end_to_end_inmemory()
     test_export_no_regions_no_mask_returns_original()
     test_project_json_marks_replacements_done()
+    test_project_json_omits_redundant_plain_rich_document()
     test_backend_writeback_marks_replacements_only_after_render()
     print("ALL TESTS PASSED")
     return 0

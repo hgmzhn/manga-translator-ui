@@ -52,42 +52,33 @@ def _boundary_map_replaced_to_raw(replaced_text: str, raw_text: str) -> List[int
     return [min(max(pos, 0), len(raw_text)) for pos in mapper]
 
 
-def _collect_insertions(before: str, after: str) -> List[tuple[int, str]]:
+def _collect_layout_edits(before: str, after: str) -> List[tuple[int, int, str]]:
     if before == after:
         return []
-    insertions: List[tuple[int, str]] = []
+    edits: List[tuple[int, int, str]] = []
     matcher = SequenceMatcher(None, before, after, autojunk=False)
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == 'insert':
-            insertions.append((i1, after[j1:j2]))
-    return insertions
+        if tag != 'equal':
+            edits.append((i1, i2, after[j1:j2]))
+    return edits
 
 
-def project_insertions_to_raw(record: ReplacementLayoutRecord, replaced_text_after_layout: str) -> str:
-    insertions = _collect_insertions(record.replaced_text, replaced_text_after_layout)
-    if not insertions:
+def project_layout_changes_to_raw(record: ReplacementLayoutRecord, replaced_text_after_layout: str) -> str:
+    edits = _collect_layout_edits(record.replaced_text, replaced_text_after_layout)
+    if not edits:
         return record.raw_text
 
     mapper = _boundary_map_replaced_to_raw(record.replaced_text, record.raw_text)
-    raw_insertions: dict[int, List[str]] = {}
-    for replaced_pos, inserted_text in insertions:
-        if not inserted_text:
-            continue
-        replaced_pos = min(max(replaced_pos, 0), len(mapper) - 1)
-        raw_pos = mapper[replaced_pos]
-        raw_insertions.setdefault(raw_pos, []).append(inserted_text)
+    raw_edits: List[tuple[int, int, str]] = []
+    for replaced_start, replaced_end, replacement in edits:
+        replaced_start = min(max(replaced_start, 0), len(mapper) - 1)
+        replaced_end = min(max(replaced_end, replaced_start), len(mapper) - 1)
+        raw_edits.append((mapper[replaced_start], mapper[replaced_end], replacement))
 
-    if not raw_insertions:
-        return record.raw_text
-
-    result_parts = []
-    last = 0
-    for raw_pos in sorted(raw_insertions):
-        result_parts.append(record.raw_text[last:raw_pos])
-        result_parts.extend(raw_insertions[raw_pos])
-        last = raw_pos
-    result_parts.append(record.raw_text[last:])
-    return ''.join(result_parts)
+    result = record.raw_text
+    for raw_start, raw_end, replacement in reversed(raw_edits):
+        result = result[:raw_start] + replacement + result[raw_end:]
+    return result
 
 
 def prepare_text_replacements_for_layout(
@@ -149,7 +140,7 @@ def sync_translation_raw_from_layout(
         record = getattr(region, '_replacement_layout_record', None)
         if record is not None:
             # TextBlock.translation property 恒返 str
-            raw_after_layout = project_insertions_to_raw(record, region.translation)
+            raw_after_layout = project_layout_changes_to_raw(record, region.translation)
             region.translation = _strip_linebreak_edge_punctuation_if_enabled(region.translation, config)
             region.translation_raw = _strip_linebreak_edge_punctuation_if_enabled(
                 raw_after_layout,

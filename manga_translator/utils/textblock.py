@@ -498,7 +498,10 @@ class TextBlock(object):
             'font_family': getattr(self, 'font_family', ''),
         }
         if self.translation_rich is not None:
-            result['translation_rich'] = self.translation_rich
+            from ..rendering.rich_text import is_redundant_plain_document
+
+            if not is_redundant_plain_document(self.translation_rich, self.translation):
+                result['translation_rich'] = self.translation_rich
         result.update(render_box_extra)
         return result
 

@@ -20,7 +20,6 @@ manga_translator → desktop_qt_ui 的反向依赖）。文件在首次访问时
           - {type: replace_text, pattern: '\\.{3}', regex: true, replace: '…'}
           - {type: rich_text, mode: overwrite, pattern: '[（）]', regex: true,
              style: {transform: {rotation: -90}}, ruby: "", tcy: false}
-          - {type: rich_text, mode: clear, pattern: '', clear: [bold, color]}
 
 ``replace_text`` 与 ``rich_text`` 都可以出现多条，按写下的先后依次执行
 （``ACTION_ORDER`` 的排序是稳定的，只分组不打乱组内顺序）。
@@ -46,14 +45,14 @@ ACTION_ORDER = (ACTION_SET_FIELDS, ACTION_REPLACE_TEXT, ACTION_RICH_TEXT)
 LOGIC_ALL = "all"
 LOGIC_ANY = "any"
 
-# rich_text 动作的三种模式（同名项冲突时谁赢）：
+# rich_text 动作的三种模式：
 #   overwrite 覆盖 —— 你编的那几项赢，命中区间上的其他项保留
 #   fill      添加 —— 命中区间已有的项赢，只补它没有的
-#   clear     清空 —— 删掉你勾选的项；一项没勾 = 连样式带 ruby/tcy 全清
+#   replace   替换 —— 先清掉命中区间原有的全部样式，再应用新样式
 RICH_MODE_OVERWRITE = "overwrite"
 RICH_MODE_FILL = "fill"
-RICH_MODE_CLEAR = "clear"
-RICH_MODES = (RICH_MODE_OVERWRITE, RICH_MODE_FILL, RICH_MODE_CLEAR)
+RICH_MODE_REPLACE = "replace"
+RICH_MODES = (RICH_MODE_OVERWRITE, RICH_MODE_FILL, RICH_MODE_REPLACE)
 
 _DEFAULT_SCHEMES_YAML = """# 批量管理方案
 # 每个方案 = 匹配条件（筛 region）+ 批量动作（改命中的内容）
@@ -65,8 +64,9 @@ _DEFAULT_SCHEMES_YAML = """# 批量管理方案
 # 因为改文字会清掉命中区间的富文本，先加样式再改文字等于白加。
 # replace_text / rich_text 都可以写多条，同类型之间按写下的先后执行。
 #
-# rich_text.mode: overwrite（你写的项赢）| fill（命中区间已有的项赢）| clear（删掉 clear 里的项）
-# rich_text.pattern 留空 = 整条 region 的全部文字；clear 留空 = 连样式带 ruby/tcy 全清
+# rich_text.mode: overwrite（你写的项赢）| fill（只补缺少项）| replace（整套替换）
+# rich_text.pattern 留空 = 整条 region 的全部文字
+# rich_text.match_style 可选；有值时按 match_style_logic: all | any 筛选命中文字的现有样式
 #
 # 条件负责筛 region，动作各自带 pattern 负责在译文里定位子串 —— 两者分开，
 # 不存在“哪条条件的命中区间才是目标”的歧义。
@@ -150,21 +150,17 @@ def _clean_action(raw: Any) -> Optional[dict]:
     if action_type == ACTION_RICH_TEXT:
         mode = str(raw.get("mode", "") or "").strip().lower()
         if mode not in RICH_MODES:
+            # 旧 clear 动作没有目标样式，不能安全迁移为替换；直接丢弃。
+            if mode == "clear":
+                return None
             mode = RICH_MODE_OVERWRITE
         # pattern 留空 = 整条 region 的全部文字（region 由匹配条件筛，不是这里）
-        if mode == RICH_MODE_CLEAR:
-            clear_keys = [
-                key for key in (str(item or "").strip() for item in raw.get("clear") or []) if key
-            ]
-            return {
-                "type": action_type,
-                "mode": mode,
-                "pattern": pattern,
-                "regex": regex,
-                "clear": clear_keys,
-            }
         style = raw.get("style")
         ruby = raw.get("ruby", "")
+        match_style = raw.get("match_style")
+        match_style_logic = str(raw.get("match_style_logic", LOGIC_ALL) or LOGIC_ALL).strip().lower()
+        if match_style_logic not in (LOGIC_ALL, LOGIC_ANY):
+            match_style_logic = LOGIC_ALL
         action = {
             "type": action_type,
             "mode": mode,
@@ -174,6 +170,9 @@ def _clean_action(raw: Any) -> Optional[dict]:
             "ruby": ruby if isinstance(ruby, str) else "",
             "tcy": bool(raw.get("tcy", False)),
         }
+        if isinstance(match_style, dict) and match_style:
+            action["match_style"] = copy.deepcopy(match_style)
+            action["match_style_logic"] = match_style_logic
         # 三者全空的富文本动作什么也做不了，直接丢弃（与规则页 _compile_rule 同口径）
         if not action["style"] and not action["ruby"] and not action["tcy"]:
             return None

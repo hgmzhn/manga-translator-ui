@@ -276,8 +276,11 @@ class RichTextEditorState:
             return None
         self.pending_document_change = False
         storage_text = document_to_storage_text(self.document)
+        text_changed = storage_text != self.region_data.get("translation", "")
         self.region_data["translation"] = storage_text
-        self.region_data["translation_raw"] = storage_text
+        if text_changed or "translation_raw" not in self.region_data:
+            # 正文改变后无法可靠反推替换前译文；仅改样式时则必须保留 raw。
+            self.region_data["translation_raw"] = storage_text
         self.region_data["translation_rich"] = copy.deepcopy(self.document)
         return self.region_index, copy.deepcopy(self.document), storage_text
 
