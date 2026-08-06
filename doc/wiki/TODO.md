@@ -165,7 +165,7 @@
 - [x] [完成] `zh/en desktop/settings/detection.md` - evidence: 双语镜像正文、Detection UI/i18n 三列、逐参数默认/阶段/消费者、YOLO/SFX/长图机理、文件与安全审查、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en desktop/settings/ocr-filter-and-merge.md`
 - [x] [完成] `zh/en desktop/settings/translation.md` - evidence: 双语正文、翻译参数/默认值/消费者、i18n 三列、Mermaid、源码依据、敏感信息审查、VitePress build: PASS 2026-08-06
-- [ ] [未开工] `zh/en desktop/settings/mask-and-inpainting.md`
+- [x] [完成] `zh/en desktop/settings/mask-and-inpainting.md` - evidence: 双语正文、蒙版/气泡/修复参数、i18n 三列、Mermaid、源码依据、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en desktop/settings/typesetting-and-rendering.md`
 - [x] [完成] `zh/en desktop/settings/upscale-and-colorization.md` - build: PASS; route/source/coverage: PASS; review: 2026-08-06
 - [ ] [未开工] `zh/en desktop/settings/mode-specific.md`
