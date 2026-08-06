@@ -27,9 +27,16 @@
 
 .wiki-mermaid-output svg {
   display: block;
+  width: 100%;
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+}
+
+@media (min-width: 960px) {
+  .wiki-mermaid-output svg {
+    min-width: 100%;
+  }
 }
 
 .dark {
@@ -44,7 +51,7 @@ html {
 }
 
 .VPDoc .content-container {
-  max-width: 760px;
+  max-width: 1100px;
 }
 
 .VPDoc h1,
@@ -114,3 +121,116 @@ html {
     white-space: nowrap;
   }
 }
+
+/* Mermaid zoom (lightbox) toggle */
+.wiki-mermaid {
+  position: relative;
+}
+
+.wiki-mermaid-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.wiki-mermaid-zoom::before {
+  content: "⛶";
+  font-size: 13px;
+  line-height: 1;
+}
+
+.wiki-mermaid-zoom::after {
+  content: "放大";
+}
+
+html[lang="en-US"] .wiki-mermaid-zoom::after {
+  content: "Zoom";
+}
+
+.wiki-mermaid-zoom:hover,
+.wiki-mermaid-zoom.is-active {
+  opacity: 1;
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.wiki-mermaid-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 24px;
+}
+
+.wiki-mermaid-modal-card {
+  position: relative;
+  width: max-content;
+  max-width: 92vw;
+  max-height: 88vh;
+  background: var(--vp-c-bg);
+  border-radius: 10px;
+  padding: 28px;
+  overflow: auto;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.35);
+}
+
+.wiki-mermaid-modal-card svg {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 78vh;
+  margin: 0 auto;
+}
+
+.wiki-mermaid-modal-card svg[id] {
+  max-width: 100%;
+  max-height: 78vh;
+}
+
+.wiki-mermaid-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wiki-mermaid-modal-close:hover {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+/* Beautiful-mermaid diagrams: ensure site font stack for CJK labels */
+.wiki-mermaid-output svg text {
+  font-family: var(--vp-font-family-base);
+}
+
