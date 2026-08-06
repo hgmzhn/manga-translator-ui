@@ -131,7 +131,7 @@
 - [x] [完成] `zh/en desktop/navigation-and-language.md` - evidence: 双语正文、导航与语言切换源码依据、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/translation/file-list-and-input.md` - evidence: 双语正文、输入状态、格式、源码依据、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/translation/output-directory-and-workflow.md` - evidence: 双语正文、九种工作流、路径、源码依据、静态检查；后续统一验收按第 8 节执行
-- [ ] [未开工] `zh/en desktop/translation/progress-stop-and-task-state.md`
+- [x] [完成] `zh/en desktop/translation/progress-stop-and-task-state.md` - evidence: 双语正文、状态/按钮 i18n 三列、Mermaid、停止状态测试依据、静态检查；后续统一验收按第 8 节执行
 
 ### 5.4 设置与参数
 
