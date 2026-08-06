@@ -18,4 +18,19 @@ export default defineConfig({
       { text: 'English', link: '/en/' },
     ],
   },
+  markdown: {
+    config(md) {
+      const defaultFence = md.renderer.rules.fence
+      md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+        const token = tokens[idx]
+        const language = token.info.trim().split(/\s+/, 1)[0]
+        if (language !== 'mermaid') {
+          return defaultFence
+            ? defaultFence(tokens, idx, options, env, self)
+            : self.renderToken(tokens, idx, options)
+        }
+        return `\n<div class="wiki-mermaid"><pre class="wiki-mermaid-source">${md.utils.escapeHtml(token.content)}</pre><div class="wiki-mermaid-output" aria-label="Mermaid diagram"></div></div>\n`
+      }
+    },
+  },
 })

@@ -12,6 +12,26 @@
   --vp-font-family-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
 
+.wiki-mermaid {
+  margin: 20px 0;
+  overflow-x: auto;
+  padding: 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+}
+
+.wiki-mermaid-source {
+  display: none;
+}
+
+.wiki-mermaid-output svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
 .dark {
   --vp-c-brand-1: #57c2c7;
   --vp-c-brand-2: #39abb2;
