@@ -1,5 +1,5 @@
 ---
-title: Admin Endpoints: Users, Groups, Quota, and Audit
+title: "Admin Endpoints: Users, Groups, Quota, and Audit"
 description: Manage users, user groups, quota, and audit logs through admin HTTP endpoints, and understand permission inheritance and quota sources
 pageId: developer.http-api.admin-users-groups-quota-audit
 lang: en-US

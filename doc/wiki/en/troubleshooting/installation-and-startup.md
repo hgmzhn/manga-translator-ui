@@ -118,8 +118,8 @@ Installation and startup messages come from the launcher, batch/shell scripts, a
 | `Win-Start.bat` `set /p OPEN_MAINT="Open Win-Install-or-Update.bat now? (y/n): "` | Open Win-Install-or-Update.bat now? (y/n): | Missing (same) |
 | `Unix-Start.sh` `fail "No .venv or compatible legacy environment was found"` | No .venv or compatible legacy environment was found | Missing (hard-coded English in the script; no Chinese fallback) |
 | `Unix-Start.sh` `echo "Run ./Unix-Install-or-Update.sh first"` | Run ./Unix-Install-or-Update.sh first | Missing (same) |
-| `server/main.py` `print("[INFO] Loaded environment variables from: " + env_path)` | [INFO] Loaded environment variables from: <path> | Missing (hard-coded English in the server; no Chinese fallback) |
-| `server/main.py` `print("[WARNING] .env file not found at: " + env_path)` | [WARNING] .env file not found at: <path> | Missing (same) |
+| `server/main.py` `print("[INFO] Loaded environment variables from: " + env_path)` | [INFO] Loaded environment variables from: {path} | Missing (hard-coded English in the server; no Chinese fallback) |
+| `server/main.py` `print("[WARNING] .env file not found at: " + env_path)` | [WARNING] .env file not found at: {path} | Missing (same) |
 
 ## Related files and formats {#files}
 

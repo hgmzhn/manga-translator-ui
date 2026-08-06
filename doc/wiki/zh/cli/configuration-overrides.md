@@ -29,7 +29,7 @@ lastUpdated: true
 uv run --no-sync python -m manga_translator local -i input.png --config path/to/my-config.json
 ```
 
-`local --help` 中该选项的帮助原文为：`--config CONFIG` 配置文件路径（默认：config/config.json）。提供 `--config` 后，`run_local_mode` 会调用 `load_config_file()` 载入该文件；载入失败时打印“无法加载配置文件: <path>”并以退出码 `1` 结束。
+`local --help` 中该选项的帮助原文为：`--config CONFIG` 配置文件路径（默认：config/config.json）。提供 `--config` 后，`run_local_mode` 会调用 `load_config_file()` 载入该文件；载入失败时打印“无法加载配置文件: {path}”并以退出码 `1` 结束。
 
 ### 配置文件加载链 {#config-load-chain}
 
@@ -47,7 +47,7 @@ uv run --no-sync python -m manga_translator local -i input.png --config path/to/
 
 | 失败原因 | 命令行表现 |
 | --- | --- |
-| 文件不存在 | `load_config_file` 返回失败，打印“无法加载配置文件: <path>”，退出码 `1` |
+| 文件不存在 | `load_config_file` 返回失败，打印“无法加载配置文件: {path}”，退出码 `1` |
 | JSON 解析失败 | 同上 |
 | 最终模型校验失败 | 回退默认配置并返回失败，命令行表现同上 |
 
@@ -234,3 +234,4 @@ flowchart LR
 | `en_US` / `zh_CN` 实际 locale | 完成 | `label_*` 键逐项记录 English 与简体中文实际值 |
 | 脱敏运行验证 | 待后续 | 未读取真实 `.env`、用户 `config.json`、API key/token、用户名、用户图片或私有提示词；未实际运行翻译与子进程 |
 | VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+

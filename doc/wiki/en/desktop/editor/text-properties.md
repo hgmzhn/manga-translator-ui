@@ -1,6 +1,6 @@
 ---
 title: Text Properties
-description: Edit a text region's typography in the editor's Property Editor: font, size, color, spacing, angle, alignment, and direction, and how they are written back and rendered
+description: "Edit a text region's typography in the editor's Property Editor: font, size, color, spacing, angle, alignment, and direction, and how they are written back and rendered"
 pageId: desktop.editor.text-properties
 lang: en-US
 outline: [2, 4]

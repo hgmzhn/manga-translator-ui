@@ -118,8 +118,8 @@ lastUpdated: true
 | `Win-Start.bat` `set /p OPEN_MAINT="Open Win-Install-or-Update.bat now? (y/n): "` | Open Win-Install-or-Update.bat now? (y/n): | 缺失（同上） |
 | `Unix-Start.sh` `fail "No .venv or compatible legacy environment was found"` | No .venv or compatible legacy environment was found | 缺失（脚本硬编码英文，无中文回退） |
 | `Unix-Start.sh` `echo "Run ./Unix-Install-or-Update.sh first"` | Run ./Unix-Install-or-Update.sh first | 缺失（同上） |
-| `server/main.py` `print("[INFO] Loaded environment variables from: " + env_path)` | [INFO] Loaded environment variables from: <path> | 缺失（服务器硬编码英文，无中文回退） |
-| `server/main.py` `print("[WARNING] .env file not found at: " + env_path)` | [WARNING] .env file not found at: <path> | 缺失（同上） |
+| `server/main.py` `print("[INFO] Loaded environment variables from: " + env_path)` | [INFO] Loaded environment variables from: {path} | 缺失（服务器硬编码英文，无中文回退） |
+| `server/main.py` `print("[WARNING] .env file not found at: " + env_path)` | [WARNING] .env file not found at: {path} | 缺失（同上） |
 
 ## 关联文件与格式 {#files}
 

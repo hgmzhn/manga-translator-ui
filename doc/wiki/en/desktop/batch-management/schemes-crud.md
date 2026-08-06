@@ -1,6 +1,6 @@
 ---
 title: Batch Scheme Management
-description: Manage batch-edit schemes: view, create, duplicate, rename, delete, and autosave
+description: "Manage batch-edit schemes: view, create, duplicate, rename, delete, and autosave"
 pageId: desktop.batch-management.schemes-crud
 lang: en-US
 outline: [2, 4]
@@ -163,3 +163,4 @@ flowchart TD
 | Scheme CRUD and persistence chain | Complete | Statically checked loading, normalization, debounced save, delete-and-rebuild, and shutdown flush |
 | Sanitized runtime verification | Deferred | No real `.env`, user `config.json`, API key/token, username, user image, or private prompt was read |
 | VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
+

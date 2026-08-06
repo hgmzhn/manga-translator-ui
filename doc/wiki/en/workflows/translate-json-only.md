@@ -1,6 +1,6 @@
 ---
 title: Translate JSON Only
-description: Translate JSON Only workflow: read original text from an existing project JSON, translate it, write the result back, and skip detection, OCR, masks, inpainting, and rendering
+description: "Translate JSON Only workflow: read original text from an existing project JSON, translate it, write the result back, and skip detection, OCR, masks, inpainting, and rendering"
 pageId: workflows.translate-json-only
 lang: en-US
 outline: [2, 4]

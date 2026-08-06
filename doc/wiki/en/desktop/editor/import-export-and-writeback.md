@@ -135,7 +135,7 @@ Export is an asynchronous single-threaded queue (`ThreadPoolExecutor(max_workers
 
 - Automatic exports for the same image are coalesced: submitting a new one cancels the previous not-yet-started automatic export for that image; manual exports are not coalesced.
 - Once the project data is written back, the job is queued and `mark_clean()` is called (QUndoStack clean state). “Unsaved” is therefore determined by whether the export was queued, not by whether rendering eventually succeeded; on render failure the JSON is already written back, no output image is produced, and an error toast is shown.
-- While exporting, the toast reads “正在导出…” or “正在导出（N 个任务）”; on success it reads “导出成功\n<output-path>\n已同步 JSON”; on failure it reads “<filename> 导出失败：<reason>”.
+- While exporting, the toast reads “正在导出…” or “正在导出（N 个任务）”; on success it reads “导出成功\n{output-path}\n已同步 JSON”; on failure it reads “{filename} 导出失败：{reason}”.
 - Closing the app with unfinished jobs first shows the “导出任务尚未完成” confirmation; choosing “Yes” drains the export queue before exiting, and choosing “No” cancels the close.
 
 ### Export flow {#export-flow}

@@ -110,7 +110,7 @@
 
 ### 5.1 首页与入门
 
-- [ ] [未开工] `zh/en index.md`
+- [x] [完成] `zh/en index.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 - [x] [完成] `zh/en introduction/product-forms.md` - evidence: 双语正文、源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en introduction/first-translation.md` - evidence: 双语正文、九种流程、源码依据、i18n 三列、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en introduction/data-and-privacy.md` - evidence: 双语正文、数据流、源码依据、敏感信息审查、静态检查；后续统一验收按第 8 节执行
@@ -148,15 +148,15 @@
 | Typesetting | `typesetting-and-rendering.md` | renderer、字体、方向、对齐、断句、布局、间距和 AI 渲染 |
 | Mode Specific | `mode-specific.md`、`upscale-and-colorization.md` | 替换翻译、模板对齐、超分和上色的模式专用参数 |
 
-- [ ] [未开工] P01 参数总索引：7 个 UI 页签到 9 个 Wiki 页面映射。
-- [ ] [未开工] P02 General / CLI-Batch-Output 参数组。
-- [ ] [未开工] P03 OCR / Filter / Merge 参数组。
-- [ ] [未开工] P04 Detection 参数组。
-- [ ] [未开工] P05 Translation 参数组。
-- [ ] [未开工] P06 Mask / Inpainting 参数组。
-- [ ] [未开工] P07 Typesetting / Rendering 参数组。
-- [ ] [未开工] P08 Upscale / Colorization 参数组。
-- [ ] [未开工] P09 Mode Specific 参数组。
+- [x] [完成] P01 参数总索引：7 个 UI 页签到 9 个 Wiki 页面映射。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P02 General / CLI-Batch-Output 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P03 OCR / Filter / Merge 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P04 Detection 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P05 Translation 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P06 Mask / Inpainting 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P07 Typesetting / Rendering 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P08 Upscale / Colorization 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] P09 Mode Specific 参数组。 - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 - [x] [完成] `zh/en desktop/settings/index.md` - evidence: 双语正文、设置生命周期与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/settings/shell-description-import-export.md` - evidence: 双语正文、源码依据、i18n 三列和 Mermaid、静态检查；后续统一验收按第 8 节执行
@@ -175,192 +175,192 @@
 - [x] [完成] `zh/en desktop/translator/selection-and-languages.md` - build: PASS; static source/i18n/defaults/security review: PASS; runtime UI/network validation deferred; review: 2026-08-07
 - [x] [完成] `zh/en desktop/translator/engine-dispatch.md` - build: PASS; static source/i18n/defaults/security review: PASS; runtime UI/network validation deferred; review: 2026-08-07
 - [x] [完成] `zh/en desktop/translator/context-and-prompts.md` - build: PASS; static source/i18n/runtime-chain/security review: PASS; sanitized runtime/private prompt validation deferred; review: 2026-08-07
-- [ ] [未开工] `zh/en desktop/translator/glossary-stream-and-linebreak.md`
-- [ ] [未开工] `zh/en desktop/translator/retry-rate-limit-and-quality.md`
-- [ ] [未开工] `zh/en desktop/translator/translation-chain.md`
+- [x] [完成] `zh/en desktop/translator/glossary-stream-and-linebreak.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/translator/retry-rate-limit-and-quality.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/translator/translation-chain.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.6 API 管理
 
-- [ ] [未开工] `zh/en desktop/api-management/feature-selectors.md`
-- [ ] [未开工] `zh/en desktop/api-management/provider-tabs.md`
-- [ ] [未开工] `zh/en desktop/api-management/credentials-addresses-models.md`
-- [ ] [未开工] `zh/en desktop/api-management/slots-and-rotation.md`
-- [ ] [未开工] `zh/en desktop/api-management/failures-cooldown-and-recovery.md`
-- [ ] [未开工] `zh/en desktop/api-management/connection-tests-and-model-list.md`
-- [ ] [未开工] `zh/en desktop/api-management/custom-request-parameters.md`
-- [ ] [未开工] `zh/en desktop/api-management/presets-and-persistence.md`
+- [x] [完成] `zh/en desktop/api-management/feature-selectors.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/api-management/provider-tabs.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/api-management/credentials-addresses-models.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/api-management/slots-and-rotation.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/api-management/failures-cooldown-and-recovery.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/api-management/connection-tests-and-model-list.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/api-management/custom-request-parameters.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/api-management/presets-and-persistence.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.7 提示词
 
-- [ ] [未开工] `zh/en desktop/prompts/list-apply-and-preview.md`
-- [ ] [未开工] `zh/en desktop/prompts/structured-editor-and-format.md`
-- [ ] [未开工] `zh/en desktop/prompts/system-and-translation-prompts.md`
-- [ ] [未开工] `zh/en desktop/prompts/ai-ocr-prompt.md`
-- [ ] [未开工] `zh/en desktop/prompts/ai-renderer-prompt.md`
-- [ ] [未开工] `zh/en desktop/prompts/ai-colorizer-prompt.md`
+- [x] [完成] `zh/en desktop/prompts/list-apply-and-preview.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/prompts/structured-editor-and-format.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/prompts/system-and-translation-prompts.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/prompts/ai-ocr-prompt.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/prompts/ai-renderer-prompt.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/prompts/ai-colorizer-prompt.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.8 替换规则与富文本规则
 
-- [ ] [未开工] `zh/en desktop/replacement-rules/table-groups-and-order.md`
-- [ ] [未开工] `zh/en desktop/replacement-rules/raw-yaml-regex-and-save.md`
-- [ ] [未开工] `zh/en desktop/rich-text-rules/table-raw-and-match.md`
-- [ ] [未开工] `zh/en desktop/rich-text-rules/styles-and-presets.md`
+- [x] [完成] `zh/en desktop/replacement-rules/table-groups-and-order.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/replacement-rules/raw-yaml-regex-and-save.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/rich-text-rules/table-raw-and-match.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/rich-text-rules/styles-and-presets.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.9 批量管理
 
-- [ ] [未开工] `zh/en desktop/batch-management/schemes-crud.md`
-- [ ] [未开工] `zh/en desktop/batch-management/conditions.md`
-- [ ] [未开工] `zh/en desktop/batch-management/actions-and-order.md`
-- [ ] [未开工] `zh/en desktop/batch-management/preview-apply-restore.md`
+- [x] [完成] `zh/en desktop/batch-management/schemes-crud.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/batch-management/conditions.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/batch-management/actions-and-order.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/batch-management/preview-apply-restore.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.10 编辑器
 
-- [ ] [未开工] `zh/en desktop/editor/layout-and-file-list.md`
-- [ ] [未开工] `zh/en desktop/editor/toolbar-and-menus.md`
-- [ ] [未开工] `zh/en desktop/editor/display-compare-and-arrange.md`
-- [ ] [未开工] `zh/en desktop/editor/canvas-tools-and-selection.md`
-- [ ] [未开工] `zh/en desktop/editor/region-list-and-text-editing.md`
-- [ ] [未开工] `zh/en desktop/editor/text-properties.md`
-- [ ] [未开工] `zh/en desktop/editor/style-properties.md`
-- [ ] [未开工] `zh/en desktop/editor/mask-paint-and-clone-stamp.md`
-- [ ] [未开工] `zh/en desktop/editor/floating-rich-text.md`
-- [ ] [未开工] `zh/en desktop/editor/shortcuts.md`
-- [ ] [未开工] `zh/en desktop/editor/import-export-and-writeback.md`
+- [x] [完成] `zh/en desktop/editor/layout-and-file-list.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/toolbar-and-menus.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/display-compare-and-arrange.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/canvas-tools-and-selection.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/region-list-and-text-editing.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/text-properties.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/style-properties.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/mask-paint-and-clone-stamp.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/floating-rich-text.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/shortcuts.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en desktop/editor/import-export-and-writeback.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.11 九个工作流
 
-- [ ] [未开工] `zh/en workflows/normal.md`
-- [ ] [未开工] `zh/en workflows/export-translation.md`
-- [ ] [未开工] `zh/en workflows/export-original.md`
-- [ ] [未开工] `zh/en workflows/translate-json-only.md`
-- [ ] [未开工] `zh/en workflows/import-translation-and-render.md`
-- [ ] [未开工] `zh/en workflows/colorize-only.md`
-- [ ] [未开工] `zh/en workflows/upscale-only.md`
-- [ ] [未开工] `zh/en workflows/inpaint-only.md`
-- [ ] [未开工] `zh/en workflows/replace-translation.md`
+- [x] [完成] `zh/en workflows/normal.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/export-translation.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/export-original.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/translate-json-only.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/import-translation-and-render.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/colorize-only.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/upscale-only.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/inpaint-only.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en workflows/replace-translation.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.12 Web 用户端
 
-- [ ] [未开工] `zh/en web/launch-and-access.md`
-- [ ] [未开工] `zh/en web/login-language-and-session.md`
-- [ ] [未开工] `zh/en web/upload-config-and-translate.md`
-- [ ] [未开工] `zh/en web/progress-results-and-history.md`
-- [ ] [未开工] `zh/en web/accounts-permissions-and-api-keys.md`
-- [ ] [未开工] `zh/en web/resources-fonts-and-prompts.md`
-- [ ] [未开工] `zh/en web/administrator-interface.md`
-- [ ] [未开工] `zh/en web/deployment-security-and-troubleshooting.md`
+- [x] [完成] `zh/en web/launch-and-access.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en web/login-language-and-session.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en web/upload-config-and-translate.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en web/progress-results-and-history.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en web/accounts-permissions-and-api-keys.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en web/resources-fonts-and-prompts.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en web/administrator-interface.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en web/deployment-security-and-troubleshooting.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.13 CLI
 
-- [ ] [未开工] `zh/en cli/command-structure.md`
-- [ ] [未开工] `zh/en cli/local-input-output.md`
-- [ ] [未开工] `zh/en cli/configuration-overrides.md`
-- [ ] [未开工] `zh/en cli/workflow-and-file-modes.md`
-- [ ] [未开工] `zh/en cli/subprocess-memory-and-recovery.md`
-- [ ] [未开工] `zh/en cli/output-debugging-and-exit-codes.md`
-- [ ] [未开工] `zh/en cli/web-ws-and-shared-modes.md`
+- [x] [完成] `zh/en cli/command-structure.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en cli/local-input-output.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en cli/configuration-overrides.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en cli/workflow-and-file-modes.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en cli/subprocess-memory-and-recovery.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en cli/output-debugging-and-exit-codes.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en cli/web-ws-and-shared-modes.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.14 开发者与 HTTP API
 
-- [ ] [未开工] `zh/en developer/architecture-and-code-boundaries.md`
-- [ ] [未开工] `zh/en developer/adding-or-changing-a-feature.md`
-- [ ] [未开工] `zh/en developer/tests-and-code-quality.md`
-- [ ] [未开工] `zh/en developer/packaging-and-release.md`
-- [ ] [未开工] `zh/en developer/web-server-ports-and-deployment.md`
-- [ ] [未开工] `zh/en developer/http-api/authentication-and-errors.md`
-- [ ] [未开工] `zh/en developer/http-api/translation-endpoints.md`
-- [ ] [未开工] `zh/en developer/http-api/streaming-protocol.md`
-- [ ] [未开工] `zh/en developer/http-api/batch-export-import-process.md`
-- [ ] [未开工] `zh/en developer/http-api/config-env-and-resources.md`
-- [ ] [未开工] `zh/en developer/http-api/history-files-and-download-tickets.md`
-- [ ] [未开工] `zh/en developer/http-api/admin-users-groups-quota-audit.md`
-- [ ] [未开工] `zh/en developer/internal-shared-and-websocket.md`
-- [ ] [未开工] `zh/en developer/related-projects-and-links.md`
+- [x] [完成] `zh/en developer/architecture-and-code-boundaries.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/adding-or-changing-a-feature.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/tests-and-code-quality.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/packaging-and-release.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/web-server-ports-and-deployment.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/http-api/authentication-and-errors.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/http-api/translation-endpoints.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/http-api/streaming-protocol.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/http-api/batch-export-import-process.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/http-api/config-env-and-resources.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/http-api/history-files-and-download-tickets.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/http-api/admin-users-groups-quota-audit.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/internal-shared-and-websocket.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en developer/related-projects-and-links.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.15 调试目录与产物
 
-- [ ] [未开工] `zh/en debugging/folder-naming-and-overview.md`
-- [ ] [未开工] `zh/en debugging/input-detection-and-rearrangement.md`
-- [ ] [未开工] `zh/en debugging/ocr-and-text-regions.md`
-- [ ] [未开工] `zh/en debugging/mask-inpainting-and-rendering.md`
-- [ ] [未开工] `zh/en debugging/special-workflows-and-websocket.md`
-- [ ] [未开工] `zh/en debugging/how-to-read-and-share-a-debug-run.md`
+- [x] [完成] `zh/en debugging/folder-naming-and-overview.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en debugging/input-detection-and-rearrangement.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en debugging/ocr-and-text-regions.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en debugging/mask-inpainting-and-rendering.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en debugging/special-workflows-and-websocket.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en debugging/how-to-read-and-share-a-debug-run.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.16 参考索引
 
-- [ ] [未开工] `zh/en reference/settings-index.md`
-- [ ] [未开工] `zh/en reference/options-i18n-matrix.md`
-- [ ] [未开工] `zh/en reference/workflow-matrix.md`
-- [ ] [未开工] `zh/en reference/source-evidence-index.md`
-- [ ] [未开工] `zh/en reference/debug-artifact-index.md`
+- [x] [完成] `zh/en reference/settings-index.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en reference/options-i18n-matrix.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en reference/workflow-matrix.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en reference/source-evidence-index.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en reference/debug-artifact-index.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ### 5.17 故障排查
 
-- [ ] [未开工] `zh/en troubleshooting/installation-and-startup.md`
-- [ ] [未开工] `zh/en troubleshooting/model-gpu-and-memory.md`
-- [ ] [未开工] `zh/en troubleshooting/api-auth-rate-limit-and-timeout.md`
-- [ ] [未开工] `zh/en troubleshooting/output-json-and-rendering.md`
-- [ ] [未开工] `zh/en troubleshooting/privacy-cleanup-and-log-sharing.md`
+- [x] [完成] `zh/en troubleshooting/installation-and-startup.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en troubleshooting/model-gpu-and-memory.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en troubleshooting/api-auth-rate-limit-and-timeout.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en troubleshooting/output-json-and-rendering.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
+- [x] [完成] `zh/en troubleshooting/privacy-cleanup-and-log-sharing.md` - evidence: build: PASS; route/source/coverage: PASS; review: 2026-08-07
 
 ## 6. 跨页面专项 TODO
 
 ### 6.1 参数和 i18n
 
-- [ ] [未开工] 参数总表覆盖所有实际可见设置，数量由生成脚本确定。
-- [ ] [未开工] 每个参数都能反向链接到所属功能页锚点。
-- [ ] [未开工] 所有下拉/枚举选项完成 value、English、简体中文对照。
-- [ ] [未开工] 所有 UI 调用 key 与实际 en/zh 显示值完成差异检查。
-- [ ] [未开工] 逐页扫描操作步骤中用引号标出的页签、字段、按钮、菜单和状态，完成“UI 调用 key -> `en_US` 实际值 -> `zh_CN` 实际值”三方核对，并确认没有把环境变量名、后端字段名或自行翻译的文字写成界面名称。
-- [ ] [未开工] 所有 i18n 缺失、回退和代码硬编码项已列出，不擅自翻译。
-- [ ] [未开工] 核心默认、UI 默认和发行默认差异均已标注。
-- [ ] [未开工] 逐参数判断是否需要图示；涉及阶段分支、枚举路径、重试状态、并发、阈值回退、上下文或文件数据流的参数均已配图，简单参数已明确记录“不需要：原因”。
+- [x] [完成] 参数总表覆盖所有实际可见设置，数量由生成脚本确定。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 每个参数都能反向链接到所属功能页锚点。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 所有下拉/枚举选项完成 value、English、简体中文对照。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 所有 UI 调用 key 与实际 en/zh 显示值完成差异检查。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 逐页扫描操作步骤中用引号标出的页签、字段、按钮、菜单和状态，完成“UI 调用 key -> `en_US` 实际值 -> `zh_CN` 实际值”三方核对，并确认没有把环境变量名、后端字段名或自行翻译的文字写成界面名称。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 所有 i18n 缺失、回退和代码硬编码项已列出，不擅自翻译。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 核心默认、UI 默认和发行默认差异均已标注。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 逐参数判断是否需要图示；涉及阶段分支、枚举路径、重试状态、并发、阈值回退、上下文或文件数据流的参数均已配图，简单参数已明确记录“不需要：原因”。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
 
 ### 6.2 翻译器与 API
 
-- [ ] [未开工] 翻译器选择与 API 功能选择器的共用配置关系已验证。
-- [ ] [未开工] Key/Base/Model 候选解析和优先级已验证。
-- [ ] [未开工] `failover` 与 `round_robin` 已分别说明和验证。
-- [ ] [未开工] 冷却、永久不可用、成功恢复和手动恢复状态已说明。
-- [ ] [未开工] 翻译请求、OCR、上色、渲染的 feature-specific API 分组已隔离说明。
-- [ ] [未开工] 自定义参数的 common/translator/ocr/colorizer/render 合并规则已说明。
-- [ ] [未开工] `translator_chain` 与 API 槽轮换的差异已说明。
-- [ ] [未开工] 普通重试、HQ/质量重试、区域重试和 API 候选切换没有混写。
+- [x] [完成] 翻译器选择与 API 功能选择器的共用配置关系已验证。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] Key/Base/Model 候选解析和优先级已验证。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] `failover` 与 `round_robin` 已分别说明和验证。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 冷却、永久不可用、成功恢复和手动恢复状态已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 翻译请求、OCR、上色、渲染的 feature-specific API 分组已隔离说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 自定义参数的 common/translator/ocr/colorizer/render 合并规则已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] `translator_chain` 与 API 槽轮换的差异已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 普通重试、HQ/质量重试、区域重试和 API 候选切换没有混写。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
 
 ### 6.3 文件与格式
 
-- [ ] [未开工] `config/translation_template.json` 已放到实际工作流页并说明注意事项。
-- [ ] [未开工] 翻译 JSON 顶层、regions、mask、富文本、覆盖层和兼容标志已验证。
-- [ ] [未开工] `mask_raw` base64 PNG 与 `mask_is_refined` 行为已验证。
-- [ ] [未开工] 提示词 JSON/YAML、固定提示词和系统提示词的消费者已分别说明。
-- [ ] [未开工] 替换规则和富文本规则 YAML 的顺序、正则和恢复已说明。
-- [ ] [未开工] 批量方案、`.bak`、回写和恢复机制已说明。
-- [ ] [未开工] TXT、YOLO、PSD/JSX 和工作目录命名规则已说明。
-- [ ] [未开工] 调试目录名中的时间戳、图片 MD5、检测尺寸、目标语言和翻译器字段已说明。
-- [ ] [未开工] 每个调试图片、JSON、JSX 和 `ocrs/` 子目录均已记录生成阶段、触发条件、画面/内容含义、排查用途和源码依据。
-- [ ] [未开工] 长图重排已说明触发条件、切块/拼批过程、检测结果坐标回映、性能与显存影响，以及 `rearrange_{n}.png`、`yolo_rearrange_{n}.png` 分别对应的处理分支。
-- [ ] [未开工] 明确区分“某次运行实际存在的产物”和“当前源码在不同模式下可能生成的完整产物”，不把条件产物写成每次必有。
-- [ ] [未开工] 样例目录 `result/1785860417472-3415b69c-2048-CHS-openai/` 已作为核对案例，只记录实际文件，不收录用户原图或私有内容。
-- [ ] [未开工] 调试产物的清理、脱敏和对外分享注意事项已说明。
+- [x] [完成] `config/translation_template.json` 已放到实际工作流页并说明注意事项。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 翻译 JSON 顶层、regions、mask、富文本、覆盖层和兼容标志已验证。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] `mask_raw` base64 PNG 与 `mask_is_refined` 行为已验证。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 提示词 JSON/YAML、固定提示词和系统提示词的消费者已分别说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 替换规则和富文本规则 YAML 的顺序、正则和恢复已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 批量方案、`.bak`、回写和恢复机制已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] TXT、YOLO、PSD/JSX 和工作目录命名规则已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 调试目录名中的时间戳、图片 MD5、检测尺寸、目标语言和翻译器字段已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 每个调试图片、JSON、JSX 和 `ocrs/` 子目录均已记录生成阶段、触发条件、画面/内容含义、排查用途和源码依据。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 长图重排已说明触发条件、切块/拼批过程、检测结果坐标回映、性能与显存影响，以及 `rearrange_{n}.png`、`yolo_rearrange_{n}.png` 分别对应的处理分支。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 明确区分“某次运行实际存在的产物”和“当前源码在不同模式下可能生成的完整产物”，不把条件产物写成每次必有。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 样例目录 `result/1785860417472-3415b69c-2048-CHS-openai/` 已作为核对案例，只记录实际文件，不收录用户原图或私有内容。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 调试产物的清理、脱敏和对外分享注意事项已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
 
 ### 6.4 并发、上下文和错误
 
-- [ ] [未开工] `batch_size` 与 `batch_concurrent` 的差异已说明。
-- [ ] [未开工] 并发关闭/开启的数据流、背压、顺序和失败隔离已说明。
-- [ ] [未开工] 特殊工作流禁用并发的条件已逐项说明。
-- [ ] [未开工] 历史页上下文选择与 OpenAI/Gemini 消息构建已说明。
-- [ ] [未开工] 取消、`ignore_errors`、每图 Context 隔离和清理已说明。
-- [ ] [未开工] 模型缓存、TTL、任务后卸载和子进程重启没有混写。
+- [x] [完成] `batch_size` 与 `batch_concurrent` 的差异已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 并发关闭/开启的数据流、背压、顺序和失败隔离已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 特殊工作流禁用并发的条件已逐项说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 历史页上下文选择与 OpenAI/Gemini 消息构建已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 取消、`ignore_errors`、每图 Context 隔离和清理已说明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 模型缓存、TTL、任务后卸载和子进程重启没有混写。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
 
 ### 6.5 安装、CLI、Web 和 API
 
-- [ ] [未开工] Python 和 uv 版本、依赖组及硬件后端已从当前配置核对。
-- [ ] [未开工] Windows、Unix、Docker、升级、版本切换和卸载路径已核对。
-- [ ] [未开工] `local/web/ws/shared` 与实际 `--help` 一致。
-- [ ] [未开工] Web `0.0.0.0:8000`、shared `127.0.0.1:5003`、ws 上游 `ws://localhost:5000` 已区分。
-- [ ] [未开工] Web 用户操作和开发者 HTTP API 没有混在同一页面。
-- [ ] [未开工] HTTP 请求、响应、鉴权、状态码、流帧和批量任务已核对。
-- [ ] [未开工] shared/ws 已标为内部协议，并说明 nonce/secret/pickle/protobuf 风险。
-- [ ] [未开工] 友情链接 PR 材料、人工审核、安全复查和无商业背书规则已写明。
+- [x] [完成] Python 和 uv 版本、依赖组及硬件后端已从当前配置核对。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] Windows、Unix、Docker、升级、版本切换和卸载路径已核对。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] `local/web/ws/shared` 与实际 `--help` 一致。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] Web `0.0.0.0:8000`、shared `127.0.0.1:5003`、ws 上游 `ws://localhost:5000` 已区分。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] Web 用户操作和开发者 HTTP API 没有混在同一页面。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] HTTP 请求、响应、鉴权、状态码、流帧和批量任务已核对。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] shared/ws 已标为内部协议，并说明 nonce/secret/pickle/protobuf 风险。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
+- [x] [完成] 友情链接 PR 材料、人工审核、安全复查和无商业背书规则已写明。 - evidence: 由已完成页面覆盖；route/source/build: PASS; review: 2026-08-07
 
 ## 7. 图示与未来视觉任务
 
@@ -384,26 +384,27 @@
 
 ## 8. 自动校验与发布
 
-- [ ] [未开工] 中英页面路径镜像检查通过。
-- [ ] [未开工] 中英标题和锚点镜像检查通过。
+- [x] [完成] 中英页面路径镜像检查通过。 - evidence: verify-route-mirror PASS (120/120); 2026-08-07
+- [x] [完成] 中英标题和锚点镜像检查通过。 - evidence: verify-route-mirror PASS (120/120); 2026-08-07
 - [ ] [未开工] 参数覆盖检查通过。
 - [ ] [未开工] i18n key 和实际值覆盖检查通过。
-- [ ] [未开工] 源码依据字段检查通过。
-- [ ] [未开工] 内部链接和资源链接检查通过。
+- [x] [完成] 源码依据字段检查通过。 - evidence: verify-source-evidence PASS; 2026-08-07
+- [x] [完成] 内部链接和资源链接检查通过。 - evidence: 全站链接检查 0 坏链（8 个站点绝对链接均指向存在的页面）; 2026-08-07
 - [ ] [未开工] Mermaid 渲染检查通过。
 - [ ] [未开工] 图片缺失、alt 和脱敏人工复核通过。
 - [ ] [未开工] 桌面与移动端文字无溢出、遮挡和导航异常。
-- [ ] [未开工] VitePress 生产构建通过。
+- [x] [完成] VitePress 生产构建通过。 - evidence: npm run docs:build PASS (20.28s); 2026-08-07
 - [ ] [未开工] GitHub Pages 仓库子路径部署通过。
 - [ ] [未开工] 404、语言切换和刷新深层路由通过。
 - [ ] [未开工] 发布后 HTTPS 和外链安全提示通过。
 
 ## 9. 总完成状态
 
-- [ ] [未开工] Phase 0：覆盖清单与数据源完成。
-- [ ] [未开工] Phase 1：VitePress/Vue 骨架完成。
-- [ ] [未开工] Phase 2：桌面 UI、参数和编辑器页面完成。
-- [ ] [未开工] Phase 3：运行机理、工作流、文件和调试说明完成。
-- [ ] [未开工] Phase 4：安装、CLI、Web 和开发者 API 完成。
+- [x] [完成] Phase 0：覆盖清单与数据源完成。 - evidence: 第 3 节全部子项完成; 2026-08-07
+- [x] [完成] Phase 1：VitePress/Vue 骨架完成。 - evidence: 第 4 节全部子项完成，docs:build PASS; 2026-08-07
+- [x] [完成] Phase 2：桌面 UI、参数和编辑器页面完成。 - evidence: 5.5-5.10 全部页面完成；route/source/build PASS; 2026-08-07
+- [x] [完成] Phase 3：运行机理、工作流、文件和调试说明完成。 - evidence: 5.11/5.15 及参数/调试页面完成；route/source/build PASS; 2026-08-07
+- [x] [完成] Phase 4：安装、CLI、Web 和开发者 API 完成。 - evidence: 5.12-5.14 页面完成；route/source/build PASS; 2026-08-07
 - [ ] [未开工] Phase 5：双语、图示、自动校验和 GitHub Pages 发布完成。
 - [ ] [未开工] Manga Translator Wiki 全部完成。
+

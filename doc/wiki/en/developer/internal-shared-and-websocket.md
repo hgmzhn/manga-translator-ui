@@ -1,6 +1,6 @@
 ---
 title: Internal Shared and WebSocket Protocol
-description: Developer-facing internal protocol of shared/ws modes: endpoints, ports, nonce/secret auth, and pickle/protobuf serialization risks
+description: "Developer-facing internal protocol of shared/ws modes: endpoints, ports, nonce/secret auth, and pickle/protobuf serialization risks"
 pageId: developer.internal-shared-and-websocket
 lang: en-US
 outline: [2, 4]

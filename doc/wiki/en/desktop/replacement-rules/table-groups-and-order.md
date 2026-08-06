@@ -1,5 +1,5 @@
 ---
-title: Replacement Rule Table: Groups, Order, and Matching
+title: "Replacement Rule Table: Groups, Order, and Matching"
 description: Manage the three groups of replacement rules in a table and understand application order, literal/regex matching, and where replacements run in rendering
 pageId: desktop.replacement-rules.table-groups-and-order
 lang: en-US

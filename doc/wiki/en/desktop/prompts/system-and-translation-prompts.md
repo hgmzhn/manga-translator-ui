@@ -92,14 +92,14 @@ If the base system prompt is missing or empty, the in-code fallback (`_HQ_FALLBA
 
 ### Placeholder replacement {#placeholders}
 
-Placeholders in prompt files are literal triple-brace markers (for example `{{{target_lang}}}`), not Python string-format syntax. At each request construction, the runtime replaces the marker with the full target-language name: `VALID_LANGUAGES` maps language codes to full names (such as `CHS` → `Chinese (Simplified)`, `JPN` → `Japanese`), and unknown codes are kept as-is. Replacement happens only in the in-memory request text; the `dict/` files are never rewritten by it.
+Placeholders in prompt files are literal triple-brace markers (for example <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code>), not Python string-format syntax. At each request construction, the runtime replaces the marker with the full target-language name: `VALID_LANGUAGES` maps language codes to full names (such as `CHS` → `Chinese (Simplified)`, `JPN` → `Japanese`), and unknown codes are kept as-is. Replacement happens only in the in-memory request text; the `dict/` files are never rewritten by it.
 
 | Placeholder | Files | Replaced when | Replaced with |
 | --- | --- | --- | --- |
-| `{{{target_lang}}}` | `system_prompt_hq`, `system_prompt_hq_format`, custom prompts, `glossary_extraction_prompt` | Every request construction | Full target-language name |
-| `{{{optional_new_terms_rule}}}` | `system_prompt_hq_format` | Only when `extract_glossary=True` | Rule text requiring a `new_terms` key; empty in normal mode |
-| `{{{optional_new_terms_example_suffix}}}` | `system_prompt_hq_format` | Only when `extract_glossary=True` | The `new_terms` section in the output JSON example; empty in normal mode |
-| `{{{optional_new_terms_final_instruction}}}` | `system_prompt_hq_format` | Only when `extract_glossary=True` | The closing instruction to return `"new_terms": []` when none found; empty in normal mode |
+| <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> | `system_prompt_hq`, `system_prompt_hq_format`, custom prompts, `glossary_extraction_prompt` | Every request construction | Full target-language name |
+| <code>&#123;&#123;&#123;optional_new_terms_rule&#125;&#125;&#125;</code> | `system_prompt_hq_format` | Only when `extract_glossary=True` | Rule text requiring a `new_terms` key; empty in normal mode |
+| <code>&#123;&#123;&#123;optional_new_terms_example_suffix&#125;&#125;&#125;</code> | `system_prompt_hq_format` | Only when `extract_glossary=True` | The `new_terms` section in the output JSON example; empty in normal mode |
+| <code>&#123;&#123;&#123;optional_new_terms_final_instruction&#125;&#125;&#125;</code> | `system_prompt_hq_format` | Only when `extract_glossary=True` | The closing instruction to return `"new_terms": []` when none found; empty in normal mode |
 
 ### Path into the OpenAI/Gemini system instruction {#system-instruction-path}
 
@@ -136,7 +136,7 @@ flowchart TD
 | --- | --- | --- |
 | `dict/system_prompt_hq.yaml` | Base HQ system prompt (key `system_prompt`) | Code fallback when missing/empty; keep YAML parseable |
 | `dict/system_prompt_hq_format.yaml` | Output-format prompt (key `system_prompt_hq_format`, four placeholders) | Missing weakens output constraints; placeholders replaced as in the table above |
-| `dict/glossary_extraction_prompt.yaml` | Glossary-extraction rules (key `glossary_extraction_prompt`) | Participates only in glossary mode; replaces `{{{target_lang}}}` |
+| `dict/glossary_extraction_prompt.yaml` | Glossary-extraction rules (key `glossary_extraction_prompt`) | Participates only in glossary mode; replaces <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> |
 | `dict/system_prompt_line_break.yaml` | AI line-break prompt (key `line_break_prompt`) | Triggered by `render.disable_auto_wrap` |
 | `dict/prompt_example.yaml` | Default custom HQ prompt example | Loaded through `translator.high_quality_prompt_path`; structure only, never private bodies |
 | `.yaml` / `.yml` / `.json` | Prompt formats supported by the loader | Root must be an object; same stem prefers `.yaml` |

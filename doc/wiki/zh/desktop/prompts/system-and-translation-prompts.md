@@ -92,14 +92,14 @@ flowchart LR
 
 ### 占位符替换 {#placeholders}
 
-提示词文件中的占位符是三层花括号的字面量标记（例如 `{{{target_lang}}}`），不是 Python 字符串格式化语法。每次请求构造时，运行时把标记替换为目标语言全称：`VALID_LANGUAGES` 把语言代码映射为全称（如 `CHS` → `Chinese (Simplified)`、`JPN` → `Japanese`），未收录的代码原样保留。替换只发生在内存中的请求文本，不会改写 `dict/` 文件。
+提示词文件中的占位符是三层花括号的字面量标记（例如 <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code>），不是 Python 字符串格式化语法。每次请求构造时，运行时把标记替换为目标语言全称：`VALID_LANGUAGES` 把语言代码映射为全称（如 `CHS` → `Chinese (Simplified)`、`JPN` → `Japanese`），未收录的代码原样保留。替换只发生在内存中的请求文本，不会改写 `dict/` 文件。
 
 | 占位符 | 所在文件 | 替换时机 | 替换为 |
 | --- | --- | --- | --- |
-| `{{{target_lang}}}` | `system_prompt_hq`、`system_prompt_hq_format`、自定义提示词、`glossary_extraction_prompt` | 每次请求构造 | 目标语言全称 |
-| `{{{optional_new_terms_rule}}}` | `system_prompt_hq_format` | 仅 `extract_glossary=True` | 要求输出 `new_terms` 键的规则文本；普通模式替换为空 |
-| `{{{optional_new_terms_example_suffix}}}` | `system_prompt_hq_format` | 仅 `extract_glossary=True` | 输出 JSON 示例中的 `new_terms` 段；普通模式替换为空 |
-| `{{{optional_new_terms_final_instruction}}}` | `system_prompt_hq_format` | 仅 `extract_glossary=True` | 未找到新术语时返回 `"new_terms": []` 的结尾指令；普通模式替换为空 |
+| <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> | `system_prompt_hq`、`system_prompt_hq_format`、自定义提示词、`glossary_extraction_prompt` | 每次请求构造 | 目标语言全称 |
+| <code>&#123;&#123;&#123;optional_new_terms_rule&#125;&#125;&#125;</code> | `system_prompt_hq_format` | 仅 `extract_glossary=True` | 要求输出 `new_terms` 键的规则文本；普通模式替换为空 |
+| <code>&#123;&#123;&#123;optional_new_terms_example_suffix&#125;&#125;&#125;</code> | `system_prompt_hq_format` | 仅 `extract_glossary=True` | 输出 JSON 示例中的 `new_terms` 段；普通模式替换为空 |
+| <code>&#123;&#123;&#123;optional_new_terms_final_instruction&#125;&#125;&#125;</code> | `system_prompt_hq_format` | 仅 `extract_glossary=True` | 未找到新术语时返回 `"new_terms": []` 的结尾指令；普通模式替换为空 |
 
 ### 进入 OpenAI/Gemini 系统指令 {#system-instruction-path}
 
@@ -136,7 +136,7 @@ flowchart TD
 | --- | --- | --- |
 | `dict/system_prompt_hq.yaml` | 基础 HQ 系统提示词（key `system_prompt`） | 缺失/为空时代码 fallback；保持 YAML 可解析 |
 | `dict/system_prompt_hq_format.yaml` | 输出格式提示词（key `system_prompt_hq_format`，含四个占位符） | 缺失时输出约束减弱；占位符按上表替换 |
-| `dict/glossary_extraction_prompt.yaml` | 术语提取规则（key `glossary_extraction_prompt`） | 仅术语模式参与，替换 `{{{target_lang}}}` |
+| `dict/glossary_extraction_prompt.yaml` | 术语提取规则（key `glossary_extraction_prompt`） | 仅术语模式参与，替换 <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> |
 | `dict/system_prompt_line_break.yaml` | AI 断句提示词（key `line_break_prompt`） | 由 `render.disable_auto_wrap` 触发 |
 | `dict/prompt_example.yaml` | 默认自定义 HQ 提示词示例 | 通过 `translator.high_quality_prompt_path` 加载；只记录结构，不展示私密正文 |
 | `.yaml` / `.yml` / `.json` | 加载器支持的提示词格式 | 根必须是对象；同 stem 优先 `.yaml` |
