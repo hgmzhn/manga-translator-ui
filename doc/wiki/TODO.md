@@ -111,9 +111,9 @@
 ### 5.1 首页与入门
 
 - [ ] [未开工] `zh/en index.md`
-- [ ] [未开工] `zh/en introduction/product-forms.md`
-- [ ] [未开工] `zh/en introduction/first-translation.md`
-- [ ] [未开工] `zh/en introduction/data-and-privacy.md`
+- [ ] [进行中] `zh/en introduction/product-forms.md` - PROGRESS: 双语正文、源码依据、i18n 三列和 Mermaid 已完成；运行态与视觉验收待补
+- [ ] [进行中] `zh/en introduction/first-translation.md` - PROGRESS: 双语正文、九种流程、源码依据和 i18n 三列已完成；运行态与视觉验收待补
+- [ ] [进行中] `zh/en introduction/data-and-privacy.md` - PROGRESS: 双语正文、数据流、源码依据和敏感信息审查已完成；运行态与视觉验收待补
 
 ### 5.2 安装
 
@@ -128,9 +128,9 @@
 
 ### 5.3 桌面导航与翻译工作区
 
-- [ ] [未开工] `zh/en desktop/navigation-and-language.md`
-- [ ] [未开工] `zh/en desktop/translation/file-list-and-input.md`
-- [ ] [未开工] `zh/en desktop/translation/output-directory-and-workflow.md`
+- [ ] [进行中] `zh/en desktop/navigation-and-language.md` - PROGRESS: 双语正文、导航与语言切换源码依据已完成；运行态与视觉验收待补
+- [ ] [进行中] `zh/en desktop/translation/file-list-and-input.md` - PROGRESS: 双语正文、输入状态、格式和源码依据已完成；运行态与视觉验收待补
+- [ ] [进行中] `zh/en desktop/translation/output-directory-and-workflow.md` - PROGRESS: 双语正文、九种工作流、路径和源码依据已完成；运行态与视觉验收待补
 - [ ] [未开工] `zh/en desktop/translation/progress-stop-and-task-state.md`
 
 ### 5.4 设置与参数
