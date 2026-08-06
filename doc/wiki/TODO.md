@@ -159,7 +159,7 @@
 - [ ] [未开工] P09 Mode Specific 参数组。
 
 - [x] [完成] `zh/en desktop/settings/index.md` - evidence: 双语正文、设置生命周期与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
-- [ ] [未开工] `zh/en desktop/settings/shell-description-import-export.md`
+- [ ] [进行中] `zh/en desktop/settings/shell-description-import-export.md` - PROGRESS: 双语正文、源码依据、i18n 三列和 Mermaid 完成；有头运行与统一验收待执行
 - [ ] [未开工] `zh/en desktop/settings/general-and-app.md`
 - [ ] [未开工] `zh/en desktop/settings/cli-batch-and-output.md`
 - [ ] [未开工] `zh/en desktop/settings/detection.md`
