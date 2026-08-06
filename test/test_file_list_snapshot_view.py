@@ -4,6 +4,7 @@ import _bootstrap  # noqa: F401  —— sys.path / offscreen / torch 先于 PyQt
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -196,7 +197,7 @@ def test_view_uses_model_delegate_and_gui_thread_pixmap() -> None:
             service.shutdown()
 
 
-def test_view_and_empty_hint_follow_fluent_theme() -> None:
+def _check_view_and_empty_hint_follow_fluent_theme() -> None:
     app = _app()
     previous_theme = qconfig.theme
     view = FileListView()
@@ -249,6 +250,19 @@ def test_view_and_empty_hint_follow_fluent_theme() -> None:
         app.processEvents()
 
 
+def test_view_and_empty_hint_follow_fluent_theme() -> None:
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()), "--theme-check-child"],
+        cwd=ROOT,
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_images_only_keeps_json_for_resolved_editor_source() -> None:
     translated = r"C:\book\translated.png"
     source = r"C:\book\source.png"
@@ -279,4 +293,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if "--theme-check-child" in sys.argv:
+        _check_view_and_empty_hint_follow_fluent_theme()
+        raise SystemExit(0)
     raise SystemExit(main())

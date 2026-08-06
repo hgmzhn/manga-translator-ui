@@ -130,7 +130,7 @@
     "disable_onnx_gpu": false,
     "context_size": 3,
     "format": "不指定",
-    "overwrite": true,
+    "overwrite": false,
     "skip_no_text": false,
     "save_text": true,
     "load_text": false,

@@ -1,6 +1,6 @@
 # launch.py 启动与维护脚本说明
 
-本文档描述 `packaging/launch.py` 的实际行为（对应 `VERSION = 1.7.6`）。它是安装、更新、依赖管理、维护菜单的统一入口；日常启动 UI 则由批处理直接运行 Qt 主程序。
+本文档描述 `packaging/launch.py` 的实际行为。它是安装、更新、依赖管理、维护菜单的统一入口；日常启动 UI 则由批处理直接运行 Qt 主程序。
 
 ## 1. 启动流程
 
@@ -26,27 +26,17 @@
 ### 1.3 launch.py main() 的执行顺序
 
 1. 校验 Python 版本：**仅支持 3.12**（3.13+ 拒绝启动）；
-2. 解析参数，若 `--maintenance` 则切到项目根目录，直接进入维护菜单并返回；
-3. 打印版本/分支/commit/Python 信息，切到项目根目录；
-4. `--update` 时执行 `update_repository()`：fetch `origin/main`，有新提交则 `git pull` 并 `os.execv` 重启自身（frozen 打包版跳过）；
-5. `prepare_environment()`：检测显卡、检查/安装依赖（`--frozen` 时跳过）；
-6. `--install-deps-only` 时到此结束；否则启动应用：`--cli` 走 `manga_translator.__main__`，默认导入 `desktop_qt_ui.main` 启动 Qt UI。
+2. 解析维护参数并切到项目根目录；
+3. 默认进入维护菜单。安装或更新同步代码成功后，使用绝对路径 `os.execv` 重新加载当前文件，并通过隐藏的 `--resume-install` / `--resume-update` 参数继续后续依赖流程；
+4. 重新加载后的进程执行 `prepare_environment()`，因此依赖逻辑使用更新后的 `launch.py`、`pyproject.toml` 和 `uv.lock`。
 
 ## 2. 命令行参数
 
 | 参数 | 说明 |
 |------|------|
-| `--update` | 启动前检查 `origin/main` 并自动 pull + 重启 |
-| `--frozen` | 跳过依赖检查与安装（打包版本用） |
-| `--install-deps-only` | 只安装依赖，不启动 UI |
-| `--reinstall-torch` | 卸载并重装 PyTorch，同时强制重装全部依赖 |
-| `--update-deps` | 更新依赖到最新（维护流程内部使用） |
-| `--requirements` | 依赖方案：`auto`（默认，检测显卡后交互选择）或 `cpu` / `gpu` / `amd` / `metal` |
-| `--cli` | 启动命令行版本而非 Qt UI |
-| `--verbose` | 启动失败时打印完整 traceback |
-| `--maintenance` | 进入维护菜单（Win-Install-or-Update.bat 使用） |
+| `--maintenance` | 进入维护菜单（Win-Install-or-Update.bat 和 Unix-Install-or-Update.sh 使用） |
 
-注意：**没有 `--ui` 参数**——UI 只有 Qt 一种，未指定 `--cli` 即默认启动 Qt。未识别的参数通过 `parse_known_args` 忽略。
+内部恢复参数由代码同步后的重启自动传递，不用于手动调用。
 
 ## 3. 依赖安装机制
 
@@ -131,8 +121,8 @@ arm64 Mac 自动选择 `metal` 方案（MPS 加速），无需交互。
 
 | 选项 | 功能 |
 |------|------|
-| [1] 安装 | 选择下载线路（GitHub/Gitee）→ 强制同步代码 → 检测显卡并交互选择 CPU/GPU/AMD/Metal → 安装依赖 → 清理缓存 |
-| [2] 更新 | `check_all_updates()` 检查代码（版本号 + commit 双比对）与依赖完整性 → 确认后强制同步代码并重新检查依赖 → 有缺失清单时只装缺失包，否则走完整依赖更新 → 清理缓存 |
+| [1] 安装 | 选择下载线路（GitHub/Gitee）→ 强制同步代码 → 重启加载新代码 → 检测显卡并交互选择 CPU/GPU/AMD/Metal → 安装依赖 → 清理缓存 |
+| [2] 更新 | `check_all_updates()` 检查代码（版本号 + commit 双比对）与依赖完整性 → 确认后强制同步代码 → 重启加载新代码并重新检查依赖 → 安装/同步依赖 → 清理缓存 |
 | [3] 切换分支 | 在 `main`（稳定）/ `beta`（测试）间切换，`git checkout -f -B <branch> origin/<branch>` 强制同步，本地修改被覆盖 |
 | [4] 切换版本 | fetch tags 后列出最近 20 个 tag（也可手输 tag 名），`checkout -f <tag>` 进入游离状态；游离状态下更新比对回落到 main |
 | [5] 切换镜像源 | GitHub 官方 / Gitee 镜像（国内推荐）/ 手动输入仓库地址，`git remote set-url origin` |

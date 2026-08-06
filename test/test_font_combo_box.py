@@ -1,29 +1,7 @@
-import os
-import sys
+import _bootstrap  # noqa: F401
+
 import types
-from pathlib import Path
 from unittest.mock import patch
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
-
-utils_package = types.ModuleType("utils")
-utils_package.__path__ = [str(ROOT / "desktop_qt_ui" / "utils")]
-sys.modules["utils"] = utils_package
-
-manga_package = types.ModuleType("manga_translator")
-manga_package.__path__ = [str(ROOT / "manga_translator")]
-rendering_package = types.ModuleType("manga_translator.rendering")
-rendering_package.__path__ = [str(ROOT / "manga_translator" / "rendering")]
-text_render = types.ModuleType("manga_translator.rendering.text_render")
-text_render.qt_family_is_ambiguous = lambda _family: False
-text_render.register_font_file = lambda _path: []
-sys.modules["manga_translator"] = manga_package
-sys.modules["manga_translator.rendering"] = rendering_package
-sys.modules["manga_translator.rendering.text_render"] = text_render
 
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QApplication
@@ -32,8 +10,17 @@ from qfluentwidgets import ComboBox
 from utils import font_list
 
 
+_APPLICATION: QApplication | None = None
+
+
+def _app() -> QApplication:
+    global _APPLICATION
+    _APPLICATION = QApplication.instance() or QApplication([])
+    return _APPLICATION
+
+
 def test_font_list_skips_non_scalable_families():
-    app = QApplication.instance() or QApplication([])
+    app = _app()
     database = types.SimpleNamespace(
         families=lambda: ["Outline Font", "Fixedsys"],
         isScalable=lambda family: family == "Outline Font",
@@ -47,8 +34,78 @@ def test_font_list_skips_non_scalable_families():
     app.processEvents()
 
 
+def test_font_list_merges_legacy_and_typographic_names_for_same_face():
+    families = ["toolboxQiangDiao-W", "toolboxQiangDiao-W-Regular"]
+    records = (
+        (1, "en", "toolboxQiangDiao-W-Regular"),
+        (16, "en", "toolboxQiangDiao-W"),
+        (1, "zh", "工具箱腔调体-简繁-Regular"),
+        (16, "zh", "工具箱腔调体-简繁"),
+    )
+
+    with (
+        patch.object(font_list, "list_font_families", return_value=families),
+        patch.object(font_list, "_font_family_name_records", return_value=records),
+        patch.object(font_list, "_font_face_signature", return_value=b"same-face"),
+    ):
+        entries = font_list.list_font_family_entries("zh_CN")
+
+    assert len(entries) == 1
+    display, family, aliases = entries[0]
+    assert display == "工具箱腔调体-简繁"
+    assert family == "toolboxQiangDiao-W"
+    assert set(aliases) == {
+        "toolboxQiangDiao-W",
+        "toolboxQiangDiao-W-Regular",
+        "工具箱腔调体-简繁",
+        "工具箱腔调体-简繁-Regular",
+    }
+
+
+def test_font_list_keeps_typographic_names_for_different_faces_separate():
+    families = ["Example-W", "Example-W-Regular"]
+    records = (
+        (1, "en", "Example-W-Regular"),
+        (16, "en", "Example-W"),
+    )
+
+    with (
+        patch.object(font_list, "list_font_families", return_value=families),
+        patch.object(font_list, "_font_family_name_records", return_value=records),
+        patch.object(font_list, "_font_face_signature", side_effect=lambda family: family.encode()),
+    ):
+        entries = font_list.list_font_family_entries("en_US")
+
+    assert [(display, family) for display, family, _aliases in entries] == [
+        ("Example-W", "Example-W"),
+        ("Example-W-Regular", "Example-W-Regular"),
+    ]
+
+
+def test_localized_font_family_restores_original_brackets_for_display():
+    family = "toolboxQiangDiao-W"
+    records = (
+        (16, "en", family),
+        (16, "zh", "工具箱腔调体-简繁"),
+    )
+    original_names = {
+        font_list._search_key(family): "[toolbox]QiangDiao-W",
+        font_list._search_key("工具箱腔调体-简繁"): "[工具箱]腔调体-简繁",
+    }
+
+    with (
+        patch.object(font_list, "_font_family_name_records", return_value=records),
+        patch.dict(font_list._ORIGINAL_FONT_DISPLAY_NAMES, original_names, clear=True),
+    ):
+        display, aliases = font_list.localized_font_family(family, "zh_CN")
+
+    assert display == "[工具箱]腔调体-简繁"
+    assert "工具箱腔调体-简繁" in aliases
+    assert "[工具箱]腔调体-简繁" in aliases
+
+
 def test_font_combo_box_keeps_fluent_style_and_font_preview():
-    app = QApplication.instance() or QApplication([])
+    app = _app()
     families = ["Preview Sans", "预览Sans", "Preview Serif"]
     locale = ["en_US"]
 
@@ -106,6 +163,9 @@ def test_font_combo_box_keeps_fluent_style_and_font_preview():
 
 def main() -> int:
     test_font_list_skips_non_scalable_families()
+    test_font_list_merges_legacy_and_typographic_names_for_same_face()
+    test_font_list_keeps_typographic_names_for_different_faces_separate()
+    test_localized_font_family_restores_original_brackets_for_display()
     test_font_combo_box_keeps_fluent_style_and_font_preview()
     print("font combo box check passed")
     return 0

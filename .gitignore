@@ -22,6 +22,8 @@ presets/
 # Build output
 dist/
 *.egg-info/
+/doc/wiki/node_modules/
+/doc/wiki/.vitepress/cache/
 
 # Models directory (large binary files - use git-lfs or separate download)
 /models/

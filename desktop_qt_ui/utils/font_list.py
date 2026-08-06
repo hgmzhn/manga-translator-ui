@@ -7,6 +7,7 @@
 （如 "[工具箱]xxx-简繁"）会被 Qt 的 "Family [Foundry]" 语法解析成空家族名，
 QFont 匹配固定落到同一字体；注册层会自动改写为去掉方括号的内存副本。
 """
+import hashlib
 import logging
 import os
 import unicodedata
@@ -20,7 +21,11 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import ComboBox, LineEdit, MenuAnimationType
 from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
 
-from manga_translator.rendering.text_render import qt_family_is_ambiguous, register_font_file
+from manga_translator.rendering.text_render import (
+    qt_family_is_ambiguous,
+    register_font_file,
+    strip_qt_foundry_brackets,
+)
 
 from .resource_helper import resource_path
 
@@ -28,6 +33,7 @@ logger = logging.getLogger('manga_translator')
 
 FONT_FILE_EXTENSIONS = ('.ttf', '.otf', '.ttc')
 _REGISTERED_FONT_FAMILIES: dict[str, list[str]] = {}
+_ORIGINAL_FONT_DISPLAY_NAMES: dict[str, str] = {}
 _FONT_SEARCH_PLACEHOLDERS = {
     "zh_CN": "搜索字体…",
     "zh_TW": "搜尋字型…",
@@ -55,7 +61,9 @@ def list_font_files() -> list[tuple[str, str]]:
                     path = os.path.normcase(os.path.abspath(os.path.join(fonts_dir, filename)))
                     if QGuiApplication.instance() is not None and path not in _REGISTERED_FONT_FAMILIES:
                         _REGISTERED_FONT_FAMILIES[path] = register_font_file(path)
+                        _remember_original_font_names(path)
                         _font_family_name_records.cache_clear()
+                        _font_face_signature.cache_clear()
     except OSError as exc:
         logger.warning(f"扫描字体目录失败: {exc}")
     font_files.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
@@ -94,6 +102,35 @@ def _search_key(text: str) -> str:
     return unicodedata.normalize("NFKC", str(text or "")).casefold()
 
 
+def _remember_original_font_names(path: str) -> None:
+    """Remember bracketed names that registration sanitizes for safe Qt use."""
+    if not path.lower().endswith((".ttf", ".otf")):
+        return
+    try:
+        from fontTools.ttLib import TTFont
+
+        font = TTFont(path, lazy=True)
+        try:
+            for record in font["name"].names:
+                if record.nameID not in (1, 16, 21):
+                    continue
+                try:
+                    original = record.toUnicode().strip()
+                except UnicodeDecodeError:
+                    continue
+                sanitized = strip_qt_foundry_brackets(original)
+                if original and sanitized != original:
+                    _ORIGINAL_FONT_DISPLAY_NAMES.setdefault(_search_key(sanitized), original)
+        finally:
+            font.close()
+    except Exception as exc:
+        logger.debug("读取字体原始名称失败 %s: %s", path, exc)
+
+
+def _original_font_display_name(name: str) -> str:
+    return _ORIGINAL_FONT_DISPLAY_NAMES.get(_search_key(name), name)
+
+
 @lru_cache(maxsize=None)
 def _font_family_name_records(family: str) -> tuple[tuple[int, str, str], ...]:
     """Return ``(name id, language tag, value)`` records from Qt's font face."""
@@ -129,6 +166,29 @@ def _font_family_name_records(family: str) -> tuple[tuple[int, str, str], ...]:
     except Exception as exc:
         logger.debug("读取字体本地化名称失败 %s: %s", family, exc)
     return tuple(dict.fromkeys(records))
+
+
+@lru_cache(maxsize=None)
+def _font_face_signature(family: str) -> bytes:
+    """Return a stable signature for the font face selected by a Qt family."""
+    try:
+        raw_font = QRawFont.fromFont(QFont(family))
+        if not raw_font.isValid():
+            return b""
+        digest = hashlib.sha256()
+        found_table = False
+        for tag in ("head", "maxp", "name"):
+            table = bytes(raw_font.fontTable(tag))
+            if not table:
+                continue
+            found_table = True
+            digest.update(tag.encode("ascii"))
+            digest.update(len(table).to_bytes(8, "big"))
+            digest.update(table)
+        return digest.digest() if found_table else b""
+    except Exception as exc:
+        logger.debug("读取字体面指纹失败 %s: %s", family, exc)
+        return b""
 
 
 def _language_score(language: str, locale_code: str) -> int:
@@ -171,8 +231,13 @@ def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str
             name_id_score.get(record[0], 0),
         ),
     )
-    aliases = tuple(dict.fromkeys([family, *(record[2] for record in candidates)]))
-    return best[2], aliases
+    candidate_names = [record[2] for record in candidates]
+    aliases = tuple(dict.fromkeys([
+        family,
+        *candidate_names,
+        *(_original_font_display_name(name) for name in candidate_names),
+    ]))
+    return _original_font_display_name(best[2]), aliases
 
 
 def list_font_family_entries(locale_code: str) -> list[tuple[str, str, tuple[str, ...]]]:
@@ -193,6 +258,31 @@ def list_font_family_entries(locale_code: str) -> list[tuple[str, str, tuple[str
     for index, (_family, _display, aliases) in enumerate(entries):
         for alias in aliases:
             other = first_by_alias.setdefault(_search_key(alias), index)
+            left, right = find(index), find(other)
+            if left != right:
+                parents[right] = left
+
+    # Some fonts expose both legacy family (name ID 1) and typographic family
+    # (name ID 16) as separate Qt families. Merge only when their complete name
+    # records overlap and Qt resolves both names to the exact same font face.
+    indexes_by_complete_alias: dict[str, list[int]] = {}
+    for index, (family, _display, _aliases) in enumerate(entries):
+        all_aliases = tuple(dict.fromkeys((
+            family,
+            *(value for _name_id, _language, value in _font_family_name_records(family)),
+        )))
+        for alias in all_aliases:
+            indexes_by_complete_alias.setdefault(_search_key(alias), []).append(index)
+
+    for indexes in indexes_by_complete_alias.values():
+        if len({find(index) for index in indexes}) < 2:
+            continue
+        first_by_signature: dict[bytes, int] = {}
+        for index in indexes:
+            signature = _font_face_signature(entries[index][0])
+            if not signature:
+                continue
+            other = first_by_signature.setdefault(signature, index)
             left, right = find(index), find(other)
             if left != right:
                 parents[right] = left
