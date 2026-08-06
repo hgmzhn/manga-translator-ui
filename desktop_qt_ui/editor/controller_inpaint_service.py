@@ -55,6 +55,11 @@ class EditorControllerInpaintService:
         cached_image = self.resource_manager.get_cache(self.controller.CACHE_LAST_INPAINTED)
         return image_like_to_rgb_array(cached_image, copy=True)
 
+    def clear_document_cache(self) -> None:
+        self.resource_manager.clear_cache(self.controller.CACHE_LAST_INPAINTED)
+        self.resource_manager.clear_cache(self.controller.CACHE_LAST_MASK)
+        self.resource_manager.clear_weak_cache(self.controller.WEAK_CACHE_BASE_IMAGE_RGB)
+
     def get_base_image_rgb_array(self) -> Optional[np.ndarray]:
         image = self.controller._get_current_image()
         if image is None:

@@ -371,6 +371,8 @@ class EditorControllerDocumentService:
             loading_toast.close()
             self.controller._loading_toast = None
 
+        self.controller.inpaint_service.clear_document_cache()
+
         toolbar = self.controller.get_toolbar()
         if toolbar is not None:
             toolbar.set_export_enabled(True)
