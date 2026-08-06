@@ -173,8 +173,8 @@
 ### 5.5 翻译器
 
 - [x] [完成] `zh/en desktop/translator/selection-and-languages.md` - build: PASS; static source/i18n/defaults/security review: PASS; runtime UI/network validation deferred; review: 2026-08-07
-- [ ] [未开工] `zh/en desktop/translator/engine-dispatch.md`
-- [ ] [未开工] `zh/en desktop/translator/context-and-prompts.md`
+- [x] [完成] `zh/en desktop/translator/engine-dispatch.md` - build: PASS; static source/i18n/defaults/security review: PASS; runtime UI/network validation deferred; review: 2026-08-07
+- [x] [完成] `zh/en desktop/translator/context-and-prompts.md` - build: PASS; static source/i18n/runtime-chain/security review: PASS; sanitized runtime/private prompt validation deferred; review: 2026-08-07
 - [ ] [未开工] `zh/en desktop/translator/glossary-stream-and-linebreak.md`
 - [ ] [未开工] `zh/en desktop/translator/retry-rate-limit-and-quality.md`
 - [ ] [未开工] `zh/en desktop/translator/translation-chain.md`
