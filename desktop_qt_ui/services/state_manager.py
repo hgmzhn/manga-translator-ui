@@ -116,6 +116,7 @@ class StateManager(QObject):
     
     def set_state(self, key: AppStateKey, value: Any, notify: bool = True) -> None:
         """设置状态值并根据键发射对应的信号"""
+        signal = None
         with self._lock:
             old_value = self._state.get(key)
             # 使用 deepcopy 或其他方式进行复杂对象的值比较可能更稳健
@@ -126,11 +127,12 @@ class StateManager(QObject):
             
             if notify:
                 signal = self._signal_map.get(key)
-                if signal:
-                    try:
-                        signal.emit(value)
-                    except Exception as e:
-                        self.logger.error(f"发射信号失败 {key.value}: {e}")
+
+        if signal:
+            try:
+                signal.emit(value)
+            except Exception as e:
+                self.logger.error(f"发射信号失败 {key.value}: {e}")
 
     def update_state(self, updates: Dict[AppStateKey, Any]) -> None:
         """批量更新状态"""
