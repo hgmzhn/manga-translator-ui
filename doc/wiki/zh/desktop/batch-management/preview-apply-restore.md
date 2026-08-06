@@ -1,45 +1,250 @@
 ---
-title: preview apply restore（待补充）
-description: 待源码、界面和运行验证
+title: 批量预览、应用与恢复
+description: 预览批量命中的区域，勾选后把方案写回逐图 JSON，并依靠 .bak 备份恢复
 pageId: desktop.batch-management.preview-apply-restore
 lang: zh-CN
 outline: [2, 4]
-lastUpdated: false
+lastUpdated: true
 ---
 
-# preview apply restore（待补充）
+# 批量预览、应用与恢复
 
-本页负责记录该功能的边界、操作、运行机理和验证依据；不替代其他模块的专门页面。
+批量管理页以主页文件列表中的已翻译文件为作用范围：先“预览命中”，在表格里核对每个将要被改写的区域，再勾选需要写回的行，最后“对选中项执行”。写回前默认把每个 JSON 复制一份 `.bak`，因此多数误操作可以通过“从备份恢复”撤销。
 
-## 功能边界
+本页只讲预览、勾选、写回、备份与恢复。方案的增删改与自动保存见[批量方案管理](./schemes-crud.md)，条件字段与 `all`/`any` 逻辑见[匹配条件](./conditions.md)，三类批量动作与固定执行顺序见[动作与顺序](./actions-and-order.md)。编辑器自身的保存与回写见[编辑器的导入导出与回写](../editor/import-export-and-writeback.md)。
 
-- 待源码、界面和运行验证.
+## 功能边界 {#feature-boundary}
 
-## UI 操作
+- 批量写回的目标是逐图 JSON（`<stem>_translations.json`），不是最终图片；批量管理不进入渲染管线。
+- 预览是必经步骤：界面没有“不预览直接执行”的按钮。
+- 作用范围来自主页文件列表快照中的 `json_by_file`（图片路径 → JSON 路径）；面板自己不重扫磁盘，文件列表变化时由主窗口把新快照推给面板。
+- “对选中项执行”总是重新读盘再执行方案，不使用预览缓存的命中结果。
+- 恢复只能把文件还原成同目录的 `.bak`；`.bak` 是一次性消耗品，恢复后不再存在。
+- “匹配条件”卡片与“批量动作”卡片属于批量面板的同一页，但各自的细节分别见[匹配条件](./conditions.md)与[动作与顺序](./actions-and-order.md)。
 
-- 待源码、界面和运行验证.
+## UI 操作 {#ui-operations}
 
-## 选项中英对照
+### 检查作用范围并预览命中 {#preview-matches}
 
-- 待源码、界面和运行验证.
+打开“批量管理”（`Batch Management`）。页面底部状态栏右侧显示“范围：主页文件列表中的 {count} 个已翻译文件”（`Scope: {count} translated files from the main file list`）。
 
-## 运行机理
+配置好条件与动作后：
 
-- 待源码、界面和运行验证.
+1. 点击“预览命中”（`Preview matches`）。
+2. 若主页文件列表里还没有已翻译文件，会提示“主页文件列表里还没有已翻译的文件，请先在翻译页添加文件。”。
+3. 若没有启用任何批量动作，会提示“请先启用至少一个批量动作。”。
+4. 扫描在进度框“扫描中...”（`Scanning...`）中执行，可以取消。
+5. 命中结果写入预览表，每一行是一个区域，共六列：勾选、图片、区域、原文、改后、变更。
 
-## 依赖与冲突
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Batch Management` | Batch Management | 批量管理 |
+| `Preview matches` | Preview matches | 预览命中 |
+| `Select All` | Select All | 全部选中 |
+| `Select None` | Select None | 全不选 |
+| `Image` | Image | 图片 |
+| `Region` | Region | 区域 |
+| `Before` | Before | 原文 |
+| `After` | After | 改后 |
+| `Changes` | Changes | 变更 |
+| `Scope: {count} translated files from the main file list` | Scope: {count} translated files from the main file list | 范围：主页文件列表中的 {count} 个已翻译文件 |
+| `{regions} regions in {files} files` | {regions} regions in {files} files | {files} 个文件中的 {regions} 个区域 |
+| `Scanned {regions} regions in {files} files` | Scanned {regions} regions in {files} files | 已扫描 {files} 个文件中的 {regions} 个区域 |
+| `{count} malformed regions skipped` | {count} malformed regions skipped | 跳过 {count} 个结构异常的区域 |
+| `{count} files could not be read` | {count} files could not be read | {count} 个文件读取失败 |
+| `Back up each file before writing` | Back up each file before writing | 写入前备份每个文件 |
+| `Writes a .bak next to each modified JSON` | Writes a .bak next to each modified JSON | 在每个被改动的 JSON 旁写一个 .bak |
+| `Apply to selected` | Apply to selected | 对选中项执行 |
+| `Restore from backup` | Restore from backup | 从备份恢复 |
+| `Roll every file in scope back to its .bak, then delete the .bak` | Roll every file in scope back to its .bak, then delete the .bak | 把范围内每个文件还原成它的 .bak，还原后 .bak 就消耗掉 |
 
-- 待源码、界面和运行验证.
+- “图片”列显示文件名，悬停提示该 JSON 的完整路径；“区域”列显示区域序号；“原文”/“改后”列显示可见译文正文（换行显示为 `\n`）；“变更”列列出会被改写的字段（例如 `line_spacing, translation`）。
+- “全部选中”（`Select All`）与“全不选”（`Select None`）一次切换所有行的勾选状态。
+- 没有命中时“对选中项执行”（`Apply to selected`）保持禁用；命中后摘要显示“{files} 个文件中的 {regions} 个区域”。
+- 扫描发现结构异常的区域会跳过，并在状态行追加“跳过 {count} 个结构异常的区域”；读不到的文件会弹出“{count} 个文件读取失败”的错误框。
+- 条件或动作一旦修改，上一次的预览结果立即作废（表格清空、Apply 重新禁用），必须重新预览。
 
-## 关联文件与格式
+### 批量写回（应用） {#apply}
 
-- 待源码、界面和运行验证.
+1. 在预览表中勾选要写回的行。
+2. 默认勾选“写入前备份每个文件”（`Back up each file before writing`）；取消勾选时，确认框会追加“备份已关闭，此操作无法撤销。”。
+3. 点击“对选中项执行”（`Apply to selected`），确认框显示“对 {files} 个文件中的 {regions} 个区域执行该方案？”。
+4. 如果编辑器正打开命中范围内的图片，确认框会追加提示：编辑器内存中的旧副本会在切图时覆盖这次修改，执行后会自动重新加载编辑器。
+5. 进度框标题为“对选中项执行”，文案“写入中...”（`Writing...`），可以取消；取消后状态行显示“已取消”（`Cancelled`），不写盘。
+6. 完成后状态行显示“已更新 {files} 个文件中的 {regions} 个区域”（`Updated {regions} regions in {files} files`）；有文件写入失败时弹出“{count} 个文件写入失败”的错误框。
+7. 写回成功后预览表清空——盘上内容已经变化，旧预览不再可信。
 
-## 源码依据
+### 从备份恢复 {#restore}
 
-- 待源码、界面和运行验证.
+1. 点击“从备份恢复”（`Restore from backup`），按钮提示为“把范围内每个文件还原成它的 .bak，还原后 .bak 就消耗掉”。
+2. 范围内没有 `.bak` 时提示“范围内的文件都没有备份。”。
+3. 有备份时确认框显示“把 {files} 个文件还原成备份？备份会被消耗掉。”；若编辑器正打开目标图，同样追加重载提示。
+4. 进度框文案“正在恢复...”（`Restoring...`），可以取消。
+5. 完成后状态行显示“已恢复 {files} 个文件”（`Restored {files} files`）；写入失败的文件会列入“{count} 个文件写入失败”的错误框。
 
-## 验证记录
+恢复的作用范围同样是“主页文件列表中的已翻译文件”：它只处理这些文件旁边的 `.bak`，不会扫描全盘，也不会生成新的备份。
 
-- 待源码、界面和运行验证.
+## 选项与状态 {#options-and-statuses}
+
+#### “写入前备份每个文件” {#backup-option}
+
+- 控件：复选框，默认勾选。
+- 所在界面：批量管理页预览卡片头部；“对选中项执行”确认框会根据它追加警告。
+- 存储值：不落盘；只影响当次应用执行（`request_apply(..., backup=...)`）是否在写回前把原文件复制为 `<json>.bak`。
+- 可选值：勾选 / 不勾选。
+- 默认值：UI 初始化即勾选（`setChecked(True)`）。
+- 生效阶段：应用（写回）阶段、写盘之前。
+- 原理：勾选时 `write_json_document` 先用 `shutil.copy2` 把原 JSON 复制成 `<json>.bak`，再通过同目录临时文件 + `os.replace` 原子写回；恢复时用 `os.replace(.bak, json)` 把备份还原并消耗掉。不勾选时没有 `.bak`，“从备份恢复”对这些文件没有数据可用。
+- 依赖与冲突：恢复按钮依赖 `.bak` 是否存在；取消勾选相当于放弃撤销能力。
+- 关联文件和调试产物：`<json>.bak`。
+- 图示：见下方开关对照图。
+
+```mermaid
+flowchart LR
+    subgraph On["勾选“写入前备份每个文件”（默认）"]
+        A1["写回 JSON"] --> A2["先复制出 JSON.bak"]
+        A2 --> A3["可从备份恢复"]
+    end
+    subgraph Off["取消勾选"]
+        B1["写回 JSON"] --> B2["不生成 .bak"]
+        B2 --> B3["无法撤销，恢复入口没有数据"]
+    end
+```
+
+取消勾选只影响本次点击“对选中项执行”时的写回行为：它不会删除历史遗留的 `.bak`，也不会阻止“从备份恢复”使用已有的备份。
+
+#### 状态与提示 {#status-and-messages}
+
+| 场景 | UI 调用 key（English 实际值） | 简体中文实际值 |
+| --- | --- | --- |
+| 预览完成 | Scanned {regions} regions in {files} files | 已扫描 {files} 个文件中的 {regions} 个区域 |
+| 预览含异常区域 | {count} malformed regions skipped | 跳过 {count} 个结构异常的区域 |
+| 预览读取失败 | {count} files could not be read | {count} 个文件读取失败 |
+| 应用完成 | Updated {regions} regions in {files} files | 已更新 {files} 个文件中的 {regions} 个区域 |
+| 应用/恢复写盘失败 | {count} files could not be written | {count} 个文件写入失败 |
+| 恢复完成 | Restored {files} files | 已恢复 {files} 个文件 |
+| 取消 | Cancelled | 已取消 |
+| 后台异常 | Error | 错误 |
+
+## 运行机理 {#runtime-behavior}
+
+### 预览扫描 {#scan-mechanism}
+
+点击“预览命中”后，面板把当前方案（条件 + 动作）和范围里的 JSON 路径交给后台线程。后台对每个 JSON 执行：读取并解析（沿用原文件缩进）→ 遍历顶层每个图片条目下的 `regions` → 跳过结构不健全的区域 → 对每个区域求值条件 → 把方案试跑在区域副本上。试跑结果与原文不同时生成一行命中记录。
+
+```mermaid
+flowchart TD
+    Start["点击 预览命中"] --> CheckFiles{"范围内有已翻译 JSON?"}
+    CheckFiles -->|无| Warn1["提示先到翻译页添加文件"]
+    CheckFiles -->|有| CheckActions{"已启用至少一个批量动作?"}
+    CheckActions -->|否| Warn2["提示请先启用至少一个批量动作"]
+    CheckActions -->|是| Scan["后台扫描：读 JSON → 遍历区域 → 条件求值 → 试跑动作"]
+    Scan --> Result{"命中?"}
+    Result -->|无| Disable["对选中项执行 保持禁用"]
+    Result -->|有| Table["预览表 + 摘要：{regions} regions in {files} files"]
+```
+
+“原文”/“改后”两列显示可见译文正文：富文本存在时以富文本为准，否则回退到 `translation`；换行在表格里显示为 `\n`。预览只是计算，不写盘。
+
+### 应用写回 {#apply-mechanism}
+
+“对选中项执行”携带的是用户勾选的行（JSON 路径 + 图片 key + 区域序号），而不是整份命中列表。执行时引擎重新读盘，对每个目标区域再次做健全性检查、条件求值和方案执行，然后：
+
+1. 只替换发生变化的区域条目；其余顶层键（`mask_raw`、`mask_is_refined`、覆盖层、尺寸等）和未命中区域原样保留。
+2. 勾选备份时先用 `shutil.copy2` 生成 `<json>.bak`。
+3. 在同目录写临时文件（`.batch_edit_*.tmp`），`fsync` 后 `os.replace` 原子替换原 JSON。
+4. 沿用原文件缩进（后端写 4、编辑器写 2），`ensure_ascii=False`，让 diff 最小。
+5. 只写回实际有变化的文件；没有变化的文件不会被改写，也不会生成备份。
+
+```mermaid
+flowchart TD
+    Apply["点击 对选中项执行"] --> Confirm{"确认框同意?"}
+    Confirm -->|否| NoWrite["不写盘"]
+    Confirm -->|是| ReRead["重新读盘（不使用预览缓存）"]
+    ReRead --> Loop["逐文件：重算条件 → 试跑动作 → 替换有变化的区域"]
+    Loop --> Backup{"勾选“写入前备份每个文件”?"}
+    Backup -->|是| Bak["生成 JSON.bak"]
+    Backup -->|否| NoBak["不生成备份"]
+    Bak --> Write["临时文件 + os.replace 原子写回"]
+    NoBak --> Write
+    Write --> Editor{"编辑器正打开命中图?"}
+    Editor -->|是| Reload["确认框追加提示，执行后自动重载编辑器"]
+    Editor -->|否| Done["状态：已更新 {files} 个文件中的 {regions} 个区域"]
+    Reload --> Done
+```
+
+写回只修改 JSON 中的文本/样式条目，不会自动重新渲染图片；需要回到翻译或编辑器工作流重新导出。
+
+### 恢复 {#restore-mechanism}
+
+“从备份恢复”对范围内每个有 `.bak` 的 JSON 执行 `os.replace(backup, json_path)`：只改目录项、不搬数据，比逐字节拷贝快，而且本身就是原子操作。恢复成功后 `.bak` 被消耗（不再存在），所以按钮提示明确写“还原后 .bak 就消耗掉”。没有 `.bak` 的文件被跳过；全部没有时提示“范围内的文件都没有备份。”。
+
+```mermaid
+flowchart TD
+    Restore["点击 从备份恢复"] --> Has{"范围内有 .bak?"}
+    Has -->|无| Warn["提示：范围内的文件都没有备份。"]
+    Has -->|有| Confirm2{"确认：把 {files} 个文件还原成备份?"}
+    Confirm2 -->|否| NoOp["不写盘"]
+    Confirm2 -->|是| Replace["逐文件 os.replace(.bak, JSON)<br/>原子替换，.bak 被消耗"]
+    Replace --> Editor2{"编辑器正打开目标图?"}
+    Editor2 -->|是| Reload2["自动重载编辑器"]
+    Editor2 -->|否| Done2["状态：已恢复 {files} 个文件"]
+    Reload2 --> Done2
+```
+
+### 取消与后台执行 {#cancel-and-threading}
+
+预览、应用、恢复各占一个后台频道（`scan` / `apply` / `restore`），由 `ThreadPoolExecutor`（最多 2 个工作线程）执行，避免占用 UI 线程。每个频道用 generation 计数：只有最新一次请求的结果会被接受，旧结果被丢弃。取消时：
+
+1. 设置该频道的取消事件并递增 generation。
+2. 引擎在下一个文件/区域边界检查取消事件并抛出取消异常。
+3. 取消后的结果信号不再送达 UI；面板把状态行置为“已取消”。
+
+进度框是可关闭的模态对话框：`setRange(0, total)` 决定确定/不确定进度条，关闭按钮等价于取消。
+
+### 编辑器冲突与重载 {#editor-conflict}
+
+编辑器把区域常驻内存且不监听文件变化；切图时的自动导出会用内存里的旧数据全量覆盖盘上 JSON。因此如果写回/恢复的目标包含编辑器当前打开的图片，面板会在确认框追加“编辑器当前打开着‘{name}’。”的提示，并在执行成功后调用编辑器的重载入口重新加载该图片，避免内存旧数据把刚写回的内容抹掉。
+
+## 依赖与冲突 {#dependencies-and-conflicts}
+
+- 作用范围完全来自主页文件列表快照：文件列表里没有的 JSON 不会被预览、应用或恢复；面板不自行扫描磁盘。
+- 应用前必须重新预览：条件或动作一变，旧预览作废。
+- 应用时若取消“写入前备份每个文件”，该文件没有 `.bak`，后续“从备份恢复”无法还原。
+- 恢复只针对范围内的 `.bak`：不能恢复从未备份的文件，也不能回滚到某个历史版本（`.bak` 只有一份且会被消耗）。
+- 写回只覆盖 JSON 中的区域条目；蒙版、覆盖层和尺寸等其余键保留，但若编辑器在写回后未重载，切图自动导出仍可能覆盖整个 JSON。
+- 批量写回与渲染管线无关：修改不会自动重新渲染图片。
+
+## 关联文件与格式 {#related-files-and-formats}
+
+| 文件/格式 | 本页实际作用 | 注意事项 |
+| --- | --- | --- |
+| `<image-dir>/manga_translator_work/json/<stem>_translations.json` | 批量预览、写回与恢复的目标文件 | 顶层键是图片绝对路径，值为 `regions` 及 `mask_raw`/覆盖层等；读取时新位置优先，兼容图片同目录的旧 `*_translations.json` |
+| `<json>.bak` | 应用前自动生成的逐文件备份；恢复时被消耗 | 与对应 JSON 同目录；恢复后消失；文档不展示真实路径 |
+| `config/batch_edit_schemes.yaml` | 保存当前方案（条件 + 动作） | 读写由 `desktop_qt_ui/services/batch_edit_schemes.py` 负责，不进入渲染管线 |
+| `result/` 调试产物 | 与批量写回无关 | 批量修改不生成也不更新调试图片 |
+
+## 源码依据 {#source-evidence}
+
+| 层级 | 文件 | 本页核对内容 |
+| --- | --- | --- |
+| UI | `desktop_qt_ui/ui/main_page/pages/batch_edit_page.py`、`desktop_qt_ui/ui/secondary_pages/batch_edit_panel.py` | 页面标题/副标题、预览表六列、备份复选框、应用/恢复确认与进度、状态行与错误框 |
+| UI/i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`、`doc/wiki/data/i18n.generated.json` | 预览/应用/恢复相关 key 的 English 与简体中文实际值 |
+| 后台调度 | `desktop_qt_ui/services/batch_edit_service.py` | scan/apply/restore 频道、generation、取消事件、进度信号 |
+| 引擎 | `desktop_qt_ui/services/batch_edit_engine.py` | 扫描、重新读盘执行、`write_json_document` 的备份与原子写、`restore_files` 的 `os.replace` 恢复 |
+| 作用范围 | `desktop_qt_ui/ui/main_window.py` | 文件列表快照推入 `set_catalog_snapshot`、编辑器上下文 `set_editor_context` |
+| JSON 路径 | `manga_translator/utils/path_manager.py` | 新/旧 `*_translations.json` 定位与兼容 |
+| 方案持久化 | `desktop_qt_ui/services/batch_edit_schemes.py` | `config/batch_edit_schemes.yaml` 结构与读写 |
+
+## 验证记录 {#verification}
+
+| 验证内容 | 状态 | 说明 |
+| --- | --- | --- |
+| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已读取 1.3、5.9 与 6.3 相关条目并按页面合同编写 |
+| UI 布局与调用 | 完成 | 静态核对批量面板预览表、备份复选框、应用/恢复流程与编辑器冲突提示 |
+| `en_US` / `zh_CN` 实际 locale | 完成 | 页面表格逐项记录 key、English、简体中文实际值 |
+| `.bak` 与写回/恢复链路 | 完成 | 静态核对 `batch_edit_engine.py` 的备份、原子写和 `os.replace` 恢复 |
+| 脱敏运行验证 | 待后续 | 未启动 GUI；真实进度、取消边界、`.bak` 行为和编辑器冲突重载需有头模式脱敏验证 |
+| VitePress | 待运行 | 由协调代理运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+
 
