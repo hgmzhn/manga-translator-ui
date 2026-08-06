@@ -50,7 +50,7 @@
 ### 前提条件
 
 - **无需预装 Python**：安装包自带打包版 Python 3.12 和 uv
-- 从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载便携安装包并解压到任意目录
+- 从 [便携整合包发布页](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable) 下载最新版本并解压到任意目录
 
 ### 两个入口脚本
 

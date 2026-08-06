@@ -52,7 +52,7 @@ This is the recommended path for Windows users. Download the portable installer 
 ### Prerequisites
 
 - **No Python pre-install needed**: bundled Python 3.12 and uv are included
-- Download the portable installer package from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) and extract it to any folder
+- Download the latest version from the [Portable Package release page](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable) and extract it to any folder
 
 ### Two entry scripts
 

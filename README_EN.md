@@ -98,7 +98,7 @@ The English companion versions of the documents below are being added one by one
 > 💡 **One-click update**: run `Win-Install-or-Update.bat` and choose `[2] Update` to get the latest version
 
 1. **Download the portable package**
-   - Get it from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases)
+   - Download the latest version from the [Portable Package release page](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable)
    - Extract it to any folder, for example `D:\manga-translator-ui\`
 
 2. **Run the installer**

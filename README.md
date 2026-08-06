@@ -96,7 +96,7 @@
 > 💡 **一键更新**：运行 `Win-Install-or-Update.bat` 选择 [2] 更新，即可更新到最新版本
 
 1. **下载便携安装包**：
-   - 前往 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载便携安装包
+   - 前往 [便携整合包发布页](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable) 下载最新版本
    - 解压到任意目录（如 `D:\manga-translator-ui\`）
 
 2. **运行安装**：
