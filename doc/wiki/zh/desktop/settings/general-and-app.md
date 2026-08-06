@@ -126,7 +126,7 @@ lastUpdated: true
 - 控件：开关 + “Edit” 文件编辑按钮。
 - 默认值：核心/Qt `false`，发行配置 `true`。
 - 生效阶段：翻译、AI OCR、AI 渲染、AI 上色请求构造。
-- 原理：开启后读取 `config/custom_api_params.json`，先按当前模型匹配预设，找不到时回退 General；每个 API 模块只读取 `common` 与自己的分组。
+- 原理：开启后读取 `config/custom_api_params.json`。后端先取当前 API 请求使用的模型名，按该字符串查找同名顶层预设；例如当前模型为 `gpt-4o`，优先使用名为 `gpt-4o` 的预设。找不到同名预设时才回退到 `General` 预设。选定预设后，先复制 `common`，再只合并当前 API 模块的分组；翻译请求读取 `translator`，AI OCR 读取 `ocr`，AI 上色读取 `colorizer`，AI 渲染读取 `render`，不会把其他模块分组混入请求。
 - 依赖与冲突：JSON 语法或结构错误会使自定义参数不可用；它不保存 Key、Base、Model，也不参与 API 候选槽轮换。
 - 关联文件与格式：JSON；保留 `common`、`translator`、`ocr`、`colorizer`、`render` 等模块边界。不要把密钥、令牌或私有提示词写入该文件。
 - 图示：必须说明开关改变请求体，见下图。

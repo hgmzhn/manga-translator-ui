@@ -126,7 +126,7 @@ Editor preferences are part of `AppSection`, but the current `settings_tab_layou
 - Control: toggle plus an “Edit” file-editor button.
 - Defaults: `false` in core/Qt and `true` in the release template.
 - Effective stage: request construction for translation, AI OCR, AI rendering, and AI colorization.
-- Mechanism: when enabled, reads `config/custom_api_params.json`, matches a preset by the current model, falls back to General when absent, and each API module reads only `common` plus its own section.
+- Mechanism: when enabled, reads `config/custom_api_params.json`. The backend takes the model name used by the current API request and first looks for a top-level preset with exactly the same name; for example, model `gpt-4o` first selects the `gpt-4o` preset. Only when no same-named preset exists does it fall back to the `General` preset. After selecting a preset, it copies `common` first and merges only the current API module section: translation reads `translator`, AI OCR reads `ocr`, AI colorization reads `colorizer`, and AI rendering reads `render`; sections for other modules are not mixed into the request.
 - Dependencies/conflicts: malformed JSON or structure makes custom parameters unavailable; this file does not store keys, bases, or models and does not perform API candidate rotation.
 - Related format: JSON with module boundaries such as `common`, `translator`, `ocr`, `colorizer`, and `render`. Do not put keys, tokens, or private prompts in it.
 - Diagram: required because the switch changes the request body; see below.
