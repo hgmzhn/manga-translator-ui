@@ -168,7 +168,7 @@
 - [x] [完成] `zh/en desktop/settings/mask-and-inpainting.md` - evidence: 双语正文、蒙版/气泡/修复参数、i18n 三列、Mermaid、源码依据、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/settings/typesetting-and-rendering.md` - build: PASS; static page contract/sensitive scan: PASS; review: 2026-08-06
 - [x] [完成] `zh/en desktop/settings/upscale-and-colorization.md` - build: PASS; route/source/coverage: PASS; review: 2026-08-06
-- [ ] [未开工] `zh/en desktop/settings/mode-specific.md`
+- [x] [完成] `zh/en desktop/settings/mode-specific.md` - build: PASS; static source/i18n/defaults review: PASS; sanitized runtime/screenshots: deferred per blueprint; review: 2026-08-06
 
 ### 5.5 翻译器
 
