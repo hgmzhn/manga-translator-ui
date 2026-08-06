@@ -1,0 +1,693 @@
+{
+  "schema_version": 1,
+  "scope": {
+    "surface": "desktop Settings page with the shipped release defaults",
+    "inclusion_rule": "Count a layout item only when dynamic_settings.py creates its settings-row control from config/config-example.json; fixed prompt-editor actions are included.",
+    "excluded_runtime_state": "config/config.json is user-specific and is not read or recorded by this catalog.",
+    "sources": [
+      "desktop_qt_ui/ui/main_page/settings_tab_layout.json",
+      "desktop_qt_ui/ui/main_page/dynamic_settings.py",
+      "desktop_qt_ui/core/config_models.py",
+      "desktop_qt_ui/app_logic.py",
+      "desktop_qt_ui/services/config_service.py",
+      "config/config-example.json"
+    ]
+  },
+  "baseline_comparison": {
+    "requested_baseline": 110,
+    "layout_parameter_entries": 110,
+    "visible_parameter_fields": 109,
+    "difference_from_requested_baseline": -1,
+    "difference_explanation": "The layout has 110 string entries, matching the requested baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 109 visible settings rows (one below 110)."
+  },
+  "visible_fields": [
+    {
+      "key": "app.ui_language",
+      "page": "General",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.ui_language"
+    },
+    {
+      "key": "app.theme",
+      "page": "General",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.theme"
+    },
+    {
+      "key": "cli.verbose",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.verbose"
+    },
+    {
+      "key": "cli.ignore_errors",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.ignore_errors"
+    },
+    {
+      "key": "cli.use_gpu",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.use_gpu"
+    },
+    {
+      "key": "cli.disable_onnx_gpu",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.disable_onnx_gpu"
+    },
+    {
+      "key": "cli.format",
+      "page": "General",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.format"
+    },
+    {
+      "key": "cli.overwrite",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.overwrite"
+    },
+    {
+      "key": "cli.skip_no_text",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.skip_no_text"
+    },
+    {
+      "key": "cli.save_text",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_text"
+    },
+    {
+      "key": "cli.save_quality",
+      "page": "General",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_quality"
+    },
+    {
+      "key": "cli.attempts",
+      "page": "General",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.attempts"
+    },
+    {
+      "key": "cli.batch_size",
+      "page": "General",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.batch_size"
+    },
+    {
+      "key": "cli.batch_concurrent",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.batch_concurrent"
+    },
+    {
+      "key": "use_custom_api_params",
+      "page": "General",
+      "control": "toggle + edit-custom-api-params action",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.use_custom_api_params"
+    },
+    {
+      "key": "cli.save_to_source_dir",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_to_source_dir"
+    },
+    {
+      "key": "cli.export_editable_psd",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.export_editable_psd"
+    },
+    {
+      "key": "cli.psd_script_only",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.psd_script_only"
+    },
+    {
+      "key": "app.unload_models_after_translation",
+      "page": "General",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.unload_models_after_translation"
+    },
+    {
+      "key": "ocr.ocr",
+      "page": "OCR",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr"
+    },
+    {
+      "key": "ocr.use_hybrid_ocr",
+      "page": "OCR",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_hybrid_ocr"
+    },
+    {
+      "key": "ocr.secondary_ocr",
+      "page": "OCR",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.secondary_ocr"
+    },
+    {
+      "key": "ocr.ai_ocr_prompt_path",
+      "page": "OCR",
+      "control": "prompt-editor-button",
+      "default_source": "manga_translator/ocr/prompt_loader.py#DEFAULT_AI_OCR_PROMPT_PATH"
+    },
+    {
+      "key": "ocr.ai_ocr_concurrency",
+      "page": "OCR",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ai_ocr_concurrency"
+    },
+    {
+      "key": "ocr.ocr_vl_language_hint",
+      "page": "OCR",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr_vl_language_hint"
+    },
+    {
+      "key": "ocr.ocr_vl_custom_prompt",
+      "page": "OCR",
+      "control": "optional-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr_vl_custom_prompt"
+    },
+    {
+      "key": "ocr.use_model_bubble_filter",
+      "page": "OCR",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_model_bubble_filter"
+    },
+    {
+      "key": "ocr.min_text_length",
+      "page": "OCR",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.min_text_length"
+    },
+    {
+      "key": "ocr.ignore_bubble",
+      "page": "OCR",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ignore_bubble"
+    },
+    {
+      "key": "ocr.merge_special_require_full_wrap",
+      "page": "OCR",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_special_require_full_wrap"
+    },
+    {
+      "key": "ocr.model_bubble_overlap_threshold",
+      "page": "OCR",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.model_bubble_overlap_threshold"
+    },
+    {
+      "key": "filter_text_enabled",
+      "page": "OCR",
+      "control": "toggle + open-filter-list action",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.filter_text_enabled"
+    },
+    {
+      "key": "ocr.prob",
+      "page": "OCR",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.prob"
+    },
+    {
+      "key": "ocr.merge_gamma",
+      "page": "OCR",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_gamma"
+    },
+    {
+      "key": "ocr.merge_sigma",
+      "page": "OCR",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_sigma"
+    },
+    {
+      "key": "ocr.merge_edge_ratio_threshold",
+      "page": "OCR",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_edge_ratio_threshold"
+    },
+    {
+      "key": "detector.detector",
+      "page": "Detection",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.detector"
+    },
+    {
+      "key": "detector.import_yolo_labels",
+      "page": "Detection",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.import_yolo_labels"
+    },
+    {
+      "key": "detector.use_yolo_obb",
+      "page": "Detection",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.use_yolo_obb"
+    },
+    {
+      "key": "detector.use_sfx_filter",
+      "page": "Detection",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.use_sfx_filter"
+    },
+    {
+      "key": "detector.sfx_filter_include_bubble_text",
+      "page": "Detection",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.sfx_filter_include_bubble_text"
+    },
+    {
+      "key": "detector.min_box_area_ratio",
+      "page": "Detection",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.min_box_area_ratio"
+    },
+    {
+      "key": "detector.detection_size",
+      "page": "Detection",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.detection_size"
+    },
+    {
+      "key": "detector.det_rearrange_min_effective_short_side",
+      "page": "Detection",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.det_rearrange_min_effective_short_side"
+    },
+    {
+      "key": "detector.text_threshold",
+      "page": "Detection",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.text_threshold"
+    },
+    {
+      "key": "detector.box_threshold",
+      "page": "Detection",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.box_threshold"
+    },
+    {
+      "key": "detector.unclip_ratio",
+      "page": "Detection",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.unclip_ratio"
+    },
+    {
+      "key": "detector.yolo_obb_conf",
+      "page": "Detection",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.yolo_obb_conf"
+    },
+    {
+      "key": "detector.yolo_obb_overlap_threshold",
+      "page": "Detection",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.yolo_obb_overlap_threshold"
+    },
+    {
+      "key": "translator.translator",
+      "page": "Translation",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
+    },
+    {
+      "key": "translator.target_lang",
+      "page": "Translation",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.target_lang"
+    },
+    {
+      "key": "translator.keep_lang",
+      "page": "Translation",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.keep_lang"
+    },
+    {
+      "key": "translator.enable_streaming",
+      "page": "Translation",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.enable_streaming"
+    },
+    {
+      "key": "translator.no_text_lang_skip",
+      "page": "Translation",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.no_text_lang_skip"
+    },
+    {
+      "key": "translator.extract_glossary",
+      "page": "Translation",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.extract_glossary"
+    },
+    {
+      "key": "translator.max_requests_per_minute",
+      "page": "Translation",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.max_requests_per_minute"
+    },
+    {
+      "key": "translator.remove_trailing_period",
+      "page": "Translation",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.remove_trailing_period"
+    },
+    {
+      "key": "cli.context_size",
+      "page": "Translation",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.context_size"
+    },
+    {
+      "key": "translator.convert_to_traditional",
+      "page": "Translation",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.convert_to_traditional"
+    },
+    {
+      "key": "translator.convert_to_simplified",
+      "page": "Translation",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.convert_to_simplified"
+    },
+    {
+      "key": "inpainter.inpainter",
+      "page": "Inpainting",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainter"
+    },
+    {
+      "key": "mask_dilation_offset",
+      "page": "Inpainting",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.mask_dilation_offset"
+    },
+    {
+      "key": "ocr.limit_mask_dilation_to_bubble_mask",
+      "page": "Inpainting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.limit_mask_dilation_to_bubble_mask"
+    },
+    {
+      "key": "ocr.use_model_bubble_repair_intersection",
+      "page": "Inpainting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_model_bubble_repair_intersection"
+    },
+    {
+      "key": "inpainter.solid_fill_pure_bubbles",
+      "page": "Inpainting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.solid_fill_pure_bubbles"
+    },
+    {
+      "key": "inpainter.per_block_inpainting",
+      "page": "Inpainting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.per_block_inpainting"
+    },
+    {
+      "key": "inpainter.inpainting_size",
+      "page": "Inpainting",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainting_size"
+    },
+    {
+      "key": "inpainter.inpainting_precision",
+      "page": "Inpainting",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainting_precision"
+    },
+    {
+      "key": "kernel_size",
+      "page": "Inpainting",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.kernel_size"
+    },
+    {
+      "key": "inpainter.force_use_torch_inpainting",
+      "page": "Inpainting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.force_use_torch_inpainting"
+    },
+    {
+      "key": "render.renderer",
+      "page": "Typesetting",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.renderer"
+    },
+    {
+      "key": "render.font_family",
+      "page": "Typesetting",
+      "control": "font-combo + open-font-directory action",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_family"
+    },
+    {
+      "key": "render.ai_renderer_prompt_path",
+      "page": "Typesetting",
+      "control": "prompt-editor-button",
+      "default_source": "manga_translator/rendering/prompt_loader.py#DEFAULT_AI_RENDERER_PROMPT_PATH"
+    },
+    {
+      "key": "render.ai_renderer_concurrency",
+      "page": "Typesetting",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.ai_renderer_concurrency"
+    },
+    {
+      "key": "render.alignment",
+      "page": "Typesetting",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.alignment"
+    },
+    {
+      "key": "render.semantic_linebreak",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.semantic_linebreak"
+    },
+    {
+      "key": "render.remove_linebreak_punctuation",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.remove_linebreak_punctuation"
+    },
+    {
+      "key": "render.disable_auto_wrap",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_auto_wrap"
+    },
+    {
+      "key": "render.optimize_line_breaks",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.optimize_line_breaks"
+    },
+    {
+      "key": "render.strict_smart_scaling",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.strict_smart_scaling"
+    },
+    {
+      "key": "render.check_br_and_retry",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.check_br_and_retry"
+    },
+    {
+      "key": "render.stroke_width",
+      "page": "Typesetting",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.stroke_width"
+    },
+    {
+      "key": "render.disable_font_border",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_font_border"
+    },
+    {
+      "key": "render.center_text_in_bubble",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.center_text_in_bubble"
+    },
+    {
+      "key": "render.font_size_offset",
+      "page": "Typesetting",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size_offset"
+    },
+    {
+      "key": "render.font_size_minimum",
+      "page": "Typesetting",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size_minimum"
+    },
+    {
+      "key": "render.direction",
+      "page": "Typesetting",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.direction"
+    },
+    {
+      "key": "render.uppercase",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.uppercase"
+    },
+    {
+      "key": "render.lowercase",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.lowercase"
+    },
+    {
+      "key": "render.no_hyphenation",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.no_hyphenation"
+    },
+    {
+      "key": "render.bubble_layout_english",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.bubble_layout_english"
+    },
+    {
+      "key": "render.line_spacing",
+      "page": "Typesetting",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.line_spacing"
+    },
+    {
+      "key": "render.letter_spacing",
+      "page": "Typesetting",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.letter_spacing"
+    },
+    {
+      "key": "render.font_size",
+      "page": "Typesetting",
+      "control": "optional-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size"
+    },
+    {
+      "key": "render.rtl",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.rtl"
+    },
+    {
+      "key": "render.layout_mode",
+      "page": "Typesetting",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.layout_mode"
+    },
+    {
+      "key": "render.max_font_size",
+      "page": "Typesetting",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.max_font_size"
+    },
+    {
+      "key": "render.font_scale_ratio",
+      "page": "Typesetting",
+      "control": "float-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_scale_ratio"
+    },
+    {
+      "key": "render.enable_template_alignment",
+      "page": "Mode Specific",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.enable_template_alignment"
+    },
+    {
+      "key": "render.paste_mask_dilation_pixels",
+      "page": "Mode Specific",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.paste_mask_dilation_pixels"
+    },
+    {
+      "key": "upscale.upscaler",
+      "page": "Mode Specific",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.upscaler"
+    },
+    {
+      "key": "upscale.upscale_ratio",
+      "page": "Mode Specific",
+      "control": "dynamic-combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.upscale_ratio"
+    },
+    {
+      "key": "upscale.tile_size",
+      "page": "Mode Specific",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.tile_size"
+    },
+    {
+      "key": "upscale.revert_upscaling",
+      "page": "Mode Specific",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.revert_upscaling"
+    },
+    {
+      "key": "colorizer.colorizer",
+      "page": "Mode Specific",
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.colorizer"
+    },
+    {
+      "key": "colorizer.ai_colorizer_prompt_path",
+      "page": "Mode Specific",
+      "control": "prompt-editor-button",
+      "default_source": "manga_translator/colorization/prompt_loader.py#DEFAULT_AI_COLORIZER_PROMPT_PATH"
+    },
+    {
+      "key": "colorizer.ai_colorizer_history_pages",
+      "page": "Mode Specific",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.ai_colorizer_history_pages"
+    },
+    {
+      "key": "colorizer.colorization_size",
+      "page": "Mode Specific",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.colorization_size"
+    },
+    {
+      "key": "colorizer.denoise_sigma",
+      "page": "Mode Specific",
+      "control": "int-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.denoise_sigma"
+    }
+  ],
+  "layout_entries_not_visible_with_release_defaults": [
+    {
+      "key": "render.font_color",
+      "page": "Typesetting",
+      "release_default": null,
+      "potential_control_when_non_null": "text-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_color",
+      "reason": "dynamic_settings.py only creates a None-valued input when the short key is in _OPTIONAL_INPUT_KEYS; font_color is not in that set."
+    }
+  ],
+  "reproduction": {
+    "command": "uv run --no-sync python doc/wiki/verify_phase0_ui_parameter_fields.py",
+      "expected_result": "PASS: layout=110, fixed-actions=3, visible=109, baseline-delta=-1, excluded=render.font_color"
+  }
+}

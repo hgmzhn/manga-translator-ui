@@ -1,0 +1,2833 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "phase0_ui_parameter_catalog": "phase0-ui-parameter-fields.json",
+    "default_matrix": "research/default-sources.md",
+    "ui_label_binding": "desktop_qt_ui/app_logic.py#get_display_mapping",
+    "locales": [
+      "desktop_qt_ui/locales/en_US.json",
+      "desktop_qt_ui/locales/zh_CN.json"
+    ],
+    "release_config": "config/config-example.json"
+  },
+  "baseline_comparison": {
+    "requested_baseline": 110,
+    "layout_parameter_entries": 110,
+    "visible_parameter_fields": 109,
+    "difference_from_requested_baseline": -1,
+    "difference_explanation": "The layout has 110 string entries, matching the requested baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 109 visible settings rows (one below 110)."
+  },
+  "records": [
+    {
+      "key": "app.ui_language",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "Language:",
+        "english": "Language:",
+        "simplified_chinese": "语言："
+      },
+      "wiki_page": "desktop/settings/general-and-app.md",
+      "control": "combo",
+      "defaults": {
+        "core": "—",
+        "qt": "`\"auto\"`",
+        "release": "`\"auto\"`",
+        "release_json_value": "auto",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.ui_language"
+      },
+      "lifecycle_stages": [
+        "application"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "app.theme",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "Theme:",
+        "english": "Theme:",
+        "simplified_chinese": "主题："
+      },
+      "wiki_page": "desktop/settings/general-and-app.md",
+      "control": "combo",
+      "defaults": {
+        "core": "—",
+        "qt": "`\"light\"`",
+        "release": "`\"light\"`",
+        "release_json_value": "light",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.theme"
+      },
+      "lifecycle_stages": [
+        "application"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.verbose",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_verbose",
+        "english": "Verbose Logging",
+        "simplified_chinese": "详细日志"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.verbose"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.ignore_errors",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_ignore_errors",
+        "english": "Ignore Errors",
+        "simplified_chinese": "忽略错误"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.ignore_errors"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.use_gpu",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_use_gpu",
+        "english": "Use GPU",
+        "simplified_chinese": "使用 GPU"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`true`",
+        "qt": "`true`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.use_gpu"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.disable_onnx_gpu",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_disable_onnx_gpu",
+        "english": "Disable ONNX GPU Acceleration",
+        "simplified_chinese": "禁用 ONNX GPU 加速"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.disable_onnx_gpu"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.format",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_format",
+        "english": "Output Format",
+        "simplified_chinese": "输出格式"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`\"不指定\"`",
+        "release": "`\"不指定\"`",
+        "release_json_value": "不指定",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.format"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.overwrite",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_overwrite",
+        "english": "Overwrite Existing Files",
+        "simplified_chinese": "覆盖已存在文件"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`true`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.overwrite"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.skip_no_text",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_skip_no_text",
+        "english": "Skip Images Without Text",
+        "simplified_chinese": "跳过无文本图像"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.skip_no_text"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.save_text",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_save_text",
+        "english": "Editable Image",
+        "simplified_chinese": "图片可编辑"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`true`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_text"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.save_quality",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_save_quality",
+        "english": "Image Save Quality",
+        "simplified_chinese": "图像保存质量"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`100`",
+        "qt": "`100`",
+        "release": "`100`",
+        "release_json_value": 100,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_quality"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.attempts",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_attempts",
+        "english": "Retry Attempts",
+        "simplified_chinese": "重试次数"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`-1`",
+        "qt": "`-1`",
+        "release": "`3`",
+        "release_json_value": 3,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.attempts"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.batch_size",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_batch_size",
+        "english": "Batch Size",
+        "simplified_chinese": "批量大小"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`1`",
+        "qt": "`1`",
+        "release": "`3`",
+        "release_json_value": 3,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.batch_size"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.batch_concurrent",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_batch_concurrent",
+        "english": "Concurrent Batch Processing",
+        "simplified_chinese": "并发批量处理"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.batch_concurrent"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "use_custom_api_params",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_use_custom_api_params",
+        "english": "Use Custom API Params",
+        "simplified_chinese": "使用自定义API参数"
+      },
+      "wiki_page": "desktop/settings/general-and-app.md",
+      "control": "toggle + edit-custom-api-params action",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.use_custom_api_params"
+      },
+      "lifecycle_stages": [
+        "API request construction"
+      ],
+      "file_action": true,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.save_to_source_dir",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_save_to_source_dir",
+        "english": "Save to Source Directory",
+        "simplified_chinese": "输出到原图目录"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_to_source_dir"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.export_editable_psd",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_export_editable_psd",
+        "english": "Export Editable PSD",
+        "simplified_chinese": "导出可编辑PSD"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.export_editable_psd"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.psd_script_only",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_psd_script_only",
+        "english": "Generate PSD Script Only",
+        "simplified_chinese": "仅生成PSD脚本"
+      },
+      "wiki_page": "desktop/settings/cli-batch-and-output.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.psd_script_only"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "app.unload_models_after_translation",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_unload_models_after_translation",
+        "english": "Unload Models After Translation",
+        "simplified_chinese": "翻译完成后卸载模型"
+      },
+      "wiki_page": "desktop/settings/general-and-app.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "—",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.unload_models_after_translation"
+      },
+      "lifecycle_stages": [
+        "application"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.ocr",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_ocr",
+        "english": "OCR Model",
+        "simplified_chinese": "OCR模型"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"48px\"`",
+        "qt": "`\"48px\"`",
+        "release": "`\"48px\"`",
+        "release_json_value": "48px",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.use_hybrid_ocr",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_use_hybrid_ocr",
+        "english": "Enable Hybrid OCR",
+        "simplified_chinese": "启用混合OCR"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`true`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_hybrid_ocr"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.secondary_ocr",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_secondary_ocr",
+        "english": "Secondary OCR",
+        "simplified_chinese": "备用OCR"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"48px\"`",
+        "qt": "`\"mocr\"`",
+        "release": "`\"mocr\"`",
+        "release_json_value": "mocr",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.secondary_ocr"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.ai_ocr_prompt_path",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_ai_ocr_prompt_path",
+        "english": "AI OCR Prompt",
+        "simplified_chinese": "AI OCR 提示词"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "prompt-editor-button",
+      "defaults": {
+        "core": "not serialized (fixed prompt editor action)",
+        "qt": "not serialized (fixed prompt editor action)",
+        "release": "not serialized (prompt loader default)",
+        "release_json_value": null,
+        "source": "manga_translator/ocr/prompt_loader.py#DEFAULT_AI_OCR_PROMPT_PATH"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": true,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.ai_ocr_concurrency",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_ai_ocr_concurrency",
+        "english": "AI OCR Concurrency",
+        "simplified_chinese": "AI OCR 并发数"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`1`",
+        "qt": "`1`",
+        "release": "`10`",
+        "release_json_value": 10,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ai_ocr_concurrency"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.ocr_vl_language_hint",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_ocr_vl_language_hint",
+        "english": "PaddleOCR-VL Language Hint",
+        "simplified_chinese": "PaddleOCR-VL 语言提示"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"auto\"`",
+        "qt": "`\"auto\"`",
+        "release": "`\"Japanese\"`",
+        "release_json_value": "Japanese",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr_vl_language_hint"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.ocr_vl_custom_prompt",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_ocr_vl_custom_prompt",
+        "english": "PaddleOCR-VL Custom Prompt (Override)",
+        "simplified_chinese": "PaddleOCR-VL 自定义提示词（优先）"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "optional-input",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`null`",
+        "release": "`null`",
+        "release_json_value": null,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr_vl_custom_prompt"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.use_model_bubble_filter",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_use_model_bubble_filter",
+        "english": "Enable Model Bubble Filter",
+        "simplified_chinese": "启用模型气泡过滤"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_model_bubble_filter"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.min_text_length",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_min_text_length",
+        "english": "Minimum Text Length",
+        "simplified_chinese": "最小文本长度"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`0`",
+        "qt": "`0`",
+        "release": "`0`",
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.min_text_length"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.ignore_bubble",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_ignore_bubble",
+        "english": "Ignore Non-Bubble Text",
+        "simplified_chinese": "忽略非气泡文本"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.0`",
+        "qt": "`0.0`",
+        "release": "`0.0`",
+        "release_json_value": 0.0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ignore_bubble"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.merge_special_require_full_wrap",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_merge_special_require_full_wrap",
+        "english": "Require Full Wrap In Special Pre-Merge",
+        "simplified_chinese": "模型辅助合并"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`true`",
+        "qt": "`true`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_special_require_full_wrap"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.model_bubble_overlap_threshold",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_model_bubble_overlap_threshold",
+        "english": "Model Bubble Overlap Threshold",
+        "simplified_chinese": "模型气泡重叠阈值"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.1`",
+        "qt": "`0.1`",
+        "release": "`0.1`",
+        "release_json_value": 0.1,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.model_bubble_overlap_threshold"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "filter_text_enabled",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_filter_text_enabled",
+        "english": "Enable Filter List",
+        "simplified_chinese": "启用过滤列表"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "toggle + open-filter-list action",
+      "defaults": {
+        "core": "—",
+        "qt": "`true`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.filter_text_enabled"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": true,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.prob",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_prob",
+        "english": "Text Region Min Probability",
+        "simplified_chinese": "文本区域最低概率 (prob)"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`0.1`",
+        "release": "`0.1`",
+        "release_json_value": 0.1,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.prob"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.merge_gamma",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_merge_gamma",
+        "english": "Merge Distance Tolerance",
+        "simplified_chinese": "合并-距离容忍度"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.8`",
+        "qt": "`0.8`",
+        "release": "`0.8`",
+        "release_json_value": 0.8,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_gamma"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.merge_sigma",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_merge_sigma",
+        "english": "Merge Outlier Tolerance",
+        "simplified_chinese": "合并-离群容忍度"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`2.5`",
+        "qt": "`2.5`",
+        "release": "`2.5`",
+        "release_json_value": 2.5,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_sigma"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.merge_edge_ratio_threshold",
+      "ui": {
+        "tab": "OCR",
+        "i18n_key": "label_merge_edge_ratio_threshold",
+        "english": "Merge Edge Ratio Threshold",
+        "simplified_chinese": "合并-边缘距离比例阈值"
+      },
+      "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.0`",
+        "qt": "`0.0`",
+        "release": "`0.0`",
+        "release_json_value": 0.0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_edge_ratio_threshold"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.detector",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_detector",
+        "english": "Text Detector",
+        "simplified_chinese": "文本检测器"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"default\"`",
+        "qt": "`\"default\"`",
+        "release": "`\"default\"`",
+        "release_json_value": "default",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.detector"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.import_yolo_labels",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_import_yolo_labels",
+        "english": "Import Fixed YOLO Boxes",
+        "simplified_chinese": "导入固定YOLO框"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.import_yolo_labels"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.use_yolo_obb",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_use_yolo_obb",
+        "english": "Enable YOLO Detection",
+        "simplified_chinese": "启用YOLO辅助检测"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.use_yolo_obb"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.use_sfx_filter",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_use_sfx_filter",
+        "english": "SFX Filter",
+        "simplified_chinese": "拟声词过滤"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.use_sfx_filter"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.sfx_filter_include_bubble_text",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_sfx_filter_include_bubble_text",
+        "english": "Include Bubble Text in SFX Filter",
+        "simplified_chinese": "气泡文本参与拟声词过滤"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.sfx_filter_include_bubble_text"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.min_box_area_ratio",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_min_box_area_ratio",
+        "english": "Min Box Area Ratio",
+        "simplified_chinese": "最小检测框面积占比"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`0.0009`",
+        "qt": "`0.0009`",
+        "release": "`0`",
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.min_box_area_ratio"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.detection_size",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_detection_size",
+        "english": "Detection Size",
+        "simplified_chinese": "检测大小"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`2048`",
+        "qt": "`2048`",
+        "release": "`2048`",
+        "release_json_value": 2048,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.detection_size"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.det_rearrange_min_effective_short_side",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_det_rearrange_min_effective_short_side",
+        "english": "Long Image Rearrange Min Short Side",
+        "simplified_chinese": "长图重排最低有效短边"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`341`",
+        "qt": "`341`",
+        "release": "`341`",
+        "release_json_value": 341,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.det_rearrange_min_effective_short_side"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.text_threshold",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_text_threshold",
+        "english": "Text Threshold",
+        "simplified_chinese": "文本阈值"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.5`",
+        "qt": "`0.5`",
+        "release": "`0.5`",
+        "release_json_value": 0.5,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.text_threshold"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.box_threshold",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_box_threshold",
+        "english": "Box Generation Threshold",
+        "simplified_chinese": "边界框生成阈值"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.7`",
+        "qt": "`0.5`",
+        "release": "`0.5`",
+        "release_json_value": 0.5,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.box_threshold"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.unclip_ratio",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_unclip_ratio",
+        "english": "Unclip Ratio",
+        "simplified_chinese": "Unclip比例"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`2.3`",
+        "qt": "`2.5`",
+        "release": "`2.5`",
+        "release_json_value": 2.5,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.unclip_ratio"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.yolo_obb_conf",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_yolo_obb_conf",
+        "english": "YOLO Confidence Threshold",
+        "simplified_chinese": "YOLO置信度阈值"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.4`",
+        "qt": "`0.4`",
+        "release": "`0.4`",
+        "release_json_value": 0.4,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.yolo_obb_conf"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "detector.yolo_obb_overlap_threshold",
+      "ui": {
+        "tab": "Detection",
+        "i18n_key": "label_yolo_obb_overlap_threshold",
+        "english": "YOLO Overlap Removal Threshold",
+        "simplified_chinese": "YOLO辅助检测重叠率删除阈值"
+      },
+      "wiki_page": "desktop/settings/detection.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.1`",
+        "qt": "`0.1`",
+        "release": "`0.1`",
+        "release_json_value": 0.1,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.yolo_obb_overlap_threshold"
+      },
+      "lifecycle_stages": [
+        "detection"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.translator",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_translator",
+        "english": "Translator",
+        "simplified_chinese": "翻译器"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"openai_hq\"`",
+        "qt": "`\"openai_hq\"`",
+        "release": "`\"openai\"`",
+        "release_json_value": "openai",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.target_lang",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_target_lang",
+        "english": "Target Language",
+        "simplified_chinese": "目标语言"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"ENG\"`",
+        "qt": "`\"CHS\"`",
+        "release": "`\"CHS\"`",
+        "release_json_value": "CHS",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.target_lang"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.keep_lang",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_keep_lang",
+        "english": "Keep Source Language",
+        "simplified_chinese": "保留源语言"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"none\"`",
+        "qt": "`\"none\"`",
+        "release": "`\"none\"`",
+        "release_json_value": "none",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.keep_lang"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.enable_streaming",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_enable_streaming",
+        "english": "Enable Streaming",
+        "simplified_chinese": "启用流式传输"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`true`",
+        "qt": "`true`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.enable_streaming"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.no_text_lang_skip",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_no_text_lang_skip",
+        "english": "Don't Skip Target Lang",
+        "simplified_chinese": "不跳过目标语言文本"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.no_text_lang_skip"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.extract_glossary",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_extract_glossary",
+        "english": "Auto Extract Glossary",
+        "simplified_chinese": "自动提取新术语"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.extract_glossary"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.max_requests_per_minute",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_max_requests_per_minute",
+        "english": "Max Requests Per Minute",
+        "simplified_chinese": "每分钟最大请求数"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`0`",
+        "qt": "`0`",
+        "release": "`0`",
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.max_requests_per_minute"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.remove_trailing_period",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_remove_trailing_period",
+        "english": "Auto Remove Final Period/Comma",
+        "simplified_chinese": "自动移除末尾句号逗号"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.remove_trailing_period"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.context_size",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_context_size",
+        "english": "Context Pages",
+        "simplified_chinese": "上下文页数"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`3`",
+        "qt": "`3`",
+        "release": "`3`",
+        "release_json_value": 3,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.context_size"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.convert_to_traditional",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_convert_to_traditional",
+        "english": "Convert to Traditional Chinese",
+        "simplified_chinese": "简体转繁体"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.convert_to_traditional"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "translator.convert_to_simplified",
+      "ui": {
+        "tab": "Translation",
+        "i18n_key": "label_convert_to_simplified",
+        "english": "Convert to Simplified Chinese",
+        "simplified_chinese": "繁体转简体"
+      },
+      "wiki_page": "desktop/settings/translation.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.convert_to_simplified"
+      },
+      "lifecycle_stages": [
+        "translation"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "inpainter.inpainter",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_inpainter",
+        "english": "Inpainting Model",
+        "simplified_chinese": "修复模型"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"lama_large\"`",
+        "qt": "`\"lama_mpe\"`",
+        "release": "`\"lama_large\"`",
+        "release_json_value": "lama_large",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainter"
+      },
+      "lifecycle_stages": [
+        "mask refinement",
+        "inpainting"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "mask_dilation_offset",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_mask_dilation_offset",
+        "english": "Mask Dilation Offset",
+        "simplified_chinese": "遮罩扩张偏移"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`20`",
+        "qt": "`70`",
+        "release": "`50`",
+        "release_json_value": 50,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.mask_dilation_offset"
+      },
+      "lifecycle_stages": [
+        "mask refinement"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.limit_mask_dilation_to_bubble_mask",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_limit_mask_dilation_to_bubble_mask",
+        "english": "Keep Dilation Inside Bubble Mask",
+        "simplified_chinese": "膨胀不超过气泡蒙版"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.limit_mask_dilation_to_bubble_mask"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "ocr.use_model_bubble_repair_intersection",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_use_model_bubble_repair_intersection",
+        "english": "Expand Bubble Repair Range",
+        "simplified_chinese": "扩大气泡修复范围"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_model_bubble_repair_intersection"
+      },
+      "lifecycle_stages": [
+        "OCR",
+        "merge/filter"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "inpainter.solid_fill_pure_bubbles",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_solid_fill_pure_bubbles",
+        "english": "Solid Fill Pure Bubbles",
+        "simplified_chinese": "纯色气泡直接填色"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.solid_fill_pure_bubbles"
+      },
+      "lifecycle_stages": [
+        "mask refinement",
+        "inpainting"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "inpainter.per_block_inpainting",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_per_block_inpainting",
+        "english": "Per-Block Inpainting",
+        "simplified_chinese": "逐块修复"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.per_block_inpainting"
+      },
+      "lifecycle_stages": [
+        "mask refinement",
+        "inpainting"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "inpainter.inpainting_size",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_inpainting_size",
+        "english": "Inpainting Size",
+        "simplified_chinese": "修复大小"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`2048`",
+        "qt": "`2048`",
+        "release": "`2048`",
+        "release_json_value": 2048,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainting_size"
+      },
+      "lifecycle_stages": [
+        "mask refinement",
+        "inpainting"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "inpainter.inpainting_precision",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_inpainting_precision",
+        "english": "Inpainting Precision",
+        "simplified_chinese": "修复精度"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"bf16\"`",
+        "qt": "`\"fp32\"`",
+        "release": "`\"fp32\"`",
+        "release_json_value": "fp32",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainting_precision"
+      },
+      "lifecycle_stages": [
+        "mask refinement",
+        "inpainting"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "kernel_size",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_kernel_size",
+        "english": "Kernel Size",
+        "simplified_chinese": "卷积核大小"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`3`",
+        "qt": "`3`",
+        "release": "`3`",
+        "release_json_value": 3,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.kernel_size"
+      },
+      "lifecycle_stages": [
+        "mask refinement"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "inpainter.force_use_torch_inpainting",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_force_use_torch_inpainting",
+        "english": "Force Use PyTorch Inpainting",
+        "simplified_chinese": "强制使用PyTorch修复"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.force_use_torch_inpainting"
+      },
+      "lifecycle_stages": [
+        "mask refinement",
+        "inpainting"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.renderer",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_renderer",
+        "english": "Renderer",
+        "simplified_chinese": "渲染器"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"default\"`",
+        "qt": "`\"default\"`",
+        "release": "`\"default\"`",
+        "release_json_value": "default",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.renderer"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.font_family",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_font_family",
+        "english": "Font",
+        "simplified_chinese": "字体"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "font-combo + open-font-directory action",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`\"\"`",
+        "release": "`\"Microsoft YaHei UI\"`",
+        "release_json_value": "Microsoft YaHei UI",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_family"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": true,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.ai_renderer_prompt_path",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_ai_renderer_prompt_path",
+        "english": "AI Renderer Prompt",
+        "simplified_chinese": "AI 渲染提示词"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "prompt-editor-button",
+      "defaults": {
+        "core": "not serialized (fixed prompt editor action)",
+        "qt": "not serialized (fixed prompt editor action)",
+        "release": "not serialized (prompt loader default)",
+        "release_json_value": null,
+        "source": "manga_translator/rendering/prompt_loader.py#DEFAULT_AI_RENDERER_PROMPT_PATH"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": true,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.ai_renderer_concurrency",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_ai_renderer_concurrency",
+        "english": "AI Renderer Concurrency",
+        "simplified_chinese": "AI 渲染并发数"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`1`",
+        "qt": "`1`",
+        "release": "`1`",
+        "release_json_value": 1,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.ai_renderer_concurrency"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.alignment",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_alignment",
+        "english": "Alignment",
+        "simplified_chinese": "对齐方式"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"auto\"`",
+        "qt": "`\"auto\"`",
+        "release": "`\"auto\"`",
+        "release_json_value": "auto",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.alignment"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.semantic_linebreak",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_semantic_linebreak",
+        "english": "Chinese Semantic Line Break",
+        "simplified_chinese": "中文语义断句"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.semantic_linebreak"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.remove_linebreak_punctuation",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_remove_linebreak_punctuation",
+        "english": "Trim Around Line Breaks",
+        "simplified_chinese": "去除换行符周围逗号句号"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.remove_linebreak_punctuation"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.disable_auto_wrap",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_disable_auto_wrap",
+        "english": "AI Line Breaking",
+        "simplified_chinese": "AI断句"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`true`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_auto_wrap"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.optimize_line_breaks",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_optimize_line_breaks",
+        "english": "AI Line Break Auto Enlarge",
+        "simplified_chinese": "AI断句自动扩大文字"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.optimize_line_breaks"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.strict_smart_scaling",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_strict_smart_scaling",
+        "english": "Don't Expand Box on Auto Enlarge",
+        "simplified_chinese": "AI断句自动扩大文字下不扩大文本框"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.strict_smart_scaling"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.check_br_and_retry",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_check_br_and_retry",
+        "english": "AI Line Break Check",
+        "simplified_chinese": "AI断句检查"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.check_br_and_retry"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.stroke_width",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_stroke_width",
+        "english": "Stroke Width Ratio",
+        "simplified_chinese": "描边宽度比例"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`0.07`",
+        "qt": "`0.07`",
+        "release": "`0.07`",
+        "release_json_value": 0.07,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.stroke_width"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.disable_font_border",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_disable_font_border",
+        "english": "Disable Font Border",
+        "simplified_chinese": "禁用字体边框"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_font_border"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.center_text_in_bubble",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_center_text_in_bubble",
+        "english": "Center in Bubble",
+        "simplified_chinese": "气泡内居中"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.center_text_in_bubble"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.font_size_offset",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_font_size_offset",
+        "english": "Font Size Offset",
+        "simplified_chinese": "字体大小偏移量"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`0`",
+        "qt": "`0`",
+        "release": "`0`",
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size_offset"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.font_size_minimum",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_font_size_minimum",
+        "english": "Minimum Font Size",
+        "simplified_chinese": "最小字体大小"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`-1`",
+        "qt": "`0`",
+        "release": "`0`",
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size_minimum"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.direction",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_direction",
+        "english": "Text Direction",
+        "simplified_chinese": "文本方向"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"auto\"`",
+        "qt": "`\"auto\"`",
+        "release": "`\"auto\"`",
+        "release_json_value": "auto",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.direction"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.uppercase",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_uppercase",
+        "english": "Uppercase",
+        "simplified_chinese": "大写"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.uppercase"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.lowercase",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_lowercase",
+        "english": "Lowercase",
+        "simplified_chinese": "小写"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.lowercase"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.no_hyphenation",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_no_hyphenation",
+        "english": "Disable Hyphenation",
+        "simplified_chinese": "禁用连字符"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.no_hyphenation"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.bubble_layout_english",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_bubble_layout_english",
+        "english": "Bubble Layout (Force Horizontal)",
+        "simplified_chinese": "根据气泡排版(强制横排)"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.bubble_layout_english"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.line_spacing",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_line_spacing",
+        "english": "Line Spacing",
+        "simplified_chinese": "行间距"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`1.0`",
+        "release": "`1.0`",
+        "release_json_value": 1.0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.line_spacing"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.letter_spacing",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_letter_spacing",
+        "english": "Letter Spacing",
+        "simplified_chinese": "字间距"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`1.0`",
+        "release": "`1.0`",
+        "release_json_value": 1.0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.letter_spacing"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.font_size",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_font_size",
+        "english": "Font Size",
+        "simplified_chinese": "字体大小"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "optional-input",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`null`",
+        "release": "`null`",
+        "release_json_value": null,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.rtl",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_rtl",
+        "english": "Right to Left",
+        "simplified_chinese": "从右到左"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`true`",
+        "qt": "`true`",
+        "release": "`true`",
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.rtl"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.layout_mode",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_layout_mode",
+        "english": "Layout Mode",
+        "simplified_chinese": "排版模式"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"smart_scaling\"`",
+        "qt": "`\"smart_scaling\"`",
+        "release": "`\"balloon_fill\"`",
+        "release_json_value": "balloon_fill",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.layout_mode"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.max_font_size",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_max_font_size",
+        "english": "Maximum Font Size",
+        "simplified_chinese": "最大字体大小"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`0`",
+        "qt": "`0`",
+        "release": "`0`",
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.max_font_size"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.font_scale_ratio",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_font_scale_ratio",
+        "english": "Font Scale Ratio",
+        "simplified_chinese": "字体缩放比例"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "float-input",
+      "defaults": {
+        "core": "`1.0`",
+        "qt": "`1.0`",
+        "release": "`1.0`",
+        "release_json_value": 1.0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_scale_ratio"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.enable_template_alignment",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_enable_template_alignment",
+        "english": "Enable Direct Paste Mode",
+        "simplified_chinese": "启用直接粘贴模式"
+      },
+      "wiki_page": "desktop/settings/mode-specific.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.enable_template_alignment"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.paste_mask_dilation_pixels",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_paste_mask_dilation_pixels",
+        "english": "Paste Mode Mask Dilation Pixels",
+        "simplified_chinese": "粘贴模式蒙版膨胀大小"
+      },
+      "wiki_page": "desktop/settings/mode-specific.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`10`",
+        "qt": "`10`",
+        "release": "`10`",
+        "release_json_value": 10,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.paste_mask_dilation_pixels"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "upscale.upscaler",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_upscaler",
+        "english": "Upscaling Model",
+        "simplified_chinese": "超分模型"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"esrgan\"`",
+        "qt": "`\"esrgan\"`",
+        "release": "`\"mangajanai\"`",
+        "release_json_value": "mangajanai",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.upscaler"
+      },
+      "lifecycle_stages": [
+        "upscaling"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "upscale.upscale_ratio",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_upscale_ratio",
+        "english": "Upscale Ratio",
+        "simplified_chinese": "超分倍数"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "dynamic-combo",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`null`",
+        "release": "`null`",
+        "release_json_value": null,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.upscale_ratio"
+      },
+      "lifecycle_stages": [
+        "upscaling"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "upscale.tile_size",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_tile_size",
+        "english": "Tile Size (0=No Split)",
+        "simplified_chinese": "分块大小(0=不分割)"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`null`",
+        "qt": "`null`",
+        "release": "`400`",
+        "release_json_value": 400,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.tile_size"
+      },
+      "lifecycle_stages": [
+        "upscaling"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "upscale.revert_upscaling",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_revert_upscaling",
+        "english": "Revert Upscaling",
+        "simplified_chinese": "还原超分"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.revert_upscaling"
+      },
+      "lifecycle_stages": [
+        "upscaling"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "colorizer.colorizer",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_colorizer",
+        "english": "Colorization Model",
+        "simplified_chinese": "上色模型"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "combo",
+      "defaults": {
+        "core": "`\"none\"`",
+        "qt": "`\"none\"`",
+        "release": "`\"none\"`",
+        "release_json_value": "none",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.colorizer"
+      },
+      "lifecycle_stages": [
+        "colorization"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "colorizer.ai_colorizer_prompt_path",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_ai_colorizer_prompt_path",
+        "english": "AI Colorizer Prompt",
+        "simplified_chinese": "AI 上色提示词"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "prompt-editor-button",
+      "defaults": {
+        "core": "not serialized (fixed prompt editor action)",
+        "qt": "not serialized (fixed prompt editor action)",
+        "release": "not serialized (prompt loader default)",
+        "release_json_value": null,
+        "source": "manga_translator/colorization/prompt_loader.py#DEFAULT_AI_COLORIZER_PROMPT_PATH"
+      },
+      "lifecycle_stages": [
+        "colorization"
+      ],
+      "file_action": true,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "colorizer.ai_colorizer_history_pages",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_ai_colorizer_history_pages",
+        "english": "AI Colorizer History Pages",
+        "simplified_chinese": "AI 上色历史页数"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`0`",
+        "qt": "`0`",
+        "release": "`0`",
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.ai_colorizer_history_pages"
+      },
+      "lifecycle_stages": [
+        "colorization"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "colorizer.colorization_size",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_colorization_size",
+        "english": "Colorization Size",
+        "simplified_chinese": "上色大小"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`576`",
+        "qt": "`576`",
+        "release": "`2048`",
+        "release_json_value": 2048,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.colorization_size"
+      },
+      "lifecycle_stages": [
+        "colorization"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "colorizer.denoise_sigma",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_denoise_sigma",
+        "english": "Denoise Strength",
+        "simplified_chinese": "降噪强度"
+      },
+      "wiki_page": "desktop/settings/upscale-and-colorization.md",
+      "control": "int-input",
+      "defaults": {
+        "core": "`30`",
+        "qt": "`30`",
+        "release": "`30`",
+        "release_json_value": 30,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.denoise_sigma"
+      },
+      "lifecycle_stages": [
+        "colorization"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    }
+  ],
+  "excluded_layout_entries": [
+    {
+      "key": "render.font_color",
+      "page": "Typesetting",
+      "release_default": null,
+      "potential_control_when_non_null": "text-input",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_color",
+      "reason": "dynamic_settings.py only creates a None-valued input when the short key is in _OPTIONAL_INPUT_KEYS; font_color is not in that set."
+    }
+  ],
+  "validation": {
+    "record_count": 109,
+    "ui_labels": "Every record resolves an actual UI label key in both desktop locales.",
+    "consumer_trace": "Not generated from Phase 0; intentionally left pending for Phase 3 evidence."
+  }
+}

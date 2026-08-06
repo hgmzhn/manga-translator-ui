@@ -70,39 +70,39 @@
 
 ## 3. Phase 0：覆盖清单与数据源
 
-- [ ] [未开工] 固定桌面主页面和导航清单。
-- [ ] [未开工] 固定所有二级页面、弹窗和状态清单。
-- [ ] [未开工] 固定编辑器菜单、工具、属性、快捷键和焦点冲突清单。
-- [ ] [未开工] 生成 UI 参数字段清单并报告与“约 110 项”基线的差异。
-- [ ] [未开工] 生成所有枚举/下拉选项的 value、English、简体中文和 i18n key 清单。
-- [ ] [未开工] 固定核心默认、Qt UI 默认、发行配置默认和差异清单。
-- [ ] [未开工] 固定九个工作流、输入输出、跳过阶段和互斥参数清单。
-- [ ] [未开工] 固定 CLI 正式子命令、参数和实际 `--help` 清单。
-- [ ] [未开工] 固定 Web 用户功能、HTTP 路由、鉴权、端口和状态码清单。
-- [ ] [未开工] 固定关联文件、格式、调试产物和敏感信息清单。
-- [ ] [未开工] 追踪 `_result_path` 的直接调用、`result_path_fn` / `debug_path_fn` 回调写入和同目录手工路径，生成完整调试产物清单。
-- [ ] [未开工] 建立“页面 -> 中文 -> 英文 -> 源码 -> 图示 -> 构建”覆盖矩阵。
+- [x] [完成] 固定桌面主页面和导航清单。 - evidence: `research/desktop-main-navigation.md`; source: 2026-08-06
+- [x] [完成] 固定所有二级页面、弹窗和状态清单。 - evidence: `research/phase0-secondary-pages-dialogs-statuses.md`（静态源码/i18n；运行态未决项已记录：2026-08-06）
+- [x] [完成] 固定编辑器菜单、工具、属性、快捷键和焦点冲突清单。 - evidence: `research/editor-inventory.md`; static source/i18n inventory: 2026-08-06
+- [x] [完成] 生成 UI 参数字段清单并报告与“约 110 项”基线的差异。`phase0-ui-parameter-fields.json`; validate: layout 110, visible 109, delta -1.
+- [x] [完成] 生成所有枚举/下拉选项的 value、English、简体中文和 i18n key 清单。 - evidence: `research/phase0-options-i18n-matrix.md`; static desktop source/i18n inventory: 2026-08-06
+- [x] [完成] 固定核心默认、Qt UI 默认、发行配置默认和差异清单。 - evidence: `research/default-sources.md`（Core 120 / Qt 131 / Release 131；差异矩阵与运行态未决项：2026-08-06）
+- [x] [完成] 固定九个工作流、输入输出、跳过阶段和互斥参数清单。 - EVIDENCE: `research/workflow-matrix-source-evidence.md` 已完成九个工作流的静态源码/i18n 清单；运行验证列为后续任务。
+- [x] [完成] 固定 CLI 正式子命令、参数和实际 `--help` 清单。 - evidence: `research/cli-command-inventory.md`; help: PASS 2026-08-06
+- [x] [完成] 固定 Web 用户功能、HTTP 路由、鉴权、端口和状态码清单。 - evidence: `research/phase0-web-user-http.md`（静态源码；150 个方法—路径映射、运行态未决项已记录：2026-08-06）
+- [x] [完成] 固定关联文件、格式、调试产物和敏感信息清单。 - evidence: `research/phase0-related-files-formats-debug-safety.md`; static source paths: PASS (43); 2026-08-06
+- [x] [完成] 追踪 `_result_path` 的直接调用、`result_path_fn` / `debug_path_fn` 回调写入和同目录手工路径，生成完整调试产物清单。 - evidence: `research/phase0-debug-artifact-path-trace.md`; static source trace: PASS 2026-08-06; runtime validation pending.
+- [x] [完成] 建立“页面 -> 中文 -> 英文 -> 源码 -> 图示 -> 构建”覆盖矩阵。 - evidence: `research/phase0-page-coverage-matrix.md`; coverage: BLUEPRINT 114 + TODO-only debugging 6 = 120; static validation: PASS 2026-08-06; site build: N/A（B0 基线）
 
 ## 4. Phase 1：VitePress/Vue 骨架
 
-- [ ] [未开工] 创建 `package.json`、锁文件和 VitePress 依赖。
-- [ ] [未开工] 创建 `.vitepress/config.ts` 和 GitHub Pages `base` 配置。
-- [ ] [未开工] 创建 Vue 自定义主题、`Layout.vue` 和全局样式。
-- [ ] [未开工] 创建右上角 `LanguageSwitch.vue`，保持当前页面进行中英切换。
-- [ ] [未开工] 创建 `SettingTable.vue`、`OptionMatrix.vue`、`SourceEvidence.vue`。
-- [ ] [未开工] 创建 `public/images/` 的模块目录和命名约定。
-- [ ] [未开工] 创建 `data/settings.generated.json`。
-- [ ] [未开工] 创建 `data/i18n.generated.json`。
-- [ ] [未开工] 创建 `data/coverage.generated.json`。
-- [ ] [未开工] 创建 `data/related-projects.yml` 及 schema/字段校验。
-- [ ] [未开工] 创建参数目录生成脚本。
-- [ ] [未开工] 创建 i18n 目录生成脚本。
-- [ ] [未开工] 创建中英路由镜像检查脚本。
-- [ ] [未开工] 创建源码依据和覆盖率检查脚本。
-- [ ] [未开工] 创建 GitHub Pages workflow。
-- [ ] [未开工] 生成以下全部中英文占位页面，且占位页面保持未完成状态。
-- [ ] [未开工] `npm ci --prefix doc/wiki` 成功。
-- [ ] [未开工] `npm run docs:build --prefix doc/wiki` 成功。
+- [x] [完成] 创建 `package.json`、锁文件和 VitePress 依赖。 - `npm ci --prefix doc/wiki`: PASS; `npm ls vitepress vue --prefix doc/wiki`: vitepress 1.6.4, vue 3.5.41; 2026-08-06
+- [x] [完成] 创建 `.vitepress/config.ts` 和 GitHub Pages `base` 配置。 - static config: PASS; base: `/manga-translator-ui/`; 2026-08-06
+- [x] [完成] 创建 Vue 自定义主题、`Layout.vue` 和全局样式。 - `npm run docs:build --prefix doc/wiki`: PASS; 2026-08-06
+- [x] [完成] 创建右上角 `LanguageSwitch.vue`，保持当前页面进行中英切换。 - route-prefix mapping + locale config; build: PASS; 2026-08-06
+- [x] [完成] 创建 `SettingTable.vue`、`OptionMatrix.vue`、`SourceEvidence.vue`。 - static Vue components; build: PASS; 2026-08-06
+- [x] [完成] 创建 `public/images/` 的模块目录和命名约定。 - structure: PASS (19 modules); naming: `public/images/README.md`; 2026-08-06
+- [x] [完成] 创建 `data/settings.generated.json`。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (109 records); 2026-08-06
+- [x] [完成] 创建 `data/i18n.generated.json`。 - `node scripts/build-i18n-catalog.mjs --check`: PASS (1353 keys); 2026-08-06
+- [x] [完成] 创建 `data/coverage.generated.json`。 - `node scripts/verify-wiki-coverage.mjs doc/wiki`: PASS (120 pages, S00-S16); 2026-08-06
+- [x] [完成] 创建 `data/related-projects.yml` 及 schema/字段校验。 - `uv run python doc/wiki/verify_related_projects.py`: PASS (0 projects); 2026-08-06
+- [x] [完成] 创建参数目录生成脚本。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (109 records); 2026-08-06
+- [x] [完成] 创建 i18n 目录生成脚本。 - `node scripts/build-i18n-catalog.mjs --check`: PASS; 2026-08-06
+- [x] [完成] 创建中英路由镜像检查脚本。 - `node scripts/verify-route-mirror.mjs doc/wiki`: PASS (120/120); 2026-08-06
+- [x] [完成] 创建源码依据和覆盖率检查脚本。 - `node scripts/verify-source-evidence.mjs doc/wiki` + `verify-wiki-coverage.mjs`: PASS; 2026-08-06
+- [x] [完成] 创建 GitHub Pages workflow。 - `.github/workflows/docs-pages.yml`; YAML/static review: PASS; 2026-08-06
+- [x] [完成] 生成以下全部中英文占位页面，且占位页面保持未完成状态。 - `uv run python scripts/generate-placeholders.py`: 240 pages; mirror: PASS; 2026-08-06
+- [x] [完成] `npm ci --prefix doc/wiki` 成功。 - PASS; 127 packages installed; 2026-08-06
+- [x] [完成] `npm run docs:build --prefix doc/wiki` 成功。 - PASS; 2026-08-06
 
 ## 5. 页面总表
 

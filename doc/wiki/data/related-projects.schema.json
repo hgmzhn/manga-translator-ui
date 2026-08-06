@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "LocalizedText": {
+      "additionalProperties": false,
+      "properties": {
+        "en": {
+          "minLength": 1,
+          "title": "En",
+          "type": "string"
+        },
+        "zh-CN": {
+          "minLength": 1,
+          "title": "Zh-Cn",
+          "type": "string"
+        }
+      },
+      "required": [
+        "en",
+        "zh-CN"
+      ],
+      "title": "LocalizedText",
+      "type": "object"
+    },
+    "Logo": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "minLength": 1,
+          "pattern": "^https://[^\\s]+$",
+          "title": "Url",
+          "type": "string"
+        },
+        "authorization": {
+          "minLength": 1,
+          "title": "Authorization",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "authorization"
+      ],
+      "title": "Logo",
+      "type": "object"
+    },
+    "RelatedProject": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "description": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "url": {
+          "minLength": 1,
+          "pattern": "^https://[^\\s]+$",
+          "title": "Url",
+          "type": "string"
+        },
+        "relationship": {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "category": {
+          "enum": [
+            "translation",
+            "ocr",
+            "typesetting",
+            "image-processing",
+            "community",
+            "tooling"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "logo": {
+          "$ref": "#/$defs/Logo"
+        },
+        "contact_url": {
+          "minLength": 1,
+          "pattern": "^https://[^\\s]+$",
+          "title": "Contact Url",
+          "type": "string"
+        },
+        "license_status": {
+          "minLength": 1,
+          "title": "License Status",
+          "type": "string"
+        },
+        "approval_status": {
+          "enum": [
+            "pending",
+            "approved"
+          ],
+          "title": "Approval Status",
+          "type": "string"
+        },
+        "last_checked": {
+          "format": "date",
+          "title": "Last Checked",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "url",
+        "relationship",
+        "category",
+        "logo",
+        "contact_url",
+        "license_status",
+        "approval_status",
+        "last_checked"
+      ],
+      "title": "RelatedProject",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "projects": {
+      "items": {
+        "$ref": "#/$defs/RelatedProject"
+      },
+      "title": "Projects",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "RelatedProjectsDocument",
+  "type": "object"
+}

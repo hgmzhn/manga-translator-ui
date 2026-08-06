@@ -1,0 +1,1756 @@
+{
+  "schema_version": 1,
+  "baseline_date": "2026-08-06",
+  "summary": {
+    "blueprint_pages": 114,
+    "todo_pages": 120,
+    "union_pages": 120
+  },
+  "source_evidence": {
+    "S00": [
+      "`BLUEPRINT.md`",
+      "`TODO.md`；尚无更具体的逐页源码映射"
+    ],
+    "S01": [
+      "`desktop_qt_ui/ui/main_window.py`",
+      "`desktop_qt_ui/locales/en_US.json`",
+      "`desktop_qt_ui/locales/zh_CN.json`",
+      "`research/desktop-main-navigation.md`"
+    ],
+    "S02": [
+      "`desktop_qt_ui/ui/main_page/pages/translation_page.py`",
+      "`desktop_qt_ui/ui/widgets/file_list_view.py`",
+      "`desktop_qt_ui/services/file_service.py`",
+      "`desktop_qt_ui/services/workflow_service.py`",
+      "`desktop_qt_ui/ui/main_page/runtime.py`",
+      "`desktop_qt_ui/ui/main_page/view.py`",
+      "`desktop_qt_ui/services/translation_service.py`"
+    ],
+    "S03": [
+      "`desktop_qt_ui/ui/main_page/pages/settings_page.py`",
+      "`desktop_qt_ui/ui/main_page/dynamic_settings.py`",
+      "`desktop_qt_ui/ui/main_page/settings_tab_layout.json`",
+      "`desktop_qt_ui/core/config_models.py`",
+      "`desktop_qt_ui/app_logic.py`",
+      "`research/default-sources.md`",
+      "`phase0-ui-parameter-fields.json`",
+      "`research/phase0-options-i18n-matrix.md`"
+    ],
+    "S04": [
+      "`manga_translator/config.py`",
+      "`manga_translator/translators/`",
+      "`manga_translator/manga_translator.py`",
+      "`manga_translator/utils/retry.py`"
+    ],
+    "S05": [
+      "`desktop_qt_ui/ui/main_page/pages/env_page.py`",
+      "`desktop_qt_ui/ui/main_page/env_management.py`",
+      "`desktop_qt_ui/ui/main_page/dynamic_settings.py`",
+      "`desktop_qt_ui/ui/secondary_pages/model_selector_dialog.py`",
+      "`desktop_qt_ui/ui/secondary_pages/custom_api_params_editor.py`",
+      "`desktop_qt_ui/services/config_service.py`",
+      "`manga_translator/runtime_api_resolver.py`",
+      "`manga_translator/api_key_rotation.py`"
+    ],
+    "S06": [
+      "`desktop_qt_ui/ui/secondary_pages/simple_prompt_editor_dialog.py`",
+      "`prompt_preview.py`",
+      "`ai_colorizer_prompt_editor.py`",
+      "`replacements_editor.py`",
+      "`rich_text_rules_editor.py`",
+      "`batch_edit_panel.py`",
+      "`batch_edit_condition_widgets.py`",
+      "以及 `desktop_qt_ui/services/batch_edit_*.py`",
+      "`dict/ai_ocr_prompt.yaml`",
+      "`dict/ai_renderer_prompt.yaml`",
+      "`dict/ai_colorizer_prompt.yaml`；具体消费者待逐页收窄"
+    ],
+    "S07": [
+      "`desktop_qt_ui/ui/editor/`",
+      "`desktop_qt_ui/editor/`",
+      "`desktop_qt_ui/ui/widgets/editor_toolbar.py`",
+      "`desktop_qt_ui/ui/widgets/property_panel.py`",
+      "`desktop_qt_ui/ui/widgets/region_list_view.py`",
+      "`desktop_qt_ui/ui/widgets/rich_text_floating_editor.py`",
+      "`research/editor-inventory.md`"
+    ],
+    "S08": [
+      "`desktop_qt_ui/services/workflow_service.py`",
+      "`desktop_qt_ui/runtime.py`",
+      "`manga_translator/manga_translator.py`",
+      "`research/workflow-matrix-source-evidence.md`"
+    ],
+    "S09": [
+      "`manga_translator/server/static/index.html`",
+      "`manga_translator/server/static/admin-new.html`",
+      "`manga_translator/server/static/script.js`",
+      "`manga_translator/server/static/js/history-gallery.js`",
+      "`manga_translator/server/routes/web.py`",
+      "`manga_translator/server/routes/auth.py`",
+      "`research/phase0-web-user-http.md`"
+    ],
+    "S10": [
+      "`manga_translator/args.py`",
+      "`research/cli-command-inventory.md`；实际 `--help` 已在调查产物记录"
+    ],
+    "S11": [
+      "`pyproject.toml`",
+      "`uv.lock`",
+      "`packaging/launch.py`",
+      "`Win-*.bat`",
+      "`Unix-*.sh`",
+      "`packaging/Dockerfile`",
+      "`packaging/docker-compose.yml`",
+      "`packaging/docker-entrypoint.sh`"
+    ],
+    "S12": [
+      "仓库模块边界",
+      "测试目录",
+      "打包脚本与发布配置；具体文件待相应开发者页面逐项收窄"
+    ],
+    "S13": [
+      "`manga_translator/server/main.py`",
+      "`manga_translator/server/routes/`",
+      "`manga_translator/server/request_extraction.py`",
+      "`manga_translator/server/to_json.py`",
+      "`manga_translator/server/core/task_manager.py`",
+      "`manga_translator/server/core/middleware.py`",
+      "`manga_translator/server/routes/translation_auth.py`",
+      "`research/phase0-web-user-http.md`"
+    ],
+    "S14": [
+      "`manga_translator/mode/share.py`",
+      "`manga_translator/mode/ws.py`；蓝图列出的 `manga_translator/server/ws_pb2.py` 当前仓库不存在",
+      "协议生成来源待后续逐页核对"
+    ],
+    "S15": [
+      "`manga_translator/manga_translator.py`",
+      "各阶段模块",
+      "`research/phase0-related-files-formats-debug-safety.md`；完整回调/手工路径追踪仍是独立进行中 TODO"
+    ],
+    "S16": [
+      "Phase 0 已产出的参数",
+      "选项",
+      "默认值",
+      "工作流",
+      "CLI",
+      "Web",
+      "UI",
+      "编辑器",
+      "文件与调试调查产物"
+    ]
+  },
+  "pages": [
+    {
+      "id": "W001",
+      "path": "index.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S00"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W002",
+      "path": "introduction/product-forms.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S00"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W003",
+      "path": "introduction/first-translation.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S01",
+        "S02",
+        "S08"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W004",
+      "path": "introduction/data-and-privacy.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S02",
+        "S09",
+        "S15"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W005",
+      "path": "install/choose-edition.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W006",
+      "path": "install/requirements.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W007",
+      "path": "install/windows-portable.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W008",
+      "path": "install/source-windows.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W009",
+      "path": "install/linux-and-macos.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W010",
+      "path": "install/docker.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W011",
+      "path": "install/update-and-version-switching.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W012",
+      "path": "install/uninstall-and-data-cleanup.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W013",
+      "path": "desktop/navigation-and-language.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S01"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W014",
+      "path": "desktop/translation/file-list-and-input.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S02"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W015",
+      "path": "desktop/translation/output-directory-and-workflow.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S02",
+        "S08"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W016",
+      "path": "desktop/translation/progress-stop-and-task-state.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S02"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W017",
+      "path": "desktop/settings/index.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W018",
+      "path": "desktop/settings/shell-description-import-export.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W019",
+      "path": "desktop/settings/general-and-app.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W020",
+      "path": "desktop/settings/cli-batch-and-output.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S10"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W021",
+      "path": "desktop/settings/detection.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S15"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W022",
+      "path": "desktop/settings/ocr-filter-and-merge.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S04"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W023",
+      "path": "desktop/settings/translation.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S04"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W024",
+      "path": "desktop/settings/mask-and-inpainting.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S15"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W025",
+      "path": "desktop/settings/typesetting-and-rendering.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S15"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W026",
+      "path": "desktop/settings/upscale-and-colorization.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S15"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W027",
+      "path": "desktop/settings/mode-specific.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W028",
+      "path": "desktop/translator/selection-and-languages.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S04",
+        "S05"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W029",
+      "path": "desktop/translator/engine-dispatch.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S04"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W030",
+      "path": "desktop/translator/context-and-prompts.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S04",
+        "S06"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W031",
+      "path": "desktop/translator/glossary-stream-and-linebreak.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S04",
+        "S06"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W032",
+      "path": "desktop/translator/retry-rate-limit-and-quality.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S04",
+        "S05"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W033",
+      "path": "desktop/translator/translation-chain.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S04",
+        "S05"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W034",
+      "path": "desktop/api-management/feature-selectors.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W035",
+      "path": "desktop/api-management/provider-tabs.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W036",
+      "path": "desktop/api-management/credentials-addresses-models.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W037",
+      "path": "desktop/api-management/slots-and-rotation.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W038",
+      "path": "desktop/api-management/failures-cooldown-and-recovery.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W039",
+      "path": "desktop/api-management/connection-tests-and-model-list.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W040",
+      "path": "desktop/api-management/custom-request-parameters.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W041",
+      "path": "desktop/api-management/presets-and-persistence.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W042",
+      "path": "desktop/prompts/list-apply-and-preview.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W043",
+      "path": "desktop/prompts/structured-editor-and-format.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W044",
+      "path": "desktop/prompts/system-and-translation-prompts.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S04",
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W045",
+      "path": "desktop/prompts/ai-ocr-prompt.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W046",
+      "path": "desktop/prompts/ai-renderer-prompt.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W047",
+      "path": "desktop/prompts/ai-colorizer-prompt.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W048",
+      "path": "desktop/replacement-rules/table-groups-and-order.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W049",
+      "path": "desktop/replacement-rules/raw-yaml-regex-and-save.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W050",
+      "path": "desktop/rich-text-rules/table-raw-and-match.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W051",
+      "path": "desktop/rich-text-rules/styles-and-presets.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W052",
+      "path": "desktop/batch-management/schemes-crud.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W053",
+      "path": "desktop/batch-management/conditions.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W054",
+      "path": "desktop/batch-management/actions-and-order.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W055",
+      "path": "desktop/batch-management/preview-apply-restore.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S06"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W056",
+      "path": "desktop/editor/layout-and-file-list.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W057",
+      "path": "desktop/editor/toolbar-and-menus.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W058",
+      "path": "desktop/editor/display-compare-and-arrange.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W059",
+      "path": "desktop/editor/canvas-tools-and-selection.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W060",
+      "path": "desktop/editor/region-list-and-text-editing.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W061",
+      "path": "desktop/editor/text-properties.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W062",
+      "path": "desktop/editor/style-properties.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W063",
+      "path": "desktop/editor/mask-paint-and-clone-stamp.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W064",
+      "path": "desktop/editor/floating-rich-text.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W065",
+      "path": "desktop/editor/shortcuts.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W066",
+      "path": "desktop/editor/import-export-and-writeback.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07",
+        "S15"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W067",
+      "path": "workflows/normal.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W068",
+      "path": "workflows/export-translation.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W069",
+      "path": "workflows/export-original.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W070",
+      "path": "workflows/translate-json-only.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W071",
+      "path": "workflows/import-translation-and-render.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W072",
+      "path": "workflows/colorize-only.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W073",
+      "path": "workflows/upscale-only.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W074",
+      "path": "workflows/inpaint-only.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W075",
+      "path": "workflows/replace-translation.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W076",
+      "path": "web/launch-and-access.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S10"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W077",
+      "path": "web/login-language-and-session.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S13"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W078",
+      "path": "web/upload-config-and-translate.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S13"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W079",
+      "path": "web/progress-results-and-history.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S13"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W080",
+      "path": "web/accounts-permissions-and-api-keys.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S13"
+      ],
+      "diagram_status": "G3",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W081",
+      "path": "web/resources-fonts-and-prompts.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S13"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W082",
+      "path": "web/administrator-interface.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S13"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W083",
+      "path": "web/deployment-security-and-troubleshooting.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S11",
+        "S13"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W084",
+      "path": "cli/command-structure.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S10"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W085",
+      "path": "cli/local-input-output.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S10"
+      ],
+      "diagram_status": "G1",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W086",
+      "path": "cli/configuration-overrides.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S10"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W087",
+      "path": "cli/workflow-and-file-modes.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08",
+        "S10"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W088",
+      "path": "cli/subprocess-memory-and-recovery.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S10"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W089",
+      "path": "cli/output-debugging-and-exit-codes.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S10",
+        "S15"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W090",
+      "path": "cli/web-ws-and-shared-modes.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S10",
+        "S14"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W091",
+      "path": "developer/architecture-and-code-boundaries.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S12"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W092",
+      "path": "developer/adding-or-changing-a-feature.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S12"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W093",
+      "path": "developer/tests-and-code-quality.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S12"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W094",
+      "path": "developer/packaging-and-release.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11",
+        "S12"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W095",
+      "path": "developer/web-server-ports-and-deployment.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S11",
+        "S13"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W096",
+      "path": "developer/http-api/authentication-and-errors.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S13"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W097",
+      "path": "developer/http-api/translation-endpoints.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S13"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W098",
+      "path": "developer/http-api/streaming-protocol.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S13"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W099",
+      "path": "developer/http-api/batch-export-import-process.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S13"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W100",
+      "path": "developer/http-api/config-env-and-resources.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S13"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W101",
+      "path": "developer/http-api/history-files-and-download-tickets.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S13"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W102",
+      "path": "developer/http-api/admin-users-groups-quota-audit.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S13"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W103",
+      "path": "developer/internal-shared-and-websocket.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S14"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W104",
+      "path": "developer/related-projects-and-links.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S00"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W105",
+      "path": "debugging/folder-naming-and-overview.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S15"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W106",
+      "path": "debugging/input-detection-and-rearrangement.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S15"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W107",
+      "path": "debugging/ocr-and-text-regions.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S15"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W108",
+      "path": "debugging/mask-inpainting-and-rendering.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S15"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W109",
+      "path": "debugging/special-workflows-and-websocket.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08",
+        "S14",
+        "S15"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W110",
+      "path": "debugging/how-to-read-and-share-a-debug-run.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S15"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W111",
+      "path": "reference/settings-index.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S16"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W112",
+      "path": "reference/options-i18n-matrix.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S16"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W113",
+      "path": "reference/workflow-matrix.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S08",
+        "S16"
+      ],
+      "diagram_status": "G2",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W114",
+      "path": "reference/source-evidence-index.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S16"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W115",
+      "path": "reference/debug-artifact-index.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S15",
+        "S16"
+      ],
+      "diagram_status": "G4",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W116",
+      "path": "troubleshooting/installation-and-startup.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S10",
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W117",
+      "path": "troubleshooting/model-gpu-and-memory.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S03",
+        "S04",
+        "S11"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W118",
+      "path": "troubleshooting/api-auth-rate-limit-and-timeout.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S05",
+        "S09",
+        "S13"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W119",
+      "path": "troubleshooting/output-json-and-rendering.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S07",
+        "S08",
+        "S15"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    },
+    {
+      "id": "W120",
+      "path": "troubleshooting/privacy-cleanup-and-log-sharing.md",
+      "zh_status": "C0",
+      "en_status": "E0",
+      "source_status": "S1",
+      "source_evidence_ids": [
+        "S09",
+        "S11",
+        "S15"
+      ],
+      "diagram_status": "G0",
+      "build_status": "B0",
+      "notes": []
+    }
+  ]
+}
