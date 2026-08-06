@@ -80,6 +80,7 @@
 - [ ] [未开工] 固定 CLI 正式子命令、参数和实际 `--help` 清单。
 - [ ] [未开工] 固定 Web 用户功能、HTTP 路由、鉴权、端口和状态码清单。
 - [ ] [未开工] 固定关联文件、格式、调试产物和敏感信息清单。
+- [ ] [未开工] 追踪 `_result_path` 的直接调用、`result_path_fn` / `debug_path_fn` 回调写入和同目录手工路径，生成完整调试产物清单。
 - [ ] [未开工] 建立“页面 -> 中文 -> 英文 -> 源码 -> 图示 -> 构建”覆盖矩阵。
 
 ## 4. Phase 1：VitePress/Vue 骨架
@@ -276,7 +277,16 @@
 - [ ] [未开工] `zh/en developer/internal-shared-and-websocket.md`
 - [ ] [未开工] `zh/en developer/related-projects-and-links.md`
 
-### 5.15 参考索引
+### 5.15 调试目录与产物
+
+- [ ] [未开工] `zh/en debugging/folder-naming-and-overview.md`
+- [ ] [未开工] `zh/en debugging/input-detection-and-rearrangement.md`
+- [ ] [未开工] `zh/en debugging/ocr-and-text-regions.md`
+- [ ] [未开工] `zh/en debugging/mask-inpainting-and-rendering.md`
+- [ ] [未开工] `zh/en debugging/special-workflows-and-websocket.md`
+- [ ] [未开工] `zh/en debugging/how-to-read-and-share-a-debug-run.md`
+
+### 5.16 参考索引
 
 - [ ] [未开工] `zh/en reference/settings-index.md`
 - [ ] [未开工] `zh/en reference/options-i18n-matrix.md`
@@ -284,7 +294,7 @@
 - [ ] [未开工] `zh/en reference/source-evidence-index.md`
 - [ ] [未开工] `zh/en reference/debug-artifact-index.md`
 
-### 5.16 故障排查
+### 5.17 故障排查
 
 - [ ] [未开工] `zh/en troubleshooting/installation-and-startup.md`
 - [ ] [未开工] `zh/en troubleshooting/model-gpu-and-memory.md`
@@ -325,7 +335,12 @@
 - [ ] [未开工] 替换规则和富文本规则 YAML 的顺序、正则和恢复已说明。
 - [ ] [未开工] 批量方案、`.bak`、回写和恢复机制已说明。
 - [ ] [未开工] TXT、YOLO、PSD/JSX 和工作目录命名规则已说明。
-- [ ] [未开工] 调试产物的生成条件、用途和清理方式已说明。
+- [ ] [未开工] 调试目录名中的时间戳、图片 MD5、检测尺寸、目标语言和翻译器字段已说明。
+- [ ] [未开工] 每个调试图片、JSON、JSX 和 `ocrs/` 子目录均已记录生成阶段、触发条件、画面/内容含义、排查用途和源码依据。
+- [ ] [未开工] 长图重排已说明触发条件、切块/拼批过程、检测结果坐标回映、性能与显存影响，以及 `rearrange_{n}.png`、`yolo_rearrange_{n}.png` 分别对应的处理分支。
+- [ ] [未开工] 明确区分“某次运行实际存在的产物”和“当前源码在不同模式下可能生成的完整产物”，不把条件产物写成每次必有。
+- [ ] [未开工] 样例目录 `result/1785860417472-3415b69c-2048-CHS-openai/` 已作为核对案例，只记录实际文件，不收录用户原图或私有内容。
+- [ ] [未开工] 调试产物的清理、脱敏和对外分享注意事项已说明。
 
 ### 6.4 并发、上下文和错误
 
