@@ -167,7 +167,7 @@
 - [ ] [未开工] `zh/en desktop/settings/translation.md`
 - [ ] [未开工] `zh/en desktop/settings/mask-and-inpainting.md`
 - [ ] [未开工] `zh/en desktop/settings/typesetting-and-rendering.md`
-- [ ] [未开工] `zh/en desktop/settings/upscale-and-colorization.md`
+- [x] [完成] `zh/en desktop/settings/upscale-and-colorization.md` - build: PASS; route/source/coverage: PASS; review: 2026-08-06
 - [ ] [未开工] `zh/en desktop/settings/mode-specific.md`
 
 ### 5.5 翻译器
