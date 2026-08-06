@@ -163,7 +163,7 @@
 - [x] [完成] `zh/en desktop/settings/general-and-app.md` - evidence: 双语正文、General UI/i18n 三列、参数默认/阶段/消费者、运行机理、依赖与文件格式、安全边界、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/settings/cli-batch-and-output.md` - evidence: 双语正文、CLI/批处理/输出参数、i18n 三列、Mermaid、源码依据、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/settings/detection.md` - evidence: 双语镜像正文、Detection UI/i18n 三列、逐参数默认/阶段/消费者、YOLO/SFX/长图机理、文件与安全审查、Mermaid、静态检查；后续统一验收按第 8 节执行
-- [ ] [未开工] `zh/en desktop/settings/ocr-filter-and-merge.md`
+- [x] [完成] `zh/en desktop/settings/ocr-filter-and-merge.md` - evidence: 双语正文、OCR/混合识别/过滤/合并参数、i18n 三列、Mermaid、源码依据、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/settings/translation.md` - evidence: 双语正文、翻译参数/默认值/消费者、i18n 三列、Mermaid、源码依据、敏感信息审查、VitePress build: PASS 2026-08-06
 - [x] [完成] `zh/en desktop/settings/mask-and-inpainting.md` - evidence: 双语正文、蒙版/气泡/修复参数、i18n 三列、Mermaid、源码依据、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en desktop/settings/typesetting-and-rendering.md`
