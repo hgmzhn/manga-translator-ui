@@ -123,7 +123,7 @@
 - [x] [完成] `zh/en install/source-windows.md` - evidence: 双语正文、源码安装与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en install/linux-and-macos.md`
 - [ ] [未开工] `zh/en install/docker.md`
-- [ ] [未开工] `zh/en install/update-and-version-switching.md`
+- [x] [完成] `zh/en install/update-and-version-switching.md` - evidence: 双语镜像正文、维护菜单 i18n 三列、更新/分支/tag/镜像机理、依赖冲突、文件/安全审查、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en install/uninstall-and-data-cleanup.md`
 
 ### 5.3 桌面导航与翻译工作区
