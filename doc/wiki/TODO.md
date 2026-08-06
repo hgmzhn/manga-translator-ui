@@ -161,7 +161,7 @@
 - [x] [完成] `zh/en desktop/settings/index.md` - evidence: 双语正文、设置生命周期与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/settings/shell-description-import-export.md` - evidence: 双语正文、源码依据、i18n 三列和 Mermaid、静态检查；后续统一验收按第 8 节执行
 - [x] [完成] `zh/en desktop/settings/general-and-app.md` - evidence: 双语正文、General UI/i18n 三列、参数默认/阶段/消费者、运行机理、依赖与文件格式、安全边界、Mermaid、静态检查；后续统一验收按第 8 节执行
-- [ ] [未开工] `zh/en desktop/settings/cli-batch-and-output.md`
+- [x] [完成] `zh/en desktop/settings/cli-batch-and-output.md` - evidence: 双语正文、CLI/批处理/输出参数、i18n 三列、Mermaid、源码依据、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en desktop/settings/detection.md`
 - [ ] [未开工] `zh/en desktop/settings/ocr-filter-and-merge.md`
 - [ ] [未开工] `zh/en desktop/settings/translation.md`
