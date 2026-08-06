@@ -2235,15 +2235,16 @@ def update_code_force(skip_confirm=False, target_branch=None):
             'Unix-Install-or-Update.sh',
             'Unix-Start.sh',
             'test',
+            '.editorconfig',
             '.gitattributes',
             '.gitignore',
-            'LICENSE.txt'
         ]
     elif platform.system() in ('Darwin', 'Linux'):
-        # Linux/macOS 环境只清理 Windows 启动文件，保留仓库元数据和 Unix 脚本。
+        # Linux/macOS 环境清理 Windows 启动文件和编辑器配置，保留仓库元数据和 Unix 脚本。
         files_to_remove = [
             'Win-Start.bat',
             'Win-Install-or-Update.bat',
+            '.editorconfig',
         ]
     else:
         files_to_remove = []
