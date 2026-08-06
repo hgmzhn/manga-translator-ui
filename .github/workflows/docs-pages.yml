@@ -3,8 +3,6 @@ name: Deploy Wiki to GitHub Pages
 on:
   push:
     branches: [main]
-    paths:
-      - 'doc/wiki/**'
   workflow_dispatch:
 
 permissions:
@@ -14,7 +12,7 @@ permissions:
 
 concurrency:
   group: wiki-pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
