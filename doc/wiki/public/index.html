@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manga Translator Wiki</title>
+    <script>
+      (() => {
+        const languages = navigator.languages?.length
+          ? navigator.languages
+          : [navigator.language || '']
+        const preferredLanguage = languages[0].toLowerCase()
+        const directory = preferredLanguage === 'zh' || preferredLanguage.startsWith('zh-')
+          ? 'zh/'
+          : 'en/'
+        const destination = new URL(directory, window.location.href)
+        destination.search = window.location.search
+        destination.hash = window.location.hash
+        window.location.replace(destination)
+      })()
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <nav aria-label="Language selection">
+        <a href="./zh/">简体中文</a>
+        <a href="./en/">English</a>
+      </nav>
+    </noscript>
+  </body>
+</html>
