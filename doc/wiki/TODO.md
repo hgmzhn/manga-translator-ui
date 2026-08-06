@@ -117,10 +117,10 @@
 
 ### 5.2 安装
 
-- [ ] [未开工] `zh/en install/choose-edition.md`
-- [ ] [未开工] `zh/en install/requirements.md`
-- [ ] [未开工] `zh/en install/windows-portable.md`
-- [ ] [未开工] `zh/en install/source-windows.md`
+- [x] [完成] `zh/en install/choose-edition.md` - evidence: 双语正文、安装选择与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
+- [x] [完成] `zh/en install/requirements.md` - evidence: 双语正文、Python/硬件依赖与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
+- [x] [完成] `zh/en install/windows-portable.md` - evidence: 双语正文、便携版启动与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
+- [x] [完成] `zh/en install/source-windows.md` - evidence: 双语正文、源码安装与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en install/linux-and-macos.md`
 - [ ] [未开工] `zh/en install/docker.md`
 - [ ] [未开工] `zh/en install/update-and-version-switching.md`
@@ -158,7 +158,7 @@
 - [ ] [未开工] P08 Upscale / Colorization 参数组。
 - [ ] [未开工] P09 Mode Specific 参数组。
 
-- [ ] [未开工] `zh/en desktop/settings/index.md`
+- [x] [完成] `zh/en desktop/settings/index.md` - evidence: 双语正文、设置生命周期与源码依据、i18n 三列、Mermaid、静态检查；后续统一验收按第 8 节执行
 - [ ] [未开工] `zh/en desktop/settings/shell-description-import-export.md`
 - [ ] [未开工] `zh/en desktop/settings/general-and-app.md`
 - [ ] [未开工] `zh/en desktop/settings/cli-batch-and-output.md`
