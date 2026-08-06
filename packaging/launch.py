@@ -14,14 +14,11 @@ import shutil
 from pathlib import Path
 
 # 项目配置
-BRANCH = 'main'
-VERSION = '1.7.6'
 PYTHON_VERSION_MIN = (3, 12)
 PYTHON_VERSION_MAX = (3, 12)  # 仅支持Python 3.12,不支持3.13+
 
 # 路径配置
 PATH_ROOT = Path(__file__).parent.parent
-stored_commit_hash = None
 
 # 获取环境变量
 python = sys.executable
@@ -33,7 +30,6 @@ if portable_git.exists():
 else:
     git = os.environ.get('GIT', "git")
 
-skip_install = False
 index_url = os.environ.get('INDEX_URL', "")
 
 # 备用镜像源列表（按优先级排序）
@@ -348,9 +344,6 @@ stderr: {stderr if stderr else '<empty>'}
 
 def run_pip(args, desc=None):
     """使用pip安装包，支持多镜像源自动回退"""
-    if skip_install:
-        return
-    
     import urllib.parse
     
     def build_pip_command(pip_args, mirror_url=None):
@@ -601,9 +594,6 @@ def run_pip_requirements(variant, desc=None, exclude_packages=None):
         desc: 描述信息
         exclude_packages: 需要排除的包名列表（小写），如 AMD 模式下跳过 PyTorch 生态包
     """
-    if skip_install:
-        return
-
     # 从 pyproject.toml 读取包列表和 PyTorch 主源
     packages = get_variant_packages(variant)
     primary_index_url = get_variant_index_url(variant)
@@ -616,8 +606,6 @@ def run_pip_requirements(variant, desc=None, exclude_packages=None):
 
 def run_pip_packages(packages, primary_index_url, desc=None):
     """安装包列表：检测到 uv 用 uv 批量安装（快），否则用 pip 逐包安装（兼容）"""
-    if skip_install:
-        return
     if not packages:
         print(f"[警告] {desc or '依赖列表'} 中没有找到有效的依赖包")
         return
@@ -642,25 +630,26 @@ def ensure_git_safe_directory():
         pass  # 忽略错误，不影响后续操作
 
 
-def commit_hash():
-    """获取当前Git commit hash"""
-    global stored_commit_hash
-    if stored_commit_hash is not None:
-        return stored_commit_hash
-
-    ensure_git_safe_directory()  # 确保 safe.directory 已配置
+def restart_maintenance(action):
+    """Restart the maintenance process so updated launcher code is loaded."""
+    if action not in {'install', 'update'}:
+        raise ValueError(f'Unsupported maintenance resume action: {action}')
+    print(L('代码更新完成，正在重新加载维护程序...',
+            'Code updated. Reloading the maintenance program...'))
+    script_path = str(Path(__file__).resolve())
+    sys.stdout.flush()
+    sys.stderr.flush()
     try:
-        stored_commit_hash = run(f"{git} rev-parse HEAD").strip()
-    except Exception:
-        stored_commit_hash = "<none>"
-
-    return stored_commit_hash
-
-
-def restart():
-    """重启应用"""
-    print('正在重启应用...\n')
-    os.execv(sys.executable, ['python'] + sys.argv)
+        os.execv(
+            sys.executable,
+            [sys.executable, script_path, '--maintenance', f'--resume-{action}'],
+        )
+    except OSError as e:
+        print(L(f'[错误] 无法重新加载维护程序: {e}',
+                f'[ERROR] Could not reload the maintenance program: {e}'))
+        print(L('请重新运行安装/更新脚本，更新后的代码不会在当前进程中继续执行。',
+                'Run the install/update script again; the updated code will not continue in this process.'))
+        raise SystemExit(1) from e
 
 
 def detect_gpu():
@@ -1228,10 +1217,6 @@ def prepare_environment(args):
     返回: (use_amd_pytorch, amd_gfx_version) - 是否使用AMD PyTorch及其gfx版本
     """
     
-    if args.frozen:
-        print('frozen模式: 跳过依赖安装')
-        return False, None
-
     # 确保 packaging 已安装 (需要 < 25.0 版本)
     try:
         import packaging
@@ -1652,7 +1637,7 @@ except:
     windows_amd_install = use_amd_pytorch and sys.platform == 'win32'
 
     # 检查是否需要卸载不匹配的 PyTorch 版本
-    need_reinstall = args.reinstall_torch
+    need_reinstall = False
     
     if not need_reinstall:
         # 检测当前安装的 PyTorch 类型
@@ -1799,8 +1784,7 @@ except:
     if env_root.name.lower() == 'scripts':
         env_root = env_root.parent
     uv = find_uv()
-    if (not windows_amd_install and uv and not skip_install
-            and PATH_ROOT in env_root.parents):
+    if not windows_amd_install and uv and PATH_ROOT in env_root.parents:
         try:
             # pip/uv 等自举工具不在 lock 中，同步时保留（只保留已安装的）
             import importlib.metadata as _md
@@ -1825,36 +1809,6 @@ except:
 
     # 返回 AMD PyTorch 相关信息
     return use_amd_pytorch, amd_gfx_version
-
-
-def update_repository(args):
-    """更新代码库"""
-    if getattr(sys, 'frozen', False):
-        print('打包版本,跳过更新检查')
-        return False
-
-    if not args.update:
-        return False
-
-    print('正在检查更新...')
-    try:
-        current_commit = commit_hash()
-        run(f"{git} fetch origin {BRANCH}", desc="正在从远程拉取更新...", errdesc="拉取更新失败")
-        latest_commit = run(f"{git} rev-parse origin/{BRANCH}").strip()
-
-        if current_commit != latest_commit:
-            print("发现新版本,正在更新...")
-            run(f"{git} pull origin {BRANCH}", desc="正在更新代码库...", errdesc="更新失败")
-            print("更新完成,正在重启应用...")
-            restart()
-            return True
-        else:
-            print("已是最新版本")
-    except Exception as e:
-        print(f"更新检查失败: {e}")
-        print("继续使用当前版本")
-    
-    return False
 
 
 # ============================================================
@@ -2317,10 +2271,6 @@ def update_dependencies(args):
     print()
     
     # 设置参数，让 prepare_environment 处理所有逻辑
-    args.update_deps = True
-    args.frozen = False
-    args.reinstall_torch = False
-    
     # 检测已安装的 PyTorch 类型来决定 dependency group
     req_file, pytorch_type, detail = get_requirements_file_from_env()
     if req_file:
@@ -2617,6 +2567,74 @@ def run_deps_with_retry(task, action_label_zh, action_label_en):
             return False
 
 
+def install_dependencies(args):
+    """Install the selected runtime dependency set after code is current."""
+    print()
+    print(L("[2/2] 安装依赖...", "[2/2] Installing dependencies..."))
+    args.requirements = 'auto'
+
+    def do_install():
+        prepare_environment(args)
+        return True
+
+    print()
+    if not run_deps_with_retry(do_install, "安装", "Install"):
+        return False
+
+    cleanup_caches()
+    print()
+    print("=" * 40)
+    print(L("[完成] 安装完成", "[DONE] Installation complete"))
+    print("=" * 40)
+    return True
+
+
+def update_runtime_dependencies(args, req_file, missing_packages):
+    """Apply dependency changes using the currently loaded launcher code."""
+    print()
+    print(L("[2/2] 更新依赖...", "[2/2] Updating dependencies..."))
+    if req_file:
+        args.requirements = req_file
+
+    def do_update_deps():
+        if missing_packages:
+            print(L(f"只安装缺失的 {len(missing_packages)} 个包...",
+                    f"Installing only the {len(missing_packages)} missing package(s)..."))
+            return update_dependencies_selective(args, missing_packages)
+        return update_dependencies(args)
+
+    if not run_deps_with_retry(do_update_deps, "更新", "Update"):
+        print(L("[错误] 依赖更新失败，未完成本次更新",
+                "[ERROR] Dependency update failed; this update was not completed"))
+        return False
+
+    cleanup_caches()
+    print()
+    print("=" * 40)
+    print(L("[完成] 更新完成", "[DONE] Update complete"))
+    print("=" * 40)
+    return True
+
+
+def resume_updated_code(args, action):
+    """Continue install/update after restarting into freshly synced code."""
+    if action == 'install':
+        print(L('已加载更新后的代码，继续安装。',
+                'Updated code loaded; continuing installation.'))
+        return install_dependencies(args)
+
+    print(L('已加载更新后的代码，重新检查依赖。',
+            'Updated code loaded; re-checking dependencies.'))
+    code_needs_update, _, _, _, req_file, _ = check_all_updates()
+    if code_needs_update:
+        print(L('[错误] 代码在重启后仍未与远程同步，已停止依赖更新',
+                '[ERROR] Code is still not synchronized after restart; dependency update stopped'))
+        return False
+    # Code updates may remove dependencies without creating a "missing package".
+    # Always run the full preparation path so managed environments are synced.
+    return update_runtime_dependencies(args, req_file, [])
+
+
 def run_install(args):
     """安装：选择线路 → 同步代码 → 检测显卡并选择 CPU/GPU 版本 → 安装依赖"""
     print()
@@ -2650,30 +2668,18 @@ def run_install(args):
     # 同步代码到远程分支
     print()
     print(L("[1/2] 同步代码...", "[1/2] Syncing code..."))
-    if not update_code_force(skip_confirm=True):
+    if update_code_force(skip_confirm=True):
+        restart_maintenance('install')
+        return
+    else:
         print(L("[警告] 代码同步失败，将使用当前本地代码继续安装",
                 "[WARNING] Code sync failed; continuing installation with current local code"))
-
-    # 显卡检测 + CPU/GPU/AMD 版本选择 + 依赖安装（prepare_environment 内部完成交互）
-    print()
-    print(L("[2/2] 安装依赖...", "[2/2] Installing dependencies..."))
-    args.requirements = 'auto'
-    args.reinstall_torch = False
-    args.update_deps = True
-    args.frozen = False
-
-    print()
-    if run_deps_with_retry(lambda: (prepare_environment(args), True)[1], "安装", "Install"):
-        cleanup_caches()
-        print()
-        print("=" * 40)
-        print(L("[完成] 安装完成", "[DONE] Installation complete"))
-        print("=" * 40)
+    install_dependencies(args)
 
 
 def run_full_update(args):
     """更新：检查代码+依赖，需要时同步代码并安装依赖"""
-    code_needs_update, deps_needs_update, current_ver, remote_ver, req_file, missing_packages = check_all_updates()
+    code_needs_update, deps_needs_update, _, _, req_file, missing_packages = check_all_updates()
 
     print()
     if not code_needs_update and not deps_needs_update:
@@ -2691,61 +2697,38 @@ def run_full_update(args):
     print(L("开始更新", "Starting update"))
     print("=" * 40)
 
-    update_success = True
-
     if code_needs_update:
         print()
         print(L("[1/2] 更新代码...", "[1/2] Updating code..."))
         if not update_code_force(skip_confirm=True):
-            update_success = False
             print(L("[错误] 代码更新失败，跳过依赖更新",
                     "[ERROR] Code update failed; skipping dependency update"))
+            print()
+            print("=" * 40)
+            print(L("[失败] 更新未完成，请修复问题后重试",
+                    "[FAILED] Update was not completed; fix the problem and retry"))
+            print("=" * 40)
+            return
         else:
-            print(L("基于更新后的代码重新检查依赖...", "Re-checking dependencies against updated code..."))
-            _, deps_needs_update, _, _, req_file, missing_packages = check_all_updates()
+            restart_maintenance('update')
+            return
     else:
         print()
         print(L("[1/2] 代码已是最新，跳过", "[1/2] Code already up to date, skipping"))
 
-    if update_success and deps_needs_update:
-        print()
-        print(L("[2/2] 更新依赖...", "[2/2] Updating dependencies..."))
-        if req_file:
-            args.requirements = req_file
-
-        # 如果有缺失包列表，只安装缺失的包
-        def do_update_deps():
-            if missing_packages:
-                print(L(f"只安装缺失的 {len(missing_packages)} 个包...",
-                        f"Installing only the {len(missing_packages)} missing package(s)..."))
-                return update_dependencies_selective(args, missing_packages)
-            return update_dependencies(args)
-
-        deps_update_success = run_deps_with_retry(do_update_deps, "更新", "Update")
-        if not deps_update_success:
-            update_success = False
-            print(L("[错误] 依赖更新失败，未完成本次更新",
-                    "[ERROR] Dependency update failed; this update was not completed"))
-    elif update_success:
+    if deps_needs_update:
+        if not update_runtime_dependencies(args, req_file, missing_packages):
+            return
+    else:
         print()
         print(L("[2/2] 依赖已满足，跳过", "[2/2] Dependencies satisfied, skipping"))
-
-    if update_success:
-        if deps_needs_update:
-            cleanup_caches()
         print()
         print("=" * 40)
         print(L("[完成] 更新完成", "[DONE] Update complete"))
         print("=" * 40)
-    else:
-        print()
-        print("=" * 40)
-        print(L("[失败] 更新未完成，请修复问题后重试",
-                "[FAILED] Update was not completed; fix the problem and retry"))
-        print("=" * 40)
 
 
-def maintenance_menu():
+def maintenance_menu(resume_action=None):
     """安装或更新 菜单"""
     init_language()
     print()
@@ -2756,12 +2739,14 @@ def maintenance_menu():
     # 创建一个简单的 args 对象用于依赖更新
     class Args:
         def __init__(self):
-            self.frozen = False
             self.requirements = 'auto'
-            self.reinstall_torch = False
-            self.update_deps = False
 
     args = Args()
+
+    if resume_action:
+        if not resume_updated_code(args, resume_action):
+            raise SystemExit(1)
+        input(L("\n按回车键继续...", "\nPress Enter to continue..."))
 
     # 首次显示版本信息
     check_version_info()
@@ -2822,98 +2807,28 @@ def maintenance_menu():
             print(L("无效选项", "Invalid option"))
 
 
-def launch_ui(args):
-    """启动UI界面 (Qt)"""
-    from desktop_qt_ui.main import main as qt_main
-    qt_main()
-
-
-def launch_cli(args):
-    """启动命令行版本"""
-    import manga_translator.__main__ as cli_main
-    # 传递参数给命令行版本
-    cli_main.main()
-
-
 def main():
-    """主函数"""
-    # 检查Python版本
+    """Run the install/update maintenance interface."""
     if not is_python_version_valid():
-        sys.exit(1)
+        return 1
 
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description='漫画翻译器启动脚本')
-    parser.add_argument("--update", action='store_true', help="启动前检查并自动更新")
-    parser.add_argument("--frozen", action='store_true', help="跳过依赖检查(打包版本)")
-    parser.add_argument("--install-deps-only", action='store_true', help="仅安装依赖,不启动UI")
-    parser.add_argument("--reinstall-torch", action='store_true', help="重新安装PyTorch")
-    parser.add_argument("--update-deps", action='store_true', help="更新依赖到最新版本(步骤4使用)")
-    parser.add_argument("--requirements", default='auto', help="依赖方案 (auto=自动选择, 或指定 cpu/gpu/amd/metal)")
-    parser.add_argument("--cli", action='store_true', help="使用命令行模式")
-    parser.add_argument("--verbose", action='store_true', help="显示详细日志")
-    parser.add_argument("--maintenance", action='store_true', help="启动更新维护菜单")
-    
-    args, unknown = parser.parse_known_args()
-    
-    # 如果是维护模式，直接进入维护菜单
-    if args.maintenance:
-        # 切换到项目根目录
-        os.chdir(PATH_ROOT)
-        maintenance_menu()
-        return
+    parser = argparse.ArgumentParser(description='漫画翻译器安装/更新维护程序')
+    parser.add_argument('--maintenance', action='store_true', help=argparse.SUPPRESS)
+    resume_group = parser.add_mutually_exclusive_group()
+    resume_group.add_argument('--resume-install', action='store_true', help=argparse.SUPPRESS)
+    resume_group.add_argument('--resume-update', action='store_true', help=argparse.SUPPRESS)
+    args = parser.parse_args()
 
-    # 显示版本信息
-    commit = commit_hash()
-    print('=' * 60)
-    print('漫画翻译器 Manga Translator UI')
-    print('=' * 60)
-    print(f'版本: {VERSION}')
-    print(f'分支: {BRANCH}')
-    print(f'提交: {commit[:8]}')
-    print(f'Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')
-    print(f'Python路径: {sys.executable}')
-    print('=' * 60)
+    resume_action = None
+    if args.resume_install:
+        resume_action = 'install'
+    elif args.resume_update:
+        resume_action = 'update'
 
-    # 切换到项目根目录 (launch.py 在 packaging/ 下,需要切换到父目录)
-    APP_DIR = PATH_ROOT
-    os.chdir(APP_DIR)
-
-    # 更新检查
-    if update_repository(args):
-        return  # 更新后会自动重启
-
-    # 准备环境
-    print('\n正在检查依赖...')
-    use_amd_pytorch, amd_gfx_version = prepare_environment(args)
-
-    # 如果只是安装依赖,则退出
-    if args.install_deps_only:
-        print('\n依赖安装完成!')
-        
-        # 如果是 AMD GPU 且安装了 amd 方案，提示 PyTorch 状态
-        if use_amd_pytorch and amd_gfx_version:
-            print('\n✓ AMD ROCm PyTorch 已安装/更新')
-            print(f'  gfx 版本: {amd_gfx_version}')
-        
-        return
-
-    # 启动应用
-    print('\n正在启动应用...\n')
-    try:
-        if args.cli:
-            launch_cli(args)
-        else:
-            launch_ui(args)
-    except KeyboardInterrupt:
-        print('\n\n用户取消')
-        sys.exit(0)
-    except Exception as e:
-        print(f'\n错误: {e}')
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
+    os.chdir(PATH_ROOT)
+    maintenance_menu(resume_action=resume_action)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

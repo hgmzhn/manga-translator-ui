@@ -68,7 +68,7 @@ After extraction, the folder contains two entry scripts. Just double-click them:
 Double-click `Win-Install-or-Update.bat` and choose **[1] Install** in the maintenance menu. The flow is:
 
 1. **Choose a download route**: GitHub official / Gitee mirror (recommended in mainland China)
-2. **Force-sync the latest code**: if the sync fails, you are prompted to retry with the other route
+2. **Force-sync the latest code**: after a successful sync, the maintenance launcher reloads the updated code before continuing
 3. **GPU detection**: automatically detects NVIDIA / AMD / integrated graphics; with multiple GPUs you get a list to pick from
 4. **Choose a PyTorch build**:
    - **NVIDIA**: CUDA 13.x (driver must support CUDA 13.0)
@@ -85,7 +85,7 @@ Double-click `Win-Install-or-Update.bat` and choose **[1] Install** in the maint
 The menu detects your system language and displays Chinese or English automatically. Its configuration is persisted in `packaging\maintenance_config.json`. Menu options:
 
 - **[1] Install**: full install flow, see above
-- **[2] Update**: checks code (compares remote VERSION and commit count on the current branch) and dependencies (installs only missing packages)
+- **[2] Update**: checks code (compares remote VERSION and commit count on the current branch), reloads the launcher after code sync, then rechecks and updates dependencies
 - **[3] Switch branch**: `main` stable / `beta` testing
 - **[4] Switch to a historical version by tag**
 - **[5] Switch mirror source**
