@@ -15,6 +15,9 @@ warnings.filterwarnings('ignore', module='xformers')
 # expandable_segments 可以减少显存碎片，避免 OOM 错误
 os.environ.setdefault('PYTORCH_ALLOC_CONF', 'expandable_segments:True')
 
+# 允许桌面端加载解码后超过 Qt 默认 256 MiB 限制的长图。
+os.environ.setdefault('QT_IMAGEIO_MAXALLOC', '1024')
+
 # 修复便携版Python的路径问题：将脚本所在目录添加到sys.path开头
 # 便携版Python使用._pth文件会禁用自动添加脚本目录的默认行为
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
