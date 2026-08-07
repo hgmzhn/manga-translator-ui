@@ -1276,8 +1276,6 @@ dependencies = [
     { name = "pyperclip" },
     { name = "pyqt6" },
     { name = "pyqt6-fluent-widgets" },
-    { name = "pytest" },
-    { name = "pytest-anyio" },
     { name = "pythainlp", extra = ["nlpo3"] },
     { name = "python-bidi" },
     { name = "python-dotenv" },
@@ -1345,6 +1343,9 @@ packaging = [
     { name = "pyinstaller" },
     { name = "pyinstaller-hooks-contrib" },
 ]
+test = [
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1402,8 +1403,6 @@ requires-dist = [
     { name = "pyperclip", specifier = "==1.9.0" },
     { name = "pyqt6", specifier = "==6.9.1" },
     { name = "pyqt6-fluent-widgets", specifier = "==1.11.2" },
-    { name = "pytest", specifier = "==9.1.1" },
-    { name = "pytest-anyio", specifier = "==0.0.0" },
     { name = "pythainlp", extras = ["nlpo3"], specifier = "==5.3.1" },
     { name = "python-bidi", specifier = "==0.6.6" },
     { name = "python-dotenv", specifier = "==1.2.2" },
@@ -1469,6 +1468,7 @@ packaging = [
     { name = "pyinstaller", specifier = "==6.17.0" },
     { name = "pyinstaller-hooks-contrib", specifier = "==2025.9" },
 ]
+test = [{ name = "pytest", specifier = "==9.1.1" }]
 
 [[package]]
 name = "marisa-trie"
@@ -4950,19 +4950,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e4/47/b9efed96c114afcfa3c9d3fe98a76a1d14c74a9e266d397cf6eb64be5e01/pytest-9.1.1.tar.gz", hash = "sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313", size = 1636369, upload-time = "2026-06-19T10:58:32.857Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl", hash = "sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c", size = 386536, upload-time = "2026-06-19T10:58:31.347Z" },
-]
-
-[[package]]
-name = "pytest-anyio"
-version = "0.0.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "pytest" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/00/44/a02e5877a671b0940f21a7a0d9704c22097b123ed5cdbcca9cab39f17acc/pytest-anyio-0.0.0.tar.gz", hash = "sha256:b41234e9e9ad7ea1dbfefcc1d6891b23d5ef7c9f07ccf804c13a9cc338571fd3", size = 1560, upload-time = "2021-06-29T22:57:30.846Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c6/25/bd6493ae85d0a281b6a0f248d0fdb1d9aa2b31f18bcd4a8800cf397d8209/pytest_anyio-0.0.0-py2.py3-none-any.whl", hash = "sha256:dc8b5c4741cb16ff90be37fddd585ca943ed12bbeb563de7ace6cd94441d8746", size = 1999, upload-time = "2021-06-29T22:57:29.158Z" },
 ]
 
 [[package]]

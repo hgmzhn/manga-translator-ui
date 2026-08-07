@@ -71,7 +71,7 @@ MANGAT_DRY_RUN=1 ./Unix-Start.sh
 - Linux AMD 只在检测到受支持的 ROCm 架构时建议 `amd`；无法识别或不兼容时默认建议 `cpu`。强制 AMD 选项明确提示兼容性不能保证。
 - 无法检测硬件或 Intel GPU 时提供手动选择，CPU 是兼容性优先的回退。
 
-`uv sync` 的项目默认组是 `gpu` 和 `packaging`，但 Unix 维护流程根据检测结果选择对应变体。不要手动同时启用 `cpu`、`gpu`、`amd`、`metal`；`tool.uv.conflicts` 已将它们声明为互斥，混装会造成 PyTorch/ONNX 后端冲突。
+`uv sync` 的源码开发默认组是 `gpu`、`packaging` 和 `test`，但 Unix 维护流程禁用默认组并根据检测结果只选择对应硬件变体，因此不会安装测试工具。不要手动同时启用 `cpu`、`gpu`、`amd`、`metal`；`tool.uv.conflicts` 已将它们声明为互斥，混装会造成 PyTorch/ONNX 后端冲突。
 
 ## 安装脚本做了什么
 

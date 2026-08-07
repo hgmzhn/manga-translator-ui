@@ -12,6 +12,7 @@ import subprocess
 import importlib.util
 import shutil
 from pathlib import Path
+from urllib.parse import urlparse
 
 # 项目配置
 PYTHON_VERSION_MIN = (3, 12)
@@ -64,10 +65,24 @@ PYTORCH_INDEX_PRIORITY = {
     ],
 }
 
+PYTORCH_OFFICIAL_INDEX_HOST = "download.pytorch.org"
+
 
 def normalize_index_url(url):
     """统一 index-url 格式，便于做去重和映射。"""
     return (url or "").strip().rstrip("/")
+
+
+def is_official_pytorch_index_url(url):
+    """Return whether *url* points to the official HTTPS PyTorch index."""
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except (TypeError, ValueError):
+        return False
+    return (
+        parsed.scheme.lower() == "https"
+        and (parsed.hostname or "").lower() == PYTORCH_OFFICIAL_INDEX_HOST
+    )
 
 
 def build_trusted_host_args(urls):
@@ -553,7 +568,7 @@ def run_uv_packages(uv, packages, primary_index_url, desc=None):
         pypi_mirror = index_url or MIRROR_URLS[0]
         installed = False
         for candidate in get_pytorch_index_candidates(primary_index_url):
-            if 'download.pytorch.org' in candidate:
+            if is_official_pytorch_index_url(candidate):
                 print(f'[uv] 安装 PyTorch 相关包 ({len(pytorch_pkgs)} 个)，源: {candidate}')
                 ok = uv_install(pytorch_pkgs, candidate)
             else:

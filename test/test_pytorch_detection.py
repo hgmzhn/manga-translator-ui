@@ -40,3 +40,19 @@ def test_pytorch_detection_reports_timeout(monkeypatch):
     pytorch_type, detail = launch.detect_installed_pytorch_version()
     assert pytorch_type is None
     assert "60 秒" in detail
+
+
+def test_official_pytorch_index_url_requires_exact_https_hostname():
+    launch = load_launch("launch_pytorch_index_url_test")
+
+    assert launch.is_official_pytorch_index_url("https://download.pytorch.org/whl/cu130")
+    assert not launch.is_official_pytorch_index_url("http://download.pytorch.org/whl/cu130")
+    assert not launch.is_official_pytorch_index_url(
+        "https://download.pytorch.org.evil.example/whl/cu130"
+    )
+    assert not launch.is_official_pytorch_index_url(
+        "https://evil.example/download.pytorch.org/whl/cu130"
+    )
+    assert not launch.is_official_pytorch_index_url(
+        "https://download.pytorch.org@evil.example/whl/cu130"
+    )

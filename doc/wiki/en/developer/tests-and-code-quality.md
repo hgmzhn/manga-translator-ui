@@ -52,11 +52,11 @@ flowchart LR
 The repository is based on Python 3.12 (`requires-python = ">=3.12,<3.13"` in `pyproject.toml`) and dependencies are managed with `uv`. CI uses the CPU dependency group, so prefer matching it locally:
 
 ```powershell
-uv sync --no-default-groups --group cpu
+uv sync --no-default-groups --group cpu --group test
 uv run --no-sync pytest test
 ```
 
-- The default `uv sync` installs the `gpu` and `packaging` groups (NVIDIA CUDA 13.0 plus PyInstaller); the `cpu`, `gpu`, `amd`, and `metal` groups are mutually exclusive via `[tool.uv] conflicts` in `pyproject.toml`.
+- The default `uv sync` installs `gpu` + `packaging` + `test` (NVIDIA CUDA 13.0, PyInstaller, and test tools). The installer disables default groups, so it does not check test dependencies. The `cpu`, `gpu`, `amd`, and `metal` groups are mutually exclusive via `[tool.uv] conflicts` in `pyproject.toml`.
 - `[tool.pytest.ini_options]` in `pyproject.toml` fixes `testpaths = ["test"]` and `pythonpath = [".", "desktop_qt_ui"]`, preventing pytest from inheriting configuration and source paths from an adjacent older repository.
 - When running the full suite, the pytest-reported `rootdir` must be the current Git repository root. If an older repository still exists in a parent directory, stale configuration can import the old `manga_translator` (e.g. `ModuleNotFoundError: No module named 'rusty_manga_image_translator'`); in that case verify the actual import path with `PYTHONPATH=.` first, and never report an adjacent repository's results as this repository's.
 - Verified in this workspace on 2026-08-07: `uv run --no-sync pytest test --collect-only -q` collected 379 tests in about 26 seconds. This task did not run the full suite; CI owns the full run.
@@ -101,7 +101,7 @@ flowchart LR
     A["push / pull_request / workflow_dispatch"] --> B["actions/checkout"]
     B --> C["setup-uv v0.11.33\ncache uv.lock"]
     C --> D["uv python install 3.12"]
-    D --> E["uv sync --locked --no-default-groups --group cpu"]
+    D --> E["uv sync --locked --no-default-groups --group cpu --group test"]
     E --> F["uv run --no-sync pytest test"]
 ```
 
@@ -134,7 +134,7 @@ The table groups the currently tracked test files by area; it is not a coverage 
 
 ## Constraints and notes
 
-- The `cpu` / `gpu` / `amd` / `metal` groups are mutually exclusive and cannot be installed together; CI and the commands on this page use the `cpu` group. The default `uv sync` is `gpu` + `packaging`, so running tests on a machine without an NVIDIA environment may behave differently due to the torch backend.
+- The `cpu` / `gpu` / `amd` / `metal` groups are mutually exclusive and cannot be installed together; CI and the commands on this page use `cpu` + `test`. The default `uv sync` is `gpu` + `packaging` + `test`, so running tests on a machine without an NVIDIA environment may behave differently due to the torch backend.
 - `uv.lock` is a committed lockfile that must not be hand-edited; CI uses `uv sync --locked` for reproducibility.
 - On Windows, torch must load before PyQt6; `_bootstrap.py` handles this, so do not `import torch` yourself or assume "my test does not use torch".
 - Only `test/*.py` is tracked; output images, temporary JSON, and subdirectory files are ignored. Do not treat ignored temporary artifacts as official test results, and do not modify `.gitignore` to un-ignore them.

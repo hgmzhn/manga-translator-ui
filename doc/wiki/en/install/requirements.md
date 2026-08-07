@@ -38,7 +38,7 @@ The current source of dependency truth is `pyproject.toml` and `uv.lock`. `requi
 
 | Target | Command | Meaning |
 | --- | --- | --- |
-| NVIDIA CUDA (default) | `uv sync` | Default `gpu` and `packaging` groups; PyTorch uses the CUDA 13.0 index |
+| NVIDIA CUDA (source-development default) | `uv sync` | Default `gpu`, `packaging`, and `test` groups; PyTorch uses the CUDA 13.0 index |
 | CPU | `uv sync --no-default-groups --group cpu` | CPU PyTorch and `onnxruntime` |
 | Linux AMD ROCm | `uv sync --no-default-groups --group amd` | ROCm 7.2 index; conditional ROCm PyTorch/Triton on Linux x86_64 |
 | macOS Apple Silicon | `uv sync --no-default-groups --group metal` | PyPI PyTorch/MPS; CPU ONNX Runtime |
@@ -60,7 +60,7 @@ After installation, desktop controls change runtime behavior but do not replace 
 
 ## What the installer does
 
-Common dependencies are `[project].dependencies`; hardware backends are `[dependency-groups]`. `default-groups = ["gpu", "packaging"]` makes bare `uv sync` NVIDIA by default, while `conflicts` marks `cpu`, `gpu`, `amd`, and `metal` as mutually exclusive. PyTorch and torchvision bind to explicit indexes per group; `xformers` is GPU-only, and Metal does not use a CUDA index.
+Common runtime dependencies are `[project].dependencies`; hardware backends, packaging, and test tools are in `[dependency-groups]`. `default-groups = ["gpu", "packaging", "test"]` makes source-development `uv sync` use NVIDIA and install developer tooling. The installer disables default groups and selects exactly one hardware group, so it does not check the `test` group. `conflicts` marks `cpu`, `gpu`, `amd`, and `metal` as mutually exclusive. PyTorch and torchvision bind to explicit indexes per group; `xformers` is GPU-only, and Metal does not use a CUDA index.
 
 ```mermaid
 flowchart TD
@@ -70,7 +70,7 @@ flowchart TD
     C -->|cpu| E["CPU PyTorch + onnxruntime"]
     C -->|amd| F["Conditional Linux ROCm 7.2 dependencies"]
     C -->|metal| G["macOS PyTorch MPS + CPU ONNX Runtime"]
-    D --> H["Common dependencies and optional packaging tools"]
+    D --> H["Common runtime dependencies"]
     E --> H
     F --> H
     G --> H

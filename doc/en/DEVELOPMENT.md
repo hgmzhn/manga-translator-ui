@@ -21,7 +21,7 @@ Dependencies are now declared in `pyproject.toml` at the repository root:
 
 - Common dependencies live in `[project] dependencies`.
 - The four backends are mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
-- The default groups are `gpu` + `packaging`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 13.0 and keeps PyInstaller installed.
+- The default groups are `gpu` + `packaging` + `test`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 13.0 and keeps PyInstaller and the test tools installed. The installer uses `--no-default-groups`, so it neither checks nor installs the `test` group.
 - PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu130`, Linux `amd` uses `whl/rocm7.2`, and `metal` uses the default PyPI; Windows AMD Radeon wheels remain installed separately by `packaging/launch.py`.
 - `uv.lock` is the lockfile. It is committed to the repository; do not edit it by hand.
 
@@ -50,7 +50,7 @@ In a source checkout, `uv sync` creates `.venv` and reproduces dependencies from
 uv sync --active
 ```
 
-The default GPU environment already includes the `packaging` group. For another backend, add it explicitly when building:
+The default GPU environment already includes the `packaging` and `test` groups. For another backend, add `packaging` explicitly when building:
 
 ```bash
 uv sync --no-default-groups --group cpu --group packaging

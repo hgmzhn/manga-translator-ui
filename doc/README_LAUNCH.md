@@ -45,8 +45,8 @@
 依赖不再使用 `requirements_*.txt`，全部声明在 `pyproject.toml` 中：
 
 - `[project].dependencies`：公共依赖；
-- `[dependency-groups]`：`cpu` / `gpu` / `amd` / `metal` 四个互斥后端组，以及独立的 `packaging` 打包组；
-- `[tool.uv].default-groups`：源码开发默认使用 `gpu` + `packaging`；
+- `[dependency-groups]`：`cpu` / `gpu` / `amd` / `metal` 四个互斥后端组，以及独立的 `packaging` 打包组和 `test` 测试组；
+- `[tool.uv].default-groups`：源码开发默认使用 `gpu` + `packaging` + `test`；
 - `[[tool.uv.index]]` + `[tool.uv.sources].torch`：定义各变体对应的 PyTorch 主源（如 cpu → `download.pytorch.org/whl/cpu`，gpu → `.../cu130`）；
 - `tool.uv.sources` 中 url/git 类型来源（如 pydensecrf）按平台 marker 解析成 `name @ url` 形式交给安装器。
 

@@ -192,7 +192,7 @@ cd manga-translator-ui
 Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal`). Install one backend with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-# NVIDIA GPU (CUDA 13.0, default; also installs the packaging group)
+# NVIDIA GPU (CUDA 13.0, source-development default; also installs packaging/test)
 uv sync
 
 # CPU

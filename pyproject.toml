@@ -1,7 +1,7 @@
 # uv 依赖配置（替代 requirements_cpu/gpu/amd/metal.txt）
 #
 # 安装方式（四选一，dependency groups 互斥）:
-#   uv sync                                      # 默认：NVIDIA CUDA 13.0 + 打包工具
+#   uv sync                                      # 默认：NVIDIA CUDA 13.0 + 打包/测试工具
 #   uv sync --no-default-groups --group cpu      # CPU 版
 #   uv sync --no-default-groups --group amd      # Linux AMD ROCm 7.2
 #   # Windows AMD: use the Windows installer; it installs Radeon SDK before PyTorch.
@@ -55,7 +55,6 @@ dependencies = [
     "PyHyphen==4.0.4",
     "PyQt6==6.9.1",
     "PyQt6-Fluent-Widgets==1.11.2",
-    "pytest==9.1.1",
     "python-dotenv==1.2.2",
     "rich==14.1.0",
     "safetensors==0.8.0",
@@ -95,7 +94,6 @@ dependencies = [
     "bcrypt==4.2.1",
     "cryptography==50.0.0",
     "APScheduler==3.10.4",
-    "pytest-anyio==0.0.0",
 ]
 
 [dependency-groups]
@@ -143,12 +141,15 @@ packaging = [
     "pyinstaller==6.17.0",
     "pyinstaller-hooks-contrib==2025.9",
 ]
+test = [
+    "pytest==9.1.1",
+]
 
 [tool.uv]
 # 本项目按应用管理，不构建/安装自身
 package = false
-# 本仓库默认使用 NVIDIA GPU 环境，并保留项目打包工具
-default-groups = ["gpu", "packaging"]
+# 本仓库默认使用 NVIDIA GPU 环境，并保留项目打包和测试工具
+default-groups = ["gpu", "packaging", "test"]
 # 四种后端互斥，不能同时安装
 conflicts = [
     [

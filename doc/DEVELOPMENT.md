@@ -16,7 +16,7 @@
 
 - 公共依赖写在 `[project] dependencies`。
 - 四种后端是互斥的 dependency groups：`cpu` / `gpu` / `amd` / `metal`（`[tool.uv] conflicts` 保证互斥）。
-- 默认组是 `gpu` + `packaging`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 13.0，并保留 PyInstaller。
+- 默认组是 `gpu` + `packaging` + `test`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 13.0，并保留 PyInstaller 与测试工具；安装器使用 `--no-default-groups`，不会检查或安装 `test` 组。
 - PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cpu` 用 `download.pytorch.org/whl/cpu`，`gpu` 用 `whl/cu130`，Linux `amd` 用 `whl/rocm7.2`，`metal` 走默认 PyPI；Windows AMD 的 Radeon wheels 仍由 `packaging/launch.py` 单独安装。
 - `uv.lock` 是锁定文件，已提交在仓库里，请勿手改。
 
@@ -45,7 +45,7 @@ uv sync --no-default-groups --group amd
 uv sync --active
 ```
 
-默认 GPU 环境已经包含 `packaging` 组。其他后端做 PyInstaller 打包时加上：
+默认 GPU 环境已经包含 `packaging` 与 `test` 组。其他后端做 PyInstaller 打包时加上：
 
 ```bash
 uv sync --no-default-groups --group cpu --group packaging

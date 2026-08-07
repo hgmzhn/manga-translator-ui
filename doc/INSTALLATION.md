@@ -197,7 +197,7 @@ cd manga-translator-ui
 依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 dependency groups），使用 [uv](https://docs.astral.sh/uv/) 安装。下面四种后端只选一种：
 
 ```bash
-# NVIDIA GPU（CUDA 13.0，默认；同时安装 packaging 组）
+# NVIDIA GPU（CUDA 13.0，源码开发默认；同时安装 packaging/test 组）
 uv sync
 
 # CPU 版本

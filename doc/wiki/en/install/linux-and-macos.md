@@ -71,7 +71,7 @@ Automatic selection during installation works broadly as follows:
 - Linux AMD recommends `amd` only for a detected supported ROCm architecture. When the hardware cannot be identified or is incompatible, it defaults to recommending `cpu`. The force-AMD choice explicitly warns that compatibility is not guaranteed.
 - If hardware detection fails or an Intel GPU is detected, the script offers manual selection; CPU is the compatibility-first fallback.
 
-The project's default `uv sync` groups are `gpu` and `packaging`, but the Unix maintenance path selects the appropriate variant from detection. Do not manually enable `cpu`, `gpu`, `amd`, and `metal` together: `tool.uv.conflicts` declares them mutually exclusive, and mixing them causes PyTorch/ONNX backend conflicts.
+The source-development default `uv sync` groups are `gpu`, `packaging`, and `test`, but the Unix maintenance path disables defaults and selects only the detected hardware variant, so it does not install test tools. Do not manually enable `cpu`, `gpu`, `amd`, and `metal` together: `tool.uv.conflicts` declares them mutually exclusive, and mixing them causes PyTorch/ONNX backend conflicts.
 
 ## What the installer does
 

@@ -141,7 +141,8 @@ def make_endpoint_status_key(
 ) -> str:
     api_key_text = str(api_key or "").strip()
     api_key_fingerprint = (
-        hmac.digest(_STATUS_KEY_SECRET, api_key_text.encode("utf-8"), "sha256").hex()[:12]
+        # This is a keyed, process-local cache identifier, not a stored password hash.
+        hmac.digest(_STATUS_KEY_SECRET, api_key_text.encode("utf-8"), "sha256").hex()[:12]  # lgtm[py/weak-sensitive-data-hashing]
         if api_key_text
         else "no-key"
     )

@@ -49,7 +49,7 @@ lastUpdated: true
 
 ### 依赖组冲突 {#dependency-groups}
 
-`pyproject.toml` 声明 `cpu`、`gpu`、`amd`、`metal` 四个互斥依赖组，`uv sync` 默认安装 `gpu` 与 `packaging`。同一环境叠加另一后端，或混用 `onnxruntime` 与 `onnxruntime-gpu`、不同 CUDA/ROCm 索引的 Torch，会造成 DLL、Torch 或 ONNX Runtime 冲突。启动器检测到已安装 PyTorch 类型与目标不一致时，会提示“检测到 PyTorch 版本不匹配”，卸载 `torch`/`torchvision`/`torchaudio` 后重装；卸载前请关闭其他使用 PyTorch 的进程。换后端时应新建环境或清理后按一组同步，详见[安装要求](../install/requirements.md)的依赖冲突表。
+`pyproject.toml` 声明 `cpu`、`gpu`、`amd`、`metal` 四个互斥硬件组；源码开发的 `uv sync` 默认安装 `gpu`、`packaging` 与 `test`，维护安装器则禁用默认组并只选一个硬件组。同一环境叠加另一后端，或混用 `onnxruntime` 与 `onnxruntime-gpu`、不同 CUDA/ROCm 索引的 Torch，会造成 DLL、Torch 或 ONNX Runtime 冲突。启动器检测到已安装 PyTorch 类型与目标不一致时，会提示“检测到 PyTorch 版本不匹配”，卸载 `torch`/`torchvision`/`torchaudio` 后重装；卸载前请关闭其他使用 PyTorch 的进程。换后端时应新建环境或清理后按一组同步，详见[安装要求](../install/requirements.md)的依赖冲突表。
 
 ### 找不到运行环境 {#missing-environment}
 

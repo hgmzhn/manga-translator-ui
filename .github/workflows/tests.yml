@@ -32,7 +32,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Sync CPU dependencies
-        run: uv sync --locked --no-default-groups --group cpu
+        run: uv sync --locked --no-default-groups --group cpu --group test
 
       - name: Run all tests
         run: uv run --no-sync pytest test

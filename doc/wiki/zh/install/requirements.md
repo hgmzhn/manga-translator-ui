@@ -38,7 +38,7 @@ lastUpdated: true
 
 | 目标环境 | 命令 | 说明 |
 | --- | --- | --- |
-| NVIDIA CUDA（默认） | `uv sync` | 默认 `gpu` 与 `packaging` 组，PyTorch 使用 CUDA 13.0 索引 |
+| NVIDIA CUDA（源码开发默认） | `uv sync` | 默认 `gpu`、`packaging` 与 `test` 组，PyTorch 使用 CUDA 13.0 索引 |
 | CPU | `uv sync --no-default-groups --group cpu` | CPU PyTorch 与 `onnxruntime` |
 | Linux AMD ROCm | `uv sync --no-default-groups --group amd` | ROCm 7.2 索引；Linux x86_64 条件项安装 ROCm PyTorch/Triton |
 | macOS Apple Silicon | `uv sync --no-default-groups --group metal` | PyPI PyTorch/MPS；ONNX Runtime 仍为 CPU 版 |
@@ -60,7 +60,7 @@ lastUpdated: true
 
 ## 安装脚本做了什么
 
-公共依赖在 `[project].dependencies`，硬件后端在 `[dependency-groups]`。`default-groups = ["gpu", "packaging"]` 使 `uv sync` 默认采用 NVIDIA；`conflicts` 声明 `cpu`、`gpu`、`amd`、`metal` 互斥。PyTorch/torchvision 按组绑定显式索引，`xformers` 仅 GPU 组，Metal 不使用 CUDA 索引。
+公共运行依赖在 `[project].dependencies`，硬件后端、打包和测试工具在 `[dependency-groups]`。`default-groups = ["gpu", "packaging", "test"]` 使源码开发的 `uv sync` 默认采用 NVIDIA 并安装开发工具；安装器显式禁用默认组，只选择一个硬件组，因此不会检查 `test` 组。`conflicts` 声明 `cpu`、`gpu`、`amd`、`metal` 互斥。PyTorch/torchvision 按组绑定显式索引，`xformers` 仅 GPU 组，Metal 不使用 CUDA 索引。
 
 ```mermaid
 flowchart TD
@@ -70,7 +70,7 @@ flowchart TD
     C -->|cpu| E["CPU PyTorch + onnxruntime"]
     C -->|amd| F["Linux ROCm 7.2 条件依赖"]
     C -->|metal| G["macOS PyTorch MPS + CPU ONNX Runtime"]
-    D --> H["公共依赖与可选打包工具"]
+    D --> H["公共运行依赖"]
     E --> H
     F --> H
     G --> H
