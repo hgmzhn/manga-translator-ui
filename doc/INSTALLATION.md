@@ -45,7 +45,7 @@
 
 从 GitHub Releases 下载便携安装包，解压即用。安装包内置打包版 Python 3.12（`packaging\python\python.exe`）和 uv 包管理器（`packaging\uv.exe`），完全绿色、不写注册表、**无需预装 Python**。
 
-> ⚠️ **网络提示**：安装过程需要下载代码和依赖，国内网络可在菜单中选择 Gitee 镜像和国内 PyPI 镜像。
+> ⚠️ **网络提示**：安装过程需要下载代码和依赖，国内网络可在菜单中选择 Gitee 或 GitCode 镜像和国内 PyPI 镜像。
 
 ### 前提条件
 
@@ -65,7 +65,7 @@
 
 双击 `Win-Install-or-Update.bat`，在维护菜单中选择 **[1] 安装**，流程如下：
 
-1. **选择下载线路**：GitHub 官方 / Gitee 镜像（国内推荐）
+1. **选择下载线路**：GitHub 官方 / Gitee / GitCode 镜像（国内推荐）
 2. **强制同步最新代码**：同步失败会提示切换到另一条线路重试
 3. **检测显卡**：自动识别 NVIDIA / AMD / 集显；多显卡时列出让用户选择
 4. **选择 PyTorch 版本**：

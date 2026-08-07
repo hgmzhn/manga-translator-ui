@@ -67,3 +67,21 @@ def test_broken_torch_prompt_uses_english_language(monkeypatch, capsys):
     assert "PyTorch DLL could not be loaded" in output
     assert "Open the official Microsoft download URL?" in output
     assert "broken PyTorch installation will be removed" in output
+
+
+def test_broken_torch_blocks_dependency_flow_until_vc_runtime_is_fixed(monkeypatch, capsys):
+    launch = load_launch("launch_blocked_torch_runtime_test")
+    answers = iter(["n", ""])
+    monkeypatch.setattr(launch.sys, "platform", "win32")
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    monkeypatch.setattr(
+        launch,
+        "detect_installed_pytorch_version",
+        lambda: (None, "安装损坏: WinError 1114 DLL"),
+    )
+
+    assert launch.ensure_pytorch_runtime_ready() is False
+    output = capsys.readouterr().out
+
+    assert launch.VC_REDIST_X64_URL in output
+    assert "本次操作已停止" in output

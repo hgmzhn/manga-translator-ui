@@ -1144,6 +1144,7 @@ def choose_when_amd_unsupported():
 
 PYTORCH_DETECTION_TIMEOUT = 60
 VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+PYTORCH_RUNTIME_BROKEN_MARKERS = ("安装损坏", "WinError 1114", "DLL")
 
 
 def detect_installed_pytorch_version():
@@ -1218,16 +1219,16 @@ def get_requirements_file_from_env():
         return None, None, detail
 
 
-def repair_broken_pytorch_runtime(pytorch_type, detail):
+def repair_broken_pytorch_runtime(pytorch_type, detail, *, allow_reinstall=True):
     """Prompt for the Windows VC++ runtime, then recheck a broken torch install.
 
     Returns ``(type, detail, remove_broken)``. A genuinely missing torch install
-    does not trigger this flow.
+    does not trigger this flow.  Callers that must require VC++ first can set
+    ``allow_reinstall=False`` to stop instead of removing the broken package.
     """
     detail = detail or ""
-    broken_markers = ("安装损坏", "WinError 1114", "DLL")
     if sys.platform != "win32" or pytorch_type is not None or not any(
-            marker.lower() in detail.lower() for marker in broken_markers):
+            marker.lower() in detail.lower() for marker in PYTORCH_RUNTIME_BROKEN_MARKERS):
         return pytorch_type, detail, False
 
     print("\n" + "=" * 50)
@@ -1264,9 +1265,47 @@ def repair_broken_pytorch_runtime(pytorch_type, detail):
 
     print(L(f"[错误] PyTorch 仍无法加载: {detected_detail}",
             f"[ERROR] PyTorch still could not be loaded: {detected_detail}"))
-    print(L("将删除当前环境中损坏的 PyTorch，随后重新安装所选版本。",
-            "The broken PyTorch installation will be removed, then the selected build will be reinstalled."))
-    return None, detected_detail, True
+    if allow_reinstall:
+        print(L("将删除当前环境中损坏的 PyTorch，随后重新安装所选版本。",
+                "The broken PyTorch installation will be removed, then the selected build will be reinstalled."))
+        return None, detected_detail, True
+
+    print(L(
+        "请先安装或修复上面的 VC++ 运行库；本次操作已停止。",
+        "Install or repair the VC++ runtime above first; this operation has been stopped.",
+    ))
+    return None, detected_detail, False
+
+
+def ensure_pytorch_runtime_ready():
+    """Ensure a broken Windows PyTorch runtime is repaired before continuing.
+
+    A missing PyTorch package is a normal first-install state and is allowed to
+    continue to hardware/variant selection.  A package that is present but
+    cannot load its DLLs is different: it requires the VC++ runtime first.
+    Returns ``False`` when the user has not repaired the runtime yet.
+    """
+    pytorch_type, detail = detect_installed_pytorch_version()
+    if sys.platform != "win32" or pytorch_type is not None or not any(
+            marker.lower() in (detail or "").lower()
+            for marker in PYTORCH_RUNTIME_BROKEN_MARKERS):
+        return True
+
+    # Do not silently remove a working-but-unloadable torch installation.  Give
+    # the user a chance to install the Microsoft runtime and stop if it still
+    # cannot be loaded; the caller can be retried after a reboot.
+    repaired_type, _, _ = repair_broken_pytorch_runtime(
+        pytorch_type, detail, allow_reinstall=False
+    )
+    if repaired_type is not None:
+        return True
+
+    print(L(
+        "[错误] PyTorch 运行时未修复，本次安装/更新已停止。请安装上面的 VC++ 运行库后重新运行。",
+        "[ERROR] The PyTorch runtime is still unavailable; this install/update was stopped. "
+        "Install the VC++ runtime above and run the operation again.",
+    ))
+    return False
 
 
 def prepare_environment(args):
@@ -1274,6 +1313,14 @@ def prepare_environment(args):
     
     返回: (use_amd_pytorch, amd_gfx_version) - 是否使用AMD PyTorch及其gfx版本
     """
+
+    # A broken torch DLL must be fixed before GPU detection and variant
+    # selection; otherwise the launcher would incorrectly treat it as absent.
+    if not ensure_pytorch_runtime_ready():
+        raise RuntimeError(L(
+            "PyTorch DLL 无法加载，请先安装 VC++ 运行库后重试。",
+            "PyTorch DLL could not be loaded; install the VC++ runtime and retry.",
+        ))
     
     # 确保 packaging 已安装 (需要 < 25.0 版本)
     try:
@@ -1700,10 +1747,6 @@ except:
     if not need_reinstall:
         # 检测当前安装的 PyTorch 类型
         installed_pytorch_type, installed_detail = detect_installed_pytorch_version()
-        installed_pytorch_type, installed_detail, broken_install = repair_broken_pytorch_runtime(
-            installed_pytorch_type, installed_detail
-        )
-        need_reinstall = broken_install
         requirements_lower = requirements_file.lower()
         if "amd" in requirements_lower:
             target_type = "AMD"
@@ -1879,6 +1922,7 @@ except:
 GIT_MIRRORS = [
     ('GitHub 官方', 'GitHub official', 'https://github.com/hgmzhn/manga-translator-ui.git'),
     ('Gitee 镜像 (国内推荐)', 'Gitee mirror (recommended in China)', 'https://gitee.com/hgmzhn/manga-translator-ui.git'),
+    ('GitCode 镜像', 'GitCode mirror', 'https://gitcode.com/hgmzhn/manga-translator-ui'),
 ]
 
 SUPPORTED_BRANCHES = ['main', 'beta']
@@ -2059,7 +2103,7 @@ def git_fetch_with_mirror_prompt(fetch_args=None, desc=None):
                 "[ERROR] Sync failed (network issue or current mirror unavailable)"))
         print(L(f"当前镜像源: {get_mirror_display_name()}",
                 f"Current mirror: {get_mirror_display_name()}"))
-        # 直接推荐另一条线路（GitHub 失败推荐 Gitee，反之亦然）
+        # 直接推荐另一条可用线路；其余线路仍可从菜单手动选择。
         current = get_remote_url().removesuffix('.git')
         suggestion = None
         for zh_name, en_name, url in GIT_MIRRORS:
@@ -2332,6 +2376,12 @@ def update_dependencies(args):
     print("更新/安装依赖")
     print("=" * 40)
     print()
+
+    # Do this before selecting a hardware variant.  A DLL-load failure is not
+    # the same as a missing torch package and must not fall through to GPU
+    # selection.
+    if not ensure_pytorch_runtime_ready():
+        return False
     
     # 设置参数，让 prepare_environment 处理所有逻辑
     # 检测已安装的 PyTorch 类型来决定 dependency group
@@ -2635,6 +2685,8 @@ def install_dependencies(args):
     """Install the selected runtime dependency set after code is current."""
     print()
     print(L("[2/2] 安装依赖...", "[2/2] Installing dependencies..."))
+    if not ensure_pytorch_runtime_ready():
+        return False
     args.requirements = 'auto'
 
     def do_install():
@@ -2657,6 +2709,10 @@ def update_runtime_dependencies(args, req_file, missing_packages):
     """Apply dependency changes using the currently loaded launcher code."""
     print()
     print(L("[2/2] 更新依赖...", "[2/2] Updating dependencies..."))
+    if not ensure_pytorch_runtime_ready():
+        print(L("[错误] 请先安装/修复 VC++ 运行库后再更新依赖。",
+                "[ERROR] Install/repair the VC++ runtime before updating dependencies."))
+        return False
     if req_file:
         args.requirements = req_file
 

@@ -104,7 +104,7 @@
 2. **运行安装**：
    - 双击 `Win-Install-or-Update.bat`，选择 `[1] 安装`
    - 脚本会自动：
-     - ✓ 选择下载线路（GitHub 官方 / Gitee 国内镜像），同步失败自动提示换线路
+     - ✓ 选择下载线路（GitHub 官方 / Gitee / GitCode 镜像），同步失败自动提示换线路
      - ✓ 同步最新代码
      - ✓ 检测显卡类型（NVIDIA / AMD / 集显）
      - ✓ 自动选择对应的 PyTorch 版本

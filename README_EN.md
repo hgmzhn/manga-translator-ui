@@ -106,7 +106,7 @@ The English companion versions of the documents below are being added one by one
 2. **Run the installer**
    - Double-click `Win-Install-or-Update.bat` and choose `[1] Install`
    - The script will automatically:
-     - ✓ Let you pick a download route (GitHub official / Gitee mirror), and suggest switching routes if syncing fails
+     - ✓ Let you pick a download route (GitHub official / Gitee / GitCode mirrors), and suggest switching routes if syncing fails
      - ✓ Sync the latest code
      - ✓ Detect your GPU type: NVIDIA, AMD, or integrated graphics
      - ✓ Automatically choose the matching PyTorch build
