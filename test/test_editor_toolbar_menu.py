@@ -18,7 +18,7 @@ import pytest
 
 ROOT = _bootstrap.ROOT
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QStackedWidget, QVBoxLayout, QWidget  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -36,10 +36,10 @@ def _flush_qt_events():
         app.processEvents()
 
 
-def _make_toolbar():
+def _make_toolbar(parent=None):
     from ui.widgets.editor_toolbar import EditorToolbar
 
-    return EditorToolbar()
+    return EditorToolbar(parent)
 
 
 def _collect(signal):
@@ -141,6 +141,25 @@ def test_display_mode_radio():
     finally:
         toolbar.close()
         toolbar.deleteLater()
+
+
+def test_popup_menus_use_top_level_parent_when_toolbar_is_stacked():
+    """菜单的 QWidget 父级不能是 FluentWindow 内的堆叠页控件。"""
+    host = QWidget()
+    stack = QStackedWidget(host)
+    page = QWidget()
+    stack.addWidget(page)
+    page.setLayout(QVBoxLayout())
+    toolbar = _make_toolbar(page)
+    page.layout().addWidget(toolbar)
+    try:
+        assert toolbar.main_menu.parentWidget() is host
+        assert toolbar.display_menu.parentWidget() is host
+        assert toolbar.arrange_menu.parentWidget() is host
+        assert toolbar.main_menu.parentWidget().isWindow()
+    finally:
+        host.close()
+        host.deleteLater()
 
 
 def test_align_reference_and_actions():

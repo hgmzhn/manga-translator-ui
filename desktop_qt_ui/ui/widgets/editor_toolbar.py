@@ -220,11 +220,19 @@ class EditorToolbar(CardWidget):
     def _build_menus(self):
         """构建三个独立的单级下拉菜单。语言切换时整体重建，状态从字段恢复。"""
         old_menus = [self.main_menu, self.display_menu, self.arrange_menu]
+        # Popup 菜单必须以真正的顶层窗口作为 QWidget 父级。若把工具栏
+        # （位于 FluentWindow 的 QStackedWidget 内）作为父级，Windows Qt
+        # 会尝试激活该堆叠容器的 QWidgetWindow，并记录“must be a top
+        # level window”警告。工具栏脱离窗口单独测试时自身就是顶层控件，
+        # 因此保留自身作为兜底父级。
+        menu_parent = self.window()
+        if menu_parent is None or not menu_parent.isWindow():
+            menu_parent = self
         # 旧菜单里的主题图标按钮即将销毁，先清空登记表防止悬空引用
         self._themed_icon_buttons.clear()
 
         # --- 通用菜单：导出 / 撤销重做 / 缩放 / 持久化开关 ---
-        menu = _IconCheckableMenu(parent=self, indicatorType=MenuIndicatorType.CHECK)
+        menu = _IconCheckableMenu(parent=menu_parent, indicatorType=MenuIndicatorType.CHECK)
 
         # 导出的真实快捷键 Ctrl+Q 由 EditorShortcutManager 全局注册，这里只做文本提示
         self.export_action = Action(FIF.IMAGE_EXPORT, self._t("Export Image") + " (Ctrl+Q)")
@@ -304,7 +312,7 @@ class EditorToolbar(CardWidget):
         self.menu_button.setMenu(menu)
 
         # --- 显示模式菜单：五种画布显示状态单选 ---
-        display_menu = CheckableMenu(parent=self, indicatorType=MenuIndicatorType.RADIO)
+        display_menu = CheckableMenu(parent=menu_parent, indicatorType=MenuIndicatorType.RADIO)
         display_group = QActionGroup(display_menu)
         display_group.setExclusive(True)
         self.display_mode_actions: dict[str, Action] = {}
@@ -321,7 +329,7 @@ class EditorToolbar(CardWidget):
         self.display_mode_button.setMenu(display_menu)
 
         # --- 排列菜单：参照单选 + 对齐/分布选项（文字+图标，点击不关闭） ---
-        arrange_menu = _StayOpenCheckableMenu(parent=self, indicatorType=MenuIndicatorType.RADIO)
+        arrange_menu = _StayOpenCheckableMenu(parent=menu_parent, indicatorType=MenuIndicatorType.RADIO)
         ref_group = QActionGroup(arrange_menu)
         ref_group.setExclusive(True)
         self.align_ref_actions: dict[str, Action] = {}
