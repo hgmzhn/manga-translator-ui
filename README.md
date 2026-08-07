@@ -21,9 +21,6 @@
 [![Python](https://img.shields.io/badge/Python-3.12-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-GPL--3.0-red)](LICENSE.txt)
 
-<br>
-<img src="doc/images/主页.png" width="760" alt="Manga Translator UI 主界面">
-
 </div>
 
 **语言 / Language**：简体中文 | [English](README_EN.md)
