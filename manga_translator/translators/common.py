@@ -1987,7 +1987,11 @@ class CommonTranslator(InfererModule):
         """
         检查翻译结果是否包含必要的[BR]标记
         Check if translations contain necessary [BR] markers
-        
+
+        同时清理单区域（region_count == 1）翻译中多余的断句标记：
+        该清理只依赖 AI 断句（disable_auto_wrap）开关，与「AI断句检查」
+        （check_br_and_retry）是否开启无关。
+
         Args:
             translations: 翻译结果列表
             queries: 原始查询列表（可选）
@@ -1995,35 +1999,28 @@ class CommonTranslator(InfererModule):
             batch_indices: 批次索引列表（可选，用于定位text_regions）
             batch_data: 批次数据列表（可选，HQ翻译器使用）
             split_level: 分割级别（可选，用于跳过深度分割时的检查）
-            
+
         Returns:
             True if validation passes, False if BR markers are missing
         """
         import re
-        
+
         # 如果分割级别过深（>=3），跳过BR检查以避免无限重试
         if split_level >= 3:
             self.logger.info(f"[AI断句检查] 分割级别过深 (split_level={split_level})，跳过BR标记检查")
             return True
-        
-        # 检查是否启用了BR检查
-        check_enabled = False
-        if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'render'):
-            check_enabled = getattr(ctx.config.render, 'check_br_and_retry', False)
-        
-        if not check_enabled:
-            return True  # 检查未启用，直接通过
-        
+
         # 检查是否启用了AI断句
         ai_break_enabled = False
         if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'render'):
             ai_break_enabled = getattr(ctx.config.render, 'disable_auto_wrap', False)
-        
+
         if not ai_break_enabled:
-            return True  # AI断句未启用，不需要检查BR
-        
+            return True  # AI断句未启用，不需要处理BR
+
         # 提取每个翻译对应的区域数
         region_counts = []
+        single_region_indices = []  # 已确认是单区域（region_count < 2）的翻译下标
         if ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
             for idx in range(len(translations)):
                 # 确定实际的region索引
@@ -2031,11 +2028,13 @@ class CommonTranslator(InfererModule):
                     region_idx = batch_indices[idx]
                 else:
                     region_idx = idx
-                
+
                 if region_idx < len(ctx.text_regions):
                     region = ctx.text_regions[region_idx]
                     region_count = len(region.lines) if hasattr(region, 'lines') else 1
                     region_counts.append(region_count)
+                    if region_count < 2:
+                        single_region_indices.append(idx)
                 else:
                     region_counts.append(1)  # 默认为1
         elif batch_data:
@@ -2047,17 +2046,40 @@ class CommonTranslator(InfererModule):
                         region = data['text_regions'][region_idx]
                         region_count = len(region.lines) if hasattr(region, 'lines') else 1
                         region_counts.append(region_count)
+                        if region_count < 2:
+                            single_region_indices.append(idx)
                         break
                 else:
                     region_counts.append(1)
         else:
             region_counts = [1] * len(translations)  # 默认都为1
-        
+
+        # 单区域清理（与「AI断句检查」开关无关，只依赖 AI 断句开启）：
+        # 模型不遵守 N=1 规则返回 [BR]/<br>/【BR】 时，统一清理成单行，
+        # 避免单区域被渲染成多行。
+        for idx in single_region_indices:
+            translation = translations[idx]
+            if translation:
+                cleaned = re.sub(r'\s*(\[BR\]|【BR】|<br\s*/?>)\s*', '', translation, flags=re.IGNORECASE)
+                if cleaned != translation:
+                    self.logger.info(
+                        f"[AI断句] 单区域翻译 #{idx+1} 自动清理多余断句标记: {translation[:50]!r} -> {cleaned[:50]!r}"
+                    )
+                    translations[idx] = cleaned
+
+        # 检查是否启用了BR检查
+        check_enabled = False
+        if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'render'):
+            check_enabled = getattr(ctx.config.render, 'check_br_and_retry', False)
+
+        if not check_enabled:
+            return True  # 检查未启用，直接通过
+
         # 检查每个翻译，统计缺失BR的数量
         needs_check_count = 0
         missing_br_count = 0
         missing_indices = []
-        
+
         for idx, (translation, region_count) in enumerate(zip(translations, region_counts)):
             # 只检查区域数≥2的翻译
             if region_count >= 2:
@@ -2070,11 +2092,11 @@ class CommonTranslator(InfererModule):
                     self.logger.warning(
                         f"Translation {idx+1} missing [BR] markers (expected for {region_count} regions): {translation[:50]}..."
                     )
-        
+
         # 计算容忍的错误数量：十分之一，最少1个
         if needs_check_count > 0:
             tolerance = max(1, needs_check_count // 10)
-            
+
             if missing_br_count > tolerance:
                 # 超过容忍度，验证失败
                 self.logger.warning(

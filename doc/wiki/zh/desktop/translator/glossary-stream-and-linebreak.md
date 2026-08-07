@@ -18,64 +18,34 @@ lastUpdated: true
 - 当前配置模型中没有 `translator.glossary` 配置键；术语表以 `glossary` 键的形式存放在自定义 HQ 提示词文件（`translator.high_quality_prompt_path`）内，由自动提取功能写回。
 - `translator.extract_glossary` 是自动术语提取开关；只有自定义 HQ 提示词成功加载时它才会进入提取分支，否则即使开关开启也走普通翻译。
 - `translator.enable_streaming`（任务简报中的 `translator.stream` 即此键）只改变 OpenAI/Gemini（含 HQ 模式）请求的传输方式，不改变提示词、上下文、术语提取或最终译文。
-- `render.disable_auto_wrap` 在界面中显示为“AI 断句 / AI Line Breaking”；它同时驱动翻译端断句提示词和渲染端的 `[BR]` 强制换行语义，渲染端自动换行等行为见排版与渲染页。
-- `OPENAI_GLOSSARY_PATH`（“术语表路径 / Glossary Path”）是环境变量背书的旧式术语表路径，与 `extract_glossary` 的写回位置（自定义提示词文件）不同。
+- `render.disable_auto_wrap` 在界面中显示为“AI 断句”；它同时驱动翻译端断句提示词和渲染端的 `[BR]` 强制换行语义，渲染端自动换行等行为见排版与渲染页。
+- `OPENAI_GLOSSARY_PATH`（“术语表路径”）是环境变量背书的旧式术语表路径，与 `extract_glossary` 的写回位置（自定义提示词文件）不同。
 
 ## UI 操作
 
 ### 在设置页开启术语提取与流式传输
 
-1. 打开“设置”（`Settings`），选择“翻译”（`Translation`）分组。
-2. 在“自动提取新术语”（`Auto Extract Glossary`）开关上启用或关闭。启用后右侧说明面板显示“自动从翻译结果中提取人名、地名等专有名词，确保长篇漫画翻译一致性。”
-3. 在“启用流式传输”（`Enable Streaming`）开关上启用或关闭。说明面板显示流式与普通请求的差异。
-4. 术语提取需要先在“自定义提示词”（`Custom Prompt`）中选择一个可解析的提示词文件，否则开关不会产生提取分支。
-5. 打开“设置”→“排版”（`Typesetting`），在“AI 断句”（`AI Line Breaking`）开关上启用或关闭 AI 断句提示词。
+1. 打开“设置”，选择“翻译”分组。
+2. 在“自动提取新术语”开关上启用或关闭。启用后右侧说明面板显示“自动从翻译结果中提取人名、地名等专有名词，确保长篇漫画翻译一致性。”
+3. 在“启用流式传输”开关上启用或关闭。说明面板显示流式与普通请求的差异。
+4. 术语提取需要先在“自定义提示词”中选择一个可解析的提示词文件，否则开关不会产生提取分支。
+5. 打开“设置”→“排版”，在“AI 断句”开关上启用或关闭 AI 断句提示词。
 
 ### 在提示词预览中查看术语表
 
-打开“提示词管理”（`Prompt Management`），选中自定义提示词文件后点击“提示词预览”（`Prompt Preview`）。若文件含 `glossary` 键，预览会显示“术语词典”（`Glossary`）分节和条目总数，并按 Person / Location / Org / Item / Skill / Creature 分类页签展示；没有条目时显示“没有术语条目”（`No glossary entries`）。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `Translation` | Translation | 翻译 |
-| `Typesetting` | Typesetting | 排版 |
-| `label_extract_glossary` | Auto Extract Glossary | 自动提取新术语 |
-| `desc_translator_extract_glossary` | Auto-extract proper nouns (names, places) from translations to ensure consistency in long manga series. | 自动从翻译结果中提取人名、地名等专有名词，确保长篇漫画翻译一致性。 |
-| `label_enable_streaming` | Enable Streaming | 启用流式传输 |
-| `desc_translator_enable_streaming` | When enabled, supported OpenAI/Gemini translators, including HQ modes, prefer the unified streaming transport for incremental responses. When disabled, they always use standard non-streaming requests. | 启用后，OpenAI/Gemini（含高质量模式）会优先使用统一流式传输层实时接收增量响应；关闭后始终使用普通非流式请求。 |
-| `label_disable_auto_wrap` | AI Line Breaking | AI 断句 |
-| `desc_render_disable_auto_wrap` | Disable auto line wrapping. Recommended when AI line breaking is enabled. | 禁用自动换行。启用 AI 断句时建议开启。 |
-| `label_check_br_and_retry` | AI Line Break Check | AI 断句检查 |
-| `desc_render_check_br_and_retry` | Check AI line break results, auto-retry if unsatisfactory. ⚠️ Warning: May cause infinite loops, use with caution. | 检查 AI 断句结果，不符合要求则自动重试。⚠️ 注意：可能会陷入无限循环，请谨慎使用。 |
-| `label_optimize_line_breaks` | AI Line Break Auto Enlarge | AI断句自动扩大文字 |
-| `label_semantic_linebreak` | Chinese Semantic Line Break | 中文语义断句 |
-| `label_remove_linebreak_punctuation` | Trim Around Line Breaks | 去除换行符周围逗号句号 |
-| `label_OPENAI_GLOSSARY_PATH` | Glossary Path | 术语表路径 |
-| `Glossary` | Glossary | 术语词典 |
-| `No glossary entries` | No glossary entries | 没有术语条目 |
-| `Settings Desc Header` | Parameter Description | 参数说明 |
-| `Settings Desc Placeholder` | Click any setting on the left to view details | 点击左侧任意设置项查看详细说明 |
-
-设置行右侧的说明面板由 `_get_setting_description()` 用 `desc_{full_key}`（`.` 替换为 `_`）查 locale，缺失时显示占位文案。
+打开“提示词管理”，选中自定义提示词文件后点击“提示词预览”。若文件含 `glossary` 键，预览会显示“术语词典”分节和条目总数，并按 Person / Location / Org / Item / Skill / Creature 分类页签展示；没有条目时显示“没有术语条目”。
 
 ## 参数与选项
 
-#### `translator.extract_glossary` — 自动提取新术语 / Auto Extract Glossary {#translator-extract-glossary}
+> 本页各参数的详细介绍（界面名称、存储键、默认值与生效阶段），见文末[开发指南 → 选项中英对照](#developer-guide)。
+
+#### 自动提取新术语 {#translator-extract-glossary}
 
 - 控件：开关。
-- 所在界面：设置 → 翻译；UI 调用 key 为 `label_extract_glossary`。
-- 存储值：布尔；`true` 开启自动术语提取。
-- 可选值：`true` / `false`；没有枚举下拉。
-- 默认值：核心代码 `manga_translator/config.py#TranslatorConfig.extract_glossary` 为 `false`；Qt 模型 `desktop_qt_ui/core/config_models.py#TranslatorSettings.extract_glossary` 为 `false`；发行配置 `config/config-example.json` 为 `false`。
-- 生效阶段：翻译（系统提示词构建、响应解析、术语写回提示词文件）。
-- 原理：翻译器在每次尝试时计算 `extract_glossary = bool(custom_prompt_json) and config.extract_glossary`；两者都成立才走术语提取分支。开启时 `_build_system_prompt_with_glossary()` 在基础系统提示词后追加 `dict/glossary_extraction_prompt.yaml`（专有名词提取规则）和带 `new_terms` 要求的扩展输出格式；`parse_hq_response()` 返回 `(translations, new_terms)`，`new_terms` 经 `_emit_terms_from_list()` 去重输出，并通过 `merge_glossary_to_file(prompt_path, new_terms)` 写回自定义提示词文件的 `glossary` 键（按 Person / Location / Org / Item / Skill / Creature 分类，按原文去重）。每个批次重新加载提示词文件，`glossary` 内容会被 `_flatten_prompt_data()` 展平进自定义提示词文本，形成“提取 → 写回 → 下次请求携带”的反馈回路。
-- 依赖与冲突：依赖 `translator.high_quality_prompt_path` 指向可解析的 YAML/JSON 文件；文件不可写或解析失败时只记录日志。只对 OpenAI/Gemini（含 HQ 模式）翻译器生效；Sakura、离线翻译器不消费该开关。写回会修改用户提示词文件，共享前需脱敏。
-- 性能/API 成本：提示词增加提取规则与 `new_terms` 输出格式，单次请求 token 略增；写回是本地文件操作。
-- 关联文件和调试产物：`dict/glossary_extraction_prompt.yaml`、`dict/system_prompt_hq_format.yaml`、自定义提示词文件（如 `dict/prompt_example.yaml` 或用户文件）、控制台/日志中的术语输出。
-- 图示：术语提取开关分支（下图）。
-- 源码依据：定义 `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py`；界面绑定 `settings_tab_layout.json`、`app_logic.py`；消费者 `manga_translator/translators/common.py`、`openai.py`、`gemini.py`；持久化 `manga_translator/manga_translator.py#_load_and_prepare_prompts`、`prompt_loader.py`。
-- 验证状态：完成（静态核对）。
+- 所在界面：设置 → 翻译。
+- 可选值：开启或关闭。
+- 默认值：`false`。
+- 原理：开启后，翻译器在每次尝试时追加术语提取规则和带 `new_terms` 要求的扩展输出格式，从响应中提取人名、地名等专有名词，按 Person / Location / Org / Item / Skill / Creature 分类去重后写回自定义提示词文件的 `glossary` 键；下次批次重新加载该文件，形成“提取 → 写回 → 下次请求携带”的反馈回路。只有自定义提示词成功加载时才进入提取分支，否则即使开关开启也走普通翻译；写回会修改用户提示词文件，共享前需脱敏。
 
 ```mermaid
 flowchart LR
@@ -93,21 +63,13 @@ flowchart LR
 
 开关只改变提示词内容与写回行为；译文数量校验、重试和候选轮换仍然照常。
 
-#### `translator.enable_streaming` — 启用流式传输 / Enable Streaming {#translator-enable-streaming}
+#### 启用流式传输 {#translator-enable-streaming}
 
 - 控件：开关。
-- 所在界面：设置 → 翻译；UI 调用 key 为 `label_enable_streaming`。
-- 存储值：布尔；`true` 优先使用流式传输。
-- 可选值：`true` / `false`；没有枚举下拉。
-- 默认值：核心代码 `manga_translator/config.py#TranslatorConfig.enable_streaming` 为 `true`；Qt 模型 `desktop_qt_ui/core/config_models.py#TranslatorSettings.enable_streaming` 为 `true`；发行配置 `config/config-example.json` 为 `false`。
-- 生效阶段：翻译（请求传输）。
-- 原理：`_is_streaming_enabled(ctx)` 优先读取 `ctx.config.translator.enable_streaming`，缺省回退实例 `_enable_streaming=True`。开启时 OpenAI 请求带 `stream=true`、Gemini 使用 `generate_content_stream`，统一由 `_run_unified_stream_transport()` 消费：归一化增量/累计/重复三种分块格式、轮询取消、首包与空闲 300 秒超时，并边收边输出 JSON 增量预览（`_emit_stream_json_preview`）。若流式请求抛出异常（如端点不支持流式），本次尝试回退为普通非流式请求；关闭时始终使用标准非流式请求。
-- 依赖与冲突：只对 OpenAI/Gemini（含 HQ 模式）翻译器生效；流式与 API 候选槽轮换正交——整个发送操作包裹在 `_run_with_api_rotation()` 内，候选切换照常；RPM 限流在每次请求前生效，与是否流式无关。
-- 性能/API 成本：流式不减少 token 用量，但能更早看到增量内容；对不支持流式的端点自动回退，不中断任务。
-- 关联文件和调试产物：`manga_translator/translators/common.py#_run_unified_stream_transport`、`openai.py`、`gemini.py`、`openai_hq.py`、`gemini_hq.py`；控制台/日志的流式预览。
-- 图示：流式开关与回退分支（下图）。
-- 源码依据：定义 `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py`；界面绑定 `settings_tab_layout.json`、`app_logic.py`；消费者 `manga_translator/translators/common.py`、`openai.py`、`gemini.py`。
-- 验证状态：完成（静态核对）。
+- 所在界面：设置 → 翻译。
+- 可选值：开启或关闭。
+- 默认值：`false`。
+- 原理：开启后，OpenAI/Gemini（含高质量模式）优先使用统一流式传输层实时接收增量响应，并可在控制台/日志中看到增量预览；关闭时始终使用标准非流式请求。若流式请求抛出异常（如端点不支持流式），本次尝试自动回退为普通非流式请求，不会中断任务。
 
 ```mermaid
 flowchart LR
@@ -125,21 +87,13 @@ flowchart LR
 
 回退只影响单次尝试；若端点持续失败，重试与候选轮换机制照常接管。
 
-#### `render.disable_auto_wrap` — AI 断句 / AI Line Breaking {#render-disable-auto-wrap}
+#### AI 断句 {#render-disable-auto-wrap}
 
 - 控件：开关。
-- 所在界面：设置 → 排版；UI 调用 key 为 `label_disable_auto_wrap`。
-- 存储值：布尔；`true` 开启 AI 断句。
-- 可选值：`true` / `false`；没有枚举下拉。
-- 默认值：核心代码 `manga_translator/config.py#RenderConfig.disable_auto_wrap` 为 `false`；Qt 模型 `desktop_qt_ui/core/config_models.py#RenderSettings.disable_auto_wrap` 为 `true`；发行配置 `config/config-example.json` 为 `false`。
-- 生效阶段：翻译（断句提示词与 `original_region_count`）与排版/渲染（`[BR]` 强制换行）。
-- 原理：开启后两个消费点同时生效。翻译端 `manga_translator.py#_load_and_prepare_prompts()` 加载 `dict/system_prompt_line_break.yaml` 到 `ctx.line_break_prompt_json`；`_build_system_prompt_prefix()` 把它放到重试提示之后、自定义提示词之前；`_build_unified_user_prompt()` 为每个区域附加 `original_region_count`（区域行数，来自 `text_regions[].lines`，纯文本模式回退按换行符计数）。断句提示词按 N 给出 `[BR]` 数量指引（N=1 不插、N=2 恰好一个、N≥3 建议 N-1 或 N 段），并要求只用 `[BR]`、不用 `\n`。渲染端把 `[BR]`（含 `<br>`、`【BR】`）归一化为强制换行参与排版；`render.check_br_and_retry` 开启时，对区域数≥2 的译文检查 `[BR]` 缺失并触发重试，分割层级过深时跳过检查避免无限循环。
-- 依赖与冲突：只对 OpenAI/Gemini（含 HQ 模式）翻译器有断句提示词意义；本地渲染始终处理 `[BR]` 标记。与 `optimize_line_breaks`、`semantic_linebreak`、`remove_linebreak_punctuation`、`check_br_and_retry` 联动，完整行为见[排版与渲染](../settings/typesetting-and-rendering.md)。替换翻译模式会强制 `disable_auto_wrap=true` 与 `layout_mode='strict'`。
-- 性能/API 成本：断句提示词与 `original_region_count` 增加提示词长度；`check_br_and_retry` 可能触发多次重试。
-- 关联文件和调试产物：`dict/system_prompt_line_break.yaml`、`manga_translator/translators/common.py`、`manga_translator/manga_translator.py`、`manga_translator/rendering/__init__.py`。
-- 图示：断句开关分支（下图）。
-- 源码依据：定义 `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py`；界面绑定 `settings_tab_layout.json`、`app_logic.py`；消费者 `manga_translator/manga_translator.py#_load_and_prepare_prompts`、`manga_translator/translators/common.py`、`manga_translator/rendering/__init__.py`。
-- 验证状态：完成（静态核对）。
+- 所在界面：设置 → 排版。
+- 可选值：开启或关闭。
+- 默认值：`false`。
+- 原理：开启后，翻译端在系统提示词中加入断句提示词，并让模型按原文行数输出 `[BR]` 换行标记；渲染端把 `[BR]` 视为强制换行参与排版。与“AI 断句检查”等排版选项联动，完整行为见排版与渲染页；替换翻译模式会强制开启 AI 断句与严格布局。单行区域（N=1）若模型仍返回 `[BR]`/`<br>`/`【BR】`，会在断句检查阶段自动清理成单行，该清理不依赖“AI 断句检查”开关。
 
 ```mermaid
 flowchart LR
@@ -173,7 +127,7 @@ flowchart LR
 
 ### AI 断句提示词与 `[BR]` 标记 {#ai-line-break}
 
-断句提示词位于系统提示词前缀：重试提示 → 断句提示 → 自定义提示词 → 基础系统提示词 → 输出格式。用户提示词附带 `original_region_count`，渲染端据此判断译文中的 `[BR]` 数量是否符合原文行数；`check_br_and_retry` 只对区域数≥2 且缺少 `[BR]` 的译文触发重试。
+断句提示词位于系统提示词前缀：重试提示 → 断句提示 → 自定义提示词 → 基础系统提示词 → 输出格式。用户提示词附带 `original_region_count`，渲染端据此判断译文中的 `[BR]` 数量是否符合原文行数；`check_br_and_retry` 只对区域数≥2 且缺少 `[BR]` 的译文触发重试。单行区域（`original_region_count=1`）即使模型返回了 `[BR]`/`<br>`/`【BR】`，`_validate_br_markers()` 也会自动清理成单行；该清理只依赖 `disable_auto_wrap`，与 `check_br_and_retry` 开关无关。
 
 ## 依赖与冲突
 
@@ -183,7 +137,87 @@ flowchart LR
 - 流式、RPM、普通重试与 API 候选轮换在同一请求路径上叠加；这些机制不改变术语与断句内容。
 - 术语表与提示词文件可能包含业务文本。共享日志、请求导出或调试目录前必须删除请求正文、术语条目、路径与凭据。
 
-## 关联文件与格式
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### UI 调用 key 与实际文案
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Settings` | Settings | 设置 |
+| `Translation` | Translation | 翻译 |
+| `Typesetting` | Typesetting | 排版 |
+| `label_extract_glossary` | Auto Extract Glossary | 自动提取新术语 |
+| `desc_translator_extract_glossary` | Auto-extract proper nouns (names, places) from translations to ensure consistency in long manga series. | 自动从翻译结果中提取人名、地名等专有名词，确保长篇漫画翻译一致性。 |
+| `label_enable_streaming` | Enable Streaming | 启用流式传输 |
+| `desc_translator_enable_streaming` | When enabled, supported OpenAI/Gemini translators, including HQ modes, prefer the unified streaming transport for incremental responses. When disabled, they always use standard non-streaming requests. | 启用后，OpenAI/Gemini（含高质量模式）会优先使用统一流式传输层实时接收增量响应；关闭后始终使用普通非流式请求。 |
+| `label_disable_auto_wrap` | AI Line Breaking | AI 断句 |
+| `desc_render_disable_auto_wrap` | Disable auto line wrapping. Recommended when AI line breaking is enabled. | 禁用自动换行。启用 AI 断句时建议开启。 |
+| `label_check_br_and_retry` | AI Line Break Check | AI 断句检查 |
+| `desc_render_check_br_and_retry` | Check AI line break results, auto-retry if unsatisfactory. ⚠️ Warning: May cause infinite loops, use with caution. | 检查 AI 断句结果，不符合要求则自动重试。⚠️ 注意：可能会陷入无限循环，请谨慎使用。 |
+| `label_optimize_line_breaks` | AI Line Break Auto Enlarge | AI断句自动扩大文字 |
+| `label_semantic_linebreak` | Chinese Semantic Line Break | 中文语义断句 |
+| `label_remove_linebreak_punctuation` | Trim Around Line Breaks | 去除换行符周围逗号句号 |
+| `label_OPENAI_GLOSSARY_PATH` | Glossary Path | 术语表路径 |
+| `Glossary` | Glossary | 术语词典 |
+| `No glossary entries` | No glossary entries | 没有术语条目 |
+| `Settings Desc Header` | Parameter Description | 参数说明 |
+| `Settings Desc Placeholder` | Click any setting on the left to view details | 点击左侧任意设置项查看详细说明 |
+
+设置行右侧的说明面板由 `_get_setting_description()` 用 `desc_{full_key}`（`.` 替换为 `_`）查 locale，缺失时显示占位文案。
+
+#### 参数总表
+
+| 设置键 | 控件与全部存储值 | 默认值 | 生效阶段 | 最终消费者 |
+| --- | --- | --- | --- | --- |
+| `translator.extract_glossary` | 开关；`true`、`false` | `false` | 翻译（系统提示词构建、响应解析、术语写回提示词文件） | `_build_system_prompt_with_glossary()`、`parse_hq_response()`、`merge_glossary_to_file()` |
+| `translator.enable_streaming` | 开关；`true`、`false` | `false` | 翻译（请求传输） | `_run_unified_stream_transport()`、OpenAI/Gemini 请求 |
+| `render.disable_auto_wrap` | 开关；`true`、`false` | `false` | 翻译（断句提示词与 `original_region_count`）与排版/渲染（`[BR]` 强制换行） | `_load_and_prepare_prompts()`、`_build_system_prompt_prefix()`、`_build_unified_user_prompt()`、渲染层 `[BR]` 归一化 |
+
+#### `translator.extract_glossary` — 自动提取新术语 / Auto Extract Glossary
+
+- 控件：开关。
+- 所在界面：设置 → 翻译；UI 调用 key 为 `label_extract_glossary`。
+- 存储值：布尔；`true` 开启自动术语提取。
+- 可选值：`true` / `false`；没有枚举下拉。
+- 默认值：核心代码 `manga_translator/config.py#TranslatorConfig.extract_glossary` 为 `false`；Qt 模型 `desktop_qt_ui/core/config_models.py#TranslatorSettings.extract_glossary` 为 `false`；发行配置 `config/config-example.json` 为 `false`。
+- 生效阶段：翻译（系统提示词构建、响应解析、术语写回提示词文件）。
+- 原理：翻译器在每次尝试时计算 `extract_glossary = bool(custom_prompt_json) and config.extract_glossary`；两者都成立才走术语提取分支。开启时 `_build_system_prompt_with_glossary()` 在基础系统提示词后追加 `dict/glossary_extraction_prompt.yaml`（专有名词提取规则）和带 `new_terms` 要求的扩展输出格式；`parse_hq_response()` 返回 `(translations, new_terms)`，`new_terms` 经 `_emit_terms_from_list()` 去重输出，并通过 `merge_glossary_to_file(prompt_path, new_terms)` 写回自定义提示词文件的 `glossary` 键（按 Person / Location / Org / Item / Skill / Creature 分类，按原文去重）。每个批次重新加载提示词文件，`glossary` 内容会被 `_flatten_prompt_data()` 展平进自定义提示词文本，形成“提取 → 写回 → 下次请求携带”的反馈回路。
+- 依赖与冲突：依赖 `translator.high_quality_prompt_path` 指向可解析的 YAML/JSON 文件；文件不可写或解析失败时只记录日志。只对 OpenAI/Gemini（含 HQ 模式）翻译器生效；Sakura、离线翻译器不消费该开关。写回会修改用户提示词文件，共享前需脱敏。
+- 性能/API 成本：提示词增加提取规则与 `new_terms` 输出格式，单次请求 token 略增；写回是本地文件操作。
+- 关联文件和调试产物：`dict/glossary_extraction_prompt.yaml`、`dict/system_prompt_hq_format.yaml`、自定义提示词文件（如 `dict/prompt_example.yaml` 或用户文件）、控制台/日志中的术语输出。
+- 源码依据：定义 `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py`；界面绑定 `settings_tab_layout.json`、`app_logic.py`；消费者 `manga_translator/translators/common.py`、`openai.py`、`gemini.py`；持久化 `manga_translator/manga_translator.py#_load_and_prepare_prompts`、`prompt_loader.py`。
+
+#### `translator.enable_streaming` — 启用流式传输 / Enable Streaming
+
+- 控件：开关。
+- 所在界面：设置 → 翻译；UI 调用 key 为 `label_enable_streaming`。
+- 存储值：布尔；`true` 优先使用流式传输。
+- 可选值：`true` / `false`；没有枚举下拉。
+- 默认值：核心代码 `manga_translator/config.py#TranslatorConfig.enable_streaming` 为 `true`；Qt 模型 `desktop_qt_ui/core/config_models.py#TranslatorSettings.enable_streaming` 为 `true`；发行配置 `config/config-example.json` 为 `false`。
+- 生效阶段：翻译（请求传输）。
+- 原理：`_is_streaming_enabled(ctx)` 优先读取 `ctx.config.translator.enable_streaming`，缺省回退实例 `_enable_streaming=True`。开启时 OpenAI 请求带 `stream=true`、Gemini 使用 `generate_content_stream`，统一由 `_run_unified_stream_transport()` 消费：归一化增量/累计/重复三种分块格式、轮询取消、首包与空闲 300 秒超时，并边收边输出 JSON 增量预览（`_emit_stream_json_preview`）。若流式请求抛出异常（如端点不支持流式），本次尝试回退为普通非流式请求；关闭时始终使用标准非流式请求。
+- 依赖与冲突：只对 OpenAI/Gemini（含 HQ 模式）翻译器生效；流式与 API 候选槽轮换正交——整个发送操作包裹在 `_run_with_api_rotation()` 内，候选切换照常；RPM 限流在每次请求前生效，与是否流式无关。
+- 性能/API 成本：流式不减少 token 用量，但能更早看到增量内容；对不支持流式的端点自动回退，不中断任务。
+- 关联文件和调试产物：`manga_translator/translators/common.py#_run_unified_stream_transport`、`openai.py`、`gemini.py`、`openai_hq.py`、`gemini_hq.py`；控制台/日志的流式预览。
+- 源码依据：定义 `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py`；界面绑定 `settings_tab_layout.json`、`app_logic.py`；消费者 `manga_translator/translators/common.py`、`openai.py`、`gemini.py`。
+
+#### `render.disable_auto_wrap` — AI 断句 / AI Line Breaking
+
+- 控件：开关。
+- 所在界面：设置 → 排版；UI 调用 key 为 `label_disable_auto_wrap`。
+- 存储值：布尔；`true` 开启 AI 断句。
+- 可选值：`true` / `false`；没有枚举下拉。
+- 默认值：核心代码 `manga_translator/config.py#RenderConfig.disable_auto_wrap` 为 `false`；Qt 模型 `desktop_qt_ui/core/config_models.py#RenderSettings.disable_auto_wrap` 为 `true`；发行配置 `config/config-example.json` 为 `false`。
+- 生效阶段：翻译（断句提示词与 `original_region_count`）与排版/渲染（`[BR]` 强制换行）。
+- 原理：开启后两个消费点同时生效。翻译端 `manga_translator.py#_load_and_prepare_prompts()` 加载 `dict/system_prompt_line_break.yaml` 到 `ctx.line_break_prompt_json`；`_build_system_prompt_prefix()` 把它放到重试提示之后、自定义提示词之前；`_build_unified_user_prompt()` 为每个区域附加 `original_region_count`（区域行数，来自 `text_regions[].lines`，纯文本模式回退按换行符计数）。断句提示词按 N 给出 `[BR]` 数量指引（N=1 不插、N=2 恰好一个、N≥3 建议 N-1 或 N 段），并要求只用 `[BR]`、不用 `\n`。渲染端把 `[BR]`（含 `<br>`、`【BR】`）归一化为强制换行参与排版；`render.check_br_and_retry` 开启时，对区域数≥2 的译文检查 `[BR]` 缺失并触发重试，分割层级过深时跳过检查避免无限循环。单行区域（region_count=1）的译文若仍含 `[BR]`/`<br>`/`【BR】`，`_validate_br_markers()` 会直接清理成单行；该清理只依赖 `disable_auto_wrap`，与 `check_br_and_retry` 开关无关。
+- 依赖与冲突：只对 OpenAI/Gemini（含 HQ 模式）翻译器有断句提示词意义；本地渲染始终处理 `[BR]` 标记。与 `optimize_line_breaks`、`semantic_linebreak`、`remove_linebreak_punctuation`、`check_br_and_retry` 联动，完整行为见[排版与渲染](../settings/typesetting-and-rendering.md)。替换翻译模式会强制 `disable_auto_wrap=true` 与 `layout_mode='strict'`。
+- 性能/API 成本：断句提示词与 `original_region_count` 增加提示词长度；`check_br_and_retry` 可能触发多次重试。
+- 关联文件和调试产物：`dict/system_prompt_line_break.yaml`、`manga_translator/translators/common.py`、`manga_translator/manga_translator.py`、`manga_translator/rendering/__init__.py`。
+- 源码依据：定义 `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py`；界面绑定 `settings_tab_layout.json`、`app_logic.py`；消费者 `manga_translator/manga_translator.py#_load_and_prepare_prompts`、`manga_translator/translators/common.py`、`manga_translator/rendering/__init__.py`。
+
+### 关联文件与格式
 
 | 文件/格式 | 本页实际作用 | 手改与兼容注意 |
 | --- | --- | --- |
@@ -195,11 +229,11 @@ flowchart LR
 | `config/config.json` | 运行时用户设置的持久化位置 | 不读取或展示真实用户文件 |
 | `OPENAI_GLOSSARY_PATH`（`.env` 环境变量） | 旧式术语表路径（`keys.py` 定义） | 与 `extract_glossary` 的写回位置不同，当前翻译链路未消费 |
 
-## Mermaid 数据流限制
+### Mermaid 数据流限制
 
 上图描述的是源码中确认的提示词组装、请求传输与术语写回路径；不表示每次运行都开启术语提取或一定走流式。`extract_glossary` 关闭、自定义提示词无效、流式端点不支持、`disable_auto_wrap` 关闭都会走相应旁路。文档没有伪造运行截图或私有任务产物。
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -210,14 +244,3 @@ flowchart LR
 | 翻译消费者 | `manga_translator/translators/openai.py`、`gemini.py`、`openai_hq.py`、`gemini_hq.py` | 流式传输、`parse_hq_response`、术语写回 |
 | 调度与渲染 | `manga_translator/manga_translator.py`、`manga_translator/rendering/__init__.py` | `_load_and_prepare_prompts`、`[BR]` 强制换行 |
 | 术语预览 | `desktop_qt_ui/ui/secondary_pages/prompt_preview.py` | `Glossary` 分节与分类页签 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| UI 布局与调用 | 完成 | 静态核对设置布局、动态设置、提示词预览调用 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 页面表格逐项记录 key、English、简体中文实际值 |
-| 术语提取/流式/断句运行链 | 完成 | 静态核对提示词组装、统一流式传输层、术语写回与 `[BR]` 检查 |
-| 脱敏运行验证 | 待后续 | 本页未读取真实 `.env`、用户 `config.json`、API key/token、用户名、用户图片或私有提示词 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
