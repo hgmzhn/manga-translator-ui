@@ -36,39 +36,6 @@ Use this page when you want to switch whole groups of API credentials between di
 3. Import deep-merges the selected JSON into the current settings, preserves the current `app` section, and never writes `.env`; the dialog says “Your API keys and sensitive information have been preserved.”, so existing API keys are unaffected.
 4. After a successful import, the `config_loaded` signal is emitted, the Settings page is rebuilt and the description panel refreshes; API credentials in `.env` are not rewritten by the import.
 
-### Page, preset, and dialog copy
-
-| Call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `API Management` | API Management | API 管理 |
-| `Manage API keys and environment variables for each translator` | Manage API keys and environment variables for each translator | 管理每个翻译器的 API 密钥和环境变量 |
-| `Preset:` | Preset: | 预设： |
-| `Add new preset` | Add new preset | 添加新预设 |
-| `Delete selected preset` | Delete selected preset | 删除选中的预设 |
-| `Delete` | Delete | 删除 |
-| `Add Preset` | Add Preset | 添加预设 |
-| `Enter preset name:` | Enter preset name: | 输入预设名称： |
-| `OK` | OK | 确定 |
-| `Cancel` | Cancel | 取消 |
-| `Warning` | Warning | 警告 |
-| `Confirm` | Confirm | 确认 |
-| `Error` | Error | 错误 |
-| `Preset name cannot be empty` | Preset name cannot be empty | 预设名称不能为空 |
-| `Preset '{name}' already exists. Overwrite?` | Preset '{name}' already exists. Overwrite? | 预设 '{name}' 已存在。是否覆盖？ |
-| `Are you sure you want to delete preset '{name}'?` | Are you sure you want to delete preset '{name}'? | 确定要删除预设 '{name}' 吗？ |
-| `Preset deleted successfully` | Preset deleted successfully | 预设删除成功 |
-| `Failed to delete preset` | Failed to delete preset | 删除预设失败 |
-| `Failed to create preset` | Missing: no translation in either locale; falls back to the key text | Missing: no translation in either locale; falls back to the key text |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `Export Success` | Export Success | 导出成功 |
-| `Import Success` | Import Success | 导入成功 |
-| `Export Failed` | Export Failed | 导出失败 |
-| `Import Failed` | Import Failed | 导入失败 |
-| `API Keys Required` | API Keys Required | 需要填写 API 密钥 |
-
-Keys such as `Load selected preset` (加载选中的预设), `Preset loaded successfully`, and `Failed to load preset` exist in both locales, but the current UI has no separate “load” button — switching is triggered directly by the dropdown. `Failed to create preset` is missing from both locales, so the UI falls back to showing the key text.
-
 ## Runtime behavior
 
 ### Startup load
@@ -119,37 +86,3 @@ The diagram above only describes the write lifecycle for credentials and presets
 - In the multi-user web scenario, overrides such as `translator.user_api_key`/`user_api_base`/`user_api_model` take priority over `.env` (see [API credentials, addresses, and models](./credentials-addresses-models.md)); desktop mode has none of these overrides by default.
 - Preset names are sanitized by `_sanitize_filename` (`< > : " / \ | ? *` become `_`); the preset dropdown only lists `*.json` files under `presets/` with the suffix removed.
 - Exit-time `shutdown` only guarantees that already-submitted writes finish; it does not re-read the inputs, because normal typing has already been committed to memory by the 250 ms debounce.
-
-## Related files and formats
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `.env` | The only credential persistence location on desktop; `KEY="value"` quoted format | Contains real secrets — never commit or display; do not hand-edit while writes are pending |
-| `presets/<name>.json` | API preset snapshot: flat `{env_key: value}` JSON | Contains real secrets; names are sanitized; applying replaces `.env` wholesale |
-| `config/config.json` | User settings persistence; `app.current_preset` records the current preset name | No API keys; export drops the `app` section, import preserves the current `app` section |
-| `config/config-example.json` | Release default config; `app.current_preset` defaults to `"默认"` | Use only sanitized examples; contains no API keys |
-| `config/custom_api_params.json` | Request-body “model presets” with common/translator/ocr/colorizer/render sections | Unrelated to the API presets on this page; matched by model name, see the custom-request-parameters page |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| UI preset toolbar | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | `Preset:` label, dropdown, `+`/`Delete` buttons and hover hints |
-| UI preset actions | `desktop_qt_ui/ui/main_page/env_management.py` | Add/delete/switch, input refresh, flush timing, masking echo |
-| Controller | `desktop_qt_ui/app_logic.py` | save/load/delete preset, export/import config, draining pending writes before a task starts |
-| `.env` persistence | `desktop_qt_ui/services/config_service.py` | 250 ms debounce, single writer, atomic writes, full-file replacement, exit flush |
-| Preset service | `desktop_qt_ui/services/preset_service.py` | `presets/` directory, default preset, name sanitization, normalization |
-| dotenv helpers | `manga_translator/utils/dotenv_utils.py` | `KEY="value"` line format, load/merge/delete |
-| Runtime reads | `manga_translator/runtime_api_resolver.py` | Per-slot reads from `os.environ` at task start to build candidates |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Preset and import/export keys with actual bilingual display values |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read section 1.3 and item 5.6 and followed the page contract |
-| UI layout and calls | Complete | Statically checked dynamic_settings, env_management, settings_page, and app_logic |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values; missing entries are marked |
-| Persistence lifecycle | Complete | Statically checked config_service debounce/single-writer/atomic write/full replacement/shutdown |
-| Sanitized runtime verification | Deferred | No real `.env`, `presets/*.json`, user config, API key/token, username, user image, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

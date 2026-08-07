@@ -16,7 +16,7 @@ lastUpdated: true
 - `-i/--input` 是必填参数，接受一个或多个图片文件或文件夹；文件夹会递归扫描图片，并跳过名为 `manga_translator_work` 的工作目录。
 - `-o/--output` 是可选的输出目录；未提供时按“`-o` → `app.last_output_path` → 默认规则”三级回退。
 - 本页只写 `local` 的输入输出与结果汇总；GPU/ONNX、`--format`、`--batch-size`、`--attempts` 等显式覆盖见[配置覆盖](./configuration-overrides.md)。
-- 控制台汇总行（成功/失败/总计）来自 `manga_translator/mode/local.py` 的硬编码输出，不属于 i18n 文案；页面中的三列表只记录与输入/输出共享概念的 UI 调用 key。
+- 控制台汇总行（成功/失败/总计）来自 `manga_translator/mode/local.py` 的硬编码输出，不属于 i18n 文案；与输入/输出共享概念的 UI 调用 key 对照见[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
 
 ## UI 操作 {#ui-operations}
 
@@ -33,35 +33,7 @@ uv run --no-sync python -m manga_translator local -i <输入图片或文件夹>.
 3. 要重新翻译已存在的输出文件时加 `--overwrite`；保持默认（按配置 `cli.overwrite`）则跳过已存在文件。
 4. 第一个参数不是 `local/web/ws/shared` 且参数列表包含 `-i`/`--input` 时，解析器会隐式插入 `local`，因此 `python -m manga_translator -i page.png` 等价于显式 `local`。
 
-### 与桌面界面共享的输入/输出文案 {#shared-input-output-copy}
-
-`local` 自身的控制台行（例如 `📤 输出目录: ...`）是代码硬编码，不经过 locales；以下 key 来自桌面界面并涉及相同概念，逐项列出三列证据：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Add Files` | Add Files | 添加文件 |
-| `Add Folder` | Add Folder | 添加文件夹 |
-| `Input Files` | Input Files | 输入文件 |
-| `Output Directory:` | Output Directory: | 输出目录: |
-| `Select Output Directory` | Select Output Directory | 选择输出目录 |
-| `Invalid Output Directory` | Invalid Output Directory | 输出目录不合法 |
-| `label_last_output_path` | Last Output Path | 最后输出路径 |
-| `label_format` | Output Format | 输出格式 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_batch_size` | Batch Size | 批量大小 |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `📁 Output directory: {dir}` | 📁 Output directory: {dir} | 📁 输出目录：{dir} |
-| `💾 Files saved to: {dir}` | 💾 Files saved to: {dir} | 💾 文件已保存到：{dir} |
-
 ## 输入与输出选项 {#input-output-options}
-
-| 选项 | 类型/默认值 | 存储/实际值 | 行为 |
-| --- | --- | --- | --- |
-| `-i INPUT [INPUT ...]` | 必填，1 个或多个字符串 | 命令行参数 | 输入图片或文件夹路径；文件夹递归、自然排序 |
-| `-o OUTPUT` | 字符串；`None` | 命令行参数 | 输出目录；省略时按三级回退 |
-| `--format FORMAT` | 字符串；`None` | `png/jpg/jpeg/jfif/webp/avif/bmp/tiff/tif/heic/heif` | 输出格式覆盖；`不指定`/空/`none` 保留原扩展名 |
-| `--overwrite` | 开关；`False` | `True`/`False` | 覆盖已存在文件；关闭时跳过已存在输出 |
-| `-v`/`--verbose` | 开关；`False` | `True`/`False` | 详细日志（DEBUG） |
 
 支持的输入扩展名（唯一来源 `manga_translator/image_formats.py`）：
 
@@ -118,36 +90,3 @@ flowchart TD
 - 多个输入文件夹写入同一输出目录时按各自相对层级落盘；`input_folders` 只记录目录型输入。
 - `cli.save_to_source_dir` 由桌面 `app_logic.py` 构造的 `save_info` 传入；`local` 的 `save_info` 只含 `output_folder/format/overwrite/input_folders`，因此 CLI 输出始终写入解析出的输出目录，不会跳到原图旁的 `manga_translator_work/result`。
 - 特殊工作流（仅翻译 JSON、导出原文/翻译、替换翻译等）改变输入/输出文件类型，但逐图输出路径仍走 `_calculate_output_path`；详见[工作流](../workflows/translate-json-only.md)各页。
-
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件/目录 | 本页作用 | 注意事项 |
-| --- | --- | --- |
-| `config/config.json` | `app.last_output_path`、`cli.format`、`cli.overwrite` 来源 | 不展示真实用户配置与私有绝对路径 |
-| `config/config-example.json` | 发行默认参考 | 与核心/Qt 默认不同（`format`/`overwrite` 等） |
-| `result/log_<时间戳>.txt` | 非子进程路径的运行日志 | `-v` 时为 DEBUG；分享前脱敏 |
-| `manga_translator_work/json/*_translations.json` | `cli.save_text` 开启时的项目数据 | 不复制用户内容 |
-| `manga_translator_work/originals/`、`translations/` | 导出原文/译文 sidecar | 特殊工作流写入，文件名须与输入 `<stem>` 匹配 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 解析器 | `manga_translator/args.py` | `local` 子解析器、`-i` 必填、`-o` 默认 `None`、隐式 `local` 回退 |
-| CLI 执行 | `manga_translator/mode/local.py` | 输入分类与自然排序、三级输出回退、`save_info`、覆盖预检、结果汇总 |
-| 输入扫描 | `desktop_qt_ui/services/file_service.py` | 支持扩展名、递归扫描、自然排序、`manga_translator_work` 排除 |
-| 输出路径 | `manga_translator/manga_translator.py` | `_calculate_output_path` 的相对层级与格式覆盖 |
-| 格式/保存 | `manga_translator/image_formats.py`、`manga_translator/save.py` | 扩展名唯一来源、格式解析、保存质量 |
-| 路径 | `manga_translator/utils/path_manager.py`、`manga_translator/runtime_paths.py` | 工作目录与 sidecar 路径 |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 输入/输出相关 UI key 的实际中英文 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| `local --help` | 完成 | 实际运行 `uv run --no-sync python -m manga_translator local --help`，选项与本文一致 |
-| i18n 三列 | 完成 | 逐项核对 `en_US.json`/`zh_CN.json` 实际值 |
-| 输入/输出运行链 | 完成 | 静态核对 `args.py`、`mode/local.py`、`manga_translator.py`、`file_service.py`、`image_formats.py` |
-| 脱敏运行验证 | 待后续 | 未运行真实翻译，未读取用户图片、配置、密钥或私有路径 |
-| 静态检查 | 完成 | `verify-route-mirror.mjs` PASS、`verify-source-evidence.mjs` PASS |

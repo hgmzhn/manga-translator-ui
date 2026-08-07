@@ -26,26 +26,26 @@ lastUpdated: true
 
 ### 在“菜单”中查看快捷键提示 {#toolbar-hints}
 
-打开编辑器顶栏“菜单”（`Menu`）：“导出图片”（`Export Image`）、“撤销”（`Undo`）、“重做”（`Redo`）三个菜单项由代码追加 `(Ctrl+Q)`、`(Ctrl+Z)`、`(Ctrl+Y)` 提示文字。这些提示只是文字，真正的快捷键由 `EditorShortcutManager` 注册。
+打开编辑器顶栏“菜单”：“导出图片”、“撤销”、“重做”三个菜单项由代码追加 `(Ctrl+Q)`、`(Ctrl+Z)`、`(Ctrl+Y)` 提示文字。这些提示只是文字，真正的快捷键由 `EditorShortcutManager` 注册。
 
 ### 键盘快捷键速查 {#shortcut-reference}
 
 以下表格是 `_setup_editor_shortcuts()` 实际注册的全部键盘快捷键。焦点在文本控件（`QTextEdit` 或 `QLineEdit`）时的行为与画布焦点不同；`Q`/`W`/`E`/`A`/`D` 在文本焦点下会作为普通字符转发给文本控件，不切换工具或图片。
 
-| 注册名 | 实际注册序列 | 焦点在文本控件时 | 非文本焦点（画布）时 |
-| --- | --- | --- | --- |
-| `undo` | `StandardKey.Undo`（Windows：`Ctrl+Z`） | 调用文本控件 `undo()` | `controller.undo()` 撤销编辑器操作 |
-| `redo` | `StandardKey.Redo`（Windows：`Ctrl+Y`） | 调用文本控件 `redo()` | `controller.redo()` 重做编辑器操作 |
-| `copy` | `StandardKey.Copy`（Windows：`Ctrl+C`） | 调用文本控件 `copy()` | 复制最后选中的区域 |
-| `paste` | `StandardKey.Paste`（Windows：`Ctrl+V`） | 调用文本控件 `paste()` | 单选时粘贴样式；无选区时按鼠标位置或默认位置粘贴区域 |
-| `select_all` | `StandardKey.SelectAll`（Windows：`Ctrl+A`） | 调用文本控件 `selectAll()` | 选中全部区域 |
-| `delete` | `StandardKey.Delete`（Windows：`Del`） | 不删除区域 | 删除选中区域 |
-| `export` | `Ctrl+Q` | 仍导出（先冲刷浮动富文本待提交内容） | 仍导出 |
-| `tool_select` | `Q` | 转发字符 `q` 给文本控件 | 切换为选择工具 `select` |
-| `tool_brush` | `W` | 转发字符 `w` 给文本控件 | 切换为画笔工具 `brush` |
-| `tool_eraser` | `E` | 转发字符 `e` 给文本控件 | 切换为橡皮擦工具 `eraser` |
-| `prev_image` | `A` | 转发字符 `a` 给文本控件 | 文件列表选择上一张图片 |
-| `next_image` | `D` | 转发字符 `d` 给文本控件 | 文件列表选择下一张图片 |
+| 快捷键 | 文本控件焦点时 | 画布焦点时 |
+| --- | --- | --- |
+| `Ctrl+Z` | 撤销文本编辑 | 撤销编辑器操作 |
+| `Ctrl+Y` | 重做文本编辑 | 重做编辑器操作 |
+| `Ctrl+C` | 复制文本 | 复制最后选中的区域 |
+| `Ctrl+V` | 粘贴文本 | 单选时粘贴样式；无选区时按鼠标位置或默认位置粘贴区域 |
+| `Ctrl+A` | 全选文本 | 选中全部区域 |
+| `Del` | 不删除区域 | 删除选中区域 |
+| `Ctrl+Q` | 仍导出（先冲刷浮动富文本待提交内容） | 仍导出 |
+| `Q` | 输入字符 `q` | 切换为选择工具 |
+| `W` | 输入字符 `w` | 切换为画笔工具 |
+| `E` | 输入字符 `e` | 切换为橡皮擦工具 |
+| `A` | 输入字符 `a` | 文件列表选择上一张图片 |
+| `D` | 输入字符 `d` | 文件列表选择下一张图片 |
 
 ### 滚轮组合 {#wheel-combos}
 
@@ -54,20 +54,6 @@ lastUpdated: true
 | `Shift + 滚轮` | 调整共享画笔大小，每格 ±1 | 钳制在 `5`–`200`；事件被吞掉，不缩放画布 |
 | 任意含 `Ctrl` 的滚轮组合 | 按 ±5%（最小 1）调整所有选中区域字号 | 无选区时也吞掉事件，不穿透成画布缩放 |
 | 普通滚轮 | 以鼠标点为锚缩放画布 | 倍率钳制在 `0.05`–`50.0`，由 `GraphicsView.wheelEvent()` 处理 |
-
-## 选项中英对照 {#options-i18n}
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Export Image` | Export Image | 导出图片 |
-| `Undo` | Undo | 撤销 |
-| `Redo` | Redo | 重做 |
-| `Copy` | Copy | 复制 |
-| `Paste` | Paste | 粘贴 |
-| `Select All` | Select All | 全部选中 |
-| `Delete` | Delete | 删除 |
-
-“导出图片”“撤销”“重做”后的 `(Ctrl+Q)`、`(Ctrl+Z)`、`(Ctrl+Y)` 是代码在 i18n 值之后追加的提示文字，不属于 locale 值。快捷键本身的注册序列与菜单提示见[键盘快捷键速查](#shortcut-reference)。
 
 ## 运行机理 {#runtime-behavior}
 
@@ -118,42 +104,4 @@ flowchart LR
 - 快捷键行为依赖选区状态：无选区时 `Delete`、`Copy` 无操作，`Paste` 按鼠标位置粘贴新区域；多选时 `Copy` 只复制最后选中的区域。
 - 在编辑器之外（主窗口其它页面或系统其它窗口），这些快捷键不属于 `EditorShortcutManager` 的注册范围，不保证生效。
 
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件 | 本页实际作用 | 注意 |
-| --- | --- | --- |
-| `desktop_qt_ui/ui/editor/shortcut_manager.py` | 全部编辑器快捷键与滚轮过滤的注册、焦点分派、按键转发 | `StandardKey` 显示随 Qt 平台映射 |
-| `desktop_qt_ui/ui/editor/graphics_view_input.py` | `Escape` / 失焦取消、滚轮缩放、画布点击先保存属性编辑 | 视图缩放钳制 `0.05`–`50.0` |
-| `desktop_qt_ui/ui/editor/view.py` | `EditorView` 创建、`export_image()` 冲刷、文件列表与信号接线 | `Ctrl+Q` 与工具栏共用同一导出入口 |
-| `desktop_qt_ui/ui/widgets/editor_toolbar.py` | 菜单项后的快捷键提示文字 | 提示文字由代码追加，不属于 locale |
-| `desktop_qt_ui/ui/widgets/property_panel.py` | 无焦点控件不吞滚轮、正在编辑文本保护 | `CustomSlider` 仅在持焦点时改值 |
-| `desktop_qt_ui/ui/widgets/region_list_view.py` | 正在编辑行的草稿保留 | 差量更新，不整表重建 |
-| `desktop_qt_ui/ui/widgets/rich_text_floating_editor.py` | 浮窗 `WA_ShowWithoutActivating` 与工具窗口标志 | 画布保留焦点 |
-| `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | 本页 UI 调用 key 的实际中英文显示值 | 缺 key 时如实标记缺失/回退 |
-
-## Mermaid 数据流限制 {#mermaid-limits}
-
-上面的分派与滚轮图描述的是源码确认的分支：所有编辑器快捷键都带焦点感知，焦点为空或在其它顶层窗口时一律返回；`Ctrl+滚轮` 无论有无选区都吞掉事件，绝不穿透成画布缩放；普通滚轮才进入 `GraphicsView` 缩放。这些图不代表每次按键都会触发区域操作或导出；无选区、无图片、非文本焦点等场景各有分支。本页没有伪造运行截图或私有任务产物。
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 快捷键注册 | `desktop_qt_ui/ui/editor/shortcut_manager.py` | 12 个键盘快捷键、焦点感知包装、`_forward_key_to_widget`、viewport 滚轮过滤器 |
-| 画布输入 | `desktop_qt_ui/ui/editor/graphics_view_input.py` | `Escape` / 失焦取消、滚轮缩放倍率与钳制、画布点击先保存属性编辑 |
-| 视图接线 | `desktop_qt_ui/ui/editor/view.py` | `export_image()` 冲刷浮动富文本、文件列表 `select_prev/next_image`、浮窗显示不抢焦点 |
-| 工具栏提示 | `desktop_qt_ui/ui/widgets/editor_toolbar.py` | 菜单项 `(Ctrl+Q)` / `(Ctrl+Z)` / `(Ctrl+Y)` 提示文字 |
-| 属性/列表保护 | `desktop_qt_ui/ui/widgets/property_panel.py`、`region_list_view.py` | 无焦点控件滚轮直通、正在编辑文本/草稿不覆盖 |
-| 浮窗焦点 | `desktop_qt_ui/ui/widgets/rich_text_floating_editor.py` | `WA_ShowWithoutActivating`、`Qt.Tool` 与无边框窗口标志 |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | key 映射和实际中英文显示值 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写（1.3 节、5.10 小节） |
-| 快捷键注册与焦点分派 | 完成 | 静态核对 `shortcut_manager.py` 全部注册项与处理分支 |
-| `StandardKey` 实际映射 | 完成 | 用 Qt `QKeySequence.keyBindings()` 核对 Windows 主绑定 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 页面表格逐项记录 key、English、简体中文实际值 |
-| 脱敏运行验证 | 待后续 | 本页未读取真实用户配置、密钥、用户图片或私有任务产物；未做有头模式按键触发 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+更多开发向对照与源码依据见[参考索引](../../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。

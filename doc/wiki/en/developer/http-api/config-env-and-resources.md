@@ -170,7 +170,21 @@ flowchart LR
 
 The diagram describes the source-confirmed API key source and merge path; whether `POST /env` persists is decided by `save_user_keys_to_server` and does not change the merge order itself.
 
-## UI copy {#ui-copy}
+## Dependencies and conflicts {#dependencies-and-conflicts}
+
+- The web frontend first uses `/user/settings` to decide whether to show the "API Keys" tab and upload sections, but hiding is frontend-only; the server enforces the final permission.
+- `font_family` and `high_quality_prompt_path` in `/config/options` merge server and user resources; after deleting a user font or prompt, the frontend must re-request `/config/options` to refresh the options.
+- Environment variables do not persist by default (`save_user_keys_to_server=false`); multi-user deployments should keep server-side saving off so users do not overwrite each other's server keys.
+- `GET /env` and `GET /env/effective` do not return server key plaintext; `GET /api/admin/config/server?show_values=true` does and must be limited to trusted admin sessions.
+- Sensitive keys in presets and user configs are encrypted; applying a preset never copies key plaintext into the user config.
+- Endpoint boundaries: translation/streaming/batch in [Translation endpoints](./translation-endpoints.md) and [Streaming protocol](./streaming-protocol.md), history and downloads in [History files and download tickets](./history-files-and-download-tickets.md), users/groups/quota/audit in [Admin, users, groups, quota, and audit](./admin-users-groups-quota-audit.md), and sessions/status codes in [Authentication and errors](./authentication-and-errors.md).
+- `429` concurrency and daily-quota limits are handled by the translation route layer (see [Authentication and errors](./authentication-and-errors.md)) and do not belong to the endpoints on this page.
+
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### UI copy {#ui-copy}
 
 The following is the UI copy the web frontend uses when calling the endpoints on this page. `index.html` contains some hardcoded Chinese static text (e.g. “导出配置”, “导入配置”, “API密钥”, “上传字体文件”, “上传提示词文件”, “字体管理”, “提示词管理”, “日志输出”), and `script.js` overrides part of it with locale keys after startup.
 
@@ -201,17 +215,7 @@ The following is the UI copy the web frontend uses when calling the endpoints on
 
 The following keys are missing from both `en_US.json` and `zh_CN.json`, so `script.js` falls back to the call-site text: `preset_select`, `preset_hint`, `preset_empty`, `preset_none`, `preset_applying`, `preset_applied`, `preset_apply_failed`, `login_required_for_api_keys`, `api_keys_saved_to_server`, `api_keys_saved_session`, `api_keys_save_failed`, `font_deleted`, `prompt_deleted`. The English UI shows the call-site Chinese fallback when these keys are missing.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
-
-- The web frontend first uses `/user/settings` to decide whether to show the "API Keys" tab and upload sections, but hiding is frontend-only; the server enforces the final permission.
-- `font_family` and `high_quality_prompt_path` in `/config/options` merge server and user resources; after deleting a user font or prompt, the frontend must re-request `/config/options` to refresh the options.
-- Environment variables do not persist by default (`save_user_keys_to_server=false`); multi-user deployments should keep server-side saving off so users do not overwrite each other's server keys.
-- `GET /env` and `GET /env/effective` do not return server key plaintext; `GET /api/admin/config/server?show_values=true` does and must be limited to trusted admin sessions.
-- Sensitive keys in presets and user configs are encrypted; applying a preset never copies key plaintext into the user config.
-- Endpoint boundaries: translation/streaming/batch in [Translation endpoints](./translation-endpoints.md) and [Streaming protocol](./streaming-protocol.md), history and downloads in [History files and download tickets](./history-files-and-download-tickets.md), users/groups/quota/audit in [Admin, users, groups, quota, and audit](./admin-users-groups-quota-audit.md), and sessions/status codes in [Authentication and errors](./authentication-and-errors.md).
-- `429` concurrency and daily-quota limits are handled by the translation route layer (see [Authentication and errors](./authentication-and-errors.md)) and do not belong to the endpoints on this page.
-
-## Related files and formats {#related-files-and-formats}
+### Related files and formats {#related-files-and-formats}
 
 | File/path | Actual role on this page | Manual-edit and compatibility note |
 | --- | --- | --- |
@@ -226,11 +230,11 @@ The following keys are missing from both `en_US.json` and `zh_CN.json`, so `scri
 | `desktop_qt_ui/locales/*.json` | `/i18n/{locale}` and the conditionally mounted `/locales/*` | realpath prevents path traversal; a missing locale returns `{}` |
 | `manga_translator/server/static/index.html`, `script.js`, `js/shared/api-key-schema.js` | Frontend driving the config/env/resource endpoints | Some static text is hardcoded Chinese |
 
-## Mermaid data-flow limits {#mermaid-limits}
+### Mermaid data-flow limits {#mermaid-limits}
 
 The diagram above describes the source-confirmed API key sources, merging, and runtime overrides; it does not mean every translation run goes through a preset or user keys, nor that `/env/effective` returns the same source combination on every run. Policy values such as `require_user_keys`, `allow_server_keys`, and `save_user_keys_to_server` come from configuration, not code constants. This page did not start a server, take screenshots, or read a real `.env`, preset, user config, or key; runtime behavior must be validated with a minimal runnable server.
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -242,14 +246,3 @@ The diagram above describes the source-confirmed API key sources, merging, and r
 | Config management core | `manga_translator/server/core/config_manager.py`, `api_key_policy.py`, `response_utils.py`, `runtime_api.py` | Default config, admin settings, policy merge, `apply_user_env_vars`, and runtime overrides |
 | Server assembly | `manga_translator/server/main.py` | Route registration, static mounts, `init_server_config_file` |
 | UI/i18n | `manga_translator/server/static/script.js`, `index.html`, `js/shared/api-key-schema.js`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Key mapping, hardcoded copy, fallback for missing keys |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read section 1.3 and subsection 5.14 in full and followed the page contract |
-| Endpoint contract | Complete | Statically checked config, env, resources, and config-management routes and services |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values; missing keys are marked as fallback |
-| Route mirror and source evidence | Complete | `node scripts/verify-route-mirror.mjs .` and `node scripts/verify-source-evidence.mjs .` pass |
-| Sanitized runtime verification | Deferred | No server started and no real `.env`, preset, user config, or key read; run `uv run --no-sync python -m manga_translator web` to validate actual responses |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

@@ -22,31 +22,6 @@ lastUpdated: true
 
 与打包发布相关的可见文案只有两类：桌面窗口标题/侧边栏的版本显示，以及源码安装版维护菜单的版本检查入口。它们都不是设置页参数；维护菜单完整操作见[更新与版本切换](../install/update-and-version-switching.md)。
 
-### 窗口标题与版本显示 {#window-title-and-version-display}
-
-打包版启动时通过 `desktop_qt_ui/utils/app_version.py#get_app_version()` 从运行时资源读取 `VERSION` 文件（读取顺序 `VERSION` → `packaging/VERSION`，去掉 `v` 前缀；失败回退为 `unknown`），再拼进窗口标题与 Qt 应用版本：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `format_app_title` 拼接结果 | Manga Translator v2.2.10 | 漫画翻译器 v2.2.10 |
-| `format_version_label` 结果 | v2.2.10 | v2.2.10 |
-
-### 维护菜单 {#maintenance-menu}
-
-`Win-Install-or-Update.bat` / `Unix-Install-or-Update.sh` 最终调用 `packaging/launch.py --maintenance`。菜单文案由 `launch.py` 的 `L(简体中文, English)` 硬编码提供，不经过 `en_US.json`/`zh_CN.json`；下表用代码字面量作为 key：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `[1] Install (...)` | Install (detect GPU, choose CPU/GPU build, install dependencies) | 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖) |
-| `[2] Update (code + dependencies)` | Update (code + dependencies) | 更新 (代码+依赖) |
-| `[3] Switch branch (main/beta)` | Switch branch (main/beta) | 切换分支 (main/beta) |
-| `[4] Switch version (by tag)` | Switch version (by tag) | 切换版本 (按 tag) |
-| `[5] Switch mirror` | Switch mirror | 切换镜像源 |
-| `[6] Re-check version` | Re-check version | 重新检查版本 |
-| `[7] Language (中文/English)` | Language (中文/English) | 切换语言 (中文/English) |
-| `[8] Exit` | Exit | 退出 |
-
 ## 版本号 {#version-number}
 
 ### 版本号来源 {#version-sources}
@@ -160,7 +135,36 @@ flowchart LR
 - Docker 构建通过 `.dockerignore` 排除 `doc/`、`*.md`、测试与构建产物，镜像内只含运行所需资源。
 - 本页不写真实 API 密钥、令牌、用户名或私有绝对路径；compose 中的管理员密码与环境变量值属于发行模板，不在文档中复制。
 
-## 关联文件与格式 {#related-files-and-formats}
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 窗口标题与版本显示 {#window-title-and-version-display}
+
+打包版启动时通过 `desktop_qt_ui/utils/app_version.py#get_app_version()` 从运行时资源读取 `VERSION` 文件（读取顺序 `VERSION` → `packaging/VERSION`，去掉 `v` 前缀；失败回退为 `unknown`），再拼进窗口标题与 Qt 应用版本：
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Manga Translator` | Manga Translator | 漫画翻译器 |
+| `format_app_title` 拼接结果 | Manga Translator v2.2.10 | 漫画翻译器 v2.2.10 |
+| `format_version_label` 结果 | v2.2.10 | v2.2.10 |
+
+#### 维护菜单 {#maintenance-menu}
+
+`Win-Install-or-Update.bat` / `Unix-Install-or-Update.sh` 最终调用 `packaging/launch.py --maintenance`。菜单文案由 `launch.py` 的 `L(简体中文, English)` 硬编码提供，不经过 `en_US.json`/`zh_CN.json`；下表用代码字面量作为 key：
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `[1] Install (...)` | Install (detect GPU, choose CPU/GPU build, install dependencies) | 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖) |
+| `[2] Update (code + dependencies)` | Update (code + dependencies) | 更新 (代码+依赖) |
+| `[3] Switch branch (main/beta)` | Switch branch (main/beta) | 切换分支 (main/beta) |
+| `[4] Switch version (by tag)` | Switch version (by tag) | 切换版本 (按 tag) |
+| `[5] Switch mirror` | Switch mirror | 切换镜像源 |
+| `[6] Re-check version` | Re-check version | 重新检查版本 |
+| `[7] Language (中文/English)` | Language (中文/English) | 切换语言 (中文/English) |
+| `[8] Exit` | Exit | 退出 |
+
+### 关联文件与格式 {#related-files-and-formats}
 
 | 文件/目录 | 本页作用 | 注意 |
 | --- | --- | --- |
@@ -177,7 +181,7 @@ flowchart LR
 | `.github/workflows/sync-to-gitee.yml` | 仓库镜像同步 | 每次 push 同步分支与 tag 到 Gitee/GitCode |
 | `doc/CHANGELOG_v<版本>.md` | 发布说明正文 | 缺失时发布正文显示占位文案 |
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -187,16 +191,3 @@ flowchart LR
 | Docker | `packaging/Dockerfile`、`packaging/docker-compose.yml`、`packaging/docker-entrypoint.sh`、`packaging/.dockerignore` | 多阶段构建、空卷恢复、端口、健康检查 |
 | 维护/更新 | `packaging/launch.py`、`Win-*.bat`、`Unix-*.sh` | 维护菜单、版本检查、更新与切换 |
 | UI/i18n | `desktop_qt_ui/main.py`、`desktop_qt_ui/ui/main_window.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 窗口标题版本拼接与可见文案 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写（TODO 1.3、5.14） |
-| 打包脚本与版本链 | 完成 | 静态核对 `build_packages.py`、spec、`app_version.py`、`check_version.py` |
-| CI 工作流 | 完成 | 静态核对 `build-and-release.yml`、`docker-build-push.yml`、`docs-pages.yml`、`sync-to-gitee.yml` |
-| Docker 构建与部署 | 完成 | 静态核对 Dockerfile、compose、entrypoint、.dockerignore |
-| i18n 三列 | 完成 | 逐项核对 `en_US.json`/`zh_CN.json` 实际值；维护菜单为 `launch.py` 双语文案 |
-| 脱敏运行验证 | 待后续 | 未实际运行打包/发布；未读取真实密钥、令牌、用户名、私有绝对路径 |
-| 静态检查 | 完成 | `verify-route-mirror.mjs` PASS、`verify-source-evidence.mjs` PASS |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |

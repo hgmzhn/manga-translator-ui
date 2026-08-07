@@ -32,7 +32,7 @@ When the server has no accounts yet, `/auth/status` returns `need_setup` and the
 
 ### Change password, logout, and session state {#change-password-logout-and-session}
 
-The “修改密码” (Change password) dialog on the login page calls the change-password endpoint and verifies the old password; success clears the forced-password-change flag. Logging out terminates the current session, and the front end clears the local token and returns to the login page regardless of the result. The token is stored in the browser as `localStorage.session_token` and sent on later requests as the `X-Session-Token` header; invalid, expired, or disabled accounts are rejected and sent back to the login page.
+The “修改密码” (Change password) dialog on the login page calls the change-password endpoint and verifies the old password; success clears the forced-password-change flag. Logging out terminates the current session, and the front end clears the local token and returns to the login page regardless of the result. Invalid, expired, or disabled accounts are rejected and sent back to the login page.
 
 | UI call key | English actual value | Simplified Chinese actual value |
 | --- | --- | --- |
@@ -42,6 +42,8 @@ The “修改密码” (Change password) dialog on the login page calls the chan
 | `change-password` modal (hardcoded in login.html) | No locale key; hardcoded Chinese | 需要修改密码 / 新密码 / 确认新密码 / 稍后修改 / 确认修改 |
 
 ## Permissions and roles {#permissions-and-roles}
+
+Permissions for new features are configured in the permission editor of the admin console, with full instructions in [Administrator Interface → Groups and Permissions](../web/administrator-interface.md); when adding a feature, expose the new capability in the permission editor, see [Adding or Changing a Feature](../developer/adding-or-changing-a-feature.md).
 
 ### Roles, groups, and inheritance {#roles-groups-and-inheritance}
 
@@ -74,21 +76,6 @@ flowchart TD
 ```
 
 In the diagram, denial appears both as filtered dropdown options and as the final server-side check; a regular user cannot bypass it by hand-crafting a request. The `admin` link is shown only when the current session role is `admin`.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `admin` (hardcoded fallback in script.js) | Missing; uses call-site fallback | 管理 |
-| `web_resource_management` | Resource Management | 资源管理 |
-| `web_can_upload_font` | Can Upload Font | 可上传字体 |
-| `web_can_upload_prompt` | Can Upload Prompt | 可上传提示词 |
-| `web_group_permissions` | Group Permissions | 用户组权限 |
-| `web_can_view_history` | Can View History | 可查看历史 |
-| `web_can_view_logs` | Can View Logs | 可查看日志 |
-| `label_translator` | Translator | 翻译器 |
-| `label_ocr` | OCR Model | OCR模型 |
-| `label_colorizer` | Colorization Model | 上色模型 |
-| `label_renderer` | Renderer | 渲染器 |
-| User-management screen (hardcoded in admin) | No locale key; hardcoded Chinese | 用户管理 / 用户组管理 / 配额管理 / 会话管理 / 添加用户 / 创建用户 / 编辑用户 / 普通用户 / 管理员 / 账户启用 / 活跃 / 禁用 / 编辑权限配置 |
 
 ## API key management {#api-key-management}
 
@@ -146,81 +133,12 @@ Merging happens only during server-side request construction; the page never rec
 
 Administrators maintain “服务器默认API密钥” (server default API keys, `.env`) and “API密钥预设” (API key presets) in the “API密钥管理” (API key management) module. Server default keys are the fallback when no user or preset overrides anything; presets can be restricted to visible groups and assigned to users or groups as their default. In “用户管理” (User Management), an administrator can also assign each user an “API密钥预设” (API key preset; default is “继承用户组设置”, inherit group settings).
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `Basic Settings` | Basic Settings | 基础设置 |
-| `Advanced Settings` | Advanced Settings | 高级设置 |
-| `Options` | Options | 选项 |
-| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
-| `Log output...` | Log output... | 日志输出... |
-| `label_OPENAI_API_KEY` | OpenAI API Key | OpenAI API 密钥 |
-| `label_OPENAI_API_BASE` | OpenAI API Base | OpenAI API 地址 |
-| `label_OPENAI_MODEL` | OpenAI Model | OpenAI 模型 |
-| `label_GEMINI_API_KEY` | Gemini API Key | Gemini API 密钥 |
-| `label_GEMINI_API_BASE` | Gemini API Base | Gemini API 地址 |
-| `label_GEMINI_MODEL` | Gemini Model | Gemini 模型 |
-| `label_SAKURA_API_BASE` | SAKURA API Base | SAKURA API 地址 |
-| `label_SAKURA_DICT_PATH` | SAKURA Dictionary Path | SAKURA 词典路径 |
-| `label_OCR_OPENAI_API_KEY` | OCR OpenAI API Key | 文字识别 OpenAI API 密钥 |
-| `label_COLOR_OPENAI_API_KEY` | Colorization OpenAI API Key | 上色 OpenAI API 密钥 |
-| `label_RENDER_OPENAI_API_KEY` | Rendering OpenAI API Key | 渲染 OpenAI API 密钥 |
-| `translator_openai` | OpenAI Translate | OpenAI翻译 |
-| `translator_gemini` | Gemini Translate | Gemini翻译 |
-| `translator_sakura` | Sakura Translate | Sakura翻译 |
-| `save_api_keys` | Missing; call-site fallback is Chinese | 保存 API 密钥 |
-| `api_keys_will_be_saved` | Missing; call-site fallback is Chinese | API 密钥将保存到服务器 |
-| `api_keys_session_only` | Missing; call-site fallback is Chinese | API 密钥仅在本次会话中使用，不会保存到服务器 |
-| `login_required_for_api_keys` | Missing; call-site fallback is Chinese | 登录后可查看和保存 API 密钥 |
-| `api_keys_saved_to_server` | Missing; call-site fallback is Chinese | API 密钥已保存到服务器 |
-| `api_keys_saved_session` | Missing; call-site fallback is Chinese | API 密钥已保存（仅本次会话） |
-| `api_keys_save_failed` | Missing; call-site fallback is Chinese | API 密钥保存失败 |
-| Env-var management (hardcoded in admin) | No locale key; hardcoded Chinese | API密钥管理 / API密钥预设 / 服务器默认API密钥 / 保存API密钥 / 创建预设 / 保存修改 / 删除 |
-
 ## Dependencies and conflicts {#dependencies-and-conflicts}
 
 - Registration availability depends on the administrator’s “允许用户注册” (allow user registration) switch; when off, the login page hides the Register tab and the endpoint refuses too.
-- Enabling `save_user_keys_to_server` writes user keys into the server `.env`; any user save affects the whole deployment, so plan it together with group policy in multi-user environments.
+- Turning on `save_user_keys_to_server` writes user keys into the server `.env`; any user save affects the whole deployment, so plan it together with group policy in multi-user environments.
 - Feature permissions filter options and requests; they do not change the capabilities of the translators/OCR themselves. When `*` and a blacklist both exist, the blacklist wins.
 - Group quota takes precedence over user-level quota, but user-level `denied_*` always wins over the group whitelist; configure the group first, then the user.
 - Hiding the API Keys tab is not the same as disabling it server-side: `show_env_editor` only controls the page editing entry, while whether a request may use server keys is decided by `allow_server_keys` / `require_user_keys`.
 
-## Related files and formats {#related-files-and-formats}
-
-| File/location | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `manga_translator/server/data/accounts.json` | Account persistence: username, bcrypt hash, role, group, permissions, status | Never read or display real accounts; written atomically with backups by `AccountService` |
-| App-directory `.env` | Server default API keys (within the `WEB_API_ENV_KEYS` whitelist) | Never commit real keys; can be overwritten by user saves when `save_user_keys_to_server` is on |
-| Admin server configuration | `registration.enabled`, `api_key_policy`, `show_env_to_users`, upload limits | Registration is off by default; `show_env_to_users` defaults to `false` |
-| `localStorage.session_token` / `user_info` | Session token and user-info cache | Browser-local; the `/auth/check` result wins once a server-side session is invalidated |
-| `localStorage.user_env_vars` | Browser staging of user-entered API keys | Stores only valid keys from `api-key-schema.js`; whether it reaches the server depends on policy |
-| `static/js/shared/api-key-schema.js` | API key editor field schema (categories, groups, keys, i18n, placeholders) | The backend `WEB_API_ENV_KEYS` stays in sync with it |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Account service | `manga_translator/server/core/account_service.py` | Create/update/delete, bcrypt password hashing and strength, default admin |
-| Permission service | `manga_translator/server/core/permission_service.py` | Feature-permission priority, concurrency/daily quota, file permissions, parameter filtering |
-| Key policy | `manga_translator/server/core/api_key_policy.py` | Defaults of the four policy fields and group override |
-| Auth middleware | `manga_translator/server/core/middleware.py` | `require_auth` / `require_admin`, `401`/`403` |
-| Auth routes | `manga_translator/server/routes/auth.py` | setup/login/register/change-password/check/status and rate limits |
-| Env/settings routes | `manga_translator/server/routes/config.py` | `/api-key-policy`, `/env`, `/env/effective`, `/user/settings` |
-| User-management routes | `manga_translator/server/routes/users.py` | Admin user CRUD and permission updates |
-| Request merging | `manga_translator/server/core/response_utils.py` | `apply_user_env_vars` preset merge and policy denial |
-| Front-end main script | `manga_translator/server/static/script.js` | Tab visibility, key editor, upload/parameter filtering, admin link |
-| Login page | `manga_translator/server/static/login.html` | Initial setup/login/register/forced-password-change flow |
-| Admin UI | `manga_translator/server/static/admin-new.html`, `static/js/admin/modules/users.js`, `permissions.js`, `envvars.js`, `static/js/admin/components/permission-editor.js` | User/group/permission/key management screens and permission editor |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json`, `static/js/i18n.js` | Key mapping, actual display values, missing fallbacks |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| Account and auth flow | Complete | Statically checked `auth.py`, `login.html`, `middleware.py` |
-| Permission model and UI filtering | Complete | Statically checked `permission_service.py`, `users.py`, `script.js`, `permission-editor.js` |
-| API key policy and editor | Complete | Statically checked `api_key_policy.py`, `api-key-schema.js`, `config.py`, `response_utils.py` |
-| i18n three columns | Complete | The tables record key, actual English, and actual Simplified Chinese values; missing entries are marked |
-| Sanitized runtime verification | Deferred | No Web server/browser was started; no real `.env`, `accounts.json`, key, or user data was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
+> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).

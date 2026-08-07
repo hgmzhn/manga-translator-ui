@@ -48,31 +48,6 @@ lastUpdated: true
 
 如果开始任务后的扫描没有得到有效图片，应用会显示“文件列表为空”和“请先添加要翻译的图片文件！”警告；仅有无法解包的压缩包或不支持的文件不能作为有效图片输入。
 
-## 选项中英对照
-
-本功能没有可写入配置的枚举参数。以下是按钮、状态和输入格式的 UI 调用 key 证据；英文页面也保留三列，以便逐项核对。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Add Files` | Add Files | 添加文件 |
-| `Add Folder` | Add Folder | 添加文件夹 |
-| `Clear List` | Clear List | 清空列表 |
-| `Drag and drop files or folders here\nor click the buttons above to add` | Drag and drop files or folders here / or click the buttons above to add | 拖拽文件或文件夹到此处 / 或点击上方按钮添加 |
-| `Translated` | Translated | 已翻译 |
-| `Untranslated` | Untranslated | 未翻译 |
-| `File List Empty` | File List Empty | 文件列表为空 |
-| `Please add image files to translate!` | Please add image files to translate! | 请先添加要翻译的图片文件！ |
-| `正在加载文件列表...` | 缺少 English key；代码回退为正在加载文件列表... | 正在加载文件列表... |
-
-### 支持的输入扩展名
-
-| 输入类别 | 存储/代码值 | English | 简体中文 |
-| --- | --- | --- | --- |
-| 图片 | `.png`, `.jpg`, `.jpeg`, `.jfif`, `.webp`, `.avif`, `.bmp`, `.tiff`, `.tif`, `.heic`, `.heif` | Supported image files | 支持的图片文件 |
-| 压缩包或文档 | `.pdf`, `.epub`, `.cbz`, `.cbr`, `.zip` | Supported archives/documents | 支持的压缩包/文档 |
-
-图片扩展名来自 `manga_translator.image_formats.SUPPORTED_IMAGE_EXTENSIONS`；压缩包集合由桌面文件服务和文件目录快照服务分别声明。扩展名匹配不区分大小写。文件选择器的“所有支持的文件”过滤器包含两类扩展名，但筛选器本身不是内容解码保证。
-
 ## 运行机理
 
 ### 从输入源到文件树
@@ -91,15 +66,15 @@ flowchart TD
     I --> J[开始任务时再次扫描并解包压缩包]
 ```
 
-`FileListDataService` 在后台线程构建不可变快照，使用 generation 丢弃过期结果。目录按自然排序，因此 `file2` 位于 `file10` 之前；重复源路径按 Windows 友好的规范化路径键去重。扫描会跳过名为 `manga_translator_work` 的目录，避免把上一次任务的工程文件当作新的输入。
+目录按自然排序，因此 `file2` 位于 `file10` 之前；重复源路径会按规范化路径键去重。扫描会跳过名为 `manga_translator_work` 的目录，避免把上一次任务的工程文件当作新的输入。
 
 图片节点同时保存源图片路径和找到的 JSON 路径。新位置优先查找 `<image-dir>/manga_translator_work/json/<stem>_translations.json`，然后兼容图片同目录的旧位置；因此状态点只表示“扫描时找到关联 JSON”，不代表本次任务已成功翻译。
 
 ### 开始任务时的压缩包处理
 
-页面列表阶段仅识别并展示压缩包。开始任务后，`FileScannerRunnable` 对压缩包调用归档提取器，收集其中图片并建立压缩包到临时解包目录的映射；输出到指定目录时还会检查同名解包目录冲突，并根据覆盖设置跳过或清理冲突目录。没有找到图片、解包失败或任务已停止时，扫描通过进度/错误回调报告结果。
+页面列表阶段仅识别并展示压缩包。开始任务后，归档提取器解包压缩包并收集其中图片，建立压缩包到临时解包目录的映射；输出到指定目录时还会检查同名解包目录冲突，并根据覆盖设置跳过或清理冲突目录。没有找到图片、解包失败或任务已停止时，会通过进度/错误提示报告结果。
 
-静态源码已确认该调用链；不同压缩包内容、同名文件和输出目录的实际相对层级仍需使用脱敏样例运行确认，不能据此承诺压缩包内部副文件会自动与外部 TXT/JSON 配对。
+不同压缩包内容、同名文件和输出目录的实际相对层级需在实际运行中确认；压缩包内部副文件不保证会自动与外部 TXT/JSON 配对。
 
 ### 删除与快照更新
 
@@ -112,42 +87,3 @@ flowchart TD
 - 任务运行期间文件列表锁定，添加、删除和清空都会被拒绝。停止任务和任务状态见下一页。
 - 大目录会触发后台扫描和异步缩略图读取；列表快照与缩略图加载均带取消/代际保护，避免旧扫描覆盖新列表，但磁盘访问和缩略图仍消耗 CPU、内存和 I/O。
 - 压缩包识别不等于解包成功。PDF、EPUB、CBZ、CBR 和 ZIP 的内容、权限、同名冲突和临时目录清理应在实际运行中确认。
-
-## 关联文件与格式
-
-本页只列输入列表实际读取或维护的文件和字段。它不展开翻译 JSON 的全部区域格式；JSON 字段和回写规则属于工作流/编辑器页面。
-
-| 文件或目录 | 本页中的作用 | 注意事项 |
-| --- | --- | --- |
-| 输入图片 | 列表树节点和后续主输入 | 支持扩展名见上表；原图内容、OCR 文本和坐标均属用户数据 |
-| `.pdf` / `.epub` / `.cbz` / `.cbr` / `.zip` | 列表节点，开始任务时作为解包输入 | 不在文档中展示用户压缩包内容；解包后的配对规则未运行确认 |
-| `manga_translator_work/` | 扫描时明确排除的工作目录 | 不会因为列表扫描而被当作输入；不要手动把其中产物公开分享 |
-| `manga_translator_work/json/<stem>_translations.json` | 让图片节点显示“已翻译”的关联文件探测 | 新路径优先，兼容同目录旧文件；文件可能包含原文、译文、蒙版和覆盖层 |
-| `translation_map.json` | 在快照扫描中解析翻译图到原图的映射 | 只记录结构和作用，不复制用户路径或内容 |
-
-列表显示的文件名和路径来自本地文件系统。文档、截图、日志和调试产物不得包含真实 API Key、令牌、用户名、私有绝对路径、用户图片、OCR/译文文本或私有提示词。
-
-## 源码依据
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 页面 UI | `desktop_qt_ui/ui/main_page/pages/translation_page.py:17-124` | 输入卡片、三个按钮、文件树、拖放信号和删除信号的绑定 |
-| 主窗口连接 | `desktop_qt_ui/ui/main_window.py:391-412, 427-482` | 快照加载/就绪/错误信号、主列表与 `MainAppLogic` 的连接 |
-| 列表视图 | `desktop_qt_ui/ui/widgets/file_list_view.py:423-869` | 空/加载/就绪/错误状态、树模型、缩略图、状态点、单项删除和本地 URL 拖放 |
-| 快照扫描 | `desktop_qt_ui/services/file_list_data_service.py:18-414` | 支持扩展名、递归树、自然排序、去重、工作目录排除、JSON 探测和 generation |
-| 输入服务 | `desktop_qt_ui/services/file_service.py:25-322` | 图片/压缩包验证、文件夹递归发现、自然排序和拖放路径处理 |
-| 输入协调 | `desktop_qt_ui/app_logic.py:1513-1712` | 添加/覆盖/去重、文件夹选择、删除、清空和任务运行锁定 |
-| 任务扫描 | `desktop_qt_ui/app_logic.py:1715-1792, 3600-3740` | 扫描状态、空列表警告、压缩包解包、冲突处理和扫描结果传递 |
-| i18n | `desktop_qt_ui/locales/en_US.json:159-161, 481-487, 1245-1246`; `desktop_qt_ui/locales/zh_CN.json:159-161, 479-485, 1244` | 本页 UI 调用 key 的英文和简体中文实际值 |
-| 格式定义 | `manga_translator/image_formats.py:6-31` | 图片扩展名唯一来源和文件对话框过滤器 |
-
-## 验证记录
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| 页面责任边界与源码依据 | 已完成 | 已核对蓝图 S02 范围及上述 UI、扫描和任务代码 |
-| i18n 三列证据 | 已完成 | 已逐项核对 `en_US.json` 与 `zh_CN.json`；加载提示的中文硬编码回退已如实标记 |
-| 双语结构镜像 | 已完成 | 中文与英文保持相同章节、子章节和 Mermaid 结构 |
-| 运行态文件夹/压缩包验证 | 待运行 | 研究资料明确列为未决；未把条件行为写成运行保证 |
-| 截图 | 待后续视觉任务 | 当前页面不伪造截图，不读取用户图片或配置 |
-| 敏感信息审查 | 已完成 | 未写入密钥、令牌、用户名、私有路径、用户内容或私有提示词 |

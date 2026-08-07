@@ -56,6 +56,33 @@ flowchart TD
 
 语言包包括 `zh_CN`、`zh_TW`、`en_US`、`ja_JP`、`ko_KR`、`es_ES` 六个；一次性脚本 `scripts/add_batch_edit_locale_keys.py` 演示了“缺则加、已有不动、en_US 用 key 自身”的批量补 key 方式。
 
+Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个语言包生成到 `doc/wiki/data/i18n.generated.json`（`--check` 检查是否过期）；设置字段目录由 `doc/wiki/scripts/build-settings-catalog.py` 从 `app_logic.py#get_display_mapping`、发行模板和两个语言包生成到 `doc/wiki/data/settings.generated.json`。修改语言包后应重跑这两个脚本，不能手工改生成的 JSON。
+
+## 三层默认值 {#three-layer-defaults}
+
+同一个配置键在三处有不同的默认值来源，新增字段时不要把三者合并：
+
+| 来源 | 定义文件 | 说明 |
+| --- | --- | --- |
+| Core `Config()` | `manga_translator/config.py` | 后端 `Config` 模型的 Pydantic 默认值，CLI 与 Web 也读它 |
+| Qt `AppSettings()` | `desktop_qt_ui/core/config_models.py` | 桌面端设置模型的默认值 |
+| Release `config-example.json` | `config/config-example.json` | 发行模板；桌面端用它兜底并同步用户配置 |
+
+桌面端加载优先级：用户 `config/config.json` > `config/config-example.json` > Qt 模型默认值（`config_service.py#_load_configs_with_priority`）；加载时逐键校验，无效值回退默认，`_sync_user_config` 再按发行模板增删字段。因此“新增字段后用户配置被同步”是持久化的正常行为，不是 bug。三层默认值差异的完整矩阵见 `doc/wiki/research/default-sources.md`。
+
+## 依赖与冲突 {#dependencies-and-conflicts}
+
+- 新增用户可配置参数时，`config_models.py` 与 `manga_translator/config.py` 的字段名/类型必须一致，否则桌面端保存的值到后端可能对不上。
+- 设置项标签走 `get_display_mapping('labels')`；漏加映射时，`dynamic_settings.py` 会退回显示字段名（如 `min_box_area_ratio`），不报错，但界面文案缺失。
+- `desc_*` 说明缺失不会报错，说明面板显示“暂无说明”（`Settings Desc No Description`）；两种语言都要如实补齐。
+- i18n 缺 key 时 `translate()` 返回 key 本身：`en_US` 里 key 与值相同一般看不出来，但 `zh_CN` 缺 key 会直接显示英文 key，应在语言切换后检查。
+- 修改 `settings_tab_layout.json` 会改变设置页的可见参数集合与分组；`doc/wiki/data/settings.generated.json` 的基线是 109 个可见字段，改动后应重新生成并核对。
+- 不要修改 `doc/wiki/data/`、`doc/wiki/scripts/` 之外的生成物，也不要读取或提交真实 `.env`、用户 `config.json`、密钥、令牌或私有绝对路径。
+
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
 下面是与本页流程直接相关的界面文案（key → `en_US` 实际值 → `zh_CN` 实际值）：
 
 | UI 调用 key | English 实际值 | 简体中文实际值 |
@@ -87,30 +114,7 @@ flowchart TD
 | `desc_cli_context_size` | Translation context page count for multi-page joint translation. Larger values improve quality but consume more tokens. | 翻译上下文页面数，用于多页联合翻译。值越大翻译质量越好，但 token 消耗越多。 |
 | `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
 
-Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个语言包生成到 `doc/wiki/data/i18n.generated.json`（`--check` 检查是否过期）；设置字段目录由 `doc/wiki/scripts/build-settings-catalog.py` 从 `app_logic.py#get_display_mapping`、发行模板和两个语言包生成到 `doc/wiki/data/settings.generated.json`。修改语言包后应重跑这两个脚本，不能手工改生成的 JSON。
-
-## 三层默认值 {#three-layer-defaults}
-
-同一个配置键在三处有不同的默认值来源，新增字段时不要把三者合并：
-
-| 来源 | 定义文件 | 说明 |
-| --- | --- | --- |
-| Core `Config()` | `manga_translator/config.py` | 后端 `Config` 模型的 Pydantic 默认值，CLI 与 Web 也读它 |
-| Qt `AppSettings()` | `desktop_qt_ui/core/config_models.py` | 桌面端设置模型的默认值 |
-| Release `config-example.json` | `config/config-example.json` | 发行模板；桌面端用它兜底并同步用户配置 |
-
-桌面端加载优先级：用户 `config/config.json` > `config/config-example.json` > Qt 模型默认值（`config_service.py#_load_configs_with_priority`）；加载时逐键校验，无效值回退默认，`_sync_user_config` 再按发行模板增删字段。因此“新增字段后用户配置被同步”是持久化的正常行为，不是 bug。三层默认值差异的完整矩阵见 `doc/wiki/research/default-sources.md`。
-
-## 依赖与冲突 {#dependencies-and-conflicts}
-
-- 新增用户可配置参数时，`config_models.py` 与 `manga_translator/config.py` 的字段名/类型必须一致，否则桌面端保存的值到后端可能对不上。
-- 设置项标签走 `get_display_mapping('labels')`；漏加映射时，`dynamic_settings.py` 会退回显示字段名（如 `min_box_area_ratio`），不报错，但界面文案缺失。
-- `desc_*` 说明缺失不会报错，说明面板显示“暂无说明”（`Settings Desc No Description`）；两种语言都要如实补齐。
-- i18n 缺 key 时 `translate()` 返回 key 本身：`en_US` 里 key 与值相同一般看不出来，但 `zh_CN` 缺 key 会直接显示英文 key，应在语言切换后检查。
-- 修改 `settings_tab_layout.json` 会改变设置页的可见参数集合与分组；`doc/wiki/data/settings.generated.json` 的基线是 109 个可见字段，改动后应重新生成并核对。
-- 不要修改 `doc/wiki/data/`、`doc/wiki/scripts/` 之外的生成物，也不要读取或提交真实 `.env`、用户 `config.json`、密钥、令牌或私有绝对路径。
-
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -123,14 +127,3 @@ Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个�
 | 后端消费 | `manga_translator/manga_translator.py`、`manga_translator/translators/__init__.py` | 参数进入流水线、翻译器注册 |
 | 测试约定 | `test/README.md`、`pyproject.toml` | `import _bootstrap`、pytest 的 `testpaths` / `pythonpath` |
 | Wiki 工具 | `doc/wiki/scripts/build-i18n-catalog.mjs`、`build-settings-catalog.py` | i18n 与设置目录的生成与检查 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 配置链路源码 | 完成 | 静态核对 `config_models.py`、`config.py`、`config_service.py` 与消费点 |
-| i18n key 与实际值 | 完成 | 页面表格逐项取自 `i18n.generated.json` 与两个 locale |
-| 设置目录工具 | 完成 | 静态核对 `build-i18n-catalog.mjs`、`build-settings-catalog.py` 的输入输出 |
-| 脱敏运行验证 | 待后续 | 本页未读取真实 `.env`、用户 `config.json`、API key/token、用户名或私有路径 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

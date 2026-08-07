@@ -40,33 +40,13 @@ lastUpdated: true
 
 七个页签合计 109 个可见参数行。
 
-## UI 调用 key 与实际文案 {#ui-i18n}
-
-本页出现的页签、标题和按钮均核对自 `desktop_qt_ui/locales/en_US.json` 与 `zh_CN.json`：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `Settings Page Title` | Settings | 参数设置 |
-| `Settings Page Subtitle` | Adjust translation pipeline parameters. Changes are saved automatically. | 调整翻译流程的各项参数。修改后将自动保存。 |
-| `General` | General | 通用 |
-| `OCR` | OCR | 文字识别 |
-| `Detection` | Detection | 检测 |
-| `Translation` | Translation | 翻译 |
-| `Inpainting` | Inpainting | 修复 |
-| `Typesetting` | Typesetting | 排版 |
-| `Mode Specific` | Mode Specific | 模式相关 |
-| `Advanced` | Advanced | 高级 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-
 ## 参数索引 {#parameter-index}
 
 下表按设置页页签分组，逐项记录存储键、English 与简体中文实际文案，并提供跳转链接。数据来自 `doc/wiki/data/settings.generated.json`（由设置布局、UI 绑定和两个 locale 生成）与 `doc/wiki/data/i18n.generated.json`；每个跳转锚点都已与对应设置页中的显式锚点核对。
 
-### General（通用） {#tab-general}
+### 通用 {#tab-general}
 
-General 页签的 19 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
+通用页签的 19 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
 
 | 存储值 | English 实际值 | 简体中文实际值 | 跳转 |
 | --- | --- | --- | --- |
@@ -90,7 +70,7 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | `cli.psd_script_only` | Generate PSD Script Only | 仅生成PSD脚本 | [#cli-psd-script-only](../desktop/settings/cli-batch-and-output.md#cli-psd-script-only) |
 | `app.unload_models_after_translation` | Unload Models After Translation | 翻译完成后卸载模型 | [#unload-models](../desktop/settings/general-and-app.md#unload-models) |
 
-### OCR（文字识别） {#tab-ocr}
+### 文字识别 {#tab-ocr}
 
 本页签 17 个参数的说明见[OCR、过滤与文本行合并](../desktop/settings/ocr-filter-and-merge.md)。
 
@@ -114,7 +94,7 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | `ocr.merge_sigma` | Merge Outlier Tolerance | 合并-离群容忍度 | [#merge-tolerances](../desktop/settings/ocr-filter-and-merge.md#merge-tolerances) |
 | `ocr.merge_edge_ratio_threshold` | Merge Edge Ratio Threshold | 合并-边缘距离比例阈值 | [#merge-edge-ratio](../desktop/settings/ocr-filter-and-merge.md#merge-edge-ratio) |
 
-### Detection（检测） {#tab-detection}
+### 检测 {#tab-detection}
 
 本页签 13 个参数的说明见[检测](../desktop/settings/detection.md)。
 
@@ -134,7 +114,7 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | `detector.yolo_obb_conf` | YOLO Confidence Threshold | YOLO置信度阈值 | [#detector-yolo-obb-conf](../desktop/settings/detection.md#detector-yolo-obb-conf) |
 | `detector.yolo_obb_overlap_threshold` | YOLO Overlap Removal Threshold | YOLO辅助检测重叠率删除阈值 | [#detector-yolo-obb-overlap-threshold](../desktop/settings/detection.md#detector-yolo-obb-overlap-threshold) |
 
-### Translation（翻译） {#tab-translation}
+### 翻译 {#tab-translation}
 
 本页签 11 个参数的说明见[翻译设置](../desktop/settings/translation.md)。
 
@@ -152,7 +132,7 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | `translator.convert_to_traditional` | Convert to Traditional Chinese | 简体转繁体 | [#translator-chinese-conversion](../desktop/settings/translation.md#translator-chinese-conversion) |
 | `translator.convert_to_simplified` | Convert to Simplified Chinese | 繁体转简体 | [#translator-chinese-conversion](../desktop/settings/translation.md#translator-chinese-conversion) |
 
-### Inpainting（修复） {#tab-inpainting}
+### 修复 {#tab-inpainting}
 
 本页签 10 个参数的说明见[蒙版与图像修复](../desktop/settings/mask-and-inpainting.md)。其中 `inpainter.inpainter`、`inpainter.solid_fill_pure_bubbles`、`inpainter.per_block_inpainting` 在该页没有独立显式锚点，跳转到页面本身。
 
@@ -169,7 +149,7 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | `kernel_size` | Kernel Size | 卷积核大小 | [#dilation-and-kernel](../desktop/settings/mask-and-inpainting.md#dilation-and-kernel) |
 | `inpainter.force_use_torch_inpainting` | Force Use PyTorch Inpainting | 强制使用PyTorch修复 | [#force-torch](../desktop/settings/mask-and-inpainting.md#force-torch) |
 
-### Typesetting（排版） {#tab-typesetting}
+### 排版 {#tab-typesetting}
 
 本页签 28 个参数的说明见[排版与渲染](../desktop/settings/typesetting-and-rendering.md)。该页参数小节没有独立显式锚点，全部跳转到页面本身。
 
@@ -204,7 +184,7 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | `render.max_font_size` | Maximum Font Size | 最大字体大小 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.font_scale_ratio` | Font Scale Ratio | 字体缩放比例 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 
-### Mode Specific（模式相关） {#tab-mode-specific}
+### 模式相关 {#tab-mode-specific}
 
 本页签 11 个参数分散在两个页面：直接粘贴与模板对齐参数见[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)，超分与上色参数见[超分与上色](../desktop/settings/upscale-and-colorization.md)。
 
@@ -222,15 +202,38 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | `colorizer.colorization_size` | Colorization Size | 上色大小 | [#colorizer-colorization-size](../desktop/settings/upscale-and-colorization.md#colorizer-colorization-size) |
 | `colorizer.denoise_sigma` | Denoise Strength | 降噪强度 | [#colorizer-denoise-sigma](../desktop/settings/upscale-and-colorization.md#colorizer-denoise-sigma) |
 
-
 ## 覆盖边界与反向链接 {#coverage-and-backlinks}
 
 - 反向链接：本页是设置页七个专题页与[设置页与配置生命周期](../desktop/settings/index.md)的汇总跳转入口；参数详细说明仍以专题页为准。
 - 兄弟参考页：完整枚举选项的 value/i18n 对照见[选项与 i18n 矩阵](./options-i18n-matrix.md)，九种工作流阶段矩阵见[工作流矩阵](./workflow-matrix.md)，各页源码依据汇总见[源码依据索引](./source-evidence-index.md)，调试产物见[调试产物索引](./debug-artifact-index.md)。
-- 由其他控件写回、不作为设置参数行显示的值：`upscale.realcugan_model` 由超分模型下拉写回（见[超分与上色](../desktop/settings/upscale-and-colorization.md)）；八个工作流标志（`cli.generate_and_export`、`cli.template`、`cli.translate_json_only`、`cli.load_text`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`、`cli.replace_translation`）由翻译工作区的工作流下拉设置（见[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)）。编辑器偏好（`editor_*`）属于 `AppSection`，但不在 General 页签显示为动态行。
+- 由其他控件写回、不作为设置参数行显示的值：`upscale.realcugan_model` 由超分模型下拉写回（见[超分与上色](../desktop/settings/upscale-and-colorization.md)）；八个工作流标志（`cli.generate_and_export`、`cli.template`、`cli.translate_json_only`、`cli.load_text`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`、`cli.replace_translation`）由翻译工作区的工作流下拉设置（见[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)）。编辑器偏好（`editor_*`）属于 `AppSection`，但不在通用页签显示为动态行。
 - 运行时列表（字体、模型名、API 预设、提示词文件、批量方案）来自本机或用户配置，不进入本索引的固定清单。
 
-## 源码依据 {#source-evidence}
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### UI 调用 key 与实际文案 {#ui-i18n}
+
+本页出现的页签、标题和按钮均核对自 `desktop_qt_ui/locales/en_US.json` 与 `zh_CN.json`：
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Settings` | Settings | 设置 |
+| `Settings Page Title` | Settings | 参数设置 |
+| `Settings Page Subtitle` | Adjust translation pipeline parameters. Changes are saved automatically. | 调整翻译流程的各项参数。修改后将自动保存。 |
+| `General` | General | 通用 |
+| `OCR` | OCR | 文字识别 |
+| `Detection` | Detection | 检测 |
+| `Translation` | Translation | 翻译 |
+| `Inpainting` | Inpainting | 修复 |
+| `Typesetting` | Typesetting | 排版 |
+| `Mode Specific` | Mode Specific | 模式相关 |
+| `Advanced` | Advanced | 高级 |
+| `Export Config` | Export Config | 导出配置 |
+| `Import Config` | Import Config | 导入配置 |
+
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -242,15 +245,3 @@ General 页签的 19 个参数分散在两个页面：应用级参数见[通用�
 | 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 109 条参数记录、1353 个 i18n 条目 |
 | 调查资料 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`phase0-page-coverage-matrix.md`、`default-sources.md` | 选项矩阵、覆盖矩阵和默认值差异 |
 | 设置专题页 | `doc/wiki/zh/desktop/settings/*.md` | 参数锚点与跳转目标逐项核对 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取 1.3 节、5.16 小节并按页面合同编写 |
-| 参数清单与锚点 | 完成 | 109 条记录逐项映射，`{#anchor}` 全部存在于目标页 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 页签与 label 文案与两个 locale 实际值逐项一致 |
-| 生成数据文件 | 完成 | `settings.generated.json`、`i18n.generated.json` 作为表数据来源 |
-| 路由镜像与源码依据脚本 | 完成 | `node scripts/verify-route-mirror.mjs .`、`node scripts/verify-source-evidence.mjs .` 通过 |
-| 敏感信息审查 | 完成 | 未读取或写入真实 `.env`、用户配置、API Key、私有路径、用户图片或私有提示词 |
-| VitePress 构建 | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |

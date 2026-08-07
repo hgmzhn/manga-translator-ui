@@ -19,16 +19,6 @@ Open “API Management” (`API Management`) and choose the feature tab that use
 
 Using OpenAI translation as an example, each slot card shows the following three fields. When you switch to Gemini, OCR, colorization, or rendering, the fields change to the i18n labels of the matching feature and provider.
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `label_OPENAI_API_KEY` | OpenAI API Key | OpenAI API 密钥 |
-| `label_OPENAI_MODEL` | OpenAI Model | OpenAI 模型 |
-| `label_OPENAI_API_BASE` | OpenAI API Base | OpenAI API 地址 |
-| `API slot {index}` | API slot | API 通道 |
-| `+ Add API slot` | + Add API slot | + 添加 API 通道 |
-| `API rotation strategy:` | Rotation strategy: | 轮询策略： |
-| `Test Current Tab` | Test Current Tab | 测试当前页 |
-
 A slot title has two parts: the badge on the left shows a two-digit number (for example `01`) and the label on the right reads “API slot”. The code does not embed the number into the title text; the number appears only in the badge.
 
 1. Fill in “OpenAI API Key”, “OpenAI Model”, and “OpenAI API Base” on the `01` “API slot” card.
@@ -42,11 +32,6 @@ A slot title has two parts: the badge on the left shows a two-digit number (for 
 When you delete a middle slot, the later slots move forward so the numbering stays consecutive; the `.env` keys of the deleted slot are removed. Deleting a slot does not switch the translator and does not change the OCR, colorization, or rendering APIs on other tabs. The UI caps the number of slots at 10 (`API_ROTATION_UI_MAX_SLOTS = min(10, 30)`); the “+ Add API slot” button is hidden once the cap is reached.
 
 ## What is the difference between the two rotation policies {#rotation-strategies}
-
-| Stored value | English | Simplified Chinese | Actual behavior |
-| --- | --- | --- | --- |
-| `failover` | Ordered failover | 按顺序故障切换 | Prefers the earliest available slot under normal conditions; tries later slots only after retries on the current slot fail |
-| `round_robin` | Round robin | 轮询 | Rotates the starting slot on every request so multiple available candidates share the load; still looks for other candidates after a failure |
 
 With only one valid slot, the two policies behave almost identically. Round robin never splits one translation across multiple models and never changes the translator mid-request.
 
@@ -112,34 +97,3 @@ The status bar and restore button appear below the slot card title; “Restore�
 - `translator_chain` hands the output of one translator to the next translator; it has nothing to do with API candidate slots.
 
 The translator selector at the top of API Management binds to `translator.translator`, so changing the option there really changes the translator; API slots and the rotation policy never change that value. For the full boundary, see [Feature selectors](./feature-selectors.md) and [Translation chaining](../translator/translation-chain.md).
-
-## Related configuration {#related-configuration}
-
-| Configuration | Role | Note |
-| --- | --- | --- |
-| Key/Base/Model and numbered slots in `.env` | Store the API candidates | Never show real keys in docs or screenshots |
-| `*_API_ROTATION_STRATEGY` | Stores the rotation policy of the current provider | Only affects the matching feature/provider group |
-| `translator.translator` | Decides which translator implementation is used | Slots and policies never change this value |
-| `config/custom_api_params.json` | Stores extra request-body parameters | Does not manage connection credentials, model selection, or slot rotation |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| UI | `desktop_qt_ui/ui/main_page/env_management.py` | Slot add/delete and numbering badges, policy dropdown, Test Current Tab, status bars and restore |
-| Grouping and refresh | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | `API_GROUP_SPECS`, `_selected_api_group_keys`, `_refresh_env_api_groups` |
-| Persistence | `desktop_qt_ui/services/config_service.py` | `.env` loading, in-memory writes, 250 ms coalesced flush |
-| Candidate resolution | `manga_translator/runtime_api_resolver.py` | How Key, Base, Model and numbered slots form candidates |
-| Request rotation | `manga_translator/api_key_rotation.py` | failover, round robin, cooldown, unavailability, and recovery |
-| Final consumers | `manga_translator/translators/openai.py`, `gemini.py`, etc. | `run_with_api_candidates` and endpoint switching |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| UI/i18n actual values | Complete | Three-column tables checked against `en_US.json` / `zh_CN.json` |
-| Candidate resolution and rotation | Complete | Statically checked `runtime_api_resolver.py`, `api_key_rotation.py`, and the call graph |
-| Multi-slot connection test | Deferred | Verify add/delete and test results with a sanitized test configuration |
-| Rotation and recovery | Deferred | Verify candidate state changes with a controlled failing endpoint |
-| VitePress | Complete | Ran `npm run docs:build --prefix doc/wiki` and the build passed; mirror/source checks passed, coordinator still re-checks before merge |

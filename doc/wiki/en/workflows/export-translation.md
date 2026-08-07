@@ -25,34 +25,13 @@ Export Translation forms the template/JSON family together with [Export Original
 
 ### Select the Export Translation workflow
 
-1. Open the translation page and choose “Export Translation” (`Export Translation`) in the “Translation Workflow Mode:” (`Translation Workflow Mode:`) combo box.
+1. Open the translation page and choose “Export Translation” in the “Translation Workflow Mode:” combo box.
 2. The page title becomes “Export Translation” and the subtitle shows the hint: after exporting, check the translated sidecars in `manga_translator_work/translations/`.
-3. The start button becomes “Export Translation” (`Export Translation`); clicking it starts the backend task in this mode.
+3. The start button becomes “Export Translation”; clicking it starts the backend task in this mode.
 
 Selecting a mode only writes configuration and updates the UI texts; it does not start a task. Before starting, add the main input images (“Add Files...”, “Add Folder...”, or drag-and-drop) and make sure the export template exists and parses. The UI hint always reads `imagename_translated.txt`, but the actual extension comes from the template's `output_format` (default `json`); the hint text does not change with the template extension.
 
 “Output Directory:” only determines where the main output image goes. Export Translation writes no main image, so in this mode it does not affect the JSON or translated-sidecar locations; both always follow the per-image work-directory rules.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files` | Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files | 提示：导出翻译后，可在 manga_translator_work/translations/ 目录查看 图片名_translated.txt 文件 |
-| `label_generate_and_export` | Export Translation | 导出翻译 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_import_yolo_labels` | Import Fixed YOLO Boxes | 导入固定YOLO框 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-
-## Option matrix
-
-The combo box has no separate `userData`; the index is the mode value. Runtime code maps index 1 to `cli.generate_and_export=true`. The stored values of the related settings are listed below, with the three UI evidence columns and their actual effect on this workflow.
-
-| Stored value | English | Simplified Chinese | Effect in this workflow |
-| --- | --- | --- | --- |
-| `generate_and_export=true` | Export Translation | 导出翻译 | Enters the export branch; skips inpainting, rendering, and main-image saving |
-| `overwrite=false` | Overwrite Existing Files | 覆盖已存在文件 | Skips images whose translated sidecar already exists before starting |
-| `import_yolo_labels=true` | Import Fixed YOLO Boxes | 导入固定YOLO框 | Skips mask refinement and does not save the mask in JSON |
-| `batch_concurrent=true` | Concurrent Batch Processing | 并发批量处理 | This mode is forced to run non-concurrently |
 
 ## Runtime behavior
 
@@ -111,40 +90,11 @@ flowchart LR
 - Colorization, upscaling, detection, OCR, and translation still consume model, VRAM, network, and API costs according to their parameters; this page does not repeat those parameter descriptions.
 - The main output directory, `save_to_source_dir`, and `cli.format` affect only the main output image; this mode writes no main image, so those settings have no direct effect on this workflow's outputs.
 
-## Related files and formats
+## Related pages {#related-pages}
 
-| File/format | Actual role on this page | Notes |
-| --- | --- | --- |
-| `config/translation_template.json` | Determines the translated-sidecar extension and placeholder structure | The first `output_format:` line is the extension; missing/invalid falls back to `json` |
-| `manga_translator_work/json/<stem>_translations.json` | Project JSON with `regions`, mask, and `skip_font_scaling` | New location takes priority; falls back to the legacy image-side location |
-| `manga_translator_work/translations/<stem>_translated.<template-extension>` | Translated sidecar | Extension comes from the template; the `.txt` in the UI hint is fixed text |
-| Main output image | Not produced | This mode skips main-image saving |
+- Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Translate JSON Only](./translate-json-only.md) · [Import Translation and Render](./import-translation-and-render.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Inpaint Only](./inpaint-only.md) · [Replace Translation](./replace-translation.md)
+- Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)
+- Inputs, skipped stages, and outputs of all nine workflows: [Workflow Matrix](../reference/workflow-matrix.md)
+- Mutually exclusive workflow fields, parameter overrides, and template alignment: [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md)
 
-No real user configuration, keys, tokens, usernames, private absolute paths, user images, or task artifacts are shown on this page.
-
-## Source evidence
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Workflow selection and writes | `desktop_qt_ui/ui/main_page/runtime.py:183-215` | Index 1 → `generate_and_export=true`, eight-field mutual exclusion, and config saving |
-| Title, hint, and start button | `desktop_qt_ui/ui/main_page/runtime.py:22-47,219-238` | “Export Translation” title, hint call keys, and button text |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual bilingual values for `Export Translation`, `Tip: After exporting...`, and `label_*` |
-| Controller | `desktop_qt_ui/app_logic.py:3157-3162,3222,3245-3272` | Pre-start translated-sidecar check, workflow hint, and special-mode concurrency disabling |
-| Core dispatch | `manga_translator/manga_translator.py:4151,5770` | Export branches in the standard and HQ paths; rendering skipped |
-| Template export | `manga_translator/manga_translator.py:960,1021` | Shared `_handle_generate_and_export` → `_handle_template_export` flow |
-| JSON writes | `manga_translator/manga_translator.py:713,803,829` | `_save_text_to_file`, `skip_font_scaling=true`, and the YOLO mask exception |
-| Paths | `manga_translator/utils/path_manager.py` | JSON/translated-sidecar paths and new/legacy lookup fallback |
-| Template parsing/generation | `manga_translator/utils/translation_template.py`, `desktop_qt_ui/services/workflow_service.py` | `output_format` parsing, `<original>/<translated>` placeholders, and `generate_translated_text` |
-
-## Verification
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; the three contract files were not modified |
-| Source and research material | Complete | Cross-checked `workflow-matrix-source-evidence.md` and the UI, i18n, controller, and core sources |
-| Three-column i18n evidence | Complete | The workflow option, hint, button, and related settings record the call key, English, and Simplified Chinese actual values |
-| Route/page mirror | Pending | Run route mirror and source-evidence checks after completing the pages |
-| Empty-region and overwrite/error prompts | Pending | `ensure_json_with_empty_regions` empty-region behavior, overwrite prompts, and error dialogs need sanitized runtime verification |
-| Production build | Pending | Run `npm run docs:build --prefix doc/wiki` if needed |
-
-- [ ] [In progress] Runtime confirmation remains: actual prompts and file retention for empty text regions, overwrite prompt dialogs, and user-visible feedback when the template is missing.
+> See the reference index: [Workflow Matrix](../reference/workflow-matrix.md).

@@ -23,52 +23,6 @@ This page does not repeat `local` input collection or output-directory resolutio
 
 ## Workflow parameters {#workflow-parameters}
 
-### The nine workflows and stored values {#workflow-mapping}
-
-The index of the desktop “Translation Workflow Mode:” dropdown maps one-to-one to a `cli` field; `local` dispatches on the same fields after loading configuration. When the dropdown is switched, the UI first clears all eight mutually exclusive fields to `false` and then sets only the field for the selected mode (“Export Original Text” additionally requires `cli.save_text=true`), so at most one row below is active in a single configuration.
-
-| Index | Stored value `cli.*` | English actual value | Simplified Chinese actual value | Start button (English / Simplified Chinese) | Main output / bypass |
-| ---: | --- | --- | --- | --- | --- |
-| 0 | All eight fields `false` | Normal Translation | 正常翻译流程 | Start Translation / 开始翻译 | Main output image; project JSON and inpainted image also written when `save_text` is enabled |
-| 1 | `generate_and_export=true` | Export Translation | 导出翻译 | Export Translation / 导出翻译 | Project JSON + `translations/<stem>_translated.<template-ext>`, rendering skipped |
-| 2 | `template=true` (with `save_text=true`) | Export Original Text | 导出原文 | Generate Original Text Template / 仅生成原文模板 | Project JSON + `originals/<stem>_original.<template-ext>`, translation and rendering skipped |
-| 3 | `translate_json_only=true` | Translate JSON Only | 仅翻译（JSON） | Start JSON Translation / 开始仅翻译（JSON） | Writes back project JSON and deletes the original sidecar; no main output image |
-| 4 | `load_text=true` | Import Translation and Render | 导入翻译并渲染 | Import Translation and Render / 导入翻译并渲染 | Loads regions from JSON, renders the main output image, and writes JSON back |
-| 5 | `colorize_only=true` | Colorize Only | 仅上色 | Start Colorizing / 开始上色 | Main output image (colorized), detection/OCR/translation/rendering skipped |
-| 6 | `upscale_only=true` | Upscale Only | 仅超分 | Start Upscaling / 开始超分 | Main output image (upscaled), detection/OCR/translation/rendering skipped |
-| 7 | `inpaint_only=true` | Inpaint Only | 仅修复 | Start Inpainting / 开始修复 | Main output image (inpainted), translation/rendering skipped |
-| 8 | `replace_translation=true` | Replace Translation | 替换翻译 | Start Replace Translation / 开始替换翻译 | Main output image (pasted translation); pair image from `translated_images/` |
-
-The English/Simplified Chinese actual values above come from the actual entries in `desktop_qt_ui/locales/en_US.json` and `zh_CN.json` (the call key is the English copy), not from guessed translations. The three-column evidence follows:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Translate JSON Only` | Translate JSON Only | 仅翻译（JSON） |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Replace Translation` | Replace Translation | 替换翻译 |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Generate Original Text Template` | Generate Original Text Template | 仅生成原文模板 |
-| `Start JSON Translation` | Start JSON Translation | 开始仅翻译（JSON） |
-| `Start Colorizing` | Start Colorizing | 开始上色 |
-| `Start Upscaling` | Start Upscaling | 开始超分 |
-| `Start Inpainting` | Start Inpainting | 开始修复 |
-| `Start Replace Translation` | Start Replace Translation | 开始替换翻译 |
-| `label_save_text` | Editable Image | 图片可编辑 |
-| `label_format` | Output Format | 输出格式 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-| `label_save_to_source_dir` | Save to Source Directory | 输出到原图目录 |
-| `format_not_specified` | Not Specified | 不指定 |
-
-The `local` console’s own workflow notices (for example “⚠️ 并发流水线已禁用：当前模式 [...]”) are hard-coded and do not go through locales, so they are not listed above.
-
 ### Mutual exclusion and priority {#exclusive-and-priority}
 
 - Normal desktop switching guarantees mutual exclusion: `on_workflow_mode_changed()` first clears `load_text`, `translate_json_only`, `template`, `generate_and_export`, `colorize_only`, `upscale_only`, `inpaint_only`, and `replace_translation` to `false`, then sets only one field; reading back from configuration selects the dropdown index with the priority `replace_translation → inpaint_only → upscale_only → colorize_only → load_text → translate_json_only → template → generate_and_export → normal`.
@@ -77,7 +31,7 @@ The `local` console’s own workflow notices (for example “⚠️ 并发流水
 
 ### Relationship with the concurrent pipeline {#concurrency-relationship}
 
-`batch_concurrent` (desktop “Concurrent Batch Processing”) applies only to “Normal Translation”. Both `local` and core `translate_batch()` treat `load_text`, `translate_json_only`, `template and save_text`, `generate_and_export`, `colorize_only`, `upscale_only`, `inpaint_only`, and `replace_translation` as incompatible modes: `local` resets `cli.batch_concurrent` to `false` and prints “并发流水线已禁用”, while core `translate_batch()` does not create a `ConcurrentPipeline` when it finds an incompatible field, falling back to per-image/serial processing. In other words, workflow fields are not switches that make concurrency run; they are bypasses that force concurrency off.
+`batch_concurrent` (desktop “Concurrent Batch Processing”) applies only to “Normal Translation”. Both `local` and core `translate_batch()` treat `load_text`, `translate_json_only`, `template and save_text`, `generate_and_export`, `colorize_only`, `upscale_only`, `inpaint_only`, and `replace_translation` as incompatible modes: `local` resets `cli.batch_concurrent` to `false` and prints “concurrent pipeline disabled”, while core `translate_batch()` does not create a `ConcurrentPipeline` when it finds an incompatible field, falling back to per-image/serial processing. In other words, workflow fields are not switches that make concurrency run; they are bypasses that force concurrency off.
 
 ```mermaid
 flowchart TD
@@ -106,7 +60,7 @@ Diagram note: this is the source-confirmed dispatch order of `translate_batch()`
 
 ### Main output image {#main-output-image}
 
-- The output path is computed by `MangaTranslator._calculate_output_path()`: inside the directory resolved from `-o`, the relative hierarchy of input folders is preserved; when `cli.format` is empty, `none`, or “不指定” (`Not Specified`), the original file name (including its extension) is kept, otherwise `<stem>.<format>` is used.
+- The output path is computed by `MangaTranslator._calculate_output_path()`: inside the directory resolved from `-o`, the relative hierarchy of input folders is preserved; when `cli.format` is empty, `none`, or “Not Specified”, the original file name (including its extension) is kept, otherwise `<stem>.<format>` is used.
 - The CLI `save_info` contains only `output_folder`, `format`, `overwrite`, and `input_folders`; it does not contain `save_to_source_dir`, so the CLI never jumps to `manga_translator_work/result/` next to the source image. This differs from the desktop.
 - When `--overwrite` is off, images whose main output already exists, or whose workflow sidecar already exists, are skipped; `local` performs an overwrite pre-check at startup.
 
@@ -154,23 +108,6 @@ The dispatch order is described in [Mutual exclusion and priority](#exclusive-an
 - `template+save_text` forces `batch_size=1` (per-image disk writes); other workflows batch by `cli.batch_size`.
 - Colorize/upscale/inpaint only short-circuit inside normal preprocessing (`colorize_only` returns the colorized result, `upscale_only` returns the upscaled result, `inpaint_only` returns the inpainted result after mask refinement); all of them skip translation and rendering.
 
-### The three default sets {#default-values}
-
-There is no “always on” default for the workflow fields; the three default sets only affect base fields such as `save_text`, `format`, `overwrite`, `batch_size`, and `batch_concurrent`:
-
-| Field | Core `Config.cli` | Qt `CliSettings` | Release `config-example.json` |
-| --- | --- | --- | --- |
-| `save_text` | `false` | `true` | `true` |
-| `format` | `None` | `不指定` | `不指定` |
-| `overwrite` | `false` | `true` | `true` |
-| `batch_size` | `1` | `1` | `3` |
-| `batch_concurrent` | `false` | `false` | `false` |
-| `attempts` | `-1` | `-1` | `3` |
-| `save_to_source_dir` | `false` | `false` | `false` |
-| Six GUI workflow booleans | no such field (consumers fall back to `False`) | all `false` | all `false` |
-
-`load_text`, `template`, `generate_and_export`, `colorize_only`, `upscale_only`, and `inpaint_only` are not formal fields of the core `CliConfig`; `MangaTranslator` reads them from the parameter dictionary and falls back to `False` when missing. `replace_translation` and `translate_json_only` exist in the core `CliConfig` and default to `false`.
-
 ## Dependencies and conflicts {#dependencies-and-conflicts}
 
 - Workflow fields conflict with `batch_concurrent`: all eight special branches (including `template and save_text`) force the concurrent pipeline off.
@@ -178,39 +115,3 @@ There is no “always on” default for the workflow fields; the three default s
 - The `--subprocess` branch explicitly writes only `use_gpu`/`disable_onnx_gpu` into `cli_config`; the other workflow fields still come from the config file, and `--format`/`--batch-size`/`--attempts` do not enter that branch’s override writes (source difference; see [Configuration overrides](./configuration-overrides.md)).
 - Stacking several workflow fields manually runs in the core dispatch order, a combination the desktop does not guarantee; on JSON parse failure, JSON-only/import-and-render skip the write-back to protect the project file.
 - Sidecar files are written next to the source image directory even when `-o` points elsewhere; before deleting, migrating, or sharing `manga_translator_work/`, check whether it contains user images and text.
-
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Actual role on this page | Note |
-| --- | --- | --- |
-| `config/config.json` | Source of the workflow fields in the `cli` section | Never display a real user config or a private absolute path |
-| `config/config-example.json` | Release default reference | Differences from core/Qt defaults are in [The three default sets](#default-values) |
-| `config/translation_template.json` | Original/translation export template and `output_format` | Record only the placeholder structure and sanitized samples, never real text |
-| `manga_translator_work/json/*_translations.json` | Project JSON read/write | Remove user text and paths before sharing |
-| `manga_translator_work/originals/`, `translations/` | Template-export sidecars | File names must match the input `<stem>` |
-| `manga_translator_work/inpainted/`, `editor_base/`, `paint_overlay/`, `translated_images/` | Inpainted images, base images, overlays, replace pairs | Written conditionally by the corresponding workflow |
-| `manga_translator_work/yolo_labels/` | YOLO labels | Participates when import/export is enabled |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Parser | `manga_translator/args.py` | `local` has no workflow switch; `--format`/`--overwrite` help text |
-| CLI execution | `manga_translator/mode/local.py` | `cli_config` read, `batch_concurrent` incompatibility disable, overwrite pre-check, `save_info` fields |
-| Config models | `manga_translator/config.py`, `desktop_qt_ui/core/config_models.py` | Core `CliConfig` vs Qt `CliSettings` field differences and defaults |
-| Workflow dispatch | `manga_translator/manga_translator.py` | Nine-field read, `translate_batch()` branches, template export, JSON write-back, inpainted/base image saves |
-| Paths/files | `manga_translator/utils/path_manager.py`, `manga_translator/utils/translation_template.py`, `desktop_qt_ui/services/workflow_service.py` | `manga_translator_work` subdirectories, naming rules, placeholders, and `output_format` |
-| Desktop mapping | `desktop_qt_ui/ui/main_page/runtime.py`, `desktop_qt_ui/ui/main_page/pages/translation_page.py` | Dropdown index, mutual-exclusion writes, start-button copy |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual bilingual values for workflow and button keys |
-| Research | `doc/wiki/research/cli-command-inventory.md`, `doc/wiki/research/workflow-matrix-source-evidence.md` | Official subcommand contract and the nine-workflow matrix |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| `local --help` | Complete | Actually ran `uv run --no-sync python -m manga_translator local --help`; options match this page |
-| i18n three columns | Complete | Verified actual values in `en_US.json` / `zh_CN.json` item by item |
-| Workflow dispatch and file paths | Complete | Statically checked `manga_translator.py`, `path_manager.py`, `config.py`, and `mode/local.py` |
-| Sanitized runtime verification | Deferred | No real translation run; no user image, config, key, or private path was read |
-| Static checks | Complete | `verify-route-mirror.mjs` and `verify-source-evidence.mjs` PASS for this page (pre-existing issues in other repo pages are reported separately) |

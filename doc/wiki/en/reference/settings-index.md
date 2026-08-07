@@ -40,26 +40,6 @@ The settings page groups parameters by the left-side tabs; tab titles come from 
 
 The seven tabs total 109 visible parameter rows.
 
-## UI call keys and actual text {#ui-i18n}
-
-The tabs, titles, and buttons on this page are verified against `desktop_qt_ui/locales/en_US.json` and `zh_CN.json`:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `Settings Page Title` | Settings | 参数设置 |
-| `Settings Page Subtitle` | Adjust translation pipeline parameters. Changes are saved automatically. | 调整翻译流程的各项参数。修改后将自动保存。 |
-| `General` | General | 通用 |
-| `OCR` | OCR | 文字识别 |
-| `Detection` | Detection | 检测 |
-| `Translation` | Translation | 翻译 |
-| `Inpainting` | Inpainting | 修复 |
-| `Typesetting` | Typesetting | 排版 |
-| `Mode Specific` | Mode Specific | 模式相关 |
-| `Advanced` | Advanced | 高级 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-
 ## Parameter index {#parameter-index}
 
 The tables below group parameters by settings tab and record the stored key, the actual English and Simplified Chinese text, and a jump link. The data comes from `doc/wiki/data/settings.generated.json` (generated from the settings layout, UI binding, and the two locales) and `doc/wiki/data/i18n.generated.json`; every jump anchor was checked against the explicit anchors in the corresponding settings page.
@@ -222,7 +202,6 @@ The 11 parameters of this tab span two pages: direct-paste and template-alignmen
 | `colorizer.colorization_size` | Colorization Size | 上色大小 | [#colorizer-colorization-size](../desktop/settings/upscale-and-colorization.md#colorizer-colorization-size) |
 | `colorizer.denoise_sigma` | Denoise Strength | 降噪强度 | [#colorizer-denoise-sigma](../desktop/settings/upscale-and-colorization.md#colorizer-denoise-sigma) |
 
-
 ## Coverage boundary and backlinks {#coverage-and-backlinks}
 
 - Backlinks: this page is the aggregated jump entry for the seven settings topic pages and [Settings and Configuration Lifecycle](../desktop/settings/index.md); the detailed explanation remains on each topic page.
@@ -230,7 +209,31 @@ The 11 parameters of this tab span two pages: direct-paste and template-alignmen
 - Values written back by other controls instead of being settings rows: `upscale.realcugan_model` is written by the upscaler combo (see [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md)); the eight workflow flags (`cli.generate_and_export`, `cli.template`, `cli.translate_json_only`, `cli.load_text`, `cli.colorize_only`, `cli.upscale_only`, `cli.inpaint_only`, `cli.replace_translation`) are set by the workflow dropdown in the translation workspace (see [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md)). Editor preferences (`editor_*`) belong to `AppSection` but are not rendered as General rows.
 - Runtime lists (fonts, model names, API presets, prompt files, batch schemes) come from the local machine or user configuration and are not part of this index's fixed catalog.
 
-## Source evidence {#source-evidence}
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### UI call keys and actual text {#ui-i18n}
+
+The tabs, titles, and buttons on this page are verified against `desktop_qt_ui/locales/en_US.json` and `zh_CN.json`:
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Settings` | Settings | 设置 |
+| `Settings Page Title` | Settings | 参数设置 |
+| `Settings Page Subtitle` | Adjust translation pipeline parameters. Changes are saved automatically. | 调整翻译流程的各项参数。修改后将自动保存。 |
+| `General` | General | 通用 |
+| `OCR` | OCR | 文字识别 |
+| `Detection` | Detection | 检测 |
+| `Translation` | Translation | 翻译 |
+| `Inpainting` | Inpainting | 修复 |
+| `Typesetting` | Typesetting | 排版 |
+| `Mode Specific` | Mode Specific | 模式相关 |
+| `Advanced` | Advanced | 高级 |
+| `Export Config` | Export Config | 导出配置 |
+| `Import Config` | Import Config | 导入配置 |
+
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -242,15 +245,3 @@ The 11 parameters of this tab span two pages: direct-paste and template-alignmen
 | Generated data | `doc/wiki/data/settings.generated.json`, `doc/wiki/data/i18n.generated.json` | 109 parameter records, 1353 i18n entries |
 | Research | `doc/wiki/research/phase0-options-i18n-matrix.md`, `phase0-page-coverage-matrix.md`, `default-sources.md` | Option matrix, coverage matrix, default differences |
 | Settings topic pages | `doc/wiki/en/desktop/settings/*.md` | Parameter anchors and jump targets checked row by row |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read sections 1.3 and 5.16 in full and followed the page contract |
-| Parameter catalog and anchors | Complete | All 109 records mapped and every `{#anchor}` verified to exist in the target page |
-| `en_US` / `zh_CN` actual locales | Complete | Tab and label text matches both locales row by row |
-| Generated data files | Complete | `settings.generated.json` and `i18n.generated.json` used as table sources |
-| Route mirror and source-evidence scripts | Complete | `node scripts/verify-route-mirror.mjs .` and `node scripts/verify-source-evidence.mjs .` pass |
-| Sensitive-information review | Complete | No real `.env`, user config, API key, private path, user image, or private prompt read or written |
-| VitePress build | Deferred | Coordinator runs `npm run docs:build --prefix doc/wiki` before merge |

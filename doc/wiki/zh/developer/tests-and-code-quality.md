@@ -61,23 +61,6 @@ uv run --no-sync pytest test
 - 运行完整测试时，pytest 输出的 `rootdir` 必须是当前 Git 仓库根目录。如果本机上级目录还保留另一份旧仓库，旧配置可能误导入旧版 `manga_translator`（例如 `ModuleNotFoundError: No module named 'rusty_manga_image_translator'`）；此时先用 `PYTHONPATH=.` 直接运行测试验证实际导入路径，不能把相邻仓库的结果当作本仓测试结果。
 - 2026-08-07 本工作区核对：`uv run --no-sync pytest test --collect-only -q` 成功收集 379 个测试（耗时约 26 秒）；本任务没有执行完整运行，完整运行由 CI 承担。
 
-### 连接测试的界面文案
-
-桌面端没有“运行测试套件”的按钮；与测试最接近的界面是 API 管理页的“测试当前页”（`Test Current Tab`）连接测试。下列 i18n 文案在开发者自检凭据时会出现，key 与最终显示文字不同时以实际值为准；功能边界见 API 管理页面。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Test` | Test | 测试 |
-| `Test Current Tab` | Test Current Tab | 测试当前页 |
-| `Testing` | Testing | 测试中 |
-| `API connection test successful!` | API connection test successful! | API连接测试成功！ |
-| `API connection test failed` | API connection test failed | API连接测试失败 |
-| `No API channels to test` | No API channels to test | 没有可测试的 API 通道 |
-| `API test available` | available | 可用 |
-| `API test unavailable` | unavailable | 不可用 |
-| `Open log folder` | Open log folder | 打开日志文件夹 |
-| `Log output...` | Log output... | 日志输出... |
-
 ## 编写测试的约定
 
 - 第一句写 `import _bootstrap  # noqa: F401`；所有测试文件路径从 `_bootstrap.ROOT` 拼接，不写相对当前目录的路径（脚本从 IDE、PowerShell、pytest 启动时 cwd 可能不同）。
@@ -158,7 +141,28 @@ flowchart LR
 - 测试和文档都不读取真实 `.env`、用户 `config.json`、API Key、用户图片或私有提示词；安全回归测试专门验证路径穿越与远程图片 URL 会被拒绝。
 - 本页测试覆盖概览只是文件归类，不代表“已覆盖全部功能”；页面不声称任何覆盖率百分比。
 
-## 关联文件
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 连接测试的界面文案
+
+桌面端没有“运行测试套件”的按钮；与测试最接近的界面是 API 管理页的“测试当前页”（`Test Current Tab`）连接测试。下列 i18n 文案在开发者自检凭据时会出现，key 与最终显示文字不同时以实际值为准；功能边界见 API 管理页面。
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Test` | Test | 测试 |
+| `Test Current Tab` | Test Current Tab | 测试当前页 |
+| `Testing` | Testing | 测试中 |
+| `API connection test successful!` | API connection test successful! | API连接测试成功！ |
+| `API connection test failed` | API connection test failed | API连接测试失败 |
+| `No API channels to test` | No API channels to test | 没有可测试的 API 通道 |
+| `API test available` | available | 可用 |
+| `API test unavailable` | unavailable | 不可用 |
+| `Open log folder` | Open log folder | 打开日志文件夹 |
+| `Log output...` | Log output... | 日志输出... |
+
+### 关联文件
 
 | 文件 | 本页实际作用 | 备注 |
 | --- | --- | --- |
@@ -173,7 +177,7 @@ flowchart LR
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | 界面文案 | 三列对照的依据 |
 | `.gitignore` | `test/**` 与 `!/test/*.py` 规则 | 控制测试文件的版本库边界 |
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -183,15 +187,3 @@ flowchart LR
 | lint | `desktop_qt_ui/ruff.toml` | `select`/`ignore`/`format` 规则 |
 | i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 连接测试与日志文案 key 的实际值 |
 | 仓库规则 | `.gitignore` | `/test/**` 与 `!/test/*.py` |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写（TODO 5.14 只读不修改） |
-| 源码与配置核对 | 完成 | 逐项核对 `pyproject.toml`、`uv.lock`、`tests.yml`、`ruff.toml`、`test/README.md`、`.gitignore` |
-| locale 实际值 | 完成 | 三列表逐项记录 key、English、简体中文实际值 |
-| pytest 收集 | 完成 | `uv run --no-sync pytest test --collect-only -q`：收集 379 个测试（2026-08-07）；本任务未执行完整运行 |
-| 镜像与源码校验 | 完成 | `verify-route-mirror.mjs` 与 `verify-source-evidence.mjs` 通过 |
-| 脱敏 | 完成 | 未读取真实 `.env`、用户 `config.json`、API key/token、用户名、用户图片或私有提示词 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |

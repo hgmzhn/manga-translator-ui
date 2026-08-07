@@ -170,7 +170,21 @@ flowchart LR
 
 上图描述的是源码确认的 API Key 来源与合并路径；`POST /env` 是否落盘由 `save_user_keys_to_server` 决定，不改变合并顺序本身。
 
-## UI 文案三列 {#ui-copy}
+## 依赖与冲突 {#dependencies-and-conflicts}
+
+- Web 前端先用 `/user/settings` 决定“API密钥”页签与上传区域的显示，但隐藏只是前端行为，最终由服务端权限校验。
+- `/config/options` 的 `font_family` 与 `high_quality_prompt_path` 合并服务器与用户资源；删除用户字体/提示词后，前端需重新请求 `/config/options` 刷新选项。
+- 环境变量默认不落盘（`save_user_keys_to_server=false`）；多用户部署建议关闭落盘，避免用户互相覆盖服务器密钥。
+- `GET /env`、`GET /env/effective` 不返回服务器密钥明文；`GET /api/admin/config/server?show_values=true` 返回明文，只能用于可信管理会话。
+- 预设与用户配置中的敏感键加密存储，应用预设不会把密钥明文复制到用户配置。
+- 端点边界：翻译/流式/批量见[翻译端点](./translation-endpoints.md)与[流协议](./streaming-protocol.md)，历史与下载见[历史文件与下载票据](./history-files-and-download-tickets.md)，用户/用户组/配额/审计见[管理端点](./admin-users-groups-quota-audit.md)，会话与状态码见[鉴权与错误](./authentication-and-errors.md)。
+- `429` 并发与每日配额由翻译路由层处理（见[鉴权与错误](./authentication-and-errors.md)），不属于本页端点。
+
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### UI 文案三列 {#ui-copy}
 
 以下为 Web 前端调用本页端点时使用的界面文案。`index.html` 的部分静态文字是硬编码中文（如“导出配置”“导入配置”“API密钥”“上传字体文件”“上传提示词文件”“字体管理”“提示词管理”“日志输出”），`script.js` 启动后以 locale key 覆盖一部分。
 
@@ -201,17 +215,7 @@ flowchart LR
 
 以下 key 在 `en_US.json` 与 `zh_CN.json` 中均缺失，`script.js` 以调用处 fallback 显示：`preset_select`、`preset_hint`、`preset_empty`、`preset_none`、`preset_applying`、`preset_applied`、`preset_apply_failed`、`login_required_for_api_keys`、`api_keys_saved_to_server`、`api_keys_saved_session`、`api_keys_save_failed`、`font_deleted`、`prompt_deleted`。英文界面在缺失时会显示调用处的中文 fallback 文案。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
-
-- Web 前端先用 `/user/settings` 决定“API密钥”页签与上传区域的显示，但隐藏只是前端行为，最终由服务端权限校验。
-- `/config/options` 的 `font_family` 与 `high_quality_prompt_path` 合并服务器与用户资源；删除用户字体/提示词后，前端需重新请求 `/config/options` 刷新选项。
-- 环境变量默认不落盘（`save_user_keys_to_server=false`）；多用户部署建议关闭落盘，避免用户互相覆盖服务器密钥。
-- `GET /env`、`GET /env/effective` 不返回服务器密钥明文；`GET /api/admin/config/server?show_values=true` 返回明文，只能用于可信管理会话。
-- 预设与用户配置中的敏感键加密存储，应用预设不会把密钥明文复制到用户配置。
-- 端点边界：翻译/流式/批量见[翻译端点](./translation-endpoints.md)与[流协议](./streaming-protocol.md)，历史与下载见[历史文件与下载票据](./history-files-and-download-tickets.md)，用户/用户组/配额/审计见[管理端点](./admin-users-groups-quota-audit.md)，会话与状态码见[鉴权与错误](./authentication-and-errors.md)。
-- `429` 并发与每日配额由翻译路由层处理（见[鉴权与错误](./authentication-and-errors.md)），不属于本页端点。
-
-## 关联文件与格式 {#related-files-and-formats}
+### 关联文件与格式 {#related-files-and-formats}
 
 | 文件/路径 | 本页实际作用 | 手改与兼容注意 |
 | --- | --- | --- |
@@ -226,11 +230,11 @@ flowchart LR
 | `desktop_qt_ui/locales/*.json` | `/i18n/{locale}` 与条件挂载的 `/locales/*` | realpath 防路径穿越；缺失 locale 返回 `{}` |
 | `manga_translator/server/static/index.html`、`script.js`、`js/shared/api-key-schema.js` | 前端驱动配置/环境/资源端点 | 部分静态文字为硬编码中文 |
 
-## Mermaid 数据流限制 {#mermaid-limits}
+### Mermaid 数据流限制 {#mermaid-limits}
 
 上图描述的是源码确认的 API Key 来源、合并与运行时覆盖路径；它不代表每次翻译都经过预设或用户密钥，也不代表 `/env/effective` 在每次运行都会返回同样的来源组合。`require_user_keys`、`allow_server_keys`、`save_user_keys_to_server` 等策略值来自配置而非代码常量。本页未启动服务、未截图、未读取真实 `.env`、预设、用户配置或密钥；运行时行为需以最小可运行服务验证为准。
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -242,14 +246,3 @@ flowchart LR
 | 配置管理核心 | `manga_translator/server/core/config_manager.py`、`api_key_policy.py`、`response_utils.py`、`runtime_api.py` | 默认配置、管理员设置、策略合并、`apply_user_env_vars` 与运行时覆盖 |
 | 服务装配 | `manga_translator/server/main.py` | 路由注册、静态 mount、`init_server_config_file` |
 | UI/i18n | `manga_translator/server/static/script.js`、`index.html`、`js/shared/api-key-schema.js`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | key 映射、硬编码文案、缺失 key 的 fallback |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取 1.3 节与 5.14 小节并按页面合同编写 |
-| 端点契约 | 完成 | 静态核对 config、env、resources、config_management 路由与服务 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 表格逐项记录 key、English、简体中文实际值；缺失 key 如实标记 fallback |
-| 路由镜像与源码依据 | 完成 | `node scripts/verify-route-mirror.mjs .` 与 `node scripts/verify-source-evidence.mjs .` 通过 |
-| 脱敏运行验证 | 待后续 | 未启动服务、未读取真实 `.env`、预设、用户配置或密钥；需运行 `uv run --no-sync python -m manga_translator web` 后验证实际响应 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

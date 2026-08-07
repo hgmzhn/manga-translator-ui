@@ -9,7 +9,7 @@ lastUpdated: true
 
 # Installation and Startup Troubleshooting
 
-When the program cannot be installed, will not open, or exits immediately after launch, locate the symptom on this page first, then return to the matching installation page to apply the fix. This page covers installation and startup problems only and does not repeat the full steps of each installation page; see [Choose Edition](../install/choose-edition.md), [Runtime Requirements](../install/requirements.md), [Windows Portable](../install/windows-portable.md), [Windows from Source](../install/source-windows.md), [Linux and macOS Installation](../install/linux-and-macos.md), [Docker Deployment](../install/docker.md), [Update and Version Switching](../install/update-and-version-switching.md), and [Uninstall and Data Cleanup](../install/uninstall-and-data-cleanup.md) for the installation flows.
+When the program cannot be installed, will not open, or exits immediately after launch, locate the symptom on this page first, then return to the matching installation page to apply the fix. This page covers installation and startup problems only and does not repeat the full steps of each installation page; see [Runtime Requirements](../install/requirements.md), [Windows Portable](../install/windows-portable.md), [Windows from Source](../install/source-windows.md), [Linux and macOS Installation](../install/linux-and-macos.md), [Docker Deployment](../install/docker.md), [Update and Version Switching](../install/update-and-version-switching.md), and [Uninstall and Data Cleanup](../install/uninstall-and-data-cleanup.md) for the installation flows.
 
 Model loading, GPU VRAM, and memory issues are covered by [Model, GPU, and Memory](./model-gpu-and-memory.md); API authentication, rate limiting, and timeouts by [API Auth, Rate Limit, and Timeout](./api-auth-rate-limit-and-timeout.md); output JSON and rendering problems by [Output JSON and Rendering](./output-json-and-rendering.md); and pre-sharing log cleanup by [Privacy, Cleanup, and Log Sharing](./privacy-cleanup-and-log-sharing.md).
 
@@ -101,40 +101,6 @@ Model download is a separate stage: detector, OCR, and inpainting models are usu
 
 Before sharing logs, remove API keys, tokens, usernames, private absolute paths, image paths, OCR/translations, and prompt text; error-window screenshots need the same redaction. See [Privacy, Cleanup, and Log Sharing](./privacy-cleanup-and-log-sharing.md).
 
-## UI text matrix {#ui-text}
-
-Installation and startup messages come from the launcher, batch/shell scripts, and the server's prints — they are not Qt control texts from `desktop_qt_ui/locales/*.json`, and `en_US.json`/`zh_CN.json` have no installation/startup keys. The table below uses "call site / code literal" as the key and keeps the actual displayed values; missing languages are marked honestly and never invented.
-
-| UI call key (source call/literal) | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `launch.py#is_python_version_valid` | No English output (hard-coded Chinese in launch.py) | 错误: 需要 Python 3.12+ |
-| `launch.py#is_python_version_valid` | No English output (same) | 错误: 仅支持 Python 3.12,不支持更高版本 |
-| `launch.py L("漫画翻译器 - 安装或更新", "Manga Translator UI - Install / Update")` | Manga Translator UI - Install / Update | 漫画翻译器 - 安装或更新 |
-| `Win-Start.bat` `echo Starting...` | Starting... | Missing (hard-coded English in the batch file; no Chinese fallback) |
-| `Win-Start.bat` `echo Application closed.` | Application closed. | Missing (same) |
-| `Win-Start.bat` `echo [ERROR] Application exited with code %EXITCODE%` | [ERROR] Application exited with code ... | Missing (same) |
-| `Win-Start.bat` `echo Please try reinstalling first...` | Please try reinstalling first: run Win-Install-or-Update.bat and choose [1] Install. | Missing (same) |
-| `Win-Start.bat` `echo [ERROR] Neither bundled Python nor Conda environment was found.` | [ERROR] Neither bundled Python nor Conda environment was found. | Missing (same) |
-| `Win-Start.bat` `set /p OPEN_MAINT="Open Win-Install-or-Update.bat now? (y/n): "` | Open Win-Install-or-Update.bat now? (y/n): | Missing (same) |
-| `Unix-Start.sh` `fail "No .venv or compatible legacy environment was found"` | No .venv or compatible legacy environment was found | Missing (hard-coded English in the script; no Chinese fallback) |
-| `Unix-Start.sh` `echo "Run ./Unix-Install-or-Update.sh first"` | Run ./Unix-Install-or-Update.sh first | Missing (same) |
-| `server/main.py` `print("[INFO] Loaded environment variables from: " + env_path)` | [INFO] Loaded environment variables from: {path} | Missing (hard-coded English in the server; no Chinese fallback) |
-| `server/main.py` `print("[WARNING] .env file not found at: " + env_path)` | [WARNING] .env file not found at: {path} | Missing (same) |
-
-## Related files and formats {#files}
-
-| File/directory | Actual role | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `packaging/launch.py` | Python-version gate, dependency check, GPU detection, mirror fallback, PyTorch conflict handling, entry dispatch | Never write keys into it; menu output is not stable i18n |
-| `Win-Start.bat`, `Unix-Start.sh` | Runtime-environment lookup and startup error feedback | Prefer bundled Python/`.venv`; most error messages are hard-coded English |
-| `desktop_qt_ui/main.py` | Desktop startup order, logging, faulthandler, global exception handling, service init | PyTorch must be imported before PyQt6; do not reorder imports casually |
-| `manga_translator/__main__.py`, `manga_translator/args.py` | CLI mode dispatch and defaults | Imports torch before parsing; default port `0.0.0.0:8000` |
-| `manga_translator/runtime_files.py` | Creates runtime tables on first startup | Failures warn only; never overwrites user files |
-| `result/log_*.txt`, `logs/` | Desktop and service logs | Redact keys, paths, and user content before sharing |
-| `packaging/python/`, `.venv/`, `conda_env/` | Portable/source/legacy Conda runtimes | Keep one environment; do not mix dependency groups |
-| `config/config.json`, `.env` | User configuration and API credentials | Never read, display, or commit real values |
-| `packaging/Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh` | Image build, ports/volumes/health-check, initialization | Keep port mapping consistent with Compose |
-
 ## Troubleshooting flow {#troubleshooting-flow}
 
 ```mermaid
@@ -155,34 +121,3 @@ flowchart TD
 ```
 
 The diagram shows the common startup paths and error-feedback branches only; real exit codes, mirror fallback, and GPU branches still require source review and controlled runtime verification.
-
-## Source evidence {#source-evidence}
-
-| Layer | Files | What was checked |
-| --- | --- | --- |
-| Launcher | `packaging/launch.py` | Python 3.12 gate, mirror fallback, PyTorch conflict handling, entry dispatch |
-| Windows entry | `Win-Start.bat` | Bundled-Python priority, Conda fallback, exit codes, reinstall hint |
-| Unix entry | `Unix-Start.sh` | `.venv`/uv/legacy Conda order, dry-run, error messages |
-| Desktop startup | `desktop_qt_ui/main.py` | Log file, faulthandler, global exception handler, service init, Qt launch |
-| Service init | `desktop_qt_ui/services/__init__.py` | Essential/heavy service initialization and failure logging |
-| CLI dispatch | `manga_translator/__main__.py`, `manga_translator/args.py` | Mode dispatch, default ports, implicit `local`, exit behavior |
-| Web startup | `manga_translator/server/main.py` | `.env` loading, uvicorn binding, startup event, health check |
-| Runtime tables | `manga_translator/runtime_files.py` | `ensure_runtime_files` factories and warn-only failure handling |
-| Docker | `packaging/Dockerfile`, `packaging/docker-compose.yml`, `packaging/docker-entrypoint.sh` | Port mapping, volume init, health check |
-| Research | `doc/wiki/research/cli-command-inventory.md`, `doc/wiki/research/default-sources.md`, `doc/wiki/research/phase0-page-coverage-matrix.md` | Command contract, default sources, page coverage |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| Page contract (PAGE_GUIDELINES, BLUEPRINT, TODO 1.3/5.17) | Complete | Boundary, cross-links, three-column text matrix, flow table/diagram, and footer evidence covered |
-| Launcher and scripts static review | Complete | Checked error branches of `launch.py`, `Win-Start.bat`, and `Unix-Start.sh` |
-| Desktop/CLI/Web startup chain | Complete | Checked `main.py`, `__main__.py`, `args.py`, `server/main.py`, and `runtime_files.py` |
-| Three-column UI text review | Complete | Install/startup messages are launcher/script hard-coded texts; `en_US.json`/`zh_CN.json` have no dedicated keys and missing values are marked honestly |
-| Actual install/startup runtime verification | Not run | No release-package install, Qt launch, or Web binding in a controlled environment; static conclusions are not runtime proof |
-| Route mirror and source-evidence checks | Pending | This task runs `verify-route-mirror.mjs` and `verify-source-evidence.mjs` in `doc/wiki` |
-| VitePress build | Pending | Coordinator should run `npm run docs:build --prefix doc/wiki` |
-
-## Sensitive-information review {#privacy}
-
-This page records no API keys, tokens, admin passwords, usernames, private absolute paths, user images, OCR/translations, or private prompts. `.env`, user `config.json`, logs, and error windows are described only as file boundaries; redact them item by item before sharing logs or screenshots.

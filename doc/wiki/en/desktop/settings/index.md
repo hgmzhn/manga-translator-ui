@@ -24,7 +24,7 @@ Open Settings in the desktop application. The header shows “Settings” and �
 
 ### Tabs and parameter ownership
 
-| Layout `title` / UI call key | English actual value | Simplified Chinese actual value | Main contents |
+| UI tab | English actual value | Simplified Chinese actual value | Main contents |
 | --- | --- | --- | --- |
 | `General` | General | 通用 | Language, theme, logging/errors, GPU/ONNX, format, overwrite, retries, batches, output, and model unloading |
 | `OCR` | OCR | 识别 | Primary/secondary OCR, hybrid OCR, AI OCR, filtering, bubble constraints, and merge thresholds |
@@ -45,40 +45,6 @@ Steps:
 6. Use “Export Config” to choose an external JSON file. Use “Import Config” to load JSON; the service performs a per-key deep merge and Pydantic validation. Import can rebuild the whole page and refresh the description, API, and prompt controls.
 
 Changing `app.ui_language` or the application language reloads tab labels, field labels, descriptions, and displayed combo values without changing stored values. There is no separate Apply button: normal edits update memory immediately and are then coalesced to disk by the configuration service.
-
-## Option matrix {#option-matrix}
-
-| UI call key / stored value | English | 简体中文 |
-| --- | --- | --- |
-| `Settings Page Title` | Settings | 参数设置 |
-| `Settings Page Subtitle` | Adjust translation pipeline parameters. Changes are saved automatically. | 调整翻译流程的各项参数。修改后将自动保存。 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `Settings Desc Header` | Parameter Description | 参数说明 |
-| `Settings Desc Placeholder` | Click any setting on the left to view details | 点击左侧任意设置项查看详细说明 |
-| `General` | General | 通用 |
-| `OCR` | OCR | 文字识别 |
-| `Detection` | Detection | 检测 |
-| `Translation` | Translation | 翻译 |
-| `Inpainting` | Inpainting | 修复 |
-| `Typesetting` | Typesetting | 排版 |
-| `Mode Specific` | Mode Specific | 模式相关 |
-| `Advanced` | Advanced | 高级 |
-| `Theme:` | Theme: | 主题： |
-| `Language:` | Language: | 语言： |
-| `Edit` | Edit | 编辑 |
-| `Open Directory` | Open Directory | 打开目录 |
-| `Preset:` | Preset: | 预设： |
-| `app.theme=light` | Light | Light |
-| `app.theme=dark` | Dark | Dark |
-| `app.theme=system` | Follow System | Follow System |
-| `cli.format=Not Specified` | Not Specified | 不指定 |
-| `upscale_ratio_not_use` | Not Use | 不使用 |
-| `alignment_auto` | Auto | 自动 |
-| `direction_vertical` | Vertical | 竖排 |
-| `layout_mode_smart_scaling` | Smart Scaling | 智能缩放 |
-
-Fixed language names for `app.ui_language` come from `LocaleInfo.name`; some theme names are literals from `theme_registry.py`, so this page does not invent missing i18n keys. The complete value/UI matrix for parameters is in [Options and i18n matrix](../../reference/options-i18n-matrix.md).
 
 ## Runtime behavior {#runtime-behavior}
 
@@ -110,45 +76,3 @@ A controller updates `AppSettings`; `update_config()` and imported per-key merge
 - Hybrid OCR, AI concurrency, RPM, retries, and batch concurrency increase recognition/network pressure and possibly API cost.
 - `upscale_ratio` depends on `upscaler`; template alignment and paste-mask dilation are meaningful only in replace-translation mode.
 - Imported unknown keys do not become controls. Invalid values fall back to defaults and are logged. Do not hand-edit the same JSON or `.env` while the application has pending writes.
-
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Settings-page use and boundary | Note |
-| --- | --- | --- |
-| `config/config.json` | User settings as UTF-8 JSON, preferred over the default template | Invalid values fall back by field; do not copy private paths |
-| `config/config-example.json` | Release/development default template | Not identical to Qt/Core defaults |
-| `.env` | API Key, Base, Model, and other dotenv entries | Never publish values, screenshots, or credentials |
-| `config/custom_api_params.json` | Extra API request parameters when `use_custom_api_params` is enabled | Does not carry credentials or rotation |
-| `dict/ai_ocr_prompt.yaml`, `dict/ai_renderer_prompt.yaml`, `dict/ai_colorizer_prompt.yaml` | The three fixed prompt-editor actions | Consumed by separate AI modules |
-| `config/filter_list.json` / `filter_list.txt` | Filter-list settings | Rules can skip OCR regions |
-| `config/translation_template.json` | Workflow text-extension template | Parsed as a text template, not strict JSON configuration |
-| `manga_translator_work/` | Translation JSON, TXT, masks/overlays, and editor data | May contain user content and absolute paths |
-
-## Screenshot and diagram boundary {#visual-boundary}
-
-The Mermaid diagram on this page describes configuration lifecycle and precedence; it is not a substitute for a runtime screenshot. No headed UI screenshot was generated during this source investigation. Future screenshots should cover all seven tabs, the description panel, combo options, file-edit actions, import/export, and preset refresh, with usernames, private absolute paths, keys, tokens, user images, and private prompts cropped or replaced. Debug JSON, `mask_raw`, PSD, and JSX must also be treated as user content.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | Checked content |
-| --- | --- | --- |
-| Layout | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | Seven tabs, ordering, dividers; Phase 0 records the 110/109 baseline |
-| Page shell | `desktop_qt_ui/ui/main_page/pages/settings_page.py` | Title, import/export, tabs, and description panel |
-| Dynamic controls | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | Control types, skipped fields, dynamic upscale choices, and prompt editors |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual bilingual UI text |
-| Configuration model | `desktop_qt_ui/core/config_models.py` | `AppSettings`, Qt defaults, and validation |
-| Persistence | `desktop_qt_ui/services/config_service.py` | Precedence, per-key validation, debounce, atomic writes, and flush |
-| Stage consumers | `manga_translator/config.py` and detection, OCR, translation, inpainting, rendering, upscaling, and colorization modules | Core defaults, CLI overrides, and final consumers |
-| Research | `doc/wiki/research/default-sources.md`, `phase0-options-i18n-matrix.md`, `phase0-related-files-formats-debug-safety.md` | Default differences, options, formats, and sensitive-data boundaries |
-
-## Verification {#verification}
-
-| Check | Status | Note |
-| --- | --- | --- |
-| Page, layout, controls, and persistence source | Complete | Static source review completed |
-| i18n key → English → Simplified Chinese | Complete | UI wording comes from both locale files; literals remain explicit |
-| Defaults and precedence | Static complete | Core 120, Qt 131, Release 131; user config was not read |
-| Headed UI, import/export, and write verification | Pending runtime | No screenshot fabricated |
-| Mermaid, route mirror, and source-field checks | Pending site-wide acceptance | Anchors and evidence fields are present |
-| VitePress build | Pending execution | `npm ci --prefix doc/wiki`; `npm run docs:build --prefix doc/wiki` |
-| Sensitive-data review | Complete | No key, token, username, private path, user image, or private prompt included |

@@ -58,56 +58,17 @@ After a translation starts, this page explains how to watch task progress, previ
 2. Deletion removes both the server session directory and the index record; the local gallery list refreshes.
 3. Without delete permission the endpoint returns 403 and the UI shows “删除失败”.
 
-## UI copy reference {#ui-copy}
-
-The main workspace reads the desktop locale files (`desktop_qt_ui/locales/*.json`) served by `/i18n/{locale}` through `t()`. The results list uses these keys:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `view` | View | 查看 |
-| `download` | Download | 下载 |
-| `delete` | Delete | 删除 |
-| `just_now` | Just now | 刚刚 |
-| `packing_results` | Packing all results... | 正在打包所有结果... |
-| `download_complete` | Download complete | 下载完成 |
-| `download_failed` | Download failed | 下载失败 |
-| `confirm_clear_results` | Are you sure you want to clear all translation results? | 确定要清空所有翻译结果吗？ |
-| `results_cleared` | Translation results cleared | 翻译结果已清空 |
-
-The remaining copy in the results/history area has no i18n key and comes from hardcoded HTML or JS; the history gallery, log box, and some progress messages stay in Chinese even on non-Chinese locales:
-
-| Location/element | English | Simplified Chinese actual value |
-| --- | --- | --- |
-| `#results-empty` | None (hardcoded Chinese) | 暂无翻译结果 |
-| `#download-all-btn` | None (hardcoded Chinese) | 打包下载 |
-| `#clear-results-btn` | None (hardcoded Chinese) | 清空 |
-| `#history-empty` | None (hardcoded Chinese) | 暂无翻译历史 |
-| `#open-gallery-btn` / `#refresh-history-btn` title | None (hardcoded Chinese) | 打开相册 / 刷新 |
-| Gallery modal title | None (hardcoded Chinese) | 📷 翻译历史相册 |
-| `#gallery-download-selected` / `#gallery-download-all` | None (hardcoded Chinese) | 下载选中 / 下载全部 |
-| Gallery card buttons | None (hardcoded Chinese) | 查看 / 下载 / 🗑 |
-| Gallery selection info | None (hardcoded Chinese) | 已选择 {n} 项 |
-| Sidebar “view all” | None (hardcoded Chinese) | 📷 查看全部 ({n}) / 📷 打开相册 |
-| Image viewer | None (hardcoded Chinese) | 图片查看器 / 点击左侧缩略图查看大图 / 下载 |
-| Start-task button | None (hardcoded Chinese) | 开始任务 |
-| Progress log (`script.js` ternary) | Task started | 开始任务 |
-| Progress log (`script.js` ternary) | Processing | 正在处理 |
-| Progress log (`script.js` ternary) | Batch translating | 批量翻译中 |
-| Progress log (`script.js` ternary) | All tasks completed! | 所有任务完成！ |
-| Progress log (`script.js` ternary) | Task error | 任务出错 |
-| Relative time (`formatTime`) | Nm ago / Nh ago | N分钟前 / N小时前 |
-
 ## Runtime behavior {#runtime-behavior}
 
 ### Stream progress frames and log polling {#stream-progress-and-log-polling}
 
-Single-file normal translation calls `POST /translate/with-form/image/stream`; the response is a custom stream of “1-byte status + 4-byte length + data” frames: `status=1` is a progress JSON (stages include `task_id`, `start`, `image_loading`, `translator_init`, `translating`, `transforming`, `sending`, `complete`, plus `queued` and `slot_acquired` while waiting), `status=0` is the result image data, and `status=2` is an error. The frontend parses the frames, writes each `message` into the log box, and uses the value of the `task_id` stage as the current task ID. While a task exists, the browser polls `/api/logs?limit=200&task_id=<task_id>` every 500 ms and filters new logs by timestamp.
+Single-file normal translation calls `POST /translate/with-form/image/stream`; the response is a custom stream of “1-byte status + 4-byte length + data” frames: `status=1` is a progress JSON (stages include `task_id`, `start`, `image_loading`, `translator_init`, `translating`, `transforming`, `sending`, `complete`, plus `queued` and `slot_acquired` while waiting), `status=0` is the result image data, and `status=2` is an error. The frontend parses the frames, writes each `message` into the log box, and uses the value of the `task_id` stage as the current task ID.
 
 Multi-file normal translation uses `POST /translate/batch/images`: the body carries base64 images, config, `batch_size`, and filenames, and the response is a ZIP with the custom `X-Content-Type: application/zip` header; the frontend unpacks it with JSZip and adds each image to the results list. The batch request sets a 30-minute timeout in the frontend with `AbortController`.
 
 ### Results list and browser storage {#results-list-and-local-storage}
 
-Every completion (single-file stream, batch unpack, or other paths that return a blob) calls `addResult()`, which appends `{id, filename, imageData, type, timestamp}` to `resultsList` and writes it to `localStorage.translationResults`. `imageData` is a blob URL created with `URL.createObjectURL()`. Deleting or clearing releases those blob URLs.
+Every completion (single-file stream, batch unpack, or other paths that return a blob) calls `addResult()`, which appends `{id, filename, imageData, type, timestamp}` to `resultsList` and writes it to `localStorage.translationResults`. `imageData` is a blob URL created with `URL.createObjectURL()`.
 
 Blob URLs are valid only within the page session that created them: after a refresh or in another browser, preview/download of old entries usually no longer works. History is the durable, cross-browser, cross-session storage.
 
@@ -151,41 +112,4 @@ The diagram describes the source-confirmed data flow and does not claim that eve
 - The 30-minute frontend timeout for batch requests matches the server’s `timeout_keep_alive=1800`, but it does not mean every image in the batch succeeded; cancellation and failures are handled by the server task machinery, see [Translation endpoints](../developer/http-api/translation-endpoints.md).
 - Log content may contain business text and paths; remove request bodies, log messages, paths, and credentials before sharing, see [Privacy, cleanup, and log sharing](../troubleshooting/privacy-cleanup-and-log-sharing.md).
 
-## Related files {#related-files}
-
-| File/interface | Actual role on this page | Note |
-| --- | --- | --- |
-| `manga_translator/server/static/index.html` | DOM for the results area, history area, image viewer, and log area | Most copy is hardcoded Chinese in HTML |
-| `manga_translator/server/static/script.js` | Frame parsing, log polling, results list, and batch download | `t()` reads `/i18n/{locale}`; local storage keys `translationResults`, `session_token`, `locale` |
-| `manga_translator/server/static/js/history-gallery.js` | History loading, gallery, large-image view, download tickets, and deletion | Copy is hardcoded Chinese; `historyData` lives in memory only |
-| `manga_translator/server/request_extraction.py` | `while_streaming` progress frames and `save_translation_to_history` | `session_token = task_id`; a failed save only warns |
-| `manga_translator/server/core/history_service.py` | History CRUD and ZIP packing | Session directory + `metadata.json` + index record |
-| `manga_translator/server/core/download_ticket_service.py` | Short-lived download tickets | Default TTL 5 minutes |
-| `manga_translator/server/routes/history.py`, `routes/logs.py` | History and log HTTP endpoints | 403 without permission; see developer HTTP API pages |
-| `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Data source for `/i18n/{locale}` | Keys and actual values are in the tables above |
-| `manga_translator/server/data/translation_history.json` | History index records | Real user data is never shown |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Frontend progress/results | `manga_translator/server/static/script.js` | Frame parsing (`processStream`), batch loop, `addResult`/`renderResults`/`downloadAllResults`/`clearResults`, log polling |
-| Frontend history | `manga_translator/server/static/js/history-gallery.js` | History loading, gallery, image view, download tickets, and deletion |
-| Static structure | `manga_translator/server/static/index.html` | Results, history, image-viewer, and log elements |
-| Streaming backend | `manga_translator/server/request_extraction.py` | Frame format, stages, and `save_translation_to_history` |
-| History service | `manga_translator/server/core/history_service.py` | Session directory, `metadata.json`, ZIP packing, deletion |
-| Download tickets | `manga_translator/server/core/download_ticket_service.py` | TTL and temporary-file cleanup |
-| HTTP endpoints | `manga_translator/server/routes/history.py`, `routes/logs.py`, `routes/translation.py` | History/log/translation endpoints and permissions |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json`, `doc/wiki/data/i18n.generated.json` | Keys and actual English/Chinese values |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; web user operations are separated from the HTTP API |
-| Progress stream and log polling | Complete | Statically checked frame parsing and `/api/logs` polling in `script.js` |
-| Results list and local storage | Complete | Statically checked `addResult`/`localStorage.translationResults`; cross-session blob-URL invalidity is a browser-behavior inference |
-| History and download tickets | Complete | Statically checked `history-gallery.js`, `history_service.py`, `download_ticket_service.py` |
-| `en_US` / `zh_CN` actual locales | Complete | Tables record key, actual English, and actual Simplified Chinese values; hardcoded items are marked honestly |
-| Sanitized runtime verification | Deferred | No real user history, image, session token, `.env`, or API key was read; no server run or screenshots |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
+> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).

@@ -20,13 +20,6 @@ Use this page when a third-party admin script or integration needs to create acc
 
 ## Admin endpoint overview {#endpoint-overview}
 
-| Route group (prefix) | Methods and paths | Count | Auth boundary / source |
-| --- | --- | ---: | --- |
-| Users (`/api/admin/users`) | `POST /`, `GET /`, `GET\|PUT\|DELETE /{username}`, `PUT /{username}/permissions` | 6 | All `require_admin`; create `201`, delete `204`; `routes/users.py` |
-| Groups (`/api/admin/groups`) | `POST /`, `GET /`, `GET /{group_id}`, `PUT /{group_id}/rename`, `/{group_id}/config`, `DELETE /{group_id}` | 6 | All `require_admin`; create `201`; `routes/groups.py` |
-| Quota (`/api`) | `GET /quota/stats`, `GET /admin/quota/stats`, `POST /admin/quota/reset`, `/admin/quota/set-limits`, `GET /admin/quota/user/{user_id}` | 5 | First one `require_auth`, the rest admin; `routes/quota.py` |
-| Audit (`/audit`) | `GET /events`, `GET /export` | 2 | All `require_admin`; `routes/audit.py` |
-
 Endpoints without an explicit success status default to `200`; the error envelope and `401`/`403`/`422` shapes are documented in [HTTP API authentication and errors](./authentication-and-errors.md).
 
 ## User management endpoints {#user-endpoints}
@@ -154,6 +147,30 @@ Event types found by statically scanning all `log_event(...)` calls: `login`, `l
 
 Admins manage accounts and groups at `GET /admin` (`admin-new.html`). The sidebar modules User Management (`users`), Group Management (`groups`), and Quota Management (`quota`) call `GET /api/admin/users`, `GET /api/admin/groups`, `GET /api/admin/groups/{id}`, and `PUT /api/admin/groups/{id}/config`; the user/group edit dialogs reuse the `permission-editor.js` component, whose labels come from the desktop-locale i18n keys. The Quota module's "default quota settings" uses the legacy `GET/PUT /admin/settings` (`default_quota` field), and the user-quota table comes from the `quota` field of `GET /api/admin/users`; it does not call the `/api/admin/quota/*` endpoints. The audit endpoints have no admin-UI tab.
 
+## Dependencies and conflicts {#dependencies-and-conflicts}
+
+- A group's `parameter_config` is both the per-parameter visibility/readonly control (`GroupService`) and the carrier of group-level quota (`daily_image_limit`, `max_concurrent_tasks` under `quota`); the `quota_limits` field is saved by `GroupManagementService` and read by `QuotaManagementService`. The two group-level quota paths coexist, so both must be checked when editing.
+- Translation requests enforce daily quota and concurrency through `permission_service` (in-memory counters; group `daily_image_limit` takes priority over the user `daily_quota`); `/api/quota/*`'s `QuotaManagementService` is an independent, file-persisted implementation with user-level priority. They are not synchronized: a reset via `/api/admin/quota/reset` does not directly affect the translation entry's `daily_usage`.
+- Deactivating a user terminates all of their sessions; deleting a user also terminates sessions before deletion. Deleting yourself is explicitly rejected (`400 CANNOT_DELETE_SELF`).
+- The system groups `admin`, `default`, and `guest` cannot be renamed or deleted; renaming rewrites the `group` field of every member, and deleting moves members to `default`.
+- The audit API can only query the `AuditEvent` line schema; the other line schema written by group management is skipped and must not be mistaken for missing audit-API data.
+- Admin endpoint responses can contain identifiers such as usernames and group names; real account names, tokens, API keys, and private paths must be removed before sharing logs, exports, or debug directories.
+
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Admin endpoint overview
+
+| Route group (prefix) | Methods and paths | Count | Auth boundary / source |
+| --- | --- | ---: | --- |
+| Users (`/api/admin/users`) | `POST /`, `GET /`, `GET\|PUT\|DELETE /{username}`, `PUT /{username}/permissions` | 6 | All `require_admin`; create `201`, delete `204`; `routes/users.py` |
+| Groups (`/api/admin/groups`) | `POST /`, `GET /`, `GET /{group_id}`, `PUT /{group_id}/rename`, `/{group_id}/config`, `DELETE /{group_id}` | 6 | All `require_admin`; create `201`; `routes/groups.py` |
+| Quota (`/api`) | `GET /quota/stats`, `GET /admin/quota/stats`, `POST /admin/quota/reset`, `/admin/quota/set-limits`, `GET /admin/quota/user/{user_id}` | 5 | First one `require_auth`, the rest admin; `routes/quota.py` |
+| Audit (`/audit`) | `GET /events`, `GET /export` | 2 | All `require_admin`; `routes/audit.py` |
+
+#### Admin UI i18n copy
+
 | UI call key | English actual value | Simplified Chinese actual value |
 | --- | --- | --- |
 | `web_user_management` | User Management | 用户管理 |
@@ -181,16 +198,7 @@ Admins manage accounts and groups at `GET /admin` (`admin-new.html`). The sideba
 
 `admin-new.html` also contains hardcoded Chinese strings without i18n keys, such as "用户列表" (user list), "添加用户" (add user), "暂无用户" (no users), "活跃" (active), "禁用" (disabled), "编辑" (edit), "删除" (delete), "保存配额设置" (save quota settings), "默认配额设置" (default quota settings), and "用户配额使用情况" (user quota usage); the English UI is missing for these, and this document does not invent translations. The English and Simplified Chinese values above come from `desktop_qt_ui/locales/en_US.json` and `zh_CN.json`, which the admin UI reuses via `/i18n/{locale}`.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
-
-- A group's `parameter_config` is both the per-parameter visibility/readonly control (`GroupService`) and the carrier of group-level quota (`daily_image_limit`, `max_concurrent_tasks` under `quota`); the `quota_limits` field is saved by `GroupManagementService` and read by `QuotaManagementService`. The two group-level quota paths coexist, so both must be checked when editing.
-- Translation requests enforce daily quota and concurrency through `permission_service` (in-memory counters; group `daily_image_limit` takes priority over the user `daily_quota`); `/api/quota/*`'s `QuotaManagementService` is an independent, file-persisted implementation with user-level priority. They are not synchronized: a reset via `/api/admin/quota/reset` does not directly affect the translation entry's `daily_usage`.
-- Deactivating a user terminates all of their sessions; deleting a user also terminates sessions before deletion. Deleting yourself is explicitly rejected (`400 CANNOT_DELETE_SELF`).
-- The system groups `admin`, `default`, and `guest` cannot be renamed or deleted; renaming rewrites the `group` field of every member, and deleting moves members to `default`.
-- The audit API can only query the `AuditEvent` line schema; the other line schema written by group management is skipped and must not be mistaken for missing audit-API data.
-- Admin endpoint responses can contain identifiers such as usernames and group names; real account names, tokens, API keys, and private paths must be removed before sharing logs, exports, or debug directories.
-
-## Related files and formats {#related-files-and-formats}
+### Related files and formats {#related-files-and-formats}
 
 | File/format | Actual role on this page | Notes |
 | --- | --- | --- |
@@ -200,7 +208,7 @@ Admins manage accounts and groups at `GET /admin` (`admin-new.html`). The sideba
 | `manga_translator/server/data/audit.log` | Audit-event JSON Lines log | 10MB rotation, 5 backups; contains two line schemas |
 | `manga_translator/server/data/sessions.json` | Session persistence | Sessions are terminated when users are deactivated/deleted; never show real tokens |
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -210,14 +218,3 @@ Admins manage accounts and groups at `GET /admin` (`admin-new.html`). The sideba
 | Models and repositories | `manga_translator/server/models/group_models.py`, `quota_models.py`, `repositories/group_repository.py`, `repositories/quota_repository.py`, `core/models.py` | `UserGroup`, `QuotaLimit`/`QuotaStats`, system groups, `UserPermissions`/`AuditEvent` |
 | Scheduling and startup | `manga_translator/server/core/quota_scheduler.py`, `system_init.py` | Daily quota reset, default admin, session cleanup, and log rotation |
 | Web UI | `manga_translator/server/static/admin-new.html`, `static/js/admin/modules/{users,groups,quota}.js`, `static/js/admin/components/permission-editor.js`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Admin-UI entry, called endpoints, and the i18n three-column table |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; TODO section 5.14 only records this page task |
-| Endpoints and contract | Complete | Statically checked every route declaration in `users.py` / `groups.py` / `quota.py` / `audit.py` |
-| Permission and quota sources | Complete | Statically checked `permission_service.py`, `quota_service.py`, `quota_scheduler.py`, and group configuration |
-| UI and i18n three columns | Complete | Checked `admin-new.html`, the admin module JS, and the actual `en_US.json`/`zh_CN.json` values |
-| Sanitized runtime verification | Deferred | No server started; no real `accounts.json`, `quotas.json`, `audit.log`, session token, or API key read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

@@ -13,50 +13,65 @@ lastUpdated: true
 
 ## 使用 Compose 启动
 
-`packaging/docker-compose.yml` 同时定义 CPU 和 GPU 服务，但通常只启动其中一个，避免占用两个 Web 端口和两份模型资源。先在仓库的 `packaging/` 目录执行命令；Compose 的 build context 仍是项目根目录。
+`packaging/docker-compose.yml` 同时定义 CPU 和 GPU 服务，但通常只启动其中一个，避免占用两个 Web 端口和两份模型资源。
 
-### CPU 服务
+### 快速启动
 
-```bash
-docker compose up --build -d manga-translator-cpu
-docker compose logs -f manga-translator-cpu
-```
-
-健康后访问 `http://127.0.0.1:8000/`。停止容器但保留绑定卷中的数据：
+临时体验可以直接使用发布镜像，无需本地构建：
 
 ```bash
-docker compose stop manga-translator-cpu
-docker compose down
+docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:latest-cpu
 ```
 
-### NVIDIA GPU 服务
+NVIDIA GPU 机器把镜像换成 `hgmzhn/manga-translator:latest-gpu`。镜像同时发布在 Docker Hub（`hgmzhn/manga-translator`）和 GitHub Container Registry（`ghcr.io/hgmzhn/manga-translator`，国内可能更快）两个仓库，任选其一。启动后访问 `http://localhost:8000`（用户界面）与 `http://localhost:8000/admin`（管理界面）。
 
-宿主机必须已经安装兼容的 NVIDIA 驱动和 NVIDIA Container Toolkit：
+### Compose 持久化示例
 
-```bash
-docker compose up --build -d manga-translator-gpu
-docker compose logs -f manga-translator-gpu
+长期使用建议按 `packaging/docker-compose.yml` 挂载数据目录（路径均相对 `packaging/`）：
+
+```yaml
+services:
+  manga-translator:
+    image: hgmzhn/manga-translator:latest-cpu
+    container_name: manga-translator
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MT_WEB_HOST: 0.0.0.0
+      MT_WEB_PORT: 8000
+      MANGA_TRANSLATOR_ADMIN_PASSWORD: change_me_123456
+    volumes:
+      - ./data/models:/app/models
+      - ./data/fonts:/app/fonts
+      - ./data/dict:/app/dict
+      - ./data/config:/app/config
+      - ./data/server:/app/manga_translator/server/data
+      - ./data/logs:/app/logs
+      - ./data/result:/app/result
+      # 要让 Web 管理界面保存的服务器 API Key 在重建后保留，先创建空文件 ./data/app.env，再取消下行注释：
+      # - ./data/app.env:/app/.env
 ```
 
-健康后访问 `http://127.0.0.1:8001/`。容器内部仍监听 `8000`，只是 GPU Compose 服务把宿主机 `8001` 映射到容器 `8000`。
+示例中的管理员密码只是占位，公开部署前必须替换为随机密码。
+
+### 端口与环境变量
+
+| 项目 | 说明 |
+| --- | --- |
+| 容器端口 | `8000` |
+| 宿主端口 | CPU `8000`、GPU `8001`（可自定义） |
+| `MT_WEB_HOST` | 监听地址，默认 `0.0.0.0` |
+| `MT_WEB_PORT` | 服务端口，默认 `8000` |
+| `MT_USE_GPU` | GPU 镜像设为 `true` |
+| `MT_MODELS_TTL` | 模型内存存活秒数，默认 `0`（永久保留） |
+| `MT_RETRY_ATTEMPTS` | 翻译失败重试次数，`-1` 表示无限重试 |
+| `MT_VERBOSE` | 详细日志，默认 `false` |
+| `MANGA_TRANSLATOR_ADMIN_PASSWORD` | 旧式管理密码，至少 6 位；不替代 `/auth/setup` |
+
+CPU 服务把宿主机 `8000` 映射到容器 `8000`，健康后访问 `http://127.0.0.1:8000/`；GPU 服务要求宿主机安装兼容的 NVIDIA 驱动与 NVIDIA Container Toolkit，并把宿主机 `8001` 映射到容器 `8000`，健康后访问 `http://127.0.0.1:8001/`。容器内部始终监听 `8000`。
 
 首次访问 Web 登录页时，按页面提示创建第一个管理员账号。Compose 中的 `MANGA_TRANSLATOR_ADMIN_PASSWORD` 只是旧的服务管理密码设置：它要求至少 6 个字符，不能替代 `/auth/setup`，也不会自动创建登录账号。不要使用仓库 Compose 文件中的示例密码；公开部署前应通过未提交的环境覆盖或管理配置设置新的随机密码。
-
-## 配置与选项对照
-
-Docker 部署没有桌面 Qt 控件，因此没有可核对的桌面 UI 调用 key；以下表格记录此边界，而不是把环境变量冒充界面文案。Web 页面自己的文字属于 Web 页面范围，不在本页重复。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| 无（Docker Compose/CLI 操作） | None (Docker Compose/CLI operation) | 无（Docker Compose/CLI 操作） |
-| `MT_WEB_HOST`（启动参数/环境变量） | Web host (not a desktop label) | Web 监听地址（不是桌面标签） |
-| `MT_WEB_PORT`（启动参数/环境变量） | Web port (not a desktop label) | Web 监听端口（不是桌面标签） |
-| `MT_USE_GPU`（启动参数/环境变量） | Use GPU (runtime flag, not a desktop label) | 使用 GPU（运行时标志，不是桌面标签） |
-| `MT_MODELS_TTL`（启动参数/环境变量） | Models TTL (runtime flag, not a desktop label) | 模型 TTL（运行时标志，不是桌面标签） |
-| `MT_RETRY_ATTEMPTS`（启动参数/环境变量） | Retry attempts (runtime flag, not a desktop label) | 重试次数（运行时标志，不是桌面标签） |
-| `MT_VERBOSE`（启动参数/环境变量） | Verbose logging (runtime flag, not a desktop label) | 详细日志（运行时标志，不是桌面标签） |
-
-Compose 当前为 CPU 设置 `MT_WEB_HOST=0.0.0.0`、容器端口 `8000`、`MT_USE_GPU=false`；GPU 服务仍使用容器端口 `8000`，但设置 `MT_USE_GPU=true` 并映射宿主机 `8001`。这些是部署配置，不是 `en_US.json`/`zh_CN.json` 中的 UI key。
 
 ## 镜像如何运行
 
@@ -106,29 +121,4 @@ Compose 路径均相对于 `packaging/`：
 
 运行时环境变量包括 `MT_WEB_HOST`、`MT_WEB_PORT`、`MT_USE_GPU`、`MT_DISABLE_ONNX_GPU`、`MT_MODELS_TTL`、`MT_RETRY_ATTEMPTS` 和 `MT_VERBOSE`。它们覆盖 Web 启动行为、后端选择、模型缓存、重试或日志；具体默认值以 `manga_translator/args.py` 和 Compose 为准。`MANGA_TRANSLATOR_ADMIN_PASSWORD` 只记录其存在和最短长度校验，不在页面展示其值。
 
-## 截图与 Mermaid 边界
-
-本页只使用 Mermaid 表达构建、启动、卷初始化和健康检查，不伪造 Docker Desktop、终端或 GPU 运行截图。未来截图必须使用脱敏镜像、虚构账号和最小公开样例，并裁掉用户名、私有绝对路径、密钥、Token、服务器地址、用户图片、OCR/译文和提示词。容器实际启动、GPU 可见性、健康检查和 Web 登录应在独立运行验证中确认；静态页面完成不等待未来统一验收。
-
-## 源码依据
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 镜像构建 | `packaging/Dockerfile` | CPU/GPU 基础镜像、Python、依赖组、端口、entrypoint、健康检查和启动命令 |
-| Compose 编排 | `packaging/docker-compose.yml` | 8000/8001 映射、环境变量、卷、GPU 设备、内存限制、重启策略和健康检查 |
-| 启动初始化 | `packaging/docker-entrypoint.sh` | 空的配置、字体、字典和服务端数据挂载卷如何从默认备份恢复 |
-| Web CLI | `manga_translator/args.py` | `web` 的 host/port/GPU/TTL/重试/详细日志参数及环境变量覆盖 |
-| 管理密码 | `manga_translator/server/core/config_manager.py` | `MANGA_TRANSLATOR_ADMIN_PASSWORD` 最短长度和写入旧管理设置的行为 |
-| Web 服务 | `manga_translator/server/main.py`、`manga_translator/server/routes/` | Web 页面、会话、翻译端点和健康检查目标的服务边界 |
-| 依赖声明 | `pyproject.toml`、`uv.lock` | Python 版本、CPU/GPU 互斥组、Torch/ONNX 来源和锁定安装 |
-
-## 验证记录
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| 双语页面、frontmatter、pageId、章节和锚点 | 已完成 | 中文与英文逐节镜像，`pageId` 为 `install.docker` |
-| Dockerfile/Compose/entrypoint 静态核对 | 已完成 | 已核对构建类型、端口、卷、环境变量、初始化和 healthcheck |
-| 依赖、端口、管理密码与安全边界 | 已完成 | 源码核对；未展示密码值、令牌、用户名、私有路径或用户内容 |
-| Docker Compose 实际构建/启动、GPU 可见性和 Web 登录 | 未运行 | 需要具备 Docker、NVIDIA Toolkit 和脱敏运行环境；不以静态结论替代运行验证 |
-| Mermaid/图片边界 | 已完成 | 仅保留有信息量的 Mermaid；未伪造截图 |
-| VitePress 静态检查与构建 | 已完成 | `npm run docs:build --prefix doc/wiki` 通过 |
+更多开发向对照与源码依据见[参考索引](../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

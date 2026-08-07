@@ -61,21 +61,6 @@ Streaming endpoints go through `while_streaming()`, which registers the active t
 
 The Web frontend (`static/index.html` + `static/script.js`) is the main consumer of these endpoints. The workflow dropdown at the top of the page decides which endpoint the request uses; multi-image “Normal Translation” goes to `/translate/batch/images` (images as data URIs in a JSON body), while a single image or a special workflow goes to the corresponding `/translate/*` form endpoint.
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Log output...` | Log output... | 日志输出... |
-
-Workflow stored-value to endpoint mapping: `normal` → `/translate/with-form/image/stream`; `export_trans` → `/translate/export/translated`; `export_raw` → `/translate/export/original`; `import_trans` → `/translate/import/json`; `colorize` → `/translate/colorize`; `upscale` → `/translate/upscale`; `inpaint` → `/translate/inpaint`. When `localStorage.session_token` exists, the frontend sends the token in the `X-Session-Token` header, and batch requests set an additional 30-minute `AbortController` timeout.
-
 ## Request and response contract {#request-response-contract}
 
 ### Single request `TranslateRequest` {#translate-request}
@@ -136,7 +121,36 @@ flowchart TD
 - Batch endpoints pass `task_id` to `get_batch_ctx()`, which checks `is_task_cancelled()` before converting and translating each image; a forced or detected cancellation returns `499`.
 - Users with offline translation permission (`allow_offline_translation`) get a never-disconnecting request wrapper in `/batch/images`, so the task keeps running and writes history even after the client disconnects.
 
-## Errors, cancellation, and status codes {#errors-cancellation-and-status-codes}
+## Dependencies and conflicts {#dependencies-and-conflicts}
+
+- Session and permissions: every translation endpoint depends on `X-Session-Token`; a disabled account, expired token, or failed activity refresh returns `401`. Permission filtering first overrides disabled parameters, then checks translator/OCR/colorizer/renderer permissions.
+- Configuration source: the `config` in a request is a full configuration snapshot; the server starts with `config/config.json` (copied from `config-example.json` when absent). Values submitted by the user are overridden by user-group/user allow and deny lists and must not be treated as the final effective values.
+- `user_env_vars`: form endpoints accept uppercase environment-variable key/value pairs that are merged with the user's preset and validated by the API-key policy; a key that does not match the current translator returns `403`. Documentation and logs must never show real keys.
+- Adjacent pages: streaming-frame decoding and task-cancellation timing are in [Streaming protocol](./streaming-protocol.md); export/import/colorize/upscale/inpaint endpoints are in [Batch, export, and import process](./batch-export-import-process.md); session, permission, and global error formats are in [Authentication and errors](./authentication-and-errors.md).
+- Concurrency and history: translation is limited by both the semaphore and per-user concurrency/daily quotas; streaming and batch successes are written to history, whose reading and downloads are documented in [History, files, and download tickets](./history-files-and-download-tickets.md).
+
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Workflow options and endpoint mapping
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
+| `Normal Translation` | Normal Translation | 正常翻译流程 |
+| `Export Translation` | Export Translation | 导出翻译 |
+| `Export Original Text` | Export Original Text | 导出原文 |
+| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
+| `Colorize Only` | Colorize Only | 仅上色 |
+| `Upscale Only` | Upscale Only | 仅超分 |
+| `Inpaint Only` | Inpaint Only | 仅修复 |
+| `Start Translation` | Start Translation | 开始翻译 |
+| `Log output...` | Log output... | 日志输出... |
+
+Workflow stored-value to endpoint mapping: `normal` → `/translate/with-form/image/stream`; `export_trans` → `/translate/export/translated`; `export_raw` → `/translate/export/original`; `import_trans` → `/translate/import/json`; `colorize` → `/translate/colorize`; `upscale` → `/translate/upscale`; `inpaint` → `/translate/inpaint`. When `localStorage.session_token` exists, the frontend sends the token in the `X-Session-Token` header, and batch requests set an additional 30-minute `AbortController` timeout.
+
+#### Errors, cancellation, and status codes {#errors-cancellation-and-status-codes}
 
 | Status | Trigger (static source) | Source |
 | --- | --- | --- |
@@ -151,15 +165,7 @@ flowchart TD
 
 Streaming endpoints do not raise HTTP errors when translation fails midway; they emit a status-`2` error frame with `{"error": ..., "stage": ...}`. HTTP status codes are reserved for authentication, permission, concurrency, quota, and request-validation phases.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
-
-- Session and permissions: every translation endpoint depends on `X-Session-Token`; a disabled account, expired token, or failed activity refresh returns `401`. Permission filtering first overrides disabled parameters, then checks translator/OCR/colorizer/renderer permissions.
-- Configuration source: the `config` in a request is a full configuration snapshot; the server starts with `config/config.json` (copied from `config-example.json` when absent). Values submitted by the user are overridden by user-group/user allow and deny lists and must not be treated as the final effective values.
-- `user_env_vars`: form endpoints accept uppercase environment-variable key/value pairs that are merged with the user's preset and validated by the API-key policy; a key that does not match the current translator returns `403`. Documentation and logs must never show real keys.
-- Adjacent pages: streaming-frame decoding and task-cancellation timing are in [Streaming protocol](./streaming-protocol.md); export/import/colorize/upscale/inpaint endpoints are in [Batch, export, and import process](./batch-export-import-process.md); session, permission, and global error formats are in [Authentication and errors](./authentication-and-errors.md).
-- Concurrency and history: translation is limited by both the semaphore and per-user concurrency/daily quotas; streaming and batch successes are written to history, whose reading and downloads are documented in [History, files, and download tickets](./history-files-and-download-tickets.md).
-
-## Related files and formats {#related-files-and-formats}
+### Related files and formats {#related-files-and-formats}
 
 | File/format | Actual role on this page | Notes |
 | --- | --- | --- |
@@ -173,7 +179,7 @@ Streaming endpoints do not raise HTTP errors when translation fails midway; they
 | `manga_translator/server/runtime_api.py` | Runtime API overrides (Sakura/OCR/colorizer/renderer) | Environment-variable priority; no real keys |
 | `manga_translator/server/static/index.html`, `static/script.js` | Web frontend submission entry and stream parsing | UI-text keys and request headers |
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -183,14 +189,3 @@ Streaming endpoints do not raise HTTP errors when translation fails midway; they
 | Queue and tasks | `manga_translator/server/core/task_manager.py`, `myqueue.py` | Semaphore, thread pool, active tasks, cancellation, and `queue-size` |
 | Runtime overrides | `manga_translator/server/runtime_api.py` | API key/base/model environment-variable priority |
 | Web UI | `manga_translator/server/static/index.html`, `static/script.js`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Workflow dropdown, submission endpoints, and the three-column UI texts |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; TODO section 5.14 only records this page task |
-| Endpoints and contract | Complete | Statically checked all 31 route declarations in `translation.py`, request/response models, and streaming frames |
-| UI and i18n three columns | Complete | Checked `static/index.html`, `static/script.js`, and the actual `en_US.json`/`zh_CN.json` values |
-| Status and error codes | Complete | Statically checked `translation_auth.py`, `core/middleware.py`, and the 499/500 branches |
-| Sanitized runtime verification | Deferred | No server started; no real `.env`/`config.json`/API key/user image read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

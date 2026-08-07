@@ -20,16 +20,6 @@ Use this page when debugging the internal executors, tracing connection or seria
 
 ## Ports and endpoint contract {#ports-and-endpoints}
 
-| Entry | Source-fixed value | Notes and source |
-| --- | --- | --- |
-| `shared` listen | `--host` / `--port` default to `127.0.0.1:5003` | `manga_translator/args.py`; `mode/share.py#MangaShare.listen()` starts the internal FastAPI with it |
-| shared endpoints | `GET /is_locked`, `POST /simple_execute/{method_name}`, `POST /execute/{method_name}` | Defined inline in `mode/share.py#listen()`; the method whitelist only allows `translate` and `translate_batch` |
-| shared keep-alive | Uvicorn `timeout_keep_alive=1800` | Keeps connections for 30 minutes to support batch translation |
-| `ws` upstream | `--ws-url` defaults to `ws://localhost:5000` | `manga_translator/args.py`; `mode/ws.py` reads `ws_url` |
-| `ws` local fields | `--host 127.0.0.1`, `--port 5003`, `--nonce` | Declared by the parser; the current `MangaTranslatorWS` does not consume them |
-| ws side channels | The task's `source_image` (HTTP GET) and `translation_mask` (HTTP PUT) | `mode/ws.py` uses an `aiohttp` session with a 30-second timeout |
-| web legacy registration | `POST /register` (`X-Nonce` header) | `server/main.py#register_instance`; `web` mode forces `start_instance=False` and does not spawn `shared` automatically |
-
 ```mermaid
 flowchart LR
     subgraph SharedSide["shared internal executor (127.0.0.1:5003)"]
@@ -52,12 +42,6 @@ flowchart LR
 
 `MangaShare` is an internal executor: it accepts JSON requests, runs translation serially under a thread lock, and returns pickle bytes or a stream of frames. Every execution endpoint performs four checks in a fixed order: nonce validation (once a nonce is set, `X-Nonce` must match or the request returns `401`), method whitelist (only `translate` and `translate_batch` are allowed, otherwise `403`), method existence (`404` if absent), and a non-blocking lock (`429` while busy).
 
-| Endpoint | Behavior |
-| --- | --- |
-| `GET /is_locked` | Returns `{"locked": true/false}`; no nonce check |
-| `POST /simple_execute/{method_name}` | Synchronous execution; on success returns pickle bytes as `application/octet-stream`; on failure returns 4xx/5xx |
-| `POST /execute/{method_name}` | Streaming execution; immediately returns an `application/octet-stream` `StreamingResponse` while a background task writes progress/result frames |
-
 ### Request encoding {#shared-request-encoding}
 
 - Single image: `{"image": "<PNG base64>", "config": {...}}`; batch: `{"images": ["<PNG base64>", ...], "config": {...}, "batch_size": n}`.
@@ -67,12 +51,6 @@ flowchart LR
 ### Stream frame format {#shared-frame-format}
 
 Each stream frame is `status(1 byte) + length(4 bytes big-endian) + payload`; the client splits frames with `extract_header` / `handle_buffer` using the 5-byte header:
-
-| status | Payload |
-| --- | --- |
-| `0` | Result: pickle-serialized translation result |
-| `1` | Progress: UTF-8 state string (written by the translator progress hook) |
-| `2` | Error: error message (currently `Shared worker failed`) |
 
 ```mermaid
 flowchart LR
@@ -109,16 +87,6 @@ When the result object carries `use_placeholder`, the server returns only a mini
 - `x-secret` is a plaintext WebSocket header; if the secret is empty and the upstream allows the connection, it is equivalent to no authentication.
 - On Windows, `WSAStartup` is called and the `ProactorEventLoopPolicy` is set; the connection loop runs in a separate thread on `_server_loop`.
 
-### Message schema {#ws-message-schema}
-
-Messages are protobuf `WebSocketMessage` (`ws_pb2`), encoded with `SerializeToString()` / `ParseFromString(raw)`, and `WhichOneof('message')` distinguishes the three kinds:
-
-| Message | Fields | Purpose |
-| --- | --- | --- |
-| `new_task` | `id`, `target_language`, `skip_language`, `detector`, `direction`, `translator`, `size`, `source_image`, `translation_mask` | Upstream dispatches a task |
-| `status` | `id`, `status` | Executor reports a status |
-| `finish_task` | `id`, `success`, `has_translation_mask` | Task finished |
-
 ### Task lifecycle {#ws-task-lifecycle}
 
 After receiving `new_task`: send `pending` → send `downloading` → HTTP GET `source_image` (send `error-download` on failure) → open the image (force `upscale_ratio=1` when either dimension exceeds 1200 pixels) → send `preparing` → run translation on the main loop (the progress hook coalesces frames through a 0.2-second throttler; statuses are translator pipeline stage names) → when the result is not empty send `saving`, resize back to the original dimensions, and encode PNG (verbose also saves `ws_final.png`) → send `uploading` → HTTP PUT `translation_mask` (send `error-upload` on failure) → finally send `finish_task`.
@@ -146,7 +114,58 @@ flowchart LR
 - This repository does not track `manga_translator/server/ws_pb2.py` or a matching `.proto` file; the `from ..server import ws_pb2` in `listen()` raises `ImportError`, so `ws` mode currently cannot start. This is a source-level difference, not a verified runtime behavior.
 - Restoring the mode requires regenerating `ws_pb2.py` and verifying the message fields against the upstream scheduler; until then, do not treat `ws` as a runnable service.
 
-## UI copy reference {#ui-copy}
+## Dependencies and conflicts {#dependencies-and-conflicts}
+
+- Port boundaries: `web` `0.0.0.0:8000`, `shared` `127.0.0.1:5003`, and `ws` upstream `ws://localhost:5000`; they serve different purposes and never overlap.
+- `ws --host/--port/--nonce` exist in the parser, but `MangaTranslatorWS` does not consume them; do not infer from the help text that `ws` listens on `5003`.
+- `shared`/`ws` are internal protocols: never access them directly from a browser and never expose them to the public internet; plaintext nonce/secret transport, pickle deserialization, and protobuf parsing all carry security risks.
+- `web` mode forces `start_instance=False` and never spawns a `shared` instance; `start_translator_client_proc` in `server/main.py` is a legacy path that reads/appends `--ignore-errors`, `--pre-dict`, and `--post-dict` options not declared by the `shared` subparser, so it must not be treated as official behavior.
+- This repository is missing `ws_pb2.py`, so `ws` mode cannot start; this is a source-level difference.
+- This page never reads or shows real `.env` contents, `WS_SECRET`, nonces, API keys, tokens, usernames, or private paths.
+
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Ports and endpoint contract
+
+| Entry | Source-fixed value | Notes and source |
+| --- | --- | --- |
+| `shared` listen | `--host` / `--port` default to `127.0.0.1:5003` | `manga_translator/args.py`; `mode/share.py#MangaShare.listen()` starts the internal FastAPI with it |
+| shared endpoints | `GET /is_locked`, `POST /simple_execute/{method_name}`, `POST /execute/{method_name}` | Defined inline in `mode/share.py#listen()`; the method whitelist only allows `translate` and `translate_batch` |
+| shared keep-alive | Uvicorn `timeout_keep_alive=1800` | Keeps connections for 30 minutes to support batch translation |
+| `ws` upstream | `--ws-url` defaults to `ws://localhost:5000` | `manga_translator/args.py`; `mode/ws.py` reads `ws_url` |
+| `ws` local fields | `--host 127.0.0.1`, `--port 5003`, `--nonce` | Declared by the parser; the current `MangaTranslatorWS` does not consume them |
+| ws side channels | The task's `source_image` (HTTP GET) and `translation_mask` (HTTP PUT) | `mode/ws.py` uses an `aiohttp` session with a 30-second timeout |
+| web legacy registration | `POST /register` (`X-Nonce` header) | `server/main.py#register_instance`; `web` mode forces `start_instance=False` and does not spawn `shared` automatically |
+
+#### Shared internal protocol
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /is_locked` | Returns `{"locked": true/false}`; no nonce check |
+| `POST /simple_execute/{method_name}` | Synchronous execution; on success returns pickle bytes as `application/octet-stream`; on failure returns 4xx/5xx |
+| `POST /execute/{method_name}` | Streaming execution; immediately returns an `application/octet-stream` `StreamingResponse` while a background task writes progress/result frames |
+
+#### Stream frame format
+
+| status | Payload |
+| --- | --- |
+| `0` | Result: pickle-serialized translation result |
+| `1` | Progress: UTF-8 state string (written by the translator progress hook) |
+| `2` | Error: error message (currently `Shared worker failed`) |
+
+#### Message schema {#ws-message-schema}
+
+Messages are protobuf `WebSocketMessage` (`ws_pb2`), encoded with `SerializeToString()` / `ParseFromString(raw)`, and `WhichOneof('message')` distinguishes the three kinds:
+
+| Message | Fields | Purpose |
+| --- | --- | --- |
+| `new_task` | `id`, `target_language`, `skip_language`, `detector`, `direction`, `translator`, `size`, `source_image`, `translation_mask` | Upstream dispatches a task |
+| `status` | `id`, `status` | Executor reports a status |
+| `finish_task` | `id`, `success`, `has_translation_mask` | Task finished |
+
+#### UI copy reference {#ui-copy}
 
 `shared`/`ws` are server-internal protocols; the desktop UI locale files contain no UI strings such as "shared", "websocket", or "5003". The desktop settings labels shared with the CLI switches are:
 
@@ -158,16 +177,7 @@ flowchart LR
 | `label_attempts` | Retry Attempts | 重试次数 |
 | `label_ignore_errors` | Ignore Errors | 忽略错误 |
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
-
-- Port boundaries: `web` `0.0.0.0:8000`, `shared` `127.0.0.1:5003`, and `ws` upstream `ws://localhost:5000`; they serve different purposes and never overlap.
-- `ws --host/--port/--nonce` exist in the parser, but `MangaTranslatorWS` does not consume them; do not infer from the help text that `ws` listens on `5003`.
-- `shared`/`ws` are internal protocols: never access them directly from a browser and never expose them to the public internet; plaintext nonce/secret transport, pickle deserialization, and protobuf parsing all carry security risks.
-- `web` mode forces `start_instance=False` and never spawns a `shared` instance; `start_translator_client_proc` in `server/main.py` is a legacy path that reads/appends `--ignore-errors`, `--pre-dict`, and `--post-dict` options not declared by the `shared` subparser, so it must not be treated as official behavior.
-- This repository is missing `ws_pb2.py`, so `ws` mode cannot start; this is a source-level difference.
-- This page never reads or shows real `.env` contents, `WS_SECRET`, nonces, API keys, tokens, usernames, or private paths.
-
-## Related files and formats {#related-files-and-formats}
+### Related files and formats {#related-files-and-formats}
 
 | File/format | Actual role on this page | Note |
 | --- | --- | --- |
@@ -181,11 +191,11 @@ flowchart LR
 | `manga_translator/utils/threading.py` | `PriorityLock` and `Throttler` | ws task scheduling and the 0.2-second throttle |
 | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json`, `doc/wiki/data/i18n.generated.json` | Actual bilingual `label_*` values | No shared/ws-specific UI strings |
 
-## Mermaid boundary {#mermaid-boundary}
+### Mermaid boundary {#mermaid-boundary}
 
 The diagrams describe the real endpoints, frame format, and task state transitions in the source; they do not claim that a listener for `ws://localhost:5000` exists inside this repository, nor that `ws` mode can currently start (missing `ws_pb2.py`). Shared-executor dispatch is a legacy path retained in the source, and the official `web` mode never spawns it. This page fabricates no runtime screenshots or private credentials.
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -196,17 +206,3 @@ The diagrams describe the real endpoints, frame format, and task state transitio
 | Parameters and dispatch | `manga_translator/args.py`, `__main__.py` | `ws`/`shared` options and defaults, mode dispatch |
 | Utilities | `manga_translator/utils/threading.py` | `PriorityLock`, `Throttler` |
 | Research baseline | `doc/wiki/research/cli-command-inventory.md`, `phase0-web-user-http.md`, `phase0-page-coverage-matrix.md` | `--help` inventory, port/protocol boundaries, missing `ws_pb2.py` record |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; TODO.md not modified |
-| shared protocol | Complete | Statically checked `mode/share.py`, `sent_data_internal.py`, `instance.py` |
-| ws protocol | Complete | Statically checked `mode/ws.py`, `utils/threading.py` |
-| Ports and nonce/secret | Complete | `127.0.0.1:5003`, `ws://localhost:5000`, `X-Nonce`, and `WS_SECRET`/`x-secret` checked item by item |
-| pickle/protobuf risks | Complete | Statically checked `pickle.dumps/loads` and the missing `ws_pb2` |
-| `en_US` / `zh_CN` actual locales | Complete | The three-column table records key and actual display values |
-| Route mirror / source evidence scripts | Complete | `node scripts/verify-route-mirror.mjs .` and `node scripts/verify-source-evidence.mjs .` pass |
-| Sanitized runtime verification | Deferred | No shared/ws service started; no real `.env`/nonce/secret/API key/token/username or private path read |
-| VitePress build | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |

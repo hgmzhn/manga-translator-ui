@@ -61,21 +61,6 @@ JSON 变体把整张图片编码为带 `data:image/...;base64,` 前缀的 data U
 
 Web 前端（`static/index.html` + `static/script.js`）是这些端点的主要消费者。页面顶部的工作流下拉框决定请求走哪个端点；多张图片的“普通翻译”走 `/translate/batch/images`（图片转 data URI，JSON 请求体），单张或特殊工作流走对应的 `/translate/*` 表单端点。
 
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Log output...` | Log output... | 日志输出... |
-
-工作流存储值到端点的映射：`normal` → `/translate/with-form/image/stream`；`export_trans` → `/translate/export/translated`；`export_raw` → `/translate/export/original`；`import_trans` → `/translate/import/json`；`colorize` → `/translate/colorize`；`upscale` → `/translate/upscale`；`inpaint` → `/translate/inpaint`。前端在 `localStorage.session_token` 存在时把令牌放进 `X-Session-Token` 请求头，批量请求另设 30 分钟 `AbortController` 超时。
-
 ## 请求与响应契约 {#request-response-contract}
 
 ### 单张请求 `TranslateRequest` {#translate-request}
@@ -136,7 +121,36 @@ flowchart TD
 - 批量端点把 `task_id` 传给 `get_batch_ctx()`，每张图片转换与翻译前都检查 `is_task_cancelled()`；取消或检测到取消时返回 `499`。
 - 拥有离线翻译权限（`allow_offline_translation`）的用户在 `/batch/images` 中会使用永不断开的请求包装器，客户端断线后任务仍继续执行并写入历史。
 
-## 错误、取消与状态码 {#errors-cancellation-and-status-codes}
+## 依赖与冲突 {#dependencies-and-conflicts}
+
+- 会话与权限：所有翻译端点依赖 `X-Session-Token`；账号停用、令牌过期或活动刷新失败都会返回 `401`。权限过滤先覆盖禁用参数，再检查翻译器/OCR/上色/渲染权限。
+- 配置来源：请求中的 `config` 是完整配置快照；服务端启动用 `config/config.json`（不存在时复制 `config-example.json`）。用户提交的值会被用户组/用户白名单黑名单覆盖，不能当作最终生效值。
+- `user_env_vars`：表单端点可携带大写环境变量键值，与用户预设合并后经 API Key 策略校验；键与当前翻译器不匹配时返回 `403`。文档与日志不得展示真实 Key。
+- 与相邻页面：流式帧解码与任务取消时序见[流式协议](./streaming-protocol.md)；导出/导入/上色/超分/修复端点见[批量、导出与导入流程](./batch-export-import-process.md)；会话、权限与全局错误格式见[认证与错误](./authentication-and-errors.md)。
+- 并发与历史：翻译同时受信号量与用户并发/每日配额限制；流式与批量成功后写入历史，历史读取与下载见[历史、文件与下载票据](./history-files-and-download-tickets.md)。
+
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 工作流选项与端点映射
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
+| `Normal Translation` | Normal Translation | 正常翻译流程 |
+| `Export Translation` | Export Translation | 导出翻译 |
+| `Export Original Text` | Export Original Text | 导出原文 |
+| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
+| `Colorize Only` | Colorize Only | 仅上色 |
+| `Upscale Only` | Upscale Only | 仅超分 |
+| `Inpaint Only` | Inpaint Only | 仅修复 |
+| `Start Translation` | Start Translation | 开始翻译 |
+| `Log output...` | Log output... | 日志输出... |
+
+工作流存储值到端点的映射：`normal` → `/translate/with-form/image/stream`；`export_trans` → `/translate/export/translated`；`export_raw` → `/translate/export/original`；`import_trans` → `/translate/import/json`；`colorize` → `/translate/colorize`；`upscale` → `/translate/upscale`；`inpaint` → `/translate/inpaint`。前端在 `localStorage.session_token` 存在时把令牌放进 `X-Session-Token` 请求头，批量请求另设 30 分钟 `AbortController` 超时。
+
+#### 错误、取消与状态码 {#errors-cancellation-and-status-codes}
 
 | 状态码 | 触发条件（静态源码） | 来源 |
 | --- | --- | --- |
@@ -151,15 +165,7 @@ flowchart TD
 
 流式端点不会在翻译中途失败时抛出 HTTP 错误，而是发送状态 `2` 的错误帧，载荷为 `{"error": ..., "stage": ...}`；只有认证、权限、并发、配额和请求校验阶段才返回 HTTP 状态码。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
-
-- 会话与权限：所有翻译端点依赖 `X-Session-Token`；账号停用、令牌过期或活动刷新失败都会返回 `401`。权限过滤先覆盖禁用参数，再检查翻译器/OCR/上色/渲染权限。
-- 配置来源：请求中的 `config` 是完整配置快照；服务端启动用 `config/config.json`（不存在时复制 `config-example.json`）。用户提交的值会被用户组/用户白名单黑名单覆盖，不能当作最终生效值。
-- `user_env_vars`：表单端点可携带大写环境变量键值，与用户预设合并后经 API Key 策略校验；键与当前翻译器不匹配时返回 `403`。文档与日志不得展示真实 Key。
-- 与相邻页面：流式帧解码与任务取消时序见[流式协议](./streaming-protocol.md)；导出/导入/上色/超分/修复端点见[批量、导出与导入流程](./batch-export-import-process.md)；会话、权限与全局错误格式见[认证与错误](./authentication-and-errors.md)。
-- 并发与历史：翻译同时受信号量与用户并发/每日配额限制；流式与批量成功后写入历史，历史读取与下载见[历史、文件与下载票据](./history-files-and-download-tickets.md)。
-
-## 关联文件与格式 {#related-files-and-formats}
+### 关联文件与格式 {#related-files-and-formats}
 
 | 文件/格式 | 本页实际作用 | 注意事项 |
 | --- | --- | --- |
@@ -173,7 +179,7 @@ flowchart TD
 | `manga_translator/server/runtime_api.py` | 运行时 API 覆盖（Sakura/OCR/上色/渲染） | 环境变量优先级，不写真实密钥 |
 | `manga_translator/server/static/index.html`、`static/script.js` | Web 前端提交入口与流解析 | UI 文案 key 与请求头 |
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -183,14 +189,3 @@ flowchart TD
 | 队列与任务 | `manga_translator/server/core/task_manager.py`、`myqueue.py` | 信号量、线程池、活动任务、取消与 `queue-size` |
 | 运行覆盖 | `manga_translator/server/runtime_api.py` | API Key/Base/Model 环境变量优先级 |
 | Web UI | `manga_translator/server/static/index.html`、`static/script.js`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 工作流下拉、提交端点与 UI 三列文案 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；TODO 5.14 节仅记录本页任务 |
-| 端点与契约 | 完成 | 静态核对 `translation.py` 全部 31 个路由声明、请求/响应模型与流式帧 |
-| UI 与 i18n 三列 | 完成 | 核对 `static/index.html`、`static/script.js` 与 `en_US.json`/`zh_CN.json` 实际值 |
-| 状态与错误码 | 完成 | 静态核对 `translation_auth.py`、`core/middleware.py` 与 499/500 分支 |
-| 脱敏运行验证 | 待后续 | 未启动服务、未读取真实 `.env`/`config.json`/API Key/用户图片 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

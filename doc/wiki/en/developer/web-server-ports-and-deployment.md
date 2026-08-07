@@ -19,16 +19,6 @@ Use this page when you need to expose the Web service to a LAN or the public, de
 
 ## Port contract {#ports-contract}
 
-| Entry point | Source-fixed value | Notes and source |
-| --- | --- | --- |
-| `web` mode | `--host` defaults to `MT_WEB_HOST` or `0.0.0.0`; `--port` defaults to `MT_WEB_PORT` or `8000` | `manga_translator/args.py`; `server/main.py#run_server()` starts Uvicorn with the same values |
-| Uvicorn | `timeout_keep_alive=1800`, `timeout_graceful_shutdown=30` | Keeps long connections for 30 minutes to support batch translation; 30-second graceful shutdown |
-| `shared` mode | `--host` / `--port` default to `127.0.0.1:5003` | `manga_translator/args.py`; `mode/share.py` starts the internal FastAPI with it |
-| `ws` mode | Listens locally on `127.0.0.1:5003`; `--ws-url` defaults to `ws://localhost:5000` | `manga_translator/args.py`; `mode/ws.py` reads `ws_url` |
-| Docker CPU | Container listens on `8000`; Compose maps `8000:8000` | `packaging/Dockerfile`, `packaging/docker-compose.yml` |
-| Docker GPU | Container still listens on `8000`; Compose maps `8001:8000` | The host-facing entry is `8001`, not the in-container `8000` |
-| Unwired parser | `manga_translator/server/args.py` defaults to `127.0.0.1:8000` (help text says `8080`) | Not used by the official top-level `manga_translator.args`; do not rewrite the official default from it |
-
 `0.0.0.0` means the server listens on all IPv4 interfaces; it is not a browser address. Locally you usually use `http://127.0.0.1:8000` or `http://localhost:8000`; LAN clients must use the server's real LAN address. External reachability depends on firewall, port mapping, and network environment, which static source cannot assert.
 
 ```mermaid
@@ -87,6 +77,36 @@ In packaged builds the application directory is the directory of `sys.executable
 
 ## Environment variables {#environment-variables}
 
+Precedence: explicit command-line argument > environment variables already present when the process starts > `.env` file > code default. `main.py` loads `.env` with `override=False`, so same-name variables already in the process environment are not overwritten; the admin `POST /env` endpoint writes the application-directory `.env` through `EnvService` and then reloads it with `override=True`.
+
+This page does not list or display any real secret. Credential variables such as `OPENAI_API_KEY` and `GEMINI_API_KEY` are only read by translators; the server `/env` and `/env/effective` endpoints never return plaintext.
+
+## Dependencies and conflicts {#dependencies-and-conflicts}
+
+- Listening on `0.0.0.0` does not mean the service is externally reachable; the Windows firewall, cloud security groups, and NAT port mapping decide LAN/public reachability, and static source cannot prove the actual exposure.
+- Port usage: `web` defaults to `8000`, the Docker GPU host entry is `8001`, and `shared` / `ws` use `5003` for different purposes; if another instance or an older service occupies a port on the same host, Uvicorn fails to start.
+- CORS is configured as `allow_origins=["*"]` plus `allow_credentials=True`, but that is a source configuration and does not mean browsers will allow every origin/credential combination; cross-origin deployments need real browser preflight verification.
+- `MANGA_TRANSLATOR_WEB_SERVER=true` makes translators (OpenAI/Gemini and others) skip reloading `.env` to avoid overwriting server keys; this differs from the CLI local mode's `.env` reload behavior.
+- `web` mode forces `start_instance=False` and does not spawn a `shared` translator process automatically; the `server/args.py --start-instance` process-spawning path belongs to the unwired standalone entry and must not be treated as official `web` mode behavior.
+
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Port contract
+
+| Entry point | Source-fixed value | Notes and source |
+| --- | --- | --- |
+| `web` mode | `--host` defaults to `MT_WEB_HOST` or `0.0.0.0`; `--port` defaults to `MT_WEB_PORT` or `8000` | `manga_translator/args.py`; `server/main.py#run_server()` starts Uvicorn with the same values |
+| Uvicorn | `timeout_keep_alive=1800`, `timeout_graceful_shutdown=30` | Keeps long connections for 30 minutes to support batch translation; 30-second graceful shutdown |
+| `shared` mode | `--host` / `--port` default to `127.0.0.1:5003` | `manga_translator/args.py`; `mode/share.py` starts the internal FastAPI with it |
+| `ws` mode | Listens locally on `127.0.0.1:5003`; `--ws-url` defaults to `ws://localhost:5000` | `manga_translator/args.py`; `mode/ws.py` reads `ws_url` |
+| Docker CPU | Container listens on `8000`; Compose maps `8000:8000` | `packaging/Dockerfile`, `packaging/docker-compose.yml` |
+| Docker GPU | Container still listens on `8000`; Compose maps `8001:8000` | The host-facing entry is `8001`, not the in-container `8000` |
+| Unwired parser | `manga_translator/server/args.py` defaults to `127.0.0.1:8000` (help text says `8080`) | Not used by the official top-level `manga_translator.args`; do not rewrite the official default from it |
+
+#### Environment variables
+
 | Environment variable | Role | Read from |
 | --- | --- | --- |
 | `MT_WEB_HOST` | Default listen address for `web` mode; falls back to `0.0.0.0` | `manga_translator/args.py` |
@@ -102,11 +122,7 @@ In packaged builds the application directory is the directory of `sys.executable
 | `MANGA_TRANSLATOR_ENV_PATH` | Hint path pointing to the application-directory `.env` (`APP_DOTENV_PATH_ENV`) | `utils/dotenv_utils.py` |
 | `WS_SECRET` | Upstream WebSocket secret for `ws` mode | `mode/ws.py` |
 
-Precedence: explicit command-line argument > environment variables already present when the process starts > `.env` file > code default. `main.py` loads `.env` with `override=False`, so same-name variables already in the process environment are not overwritten; the admin `POST /env` endpoint writes the application-directory `.env` through `EnvService` and then reloads it with `override=True`.
-
-This page does not list or display any real secret. Credential variables such as `OPENAI_API_KEY` and `GEMINI_API_KEY` are only read by translators; the server `/env` and `/env/effective` endpoints never return plaintext.
-
-## UI copy {#ui-copy}
+#### UI copy {#ui-copy}
 
 This page targets developers; the checkable UI copy mainly comes from the Web admin console and the shared locales:
 
@@ -120,15 +136,7 @@ This page targets developers; the checkable UI copy mainly comes from the Web ad
 
 These `web_*` keys come from the shared desktop locales (`desktop_qt_ui/locales/en_US.json`, `zh_CN.json`). `admin-new.html` currently hardcodes navigation and panel text such as “服务器配置” in Chinese and does not yet call these keys one by one; the English display needs verification in a future i18n phase, and this page does not invent translations.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
-
-- Listening on `0.0.0.0` does not mean the service is externally reachable; the Windows firewall, cloud security groups, and NAT port mapping decide LAN/public reachability, and static source cannot prove the actual exposure.
-- Port usage: `web` defaults to `8000`, the Docker GPU host entry is `8001`, and `shared` / `ws` use `5003` for different purposes; if another instance or an older service occupies a port on the same host, Uvicorn fails to start.
-- CORS is configured as `allow_origins=["*"]` plus `allow_credentials=True`, but that is a source configuration and does not mean browsers will allow every origin/credential combination; cross-origin deployments need real browser preflight verification.
-- `MANGA_TRANSLATOR_WEB_SERVER=true` makes translators (OpenAI/Gemini and others) skip reloading `.env` to avoid overwriting server keys; this differs from the CLI local mode's `.env` reload behavior.
-- `web` mode forces `start_instance=False` and does not spawn a `shared` translator process automatically; the `server/args.py --start-instance` process-spawning path belongs to the unwired standalone entry and must not be treated as official `web` mode behavior.
-
-## Related files and formats {#related-files}
+### Related files and formats {#related-files}
 
 | File | Actual role on this page | Note |
 | --- | --- | --- |
@@ -141,11 +149,11 @@ These `web_*` keys come from the shared desktop locales (`desktop_qt_ui/locales/
 | `manga_translator/runtime_paths.py`, `manga_translator/server_paths.py` | Application dir, `config/`, `server/data/` paths | Packaged dir sits next to the executable |
 | `manga_translator/server/core/config_manager.py` | `admin_config.json` and `MANGA_TRANSLATOR_ADMIN_PASSWORD` | Never shows a real password |
 
-## Mermaid boundary {#mermaid-boundary}
+### Mermaid boundary {#mermaid-boundary}
 
 The port diagram above only represents the endpoints bound by each official CLI mode; it does not mean `web` automatically spawns `shared` / `ws` processes, nor that a listener for `ws://localhost:5000` necessarily exists inside this repository. The Docker mapping only describes the Compose template's port mapping; the real exposure scope, firewall, and reverse-proxy configuration must be verified in the target environment. This page fabricates no runtime screenshots or private credentials.
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -158,15 +166,3 @@ The port diagram above only represents the endpoints bound by each official CLI 
 | Paths | `manga_translator/runtime_paths.py`, `manga_translator/server_paths.py` | Application dir, `config/`, `server/data/` |
 | Admin config | `manga_translator/server/core/config_manager.py` | `MANGA_TRANSLATOR_ADMIN_PASSWORD` initialization rules |
 | UI/i18n | `desktop_qt_ui/locales/en_US.json`, `desktop_qt_ui/locales/zh_CN.json`, `server/static/admin-new.html` | Actual `web_*` key values and admin-console hardcoded differences |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; TODO.md not modified |
-| Port contract | Complete | Statically checked `args.py`, `main.py`, `share.py`, `ws.py`, and Docker files |
-| Environment variables | Complete | Statically checked all `MT_*` and `MANGA_TRANSLATOR_*` read locations and precedence |
-| UI copy three-column table | Complete | Checked actual `web_*` values in `en_US.json` / `zh_CN.json` and hardcoded HTML differences |
-| Route mirror / source evidence scripts | Complete | `node scripts/verify-route-mirror.mjs .` and `node scripts/verify-source-evidence.mjs .` pass |
-| Sanitized runtime verification | Deferred | No server started; no real `.env`, accounts, tokens, user images, or private paths read |
-| VitePress build | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |

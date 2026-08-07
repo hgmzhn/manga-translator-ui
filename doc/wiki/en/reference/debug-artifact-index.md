@@ -25,14 +25,6 @@ This index only summarizes and backlinks. Naming rules, directory layout, and th
 
 The full steps for enabling verbose logging in Settings are in [Debug folder naming and overview](../debugging/folder-naming-and-overview.md). This page only records the UI strings directly relevant to this index:
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `General` | General | 通用 |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `Open log folder` | Open log folder | 打开日志文件夹 |
-
-The full bilingual text of the `desc_cli_verbose` description panel (including the “When enabled, Qt UI writes these items under result/ …” wording and its difference from the actual code naming rule) is recorded verbatim in [Debug folder naming and overview](../debugging/folder-naming-and-overview.md) and is not repeated here.
-
 ## Debug artifact summary
 
 The tables below group the complete set of artifacts the current source can generate under different modes as “core artifacts / conditional artifacts / directory-level and fallback artifacts”. The “In-depth page” column links to the dedicated page for each artifact; the “Stage and trigger condition” column records only statically verified write points and switches.
@@ -133,7 +125,19 @@ The diagram only shows the “trigger -> artifact family -> documentation page�
 - All debug images, OCR crops, line-break JSON, JSX, and logs may contain user images, source/translation text, box coordinates, or local paths; sanitize them before sharing and never package them for upload directly.
 - This index does not replace the `debugging/` pages; parameter mechanics, file formats, and runtime behavior are covered by the corresponding feature and debugging pages.
 
-## Related files and formats
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `General` | General | 通用 |
+| `label_verbose` | Verbose Logging | 详细日志 |
+| `Open log folder` | Open log folder | 打开日志文件夹 |
+
+The full bilingual text of the `desc_cli_verbose` description panel (including the “When enabled, Qt UI writes these items under result/ …” wording and its difference from the actual code naming rule) is recorded verbatim in [Debug folder naming and overview](../debugging/folder-naming-and-overview.md) and is not repeated here.
+
+### Related files and formats
 
 | File/directory | Format and naming | Description |
 | --- | --- | --- |
@@ -144,7 +148,7 @@ The diagram only shows the “trigger -> artifact family -> documentation page�
 | Image-level artifacts (`input.png`, `bboxes.png`, `mask_raw.png`, `inpaint_input.png`, `mask_final.png`, `inpainted.png`, `final.png`, etc.) | PNG | Terminal diagnostic writes for manual troubleshooting |
 | Conditional artifacts (JSON/JSX/JPG, etc.) | see the debugging pages | Trigger conditions in “Debug artifact summary” |
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -156,14 +160,3 @@ The diagram only shows the “trigger -> artifact family -> documentation page�
 | App-level logs | `desktop_qt_ui/main.py`, `manga_translator/mode/local.py` | Generation of `log_<yyyyMMddHHmmss>.txt` |
 | UI/i18n | `desktop_qt_ui/ui/main_page/settings_tab_layout.json`, `desktop_qt_ui/ui/main_page/dynamic_settings.py`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual values of `label_verbose`, `desc_cli_verbose`, `Open log folder` |
 | Research baseline | `doc/wiki/research/phase0-debug-artifact-path-trace.md`, `phase0-related-files-formats-debug-safety.md`, `phase0-page-coverage-matrix.md` | Artifact inventory, path contract, and coverage matrix |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read the reference-index boundary, page guidelines, and TODO 1.3 / 5.16 / 6.3 |
-| Path contract and artifact inventory | Complete | Statically checked `phase0-debug-artifact-path-trace.md` and the related source write points |
-| UI and i18n | Complete | Checked actual bilingual values of `label_verbose`, `desc_cli_verbose`, `Open log folder` |
-| Route mirror and source evidence | Complete | `node scripts/verify-route-mirror.mjs .` and `node scripts/verify-source-evidence.mjs .` pass |
-| Sanitized runtime verification | Deferred | No GUI started, no real translation run; core-file composition and conditional artifacts need a sanitized run |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus a dead-link check before merge |

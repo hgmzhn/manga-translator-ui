@@ -24,7 +24,7 @@ lastUpdated: true
 
 ### 页签与参数归属
 
-| 布局 `title` / UI 调用 key | English 实际值 | 简体中文实际值 | 页面中显示的主要参数 |
+| 界面页签 | English 实际值 | 简体中文实际值 | 页面中显示的主要参数 |
 | --- | --- | --- | --- |
 | `General` | General | 通用 | 语言、主题、日志/错误、GPU/ONNX、格式、覆盖、重试、批次、输出和模型卸载 |
 | `OCR` | OCR | 识别 | 主/次 OCR、混合 OCR、AI OCR、过滤、气泡约束和合并阈值 |
@@ -45,40 +45,6 @@ lastUpdated: true
 6. 点击“导出配置”选择外部 JSON 文件；点击“导入配置”载入 JSON，并按逐键深合并和 Pydantic 校验处理无效值。导入后整页可能重建，说明面板和 API/提示词相关控件也会刷新。
 
 `app.ui_language` 或应用语言切换后，页签、标签、说明和下拉显示值重新从 locale 加载；存储值不因语言切换而改变。设置页没有单独的“应用”按钮，普通修改先立即更新内存，再由配置服务合并写盘。
-
-## 选项中英对照 {#option-matrix}
-
-| UI 调用 key / 存储值 | English | 简体中文 |
-| --- | --- | --- |
-| `Settings Page Title` | Settings | 参数设置 |
-| `Settings Page Subtitle` | Adjust translation pipeline parameters. Changes are saved automatically. | 调整翻译流程的各项参数。修改后将自动保存。 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `Settings Desc Header` | Parameter Description | 参数说明 |
-| `Settings Desc Placeholder` | Click any setting on the left to view details | 点击左侧任意设置项查看详细说明 |
-| `General` | General | 通用 |
-| `OCR` | OCR | 文字识别 |
-| `Detection` | Detection | 检测 |
-| `Translation` | Translation | 翻译 |
-| `Inpainting` | Inpainting | 修复 |
-| `Typesetting` | Typesetting | 排版 |
-| `Mode Specific` | Mode Specific | 模式相关 |
-| `Advanced` | Advanced | 高级 |
-| `Theme:` | Theme: | 主题： |
-| `Language:` | Language: | 语言： |
-| `Edit` | Edit | 编辑 |
-| `Open Directory` | Open Directory | 打开目录 |
-| `Preset:` | Preset: | 预设： |
-| `app.theme=light` | Light | Light |
-| `app.theme=dark` | Dark | Dark |
-| `app.theme=system` | Follow System | Follow System |
-| `cli.format=Not Specified` | Not Specified | 不指定 |
-| `upscale_ratio_not_use` | Not Use | 不使用 |
-| `alignment_auto` | Auto | 自动 |
-| `direction_vertical` | Vertical | 竖排 |
-| `layout_mode_smart_scaling` | Smart Scaling | 智能缩放 |
-
-`app.ui_language` 的固定语言名称由 `LocaleInfo.name` 提供；主题名称有些是 `theme_registry.py` 的字面量，因此不会强行添加不存在的 i18n key。参数完整的 value/UI 对照见[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
 
 ## 运行机理 {#runtime-behavior}
 
@@ -110,45 +76,3 @@ flowchart LR
 - 混合 OCR、AI 并发、RPM、重试和批量并发会增加识别/网络压力和成本。
 - `upscale_ratio` 依赖 `upscaler`；模板匹配对齐和粘贴蒙版膨胀只在替换翻译模式有意义。
 - 导入未知键不会成为新控件；无效值回退默认并记录警告。不要在应用仍有待写入操作时手改同一份 JSON 或 `.env`。
-
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件/格式 | 设置页用途与边界 | 注意 |
-| --- | --- | --- |
-| `config/config.json` | 用户设置 UTF-8 JSON，优先于默认模板 | 错误值按字段回退；不要复制私有路径 |
-| `config/config-example.json` | 发行/开发默认模板 | 与 Qt/Core 默认不完全相同 |
-| `.env` | API Key、Base、Model 等 dotenv 文本 | 不写值、不截图、不共享凭据 |
-| `config/custom_api_params.json` | API 额外请求参数 | 不承载凭据或槽轮换 |
-| `dict/ai_ocr_prompt.yaml`、`dict/ai_renderer_prompt.yaml`、`dict/ai_colorizer_prompt.yaml` | 三个固定提示词编辑动作 | 分别由对应 AI 模块消费 |
-| `config/filter_list.json` / `filter_list.txt` | 过滤列表 | 规则可能跳过 OCR 区域 |
-| `config/translation_template.json` | 工作流文本扩展名模板 | 按文本模板解析，不是严格 JSON 配置 |
-| `manga_translator_work/` | 翻译 JSON、TXT、蒙版/覆盖层和编辑器数据 | 可能含用户内容和绝对路径 |
-
-## 截图与流程图边界 {#visual-boundary}
-
-本页 Mermaid 只表达配置生命周期和优先级，没有伪造运行截图。当前未生成有头模式截图；未来应覆盖七个页签、说明面板、下拉、文件编辑、导入/导出和预设刷新，并裁掉用户名、私有路径、密钥、令牌、用户图片和私有提示词。调试 JSON、`mask_raw`、PSD/JSX 也按用户内容处理。
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 核对内容 |
-| --- | --- | --- |
-| 布局 | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | 七页签、顺序、分隔线；Phase 0 清单记录 110/109 |
-| 页面外壳 | `desktop_qt_ui/ui/main_page/pages/settings_page.py` | 标题、导入/导出、页签和说明面板 |
-| 动态控件 | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | 控件类型、跳过字段、动态超分和提示词编辑 |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 实际双语文案 |
-| 配置模型 | `desktop_qt_ui/core/config_models.py` | `AppSettings`、Qt 默认和校验 |
-| 持久化 | `desktop_qt_ui/services/config_service.py` | 优先级、逐键校验、防抖、原子写入和 flush |
-| 阶段消费者 | `manga_translator/config.py` 及检测、OCR、翻译、修复、渲染、超分、上色模块 | Core 默认、CLI 覆盖和最终消费 |
-| 调查资料 | `doc/wiki/research/default-sources.md`、`phase0-options-i18n-matrix.md`、`phase0-related-files-formats-debug-safety.md` | 默认差异、选项、格式和敏感信息边界 |
-
-## 验证记录 {#verification}
-
-| 内容 | 状态 | 说明 |
-| --- | --- | --- |
-| 页面、布局、控件与持久化源码 | 完成 | 已静态核对 |
-| i18n key → English → 简体中文 | 完成 | 操作文案来自两个 locale；字面量明确保留 |
-| 默认值与优先级 | 静态完成 | Core 120、Qt 131、Release 131；未读取本机用户配置 |
-| 有头 UI、导入/导出和写盘运行验证 | 待运行 | 未伪造截图 |
-| Mermaid、路由镜像、源码字段检查 | 待站点统一验收 | 页面已保留锚点和证据字段 |
-| VitePress 构建 | 待执行 | `npm ci --prefix doc/wiki`；`npm run docs:build --prefix doc/wiki` |
-| 敏感信息审查 | 完成 | 无 Key、Token、用户名、私有路径、用户图片或私有提示词 |

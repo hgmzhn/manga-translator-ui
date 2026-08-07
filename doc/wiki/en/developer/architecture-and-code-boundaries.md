@@ -25,35 +25,9 @@ Use this page before modifying or debugging a feature to locate which layer it b
 
 After launching the desktop app, the left navigation registers the seven main pages in `desktop_qt_ui/ui/main_window.py`, plus the editor view. Each main page is an independent constructor under `ui/main_page/pages/`, created by `MainView` and hosted by `FluentWindow`.
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Interface` | Translation Interface | 翻译界面 |
-| `Settings` | Settings | 设置 |
-| `API Management` | API Management | API 管理 |
-| `Prompt Management` | Prompt Management | 提示词管理 |
-| `Replacement Rules` | Replacement Rules | 替换规则 |
-| `Rich Text Rules` | Rich Text Rules | 富文本规则 |
-| `Batch Management` | Batch Management | 批量管理 |
-| `Editor` | Editor | 编辑器 |
-| `Editor View` | Editor View | 编辑器视图 |
-
 ### Workflow mode selector
 
 The "Translation Workflow Mode:" combo box on the translation page maps one selection to a single workflow boolean field in the `cli` config (`runtime.py#on_workflow_mode_changed` clears all flags first, then sets one). It is the direct entry point for observing the "UI state -> core parameter" boundary.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Translate JSON Only` | Translate JSON Only | 仅翻译（JSON） |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Replace Translation` | Replace Translation | 替换翻译 |
-| `Start Translation` | Start Translation | 开始翻译 |
 
 The combo box only changes the eight `cli` booleans; the actual behavior differences come from the branches in core `translate_batch()` (see [Workflow and file modes](../cli/workflow-and-file-modes.md)).
 
@@ -124,7 +98,41 @@ flowchart LR
 - `batch_concurrent` only applies to the "Normal Translation" workflow; import/export, colorize-only, upscale-only, inpaint-only, and replace-translation force the sequential pipeline.
 - Server concurrency is limited by the `task_manager` semaphore; desktop concurrency is limited by the `TranslationWorker` QRunnable thread pool. The two do not know about each other.
 
-## Related files and formats
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Observe module entry points in the desktop app
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Translation Interface` | Translation Interface | 翻译界面 |
+| `Settings` | Settings | 设置 |
+| `API Management` | API Management | API 管理 |
+| `Prompt Management` | Prompt Management | 提示词管理 |
+| `Replacement Rules` | Replacement Rules | 替换规则 |
+| `Rich Text Rules` | Rich Text Rules | 富文本规则 |
+| `Batch Management` | Batch Management | 批量管理 |
+| `Editor` | Editor | 编辑器 |
+| `Editor View` | Editor View | 编辑器视图 |
+
+#### Workflow mode selector
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
+| `Normal Translation` | Normal Translation | 正常翻译流程 |
+| `Export Translation` | Export Translation | 导出翻译 |
+| `Export Original Text` | Export Original Text | 导出原文 |
+| `Translate JSON Only` | Translate JSON Only | 仅翻译（JSON） |
+| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
+| `Colorize Only` | Colorize Only | 仅上色 |
+| `Upscale Only` | Upscale Only | 仅超分 |
+| `Inpaint Only` | Inpaint Only | 仅修复 |
+| `Replace Translation` | Replace Translation | 替换翻译 |
+| `Start Translation` | Start Translation | 开始翻译 |
+
+### Related files and formats
 
 | File/directory | Actual role on this page | Note |
 | --- | --- | --- |
@@ -139,11 +147,11 @@ flowchart LR
 | `manga_translator/server/` | FastAPI server and core services | Routes, auth, quota, history, cleanup, etc. |
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | UI copy source | Every value in the tables above was checked against the locales |
 
-## Mermaid diagram limits
+### Mermaid diagram limits
 
 The diagrams above show source-confirmed layers and call relationships, not "every request passes through every node". Special workflows (export original text, colorize-only, replace translation, etc.) skip most stages; with `batch_concurrent` enabled, detection, OCR, translation, and inpainting advance in parallel. No runtime screenshot or private task artifact has been fabricated, and no real keys are included.
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -157,14 +165,3 @@ The diagrams above show source-confirmed layers and call relationships, not "eve
 | CLI/modes | `manga_translator/__main__.py`, `mode/local.py`, `mode/share.py`, `mode/ws.py` | Four mode entry points and core reuse |
 | Server | `manga_translator/server/main.py`, `core/task_manager.py`, `core/translation_integration.py` | FastAPI assembly, concurrency control, and integration calls |
 | UI/i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual navigation and workflow combo copy |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| Layers and call relationships | Complete | Statically checked desktop, core, server, and four mode entry points |
-| `en_US` / `zh_CN` actual locales | Complete | The tables record key, actual English, and actual Simplified Chinese values |
-| Pipeline stage order | Complete | Statically checked `translate_batch` and `_complete_translation_pipeline` |
-| Sanitized runtime verification | Deferred | No real `.env`, user `config.json`, API key/token, username, user image, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

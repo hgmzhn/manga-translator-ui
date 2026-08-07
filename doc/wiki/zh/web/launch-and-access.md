@@ -35,17 +35,7 @@ uv run --no-sync python -m manga_translator web
 3. 初始化服务器配置和数据目录（`manga_translator/server/data` 下的 admin 配置、用户资源目录），然后由 Uvicorn 监听 `host:port`，`timeout_keep_alive=1800`（保持连接 30 分钟）、优雅关闭超时 30 秒。
 4. 打印 `[SERVER CONFIG]` 摘要和内部 nonce（用于 shared 执行器注册；不要把该值复制进公开报告）。
 
-`web` 子命令选项（环境变量在进程启动时求值，优先级高于帮助文本中的基准值）：
-
-| 选项 | 环境变量 | 默认值 | 作用 |
-| --- | --- | --- | --- |
-| `--host` | `MT_WEB_HOST` | `0.0.0.0` | 监听地址 |
-| `--port` | `MT_WEB_PORT` | `8000` | 监听端口 |
-| `--use-gpu` | `MT_USE_GPU` | `false` | 启用 GPU（`true`/`1`/`yes`/`on` 为真） |
-| `--disable-onnx-gpu` | `MT_DISABLE_ONNX_GPU` | `false` | 禁用 ONNX Runtime GPU（同一真值规则） |
-| `--models-ttl` | `MT_MODELS_TTL` | `0` | 模型保留秒数；`0` 表示永久 |
-| `--retry-attempts` | `MT_RETRY_ATTEMPTS` | `None` | 失败重试次数；`-1` 表示无限 |
-| `-v`, `--verbose` | `MT_VERBOSE` | `false` | 详细日志（`true`/`1`/`yes` 为真） |
+`web` 子命令选项（环境变量在进程启动时求值，优先级高于帮助文本中的基准值）。
 
 例如只在本机监听并改用端口 `8080`：
 
@@ -117,36 +107,6 @@ flowchart LR
 
 CORS 源码配置为 `allow_origins=["*"]`、`allow_credentials=True` 且放行全部方法和头；这是服务端配置，不代表浏览器在所有 origin/credential 组合下都会放行，真实预检行为需要运行验证。
 
-## 界面文案对照 {#ui-copy}
-
-本页涉及的界面文案分两类：桌面 locale 中实际存在的 key，以及 HTML 硬编码字符串。下表中 locale 实际值按“调用 key → `en_US` → `zh_CN`”记录：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-
-主界面头部语言下拉框的六个选项在 `index.html` 中硬编码为各语言自称，没有桌面 locale key；选择值写入 `localStorage.locale` 并发送到 `/i18n/{locale}`：
-
-| 存储值（`localStorage.locale`） | HTML 实际文字（硬编码） |
-| --- | --- |
-| `zh_CN` | 简体中文 |
-| `zh_TW` | 繁體中文 |
-| `en_US` | English |
-| `ja_JP` | 日本語 |
-| `ko_KR` | 한국어 |
-| `es_ES` | Español |
-
-登录页与管理链接等硬编码文案（缺失 locale key 时 `t()` 使用调用处 fallback）：
-
-| 位置 | 实际显示文本 |
-| --- | --- |
-| `script.js` 页面标题 fallback | `Manga Translator Web UI`（i18n 加载后中文显示“漫画翻译器”） |
-| `login.html` 页面标题 | `用户登录 - Manga Translator` |
-| `login.html` 首次设置副标题 | `首次使用，请创建管理员账户` |
-| `login.html` 登录副标题 | `请登录以继续使用` |
-| 管理链接 key `admin` | 非 locale key，`t('admin', '管理')` 回退为“管理” |
-| `routes/web.py` 占位响应 | `Web UI not installed` |
-
 ## 依赖与安全注意事项 {#dependencies-and-security}
 
 - 默认监听 `0.0.0.0` 意味着局域网可访问；如需仅本机使用，请用 `--host 127.0.0.1`。Windows 防火墙可能拦截局域网入站，需要放行对应端口。
@@ -156,37 +116,4 @@ CORS 源码配置为 `allow_origins=["*"]`、`allow_credentials=True` 且放行�
 - `python -m manga_translator` 在解析参数前导入 PyTorch；缺少 PyTorch 或 DLL 不兼容时可能无法启动，属于环境问题而非参数错误。
 - 不要用浏览器直接访问 `ws`/`shared` 端口；它们需要 nonce/secret 和内部协议。
 
-## 关联文件 {#related-files}
-
-| 文件 | 本页作用 | 注意 |
-| --- | --- | --- |
-| `manga_translator/args.py` | 正式 `web` 子命令及 `MT_WEB_HOST`/`MT_WEB_PORT` 默认值 | `server/args.py` 的独立解析器不参与正式入口 |
-| `manga_translator/__main__.py` | 模式分发，`web` → `run_server` | 解析参数前导入 torch |
-| `manga_translator/server/main.py` | Uvicorn 启动、静态 mount、CORS、nonce | 直接模块守卫不可用 |
-| `manga_translator/server/routes/web.py` | `GET /`、`GET /admin`、`GET /api` | 返回 HTML 或占位文本 |
-| `manga_translator/server/static/index.html`、`login.html`、`admin-new.html`、`script.js` | 主工作区、登录入口、管理界面 | 部分文案 HTML 硬编码 |
-| `packaging/Dockerfile`、`docker-compose.yml`、`docker-entrypoint.sh` | 容器构建与端口映射 | CPU 主机入口 `8000`、GPU 主机入口 `8001` |
-| `.env`（应用目录） | 启动时加载 API key 等环境变量 | 不读取、不展示真实值 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 入口与参数 | `manga_translator/args.py:23`–`:50`、`manga_translator/__main__.py` | `web` 子命令、host/port 默认值与 `MT_*` 环境变量 |
-| 服务启动 | `manga_translator/server/main.py:245`–`:251`、`:276`–`:294`、`:384`–`:419` | CORS、静态 mount、`uvicorn.run` 的 host/port 与 30 分钟 keep-alive |
-| 页面路由 | `manga_translator/server/routes/web.py:30`–`:66` | `GET /`、`GET /admin`、`GET /api` 与占位 HTML |
-| 前端会话 | `manga_translator/server/static/script.js:88`–`:130`、`:444`–`:518`、`:531`–`:540` | `/auth/check`、语言加载、标题与管理链接 fallback |
-| 登录与首次设置 | `manga_translator/server/static/login.html:496`–`:542`、`routes/auth.py:289`–`:440` | `need_setup`、登录、首次管理员创建 |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`、`data/i18n.generated.json` | `Manga Translator` 等 key 的实际中英文 |
-| Docker | `packaging/Dockerfile:112`、`:123`、`packaging/docker-compose.yml:13`–`:17`、`:64`–`:68` | 容器监听 `8000`，主机映射 `8000`/`8001` |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 端口与默认值 | 完成 | 静态核对 `args.py`、`server/main.py`、Docker 三处 |
-| 启动与访问路径 | 完成 | 静态核对 `__main__.py`、`routes/web.py`、`script.js`、`login.html` |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 本页表格逐项记录 key 与实际值；HTML 硬编码项已如实标记 |
-| 脱敏运行验证 | 待后续 | 未读取真实 `.env`、admin 配置、API key/token、用户名或用户图片；未启动服务或截图 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

@@ -26,34 +26,13 @@ Translate JSON Only forms the template/JSON family together with [Export Transla
 
 ### Select the Translate JSON Only workflow {#select-translate-json-only}
 
-1. Open the "Translation" page (`Translation`) and click the "Translation Workflow Mode:" (`Translation Workflow Mode:`) combo box in the "Translation Task" (`Translation Task`) card.
-2. Choose "Translate JSON Only" (`Translate JSON Only`). On switching, the UI sets only `cli.translate_json_only=true`, clears the other seven workflow fields, and saves the configuration; the title becomes "Translate JSON Only" and the subtitle shows the matching hint.
-3. Click the "Start JSON Translation" (`Start JSON Translation`) start button to launch the task. Switching modes does not start a task automatically; while a task is running the button changes to "Stop Translation" (`Stop Translation`) and similar states, see [Progress, Stop, and Task State](../desktop/translation/progress-stop-and-task-state.md).
+1. Open the "Translation" page and click the "Translation Workflow Mode:" combo box in the "Translation Task" card.
+2. Choose "Translate JSON Only". On switching, the UI sets only `cli.translate_json_only=true`, clears the other seven workflow fields, and saves the configuration; the title becomes "Translate JSON Only" and the subtitle shows the matching hint.
+3. Click the "Start JSON Translation" start button to launch the task. Switching modes does not start a task automatically; while a task is running the button changes to "Stop Translation" and similar states, see [Progress, Stop, and Task State](../desktop/translation/progress-stop-and-task-state.md).
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Translate JSON Only` | Translate JSON Only | 仅翻译（JSON） |
-| `Start JSON Translation` | Start JSON Translation | 开始仅翻译（JSON） |
-| `Tip: Requires existing JSON data. The app reads original text from JSON, translates it, writes results back to JSON, and deletes imagename_original.txt after success` | Tip: Requires existing JSON data. The app reads original text from JSON, translates it, writes results back to JSON, and deletes imagename_original.txt after success | 提示：需要预先存在 JSON 数据。程序会从 JSON 读取原文并执行翻译，完成后回写 JSON，并删除图片名_original.txt。 |
-| `label_translate_json_only` | Translate JSON Only | 仅翻译（JSON） |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-
-In the hint, `imagename` / `图片名` is the program's example name for the input `<stem>`, not a user's private filename; `manga_translator_work/json/` is a fixed subdirectory of each image's work directory. The `imagename_original.txt` in the hint is fixed sample text; the actual extension comes from the template's `output_format` (default `json`), and the original-text sidecar is located with that extension when it is deleted.
+In the hint, `imagename` is the program's example name for the input `<stem>`, not a user's private filename; `manga_translator_work/json/` is a fixed subdirectory of each image's work directory. The `imagename_original.txt` in the hint is fixed sample text; the actual extension comes from the template's `output_format` (default `json`), and the original-text sidecar is located with that extension when it is deleted.
 
 "Output Directory:" only determines where the main output image goes. This mode writes no main image, so it does not affect where the JSON is read from or written back to; both always follow the per-image work-directory rules.
-
-## Option matrix {#option-matrix}
-
-The combo box has no separate `userData`; the index is the mode value. Runtime code maps index `3` to `cli.translate_json_only=true`. The stored values of the related settings are listed below, with the three UI evidence columns and their actual effect on this workflow.
-
-| Stored value | English | Simplified Chinese | Effect in this workflow |
-| --- | --- | --- | --- |
-| `translate_json_only=true` | Translate JSON Only | 仅翻译（JSON） | Enters the JSON-only branch, skips all image stages, and only does "JSON load → translate → JSON write-back" |
-| `overwrite=false` | Overwrite Existing Files | 覆盖已存在文件 | Skips images whose original-text sidecar does not exist before starting (opposite direction to the usual overwrite check; runtime prompt pending verification) |
-| `save_text` | Editable Image | 图片可编辑 | Write-back does not depend on this value; the JSON-only branch saves the JSON unconditionally |
-| `batch_concurrent=true` | Concurrent Batch Processing | 并发批量处理 | This mode is forced to process non-concurrently; saving the concurrent config in the UI does not make it a concurrent pipeline |
 
 ## Runtime behavior {#runtime-behavior}
 
@@ -110,43 +89,11 @@ flowchart LR
 - This mode still consumes API/model costs for the selected translator; colorization, upscaling, detection, OCR, inpainting, and rendering consume nothing (their stages are skipped).
 - The main output directory, `save_to_source_dir`, and `cli.format` affect only the main output image; this mode writes no main image, so those settings have no direct effect on this workflow's outputs.
 
-## Related files and formats {#related-files-and-formats}
+## Related pages {#related-pages}
 
-| File/format | Actual role on this page | Notes |
-| --- | --- | --- |
-| `manga_translator_work/json/<stem>_translations.json` | Input and write-back target | New location takes priority; the legacy image-side JSON is only an input fallback, write-back still goes to the new location |
-| `<stem>_translations.txt` | Legacy input fallback | Compatible with the old TXT format; no mask |
-| `manga_translator_work/originals/<stem>_original.<format>` | Deleted on success | Extension comes from the `output_format` of `config/translation_template.json`, default `json` |
-| `config/translation_template.json` | Determines the original-text sidecar extension | Read only when locating the original-text sidecar by the template extension |
-| Main output image | Not produced | This mode skips main-image saving |
+- Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Export Translation](./export-translation.md) · [Import Translation and Render](./import-translation-and-render.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Inpaint Only](./inpaint-only.md) · [Replace Translation](./replace-translation.md)
+- Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)
+- Inputs, skipped stages, and outputs of all nine workflows: [Workflow Matrix](../reference/workflow-matrix.md)
+- Mutually exclusive workflow fields, parameter overrides, and template alignment: [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md)
 
-No real user configuration, keys, tokens, usernames, private absolute paths, user images, or task artifacts are shown on this page.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Workflow selection and writes | `desktop_qt_ui/ui/main_page/runtime.py:183-215` | Index `3` → `translate_json_only=true`, eight-field mutual exclusion, and config saving |
-| Title, hint, and start button | `desktop_qt_ui/ui/main_page/runtime.py:22-47,219-238` | "Translate JSON Only" title, hint call keys, and button text |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual bilingual values for the combo, hint, button, and `label_*` |
-| Controller | `desktop_qt_ui/app_logic.py:3142-3148,3231-3233,3242-3284` | Skip when the original-text sidecar is missing, workflow hint, and special-mode concurrency disabling |
-| Qt config | `desktop_qt_ui/core/config_models.py:123-147` | `translate_json_only` and related fields with defaults |
-| Core dispatch | `manga_translator/manga_translator.py:3448,3481,3495,3988-4079` | JSON-only branch, concurrency disabling, load → translate → write-back → delete original |
-| JSON loading | `manga_translator/manga_translator.py:1325-1524` | `_load_text_and_regions_from_file`, new/legacy structures, parse-failure counting |
-| JSON write-back | `manga_translator/manga_translator.py:713-911` | `_save_text_to_file`, `skip_font_scaling=false`, mask and overlay preservation |
-| Original-text deletion | `manga_translator/manga_translator.py:949-958` | `_delete_original_txt_after_json_translation` |
-| Paths | `manga_translator/utils/path_manager.py:151-227,367-389` | `get_json_path`, `find_json_path`, `get_original_txt_path` |
-| Parameter definition | `manga_translator/config.py:422-425` | `translate_json_only` field semantics |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; the three contract files were not modified |
-| Source and research material | Complete | Cross-checked `workflow-matrix-source-evidence.md`, `phase0-related-files-formats-debug-safety.md`, and the UI, i18n, controller, and core sources |
-| Three-column i18n evidence | Complete | The workflow option, hint, button, and related settings record the call key, English, and Simplified Chinese actual values |
-| Route/page mirror | Complete (this page) | This page passes the zh/en mirror and source-evidence scripts; the full-repo route mirror is temporarily red on pages in progress by other agents |
-| Runtime confirmation | Pending | The "skip when original-text sidecar is missing" GUI behavior, JSON parse-failure prompts, legacy TXT fallback, and archive inputs need sanitized runtime verification |
-| Production build | Pending | Run `npm run docs:build --prefix doc/wiki` if needed |
-
-- [ ] [In progress] Runtime confirmation remains: actual prompt for "original-text sidecar missing" with `overwrite=false`, visible feedback on JSON parse failures, and sidecar pairing for legacy TXT fallback and archive inputs.
+> See the reference index: [Workflow Matrix](../reference/workflow-matrix.md).

@@ -90,6 +90,8 @@ flowchart TD
 
 “功能权限”页签按翻译器、OCR、上色、渲染四类能力提供“允许所有”与逐项勾选，另有工作流选择器；在“API 密钥”分组可以设置：允许用户在主页编辑 API Keys、允许使用服务器默认 API Keys、强制用户提供 API Keys 或预设、允许把用户填写的 API Keys 保存到服务器（会写入服务器 `.env` 并影响全局，多用户环境不建议开启）。“资源管理”分组控制字体与提示词的上传/删除权限，“功能权限”分组控制批量处理、API 访问、导出文本、查看历史、查看日志。
 
+新增或修改功能后，新能力对应的参数与功能权限会出现在通用权限编辑器和“功能权限”页签中，供管理员配置可见性与可用性；功能开发流程见[新增或修改功能](../developer/adding-or-changing-a-feature.md)。
+
 权限与配额解析的优先级是：用户级显式设置 > 所属用户组配置 > 服务器默认。用户模式只保存相对用户组的差异（勾选解锁被禁用的能力=白名单，取消勾选额外禁用=黑名单）。
 
 ```mermaid
@@ -135,7 +137,7 @@ flowchart TD
 2. “🔐 服务器默认API密钥”区从服务器 `.env` 读取（`GET /api/admin/config/server?show_values=true`），按分类表单展示各密钥字段；点击“💾 保存API密钥”对应 `PUT /api/admin/config/server`，默认先备份 `.env`。
 3. 用户侧生效顺序：用户填写 > 当前预设 > 服务器默认；OCR、上色、渲染专用 Key 留空时回落到对应提供商的通用翻译 Key。
 
-本页不展示任何真实密钥、令牌或 `.env` 内容；文档和截图只使用脱敏占位。前端把用户站输入的 Key 暂存于 `localStorage.user_env_vars`，但服务器不会在普通配置接口返回密钥明文。
+本页不展示任何真实密钥、令牌或 `.env` 内容；文档和截图只使用脱敏占位。
 
 ## 服务器配置、公告与清理 {#config-announcement-cleanup}
 
@@ -155,61 +157,6 @@ flowchart TD
 
 “自动清理设置”包含启用自动清理、清理间隔（小时）、文件最大保留天数、最大存储空间（GB），点击“💾 保存设置”对应 `PUT /admin/settings`（写入 `cleanup`）。
 
-## UI 文案对照 {#ui-copy}
-
-管理面板的大部分文案是 `admin-new.html` 硬编码中文，没有 i18n key；下表如实标注。key 为 `web_*` 的行来自用户站 i18n（`doc/wiki/data/i18n.generated.json` 与 `desktop_qt_ui/locales/*.json`），它们不一定被管理面板实际使用。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| 用户站顶栏“管理”链接（`script.js` 调用 key `admin`） | 缺失（桌面 locale 无 `admin`，回退“管理”） | 管理 |
-| `web_admin_panel`（用户站 i18n） | Admin Panel | 管理面板 |
-| `admin-new.html` 硬编码：侧边栏标题 | 缺失（仅中文硬编码） | 管理控制台 |
-| 硬编码：概览 / 系统监控 / 系统设置 | 缺失（仅中文硬编码） | 概览 / 系统监控 / 系统设置 |
-| 硬编码：仪表盘 | 缺失（仅中文硬编码） | 仪表盘 |
-| 硬编码：用户管理 | 缺失（仅中文硬编码） | 用户管理 |
-| `web_user_management` | User Management | 用户管理 |
-| 硬编码：用户组管理 | 缺失（仅中文硬编码） | 用户组管理 |
-| `web_group_management` | Group Management | 用户组管理 |
-| 硬编码：配额管理 | 缺失（仅中文硬编码） | 配额管理 |
-| `web_quota_management` | Quota Management | 配额管理 |
-| 硬编码：会话管理 | 缺失（仅中文硬编码） | 会话管理 |
-| 硬编码：任务监控 | 缺失（仅中文硬编码） | 任务监控 |
-| 硬编码：历史记录 | 缺失（仅中文硬编码） | 历史记录 |
-| `web_history_management` | History Management | 历史记录管理 |
-| 硬编码：系统日志 | 缺失（仅中文硬编码） | 系统日志 |
-| `web_log_management` | Logs | 日志管理 |
-| 硬编码：API密钥管理 | 缺失（仅中文硬编码） | API密钥管理 |
-| `web_preset_management` | Presets | 预设管理 |
-| 硬编码：服务器配置 | 缺失（仅中文硬编码） | 服务器配置 |
-| `web_server_config` | Server Configuration | 服务器配置 |
-| 硬编码：公告管理 | 缺失（仅中文硬编码） | 公告管理 |
-| 硬编码：清理管理 | 缺失（仅中文硬编码） | 清理管理 |
-| `web_cleanup_management` | Cleanup | 清理管理 |
-| 硬编码：➕ 添加用户 / ➕ 创建用户组 | 缺失（仅中文硬编码） | ➕ 添加用户 / ➕ 创建用户组 |
-| 硬编码：编辑 / 删除 / 取消 / 保存 | 缺失（仅中文硬编码） | 编辑 / 删除 / 取消 / 保存 |
-| `web_cancel` / `web_save` | Cancel / Save（桌面 locale 缺失，实际回退中文） | 取消 / 保存 |
-| 硬编码：💾 保存配额设置 / 💾 保存设置 / 💾 保存API密钥 | 缺失（仅中文硬编码） | 💾 保存配额设置 / 💾 保存设置 / 💾 保存API密钥 |
-| 硬编码：撤销所有其他会话 | 缺失（仅中文硬编码） | 撤销所有其他会话 |
-| 硬编码：取消全部 / 清空历史 / 清空 / 📥 下载 | 缺失（仅中文硬编码） | 取消全部 / 清空历史 / 清空 / 📥 下载 |
-| 硬编码：活跃会话 | 缺失（仅中文硬编码） | 活跃会话 |
-| `web_active_sessions` | Active Sessions | 活跃会话 |
-| 硬编码：启用公告 / 保存公告 / 清除公告 | 缺失（仅中文硬编码） | 启用公告 / 保存公告 / 清除公告 |
-| 硬编码：启用自动清理 / 清理 | 缺失（仅中文硬编码） | 启用自动清理 / 清理 |
-| `web_auto_cleanup` | Auto Cleanup | 自动清理 |
-| 权限编辑器页签 `Basic Settings` | Basic Settings | 基础设置 |
-| 权限编辑器页签 `CLI Options` | 缺失（回退“输出选项”） | 输出选项 |
-| 权限编辑器页签 `Advanced Settings` | Advanced Settings | 高级设置 |
-| 权限编辑器页签 `label_renderer` | Renderer | 渲染器 |
-| 权限编辑器页签 `web_group_permissions` | 缺失（回退“功能权限”） | 功能权限 |
-| `web_daily_quota` / `web_daily_limit` | Daily Quota / Daily Limit | 每日配额 / 每日限制 |
-| `web_upload_limit` / `web_max_file_size` / `web_max_files` | Upload Limit / Max File Size / Max Files | 上传限制 / 单文件最大 / 最多文件数 |
-| `web_can_upload_font` / `web_can_upload_prompt` | Can Upload Font / Can Upload Prompt | 可上传字体 / 可上传提示词 |
-| `web_can_view_history` / `web_can_view_logs` | Can View History / Can View Logs | 可查看历史 / 可查看日志 |
-| `web_default_preset` | Default Configuration | 默认配置 |
-| `data-i18n="API Keys (.env)"`（admin-new.html 唯一 i18n 属性） | API Keys (.env) | 服务器默认API密钥（硬编码回退） |
-
-说明：`admin-new.html` 加载的是 `static/js/i18n.js`，它从 `/locales/{locale}.json` 读取桌面 locale；`js/admin/i18n.js` 中的 `AdminI18n` 类未被 `admin-new.html` 加载。权限编辑器与 envvars 模块通过 `window.i18n.t(key, fallback)` 取词，`web_*` key 不在桌面 locale 中时回退到调用处的中文 fallback，因此英文 locale 下部分控件仍显示中文。这属于静态源码可确认的 i18n 缺口，具体显示以有头浏览器运行验证为准。
-
 ## 依赖与冲突 {#dependencies-and-conflicts}
 
 - 用户、用户组、配额、会话、任务、历史、日志由不同服务管理，但相互依赖：配额解析按“用户级 > 用户组级 > 全局默认”的顺序（`quota_service.py`），权限解析由 `permission_service.py` / `permission_calculator.py` 完成；修改用户组会即时影响该组所有用户。
@@ -219,39 +166,4 @@ flowchart TD
 - 取消任务、清空历史、清理存储均不可恢复；涉及真实用户的删除与撤销操作必须谨慎并保留审计记录。
 - 审计事件由登录、改密、注册、创建任务、权限拒绝、翻译过程及用户/权限管理操作自动写入 `audit.log`（10MB 轮转、保留 5 个备份）；当前管理界面没有审计 UI，查询/导出只能通过 `/audit/*` 接口。
 
-## 关联文件与格式 {#related-files}
-
-| 文件/格式 | 本页实际作用 | 注意 |
-| --- | --- | --- |
-| `manga_translator/server/static/admin-new.html` | 管理面板页面 | 大量硬编码中文；不写入真实用户名或密钥 |
-| `manga_translator/server/static/js/admin/app.js`、`modules/*.js`、`components/permission-editor.js` | 各模块逻辑与权限编辑器 | 部分按钮调用后端未定义的端点（见正文） |
-| `manga_translator/server/routes/web.py`、`admin.py`、`users.py`、`groups.py`、`sessions.py`、`quota.py`、`audit.py`、`config_management.py` | `/admin`、`/api/admin/*`、`/sessions/*`、`/audit/*` 端点 | 契约细节归开发者 HTTP API 页 |
-| `manga_translator/server/core/config_manager.py` | `DEFAULT_ADMIN_SETTINGS` 与 `admin_config.json` 读写 | 注册开关、公告、权限与配额默认值来源 |
-| `manga_translator/server/core/group_management_service.py`、`group_service.py` | 用户组 CRUD 与参数配置 | 系统组 `admin`/`default`/`guest` 不可删除 |
-| `manga_translator/server/core/quota_service.py`、`audit_service.py`、`permission_service.py`、`task_manager.py`、`middleware.py` | 配额、审计、权限、任务与鉴权 | `require_admin` 决定 401/403 |
-| `manga_translator/server/data/admin_config.json` | 管理设置持久化 | 只记录结构，不展示真实内容 |
-| `manga_translator/server/data/accounts.json`、`group_config.json`、`env_presets.json`、`audit.log` | 账户、用户组、预设、审计日志 | 不读取或展示真实用户数据 |
-| `.env`（服务器）与 `server/data/backups/.env.backup.{时间戳}` | 服务器密钥配置与保存前备份 | 永不写入或展示真实密钥 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 入口与鉴权 | `manga_translator/server/routes/web.py`、`static/js/admin/app.js`、`static/script.js` | `/admin` 页面、会话检查、admin 角色判断、退出 |
-| 页面结构 | `manga_translator/server/static/admin-new.html` | 12 个导航模块、统计卡、各模块表单与按钮 |
-| 模块逻辑 | `static/js/admin/modules/{users,groups,quota,sessions,tasks,history,logs,envvars,config,announcement,cleanup}.js` | 每个模块的加载、渲染与调用的端点 |
-| 权限编辑器 | `static/js/admin/components/permission-editor.js` | 6 个页签、参数锁定、白名单/黑名单、预设与工作流 |
-| 后端端点 | `server/routes/{admin,users,groups,sessions,quota,audit,config_management}.py` | 管理端点的存在性、状态码与权限依赖 |
-| 服务层 | `server/core/{config_manager,group_management_service,group_service,quota_service,audit_service,permission_service,middleware,task_manager}.py` | 默认值、配额优先级、审计轮转、`require_admin` |
-| i18n | `static/js/i18n.js`、`static/js/admin/i18n.js`、`doc/wiki/data/i18n.generated.json`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | key→en_US→zh_CN 实际值与缺失/回退 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 页面结构与模块清单 | 完成 | 静态核对 `admin-new.html` 与 `app.js` 的导航模块 |
-| 模块行为与端点 | 完成 | 静态核对各模块 JS 与后端路由；发现 `cancel-all`、`logs/clear`、`sessions/revoke-all` 前端调用与后端路由不一致，配额编辑/重置为前端占位 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 页面表格逐项记录 key、English、简体中文实际值，硬编码项如实标注缺失/回退 |
-| 脱敏运行验证 | 待后续 | 未读取真实 `.env`、账户、审计日志、用户数据或密钥；需有头浏览器 + 脱敏管理员账号验证英文显示、权限过滤与上述未定义端点 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

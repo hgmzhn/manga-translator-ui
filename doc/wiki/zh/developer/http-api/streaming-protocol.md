@@ -170,9 +170,13 @@ Web 前端 `static/script.js` 的 `processStream()` 是参考实现：
 - 管理员的取消操作界面见[管理界面](../../web/administrator-interface.md)。
 - 本页不描述 Web 用户操作，只描述浏览器实际调用的流协议；不要把端点路径写成用户界面步骤。
 
-### UI 文案对照 {#ui-texts}
+## 开发指南 {#developer-guide}
 
-下表是流式流程涉及的共享 locale 文案（`/i18n/{locale}` 返回 `desktop_qt_ui/locales` 的 JSON）。Web 页面 `index.html` 对部分控件使用自己的硬编码中文（如“翻译工作流模式”、“开始任务”、“普通翻译 (Normal Translation)”），与下表 locale 值并不完全一致；`script.js` 的日志 fallback 也是硬编码双语。
+### 选项中英对照 {#option-matrix}
+
+#### UI 文案对照 {#ui-texts}
+
+下表是流式流程涉及的共享 locale 文案（`/i18n/{locale}` 返回 `desktop_qt_ui/locales` 的 JSON）。Web 页面 `index.html` 对部分控件使用自己的硬编码中文（如“翻译工作流模式”、“开始任务”、“普通翻译”），与下表 locale 值并不完全一致；`script.js` 的日志 fallback 也是硬编码双语。
 
 | UI 调用 key | English 实际值 | 简体中文实际值 |
 | --- | --- | --- |
@@ -188,7 +192,7 @@ Web 前端 `static/script.js` 的 `processStream()` 是参考实现：
 
 进度帧的 `message` 字段由服务端 `request_extraction.py` 硬编码（`开始处理...`、`翻译中...` 等），浏览器直接显示，不经过上表 locale。
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -200,16 +204,3 @@ Web 前端 `static/script.js` 的 `processStream()` 是参考实现：
 | 客户端解析 | `manga_translator/server/static/script.js` | `processStream()` 分帧、错误中断、`task_id` 日志拉取 |
 | 前端 i18n | `manga_translator/server/static/js/i18n.js`、`routes/config.py` | `/i18n/{locale}` 与共享 locale JSON |
 | 旧版内部流 | `manga_translator/server/streaming.py`、`sent_data_internal.py`、`myqueue.py`、`mode/share.py` | pickle/状态码差异与内部执行器路径 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| 帧格式与状态码 | 完成（静态） | 服务端 `pack_message` 与前端 `processStream` 逐字段核对一致 |
-| 进度 stage 顺序 | 完成（静态） | `while_streaming`/`_do_translation` 全部 yield 点核对 |
-| 结果载荷类型 | 完成（静态） | 三个 `transform_to_*` 与各端点绑定核对 |
-| 取消语义 | 静态部分完成 | 协作式检查点与批量 `499` 为源码事实；强制取消后错误帧是否真正到达客户端需运行验证 |
-| `/with-form/image/stream/web` 占位符优化 | 待运行（BLOCKED） | `_web_frontend_optimized` 无消费者，需最小客户端运行确认实际返回完整 PNG |
-| 真实端到端流 | 待运行（BLOCKED） | 需最小客户端 + 运行中的服务 + 脱敏图片确认帧字节序、`message` 文案与日志显示 |
-| 浏览器显示文案 | 待运行（BLOCKED） | `index.html` 硬编码中文与 locale 差异需有头模式核对 |
-| VitePress | 待运行 | 由协调代理运行 `node scripts/verify-route-mirror.mjs .`、`verify-source-evidence.mjs .` 及 `npm run docs:build --prefix doc/wiki` |

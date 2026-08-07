@@ -38,7 +38,7 @@ The login page is the static file `static/login.html`, served at `/static/login.
 | Hardcoded (no key) | — | 创建管理员账户 |
 
 1. Enter an admin username (at least 2 characters) and a password (at least 6 characters), then repeat the password to confirm.
-2. Click "创建管理员账户" (Create admin account). The frontend submits `{username, password}` to `POST /auth/setup`.
+2. Click "Create admin account". The frontend submits `{username, password}` to `POST /auth/setup`.
 3. On success the server creates an account with `role=admin` and `group=admin` and immediately creates a session; the returned token is written to `localStorage.session_token`, user info to `localStorage.user_info`, and the page redirects according to the safe-redirect rule.
 
 The source also keeps a "create default admin" method and log hints (`admin`/`admin123`), but the current initialization flow does not call it; instead it tells users to visit the login page to create the first admin. Whether this path is enabled in some release is a runtime verification item.
@@ -47,7 +47,7 @@ The source also keeps a "create default admin" method and log hints (`admin`/`ad
 
 The login form submits to `POST /auth/login` with the body `{username, password}`.
 
-1. If both fields are empty, the frontend shows "请输入用户名和密码" (please enter username and password).
+1. If both fields are empty, the frontend shows "Please enter username and password".
 2. Wrong credentials, a missing user, or a disabled account return `success: false`, and the page shows the matching error.
 3. On success the server returns a session token and user info. If `must_change_password` is true, the "change password required" modal appears first; otherwise the token is written to `localStorage.session_token` and the page redirects.
 4. The redirect target is decided by `getSafeRedirectUrl()`: it returns `/admin` only when the URL carries `?redirect=/admin`, and `/` in every other case, preventing open redirects.
@@ -58,39 +58,30 @@ Failed logins are rate-limited per IP and per username: at most 15 attempts per 
 
 Whether the registration tab appears depends on the `registration_enabled` field of `GET /auth/status`, which comes from the admin setting `registration.enabled` (disabled by default).
 
-- When disabled, the login page shows only the login form, and calling `POST /auth/register` directly returns `403` ("注册功能未开启，请联系管理员" / registration is not enabled).
-- When enabled, two tabs, "登录" (login) and "注册" (register), are shown. Registration requires a username of at least 2 characters and a password of at least 6 characters; the confirmation password must match.
+- When disabled, the login page shows only the login form, and calling `POST /auth/register` directly returns `403` (registration is not enabled).
+- When enabled, two tabs, "Log in" and "Register", are shown. Registration requires a username of at least 2 characters and a password of at least 6 characters; the confirmation password must match.
 - On success a regular user (`role=user`) is created in the admin-configured `default_group`, and a session is created and written to `localStorage` immediately.
 - Registration is rate-limited per IP: at most 5 attempts within 10 minutes, after which the server returns `429`.
 
 ### Forced password change {#force-change-password}
 
-When login returns `must_change_password: true`, the page opens the "⚠️ 需要修改密码" (password change required) modal explaining "为了账号安全，首次登录需要修改默认密码" (for account security, first login requires changing the default password). The token is kept in a memory variable at this point and is not written to `localStorage`.
+When login returns `must_change_password: true`, the page opens the "Password change required" modal explaining that for account security, the first login requires changing the default password. The token is kept in a memory variable at this point and is not written to `localStorage`.
 
-- Enter the new password and confirmation (at least 6 characters), then click "确认修改" (confirm change). This calls `POST /auth/change-password` with the `X-Session-Token` header and the body `{old_password, new_password}`.
+- Enter the new password and confirmation (at least 6 characters), then click "Confirm change". This calls `POST /auth/change-password` with the `X-Session-Token` header and the body `{old_password, new_password}`.
 - After a successful change the server clears the `must_change_password` flag, and only then does the frontend write the token to `localStorage` and redirect.
-- Clicking "稍后修改" (change later) skips the change and saves the token to enter the system; whether the server forces the change again on a later request is a runtime verification item.
+- Clicking "Change later" skips the change and saves the token to enter the system; whether the server forces the change again on a later request is a runtime verification item.
 
 ### Safe return and the legacy password gate {#safe-return-and-legacy-gate}
 
 Redirects after login, registration, and setup accept only `?redirect=/admin` and never follow arbitrary URLs. When the admin interface detects an invalid session it returns to `/static/login.html?redirect=/admin`, so a successful login goes straight back to the admin panel.
 
-The workspace also keeps a legacy "access password" flow: the frontend first requests `/user/access`; when the admin setting `user_access.require_password` is true and `sessionStorage` has no `user_logged_in` flag, it shows an "请输入访问密码" (enter access password) overlay. Submitting the password calls `POST /user/login` (form field `password`), and on success only a `sessionStorage` flag is set. This is a single-password gate unrelated to accounts, roles, or session tokens; the same IP may try at most 10 times within 10 minutes, after which the server returns `429`. Whether this flow is still enabled by a deployment configuration requires runtime verification.
+The workspace also keeps a legacy "access password" flow: the frontend first requests `/user/access`; when the admin setting `user_access.require_password` is true and `sessionStorage` has no `user_logged_in` flag, it shows an "Enter access password" overlay. Submitting the password calls `POST /user/login` (form field `password`), and on success only a `sessionStorage` flag is set. This is a single-password gate unrelated to accounts, roles, or session tokens; the same IP may try at most 10 times within 10 minutes, after which the server returns `429`. Whether this flow is still enabled by a deployment configuration requires runtime verification.
 
 ## Language switching {#language-switching}
 
 ### Workspace language selector {#workspace-language-selector}
 
-The workspace `index.html` has a language dropdown in the header (`id="language-select"`) with six hardcoded options:
-
-| Stored value | English | Simplified Chinese |
-| --- | --- | --- |
-| `zh_CN` | Simplified Chinese | 简体中文 |
-| `zh_TW` | Traditional Chinese | 繁體中文 |
-| `en_US` | English | English |
-| `ja_JP` | Japanese | 日本語 |
-| `ko_KR` | Korean | 한국어 |
-| `es_ES` | Spanish | Español |
+The workspace `index.html` has a language dropdown in the header (`id="language-select"`) with six hardcoded options.
 
 The actual switch flow (`loadI18n` / `changeLanguage`):
 
@@ -109,36 +100,6 @@ The admin interface (`admin-new.html` + `js/admin/i18n.js`) uses its own `admin_
 
 The login page does not load i18n and has no language selector; all copy is hardcoded Simplified Chinese. Its language is therefore unrelated to the workspace selection.
 
-### UI copy matrix {#ui-copy-matrix}
-
-The following keys are actually called by the Web frontend through `t(key, default)`, with values from the desktop `en_US.json` / `zh_CN.json`:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `admin` | Missing (absent in both locales) | Missing, always falls back to 管理 |
-| `Add Files` | Add Files | 添加文件 |
-| `Clear List` | Clear List | 清空列表 |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `Basic Settings` | Basic Settings | 基础设置 |
-| `Advanced Settings` | Advanced Settings | 高级设置 |
-| `Options` | Options | 选项 |
-| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
-| `env_hint` | API key input fields will appear below based on the selected translator | 根据选择的翻译器，下方会显示所需的 API 密钥输入框 |
-| `Log output...` | Log output... | 日志输出... |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-
-The following UI copy has no i18n key and is hardcoded in HTML (all login-page text, the workspace "注销" logout button, the "管理" admin link, and the six language names in the dropdown). The desktop locales also keep a set of Web-related keys such as `web_language_selector`, `web_switch_language`, `web_current_language`, `web_confirm_language_switch`, `web_admin_panel`, and `web_admin_only`, but the current Web static code does not reference them; they are "present in the catalog but not yet referenced" items to verify.
-
 ## Session retention {#session-retention}
 
 ### Token generation and browser storage {#token-generation-and-storage}
@@ -156,7 +117,7 @@ On the browser side the token is stored in `localStorage.session_token` and user
 
 ### Logout and invalidation {#logout-and-invalidation}
 
-- Clicking "注销" (logout) first calls `POST /auth/logout` (with `X-Session-Token`) so the server terminates that session, then removes `localStorage.session_token` and redirects to the login page.
+- Clicking "Logout" first calls `POST /auth/logout` (with `X-Session-Token`) so the server terminates that session, then removes `localStorage.session_token` and redirects to the login page.
 - Once a session is terminated or expired on the server, the next request returns `401`; the frontend clears the token and returns to the login page.
 - When an admin deactivates an account, the user's existing session is judged invalid on the next request (`401`, `USER_INACTIVE`).
 
@@ -190,7 +151,7 @@ flowchart TD
     V --> W["Server terminates session, clear localStorage, redirect to login"]
 ```
 
-The diagram shows the account-session main flow in the current source: first-run setup, login, forced password change, entering the workspace, activity refresh, expiry, and logout. Bypasses such as the legacy `/user/login` password gate, disabled registration, and persisted sessions after a restart are covered in the sections above instead of being expanded here. The diagram does not fabricate runtime screenshots, real tokens, or private task artifacts; display details that need an actually running service are listed as pending in the verification record.
+The diagram shows the account-session main flow in the current source: first-run setup, login, forced password change, entering the workspace, activity refresh, expiry, and logout. Bypasses such as the legacy `/user/login` password gate, disabled registration, and persisted sessions after a restart are covered in the sections above instead of being expanded here. The diagram does not fabricate runtime screenshots, real tokens, or private task artifacts; display details that need an actually running service are left for runtime verification.
 
 ## Errors and rate limits in user terms {#errors-and-rate-limits}
 
@@ -209,47 +170,4 @@ The diagram shows the account-session main flow in the current source: first-run
 - Clearing browser site data removes `session_token`, `locale`, and `admin_locale` at the same time, which is equivalent to logging out and restoring the default language.
 - This page stores and shows no real tokens, usernames, passwords, or session content; it only documents field names and flows.
 
-## Related files and formats
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `manga_translator/server/static/login.html` | Login page (setup/login/register/change password) | Entirely hardcoded Simplified Chinese, no i18n keys |
-| `manga_translator/server/static/index.html` | Workspace (language dropdown, logout, username, admin link) | Language options hardcoded; the rest is translated with `t()` |
-| `manga_translator/server/static/script.js` | Session check, i18n loading, language switching, logout | Token stored only in `localStorage`; do not switch to plaintext cookies |
-| `manga_translator/server/static/js/i18n.js` | Shared I18n class for the workspace | Loads desktop translations from `/locales/{locale}.json` |
-| `manga_translator/server/static/js/admin/i18n.js` | Admin I18n (`admin_locale`) | Falls back to `zh_CN` for missing keys |
-| `manga_translator/server/core/session_service.py` | Session creation, token, expiry, persistence | `session_timeout_minutes=60` passed by `main.py` |
-| `manga_translator/server/core/account_service.py` | Accounts, bcrypt passwords, `must_change_password` | Passwords at least 6 characters; never read real account files |
-| `manga_translator/server/core/middleware.py` | `require_auth` validates `X-Session-Token` | Invalid/expired/deactivated all return `401` |
-| `manga_translator/server/routes/auth.py` | `/auth/status`, `/setup`, `/login`, `/register`, `/change-password`, `/check`, `/logout` | Login/registration rate limits |
-| `manga_translator/server/routes/web.py` | `/`, `/admin` static pages and legacy `/user/login` | Legacy gate independent of account sessions |
-| `manga_translator/server/data/accounts.json`, `sessions.json` | Account and session persistence | Never display real contents |
-| `desktop_qt_ui/locales/*.json` | Web translation source (`/i18n/{locale}`) | Six locales; missing keys fall back |
-
-## Mermaid data-flow limits
-
-The diagram depicts the account-session main flow: first-run setup, login, forced password change, entering the workspace, activity refresh, expiry, and logout. It does not claim that every visit requests `/auth/status` or that every session is written to disk; `need_setup`, the registration switch, the legacy password gate, and persisted sessions after a restart take their documented bypasses. No runtime screenshot, real token, or private task artifact has been fabricated; display details that need an actually running service are listed as pending in the verification record.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Login-page UI | `manga_translator/server/static/login.html` | Setup/login/register/change-password forms, `/auth/status` branches, `getSafeRedirectUrl` |
-| Workspace UI | `manga_translator/server/static/index.html`, `script.js` | Session check, `X-Session-Token`, logout, `locale` read/write, language fallback |
-| Admin UI | `manga_translator/server/static/admin-new.html`, `js/admin/app.js`, `js/admin/i18n.js` | `admin_locale`, `?redirect=/admin` return, session check |
-| Session service | `manga_translator/server/core/session_service.py`, `system_init.py` | Token generation, 60-minute timeout, 5-minute cleanup, persistence |
-| Account service | `manga_translator/server/core/account_service.py` | Password strength, bcrypt, `must_change_password`, default-admin path |
-| Auth middleware | `manga_translator/server/core/middleware.py` | `require_auth`, 401 semantics, activity refresh |
-| Routes | `manga_translator/server/routes/auth.py`, `web.py`, `config.py` | `/auth/*`, legacy `/user/login`, `/user/access`, `/i18n/{locale}` |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json`, `doc/wiki/data/i18n.generated.json` | Keys actually called by the Web UI and their three-column actual values |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read section 1.3, item 5.12, and section 9.3 in full and followed the contract |
-| Login/language/session UI and calls | Complete | Statically checked `login.html`, `index.html`, `script.js`, and admin JS |
-| `en_US` / `zh_CN` actual locales | Complete | Checked each Web-called key; missing keys are marked as fallbacks |
-| Session runtime chain | Complete | Statically checked token generation, validation, activity refresh, expiry cleanup, and persistence |
-| Sanitized runtime verification | Deferred | No real accounts, tokens, `accounts.json`, `sessions.json`, or private content were read; first-run setup, registration switch, legacy gate, forced password change, and sessions after restart need a running Web service |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
+> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).

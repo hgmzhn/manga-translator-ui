@@ -26,37 +26,13 @@ lastUpdated: true
 ### 选择导入翻译并渲染工作流
 
 1. 准备每张图的工程 JSON（`manga_translator_work/json/<stem>_translations.json`，兼容图片同级的旧位置）。需要手工翻译时，先运行“导出原文”，翻译 `manga_translator_work/originals/` 下的 `imagename_original.txt`。
-2. 打开翻译页，在“翻译流程模式：”（`Translation Workflow Mode:`）下拉框中选择“导入翻译并渲染”（`Import Translation and Render`）。
+2. 打开翻译页，在“翻译流程模式：”下拉框中选择“导入翻译并渲染”。
 3. 页面标题变为“导入翻译并渲染”，副标题提示：将从 `manga_translator_work/originals/` 或 `translations/` 目录读取 TXT 文件并渲染（优先使用 `_original.txt`）。
-4. 开始按钮变为“导入翻译并渲染”（`Import Translation and Render`）；点击后按该模式启动后端任务。
+4. 开始按钮变为“导入翻译并渲染”；点击后按该模式启动后端任务。
 
 选择模式只写入配置并更新界面文案，不会自动开始任务。开始前应先添加主输入图片（“添加文件…”“添加文件夹…”或拖放），并确认每张图都有可解析的工程 JSON；缺少 JSON 的图片会进入错误回退分支（静态源码结论，运行提示待验证）。
 
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt)` | Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt) | 提示：将从 manga_translator_work/originals/ 或 translations/ 目录读取 TXT 文件并渲染（优先使用 _original.txt） |
-| `Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode` | Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode | 提示：导出原文后，可在 manga_translator_work/originals/ 目录手动翻译 图片名_original.txt 文件，然后使用「导入翻译并渲染」模式 |
-| `label_load_text` | Import Translation | 导入翻译 |
-| `label_save_text` | Editable Image | 图片可编辑 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_import_yolo_labels` | Import Fixed YOLO Boxes | 导入固定YOLO框 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-
 界面提示固定写作 `_original.txt`/“TXT 文件”，但实际副文件扩展名由模板 `output_format` 决定（默认 `json`），提示文案不随模板扩展名变化。
-
-## 选项中英对照
-
-下拉框没有独立 `userData`，索引就是模式值；运行时代码把索引 4 映射到 `cli.load_text=true`。相关设置的存储值如下表，三列 UI 证据与作用并列。
-
-| 存储值 | English | 简体中文 | 本工作流中的实际作用 |
-| --- | --- | --- | --- |
-| `load_text=true` | Import Translation and Render | 导入翻译并渲染 | 进入导入分支，跳过上色、超分、检测、OCR、合并和翻译 |
-| `overwrite=false` | Overwrite Existing Files | 覆盖已存在文件 | 开始前跳过主输出图已存在的图片 |
-| `save_text=true` | Editable Image | 图片可编辑 | 控制重新生成的修复图是否保存；JSON 回写不依赖它 |
-| `import_yolo_labels=true` | Import Fixed YOLO Boxes | 导入固定YOLO框 | JSON 无蒙版时额外执行检测生成蒙版 |
-| `batch_concurrent=true` | Concurrent Batch Processing | 并发批量处理 | 本模式强制按非并发处理 |
 
 ## 运行机理
 
@@ -123,46 +99,11 @@ flowchart LR
 - 修复与渲染仍按所选模型产生模型、显存和 API 成本；本页不重复其参数说明。
 - 主输出目录、`save_to_source_dir`、`cli.format` 决定主输出图的位置与扩展名；JSON、修复图和副文件始终按输入图片的工作目录规则写入。
 
-## 关联文件与格式
+## 相关页面 {#related-pages}
 
-| 文件/格式 | 本页实际作用 | 说明 |
-| --- | --- | --- |
-| `manga_translator_work/json/<stem>_translations.json` | 主输入工程 JSON，也是渲染后回写目标 | 新位置优先，回退图片同级旧位置；兼容旧 list 与新 `regions` dict 结构 |
-| `manga_translator_work/originals/<stem>_original.<模板扩展名>` | TXT 导入来源（优先） | 扩展名来自模板 `output_format`，默认 `json`；UI 提示固定写 `_original.txt` |
-| `manga_translator_work/translations/<stem>_translated.<模板扩展名>` | TXT 导入来源（次选） | 原文副文件不存在时才使用 |
-| `config/translation_template.json` | 决定 TXT 导入的占位符结构与副文件扩展名 | 首个 `output_format:` 行为扩展名；缺失/非法回退 `json` |
-| `manga_translator_work/inpainted/<stem>_inpainted.<原扩展名>` | 已存在时复用；重新修复时写回 | 复用要求 JSON 带蒙版；写回要求 `save_text=true` |
-| 图片同级旧 `<stem>_translations.txt` | 已废弃的旧 TXT 格式 | 载入函数直接返回 `None`，不再支持 |
-| 主输出图 | 最终成图 | 由 `_calculate_output_path()` 按输出目录、相对层级、`save_to_source_dir` 和 `cli.format` 决定 |
+- 其它工作流：[正常翻译流程](./normal.md) · [导出原文](./export-original.md) · [导出翻译](./export-translation.md) · [仅翻译（JSON）](./translate-json-only.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [仅修复](./inpaint-only.md) · [替换翻译](./replace-translation.md)
+- 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)
+- 九种工作流的输入、跳过阶段与输出汇总：[工作流矩阵](../reference/workflow-matrix.md)
+- 工作流字段互斥、参数覆盖与模板对齐：[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)
 
-不在本页展示真实用户配置、密钥、令牌、用户名、私有绝对路径、用户图片或任务产物。JSON 中的 `mask_raw` 是 base64 PNG，不等于脱敏；调试目录不能直接打包上传。
-
-## 源码依据
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 工作流选择与写入 | `desktop_qt_ui/ui/main_page/runtime.py:183-215` | 索引 4 → `load_text=true`、八字段互斥、配置保存 |
-| 标题、提示与开始按钮 | `desktop_qt_ui/ui/main_page/runtime.py:22-47,219-238` | “Import Translation and Render”标题、提示调用 key 和按钮文案 |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | `Import Translation and Render`、两条提示、`label_*` 实际双语值 |
-| 控制层 | `desktop_qt_ui/app_logic.py:3228,3241-3272` | 工作流提示、覆盖前检查主输出图、特殊模式并发禁用 |
-| TXT 导入 | `desktop_qt_ui/services/workflow_service.py:811` | `safe_update_large_json_from_text`：模板解析、匹配、`skip_font_scaling=false`、原子写回 |
-| 预处理 | `manga_translator/manga_translator.py:1145` | `_preprocess_load_text_mode`：JSON 存在才导入、原文优先、模板缺失自动创建 |
-| 载入 | `manga_translator/manga_translator.py:1325` | `_load_text_and_regions_from_file`：JSON 结构、蒙版与标志解析、失败计数 |
-| 分派与处理 | `manga_translator/manga_translator.py:3429,3605-3990` | 步骤 0 预处理、load_text 分支、蒙版/修复/渲染/回写 |
-| 编辑器导出 | `desktop_qt_ui/services/export_service.py:855` | `set_preloaded_load_text_payload` 内存直通载荷 |
-| 路径 | `manga_translator/utils/path_manager.py:151,178,204,392,442` | JSON/原文/译文/修复图路径与查找回退 |
-| 模板 | `manga_translator/utils/translation_template.py` | `output_format` 解析、默认值与安全校验 |
-
-## 验证记录
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；不修改三份合同文件 |
-| 源码与研究资料 | 完成 | 已核对 `workflow-matrix-source-evidence.md` 与 UI、i18n、控制层、工作流服务和核心源码 |
-| i18n 三列证据 | 完成 | 工作流选项、两条提示、按钮和相关设置均记录调用 key、English、简体中文实际值 |
-| 路由/页面镜像 | 待运行 | 完成页面后运行 route mirror 和 source evidence 检查 |
-| TXT 导入与回写 | 待运行 | 原文优先于译文、模板解析失败反馈、`skip_font_scaling` 写入需脱敏运行验证 |
-| 蒙版缺失/YOLO 回退与修复图复用 | 待运行 | 无蒙版 + `import_yolo_labels` 的检测回退、已有修复图复用条件需运行验证 |
-| 生产构建 | 待运行 | 必要时运行 `npm run docs:build --prefix doc/wiki` |
-
-- [ ] [进行中] 运行态待确认：缺少 JSON 时的错误提示与文件保留、TXT 导入失败的用户可见反馈、修复图复用与 YOLO 补蒙版的实际输出。
+> 详见参考索引：[工作流矩阵](../reference/workflow-matrix.md)。

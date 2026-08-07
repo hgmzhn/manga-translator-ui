@@ -20,16 +20,6 @@ lastUpdated: true
 
 ## 端口与端点契约 {#ports-and-endpoints}
 
-| 入口 | 源码固定值 | 说明与来源 |
-| --- | --- | --- |
-| `shared` 监听 | `--host` / `--port` 默认 `127.0.0.1:5003` | `manga_translator/args.py`；`mode/share.py#MangaShare.listen()` 用它启动内部 FastAPI |
-| shared 端点 | `GET /is_locked`、`POST /simple_execute/{method_name}`、`POST /execute/{method_name}` | `mode/share.py#listen()` 内联定义；方法白名单只放行 `translate`、`translate_batch` |
-| shared 长连接 | Uvicorn `timeout_keep_alive=1800` | 保持连接 30 分钟以支持批量翻译 |
-| `ws` 上游 | `--ws-url` 默认 `ws://localhost:5000` | `manga_translator/args.py`；`mode/ws.py` 读取 `ws_url` |
-| `ws` 本地字段 | `--host 127.0.0.1`、`--port 5003`、`--nonce` | 解析器存在，`MangaTranslatorWS` 当前不消费 |
-| ws 边信道 | 任务里的 `source_image`（HTTP GET）与 `translation_mask`（HTTP PUT） | `mode/ws.py` 用 `aiohttp` 会话，30 秒超时 |
-| web 遗留注册 | `POST /register`（`X-Nonce` 头） | `server/main.py#register_instance`；web 模式强制 `start_instance=False`，不自动拉起 shared |
-
 ```mermaid
 flowchart LR
     subgraph SharedSide["shared 内部执行器（127.0.0.1:5003）"]
@@ -52,12 +42,6 @@ flowchart LR
 
 `MangaShare` 是内部执行器：接收 JSON 请求、以线程锁串行执行翻译、用 pickle 返回结果或流式帧。所有执行端点按固定顺序做四道检查：nonce 校验（设置 nonce 后 `X-Nonce` 必须匹配，否则 `401`）、方法白名单（只允许 `translate` 和 `translate_batch`，否则 `403`）、方法存在性（不存在 `404`）、非阻塞锁（忙时 `429`）。
 
-| 端点 | 行为 |
-| --- | --- |
-| `GET /is_locked` | 返回 `{"locked": true/false}`；不做 nonce 校验 |
-| `POST /simple_execute/{method_name}` | 同步执行，成功返回 `application/octet-stream` 的 pickle 字节；失败返回 4xx/5xx |
-| `POST /execute/{method_name}` | 流式执行，立即返回 `application/octet-stream` 的 `StreamingResponse`，后台任务逐帧写入进度/结果 |
-
 ### 请求编码 {#shared-request-encoding}
 
 - 单图：`{"image": "<PNG base64>", "config": {...}}`；批量：`{"images": ["<PNG base64>", ...], "config": {...}, "batch_size": n}`。
@@ -67,12 +51,6 @@ flowchart LR
 ### 流式帧格式 {#shared-frame-format}
 
 每个流帧是 `状态(1 字节) + 长度(4 字节大端) + 载荷`，客户端 `extract_header` / `handle_buffer` 按 5 字节头切帧：
-
-| status | 载荷 |
-| --- | --- |
-| `0` | 结果：pickle 序列化的翻译结果 |
-| `1` | 进度：UTF-8 状态串（翻译器进度 hook 写入） |
-| `2` | 错误：错误信息（当前为 `Shared worker failed`） |
 
 ```mermaid
 flowchart LR
@@ -109,16 +87,6 @@ flowchart LR
 - `x-secret` 是明文 WebSocket 头；secret 为空时上游若放行则等同无鉴权。
 - Windows 上先调用 `WSAStartup` 并设置 `ProactorEventLoopPolicy`，连接循环运行在独立线程的 `_server_loop` 中。
 
-### 消息结构 {#ws-message-schema}
-
-消息是 protobuf `WebSocketMessage`（`ws_pb2`），用 `SerializeToString()` / `ParseFromString(raw)` 编解码，`WhichOneof('message')` 区分三类：
-
-| 消息 | 字段 | 用途 |
-| --- | --- | --- |
-| `new_task` | `id`、`target_language`、`skip_language`、`detector`、`direction`、`translator`、`size`、`source_image`、`translation_mask` | 上游下发任务 |
-| `status` | `id`、`status` | 执行器回报状态 |
-| `finish_task` | `id`、`success`、`has_translation_mask` | 任务结束 |
-
 ### 任务生命周期 {#ws-task-lifecycle}
 
 收到 `new_task` 后：发送 `pending` → 发送 `downloading` → HTTP GET `source_image`（失败发 `error-download`）→ 打开图片（长宽超过 1200 像素时强制 `upscale_ratio=1`）→ 发送 `preparing` → 在主循环执行翻译（进度 hook 经 0.2 秒节流器合并发送，状态为翻译器流水线阶段名）→ 结果非空时发送 `saving`，缩回原尺寸并转 PNG（verbose 另存 `ws_final.png`）→ 发送 `uploading` → HTTP PUT `translation_mask`（失败发 `error-upload`）→ 最终发送 `finish_task`。
@@ -146,7 +114,58 @@ flowchart LR
 - 当前仓库未跟踪 `manga_translator/server/ws_pb2.py` 或对应 `.proto` 文件；`listen()` 中 `from ..server import ws_pb2` 会 `ImportError`，因此 `ws` 模式当前无法启动。这是源码差异，不是已验证的运行行为。
 - 恢复该模式需要重新生成 `ws_pb2.py` 并验证消息字段与上游调度器一致；在恢复前不要把 `ws` 当作可运行服务。
 
-## UI 文案对照 {#ui-copy}
+## 依赖与冲突 {#dependencies-and-conflicts}
+
+- 端口边界：web `0.0.0.0:8000`、shared `127.0.0.1:5003`、ws 上游 `ws://localhost:5000`；三者用途不同，不互相覆盖。
+- `ws --host/--port/--nonce` 在解析器中存在，但 `MangaTranslatorWS` 不消费；不要根据帮助文本推断 ws 会监听 `5003`。
+- shared/ws 是内部协议：不要用浏览器直接访问，不要暴露公网；nonce/secret 明文传输、pickle 反序列化与 protobuf 解析都携带安全风险。
+- web 模式强制 `start_instance=False`，不会自动拉起 shared 实例；`server/main.py` 的 `start_translator_client_proc` 属于旧路径，且访问/追加了 `shared` 子解析器未声明的 `--ignore-errors`、`--pre-dict`、`--post-dict` 选项，不能当作正式行为。
+- 当前仓库缺 `ws_pb2.py`，`ws` 模式无法启动；这是源码差异。
+- 本页不读取或展示真实 `.env`、`WS_SECRET`、nonce、API key、令牌、用户名或私有路径。
+
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 端口与端点契约
+
+| 入口 | 源码固定值 | 说明与来源 |
+| --- | --- | --- |
+| `shared` 监听 | `--host` / `--port` 默认 `127.0.0.1:5003` | `manga_translator/args.py`；`mode/share.py#MangaShare.listen()` 用它启动内部 FastAPI |
+| shared 端点 | `GET /is_locked`、`POST /simple_execute/{method_name}`、`POST /execute/{method_name}` | `mode/share.py#listen()` 内联定义；方法白名单只放行 `translate`、`translate_batch` |
+| shared 长连接 | Uvicorn `timeout_keep_alive=1800` | 保持连接 30 分钟以支持批量翻译 |
+| `ws` 上游 | `--ws-url` 默认 `ws://localhost:5000` | `manga_translator/args.py`；`mode/ws.py` 读取 `ws_url` |
+| `ws` 本地字段 | `--host 127.0.0.1`、`--port 5003`、`--nonce` | 解析器存在，`MangaTranslatorWS` 当前不消费 |
+| ws 边信道 | 任务里的 `source_image`（HTTP GET）与 `translation_mask`（HTTP PUT） | `mode/ws.py` 用 `aiohttp` 会话，30 秒超时 |
+| web 遗留注册 | `POST /register`（`X-Nonce` 头） | `server/main.py#register_instance`；web 模式强制 `start_instance=False`，不自动拉起 shared |
+
+#### shared 内部协议
+
+| 端点 | 行为 |
+| --- | --- |
+| `GET /is_locked` | 返回 `{"locked": true/false}`；不做 nonce 校验 |
+| `POST /simple_execute/{method_name}` | 同步执行，成功返回 `application/octet-stream` 的 pickle 字节；失败返回 4xx/5xx |
+| `POST /execute/{method_name}` | 流式执行，立即返回 `application/octet-stream` 的 `StreamingResponse`，后台任务逐帧写入进度/结果 |
+
+#### 流式帧格式
+
+| status | 载荷 |
+| --- | --- |
+| `0` | 结果：pickle 序列化的翻译结果 |
+| `1` | 进度：UTF-8 状态串（翻译器进度 hook 写入） |
+| `2` | 错误：错误信息（当前为 `Shared worker failed`） |
+
+#### 消息结构 {#ws-message-schema}
+
+消息是 protobuf `WebSocketMessage`（`ws_pb2`），用 `SerializeToString()` / `ParseFromString(raw)` 编解码，`WhichOneof('message')` 区分三类：
+
+| 消息 | 字段 | 用途 |
+| --- | --- | --- |
+| `new_task` | `id`、`target_language`、`skip_language`、`detector`、`direction`、`translator`、`size`、`source_image`、`translation_mask` | 上游下发任务 |
+| `status` | `id`、`status` | 执行器回报状态 |
+| `finish_task` | `id`、`success`、`has_translation_mask` | 任务结束 |
+
+#### UI 文案对照 {#ui-copy}
 
 `shared`/`ws` 是服务器内部协议，桌面 UI 的 locale 文件中没有 “shared”“websocket”“5003” 等界面文案。与 CLI 开关共享的桌面设置标签如下：
 
@@ -158,16 +177,7 @@ flowchart LR
 | `label_attempts` | Retry Attempts | 重试次数 |
 | `label_ignore_errors` | Ignore Errors | 忽略错误 |
 
-## 依赖与冲突 {#dependencies-and-conflicts}
-
-- 端口边界：web `0.0.0.0:8000`、shared `127.0.0.1:5003`、ws 上游 `ws://localhost:5000`；三者用途不同，不互相覆盖。
-- `ws --host/--port/--nonce` 在解析器中存在，但 `MangaTranslatorWS` 不消费；不要根据帮助文本推断 ws 会监听 `5003`。
-- shared/ws 是内部协议：不要用浏览器直接访问，不要暴露公网；nonce/secret 明文传输、pickle 反序列化与 protobuf 解析都携带安全风险。
-- web 模式强制 `start_instance=False`，不会自动拉起 shared 实例；`server/main.py` 的 `start_translator_client_proc` 属于旧路径，且访问/追加了 `shared` 子解析器未声明的 `--ignore-errors`、`--pre-dict`、`--post-dict` 选项，不能当作正式行为。
-- 当前仓库缺 `ws_pb2.py`，`ws` 模式无法启动；这是源码差异。
-- 本页不读取或展示真实 `.env`、`WS_SECRET`、nonce、API key、令牌、用户名或私有路径。
-
-## 关联文件与格式 {#related-files-and-formats}
+### 关联文件与格式 {#related-files-and-formats}
 
 | 文件/格式 | 本页实际作用 | 注意 |
 | --- | --- | --- |
@@ -181,11 +191,11 @@ flowchart LR
 | `manga_translator/utils/threading.py` | `PriorityLock` 与 `Throttler` | ws 任务调度与 0.2 秒节流 |
 | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`、`doc/wiki/data/i18n.generated.json` | `label_*` 实际中英文 | 无 shared/ws 专用 UI 文案 |
 
-## Mermaid 边界 {#mermaid-boundary}
+### Mermaid 边界 {#mermaid-boundary}
 
 上图描述源码中真实的端点、帧格式和任务状态流转，不代表 `ws://localhost:5000` 在本仓库内一定存在监听服务，也不代表 `ws` 模式当前能启动（`ws_pb2.py` 缺失）。shared 执行器分发是源码保留的旧路径，正式 `web` 模式不会自动拉起它。本页没有伪造运行截图或私有凭据。
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -196,17 +206,3 @@ flowchart LR
 | 参数与分发 | `manga_translator/args.py`、`__main__.py` | `ws`/`shared` 选项与默认值、模式分发 |
 | 工具 | `manga_translator/utils/threading.py` | `PriorityLock`、`Throttler` |
 | 调查基线 | `doc/wiki/research/cli-command-inventory.md`、`phase0-web-user-http.md`、`phase0-page-coverage-matrix.md` | `--help` 清单、端口/协议边界、`ws_pb2.py` 缺失记录 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；未修改 TODO.md |
-| shared 协议 | 完成 | 静态核对 `mode/share.py`、`sent_data_internal.py`、`instance.py` |
-| ws 协议 | 完成 | 静态核对 `mode/ws.py`、`utils/threading.py` |
-| 端口与 nonce/secret | 完成 | `127.0.0.1:5003`、`ws://localhost:5000`、`X-Nonce`、`WS_SECRET`/`x-secret` 逐项核对 |
-| pickle/protobuf 风险 | 完成 | 静态核对 `pickle.dumps/loads` 与 `ws_pb2` 缺失 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 三列表逐项记录 key 与实际显示值 |
-| 路由镜像 / 源码依据脚本 | 完成 | `node scripts/verify-route-mirror.mjs .` 与 `node scripts/verify-source-evidence.mjs .` 通过 |
-| 脱敏运行验证 | 待后续 | 未启动 shared/ws 服务、未读取真实 `.env`/nonce/secret/API key/token/用户名或私有路径 |
-| VitePress 构建 | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |

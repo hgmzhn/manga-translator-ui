@@ -21,32 +21,35 @@ Choose the portable package if you only want to extract and run it; choose Docke
 
 ### Prepare the repository and tools
 
-Run these commands in PowerShell. Python must satisfy `>=3.12,<3.13`:
+> Windows users: first make sure the Microsoft Visual C++ Redistributable ([vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)) is installed; otherwise the app may fail to start with errors such as missing VCRUNTIME140.dll.
 
-```powershell
-git clone https://github.com/hgmzhn/manga-translator-ui.git
-Set-Location manga-translator-ui
-py -3.12 --version
-py -3.12 -m pip install uv
-```
+A source environment needs Git, uv, and Python 3.12 (`>=3.12,<3.13`). To install:
+
+1. Install [Git](https://git-scm.com/), [uv](https://docs.astral.sh/uv/), and Python 3.12 (download the 3.12 installer from [python.org](https://www.python.org/downloads/) and check “Add python.exe to PATH”).
+2. Clone the repository and enter it:
+   ```powershell
+   git clone https://github.com/hgmzhn/manga-translator-ui.git
+   cd manga-translator-ui
+   ```
+3. Run exactly one `uv sync` group from the repository root, as described in the next subsection.
 
 If the repository already exists, enter it and check the working-tree status before deciding whether to switch to `main`, `beta`, or a tag. Do not overwrite uncommitted changes with a branch switch or another destructive Git operation.
 
 ### Select exactly one backend group
 
-From the project root, run one of these commands:
+Select exactly one backend group for the hardware; run the commands from the repository root:
 
 ```powershell
-# NVIDIA: the default pyproject.toml group, using the CUDA 13.0 PyTorch index
+# NVIDIA GPU (CUDA 13.0, default; also installs the packaging group)
 uv sync
 
-# CPU: disable default groups and enable CPU only
+# CPU
 uv sync --no-default-groups --group cpu
 
-# Linux AMD; Windows AMD does not use this ordinary source command
+# Linux AMD ROCm (experimental)
 uv sync --no-default-groups --group amd
 
-# macOS Apple Silicon; not for Windows
+# macOS Apple Silicon / Metal
 uv sync --no-default-groups --group metal
 ```
 
@@ -54,12 +57,14 @@ Windows users generally choose NVIDIA or CPU. If you have Windows AMD, do not co
 
 ### Start the source application
 
+After the dependencies are synced, run the following from the repository root:
+
 ```powershell
 # Qt desktop UI
-uv run --no-sync --python .venv\Scripts\python.exe desktop_qt_ui\main.py
+uv run --no-sync python -m desktop_qt_ui.main
 
-# Formal CLI entry point
-uv run --no-sync python -m manga_translator local -i <image-or-directory>
+# Translate a single image from the command line
+uv run --no-sync python -m manga_translator local -i <image-path>
 ```
 
 The project also provides `Win-Start.bat`. It changes to the script directory, prefers `packaging\python\python.exe`, then falls back to legacy `manga-env`/`conda_env`; it is therefore not the only source-environment launcher. Prefer the `uv run` commands above for a source checkout, or call `.venv\Scripts\python.exe` directly after confirming the environment layout.
@@ -72,33 +77,7 @@ When the project launcher must install/update, inspect the GPU, or switch versio
 uv run --no-sync python packaging\launch.py --maintenance
 ```
 
-The maintenance menu provides installation, code/dependency updates, `main`/`beta` switching, tag switching, Git mirror switching, version re-check, menu-language switching, and exit. Save your changes before switching branches or tags; the menu changes repository synchronization state and is not read-only.
-
-## Option matrix {#options}
-
-Source installation backends come from `pyproject.toml` dependency groups, not from desktop Qt locale keys. Maintenance-menu text is hard-coded through `L(zh, en)`, so the following tables record the source call and actual display values in three columns.
-
-| Stored value | English | Simplified Chinese | Condition |
-| --- | --- | --- | --- |
-| `auto` | Auto-select | 自动选择 | Default in `packaging/launch.py`; enters backend selection based on device detection |
-| `cpu` | CPU | CPU 版本 | General compatibility; no CUDA/ROCm GPU dependency |
-| `gpu` | NVIDIA CUDA | NVIDIA CUDA 版本 | NVIDIA driver supporting CUDA 13.0; uv binds `pytorch-cu130` |
-| `amd` | AMD ROCm | AMD ROCm 版本 | Linux x86_64 ROCm; Windows requires a special installer path |
-| `metal` | Apple Metal | Apple Metal 版本 | Apple Silicon macOS; not for Windows |
-| `--maintenance` | Install / Update maintenance menu | 安装或更新维护菜单 | Starts `packaging/launch.py` maintenance mode; it is not a backend group |
-
-| UI call key (source call) | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `L("[1] 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖)", "[1] Install (detect GPU, choose CPU/GPU build, install dependencies)")` | [1] Install (detect GPU, choose CPU/GPU build, install dependencies) | [1] 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖) |
-| `L("[2] 更新 (代码+依赖)", "[2] Update (code + dependencies)")` | [2] Update (code + dependencies) | [2] 更新 (代码+依赖) |
-| `L("[3] 切换分支 (main/beta)", "[3] Switch branch (main/beta)")` | [3] Switch branch (main/beta) | [3] 切换分支 (main/beta) |
-| `L("[4] 切换版本 (按 tag)", "[4] Switch version (by tag)")` | [4] Switch version (by tag) | [4] 切换版本 (按 tag) |
-| `L("[5] 切换镜像源", "[5] Switch mirror")` | [5] Switch mirror | [5] 切换镜像源 |
-| `L("[6] 重新检查版本", "[6] Re-check version")` | [6] Re-check version | [6] 重新检查版本 |
-| `L("[7] 切换语言 (中文/English)", "[7] Language (中文/English)")` | [7] Language (中文/English) | [7] 切换语言 (中文/English) |
-| `L("[8] 退出", "[8] Exit")` | [8] Exit | [8] 退出 |
-
-The maintenance menu has no `en_US.json`/`zh_CN.json` key; `maintenance_config.json` stores only the menu language. Do not present `--requirements`, `MT_*`, or API environment-variable names as UI labels.
+The maintenance menu provides installation, code/dependency updates, `main`/`beta` switching, tag switching, Git mirror switching, version re-check, menu-language switching, and exit. Save your changes before switching branches or tags; the menu changes repository synchronization state and is not read-only. The menu options and their actual wording and stored values are listed in the [Options and I18n matrix](../reference/options-i18n-matrix.md).
 
 ## Runtime behavior {#runtime}
 
@@ -131,43 +110,4 @@ The maintenance mode's `prepare_environment` detects the device and checks the i
 - **Switching conflicts**: if the installed PyTorch type differs from the target, the launcher may uninstall `torch`, `torchvision`, and `torchaudio` and purge the pip cache. Close other Python processes using PyTorch first.
 - **Models and network**: dependency installation does not mean model downloads are complete; detector, OCR, translator, and inpainting models may download on first use or read local model files. Do not place credentials or proxy settings in public scripts.
 
-## Related files and formats {#files}
-
-| File/directory | Role in a source install | Manual-edit, compatibility, and security notes |
-| --- | --- | --- |
-| `pyproject.toml` | Python version, common dependencies, backend groups, uv conflicts, and platform indexes | Enable only one backend group; update the lock after dependency changes |
-| `uv.lock` | Exact resolved versions and sources | `uv sync --locked` rejects an inconsistent lock |
-| `.venv/` | Windows virtual environment created by uv | Do not commit it; recreate it with uv if needed |
-| `packaging/launch.py` | Maintenance menu, device detection, dependency installation, and version/branch operations | Menu config is not core user config; do not write keys into it |
-| `packaging/maintenance_config.json` | JSON configuration for maintenance-menu language | Stores only maintenance state such as `language`; it must not contain API keys |
-| `Win-Start.bat`, `Win-Install-or-Update.bat` | Windows entry scripts | They prefer bundled Python; source users should explicitly use `uv run` |
-| `config/config.json`, `config/config-example.json` | Runtime application configuration, usually generated/read on first run | User config may contain private paths; do not copy it into docs or commit it |
-| `.env` | Dotenv text containing API addresses, models, and secrets | Record only variable names and purpose; never read/display values or commit it |
-
-The source installation does not define translation-result formats. Runtime work directories, project JSON, TXT, images, and debug artifacts are owned by the core workflow consumers and belong on their respective pages; `.venv` and `uv.lock` are not user translation data.
-
-## Screenshot and diagram boundary {#visuals}
-
-The Mermaid diagram covers only the Windows source environment from synchronization and virtual environment to Qt, CLI, and maintenance entries. Future screenshots should use redacted PowerShell, maintenance-menu, and Qt startup states and hide usernames, absolute paths, Git credentials, proxy addresses, API keys, tokens, model paths, and user images. This page did not start Qt, perform a complete dependency install, or generate screenshots; static command examples are not runtime evidence.
-
-## Source evidence {#source-evidence}
-
-| Layer | Files | Evidence checked |
-| --- | --- | --- |
-| Dependency declaration | `pyproject.toml` | Python 3.12, default groups, CPU/GPU/AMD/Metal groups, conflicts, and PyTorch indexes |
-| Launcher | `packaging/launch.py` | Version check, `--requirements`, GPU detection, PyTorch conflict handling, maintenance menu, and Qt/CLI dispatch |
-| Windows entry | `Win-Install-or-Update.bat`, `Win-Start.bat` | Working directory, bundled-Python priority, legacy-Conda fallback, and startup behavior |
-| Qt/CLI | `desktop_qt_ui/main.py`, `manga_translator/__main__.py`, `manga_translator/args.py` | Desktop and formal CLI entries |
-| Configuration/runtime | `desktop_qt_ui/services/config_service.py`, `manga_translator/runtime_paths.py` | Configuration persistence and runtime-directory boundaries |
-| Research evidence | `doc/wiki/research/phase0-related-files-formats-debug-safety.md`, `doc/wiki/research/default-sources.md` | File formats, default layers, and sensitive-information boundaries |
-
-## Verification {#verification}
-
-| Verification | Status | Notes |
-| --- | --- | --- |
-| Page contract and bilingual mirror | Complete | Matching sections, anchors, option tables, diagrams, and evidence scope |
-| Source and dependency declarations | Complete | Checked `pyproject.toml`, `launch.py`, Windows scripts, and entry modules |
-| UI calls and bilingual values | Complete | Maintenance menu recorded from source `L(zh, en)` calls; absence of locale keys is explicit |
-| Sensitive-information review | Complete | No real keys, tokens, usernames, private absolute paths, images, or prompts written |
-| Headed runtime and complete install | Pending runtime verification | No Qt startup or complete dependency/GPU/AMD installation was run |
-| Static checks and build | Pending execution | Target commands: `node scripts/verify-route-mirror.mjs doc/wiki`, `node scripts/verify-source-evidence.mjs doc/wiki`, and `npm run docs:build --prefix doc/wiki` |
+For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

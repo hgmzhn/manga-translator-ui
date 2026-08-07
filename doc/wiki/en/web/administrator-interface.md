@@ -90,6 +90,8 @@ Each parameter row has a “✓ 启用 / 🚫 禁用（用户不可见）” (en
 
 The “feature permissions” tab offers “allow all” plus per-item checkboxes for four capability classes (translator, OCR, colorizer, renderer) and a workflow selector. The “API keys” section can set: allow users to edit API keys on the home page, allow using server-default API keys, require users to provide API keys or a preset, and allow saving user-entered API keys to the server (this writes to the server `.env` and affects everyone, so it is not recommended in multi-user setups). The “resource management” section controls font and prompt upload/delete permissions, and the “feature permissions” section controls batch processing, API access, text export, history viewing, and log viewing.
 
+After adding or modifying a feature, the parameters and feature permissions for the new capability appear in the shared permission editor and the “Feature Permissions” tab, where administrators can configure visibility and availability; see [Adding or Changing a Feature](../developer/adding-or-changing-a-feature.md) for the feature development workflow.
+
 Permission and quota resolution follows the priority: explicit user-level settings > group configuration > server defaults. User mode only saves deltas relative to the group (checking unlocks a disabled capability as an allowlist entry; unchecking adds an extra deny-list entry).
 
 ```mermaid
@@ -135,7 +137,7 @@ The “active sessions” table columns are user, token (first 12 characters), I
 2. The “🔐 服务器默认API密钥” (server default API keys) section reads the server `.env` (`GET /api/admin/config/server?show_values=true`) and shows the key fields in category forms; “💾 保存API密钥” (save API keys) maps to `PUT /api/admin/config/server`, which backs up `.env` first by default.
 3. The user-side resolution order is: user-entered > current preset > server default; provider-specific OCR/colorizer/renderer keys left empty fall back to the provider's general translation key.
 
-This page never shows real keys, tokens, or `.env` content; documentation and screenshots use sanitized placeholders only. The front end temporarily stores keys the user enters on the user site in `localStorage.user_env_vars`, but the server does not return key plaintext through ordinary configuration endpoints.
+This page never shows real keys, tokens, or `.env` content; documentation and screenshots use sanitized placeholders only.
 
 ## Server configuration, announcements, and cleanup {#config-announcement-cleanup}
 
@@ -155,103 +157,13 @@ This page never shows real keys, tokens, or `.env` content; documentation and sc
 
 “Auto-cleanup settings” contains enable auto-cleanup, interval (hours), max file retention (days), and max storage (GB); “💾 保存设置” (save settings) maps to `PUT /admin/settings` (writes `cleanup`).
 
-## UI copy reference {#ui-copy}
-
-Most admin-panel copy is hardcoded Chinese in `admin-new.html` without an i18n key; the table below records this honestly. Rows whose key is `web_*` come from the user-site i18n (`doc/wiki/data/i18n.generated.json` and `desktop_qt_ui/locales/*.json`) and are not necessarily used by the admin panel itself.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| User home-page “admin” link (`script.js` calls key `admin`) | Missing (desktop locales have no `admin`, falls back to “管理”) | 管理 |
-| `web_admin_panel` (user-site i18n) | Admin Panel | 管理面板 |
-| `admin-new.html` hardcoded: sidebar title | Missing (Chinese hardcode only) | 管理控制台 |
-| Hardcoded: 概览 / 系统监控 / 系统设置 | Missing (Chinese hardcode only) | 概览 / 系统监控 / 系统设置 |
-| Hardcoded: 仪表盘 | Missing (Chinese hardcode only) | 仪表盘 |
-| Hardcoded: 用户管理 | Missing (Chinese hardcode only) | 用户管理 |
-| `web_user_management` | User Management | 用户管理 |
-| Hardcoded: 用户组管理 | Missing (Chinese hardcode only) | 用户组管理 |
-| `web_group_management` | Group Management | 用户组管理 |
-| Hardcoded: 配额管理 | Missing (Chinese hardcode only) | 配额管理 |
-| `web_quota_management` | Quota Management | 配额管理 |
-| Hardcoded: 会话管理 | Missing (Chinese hardcode only) | 会话管理 |
-| Hardcoded: 任务监控 | Missing (Chinese hardcode only) | 任务监控 |
-| Hardcoded: 历史记录 | Missing (Chinese hardcode only) | 历史记录 |
-| `web_history_management` | History Management | 历史记录管理 |
-| Hardcoded: 系统日志 | Missing (Chinese hardcode only) | 系统日志 |
-| `web_log_management` | Logs | 日志管理 |
-| Hardcoded: API密钥管理 | Missing (Chinese hardcode only) | API密钥管理 |
-| `web_preset_management` | Presets | 预设管理 |
-| Hardcoded: 服务器配置 | Missing (Chinese hardcode only) | 服务器配置 |
-| `web_server_config` | Server Configuration | 服务器配置 |
-| Hardcoded: 公告管理 | Missing (Chinese hardcode only) | 公告管理 |
-| Hardcoded: 清理管理 | Missing (Chinese hardcode only) | 清理管理 |
-| `web_cleanup_management` | Cleanup | 清理管理 |
-| Hardcoded: ➕ 添加用户 / ➕ 创建用户组 | Missing (Chinese hardcode only) | ➕ 添加用户 / ➕ 创建用户组 |
-| Hardcoded: 编辑 / 删除 / 取消 / 保存 | Missing (Chinese hardcode only) | 编辑 / 删除 / 取消 / 保存 |
-| `web_cancel` / `web_save` | Cancel / Save (not in desktop locales; actually falls back to Chinese) | 取消 / 保存 |
-| Hardcoded: 💾 保存配额设置 / 💾 保存设置 / 💾 保存API密钥 | Missing (Chinese hardcode only) | 💾 保存配额设置 / 💾 保存设置 / 💾 保存API密钥 |
-| Hardcoded: 撤销所有其他会话 | Missing (Chinese hardcode only) | 撤销所有其他会话 |
-| Hardcoded: 取消全部 / 清空历史 / 清空 / 📥 下载 | Missing (Chinese hardcode only) | 取消全部 / 清空历史 / 清空 / 📥 下载 |
-| Hardcoded: 活跃会话 | Missing (Chinese hardcode only) | 活跃会话 |
-| `web_active_sessions` | Active Sessions | 活跃会话 |
-| Hardcoded: 启用公告 / 保存公告 / 清除公告 | Missing (Chinese hardcode only) | 启用公告 / 保存公告 / 清除公告 |
-| Hardcoded: 启用自动清理 / 清理 | Missing (Chinese hardcode only) | 启用自动清理 / 清理 |
-| `web_auto_cleanup` | Auto Cleanup | 自动清理 |
-| Permission-editor tab `Basic Settings` | Basic Settings | 基础设置 |
-| Permission-editor tab `CLI Options` | Missing (falls back to “输出选项”) | 输出选项 |
-| Permission-editor tab `Advanced Settings` | Advanced Settings | 高级设置 |
-| Permission-editor tab `label_renderer` | Renderer | 渲染器 |
-| Permission-editor tab `web_group_permissions` | Missing (falls back to “功能权限”) | 功能权限 |
-| `web_daily_quota` / `web_daily_limit` | Daily Quota / Daily Limit | 每日配额 / 每日限制 |
-| `web_upload_limit` / `web_max_file_size` / `web_max_files` | Upload Limit / Max File Size / Max Files | 上传限制 / 单文件最大 / 最多文件数 |
-| `web_can_upload_font` / `web_can_upload_prompt` | Can Upload Font / Can Upload Prompt | 可上传字体 / 可上传提示词 |
-| `web_can_view_history` / `web_can_view_logs` | Can View History / Can View Logs | 可查看历史 / 可查看日志 |
-| `web_default_preset` | Default Configuration | 默认配置 |
-| `data-i18n="API Keys (.env)"` (the only i18n attribute in `admin-new.html`) | API Keys (.env) | 服务器默认API密钥 (hardcoded fallback) |
-
-Notes: `admin-new.html` loads `static/js/i18n.js`, which reads the desktop locale from `/locales/{locale}.json`; the `AdminI18n` class in `js/admin/i18n.js` is not loaded by `admin-new.html`. The permission editor and envvars modules fetch strings through `window.i18n.t(key, fallback)`, and when a `web_*` key is absent from the desktop locale it falls back to the Chinese fallback at the call site, so some controls still show Chinese even under the English locale. This is a statically confirmable i18n gap; the exact rendering requires headless-browser runtime verification.
-
 ## Dependencies and conflicts {#dependencies-and-conflicts}
 
-- Users, groups, quotas, sessions, tasks, history, and logs are managed by different services but depend on each other: quota resolution follows “user level > group level > global default” (`quota_service.py`) and permission resolution is done by `permission_service.py` / `permission_calculator.py`; editing a group immediately affects all of its users.
-- The panel's “quota management” and the permission editor's “quota limits” are two entry points whose field names differ (`daily_limit`/`monthly_limit` versus `daily_image_limit`/`daily_char_limit`); the backend contract belongs to the developer HTTP API pages.
-- Saving the server `.env` (including “allow saving user-entered API keys to the server”) affects all users globally and is not recommended in multi-user environments.
-- The admin “history” is a cross-user aggregated view; it is neither the user-side `localStorage` result list nor the server history store itself.
+- Users, groups, quotas, sessions, tasks, history, and logs are managed by different services but depend on each other: quota resolution follows “user level > group level > global default” (`quota_service.py`), permission resolution is done by `permission_service.py` / `permission_calculator.py`, and changing a group immediately affects all its users.
+- The admin “quota management” and the permission editor's “quota limits” are two entry points with different field keys (the former `daily_limit`/`monthly_limit`, the latter `daily_image_limit`/`daily_char_limit`); the backend contract is defined by the developer HTTP API pages.
+- Saving the server `.env` (including “allow saving user-entered API keys to the server”) affects all users globally; not recommended in multi-user environments.
+- The admin “history” is a cross-user aggregated view; it is neither the user-site `localStorage` results list nor the server history store itself.
 - Cancelling tasks, clearing history, and cleaning storage are irreversible; deletions and revocations that touch real users must be careful and leave audit records.
 - Audit events from login, password change, registration, task creation, permission denials, translation progress, and user/permission management are written automatically to `audit.log` (10 MB rotation, 5 backups kept); the current admin UI has no audit module, so querying/exporting goes through the `/audit/*` endpoints.
 
-## Related files and formats {#related-files}
-
-| File/format | Actual role on this page | Notes |
-| --- | --- | --- |
-| `manga_translator/server/static/admin-new.html` | Admin panel page | Mostly hardcoded Chinese; never write real usernames or keys |
-| `manga_translator/server/static/js/admin/app.js`, `modules/*.js`, `components/permission-editor.js` | Module logic and the permission editor | Some buttons call endpoints not defined in the backend (see body) |
-| `manga_translator/server/routes/web.py`, `admin.py`, `users.py`, `groups.py`, `sessions.py`, `quota.py`, `audit.py`, `config_management.py` | `/admin`, `/api/admin/*`, `/sessions/*`, `/audit/*` endpoints | Contract details belong to the developer HTTP API pages |
-| `manga_translator/server/core/config_manager.py` | `DEFAULT_ADMIN_SETTINGS` and `admin_config.json` read/write | Source of registration switch, announcement, permission, and quota defaults |
-| `manga_translator/server/core/group_management_service.py`, `group_service.py` | Group CRUD and parameter config | System groups `admin`/`default`/`guest` cannot be deleted |
-| `manga_translator/server/core/quota_service.py`, `audit_service.py`, `permission_service.py`, `task_manager.py`, `middleware.py` | Quota, audit, permission, task, and auth | `require_admin` decides 401/403 |
-| `manga_translator/server/data/admin_config.json` | Admin-settings persistence | Record structure only, never real content |
-| `manga_translator/server/data/accounts.json`, `group_config.json`, `env_presets.json`, `audit.log` | Accounts, groups, presets, audit log | Never read or display real user data |
-| `.env` (server) and `server/data/backups/.env.backup.{timestamp}` | Server key config and pre-save backup | Never write or display real keys |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Entry and auth | `manga_translator/server/routes/web.py`, `static/js/admin/app.js`, `static/script.js` | `/admin` page, session check, admin-role gate, logout |
-| Page structure | `manga_translator/server/static/admin-new.html` | 12 nav modules, stat cards, module forms and buttons |
-| Module logic | `static/js/admin/modules/{users,groups,quota,sessions,tasks,history,logs,envvars,config,announcement,cleanup}.js` | Per-module load, render, and called endpoints |
-| Permission editor | `static/js/admin/components/permission-editor.js` | 6 tabs, parameter locking, allow/deny lists, presets, workflows |
-| Backend endpoints | `server/routes/{admin,users,groups,sessions,quota,audit,config_management}.py` | Existence, status codes, and permission dependencies of admin endpoints |
-| Service layer | `server/core/{config_manager,group_management_service,group_service,quota_service,audit_service,permission_service,middleware,task_manager}.py` | Defaults, quota priority, audit rotation, `require_admin` |
-| i18n | `static/js/i18n.js`, `static/js/admin/i18n.js`, `doc/wiki/data/i18n.generated.json`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | key→en_US→zh_CN actual values and missing/fallback cases |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| Page structure and module inventory | Complete | Statically checked `admin-new.html` and `app.js` nav modules |
-| Module behavior and endpoints | Complete | Statically checked module JS against backend routes; found `cancel-all`, `logs/clear`, and `sessions/revoke-all` front-end calls that do not match backend routes, and quota edit/reset as front-end placeholders |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values; hardcoded items are marked missing/fallback |
-| Sanitized runtime verification | Deferred | No real `.env`, accounts, audit logs, user data, or keys were read; needs a headless browser with a sanitized admin account to verify English rendering, permission filtering, and the undefined endpoints above |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
+> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).

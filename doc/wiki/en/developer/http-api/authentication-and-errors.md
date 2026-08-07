@@ -88,45 +88,6 @@ The following endpoints do not require `X-Session-Token`; business-data requests
 
 History downloads first request a short-lived ticket from an authenticated endpoint, then download via `GET|HEAD /api/history/downloads/t/{ticket}`. The default ticket TTL is 5 minutes and the token is generated with `secrets.token_urlsafe(32)`; invalid, expired, or deleted files return `404`. The ticket endpoint does not read the session header, so the ticket itself is sensitive and must not be written into logs or documentation.
 
-## Web session UI strings {#web-ui-strings}
-
-The table below lists login/session/error-related strings actually called by the web main script and verified in both desktop locales. The `login.html` form texts ("用户名", "密码", "登录", "注册", "首次使用，请创建管理员账户", etc.) are hardcoded Chinese without i18n keys and must not be recorded as localized text.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `admin` | missing, caller fallback | missing, caller fallback |
-| `web_session_token` | Session Token | 会话令牌 |
-| `web_active_sessions` | Active Sessions | 活跃会话 |
-| `web_permission_denied` | Permission Denied | 权限不足 |
-| `web_quota_exceeded` | Quota Exceeded | 配额已用完 |
-| `web_error` | Error | 错误 |
-| `web_daily_quota` | Daily Quota | 每日配额 |
-| `web_used_today` | Used today | 今日已使用 |
-| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
-| `Start Translation` | Start Translation | 开始翻译 |
-
-`t(key, defaultText)` in `static/script.js` returns the default value or the key itself when the locale is not loaded or the key is missing, so parts of the UI still show hardcoded Chinese under the English locale.
-
-## Status code matrix {#status-code-matrix}
-
-The table below covers the statically verified triggers of every status code; except for explicit overrides, the default success status is `200`.
-
-| Status | Static trigger scope | Source |
-| --- | --- | --- |
-| `200` | Ordinary successful JSON/HTML/stream/file/delete responses; `/auth/login`, `/auth/register`, `/auth/logout`, and `/auth/change-password` also return `200` with `success: false` on business failures such as wrong password or wrong old password | FastAPI default; `routes/auth.py` |
-| `201` | Successful creation via `POST /sessions/`, `POST /api/admin/users/`, `POST /api/admin/groups/` | `sessions.py:61`, `users.py:79`, `groups.py:87` |
-| `204` | Successful `DELETE /api/admin/users/{username}` | `users.py:378` |
-| `400` | Request fields, initial setup/registration validation, no batch images, invalid import, or resource/admin inputs; some history/ticket requests too | `auth.py:362`, `translation.py:449`, `history.py:582`, `config_management.py:227` |
-| `401` | Missing session header, invalid/expired token, activity refresh failure, disabled account, or invalid internal `/register` nonce | `core/middleware.py:119`, `translation_auth.py:253`, `main.py:317` |
-| `403` | Non-admin, missing feature/resource/history permission, or registration disabled by the admin | `core/middleware.py:198`, `:246`, `translation_auth.py:345`, `auth.py:460` |
-| `404` | favicon/file/user/group/session/history/download-ticket/preset object not found | `main.py:288`, `history.py:136`, `users.py:236`, `config_management.py:182` |
-| `409` | Creating an admin preset whose name already exists | `config_management.py:227` |
-| `422` | Global `RequestValidationError` handler returns `detail` plus a request body string | `main.py:255`–`:273` |
-| `429` | Login or registration rate limit (with `Retry-After`), legacy password-gate rate limit, concurrent-task limit, or daily quota exceeded | `auth.py:52`, `web.py:89`, `core/middleware.py:326`, `:365` |
-| `499` | Batch translation task force-cancelled or detected as cancelled | `translation.py:421`, `:518` |
-| `500` | Uninitialized services, translation/import/export, persistence, resource, and admin service failures, handled or unhandled | `auth.py:135`, `translation.py:527`, `resources.py:111`, `logs.py:249` |
-
 ## Error response structure {#error-response-structure}
 
 Actual responses have three shapes; a client should read `detail` first and then branch on its type:
@@ -198,7 +159,50 @@ Error codes are stable program identifiers such as `NO_TOKEN`, `ADMIN_REQUIRED`,
 - The internal `POST /register` (instance registration) uses `X-Nonce` (`secrets.token_hex(16)`, generated at startup) instead of `X-Session-Token`; the two mechanisms must not be mixed, and documentation and logs must never contain a real nonce.
 - Download tickets are 5-minute short-lived credentials; they do not require the session header, so their exposure window is bounded but they remain sensitive.
 
-## Related files and formats {#related-files-and-formats}
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Web session UI strings {#web-ui-strings}
+
+The table below lists login/session/error-related strings actually called by the web main script and verified in both desktop locales. The `login.html` form texts ("用户名", "密码", "登录", "注册", "首次使用，请创建管理员账户", etc.) are hardcoded Chinese without i18n keys and must not be recorded as localized text.
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Manga Translator` | Manga Translator | 漫画翻译器 |
+| `admin` | missing, caller fallback | missing, caller fallback |
+| `web_session_token` | Session Token | 会话令牌 |
+| `web_active_sessions` | Active Sessions | 活跃会话 |
+| `web_permission_denied` | Permission Denied | 权限不足 |
+| `web_quota_exceeded` | Quota Exceeded | 配额已用完 |
+| `web_error` | Error | 错误 |
+| `web_daily_quota` | Daily Quota | 每日配额 |
+| `web_used_today` | Used today | 今日已使用 |
+| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
+| `Start Translation` | Start Translation | 开始翻译 |
+
+`t(key, defaultText)` in `static/script.js` returns the default value or the key itself when the locale is not loaded or the key is missing, so parts of the UI still show hardcoded Chinese under the English locale.
+
+#### Status code matrix {#status-code-matrix}
+
+The table below covers the statically verified triggers of every status code; except for explicit overrides, the default success status is `200`.
+
+| Status | Static trigger scope | Source |
+| --- | --- | --- |
+| `200` | Ordinary successful JSON/HTML/stream/file/delete responses; `/auth/login`, `/auth/register`, `/auth/logout`, and `/auth/change-password` also return `200` with `success: false` on business failures such as wrong password or wrong old password | FastAPI default; `routes/auth.py` |
+| `201` | Successful creation via `POST /sessions/`, `POST /api/admin/users/`, `POST /api/admin/groups/` | `sessions.py:61`, `users.py:79`, `groups.py:87` |
+| `204` | Successful `DELETE /api/admin/users/{username}` | `users.py:378` |
+| `400` | Request fields, initial setup/registration validation, no batch images, invalid import, or resource/admin inputs; some history/ticket requests too | `auth.py:362`, `translation.py:449`, `history.py:582`, `config_management.py:227` |
+| `401` | Missing session header, invalid/expired token, activity refresh failure, disabled account, or invalid internal `/register` nonce | `core/middleware.py:119`, `translation_auth.py:253`, `main.py:317` |
+| `403` | Non-admin, missing feature/resource/history permission, or registration disabled by the admin | `core/middleware.py:198`, `:246`, `translation_auth.py:345`, `auth.py:460` |
+| `404` | favicon/file/user/group/session/history/download-ticket/preset object not found | `main.py:288`, `history.py:136`, `users.py:236`, `config_management.py:182` |
+| `409` | Creating an admin preset whose name already exists | `config_management.py:227` |
+| `422` | Global `RequestValidationError` handler returns `detail` plus a request body string | `main.py:255`–`:273` |
+| `429` | Login or registration rate limit (with `Retry-After`), legacy password-gate rate limit, concurrent-task limit, or daily quota exceeded | `auth.py:52`, `web.py:89`, `core/middleware.py:326`, `:365` |
+| `499` | Batch translation task force-cancelled or detected as cancelled | `translation.py:421`, `:518` |
+| `500` | Uninitialized services, translation/import/export, persistence, resource, and admin service failures, handled or unhandled | `auth.py:135`, `translation.py:527`, `resources.py:111`, `logs.py:249` |
+
+### Related files and formats {#related-files-and-formats}
 
 | File/path | Actual role on this page | Manual-edit and compatibility note |
 | --- | --- | --- |
@@ -209,11 +213,11 @@ Error codes are stable program identifiers such as `NO_TOKEN`, `ADMIN_REQUIRED`,
 | `.env` | Server API key loading | `/env` and `/env/effective` never return plaintext server keys |
 | `manga_translator/server/static/login.html` | Session entry page | Form texts are hardcoded Chinese without i18n keys |
 
-## Mermaid data-flow limits {#mermaid-limits}
+### Mermaid data-flow limits {#mermaid-limits}
 
 The diagrams describe source-confirmed session establishment, token verification, and error-classification paths; they do not claim every run makes a network request, nor that `/auth/check`, rate limits, or quotas trigger in every deployment. This page did not start the server, take screenshots, or read real sessions/accounts/keys; runtime behavior must be confirmed with a minimal runnable service.
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -224,15 +228,3 @@ The diagrams describe source-confirmed session establishment, token verification
 | Translation auth | `manga_translator/server/routes/translation_auth.py` | `verify_translation_auth`, disabled-parameter defaults, feature permissions, task counting |
 | Route status codes | `manga_translator/server/routes/translation.py`, `history.py`, `web.py`, `users.py`, `groups.py`, `config_management.py`, `sessions.py` | 200/201/204/400/404/409/429/499/500, download tickets |
 | UI/i18n | `manga_translator/server/static/script.js`, `login.html`, `static/js/i18n.js`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | key mapping, hardcoded texts, `localStorage.session_token` |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| Authentication and error contract | Complete | Statically checked middleware, auth, translation_auth, session_service, and the status-code matrix |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values; `login.html` hardcoded texts are marked as such |
-| Route mirror and source evidence | Complete | `node scripts/verify-route-mirror.mjs .` and `node scripts/verify-source-evidence.mjs .` passed |
-| Sanitized runtime verification | Deferred | No server started and no real session/account/key read; verify actual responses after running `uv run --no-sync python -m manga_translator web` |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
-

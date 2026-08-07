@@ -51,6 +51,10 @@ def _save_image(path: Path) -> None:
     assert image.save(str(path))
 
 
+def _catalog_path(path: str | Path) -> str:
+    return os.path.abspath(os.path.normpath(path))
+
+
 def _wait_until(predicate, timeout_ms: int = 3000) -> None:
     elapsed = 0
     while elapsed < timeout_ms and not predicate():
@@ -96,13 +100,13 @@ def test_snapshot_is_complete_sorted_deduplicated_and_metadata_ready() -> None:
             "book.cbz",
         ]
         assert snapshot.files == (
-            str(source.resolve()),
-            str(translated.resolve()),
-            str((root / "book.cbz").resolve()),
+            _catalog_path(source),
+            _catalog_path(translated),
+            _catalog_path(root / "book.cbz"),
         )
-        assert snapshot.editor_files == (str(source.resolve()),)
-        assert snapshot.source_by_file[str(translated.resolve())] == str(source.resolve())
-        assert snapshot.json_by_file[str(source.resolve())] == str(source_json.resolve())
+        assert snapshot.editor_files == (_catalog_path(source),)
+        assert snapshot.source_by_file[_catalog_path(translated)] == _catalog_path(source)
+        assert snapshot.json_by_file[_catalog_path(source)] == _catalog_path(source_json)
         assert snapshot.roots[0].file_count == 3
         assert snapshot.images_only().files == snapshot.image_files
 
@@ -176,7 +180,7 @@ def test_view_uses_model_delegate_and_gui_thread_pixmap() -> None:
             _wait_until(lambda: isinstance(first_index.data(THUMBNAIL_ROLE), QPixmap))
             assert isinstance(view.model(), FileCatalogModel)
             assert view.indexWidget(first_index) is None
-            assert selected[-1] == str(first.resolve())
+            assert selected[-1] == _catalog_path(first)
 
             view.select_next_image()
             assert view.currentIndex().data().startswith("page2")
@@ -187,9 +191,9 @@ def test_view_uses_model_delegate_and_gui_thread_pixmap() -> None:
                 Qt.MouseButton.LeftButton,
                 pos=QPoint(second_rect.right() - 18, second_rect.center().y()),
             )
-            _wait_until(lambda: removed == [str(second.resolve())])
+            _wait_until(lambda: removed == [_catalog_path(second)])
             view.remove_file(removed[0])
-            assert str(second.resolve()) not in view.catalog_model.image_paths()
+            assert _catalog_path(second) not in view.catalog_model.image_paths()
         finally:
             view.close()
             view.deleteLater()

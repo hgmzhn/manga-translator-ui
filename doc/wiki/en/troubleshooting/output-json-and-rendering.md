@@ -27,15 +27,6 @@ Reproduce the task once and keep the logs; most output/JSON/rendering problems c
 3. Filter the log for: `Saved successfully` / `Skipping existing file`, `JSON saved to` / `Failed to read or parse`, `[RENDER SKIPPED]`, `Error saving image`, `stage='rendering'` / `stage='saving'`.
 4. Do not copy local paths, translation bodies, request payloads, or debug images from logs into public reports or shared archives.
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `💾 Files saved to: {dir}` | 💾 Files saved to: {dir} | 💾 文件已保存到：{dir} |
-| `📁 Output directory: {dir}` | 📁 Output directory: {dir} | 📁 输出目录：{dir} |
-| `⏭️ Skipped {count} existing files.` | ⏭️ Skipped {count} existing files (overwrite detection disabled) | ⏭️ 已跳过 {count} 个已存在的文件（覆盖检测已禁用） |
-| `Translation completed, {count} files saved.\n\nOpen results in editor?` | Translation completed, {count} files saved.\n\nOpen results in editor? | 翻译完成，成功保存 {count} 个文件。\n\n是否在编辑器中打开结果？ |
-| `desc_cli_verbose` | Output detailed debug info to logs for troubleshooting.<br><br>When enabled, Qt UI writes these items under `result/`:<br>- `log_timestamp.txt`: Qt UI runtime log<br>- `timestamp-image-target-translator/`: debug intermediate files for a single task<br><br>Cleanup: close Qt UI first, then delete the unneeded `log_*.txt` files and matching timestamp debug folders under `result/`. | 输出详细的调试信息到日志，方便排查问题。<br><br>开启后会在 `result/` 目录生成：<br>- `log_时间戳.txt`：Qt UI 运行日志<br>- `时间戳-图片名-目标语言-翻译器/`：单次任务的调试中间文件<br><br>清理方法：先关闭 Qt UI，再到 `result/` 目录删除不需要的 `log_*.txt` 和对应的时间戳调试文件夹即可。 |
-
 The `count` in “Translation completed, {count} files saved.” is the number of files actually saved or skipped in this run; it does not mean every file was re-rendered. Skipping an existing file also counts as success.
 
 ## Output file issues {#output-file-issues}
@@ -273,55 +264,3 @@ flowchart TD
 - AI rendering depends on API configuration, network, and model capability; concurrency, large images, and rich-text styles increase resource use, and cancelled tasks must not share intermediate requests or user images.
 - Fonts, layout modes, and AI line breaking constrain each other; `check_br_and_retry` can loop indefinitely and must be used with care.
 - PSD export requires local Photoshop; JSX, JSON, and TXT may contain text and paths — sanitize before sharing per [Privacy Cleanup and Log Sharing](./privacy-cleanup-and-log-sharing.md).
-
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `manga_translator_work/json/<stem>_translations.json` | Project JSON: regions, masks, styles, rendering flags, export directory | Top-level key is the source-image absolute path; parse failures disable writeback; do not break the structure with a plain text editor |
-| `<source-dir>/<stem>_translations.json` | Legacy JSON input fallback | Read-only compatibility; writeback still goes to the new location |
-| `<stem>_translations.txt` | Legacy TXT input fallback | No mask and no rendering style |
-| `manga_translator_work/originals/<stem>_original.<fmt>` | Export Original Text sidecar | Extension comes from `output_format` in `config/translation_template.json`, default `json` |
-| `manga_translator_work/translations/<stem>_translated.<fmt>` | Export Translation sidecar | Same extension rule |
-| `manga_translator_work/result/` | Output location for “Save to Source Directory” | Created only when `save_to_source_dir` is enabled |
-| `result/` | Verbose logs and debug intermediates | Not produced every run; sanitize before sharing |
-| `manga_translator_work/psd/<stem>.psd`, `<stem>_photoshop_script.jsx` | PSD/JSX export | Requires Photoshop; JSX may contain absolute paths |
-| `<output-dir>/translation_map.json` | Result-image → source-image mapping | Used by the editor to resolve source images |
-| `<json-file>.bak` | Backup before batch writes | Deleted after restore; do not treat as the real project file |
-| `config/translation_template.json` | Template output extension | Not strict JSON; `output_format` only accepts safe extensions |
-| `dict/ai_renderer_prompt.yaml` | Fixed AI-renderer prompt | Must not contain real keys or private prompts |
-| `fonts/*.ttf`, `*.otf`, `*.ttc` | Rendering font resources | Mind licenses and glyph coverage |
-
-This page never displays real `.env`, user `config.json`, keys, tokens, usernames, private absolute paths, user images, or private prompts.
-
-## Mermaid data-flow limits {#mermaid-limits}
-
-The three diagnostic flowcharts describe source-confirmed branches; they do not claim every symptom always occurs — rely on the logs for the actual trigger. No runtime screenshot or private task artifact has been fabricated, and unverified “always happens” behavior is not presented as normal.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Output path and saving | `manga_translator/manga_translator.py` | `_calculate_output_path`, `_save_translated_image`, `_save_and_cleanup_context`, `translation_map.json` write |
-| Image encoding | `manga_translator/image_formats.py`, `manga_translator/utils/generic.py`, `manga_translator/save.py` | Format whitelist, RGB/quality, ICC/DPI, `FormatNotSupportedException` |
-| Project JSON | `manga_translator/manga_translator.py` | `_save_text_to_file`, `_load_text_and_regions_from_file`, parse-failure writeback guard |
-| Paths | `manga_translator/utils/path_manager.py` | New/legacy JSON, originals/translations, inpainted, paint_overlay paths |
-| Template format | `manga_translator/utils/translation_template.py` | `output_format` parsing and safe extensions |
-| Runtime files | `manga_translator/runtime_files.py` | Runtime-table initialization for translation template, text replacements, rich-text rules |
-| Local rendering | `manga_translator/rendering/__init__.py`, `manga_translator/rendering/text_render/_fonts.py` | `dispatch`, `[RENDER SKIPPED]`, font fallback and sanitization |
-| AI rendering | `manga_translator/rendering/model_api_renderer.py` | Key validation, request construction, concurrency, square-crop restore |
-| Line breaking | `manga_translator/rendering/chinese_linebreak.py` | HanLP model preparation and normal-wrapping fallback |
-| Desktop validation and hints | `desktop_qt_ui/app_logic.py` | `API Keys Required`, rendering failure hints, `save_info` construction |
-| UI/i18n | `desktop_qt_ui/ui/main_page/settings_tab_layout.json`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual bilingual display values |
-| Workflows/editor | `desktop_qt_ui/services/workflow_service.py`, `desktop_qt_ui/editor/controller_export_service.py` | Overwrite checks, editor JSON writeback, and `.bak` |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full (including section 1.3 and 5.17); only the placeholder page was modified |
-| Output/JSON/rendering source chain | Complete | Statically checked `save.py`, `image_formats.py`, `path_manager.py`, `manga_translator.py`, `rendering/`, `model_api_renderer.py`, `runtime_files.py` |
-| i18n three-column evidence | Complete | Each value verified against `en_US.json` / `zh_CN.json` |
-| Route mirror and source evidence | Complete (this page) | `node scripts/verify-route-mirror.mjs .` and `node scripts/verify-source-evidence.mjs .` pass |
-| Sanitized runtime verification | Deferred | No real keys, user images, or private paths were read; runtime and headless screenshots come in a later phase |
-| VitePress build | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |

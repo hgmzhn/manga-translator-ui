@@ -19,16 +19,6 @@ lastUpdated: true
 
 ## 端口契约 {#ports-contract}
 
-| 入口 | 源码固定值 | 说明与来源 |
-| --- | --- | --- |
-| `web` 模式 | `--host` 默认 `MT_WEB_HOST` 或 `0.0.0.0`；`--port` 默认 `MT_WEB_PORT` 或 `8000` | `manga_translator/args.py`；`server/main.py#run_server()` 用同一值启动 Uvicorn |
-| Uvicorn | `timeout_keep_alive=1800`、`timeout_graceful_shutdown=30` | 长连接保持 30 分钟以支持批量翻译；优雅关闭 30 秒 |
-| `shared` 模式 | `--host` / `--port` 默认 `127.0.0.1:5003` | `manga_translator/args.py`；`mode/share.py` 用它启动内部 FastAPI |
-| `ws` 模式 | 本地监听 `127.0.0.1:5003`；`--ws-url` 默认 `ws://localhost:5000` | `manga_translator/args.py`；`mode/ws.py` 读取 `ws_url` |
-| Docker CPU | 容器监听 `8000`，Compose 映射 `8000:8000` | `packaging/Dockerfile`、`packaging/docker-compose.yml` |
-| Docker GPU | 容器仍监听 `8000`，Compose 映射 `8001:8000` | 主机访问入口是 `8001`，不是容器内 `8000` |
-| 未接线的解析器 | `manga_translator/server/args.py` 默认 `127.0.0.1:8000`（帮助文字写 `8080`） | 未被正式顶层 `manga_translator.args` 使用，不能据此改写正式默认值 |
-
 `0.0.0.0` 表示服务器监听所有 IPv4 接口，不是浏览器访问地址；本机通常用 `http://127.0.0.1:8000` 或 `http://localhost:8000`，局域网客户端必须使用服务器实际 LAN 地址。对外可达性取决于防火墙、端口映射和网络环境，静态源码无法断言。
 
 ```mermaid
@@ -87,6 +77,36 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 
 ## 环境变量 {#environment-variables}
 
+优先级：显式命令行参数 > 进程启动时已存在的环境变量 > `.env` 文件 > 代码默认值。`main.py` 以 `override=False` 加载 `.env`，因此已存在于进程环境中的同名变量不会被 `.env` 覆盖；管理界面 `POST /env` 通过 `EnvService` 写入应用目录 `.env` 后再以 `override=True` 重载。
+
+本页不列出也不展示任何真实密钥。`OPENAI_API_KEY`、`GEMINI_API_KEY` 等凭据变量只由翻译器读取，服务端 `/env` 与 `/env/effective` 不返回明文。
+
+## 依赖与冲突 {#dependencies-and-conflicts}
+
+- `0.0.0.0` 监听所有接口不等于对外可用；Windows 防火墙、云安全组和 NAT 端口映射决定局域网/公网可达性，静态源码不能证明实际暴露范围。
+- 端口占用：`web` 默认 `8000`、Docker GPU 主机入口 `8001` 与 `shared` / `ws` 的 `5003` 分属不同用途；若同一主机上多实例或旧版服务占用端口，Uvicorn 会启动失败。
+- CORS 配置为 `allow_origins=["*"]` + `allow_credentials=True`，但这是源码配置，不代表浏览器对每种 origin/credential 组合都会放行；跨域部署需用浏览器预检实际验证。
+- `MANGA_TRANSLATOR_WEB_SERVER=true` 会阻止翻译器（OpenAI/Gemini 等）重新加载 `.env`，避免覆盖服务器密钥；这与 CLI 本地模式的 `.env` 重载行为不同。
+- `web` 模式强制 `start_instance=False`，不会自动拉起 `shared` 翻译进程；`server/args.py --start-instance` 的进程拉起路径属于未接线的独立入口，不能当作正式 `web` 模式行为。
+
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 端口契约
+
+| 入口 | 源码固定值 | 说明与来源 |
+| --- | --- | --- |
+| `web` 模式 | `--host` 默认 `MT_WEB_HOST` 或 `0.0.0.0`；`--port` 默认 `MT_WEB_PORT` 或 `8000` | `manga_translator/args.py`；`server/main.py#run_server()` 用同一值启动 Uvicorn |
+| Uvicorn | `timeout_keep_alive=1800`、`timeout_graceful_shutdown=30` | 长连接保持 30 分钟以支持批量翻译；优雅关闭 30 秒 |
+| `shared` 模式 | `--host` / `--port` 默认 `127.0.0.1:5003` | `manga_translator/args.py`；`mode/share.py` 用它启动内部 FastAPI |
+| `ws` 模式 | 本地监听 `127.0.0.1:5003`；`--ws-url` 默认 `ws://localhost:5000` | `manga_translator/args.py`；`mode/ws.py` 读取 `ws_url` |
+| Docker CPU | 容器监听 `8000`，Compose 映射 `8000:8000` | `packaging/Dockerfile`、`packaging/docker-compose.yml` |
+| Docker GPU | 容器仍监听 `8000`，Compose 映射 `8001:8000` | 主机访问入口是 `8001`，不是容器内 `8000` |
+| 未接线的解析器 | `manga_translator/server/args.py` 默认 `127.0.0.1:8000`（帮助文字写 `8080`） | 未被正式顶层 `manga_translator.args` 使用，不能据此改写正式默认值 |
+
+#### 环境变量
+
 | 环境变量 | 作用 | 读取位置 |
 | --- | --- | --- |
 | `MT_WEB_HOST` | `web` 模式监听地址默认值；缺省 `0.0.0.0` | `manga_translator/args.py` |
@@ -102,11 +122,7 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 | `MANGA_TRANSLATOR_ENV_PATH` | 指向应用目录 `.env` 的提示路径（`APP_DOTENV_PATH_ENV`） | `utils/dotenv_utils.py` |
 | `WS_SECRET` | `ws` 模式上游 WebSocket 密钥 | `mode/ws.py` |
 
-优先级：显式命令行参数 > 进程启动时已存在的环境变量 > `.env` 文件 > 代码默认值。`main.py` 以 `override=False` 加载 `.env`，因此已存在于进程环境中的同名变量不会被 `.env` 覆盖；管理界面 `POST /env` 通过 `EnvService` 写入应用目录 `.env` 后再以 `override=True` 重载。
-
-本页不列出也不展示任何真实密钥。`OPENAI_API_KEY`、`GEMINI_API_KEY` 等凭据变量只由翻译器读取，服务端 `/env` 与 `/env/effective` 不返回明文。
-
-## UI 文案对照 {#ui-copy}
+#### UI 文案对照 {#ui-copy}
 
 本页面向开发者，可核对的界面文案主要来自 Web 管理控制台与共享 locale：
 
@@ -120,15 +136,7 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 
 这些 `web_*` key 来自桌面共享 locale（`desktop_qt_ui/locales/en_US.json`、`zh_CN.json`）。`admin-new.html` 当前把“服务器配置”等导航与面板文字硬编码为中文，尚未逐项调用这些 key；英文界面显示需要未来 i18n 阶段核对，本页不擅自补译。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
-
-- `0.0.0.0` 监听所有接口不等于对外可用；Windows 防火墙、云安全组和 NAT 端口映射决定局域网/公网可达性，静态源码不能证明实际暴露范围。
-- 端口占用：`web` 默认 `8000`、Docker GPU 主机入口 `8001` 与 `shared` / `ws` 的 `5003` 分属不同用途；若同一主机上多实例或旧版服务占用端口，Uvicorn 会启动失败。
-- CORS 配置为 `allow_origins=["*"]` + `allow_credentials=True`，但这是源码配置，不代表浏览器对每种 origin/credential 组合都会放行；跨域部署需用浏览器预检实际验证。
-- `MANGA_TRANSLATOR_WEB_SERVER=true` 会阻止翻译器（OpenAI/Gemini 等）重新加载 `.env`，避免覆盖服务器密钥；这与 CLI 本地模式的 `.env` 重载行为不同。
-- `web` 模式强制 `start_instance=False`，不会自动拉起 `shared` 翻译进程；`server/args.py --start-instance` 的进程拉起路径属于未接线的独立入口，不能当作正式 `web` 模式行为。
-
-## 关联文件与格式 {#related-files}
+### 关联文件与格式 {#related-files}
 
 | 文件 | 本页实际作用 | 注意 |
 | --- | --- | --- |
@@ -141,11 +149,11 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 | `manga_translator/runtime_paths.py`、`manga_translator/server_paths.py` | 应用目录、`config/`、`server/data/` 路径 | 打包版目录在可执行文件旁 |
 | `manga_translator/server/core/config_manager.py` | `admin_config.json` 与 `MANGA_TRANSLATOR_ADMIN_PASSWORD` | 不展示真实密码 |
 
-## Mermaid 边界 {#mermaid-boundary}
+### Mermaid 边界 {#mermaid-boundary}
 
 上面的端口图只表示各正式 CLI 模式绑定的端点，不代表 `web` 模式会自动拉起 `shared` / `ws` 进程，也不代表 `ws://localhost:5000` 在本仓库内一定存在一个监听服务。Docker 映射只描述 Compose 模板中的端口映射；真实暴露范围、防火墙和反向代理配置需在目标环境验证。本页没有伪造运行截图或私有凭据。
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -158,15 +166,3 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 | 路径 | `manga_translator/runtime_paths.py`、`manga_translator/server_paths.py` | 应用目录、`config/`、`server/data/` |
 | 管理配置 | `manga_translator/server/core/config_manager.py` | `MANGA_TRANSLATOR_ADMIN_PASSWORD` 初始化规则 |
 | UI/i18n | `desktop_qt_ui/locales/en_US.json`、`desktop_qt_ui/locales/zh_CN.json`、`server/static/admin-new.html` | `web_*` key 实际值与管理控制台硬编码差异 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；未修改 TODO.md |
-| 端口契约 | 完成 | 静态核对 `args.py`、`main.py`、`share.py`、`ws.py` 与 Docker 文件 |
-| 环境变量 | 完成 | 静态核对全部 `MT_*` 与 `MANGA_TRANSLATOR_*` 读取位置与优先级 |
-| UI 文案三列 | 完成 | 核对 `en_US.json` / `zh_CN.json` 的 `web_*` 实际值与 HTML 硬编码差异 |
-| 路由镜像 / 源码依据脚本 | 完成 | `node scripts/verify-route-mirror.mjs .` 与 `node scripts/verify-source-evidence.mjs .` 通过 |
-| 脱敏运行验证 | 待后续 | 未启动服务、未读取真实 `.env`、账号、令牌、用户图片或私有路径 |
-| VitePress 构建 | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |

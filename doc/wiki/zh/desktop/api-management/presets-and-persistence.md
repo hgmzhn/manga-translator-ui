@@ -23,51 +23,18 @@ lastUpdated: true
 
 ### 在 API 管理页管理预设
 
-1. 打开左侧导航“API 管理”（`API Management`）。页头卡片副标题“管理每个翻译器的 API 密钥和环境变量”（`Manage API keys and environment variables for each translator`）下方是全局预设工具栏，对翻译、OCR、上色、渲染四个页签同时生效。
-2. 预设工具栏由三部分组成：标签“预设：”（`Preset:`）、只读下拉框、`+`（添加新预设）与“删除”（`Delete`）按钮。`+` 与“删除”的具体提示分别来自“添加新预设”（`Add new preset`）和“删除选中的预设”（`Delete selected preset`）。
-3. 点击 `+` 弹出“添加预设”（`Add Preset`）对话框，提示“输入预设名称：”（`Enter preset name:`）。名称为空时警告“预设名称不能为空”（`Preset name cannot be empty`）；同名时询问“预设 '{name}' 已存在。是否覆盖？”（`Preset '{name}' already exists. Overwrite?`）。新建预设默认是空白预设：包含全部已知 API 环境变量键、值全部为空，不会复制当前 `.env` 内容。
+1. 打开左侧导航“API 管理”。页头卡片副标题“管理每个翻译器的 API 密钥和环境变量”下方是全局预设工具栏，对翻译、OCR、上色、渲染四个页签同时生效。
+2. 预设工具栏由三部分组成：标签“预设：”、只读下拉框、`+`（添加新预设）与“删除”按钮。`+` 与“删除”的具体提示分别来自“添加新预设”和“删除选中的预设”。
+3. 点击 `+` 弹出“添加预设”对话框，提示“输入预设名称：”。名称为空时警告“预设名称不能为空”；同名时询问“预设 '{name}' 已存在。是否覆盖？”。新建预设默认是空白预设：包含全部已知 API 环境变量键、值全部为空，不会复制当前 `.env` 内容。
 4. 在下拉框选择其他预设即开始切换：先等待（flush）未落盘的待写内容，把当前 `.env` 值保存回旧预设，再用新预设整体替换 `.env`，最后按新值刷新所有输入框和占位符。
-5. 点击“删除”（`Delete`）会先询问“确定要删除预设 '{name}' 吗？”（`Are you sure you want to delete preset '{name}'?`），确认后删除 `presets/<名称>.json`，成功提示“预设删除成功”（`Preset deleted successfully`）。
+5. 点击“删除”会先询问“确定要删除预设 '{name}' 吗？”，确认后删除 `presets/<名称>.json`，成功提示“预设删除成功”。
 
 ### 在设置页导出与导入配置
 
 1. 打开“设置”（`Settings`），页头右侧有“导出配置”（`Export Config`）与“导入配置”（`Import Config`）按钮。
-2. 导出配置把当前设置写成 JSON，排除 `app` 段与 `cli.verbose`；因为 API 密钥只存在于 `.env`，导出结果不包含任何凭据，弹窗提示 “Sensitive information like API keys are not included.”（实际显示值以当前 locale 为准）。
-3. 导入配置把所选 JSON 深度合并进当前设置，保留当前 `app` 段，不写 `.env`；弹窗提示 “Your API keys and sensitive information have been preserved.”，现有 API 密钥不受影响。
+2. 导出配置把当前设置写成 JSON，排除 `app` 段与 `cli.verbose`；因为 API 密钥只存在于 `.env`，导出结果不包含任何凭据，弹窗会提示导出内容不含 API 密钥等敏感信息（实际显示值以当前 locale 为准）。
+3. 导入配置把所选 JSON 深度合并进当前设置，保留当前 `app` 段，不写 `.env`；弹窗会提示 API 密钥等敏感信息已保留，现有 API 密钥不受影响。
 4. 导入成功后发送 `config_loaded` 信号，设置页重建并刷新说明面板；`.env` 中的 API 凭据不会被导入操作改写。
-
-### 页面、预设与弹窗文案
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `API Management` | API Management | API 管理 |
-| `Manage API keys and environment variables for each translator` | Manage API keys and environment variables for each translator | 管理每个翻译器的 API 密钥和环境变量 |
-| `Preset:` | Preset: | 预设： |
-| `Add new preset` | Add new preset | 添加新预设 |
-| `Delete selected preset` | Delete selected preset | 删除选中的预设 |
-| `Delete` | Delete | 删除 |
-| `Add Preset` | Add Preset | 添加预设 |
-| `Enter preset name:` | Enter preset name: | 输入预设名称： |
-| `OK` | OK | 确定 |
-| `Cancel` | Cancel | 取消 |
-| `Warning` | Warning | 警告 |
-| `Confirm` | Confirm | 确认 |
-| `Error` | Error | 错误 |
-| `Preset name cannot be empty` | Preset name cannot be empty | 预设名称不能为空 |
-| `Preset '{name}' already exists. Overwrite?` | Preset '{name}' already exists. Overwrite? | 预设 '{name}' 已存在。是否覆盖？ |
-| `Are you sure you want to delete preset '{name}'?` | Are you sure you want to delete preset '{name}'? | 确定要删除预设 '{name}' 吗？ |
-| `Preset deleted successfully` | Preset deleted successfully | 预设删除成功 |
-| `Failed to delete preset` | Failed to delete preset | 删除预设失败 |
-| `Failed to create preset` | 缺失：两个 locale 均无翻译，回退显示 key 原文 | 缺失：两个 locale 均无翻译，回退显示 key 原文 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `Export Success` | Export Success | 导出成功 |
-| `Import Success` | Import Success | 导入成功 |
-| `Export Failed` | Export Failed | 导出失败 |
-| `Import Failed` | Import Failed | 导入失败 |
-| `API Keys Required` | API Keys Required | 需要填写 API 密钥 |
-
-`Load selected preset`（加载选中的预设）、`Preset loaded successfully`、`Failed to load preset` 等 key 存在于两个 locale，但当前界面没有独立的“加载”按钮，切换预设直接由下拉框选择触发；`Failed to create preset` 在两个 locale 都缺失，界面会按 i18n 回退规则显示 key 原文。
 
 ## 运行机理
 
@@ -119,37 +86,3 @@ flowchart LR
 - Web 多用户场景下 `translator.user_api_key`/`user_api_base`/`user_api_model` 等覆盖优先级高于 `.env`（见[API 凭据、地址与模型](./credentials-addresses-models.md)）；桌面端默认不存在这些覆盖。
 - 预设名会经 `_sanitize_filename` 清洗（`< > : " / \ | ? *` 替换为 `_`）；预设下拉框只显示 `presets/` 下 `*.json` 文件去掉后缀的名称。
 - 退出前 `shutdown` 只保证“已提交的写入”完成，不负责再次读取输入框；正常输入已随 250 ms 防抖提交到内存。
-
-## 关联文件与格式
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `.env` | 桌面端唯一凭据持久化位置，`KEY="value"` 引号格式 | 含真实密钥，禁止提交或展示；不要在有待写操作时手改 |
-| `presets/<名称>.json` | API 预设快照：扁平 `{env_key: value}` JSON | 含真实密钥；名称经非法字符清洗；应用预设会整体替换 `.env` |
-| `config/config.json` | 用户设置持久化，`app.current_preset` 记录当前预设名 | 不保存 API 密钥；导出排除 `app` 段，导入保留现有 `app` 段 |
-| `config/config-example.json` | 发行默认配置，`app.current_preset` 默认 `"默认"` | 只使用脱敏示例，不包含任何 API 密钥 |
-| `config/custom_api_params.json` | 请求体“模型预设”，common/translator/ocr/colorizer/render 分区 | 与本页 API 预设无关；按模型名匹配，见自定义请求参数页 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| UI 预设工具栏 | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | `Preset:` 标签、下拉框、`+`/`Delete` 按钮与悬浮提示 |
-| UI 预设操作 | `desktop_qt_ui/ui/main_page/env_management.py` | 增删、切换、刷新输入框、flush 时机、脱敏回显 |
-| 控制器 | `desktop_qt_ui/app_logic.py` | save/load/delete preset、导出/导入配置、任务启动前排空待写内容 |
-| `.env` 持久化 | `desktop_qt_ui/services/config_service.py` | 250 ms 防抖、单写线程、原子写、整文件替换、退出刷新 |
-| 预设服务 | `desktop_qt_ui/services/preset_service.py` | `presets/` 目录、默认预设、名称清洗、规范化补齐 |
-| dotenv 工具 | `manga_translator/utils/dotenv_utils.py` | `KEY="value"` 行格式、加载/合并/删除 |
-| 运行读取 | `manga_translator/runtime_api_resolver.py` | 任务启动时按槽读取 `os.environ` 构造候选 |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 预设与导入导出 key 及实际中英文显示值 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已读取 1.3 节与 5.6 小节并按页面合同编写 |
-| UI 布局与调用 | 完成 | 静态核对 dynamic_settings、env_management、settings_page、app_logic |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 表格逐项记录 key、English、简体中文实际值；缺失项已如实标记 |
-| 持久化生命周期 | 完成 | 静态核对 config_service 防抖/单写线程/原子写/整文件替换/shutdown |
-| 脱敏运行验证 | 待后续 | 未读取真实 `.env`、`presets/*.json`、用户 `config.json`、API key/token、用户名、用户图片或私有提示词 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

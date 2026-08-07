@@ -20,13 +20,6 @@ lastUpdated: true
 
 ## 管理端点总览 {#endpoint-overview}
 
-| 路由组（前缀） | 方法与路径 | 数量 | 鉴权边界 / 来源 |
-| --- | --- | ---: | --- |
-| 用户（`/api/admin/users`） | `POST /`、`GET /`、`GET\|PUT\|DELETE /{username}`、`PUT /{username}/permissions` | 6 | 全部 `require_admin`；创建 `201`、删除 `204`；`routes/users.py` |
-| 用户组（`/api/admin/groups`） | `POST /`、`GET /`、`GET /{group_id}`、`PUT /{group_id}/rename`、`/{group_id}/config`、`DELETE /{group_id}` | 6 | 全部 `require_admin`；创建 `201`；`routes/groups.py` |
-| 配额（`/api`） | `GET /quota/stats`、`GET /admin/quota/stats`、`POST /admin/quota/reset`、`/admin/quota/set-limits`、`GET /admin/quota/user/{user_id}` | 5 | 第一个 `require_auth`，其余管理员；`routes/quota.py` |
-| 审计（`/audit`） | `GET /events`、`GET /export` | 2 | 全部 `require_admin`；`routes/audit.py` |
-
 未显式声明成功状态的端点默认返回 `200`；失败时的错误结构、`401`/`403` 与 `422` 信封见[HTTP API 鉴权与错误](./authentication-and-errors.md)。
 
 ## 用户管理端点 {#user-endpoints}
@@ -154,6 +147,30 @@ flowchart LR
 
 管理员在 `GET /admin`（`admin-new.html`）操作账号与组。侧边栏的用户管理（`users`）、用户组管理（`groups`）、配额管理（`quota`）模块分别调用 `GET /api/admin/users`、`GET /api/admin/groups`、`GET /api/admin/groups/{id}` 与 `PUT /api/admin/groups/{id}/config`；用户/组编辑弹窗复用 `permission-editor.js` 组件，其标签来自桌面 locale 的 i18n key。配额模块的“默认配额设置”走旧的 `GET/PUT /admin/settings`（`default_quota` 字段），用户配额表格来自 `GET /api/admin/users` 返回的 `quota` 字段，并没有调用 `/api/admin/quota/*` 端点；审计端点没有对应管理界面页签。
 
+## 依赖与冲突 {#dependencies-and-conflicts}
+
+- 用户组的 `parameter_config` 既是组内参数可见性/只读控制（`GroupService`），也承载组级配额（`quota` 下的 `daily_image_limit`、`max_concurrent_tasks`）；而 `quota_limits` 字段由 `GroupManagementService` 保存、由 `QuotaManagementService` 读取。两条组级配额路径并存，修改时需同时核对。
+- 翻译请求的每日配额与并发限制由 `permission_service`（内存计数，组级 `daily_image_limit` 优先于用户 `daily_quota`）执行；`/api/quota/*` 的 `QuotaManagementService` 是文件持久化、用户级优先的独立实现。两者互不同步：管理员用 `/api/admin/quota/reset` 重置的计数器不直接影响翻译入口的 `daily_usage`。
+- 停用用户会终止其全部会话；删除用户同样先终止会话再删除。删除自己被明确拒绝（`400 CANNOT_DELETE_SELF`）。
+- 系统组 `admin`、`default`、`guest` 不可重命名或删除；重命名组会改写所有成员的 `group` 字段，删除组会把成员移动到 `default`。
+- 审计 API 只能查询 `AuditEvent` 行格式；组管理写入的另一种行会被跳过，不能当作审计 API 的数据缺失证据。
+- 所有管理端点返回体可能包含用户名、组名等标识符；共享日志、导出文件或调试目录前必须删除真实账号名、令牌、API Key 和私有路径。
+
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 管理端点总览
+
+| 路由组（前缀） | 方法与路径 | 数量 | 鉴权边界 / 来源 |
+| --- | --- | ---: | --- |
+| 用户（`/api/admin/users`） | `POST /`、`GET /`、`GET\|PUT\|DELETE /{username}`、`PUT /{username}/permissions` | 6 | 全部 `require_admin`；创建 `201`、删除 `204`；`routes/users.py` |
+| 用户组（`/api/admin/groups`） | `POST /`、`GET /`、`GET /{group_id}`、`PUT /{group_id}/rename`、`/{group_id}/config`、`DELETE /{group_id}` | 6 | 全部 `require_admin`；创建 `201`；`routes/groups.py` |
+| 配额（`/api`） | `GET /quota/stats`、`GET /admin/quota/stats`、`POST /admin/quota/reset`、`/admin/quota/set-limits`、`GET /admin/quota/user/{user_id}` | 5 | 第一个 `require_auth`，其余管理员；`routes/quota.py` |
+| 审计（`/audit`） | `GET /events`、`GET /export` | 2 | 全部 `require_admin`；`routes/audit.py` |
+
+#### 管理界面 i18n 文案
+
 | UI 调用 key | English 实际值 | 简体中文实际值 |
 | --- | --- | --- |
 | `web_user_management` | User Management | 用户管理 |
@@ -181,16 +198,7 @@ flowchart LR
 
 `admin-new.html` 还有一批没有 i18n key 的硬编码中文文案，例如“用户列表”“添加用户”“暂无用户”“活跃”“禁用”“编辑”“删除”“保存配额设置”“默认配额设置”“用户配额使用情况”，英文界面缺失；文档不补译这些缺失值。以上 key 的英文与简体中文值来自 `desktop_qt_ui/locales/en_US.json` 与 `zh_CN.json`，管理端通过 `/i18n/{locale}` 复用同一份 locale。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
-
-- 用户组的 `parameter_config` 既是组内参数可见性/只读控制（`GroupService`），也承载组级配额（`quota` 下的 `daily_image_limit`、`max_concurrent_tasks`）；而 `quota_limits` 字段由 `GroupManagementService` 保存、由 `QuotaManagementService` 读取。两条组级配额路径并存，修改时需同时核对。
-- 翻译请求的每日配额与并发限制由 `permission_service`（内存计数，组级 `daily_image_limit` 优先于用户 `daily_quota`）执行；`/api/quota/*` 的 `QuotaManagementService` 是文件持久化、用户级优先的独立实现。两者互不同步：管理员用 `/api/admin/quota/reset` 重置的计数器不直接影响翻译入口的 `daily_usage`。
-- 停用用户会终止其全部会话；删除用户同样先终止会话再删除。删除自己被明确拒绝（`400 CANNOT_DELETE_SELF`）。
-- 系统组 `admin`、`default`、`guest` 不可重命名或删除；重命名组会改写所有成员的 `group` 字段，删除组会把成员移动到 `default`。
-- 审计 API 只能查询 `AuditEvent` 行格式；组管理写入的另一种行会被跳过，不能当作审计 API 的数据缺失证据。
-- 所有管理端点返回体可能包含用户名、组名等标识符；共享日志、导出文件或调试目录前必须删除真实账号名、令牌、API Key 和私有路径。
-
-## 关联文件与格式 {#related-files-and-formats}
+### 关联文件与格式 {#related-files-and-formats}
 
 | 文件/格式 | 本页实际作用 | 手改与兼容注意 |
 | --- | --- | --- |
@@ -200,7 +208,7 @@ flowchart LR
 | `manga_translator/server/data/audit.log` | 审计事件 JSON Lines 日志 | 10MB 轮转、5 备份；含两种行格式 |
 | `manga_translator/server/data/sessions.json` | 会话持久化 | 停用/删除用户时终止会话；不展示真实令牌 |
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -210,14 +218,3 @@ flowchart LR
 | 模型与仓库 | `manga_translator/server/models/group_models.py`、`quota_models.py`、`repositories/group_repository.py`、`repositories/quota_repository.py`、`core/models.py` | `UserGroup`、`QuotaLimit`/`QuotaStats`、系统组、`UserPermissions`/`AuditEvent` |
 | 调度与启动 | `manga_translator/server/core/quota_scheduler.py`、`system_init.py` | 每日配额重置、默认管理员、会话清理与日志轮转 |
 | Web UI | `manga_translator/server/static/admin-new.html`、`static/js/admin/modules/{users,groups,quota}.js`、`static/js/admin/components/permission-editor.js`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 管理界面入口、调用端点与 i18n 三列 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；TODO 5.14 只记录本页任务 |
-| 端点与契约 | 完成 | 静态核对 `users.py` / `groups.py` / `quota.py` / `audit.py` 全部路由声明 |
-| 权限与配额来源 | 完成 | 静态核对 `permission_service.py`、`quota_service.py`、`quota_scheduler.py` 与组配置 |
-| UI 与 i18n 三列 | 完成 | 核对 `admin-new.html`、管理端模块 JS 与 `en_US.json`/`zh_CN.json` 实际值 |
-| 脱敏运行验证 | 待后续 | 未启动服务；未读取真实 `accounts.json`、`quotas.json`、`audit.log`、会话令牌或 API key |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

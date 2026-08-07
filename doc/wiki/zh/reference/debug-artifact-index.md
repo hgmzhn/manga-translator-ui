@@ -9,14 +9,14 @@ lastUpdated: true
 
 # 调试产物索引
 
-当翻译结果异常或需要向开发者报告问题时，开启“详细日志”（`Verbose Logging`）后，应用会在 `BASE_PATH/result/` 下写入调试图片、JSON、JSX 与日志文件。本页汇总这些调试产物的完整清单、触发条件与排查用途，并反向链接到 `debugging/` 下的专门页面；单个产物的深入解释不在此展开。
+当翻译结果异常或需要向开发者报告问题时，开启“详细日志”后，应用会在 `BASE_PATH/result/` 下写入调试图片、JSON、JSX 与日志文件。本页汇总这些调试产物的完整清单、触发条件与排查用途，并反向链接到 `debugging/` 下的专门页面；单个产物的深入解释不在此展开。
 
 本索引只负责汇总与反向链接。命名规则、目录结构与“基础产物/条件产物”总览见[调试目录命名与总览](../debugging/folder-naming-and-overview.md)；各产物类别的深入说明分别见[输入检测与长图重排](../debugging/input-detection-and-rearrangement.md)、[OCR 与文本区域](../debugging/ocr-and-text-regions.md)、[蒙版、修复与排版](../debugging/mask-inpainting-and-rendering.md)、[特殊工作流与 WebSocket](../debugging/special-workflows-and-websocket.md)；清理、脱敏与对外分享见[如何阅读和分享一次调试运行](../debugging/how-to-read-and-share-a-debug-run.md)。
 
 ## 功能边界
 
 - 本页只汇总调试产物与触发条件，不重复各 `debugging/` 页面的运行机理、参数和文件格式说明。
-- 所有图片级调试产物都受 `cli.verbose` 总开关控制（UI：“详细日志” / `Verbose Logging`）；关闭时不会生成带时间戳的图片级调试子目录。
+- 所有图片级调试产物都受 `cli.verbose` 总开关控制（UI：详细日志）；关闭时不会生成带时间戳的图片级调试子目录。
 - 图片级调试子目录名为 `{时间戳毫秒}-{图片 MD5 前 8 位}-{检测尺寸}-{目标语言}-{翻译器}`，由 `_set_image_context()` 在每张输入图开始处理时建立，位于 `BASE_PATH/result/` 下。
 - 产物分为“基础产物”（verbose 正常流程最常出现）、“条件产物”（只在特定配置、检测器、工作流或模式下生成）和“目录级/回退产物”（`log_*.txt` 或未带图片级子目录的回退路径）三类。
 - 静态源码搜索未发现仓库内对这些调试文件名的后续读回：它们是启用 verbose 的操作者或问题报告接收者的终端诊断写入。
@@ -24,14 +24,6 @@ lastUpdated: true
 ## UI 操作
 
 在设置页开启“详细日志”的完整操作步骤见[调试目录命名与总览](../debugging/folder-naming-and-overview.md)。本页只记录与本索引直接相关的 UI 文案：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `General` | General | 通用 |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `Open log folder` | Open log folder | 打开日志文件夹 |
-
-`desc_cli_verbose` 说明面板的完整中英文案（含“开启后会在 result/ 目录生成 …”与实际代码命名规则的差异）已逐字记录在[调试目录命名与总览](../debugging/folder-naming-and-overview.md)，本页不重复。
 
 ## 调试产物汇总
 
@@ -84,7 +76,7 @@ lastUpdated: true
 
 ```mermaid
 flowchart LR
-    V["cli.verbose 开启\n（详细日志 / Verbose Logging）"] --> SUB["BASE_PATH/result/ 图片级子目录"]
+    V["cli.verbose 开启\n（详细日志）"] --> SUB["BASE_PATH/result/ 图片级子目录"]
     SUB --> A["检测与长图重排\ninput / mask_raw / bboxes* / rearrange*"]
     SUB --> B["OCR 与文本区域\nocrs/ / bboxes.png"]
     SUB --> C["蒙版、修复与排版\ninpaint_input / mask_final / inpainted / final"]
@@ -133,7 +125,19 @@ flowchart LR
 - 所有调试图片、OCR 裁切图、断句 JSON、JSX 和日志都可能含用户图像、原文/译文、框坐标或本机路径；对外分享前必须脱敏，不能直接打包上传。
 - 本索引不替代各 `debugging/` 页面；参数原理、文件格式与运行机理分别在对应功能页与调试页承接。
 
-## 关联文件与格式
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `General` | General | 通用 |
+| `label_verbose` | Verbose Logging | 详细日志 |
+| `Open log folder` | Open log folder | 打开日志文件夹 |
+
+`desc_cli_verbose` 说明面板的完整中英文案（含“开启后会在 result/ 目录生成 …”与实际代码命名规则的差异）已逐字记录在[调试目录命名与总览](../debugging/folder-naming-and-overview.md)，本页不重复。
+
+### 关联文件与格式
 
 | 文件/目录 | 格式与命名 | 说明 |
 | --- | --- | --- |
@@ -144,7 +148,7 @@ flowchart LR
 | 图片级产物（`input.png`、`bboxes.png`、`mask_raw.png`、`inpaint_input.png`、`mask_final.png`、`inpainted.png`、`final.png` 等） | PNG | 终端诊断写入，供人工排查 |
 | 条件产物（JSON/JSX/JPG 等） | 见各调试页 | 触发条件见“调试产物汇总” |
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -156,14 +160,3 @@ flowchart LR
 | 应用级日志 | `desktop_qt_ui/main.py`、`manga_translator/mode/local.py` | `log_<yyyyMMddHHmmss>.txt` 生成 |
 | UI/i18n | `desktop_qt_ui/ui/main_page/settings_tab_layout.json`、`desktop_qt_ui/ui/main_page/dynamic_settings.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | `label_verbose`、`desc_cli_verbose`、`Open log folder` 实际值 |
 | 调查基线 | `doc/wiki/research/phase0-debug-artifact-path-trace.md`、`phase0-related-files-formats-debug-safety.md`、`phase0-page-coverage-matrix.md` | 产物清单、路径契约与覆盖矩阵 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已读取参考索引边界、页面准则与 TODO 1.3 / 5.16 / 6.3 |
-| 路径契约与产物清单 | 完成 | 静态核对 `phase0-debug-artifact-path-trace.md` 与相关源码写入点 |
-| UI 与 i18n | 完成 | 核对 `label_verbose`、`desc_cli_verbose`、`Open log folder` 实际中英文值 |
-| 中英镜像与源码依据检查 | 完成 | `node scripts/verify-route-mirror.mjs .`、`node scripts/verify-source-evidence.mjs .` 通过 |
-| 脱敏运行验证 | 待后续 | 未启动 GUI、未执行真实翻译；基础文件组合与条件产物需脱敏运行确认 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及死链检查 |

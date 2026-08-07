@@ -9,15 +9,15 @@ lastUpdated: true
 
 # Mask, Inpainting and Rendering Debug Artifacts
 
-When “Verbose Logging” (`Verbose Logging`) is enabled, every input image gets its own debug subfolder under `result/`, where the mask-refinement, inpainting, and text-rendering stages write images and JSON for troubleshooting. This page documents the order in which these artifacts are produced, their trigger conditions, what each image or JSON shows, and how to use them for debugging. The detection-stage confidence heatmap and OCR crops live in [Input, detection and rearrangement debugging](./input-detection-and-rearrangement.md) and [OCR and text-region debugging](./ocr-and-text-regions.md); replace-translation and WebSocket artifacts are covered in [Special workflows and WebSocket debugging](./special-workflows-and-websocket.md).
+When “Verbose Logging” is enabled, every input image gets its own debug subfolder under `result/`, where the mask-refinement, inpainting, and text-rendering stages write images and JSON for troubleshooting. This page documents the order in which these artifacts are produced, their trigger conditions, what each image or JSON shows, and how to use them for debugging. The detection-stage confidence heatmap and OCR crops live in [Input, detection and rearrangement debugging](./input-detection-and-rearrangement.md) and [OCR and text-region debugging](./ocr-and-text-regions.md); replace-translation and WebSocket artifacts are covered in [Special workflows and WebSocket debugging](./special-workflows-and-websocket.md).
 
 The settings that control these stages (the “Inpainting” and “Typesetting” groups) are documented in [Mask and inpainting settings](../desktop/settings/mask-and-inpainting.md) and [Typesetting and rendering settings](../desktop/settings/typesetting-and-rendering.md); this page does not repeat parameter defaults.
 
 ## Debugging scenarios {#when-to-use}
 
 - When text is not fully erased or the background is damaged, use `inpaint_input.png`, `mask_final.png`, and `inpainted.png` to tell whether the mask scope or the inpainting model is at fault.
-- When the mask looks wrong after enabling “Keep Dilation Inside Bubble Mask” (`Keep Dilation Inside Bubble Mask`), use `mask_bubble_clip_debug.png` to inspect clipping and restoration.
-- When “Smart Bubble” (`Smart Bubble`) layout overflows or falls back, use `balloon_fill_boxes.png` to inspect the bubble mask, render boxes, and overflow candidates.
+- When the mask looks wrong after enabling “Keep Dilation Inside Bubble Mask”, use `mask_bubble_clip_debug.png` to inspect clipping and restoration.
+- When “Smart Bubble” layout overflows or falls back, use `balloon_fill_boxes.png` to inspect the bubble mask, render boxes, and overflow candidates.
 - When Chinese semantic line breaking picks an unexpected result, use `chinese_linebreak_debug.json` to inspect candidate evaluations and the final selection.
 - Debug images, line-break JSON, and logs can contain full pages, source text, translations, coordinates, or base64 masks. Sanitize every file before sharing it.
 
@@ -42,7 +42,7 @@ flowchart LR
     DBG["result/ per-image debug folder\nwritten only in verbose mode"]
 ```
 
-- In verbose mode, the debug folder name is built by `_set_image_context()` as `{timestamp_ms}-{input_md5}-{detection_size}-{target_lang}-{translator}`, and artifacts are written through `_result_path()` to `BASE_PATH/result/<per-image-subfolder>/`. Folder naming and the overall tree are covered in [Debug folder naming and overview](./folder-naming-and-overview.md).
+- In verbose mode, the debug folder name is built as `{timestamp_ms}-{input_md5}-{detection_size}-{target_lang}-{translator}`, and artifacts are written to `BASE_PATH/result/<per-image-subfolder>/`. Folder naming and the overall tree are covered in [Debug folder naming and overview](./folder-naming-and-overview.md).
 - `ctx.mask_raw` is the detector's raw mask (usually a confidence map); `ctx.mask` is the refined binary mask. Mask refinement consumes only `ctx.mask_raw` and `text_regions`; it does not depend on the detection heatmap PNG.
 - Special workflows change this artifact set: AI renderers (OpenAI/Gemini renderers) skip inpainting; `renderer=none` skips text drawing; inpaint-only, translate-JSON-only, and replace-translation take their own branches, as detailed below and on the special-workflows page.
 
@@ -56,7 +56,7 @@ The mask stage calls `_run_mask_refinement()` from `_complete_translation_pipeli
 | `mask_bubble_clip_debug.png` | Previous condition; `ocr.limit_mask_dilation_to_bubble_mask=True`; the bubble model returns a non-empty mask | Overlay on the original: blue=bubble mask, green=kept mask after clipping, yellow=protected restoration, red=removed pixels, legend in the top-left corner | Check whether clipping and restoration under “Keep Dilation Inside Bubble Mask” behave as expected |
 | `mask_raw.png` | `verbose=True`; detection returns `ctx.mask_raw` | The raw detection confidence heatmap with a color bar | A detection-stage artifact; it is the input source for mask refinement, see [Input, detection and rearrangement debugging](./input-detection-and-rearrangement.md) |
 
-If mask refinement fails: inpaint-only mode falls back to a simple dilation of `ctx.mask_raw` (`cv2.dilate` with a `config.kernel_size` kernel and `mask_dilation_offset // kernel_size` iterations); export/template mode falls back directly to `ctx.mask_raw`. These fallbacks do not produce extra debug files. The mask saved in the per-image JSON and the `mask_is_refined` flag are described in [Related files and formats](#related-files-and-formats).
+If mask refinement fails: inpaint-only mode falls back to a simple dilation of `ctx.mask_raw` (`cv2.dilate` with a `config.kernel_size` kernel and `mask_dilation_offset // kernel_size` iterations); export/template mode falls back directly to `ctx.mask_raw`. These fallbacks do not produce extra debug files. The mask saved in the per-image JSON and the `mask_is_refined` flag are covered in the [debug artifact reference index](../reference/debug-artifact-index.md).
 
 ## Inpainting-stage artifacts {#inpainting-artifacts}
 
@@ -68,7 +68,7 @@ The inpainting stage calls `dispatch_inpainting()` through `_run_inpainting()`. 
 | `inpainted.png` | Normal full pipeline `verbose=True` | The full-page `ctx.img_inpainted` output of the inpainting stage | Check whether text is erased cleanly and background is intact; in AI-renderer mode inpainting is skipped, so this file equals the original work image |
 
 - When an OpenAI/Gemini renderer is selected, `_should_skip_inpainting_for_ai_renderer()` returns true, the inpainting stage is skipped, and `ctx.img_inpainted = ctx.img_rgb`. `inpainted.png` is still written, but its content is not a model-inpainted result.
-- For extreme-aspect-ratio images, `dispatch_inpainting()` splits the image into overlapping tiles using `INPAINT_SPLIT_RATIO = 3.0`; with “Per-Block Inpainting” (`Per-Block Inpainting`) enabled, each isolated connected component of the final mask is inpainted in a cropped window. Both tiling modes only change the tiles fed to the model; `inpainted.png` remains a full-page image.
+- For extreme-aspect-ratio images, `dispatch_inpainting()` splits the image into overlapping tiles using `INPAINT_SPLIT_RATIO = 3.0`; with “Per-Block Inpainting” enabled, each isolated connected component of the final mask is inpainted in a cropped window. Both tiling modes only change the tiles fed to the model; `inpainted.png` remains a full-page image.
 - When `save_text` is enabled, the inpainted result is also saved next to the source image as `manga_translator_work/inpainted/<stem>_inpainted.<source extension>` for the editable-image feature; that file is not a `result/` debug artifact.
 
 ## Rendering-stage artifacts {#rendering-artifacts}
@@ -83,89 +83,12 @@ The rendering stage calls `dispatch_rendering()` through `_run_text_rendering()`
 
 With `renderer=none`, `_run_text_rendering()` returns the base image directly, draws no text, and produces no line-break records. Neither AI renderers (OpenAI/Gemini renderers) nor `renderer=none` generate `balloon_fill_boxes.png` or `chinese_linebreak_debug.json` (the former requires `layout_mode='balloon_fill'`, which AI renderers typically do not use together).
 
-## UI strings and option matrix {#ui-strings-and-options}
-
-The settings that control these stages and the debugging switch live in the “Inpainting” (`Inpainting`) and “Typesetting” (`Typesetting`) groups of “Settings” (`Settings`). The following actual UI strings were verified:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `Inpainting` | Inpainting | 修复 |
-| `Typesetting` | Typesetting | 排版 |
-| `Advanced` | Advanced | 高级 |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `label_mask_dilation_offset` | Mask Dilation Offset | 遮罩扩张偏移 |
-| `label_kernel_size` | Kernel Size | 卷积核大小 |
-| `label_inpainter` | Inpainting Model | 修复模型 |
-| `label_inpainting_size` | Inpainting Size | 修复大小 |
-| `label_inpainting_precision` | Inpainting Precision | 修复精度 |
-| `label_force_use_torch_inpainting` | Force Use PyTorch Inpainting | 强制使用PyTorch修复 |
-| `label_solid_fill_pure_bubbles` | Solid Fill Pure Bubbles | 纯色气泡直接填色 |
-| `label_per_block_inpainting` | Per-Block Inpainting | 逐块修复 |
-| `label_use_model_bubble_repair_intersection` | Expand Bubble Repair Range | 扩大气泡修复范围 |
-| `label_limit_mask_dilation_to_bubble_mask` | Keep Dilation Inside Bubble Mask | 膨胀不超过气泡蒙版 |
-| `label_renderer` | Renderer | 渲染器 |
-| `label_layout_mode` | Layout Mode | 排版模式 |
-| `label_semantic_linebreak` | Chinese Semantic Line Break | 中文语义断句 |
-| `label_disable_auto_wrap` | AI Line Breaking | AI断句 |
-| `label_optimize_line_breaks` | AI Line Break Auto Enlarge | AI断句自动扩大文字 |
-| `label_strict_smart_scaling` | Don't Expand Box on Auto Enlarge | AI断句自动扩大文字下不扩大文本框 |
-| `label_bubble_layout_english` | Bubble Layout (Force Horizontal) | 根据气泡排版(强制横排) |
-| `label_disable_font_border` | Disable Font Border | 禁用字体边框 |
-| `label_center_text_in_bubble` | Center in Bubble | 气泡内居中 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Start Inpainting` | Start Inpainting | 开始修复 |
-
-The “Inpainting Model” (`Inpainting Model`) dropdown displays the stored values directly as option text (neither locale has a translation key), with values `default`, `lama_large`, `lama_mpe`, `sd`, `none`, and `original`. The “Renderer” and “Layout Mode” options are:
-
-| Stored value | English | Simplified Chinese |
-| --- | --- | --- |
-| `render.renderer=default` | Default | Default |
-| `render.renderer=openai_renderer` | OpenAI Renderer | OpenAI Renderer |
-| `render.renderer=gemini_renderer` | Gemini Renderer | Gemini Renderer |
-| `render.renderer=none` | None | 无 |
-| `render.layout_mode=smart_scaling` | Smart Scaling | 智能缩放 |
-| `render.layout_mode=strict` | Strict Boundary | 严格边界 |
-| `render.layout_mode=balloon_fill` | Smart Bubble | 智能气泡 |
-
 ## Dependencies and limits {#dependencies-and-limits}
 
-- Verbose mode (“Verbose Logging” / `详细日志`) is the master switch for these artifacts; when it is off, the normal pipeline does not write the `result/` debug directory (except the Web/server branch that saves `final.png`).
+- “Verbose Logging” is the master switch for these artifacts; when it is off, the normal pipeline does not write the `result/` debug directory (except the Web/server branch that saves `final.png`).
 - Conditional artifacts are not present in every run: `mask_bubble_clip_debug.png` requires the option enabled and a non-empty bubble-model mask; `chinese_linebreak_debug.json` requires `balloon_fill` plus Chinese semantic line breaking plus non-empty records; `inpaint_input.png` and `mask_final.png` require `ctx.mask` after translation.
 - The three debug images are written only by the normal full pipeline `_complete_translation_pipeline()`. Inpaint-only, translate-JSON-only, replace-translation, and WebSocket modes take their own branches with different artifact sets (see [Special workflows and WebSocket debugging](./special-workflows-and-websocket.md)).
 - `inpaint_input.png` uses `Inpainter.none` to paint mask areas white; it is not the real inpainter's input preprocessing, only a visualization of the area to erase.
 - AI renderers skip the inpainting stage; `renderer=none` skips text drawing. These skips directly change whether `inpainted.png` and the line-break records appear.
 - The inpainting model scales its input to `inpainting_size` and, for extreme aspect ratios, splits it with `INPAINT_SPLIT_RATIO=3.0`. Tiling and per-block inpainting change only the model input, not the full-page debug images.
 - Debug images and JSON may contain full user pages, OCR text, translations, coordinates, base64 masks, or local paths. Treat them as user content and inspect each file before sharing. This page never shows real keys, user images, or private absolute paths.
-
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `result/<per-image-subfolder>/*.png`, `chinese_linebreak_debug.json` | Verbose debug artifacts | The folder name contains the input image MD5; rename/sanitize before sharing and do not upload the whole directory |
-| Per-image JSON (`manga_translator_work/json/<stem>_translations.json`) | Stores `mask_raw` (base64 PNG) and `mask_is_refined` | `mask_is_refined=true` means the saved mask is the refined one, so loading can skip re-refinement; `false` means the raw mask is saved and refinement runs again. The JSON also contains source text, translations, coordinates, overlays, and possibly `last_export_dir`; it is not a public sample |
-| `manga_translator_work/inpainted/<stem>_inpainted.<source extension>` | Editable inpainted image saved when `save_text` is on | Used by the editable-image feature and reusable for import-and-render; it is not a `result/` debug artifact |
-| `chinese_linebreak_debug.json` inner records | Each `records` element holds `stage`, `region_index`, `input`, `candidates`, `selected`, and `mask.data` (`png_base64`) | Records may contain user source text and translations; delete or sanitize before sharing |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Debug folder and paths | `manga_translator/manga_translator.py` | `_set_image_context()` (`:457`) builds the subfolder name; `_result_path()` (`:3315`) has the per-image verbose path branch |
-| Mask stage | `manga_translator/manga_translator.py:3005-3020`, `manga_translator/mask_refinement/__init__.py` | `_run_mask_refinement()`, `dispatch()`, `complete_mask()`, bubble constraint, and `mask_bubble_clip_debug.png` (`:301`) |
-| Inpainting stage | `manga_translator/manga_translator.py:5234-5280`, `manga_translator/inpainting/__init__.py`, `manga_translator/inpainting/none.py` | Writes for `inpaint_input.png`/`mask_final.png`/`inpainted.png`, `dispatch_inpainting()`, `Inpainter.none`, `INPAINT_SPLIT_RATIO` tiling |
-| Rendering stage | `manga_translator/manga_translator.py:3179-3204`, `manga_translator/rendering/__init__.py`, `manga_translator/rendering/chinese_linebreak.py` | Writes for `balloon_fill_boxes.png`/`chinese_linebreak_debug.json`, `dispatch_rendering()` debug image (`:1317-1380`, `:2277-2286`), line-break records (`:1103-1108`) |
-| Final output | `manga_translator/manga_translator.py:1541-1549`, `manga_translator/save.py` | `final.png` write and `save_result()` output-format validation |
-| JSON mask | `manga_translator/manga_translator.py:832-852`, `:1369-1524` | Write and load of `mask_raw` base64 PNG and `mask_is_refined` |
-| Config and UI | `manga_translator/config.py:364-377`, `:204-205`, `:486-488`; `desktop_qt_ui/ui/main_page/settings_tab_layout.json:104-156`; `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Inpainting/rendering config fields, settings groups, and the three-column UI strings |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read sections 1.3, 5.15, 6.3 and the blueprint debug-artifact chapter; followed the page contract |
-| Artifacts and trigger conditions | Complete | Statically checked `_result_path()` direct writes, callbacks, and manual paths |
-| UI and i18n three-column matrix | Complete | Key, English, and Simplified Chinese values all come from `en_US.json`/`zh_CN.json` |
-| route mirror / source evidence | Pending | Run the corresponding scripts in `doc/wiki` before committing |
-| Sanitized runtime verification | Not done | No GUI started, no real translation run, no user images/config/keys read; whether conditional artifacts appear in every run needs a sanitized sample |
-| VitePress build | Pending | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |

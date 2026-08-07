@@ -23,35 +23,9 @@ Use the endpoints on this page when a script or third-party client needs to tran
 
 ## Web UI workflow entry {#web-ui-workflow-entry}
 
-In the Web workspace, the “Translation Workflow Mode:” (`Translation Workflow Mode:`) dropdown lists seven workflows. The frontend picks an endpoint by mode: normal translation with more than one file is split into batches by `cli.batch_size` and sent to the batch-images endpoint; Export Translation and Export Original Text call the export endpoints; Import Translation and Render calls the JSON import endpoint (the Web UI supports JSON only, not TXT).
+In the Web workspace, the “Translation Workflow Mode:” dropdown lists seven workflows. The frontend picks an endpoint by mode: normal translation with more than one file is split into batches by `cli.batch_size` and sent to the batch-images endpoint; Export Translation and Export Original Text call the export endpoints; Import Translation and Render calls the JSON import endpoint (the Web UI supports JSON only, not TXT).
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Add Files` | Add Files | 添加文件 |
-| `Clear List` | Clear List | 清空列表 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `label_batch_size` | Batch Size | 批量大小 |
-
-In import mode the frontend pairs an image with a same-base-name `.json` file. When it is missing or has the wrong type, the following hints appear in the log output (these are log messages, not control labels):
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `import_mode_no_json` | Import mode: JSON file not found | 导入翻译模式：未找到JSON文件 |
-| `import_mode_hint` | Hint: Please upload both image and corresponding JSON file (e.g., image.png and image.json) | 提示：请同时上传图片和对应的JSON文件（例如：image.png 和 image.json） |
-| `import_mode_json_only` | Import mode: Only JSON files are supported, TXT files are not supported | 导入翻译模式：只支持JSON文件，不支持TXT文件 |
-| `import_mode_json_hint` | Hint: Please use 'Export Original' or 'Export Translation' to generate JSON files | 提示：请使用「导出原文」或「导出翻译」功能生成JSON文件 |
-
-“Export Config” (`Export Config`) serializes the current UI configuration to `config.json` and triggers a browser download; “Import Config” (`Import Config`) reads a local JSON file and rebuilds the settings panel with `generateConfigUI()`. Both stay in the browser: no server round trip and no key upload.
+“Export Config” serializes the current UI configuration to `config.json` and triggers a browser download; “Import Config” reads a local JSON file and rebuilds the settings panel with `generateConfigUI()`. Both stay in the browser: no server round trip and no key upload.
 
 ## Batch endpoints {#batch-endpoints}
 
@@ -176,20 +150,9 @@ Note: JSON import and TXT import both end up in `load_text`; TXT only adds a “
 - Input validation: images must be bytes or prefixed base64 data URIs, otherwise `422`; an empty list on `/batch/images` returns `400`.
 - Batch cancellation returns `499`; internal export/import/render failures return `500`.
 
-| Status | Trigger |
-| --- | --- |
-| `200` | JSON array, ZIP, PNG, stream, queue size |
-| `400` | empty batch images; TXT import merge returns the “错误” prefix |
-| `401` | missing or invalid/expired `X-Session-Token` |
-| `403` | no translator, OCR, colorizer, or renderer permission |
-| `422` | image is not bytes/base64 data URI; JSON validation failed |
-| `429` | per-user concurrency limit or daily quota exceeded |
-| `499` | batch task cancelled or cancel detected |
-| `500` | service not initialized, template missing, export/import/render failure |
-
 ## Runtime behavior {#runtime-behavior}
 
-- Batching layers: `cli.batch_size` (core default `1`, Qt default `1`, release `config/config-example.json` default `3`) controls how many images the translator processes per inner batch; `BatchTranslateRequest.batch_size` defaults to `4`; the Web frontend falls back to `5` when splitting HTTP batches. These are defaults of different layers and must not be merged.
+- Batching layers: `cli.batch_size` (release default `3`, see `config/config-example.json`) controls how many images the translator processes per inner batch; `BatchTranslateRequest.batch_size` defaults to `4`; the Web frontend falls back to `5` when splitting HTTP batches. These are defaults of different layers and must not be merged.
 - Concurrency: both `get_batch_ctx` and `while_streaming` acquire the global `translation_semaphore` (`server_config.max_concurrent_tasks`, default `3`) before entering the translator thread pool; per-user concurrency and daily quota are maintained by `track_task_start` / `track_task_end` at the route layer.
 - History writes: the batch endpoints call `save_translation_to_history` per image (history session shaped like `{task_id}_{i}`); streaming export/import save internally through `while_streaming`. A history-save failure is only logged as WARNING and does not interrupt the response.
 - Temporary files: ZIP and non-streaming export/import clean up temporary JSON/TXT/images on both success and error paths; streaming import keeps them for the duration of the response (the source comment requires periodic cleanup).
@@ -204,7 +167,54 @@ Note: JSON import and TXT import both end up in `load_text`; TXT only adds a “
 - The batch ZIP uses `application/octet-stream` instead of `application/zip`, so clients should read the `X-Content-Type` header to detect a ZIP rather than relying on the standard MIME type.
 - Never write real keys, user images, or private prompts into logs, request examples, or debug artifacts.
 
-## Related files and formats {#related-files-and-formats}
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Workflow option copy
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
+| `Normal Translation` | Normal Translation | 正常翻译流程 |
+| `Export Translation` | Export Translation | 导出翻译 |
+| `Export Original Text` | Export Original Text | 导出原文 |
+| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
+| `Colorize Only` | Colorize Only | 仅上色 |
+| `Upscale Only` | Upscale Only | 仅超分 |
+| `Inpaint Only` | Inpaint Only | 仅修复 |
+| `Start Translation` | Start Translation | 开始翻译 |
+| `Add Files` | Add Files | 添加文件 |
+| `Clear List` | Clear List | 清空列表 |
+| `Export Config` | Export Config | 导出配置 |
+| `Import Config` | Import Config | 导入配置 |
+| `label_batch_size` | Batch Size | 批量大小 |
+
+#### Import-mode hint copy
+
+In import mode the frontend pairs an image with a same-base-name `.json` file. When it is missing or has the wrong type, the following hints appear in the log output (these are log messages, not control labels):
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `import_mode_no_json` | Import mode: JSON file not found | 导入翻译模式：未找到JSON文件 |
+| `import_mode_hint` | Hint: Please upload both image and corresponding JSON file (e.g., image.png and image.json) | 提示：请同时上传图片和对应的JSON文件（例如：image.png 和 image.json） |
+| `import_mode_json_only` | Import mode: Only JSON files are supported, TXT files are not supported | 导入翻译模式：只支持JSON文件，不支持TXT文件 |
+| `import_mode_json_hint` | Hint: Please use 'Export Original' or 'Export Translation' to generate JSON files | 提示：请使用「导出原文」或「导出翻译」功能生成JSON文件 |
+
+#### Status codes
+
+| Status | Trigger |
+| --- | --- |
+| `200` | JSON array, ZIP, PNG, stream, queue size |
+| `400` | empty batch images; TXT import merge returns the “错误” prefix |
+| `401` | missing or invalid/expired `X-Session-Token` |
+| `403` | no translator, OCR, colorizer, or renderer permission |
+| `422` | image is not bytes/base64 data URI; JSON validation failed |
+| `429` | per-user concurrency limit or daily quota exceeded |
+| `499` | batch task cancelled or cancel detected |
+| `500` | service not initialized, template missing, export/import/render failure |
+
+### Related files and formats {#related-files-and-formats}
 
 | File/format | Actual role on this page | Notes |
 | --- | --- | --- |
@@ -215,7 +225,7 @@ Note: JSON import and TXT import both end up in `load_text`; TXT only adds a “
 | `desktop_qt_ui/services/workflow_service.py` | TXT import and ZIP text generation | `safe_update_large_json_from_text`, `generate_original_text`, `generate_translated_text` |
 | `config/config-example.json` | release default `batch_size: 3` | sanitized defaults only |
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -227,14 +237,3 @@ Note: JSON import and TXT import both end up in `load_text`; TXT only adds a “
 | Serialization | `manga_translator/server/to_json.py`, `core/response_utils.py` | `TranslationResponse`, `to_translation`, `transform_to_json`, `transform_to_image` |
 | Web frontend | `manga_translator/server/static/script.js`, `index.html` | workflow dropdown, batch chunking, `/batch/images` calls, JSON pairing for import, export/import config |
 | i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` (via `doc/wiki/data/i18n.generated.json`) | actual display values of workflow options and import hints |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; this page is a 5.14 developer-and-HTTP-API item |
-| Routes and contract | Complete | Statically checked `translation.py`, `request_extraction.py`, and `to_json.py` endpoints and fields |
-| Auth and status codes | Complete | Statically checked the 401/403/429/499 paths in `translation_auth.py` and `middleware.py` |
-| i18n text | Complete | Verified the three-column actual values of workflow options and import hints via `i18n.generated.json` |
-| Sanitized runtime verification | Deferred | Server not started; no real `.env`, user config, key, user image, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

@@ -22,31 +22,6 @@ This page is for maintainers. It explains how the project turns source code into
 
 Only two kinds of visible copy relate to packaging and release: the desktop window-title/sidebar version display and the source-install maintenance menu's version-check entry. Neither is a settings-page parameter; the full maintenance-menu workflow lives in [Update and version switching](../install/update-and-version-switching.md).
 
-### Window title and version display {#window-title-and-version-display}
-
-On startup the packaged app reads the `VERSION` file from runtime resources through `desktop_qt_ui/utils/app_version.py#get_app_version()` (search order `VERSION` then `packaging/VERSION`, strips the `v` prefix, and falls back to `unknown`), then appends it to the window title and the Qt application version:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `format_app_title` result | Manga Translator v2.2.10 | 漫画翻译器 v2.2.10 |
-| `format_version_label` result | v2.2.10 | v2.2.10 |
-
-### Maintenance menu {#maintenance-menu}
-
-`Win-Install-or-Update.bat` / `Unix-Install-or-Update.sh` ultimately run `packaging/launch.py --maintenance`. The menu copy comes from the hardcoded `L(Simplified Chinese, English)` calls in `launch.py`, not from `en_US.json`/`zh_CN.json`; the table uses the code literal as the key:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `[1] Install (...)` | Install (detect GPU, choose CPU/GPU build, install dependencies) | 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖) |
-| `[2] Update (code + dependencies)` | Update (code + dependencies) | 更新 (代码+依赖) |
-| `[3] Switch branch (main/beta)` | Switch branch (main/beta) | 切换分支 (main/beta) |
-| `[4] Switch version (by tag)` | Switch version (by tag) | 切换版本 (按 tag) |
-| `[5] Switch mirror` | Switch mirror | 切换镜像源 |
-| `[6] Re-check version` | Re-check version | 重新检查版本 |
-| `[7] Language (中文/English)` | Language (中文/English) | 切换语言 (中文/English) |
-| `[8] Exit` | Exit | 退出 |
-
 ## Version number {#version-number}
 
 ### Version sources {#version-sources}
@@ -160,7 +135,36 @@ Diagram note: this is the real dependency and step order of the workflow file. `
 - Docker builds exclude `doc/`, `*.md`, tests, and build artifacts via `packaging/.dockerignore`, so the image contains only runtime resources.
 - This page never writes real API keys, tokens, usernames, or private absolute paths; admin-password and environment-variable values in compose are release-template values and are not copied into the documentation.
 
-## Related files and formats {#related-files-and-formats}
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Window title and version display {#window-title-and-version-display}
+
+On startup the packaged app reads the `VERSION` file from runtime resources through `desktop_qt_ui/utils/app_version.py#get_app_version()` (search order `VERSION` then `packaging/VERSION`, strips the `v` prefix, and falls back to `unknown`), then appends it to the window title and the Qt application version:
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Manga Translator` | Manga Translator | 漫画翻译器 |
+| `format_app_title` result | Manga Translator v2.2.10 | 漫画翻译器 v2.2.10 |
+| `format_version_label` result | v2.2.10 | v2.2.10 |
+
+#### Maintenance menu {#maintenance-menu}
+
+`Win-Install-or-Update.bat` / `Unix-Install-or-Update.sh` ultimately run `packaging/launch.py --maintenance`. The menu copy comes from the hardcoded `L(Simplified Chinese, English)` calls in `launch.py`, not from `en_US.json`/`zh_CN.json`; the table uses the code literal as the key:
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `[1] Install (...)` | Install (detect GPU, choose CPU/GPU build, install dependencies) | 安装 (检测显卡, 选择 CPU/GPU 版本并安装依赖) |
+| `[2] Update (code + dependencies)` | Update (code + dependencies) | 更新 (代码+依赖) |
+| `[3] Switch branch (main/beta)` | Switch branch (main/beta) | 切换分支 (main/beta) |
+| `[4] Switch version (by tag)` | Switch version (by tag) | 切换版本 (按 tag) |
+| `[5] Switch mirror` | Switch mirror | 切换镜像源 |
+| `[6] Re-check version` | Re-check version | 重新检查版本 |
+| `[7] Language (中文/English)` | Language (中文/English) | 切换语言 (中文/English) |
+| `[8] Exit` | Exit | 退出 |
+
+### Related files and formats {#related-files-and-formats}
 
 | File/directory | Role on this page | Note |
 | --- | --- | --- |
@@ -177,7 +181,7 @@ Diagram note: this is the real dependency and step order of the workflow file. `
 | `.github/workflows/sync-to-gitee.yml` | Repository mirror sync | Mirrors branches and tags to Gitee/GitCode on every push |
 | `doc/CHANGELOG_v<version>.md` | Release notes body | Release body shows a placeholder when missing |
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -187,16 +191,3 @@ Diagram note: this is the real dependency and step order of the workflow file. `
 | Docker | `packaging/Dockerfile`, `packaging/docker-compose.yml`, `packaging/docker-entrypoint.sh`, `packaging/.dockerignore` | Multi-stage build, empty-volume restore, ports, health check |
 | Maintenance/update | `packaging/launch.py`, `Win-*.bat`, `Unix-*.sh` | Maintenance menu, version check, update and switch |
 | UI/i18n | `desktop_qt_ui/main.py`, `desktop_qt_ui/ui/main_window.py`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Window-title version composition and visible copy |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract (TODO 1.3, 5.14) |
-| Packaging scripts and version chain | Complete | Statically checked `build_packages.py`, specs, `app_version.py`, `check_version.py` |
-| CI workflows | Complete | Statically checked `build-and-release.yml`, `docker-build-push.yml`, `docs-pages.yml`, `sync-to-gitee.yml` |
-| Docker build and deployment | Complete | Statically checked Dockerfile, compose, entrypoint, .dockerignore |
-| i18n three-column table | Complete | Verified `en_US.json`/`zh_CN.json` actual values; maintenance menu uses `launch.py` bilingual literals |
-| Sanitized runtime verification | Deferred | No real packaging/release run; no real keys, tokens, usernames, or private absolute paths were read |
-| Static checks | Complete | `verify-route-mirror.mjs` PASS, `verify-source-evidence.mjs` PASS |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |

@@ -21,44 +21,58 @@ This page does not cover prompt-file listing, applying, or CRUD (see [Prompt lis
 - This page only explains how prompts are loaded, combined, and injected into the OpenAI/Gemini system instruction; it does not cover translator selection, API credentials, or candidate-slot rotation (see [Translator selection](../translator/selection-and-languages.md) and [API management](../api-management/slots-and-rotation.md)).
 - No real API key, private prompt text, or local absolute path is written on this page. Prompt content is user data; remove it from logs, request exports, and debug directories before sharing.
 
+## Plain Translation Prompt File Format {#custom-prompt-file-format}
+
+Custom translation prompts use a template file: copy `dict/prompt_example.yaml` and rename it to your own file (for example `dict/my_manga_prompt.yaml`), then click “Apply Selected Prompt” on the Prompt Management page or choose it from the “Custom Prompt” dropdown under “Settings → Translation”. The file is YAML and its root must be an object, with this structure:
+
+```yaml
+system_prompt: ""
+glossary:
+  Person:
+    - original: ""
+      translation: ""
+  Location: []
+  Org: []
+  Item: []
+  Skill: []
+  Creature: []
+```
+
+- `system_prompt`: a string for the custom system prompt body; it can be empty. When empty, only the built-in base prompt is used; when filled, this content is prepended before the base prompt.
+- `glossary`: the terminology table grouped by `Person` / `Location` / `Org` / `Item` / `Skill` / `Creature`. Each group is a list of `- original: ""` and `translation: ""` entries; an empty array (such as `Location: []`) disables that group.
+- Placeholder: <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> in the text is replaced with the target language name at each request construction, see [Placeholder replacement](#placeholders).
+
+Desensitized example (structure and placeholder usage only, no real prompt content):
+
+```yaml
+system_prompt: |
+  You are a manga translation assistant. Make the {{{target_lang}}} translation natural and keep character voice consistent.
+glossary:
+  Person:
+    - original: "Example Character Name"
+      translation: "Example Character Translation"
+  Location: []
+  Org:
+    - original: "Example Organization Name"
+      translation: "Example Organization Translation"
+  Item: []
+  Skill: []
+  Creature: []
+```
+
 ## UI operations {#ui-operations}
 
 ### Select and apply a translation prompt in Prompt Management {#apply-translation-prompt}
 
-Open “Prompt Management” (`Prompt Management`). The “Prompt List” (`Prompt List`) shows only user prompt files under `dict/` and excludes system prompt stems (`system_prompt_hq`, `system_prompt_hq_format`, `system_prompt_line_break`, `glossary_extraction_prompt`, `ai_ocr_prompt`, `ai_colorizer_prompt`, `ai_renderer_prompt`). Select a file and click “Apply Selected Prompt” (`Apply Selected Prompt`); the app writes `dict/<filename>` to `translator.high_quality_prompt_path` and persists it, and the status label shows “Current prompt: {filename}”.
+Open “Prompt Management”. The “Prompt List” shows only user prompt files under `dict/` and excludes system prompt stems (`system_prompt_hq`, `system_prompt_hq_format`, `system_prompt_line_break`, `glossary_extraction_prompt`, `ai_ocr_prompt`, `ai_colorizer_prompt`, `ai_renderer_prompt`). Select a file and click “Apply Selected Prompt”; the app writes `dict/<filename>` to `translator.high_quality_prompt_path` and persists it, and the status label shows “Current prompt: {filename}”.
 
 Full list, preview, and editing operations are in [Prompt list, apply, and preview](./list-apply-and-preview.md); structured editing and save validation are in [Structured prompt editor and format](./structured-editor-and-format.md).
 
 ### Enable the related toggles in Settings {#settings-toggles}
 
-1. Open “Settings” (`Settings`) → “Translation” (`Translation`) and enable “Auto Extract Glossary” (`Auto Extract Glossary`). This writes `translator.extract_glossary`; only when a parseable custom prompt also exists does the request append the glossary-extraction rules and the `new_terms` output format.
-2. Open “Settings” → “Typesetting” (`Typesetting`) and enable “AI Line Breaking” (`AI Line Breaking`). This writes `render.disable_auto_wrap`; when enabled, the translation request loads `dict/system_prompt_line_break.yaml` and attaches `original_region_count` to each region in the user input JSON.
-3. The on-screen name of `translator.high_quality_prompt_path` is “Custom Prompt” (`Custom Prompt`). Its dynamic-settings control is implemented in `dynamic_settings.py` (it rescans `dict/` and excludes system prompts when the dropdown opens); the actual entry point for setting this key is “Apply Selected Prompt” in Prompt Management.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `Translation` | Translation | 翻译 |
-| `Typesetting` | Typesetting | 排版 |
-| `label_high_quality_prompt_path` | Custom Prompt | 自定义提示词 |
-| `label_extract_glossary` | Auto Extract Glossary | 自动提取新术语 |
-| `label_disable_auto_wrap` | AI Line Breaking | AI 断句 |
-| `Prompt Management` | Prompt Management | 提示词管理 |
-| `Prompt List` | Prompt List | 提示词列表 |
-| `Apply Selected Prompt` | Apply Selected Prompt | 应用所选提示词 |
-| `System Prompt` | System Prompt | 系统提示词 |
-| `Prompt Text` | Prompt Text | 提示词正文 |
-| `Current prompt: {filename}` | Current prompt: {filename} | 当前提示词：{filename} |
-
-## Config keys {#config-keys}
-
-| Config key | Stored value / control | Defaults (core / Qt / release example) | Loading trigger and consumer |
-| --- | --- | --- | --- |
-| `translator.high_quality_prompt_path` | Prompt-file path string, e.g. `dict/<filename>` | `None` / `dict/prompt_example.yaml` / `dict/prompt_example.yaml` | Loaded into `ctx.custom_prompt_json` during translation-batch preparation; consumed only by OpenAI/Gemini and their HQ variants |
-| `translator.extract_glossary` | Toggle `true` / `false` | `false` / `false` / `false` | Only when the custom prompt JSON is valid: appends glossary-extraction rules and the extended `new_terms` output format, and writes the response `new_terms` back to the prompt file |
-| `render.disable_auto_wrap` | Toggle `true` / `false` | `false` / `true` / `false` | When enabled, loads `system_prompt_line_break.yaml` and attaches `original_region_count` to the user JSON; also affects renderer auto-wrapping |
-
-Do not collapse the three defaults into a single value; Qt's `disable_auto_wrap` default differs from core/release, and the actual Settings value is authoritative.
+1. Open “Settings” → “Translation” and enable “Auto Extract Glossary”. This writes `translator.extract_glossary`; only when a parseable custom prompt also exists does the request append the glossary-extraction rules and the `new_terms` output format.
+2. Open “Settings” → “Typesetting” and enable “AI Line Breaking”. This writes `render.disable_auto_wrap`; when enabled, the translation request loads `dict/system_prompt_line_break.yaml` and attaches `original_region_count` to each region in the user input JSON.
+3. The on-screen name of `translator.high_quality_prompt_path` is “Custom Prompt”. Its dynamic-settings control is implemented in `dynamic_settings.py` (it rescans `dict/` and excludes system prompts when the dropdown opens); the actual entry point for setting this key is “Apply Selected Prompt” in Prompt Management.
 
 ## Runtime behavior {#runtime-behavior}
 
@@ -129,43 +143,3 @@ flowchart TD
 - System prompt files are excluded from the user prompt list and have no desktop editor; manual edits must keep the YAML/JSON root as an object.
 - `render.disable_auto_wrap` affects both typesetting line wrapping and translation requests (line-break prompt + `original_region_count`); it is not a pure rendering toggle, and Qt's default `true` differs from the core/release default `false`.
 - Prompt text may contain business content and goes verbatim into requests and logs; remove prompt bodies, history text, paths, and credentials before sharing.
-
-## Related files and formats {#files-and-formats}
-
-| File/format | Role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `dict/system_prompt_hq.yaml` | Base HQ system prompt (key `system_prompt`) | Code fallback when missing/empty; keep YAML parseable |
-| `dict/system_prompt_hq_format.yaml` | Output-format prompt (key `system_prompt_hq_format`, four placeholders) | Missing weakens output constraints; placeholders replaced as in the table above |
-| `dict/glossary_extraction_prompt.yaml` | Glossary-extraction rules (key `glossary_extraction_prompt`) | Participates only in glossary mode; replaces <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> |
-| `dict/system_prompt_line_break.yaml` | AI line-break prompt (key `line_break_prompt`) | Triggered by `render.disable_auto_wrap` |
-| `dict/prompt_example.yaml` | Default custom HQ prompt example | Loaded through `translator.high_quality_prompt_path`; structure only, never private bodies |
-| `.yaml` / `.yml` / `.json` | Prompt formats supported by the loader | Root must be an object; same stem prefers `.yaml` |
-| `config/config-example.json`, `config/config.json` | Release defaults and user-settings persistence | Never read or display a real user file |
-
-## Mermaid data-flow limits {#diagram-limits}
-
-The composition and injection paths in the diagrams are source-confirmed data transformations; they do not claim that every run loads every file or makes a network request. `disable_auto_wrap=false`, an unset prompt path, missing or unparseable files, non-HQ translators, and a disabled glossary toggle all take their documented bypasses. No runtime screenshot or private task artifact has been fabricated.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Config definitions | `manga_translator/config.py`, `desktop_qt_ui/core/config_models.py`, `config/config-example.json` | The three config keys and the core/Qt/release default sets |
-| Prompt loading | `manga_translator/translators/prompt_loader.py` | Stem resolution order, YAML/JSON parsing, placeholder replacement, system-file exclusion |
-| Composition and request building | `manga_translator/translators/common.py` | `_flatten_prompt_data`, `_build_system_prompt`, fallback, `merge_glossary_to_file` |
-| Batch preparation | `manga_translator/manga_translator.py` | `_load_and_prepare_prompts` timing and path resolution |
-| UI/i18n | `desktop_qt_ui/ui/main_page/pages/prompt_page.py`, `desktop_qt_ui/app_logic.py`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Apply-selected-prompt, display-name mapping, actual bilingual copy |
-| Final consumers | `manga_translator/translators/openai.py`, `openai_hq.py`, `gemini.py`, `gemini_hq.py` | System message / `system_instruction`, history and user messages, `new_terms` write-back |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read sections 1.3 and 5.7 and followed the page contract |
-| Config keys and three default sets | Complete | Statically checked `config.py`, `config_models.py`, `config-example.json` |
-| Loading, composition, and placeholders | Complete | Statically checked `prompt_loader.py`, `common.py`, `manga_translator.py` |
-| OpenAI/Gemini system-instruction path | Complete | Statically checked `openai.py`, `openai_hq.py`, `gemini.py`, `gemini_hq.py` |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values |
-| Route mirror and source evidence | Complete | `node scripts/verify-route-mirror.mjs .`, `node scripts/verify-source-evidence.mjs .` passed |
-| Sanitized runtime verification | Deferred | No real `.env`, user `config.json`, API key/token, username, user image, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |

@@ -170,9 +170,13 @@ The frontend makes no assumption about frame boundaries: one `read()` may contai
 - The admin cancellation UI is in [Administrator interface](../../web/administrator-interface.md).
 - This page does not describe Web user operations; it describes the stream protocol the browser actually calls. Do not present endpoint paths as UI steps.
 
-### UI text reference {#ui-texts}
+## Developer Guide {#developer-guide}
 
-The table below lists the shared locale texts involved in the streaming flow (`/i18n/{locale}` returns the `desktop_qt_ui/locales` JSON). The Web page `index.html` uses its own hardcoded Chinese for some controls (e.g. "翻译工作流模式", "开始任务", "普通翻译 (Normal Translation)"), which does not exactly match the locale values below; `script.js` log fallbacks are also hardcoded bilingual strings.
+### Option matrix {#option-matrix}
+
+#### UI text reference {#ui-texts}
+
+The table below lists the shared locale texts involved in the streaming flow (`/i18n/{locale}` returns the `desktop_qt_ui/locales` JSON). The Web page `index.html` uses its own hardcoded Chinese for some controls (e.g. "翻译工作流模式", "开始任务", "普通翻译"), which does not exactly match the locale values below; `script.js` log fallbacks are also hardcoded bilingual strings.
 
 | UI call key | English actual value | Simplified Chinese actual value |
 | --- | --- | --- |
@@ -188,7 +192,7 @@ The table below lists the shared locale texts involved in the streaming flow (`/
 
 The `message` field of progress frames is hardcoded in `request_extraction.py` (`开始处理...`, `翻译中...`, etc.) and displayed directly by the browser, bypassing the locale table above.
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -200,16 +204,3 @@ The `message` field of progress frames is hardcoded in `request_extraction.py` (
 | Client parsing | `manga_translator/server/static/script.js` | `processStream()` frame splitting, error abort, and `task_id` log fetch |
 | Frontend i18n | `manga_translator/server/static/js/i18n.js`, `routes/config.py` | `/i18n/{locale}` and the shared locale JSON |
 | Legacy internal stream | `manga_translator/server/streaming.py`, `sent_data_internal.py`, `myqueue.py`, `mode/share.py` | pickle/status-code differences and the internal executor path |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| Frame format and status codes | Complete (static) | `pack_message` on the server and `processStream` on the client match field by field |
-| Progress stage order | Complete (static) | All `yield` points of `while_streaming`/`_do_translation` checked |
-| Result payload types | Complete (static) | The three `transform_to_*` functions and their endpoint bindings checked |
-| Cancellation semantics | Static, partially complete | Cooperative checkpoints and batch `499` are source facts; whether the error frame actually reaches the client after a force cancel needs runtime verification |
-| `/with-form/image/stream/web` placeholder optimization | Deferred (BLOCKED) | `_web_frontend_optimized` has no consumer; a minimal client run is needed to confirm the endpoint returns the full PNG |
-| Real end-to-end stream | Deferred (BLOCKED) | Needs a minimal client, a running service, and a sanitized image to confirm byte order, `message` texts, and log rendering |
-| Browser-displayed texts | Deferred (BLOCKED) | The difference between hardcoded Chinese in `index.html` and the locale values needs a headed-mode check |
-| VitePress | Deferred | Coordinator should run `node scripts/verify-route-mirror.mjs .`, `verify-source-evidence.mjs .`, and `npm run docs:build --prefix doc/wiki` |

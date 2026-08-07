@@ -61,23 +61,6 @@ uv run --no-sync pytest test
 - When running the full suite, the pytest-reported `rootdir` must be the current Git repository root. If an older repository still exists in a parent directory, stale configuration can import the old `manga_translator` (e.g. `ModuleNotFoundError: No module named 'rusty_manga_image_translator'`); in that case verify the actual import path with `PYTHONPATH=.` first, and never report an adjacent repository's results as this repository's.
 - Verified in this workspace on 2026-08-07: `uv run --no-sync pytest test --collect-only -q` collected 379 tests in about 26 seconds. This task did not run the full suite; CI owns the full run.
 
-### Connection-test UI copy
-
-The desktop app has no "run the test suite" button; the closest testing UI is the "Test Current Tab" (`Test Current Tab`) connection test on the API-management page. The following i18n strings appear while a developer self-checks credentials; when a key differs from its final display text, use the actual value. The feature boundary lives on the API-management pages.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Test` | Test | 测试 |
-| `Test Current Tab` | Test Current Tab | 测试当前页 |
-| `Testing` | Testing | 测试中 |
-| `API connection test successful!` | API connection test successful! | API连接测试成功！ |
-| `API connection test failed` | API connection test failed | API连接测试失败 |
-| `No API channels to test` | No API channels to test | 没有可测试的 API 通道 |
-| `API test available` | available | 可用 |
-| `API test unavailable` | unavailable | 不可用 |
-| `Open log folder` | Open log folder | 打开日志文件夹 |
-| `Log output...` | Log output... | 日志输出... |
-
 ## Writing tests
 
 - Start with `import _bootstrap  # noqa: F401`; build every test path from `_bootstrap.ROOT` instead of the current working directory (the cwd differs when launching from an IDE, PowerShell, or pytest).
@@ -158,7 +141,28 @@ The table groups the currently tracked test files by area; it is not a coverage 
 - Tests and documentation never read real `.env`, user `config.json`, API keys, user images, or private prompts; the security regression test specifically verifies that path traversal and remote image URLs are rejected.
 - The coverage overview is a file grouping, not proof that every feature is covered; the page claims no coverage percentage.
 
-## Related files
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Connection-test UI copy
+
+The desktop app has no "run the test suite" button; the closest testing UI is the "Test Current Tab" (`Test Current Tab`) connection test on the API-management page. The following i18n strings appear while a developer self-checks credentials; when a key differs from its final display text, use the actual value. The feature boundary lives on the API-management pages.
+
+| UI call key | English actual value | Simplified Chinese actual value |
+| --- | --- | --- |
+| `Test` | Test | 测试 |
+| `Test Current Tab` | Test Current Tab | 测试当前页 |
+| `Testing` | Testing | 测试中 |
+| `API connection test successful!` | API connection test successful! | API连接测试成功！ |
+| `API connection test failed` | API connection test failed | API连接测试失败 |
+| `No API channels to test` | No API channels to test | 没有可测试的 API 通道 |
+| `API test available` | available | 可用 |
+| `API test unavailable` | unavailable | 不可用 |
+| `Open log folder` | Open log folder | 打开日志文件夹 |
+| `Log output...` | Log output... | 日志输出... |
+
+### Related files
 
 | File | Actual role on this page | Notes |
 | --- | --- | --- |
@@ -173,7 +177,7 @@ The table groups the currently tracked test files by area; it is not a coverage 
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | UI copy | Source for the three-column comparison |
 | `.gitignore` | `/test/**` and `!/test/*.py` rules | Defines the tracked test boundary |
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -183,15 +187,3 @@ The table groups the currently tracked test files by area; it is not a coverage 
 | Lint | `desktop_qt_ui/ruff.toml` | `select`/`ignore`/`format` rules |
 | i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual values of connection-test and log copy keys |
 | Repository rules | `.gitignore` | `/test/**` and `!/test/*.py` |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract (TODO 5.14 read-only) |
-| Source and config review | Complete | Checked `pyproject.toml`, `uv.lock`, `tests.yml`, `ruff.toml`, `test/README.md`, `.gitignore` item by item |
-| Actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values |
-| pytest collection | Complete | `uv run --no-sync pytest test --collect-only -q` collected 379 tests (2026-08-07); the full run was not executed in this task |
-| Mirror and source checks | Complete | `verify-route-mirror.mjs` and `verify-source-evidence.mjs` pass |
-| Sanitization | Complete | No real `.env`, user `config.json`, API key/token, username, user image, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |

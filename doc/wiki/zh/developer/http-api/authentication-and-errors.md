@@ -88,45 +88,6 @@ flowchart LR
 
 历史下载先经受鉴权端点申请短时票据，再以 `GET|HEAD /api/history/downloads/t/{ticket}` 下载。票据默认 TTL 为 5 分钟，`secrets.token_urlsafe(32)` 生成；无效、过期或文件已删除时返回 `404`。票据端点不取会话头，因此票据本身是敏感值，不得写入日志或文档。
 
-## Web 会话 UI 文案 {#web-ui-strings}
-
-下表是 Web 主脚本实际调用且已在两份桌面 locale 中核对的与登录/会话/错误相关的文案。`login.html` 的表单文案（“用户名”“密码”“登录”“注册”“首次使用，请创建管理员账户”等）为硬编码中文，没有 i18n key，不能记为已本地化文案。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `admin` | 缺失，使用调用处 fallback | 缺失，使用调用处 fallback |
-| `web_session_token` | Session Token | 会话令牌 |
-| `web_active_sessions` | Active Sessions | 活跃会话 |
-| `web_permission_denied` | Permission Denied | 权限不足 |
-| `web_quota_exceeded` | Quota Exceeded | 配额已用完 |
-| `web_error` | Error | 错误 |
-| `web_daily_quota` | Daily Quota | 每日配额 |
-| `web_used_today` | Used today | 今日已使用 |
-| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
-| `Start Translation` | Start Translation | 开始翻译 |
-
-`static/script.js` 的 `t(key, defaultText)` 在 locale 未加载或 key 缺失时返回默认值或 key 本身，因此部分 UI 在英文 locale 下仍显示硬编码中文。
-
-## 状态码矩阵 {#status-code-matrix}
-
-下表为静态源码核对的全部状态码触发范围；除显式覆盖外，成功状态默认是 `200`。
-
-| 状态码 | 触发范围（静态源码） | 来源 |
-| --- | --- | --- |
-| `200` | 普通成功 JSON/HTML/流/文件/删除响应；`/auth/login`、`/auth/register`、`/auth/logout`、`/auth/change-password` 业务失败（密码错误、旧密码错误等）也返回 `200` 并带 `success: false` | FastAPI 默认；`routes/auth.py` |
-| `201` | `POST /sessions/`、`POST /api/admin/users/`、`POST /api/admin/groups/` 成功创建 | `sessions.py:61`、`users.py:79`、`groups.py:87` |
-| `204` | `DELETE /api/admin/users/{username}` 成功 | `users.py:378` |
-| `400` | 请求字段、初始设置/注册校验、无批量图片、无效导入或资源/管理输入；部分历史/票据请求亦使用 | `auth.py:362`、`translation.py:449`、`history.py:582`、`config_management.py:227` |
-| `401` | 会话头缺失、令牌无效/过期、活动刷新失败、账号停用，或内部 `/register` 的 nonce 无效 | `core/middleware.py:119`、`translation_auth.py:253`、`main.py:317` |
-| `403` | 非管理员、未获功能/资源/历史权限，或注册被管理员关闭 | `core/middleware.py:198`、`:246`、`translation_auth.py:345`、`auth.py:460` |
-| `404` | favicon/文件/用户/组/会话/历史/下载票据/预设等对象不存在 | `main.py:288`、`history.py:136`、`users.py:236`、`config_management.py:182` |
-| `409` | 创建名称重复的管理员预设 | `config_management.py:227` |
-| `422` | 全局 `RequestValidationError` handler 返回 `detail` 和请求 body 字符串 | `main.py:255`–`:273` |
-| `429` | 登录或注册限速（附 `Retry-After`）、旧密码 gate 限速、并发任务数或每日配额超限 | `auth.py:52`、`web.py:89`、`core/middleware.py:326`、`:365` |
-| `499` | 批量翻译任务被强制取消或检测为取消 | `translation.py:421`、`:518` |
-| `500` | 服务未初始化、翻译/导入/导出、持久化、资源和管理服务的未处理或明确捕获失败 | `auth.py:135`、`translation.py:527`、`resources.py:111`、`logs.py:249` |
-
 ## 错误响应结构 {#error-response-structure}
 
 实际响应存在三种形状，客户端应先读 `detail` 再判断类型：
@@ -198,7 +159,50 @@ flowchart LR
 - 内部 `POST /register`（实例注册）使用 `X-Nonce`（`secrets.token_hex(16)`，服务启动时生成），与 `X-Session-Token` 是两套机制，不能混用；文档与日志不得包含真实 nonce。
 - 下载票据是 5 分钟短时凭证；它不要求会话头，泄露窗口有限但仍属敏感值。
 
-## 关联文件与格式 {#related-files-and-formats}
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### Web 会话 UI 文案 {#web-ui-strings}
+
+下表是 Web 主脚本实际调用且已在两份桌面 locale 中核对的与登录/会话/错误相关的文案。`login.html` 的表单文案（“用户名”“密码”“登录”“注册”“首次使用，请创建管理员账户”等）为硬编码中文，没有 i18n key，不能记为已本地化文案。
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Manga Translator` | Manga Translator | 漫画翻译器 |
+| `admin` | 缺失，使用调用处 fallback | 缺失，使用调用处 fallback |
+| `web_session_token` | Session Token | 会话令牌 |
+| `web_active_sessions` | Active Sessions | 活跃会话 |
+| `web_permission_denied` | Permission Denied | 权限不足 |
+| `web_quota_exceeded` | Quota Exceeded | 配额已用完 |
+| `web_error` | Error | 错误 |
+| `web_daily_quota` | Daily Quota | 每日配额 |
+| `web_used_today` | Used today | 今日已使用 |
+| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
+| `Start Translation` | Start Translation | 开始翻译 |
+
+`static/script.js` 的 `t(key, defaultText)` 在 locale 未加载或 key 缺失时返回默认值或 key 本身，因此部分 UI 在英文 locale 下仍显示硬编码中文。
+
+#### 状态码矩阵 {#status-code-matrix}
+
+下表为静态源码核对的全部状态码触发范围；除显式覆盖外，成功状态默认是 `200`。
+
+| 状态码 | 触发范围（静态源码） | 来源 |
+| --- | --- | --- |
+| `200` | 普通成功 JSON/HTML/流/文件/删除响应；`/auth/login`、`/auth/register`、`/auth/logout`、`/auth/change-password` 业务失败（密码错误、旧密码错误等）也返回 `200` 并带 `success: false` | FastAPI 默认；`routes/auth.py` |
+| `201` | `POST /sessions/`、`POST /api/admin/users/`、`POST /api/admin/groups/` 成功创建 | `sessions.py:61`、`users.py:79`、`groups.py:87` |
+| `204` | `DELETE /api/admin/users/{username}` 成功 | `users.py:378` |
+| `400` | 请求字段、初始设置/注册校验、无批量图片、无效导入或资源/管理输入；部分历史/票据请求亦使用 | `auth.py:362`、`translation.py:449`、`history.py:582`、`config_management.py:227` |
+| `401` | 会话头缺失、令牌无效/过期、活动刷新失败、账号停用，或内部 `/register` 的 nonce 无效 | `core/middleware.py:119`、`translation_auth.py:253`、`main.py:317` |
+| `403` | 非管理员、未获功能/资源/历史权限，或注册被管理员关闭 | `core/middleware.py:198`、`:246`、`translation_auth.py:345`、`auth.py:460` |
+| `404` | favicon/文件/用户/组/会话/历史/下载票据/预设等对象不存在 | `main.py:288`、`history.py:136`、`users.py:236`、`config_management.py:182` |
+| `409` | 创建名称重复的管理员预设 | `config_management.py:227` |
+| `422` | 全局 `RequestValidationError` handler 返回 `detail` 和请求 body 字符串 | `main.py:255`–`:273` |
+| `429` | 登录或注册限速（附 `Retry-After`）、旧密码 gate 限速、并发任务数或每日配额超限 | `auth.py:52`、`web.py:89`、`core/middleware.py:326`、`:365` |
+| `499` | 批量翻译任务被强制取消或检测为取消 | `translation.py:421`、`:518` |
+| `500` | 服务未初始化、翻译/导入/导出、持久化、资源和管理服务的未处理或明确捕获失败 | `auth.py:135`、`translation.py:527`、`resources.py:111`、`logs.py:249` |
+
+### 关联文件与格式 {#related-files-and-formats}
 
 | 文件/路径 | 本页实际作用 | 手改与兼容注意 |
 | --- | --- | --- |
@@ -209,11 +213,11 @@ flowchart LR
 | `.env` | 服务器 API Key 加载 | `/env` 与 `/env/effective` 不返回服务器密钥明文 |
 | `manga_translator/server/static/login.html` | 会话入口页 | 表单文案为硬编码中文，无 i18n key |
 
-## Mermaid 数据流限制 {#mermaid-limits}
+### Mermaid 数据流限制 {#mermaid-limits}
 
 上图描述的是源码确认的会话建立、令牌校验和错误分类路径；它们不代表所有运行都有网络请求，也不代表 `/auth/check`、限速或配额在每个部署中都触发。本页未启动服务、未截图、未读取真实会话/账号/密钥；运行时行为需以最小可运行服务验证为准。
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -224,15 +228,3 @@ flowchart LR
 | 翻译鉴权 | `manga_translator/server/routes/translation_auth.py` | `verify_translation_auth`、禁用参数默认值、功能权限、任务计数 |
 | 路由状态码 | `manga_translator/server/routes/translation.py`、`history.py`、`web.py`、`users.py`、`groups.py`、`config_management.py`、`sessions.py` | 200/201/204/400/404/409/429/499/500、下载票据 |
 | UI/i18n | `manga_translator/server/static/script.js`、`login.html`、`static/js/i18n.js`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | key 映射、硬编码文案、`localStorage.session_token` |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 鉴权与错误契约 | 完成 | 静态核对 middleware、auth、translation_auth、session_service 与状态码矩阵 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 表格逐项记录 key、English、简体中文实际值；`login.html` 硬编码文案已如实标记 |
-| 路由镜像与源码依据 | 完成 | `node scripts/verify-route-mirror.mjs .` 与 `node scripts/verify-source-evidence.mjs .` 通过 |
-| 脱敏运行验证 | 待后续 | 未启动服务、未读取真实会话/账号/密钥；需运行 `uv run --no-sync python -m manga_translator web` 后验证实际响应 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
-

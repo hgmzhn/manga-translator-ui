@@ -15,21 +15,17 @@ lastUpdated: true
 
 ## 选择器与工作流字段 {#selector-and-workflow-fields}
 
-“翻译流程模式：”（`Translation Workflow Mode:`）下拉框按索引建立，索引同时是 `on_workflow_mode_changed()` 写入配置的映射依据。切换模式时，GUI 先把八个互斥的 `cli` 工作流字段全部清为 `false`，再只设置所选模式对应的字段并保存配置，因此 GUI 的一次选择是互斥的；“导出原文”另外依赖 `cli.save_text`，见[互斥、并发与参数边界](#mutual-exclusion-and-concurrency)。
-
-| 索引 | English | 简体中文 | 存储值 | 开始按钮（English / 简体中文） |
-| ---: | --- | --- | --- | --- |
-| 0 | Normal Translation | 正常翻译流程 | 八个工作流字段均为 `false` | Start Translation / 开始翻译 |
-| 1 | Export Translation | 导出翻译 | `generate_and_export=true` | Export Translation / 导出翻译 |
-| 2 | Export Original Text | 导出原文 | `template=true` | Generate Original Text Template / 仅生成原文模板 |
-| 3 | Translate JSON Only | 仅翻译（JSON） | `translate_json_only=true` | Start JSON Translation / 开始仅翻译（JSON） |
-| 4 | Import Translation and Render | 导入翻译并渲染 | `load_text=true` | Import Translation and Render / 导入翻译并渲染 |
-| 5 | Colorize Only | 仅上色 | `colorize_only=true` | Start Colorizing / 开始上色 |
-| 6 | Upscale Only | 仅超分 | `upscale_only=true` | Start Upscaling / 开始超分 |
-| 7 | Inpaint Only | 仅修复 | `inpaint_only=true` | Start Inpainting / 开始修复 |
-| 8 | Replace Translation | 替换翻译 | `replace_translation=true` | Start Replace Translation / 开始替换翻译 |
-
-九个模式的调用 key 与 English 实际值相同（都是运行时代码传给 `_t()` 的字符串，不是 `label_*` 设置项 key）；简体中文列核对自 `desktop_qt_ui/locales/zh_CN.json`。下拉框没有独立 `userData`，索引就是模式值。
+| 索引 | English | 简体中文 | 开始按钮（English / 简体中文） |
+| ---: | --- | --- | --- |
+| 0 | Normal Translation | 正常翻译流程 | Start Translation / 开始翻译 |
+| 1 | Export Translation | 导出翻译 | Export Translation / 导出翻译 |
+| 2 | Export Original Text | 导出原文 | Generate Original Text Template / 仅生成原文模板 |
+| 3 | Translate JSON Only | 仅翻译（JSON） | Start JSON Translation / 开始仅翻译（JSON） |
+| 4 | Import Translation and Render | 导入翻译并渲染 | Import Translation and Render / 导入翻译并渲染 |
+| 5 | Colorize Only | 仅上色 | Start Colorizing / 开始上色 |
+| 6 | Upscale Only | 仅超分 | Start Upscaling / 开始超分 |
+| 7 | Inpaint Only | 仅修复 | Start Inpainting / 开始修复 |
+| 8 | Replace Translation | 替换翻译 | Start Replace Translation / 开始替换翻译 |
 
 ## 工作流汇总矩阵 {#workflow-summary-matrix}
 
@@ -47,39 +43,11 @@ lastUpdated: true
 | 仅修复 | 主输入图片 | OCR、翻译、渲染 | 主输出图；该分支清空 `text_regions`，不以翻译文本渲染 | [仅修复](../workflows/inpaint-only.md) |
 | 替换翻译 | 主输入为生肉图；同图工作目录 `translated_images/` 下必须有同名翻译图 | 翻译服务调用 | 主输出图；非直接粘贴且 `save_text=true` 时另写修复图和工程 JSON，直接粘贴时不写二者也不导出 PSD | [替换翻译](../workflows/replace-translation.md) |
 
-## 每图工作目录与文件命名 {#per-image-work-directory}
-
-除主输出图外，各工作流的副文件都以输入图片的原始路径和不含扩展名的 `<stem>` 为基准定位到每图工作目录；JSON 查找先用新位置，再回退旧的图片同级位置。模板导出/导入的副文件扩展名取 `config/translation_template.json` 首个 `output_format:` 行，合法值为安全的 1–32 字符扩展名；缺失或非法时回退 `json`。
-
-| 资源 | 新位置 / 文件名 | 兼容或优先级 |
-| --- | --- | --- |
-| 译文工程 JSON | `manga_translator_work/json/<stem>_translations.json` | 回退 `<图片目录>/<stem>_translations.json` |
-| 原文导出 | `manga_translator_work/originals/<stem>_original.<模板格式>` | 模板未指定或不可读时格式为 `json` |
-| 译文导出 | `manga_translator_work/translations/<stem>_translated.<模板格式>` | 同上 |
-| 修复图 | `manga_translator_work/inpainted/<stem>_inpainted.<原扩展名>` | 无其他查找位置 |
-| 上色/超分编辑器底图 | `manga_translator_work/editor_base/<原文件名>` | 兼容旧工作目录根部的同名底图 |
-| 替换翻译配对图 | `manga_translator_work/translated_images/<stem><扩展名>` | 先同扩展名，后遍历 `SUPPORTED_IMAGE_EXTENSIONS` |
-
-主输出图由 `MangaTranslator._calculate_output_path()` 决定：正常输出目录保留输入文件夹名与相对层级；`save_to_source_dir=true` 时改为原图同级 `manga_translator_work/result/`；`cli.format` 为空或 `none` 时保留原扩展名，否则使用给定扩展名。
-
 ## 互斥、并发与参数边界 {#mutual-exclusion-and-concurrency}
 
 - GUI 切换保证八个工作流布尔字段互斥，但不校验手工 JSON、服务请求或其他入口提供的组合。`sync_workflow_mode_from_config()` 读取已有组合时的显示优先级为：替换翻译、仅修复、仅超分、仅上色、导入翻译、仅翻译 JSON、导出原文、导出翻译、正常。`translate_batch()` 的入口先执行 `load_text` 的 TXT 预导入，再按 `replace_translation` → `load_text` → `translate_json_only` → 常规预处理（`colorize_only` 比 `upscale_only`/`inpaint_only` 更早返回）→ 导出原文 → 导出翻译的顺序分派；手工叠加模式没有“同时执行”的契约。
 - `batch_concurrent` 仅正常翻译可进入并发管线；其余八种模式在桌面控制层和核心 `translate_batch()` 中都被视为不兼容，前端会把本次局部变量改为非并发，核心分支也只在“无不兼容模式”时构建 `ConcurrentPipeline`。
 - `render.enable_template_alignment`（“启用直接粘贴模式”）是替换翻译专用：开启时走直接粘贴，不写 JSON、修复图或 PSD；关闭时以 OCR 得到的配对区域重新渲染。
-
-跨模式参数对工作流分支的边界如下表：
-
-| 参数 | 生效/被忽略的边界 |
-| --- | --- |
-| `cli.save_text` | GUI/发行默认值为 `true`；是“导出原文”进入导出分支的必要条件，还控制普通工作流的 JSON、修复图和编辑器工程写入；仅翻译 JSON 自己无条件回写 JSON |
-| `colorizer.colorizer` | 不是“仅上色”的强制值；正常、仅超分、仅修复和替换翻译也会在其不为 `none` 时先上色 |
-| `upscale.upscale_ratio` | 不是“仅超分”的强制值；为空时仅超分原样通过（或保留前置上色结果）；正常、仅修复和替换翻译也会在其为真时先超分 |
-| `detector.import_yolo_labels` | 导出原文/导出翻译跳过蒙版细化和蒙版保存；导入翻译且 JSON 无蒙版时触发检测补蒙版 |
-| `render.paste_mask_dilation_pixels` | 只消费在替换翻译的直接粘贴分支，膨胀粘贴蒙版 |
-| `cli.overwrite` | GUI 开始前按工作流检查既有副文件或主输出图：导出原文/翻译检查对应 TXT，仅翻译 JSON 检查原文副文件，其他模式检查主输出图 |
-
-仅翻译 JSON 的“原文副文件不存在则跳过”条件方向与通常覆盖检查不同，需运行验证；九种模式的真实 GUI 弹窗、取消后文件保留和错误提示也以研究资料的未验证清单为准。
 
 ## 相关页面 {#related-pages}
 
@@ -94,7 +62,57 @@ lastUpdated: true
 
 九个工作流页面的反向链接位于矩阵“详细页面”列；各工作流页面之间还互相链接（例如模板/JSON 家族与旁路工作流）。
 
-## 源码依据 {#source-evidence}
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+“翻译流程模式：”下拉框按索引建立，索引同时是 `on_workflow_mode_changed()` 写入配置的映射依据。切换模式时，GUI 先把八个互斥的 `cli` 工作流字段全部清为 `false`，再只设置所选模式对应的字段并保存配置，因此 GUI 的一次选择是互斥的；“导出原文”另外依赖 `cli.save_text`，见[互斥、并发与参数边界](#mutual-exclusion-and-concurrency)。
+
+| 索引 | English | 简体中文 | 存储值 | 开始按钮（English / 简体中文） |
+| ---: | --- | --- | --- | --- |
+| 0 | Normal Translation | 正常翻译流程 | 八个工作流字段均为 `false` | Start Translation / 开始翻译 |
+| 1 | Export Translation | 导出翻译 | `generate_and_export=true` | Export Translation / 导出翻译 |
+| 2 | Export Original Text | 导出原文 | `template=true` | Generate Original Text Template / 仅生成原文模板 |
+| 3 | Translate JSON Only | 仅翻译（JSON） | `translate_json_only=true` | Start JSON Translation / 开始仅翻译（JSON） |
+| 4 | Import Translation and Render | 导入翻译并渲染 | `load_text=true` | Import Translation and Render / 导入翻译并渲染 |
+| 5 | Colorize Only | 仅上色 | `colorize_only=true` | Start Colorizing / 开始上色 |
+| 6 | Upscale Only | 仅超分 | `upscale_only=true` | Start Upscaling / 开始超分 |
+| 7 | Inpaint Only | 仅修复 | `inpaint_only=true` | Start Inpainting / 开始修复 |
+| 8 | Replace Translation | 替换翻译 | `replace_translation=true` | Start Replace Translation / 开始替换翻译 |
+
+九个模式的调用 key 与 English 实际值相同（都是运行时代码传给 `_t()` 的字符串，不是 `label_*` 设置项 key）；简体中文列核对自 `desktop_qt_ui/locales/zh_CN.json`。下拉框没有独立 `userData`，索引就是模式值。
+
+跨模式参数对工作流分支的边界如下表：
+
+| 参数 | 生效/被忽略的边界 |
+| --- | --- |
+| `cli.save_text` | GUI/发行默认值为 `true`；是“导出原文”进入导出分支的必要条件，还控制普通工作流的 JSON、修复图和编辑器工程写入；仅翻译 JSON 自己无条件回写 JSON |
+| `colorizer.colorizer` | 不是“仅上色”的强制值；正常、仅超分、仅修复和替换翻译也会在其不为 `none` 时先上色 |
+| `upscale.upscale_ratio` | 不是“仅超分”的强制值；为空时仅超分原样通过（或保留前置上色结果）；正常、仅修复和替换翻译也会在其为真时先超分 |
+| `detector.import_yolo_labels` | 导出原文/导出翻译跳过蒙版细化和蒙版保存；导入翻译且 JSON 无蒙版时触发检测补蒙版 |
+| `render.paste_mask_dilation_pixels` | 只消费在替换翻译的直接粘贴分支，膨胀粘贴蒙版 |
+| `cli.overwrite` | GUI 开始前按工作流检查既有副文件或主输出图：导出原文/翻译检查对应 TXT，仅翻译 JSON 检查原文副文件，其他模式检查主输出图 |
+
+仅翻译 JSON 的“原文副文件不存在则跳过”条件方向与通常覆盖检查不同，需运行验证；九种模式的真实 GUI 弹窗、取消后文件保留和错误提示也以研究资料的未验证清单为准。
+
+### 关联文件与格式
+
+#### 每图工作目录与文件命名 {#per-image-work-directory}
+
+除主输出图外，各工作流的副文件都以输入图片的原始路径和不含扩展名的 `<stem>` 为基准定位到每图工作目录；JSON 查找先用新位置，再回退旧的图片同级位置。模板导出/导入的副文件扩展名取 `config/translation_template.json` 首个 `output_format:` 行，合法值为安全的 1–32 字符扩展名；缺失或非法时回退 `json`。
+
+| 资源 | 新位置 / 文件名 | 兼容或优先级 |
+| --- | --- | --- |
+| 译文工程 JSON | `manga_translator_work/json/<stem>_translations.json` | 回退 `<图片目录>/<stem>_translations.json` |
+| 原文导出 | `manga_translator_work/originals/<stem>_original.<模板格式>` | 模板未指定或不可读时格式为 `json` |
+| 译文导出 | `manga_translator_work/translations/<stem>_translated.<模板格式>` | 同上 |
+| 修复图 | `manga_translator_work/inpainted/<stem>_inpainted.<原扩展名>` | 无其他查找位置 |
+| 上色/超分编辑器底图 | `manga_translator_work/editor_base/<原文件名>` | 兼容旧工作目录根部的同名底图 |
+| 替换翻译配对图 | `manga_translator_work/translated_images/<stem><扩展名>` | 先同扩展名，后遍历 `SUPPORTED_IMAGE_EXTENSIONS` |
+
+主输出图由 `MangaTranslator._calculate_output_path()` 决定：正常输出目录保留输入文件夹名与相对层级；`save_to_source_dir=true` 时改为原图同级 `manga_translator_work/result/`；`cli.format` 为空或 `none` 时保留原扩展名，否则使用给定扩展名。
+
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -108,14 +126,3 @@ lastUpdated: true
 | 路径/模板 | `manga_translator/utils/path_manager.py:12`; `manga_translator/utils/translation_template.py:10` | 每图工作目录、副文件发现和 `output_format` 回退 |
 | 替换翻译 | `manga_translator/utils/replace_translation.py:128,726` | 双图处理、配对、直接粘贴和输出边界 |
 | 研究资料 | `doc/wiki/research/workflow-matrix-source-evidence.md` | 九个工作流的输入、阶段、输出与未验证清单 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已读取蓝图参考索引边界、页面准则和 TODO 1.3/5.16 小节 |
-| i18n 三列证据 | 完成 | 九个模式与开始按钮均记录调用 key、English 实际值、简体中文实际值 |
-| 源码与研究资料 | 完成 | 已核对 `workflow-matrix-source-evidence.md`、`phase0-page-coverage-matrix.md` 及列出的 UI、i18n、控制层和核心源码 |
-| 路由镜像/源码依据检查 | 完成 | 在 `doc/wiki` 目录运行 `node scripts/verify-route-mirror.mjs .` 与 `node scripts/verify-source-evidence.mjs .`，两者均通过 |
-| 脱敏运行验证 | 待后续 | 九种模式的 GUI 实际按钮/提示、覆盖弹窗、取消后保留文件、JSON-only 删除方向按研究资料待运行验证 |
-| 九种工作流差异 Mermaid | 待后续 | 作为 TODO 第 7 节图示任务跟踪，本页不提前伪造图示 |

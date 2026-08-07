@@ -139,7 +139,22 @@ sequenceDiagram
 
 `_sanitize_download_filename()` 只取 basename、去掉 CR/LF、过滤 `.` / `..`、确保以 `.zip` 结尾。
 
-## 状态码与错误 {#status-codes-and-errors}
+## 依赖与限制 {#dependencies-and-limits}
+
+- 批量下载（票据与直接下载）上限 50 个会话，超过返回 400。
+- 票据是能力凭证：5 分钟 TTL 内任何人拿到 URL 都可下载；不要把票据 URL 或 `session_token` 写进日志、报告或公开文档。
+- 自动清理服务（`cleanup_service.py`，默认关闭：`auto_cleanup=false`、`max_age_days=7`、`max_size_gb=10`）只按 mtime/总大小删除 `results/`、`user_fonts/`、`user_prompts/` 下的文件，不清理 `data/history/` 分片与索引；文件被清理后，对应会话记录仍可能出现在历史列表，取文件或下载会 404。
+- 历史保存是尽力而为：`save_translation_to_history()` 失败只写警告，不影响翻译结果返回。
+- 会话令牌取自任务 ID，不是 `generate_session_token()` 的 UUID v4；令牌可预测性与唯一性依赖任务 ID 生成方式，需运行验证。
+- 普通用户只能访问自己的历史；`view_permission` 默认 `own`，管理员的 `/admin/all` 与删除不受“own”限制。
+- 搜索端点被 `/{session_token}` 遮蔽（见[搜索端点](#search-endpoint)），静态前端未使用。
+- 本页不展示真实历史记录、图片、会话令牌、用户名或私有路径，只写契约与脱敏结构。
+
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 状态码与错误 {#status-codes-and-errors}
 
 | 状态码 | 触发范围（本页端点） |
 | --- | --- |
@@ -150,7 +165,7 @@ sequenceDiagram
 | `404` | 会话不存在或无访问权限、文件不存在、票据无效或已过期、会话目录缺失 |
 | `500` | 历史服务未初始化或查询/删除/打包等未捕获异常 |
 
-## 界面文案对照 {#ui-copy}
+#### 界面文案对照 {#ui-copy}
 
 用户端 `script.js` 通过 `t()` 读取 `/i18n/{locale}`（数据源是 `desktop_qt_ui/locales/*.json`），结果列表相关 key：
 
@@ -163,7 +178,7 @@ sequenceDiagram
 | `download_complete` | Download complete | 下载完成 |
 | `download_failed` | Download failed | 下载失败 |
 
-管理员权限编辑器使用 `web_can_view_history`（Can View History / 可查看历史）。历史相册与管理员历史模块的其余文案是 HTML/JS 硬编码中文，不使用 i18n key：
+管理员权限编辑器使用 `web_can_view_history`（可查看历史）。历史相册与管理员历史模块的其余文案是 HTML/JS 硬编码中文，不使用 i18n key：
 
 | 位置/元素 | English | 简体中文实际值 |
 | --- | --- | --- |
@@ -175,18 +190,7 @@ sequenceDiagram
 
 另外，locale 文件中存在一批 `web_*` key（如 `web_history_management`、`web_translation_history`、`web_session_token`、`web_file_count`、`web_total_size`、`web_download_all`、`web_batch_download`、`web_no_history`、`web_search_placeholder`、`web_download_started`、`web_download_failed`、`web_history_load_failed`），当前静态前端代码未引用，判定为遗留/备用 key；文档按 i18n 目录记录其值，不作为当前界面可见文案。
 
-## 依赖与限制 {#dependencies-and-limits}
-
-- 批量下载（票据与直接下载）上限 50 个会话，超过返回 400。
-- 票据是能力凭证：5 分钟 TTL 内任何人拿到 URL 都可下载；不要把票据 URL 或 `session_token` 写进日志、报告或公开文档。
-- 自动清理服务（`cleanup_service.py`，默认关闭：`auto_cleanup=false`、`max_age_days=7`、`max_size_gb=10`）只按 mtime/总大小删除 `results/`、`user_fonts/`、`user_prompts/` 下的文件，不清理 `data/history/` 分片与索引；文件被清理后，对应会话记录仍可能出现在历史列表，取文件或下载会 404。
-- 历史保存是尽力而为：`save_translation_to_history()` 失败只写警告，不影响翻译结果返回。
-- 会话令牌取自任务 ID，不是 `generate_session_token()` 的 UUID v4；令牌可预测性与唯一性依赖任务 ID 生成方式，需运行验证。
-- 普通用户只能访问自己的历史；`view_permission` 默认 `own`，管理员的 `/admin/all` 与删除不受“own”限制。
-- 搜索端点被 `/{session_token}` 遮蔽（见[搜索端点](#search-endpoint)），静态前端未使用。
-- 本页不展示真实历史记录、图片、会话令牌、用户名或私有路径，只写契约与脱敏结构。
-
-## 关联文件与格式 {#related-files}
+### 关联文件与格式 {#related-files}
 
 | 文件/格式 | 本页实际作用 | 注意 |
 | --- | --- | --- |
@@ -196,7 +200,7 @@ sequenceDiagram
 | 临时 ZIP（`history_*.zip` / `batch_download_*.zip`） | 票据下载内容 | 票据到期或撤销时清理 |
 | `metadata.json` | 会话元数据 | 含 `workflow`、`task_id`、`text_regions` 等由写入方传入的字段 |
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -210,16 +214,3 @@ sequenceDiagram
 | 权限 | `manga_translator/server/core/permission_integration.py`、`permission_service_v2.py` | `view_permission` 级别、删除权限 |
 | 前端 | `manga_translator/server/static/js/history-gallery.js`、`static/js/admin/modules/history.js` | 票据申请与触发下载、硬编码文案 |
 | i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`、`doc/wiki/data/i18n.generated.json` | 三列实际值 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；Web 用户操作与 HTTP API 分开 |
-| 历史端点契约 | 完成 | 静态核对 `routes/history.py` 全部 12 个路由声明 / 13 个方法—路径映射 |
-| 存储与写入 | 完成 | 静态核对 `history_service.py`、`translation_repository.py`、`request_extraction.py` |
-| 下载票据生命周期 | 完成 | 静态核对 `download_ticket_service.py` 的 TTL、token 与清理 |
-| 搜索端点遮蔽 | 完成（静态 + 最小复现） | 最小 FastAPI 复现确认注册顺序决定匹配；真实服务行为待运行验证 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 三列表逐项核对 `en_US.json` 与 `zh_CN.json` |
-| 脱敏运行验证 | 待后续 | 未启动 Web 服务，未读取真实历史、图片、会话令牌、`.env` 或 API key |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

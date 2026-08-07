@@ -46,35 +46,6 @@ uv run --no-sync python -m manga_translator shared --help
 
 `local` also supports the implicit-mode shortcut: when the first user argument is not one of the four modes and the argument list contains `-i` or `--input`, the parser inserts `local` before parsing. For example, `uv run --no-sync python -m manga_translator -i placeholder.png --help` shows a usage line of `__main__.py local ...`. A bare positional argument never triggers this fallback.
 
-### CLI group in desktop settings {#cli-settings-group}
-
-CLI options are not graphical controls, and the `--help` text is fixed Chinese in the source, not i18n-driven. However, the configuration keys overridden by the CLI map one-to-one to the rows of the “Basic Settings” (`Basic Settings`) group in desktop settings. That group renders labels through the `label_*` and `desc_cli_*` key families. The following table records the actual display values:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `label_attempts` | Retry Attempts | 重试次数 |
-| `label_ignore_errors` | Ignore Errors | 忽略错误 |
-| `label_use_gpu` | Use GPU | 使用 GPU |
-| `label_disable_onnx_gpu` | Disable ONNX GPU Acceleration | 禁用 ONNX GPU 加速 |
-| `label_context_size` | Context Pages | 上下文页数 |
-| `label_format` | Output Format | 输出格式 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_skip_no_text` | Skip Images Without Text | 跳过无文本图像 |
-| `label_save_text` | Editable Image | 图片可编辑 |
-| `label_load_text` | Import Translation | 导入翻译 |
-| `label_translate_json_only` | Translate JSON Only | 仅翻译（JSON） |
-| `label_template` | Export Original Text | 导出原文 |
-| `label_save_quality` | Image Save Quality | 图像保存质量 |
-| `label_batch_size` | Batch Size | 批量大小 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-| `label_generate_and_export` | Export Translation | 导出翻译 |
-| `label_export_editable_psd` | Export Editable PSD | 导出可编辑PSD |
-| `label_save_to_source_dir` | Save to Source Directory | 输出到原图目录 |
-| `label_psd_script_only` | Generate PSD Script Only | 仅生成PSD脚本 |
-
-Row descriptions use the call key `desc_cli_<name>` (the settings row key is `cli.<name>` with dots replaced by underscores); for example `desc_cli_attempts` (EN=“Retry count when an API call fails. Set to -1 for unlimited retries.”, ZH=“调用 API 出错时的重试次数。设为 -1 表示无限重试。”). The remaining `desc_cli_*` keys can be checked under the same names in both locales.
-
 ## Subcommands and options {#subcommands-and-options}
 
 ### Top-level subcommands {#subcommand-overview}
@@ -106,66 +77,6 @@ flowchart LR
     J --> J1["MangaShare(...).listen(...)"]
 ```
 
-### local options {#local-options}
-
-| Option | Type / default | Actual `--help` and parsing semantics |
-| --- | --- | --- |
-| `-i INPUT [INPUT ...]`, `--input INPUT [INPUT ...]` | Required, one or more strings | Input image or folder paths |
-| `-o OUTPUT`, `--output OUTPUT` | String; `None` | Output directory (default: source directory plus `-translated` suffix) |
-| `--config CONFIG` | String; `None` | Config file path (default: `config/config.json`) |
-| `-v`, `--verbose` | Flag; `False` | Show detailed logs |
-| `--overwrite` | Flag; `False` | Overwrite existing files |
-| `--use-gpu` | Flag; `None` | Use GPU acceleration (overrides the config file) |
-| `--disable-onnx-gpu` | Flag; `None` | Disable ONNX Runtime GPU acceleration (overrides the config file) |
-| `--format FORMAT` | String; `None` | Output format: `png/jpg/jpeg/jfif/webp/avif/bmp/tiff/tif/heic/heif` (overrides the config file); no `choices` is set at parse time |
-| `--batch-size BATCH_SIZE` | Integer; `None` | Batch processing size (overrides the config file) |
-| `--attempts ATTEMPTS` | Integer; `None` | Retry count on translation failure; `-1` means unlimited (overrides the config file) |
-| `--subprocess` | Flag; `False` | Enable subprocess mode (memory management and resume) |
-| `--memory-limit MEMORY_LIMIT` | Integer; `0` | Absolute memory limit (MB); restart the subprocess above it; `0` means unlimited |
-| `--memory-percent MEMORY_PERCENT` | Integer; `0` | Memory percentage limit; restart above this share of system memory; `0` means unlimited |
-| `--batch-per-restart BATCH_PER_RESTART` | Integer; `0` | Restart the subprocess after every N images to release memory; `0` means unlimited |
-
-The non-subprocess path writes explicit `--use-gpu`, `--disable-onnx-gpu`, `--format`, `--batch-size`, and `--attempts` into `cli_config` (the corresponding `cli.*` configuration keys); `--memory-limit`, `--memory-percent`, and `--batch-per-restart` are passed to `translate_with_subprocess` only in the `--subprocess` path.
-
-### web options {#web-options}
-
-| Option | Type / default | Actual `--help` and parsing semantics |
-| --- | --- | --- |
-| `--host HOST` | String; `MT_WEB_HOST` or `0.0.0.0` | Server host (env: `MT_WEB_HOST`) |
-| `--port PORT` | Integer; `MT_WEB_PORT` or `8000` | Server port (env: `MT_WEB_PORT`) |
-| `--use-gpu` | Flag; true when `MT_USE_GPU` is `true`, `1`, `yes`, or `on` | Use GPU (env: `MT_USE_GPU=true`) |
-| `--disable-onnx-gpu` | Flag; `MT_DISABLE_ONNX_GPU` uses the same truthiness rule | Disable ONNX Runtime GPU acceleration (env: `MT_DISABLE_ONNX_GPU=true`) |
-| `--models-ttl MODELS_TTL` | Integer; `MT_MODELS_TTL` or `0` | Seconds to keep models in memory after last use; `0` means forever (env: `MT_MODELS_TTL`) |
-| `--retry-attempts RETRY_ATTEMPTS` | Integer; `None` when `MT_RETRY_ATTEMPTS` is unset | Retry count on translation failure; `-1` means unlimited, `None` uses the API-provided config (env: `MT_RETRY_ATTEMPTS`) |
-| `-v`, `--verbose` | Flag; true when `MT_VERBOSE` is `true`, `1`, or `yes` | Show detailed logs (env: `MT_VERBOSE=true`) |
-
-### ws options {#ws-options}
-
-| Option | Type / default | Actual `--help` and parsing semantics |
-| --- | --- | --- |
-| `--host HOST` | String; `127.0.0.1` | WebSocket service host |
-| `--port PORT` | Integer; `5003` | WebSocket service port |
-| `--nonce NONCE` | String; `None` | Nonce protecting internal WebSocket communication |
-| `--ws-url WS_URL` | String; `ws://localhost:5000` | Upstream WebSocket server URL |
-| `--models-ttl MODELS_TTL` | Integer; `0` | Seconds to keep models in memory after last use; `0` means forever |
-| `--retry-attempts RETRY_ATTEMPTS` | Integer; `None` | Retry count on translation failure; `-1` means unlimited, `None` uses the API-provided config |
-| `-v`, `--verbose` | Flag; `False` | Show detailed logs |
-| `--use-gpu` | Flag; `False` | Use GPU |
-| `--disable-onnx-gpu` | Flag; `MT_DISABLE_ONNX_GPU` uses the top-level truthiness rule | Disable ONNX Runtime GPU acceleration |
-
-### shared options {#shared-options}
-
-| Option | Type / default | Actual `--help` and parsing semantics |
-| --- | --- | --- |
-| `--host HOST` | String; `127.0.0.1` | Internal API service host |
-| `--port PORT` | Integer; `5003` | Internal API service port |
-| `--nonce NONCE` | String; `None` | Nonce protecting internal API server communication |
-| `--models-ttl MODELS_TTL` | Integer; `0` | Model in-memory TTL in seconds; `0` means forever |
-| `--retry-attempts RETRY_ATTEMPTS` | Integer; `None` | Retry count on translation failure; `-1` means unlimited, `None` uses the API-provided config |
-| `-v`, `--verbose` | Flag; `False` | Show detailed logs |
-| `--use-gpu` | Flag; `False` | Use GPU |
-| `--disable-onnx-gpu` | Flag; `MT_DISABLE_ONNX_GPU` uses the top-level truthiness rule | Disable ONNX Runtime GPU acceleration |
-
 ## Runtime behavior {#runtime-behavior}
 
 ### Parsing and the implicit local mode {#parse-and-implicit-local}
@@ -196,43 +107,3 @@ After parsing, `__main__.py` exports `args.disable_onnx_gpu` to the environment 
 - `--memory-limit`, `--memory-percent`, and `--batch-per-restart` are consumed only in the `--subprocess` path; they do not participate in translation when subprocess mode is off.
 - The `web` option help text shows the source baseline values; the real defaults can be overridden by `MT_*` environment variables at startup, so effective values cannot be inferred from help text alone.
 - Full service startup, real input translation, model/API dependencies, port occupation, and internal protocols are outside this page's verification scope; they are handled by the corresponding feature pages and runtime verification.
-
-## Related files and formats {#related-files-and-formats}
-
-| File | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `manga_translator/args.py` | Top-level subparsers, all official options, defaults, and the implicit-`local` rule | Re-run every `<mode> --help` after any change |
-| `manga_translator/__main__.py` | Pre-parse torch import, logging init, `ensure_runtime_files()`, and four-mode dispatch | New modes require updating `args.py` and the dispatch together |
-| `manga_translator/image_formats.py` | Single source of the `local --format` help list via `OUTPUT_IMAGE_FORMATS` | Update this file when supported formats change |
-| `manga_translator/mode/local.py` | `run_local_mode()` and CLI override writes | Non-subprocess and subprocess branches override differently |
-| `manga_translator/mode/subprocess_manager.py` | Memory parameters and the `resume` interface of `translate_with_subprocess` | The official `local` never passes `resume` |
-| `manga_translator/server/main.py` | `run_server` for the `web` dispatch | The direct module-guard import difference is described under dependencies and conflicts |
-| `manga_translator/mode/ws.py`, `manga_translator/mode/share.py` | `ws`/`shared` constructors and `listen` | Port/protocol details are covered by [web/ws/shared modes](./web-ws-and-shared-modes.md) |
-| `config/config-example.json` and other config templates | Source of the `cli.*` defaults overridden by the CLI | See `doc/wiki/research/default-sources.md` for three-layer default differences |
-
-## Mermaid data-flow limits {#mermaid-limits}
-
-The two diagrams above describe real parsing branches and dispatch order in the source; they do not claim that this verification started a server, translated an image, or made a network request. `args.mode` being `None`, a missing `-i`, standalone module entries, and `server/args.py` all take their documented bypasses; the verification record covers only the `--help` phase and does not fabricate runtime screenshots or private task artifacts.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Entry and dispatch | `manga_translator/__main__.py` | Pre-parse torch import, `parse_args()` call, `ensure_runtime_files()`, and four-mode dispatch |
-| Argument parsing | `manga_translator/args.py` | Four subparsers, all official options, defaults, the `_env_true` truthiness rule, and implicit `local` |
-| local execution | `manga_translator/mode/local.py` | `run_local_mode()`, CLI override writes, and standalone parser differences |
-| Subprocess | `manga_translator/mode/subprocess_manager.py` | Memory parameters and the `resume` interface of `translate_with_subprocess` |
-| web dispatch | `manga_translator/server/main.py` | `run_server` and the direct module guard |
-| ws/shared | `manga_translator/mode/ws.py`, `manga_translator/mode/share.py` | Constructors, `listen`, and connection fields |
-| Format source | `manga_translator/image_formats.py` | `OUTPUT_IMAGE_FORMATS` builds the `local --format` help list |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| Actual `--help` output | Complete | Ran `uv run --no-sync python -m manga_translator --help` plus `local`/`web`/`ws`/`shared --help` and `-i placeholder.png --help` locally; all exited `0` and match `research/cli-command-inventory.md`; no arguments prints the top-level help |
-| Source check | Complete | Statically checked `args.py`, `__main__.py`, `mode/local.py`, `mode/subprocess_manager.py`, `server/main.py`, `mode/ws.py`, `mode/share.py`, and `image_formats.py` |
-| i18n copy | Complete | `label_*` and `desc_cli_*` keys checked against the actual `en_US.json` and `zh_CN.json` values |
-| Sanitized runtime verification | Deferred | No server started, no real image translated, and no `.env`, API key/token, user file, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

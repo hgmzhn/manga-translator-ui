@@ -32,7 +32,7 @@ lastUpdated: true
 
 ### 修改密码、退出与会话状态 {#change-password-logout-and-session}
 
-登录页“修改密码”窗口调用改密接口并验证旧密码；成功后会清除强制改密标记。退出登录会终止当前会话，前端无论结果如何都清空本地令牌并回到登录页。令牌保存在浏览器 `localStorage.session_token`，后续请求以 `X-Session-Token` 头发送；无效、过期或被停用的账号会被拒绝并回到登录页。
+登录页“修改密码”窗口调用改密接口并验证旧密码；成功后会清除强制改密标记。退出登录会终止当前会话，前端无论结果如何都清空本地令牌并回到登录页。无效、过期或被停用的账号会被拒绝并回到登录页。
 
 | UI 调用 key | English 实际值 | 简体中文实际值 |
 | --- | --- | --- |
@@ -42,6 +42,8 @@ lastUpdated: true
 | `change-password` 弹窗（login.html 硬编码） | 无 locale key，硬编码中文 | 需要修改密码 / 新密码 / 确认新密码 / 稍后修改 / 确认修改 |
 
 ## 权限与角色 {#permissions-and-roles}
+
+新功能的权限在管理界面的权限编辑器里配置，完整操作见[管理界面 → 用户组与权限](../web/administrator-interface.md)；新增功能时需让该能力进入权限编辑器，见[新增或修改功能](../developer/adding-or-changing-a-feature.md)。
 
 ### 角色、用户组与继承 {#roles-groups-and-inheritance}
 
@@ -74,21 +76,6 @@ flowchart TD
 ```
 
 上图的拒绝既体现在下拉选项被过滤，也体现在服务端最终校验；普通用户即使手动构造请求也无法绕过。`admin` 链接只在当前会话角色为 `admin` 时显示。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `admin`（script.js 硬编码 fallback） | 缺失，使用调用处 fallback | 管理 |
-| `web_resource_management` | Resource Management | 资源管理 |
-| `web_can_upload_font` | Can Upload Font | 可上传字体 |
-| `web_can_upload_prompt` | Can Upload Prompt | 可上传提示词 |
-| `web_group_permissions` | Group Permissions | 用户组权限 |
-| `web_can_view_history` | Can View History | 可查看历史 |
-| `web_can_view_logs` | Can View Logs | 可查看日志 |
-| `label_translator` | Translator | 翻译器 |
-| `label_ocr` | OCR Model | OCR模型 |
-| `label_colorizer` | Colorization Model | 上色模型 |
-| `label_renderer` | Renderer | 渲染器 |
-| 用户管理界面（admin 硬编码） | 无 locale key，硬编码中文 | 用户管理 / 用户组管理 / 配额管理 / 会话管理 / 添加用户 / 创建用户 / 编辑用户 / 普通用户 / 管理员 / 账户启用 / 活跃 / 禁用 / 编辑权限配置 |
 
 ## API 密钥管理 {#api-key-management}
 
@@ -146,37 +133,6 @@ flowchart LR
 
 管理员在“API密钥管理”模块维护“服务器默认API密钥”（`.env`）和“API密钥预设”。服务器默认密钥是没有任何用户/预设覆盖时的兜底；预设可以配置可见用户组，并被分配给用户或用户组作为默认。管理员还可在“用户管理”中为每个用户指定“API密钥预设”（默认“继承用户组设置”）。
 
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `Basic Settings` | Basic Settings | 基础设置 |
-| `Advanced Settings` | Advanced Settings | 高级设置 |
-| `Options` | Options | 选项 |
-| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
-| `Log output...` | Log output... | 日志输出... |
-| `label_OPENAI_API_KEY` | OpenAI API Key | OpenAI API 密钥 |
-| `label_OPENAI_API_BASE` | OpenAI API Base | OpenAI API 地址 |
-| `label_OPENAI_MODEL` | OpenAI Model | OpenAI 模型 |
-| `label_GEMINI_API_KEY` | Gemini API Key | Gemini API 密钥 |
-| `label_GEMINI_API_BASE` | Gemini API Base | Gemini API 地址 |
-| `label_GEMINI_MODEL` | Gemini Model | Gemini 模型 |
-| `label_SAKURA_API_BASE` | SAKURA API Base | SAKURA API 地址 |
-| `label_SAKURA_DICT_PATH` | SAKURA Dictionary Path | SAKURA 词典路径 |
-| `label_OCR_OPENAI_API_KEY` | OCR OpenAI API Key | 文字识别 OpenAI API 密钥 |
-| `label_COLOR_OPENAI_API_KEY` | Colorization OpenAI API Key | 上色 OpenAI API 密钥 |
-| `label_RENDER_OPENAI_API_KEY` | Rendering OpenAI API Key | 渲染 OpenAI API 密钥 |
-| `translator_openai` | OpenAI Translate | OpenAI翻译 |
-| `translator_gemini` | Gemini Translate | Gemini翻译 |
-| `translator_sakura` | Sakura Translate | Sakura翻译 |
-| `save_api_keys` | 缺失，调用处回退中文 | 保存 API 密钥 |
-| `api_keys_will_be_saved` | 缺失，调用处回退中文 | API 密钥将保存到服务器 |
-| `api_keys_session_only` | 缺失，调用处回退中文 | API 密钥仅在本次会话中使用，不会保存到服务器 |
-| `login_required_for_api_keys` | 缺失，调用处回退中文 | 登录后可查看和保存 API 密钥 |
-| `api_keys_saved_to_server` | 缺失，调用处回退中文 | API 密钥已保存到服务器 |
-| `api_keys_saved_session` | 缺失，调用处回退中文 | API 密钥已保存（仅本次会话） |
-| `api_keys_save_failed` | 缺失，调用处回退中文 | API 密钥保存失败 |
-| 环境变量管理（admin 硬编码） | 无 locale key，硬编码中文 | API密钥管理 / API密钥预设 / 服务器默认API密钥 / 保存API密钥 / 创建预设 / 保存修改 / 删除 |
-
 ## 依赖与冲突 {#dependencies-and-conflicts}
 
 - 注册是否可用取决于管理员“允许用户注册”开关；关闭后登录页不显示注册页签，接口也会拒绝。
@@ -185,42 +141,4 @@ flowchart LR
 - 用户组配额优先于用户级配额，但用户级 `denied_*` 始终优先于用户组白名单；配置时应先看用户组再改用户。
 - API 密钥页签隐藏不等于服务端禁用：`show_env_editor` 只控制页面编辑入口，最终请求是否使用服务器密钥由 `allow_server_keys` / `require_user_keys` 决定。
 
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件/位置 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `manga_translator/server/data/accounts.json` | 账号持久化：用户名、bcrypt 哈希、角色、用户组、权限、状态 | 不读取或展示真实账号；由 `AccountService` 原子写入并备份 |
-| 应用目录 `.env` | 服务器默认 API 密钥（`WEB_API_ENV_KEYS` 白名单内） | 不提交真实密钥；`save_user_keys_to_server` 开启时会被用户保存覆盖 |
-| 管理端服务器配置 | `registration.enabled`、`api_key_policy`、`show_env_to_users`、上传限制 | 注册默认关闭；`show_env_to_users` 默认 `false` |
-| `localStorage.session_token` / `user_info` | 会话令牌与用户信息缓存 | 浏览器本地数据，服务端失效后以 `/auth/check` 结果为准 |
-| `localStorage.user_env_vars` | 用户填写 API 密钥的浏览器暂存 | 只存 `api-key-schema.js` 中的合法 key；是否上服务器由策略决定 |
-| `static/js/shared/api-key-schema.js` | 密钥编辑器字段 schema（分类、分组、key、i18n、占位符） | 后端 `WEB_API_ENV_KEYS` 与它保持一致 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 账号服务 | `manga_translator/server/core/account_service.py` | 创建/更新/删除、密码 bcrypt 哈希与强度、默认管理员 |
-| 权限服务 | `manga_translator/server/core/permission_service.py` | 功能权限优先级、并发/每日配额、文件权限、参数过滤 |
-| 密钥策略 | `manga_translator/server/core/api_key_policy.py` | 四项策略默认值与用户组覆盖 |
-| 鉴权中间件 | `manga_translator/server/core/middleware.py` | `require_auth` / `require_admin`、`401`/`403` |
-| 认证路由 | `manga_translator/server/routes/auth.py` | setup/login/register/change-password/check/status 与限速 |
-| 环境/设置路由 | `manga_translator/server/routes/config.py` | `/api-key-policy`、`/env`、`/env/effective`、`/user/settings` |
-| 用户管理路由 | `manga_translator/server/routes/users.py` | 管理员用户 CRUD 与权限更新 |
-| 请求合并 | `manga_translator/server/core/response_utils.py` | `apply_user_env_vars` 预设合并与策略拒绝 |
-| 前端主脚本 | `manga_translator/server/static/script.js` | 页签显示、密钥编辑器、上传区与参数过滤、admin 链接 |
-| 登录页 | `manga_translator/server/static/login.html` | 首次设置/登录/注册/强制改密流程 |
-| 管理端 UI | `manga_translator/server/static/admin-new.html`、`static/js/admin/modules/users.js`、`permissions.js`、`envvars.js`、`static/js/admin/components/permission-editor.js` | 用户/组/权限/密钥管理界面与权限编辑器 |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`、`static/js/i18n.js` | key 映射、实际显示值、缺失回退 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 账号与鉴权流程 | 完成 | 静态核对 `auth.py`、`login.html`、`middleware.py` |
-| 权限模型与界面过滤 | 完成 | 静态核对 `permission_service.py`、`users.py`、`script.js`、`permission-editor.js` |
-| API 密钥策略与编辑器 | 完成 | 静态核对 `api_key_policy.py`、`api-key-schema.js`、`config.py`、`response_utils.py` |
-| i18n 三列 | 完成 | 页面表格逐项记录 key、English、简体中文实际值；缺失项已如实标记 |
-| 脱敏运行验证 | 待后续 | 未启动 Web 服务/浏览器；未读取真实 `.env`、`accounts.json`、密钥或用户数据 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

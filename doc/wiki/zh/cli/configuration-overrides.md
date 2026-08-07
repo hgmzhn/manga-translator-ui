@@ -61,20 +61,6 @@ uv run --no-sync python -m manga_translator local -i input.png --config path/to/
 
 CLI 覆盖发生在翻译启动前的 `cli_config` 组装阶段，不改变文件内容。
 
-### 哪些参数会覆盖配置 {#overridable-options}
-
-| CLI 参数 | 写入的配置键 | 解析默认值 | 覆盖条件 |
-| --- | --- | --- | --- |
-| `--use-gpu` | `cli.use_gpu` | `None` | 显式传入时覆盖 |
-| `--disable-onnx-gpu` | `cli.disable_onnx_gpu` | `None` | 显式传入时覆盖 |
-| `--format` | `cli.format` | `None` | 显式传入时覆盖 |
-| `--batch-size` | `cli.batch_size` | `None` | 显式传入时覆盖 |
-| `--attempts` | `cli.attempts` | `None` | 显式传入时覆盖；`-1` 表示无限重试 |
-| `-v` / `--verbose` | `cli.verbose` | `False` | 传参强制开启；不传沿用配置 |
-| `--overwrite` | `cli.overwrite` | `False` | 传参强制开启；不传沿用配置 |
-
-`-i/--input`、`-o/--output`、`--config`、`--subprocess`、`--memory-limit`、`--memory-percent`、`--batch-per-restart` 是本次运行的参数，不属于 `cli.*` 覆盖。
-
 ### 未传值不覆盖 {#explicit-only}
 
 - `--use-gpu`、`--disable-onnx-gpu`、`--format`、`--batch-size`、`--attempts` 的解析默认值是 `None`，只有显式传入才会写入 `cli_config`；不传时保留配置文件或默认值。
@@ -85,63 +71,68 @@ CLI 覆盖发生在翻译启动前的 `cli_config` 组装阶段，不改变文�
 
 启用 `--subprocess` 后，`run_local_mode` 只把显式传入的 `--use-gpu`、`--disable-onnx-gpu` 写入 `cli_config`，再把配置交给 `translate_with_subprocess`；`--format`、`--batch-size`、`--attempts` 的“覆盖配置文件”行为没有进入该分支。`-v`/`--overwrite` 在子进程分支作为函数参数直接传入。这是源码差异，尚未做运行验证；不启用 `--subprocess` 时，上述五个覆盖参数才按帮助语义生效。
 
-## 环境变量 {#environment-variables}
+## 配置文件详解 {#config-file-details}
 
-`args.py` 在创建解析器时读取进程环境变量作为参数默认值，argparse 只在未显式传参时使用它们：
+`local` 模式涉及的配置文件主要是发行默认模板 `config/config-example.json` 与用户配置 `config/config.json`；导出原文/译文时还会读取原文→译文映射模板 `config/translation_template.json`。本小节按仓库中的实际文件说明它们的结构与写法，只引用发行模板的脱敏默认值，不展示任何真实用户配置或私有路径。
 
-| 环境变量 | 影响选项 | 默认值 | 适用模式 |
-| --- | --- | --- | --- |
-| `MT_WEB_HOST` | `--host` | `0.0.0.0` | `web` |
-| `MT_WEB_PORT` | `--port` | `8000` | `web` |
-| `MT_USE_GPU` | `--use-gpu` | `false` | `web` |
-| `MT_DISABLE_ONNX_GPU` | `--disable-onnx-gpu` | `false` | `web`/`ws`/`shared` |
-| `MT_MODELS_TTL` | `--models-ttl` | `0`（永久保留） | `web` |
-| `MT_RETRY_ATTEMPTS` | `--retry-attempts` | 未设置时为 `None`（使用 API 传入配置） | `web` |
-| `MT_VERBOSE` | `-v` / `--verbose` | `false` | `web` |
+### 发行默认模板 config/config-example.json {#config-example-structure}
 
-优先级为：显式 CLI 参数 > 环境变量 > 帮助/源码中的基准默认值。`MT_WEB_PORT`、`MT_MODELS_TTL`、`MT_RETRY_ATTEMPTS` 使用 `int()` 解析，非法值会在创建解析器时抛错。任意模式传入 `--disable-onnx-gpu` 后，`__main__.py` 会把 `MT_DISABLE_ONNX_GPU` 设为 `1` 再分发，保证运行时代码可见。
+`config/config-example.json` 是随发行包提供的默认配置模板，也是没有用户配置时的基底。它是一个按功能分组的 JSON 对象，每个组对应一条翻译流水线阶段：
 
-### 环境变量真值规则 {#env-truth-rule}
-
-- `MT_USE_GPU`、`MT_DISABLE_ONNX_GPU` 使用统一的 `_env_true` 规则：值小写后属于 `true`、`1`、`yes`、`on` 即为真。
-- `MT_VERBOSE` 使用内联判断：只认 `true`、`1`、`yes`，**不包含 `on`**。这是源码差异，需保留。
-
-### 环境变量与 .env 的边界 {#env-dotenv-boundary}
-
-- `local` 模式：`ConfigService` 初始化时以 `override=True` 读取项目根目录 `.env`（打包后位于可执行文件同级），主要用于 API 密钥等凭据，不参与 `cli.*` 覆盖。
-- `web` 模式：`.env` 在 `server` 包导入时以 `override=False` 加载，晚于 `parse_args()` 计算 `MT_*` 默认值的时刻。因此只在 `.env` 中写 `MT_WEB_HOST`/`MT_WEB_PORT` 不会改变已经计算好的 `--host`/`--port` 默认值；应在启动进程的环境中设置，或改用显式参数。（源码结论，未做运行验证）
-- `MT_WEB_NONCE` 不在 `args.py` 顶层默认值中，由服务器启动时读取，详见[Web/WS/Shared 模式](./web-ws-and-shared-modes.md)。
-
-## 参数与选项 {#parameters-and-options}
-
-命令行参数本身没有 i18n 条目，`--help` 文本在源码中固定为中文。下表列出这些参数写入的 `cli.*` 存储键对应的桌面设置界面文案（UI 调用 key 为 `label_*`）。每个 `cli.*` 参数的控件、生效阶段与最终消费者见[CLI 批量与输出参数](../desktop/settings/cli-batch-and-output.md)。
-
-### 存储值 / English / 简体中文 {#option-matrix}
-
-| 存储值 | English 实际值 | 简体中文实际值 |
+| 配置组 | 对应阶段 | 主要字段示例 |
 | --- | --- | --- |
-| `cli.use_gpu` | Use GPU | 使用 GPU |
-| `cli.disable_onnx_gpu` | Disable ONNX GPU Acceleration | 禁用 ONNX GPU 加速 |
-| `cli.format` | Output Format | 输出格式 |
-| `cli.batch_size` | Batch Size | 批量大小 |
-| `cli.attempts` | Retry Attempts | 重试次数 |
-| `cli.verbose` | Verbose Logging | 详细日志 |
-| `cli.overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `cli.batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-| `cli.context_size` | Context Pages | 上下文页数 |
-| `cli.save_quality` | Image Save Quality | 图像保存质量 |
+| `translator` | 翻译 | `translator`（如 `openai`）、`target_lang`、`keep_lang` |
+| `detector` | 检测 | `detector`（如 `default`）、`detection_size`、`text_threshold` |
+| `ocr` | 文字识别 | `ocr`（如 `48px`）、`secondary_ocr`、`min_text_length` |
+| `inpainter` | 修复 | `inpainter`（如 `lama_large`）、`inpainting_size` |
+| `render` | 排版渲染 | `renderer`、`font_family`、`layout_mode` |
+| `colorizer` | 上色 | `colorizer`（如 `none`）、`colorization_size` |
+| `upscale` | 超分 | `upscaler`（如 `mangajanai`）、`tile_size` |
+| `cli` | 命令行输出与批量 | `verbose`、`format`、`overwrite`、`batch_size`、`save_text` 等 |
+| `app` | 桌面应用状态 | `theme`、`ui_language`、`last_output_path` |
 
-### 三层默认值 {#default-layers}
+除分组外，顶层还有 `filter_text_enabled`、`kernel_size`、`mask_dilation_offset`、`use_custom_api_params` 等跨阶段字段；完整字段以 `config/config-example.json` 为准，各组参数的界面说明见设置页与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
 
-| 存储键 | 核心 `Config()` | Qt `AppSettings()` | 发行 `config/config-example.json` |
-| --- | --- | --- | --- |
-| `cli.use_gpu` | `true` | `true` | `true` |
-| `cli.disable_onnx_gpu` | `false` | `false` | `false` |
-| `cli.format` | `None` | `"不指定"` | `"不指定"` |
-| `cli.batch_size` | `1` | `1` | `3` |
-| `cli.attempts` | `-1` | `-1` | `3` |
-| `cli.verbose` | `false` | `false` | `false` |
-| `cli.overwrite` | `false` | `true` | `true` |
+### 用户配置 config/config.json 如何覆盖模板 {#user-config-override}
+
+`config/config.json` 是用户自己的配置，结构与发行模板相同。`ConfigService` 初始化时逐键校验并深合并：用户配置优先，缺失或无效的键回退到发行模板，再回退到代码默认值。因此：
+
+- 用户配置只需要写要修改的组或字段，其余键沿用发行默认值。
+- 提供 `--config` 时，指定文件在代码默认值之上整体载入并成为当前生效配置，用户 `config/config.json` 不再叠加。
+- 最终生效优先级为：显式 CLI 参数 > 配置文件（`--config` 文件 > `config/config.json` > `config/config-example.json`）> 代码默认值，详见[参数覆盖优先级](#override-priority)。
+
+### 原文→译文映射模板 config/translation_template.json {#translation-template}
+
+`config/translation_template.json` 是导出原文/译文时使用的映射模板。文件开头有一行 `output_format` 配置，决定导出文件的扩展名（默认 `json`，可改成 `txt` 等安全扩展名）；后面的内容定义“原文 → 译文”的映射写法，`<original>` 占位符代表一条原文文本，`<translated>` 占位符代表它的译文。发行包自带的默认内容如下：
+
+```json
+"output_format": "json",
+{
+    "<original>": "<translated>",
+    "<original>": "<translated>",
+    "<original>": "<translated>"
+}
+```
+
+- 导出原文（`cli.template` + `cli.save_text` 组合，即“导出原文”工作流）时，每条文本区域的原文填入 `<original>` 位置；导出译文（`cli.generate_and_export`，即“导出翻译”工作流）时，译文填入 `<translated>` 位置。两种导出的文件名分别为 `<图片名>_original.<扩展名>` 与 `<图片名>_translated.<扩展名>`。
+- `output_format` 只允许安全扩展名字符（字母、数字、`.`、`_`、`-`），非法值回退为 `json`；模板必须至少包含一个 `<original>` 占位符。
+- 映射行不要求必须是 JSON：可以换成任意自由文本格式，例如 `原文: <original> 译文: <translated>`，每条文本区域按该格式输出一行。
+
+### 命令行参数与配置键对应 {#cli-args-config-keys}
+
+`local` 子命令中会写回 `cli.*` 配置键的覆盖参数如下（其余参数如 `-i`、`-o`、`--config`、`--subprocess` 与内存参数是本次运行的参数，不写入配置）：
+
+| CLI 参数 | 配置键 | 说明 |
+| --- | --- | --- |
+| `--use-gpu` | `cli.use_gpu` | 使用 GPU 加速 |
+| `--disable-onnx-gpu` | `cli.disable_onnx_gpu` | 禁用 ONNX Runtime GPU 加速 |
+| `--format` | `cli.format` | 输出图片格式 |
+| `--batch-size` | `cli.batch_size` | 批量处理大小 |
+| `--attempts` | `cli.attempts` | 翻译失败重试次数 |
+| `-v` / `--verbose` | `cli.verbose` | 显示详细日志 |
+| `--overwrite` | `cli.overwrite` | 覆盖已存在文件 |
+
+工作流相关配置键（`cli.save_text`、`cli.load_text`、`cli.template`、`cli.generate_and_export`、`cli.upscale_only`、`cli.colorize_only`、`cli.inpaint_only`、`cli.replace_translation` 等）与界面工作流的对应见[工作流与文件模式](./workflow-and-file-modes.md)与[工作流矩阵](../reference/workflow-matrix.md)。这些键没有对应的正式 CLI 参数，只能通过配置文件设置。
 
 ## 覆盖优先级图示 {#priority-diagram}
 
@@ -201,37 +192,3 @@ flowchart LR
 - `--attempts`（`local`）与 `--retry-attempts`（`web`）都接受 `-1` 表示无限重试，但分属不同子命令，默认值来源不同。
 - 配置文件中的 `cli.batch_concurrent` 在特殊工作流下会被强制关闭（见[工作流与文件模式](./workflow-and-file-modes.md)）；正式 `local` 解析器没有 `--concurrent` 参数，无法通过 CLI 覆盖它。
 - 本页不处理 API 密钥、`.env` 凭据解析和候选轮换；相关内容见 API 管理页与[翻译器选择](../desktop/translator/selection-and-languages.md)。
-
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `config/config.json` | `--config` 未指定时的默认用户配置路径 | 不读取或展示真实用户文件；提交文档时不得包含私有绝对路径 |
-| `config/config-example.json` | 发行默认模板，无用户配置时作为基底 | 只引用脱敏默认值 |
-| `.env` | 凭据与部分 `MT_*` 运行时读取 | 不展示真实密钥；`local` 的 `cli.*` 覆盖不经过 `.env` |
-| `config/custom_api_params.json` | 自定义 API 请求参数 | 与本页覆盖无关，见 API 管理页 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 参数解析 | `manga_translator/args.py` | 四个子命令；`local --config` 与覆盖参数默认 `None`；`web` 的 `MT_*` 环境变量默认值与真值规则 |
-| 入口分发 | `manga_translator/__main__.py` | 解析前导入 `torch`、模式分发、`MT_DISABLE_ONNX_GPU` 环境变量导出 |
-| 配置加载 | `desktop_qt_ui/services/config_service.py` | `.env` 加载、用户/发行/代码默认优先级、`load_config_file` 逐键校验合并与失败路径 |
-| 覆盖应用 | `manga_translator/mode/local.py` | 非子进程与子进程分支的覆盖写入；`--config` 失败退出码 `1` |
-| 配置模型 | `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py` | `cli.*` 核心与 Qt 默认值 |
-| 发行模板 | `config/config-example.json` | `cli.*` 发行默认值 |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | `label_*` 实际显示值 |
-| 帮助验证 | `python -m manga_translator local --help`、`web --help` | 2026-08-07 实测，退出码 `0`，输出与解析器定义一致 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 参数解析与默认值 | 完成 | 静态核对 `args.py`，并用实际 `local --help` / `web --help` 复核 |
-| 配置加载链与覆盖应用 | 完成 | 静态核对 `config_service.py` 与 `mode/local.py` 两个分支 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | `label_*` 键逐项记录 English 与简体中文实际值 |
-| 脱敏运行验证 | 待后续 | 未读取真实 `.env`、用户 `config.json`、API key/token、用户名、用户图片或私有提示词；未实际运行翻译与子进程 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
-

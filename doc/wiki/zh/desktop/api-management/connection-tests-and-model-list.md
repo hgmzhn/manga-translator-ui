@@ -15,9 +15,9 @@ lastUpdated: true
 
 ## 功能边界
 
-- “测试”（`Test`）测试单个 API 通道（Key 行右侧按钮）；“测试当前页”（`Test Current Tab`）批量测试当前功能页签下所有已配置通道。批量测试只作用于当前页签（翻译/文字识别/上色/渲染），不会跨页签。
+- “测试”测试单个 API 通道（Key 行右侧按钮）；“测试当前页”批量测试当前功能页签下所有已配置通道。批量测试只作用于当前页签（翻译/文字识别/上色/渲染），不会跨页签。
 - 测试结果通过 `record_api_success` / `record_api_failure` 写入内存状态；开始翻译前 `validate_api_candidate_availability()` 按必需通道组检查是否还有可用候选，全部不可用时阻止开始并弹出警告。
-- “获取模型”（`Get Models`）从服务端拉取模型列表，并把选中的模型名写回 Model 输入框。只有模型行有该按钮；Key 行只有“测试”，Base 行两个按钮都没有。
+- “获取模型”从服务端拉取模型列表，并把选中的模型名写回 Model 输入框。只有模型行有该按钮；Key 行只有“测试”，Base 行两个按钮都没有。
 - 本页不覆盖 `run_with_api_candidates` 的 failover/round_robin 请求重试、冷却计时与恢复逻辑，那部分状态机属于[失败、冷却与恢复](./failures-cooldown-and-recovery.md)。
 - 测试与取模型都会发起真实网络请求，需要对应通道已填写 Key/Base/Model；本地 OpenAI 兼容端点（`localhost`、私有 IP、`.local` 等）在密钥为空时会自动使用 `ollama` 占位密钥。
 
@@ -25,62 +25,24 @@ lastUpdated: true
 
 ### 测试单个 API 通道
 
-1. 打开“API 管理”（`API Management`），选择“翻译”（`Translation`）、“文字识别”（`OCR`）、“上色”（`Colorization`）或“渲染”（`Render`）页签。
-2. 在任一 API 通道卡片的 Key 行右侧点击“测试”（`Test`）。
-3. 弹出进度框“测试中”（`Testing`）与“正在测试API连接，请稍候...”（`Testing API connection, please wait...`），可点击“取消”（`Cancel`）中止；取消后不弹结果框。
-4. 成功时弹出信息框，标题“API连接测试成功！”（`API connection test successful!`）；失败时弹出“错误”（`Error`）框，标题“API连接测试失败”（`API connection test failed`），正文包含分类后的排查建议与 API 地址示例。
+1. 打开“API 管理”，选择“翻译”、“文字识别”、“上色”或“渲染”页签。
+2. 在任一 API 通道卡片的 Key 行右侧点击“测试”。
+3. 弹出进度框“测试中”与“正在测试API连接，请稍候...”，可点击“取消”中止；取消后不弹结果框。
+4. 成功时弹出信息框，标题“API连接测试成功！”；失败时弹出“错误”框，标题“API连接测试失败”，正文包含分类后的排查建议与 API 地址示例。
 
 ### 测试当前页的全部通道
 
-1. 在页签顶部的功能选择器行右侧点击“测试当前页”（`Test Current Tab`）。
-2. 弹出“API 批量测试”（`API Batch Test`）进度框，提示“正在测试 {count} 个 API 通道，并发 {concurrency}...”（`Testing API channels`），并发数固定为 3。
-3. 完成后弹出“API 批量测试结果”（`API Batch Test Results`）：“共 {total} 个，可用 {available} 个，不可用 {unavailable} 个”（`API batch test summary`）。正文只列出不可用通道，前缀为 `[不可用]` 并附错误信息；全部可用时只显示“无不可用 API”（`No unavailable API`）。
-4. 若当前页签没有任何可测通道（未填写 Key/Base，且本地占位规则不适用），点击后只提示“没有可测试的 API 通道”（`No API channels to test`）。
+1. 在页签顶部的功能选择器行右侧点击“测试当前页”。
+2. 弹出“API 批量测试”进度框，提示“正在测试 {count} 个 API 通道，并发 {concurrency}...”，并发数固定为 3。
+3. 完成后弹出“API 批量测试结果”：“共 {total} 个，可用 {available} 个，不可用 {unavailable} 个”。正文只列出不可用通道，前缀为 `[不可用]` 并附错误信息；全部可用时只显示“无不可用 API”。
+4. 若当前页签没有任何可测通道（未填写 Key/Base，且本地占位规则不适用），点击后只提示“没有可测试的 API 通道”。
 
 ### 获取模型列表并写入模型字段
 
-1. 在任一 API 通道卡片的 Model 行右侧点击“获取模型”（`Get Models`）。
-2. 弹出“获取模型”进度框，提示“正在获取模型列表，请稍候...”（`Fetching models, please wait...`），可取消。
-3. 成功后弹出“选择模型”（`Select Model`）对话框，提示“可用模型：”（`Available models:`），输入框占位为“搜索模型...”（`Search models...`），按钮为“确定”（`OK`）/“取消”（`Cancel`）；未选中任何模型时“确定”禁用，只有一个过滤结果时自动选中。
-4. 选定模型后点“确定”，模型名会写回 Model 输入框并触发保存；服务端返回空列表时提示“没有可用的模型”（`No models available`）；拉取失败时提示“获取模型列表失败”（`Failed to get models`）。
-
-### 操作与弹窗文案 {#ui-copy}
-
-| 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Test Current Tab` | Test Current Tab | 测试当前页 |
-| `Test` | Test | 测试 |
-| `Get Models` | Get Models | 获取模型 |
-| `API Batch Test` | API Batch Test | API 批量测试 |
-| `Testing API channels` | Testing {count} API channels with concurrency {concurrency}... | 正在测试 {count} 个 API 通道，并发 {concurrency}... |
-| `Testing` | Testing | 测试中 |
-| `Testing API connection, please wait...` | Testing API connection, please wait... | 正在测试API连接，请稍候... |
-| `Fetching models, please wait...` | Fetching models, please wait... | 正在获取模型列表，请稍候... |
-| `API Batch Test Results` | API Batch Test Results | API 批量测试结果 |
-| `API batch test summary` | {total} total, {available} available, {unavailable} unavailable | 共 {total} 个，可用 {available} 个，不可用 {unavailable} 个 |
-| `API test available` | available | 可用 |
-| `API test unavailable` | unavailable | 不可用 |
-| `No API channels to test` | No API channels to test | 没有可测试的 API 通道 |
-| `No unavailable API` | No unavailable API | 无不可用 API |
-| `API connection test successful!` | API connection test successful! | API连接测试成功！ |
-| `API connection test failed` | API connection test failed | API连接测试失败 |
-| `API slot unavailable marker` | Unavailable | 不可用 |
-| `API slot cooldown marker` | Cooling down | 冷却中 |
-| `Restore API channel` | Restore | 恢复 |
-| `API candidate availability failed` | No available API candidates | 没有可用的 API 候选 |
-| `API candidate availability failed details` | The following API channels have no available candidates: {details}... | 以下 API 通道当前没有可用候选：{details}... |
-| `Select Model` | Select Model | 选择模型 |
-| `Available models:` | Available models: | 可用模型： |
-| `Search models...` | Search models... | 搜索模型... |
-| `OK` | OK | 确定 |
-| `Cancel` | Cancel | 取消 |
-| `No models available` | No models available | 没有可用的模型 |
-| `Failed to get models` | Failed to get models | 获取模型列表失败 |
-| `Error` | Error | 错误 |
-| `Warning` | Warning | 警告 |
-| `Success` | Success | Success |
-
-`Success` 在 `en_US.json` 与 `zh_CN.json` 中都没有翻译条目，`_t` 会回退显示字面量，因此英文界面也显示 `Success`。错误弹窗的正文（分类建议、API 地址示例）由 `_format_test_connection_error()` 硬编码为中文，不经过 locale 翻译。
+1. 在任一 API 通道卡片的 Model 行右侧点击“获取模型”。
+2. 弹出“获取模型”进度框，提示“正在获取模型列表，请稍候...”，可取消。
+3. 成功后弹出“选择模型”对话框，提示“可用模型：”，输入框占位为“搜索模型...”，按钮为“确定”/“取消”；未选中任何模型时“确定”禁用，只有一个过滤结果时自动选中。
+4. 选定模型后点“确定”，模型名会写回 Model 输入框并触发保存；服务端返回空列表时提示“没有可用的模型”；拉取失败时提示“获取模型列表失败”。
 
 ## 测试结果展示 {#test-result-display}
 
@@ -94,14 +56,7 @@ lastUpdated: true
 
 ### 通道状态条与恢复
 
-当通道处于 `unavailable`（永久不可用）或 `cooldown`（冷却中）时，对应通道卡片内会插入彩色状态条：`unavailable` 显示“不可用”（`Unavailable`），`cooldown` 显示“冷却中”（`Cooling down`），右侧是同步图标恢复按钮（提示文字“恢复”）。点击恢复会调用 `clear_api_status` 清除该通道的内存状态并立即重建分组。
-
-| 内存状态 | 写入来源 | 界面表现 |
-| --- | --- | --- |
-| `available` | 测试成功或真实请求成功 | 不显示状态条；批量测试计入“可用” |
-| `failed` | 普通失败（非永久性错误、非限流） | 批量测试计入“不可用”并列出错误；卡片不显示状态条 |
-| `cooldown` | 429 或限流标记 | 卡片状态条“冷却中”+ 恢复按钮 |
-| `unavailable` | 400 类永久错误（密钥无效、模型不存在、配额不足等） | 卡片状态条“不可用”+ 恢复按钮 |
+当通道处于 `unavailable`（永久不可用）或 `cooldown`（冷却中）时，对应通道卡片内会插入彩色状态条：`unavailable` 显示“不可用”，`cooldown` 显示“冷却中”，右侧是同步图标恢复按钮（提示文字“恢复”）。点击恢复会调用 `clear_api_status` 清除该通道的内存状态并立即重建分组。
 
 ## 运行机理 {#runtime-behavior}
 
@@ -163,35 +118,3 @@ flowchart LR
 - 混合 OCR 开启时，主/副 OCR 的 OpenAI/Gemini 分组可能同时出现，批量测试会把两组通道都纳入当前页签测试。
 - Sakura 分组没有 Model 字段，因此没有“获取模型”按钮；若测试目标带 `sakura`，只需要地址即可发起测试。
 - 取模型对 OpenAI 兼容端点与 Gemini 的实现不同（排序、前缀处理、回退客户端），返回的模型名写法可能不同，直接写入 Model 字段前应确认与请求体 `model` 字段的兼容性。
-
-## 关联文件与格式
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `.env` | 保存测试与取模型使用的 Key/Base/Model | `KEY="value"` 格式；含真实密钥，禁止提交或展示 |
-| `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 本页按钮、进度框、结果框与状态条文案 | `Success` 等缺失键回退字面量；错误详情正文为中文硬编码 |
-| `desktop_qt_ui/ui/secondary_pages/model_selector_dialog.py` | 模型选择对话框 | 搜索、双击或 OK 确认；未选中时 OK 禁用 |
-| `desktop_qt_ui/ui/secondary_pages/themed_progress_dialog.py` | 测试/批量测试/取模型的进度与取消 | 取消后不弹结果框 |
-| `manga_translator/api_key_rotation.py` | 内存状态读写与候选可用性 | `_API_STATUS` 不持久化；`make_endpoint_status_key` 对密钥做 HMAC 指纹，不存明文 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| UI 按钮与弹窗 | `desktop_qt_ui/ui/main_page/env_management.py` | `Test`/`Get Models`/`Test Current Tab` 创建、进度框、成功/失败/批量结果弹窗、状态条与恢复 |
-| 测试与取模型逻辑 | `desktop_qt_ui/app_logic.py` | `test_api_connection_async`、各 `_test_*_api`、`get_available_models_async`、错误分类与超时 |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`、`desktop_qt_ui/services/i18n_service.py` | key 与实际中英文显示值、缺失键回退行为 |
-| 模型选择弹窗 | `desktop_qt_ui/ui/secondary_pages/model_selector_dialog.py` | 搜索、自动选中、OK 禁用与返回值 |
-| 状态与候选校验 | `manga_translator/api_key_rotation.py`、`manga_translator/runtime_api_resolver.py` | `record_api_success/failure`、状态条触发条件、`validate_api_candidate_availability` 门禁 |
-| 请求客户端 | `manga_translator/translators/common.py`、`manga_translator/utils/openai_compat.py` | `curl_cffi` 回退、`ollama` 占位密钥、本地端点判断 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已读取 1.3 节与 5.6 小节并按页面合同编写 |
-| UI 布局与调用 | 完成 | 静态核对 env_management、app_logic、model_selector_dialog、env_page |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 表格逐项记录 key、English、简体中文实际值；`Success` 缺失键已标注回退 |
-| 测试/取模型运行链 | 完成 | 静态核对测试目标分发、请求构造、错误分类、超时、状态写入与候选门禁 |
-| 脱敏运行验证 | 待后续 | 未读取真实 `.env`、用户配置、API key/token、用户名、用户图片或私有提示词 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

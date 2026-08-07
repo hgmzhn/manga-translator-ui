@@ -15,6 +15,13 @@ This page explains how to stop the application and remove a Windows portable pac
 
 This page does not replace the installation steps in [Windows portable](./windows-portable.md), [Linux/macOS installation](./linux-and-macos.md), or [Docker](./docker.md), and it does not treat in-app “Clear translation results” as a complete uninstall.
 
+Uninstall by installation shape:
+
+- **Windows portable (new build)**: it is fully green and self-contained. **Uninstalling simply means deleting the whole folder** — nothing else is needed (no registry entries, no services). Optional cleanup: AI model caches under `C:\Users\<you>\.cache\huggingface` and `.cache\torch` can be deleted directly, and the Git safe.directory entry in `.gitconfig` can be removed with `git config --global --unset-all safe.directory`.
+- **Legacy Conda layout**: first uninstall Miniconda. If the installer-created Miniconda3 (inside the program folder or at a drive root) was used, double-click `Uninstall-Miniconda3.exe` inside it and then delete any leftover `Miniconda3` folder. If you installed Miniconda yourself and want to keep it, only remove the project environment with `conda env remove -n manga-env -y`. Then delete the whole program folder (including PortableGit, code, and scripts).
+
+The detailed data-cleanup boundary per installation shape follows.
+
 ## UI operations {#operations}
 
 ### General sequence
@@ -37,21 +44,7 @@ This page does not replace the installation steps in [Windows portable](./window
 
 The Web admin cleanup feature only handles the directories defined by the server cleanup service; it is not an installer-directory remover. The results-page “Clear translation results” action clears the browser result list and blob URLs, not necessarily files on the host.
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `web_cleanup_management` | Cleanup | 清理管理 |
-| `web_cleanup_rules` | Cleanup Rules | 清理规则 |
-| `web_auto_cleanup` | Auto Cleanup | 自动清理 |
-| `web_manual_cleanup` | Manual Cleanup | 手动清理 |
-| `web_cleanup_now` | Cleanup Now | 立即清理 |
-| `web_cleanup_report` | Cleanup Report | 清理报告 |
-| `web_files_deleted` | Files Deleted | 已删除文件 |
-| `web_space_freed` | Space Freed | 释放空间 |
-| `web_clear_logs` | Clear Logs | 清空日志 |
-| `confirm_clear_results` | Are you sure you want to clear all translation results? | 确定要清空所有翻译结果吗？ |
-| `results_cleared` | Translation results cleared | 翻译结果已清空 |
-
-Maintenance-menu wording comes from `L(Chinese, English)` in `packaging/launch.py`, not a Qt locale key. The current menu has install, update, branch/tag, mirror, version check, language, and exit actions, but no uninstall action. The `Win-Start.bat` failure-recovery prompt is hard-coded English, so it must not be described as having a complete bilingual fallback.
+The actual wording of the cleanup-related UI strings is listed in the [Options and I18n matrix](../reference/options-i18n-matrix.md).
 
 ## Runtime behavior {#runtime}
 
@@ -86,44 +79,4 @@ Server automatic cleanup is disabled by default. Its defaults are to check every
 - **Caches and credentials**: Hugging Face/Torch and similar user-level caches can live outside the application profile. `.env` and configuration files may contain API credentials. Decide whether to migrate them first, and redact keys, tokens, usernames, absolute paths, and user content before sharing logs.
 - **Version switching**: uninstall is not update. The maintenance flow may clean uv/pip download caches and remove platform-inappropriate launcher files during an update, but it does not delete all user data directories.
 
-## Related files and formats {#files}
-
-| File/directory | Actual role | Cleanup, format, and compatibility notes |
-| --- | --- | --- |
-| `config/config.json`, `config/` | Desktop/CLI configuration and runtime tables | Migratable, but inspect version, absolute paths, and sensitive fields; never upload real contents |
-| `.env` | API/server environment variables, when enabled | Treat as credentials; redact before backup or deletion screenshots |
-| `packaging/python/`, `.venv/`, `conda_env/`, `Miniconda3/` | Runtime and dependencies | Remove only environments confirmed to belong to this project; do not remove shared Conda/drivers |
-| `models/`, user-level model caches | Downloaded models and temporary download-related files | Deleting them causes future downloads; it does not uninstall drivers |
-| `result/`, `logs/`, `manga_translator_work/` | Logs, results, and input-adjacent work files | May contain source images, OCR, translations, or diagnostics; sanitize before sharing |
-| `manga_translator/server/data/` | Web admin configuration, user resources, and server data | Usually mounted from `./data/server` in Docker; back up and confirm impact before deletion |
-| `./data/{fonts,dict,result,models,logs,config}` | Compose host persistence mounts | `down` does not delete them; clean by directory and intent |
-| `packaging/uv_cache/`, pip/uv download caches | Installer/update download caches | The maintenance flow can clean download caches, but they are not user result or model data |
-
-## Screenshot and diagram boundary {#visuals}
-
-The Mermaid diagram on this page expresses the stop step, installation-shape branches, container/bind-mount separation, and optional data cleanup boundary. No release package, Docker admin panel, or real uninstall flow was run, so no screenshot is fabricated. Future screenshots must use redacted test directories and fictional user paths; crop usernames, private absolute paths, API keys, tokens, admin passwords, user images, prompts, and history, and provide English and Chinese alt text and captions.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | Verified on this page |
-| --- | --- | --- |
-| Windows launchers | `Win-Install-or-Update.bat`, `Win-Start.bat` | Script directory, portable-Python priority, Conda fallback, and absence of an uninstall branch |
-| Unix launchers | `Unix-Install-or-Update.sh`, `Unix-Start.sh` | Checkout-relative paths, `.venv`, legacy fallback, and temporary clone cleanup |
-| Application paths | `manga_translator/runtime_paths.py`, `manga_translator/server_paths.py` | Source/frozen `config/`, server `data/`, and user-resource locations |
-| Results and models | `desktop_qt_ui/main.py`, `manga_translator/config.py`, `manga_translator/utils/inference.py` | Logs, `manga_translator_work/`, `models/`, and temporary download paths |
-| Web/Docker | `manga_translator/server/core/cleanup_service.py`, `packaging/Dockerfile`, `packaging/docker-compose.yml` | Automatic-cleanup scope, defaults, and host persistence mounts |
-| UI/i18n | `manga_translator/server/static/script.js`, `desktop_qt_ui/locales/en_US.json`, `desktop_qt_ui/locales/zh_CN.json` | Clear-results behavior and actual cleanup wording |
-
-## Verification {#verification}
-
-| Verification | Status | Notes |
-| --- | --- | --- |
-| Page contract | Complete | Bilingual boundary, operations, runtime behavior, conflicts, file formats, Mermaid/screenshot boundary, and security review are covered |
-| Current source static review | Complete | Windows/Unix launchers, runtime paths, Docker mounts, server cleanup, and result behavior reviewed |
-| UI call key → en_US → zh_CN | Complete | Cleanup/result keys are listed; launcher hard-coded wording is treated as non-Qt text |
-| Actual uninstall/data recovery run | Not run | No release package, Docker, or real service was started; static conclusions are not presented as runtime success |
-| Static Wiki checks and build | Pending | Run route mirror, source-evidence, coverage checks, and VitePress build after this page is complete |
-
-## Security review {#privacy}
-
-This page contains no real API keys, tokens, admin passwords, usernames, private absolute paths, user images, OCR/translations, model output, or private prompts. Stop services and back up required data before cleanup; deleting `server/data`, `.env`, configuration, results, or model caches is irreversible, and logs or error screenshots must be redacted first.
+For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

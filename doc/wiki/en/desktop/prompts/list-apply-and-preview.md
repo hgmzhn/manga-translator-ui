@@ -22,102 +22,38 @@ When a custom HQ prompt is maintained as a file, this page lists the user prompt
 
 ### View the prompt list
 
-1. Open “Prompt Management” (`Prompt Management`) from the left navigation. The page title is “Prompt Management” and the subtitle is “Manage and apply prompt files for translation”.
-2. The “Prompt List” (`Prompt List`) card shows the available files. The currently applied prompt carries a `* ` prefix, is bold, uses the accent color, and shows the tooltip “Current prompt: {filename}”.
-3. The status label shows “Found {count} prompt files.”. Returning to this page or clicking “Refresh” (`Refresh`) rescans `dict/`; clicking “Open Directory” (`Open Directory`) opens the `dict/` folder in the system file manager.
+1. Open “Prompt Management” from the left navigation. The page title is “Prompt Management” and the subtitle is “Manage and apply prompt files for translation”.
+2. The “Prompt List” card shows the available files. The currently applied prompt carries a `* ` prefix, is bold, uses the accent color, and shows the tooltip “Current prompt: {filename}”.
+3. The status label shows “Found {count} prompt files.”. Returning to this page or clicking “Refresh” rescans `dict/`; clicking “Open Directory” opens the `dict/` folder in the system file manager.
 
 ### Apply the selected prompt
 
 1. Select a prompt file in the list.
-2. Click “Apply Selected Prompt” (`Apply Selected Prompt`), or double-click the list item.
+2. Click “Apply Selected Prompt”, or double-click the list item.
 3. The app writes `dict/<filename>` into `translator.high_quality_prompt_path` and saves the configuration; after the list refreshes, that item becomes the current prompt and the status label shows “Current prompt: {filename}”.
-4. The same path appears in Settings → Translation under “Custom Prompt” (`Custom Prompt`).
+4. The same path appears in Settings → Translation under “Custom Prompt”.
 
 ### Preview structured and Raw content
 
-- With no file selected, the “Prompt Preview” (`Prompt Preview`) panel on the right shows “Select a prompt file to preview” and the Edit button is disabled.
+- With no file selected, the “Prompt Preview” panel on the right shows “Select a prompt file to preview” and the Edit button is disabled.
 - Once a file is selected, the title area shows the filename. If the file parses to a dict and contains structured fields (`system_prompt`, `project_data`, `style_guide`, `translation_rules`, `glossary`, or colorizer prompt fields), structured sections are rendered: system prompt, project/project data and terminology, style guide, translation rules, and glossary (categorized by Person/Location/Org/Item/Skill/Creature); colorizer files additionally show Prompt Text, Colorization Rules, and Reference Images.
 - Content that cannot be parsed or is not structured shows “Unrecognized format – showing raw content” in a read-only text box.
 - The preview is read-only; use the Edit button to modify the file.
 
 ### Open the editor
 
-1. Click “Edit” (`Edit`) in the top-right corner of the preview panel.
-2. Structured files open the “Edit Prompt” (`Edit Prompt`) dialog with two tabs, “Template Edit / Raw Edit”; non-structured files show only “Raw Edit”.
-3. Template Edit organizes fields into sections and lets you add/remove fields with “Add Section” (`Add Section`) and move sections up/down; Raw Edit modifies the raw text directly.
+1. Click “Edit” in the top-right corner of the preview panel.
+2. Structured files open the “Edit Prompt” dialog with two tabs, “Template Edit / Raw Edit”; non-structured files show only “Raw Edit”.
+3. Template Edit organizes fields into sections and lets you add/remove fields with “Add Section” and move sections up/down; Raw Edit modifies the raw text directly.
 4. Saving validates the format (YAML/JSON) and writes the UTF-8 file back; on success the status shows “Saved successfully” and the preview refreshes automatically. AI colorizer prompt files (`ai_colorizer_prompt.yaml`) open the dedicated colorizer prompt editor.
 
 ### New, copy, rename, and delete
 
-- “New” (`New`) creates a YAML prompt template; after entering a file name (without extension) it is written under `dict/`.
-- “Copy” (`Copy`) duplicates the selected file; the default new name is `original_copy`.
-- “Rename” (`Rename`) renames the selected file; if the renamed file is the current prompt, `translator.high_quality_prompt_path` is updated too.
-- “Delete” (`Delete`) shows “Confirm Delete” and asks “Are you sure you want to delete this prompt file?”; deleting the current prompt clears the path.
+- “New” creates a YAML prompt template; after entering a file name (without extension) it is written to `dict/`.
+- “Copy” copies the selected file; the default new name is `original_copy`.
+- “Rename” renames the selected file; if the renamed file is the current prompt, `translator.high_quality_prompt_path` is updated too.
+- “Delete” shows “Confirm Delete” and asks “Are you sure you want to delete this prompt file?”; deleting the current prompt clears the path.
 - New/Copy/Rename validate the file name (illegal characters, collisions, invalid extensions); on success the status label shows “Created/Copied/Renamed to/Deleted: {filename}”.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Prompt Management` | Prompt Management | 提示词管理 |
-| `Manage and apply prompt files for translation` | Manage and apply prompt files for translation | 管理和应用翻译提示词文件 |
-| `Prompt List` | Prompt List | 提示词列表 |
-| `Prompt Preview` | Prompt Preview | 提示词预览 |
-| `Apply Selected Prompt` | Apply Selected Prompt | 应用所选提示词 |
-| `New` | New | 新建 |
-| `Copy` | Copy | 复制 |
-| `Rename` | Rename | 重命名 |
-| `Delete` | Delete | 删除 |
-| `Refresh` | Refresh | 刷新 |
-| `Open Directory` | Open Directory | 打开目录 |
-| `Edit` | Edit | 编辑 |
-| `Save` | Save | 保存 |
-| `Cancel` | Cancel | 取消 |
-| `OK` | OK | 确定 |
-| `Warning` | Warning | 警告 |
-| `Error` | Error | 错误 |
-| `Found {count} prompt files.` | Found {count} prompt files. | 找到 {count} 个提示词文件。 |
-| `Current prompt: {filename}` | Current prompt: {filename} | 当前提示词：{filename} |
-| `Created: {filename}` | Created: {filename} | 已创建：{filename} |
-| `Copied: {filename}` | Copied: {filename} | 已复制：{filename} |
-| `Renamed to: {filename}` | Renamed to: {filename} | 已重命名为：{filename} |
-| `Deleted: {filename}` | Deleted: {filename} | 已删除：{filename} |
-| `Select a prompt file to preview` | Select a prompt file to preview | 选择一个提示词文件以预览 |
-| `File not found` | File not found | 文件不存在 |
-| `Unrecognized format – showing raw content` | Unrecognized format – showing raw content | 无法识别格式 – 显示原始内容 |
-| `Error reading file: {error}` | Error reading file: {error} | 读取文件出错：{error} |
-| `New Prompt` | New Prompt | 新建提示词 |
-| `Copy Prompt` | Copy Prompt | 复制提示词 |
-| `Rename Prompt` | Rename Prompt | 重命名提示词 |
-| `Edit Prompt` | Edit Prompt | 编辑提示词 |
-| `Enter prompt file name (without extension):` | Enter prompt file name (without extension): | 输入提示词文件名（不含扩展名）： |
-| `Enter new prompt file name (without extension):` | Enter new prompt file name (without extension): | 输入新的提示词文件名（不含扩展名）： |
-| `Template Edit` | Template Edit | 模板编辑 |
-| `Raw Edit` | Raw Edit | 源码编辑 |
-| `System Prompt` | System Prompt | 系统提示词 |
-| `Project` | Project | 项目 |
-| `Project Data` | Project Data | 项目数据 |
-| `Project Title` | Project Title | 项目标题 |
-| `Terminology` | Terminology | 术语表 |
-| `Style Guide` | Style Guide | 风格指南 |
-| `Translation Rules` | Translation Rules | 翻译规则 |
-| `Glossary` | Glossary | 术语词典 |
-| `Original` | Original | 原文 |
-| `Translation` | Translation | 翻译 |
-| `Prompt Text` | Prompt Text | 提示词正文 |
-| `Colorization Rules` | Colorization Rules | 上色规则 |
-| `Reference Images` | Reference Images | 参考图片 |
-| `Add Section` | Add Section | 添加字段 |
-| `Confirm Delete` | Confirm Delete | 确认删除 |
-| `Are you sure you want to delete this prompt file?` | Are you sure you want to delete this prompt file? | 确定要删除此提示词文件吗？ |
-| `Invalid file name.` | Invalid file name. | 文件名无效。 |
-| `File already exists` | File already exists | 文件已存在 |
-| `Please select a prompt file first.` | Please select a prompt file first. | 请先选择一个提示词文件。 |
-| `Selected prompt file does not exist.` | Selected prompt file does not exist. | 所选提示词文件不存在。 |
-| `Loaded successfully` | Loaded successfully | 加载成功 |
-| `Saved successfully` | Saved successfully | 保存成功 |
-| `Save failed` | Save failed | 保存失败 |
-| `Format Error` | Format Error | 格式错误 |
-| `Serialize Error` | Serialize Error | 序列化错误 |
-| `label_high_quality_prompt_path` | Custom Prompt | 自定义提示词 |
 
 ## Empty and error states {#empty-and-error-states}
 
@@ -173,37 +109,3 @@ flowchart LR
 - The list excludes system prompts and the AI OCR/colorizer/renderer prompt files; those fixed prompts are edited in Settings → OCR / Typesetting / Mode Specific, not CRUD here.
 - Deleting the current prompt clears the path; renaming the current prompt updates the path. Files are re-validated when applied.
 - Prompt bodies are user content; before sharing logs, request exports, or debug directories, remove prompt text, local paths, and credentials.
-
-## Related files and formats {#files-and-formats}
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `dict/` | User prompt directory; the list scans `.yaml/.yml/.json` | System prompt files are excluded; New/Copy/Rename accept a `.txt` extension, but the list scan does not include `.txt` |
-| `config/config.json` | Persists `translator.high_quality_prompt_path` | Never read or display a real user file |
-| `config/config-example.json` | Release default HQ path example | Use sanitized examples only |
-| `.yaml` / `.yml` / `.json` | Prompt file formats | The root must be a dict; fields must be supported by the prompt loader |
-| `dict/prompt_example.yaml` | Default custom HQ prompt example | Keep a parseable YAML root structure |
-| `dict/ai_colorizer_prompt.yaml` | Fixed AI colorizer prompt file; opens the dedicated editor | Review `reference_images` entries; never expose private reference images |
-| `dict/system_prompt_hq*.yaml`, `dict/ai_*_prompt.yaml` | System/AI fixed prompts, excluded from the list | Not managed by this page |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| UI layout | `desktop_qt_ui/ui/main_page/pages/prompt_page.py` | List card, button row, status label, preview panel, and signal wiring |
-| Page controller | `desktop_qt_ui/ui/main_page/layout.py` | Refresh, apply, selection preview, editor, and new/copy/rename/delete |
-| Apply and persistence | `desktop_qt_ui/app_logic.py` | `get_hq_prompt_options`, `open_dict_directory`, `update_single_config`, HQ path resolution |
-| Preview and editor | `desktop_qt_ui/ui/secondary_pages/prompt_preview.py`, `ai_colorizer_prompt_editor.py` | Structured/Raw decision, empty states, template/raw tabs, and save |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Key mapping and actual bilingual display values |
-| Loading and consumers | `manga_translator/translators/prompt_loader.py`, `manga_translator/manga_translator.py`, `manga_translator/translators/common.py`, `manga_translator/translators/openai.py`, `openai_hq.py`, `gemini.py`, `gemini_hq.py` | Loading, path fallback, system-prompt composition, and glossary write-back |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| UI layout and calls | Complete | Statically checked the prompt page, preview panel, editors, and controller |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values |
-| List/apply/preview runtime chain | Complete | Statically checked scanning, apply persistence, preview decision, and final consumers |
-| Sanitized runtime verification | Deferred | No real `.env`, user `config.json`, API key/token, username, user image, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

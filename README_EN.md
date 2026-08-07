@@ -91,6 +91,8 @@ The English companion versions of the documents below are being added one by one
 
 ### 📥 Installation Methods
 
+> ⚠️ **Windows users: install the runtime first**. Before the first install, make sure the [Microsoft Visual C++ Redistributable (vc_redist.x64.exe)](https://aka.ms/vs/17/release/vc_redist.x64.exe) is installed; otherwise the app may fail to start (e.g., missing VCRUNTIME140.dll).
+
 #### Method 1: Portable Package (⭐ Recommended, supports updates)
 
 > ⚠️ **No Python pre-install required**: the package bundles a portable Python 3.12 and the uv package manager — fully portable, no registry writes

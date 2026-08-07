@@ -81,16 +81,7 @@ lastUpdated: true
 
 ### 主工作区语言选择器 {#workspace-language-selector}
 
-主工作区 `index.html` 顶部有一个语言下拉框（`id="language-select"`），选项是硬编码的六种：
-
-| 存储值 | English | 简体中文 |
-| --- | --- | --- |
-| `zh_CN` | Simplified Chinese | 简体中文 |
-| `zh_TW` | Traditional Chinese | 繁體中文 |
-| `en_US` | English | English |
-| `ja_JP` | Japanese | 日本語 |
-| `ko_KR` | Korean | 한국어 |
-| `es_ES` | Spanish | Español |
+主工作区 `index.html` 顶部有一个语言下拉框（`id="language-select"`），选项是硬编码的六种语言。
 
 切换语言的实际流程（`loadI18n` / `changeLanguage`）：
 
@@ -108,36 +99,6 @@ lastUpdated: true
 ### 登录页语言 {#login-page-language}
 
 登录页不加载 i18n，也没有语言选择器，所有文案硬编码为简体中文。因此登录页显示语言与工作区选择无关。
-
-### UI 文案对照 {#ui-copy-matrix}
-
-以下 key 是 Web 前端实际通过 `t(key, default)` 调用的翻译项，值来自桌面 `en_US.json` / `zh_CN.json`：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `admin` | 缺失（两语言均无此 key） | 缺失，恒回退为“管理” |
-| `Add Files` | Add Files | 添加文件 |
-| `Clear List` | Clear List | 清空列表 |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `Basic Settings` | Basic Settings | 基础设置 |
-| `Advanced Settings` | Advanced Settings | 高级设置 |
-| `Options` | Options | 选项 |
-| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
-| `env_hint` | API key input fields will appear below based on the selected translator | 根据选择的翻译器，下方会显示所需的 API 密钥输入框 |
-| `Log output...` | Log output... | 日志输出... |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-
-以下界面文案没有 i18n key，是 HTML 硬编码（登录页全部文案、工作区的“注销”按钮、管理员入口“管理”、语言下拉的六种语言名等）。桌面 locale 里还保留了一组 `web_language_selector`、`web_switch_language`、`web_current_language`、`web_confirm_language_switch`、`web_admin_panel`、`web_admin_only` 等 Web 相关 key，但当前 Web 静态代码没有引用它们，属于“目录中存在、尚未被引用”的待核对项。
 
 ## 会话保持 {#session-retention}
 
@@ -209,47 +170,4 @@ flowchart TD
 - 清除浏览器站点数据会同时删除 `session_token`、`locale`、`admin_locale`，效果等价于登出并恢复默认语言。
 - 本页不保存也不展示任何真实令牌、用户名、密码或会话内容；文档只描述字段名和流程。
 
-## 关联文件与格式
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `manga_translator/server/static/login.html` | 登录页（首次设置/登录/注册/改密） | 全部硬编码中文，无 i18n key |
-| `manga_translator/server/static/index.html` | 主工作区（语言下拉、注销、用户名、管理入口） | 语言选项硬编码，其余用 `t()` 翻译 |
-| `manga_translator/server/static/script.js` | 会话检查、i18n 加载、语言切换、注销 | 令牌只存 `localStorage`，不要改成 Cookie 明文 |
-| `manga_translator/server/static/js/i18n.js` | 登录页/工作区共享的 I18n 类 | 从 `/locales/{locale}.json` 加载桌面翻译 |
-| `manga_translator/server/static/js/admin/i18n.js` | 管理界面 I18n（`admin_locale`） | 缺 key 回退 `zh_CN` |
-| `manga_translator/server/core/session_service.py` | 会话创建、令牌、过期、持久化 | `session_timeout_minutes=60` 由 `main.py` 传入 |
-| `manga_translator/server/core/account_service.py` | 账号、bcrypt 密码、`must_change_password` | 密码至少 6 位；不读取真实账号文件 |
-| `manga_translator/server/core/middleware.py` | `require_auth` 校验 `X-Session-Token` | 无效/过期/停用统一 `401` |
-| `manga_translator/server/routes/auth.py` | `/auth/status`、`/setup`、`/login`、`/register`、`/change-password`、`/check`、`/logout` | 登录/注册限流 |
-| `manga_translator/server/routes/web.py` | `/`、`/admin` 静态页与旧 `/user/login` | 旧密码门独立于账号会话 |
-| `manga_translator/server/data/accounts.json`、`sessions.json` | 账号与会话持久化 | 文档不展示真实内容 |
-| `desktop_qt_ui/locales/*.json` | Web 语言翻译源（`/i18n/{locale}`） | 六种 locale；缺 key 回退 |
-
-## Mermaid 数据流限制
-
-上图画的是账号会话的主流程：首次设置、登录、强制改密、进入工作区、活动刷新、过期和注销。它不代表“每次访问都会请求 `/auth/status`”或“每个会话都会写盘”；`need_setup`、注册开关、旧密码门、服务重启后的持久化会话都会走对应旁路。图中没有伪造运行截图、真实令牌或私有任务产物；需要实际启动服务才能确认的显示细节都在验证记录中列为待运行。
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 登录页 UI | `manga_translator/server/static/login.html` | 首次设置/登录/注册/改密表单、`/auth/status` 分支、`getSafeRedirectUrl` |
-| 工作区 UI | `manga_translator/server/static/index.html`、`script.js` | 会话检查、`X-Session-Token`、注销、`locale` 读写、语言回退 |
-| 管理 UI | `manga_translator/server/static/admin-new.html`、`js/admin/app.js`、`js/admin/i18n.js` | `admin_locale`、`?redirect=/admin` 返回、会话检查 |
-| 会话服务 | `manga_translator/server/core/session_service.py`、`system_init.py` | 令牌生成、60 分钟超时、每 5 分钟清理、持久化 |
-| 账号服务 | `manga_translator/server/core/account_service.py` | 密码强度、bcrypt、`must_change_password`、默认管理员路径 |
-| 鉴权中间件 | `manga_translator/server/core/middleware.py` | `require_auth`、401 语义、活动刷新 |
-| 路由 | `manga_translator/server/routes/auth.py`、`web.py`、`config.py` | `/auth/*`、旧 `/user/login`、`/user/access`、`/i18n/{locale}` |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`、`doc/wiki/data/i18n.generated.json` | Web 实际调用 key 与三列实际值 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取 1.3 节、5.12 小节与 9.3 节并按合同编写 |
-| 登录/语言/会话 UI 与调用 | 完成 | 静态核对 `login.html`、`index.html`、`script.js`、管理端 JS |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 逐项核对 Web 调用 key；缺失 key 如实标记回退 |
-| 会话运行链 | 完成 | 静态核对令牌生成、校验、活动刷新、过期清理与持久化 |
-| 脱敏运行验证 | 待后续 | 未读取真实账号、令牌、`accounts.json`、`sessions.json` 或私有内容；首次设置、注册开关、旧密码门、强制改密与服务重启会话需启动 Web 服务验证 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

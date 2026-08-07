@@ -26,26 +26,26 @@ The full operations of the toolbar and menus, canvas tools, region list, propert
 
 ### View shortcut hints in the Menu {#toolbar-hints}
 
-Open the editor toolbar's “Menu” (`Menu`): “Export Image” (`Export Image`), “Undo” (`Undo`), and “Redo” (`Redo`) have `(Ctrl+Q)`, `(Ctrl+Z)`, and `(Ctrl+Y)` hint text appended by code. These hints are text only; the real shortcuts are registered by `EditorShortcutManager`.
+Open the editor toolbar's “Menu”: “Export Image”, “Undo”, and “Redo” have `(Ctrl+Q)`, `(Ctrl+Z)`, and `(Ctrl+Y)` hint text appended by code. These hints are text only; the real shortcuts are registered by `EditorShortcutManager`.
 
 ### Keyboard shortcut reference {#shortcut-reference}
 
 The following table lists every keyboard shortcut actually registered by `_setup_editor_shortcuts()`. Behavior differs when focus is in a text widget (`QTextEdit` or `QLineEdit`) versus on the canvas; with text focus, `Q`/`W`/`E`/`A`/`D` are forwarded to the widget as ordinary characters instead of switching tools or images.
 
-| Registration name | Registered sequence | With focus in a text widget | Non-text focus (canvas) |
-| --- | --- | --- | --- |
-| `undo` | `StandardKey.Undo` (Windows: `Ctrl+Z`) | Calls the text widget's `undo()` | `controller.undo()` undoes the editor action |
-| `redo` | `StandardKey.Redo` (Windows: `Ctrl+Y`) | Calls the text widget's `redo()` | `controller.redo()` redoes the editor action |
-| `copy` | `StandardKey.Copy` (Windows: `Ctrl+C`) | Calls the text widget's `copy()` | Copies the last selected region |
-| `paste` | `StandardKey.Paste` (Windows: `Ctrl+V`) | Calls the text widget's `paste()` | With one selected region, pastes its style; with none, pastes a region at the mouse or default position |
-| `select_all` | `StandardKey.SelectAll` (Windows: `Ctrl+A`) | Calls the text widget's `selectAll()` | Selects all regions |
-| `delete` | `StandardKey.Delete` (Windows: `Del`) | Does not delete regions | Deletes the selected regions |
-| `export` | `Ctrl+Q` | Still exports (flushes pending floating rich-text changes first) | Still exports |
-| `tool_select` | `Q` | Forwards the character `q` to the text widget | Switches to the select tool `select` |
-| `tool_brush` | `W` | Forwards the character `w` to the text widget | Switches to the brush tool `brush` |
-| `tool_eraser` | `E` | Forwards the character `e` to the text widget | Switches to the eraser tool `eraser` |
-| `prev_image` | `A` | Forwards the character `a` to the text widget | Selects the previous image in the file list |
-| `next_image` | `D` | Forwards the character `d` to the text widget | Selects the next image in the file list |
+| Shortcut | With focus in a text widget | Canvas focus |
+| --- | --- | --- |
+| `Ctrl+Z` | Undo text editing | Undoes the editor action |
+| `Ctrl+Y` | Redo text editing | Redoes the editor action |
+| `Ctrl+C` | Copy text | Copies the last selected region |
+| `Ctrl+V` | Paste text | With one selected region, pastes its style; with none, pastes a region at the mouse or default position |
+| `Ctrl+A` | Select all text | Selects all regions |
+| `Del` | Does not delete regions | Deletes the selected regions |
+| `Ctrl+Q` | Still exports (flushes pending floating rich-text changes first) | Still exports |
+| `Q` | Types the character `q` | Switches to the select tool |
+| `W` | Types the character `w` | Switches to the brush tool |
+| `E` | Types the character `e` | Switches to the eraser tool |
+| `A` | Types the character `a` | Selects the previous image in the file list |
+| `D` | Types the character `d` | Selects the next image in the file list |
 
 ### Wheel combos {#wheel-combos}
 
@@ -54,20 +54,6 @@ The following table lists every keyboard shortcut actually registered by `_setup
 | `Shift + wheel` | Changes the shared brush size by ±1 per notch | Clamped to `5`–`200`; the event is swallowed and does not zoom the canvas |
 | Any `Ctrl`-containing wheel combo | Changes the font size of all selected regions by ±5% (minimum 1) | Swallowed even with no selection; never falls through to canvas zoom |
 | Plain wheel | Zooms the canvas anchored at the mouse position | Scale clamped to `0.05`–`50.0`, handled by `GraphicsView.wheelEvent()` |
-
-## Option matrix {#options-i18n}
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Export Image` | Export Image | 导出图片 |
-| `Undo` | Undo | 撤销 |
-| `Redo` | Redo | 重做 |
-| `Copy` | Copy | 复制 |
-| `Paste` | Paste | 粘贴 |
-| `Select All` | Select All | 全部选中 |
-| `Delete` | Delete | 删除 |
-
-The `(Ctrl+Q)`, `(Ctrl+Z)`, and `(Ctrl+Y)` suffixes on “Export Image”, “Undo”, and “Redo” are hint text appended by code after the i18n value; they are not part of any locale value. The registered sequences and menu hints are listed in [Keyboard shortcut reference](#shortcut-reference).
 
 ## Runtime behavior {#runtime-behavior}
 
@@ -118,42 +104,4 @@ When the canvas has an in-progress interaction (box selection, drawing, text box
 - Shortcut behavior depends on selection state: with no selection, `Delete` and `Copy` do nothing and `Paste` inserts a region at the mouse position; with multiple regions, `Copy` copies only the last selected one.
 - Outside the editor (other main-window pages or other system windows), these shortcuts are outside `EditorShortcutManager`'s registration scope and are not guaranteed to work.
 
-## Related files and formats {#related-files-and-formats}
-
-| File | Actual role on this page | Note |
-| --- | --- | --- |
-| `desktop_qt_ui/ui/editor/shortcut_manager.py` | Registration, focus dispatch, and key forwarding for all editor shortcuts and the wheel filter | `StandardKey` display follows the Qt platform |
-| `desktop_qt_ui/ui/editor/graphics_view_input.py` | `Escape`/focus-loss cancel, wheel zoom, canvas click saves property edits first | View scale clamped to `0.05`–`50.0` |
-| `desktop_qt_ui/ui/editor/view.py` | `EditorView` creation, `export_image()` flush, file-list and signal wiring | `Ctrl+Q` shares the same export entry as the toolbar |
-| `desktop_qt_ui/ui/widgets/editor_toolbar.py` | Shortcut hint text after menu items | Hint text is appended by code, not part of a locale value |
-| `desktop_qt_ui/ui/widgets/property_panel.py` | Unfocused controls do not swallow the wheel; in-edit text protection | `CustomSlider` changes its value only while focused |
-| `desktop_qt_ui/ui/widgets/region_list_view.py` | Draft preservation for rows being edited | Delta updates, no full-list rebuild |
-| `desktop_qt_ui/ui/widgets/rich_text_floating_editor.py` | `WA_ShowWithoutActivating` and tool-window flags | Canvas keeps focus |
-| `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | Actual bilingual display values for the UI call keys on this page | Mark missing keys honestly as missing/fallback |
-
-## Mermaid diagram limits {#mermaid-limits}
-
-The dispatch and wheel diagrams describe source-confirmed branches: every editor shortcut is focus-aware and returns immediately when there is no focused widget or another top-level window has focus; `Ctrl+wheel` is swallowed with or without a selection and never falls through to canvas zoom; only a plain wheel reaches `GraphicsView` zoom. The diagrams do not claim that every key press triggers a region operation or an export; empty selections, missing images, and non-text focus take their documented branches. No runtime screenshot or private task artifact has been fabricated.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Shortcut registration | `desktop_qt_ui/ui/editor/shortcut_manager.py` | 12 keyboard shortcuts, focus-aware wrapper, `_forward_key_to_widget`, viewport wheel filter |
-| Canvas input | `desktop_qt_ui/ui/editor/graphics_view_input.py` | `Escape`/focus-loss cancel, wheel zoom factor and clamp, canvas click saves property edits first |
-| View wiring | `desktop_qt_ui/ui/editor/view.py` | `export_image()` flushes the floating rich-text editor; file list `select_prev/next_image`; popup shown without stealing focus |
-| Toolbar hints | `desktop_qt_ui/ui/widgets/editor_toolbar.py` | `(Ctrl+Q)` / `(Ctrl+Z)` / `(Ctrl+Y)` hint text on menu items |
-| Property/list protection | `desktop_qt_ui/ui/widgets/property_panel.py`, `region_list_view.py` | Unfocused controls let the wheel pass through; in-edit text/drafts not overwritten |
-| Popup focus | `desktop_qt_ui/ui/widgets/rich_text_floating_editor.py` | `WA_ShowWithoutActivating`, `Qt.Tool` and frameless window flags |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Key mapping and actual bilingual display values |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract (section 1.3, item 5.10) |
-| Shortcut registration and focus dispatch | Complete | Statically checked every registration and handler branch in `shortcut_manager.py` |
-| Actual `StandardKey` mapping | Complete | Checked Windows primary bindings with Qt `QKeySequence.keyBindings()` |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values item by item |
-| Sanitized runtime verification | Deferred | No real user config, API key/token, username, user image, or private task artifact was read; no headed-mode key triggering yet |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
+For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

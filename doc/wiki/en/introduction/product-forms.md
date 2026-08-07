@@ -11,7 +11,7 @@ lastUpdated: true
 
 This project provides a Qt desktop application, the `local` CLI, a Web interface, and the internal `ws` and `shared` service forms. They share the translation core, but differ in interaction, network boundaries, and intended use. Choose a form based on how you want to work before configuring individual features.
 
-This page helps you choose a runtime form; it does not document translation parameters, API credentials, the nine workflows, or HTTP request fields. See [First Translation](./first-translation.md) for the common input and process, and [Choose an Edition](../install/choose-edition.md) for installation options.
+This page helps you choose a runtime form; it does not document translation parameters, API credentials, the nine workflows, or HTTP request fields. See [First Translation](./first-translation.md) for the common input and process, and [Windows Portable](../install/windows-portable.md), [Linux and macOS](../install/linux-and-macos.md), and [Docker](../install/docker.md) for installation options.
 
 ## Feature boundary {#scope}
 
@@ -28,20 +28,7 @@ This page helps you choose a runtime form; it does not document translation para
 
 ### Qt desktop application {#desktop}
 
-Use this form when you are new to the project, need to inspect settings one by one, or want to revise a translation manually. The application opens on “Translation Interface”; the sidebar also provides “Settings”, “API Management”, “Prompt Management”, “Replacement Rules”, “Rich Text Rules”, “Batch Management”, and the bottom “Editor View”. Language and theme controls are in the General settings area; changing language saves `app.ui_language` and refreshes UI text.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Interface` | Translation Interface | 翻译界面 |
-| `Settings` | Settings | 设置 |
-| `API Management` | API Management | API 管理 |
-| `Prompt Management` | Prompt Management | 提示词管理 |
-| `Replacement Rules` | Replacement Rules | 替换规则 |
-| `Rich Text Rules` | Rich Text Rules | 富文本规则 |
-| `Batch Management` | Batch Management | 批量管理 |
-| `Editor View` | Editor View | 编辑器视图 |
-| `&Language` | &Language | &语言 |
-| `&Theme` | &Theme | &主题 |
+Use this form when you are new to the project, need to inspect settings one by one, or want to revise a translation manually. The application opens on “Translation Interface”; the sidebar also provides “Settings”, “API Management”, “Prompt Management”, “Replacement Rules”, “Rich Text Rules”, “Batch Management”, and the bottom “Editor View”. Language and theme controls are in the General settings area; switching language refreshes the UI text immediately.
 
 The shortest desktop path is: start the application → configure the required connection in “API Management” → add an image or folder in “Translation Interface” → choose a workflow and start. File input, output directories, progress, and editor details are covered by later pages.
 
@@ -68,21 +55,6 @@ uv run --no-sync python -m manga_translator web
 The default listener is `0.0.0.0:8000`, configurable through `MT_WEB_HOST` and `MT_WEB_PORT`. `0.0.0.0` means listening on all IPv4 interfaces; it is not the browser address. On the same machine, use `http://localhost:8000` in the usual case. The Docker GPU compose service maps host port `8001` to container port `8000`, so use the actual host mapping when connecting.
 
 The Web workspace accepts images, folders, and `image/*`, PDF, JSON, and TXT inputs. After selecting a workflow, start a task; results can be previewed, downloaded individually, or downloaded in a batch. Authenticated requests use `X-Session-Token`, and the interface separates the normal workspace from the `/admin` administration UI. Do not copy tokens, API keys, or user images into documentation, logs, or screenshots.
-
-Web text is not completely covered by the desktop locale files. The following three-column evidence comes from keys called by the main script; `admin` uses a Chinese fallback at its call site:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Manga Translator` | Manga Translator | 漫画翻译器 |
-| `Add Files` | Add Files | 添加文件 |
-| `Clear List` | Clear List | 清空列表 |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Basic Settings` | Basic Settings | 基础设置 |
-| `Advanced Settings` | Advanced Settings | 高级设置 |
-| `Options` | Options | 选项 |
-| `API Keys (.env)` | API Keys (.env) | API密钥 (.env) |
-| `admin` | Missing; call-site fallback | 缺失，使用调用处 fallback |
 
 ### `ws` and `shared` internal forms {#internal-services}
 
@@ -131,40 +103,3 @@ Before dispatching, the CLI entry point ensures runtime files and then calls the
 - **Workflows**: the nine workflows are driven by configuration fields, and special workflows generally cannot enter the `batch_concurrent` pipeline. See the workflow matrix for skipped stages.
 - **Network and privacy**: Web’s `0.0.0.0` listener broadens the exposure surface; requests may contain images, OCR text, and translations. Configure authentication, firewalls, and safe secret injection before public deployment.
 - **Editor**: the visual editor belongs to the Qt desktop workspace. CLI/Web project JSON output does not imply the same editor interactions.
-
-## Related files and formats {#files}
-
-| File or directory | Role across product forms | Manual-edit and compatibility notes |
-| --- | --- | --- |
-| `config/config.json` | User configuration for Qt, `local`, and services | User configuration takes precedence over the example; do not publish private paths |
-| `config/config-example.json` | Default configuration and initialization source | An example without secrets, not the current user configuration |
-| `.env` | API addresses, models, and credentials as environment variables | Never read or display values; persistence depends on secure mounting |
-| `config/custom_api_params.json` | Additional API request parameters | Does not choose a product form or store API keys |
-| `manga_translator_work/` | Per-image JSON, original/translated text, inpainted images, and editor overlays | May contain user content, coordinates, and base64 masks; do not upload it directly |
-| `packaging/docker-compose.yml` | Docker ports, volumes, and hardware services | Host and container ports differ; do not reuse example passwords |
-
-For detailed formats, return to the page for the actual consumer: workflow files belong on workflow pages, API configuration on API management pages, and per-image JSON/editor write-back on the editor import/export page.
-
-## Source evidence {#source-evidence}
-
-| Layer | Files | What was checked |
-| --- | --- | --- |
-| Qt startup and UI | `desktop_qt_ui/main.py`, `desktop_qt_ui/ui/main_window.py` | Entry point, main window, navigation, and language/theme refresh |
-| Qt i18n | `desktop_qt_ui/locales/en_US.json`, `desktop_qt_ui/locales/zh_CN.json` | Actual displayed values for desktop keys |
-| Formal dispatch | `manga_translator/__main__.py`, `manga_translator/args.py` | Four command modes and dispatch chain |
-| Web UI | `manga_translator/server/static/index.html`, `script.js`, `history-gallery.js` | Input, workflows, results, language, session, and admin entry |
-| Web server | `manga_translator/server/main.py`, `server/routes/` | HTTP service and surrounding capabilities |
-| Workflows and paths | `desktop_qt_ui/services/workflow_service.py`, `manga_translator/manga_translator.py`, `manga_translator/utils/path_manager.py` | Branches, outputs, and work-directory consumers |
-| Docker | `packaging/Dockerfile`, `packaging/docker-compose.yml` | Port mappings, hardware services, and volumes |
-| Research evidence | `doc/wiki/research/desktop-main-navigation.md`, `cli-command-inventory.md`, `phase0-web-user-http.md`, `workflow-matrix-source-evidence.md`, `phase0-related-files-formats-debug-safety.md` | Boundaries, wording, formats, and sensitive-information review |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| Page contract and scope | Complete | Written against the three contracts and limited to `introduction/product-forms.md` |
-| Source and i18n | Complete | Qt navigation, CLI dispatch, Web scripts, workflows, paths, and Docker were checked; three-column i18n evidence is retained |
-| Sensitive-information review | Complete | No API keys, tokens, usernames, real passwords, private absolute paths, user images, or private prompts included |
-| Headed UI and runtime | Pending runtime verification | Qt/Web were not started; no real credentials or screenshots were used |
-| Route mirror and source evidence checks | To run | `node scripts/verify-route-mirror.mjs doc/wiki`; `node scripts/verify-source-evidence.mjs doc/wiki` |
-| VitePress build | To run | `npm run docs:build --prefix doc/wiki` |

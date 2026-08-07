@@ -22,58 +22,30 @@ lastUpdated: true
 
 ### 在属性面板选择图层与工具
 
-打开编辑器后，左侧默认显示“属性编辑”（`Property Editor`）。在“图像编辑”（`Image Editing`）分组中有 `Mask`、`Paint`、`Clone Stamp` 三个页签，各页签提供一组互斥工具按钮；三个页签共用一个按钮组，因此选中任一页签的工具都会取消其他页签的按钮。切换页签时，如果当前工具不属于新页签，会自动切回新页签的“不选择”（`No Selection`），避免跨页工具冲突。三个页签还共享同一个“笔刷大小：”（`Brush Size:`）字段。
+打开编辑器后，左侧默认显示“属性编辑”。在“图像编辑”分组中有“蒙版”“画笔”“印章”三个页签，各页签提供一组互斥工具按钮；三个页签共用一个按钮组，因此选中任一页签的工具都会取消其他页签的按钮。切换页签时，如果当前工具不属于新页签，会自动切回新页签的“不选择”，避免跨页工具冲突。三个页签还共享同一个“笔刷大小：”字段。
 
 ### 蒙版页签：画笔与橡皮擦
 
-1. 打开“蒙版”（`Mask`）页签。
-2. 点击“画笔”（`Brush`）或“橡皮擦”（`Eraser`）；也可以直接按 `W` / `E` 切换，无需打开面板。
-3. 拖动“笔刷大小：”（`Brush Size:`）滑条调整笔画粗细，范围 5–200，初始 30；在画布上按住 `Shift+滚轮` 每格 ±1 调整同一个字段。
+1. 打开“蒙版”页签。
+2. 点击“画笔”或“橡皮擦”；也可以直接按 `W` / `E` 切换，无需打开面板。
+3. 拖动“笔刷大小：”滑条调整笔画粗细，范围 5–200，初始 30；在画布上按住 `Shift+滚轮` 每格 ±1 调整同一个字段。
 4. 在画布上按住左键拖动：画笔把笔画位置写为 255，橡皮擦把笔画位置清为 0。松开后整笔作为一个可撤销命令提交，并触发一次自动修复。
-5. 勾选“显示优化蒙版”（`Show Refined Mask`）在画布上以半透明红色显示优化蒙版；点击“清除所有蒙版”（`Clear All Masks`）把优化蒙版整体清空。
+5. 勾选“显示优化蒙版”在画布上以半透明红色显示优化蒙版；点击“清除所有蒙版”把优化蒙版整体清空。
 
 ### 画笔页签：彩色画笔
 
-1. 打开“画笔”（`Paint`）页签。
-2. 选择“画笔”（`Brush`）或“橡皮擦”（`Eraser`）：前者用“画笔颜色：”（`Brush Color:`）选择的颜色写入画笔图层，后者擦除画笔图层。
-3. 画笔颜色默认 `#ffffff`（白色），点击颜色按钮打开“选择画笔颜色”（`Select brush color`）对话框；空值会规范化到 `#ff0000`。
-4. “显示画笔层”（`Show Paint Layer`）只控制画笔图层是否显示，不删除数据，默认勾选。“清除画笔图层”（`Clear Paint Layer`）把整层清空，可通过撤销恢复。
+1. 打开“画笔”页签。
+2. 选择“画笔”或“橡皮擦”：前者用“画笔颜色：”选择的颜色写入画笔图层，后者擦除画笔图层。
+3. 画笔颜色默认 `#ffffff`（白色），点击颜色按钮打开“选择画笔颜色”对话框；空值会规范化到 `#ff0000`。
+4. “显示画笔层”只控制画笔图层是否显示，不删除数据，默认勾选。“清除画笔图层”把整层清空，可通过撤销恢复。
 
 ### 印章页签：取样与涂抹
 
-1. 打开“印章”（`Clone Stamp`）页签，选择“仿制印章”（`Clone Stamp`；英文实际显示为 `Clone`）。
+1. 打开“印章”页签，选择“仿制印章”。
 2. 在画布上**右键**点击要复制的源位置进行取样；仿制印章活动时右键不再打开上下文菜单。
 3. 按住**左键**拖动涂抹：落笔瞬间锁定“取样点 − 落笔点”的偏移，之后源位置跟随光标保持该偏移；拖动过程中逐点把源像素盖印到印章图层。
-4. 需要修正误盖时，选择同一页签的“橡皮擦”（`Eraser`），按住左键拖动擦除印章图层。
-5. 勾选“显示印章层”（`Show Stamp Layer`）控制印章图层显示，默认勾选；点击“清除印章层”（`Clear Stamp Layer`）清空整层，可通过撤销恢复。
-
-### 控件文案
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Property Editor` | Property Editor | 属性编辑 |
-| `Image Editing` | Image Editing | 图像编辑 |
-| `Mask` | Mask | 蒙版 |
-| `Paint` | Paint | 画笔 |
-| `Clone Stamp` | Clone | 印章 |
-| `No Selection` | No Selection | 不选择 |
-| `Selection Tool` | Selection Tool | 选择工具 |
-| `Brush` | Brush | 画笔 |
-| `Brush Tool` | Brush Tool | 画笔工具 |
-| `Eraser` | Eraser | 橡皮擦 |
-| `Eraser Tool` | Eraser Tool | 橡皮擦工具 |
-| `Brush Size:` | Brush Size: | 笔刷大小: |
-| `Brush Color:` | Brush Color: | 画笔颜色： |
-| `Show Refined Mask` | Show Refined Mask | 显示优化蒙版 |
-| `Clear All Masks` | Clear All Masks | 清除所有蒙版 |
-| `Show Paint Layer` | Show Paint Layer | 显示画笔层 |
-| `Clear Paint Layer` | Clear Paint Layer | 清除画笔图层 |
-| `Show Stamp Layer` | Show Stamp Layer | 显示印章层 |
-| `Clear Stamp Layer` | Clear Stamp Layer | 清除印章层 |
-| `Select brush color` | Select brush color | 选择画笔颜色 |
-| `Clone Stamp Hint` | Clone stamp: right-click to sample, left-drag to paint | 仿制印章：右键取样，左键拖动涂抹 |
-
-`Clone Stamp` 的英文显示值是 `Clone` 而不是 `Clone Stamp`；`Brush Size:` 的简体中文值是 `笔刷大小:`（半角冒号），`Brush Color:` 是 `画笔颜色：`（全角冒号），两者都是 locale 原文，不是排版差异。
+4. 需要修正误盖时，选择同一页签的“橡皮擦”，按住左键拖动擦除印章图层。
+5. 勾选“显示印章层”控制印章图层显示，默认勾选；点击“清除印章层”清空整层，可通过撤销恢复。
 
 ## 图层与数据流
 
@@ -81,18 +53,18 @@ lastUpdated: true
 
 ```mermaid
 flowchart LR
-    B["蒙版画笔 brush / 橡皮擦 eraser"] --> M["refined_mask 二值蒙版"]
-    P["彩色画笔 paint / paint_erase"] --> O["paint_overlay RGBA"]
-    C["仿制印章 clone / stamp_erase"] --> S["stamp_overlay RGBA"]
-    M -->|"有效笔画 / 清除 / 撤销重做"| I["自动修复（增量 inpaint）"]
+    B["蒙版画笔 / 橡皮擦"] --> M["优化蒙版（二值）"]
+    P["彩色画笔 / 彩色画笔擦除"] --> O["画笔图层（RGBA）"]
+    C["仿制印章 / 印章擦除"] --> S["印章图层（RGBA）"]
+    M -->|"有效笔画 / 清除 / 撤销重做"| I["自动修复（增量）"]
     M -->|"Show Refined Mask"| DM["红色半透明蒙版显示层"]
-    I --> V["修复图 inpainted image（画布底层）"]
+    I --> V["修复图（画布底层）"]
     O -->|"Show Paint Layer"| DO["画笔层显示"]
     S -->|"Show Stamp Layer"| DS["印章层显示"]
     V --> E["导出与回写"]
     DO --> E
     DS --> E
-    E --> J["editor JSON：mask_raw + mask_is_refined、paint_overlay、stamp_overlay"]
+    E --> J["工程 JSON：蒙版与图层数据"]
 ```
 
 修复图、画笔层、印章层都叠加在画布底图之上，文字区域渲染在最上层；仿制印章的取样源正是“画布当前可见内容”（修复图优先，否则原图，再叠加画笔层和本笔已盖印的印章内容），因此同一笔内可以继续传递仿制内容。
@@ -153,36 +125,4 @@ flowchart LR
 - 笔画数据按底图全分辨率保存（RGBA 层为 H×W×4），超大图片会占用较多内存；显示层会降采样，但落笔与盖印都在全分辨率进行。
 - 画笔/印章层、优化蒙版都随导出写入工程文件；导出与回写格式见[导入导出与回写](./import-export-and-writeback.md)。
 
-## 关联文件与格式
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| 会话状态 `active_tool`、`brush_size`、`brush_color`、`display_mask_type` | 工具与画笔参数的运行态 | 默认 `select`、`30`、`#ffffff`、`none`；只在编辑器会话内存中，不写配置文件 |
-| `refined_mask` / 二值 uint8 数组 | 蒙版画笔与橡皮擦的读写对象 | 编辑后的蒙版导出时写入 `mask_raw`（base64 PNG）并标记 `mask_is_refined: true`，后端跳过蒙版优化 |
-| `paint_overlay` / `stamp_overlay`（RGBA uint8） | 彩色画笔与仿制印章的写入目标 | 导出时以 base64 PNG 写入 JSON 键 `paint_overlay` / `stamp_overlay`；旧版单文件 PNG 仅作画笔层兼容兜底 |
-| `*_translations.json` | 编辑器工程持久化 | 只记录格式与键名，不展示真实用户图片或工程文件 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| UI | `desktop_qt_ui/ui/widgets/property_panel.py` | 图像编辑分组三页签、共享互斥按钮组、笔刷大小/颜色、显示与清除控件、信号与页签切换复位 |
-| 会话状态 | `desktop_qt_ui/editor/session.py`、`editor_model.py`、`editor_controller.py` | `active_tool`/`brush_size`/`brush_color`/`display_mask_type` 默认值与信号转发 |
-| 画布输入 | `desktop_qt_ui/ui/editor/graphics_view_input.py` | 笔画收集、蒙版写入、画笔/印章层写入、仿制取样与盖印、预览、提交与取消 |
-| 撤销/重做 | `desktop_qt_ui/editor/commands.py` | `MaskEditCommand`、`PaintOverlayEditCommand` 的补丁与写回 |
-| 自动修复 | `desktop_qt_ui/editor/controller_inpaint_service.py` | 增量修复、代数取消、`clear_all_masks`、图层清除 |
-| 显示层 | `desktop_qt_ui/ui/editor/mask_layer.py`、`overlay_layer.py`、`editor/image_utils.py` | 蒙版红色显示、画笔/印章层 z 值、降采样预览 |
-| 持久化/导出 | `desktop_qt_ui/services/export_service.py`、`services/file_service.py`、`editor/document_load_worker.py`、`editor/controller_export_service.py` | `mask_raw`/`paint_overlay`/`stamp_overlay` 写盘与读回、内存载荷直通 |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 表格中 key 与两种语言实际显示值 |
-| 接线 | `desktop_qt_ui/ui/editor/view.py`、`desktop_qt_ui/app_logic.py` | 属性面板信号到 controller；应用逻辑不含蒙版/画笔运行态（仅修复配置与关闭清理） |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；本页 TODO 保持 `[未开工]`，由主代理统一勾选 |
-| UI 布局与调用 | 完成 | 静态核对属性面板三页签、view 信号接线、画布输入分支 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 页面表格逐项记录 key、English、简体中文实际值，含 `Clone Stamp`→`Clone` 差异 |
-| 蒙版/画笔/仿制印章运行链 | 完成 | 静态核对笔画提交、增量修复、印章盖印与撤销命令 |
-| 脱敏运行验证 | 待后续 | 未启动 GUI、未截图；未读取真实用户图片、`.env`、密钥或私有工程文件 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |
+更多开发向对照与源码依据见[参考索引](../../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。

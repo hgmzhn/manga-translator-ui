@@ -139,7 +139,22 @@ The ticket response is always `{url, filename, expires_in, expires_at}`: `url` l
 
 `_sanitize_download_filename()` keeps only the basename, strips CR/LF, rejects `.` / `..`, and ensures the name ends with `.zip`.
 
-## Status codes and errors {#status-codes-and-errors}
+## Dependencies and limits {#dependencies-and-limits}
+
+- Batch downloads (both ticket and direct) are capped at 50 sessions; exceeding returns 400.
+- A ticket is a capability: anyone holding the URL can download within the 5-minute TTL. Never put ticket URLs or `session_token` values into logs, reports, or public documents.
+- The auto-cleanup service (`cleanup_service.py`, disabled by default: `auto_cleanup=false`, `max_age_days=7`, `max_size_gb=10`) deletes files under `results/`, `user_fonts/`, and `user_prompts/` by mtime/total size only; it does not clean `data/history/` shards or the index. After files are cleaned, the session record may still appear in the history list, and fetching files or downloading returns 404.
+- History saving is best effort: a `save_translation_to_history()` failure only logs a warning and does not affect the translation result.
+- The session token is the task ID, not the UUID v4 from `generate_session_token()`; token predictability and uniqueness depend on how task IDs are generated and need runtime verification.
+- A regular user can only access their own history; `view_permission` defaults to `own`, and an administrator’s `/admin/all` and deletes are not restricted by “own”.
+- The search endpoint is shadowed by `/{session_token}` (see [Search endpoint](#search-endpoint)) and is not used by the static frontend.
+- This page shows no real history records, images, session tokens, usernames, or private paths; it documents the contract and sanitized structure only.
+
+## Developer Guide {#developer-guide}
+
+### Option matrix {#option-matrix}
+
+#### Status codes and errors {#status-codes-and-errors}
 
 | Status | Triggered by (this page’s endpoints) |
 | --- | --- |
@@ -150,7 +165,7 @@ The ticket response is always `{url, filename, expires_in, expires_at}`: `url` l
 | `404` | Missing session or no access, missing file, invalid/expired ticket, missing session directory |
 | `500` | Uninitialized history service or uncaught query/delete/packing exceptions |
 
-## UI copy reference {#ui-copy}
+#### UI copy reference {#ui-copy}
 
 On the user side, `script.js` reads keys through `t()` from `/i18n/{locale}` (data source `desktop_qt_ui/locales/*.json`); the result-list keys used here:
 
@@ -163,7 +178,7 @@ On the user side, `script.js` reads keys through `t()` from `/i18n/{locale}` (da
 | `download_complete` | Download complete | 下载完成 |
 | `download_failed` | Download failed | 下载失败 |
 
-The admin permission editor uses `web_can_view_history` (Can View History / 可查看历史). The remaining copy in the history gallery and the admin history module is hardcoded Chinese in HTML/JS and does not use i18n keys:
+The admin permission editor uses `web_can_view_history` (Can View History). The remaining copy in the history gallery and the admin history module is hardcoded Chinese in HTML/JS and does not use i18n keys:
 
 | Location/element | English | Simplified Chinese actual value |
 | --- | --- | --- |
@@ -175,18 +190,7 @@ The admin permission editor uses `web_can_view_history` (Can View History / 可�
 
 In addition, the locale files contain a set of `web_*` keys (for example `web_history_management`, `web_translation_history`, `web_session_token`, `web_file_count`, `web_total_size`, `web_download_all`, `web_batch_download`, `web_no_history`, `web_search_placeholder`, `web_download_started`, `web_download_failed`, `web_history_load_failed`) that the current static frontend does not reference; they are treated as legacy/standby keys. This page records their values from the i18n catalog but does not claim they are currently visible UI copy.
 
-## Dependencies and limits {#dependencies-and-limits}
-
-- Batch downloads (both ticket and direct) are capped at 50 sessions; exceeding returns 400.
-- A ticket is a capability: anyone holding the URL can download within the 5-minute TTL. Never put ticket URLs or `session_token` values into logs, reports, or public documents.
-- The auto-cleanup service (`cleanup_service.py`, disabled by default: `auto_cleanup=false`, `max_age_days=7`, `max_size_gb=10`) deletes files under `results/`, `user_fonts/`, and `user_prompts/` by mtime/total size only; it does not clean `data/history/` shards or the index. After files are cleaned, the session record may still appear in the history list, and fetching files or downloading returns 404.
-- History saving is best effort: a `save_translation_to_history()` failure only logs a warning and does not affect the translation result.
-- The session token is the task ID, not the UUID v4 from `generate_session_token()`; token predictability and uniqueness depend on how task IDs are generated and need runtime verification.
-- A regular user can only access their own history; `view_permission` defaults to `own`, and an administrator’s `/admin/all` and deletes are not restricted by “own”.
-- The search endpoint is shadowed by `/{session_token}` (see [Search endpoint](#search-endpoint)) and is not used by the static frontend.
-- This page shows no real history records, images, session tokens, usernames, or private paths; it documents the contract and sanitized structure only.
-
-## Related files and formats {#related-files}
+### Related files and formats {#related-files}
 
 | File/format | Actual role on this page | Note |
 | --- | --- | --- |
@@ -196,7 +200,7 @@ In addition, the locale files contain a set of `web_*` keys (for example `web_hi
 | Temp ZIP (`history_*.zip` / `batch_download_*.zip`) | Ticket download payload | Cleaned up when the ticket expires or is revoked |
 | `metadata.json` | Session metadata | Includes caller-provided fields such as `workflow`, `task_id`, and `text_regions` |
 
-## Source evidence {#source-evidence}
+### Source evidence {#source-evidence}
 
 | Layer | File | What was checked |
 | --- | --- | --- |
@@ -210,16 +214,3 @@ In addition, the locale files contain a set of `web_*` keys (for example `web_hi
 | Permissions | `manga_translator/server/core/permission_integration.py`, `permission_service_v2.py` | `view_permission` levels, delete permission |
 | Frontend | `manga_translator/server/static/js/history-gallery.js`, `static/js/admin/modules/history.js` | Ticket request and trigger-download, hardcoded copy |
 | i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json`, `doc/wiki/data/i18n.generated.json` | Actual three-column values |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; web user operations are separated from the HTTP API |
-| History endpoint contract | Complete | Statically checked all 12 route declarations / 13 method-path mappings in `routes/history.py` |
-| Storage and write | Complete | Statically checked `history_service.py`, `translation_repository.py`, `request_extraction.py` |
-| Download ticket lifecycle | Complete | Statically checked TTL, token, and cleanup in `download_ticket_service.py` |
-| Search endpoint shadowing | Complete (static + minimal reproduction) | Minimal FastAPI reproduction confirmed registration order decides the match; real-server behavior needs runtime verification |
-| `en_US` / `zh_CN` actual locales | Complete | Three-column table checked against `en_US.json` and `zh_CN.json` |
-| Sanitized runtime verification | Deferred | No web server started; no real history, image, session token, `.env`, or API key was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

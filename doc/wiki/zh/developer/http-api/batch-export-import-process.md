@@ -23,35 +23,9 @@ lastUpdated: true
 
 ## Web 界面中的工作流入口 {#web-ui-workflow-entry}
 
-打开 Web 工作区后，“翻译流程模式：”（`Translation Workflow Mode:`）下拉框列出七种工作流。前端按模式选择端点：普通翻译且多于一个文件时按 `cli.batch_size` 切分批次并调用批量图片端点；导出译文、导出原文分别调用导出端点；导入翻译并渲染调用 JSON 导入端点（Web 界面只支持 JSON，不支持 TXT）。
+打开 Web 工作区后，“翻译流程模式：”下拉框列出七种工作流。前端按模式选择端点：普通翻译且多于一个文件时按 `cli.batch_size` 切分批次并调用批量图片端点；导出译文、导出原文分别调用导出端点；导入翻译并渲染调用 JSON 导入端点（Web 界面只支持 JSON，不支持 TXT）。
 
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Start Translation` | Start Translation | 开始翻译 |
-| `Add Files` | Add Files | 添加文件 |
-| `Clear List` | Clear List | 清空列表 |
-| `Export Config` | Export Config | 导出配置 |
-| `Import Config` | Import Config | 导入配置 |
-| `label_batch_size` | Batch Size | 批量大小 |
-
-导入模式下前端按基础文件名把图片与同名的 `.json` 文件配对；缺失或类型不对时在日志输出中显示以下提示（这些是日志文案，不是控件标签）：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `import_mode_no_json` | Import mode: JSON file not found | 导入翻译模式：未找到JSON文件 |
-| `import_mode_hint` | Hint: Please upload both image and corresponding JSON file (e.g., image.png and image.json) | 提示：请同时上传图片和对应的JSON文件（例如：image.png 和 image.json） |
-| `import_mode_json_only` | Import mode: Only JSON files are supported, TXT files are not supported | 导入翻译模式：只支持JSON文件，不支持TXT文件 |
-| `import_mode_json_hint` | Hint: Please use 'Export Original' or 'Export Translation' to generate JSON files | 提示：请使用「导出原文」或「导出翻译」功能生成JSON文件 |
-
-“导出配置”（`Export Config`）把当前界面配置序列化为 `config.json` 并触发浏览器下载；“导入配置”（`Import Config`）读取本机 JSON 文件后用 `generateConfigUI()` 重建设置面板。两者都不经过服务器，也不上传密钥。
+“导出配置”把当前界面配置序列化为 `config.json` 并触发浏览器下载；“导入配置”读取本机 JSON 文件后用 `generateConfigUI()` 重建设置面板。两者都不经过服务器，也不上传密钥。
 
 ## 批量翻译端点 {#batch-endpoints}
 
@@ -176,20 +150,9 @@ flowchart LR
 - 输入校验：图片必须是字节或带前缀的 base64 data URI，否则 `422`；`/batch/images` 空列表返回 `400`。
 - 批量取消返回 `499`；导出、导入与渲染的内部异常返回 `500`。
 
-| 状态码 | 触发场景 |
-| --- | --- |
-| `200` | JSON 数组、ZIP、PNG、流、队列大小 |
-| `400` | 批量图片为空；TXT 导入合并返回“错误”前缀 |
-| `401` | 缺少或无效/过期的 `X-Session-Token` |
-| `403` | 无翻译器、OCR、上色器或渲染器权限 |
-| `422` | 图片不是 bytes/base64 data URI、JSON 校验失败 |
-| `429` | 用户并发上限或每日配额超限 |
-| `499` | 批量任务被取消或检测到取消 |
-| `500` | 服务未初始化、模板缺失、导出/导入/渲染失败 |
-
 ## 运行机理 {#runtime-behavior}
 
-- 批次层级：`cli.batch_size`（核心默认 `1`、Qt 默认 `1`、发行 `config/config-example.json` 默认 `3`）控制翻译器内部一次处理多少张图；`BatchTranslateRequest.batch_size` 默认 `4`；Web 前端在缺失配置时用 `5` 切分 HTTP 批次。三者是不同层的默认值，不能合并。
+- 批次层级：`cli.batch_size`（发行默认 `3`，见 `config/config-example.json`）控制翻译器内部一次处理多少张图；`BatchTranslateRequest.batch_size` 默认 `4`；Web 前端在缺失配置时用 `5` 切分 HTTP 批次。三者是不同层的默认值，不能合并。
 - 并发控制：`get_batch_ctx` 与 `while_streaming` 都先获取全局 `translation_semaphore`（`server_config.max_concurrent_tasks`，默认 `3`）再进入翻译线程池；用户级并发与每日配额由路由层 `track_task_start` / `track_task_end` 维护。
 - 历史写入：批量端点逐张调用 `save_translation_to_history`（历史 session 形如 `{task_id}_{i}`）；流式导出与导入由 `while_streaming` 内部调用。历史保存失败只记 WARNING，不中断响应。
 - 临时文件：ZIP 与非流式导出/导入在成功与异常路径清理临时 JSON/TXT/图片；流式导入在响应期间保留临时文件（源码注释要求周期性清理）。
@@ -204,7 +167,54 @@ flowchart LR
 - 批量 ZIP 使用 `application/octet-stream` 而非 `application/zip`，客户端应读取 `X-Content-Type` 头判断 ZIP，而不是依赖标准 MIME。
 - 不要在日志、请求示例或调试产物中写入真实密钥、用户图片或私有提示词。
 
-## 关联文件与格式 {#related-files-and-formats}
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 工作流选项文案
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
+| `Normal Translation` | Normal Translation | 正常翻译流程 |
+| `Export Translation` | Export Translation | 导出翻译 |
+| `Export Original Text` | Export Original Text | 导出原文 |
+| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
+| `Colorize Only` | Colorize Only | 仅上色 |
+| `Upscale Only` | Upscale Only | 仅超分 |
+| `Inpaint Only` | Inpaint Only | 仅修复 |
+| `Start Translation` | Start Translation | 开始翻译 |
+| `Add Files` | Add Files | 添加文件 |
+| `Clear List` | Clear List | 清空列表 |
+| `Export Config` | Export Config | 导出配置 |
+| `Import Config` | Import Config | 导入配置 |
+| `label_batch_size` | Batch Size | 批量大小 |
+
+#### 导入模式提示文案
+
+导入模式下前端按基础文件名把图片与同名的 `.json` 文件配对；缺失或类型不对时在日志输出中显示以下提示（这些是日志文案，不是控件标签）：
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `import_mode_no_json` | Import mode: JSON file not found | 导入翻译模式：未找到JSON文件 |
+| `import_mode_hint` | Hint: Please upload both image and corresponding JSON file (e.g., image.png and image.json) | 提示：请同时上传图片和对应的JSON文件（例如：image.png 和 image.json） |
+| `import_mode_json_only` | Import mode: Only JSON files are supported, TXT files are not supported | 导入翻译模式：只支持JSON文件，不支持TXT文件 |
+| `import_mode_json_hint` | Hint: Please use 'Export Original' or 'Export Translation' to generate JSON files | 提示：请使用「导出原文」或「导出翻译」功能生成JSON文件 |
+
+#### 状态码
+
+| 状态码 | 触发场景 |
+| --- | --- |
+| `200` | JSON 数组、ZIP、PNG、流、队列大小 |
+| `400` | 批量图片为空；TXT 导入合并返回“错误”前缀 |
+| `401` | 缺少或无效/过期的 `X-Session-Token` |
+| `403` | 无翻译器、OCR、上色器或渲染器权限 |
+| `422` | 图片不是 bytes/base64 data URI、JSON 校验失败 |
+| `429` | 用户并发上限或每日配额超限 |
+| `499` | 批量任务被取消或检测到取消 |
+| `500` | 服务未初始化、模板缺失、导出/导入/渲染失败 |
+
+### 关联文件与格式 {#related-files-and-formats}
 
 | 文件/格式 | 本页实际作用 | 说明 |
 | --- | --- | --- |
@@ -215,7 +225,7 @@ flowchart LR
 | `desktop_qt_ui/services/workflow_service.py` | TXT 导入与 ZIP 文本生成 | `safe_update_large_json_from_text`、`generate_original_text`、`generate_translated_text` |
 | `config/config-example.json` | 发行默认 `batch_size: 3` | 只记录脱敏默认值 |
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -227,14 +237,3 @@ flowchart LR
 | 序列化 | `manga_translator/server/to_json.py`、`core/response_utils.py` | `TranslationResponse`、`to_translation`、`transform_to_json`、`transform_to_image` |
 | Web 前端 | `manga_translator/server/static/script.js`、`index.html` | 工作流下拉、批次切分、`/batch/images` 调用、导入 JSON 配对、导出/导入配置 |
 | i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json`（经 `doc/wiki/data/i18n.generated.json`） | 工作流选项与导入提示的实际显示值 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写；本页为 5.14 开发者与 HTTP API 子项 |
-| 路由与契约 | 完成 | 静态核对 `translation.py`、`request_extraction.py`、`to_json.py` 的端点与字段 |
-| 鉴权与状态码 | 完成 | 静态核对 `translation_auth.py`、`middleware.py` 的 401/403/429/499 路径 |
-| i18n 文案 | 完成 | 经 `i18n.generated.json` 核对工作流选项与导入提示三列实际值 |
-| 脱敏运行验证 | 待后续 | 未启动服务；未读取真实 `.env`、用户配置、密钥、用户图片或私有提示词 |
-| VitePress | 待运行 | 协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

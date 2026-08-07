@@ -24,9 +24,9 @@ Top-bar menus and persistent controls are covered in [Toolbar and Menus](./toolb
 
 ### Enter the editor view {#enter-editor}
 
-1. Click "Editor View" (`Editor View`) at the bottom of the left navigation: it only switches the view without reloading the file list; if there are no files yet, the list shows the empty-state hint.
-2. Double-click any image in the file list of the "Translation Interface" (`Translation Interface`): the editor opens and loads that image directly.
-3. After a translation task finishes, click "Yes" in the "Task Completed" (`Task Completed`) confirmation dialog: the editor opens the source image that corresponds to the results. The prompt appears only when the configuration is not in an incompatible mode such as `translate_json_only`, `template`, `generate_and_export`, `colorize_only`, `upscale_only`, or `inpaint_only`; `replace_translation` or `load_text` modes always prompt.
+1. Click "Editor View" at the bottom of the left navigation: it only switches the view without reloading the file list; if there are no files yet, the list shows the empty-state hint.
+2. Double-click any image in the file list of the "Translation Interface": the editor opens and loads that image directly.
+3. After a translation task finishes, click "Yes" in the "Task Completed" confirmation dialog: the editor opens the source image that corresponds to the results. The prompt appears only when the configuration is not in an incompatible mode such as `translate_json_only`, `template`, `generate_and_export`, `colorize_only`, `upscale_only`, or `inpaint_only`; `replace_translation` or `load_text` modes always prompt.
 
 When the file list is empty, a placeholder hint is shown; while the background scan runs, "正在加载文件列表..." is displayed; when scanning or parsing fails, the error message is shown in red text.
 
@@ -36,53 +36,26 @@ The editor view is a vertical stack of the top toolbar and a horizontal splitter
 
 | Zone | Contents | Layout behavior |
 | --- | --- | --- |
-| Top toolbar | The "Menu" (`Menu`), "Display Mode" (`Display Mode`), and "Arrange" (`Arrange`) dropdowns, plus the persistent "Fit to Window" (`Fit to Window`) and "Original Image Opacity:" (`Original Image Opacity:`) controls | Fixed height `56` px; does not scroll with content |
-| Left panel | Two route tabs, "Editable Translation" (`Editable Translation`) and "Property Editor" (`Property Editor`); "Property Editor" is shown by default | Minimum width `280` px, draggable; the property editor contains text, style, actions, and image-editing sections |
+| Top toolbar | The "Menu", "Display Mode", and "Arrange" dropdowns, plus the persistent "Fit to Window" and "Original Image Opacity:" controls | Fixed height `56` px; does not scroll with content |
+| Left panel | Two route tabs, "Editable Translation" and "Property Editor"; "Property Editor" is shown by default | Minimum width `280` px, draggable; the property editor contains text, style, actions, and image-editing sections |
 | Center | The canvas `GraphicsView`; the original-image two-panel compare preview container | Splitter stretch factor `1`, grows with the window; the compare preview is hidden by default and sits next to the canvas when "Display Mode → Compare with Original (Two Panels)" is enabled |
-| Right panel | "Add Files" (`Add Files`), "Add Folder" (`Add Folder`), and "Clear List" (`Clear List`) buttons plus the file-tree list | Width `220`–`300` px; fixed and does not stretch with the window |
+| Right panel | "Add Files", "Add Folder", and "Clear List" buttons plus the file tree | Width `220`–`300` px; fixed and does not stretch with the window |
 
 ### Manage the file list {#manage-file-list}
 
-1. Click "Add Files" (`Add Files`): a native file picker opens supporting multi-select. The dialog title "添加文件到编辑器" is a hard-coded Chinese string in the source, and the file-type filter is `Image Files (...)` (from `IMAGE_FILE_DIALOG_FILTER`).
-2. Click "Add Folder" (`Add Folder`): a multi-select folder picker opens; the selected folders are scanned recursively for supported images and added to the list.
-3. Click "Clear List" (`Clear List`): removes every file, clears the canvas, and releases the image cache.
+1. Click "Add Files": a native file picker opens supporting multi-select. The dialog title "添加文件到编辑器" is a hard-coded Chinese string in the source, and the file-type filter is `Image Files (...)` (from `IMAGE_FILE_DIALOG_FILTER`).
+2. Click "Add Folder": a multi-select folder picker opens; the selected folders are scanned recursively for supported images and added to the list.
+3. Click "Clear List": removes every file, clears the canvas, and releases the image cache.
 4. Drag and drop files or folders onto the list: equivalent to "Add Files"/"Add Folder".
-5. Each row shows a 40×40 thumbnail (or a folder/archive/document icon before it is ready), the file name, a status dot with "Translated" (`Translated`) or "Untranslated" (`Untranslated`), and a trailing `×` remove button. Folder nodes expand into a tree, and child images use the same translated/untranslated coloring.
+5. Each row shows a 40×40 thumbnail (or a folder/archive/document icon before it is ready), the file name, a status dot with "Translated" or "Untranslated", and a trailing `×` remove button. Folder nodes expand into a tree, and child images use the same translated/untranslated coloring.
 6. Click an image row: it becomes the current page and loads into the canvas; clicking a folder row only expands/collapses it and does not switch pages.
 
 ### Select and switch pages {#switch-page}
 
 - Click an image row to switch pages; with canvas focus, press `A` / `D` to switch to the previous / next image (with focus in a text widget, `A` / `D` are typed as text; see [Shortcuts](./shortcuts.md)).
 - If there are unsaved edits before switching:
-  - With "Auto Export on Image Switch" (`Auto Export on Image Switch`) enabled (default), the current page is exported automatically first; if the export is rejected, the switch is aborted;
+  - With "Auto Export on Image Switch" enabled (default), the current page is exported automatically first; if the export is rejected, the switch is aborted;
   - With it disabled, a three-button "未保存的编辑" dialog offers "导出图片" (export and continue switching after the export finishes), "不保存" (discard and switch), or "取消" (stay on the current page). These three button labels are hard-coded Chinese strings and do not follow the UI language.
-
-## Options in English and Chinese {#options-i18n}
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Editor View` | Editor View | 编辑器视图 |
-| `Translation Interface` | Translation Interface | 翻译界面 |
-| `Task Completed` | Task Completed | 任务完成 |
-| `Translation completed, {count} files saved.\n\nOpen results in editor?` | Translation completed, {count} files saved.\n\nOpen results in editor? | 翻译完成，成功保存 {count} 个文件。\n\n是否在编辑器中打开结果？ |
-| `Add Files` | Add Files | 添加文件 |
-| `Add Folder` | Add Folder | 添加文件夹 |
-| `Clear List` | Clear List | 清空列表 |
-| `Editable Translation` | Editable Translation | 可编辑译文 |
-| `Property Editor` | Property Editor | 属性编辑 |
-| `Translated` | Translated | 已翻译 |
-| `Untranslated` | Untranslated | 未翻译 |
-| `Find` | Find | 查找 |
-| `Replace with` | Replace with | 替换为 |
-| `Replace All` | Replace All | 全部替换 |
-| `Apply All Translation Changes` | Apply All Translation Changes | 应用所有译文修改 |
-| `Fit to Window` | Fit to Window | 适应窗口 |
-| `Original Image Opacity:` | Original Image Opacity: | 原图不透明度: |
-| `Auto Export on Image Switch` | Auto Export on Image Switch | 切图时自动导出 |
-| `Drag and drop files or folders here\nor click the buttons above to add` | (missing; falls back to the key text) | (missing; falls back to the key text) |
-| `正在加载文件列表...` | (missing; falls back to the key text) | (missing; falls back to the key text) |
-
-In the table, `\n` represents a line break inside a key. The empty-state and loading keys do not exist in `en_US.json` or `zh_CN.json`, so `I18nManager` falls back to the key text: the empty-state hint is therefore shown in English and the loading hint in Chinese, and neither changes with the UI language. The "Add Files" dialog title "添加文件到编辑器" and the three "未保存的编辑" dialog buttons are hard-coded Chinese literals in the source, not locale keys, and do not follow the UI language either.
 
 ## Runtime behavior {#runtime-behavior}
 
@@ -117,7 +90,7 @@ When files are added while the list is empty, the `load_first` flag loads the fi
 ### Remove and clear {#remove-and-clear}
 
 - Clicking the trailing `×` removes a row: the path is first removed from the view, then added to an exclusion set (folders go to `excluded_folders`, images to `excluded_files`), and the background snapshot rebuild keeps the removal. If the removed row is the current page, the canvas state is cleared.
-- "Clear List" (`Clear List`): cancels the background scan, clears source paths and exclusion sets, clears the canvas state, and releases the image cache.
+- "Clear List": cancels the background scan, clears source paths and exclusion sets, clears the canvas state, and releases the image cache.
 - When the main "Translation Interface" clears its file list, the main window calls the editor's `clear_list()` in sync; a single-file removal on the main page does not sync to the editor's file list, but if the removed file (or the folder containing it) is the currently loaded image, the editor clears the canvas state.
 
 ## Dependencies and conflicts {#dependencies-and-conflicts}
@@ -129,40 +102,4 @@ When files are added while the list is empty, the `load_first` flag loads the fi
 - The three list states (empty, loading, error) show the placeholder hint, the loading text, and a red error message respectively; a language switch refreshes only locale-backed texts such as Translated/Untranslated, while the placeholder and loading hints do not refresh because their keys are missing.
 - The left panel defaults to "Property Editor"; switching to the "Editable Translation" tab first flushes pending region edits so the list rows and canvas data do not disagree.
 
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `*.png`, `*.jpg`, `*.jpeg`, `*.jfif`, `*.webp`, `*.avif`, `*.bmp`, `*.tiff`, `*.tif`, `*.heic`, `*.heif` | Supported page-image formats in the editor | The extension must be in `SUPPORTED_IMAGE_EXTENSIONS`, otherwise the file is not added to the page list |
-| `*_translations.json` | Decides the Translated/Untranslated row status (`json_path`) | Metadata is produced by the translation pipeline; only its existence is recorded, not its content |
-| `.pdf`, `.epub`, `.cbz`, `.cbr`, `.zip` | Archives visible on the main page; filtered by the editor projection | Never enter the editor page list and cannot be loaded as pages |
-| `config/config.json` (`app.editor_auto_export_on_switch` etc.) | Persists the auto-export-on-switch toggle | Default `true`; the Qt model and the release example agree |
-| `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | Translations for every UI call key on this page | Placeholder/loading keys are missing and marked as fallback |
-
-## Mermaid data-flow limits {#mermaid-limits}
-
-The diagram above describes the source-confirmed page-switch flow; it does not claim that every switch triggers an export or a network request: with no unsaved edits the image loads directly, and a rejected auto-export or a "cancel" choice aborts the switch. No runtime screenshot or private task artifact has been fabricated; the layout-zone table records only the fixed/minimum widths and stretch factors in the source, not actual runtime pixel values.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Navigation/entry | `desktop_qt_ui/ui/main_window.py` | `Editor View` bottom-navigation registration, double-click entry, task-completed prompt, and `enter_editor_mode` |
-| Editor view | `desktop_qt_ui/ui/editor/view.py` | Four layout zones, splitter and stretch factors, file buttons/list wiring, language refresh |
-| File-list widget | `desktop_qt_ui/ui/widgets/file_list_view.py` | Row contents (thumbnail, status, `×`), empty/loading/error states, `file_selected` and `files_dropped`, A/D selection |
-| List logic | `desktop_qt_ui/editor/editor_logic.py` | Add files/folders, clear, remove exclusion sets, `load_first`, snapshot application |
-| Background catalog | `desktop_qt_ui/services/file_list_data_service.py`, `desktop_qt_ui/editor/file_list_model.py` | Immutable snapshot, `images_only()`, natural sort, image/folder/archive classification |
-| Page-switch service | `desktop_qt_ui/editor/controller_document_service.py` | `load_image_and_regions`, dirty check, auto-export/three-button dialog, deferred load |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json`, `desktop_qt_ui/services/i18n_service.py` | Key mapping, missing-key fallback behavior, actual bilingual display values |
-| Format definition | `manga_translator/image_formats.py` | `SUPPORTED_IMAGE_EXTENSIONS` and the file-dialog filter |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract (section 1.3, item 5.10) |
-| UI layout and calls | Complete | Statically checked `main_window.py`, `view.py`, `file_list_view.py`, and `editor_logic.py` |
-| `en_US` / `zh_CN` actual locales | Complete | The table records key, actual English, and actual Simplified Chinese values; missing keys are marked as fallback |
-| Page-switch runtime chain | Complete | Statically checked `controller_document_service.py` dirty check, auto-export, and three-button dialog branches |
-| Sanitized runtime verification | Deferred | No real user image, private path, key, or task artifact was read; headed-mode screenshots are deferred to a later phase |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |
+For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

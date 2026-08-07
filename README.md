@@ -90,6 +90,8 @@
 
 ### 📥 安装方式
 
+> ⚠️ **Windows 用户请先安装运行库**：首次安装前，请先确保已安装 [Microsoft Visual C++ 运行库（vc_redist.x64.exe）](https://aka.ms/vs/17/release/vc_redist.x64.exe)；缺少它可能导致程序无法启动（如缺少 VCRUNTIME140.dll）。
+
 #### 方式一：便携安装包（⭐ 推荐，支持更新）
 
 > ⚠️ **无需预装 Python**：安装包内自带便携版 Python 3.12 和 uv 包管理器，完全绿色，不写注册表  

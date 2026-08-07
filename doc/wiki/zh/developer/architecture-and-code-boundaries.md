@@ -25,35 +25,9 @@ lastUpdated: true
 
 启动桌面端后，左侧导航对应 `desktop_qt_ui/ui/main_window.py` 中注册的七个主页面，外加编辑器视图。每个主页面都是 `ui/main_page/pages/` 下的独立构造函数，由 `MainView` 创建后交给 `FluentWindow` 托管。
 
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Translation Interface` | Translation Interface | 翻译界面 |
-| `Settings` | Settings | 设置 |
-| `API Management` | API Management | API 管理 |
-| `Prompt Management` | Prompt Management | 提示词管理 |
-| `Replacement Rules` | Replacement Rules | 替换规则 |
-| `Rich Text Rules` | Rich Text Rules | 富文本规则 |
-| `Batch Management` | Batch Management | 批量管理 |
-| `Editor` | Editor | 编辑器 |
-| `Editor View` | Editor View | 编辑器视图 |
-
 ### 工作流模式选择器
 
 翻译页的“翻译流程模式”下拉框把一次选择映射为 `cli` 配置中唯一的工作流布尔字段（`runtime.py#on_workflow_mode_changed` 先全部清空再置位），这是观察“UI 状态 -> 核心参数”边界的直接入口。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Normal Translation` | Normal Translation | 正常翻译流程 |
-| `Export Translation` | Export Translation | 导出翻译 |
-| `Export Original Text` | Export Original Text | 导出原文 |
-| `Translate JSON Only` | Translate JSON Only | 仅翻译（JSON） |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Colorize Only` | Colorize Only | 仅上色 |
-| `Upscale Only` | Upscale Only | 仅超分 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Replace Translation` | Replace Translation | 替换翻译 |
-| `Start Translation` | Start Translation | 开始翻译 |
 
 工作流下拉框只改变 `cli` 的八个布尔字段；具体行为差异由核心 `translate_batch()` 的分支决定（详见[工作流与文件模式](../cli/workflow-and-file-modes.md)）。
 
@@ -124,7 +98,41 @@ flowchart LR
 - `batch_concurrent` 只对“正常翻译”工作流生效，导入/导出、仅上色/超分/修复和替换翻译会强制回退到顺序流水线。
 - 服务端并发受 `task_manager` 信号量控制；桌面端并发受 `TranslationWorker` 的 QRunnable 线程池控制，两者互不感知。
 
-## 关联文件与格式
+## 开发指南 {#developer-guide}
+
+### 选项中英对照 {#option-matrix}
+
+#### 在桌面端观察模块入口
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Translation Interface` | Translation Interface | 翻译界面 |
+| `Settings` | Settings | 设置 |
+| `API Management` | API Management | API 管理 |
+| `Prompt Management` | Prompt Management | 提示词管理 |
+| `Replacement Rules` | Replacement Rules | 替换规则 |
+| `Rich Text Rules` | Rich Text Rules | 富文本规则 |
+| `Batch Management` | Batch Management | 批量管理 |
+| `Editor` | Editor | 编辑器 |
+| `Editor View` | Editor View | 编辑器视图 |
+
+#### 工作流模式选择器
+
+| UI 调用 key | English 实际值 | 简体中文实际值 |
+| --- | --- | --- |
+| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
+| `Normal Translation` | Normal Translation | 正常翻译流程 |
+| `Export Translation` | Export Translation | 导出翻译 |
+| `Export Original Text` | Export Original Text | 导出原文 |
+| `Translate JSON Only` | Translate JSON Only | 仅翻译（JSON） |
+| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
+| `Colorize Only` | Colorize Only | 仅上色 |
+| `Upscale Only` | Upscale Only | 仅超分 |
+| `Inpaint Only` | Inpaint Only | 仅修复 |
+| `Replace Translation` | Replace Translation | 替换翻译 |
+| `Start Translation` | Start Translation | 开始翻译 |
+
+### 关联文件与格式
 
 | 文件/目录 | 本页实际作用 | 注意 |
 | --- | --- | --- |
@@ -139,11 +147,11 @@ flowchart LR
 | `manga_translator/server/` | FastAPI 服务器与核心服务 | 路由、鉴权、配额、历史、清理等 |
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | UI 文案来源 | 本页表格逐项核对过实际值 |
 
-## Mermaid 数据流限制
+### Mermaid 数据流限制
 
 上图画的是源码中的分层和调用关系，不是“每个请求都会经过全部节点”。特殊工作流（导出原文、仅上色、替换翻译等）会跳过大部分阶段；`batch_concurrent` 开启时检测、OCR、翻译、修复并行推进。文档没有伪造运行截图或私有任务产物，也没有包含真实密钥。
 
-## 源码依据 {#source-evidence}
+### 源码依据 {#source-evidence}
 
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
@@ -157,14 +165,3 @@ flowchart LR
 | CLI/模式 | `manga_translator/__main__.py`、`mode/local.py`、`mode/share.py`、`mode/ws.py` | 四种模式入口与核心复用 |
 | 服务器 | `manga_translator/server/main.py`、`core/task_manager.py`、`core/translation_integration.py` | FastAPI 装配、并发控制与集成调用 |
 | UI/i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 导航与工作流下拉实际文案 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 分层与调用关系 | 完成 | 静态核对桌面、核心、服务器与四种模式入口 |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 页面表格逐项记录 key、English、简体中文实际值 |
-| 流水线阶段顺序 | 完成 | 静态核对 `translate_batch` 与 `_complete_translation_pipeline` |
-| 脱敏运行验证 | 待后续 | 本页未读取真实 `.env`、用户 `config.json`、API key/token、用户名、用户图片或私有提示词 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

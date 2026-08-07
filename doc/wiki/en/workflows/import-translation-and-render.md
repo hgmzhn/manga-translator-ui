@@ -26,37 +26,13 @@ Import Translation and Render forms the template/JSON family together with [Expo
 ### Select the Import Translation and Render workflow
 
 1. Prepare a project JSON for each image (`manga_translator_work/json/<stem>_translations.json`, with the legacy image-side location also accepted). For manual translation, first run Export Original Text and translate `imagename_original.txt` in `manga_translator_work/originals/`.
-2. Open the translation page and choose “Import Translation and Render” (`Import Translation and Render`) in the “Translation Workflow Mode:” (`Translation Workflow Mode:`) combo box.
+2. Open the translation page and choose “Import Translation and Render” in the “Translation Workflow Mode:” combo box.
 3. The page title becomes “Import Translation and Render” and the subtitle shows the hint: TXT files will be read from `manga_translator_work/originals/` or `translations/` and rendered (prioritizing `_original.txt`).
-4. The start button becomes “Import Translation and Render” (`Import Translation and Render`); clicking it starts the backend task in this mode.
+4. The start button becomes “Import Translation and Render”; clicking it starts the backend task in this mode.
 
 Selecting a mode only writes configuration and updates the UI texts; it does not start a task. Before starting, add the main input images (“Add Files...”, “Add Folder...”, or drag-and-drop) and make sure every image has a parsable project JSON; images without a JSON enter the error fallback branch (static source conclusion; the runtime prompt still needs verification).
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Import Translation and Render` | Import Translation and Render | 导入翻译并渲染 |
-| `Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt)` | Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt) | 提示：将从 manga_translator_work/originals/ 或 translations/ 目录读取 TXT 文件并渲染（优先使用 _original.txt） |
-| `Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode` | Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode | 提示：导出原文后，可在 manga_translator_work/originals/ 目录手动翻译 图片名_original.txt 文件，然后使用「导入翻译并渲染」模式 |
-| `label_load_text` | Import Translation | 导入翻译 |
-| `label_save_text` | Editable Image | 图片可编辑 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_import_yolo_labels` | Import Fixed YOLO Boxes | 导入固定YOLO框 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-
 The UI hints always read `_original.txt` / “TXT files”, but the actual sidecar extension comes from the template's `output_format` (default `json`); the hint text does not change with the template extension.
-
-## Option matrix
-
-The combo box has no separate `userData`; the index is the mode value. Runtime code maps index 4 to `cli.load_text=true`. The stored values of the related settings are listed below, with the three UI evidence columns and their actual effect on this workflow.
-
-| Stored value | English | Simplified Chinese | Effect in this workflow |
-| --- | --- | --- | --- |
-| `load_text=true` | Import Translation and Render | 导入翻译并渲染 | Enters the import branch; skips colorization, upscaling, detection, OCR, merging, and translation |
-| `overwrite=false` | Overwrite Existing Files | 覆盖已存在文件 | Skips images whose main output image already exists before starting |
-| `save_text=true` | Editable Image | 图片可编辑 | Controls whether a rerun inpainted image is saved; the JSON write-back does not depend on it |
-| `import_yolo_labels=true` | Import Fixed YOLO Boxes | 导入固定YOLO框 | Runs detection to generate a mask when the JSON has no mask |
-| `batch_concurrent=true` | Concurrent Batch Processing | 并发批量处理 | This mode is forced to run non-concurrently |
 
 ## Runtime behavior
 
@@ -123,46 +99,11 @@ The editor “export” channel does not go through the on-disk JSON: `export_se
 - Inpainting and rendering still consume model, VRAM, and API costs according to the selected models; this page does not repeat those parameter descriptions.
 - The main output directory, `save_to_source_dir`, and `cli.format` determine the main image location and extension; the JSON, inpainted image, and sidecars always follow the per-image work-directory rules.
 
-## Related files and formats
+## Related pages {#related-pages}
 
-| File/format | Actual role on this page | Notes |
-| --- | --- | --- |
-| `manga_translator_work/json/<stem>_translations.json` | Primary project JSON input and write-back target | New location takes priority; falls back to the legacy image-side location; accepts legacy list and new `regions` dict structures |
-| `manga_translator_work/originals/<stem>_original.<template-extension>` | TXT import source (priority) | Extension comes from the template's `output_format`, default `json`; the UI hint always reads `_original.txt` |
-| `manga_translator_work/translations/<stem>_translated.<template-extension>` | TXT import source (fallback) | Used only when the original sidecar does not exist |
-| `config/translation_template.json` | Determines the TXT import placeholder structure and sidecar extension | The first `output_format:` line is the extension; missing/invalid falls back to `json` |
-| `manga_translator_work/inpainted/<stem>_inpainted.<original-extension>` | Reused when present; written when inpainting reruns | Reuse requires a mask in the JSON; writing requires `save_text=true` |
-| Legacy image-side `<stem>_translations.txt` | Deprecated old TXT format | The loader returns `None`; no longer supported |
-| Main output image | Final rendered image | Determined by `_calculate_output_path()` using the output directory, relative hierarchy, `save_to_source_dir`, and `cli.format` |
+- Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Export Translation](./export-translation.md) · [Translate JSON Only](./translate-json-only.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Inpaint Only](./inpaint-only.md) · [Replace Translation](./replace-translation.md)
+- Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)
+- Inputs, skipped stages, and outputs of all nine workflows: [Workflow Matrix](../reference/workflow-matrix.md)
+- Mutually exclusive workflow fields, parameter overrides, and template alignment: [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md)
 
-No real user configuration, keys, tokens, usernames, private absolute paths, user images, or task artifacts are shown on this page. `mask_raw` in the JSON is base64 PNG and is not sanitization; debug directories must not be uploaded as-is.
-
-## Source evidence
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Workflow selection and writes | `desktop_qt_ui/ui/main_page/runtime.py:183-215` | Index 4 → `load_text=true`, eight-field mutual exclusion, and config saving |
-| Title, hint, and start button | `desktop_qt_ui/ui/main_page/runtime.py:22-47,219-238` | “Import Translation and Render” title, hint call keys, and button text |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual bilingual values for `Import Translation and Render`, the two hints, and `label_*` |
-| Controller | `desktop_qt_ui/app_logic.py:3228,3241-3272` | Workflow hint, pre-start main-image check, and special-mode concurrency disabling |
-| TXT import | `desktop_qt_ui/services/workflow_service.py:811` | `safe_update_large_json_from_text`: template parsing, matching, `skip_font_scaling=false`, atomic write-back |
-| Preprocessing | `manga_translator/manga_translator.py:1145` | `_preprocess_load_text_mode`: import only when JSON exists, original first, auto-created template |
-| Loading | `manga_translator/manga_translator.py:1325` | `_load_text_and_regions_from_file`: JSON structure, mask and flag parsing, failure counter |
-| Dispatch and processing | `manga_translator/manga_translator.py:3429,3605-3990` | Step-0 preprocessing, load_text branch, mask/inpaint/render/write-back |
-| Editor export | `desktop_qt_ui/services/export_service.py:855` | `set_preloaded_load_text_payload` in-memory payload channel |
-| Paths | `manga_translator/utils/path_manager.py:151,178,204,392,442` | JSON/original/translated/inpainted paths and lookup fallbacks |
-| Template | `manga_translator/utils/translation_template.py` | `output_format` parsing, default value, and safety validation |
-
-## Verification
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; the three contract files were not modified |
-| Source and research material | Complete | Cross-checked `workflow-matrix-source-evidence.md` and the UI, i18n, controller, workflow-service, and core sources |
-| Three-column i18n evidence | Complete | The workflow option, the two hints, the button, and the related settings record the call key, English, and Simplified Chinese actual values |
-| Route/page mirror | Pending | Run route mirror and source-evidence checks after completing the pages |
-| TXT import and write-back | Pending | Original-over-translated priority, template parse-failure feedback, and `skip_font_scaling` writes need sanitized runtime verification |
-| Missing-mask/YOLO fallback and inpainted reuse | Pending | Detection fallback with `import_yolo_labels` and no mask, and the existing-inpainted reuse condition need runtime verification |
-| Production build | Pending | Run `npm run docs:build --prefix doc/wiki` if needed |
-
-- [ ] [In progress] Runtime confirmation remains: the error prompt and file retention when JSON is missing, user-visible feedback for failed TXT imports, and the actual output of inpainted reuse and YOLO mask generation.
+> See the reference index: [Workflow Matrix](../reference/workflow-matrix.md).

@@ -39,26 +39,6 @@ uv run --no-sync python -m manga_translator local -i <输入图片或文件夹>.
 - verbose 时，`MangaTranslator._result_path()` 把中间图写到 `result/<时间戳>-<图片MD5>-<检测尺寸>-<目标语言>-<翻译器>/`，调试目录结构见[调试目录与产物](#debug-tree)。
 - 非子进程路径在 `result/` 写 `log_<yyyyMMddHHmmss>.txt`；桌面 UI 启动时也写同名日志。日志包含路径与文本，外发前脱敏。
 
-### 与桌面界面共享的输出/日志文案 {#shared-output-log-copy}
-
-`local` 自身的控制台行是代码硬编码；以下 key 来自桌面界面并涉及相同概念（输出目录、详细日志、日志位置），逐项列出三列证据：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_format` | Output Format | 输出格式 |
-| `label_save_quality` | Image Save Quality | 图像保存质量 |
-| `label_batch_size` | Batch Size | 批量大小 |
-| `label_last_output_path` | Last Output Path | 最后输出路径 |
-| `Output Directory:` | Output Directory: | 输出目录: |
-| `Select Output Directory` | Select Output Directory | 选择输出目录 |
-| `Invalid Output Directory` | Invalid Output Directory | 输出目录不合法 |
-| `Open log folder` | Open log folder | 打开日志文件夹 |
-| `Log output...` | Log output... | 日志输出... |
-| `📁 Output directory: {dir}` | 📁 Output directory: {dir} | 📁 输出目录：{dir} |
-| `💾 Files saved to: {dir}` | 💾 Files saved to: {dir} | 💾 文件已保存到：{dir} |
-
 ## 输出目录与文件命名 {#output-directory-and-naming}
 
 ### 输出目录判定 {#output-directory-resolution}
@@ -145,7 +125,7 @@ flowchart TD
 
 ## 退出码 {#exit-codes}
 
-`python -m manga_translator <mode> ...` 进程退出码约定如下（实际命令验证见[验证记录](#verification)）：
+`python -m manga_translator <mode> ...` 进程退出码约定如下：
 
 | 退出码 | 场景 | 来源 |
 | --- | --- | --- |
@@ -167,44 +147,3 @@ flowchart TD
 - 退出码不以失败张数为准：`ignore_errors`、单图失败汇总都不改变 `0`/`1` 判定。
 - `--subprocess` 与 `--memory-*` 只影响子进程路径的日志/退出分支；内存阈值触发的提前退出由 `subprocess_manager` 处理，见[子进程内存与恢复](./subprocess-memory-and-recovery.md)。
 - verbose 调试目录名包含图片 MD5 与目标语言/翻译器字段；不要把含用户图片 MD5 的路径写进公开报告。
-
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件/目录 | 本页作用 | 注意事项 |
-| --- | --- | --- |
-| `result/` | verbose 调试产物与日志根目录 | 图片级子目录仅 verbose；分享前脱敏 |
-| `result/log_<yyyyMMddHHmmss>.txt` | 非子进程路径与桌面 UI 的全局日志 | `-v` 时为 DEBUG；包含路径与文本 |
-| `result/<时间戳>-<MD5>-<检测尺寸>-<目标语言>-<翻译器>/` | verbose 单图调试目录 | 名称字段来自 `_set_image_context()` |
-| `config/config.json` | `app.last_output_path`、`cli.verbose/overwrite/format/save_quality` 来源 | 不展示真实用户配置与私有绝对路径 |
-| `config/config-example.json` | 发行默认（`verbose: false`、`save_quality: 100`） | 与核心/Qt 默认核对后记录 |
-| `manga_translator_work/result/` | `save_to_source_dir` 的输出位置 | CLI 的 `save_info` 不包含该字段 |
-| `manga_translator_work/...` | 特殊工作流 sidecar 与项目数据 | 见工作流与文件模式页 |
-
-## Mermaid 数据流限制 {#mermaid-limits}
-
-输出目录图描述源码确认的三级回退与逐图落盘；verbose 图描述开启后新增的日志与调试树。两者都不代表每次运行都会产生全部产物：无文本早退、特殊工作流、不同检测器/OCR/渲染分支各有触发条件；本页未伪造运行截图或私有任务产物。
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 解析器 | `manga_translator/args.py` | `local` 子解析器、`-o`/`-v` 默认、无模式退出 `1`、argparse 帮助/错误码 |
-| 入口 | `manga_translator/__main__.py` | 模式分发、`init_logging`/`set_log_level`、`KeyboardInterrupt`/异常退出码 |
-| CLI 执行 | `manga_translator/mode/local.py` | 输出目录三级回退、`-v` 覆盖与日志文件、结果汇总、各 `sys.exit` 分支 |
-| 子进程 | `manga_translator/mode/subprocess_manager.py` | worker `cli_config['verbose']`、失败汇总、内存阈值提前退出 |
-| 输出路径 | `manga_translator/manga_translator.py` | `_calculate_output_path`、`_set_image_context`、`_result_path`、`_save_translated_image`、`final.png` |
-| 调试产物 | `manga_translator/manga_translator.py`、`manga_translator/ocr/*.py`、`manga_translator/mask_refinement/__init__.py`、`manga_translator/utils/generic.py`、`manga_translator/detection/yolo_obb.py`、`manga_translator/utils/photoshop_export.py` | verbose 条件与文件名（详见 `research/phase0-debug-artifact-path-trace.md`） |
-| 路径/日志 | `manga_translator/utils/generic.py`、`manga_translator/runtime_paths.py`、`manga_translator/utils/log.py` | `BASE_PATH`、应用/配置目录、Formatter/Filter、控制台与文件 handler |
-| i18n | `desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 三列实际显示值 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| `local --help` | 完成 | 实际运行 `uv run --no-sync python -m manga_translator local --help`，退出码 `0`，选项与本文一致 |
-| 退出码 | 完成 | 实际运行：`local` 缺 `-i` 退出 `2`；无模式运行退出 `1`；`local --help` 退出 `0` |
-| 输出目录与命名 | 完成 | 静态核对 `args.py`、`mode/local.py`、`manga_translator.py` |
-| 调试产物 | 完成 | 静态核对 `_result_path`/`_set_image_context` 与 `research/phase0-debug-artifact-path-trace.md` |
-| 脱敏运行验证 | 待后续 | 未运行真实翻译，未读取真实 `.env`、用户 `config.json`、API key、用户图片或私有路径 |
-| 静态检查 | 完成 | `verify-route-mirror.mjs` PASS、`verify-source-evidence.mjs` PASS |

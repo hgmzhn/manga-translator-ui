@@ -9,44 +9,28 @@ lastUpdated: true
 
 # 如何阅读与分享一次调试运行
 
-当一次翻译结果异常、报错或需要向开发者反馈时，本页说明如何开启“详细日志”（`Verbose Logging`）生成调试产物、按什么顺序阅读它们，以及清理、脱敏和对外分享的注意事项。逐文件的生成阶段、触发条件和排查用途见[调试目录命名与概览](./folder-naming-and-overview.md)及各调试子页；本页不重复这些内容，也不替代故障排查与隐私清理页面。
+当一次翻译结果异常、报错或需要向开发者反馈时，本页说明如何开启“详细日志”生成调试产物、按什么顺序阅读它们，以及清理、脱敏和对外分享的注意事项。逐文件的生成阶段、触发条件和排查用途见[调试目录命名与概览](./folder-naming-and-overview.md)及各调试子页；本页不重复这些内容，也不替代故障排查与隐私清理页面。
 
 ## 功能边界 {#scope}
 
-- `cli.verbose`（界面开关“详细日志”）只决定是否把中间产物写入 `result/` 并提升控制台日志级别；它不改变翻译结果，最终输出路径由输出配置（含“输出到原图目录”）决定。
-- 运行日志文件始终以 DEBUG 级别写入文件；`verbose` 影响的是控制台输出级别以及调试中间文件是否生成。
+- “详细日志”开关只决定是否把中间产物写入 `result/` 并提升控制台日志级别；它不改变翻译结果，最终输出路径由输出配置（含“输出到原图目录”）决定。
+- 运行日志文件始终以 DEBUG 级别写入文件；“详细日志”影响的是控制台输出级别以及调试中间文件是否生成。
 - 本页只覆盖“阅读顺序、清理、脱敏、分享”；每种产物的具体含义由各自调试页面负责。
 
 ## UI 操作 {#ui-operations}
 
 ### 开启详细日志 {#enable-verbose-logging}
 
-1. 打开“设置”（`Settings`），选择“通用”（`General`）分组。
-2. 打开“详细日志”（`Verbose Logging`，存储键 `cli.verbose`）开关并保存。
+1. 打开“设置”，选择“通用”分组。
+2. 打开“详细日志”开关并保存。
 3. 重新运行一次翻译任务。开启后 `result/` 下会新增运行日志 `log_时间戳.txt` 和每图调试子目录。
-4. 翻译出错弹出“翻译错误”（`Translation Error`）对话框时，可点击“打开日志文件夹”（`Open log folder`）直接跳转到日志所在目录。
-
-“详细日志”的说明面板文案由 `desc_cli_verbose` 提供，实际显示如下（换行由界面排版）：
-
-- English 实际值：`Output detailed debug info to logs for troubleshooting. When enabled, Qt UI writes these items under result/: log_timestamp.txt (Qt UI runtime log), timestamp-image-target-translator/ (debug intermediate files for a single task). Cleanup: close Qt UI first, then delete the unneeded log_*.txt files and matching timestamp debug folders under result/.`
-- 简体中文实际值：`输出详细的调试信息到日志，方便排查问题。开启后会在 result/ 目录生成：log_时间戳.txt（Qt UI 运行日志）、时间戳-图片名-目标语言-翻译器/（单次任务的调试中间文件）。清理方法：先关闭 Qt UI，再到 result/ 目录删除不需要的 log_*.txt 和对应的时间戳调试文件夹即可。`
+4. 翻译出错弹出“翻译错误”对话框时，可点击“打开日志文件夹”直接跳转到日志所在目录。
 
 ### 定位日志与调试目录 {#locate-logs-and-debug-directory}
 
 - 桌面应用和 CLI 都在应用根目录（开发环境为仓库根目录，打包版为可执行文件所在目录）的 `result/` 下写入 `log_<yyyyMMddHHmmss>.txt`。
 - 每张输入图对应一个调试子目录，命名为 `{时间戳毫秒}-{图片MD5}-{检测尺寸}-{目标语言}-{翻译器}`。界面说明文案简写为“时间戳-图片名-目标语言-翻译器”，实际文件名中“图片名”位置是图片的 MD5。
 - 批量任务中每张图片都有自己的子目录，按时间戳区分；对应关系可从日志中的图片路径和子目录名核对。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `General` | General | 通用 |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `Translation Error` | Translation Error | 翻译错误 |
-| `Open log folder` | Open log folder | 打开日志文件夹 |
-| `label_save_to_source_dir` | Save to Source Directory | 输出到原图目录 |
-| `label_export_editable_psd` | Export Editable PSD | 导出可编辑PSD |
-| `label_psd_script_only` | Generate PSD Script Only | 仅生成PSD脚本 |
 
 ## 阅读顺序 {#reading-order}
 
@@ -120,37 +104,3 @@ flowchart LR
 - 调试子目录是“某次运行实际存在的产物”；当前源码在不同模式下可能生成更多文件，不要把条件产物写成每次必有。
 - 批量、并发与上下文历史不影响调试目录的隔离：每张图片仍按图片 MD5 和时间戳拥有独立子目录。
 - 关闭 `verbose` 后，新运行不再生成调试中间文件，但历史 `result/` 内容不会自动删除，需要按上文手动清理。
-
-## 关联文件与格式 {#related-files}
-
-| 文件/目录 | 本页实际作用 | 清理与分享注意 |
-| --- | --- | --- |
-| `result/log_<时间戳>.txt` | 桌面/CLI 运行日志，文件级始终 DEBUG | 分享前删除路径与凭据 |
-| `result/<时间戳>-<MD5>-<尺寸>-<语言>-<翻译器>/` | 单图调试中间产物 | 整目录检查后分享 |
-| `result/<...>/ocrs/` | OCR 输入裁切图 | 含用户文字，逐张检查 |
-| `<输入目录>/manga_translator_work/psd/*_photoshop_script.jsx` | Photoshop 脚本，可能含图层文本与本地路径 | 不属于 `result/`，分享前必须脱敏 |
-| `config/` 运行时表 | 由 `ensure_runtime_files()` 保证存在并可重建 | 删除会重建默认，但丢失自定义内容 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 设置 UI | `desktop_qt_ui/ui/main_page/settings_tab_layout.json`、`desktop_qt_ui/ui/main_page/dynamic_settings.py` | `cli.verbose` 位于“通用”分组；`desc_{key}` 说明查找规则 |
-| UI/i18n | `desktop_qt_ui/app_logic.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | `label_verbose`、`desc_cli_verbose`、`Open log folder` 实际中英文显示值 |
-| 日志服务 | `desktop_qt_ui/services/log_service.py`、`desktop_qt_ui/main.py` | 文件处理器始终 DEBUG；`result/log_<时间戳>.txt` 位置与队列日志 |
-| 调度 | `desktop_qt_ui/app_logic.py` | `cli.verbose` 读取并传入翻译器参数；错误对话框“打开日志文件夹” |
-| 调试路径 | `manga_translator/manga_translator.py` | `_result_path()`、`_set_image_context()`、子目录命名与 `BASE_PATH/result/` |
-| 输出保存 | `manga_translator/save.py` | 最终输出格式校验；与调试目录相互独立 |
-| CLI 日志 | `manga_translator/mode/local.py` | CLI 同样写 `result/log_<时间戳>.txt` |
-| 运行时文件 | `manga_translator/runtime_files.py` | `ensure_runtime_files()` 自动重建运行时表 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取并按页面合同编写 |
-| 阅读顺序与路径契约 | 完成 | 静态核对 `_result_path`、`_set_image_context`、`BASE_PATH` |
-| UI 与 i18n 文案 | 完成 | 核对 `label_verbose`、`desc_cli_verbose`、`Open log folder` 等实际值 |
-| 清理与脱敏规则 | 完成 | 静态核对日志服务、CLI 日志与安全规则 |
-| 脱敏运行验证 | 待后续 | 未读取真实 `.env`、用户图片或私有任务产物 |
-| VitePress | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` 及镜像/源码检查 |

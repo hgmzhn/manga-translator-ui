@@ -13,50 +13,66 @@ This page explains how to build the current-source CPU or NVIDIA GPU Web service
 
 ## Start with Compose
 
-`packaging/docker-compose.yml` defines both CPU and GPU services, but normally start only one to avoid consuming two Web ports and two sets of model resources. Run commands from the repository's `packaging/` directory; the Compose build context remains the project root.
+`packaging/docker-compose.yml` defines both CPU and GPU services, but normally start only one to avoid consuming two Web ports and two sets of model resources.
 
-### CPU service
+### Quick start
 
-```bash
-docker compose up --build -d manga-translator-cpu
-docker compose logs -f manga-translator-cpu
-```
-
-After it becomes healthy, visit `http://127.0.0.1:8000/`. To stop the container while retaining data in bind-mounted directories:
+For a quick test you can use the published images directly, with no local build:
 
 ```bash
-docker compose stop manga-translator-cpu
-docker compose down
+docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:latest-cpu
 ```
 
-### NVIDIA GPU service
+For NVIDIA GPUs use `hgmzhn/manga-translator:latest-gpu`. The images are published on both Docker Hub (`hgmzhn/manga-translator`) and GitHub Container Registry (`ghcr.io/hgmzhn/manga-translator`, possibly faster in some regions); choose either. After startup, visit `http://localhost:8000` (user interface) and `http://localhost:8000/admin` (admin interface).
 
-The host must already have compatible NVIDIA drivers and NVIDIA Container Toolkit:
+### Persistent Compose example
 
-```bash
-docker compose up --build -d manga-translator-gpu
-docker compose logs -f manga-translator-gpu
+For long-term use, mount the data directories as in `packaging/docker-compose.yml` (all paths are relative to `packaging/`):
+
+```yaml
+services:
+  manga-translator:
+    image: hgmzhn/manga-translator:latest-cpu
+    container_name: manga-translator
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MT_WEB_HOST: 0.0.0.0
+      MT_WEB_PORT: 8000
+      MANGA_TRANSLATOR_ADMIN_PASSWORD: change_me_123456
+    volumes:
+      - ./data/models:/app/models
+      - ./data/fonts:/app/fonts
+      - ./data/dict:/app/dict
+      - ./data/config:/app/config
+      - ./data/server:/app/manga_translator/server/data
+      - ./data/logs:/app/logs
+      - ./data/result:/app/result
+      # To keep server API keys saved in the Web admin UI across recreation,
+      # create an empty file ./data/app.env first, then uncomment the next line:
+      # - ./data/app.env:/app/.env
 ```
 
-After it becomes healthy, visit `http://127.0.0.1:8001/`. The container still listens on `8000`; the GPU Compose service only maps host `8001` to container `8000`.
+The admin password in the example is a placeholder; replace it with a random password before public deployment.
+
+### Ports and environment variables
+
+| Item | Meaning |
+| --- | --- |
+| Container port | `8000` |
+| Host port | CPU `8000`, GPU `8001` (customizable) |
+| `MT_WEB_HOST` | Listening address, default `0.0.0.0` |
+| `MT_WEB_PORT` | Service port, default `8000` |
+| `MT_USE_GPU` | Set to `true` for the GPU image |
+| `MT_MODELS_TTL` | Model in-memory TTL in seconds, default `0` (keep forever) |
+| `MT_RETRY_ATTEMPTS` | Translation failure retry count; `-1` means unlimited |
+| `MT_VERBOSE` | Verbose logging, default `false` |
+| `MANGA_TRANSLATOR_ADMIN_PASSWORD` | Legacy admin password, at least 6 characters; does not replace `/auth/setup` |
+
+The CPU service maps host `8000` to container `8000`; once healthy, visit `http://127.0.0.1:8000/`. The GPU service requires a compatible NVIDIA driver and NVIDIA Container Toolkit on the host, maps host `8001` to container `8000`, and is visited at `http://127.0.0.1:8001/` once healthy. The container always listens on `8000`.
 
 On the first Web visit, create the first administrator account as prompted by the login page. `MANGA_TRANSLATOR_ADMIN_PASSWORD` in Compose only sets an older service-administration password: it requires at least six characters, does not replace `/auth/setup`, and does not automatically create a login account. Do not use the example password in the repository Compose file. Before a public deployment, set a new random password through an uncommitted environment override or administration configuration.
-
-## Configuration and option matrix
-
-A Docker deployment has no desktop Qt controls, so there is no desktop UI call key to verify. The following table records that boundary instead of presenting environment variables as UI text. Web-page strings belong to the Web pages and are not duplicated here.
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| None (Docker Compose/CLI operation) | None (Docker Compose/CLI operation) | 无（Docker Compose/CLI 操作） |
-| `MT_WEB_HOST` (startup argument/environment variable) | Web host (not a desktop label) | Web 监听地址（不是桌面标签） |
-| `MT_WEB_PORT` (startup argument/environment variable) | Web port (not a desktop label) | Web 监听端口（不是桌面标签） |
-| `MT_USE_GPU` (startup argument/environment variable) | Use GPU (runtime flag, not a desktop label) | 使用 GPU（运行时标志，不是桌面标签） |
-| `MT_MODELS_TTL` (startup argument/environment variable) | Models TTL (runtime flag, not a desktop label) | 模型 TTL（运行时标志，不是桌面标签） |
-| `MT_RETRY_ATTEMPTS` (startup argument/environment variable) | Retry attempts (runtime flag, not a desktop label) | 重试次数（运行时标志，不是桌面标签） |
-| `MT_VERBOSE` (startup argument/environment variable) | Verbose logging (runtime flag, not a desktop label) | 详细日志（运行时标志，不是桌面标签） |
-
-Compose currently sets `MT_WEB_HOST=0.0.0.0`, container port `8000`, and `MT_USE_GPU=false` for CPU. The GPU service retains container port `8000`, sets `MT_USE_GPU=true`, and maps host port `8001`. These are deployment configuration, not UI keys in `en_US.json` or `zh_CN.json`.
 
 ## How the image runs
 
@@ -106,29 +122,4 @@ To retain server API configuration saved through the Web administration UI after
 
 Runtime environment variables include `MT_WEB_HOST`, `MT_WEB_PORT`, `MT_USE_GPU`, `MT_DISABLE_ONNX_GPU`, `MT_MODELS_TTL`, `MT_RETRY_ATTEMPTS`, and `MT_VERBOSE`. They override Web startup behavior, backend selection, model caching, retry, or logging; their precise defaults come from `manga_translator/args.py` and Compose. This page records only the existence and minimum-length validation of `MANGA_TRANSLATOR_ADMIN_PASSWORD`, never its value.
 
-## Screenshot and Mermaid boundary
-
-This page uses Mermaid only for the informative build, startup, volume-initialization, and health-check flow; it does not fabricate Docker Desktop, terminal, or GPU screenshots. Future screenshots must use a sanitized image, fictional accounts, and minimal public samples, removing usernames, private absolute paths, keys, tokens, server addresses, user images, OCR/translated text, and prompts. Actual container startup, GPU visibility, health checks, and Web login require separate runtime validation; static page completion does not wait for a future unified acceptance pass.
-
-## Source evidence
-
-| Layer | Files | Verified content |
-| --- | --- | --- |
-| Image build | `packaging/Dockerfile` | CPU/GPU base images, Python, dependency groups, port, entrypoint, health check, and startup command |
-| Compose orchestration | `packaging/docker-compose.yml` | 8000/8001 mapping, environment variables, volumes, GPU devices, memory limits, restart policy, and health check |
-| Startup initialization | `packaging/docker-entrypoint.sh` | How empty mounted config, font, dictionary, and server-data volumes are restored from defaults |
-| Web CLI | `manga_translator/args.py` | `web` host/port/GPU/TTL/retry/verbose arguments and environment overrides |
-| Administrator password | `manga_translator/server/core/config_manager.py` | Minimum length and legacy-administration-setting behavior of `MANGA_TRANSLATOR_ADMIN_PASSWORD` |
-| Web service | `manga_translator/server/main.py`, `manga_translator/server/routes/` | Service boundary for Web pages, sessions, translation endpoints, and the health-check target |
-| Dependency declaration | `pyproject.toml`, `uv.lock` | Python version, CPU/GPU exclusive groups, Torch/ONNX sources, and locked install |
-
-## Verification
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| Bilingual pages, frontmatter, pageId, headings, and anchors | Complete | Chinese and English mirror section by section; `pageId` is `install.docker` |
-| Dockerfile/Compose/entrypoint static review | Complete | Build types, ports, volumes, environment, initialization, and health check reviewed |
-| Dependencies, ports, administrator-password, and security boundaries | Complete | Source reviewed; no password values, tokens, usernames, private paths, or user content included |
-| Docker Compose build/start, GPU visibility, and Web login | Not run | Requires Docker, NVIDIA Toolkit, and a sanitized runtime environment; static conclusions do not substitute for runtime validation |
-| Mermaid/image boundary | Complete | Only an informative Mermaid is included; no screenshots fabricated |
-| VitePress static checks and build | Complete | `npm run docs:build --prefix doc/wiki` passed |
+For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

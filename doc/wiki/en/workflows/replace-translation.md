@@ -26,49 +26,15 @@ This page covers only the inputs, skipped stages, and output files of this workf
 
 ### Select the Replace Translation workflow
 
-1. Open the translation page and choose “Replace Translation” (`Replace Translation`) in the “Translation Workflow Mode:” (`Translation Workflow Mode:`) combo box.
+1. Open the translation page and choose “Replace Translation” in the “Translation Workflow Mode:” combo box.
 2. The page title becomes “Replace Translation” and the subtitle shows the hint: place translated images in `manga_translator_work/translated_images` with matching filenames.
-3. The start button becomes “Start Replace Translation” (`Start Replace Translation`); clicking it starts the backend task in this mode.
+3. The start button becomes “Start Replace Translation”; clicking it starts the backend task in this mode.
 
 Selecting a mode only writes configuration and updates the UI texts; it does not start a task. Before starting, add the raw images and place the same-name translated image for each raw image in `manga_translator_work/translated_images/`. Files with the same extension take priority; if `translated_images/` does not exist or contains no same-name file, the corresponding raw image is skipped and counted as failed.
 
 “Output Directory:” determines where the main output image goes; the inpainted image, project JSON, and pairing image always follow the per-image work-directory rules and do not change with “Output Directory:”.
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `Translation Workflow Mode:` | Translation Workflow Mode: | 翻译流程模式： |
-| `Replace Translation` | Replace Translation | 替换翻译 |
-| `Start Replace Translation` | Start Replace Translation | 开始替换翻译 |
-| `Tip: Place translated images in manga_translator_work/translated_images with matching filenames. The app extracts translated text, matches regions on raw images, inpaints originals, and renders translated text.` | Tip: Place translated images in manga_translator_work/translated_images with matching filenames. The app extracts translated text, matches regions on raw images, inpaints originals, and renders translated text. | 提示：请将翻译图放到 manga_translator_work/translated_images 并与生肉图同名。程序会提取翻译图文字、在生肉图上匹配区域、修复原文字区域，再渲染译文。 |
-| `label_enable_template_alignment` | Enable Direct Paste Mode | 启用直接粘贴模式 |
-| `label_paste_mask_dilation_pixels` | Paste Mode Mask Dilation Pixels | 粘贴模式蒙版膨胀大小 |
-| `label_disable_auto_wrap` | AI Line Breaking | AI断句 |
-| `label_layout_mode` | Layout Mode | 排版模式 |
-| `layout_mode_strict` | Strict Boundary | 严格边界 |
-| `label_save_text` | Editable Image | 图片可编辑 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-| `label_export_editable_psd` | Export Editable PSD | 导出可编辑PSD |
-
 The `manga_translator_work/translated_images` shown in the hint is fixed program text and a work-directory name, not a user's private path; “matching filenames” means the same file name (without extension).
-
-## Option matrix
-
-The combo box has no separate `userData`; the index is the mode value. Runtime code maps index 8 to `cli.replace_translation=true`. The stored values of the related settings are listed below, with the three UI evidence columns and their actual effect on this workflow.
-
-| Stored value | English | Simplified Chinese | Effect in this workflow |
-| --- | --- | --- | --- |
-| `replace_translation=true` | Replace Translation | 替换翻译 | Enters the replace-translation dispatch; no translation service is called |
-| `render.enable_template_alignment=true` | Enable Direct Paste Mode | 启用直接粘贴模式 | Uses the direct paste branch; writes no JSON, inpainted image, or PSD |
-| `render.paste_mask_dilation_pixels=10` | Paste Mode Mask Dilation Pixels | 粘贴模式蒙版膨胀大小 | Dilates the mask in direct paste mode: `pixels // 3` iterations with a 3×3 ellipse kernel; `0` disables dilation |
-| `render.disable_auto_wrap=true` | AI Line Breaking | AI断句 | Forced on by this workflow |
-| `render.layout_mode='strict'` | Layout Mode → Strict Boundary | 排版模式 → 严格边界 | Forced to Strict Boundary by this workflow |
-| `cli.save_text=true` | Editable Image | 图片可编辑 | Decides whether the inpainted image and project JSON are written when not in direct paste mode |
-| `cli.overwrite=false` | Overwrite Existing Files | 覆盖已存在文件 | Skips images whose main output image already exists before starting |
-| `cli.batch_concurrent=true` | Concurrent Batch Processing | 并发批量处理 | This workflow forces non-concurrent processing |
-| `cli.export_editable_psd=true` | Export Editable PSD | 导出可编辑PSD | Exports a PSD when not in direct paste mode; skipped in direct paste mode |
-
-`render.enable_template_alignment` and `render.paste_mask_dilation_pixels` sit under the “Replace Translation” divider of the “Mode Specific” group, and their descriptions state they are specific to Replace Translation. The other forced values are written into the runtime config by `translate_batch_replace_translation()` before processing; any existing choices in the UI are overridden.
 
 ## Runtime behavior
 
@@ -140,44 +106,11 @@ In both finishing modes, the main output image is saved through `_calculate_outp
 - Colorization, upscaling, detection, and OCR still consume model, VRAM, and network costs according to their parameters; this page does not repeat those parameter descriptions.
 - The main output directory, `save_to_source_dir`, and `cli.format` affect only the main output image; the JSON, inpainted image, and pairing image are unaffected.
 
-## Related files and formats
+## Related pages {#related-pages}
 
-| File/format | Actual role on this page | Notes |
-| --- | --- | --- |
-| `manga_translator_work/translated_images/<stem><ext>` | Pairing translated image for Replace Translation | Same extension first, then the supported image extensions |
-| Main output image `<output-dir>/<stem>.<format>` | Main artifact of Replace Translation | Path decided by `_calculate_output_path()` |
-| `manga_translator_work/inpainted/<stem>_inpainted.<original-ext>` | Inpainted image (not direct paste and `save_text=true`) | No other lookup location |
-| `manga_translator_work/json/<stem>_translations.json` | Project JSON (not direct paste and `save_text=true`) | Contains the paired regions, mask, and other fields |
-| `manga_translator_work/psd/<stem>.psd` | Editable PSD (`export_editable_psd` and not direct paste) | Skipped in direct paste mode |
-| Debug artifacts | `replace_debug_match.jpg`, `debug_extracted_text.png`, `inpainted.png` | Written when `verbose`; matching boxes/overlap info and extracted text |
+- Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Export Translation](./export-translation.md) · [Translate JSON Only](./translate-json-only.md) · [Import Translation and Render](./import-translation-and-render.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Inpaint Only](./inpaint-only.md)
+- Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)
+- Inputs, skipped stages, and outputs of all nine workflows: [Workflow Matrix](../reference/workflow-matrix.md)
+- Mutually exclusive workflow fields, parameter overrides, and template alignment: [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md)
 
-No real user configuration, keys, tokens, usernames, private absolute paths, user images, or task artifacts are shown on this page.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Workflow selection and writes | `desktop_qt_ui/ui/main_page/runtime.py:183-215` | Index 8 → `replace_translation=true`, eight-field mutual exclusion, and config saving |
-| Title, hint, and start button | `desktop_qt_ui/ui/main_page/runtime.py:22-47,219-238` | “Replace Translation” title, hint call keys, and button text |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual bilingual values for `Replace Translation`, `Start Replace Translation`, the hint, and `label_*` |
-| Controller | `desktop_qt_ui/app_logic.py:3140-3272` | Pre-start main-output-image check, mode detection, and special-mode concurrency disabling |
-| Core dispatch | `manga_translator/manga_translator.py:3436-3440,5569-5586` | Replace-translation-first dispatch and the batch entry |
-| Two-image pipeline | `manga_translator/utils/replace_translation.py:128-697` | Two-image detection/OCR, pairing, inpainting, direct paste/re-render, and save boundaries |
-| Pairing lookup | `manga_translator/utils/replace_translation.py:726-767` | Same-extension priority and iterating `SUPPORTED_IMAGE_EXTENSIONS` |
-| Region matching | `manga_translator/utils/replace_translation.py:938-1120` | Scaling, `0.3` overlap threshold, and `create_matched_regions` |
-| Config | `manga_translator/config.py:204-211,422` | Defaults of `enable_template_alignment`, `paste_mask_dilation_pixels`, and `replace_translation` |
-| Paths | `manga_translator/utils/path_manager.py` | Per-image work directory, `translated_images/`, and JSON/inpainted/PSD paths |
-| Rendering/layout | `manga_translator/rendering/__init__.py:1121` | Special handling of `cli.replace_translation` in the renderer |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; the three contract files were not modified |
-| Source and research material | Complete | Cross-checked `workflow-matrix-source-evidence.md` and the UI, i18n, controller, and core sources |
-| Three-column i18n evidence | Complete | The workflow option, hint, button, and related settings record the call key, English, and Simplified Chinese actual values |
-| Route/page mirror | Pending | Run route mirror and source-evidence checks after completing the pages |
-| Runtime verification | Pending | Actual outputs of the direct paste and re-render branches, different-size pairing, missing pairing image/no matches, JSON/inpainted/PSD write differences, and files retained after cancel need sanitized runtime verification |
-| Production build | Pending | Run `npm run docs:build --prefix doc/wiki` if needed |
-
-- [ ] [In progress] Runtime confirmation remains: actual file writes of direct paste and re-render, retained files on skip paths, error prompts, and cancel behavior.
+> See the reference index: [Workflow Matrix](../reference/workflow-matrix.md).

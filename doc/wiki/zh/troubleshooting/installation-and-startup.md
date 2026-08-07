@@ -9,7 +9,7 @@ lastUpdated: true
 
 # 安装与启动故障排查
 
-程序装不上、打不开或启动后立即退出时，先在本页按症状定位，再回到对应的安装页执行修复。本页只处理安装与启动阶段的故障，不重复各安装页的完整步骤；安装流程分别见[选择版本](../install/choose-edition.md)、[安装要求](../install/requirements.md)、[Windows 便携版](../install/windows-portable.md)、[Windows 源码安装](../install/source-windows.md)、[Linux 与 macOS](../install/linux-and-macos.md)、[Docker 部署](../install/docker.md)、[更新与版本切换](../install/update-and-version-switching.md)和[卸载与数据清理](../install/uninstall-and-data-cleanup.md)。
+程序装不上、打不开或启动后立即退出时，先在本页按症状定位，再回到对应的安装页执行修复。本页只处理安装与启动阶段的故障，不重复各安装页的完整步骤；安装流程分别见[安装要求](../install/requirements.md)、[Windows 便携版](../install/windows-portable.md)、[Windows 源码安装](../install/source-windows.md)、[Linux 与 macOS](../install/linux-and-macos.md)、[Docker 部署](../install/docker.md)、[更新与版本切换](../install/update-and-version-switching.md)和[卸载与数据清理](../install/uninstall-and-data-cleanup.md)。
 
 模型加载、GPU 显存与内存问题见[模型、GPU 与内存](./model-gpu-and-memory.md)；API 鉴权、限流与超时见[API 鉴权、限流与超时](./api-auth-rate-limit-and-timeout.md)；输出 JSON 与排版问题见[输出 JSON 与排版](./output-json-and-rendering.md)；日志分享前的清理见[隐私、清理与日志分享](./privacy-cleanup-and-log-sharing.md)。
 
@@ -101,40 +101,6 @@ lastUpdated: true
 
 分享日志前删除 API Key、Token、用户名、私有绝对路径、图片路径、OCR/译文与提示词内容；错误窗口截图同样需要脱敏，详见[隐私、清理与日志分享](./privacy-cleanup-and-log-sharing.md)。
 
-## UI 文案对照 {#ui-text}
-
-安装与启动提示来自启动器、批处理/shell 脚本和服务器打印，不是 `desktop_qt_ui/locales/*.json` 的 Qt 控件文案；`en_US.json`/`zh_CN.json` 没有安装/启动专属 key。下表以“调用位置/代码字面量”作为 key，保留实际显示值；某语言缺失时如实标注，不擅自补译。
-
-| UI 调用 key（源码调用/字面量） | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `launch.py#is_python_version_valid` | 无英文输出（launch.py 硬编码中文） | 错误: 需要 Python 3.12+ |
-| `launch.py#is_python_version_valid` | 无英文输出（同上） | 错误: 仅支持 Python 3.12,不支持更高版本 |
-| `launch.py L("漫画翻译器 - 安装或更新", "Manga Translator UI - Install / Update")` | Manga Translator UI - Install / Update | 漫画翻译器 - 安装或更新 |
-| `Win-Start.bat` `echo Starting...` | Starting... | 缺失（批处理硬编码英文，无中文回退） |
-| `Win-Start.bat` `echo Application closed.` | Application closed. | 缺失（同上） |
-| `Win-Start.bat` `echo [ERROR] Application exited with code %EXITCODE%` | [ERROR] Application exited with code ... | 缺失（同上） |
-| `Win-Start.bat` `echo Please try reinstalling first...` | Please try reinstalling first: run Win-Install-or-Update.bat and choose [1] Install. | 缺失（同上） |
-| `Win-Start.bat` `echo [ERROR] Neither bundled Python nor Conda environment was found.` | [ERROR] Neither bundled Python nor Conda environment was found. | 缺失（同上） |
-| `Win-Start.bat` `set /p OPEN_MAINT="Open Win-Install-or-Update.bat now? (y/n): "` | Open Win-Install-or-Update.bat now? (y/n): | 缺失（同上） |
-| `Unix-Start.sh` `fail "No .venv or compatible legacy environment was found"` | No .venv or compatible legacy environment was found | 缺失（脚本硬编码英文，无中文回退） |
-| `Unix-Start.sh` `echo "Run ./Unix-Install-or-Update.sh first"` | Run ./Unix-Install-or-Update.sh first | 缺失（同上） |
-| `server/main.py` `print("[INFO] Loaded environment variables from: " + env_path)` | [INFO] Loaded environment variables from: {path} | 缺失（服务器硬编码英文，无中文回退） |
-| `server/main.py` `print("[WARNING] .env file not found at: " + env_path)` | [WARNING] .env file not found at: {path} | 缺失（同上） |
-
-## 关联文件与格式 {#files}
-
-| 文件/目录 | 实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `packaging/launch.py` | Python 版本门禁、依赖检查、GPU 检测、镜像回退、PyTorch 冲突处理与入口分发 | 不要写入密钥；菜单输出不是稳定 i18n |
-| `Win-Start.bat`、`Unix-Start.sh` | 运行环境查找与启动错误反馈 | 优先便携 Python/`.venv`；错误提示多为硬编码英文 |
-| `desktop_qt_ui/main.py` | 桌面启动顺序、日志、faulthandler、全局异常处理、服务初始化 | PyTorch 必须先于 PyQt6 导入，不要随意改动导入顺序 |
-| `manga_translator/__main__.py`、`manga_translator/args.py` | CLI 模式分发与默认值 | 解析前导入 torch；端口默认 `0.0.0.0:8000` |
-| `manga_translator/runtime_files.py` | 首次启动创建运行时表 | 失败仅警告；不覆盖用户文件 |
-| `result/log_*.txt`、`logs/` | 桌面与服务的日志 | 分享前删除密钥、路径与用户内容 |
-| `packaging/python/`、`.venv/`、`conda_env/` | 便携/源码/旧 Conda 运行环境 | 只保留一套；不要混装依赖组 |
-| `config/config.json`、`.env` | 用户配置与 API 凭据 | 不读取、不展示、不提交真实值 |
-| `packaging/Dockerfile`、`docker-compose.yml`、`docker-entrypoint.sh` | 镜像构建、端口/卷/健康检查与初始化 | 端口映射与 Compose 保持一致 |
-
 ## 排障流程图 {#troubleshooting-flow}
 
 ```mermaid
@@ -155,34 +121,3 @@ flowchart TD
 ```
 
 上图只表达常见启动路径与错误反馈分支；真实退出码、镜像回退和 GPU 分支仍以源码与受控运行验证为准。
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 启动器 | `packaging/launch.py` | Python 3.12 门禁、镜像回退、PyTorch 冲突处理、入口分发 |
-| Windows 入口 | `Win-Start.bat` | 便携 Python 优先、Conda 回退、退出码与重装提示 |
-| Unix 入口 | `Unix-Start.sh` | `.venv`/uv/旧 Conda 顺序、dry-run 与错误提示 |
-| 桌面启动 | `desktop_qt_ui/main.py` | 日志文件、faulthandler、全局异常处理、服务初始化和 Qt 启动 |
-| 服务初始化 | `desktop_qt_ui/services/__init__.py` | 基础/重量级服务初始化与失败日志 |
-| CLI 分发 | `manga_translator/__main__.py`、`manga_translator/args.py` | 模式分发、默认端口、隐式 `local` 与退出行为 |
-| Web 启动 | `manga_translator/server/main.py` | `.env` 加载、uvicorn 绑定、启动事件与健康检查 |
-| 运行时表 | `manga_translator/runtime_files.py` | `ensure_runtime_files` 各工厂与仅警告的失败处理 |
-| Docker | `packaging/Dockerfile`、`packaging/docker-compose.yml`、`packaging/docker-entrypoint.sh` | 端口映射、卷初始化与健康检查 |
-| 调查依据 | `doc/wiki/research/cli-command-inventory.md`、`doc/wiki/research/default-sources.md`、`doc/wiki/research/phase0-page-coverage-matrix.md` | 命令契约、默认来源与页面覆盖状态 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| 页面合同（PAGE_GUIDELINES、BLUEPRINT、TODO 1.3/5.17） | 完成 | 边界、互链、三列文案、流程表/图、页尾依据均已覆盖 |
-| 启动器与脚本静态核对 | 完成 | 已核对 `launch.py`、`Win-Start.bat`、`Unix-Start.sh` 的错误分支 |
-| 桌面/CLI/Web 启动链 | 完成 | 已核对 `main.py`、`__main__.py`、`args.py`、`server/main.py`、`runtime_files.py` |
-| UI 文案三列核对 | 完成 | 启动/安装提示为启动器与脚本硬编码文案；`en_US.json`/`zh_CN.json` 无专属 key，缺失项如实标注 |
-| 实际安装与启动运行验证 | 未运行 | 未在受控环境执行发行包安装、Qt 启动或 Web 绑定；静态结论不代表运行成功 |
-| 路由镜像与源码依据检查 | 待执行 | 由本任务在 `doc/wiki` 运行 `verify-route-mirror.mjs` 与 `verify-source-evidence.mjs` |
-| VitePress 构建 | 待执行 | 由协调代理运行 `npm run docs:build --prefix doc/wiki` |
-
-## 敏感信息审查 {#privacy}
-
-本文没有记录 API Key、Token、管理员密码、用户名、私有绝对路径、用户图片、OCR/译文或私有提示词。`.env`、用户 `config.json`、日志和错误窗口只以文件边界说明；分享日志或截图前必须逐项脱敏。

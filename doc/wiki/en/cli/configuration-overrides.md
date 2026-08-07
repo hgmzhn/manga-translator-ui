@@ -61,20 +61,6 @@ Effective priority, from highest to lowest:
 
 CLI overrides happen while assembling `cli_config` before translation starts; they do not change file contents.
 
-### Which arguments override configuration {#overridable-options}
-
-| CLI argument | Config key written | Parser default | Override condition |
-| --- | --- | --- | --- |
-| `--use-gpu` | `cli.use_gpu` | `None` | Overrides when explicitly passed |
-| `--disable-onnx-gpu` | `cli.disable_onnx_gpu` | `None` | Overrides when explicitly passed |
-| `--format` | `cli.format` | `None` | Overrides when explicitly passed |
-| `--batch-size` | `cli.batch_size` | `None` | Overrides when explicitly passed |
-| `--attempts` | `cli.attempts` | `None` | Overrides when explicitly passed; `-1` means infinite retries |
-| `-v` / `--verbose` | `cli.verbose` | `False` | Passing forces it on; not passing keeps the config value |
-| `--overwrite` | `cli.overwrite` | `False` | Passing forces it on; not passing keeps the config value |
-
-`-i/--input`, `-o/--output`, `--config`, `--subprocess`, `--memory-limit`, `--memory-percent`, and `--batch-per-restart` are run-level arguments, not `cli.*` overrides.
-
 ### No value passed means no override {#explicit-only}
 
 - `--use-gpu`, `--disable-onnx-gpu`, `--format`, `--batch-size`, and `--attempts` default to `None`; they write into `cli_config` only when explicitly passed, otherwise the file value or default is kept.
@@ -85,63 +71,68 @@ CLI overrides happen while assembling `cli_config` before translation starts; th
 
 With `--subprocess`, `run_local_mode` writes only explicitly passed `--use-gpu` and `--disable-onnx-gpu` into `cli_config` and hands the configuration to `translate_with_subprocess`; the “overrides the configuration file” behavior of `--format`, `--batch-size`, and `--attempts` does not enter that branch. `-v`/`--overwrite` are passed as function arguments. This is a source-level discrepancy and has not been verified at runtime; the five override arguments take effect per the help semantics only without `--subprocess`.
 
-## Environment variables {#environment-variables}
+## Configuration file details {#config-file-details}
 
-`args.py` reads process environment variables as argument defaults when creating the parser; argparse uses them only when the argument is not passed explicitly:
+The configuration files involved in `local` mode are mainly the release default template `config/config-example.json` and the user configuration `config/config.json`; the original-to-translation mapping template `config/translation_template.json` is also read when exporting original text or translations. This section describes their structure and format based on the actual files in the repository, referencing only sanitized defaults from the release template and never showing real user configuration or private paths.
 
-| Environment variable | Affected option | Default | Modes |
-| --- | --- | --- | --- |
-| `MT_WEB_HOST` | `--host` | `0.0.0.0` | `web` |
-| `MT_WEB_PORT` | `--port` | `8000` | `web` |
-| `MT_USE_GPU` | `--use-gpu` | `false` | `web` |
-| `MT_DISABLE_ONNX_GPU` | `--disable-onnx-gpu` | `false` | `web`/`ws`/`shared` |
-| `MT_MODELS_TTL` | `--models-ttl` | `0` (keep forever) | `web` |
-| `MT_RETRY_ATTEMPTS` | `--retry-attempts` | `None` when unset (use API-provided config) | `web` |
-| `MT_VERBOSE` | `-v` / `--verbose` | `false` | `web` |
+### Release default template config/config-example.json {#config-example-structure}
 
-Priority is: explicit CLI argument > environment variable > baseline default in help/source. `MT_WEB_PORT`, `MT_MODELS_TTL`, and `MT_RETRY_ATTEMPTS` are parsed with `int()`; invalid values raise an error while creating the parser. After `--disable-onnx-gpu` is passed in any mode, `__main__.py` exports `MT_DISABLE_ONNX_GPU=1` before dispatch so runtime code sees it.
+`config/config-example.json` is the default configuration template shipped with the release and the base used when no user configuration exists. It is a JSON object grouped by feature, with each group corresponding to one translation-pipeline stage:
 
-### Environment-variable truth rule {#env-truth-rule}
-
-- `MT_USE_GPU` and `MT_DISABLE_ONNX_GPU` use the shared `_env_true` rule: the lowercased value is truthy when in `true`, `1`, `yes`, `on`.
-- `MT_VERBOSE` uses an inline check that accepts only `true`, `1`, `yes` — **not `on`**. This is a source-level discrepancy and must be kept.
-
-### Environment variables and the .env boundary {#env-dotenv-boundary}
-
-- `local`: `ConfigService` reads the project-root `.env` (next to the executable when packaged) with `override=True` during initialization, mainly for credentials such as API keys; it does not participate in `cli.*` overrides.
-- `web`: `.env` is loaded with `override=False` when the `server` package is imported, which is later than `parse_args()` computes `MT_*` defaults. Therefore `MT_WEB_HOST`/`MT_WEB_PORT` written only into `.env` do not change the already-computed `--host`/`--port` defaults; set them in the process environment or pass explicit flags. (Source-level conclusion; not runtime-verified.)
-- `MT_WEB_NONCE` is not a top-level `args.py` default; the server reads it at startup. See [Web/WS/Shared modes](./web-ws-and-shared-modes.md).
-
-## Parameters and options {#parameters-and-options}
-
-CLI arguments have no i18n entries; the `--help` text is hardcoded Chinese in the source. The table lists the desktop-settings labels (UI call keys `label_*`) for the `cli.*` storage keys these arguments write. Controls, effective stages, and final consumers of each `cli.*` parameter are in [CLI batch and output parameters](../desktop/settings/cli-batch-and-output.md).
-
-### Stored value / English / Simplified Chinese {#option-matrix}
-
-| Stored value | English actual value | Simplified Chinese actual value |
+| Config group | Stage | Example fields |
 | --- | --- | --- |
-| `cli.use_gpu` | Use GPU | 使用 GPU |
-| `cli.disable_onnx_gpu` | Disable ONNX GPU Acceleration | 禁用 ONNX GPU 加速 |
-| `cli.format` | Output Format | 输出格式 |
-| `cli.batch_size` | Batch Size | 批量大小 |
-| `cli.attempts` | Retry Attempts | 重试次数 |
-| `cli.verbose` | Verbose Logging | 详细日志 |
-| `cli.overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `cli.batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-| `cli.context_size` | Context Pages | 上下文页数 |
-| `cli.save_quality` | Image Save Quality | 图像保存质量 |
+| `translator` | Translation | `translator` (e.g. `openai`), `target_lang`, `keep_lang` |
+| `detector` | Detection | `detector` (e.g. `default`), `detection_size`, `text_threshold` |
+| `ocr` | Text recognition | `ocr` (e.g. `48px`), `secondary_ocr`, `min_text_length` |
+| `inpainter` | Inpainting | `inpainter` (e.g. `lama_large`), `inpainting_size` |
+| `render` | Typesetting | `renderer`, `font_family`, `layout_mode` |
+| `colorizer` | Colorization | `colorizer` (e.g. `none`), `colorization_size` |
+| `upscale` | Upscaling | `upscaler` (e.g. `mangajanai`), `tile_size` |
+| `cli` | CLI output and batching | `verbose`, `format`, `overwrite`, `batch_size`, `save_text`, etc. |
+| `app` | Desktop app state | `theme`, `ui_language`, `last_output_path` |
 
-### Three-layer defaults {#default-layers}
+Besides the groups, the top level also holds cross-stage fields such as `filter_text_enabled`, `kernel_size`, `mask_dilation_offset`, and `use_custom_api_params`. The full field list is in `config/config-example.json`; the UI explanations of each group's parameters are on the settings pages and in the [Option and i18n matrix](../reference/options-i18n-matrix.md).
 
-| Stored key | Core `Config()` | Qt `AppSettings()` | Release `config/config-example.json` |
-| --- | --- | --- | --- |
-| `cli.use_gpu` | `true` | `true` | `true` |
-| `cli.disable_onnx_gpu` | `false` | `false` | `false` |
-| `cli.format` | `None` | `"不指定"` | `"不指定"` |
-| `cli.batch_size` | `1` | `1` | `3` |
-| `cli.attempts` | `-1` | `-1` | `3` |
-| `cli.verbose` | `false` | `false` | `false` |
-| `cli.overwrite` | `false` | `true` | `true` |
+### How user config/config.json overrides the template {#user-config-override}
+
+`config/config.json` is your own configuration and uses the same structure as the release template. `ConfigService` initialization validates and deep-merges it per key: the user configuration wins, missing or invalid keys fall back to the release template, then to code defaults. Therefore:
+
+- You only need to write the groups or fields you want to change; the remaining keys keep the release defaults.
+- When `--config` is provided, the specified file is loaded as a whole on top of code defaults and becomes the effective configuration; the user `config/config.json` is not merged on top of it.
+- The final effective priority is: explicit CLI arguments > configuration file (`--config` file > `config/config.json` > `config/config-example.json`) > code defaults; see [Argument override priority](#override-priority).
+
+### Original-to-translation mapping template config/translation_template.json {#translation-template}
+
+`config/translation_template.json` is the mapping template used when exporting original text or translations. The first line carries the `output_format` setting, which decides the extension of the exported file (default `json`; can be changed to a safe extension such as `txt`). The rest defines the “original → translation” mapping shape: the `<original>` placeholder stands for one original text and `<translated>` for its translation. The default content shipped with the release is:
+
+```json
+"output_format": "json",
+{
+    "<original>": "<translated>",
+    "<original>": "<translated>",
+    "<original>": "<translated>"
+}
+```
+
+- When exporting original text (the `cli.template` + `cli.save_text` combination, i.e. the “Export Original Text” workflow), each text region's original fills the `<original>` position; when exporting translations (`cli.generate_and_export`, i.e. the “Export Translation” workflow), the translation fills the `<translated>` position. The two exported files are named `<image name>_original.<extension>` and `<image name>_translated.<extension>`.
+- `output_format` accepts only safe extension characters (letters, digits, `.`, `_`, `-`); invalid values fall back to `json`. The template must contain at least one `<original>` placeholder.
+- The mapping lines do not have to be JSON: any free-form text works, for example `Original: <original> Translation: <translated>`, with each text region rendered as one line.
+
+### CLI arguments and config keys {#cli-args-config-keys}
+
+The `local` override arguments that write back to `cli.*` configuration keys are listed below (other arguments such as `-i`, `-o`, `--config`, `--subprocess`, and the memory arguments are run-scoped and never written into the configuration):
+
+| CLI argument | Config key | Description |
+| --- | --- | --- |
+| `--use-gpu` | `cli.use_gpu` | Use GPU acceleration |
+| `--disable-onnx-gpu` | `cli.disable_onnx_gpu` | Disable ONNX Runtime GPU acceleration |
+| `--format` | `cli.format` | Output image format |
+| `--batch-size` | `cli.batch_size` | Batch processing size |
+| `--attempts` | `cli.attempts` | Retry count on translation failure |
+| `-v` / `--verbose` | `cli.verbose` | Show detailed logs |
+| `--overwrite` | `cli.overwrite` | Overwrite existing files |
+
+The workflow-related keys (`cli.save_text`, `cli.load_text`, `cli.template`, `cli.generate_and_export`, `cli.upscale_only`, `cli.colorize_only`, `cli.inpaint_only`, `cli.replace_translation`, etc.) and their correspondence to the UI workflows are covered by [Workflow and file modes](./workflow-and-file-modes.md) and the [Workflow matrix](../reference/workflow-matrix.md). These keys have no official CLI argument and can only be set through the configuration file.
 
 ## Override-priority diagrams {#priority-diagram}
 
@@ -201,36 +192,3 @@ Limitation: this diagram comes from static source. Whether `--format`/`--batch-s
 - `--attempts` (`local`) and `--retry-attempts` (`web`) both accept `-1` for infinite retries but belong to different subcommands with different default sources.
 - `cli.batch_concurrent` from the file is force-disabled under special workflows (see [Workflow and file modes](./workflow-and-file-modes.md)); the formal `local` parser has no `--concurrent` argument, so the CLI cannot override it.
 - This page does not cover API keys, `.env` credential resolution, or candidate rotation; see the API-management pages and [Translator selection](../desktop/translator/selection-and-languages.md).
-
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `config/config.json` | Default user-config path when `--config` is absent | Never read or display a real user file; no private absolute paths in committed docs |
-| `config/config-example.json` | Release default template used as the base when no user config exists | Reference sanitized defaults only |
-| `.env` | Credentials and some `MT_*` runtime reads | Never show real keys; `local` `cli.*` overrides do not pass through `.env` |
-| `config/custom_api_params.json` | Custom API request parameters | Unrelated to this page's overrides; see the API-management pages |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Argument parsing | `manga_translator/args.py` | Four subcommands; `local --config` and `None` override defaults; `web` `MT_*` environment defaults and truth rule |
-| Entry dispatch | `manga_translator/__main__.py` | `torch` import before parsing, mode dispatch, `MT_DISABLE_ONNX_GPU` export |
-| Configuration loading | `desktop_qt_ui/services/config_service.py` | `.env` loading, user/release/code-default priority, per-key validated `load_config_file` and failure paths |
-| Override application | `manga_translator/mode/local.py` | Override writes in non-subprocess and subprocess branches; `--config` failure exit code `1` |
-| Config models | `manga_translator/config.py`, `desktop_qt_ui/core/config_models.py` | `cli.*` core and Qt defaults |
-| Release template | `config/config-example.json` | `cli.*` release defaults |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual `label_*` display values |
-| Help verification | `python -m manga_translator local --help`, `web --help` | Measured 2026-08-07, exit code `0`, output matches the parser definitions |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| Argument parsing and defaults | Complete | Statically checked `args.py` and re-verified with actual `local --help` / `web --help` |
-| Config loading chain and override application | Complete | Statically checked `config_service.py` and both branches of `mode/local.py` |
-| `en_US` / `zh_CN` actual locales | Complete | Recorded actual English and Simplified Chinese values for each `label_*` key |
-| Sanitized runtime verification | Deferred | No real `.env`, user `config.json`, API key/token, username, user image, or private prompt read; no actual translation or subprocess run |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

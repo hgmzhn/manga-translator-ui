@@ -7,8 +7,40 @@ const wikiDir = fileURLToPath(new URL('..', import.meta.url))
 
 type SidebarItem = { text: string; link?: string; items?: SidebarItem[] }
 
-const TOP_LEVEL_ORDER = ['introduction', 'install', 'desktop', 'workflows', 'web', 'cli', 'developer', 'reference', 'troubleshooting']
+const TOP_LEVEL_ORDER = ['introduction', 'install', 'desktop', 'workflows', 'web', 'cli', 'developer', 'community', 'reference', 'troubleshooting']
+
+// 侧边栏目录名多语言：zh 用中文目录名，en 用英文原名
+const DIR_LABELS: Record<string, Record<string, string>> = {
+  zh: {
+    introduction: '简介',
+    install: '安装',
+    desktop: '桌面端',
+    workflows: '工作流',
+    web: 'Web 端',
+    cli: '命令行',
+    developer: '开发者',
+    community: '社区维护',
+    reference: '参考',
+    troubleshooting: '故障排查',
+    debugging: '调试',
+    translation: '翻译',
+    settings: '设置',
+    translator: '翻译器',
+    'api-management': 'API 管理',
+    prompts: '提示词',
+    'replacement-rules': '替换规则',
+    'rich-text-rules': '富文本规则',
+    'batch-management': '批量管理',
+    editor: '编辑器',
+    'http-api': 'HTTP API',
+  },
+}
+
+function dirLabel(prefix: string, name: string): string {
+  return DIR_LABELS[prefix.slice(0, 2)]?.[name] ?? name
+}
 const DESKTOP_ORDER = ['translation', 'settings', 'translator', 'api-management', 'prompts', 'replacement-rules', 'rich-text-rules', 'batch-management', 'editor']
+const INSTALL_ORDER = ['windows-portable.md', 'linux-and-macos.md', 'release-download.md', 'docker.md', 'source-windows.md', 'requirements.md', 'update-and-version-switching.md', 'uninstall-and-data-cleanup.md']
 
 function titleOf(file: string, fallback: string): string {
   const raw = readFileSync(file, 'utf8')
@@ -24,6 +56,9 @@ function orderFor(dir: string): Record<string, number> {
   if (dir.endsWith('desktop')) {
     return Object.fromEntries(DESKTOP_ORDER.map((name, i) => [name, i]))
   }
+  if (dir.endsWith('install')) {
+    return Object.fromEntries(INSTALL_ORDER.map((name, i) => [name, i]))
+  }
   return Object.fromEntries(TOP_LEVEL_ORDER.map((name, i) => [name, i]))
 }
 
@@ -31,6 +66,8 @@ function buildTree(dir: string, base: string, prefix: string): SidebarItem[] {
   const entries = readdirSync(dir, { withFileTypes: true })
     .filter((e) => !e.name.startsWith('.') && e.name !== 'public')
     .sort((a, b) => {
+      if (a.name === 'index.md') return -1
+      if (b.name === 'index.md') return 1
       const order = orderFor(dir)
       const ao = order[a.name] ?? 999
       const bo = order[b.name] ?? 999
@@ -43,7 +80,7 @@ function buildTree(dir: string, base: string, prefix: string): SidebarItem[] {
     const full = join(dir, e.name)
     if (e.isDirectory()) {
       const children = buildTree(full, base, prefix)
-      if (children.length) items.push({ text: e.name, items: children })
+      if (children.length) items.push({ text: dirLabel(prefix, e.name), items: children })
     } else if (e.name.endsWith('.md')) {
       const rel = relative(base, full).replaceAll(sep, '/').replace(/\.md$/, '')
       const link = rel === 'index' ? `/${prefix}` : `/${prefix}${rel}`
@@ -60,12 +97,25 @@ const sharedTheme = {
 export default defineConfig({
   base: '/manga-translator-ui/',
   lang: 'zh-CN',
+  title: 'Manga Translator Wiki',
+  srcExclude: [
+    'BLUEPRINT.md',
+    'PAGE_GUIDELINES.md',
+    'TODO.md',
+    'data/**',
+    'research/**',
+    'public/**/*.md',
+  ],
+  head: [
+    ['link', { rel: 'icon', type: 'image/png', href: '/manga-translator-ui/favicon.png' }],
+  ],
   locales: {
     root: { label: '简体中文', lang: 'zh-CN' },
     zh: { label: '简体中文', lang: 'zh-CN', ...sharedTheme },
     en: { label: 'English', lang: 'en-US', ...sharedTheme },
   },
   themeConfig: {
+    logo: '/logo.png',
     nav: [
       { text: '中文', link: '/zh/' },
       { text: 'English', link: '/en/' },

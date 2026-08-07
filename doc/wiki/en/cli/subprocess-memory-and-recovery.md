@@ -51,91 +51,29 @@ uv run --no-sync python -m manga_translator local -i ./manga_folder/ --subproces
 
 See [Parameters and options](#parameters-and-options) for threshold semantics and official defaults. The absolute and percent limits can be set at the same time and both are checked; they are not the same metric.
 
-### Console output and UI strings
-
-The subprocess progress output is printed directly by `manga_translator/mode/subprocess_manager.py`; the strings are hard-coded Chinese and do not go through `en_US.json`/`zh_CN.json` localization. For example, startup prints `🚀 子进程翻译模式` and `📊 总文件数: N`, each batch prints `🔄 批次 k: 处理 N 个文件`, and after each image it prints `📊 进程内存: ... | 系统内存: ...%` (only when psutil is available). These logs are not UI strings and should not be translated or rewritten as interface text.
-
-The four options on this page are CLI-only parameters: the Qt settings page has no controls for them, and `en_US.json`/`zh_CN.json` contain no `subprocess`/`memory` UI keys. The settings strings that do relate to batch, memory, and model unloading and have real locale keys are listed below; their full parameter documentation is in [CLI batch and output](../desktop/settings/cli-batch-and-output.md):
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `label_batch_size` | Batch Size | 批量大小 |
-| `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
-| `label_unload_models_after_translation` | Unload Models After Translation | 翻译完成后卸载模型 |
-| `desc_app_unload_models_after_translation` | Unload all models after translation to free VRAM and memory. Good for low VRAM, but requires reloading for next translation. | 翻译完成后卸载所有模型以释放显存和内存。适合显存不足的场景，但下次翻译需要重新加载。 |
-| `🚀 Starting translation (loading images in batches to save memory)...` | 🚀 Starting translation (loading images in batches to save memory)... | 🚀 开始翻译（按批次加载图片以节省内存）... |
-
 ## Parameters and options {#parameters-and-options}
 
-#### `--subprocess` — 子进程模式 / Subprocess mode {#subprocess}
+> For the UI-copy and storage-key correspondence shared with desktop settings, see the [Option and i18n matrix](../reference/options-i18n-matrix.md).
 
-- Control: CLI flag (`local` subcommand).
-- Location: `python -m manga_translator local --help`.
-- Stored value: boolean flag; help text is “启用子进程模式（支持内存管理和断点续传）”.
-- Options: `--subprocess` (enabled) or omitted (disabled, default).
-- Defaults: `False` in the official `args.py`; `run_local_mode()` reads it with `getattr(args, 'subprocess', False)`.
-- Effective stage: after `local` dispatches to `run_local_mode()` and before translation, the execution branch switches.
-- Mechanism: the parent collects and batches files, then hands each batch of files, configuration, memory thresholds, and a result queue to a `multiprocessing.Process` running `worker_translate_batch`; the subprocess reloads `MangaTranslator` and calls `translate_batch` per image, see [Runtime behavior](#runtime-behavior).
-- Dependencies/conflicts: Windows frozen (PyInstaller) builds rely on `multiprocessing.freeze_support()`; `--format`/`--batch-size`/`--attempts` are not written into configuration in the subprocess branch (source discrepancy, see [Dependencies and conflicts](#dependencies-and-conflicts)).
-- Related files and debug artifacts: no extra files; progress and statistics are printed to the console.
-- Source evidence: definition `manga_translator/args.py`; dispatch `manga_translator/mode/local.py`; implementation `manga_translator/mode/subprocess_manager.py`.
-- Verification: complete (static check of `--help` and source).
+#### --subprocess {#subprocess}
 
-#### `--memory-limit MEMORY_LIMIT` — 绝对内存限制（MB）/ Absolute memory limit (MB) {#memory-limit}
+Add `--subprocess` to enable subprocess mode: each batch runs in an independent subprocess while the parent process only collects files, assigns batches, and gathers results; when a memory or batch-count threshold is reached, the current subprocess exits early and a new subprocess continues with the remaining files, and files that already completed are not translated again. Options: `--subprocess` (enabled) or omitted (disabled, default). Default: `false`.
 
-- Control: CLI integer input (`local` subcommand).
-- Location: `python -m manga_translator local --help`.
-- Stored value: integer (MB).
-- Options: positive integers; `0` means unlimited.
-- Defaults: `0` in the official `args.py`; `DEFAULT_MEMORY_THRESHOLD_MB` in the `subprocess_manager.py` function signature is `0`; the standalone parser in `manga_translator/mode/local.py` uses `8000` (not part of the official top-level contract, do not mix).
-- Effective stage: in the subprocess, after every processed image.
-- Mechanism: the worker reads the **subprocess's own** RSS with psutil and returns early with the completed list when `RSS > threshold`, leaving remaining files to a new subprocess. The check is `> 0`, so a negative value behaves like `0` (unlimited).
-- Dependencies/conflicts: requires psutil; when missing the read returns `0` and the check is skipped; it can be active together with `--memory-percent`, but the metrics differ (own RSS vs whole-system memory).
-- Related files and debug artifacts: no extra files; before exiting it prints `⚠️ 进程内存超过限制`.
-- Source evidence: definition `manga_translator/args.py`; check `manga_translator/mode/subprocess_manager.py`.
-- Verification: complete (static check; no real OOM runtime verification).
+#### --memory-limit {#memory-limit}
 
-#### `--memory-percent MEMORY_PERCENT` — 系统内存百分比限制 / System memory percent limit {#memory-percent}
+Limits the memory usage of the subprocess itself (in MB): when the threshold is exceeded during processing, the current subprocess exits early and the remaining files are handed to a new subprocess. Options: positive integers (MB); `0` means unlimited. Default: `0`.
 
-- Control: CLI integer input (`local` subcommand).
-- Location: `python -m manga_translator local --help`.
-- Stored value: integer (percent).
-- Options: positive integers; `0` means unlimited.
-- Defaults: `0` in the official `args.py`; `DEFAULT_MEMORY_THRESHOLD_PERCENT` in `subprocess_manager.py` is `80`; the standalone parser in `manga_translator/mode/local.py` uses `80` (not part of the official top-level contract).
-- Effective stage: in the subprocess, after every processed image.
-- Mechanism: the worker reads the **whole-machine** `psutil.virtual_memory().percent` and returns early when it exceeds the threshold. System memory usage above 100 is impossible, so values `> 100` effectively never trigger.
-- Dependencies/conflicts: requires psutil; useful on machines where memory is shared with other programs; it does not reflect the subprocess's own usage and cannot replace `--memory-limit`.
-- Related files and debug artifacts: no extra files; before exiting it prints `⚠️ 系统内存超过限制`.
-- Source evidence: definition `manga_translator/args.py`; check `manga_translator/mode/subprocess_manager.py`.
-- Verification: complete (static check; no real runtime verification).
+#### --memory-percent {#memory-percent}
 
-#### `--batch-per-restart BATCH_PER_RESTART` — 每批重启张数 / Images per restart {#batch-per-restart}
+Limits the share of system memory: when whole-machine memory usage exceeds the threshold, the current subprocess exits early and the remaining files are handed to a new subprocess. Options: positive integers (percent); `0` means unlimited. Default: `0`.
 
-- Control: CLI integer input (`local` subcommand).
-- Location: `python -m manga_translator local --help`.
-- Stored value: integer (images).
-- Options: positive integers; `0` means no restart by image count (all pending files in one process).
-- Defaults: `0` in the official `args.py`; `DEFAULT_BATCH_SIZE_PER_RESTART` in `subprocess_manager.py` is `50`; the standalone parser in `manga_translator/mode/local.py` uses `50` (not part of the official top-level contract).
-- Effective stage: when the parent takes a batch from the pending list.
-- Mechanism: the parent hands at most `N` files to one subprocess per round; after the subprocess finishes normally or exits early on a memory limit, the remaining files go to the next round. This value is unrelated to `cli.batch_size`, which is the number of images in a single translation request (see [CLI batch and output](../desktop/settings/cli-batch-and-output.md)).
-- Dependencies/conflicts: with `0` and many files, one subprocess handles everything and the parent's result-queue timeout is “file count × 600 seconds”, which can be very long.
-- Related files and debug artifacts: no extra files; before each batch it prints `🔄 批次 k: 处理 N 个文件`.
-- Source evidence: definition `manga_translator/args.py`; scheduling loop `manga_translator/mode/subprocess_manager.py`.
-- Verification: complete (static check).
+#### --batch-per-restart {#batch-per-restart}
 
-#### `--resume` — 断点续传 / Resume {#resume}
+Restarts a subprocess after every N images to release memory. Options: positive integers (image count); `0` means no restart by image count (all pending files are processed in one run). Default: `0`.
 
-- Control: CLI flag, **present only** in the standalone module parser of `manga_translator/mode/local.py`.
-- Location: `python -m manga_translator.mode.local --help` (not the official top-level entry).
-- Stored value: boolean flag; help text is “从上次中断的位置继续（需要配合 --subprocess 使用）”.
-- Options: `--resume` (declared) or omitted.
-- Defaults: `False`; the official `local` parser in `args.py` has no such option at all.
-- Effective stage: none. `run_local_mode()` never passes `resume` to `translate_with_subprocess(..., resume=...)`; the help text existing does not mean the behavior is wired up.
-- Mechanism: cross-run recovery for the official top-level `local` actually relies on the pre-filter that skips files whose output already exists when `--overwrite` is not set; the in-run checkpoint is guaranteed by the `completed_files` set.
-- Dependencies/conflicts: do not rely on `--resume` for cross-run continuation; use `--overwrite` to re-translate files that already exist.
-- Related files and debug artifacts: none.
-- Source evidence: declared `manga_translator/mode/local.py:78`; not forwarded `manga_translator/mode/local.py:761`; downstream interface `manga_translator/mode/subprocess_manager.py`.
-- Verification: complete (static check; matches `research/cli-command-inventory.md`).
+#### --resume {#resume}
+
+The resume flag exists only in the standalone module parser (`python -m manga_translator.mode.local --help`); the official top-level `local` has no such option, so do not rely on it for cross-run continuation. Cross-run recovery actually relies on the pre-filter that skips files whose output already exists when `--overwrite` is not set; use `--overwrite` to re-translate files that already exist. Options: `--resume` (declared) or omitted. Default: `false` (not present in the official parser).
 
 ## Runtime behavior {#runtime-behavior}
 
@@ -206,43 +144,8 @@ What “checkpoint resume” actually means:
 
 - psutil is optional: when missing, both RSS and system-memory reads return `0`, memory limits silently stop working, and only the image-count restart remains.
 - The three default layers must not be mixed: the official `local` defaults for `--memory-limit`/`--memory-percent`/`--batch-per-restart` are `0/0/0`; the `subprocess_manager.py` function-signature constants are `0/80/50`; the standalone parser in `manga_translator/mode/local.py` uses `8000/80/50`. Only `0/0/0` from the official `args.py` belongs to the top-level `local --help` contract.
-- The help text of `--format`, `--batch-size`, and `--attempts` says “覆盖配置文件”, but in the subprocess branch only the GPU/ONNX overrides are written into `cli_config`; those three values never reach `translate_with_subprocess`. This is a source discrepancy, not a completed runtime verification.
+- The help text of `--format`, `--batch-size`, and `--attempts` says “overrides the configuration file”, but in the subprocess branch only the GPU/ONNX overrides are written into `cli_config`; those three values never reach `translate_with_subprocess`. This is a source discrepancy, not a completed runtime verification.
 - Subprocess mode runs exactly one subprocess at a time with no parallelism; `cli.batch_concurrent` does not participate in subprocess scheduling.
 - The memory limits target RAM (subprocess RSS / whole-machine memory), not GPU VRAM; VRAM exhaustion is covered by [Models, GPU, and memory](../troubleshooting/model-gpu-and-memory.md).
 - `app.unload_models_after_translation` (“Unload Models After Translation”) is a desktop-side unload switch for after a translation finishes, different from the runtime thresholds here.
 - The parent's result-queue timeout is “this batch's file count × 600 seconds”; with `--batch-per-restart 0` and many files the wait can be extremely long.
-
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `manga_translator/args.py` | Defines the official `local` `--subprocess` flag and the three threshold options | Defaults `0/0/0`; changing the parser changes the `--help` contract |
-| `manga_translator/mode/local.py` | Subprocess branch: file collection, output directory, skip pre-filter, call to `translate_with_subprocess` | The standalone parser's `--resume`/`--concurrent` and `8000/80/50` defaults are not part of the official entry |
-| `manga_translator/mode/subprocess_manager.py` | Worker function, memory checks, batch loop, queue timeout, terminate/kill, `completed_files` | Module constants are function-signature defaults, not argparse defaults |
-| `manga_translator/__main__.py` | Top-level dispatch and Ctrl+C/exception exit codes | Tries to import `torch` before parsing |
-| `config/config.json` and the `--config` file | Configuration source for subprocess translation | Record sanitized structure only; never show real user files or private paths |
-| `result/log_*.txt` | CLI file logs (shared with local mode) | Logs may contain paths and request information; clean before sharing |
-| `psutil` | Reads RSS and system memory percent | When missing, memory checks are silently skipped without an error |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Parameter definitions | `manga_translator/args.py` | The four `local` subprocess/memory options, official defaults `0/0/0`, and help text |
-| Top-level dispatch | `manga_translator/__main__.py` | Mode dispatch, `torch` import before `--help`, Ctrl+C/exception exit codes |
-| Subprocess implementation | `manga_translator/mode/subprocess_manager.py` | Worker function, memory checks, batch loop, queue timeout, terminate/kill, `completed_files` checkpoint |
-| Local mode | `manga_translator/mode/local.py` | File collection/natural sort, output directory, skip pre-filter, GPU/ONNX overrides, `--format` not entering the subprocess branch |
-| Standalone parser | `manga_translator/mode/local.py` | `--resume`/`--concurrent` and `8000/80/50` exist only in the standalone entry |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Related settings strings key→English→Simplified Chinese; subprocess options have no UI key |
-| Research artifact | `doc/wiki/research/cli-command-inventory.md` | Official `--help` inventory and recorded actual-help verification |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract; only this page's TODO was handled |
-| Official `--help` check | Complete | `uv run --no-sync python -m manga_translator local --help` matches the parameter table |
-| Subprocess/memory/recovery static trace | Complete | Parent scheduling, memory checks, failure branches, and recovery paths checked line by line |
-| i18n three-column strings | Complete | Only related settings strings have real keys; subprocess options are honestly marked as having no UI key |
-| Sanitized runtime verification | Deferred | No real batch translation was run; OOM restart, real-failure recovery, and long-run behavior are not runtime-verified |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

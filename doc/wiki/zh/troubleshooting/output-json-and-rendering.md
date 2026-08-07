@@ -22,25 +22,16 @@ lastUpdated: true
 
 先复现一次任务并保留日志，多数输出/JSON/渲染问题都能从日志定位到具体分支：
 
-1. 打开“设置”→“General”，开启“详细日志”（`Verbose Logging` / `label_verbose`），再复现一次任务。
+1. 打开“设置”→“通用”，开启“详细日志”，再复现一次任务。
 2. 在 `result/` 目录查看 `log_<时间戳>.txt` 运行日志，以及 `<时间戳>-<图片名>-<目标语言>-<翻译器>/` 调试中间文件；清理方式见“详细日志”说明（先关闭 Qt UI 再删除）。
 3. 按关键词过滤日志：`Saved successfully` / `Skipping existing file`、`JSON saved to` / `Failed to read or parse`、`[RENDER SKIPPED]`、`Error saving image`、`stage='rendering'` / `stage='saving'`。
 4. 不要在公开报告或共享包里复制日志中的本机路径、译文正文、请求体和调试图片。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `💾 Files saved to: {dir}` | 💾 Files saved to: {dir} | 💾 文件已保存到：{dir} |
-| `📁 Output directory: {dir}` | 📁 Output directory: {dir} | 📁 输出目录：{dir} |
-| `⏭️ Skipped {count} existing files.` | ⏭️ Skipped {count} existing files (overwrite detection disabled) | ⏭️ 已跳过 {count} 个已存在的文件（覆盖检测已禁用） |
-| `Translation completed, {count} files saved.\n\nOpen results in editor?` | Translation completed, {count} files saved.\n\nOpen results in editor? | 翻译完成，成功保存 {count} 个文件。\n\n是否在编辑器中打开结果？ |
-| `desc_cli_verbose` | Output detailed debug info to logs for troubleshooting.<br><br>When enabled, Qt UI writes these items under `result/`:<br>- `log_timestamp.txt`: Qt UI runtime log<br>- `timestamp-image-target-translator/`: debug intermediate files for a single task<br><br>Cleanup: close Qt UI first, then delete the unneeded `log_*.txt` files and matching timestamp debug folders under `result/`. | 输出详细的调试信息到日志，方便排查问题。<br><br>开启后会在 `result/` 目录生成：<br>- `log_时间戳.txt`：Qt UI 运行日志<br>- `时间戳-图片名-目标语言-翻译器/`：单次任务的调试中间文件<br><br>清理方法：先关闭 Qt UI，再到 `result/` 目录删除不需要的 `log_*.txt` 和对应的时间戳调试文件夹即可。 |
 
 “翻译完成，成功保存 {count} 个文件”里的 `count` 是本次任务实际保存/跳过的文件数，不代表所有文件都重新渲染；跳过已存在文件时也会计入成功。
 
 ## 输出文件异常 {#output-file-issues}
 
-主输出图路径由 `save_info`（输出目录、输入目录集合、`format`、`save_to_source_dir`、`overwrite`）经 `_calculate_output_path` 计算，不是固定目录。先确认“输出目录:”（`Output Directory:`）的值和是否开启了“输出到原图目录”（`Save to Source Directory` / `label_save_to_source_dir`）。
+主输出图路径由 `save_info`（输出目录、输入目录集合、`format`、`save_to_source_dir`、`overwrite`）经 `_calculate_output_path` 计算，不是固定目录。先确认“输出目录:”的值和是否开启了“输出到原图目录”。
 
 ### 输出图片缺失或位置不对 {#output-image-missing-or-misplaced}
 
@@ -62,7 +53,7 @@ lastUpdated: true
 
 ### 输出格式与质量异常 {#output-format-and-quality}
 
-“输出格式”（`Output Format` / `label_format`）下拉框的取值和编码行为如下，存储值 `不指定` 表示保留原扩展名：
+“输出格式”下拉框的取值和编码行为如下，存储值 `不指定` 表示保留原扩展名：
 
 | 存储值 | English | 简体中文 | 说明 |
 | --- | --- | --- | --- |
@@ -84,22 +75,22 @@ lastUpdated: true
 
 行为要点：
 
-- “图像保存质量”（`Image Save Quality` / `label_save_quality`，0–100，Qt/发行默认 `100`）只影响 JPEG/WebP/AVIF/HEIF；PNG、BMP、TIFF 不受质量参数影响。
+- “图像保存质量”只影响 JPEG/WebP/AVIF/HEIF；PNG、BMP、TIFF 不受质量参数影响。
 - JPEG/BMP 是无 alpha 的 RGB 格式：RGBA/调色板先转 RGB，alpha 被压平；CMYK 也会转 RGB。
 - HEIC/HEIF、AVIF 依赖 Pillow 与平台编解码器；缺少支持时保存失败。统一保存入口 `save_pil_image` 会显式指定编码器并尽量保留源图 ICC 与 DPI 元数据。
 - 服务端/CLI 的统一保存守卫（`save.py`）会在扩展名不在支持列表时抛出 `FormatNotSupportedException`。
 
 ### 覆盖与跳过行为 {#overwrite-and-skip}
 
-- “覆盖已存在文件”（`Overwrite Existing Files` / `label_overwrite`，存储值 `cli.overwrite`）：核心代码默认 `false`，Qt 模型与发行配置默认 `true`。
+- “覆盖已存在文件”：核心代码默认 `false`，Qt 模型与发行配置默认 `true`。
 - 关闭时，目标输出文件已存在 → 跳过该图不覆盖，日志/摘要显示“⏭️ 已跳过 …（覆盖检测已禁用）”；跳过也计入成功，不会中断任务。
 - 工作流前置覆盖检查：导出译文/导出原文检查对应 `originals/`、`translations/` 副文件，仅翻译 JSON 检查原文副文件，其余模式检查主输出图（`workflow_service`）；详细行为见对应工作流页。
 - 排障：整批“没有新输出”时，先看是否 `overwrite=false` 且输出文件已经存在。
 
 ### PSD 与 JSX 导出 {#psd-and-jsx-export}
 
-- “导出可编辑PSD”（`Export Editable PSD` / `label_export_editable_psd`，存储值 `cli.export_editable_psd`）开启后把图层写到 `manga_translator_work/psd/<stem>.psd`；需要本机安装 Photoshop。
-- “仅生成PSD脚本”（`Generate PSD Script Only` / `label_psd_script_only`，存储值 `cli.psd_script_only`）只生成 `<stem>_photoshop_script.jsx`，不自动启动 Photoshop、不直接产出 PSD；非 verbose 且非 script-only 时临时脚本会被删除。
+- “导出可编辑PSD”开启后把图层写到 `manga_translator_work/psd/<stem>.psd`；需要本机安装 Photoshop。
+- “仅生成PSD脚本”只生成 `<stem>_photoshop_script.jsx`，不自动启动 Photoshop、不直接产出 PSD；非 verbose 且非 script-only 时临时脚本会被删除。
 - PSD/JSX 导出失败只记录错误日志，不中断图片保存。
 - JSX 可能包含图层文本和本机文件路径，外发前逐文件检查。
 
@@ -178,9 +169,9 @@ flowchart TD
 
 ### JSON 写回、备份与恢复 {#json-writeback-and-backup}
 
-- 普通翻译：`save_text`（“图片可编辑”/`Editable Image` / `label_save_text`，Qt/发行默认 `true`）为真且该图存在 `text_regions` 时回写 JSON（空区域列表也会写）。
+- 普通翻译：`save_text`（图片可编辑）为真且该图存在 `text_regions` 时回写 JSON（空区域列表也会写）。
 - 仅翻译 JSON 无条件回写；导出译文/导出原文写 `translations/`、`originals/` 文本副文件，不写主图。
-- 批量管理在写 JSON 前于同目录写 `<json-file>.bak`（“写入前备份每个文件”/`Writes a .bak next to each modified JSON`）；恢复时覆盖 JSON 并删除 `.bak`，见[预览、应用与恢复](../desktop/batch-management/preview-apply-restore.md)。
+- 批量管理在写 JSON 前于同目录写 `<json-file>.bak`（写入前备份每个文件）；恢复时覆盖 JSON 并删除 `.bak`，见[预览、应用与恢复](../desktop/batch-management/preview-apply-restore.md)。
 - 输出目录下的 `translation_map.json` 记录“结果图 → 原图”映射，编辑器与文件列表用它解析原图；删除后编辑器仍可按输出图名回退。
 - 排障“JSON 修改没生效”：检查编辑器是否正打开同一张图（内存快照会覆盖磁盘修改），或批量写入与编辑器同时操作同一 JSON；见编辑器页。
 
@@ -212,7 +203,7 @@ flowchart TD
 
 ### 字体与缺字 {#font-and-glyphs}
 
-- “字体”（`Font` / `label_font_family`）下拉框枚举系统字体与项目 `fonts/` 目录下的 `.ttf`、`.otf`、`.ttc`；放入新字体后重新打开下拉框刷新。
+- “字体”下拉框枚举系统字体与项目 `fonts/` 目录下的 `.ttf`、`.otf`、`.ttc`；放入新字体后重新打开下拉框刷新。
 - 找不到请求的字体家族时回退默认 `Microsoft YaHei UI`（日志 `Qt font family not found ... using ...`）；旧版字体文件路径配置会映射为家族名。
 - 带方括号的 “Family [Foundry]” 字体名会被净化，避免 Qt 把方括号段当厂商名导致匹配退化。
 - 缺字形：目标语言字形覆盖不全时会出现方框或替代字符；换用覆盖该语言字形集的字体。
@@ -220,10 +211,10 @@ flowchart TD
 
 ### AI 渲染器失败 {#ai-renderer-failures}
 
-- 未配置渲染 API 密钥：开始翻译前 UI 会阻止启动并弹出“需要填写 API 密钥”（`API Keys Required`），提示在 API 密钥(.env) 中填写 `RENDER_OPENAI_API_KEY`/`RENDER_GEMINI_API_KEY`（或回退 `OPENAI_API_KEY`/`GEMINI_API_KEY`）；运行中缺失则报 `... Renderer is not configured. Set ... in .env`。
+- 未配置渲染 API 密钥：开始翻译前 UI 会阻止启动并弹出“需要填写 API 密钥”，提示在 API 密钥(.env) 中填写 `RENDER_OPENAI_API_KEY`/`RENDER_GEMINI_API_KEY`（或回退 `OPENAI_API_KEY`/`GEMINI_API_KEY`）；运行中缺失则报 `... Renderer is not configured. Set ... in .env`。
 - 模型不支持图片输出：错误分类提示“当前模型不支持渲染”，建议把“渲染器”切回 `default`，或在“API 管理 → 渲染”换支持图片输出/图片编辑的模型。
 - 返回内容不含图片：Gemini 报 `response did not contain an image`；OpenAI 可能返回文本或触发审核拦截。
-- 请求会把页面裁成方形再还原；失败重试走 API 候选轮换；并发受“AI 渲染并发数”（`AI Renderer Concurrency` / `label_ai_renderer_concurrency`）限制，并发越高越容易触发限流。
+- 请求会把页面裁成方形再还原；失败重试走 API 候选轮换；并发受“AI 渲染并发数”限制，并发越高越容易触发限流。
 - 排障步骤：① “API 管理 → 渲染”测试连接/测试当前页；② 换模型或换 Base 地址；③ 临时切回 `default` 验证本地渲染是否正常；④ 查日志中的 `render request` 错误。
 
 | UI 调用 key | English 实际值 | 简体中文实际值 |
@@ -236,10 +227,10 @@ flowchart TD
 
 ### 断句、布局与溢出 {#linebreak-layout-and-overflow}
 
-- “中文语义断句”（`Chinese Semantic Line Break` / `label_semantic_linebreak`）需要本地 HanLP 模型；模型缺失或下载失败时回退普通换行（日志 `... falling back to normal line breaking`）。
-- AI 断句检查失败（`BR markers missing` / `BRMarkersValidationException`）：建议关闭“AI断句检查”（`check_br_and_retry`）、提高“重试次数”、更换翻译模型，或关闭“AI断句自动扩大文字”（`optimize_line_breaks`）。
+- “中文语义断句”需要本地 HanLP 模型；模型缺失或下载失败时回退普通换行（日志 `... falling back to normal line breaking`）。
+- AI 断句检查失败（`BR markers missing` / `BRMarkersValidationException`）：建议关闭“AI断句检查”、提高“重试次数”、更换翻译模型，或关闭“AI断句自动扩大文字”。
 - “智能气泡”排版（`balloon_fill`）需要 `original_img` 构建气泡蒙版；缺失时回退严格边界布局（日志 `balloon_fill mode requires original_img, fallback to strict layout`）。
-- 溢出/裁切：固定字号、严格边界、最大/最小字号、禁用自动换行、强制横排等组合会收紧布局导致缩小或裁切；调整“排版模式”（`Layout Mode` / `label_layout_mode`）、最小字号、字体缩放比例等参数。
+- 溢出/裁切：固定字号、严格边界、最大/最小字号、禁用自动换行、强制横排等组合会收紧布局导致缩小或裁切；调整“排版模式”、最小字号、字体缩放比例等参数。
 - 富文本规则 `rich_text_rules.yaml` 语法错误时，命中的区域不会应用富文本样式（编辑器可见错误状态）；不要外发真实规则内容。
 
 | UI 调用 key | English 实际值 | 简体中文实际值 |
@@ -273,55 +264,3 @@ flowchart TD
 - AI 渲染依赖 API 配置、网络与模型能力；并发、大图与富文本样式增加资源占用，取消任务时不应分享中间请求或用户图像。
 - 字体、布局模式与 AI 断句互相约束；`check_br_and_retry` 有无限循环风险，需谨慎使用。
 - PSD 导出依赖本机 Photoshop；JSX、JSON、TXT 可能包含文本与路径，外发前按[隐私清理与日志共享](./privacy-cleanup-and-log-sharing.md)脱敏。
-
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `manga_translator_work/json/<stem>_translations.json` | 工程 JSON：区域、蒙版、样式、渲染标志、导出目录 | 顶层键为原图绝对路径；解析失败会禁用回写；不要用普通编辑器破坏结构 |
-| `<原图目录>/<stem>_translations.json` | 旧版 JSON 输入回退 | 只读兼容；写回仍到新位置 |
-| `<stem>_translations.txt` | 旧 TXT 输入回退 | 无蒙版、无渲染样式 |
-| `manga_translator_work/originals/<stem>_original.<fmt>` | 导出原文副文件 | 扩展名由 `config/translation_template.json` 的 `output_format` 决定，默认 `json` |
-| `manga_translator_work/translations/<stem>_translated.<fmt>` | 导出译文副文件 | 扩展名同上 |
-| `manga_translator_work/result/` | “输出到原图目录”的输出位置 | 只有开启 `save_to_source_dir` 时生成 |
-| `result/` | verbose 日志与调试中间文件 | 不是每次必有；外发前脱敏 |
-| `manga_translator_work/psd/<stem>.psd`、`<stem>_photoshop_script.jsx` | PSD/JSX 导出 | 需要 Photoshop；JSX 可能含绝对路径 |
-| `<输出目录>/translation_map.json` | 结果图→原图映射 | 编辑器用于解析原图 |
-| `<json-file>.bak` | 批量写入前的备份 | 恢复后删除；不要当作正式工程文件 |
-| `config/translation_template.json` | 模板输出扩展名 | 非严格 JSON；`output_format` 只接受安全扩展名 |
-| `dict/ai_renderer_prompt.yaml` | AI 渲染固定提示词 | 不得含真实密钥或私有提示词 |
-| `fonts/*.ttf`、`*.otf`、`*.ttc` | 渲染字体资源 | 注意许可证与字形覆盖 |
-
-不在本页展示真实 `.env`、用户 `config.json`、密钥、令牌、用户名、私有绝对路径、用户图片或私有提示词。
-
-## Mermaid 数据流限制 {#mermaid-limits}
-
-三张诊断流程图描述源码确认的分支，不代表每种症状必然出现；具体触发以日志为准。流程图没有伪造运行截图或私有任务产物，也没有把未验证的“每次必现”行为写成常态。
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 输出路径与保存 | `manga_translator/manga_translator.py` | `_calculate_output_path`、`_save_translated_image`、`_save_and_cleanup_context`、`translation_map.json` 写入 |
-| 图像编码 | `manga_translator/image_formats.py`、`manga_translator/utils/generic.py`、`manga_translator/save.py` | 格式白名单、RGB/质量、ICC/DPI、`FormatNotSupportedException` |
-| 工程 JSON | `manga_translator/manga_translator.py` | `_save_text_to_file`、`_load_text_and_regions_from_file`、解析失败保护回写 |
-| 路径 | `manga_translator/utils/path_manager.py` | 新/旧 JSON、originals/translations、inpainted、paint_overlay 路径 |
-| 模板格式 | `manga_translator/utils/translation_template.py` | `output_format` 解析与安全扩展名 |
-| 运行时文件 | `manga_translator/runtime_files.py` | 翻译模板、文本替换、富文本规则等运行时表初始化 |
-| 本地渲染 | `manga_translator/rendering/__init__.py`、`manga_translator/rendering/text_render/_fonts.py` | dispatch、`[RENDER SKIPPED]`、字体回退与净化 |
-| AI 渲染 | `manga_translator/rendering/model_api_renderer.py` | 密钥校验、请求构造、并发、方形裁切还原 |
-| 断句 | `manga_translator/rendering/chinese_linebreak.py` | HanLP 模型准备与普通换行回退 |
-| 桌面校验与提示 | `desktop_qt_ui/app_logic.py` | `API Keys Required`、渲染失败友好提示、`save_info` 构造 |
-| UI/i18n | `desktop_qt_ui/ui/main_page/settings_tab_layout.json`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 三列实际显示值 |
-| 工作流/编辑器 | `desktop_qt_ui/services/workflow_service.py`、`desktop_qt_ui/editor/controller_export_service.py` | 覆盖检查、编辑器 JSON 写回与 `.bak` |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已完整读取（含 1.3 节、5.17 小节），只修改本页占位 |
-| 输出/JSON/渲染源码链 | 完成 | 静态核对 `save.py`、`image_formats.py`、`path_manager.py`、`manga_translator.py`、`rendering/`、`model_api_renderer.py`、`runtime_files.py` |
-| i18n 三列证据 | 完成 | 逐项核对 `en_US.json` / `zh_CN.json` 实际值 |
-| 路由镜像与源码依据 | 完成（本页） | `node scripts/verify-route-mirror.mjs .` 与 `node scripts/verify-source-evidence.mjs .` 通过 |
-| 脱敏运行验证 | 待后续 | 未读取真实密钥、用户图片、私有路径；运行态与有头截图由后续阶段验证 |
-| VitePress 构建 | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |

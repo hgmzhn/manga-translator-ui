@@ -21,44 +21,58 @@ lastUpdated: true
 - 本页只说明提示词如何加载、组合并进入 OpenAI/Gemini 系统指令；不涉及翻译器选择、API 凭据和候选槽轮换（见[翻译器选择](../translator/selection-and-languages.md)与[API 管理页](../api-management/slots-and-rotation.md)）。
 - 不在页面中写入真实 API Key、私有提示词正文或本机绝对路径；提示词内容属于用户数据，共享日志、请求导出或调试目录前必须删除。
 
+## 普通翻译提示词文件格式 {#custom-prompt-file-format}
+
+自定义翻译提示词使用模板文件：复制 `dict/prompt_example.yaml` 并改名为你自己的文件（例如 `dict/my_manga_prompt.yaml`），然后在“提示词管理”页点击“应用所选提示词”，或在“设置”→“翻译”分组的“自定义提示词”下拉中选用。文件是 YAML，根必须是对象，结构如下：
+
+```yaml
+system_prompt: ""
+glossary:
+  Person:
+    - original: ""
+      translation: ""
+  Location: []
+  Org: []
+  Item: []
+  Skill: []
+  Creature: []
+```
+
+- `system_prompt`：字符串，自定义系统提示词正文，可留空。留空时只使用内置基础提示词；填写的内容会叠加在基础提示词之前。
+- `glossary`：术语表，按 `Person` / `Location` / `Org` / `Item` / `Skill` / `Creature` 分组。每组是 `- original: ""` 与 `translation: ""` 组成的条目列表；空数组（如 `Location: []`）表示不启用该组。
+- 占位符：正文中的 <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> 会在每次请求构造时被替换为目标语言名称，见[占位符替换](#placeholders)。
+
+脱敏示例（只演示结构与占位符用法，不含真实提示词内容）：
+
+```yaml
+system_prompt: |
+  你是漫画翻译助手。将 {{{target_lang}}} 翻译得自然流畅，保持角色语气一致。
+glossary:
+  Person:
+    - original: "示例角色名"
+      translation: "示例角色译名"
+  Location: []
+  Org:
+    - original: "示例组织名"
+      translation: "示例组织译名"
+  Item: []
+  Skill: []
+  Creature: []
+```
+
 ## UI 操作 {#ui-operations}
 
 ### 在提示词管理页选择并应用翻译提示词 {#apply-translation-prompt}
 
-打开“提示词管理”（`Prompt Management`），“提示词列表”（`Prompt List`）只显示 `dict/` 下的用户提示词文件，并排除系统提示词 stem（`system_prompt_hq`、`system_prompt_hq_format`、`system_prompt_line_break`、`glossary_extraction_prompt`、`ai_ocr_prompt`、`ai_colorizer_prompt`、`ai_renderer_prompt`）。选中文件后点击“应用所选提示词”（`Apply Selected Prompt`），程序把 `dict/<文件名>` 写入 `translator.high_quality_prompt_path` 并持久化，状态标签显示“当前提示词：{filename}”。
+打开“提示词管理”，“提示词列表”只显示 `dict/` 下的用户提示词文件，并排除系统提示词 stem（`system_prompt_hq`、`system_prompt_hq_format`、`system_prompt_line_break`、`glossary_extraction_prompt`、`ai_ocr_prompt`、`ai_colorizer_prompt`、`ai_renderer_prompt`）。选中文件后点击“应用所选提示词”，程序把 `dict/<文件名>` 写入 `translator.high_quality_prompt_path` 并持久化，状态标签显示“当前提示词：{filename}”。
 
 列表、预览和编辑的完整操作见[提示词列表、应用与预览](./list-apply-and-preview.md)；结构化编辑与保存校验见[提示词结构化编辑器](./structured-editor-and-format.md)。
 
 ### 在设置页打开相关开关 {#settings-toggles}
 
-1. 打开“设置”（`Settings`）→“翻译”（`Translation`）分组，打开“自动提取新术语”（`Auto Extract Glossary`）。该开关写入 `translator.extract_glossary`；只有同时存在可解析的自定义提示词时，翻译请求才会追加术语提取规则与 `new_terms` 输出格式。
-2. 打开“设置”→“排版”（`Typesetting`）分组，打开“AI 断句”（`AI Line Breaking`）。该开关写入 `render.disable_auto_wrap`；开启后翻译请求会加载 `dict/system_prompt_line_break.yaml`，并在用户输入 JSON 的每个区域上附加 `original_region_count`。
-3. `translator.high_quality_prompt_path` 的界面显示名是“自定义提示词”（`Custom Prompt`）。它的动态设置控件在 `dynamic_settings.py` 中实现（打开下拉时重新扫描 `dict/` 并排除系统提示词）；实际设置该键的主要入口是提示词管理页的“应用所选提示词”。
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `Translation` | Translation | 翻译 |
-| `Typesetting` | Typesetting | 排版 |
-| `label_high_quality_prompt_path` | Custom Prompt | 自定义提示词 |
-| `label_extract_glossary` | Auto Extract Glossary | 自动提取新术语 |
-| `label_disable_auto_wrap` | AI Line Breaking | AI 断句 |
-| `Prompt Management` | Prompt Management | 提示词管理 |
-| `Prompt List` | Prompt List | 提示词列表 |
-| `Apply Selected Prompt` | Apply Selected Prompt | 应用所选提示词 |
-| `System Prompt` | System Prompt | 系统提示词 |
-| `Prompt Text` | Prompt Text | 提示词正文 |
-| `Current prompt: {filename}` | Current prompt: {filename} | 当前提示词：{filename} |
-
-## 配置键 {#config-keys}
-
-| 配置键 | 存储值/控件 | 默认值（核心 / Qt / 发行示例） | 加载触发与消费 |
-| --- | --- | --- | --- |
-| `translator.high_quality_prompt_path` | 提示词文件路径字符串，如 `dict/<文件名>` | `None` / `dict/prompt_example.yaml` / `dict/prompt_example.yaml` | 翻译批次准备时加载自定义 HQ 提示词到 `ctx.custom_prompt_json`；只有 OpenAI/Gemini 及其 HQ 变体消费 |
-| `translator.extract_glossary` | 开关 `true` / `false` | `false` / `false` / `false` | 仅当自定义提示词 JSON 有效时，把术语提取规则与扩展 `new_terms` 输出格式拼入系统提示词，并把响应的 `new_terms` 写回提示词文件 |
-| `render.disable_auto_wrap` | 开关 `true` / `false` | `false` / `true` / `false` | 开启时加载 `system_prompt_line_break.yaml` 并在用户 JSON 附加 `original_region_count`；同时影响排版自动换行 |
-
-三类默认值不应合并写成单一默认；Qt 的 `disable_auto_wrap` 默认与核心/发行不同，以设置页实际值为准。
+1. 打开“设置”→“翻译”分组，打开“自动提取新术语”。该开关写入 `translator.extract_glossary`；只有同时存在可解析的自定义提示词时，翻译请求才会追加术语提取规则与 `new_terms` 输出格式。
+2. 打开“设置”→“排版”分组，打开“AI 断句”。该开关写入 `render.disable_auto_wrap`；开启后翻译请求会加载 `dict/system_prompt_line_break.yaml`，并在用户输入 JSON 的每个区域上附加 `original_region_count`。
+3. `translator.high_quality_prompt_path` 的界面显示名是“自定义提示词”。它的动态设置控件在 `dynamic_settings.py` 中实现（打开下拉时重新扫描 `dict/` 并排除系统提示词）；实际设置该键的主要入口是提示词管理页的“应用所选提示词”。
 
 ## 运行机理 {#runtime-behavior}
 
@@ -129,43 +143,3 @@ flowchart TD
 - 系统提示词文件被用户提示词列表排除且没有桌面编辑器；手动修改需保持 YAML/JSON 根结构为对象。
 - `render.disable_auto_wrap` 同时影响排版换行和翻译请求（断句提示词 + `original_region_count`），不是纯渲染开关；Qt 默认 `true` 与核心/发行默认 `false` 不一致。
 - 提示词正文可能包含业务文本并原样进入请求与日志；共享前必须删除提示词正文、历史文本、路径和凭据。
-
-## 关联文件与格式 {#files-and-formats}
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `dict/system_prompt_hq.yaml` | 基础 HQ 系统提示词（key `system_prompt`） | 缺失/为空时代码 fallback；保持 YAML 可解析 |
-| `dict/system_prompt_hq_format.yaml` | 输出格式提示词（key `system_prompt_hq_format`，含四个占位符） | 缺失时输出约束减弱；占位符按上表替换 |
-| `dict/glossary_extraction_prompt.yaml` | 术语提取规则（key `glossary_extraction_prompt`） | 仅术语模式参与，替换 <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> |
-| `dict/system_prompt_line_break.yaml` | AI 断句提示词（key `line_break_prompt`） | 由 `render.disable_auto_wrap` 触发 |
-| `dict/prompt_example.yaml` | 默认自定义 HQ 提示词示例 | 通过 `translator.high_quality_prompt_path` 加载；只记录结构，不展示私密正文 |
-| `.yaml` / `.yml` / `.json` | 加载器支持的提示词格式 | 根必须是对象；同 stem 优先 `.yaml` |
-| `config/config-example.json`、`config/config.json` | 发行默认与用户设置持久化 | 不读取或展示真实用户文件 |
-
-## Mermaid 数据流限制 {#diagram-limits}
-
-上图中的组合与注入路径是源码确认的真实数据转换；它们不代表每次运行都会加载全部文件或发起网络请求。`disable_auto_wrap=false`、提示词路径未配置、文件缺失或解析失败、非 HQ 翻译器、术语开关关闭，都会走对应旁路。文档没有伪造运行截图或私有任务产物。
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 配置定义 | `manga_translator/config.py`、`desktop_qt_ui/core/config_models.py`、`config/config-example.json` | 三个配置键及核心/Qt/发行三类默认值 |
-| 提示词加载 | `manga_translator/translators/prompt_loader.py` | stem 解析顺序、YAML/JSON 解析、占位符替换、系统文件排除 |
-| 组合与请求构建 | `manga_translator/translators/common.py` | `_flatten_prompt_data`、`_build_system_prompt`、fallback、`merge_glossary_to_file` |
-| 批次准备 | `manga_translator/manga_translator.py` | `_load_and_prepare_prompts` 的加载时机与路径解析 |
-| UI/i18n | `desktop_qt_ui/ui/main_page/pages/prompt_page.py`、`desktop_qt_ui/app_logic.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 应用所选提示词、显示名映射、实际中英文案 |
-| 最终消费者 | `manga_translator/translators/openai.py`、`openai_hq.py`、`gemini.py`、`gemini_hq.py` | system 消息 / `system_instruction`、历史与用户消息、`new_terms` 写回 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已读取 1.3 节与 5.7 小节并按页面合同编写 |
-| 配置键与三类默认值 | 完成 | 静态核对 `config.py`、`config_models.py`、`config-example.json` |
-| 加载、组合与占位符 | 完成 | 静态核对 `prompt_loader.py`、`common.py`、`manga_translator.py` |
-| OpenAI/Gemini 系统指令路径 | 完成 | 静态核对 `openai.py`、`openai_hq.py`、`gemini.py`、`gemini_hq.py` |
-| `en_US` / `zh_CN` 实际 locale | 完成 | 页面表格逐项记录 key、English、简体中文实际值 |
-| 镜像与源码检查 | 完成 | `node scripts/verify-route-mirror.mjs .`、`node scripts/verify-source-evidence.mjs .` 通过 |
-| 脱敏运行验证 | 待后续 | 未读取真实 `.env`、用户 `config.json`、API key/token、用户名、用户图片或私有提示词 |
-| VitePress 构建 | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |

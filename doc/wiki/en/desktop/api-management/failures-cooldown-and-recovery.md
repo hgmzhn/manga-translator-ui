@@ -28,20 +28,6 @@ Open “API Management” (`API Management`). A status bar appears below the tit
 2. A cooling-down candidate is automatically considered again after its cooldown expires; an unavailable candidate stays excluded until you click Restore or edit the credentials.
 3. Before starting a translation, the app runs a candidate-availability check: if every candidate of a required feature group is unavailable, startup is blocked with “No available API candidates” (`No available API candidates`), the details list the affected channels, and the suggestion is to re-enable the matching key/channel or use “Test Current Tab” before starting.
 
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `API slot cooldown marker` | Cooling down | 冷却中 |
-| `API slot unavailable marker` | Unavailable | 不可用 |
-| `Restore API channel` | Restore | 恢复 |
-| `Test` | Test | 测试 |
-| `Test Current Tab` | Test Current Tab | 测试当前页 |
-| `API batch test summary` | {total} total, {available} available, {unavailable} unavailable | 共 {total} 个，可用 {available} 个，不可用 {unavailable} 个 |
-| `API candidate availability failed` | No available API candidates | 没有可用的 API 候选 |
-| `API candidate availability failed details` | The following API channels have no available candidates:<br>{details}<br><br>Re-enable the corresponding key/channel in API Management, or use "Test Current Tab" before starting. | 以下 API 通道当前没有可用候选：<br>{details}<br><br>请在 API 管理里重新启用对应 Key/通道，或使用「测试当前页」确认后再开始。 |
-| `No API channels to test` | No API channels to test | 没有可测试的 API 通道 |
-| `API test unavailable` | unavailable | 不可用 |
-| `No unavailable API` | No unavailable API | 无不可用 API |
-
 The status bar text distinguishes only “Cooling down” and “Unavailable”; the remaining cooldown time is not shown in the UI.
 
 ## State machine: cooldown, unavailability, recovery, and re-failure {#state-machine}
@@ -73,17 +59,6 @@ stateDiagram-v2
 ## Cooldown and timeout parameters {#cooldown-and-timeout-parameters}
 
 There is **no settings control for the cooldown duration**; it is decided entirely by the server response and code constants. The only related UI setting is the ordinary retry count on the same candidate (`cli.attempts`).
-
-| Parameter/constant | Source and storage | Default | Role |
-| --- | --- | --- | --- |
-| `cli.attempts` (UI: Retry Attempts / 重试次数) | `manga_translator/config.py`, settings input | Core `-1`, Qt `-1`, release `3` | How many times a failed candidate is retried before it is recorded as failed and the next candidate is tried; `-1` means unlimited retries. Full details in [Retries, Rate Limits, and Quality](../translator/retry-rate-limit-and-quality.md) |
-| `Retry-After` response header | server HTTP response | none (server decides) | Preferred cooldown seconds on rate limit; supports integer seconds or an HTTP date and is clamped to `[1, 600]` seconds |
-| `DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS` | `manga_translator/api_key_rotation.py` constant | `60` | Default cooldown seconds when the server sends no `Retry-After` |
-| `MAX_RATE_LIMIT_COOLDOWN_SECONDS` | `manga_translator/api_key_rotation.py` constant | `600` | Upper bound for cooldown seconds (10 minutes) |
-| Same-candidate retry backoff | `run_with_api_candidates` | `min(1.0 * attempt number, 3.0)` seconds | Delay between retries on the same candidate, increasing 1 s, 2 s, ... capped at 3 s |
-| `DEFAULT_ROTATION_STRATEGY` | `manga_translator/api_key_rotation.py` constant | `failover` | Fallback when the strategy key is missing or invalid |
-| `MAX_ROTATION_SLOTS` / `API_ROTATION_UI_MAX_SLOTS` | constants | `30` / `10` | Total slot cap and UI cap (`min(10, 30)`) |
-| Status identity | `make_endpoint_status_key` | `feature:provider:slot:base_url:model:key-fingerprint` | Changing any identity part creates a new candidate; old cooldown/unavailable state no longer applies |
 
 “Ordinary retries” (`cli.attempts`), “Cooldown”, and “Unavailable” are three different layers: ordinary retries run inside the same candidate, while cooldown and unavailability decide whether later requests select the candidate at all. Do not mistake the ordinary retry count for the cooldown duration.
 
@@ -119,34 +94,3 @@ So the debugging order is: first confirm that the key, address, and model are ac
 - Ordinary retries, HQ/quality retries, region retries, and API candidate switching are four different mechanisms; do not conflate them. Ordinary retries are fully documented in [Retries, Rate Limits, and Quality](../translator/retry-rate-limit-and-quality.md).
 - Test results share the same `_API_STATUS` as real requests: a failed test marks the candidate cooling down or unavailable, so later real requests also skip it (until restored).
 - In the web/server scenario, `_runtime_api_overrides` fixes the candidate list to a single endpoint with `failover`; there is no multi-candidate rotation, but that single endpoint still records cooldown/unavailable state. The desktop app has no such overrides by default.
-
-## Related files and formats {#related-files-and-formats}
-
-| File/format | Actual role on this page | Manual-edit and compatibility note |
-| --- | --- | --- |
-| `.env` | Stores Key/Base/Model and `*_API_ROTATION_STRATEGY` | Never stores cooldown/unavailable state; contains real keys and must not be committed or shown |
-| `manga_translator/api_key_rotation.py` | Status records, cooldown/unavailability checks, recovery, and candidate iteration | All state is process-local and cleared on restart |
-| `manga_translator/runtime_api_resolver.py` | Builds candidates from `.env` and generates status identity | The identity includes a key fingerprint, so a key change creates a new candidate |
-| `config/config-example.json` | Release default `cli.attempts: 3` | Affects only the ordinary retry count, not the cooldown duration |
-| `desktop_qt_ui/ui/main_page/env_management.py` | Status bar, Restore button, batch tests, and the pre-start availability check | UI text follows `en_US.json` / `zh_CN.json` |
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| UI status bar and restore | `desktop_qt_ui/ui/main_page/env_management.py` | `_add_api_slot_status_notice`, `_restore_api_slot_status`, `_api_slot_status_style`, `validate_api_candidate_availability` |
-| UI/i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Keys and actual bilingual values for cooling down / unavailable / restore |
-| Status records | `manga_translator/api_key_rotation.py` | `record_api_failure`, `record_api_success`, `clear_api_status`, `is_endpoint_unavailable`, `is_permanent_api_unavailable_error`, `is_rate_limit_cooldown_error`, `_extract_retry_after_seconds` |
-| Candidate iteration | `manga_translator/api_key_rotation.py` | `iter_api_candidates`, `run_with_api_candidates`, backoff, and `APIRotationExhaustedError` |
-| Candidate resolution | `manga_translator/runtime_api_resolver.py` | `make_endpoint_status_key`, candidate deduplication, and strategy parsing |
-| Final consumers | `manga_translator/translators/openai.py`, `gemini.py`, `ocr/model_api_ocr.py`, `colorization/model_api_colorizer.py`, `rendering/model_api_renderer.py` | `run_with_api_candidates` calls and the `retry_attempts` source |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read section 1.3 and 5.6 and followed the page contract |
-| UI/i18n actual values | Complete | Three-column tables checked against `en_US.json` / `zh_CN.json` |
-| State machine and recovery logic | Complete | Statically checked status records, cooldown/unavailability checks, restore entry, and re-failure path in `api_key_rotation.py` |
-| Sanitized runtime verification | Deferred | No real `.env`, user `config.json`, API key/token, username, user image, or private prompt was read |
-| VitePress | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` plus mirror/source checks before merge |

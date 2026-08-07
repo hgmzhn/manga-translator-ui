@@ -39,26 +39,6 @@ uv run --no-sync python -m manga_translator local -i <input image or folder>... 
 - With verbose, `MangaTranslator._result_path()` writes intermediate images to `result/<timestamp>-<image MD5>-<detection size>-<target lang>-<translator>/`; see [Debug folder and artifacts](#debug-tree).
 - The non-subprocess path writes `result/log_<yyyyMMddHHmmss>.txt`; the desktop UI also writes a log with the same name at startup. Logs contain paths and text, so redact them before sharing.
 
-### Output/log copy shared with the desktop UI {#shared-output-log-copy}
-
-The `local` console lines are hardcoded in code; the following keys come from the desktop UI and cover the same concepts (output directory, verbose logging, log location). The three-column evidence is listed per key:
-
-| UI call key | English actual value | Simplified Chinese actual value |
-| --- | --- | --- |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `label_overwrite` | Overwrite Existing Files | 覆盖已存在文件 |
-| `label_format` | Output Format | 输出格式 |
-| `label_save_quality` | Image Save Quality | 图像保存质量 |
-| `label_batch_size` | Batch Size | 批量大小 |
-| `label_last_output_path` | Last Output Path | 最后输出路径 |
-| `Output Directory:` | Output Directory: | 输出目录: |
-| `Select Output Directory` | Select Output Directory | 选择输出目录 |
-| `Invalid Output Directory` | Invalid Output Directory | 输出目录不合法 |
-| `Open log folder` | Open log folder | 打开日志文件夹 |
-| `Log output...` | Log output... | 日志输出... |
-| `📁 Output directory: {dir}` | 📁 Output directory: {dir} | 📁 输出目录：{dir} |
-| `💾 Files saved to: {dir}` | 💾 Files saved to: {dir} | 💾 文件已保存到：{dir} |
-
 ## Output directory and naming {#output-directory-and-naming}
 
 ### Output directory resolution {#output-directory-resolution}
@@ -85,7 +65,7 @@ Diagram note: `-o` always wins; `app.last_output_path` is the “Last Output Pat
 ### Output filename and format {#output-filename-and-format}
 
 - The output filename is based on the input filename: `<stem>.<extension>`.
-- When `--format` or the `cli.format` setting is effective (non-empty, not `不指定`, not `none`), `<stem>.<format>` is used; otherwise the original filename (with its original extension) is kept.
+- When `--format` or the `cli.format` setting is effective (non-empty, not “Not Specified”, not `none`), `<stem>.<format>` is used; otherwise the original filename (with its original extension) is kept.
 - Save quality is controlled by `cli.save_quality`: the core `MangaTranslator.parse_init_params`, the Qt model, and the release config all default to `100` (the `95` fallback shown by the `mode/local.py` summary print is only a display difference; the actual save consumer default is `100`).
 - The CLI builds `save_info` containing only `output_folder/format/overwrite/input_folders`; it never includes `save_to_source_dir`, so CLI output always goes to the resolved output directory and never jumps to `manga_translator_work/result` beside the source.
 
@@ -145,7 +125,7 @@ Diagram note: enabling `-v` adds DEBUG logs and the debug folder; not every run 
 
 ## Exit codes {#exit-codes}
 
-The `python -m manga_translator <mode> ...` process exit-code contract is as follows (verified commands are listed in [Verification](#verification)):
+The `python -m manga_translator <mode> ...` process exit-code contract is as follows:
 
 | Exit code | Scenario | Source |
 | --- | --- | --- |
@@ -156,7 +136,7 @@ The `python -m manga_translator <mode> ...` process exit-code contract is as fol
 Key points:
 
 - A single failed image does not change the process exit code: `translate_files()` returns normally after summarizing failures, so the exit code stays `0`; failures only appear in the `❌ Failed: N` summary line. When scripting, rely on the summary line or the log.
-- The non-subprocess path prints `❌ 未找到图片文件` and returns normally when no images are found (exit code `0`); the subprocess path prints the same message and then calls `sys.exit(1)`. This is a source-confirmed difference between the two paths.
+- The non-subprocess path prints `❌ No image files found` and returns normally when no images are found (exit code `0`); the subprocess path prints the same message and then calls `sys.exit(1)`. This is a source-confirmed difference between the two paths.
 - With no mode and no `-i/--input`, `parse_args()` prints the help and exits with `1`.
 - With `-v`, exceptions additionally print a traceback, but the exit code still follows the table above.
 
@@ -167,44 +147,3 @@ Key points:
 - The exit code is not based on the failed-image count: `ignore_errors` and per-image failure summaries do not change the `0`/`1` decision.
 - `--subprocess` and `--memory-*` only affect the subprocess-path log/exit branches; memory-threshold early exits are handled by `subprocess_manager` (see [Subprocess, memory, and recovery](./subprocess-memory-and-recovery.md)).
 - The verbose debug folder name contains the image MD5 and the target-language/translator fields; do not put paths containing user-image MD5s into public reports.
-
-## Related files and formats {#related-files-and-formats}
-
-| File/directory | Role on this page | Note |
-| --- | --- | --- |
-| `result/` | Root for verbose debug artifacts and logs | Per-image subfolders only with verbose; redact before sharing |
-| `result/log_<yyyyMMddHHmmss>.txt` | Global log of the non-subprocess path and the desktop UI | DEBUG with `-v`; contains paths and text |
-| `result/<timestamp>-<MD5>-<detection size>-<target lang>-<translator>/` | Per-image verbose debug folder | Name fields come from `_set_image_context()` |
-| `config/config.json` | Source of `app.last_output_path`, `cli.verbose/overwrite/format/save_quality` | Never show real user config or private absolute paths |
-| `config/config-example.json` | Release defaults (`verbose: false`, `save_quality: 100`) | Recorded after checking against core/Qt defaults |
-| `manga_translator_work/result/` | Output location of `save_to_source_dir` | The CLI `save_info` does not include this field |
-| `manga_translator_work/...` | Sidecars and project data of special workflows | See the workflows and file-modes page |
-
-## Mermaid data-flow limits {#mermaid-limits}
-
-The output-directory diagram describes the source-confirmed three-level fallback and per-image writes; the verbose diagram describes the logs and debug tree added after enabling the flag. Neither claims every run produces every artifact: no-text early exit, special workflows, and different detector/OCR/rendering branches each have their own triggers. No runtime screenshot or private task artifact has been fabricated.
-
-## Source evidence {#source-evidence}
-
-| Layer | File | What was checked |
-| --- | --- | --- |
-| Parser | `manga_translator/args.py` | `local` subparser, `-o`/`-v` defaults, no-mode exit `1`, argparse help/error codes |
-| Entry point | `manga_translator/__main__.py` | Mode dispatch, `init_logging`/`set_log_level`, `KeyboardInterrupt`/exception exit codes |
-| CLI execution | `manga_translator/mode/local.py` | Three-level output fallback, `-v` override and log file, result summary, each `sys.exit` branch |
-| Subprocess | `manga_translator/mode/subprocess_manager.py` | Worker `cli_config['verbose']`, failure summary, memory-threshold early exit |
-| Output path | `manga_translator/manga_translator.py` | `_calculate_output_path`, `_set_image_context`, `_result_path`, `_save_translated_image`, `final.png` |
-| Debug artifacts | `manga_translator/manga_translator.py`, `manga_translator/ocr/*.py`, `manga_translator/mask_refinement/__init__.py`, `manga_translator/utils/generic.py`, `manga_translator/detection/yolo_obb.py`, `manga_translator/utils/photoshop_export.py` | Verbose conditions and filenames (see `research/phase0-debug-artifact-path-trace.md`) |
-| Paths/logging | `manga_translator/utils/generic.py`, `manga_translator/runtime_paths.py`, `manga_translator/utils/log.py` | `BASE_PATH`, app/config directories, Formatter/Filter, console and file handlers |
-| i18n | `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Actual three-column display values |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| BLUEPRINT, PAGE_GUIDELINES, TODO | Complete | Read in full and followed the page contract |
-| `local --help` | Complete | Ran `uv run --no-sync python -m manga_translator local --help`; exit code `0`, options match this page |
-| Exit codes | Complete | Ran: `local` without `-i` exits `2`; no mode exits `1`; `local --help` exits `0` |
-| Output directory and naming | Complete | Statically checked `args.py`, `mode/local.py`, `manga_translator.py` |
-| Debug artifacts | Complete | Statically checked `_result_path`/`_set_image_context` and `research/phase0-debug-artifact-path-trace.md` |
-| Sanitized runtime verification | Deferred | No real translation run; no real `.env`, user `config.json`, API key, user image, or private path was read |
-| Static checks | Complete | `verify-route-mirror.mjs` PASS, `verify-source-evidence.mjs` PASS |

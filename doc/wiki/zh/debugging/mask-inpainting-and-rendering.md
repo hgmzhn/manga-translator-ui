@@ -9,15 +9,15 @@ lastUpdated: true
 
 # 蒙版、修复与排版调试产物
 
-启用“详细日志”（`Verbose Logging` / `详细日志`）后，每张输入图会在 `result/` 下建立独立调试子目录，其中蒙版细化、图像修复和文本排版三个阶段会写入用于排查的图片与 JSON。本页说明这些产物的生成顺序、触发条件、画面/内容含义和排查用途；检测阶段的置信热图与 OCR 裁切图分别在[输入、检测与重排调试](./input-detection-and-rearrangement.md)和[OCR 与文本区域调试](./ocr-and-text-regions.md)，替换翻译与 WebSocket 的产物见[特殊工作流与 WebSocket 调试](./special-workflows-and-websocket.md)。
+启用“详细日志”后，每张输入图会在 `result/` 下建立独立调试子目录，其中蒙版细化、图像修复和文本排版三个阶段会写入用于排查的图片与 JSON。本页说明这些产物的生成顺序、触发条件、画面/内容含义和排查用途；检测阶段的置信热图与 OCR 裁切图分别在[输入、检测与重排调试](./input-detection-and-rearrangement.md)和[OCR 与文本区域调试](./ocr-and-text-regions.md)，替换翻译与 WebSocket 的产物见[特殊工作流与 WebSocket 调试](./special-workflows-and-websocket.md)。
 
 设置页中控制这些阶段的参数（“修复”与“排版”分组）见[蒙版与修复设置](../desktop/settings/mask-and-inpainting.md)和[排版与渲染设置](../desktop/settings/typesetting-and-rendering.md)；本页不重复参数默认值。
 
 ## 排查场景 {#when-to-use}
 
 - 文字擦除不干净或背景被破坏时，用 `inpaint_input.png`、`mask_final.png` 和 `inpainted.png` 判断是蒙版范围问题还是修复模型问题。
-- 开启“膨胀不超过气泡蒙版”（`Keep Dilation Inside Bubble Mask`）后蒙版异常时，用 `mask_bubble_clip_debug.png` 查看裁剪与回填。
-- “智能气泡”（`Smart Bubble`）排版溢出或降级时，用 `balloon_fill_boxes.png` 查看气泡蒙版、渲染框和溢出候选。
+- 开启“膨胀不超过气泡蒙版”后蒙版异常时，用 `mask_bubble_clip_debug.png` 查看裁剪与回填。
+- “智能气泡”排版溢出或降级时，用 `balloon_fill_boxes.png` 查看气泡蒙版、渲染框和溢出候选。
 - 中文语义断句选择不符合预期时，用 `chinese_linebreak_debug.json` 查看候选评估与最终选择。
 - 所有调试图、断句 JSON 和日志都可能包含完整页面、原文、译文、坐标或 base64 蒙版；对外分享前必须逐文件脱敏。
 
@@ -42,7 +42,7 @@ flowchart LR
     DBG["result/ 图片级调试目录\n仅 verbose 模式写入"]
 ```
 
-- verbose 模式下，调试目录名由 `_set_image_context()` 按 `{timestamp_ms}-{input_md5}-{detection_size}-{target_lang}-{translator}` 生成，产物通过 `_result_path()` 写入 `BASE_PATH/result/<图片级子目录>/`；目录命名与整体结构见[调试目录命名与总览](./folder-naming-and-overview.md)。
+- verbose 模式下，调试目录名按 `{timestamp_ms}-{input_md5}-{detection_size}-{target_lang}-{translator}` 生成，产物写入 `BASE_PATH/result/<图片级子目录>/`；目录命名与整体结构见[调试目录命名与总览](./folder-naming-and-overview.md)。
 - `ctx.mask_raw` 是检测器输出的原始蒙版（通常是置信度图），`ctx.mask` 是细化后的二值蒙版；蒙版细化只消耗 `ctx.mask_raw` 与 `text_regions`，不直接依赖检测热力图 PNG。
 - 特殊流程会改变上述产物集合：AI 渲染器（OpenAI/Gemini 渲染器）跳过修复阶段；`renderer=none` 跳过文本绘制；仅修复、仅翻译 JSON 和替换翻译走各自分支，详见下文与特殊工作流页。
 
@@ -56,7 +56,7 @@ flowchart LR
 | `mask_bubble_clip_debug.png` | 上一条件；`ocr.limit_mask_dilation_to_bubble_mask=True`；气泡模型返回非空蒙版 | 原图叠加：蓝色=气泡蒙版、绿色=裁剪后保留蒙版、黄色=保护区回填、红色=被裁剪像素，图例位于左上角 | 排查“膨胀不超过气泡蒙版”的裁剪与回填是否符合预期 |
 | `mask_raw.png` | `verbose=True`；检测返回 `ctx.mask_raw` | 带置信度颜色条的原始检测热力图 | 属于检测阶段产物；作为蒙版细化的输入来源，详见[输入、检测与重排调试](./input-detection-and-rearrangement.md) |
 
-蒙版细化失败时：仅修复模式回退为对 `ctx.mask_raw` 做简单膨胀（`cv2.dilate`，核为 `config.kernel_size`，迭代 `mask_dilation_offset // kernel_size` 次）；导出/模板模式直接回退为 `ctx.mask_raw`。这些回退不产生额外调试文件。逐图 JSON 保存的蒙版与 `mask_is_refined` 标志见[关联文件与格式](#related-files-and-formats)。
+蒙版细化失败时：仅修复模式回退为对 `ctx.mask_raw` 做简单膨胀（`cv2.dilate`，核为 `config.kernel_size`，迭代 `mask_dilation_offset // kernel_size` 次）；导出/模板模式直接回退为 `ctx.mask_raw`。这些回退不产生额外调试文件。逐图 JSON 保存的蒙版与 `mask_is_refined` 标志，见[调试产物参考索引](../reference/debug-artifact-index.md)。
 
 ## 修复阶段产物 {#inpainting-artifacts}
 
@@ -68,7 +68,7 @@ flowchart LR
 | `inpainted.png` | 正常完整流水线 `verbose=True` | 修复阶段输出的整页 `ctx.img_inpainted` | 确认文字是否擦除干净、背景是否被破坏；AI 渲染器模式跳过修复，此时该文件内容等于原工作图 |
 
 - 选择 OpenAI/Gemini 渲染器时 `_should_skip_inpainting_for_ai_renderer()` 返回真，修复阶段被跳过，`ctx.img_inpainted = ctx.img_rgb`；此时 `inpainted.png` 仍会写出，但内容不是模型修复结果。
-- 极端长宽比图片会在 `dispatch_inpainting()` 内按 `INPAINT_SPLIT_RATIO = 3.0` 拆块、重叠融合；开启“逐块修复”（`Per-Block Inpainting`）时按最终蒙版孤立连通块逐块裁窗修复。两种分块都只改变送入模型的图块，不改变 `inpainted.png` 的整页形态。
+- 极端长宽比图片会在 `dispatch_inpainting()` 内按 `INPAINT_SPLIT_RATIO = 3.0` 拆块、重叠融合；开启“逐块修复”时按最终蒙版孤立连通块逐块裁窗修复。两种分块都只改变送入模型的图块，不改变 `inpainted.png` 的整页形态。
 - `save_text` 开启时，修复结果还会按“可编辑图片”功能保存到输入图同级的 `manga_translator_work/inpainted/<stem>_inpainted.<原图扩展名>`，该文件不是 `result/` 调试目录产物。
 
 ## 排版阶段产物 {#rendering-artifacts}
@@ -83,89 +83,12 @@ flowchart LR
 
 `renderer=none` 时 `_run_text_rendering()` 直接把底图作为输出，不绘制文本，也不产生断句记录。AI 渲染器（OpenAI/Gemini 渲染器）与 `renderer=none` 均不会生成 `balloon_fill_boxes.png` 和 `chinese_linebreak_debug.json`（前者需要 `layout_mode='balloon_fill'`，而 AI 渲染器通常配合其他排版方式）。
 
-## UI 文案与选项对照 {#ui-strings-and-options}
-
-控制这些阶段与调试开关的设置集中在“设置”（`Settings`）的“修复”（`Inpainting`）与“排版”（`Typesetting`）分组。以下为核对过的实际界面文案：
-
-| UI 调用 key | English 实际值 | 简体中文实际值 |
-| --- | --- | --- |
-| `Settings` | Settings | 设置 |
-| `Inpainting` | Inpainting | 修复 |
-| `Typesetting` | Typesetting | 排版 |
-| `Advanced` | Advanced | 高级 |
-| `label_verbose` | Verbose Logging | 详细日志 |
-| `label_mask_dilation_offset` | Mask Dilation Offset | 遮罩扩张偏移 |
-| `label_kernel_size` | Kernel Size | 卷积核大小 |
-| `label_inpainter` | Inpainting Model | 修复模型 |
-| `label_inpainting_size` | Inpainting Size | 修复大小 |
-| `label_inpainting_precision` | Inpainting Precision | 修复精度 |
-| `label_force_use_torch_inpainting` | Force Use PyTorch Inpainting | 强制使用PyTorch修复 |
-| `label_solid_fill_pure_bubbles` | Solid Fill Pure Bubbles | 纯色气泡直接填色 |
-| `label_per_block_inpainting` | Per-Block Inpainting | 逐块修复 |
-| `label_use_model_bubble_repair_intersection` | Expand Bubble Repair Range | 扩大气泡修复范围 |
-| `label_limit_mask_dilation_to_bubble_mask` | Keep Dilation Inside Bubble Mask | 膨胀不超过气泡蒙版 |
-| `label_renderer` | Renderer | 渲染器 |
-| `label_layout_mode` | Layout Mode | 排版模式 |
-| `label_semantic_linebreak` | Chinese Semantic Line Break | 中文语义断句 |
-| `label_disable_auto_wrap` | AI Line Breaking | AI断句 |
-| `label_optimize_line_breaks` | AI Line Break Auto Enlarge | AI断句自动扩大文字 |
-| `label_strict_smart_scaling` | Don't Expand Box on Auto Enlarge | AI断句自动扩大文字下不扩大文本框 |
-| `label_bubble_layout_english` | Bubble Layout (Force Horizontal) | 根据气泡排版(强制横排) |
-| `label_disable_font_border` | Disable Font Border | 禁用字体边框 |
-| `label_center_text_in_bubble` | Center in Bubble | 气泡内居中 |
-| `Inpaint Only` | Inpaint Only | 仅修复 |
-| `Start Inpainting` | Start Inpainting | 开始修复 |
-
-“修复模型”（`Inpainting Model`）下拉框的存储值直接显示为选项文字（两个 locale 均无对应翻译 key），取值有 `default`、`lama_large`、`lama_mpe`、`sd`、`none`、`original`。“渲染器”与“排版模式”选项：
-
-| 存储值 | English | 简体中文 |
-| --- | --- | --- |
-| `render.renderer=default` | Default | Default |
-| `render.renderer=openai_renderer` | OpenAI Renderer | OpenAI Renderer |
-| `render.renderer=gemini_renderer` | Gemini Renderer | Gemini Renderer |
-| `render.renderer=none` | None | 无 |
-| `render.layout_mode=smart_scaling` | Smart Scaling | 智能缩放 |
-| `render.layout_mode=strict` | Strict Boundary | 严格边界 |
-| `render.layout_mode=balloon_fill` | Smart Bubble | 智能气泡 |
-
 ## 依赖与限制 {#dependencies-and-limits}
 
-- verbose（“详细日志” / `Verbose Logging`）是这些调试产物的总开关；关闭时正常流程不写 `result/` 调试目录（Web/server 模式保存 `final.png` 的分支除外）。
+- “详细日志”开关是这些调试产物的总开关；关闭时正常流程不写 `result/` 调试目录（Web/server 模式保存 `final.png` 的分支除外）。
 - 条件产物不是每次运行必有：`mask_bubble_clip_debug.png` 需要开关开启且气泡模型返回非空蒙版；`chinese_linebreak_debug.json` 需要 `balloon_fill` + 中文语义断句 + 非空记录；`inpaint_input.png` 与 `mask_final.png` 需要翻译完成后存在 `ctx.mask`。
 - 三个调试图片只在正常完整流水线 `_complete_translation_pipeline()` 写入；仅修复、仅翻译 JSON、替换翻译和 WebSocket 模式走各自分支，产物集合不同（见[特殊工作流与 WebSocket 调试](./special-workflows-and-websocket.md)）。
 - `inpaint_input.png` 使用 `Inpainter.none` 把蒙版区域涂白，不代表真实修复器的输入预处理，只用于可视化待擦除范围。
 - AI 渲染器会跳过修复阶段；`renderer=none` 跳过文本绘制；这些跳过会直接改变 `inpainted.png` 与断句记录是否出现。
 - 修复模型按 `inpainting_size` 缩放输入，极端长宽比按 `INPAINT_SPLIT_RATIO=3.0` 拆块；分块与逐块修复只改变模型输入，不改变调试图整页形态。
 - 调试图与 JSON 可能含完整用户页面、OCR 文本、译文、坐标、base64 蒙版或本机路径，默认视为用户内容，公开前逐文件检查；本页不展示真实密钥、用户图片或私有绝对路径。
-
-## 关联文件与格式 {#related-files-and-formats}
-
-| 文件/格式 | 本页实际作用 | 手改与兼容注意 |
-| --- | --- | --- |
-| `result/<图片级子目录>/*.png`、`chinese_linebreak_debug.json` | verbose 调试产物 | 目录名含输入图 MD5；分享前重命名/脱敏，不要把整个目录直接打包上传 |
-| 逐图 JSON（`manga_translator_work/json/<stem>_translations.json`） | 保存 `mask_raw`（base64 PNG）与 `mask_is_refined` | `mask_is_refined=true` 表示保存的是细化后蒙版，加载时可跳过再次细化；`false` 表示保存的是原始蒙版，加载后会重新细化。JSON 还含原文、译文、坐标、覆盖层和可能的 `last_export_dir`，不是可公开样例 |
-| `manga_translator_work/inpainted/<stem>_inpainted.<原图扩展名>` | `save_text` 时保存的可编辑修复图 | 由“可编辑图片”功能使用，可被导入渲染复用；不是 `result/` 调试产物 |
-| `chinese_linebreak_debug.json` 内部记录 | `records` 数组元素含 `stage`、`region_index`、`input`、`candidates`、`selected`、`mask.data`（png_base64） | 记录可能含用户原文与译文；分享前删除或脱敏 |
-
-## 源码依据 {#source-evidence}
-
-| 层级 | 文件 | 本页核对内容 |
-| --- | --- | --- |
-| 调试目录与路径 | `manga_translator/manga_translator.py` | `_set_image_context()`（`:457`）生成子目录名；`_result_path()`（`:3315`）的 verbose 图片级路径分支 |
-| 蒙版阶段 | `manga_translator/manga_translator.py:3005-3020`、`manga_translator/mask_refinement/__init__.py` | `_run_mask_refinement()`、`dispatch()`、`complete_mask()`、气泡约束与 `mask_bubble_clip_debug.png`（`:301`） |
-| 修复阶段 | `manga_translator/manga_translator.py:5234-5280`、`manga_translator/inpainting/__init__.py`、`manga_translator/inpainting/none.py` | `inpaint_input.png`/`mask_final.png`/`inpainted.png` 写入、`dispatch_inpainting()`、`Inpainter.none`、`INPAINT_SPLIT_RATIO` 分块 |
-| 排版阶段 | `manga_translator/manga_translator.py:3179-3204`、`manga_translator/rendering/__init__.py`、`manga_translator/rendering/chinese_linebreak.py` | `balloon_fill_boxes.png`/`chinese_linebreak_debug.json` 写入、`dispatch_rendering()` 调试图（`:1317-1380`、`:2277-2286`）、断句记录（`:1103-1108`） |
-| 最终输出 | `manga_translator/manga_translator.py:1541-1549`、`manga_translator/save.py` | `final.png` 写入、`save_result()` 输出格式校验 |
-| JSON 蒙版 | `manga_translator/manga_translator.py:832-852`、`:1369-1524` | `mask_raw` base64 PNG 与 `mask_is_refined` 的写入与加载 |
-| 配置与 UI | `manga_translator/config.py:364-377`、`:204-205`、`:486-488`；`desktop_qt_ui/ui/main_page/settings_tab_layout.json:104-156`；`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 修复/排版配置字段、设置分组与三列 UI 文案 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| BLUEPRINT、PAGE_GUIDELINES、TODO | 完成 | 已读取 1.3、5.15、6.3 与蓝图调试产物章节，按页面合同编写 |
-| 产物与触发条件 | 完成 | 静态核对 `_result_path()` 直接写入点、回调与手工路径 |
-| UI 与 i18n 三列 | 完成 | key、English、简体中文均来自 `en_US.json`/`zh_CN.json` 实际值 |
-| route mirror / source evidence | 待运行 | 提交前在 `doc/wiki` 运行对应脚本 |
-| 脱敏运行验证 | 未完成 | 未启动 GUI、未执行真实翻译、未读取用户图片/配置/密钥；条件产物是否每次出现需脱敏样例验证 |
-| VitePress 构建 | 待运行 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |
