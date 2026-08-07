@@ -16,6 +16,7 @@ from ..utils import (
     build_det_rearrange_plan,
     det_collect_plan_patches,
     det_rearrange_patch_array,
+    det_rearrange_split_view,
     det_unrearrange_patch_maps,
     imwrite_unicode,
 )
@@ -166,20 +167,28 @@ def _assign_textlines_to_rearrange_stripes(
     buckets = [[] for _ in range(ph_num)]
     for txtln in textlines:
         bbox = txtln.aabb
-        center_y = float(bbox.y + bbox.h * 0.5)
+        top = float(bbox.y)
+        bottom = float(bbox.y + bbox.h)
 
-        candidates = [idx for idx, (t, b, _) in enumerate(intervals) if t <= center_y < b]
-        if candidates:
-            if len(candidates) == 1:
-                selected = candidates[0]
-            else:
-                selected = min(candidates, key=lambda idx: abs(center_y - intervals[idx][2]))
+        # A center-point owner is insufficient here: a text line can straddle
+        # a rearrange seam while its center falls entirely in the next stripe.
+        # Prefer one complete view; expose all partial views only when no stripe
+        # contains the whole line so the caller can handle it separately.
+        intersecting = [idx for idx, (t, b, _) in enumerate(intervals) if bottom > t and top < b]
+        fully_contained = [idx for idx, (t, b, _) in enumerate(intervals) if t <= top and bottom < b]
+        if fully_contained:
+            center_y = (top + bottom) * 0.5
+            candidates = [min(fully_contained, key=lambda idx: abs(center_y - intervals[idx][2]))]
         else:
-            selected = min(
+            candidates = intersecting
+        if not candidates:
+            center_y = (top + bottom) * 0.5
+            candidates = [min(
                 range(ph_num),
                 key=lambda idx: min(abs(center_y - intervals[idx][0]), abs(center_y - intervals[idx][1])),
-            )
-        buckets[selected].append(txtln)
+            )]
+        for selected in candidates:
+            buckets[selected].append(txtln)
     return buckets, intervals
 
 
@@ -234,6 +243,80 @@ def _complete_mask_with_det_rearrange(
 
     split_textlines = _build_split_view_textlines(textlines, bool(plan['transpose']))
     stripe_buckets, stripe_intervals = _assign_textlines_to_rearrange_stripes(split_textlines, plan)
+    overlaps = [
+        stripe_intervals[idx][1] - stripe_intervals[idx + 1][0]
+        for idx in range(len(stripe_intervals) - 1)
+    ]
+    overlap_summary = (
+        f"{min(overlaps)}-{max(overlaps)}px" if overlaps else "none"
+    )
+    logging.getLogger(__name__).info(
+        "Mask refinement rearrange plan: stripes=%d, packed_patches=%d, "
+        "stripes_per_patch=%d, stripe_size=%d, overlap=%s.",
+        int(plan['ph_num']),
+        int(plan['p_num']),
+        int(plan['pw_num']),
+        int(plan['patch_size']),
+        overlap_summary,
+    )
+
+    # A line whose complete box is not contained in any stripe cannot be
+    # reconstructed reliably from a clipped local view: _complete_mask_core
+    # removes the line box before matching connected components. Process these
+    # rare seam-crossing lines in a small context crop, then merge them with the
+    # regular rearranged result.
+    split_img = det_rearrange_split_view(img, bool(plan['transpose']))
+    split_mask = det_rearrange_split_view(mask, bool(plan['transpose']))
+    boundary_textlines = []
+    for txtln in split_textlines:
+        bbox = txtln.aabb
+        top = float(bbox.y)
+        bottom = float(bbox.y + bbox.h)
+        fully_contained = any(
+            t <= top and bottom < b
+            for t, b, _ in stripe_intervals
+        )
+        if not fully_contained:
+            boundary_textlines.append(txtln)
+
+    boundary_line_ids = {id(txtln) for txtln in boundary_textlines}
+    boundary_results = []
+    if boundary_textlines:
+        logging.getLogger(__name__).info(
+            "Mask refinement handles %d seam-crossing textlines with local context crops.",
+            len(boundary_textlines),
+        )
+    for txtln in boundary_textlines:
+        bbox = txtln.aabb
+        margin = max(int(math.ceil(txtln.font_size)), 16)
+        x0 = max(int(math.floor(bbox.x)) - margin, 0)
+        y0 = max(int(math.floor(bbox.y)) - margin, 0)
+        x1 = min(int(math.ceil(bbox.x + bbox.w)) + margin, split_mask.shape[1])
+        y1 = min(int(math.ceil(bbox.y + bbox.h)) + margin, split_mask.shape[0])
+        if x1 <= x0 or y1 <= y0:
+            continue
+
+        local_pts = txtln.pts.copy()
+        local_pts[:, 0] -= x0
+        local_pts[:, 1] -= y0
+        local_txtln = _copy_quadrilateral_with_pts(txtln, local_pts)
+        local_result = _complete_mask_core(
+            np.ascontiguousarray(split_img[y0:y1, x0:x1]),
+            split_mask[y0:y1, x0:x1].copy(),
+            [local_txtln],
+            keep_threshold,
+            dilation_offset,
+            kernel_size,
+            show_progress=False,
+        )
+        if local_result is not None:
+            boundary_results.append((x0, y0, x1, y1, local_result))
+
+    if boundary_line_ids:
+        for bucket_idx, bucket in enumerate(stripe_buckets):
+            stripe_buckets[bucket_idx] = [
+                txtln for txtln in bucket if id(txtln) not in boundary_line_ids
+            ]
 
     patch_mask_results = []
     for patch_idx, (img_patch, mask_patch) in enumerate(zip(image_patch_array, mask_patch_array)):
@@ -260,13 +343,32 @@ def _complete_mask_with_det_rearrange(
         patch_mask_results.append(patch_result.astype(np.float32))
 
     merged_mask = det_unrearrange_patch_maps(patch_mask_results, plan, data_format='hw')
+    for x0, y0, x1, y1, local_result in boundary_results:
+        if plan['transpose']:
+            target = merged_mask[x0:x1, y0:y1]
+            local_result = local_result.T
+        else:
+            target = merged_mask[y0:y1, x0:x1]
+        np.maximum(
+            target,
+            local_result.astype(merged_mask.dtype, copy=False),
+            out=target,
+        )
     merged_mask = np.clip(merged_mask, 0, 255).astype(np.uint8)
     if np.max(merged_mask) == 0:
         return None
     return merged_mask
 
 
-def _complete_mask_core(img: np.ndarray, mask: np.ndarray, textlines: List[Quadrilateral], keep_threshold = 1e-2, dilation_offset = 0, kernel_size=3):
+def _complete_mask_core(
+    img: np.ndarray,
+    mask: np.ndarray,
+    textlines: List[Quadrilateral],
+    keep_threshold=1e-2,
+    dilation_offset=0,
+    kernel_size=3,
+    show_progress=True,
+):
     """complete_mask 的核心实现，处理单个区块"""
     bboxes = [txtln.aabb.xywh for txtln in textlines]
     polys = [Polygon(txtln.pts) for txtln in textlines]
@@ -350,7 +452,7 @@ def _complete_mask_core(img: np.ndarray, mask: np.ndarray, textlines: List[Quadr
     
     final_mask = np.zeros_like(mask)
     img = cv2.bilateralFilter(img, 17, 80, 80)
-    for i, cc in enumerate(tqdm(textline_ccs, '[mask]')):
+    for i, cc in enumerate(tqdm(textline_ccs, '[mask]', disable=not show_progress)):
         x1, y1, w1, h1 = textline_rects[i]
         text_size = min(w1, h1, textlines[i].font_size)
         x1, y1, w1, h1 = extend_rect(x1, y1, w1, h1, img.shape[1], img.shape[0], int(text_size * 0.1))
