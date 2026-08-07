@@ -1,41 +1,11 @@
 import Teek from 'vitepress-theme-teek'
 import { MotionPlugin } from '@vueuse/motion'
 import Layout from './Layout.vue'
+import { bindSidebarHover } from './sidebarHover'
 import 'vitepress-theme-teek/index.css'
 import './styles.css'
-
-const bindSidebarMotion = () => {
-  if (document.documentElement.dataset.wikiSidebarMotion === 'true') return
-  document.documentElement.dataset.wikiSidebarMotion = 'true'
-
-  document.addEventListener('click', (event) => {
-    if (!(event.target instanceof Element)) return
-    const header = event.target.closest('.VPSidebarItem.collapsible > .item')
-    const section = header?.parentElement
-    if (!section?.classList.contains('VPSidebarItem')) return
-
-    const items = Array.from(section.children).find((child) => child.classList.contains('items'))
-    if (!(items instanceof HTMLElement)) return
-
-    const wasCollapsed = section.classList.contains('collapsed')
-    window.requestAnimationFrame(() => {
-      const isCollapsed = section.classList.contains('collapsed')
-      if (wasCollapsed === isCollapsed || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-
-      items.getAnimations().forEach((animation) => animation.cancel())
-      const height = `${items.scrollHeight}px`
-      items.animate(
-        wasCollapsed
-          ? [{ height: '0px', opacity: 0 }, { height, opacity: 1 }]
-          : [{ height, opacity: 1 }, { height: '0px', opacity: 0 }],
-        {
-          duration: wasCollapsed ? 260 : 200,
-          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-        },
-      )
-    })
-  })
-}
+import './docs.css'
+import './sidebar.css'
 
 const openZoomModal = (block: HTMLElement) => {
   const output = block.querySelector<HTMLElement>('.wiki-mermaid-output')
@@ -50,17 +20,111 @@ const openZoomModal = (block: HTMLElement) => {
   const card = document.createElement('div')
   card.className = 'wiki-mermaid-modal-card'
 
+  const toolbar = document.createElement('div')
+  toolbar.className = 'wiki-mermaid-modal-toolbar'
+
+  const makeToolButton = (label: string, text: string) => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'wiki-mermaid-modal-tool'
+    button.setAttribute('aria-label', label)
+    button.textContent = text
+    return button
+  }
+
+  const zoomOut = makeToolButton('Zoom out', '−')
+  const reset = makeToolButton('Reset zoom', '100%')
+  const zoomIn = makeToolButton('Zoom in', '+')
+
   const close = document.createElement('button')
   close.type = 'button'
   close.className = 'wiki-mermaid-modal-close'
   close.setAttribute('aria-label', 'Close')
   close.textContent = '✕'
 
+  const viewport = document.createElement('div')
+  viewport.className = 'wiki-mermaid-modal-viewport'
+  viewport.setAttribute('aria-label', 'Diagram viewport')
+
+  const stage = document.createElement('div')
+  stage.className = 'wiki-mermaid-modal-stage'
   const cloned = svg.cloneNode(true) as SVGElement
-  card.appendChild(close)
-  card.appendChild(cloned)
+  stage.appendChild(cloned)
+  viewport.appendChild(stage)
+  toolbar.append(zoomOut, reset, zoomIn)
+  card.append(toolbar, close, viewport)
   modal.appendChild(card)
   document.body.appendChild(modal)
+
+  let scale = 1
+  let offsetX = 0
+  let offsetY = 0
+  let dragStartX = 0
+  let dragStartY = 0
+  let startOffsetX = 0
+  let startOffsetY = 0
+  let dragging = false
+
+  const updateTransform = () => {
+    stage.style.transform = `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px)) scale(${scale})`
+    reset.textContent = `${Math.round(scale * 100)}%`
+    reset.setAttribute('aria-label', `Reset zoom, ${Math.round(scale * 100)} percent`)
+  }
+
+  const zoomTo = (nextScale: number, pointerX = viewport.clientWidth / 2, pointerY = viewport.clientHeight / 2) => {
+    const clamped = Math.min(4, Math.max(0.25, nextScale))
+    const ratio = clamped / scale
+    const centerX = pointerX - viewport.clientWidth / 2
+    const centerY = pointerY - viewport.clientHeight / 2
+    offsetX = centerX - ratio * (centerX - offsetX)
+    offsetY = centerY - ratio * (centerY - offsetY)
+    scale = clamped
+    updateTransform()
+  }
+
+  const resetView = () => {
+    scale = 1
+    offsetX = 0
+    offsetY = 0
+    updateTransform()
+  }
+
+  zoomOut.addEventListener('click', () => zoomTo(scale - 0.25))
+  zoomIn.addEventListener('click', () => zoomTo(scale + 0.25))
+  reset.addEventListener('click', resetView)
+  viewport.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault()
+      const rect = viewport.getBoundingClientRect()
+      zoomTo(scale + (event.deltaY < 0 ? 0.2 : -0.2), event.clientX - rect.left, event.clientY - rect.top)
+    },
+    { passive: false },
+  )
+  viewport.addEventListener('pointerdown', (event) => {
+    dragging = true
+    dragStartX = event.clientX
+    dragStartY = event.clientY
+    startOffsetX = offsetX
+    startOffsetY = offsetY
+    viewport.setPointerCapture(event.pointerId)
+    viewport.classList.add('is-dragging')
+  })
+  viewport.addEventListener('pointermove', (event) => {
+    if (!dragging) return
+    offsetX = startOffsetX + event.clientX - dragStartX
+    offsetY = startOffsetY + event.clientY - dragStartY
+    updateTransform()
+  })
+  const stopDragging = (event: PointerEvent) => {
+    if (!dragging) return
+    dragging = false
+    if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId)
+    viewport.classList.remove('is-dragging')
+  }
+  viewport.addEventListener('pointerup', stopDragging)
+  viewport.addEventListener('pointercancel', stopDragging)
+  updateTransform()
 
   const destroy = () => {
     modal.remove()
@@ -126,7 +190,7 @@ export default {
     context.app.use(MotionPlugin)
     if (typeof window === 'undefined') return
 
-    bindSidebarMotion()
+    bindSidebarHover()
     window.setTimeout(() => void renderMermaid(), 0)
     const previousAfterRouteChange = context.router.onAfterRouteChange
     context.router.onAfterRouteChange = async (to) => {

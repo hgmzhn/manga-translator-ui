@@ -1,0 +1,167 @@
+/* Compact documentation navigation shared by VitePress and Teek. */
+:root {
+  --vp-sidebar-width: 272px;
+}
+
+@media (min-width: 960px) {
+  .VPSidebar {
+    width: var(--vp-sidebar-width) !important;
+    max-width: var(--vp-sidebar-width) !important;
+    padding-right: 14px !important;
+    padding-left: 18px !important;
+    /* Keep the long navigation scrollable without a distracting native bar. */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .VPSidebar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  .VPContent.has-sidebar {
+    padding-right: 0 !important;
+    padding-left: var(--vp-sidebar-width) !important;
+  }
+
+  .VPNavBar.has-sidebar .title {
+    width: var(--vp-sidebar-width) !important;
+    padding-right: 14px !important;
+    padding-left: 18px !important;
+  }
+
+  .VPNavBar.has-sidebar .content,
+  .VPNavBar.has-sidebar .divider {
+    padding-left: var(--vp-sidebar-width) !important;
+  }
+
+  .tk-layout.has-sidebar-trigger .tk-sidebar-trigger {
+    left: calc(var(--vp-sidebar-width) + var(--tk-sidebar-trigger-left-offset, 10px)) !important;
+  }
+
+  .tk-layout.has-sidebar-trigger.is-sidebar-collapse .VPContent.has-sidebar {
+    padding-left: 0 !important;
+  }
+}
+
+.VPSidebar .nav {
+  padding-top: 8px;
+}
+
+.VPSidebar .nav > .group,
+.VPSidebar .nav > .group + .group {
+  width: 100% !important;
+  border-top: 0;
+  padding-top: 0 !important;
+}
+
+.VPSidebarItem.level-0,
+.VPSidebarItem.collapsed.level-0 {
+  margin-bottom: 2px;
+  border-bottom-color: color-mix(in srgb, var(--wiki-sidebar-border, var(--vp-c-divider)) 72%, transparent);
+  padding-bottom: 2px !important;
+}
+
+.VPSidebarItem.level-0 > .item {
+  min-height: 38px;
+  padding: 1px 2px 1px 8px;
+}
+
+.VPSidebarItem.level-0 > .item .text,
+.VPSidebar .nav .item h2.text {
+  padding: 4px 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.VPSidebarItem.level-1 > .item,
+.VPSidebarItem.level-2 > .item,
+.VPSidebarItem.level-3 > .item,
+.VPSidebarItem.level-4 > .item,
+.VPSidebarItem.level-5 > .item {
+  min-height: 34px;
+  padding: 0 6px;
+}
+
+.VPSidebarItem.level-1 > .item .text,
+.VPSidebarItem.level-2 > .item .text,
+.VPSidebarItem.level-3 > .item .text,
+.VPSidebarItem.level-4 > .item .text,
+.VPSidebarItem.level-5 > .item .text,
+.VPSidebar .nav .item p.text {
+  padding: 4px 0;
+  font-size: 14px;
+  line-height: 22px;
+  transform: none;
+}
+
+.VPSidebar .nav .item p.text:hover {
+  transform: none;
+}
+
+.VPSidebar .nav .VPSidebarItem.level-0 > .items {
+  padding-left: 6px;
+}
+
+.VPSidebarItem.level-1 .items,
+.VPSidebarItem.level-2 .items,
+.VPSidebarItem.level-3 .items,
+.VPSidebarItem.level-4 .items,
+.VPSidebarItem.level-5 .items {
+  padding-left: 10px;
+}
+
+.VPSidebarItem.collapsible > .item {
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.VPSidebarItem.collapsible > .item .caret {
+  width: 30px;
+  height: 34px;
+  margin-right: 0;
+}
+
+.VPSidebarItem.collapsible > .item .caret-icon {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms ease;
+}
+
+.VPSidebarItem.wiki-hover-open > .item {
+  background: transparent;
+}
+
+.VPSidebarItem.wiki-hover-open > .item:hover {
+  background: var(--wiki-control-hover, var(--vp-c-bg-soft));
+}
+
+/* A containing section can have an active descendant without being the
+   current page. Keep its header neutral so only the actual active link is
+   highlighted. */
+.VPSidebarItem.has-active:not(.is-active) > .item {
+  background: transparent;
+}
+
+.VPSidebarItem.has-active:not(.is-active) > .item:hover {
+  background: var(--wiki-control-hover, var(--vp-c-bg-soft));
+}
+
+@media (max-width: 959px) {
+  .VPSidebar {
+    padding-right: 16px !important;
+    padding-left: 20px !important;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .VPSidebar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .VPSidebarItem.collapsible > .item,
+  .VPSidebarItem.collapsible > .item .caret-icon {
+    transition-duration: 0.01ms !important;
+  }
+}

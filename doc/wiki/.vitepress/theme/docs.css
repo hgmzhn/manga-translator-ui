@@ -1,0 +1,431 @@
+/*
+ * Article pages only. Import this file after styles.css so these rules can
+ * refine the VitePress/Teek document surface without touching the Vue home.
+ */
+
+.VPDoc:not(:has(.wiki-vue-home)) {
+  --wiki-doc-layout-max: 1336px;
+  --wiki-doc-prose-max: 1080px;
+  --wiki-doc-aside-width: 232px;
+  padding: 38px 28px 80px;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) > .container {
+  width: 100%;
+  max-width: var(--wiki-doc-layout-max);
+  margin: 0;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) > .container > .content {
+  min-width: 0;
+  margin: 0;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .content-container {
+  width: 100%;
+  max-width: var(--wiki-doc-prose-max);
+  /* Keep the readable column centered inside the space left of the outline. */
+  margin: 0 auto !important;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc {
+  color: var(--vp-c-text-1);
+  font-size: 17px;
+  line-height: 1.68;
+}
+
+/* Headings */
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h1,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h2,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h3,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h4,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h5,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h6 {
+  color: var(--vp-c-text-1);
+  letter-spacing: 0;
+  scroll-margin-top: calc(var(--vp-nav-height) + 22px);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h1 {
+  margin: 0 0 22px;
+  font-size: 36px;
+  font-weight: 740;
+  line-height: 1.28;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h2 {
+  margin: 42px 0 16px;
+  padding-top: 18px;
+  border-top: 1px solid var(--vp-c-divider);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h2 .header-anchor {
+  top: 18px;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h3 {
+  margin: 28px 0 10px;
+  font-size: 20px;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h4 {
+  margin: 24px 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h5,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc h6 {
+  margin: 20px 0 8px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Prose rhythm */
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc p,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc summary,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc li {
+  color: var(--vp-c-text-1);
+  line-height: 1.68;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc p,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc summary {
+  margin: 13px 0;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc ul,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc ol {
+  margin: 13px 0;
+  padding-left: 1.4em;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc li + li {
+  margin-top: 5px;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc li > ul,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc li > ol {
+  margin: 5px 0 0;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc a {
+  font-weight: 560;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc strong {
+  color: var(--vp-c-text-1);
+  font-weight: 700;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc hr {
+  margin: 32px 0;
+  border-color: var(--vp-c-divider);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc blockquote {
+  margin: 18px 0;
+  padding: 2px 0 2px 16px;
+  border-left: 3px solid var(--wiki-accent-warm, var(--vp-c-text-3));
+  color: var(--vp-c-text-2);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc blockquote p {
+  color: inherit;
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+
+/* Inline and block code */
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc :not(pre) > code {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 4px;
+  padding: 2px 5px;
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-bg-soft);
+  font-size: 0.88em;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc div[class*='language-'],
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .vp-block {
+  margin: 18px 0;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-code-block-bg);
+  box-shadow: none;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc div[class*='language-'] code,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .vp-block code {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* Tables */
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc table {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
+  margin: 18px 0 24px;
+  overflow-x: auto;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--vp-c-bg);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc th,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc td {
+  padding: 9px 13px;
+  border-top: 0;
+  border-left: 0;
+  color: var(--vp-c-text-1);
+  font-size: 15px;
+  line-height: 1.55;
+  vertical-align: top;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc th {
+  background: var(--vp-c-bg-soft);
+  font-weight: 680;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc tr:nth-child(2n) {
+  background: var(--vp-c-bg-soft);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc tr:last-child > td {
+  border-bottom: 0;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc tr > :last-child {
+  border-right: 0;
+}
+
+/* Semantic callouts */
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block {
+  margin: 18px 0;
+  padding: 14px 18px;
+  border: 1px solid var(--vp-c-divider);
+  border-left-width: 3px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block.info,
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block.tip {
+  border-left-color: var(--vp-c-brand-1);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block.warning {
+  border-left-color: var(--vp-c-warning-1);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block.danger {
+  border-left-color: var(--vp-c-danger-1);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block.details {
+  border-left-color: var(--vp-c-text-3);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block p {
+  margin: 6px 0;
+  color: var(--vp-c-text-1);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+/* Right-hand page outline */
+.VPDoc:not(:has(.wiki-vue-home)) > .container > .aside {
+  flex: 0 0 var(--wiki-doc-aside-width);
+  width: var(--wiki-doc-aside-width);
+  max-width: var(--wiki-doc-aside-width);
+  padding-left: 24px;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) > .container > .aside .aside-container {
+  width: calc(var(--wiki-doc-aside-width) - 24px);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocAside {
+  padding-left: 0;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocAsideOutline > .content {
+  padding-left: 14px;
+  border-left: 1px solid var(--vp-c-divider);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocAsideOutline .outline-title {
+  color: var(--vp-c-text-1);
+  font-size: 14px;
+  font-weight: 680;
+  line-height: 30px;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocAsideOutline .outline-link {
+  padding: 5px 0;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocAsideOutline .outline-link:hover,
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocAsideOutline .outline-link.active {
+  color: var(--vp-c-brand-1);
+}
+
+/* Previous and next page controls */
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter {
+  margin-top: 48px;
+  border-top: 0;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .prev-next {
+  gap: 10px;
+  padding-top: 20px;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .pager {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  transform: none;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .pager-link {
+  min-height: 72px;
+  padding: 13px 15px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg);
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .pager-link:hover {
+  border-color: var(--vp-c-brand-1);
+  background: var(--vp-c-bg-soft);
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .desc {
+  color: var(--vp-c-text-3);
+  font-size: 12px;
+}
+
+.VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .title {
+  color: var(--vp-c-brand-1);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+@media (min-width: 960px) {
+  .VPDoc:not(:has(.wiki-vue-home)) > .container > .content {
+    padding: 0 24px 96px 0;
+  }
+}
+
+@media (min-width: 1280px) {
+  .VPDoc:not(:has(.wiki-vue-home)) > .container {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 959px) {
+  .VPDoc:not(:has(.wiki-vue-home)) {
+    padding: 30px 24px 56px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) > .container > .content {
+    padding: 0;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc {
+    font-size: 16.5px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc h1 {
+    font-size: 32px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc h2 {
+    margin-top: 36px;
+    font-size: 23px;
+  }
+}
+
+@media (max-width: 640px) {
+  .VPDoc:not(:has(.wiki-vue-home)) {
+    padding: 24px 18px 44px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc h1 {
+    margin-bottom: 18px;
+    font-size: 28px;
+    line-height: 1.32;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc h2 {
+    margin-top: 32px;
+    padding-top: 16px;
+    font-size: 22px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc h2 .header-anchor {
+    top: 16px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc h3 {
+    margin-top: 24px;
+    font-size: 19px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc th,
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc td {
+    padding: 8px 11px;
+    font-size: 14px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc .custom-block {
+    padding: 12px 14px;
+  }
+
+  .VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .prev-next {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .VPDoc:not(:has(.wiki-vue-home)) .VPDocFooter .pager-link,
+  .VPDoc:not(:has(.wiki-vue-home)) .vp-doc a {
+    transition-duration: 0.01ms !important;
+  }
+}
