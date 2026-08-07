@@ -15,8 +15,8 @@ from ultralytics import YOLO
 from .generic import (
     BASE_PATH,
     build_det_rearrange_plan,
-    det_collect_plan_patches,
     det_rearrange_patch_spans,
+    det_rearrange_split_view,
 )
 from .inference import ModelWrapper
 from .log import get_logger
@@ -485,16 +485,18 @@ class MangaLensBubbleDetector(ModelWrapper):
         iou_thres: float,
         verbose: bool = False,
         rearrange_plan: Optional[dict] = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        classes: Optional[Sequence[int]] = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray], list[np.ndarray]]:
         if rearrange_plan is None:
             rearrange_plan = build_det_rearrange_plan(img, tgt_size=target_size)
         if rearrange_plan is None:
-            return self._infer_single(
+            boxes, scores, cls_ids, mask_data = self._infer_single(
                 img=img,
                 target_size=target_size,
                 conf_thres=conf_thres,
                 iou_thres=iou_thres,
             )
+            return boxes, scores, cls_ids, mask_data, self._masks_to_polygons(mask_data)
 
         transpose = bool(rearrange_plan["transpose"])
         work_h = int(rearrange_plan["h"])
@@ -502,7 +504,7 @@ class MangaLensBubbleDetector(ModelWrapper):
         patch_h = int(rearrange_plan["patch_size"])
         patch_num = int(rearrange_plan["ph_num"])
         patch_spans = det_rearrange_patch_spans(rearrange_plan)
-        patch_list = det_collect_plan_patches(img, rearrange_plan)[:patch_num]
+        split_view = det_rearrange_split_view(img, transpose)
 
         patch_step = 0
         if len(patch_spans) > 1:
@@ -517,9 +519,15 @@ class MangaLensBubbleDetector(ModelWrapper):
         all_boxes: list[np.ndarray] = []
         all_scores: list[np.ndarray] = []
         all_cls: list[np.ndarray] = []
-        all_masks: list[Optional[np.ndarray]] = []
+        # Keep only each detection's non-zero local mask crop. A full-resolution
+        # mask per detection is prohibitively large for webtoon-sized images.
+        mask_crops: list[Optional[tuple[int, int, np.ndarray]]] = []
 
-        for patch_idx, ((top, bottom), patch) in enumerate(zip(patch_spans, patch_list)):
+        for patch_idx, (top, bottom) in enumerate(patch_spans):
+            # Materialize only the patch currently being inferred. In particular,
+            # a transposed split view is not contiguous and must not be passed on
+            # as a long-lived view to the inference backend.
+            patch = split_view[top:bottom].copy()
             if patch.size == 0 or patch.shape[0] == 0 or patch.shape[1] == 0:
                 continue
 
@@ -542,61 +550,101 @@ class MangaLensBubbleDetector(ModelWrapper):
             mapped_boxes[:, 2] = np.clip(mapped_boxes[:, 2], 0, work_w)
             mapped_boxes[:, 3] = np.clip(mapped_boxes[:, 3], 0, work_h)
 
-            mapped_masks = None
-            if mask_data is not None and mask_data.ndim == 3 and mask_data.shape[0] == mapped_boxes.shape[0]:
-                n = mask_data.shape[0]
-                mapped_masks = np.zeros((n, work_h, work_w), dtype=np.uint8)
-                ph = patch.shape[0]
-                pw = patch.shape[1]
-                h_use = min(ph, mask_data.shape[1], work_h - top)
-                w_use = min(pw, mask_data.shape[2], work_w)
-                if h_use > 0 and w_use > 0:
-                    mapped_masks[:, top : top + h_use, :w_use] = mask_data[:, :h_use, :w_use]
+            has_masks = (
+                mask_data is not None
+                and mask_data.ndim == 3
+                and mask_data.shape[0] == mapped_boxes.shape[0]
+            )
+            for detection_idx in range(mapped_boxes.shape[0]):
+                if not has_masks:
+                    mask_crops.append(None)
+                    continue
+
+                local_mask = mask_data[detection_idx]
+                x, y, crop_w, crop_h = cv2.boundingRect(local_mask)
+                if crop_w <= 0 or crop_h <= 0:
+                    mask_crops.append(None)
+                    continue
+
+                # copy() is intentional: a view would retain the entire patch mask
+                # allocation and defeat the bounded-memory representation.
+                crop = local_mask[y : y + crop_h, x : x + crop_w].copy()
+                mask_crops.append((int(x), int(top + y), crop))
 
             all_boxes.append(mapped_boxes.astype(np.float32))
             all_scores.append(scores.astype(np.float32))
             all_cls.append(cls_ids.astype(np.int32))
-            all_masks.append(mapped_masks)
 
             if verbose:
                 self.logger.info(f"MangaLens long-image patch {patch_idx}: detections={len(mapped_boxes)}")
 
         if not all_boxes:
-            return np.empty((0, 4), dtype=np.float32), np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.int32), None
+            return (
+                np.empty((0, 4), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                np.empty((0,), dtype=np.int32),
+                None,
+                [],
+            )
 
         boxes_xyxy = np.concatenate(all_boxes, axis=0)
         scores = np.concatenate(all_scores, axis=0)
         cls_ids = np.concatenate(all_cls, axis=0)
-
-        mask_data = None
-        if any(m is not None for m in all_masks):
-            filled_masks: list[np.ndarray] = []
-            for patch_boxes, patch_masks in zip(all_boxes, all_masks):
-                n = patch_boxes.shape[0]
-                if patch_masks is None:
-                    filled_masks.append(np.zeros((n, work_h, work_w), dtype=np.uint8))
-                else:
-                    filled_masks.append(patch_masks.astype(np.uint8))
-            mask_data = np.concatenate(filled_masks, axis=0) if filled_masks else None
 
         keep_idx = self._nms_xyxy(boxes_xyxy, scores, iou_thres)
         if keep_idx.size > 0:
             boxes_xyxy = boxes_xyxy[keep_idx]
             scores = scores[keep_idx]
             cls_ids = cls_ids[keep_idx]
-            if mask_data is not None:
-                mask_data = mask_data[keep_idx]
+            mask_crops = [mask_crops[int(i)] for i in keep_idx]
         else:
             boxes_xyxy = np.empty((0, 4), dtype=np.float32)
             scores = np.empty((0,), dtype=np.float32)
             cls_ids = np.empty((0,), dtype=np.int32)
-            mask_data = None
+            mask_crops = []
+
+        # Apply class filtering before merging crops. Otherwise a rejected class
+        # would leave pixels behind in the union mask even though its box vanished.
+        if classes is not None and len(classes) > 0 and len(cls_ids) > 0:
+            class_set = set(int(c) for c in classes)
+            class_idx = np.array(
+                [i for i, class_id in enumerate(cls_ids) if int(class_id) in class_set],
+                dtype=np.int32,
+            )
+            boxes_xyxy = boxes_xyxy[class_idx] if class_idx.size else np.empty((0, 4), dtype=np.float32)
+            scores = scores[class_idx] if class_idx.size else np.empty((0,), dtype=np.float32)
+            cls_ids = cls_ids[class_idx] if class_idx.size else np.empty((0,), dtype=np.int32)
+            mask_crops = [mask_crops[int(i)] for i in class_idx] if class_idx.size else []
+
+        merged_mask: Optional[np.ndarray] = None
+        polygons: list[np.ndarray] = []
+        if any(entry is not None for entry in mask_crops):
+            # This is the only full-resolution mask allocated by the long-image
+            # path, regardless of how many bubbles were detected.
+            merged_mask = np.zeros((work_h, work_w), dtype=np.uint8)
+            for entry in mask_crops:
+                if entry is None:
+                    polygons.append(np.empty((0, 2), dtype=np.float32))
+                    continue
+
+                x, y, crop = entry
+                crop_h, crop_w = crop.shape[:2]
+                target = merged_mask[y : y + crop_h, x : x + crop_w]
+                np.maximum(target, crop, out=target)
+
+                polygon = self._masks_to_polygons(crop[None])[0]
+                if polygon.size:
+                    polygon = polygon.copy()
+                    polygon[:, 0] += float(x)
+                    polygon[:, 1] += float(y)
+                polygons.append(polygon)
 
         if transpose:
             if boxes_xyxy.size > 0:
                 boxes_xyxy = boxes_xyxy[:, [1, 0, 3, 2]]
-            if mask_data is not None:
-                mask_data = np.transpose(mask_data, (0, 2, 1))
+            if merged_mask is not None:
+                merged_mask = np.transpose(merged_mask, (1, 0))
+            polygons = [polygon[:, [1, 0]] if polygon.size else polygon for polygon in polygons]
 
         orig_h, orig_w = img.shape[:2]
         if boxes_xyxy.size > 0:
@@ -609,7 +657,8 @@ class MangaLensBubbleDetector(ModelWrapper):
             boxes_xyxy.astype(np.float32),
             scores.astype(np.float32),
             cls_ids.astype(np.int32),
-            mask_data.astype(np.uint8) if mask_data is not None else None,
+            merged_mask[None] if merged_mask is not None else None,
+            polygons,
         )
 
     def detect(
@@ -637,14 +686,17 @@ class MangaLensBubbleDetector(ModelWrapper):
         iou_thres = float(iou if iou is not None else self.default_iou)
 
         rearrange_plan = build_det_rearrange_plan(img, tgt_size=target_size)
-        if rearrange_plan is not None:
-            boxes_xyxy, scores, cls_ids, mask_data = self._infer_long_image(
+        long_image = rearrange_plan is not None
+        polygons: list[np.ndarray] = []
+        if long_image:
+            boxes_xyxy, scores, cls_ids, mask_data, polygons = self._infer_long_image(
                 img=img,
                 target_size=target_size,
                 conf_thres=conf_thres,
                 iou_thres=iou_thres,
                 verbose=verbose,
                 rearrange_plan=rearrange_plan,
+                classes=classes,
             )
         else:
             boxes_xyxy, scores, cls_ids, mask_data = self._infer_single(
@@ -654,7 +706,7 @@ class MangaLensBubbleDetector(ModelWrapper):
                 iou_thres=iou_thres,
             )
 
-        if classes is not None and len(classes) > 0 and len(cls_ids) > 0:
+        if not long_image and classes is not None and len(classes) > 0 and len(cls_ids) > 0:
             class_set = set(int(c) for c in classes)
             idx = np.array([i for i, cid in enumerate(cls_ids) if int(cid) in class_set], dtype=np.int32)
             boxes_xyxy = boxes_xyxy[idx] if idx.size else np.empty((0, 4), dtype=np.float32)
@@ -671,8 +723,8 @@ class MangaLensBubbleDetector(ModelWrapper):
         )
         simple_masks = None
         if mask_data is not None:
-            polys = self._masks_to_polygons(mask_data)
-            simple_masks = _SimpleMasks(data=mask_data.astype(np.uint8), xy=polys)
+            polys = polygons if polygons else self._masks_to_polygons(mask_data)
+            simple_masks = _SimpleMasks(data=mask_data.astype(np.uint8, copy=False), xy=polys)
 
         raw_result = _SimpleRawResult(
             boxes=simple_boxes,
