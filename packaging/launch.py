@@ -1142,6 +1142,10 @@ def choose_when_amd_unsupported():
             print('无效输入,请输入 1, 2 或 3')
 
 
+PYTORCH_DETECTION_TIMEOUT = 60
+VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+
 def detect_installed_pytorch_version():
     """检测当前安装的PyTorch版本类型(CPU/GPU/Metal)"""
     try:
@@ -1175,7 +1179,7 @@ except OSError as e:
             [python, '-c', code],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=PYTORCH_DETECTION_TIMEOUT,
             encoding='utf-8',
             errors='ignore'
         )
@@ -1189,9 +1193,12 @@ except OSError as e:
                     return None, detail
                 return pytorch_type, detail
 
-        return None, "检测失败"
-    except Exception:
-        return None, "检测失败"
+        detail = result.stderr.strip() or f"检测进程退出码 {result.returncode}"
+        return None, f"检测失败: {detail}"
+    except subprocess.TimeoutExpired:
+        return None, f"检测超时（超过 {PYTORCH_DETECTION_TIMEOUT} 秒）"
+    except Exception as e:
+        return None, f"检测失败: {e}"
 
 
 def get_requirements_file_from_env():
@@ -1207,8 +1214,59 @@ def get_requirements_file_from_env():
     elif pytorch_type == "CPU":
         return 'cpu', pytorch_type, detail
     else:
-        # 未安装PyTorch,返回None让后续逻辑自动检测
+        # 未安装或无法加载 PyTorch，返回详情供维护界面诊断。
         return None, None, detail
+
+
+def repair_broken_pytorch_runtime(pytorch_type, detail):
+    """Prompt for the Windows VC++ runtime, then recheck a broken torch install.
+
+    Returns ``(type, detail, remove_broken)``. A genuinely missing torch install
+    does not trigger this flow.
+    """
+    detail = detail or ""
+    broken_markers = ("安装损坏", "WinError 1114", "DLL")
+    if sys.platform != "win32" or pytorch_type is not None or not any(
+            marker.lower() in detail.lower() for marker in broken_markers):
+        return pytorch_type, detail, False
+
+    print("\n" + "=" * 50)
+    print(L("[错误] PyTorch DLL 无法加载", "[ERROR] PyTorch DLL could not be loaded"))
+    print("=" * 50)
+    print(L(f"检测详情: {detail}", f"Detection details: {detail}"))
+    print(L(
+        "请安装或修复 Microsoft Visual C++ 2015-2022 Redistributable (x64)：",
+        "Please install or repair Microsoft Visual C++ 2015-2022 Redistributable (x64):",
+    ))
+    print(f"  {VC_REDIST_X64_URL}")
+    print(L("请安装 x64 版本，不要安装 x86 版本。",
+            "Install the x64 version, not the x86 version."))
+
+    choice = input(L("是否打开微软官方下载地址? (Y/n): ",
+                     "Open the official Microsoft download URL? (Y/n): ")).strip().lower()
+    if choice in ("", "y", "yes"):
+        try:
+            os.startfile(VC_REDIST_X64_URL)
+        except Exception as e:
+            print(L(f"[警告] 无法自动打开浏览器: {e}",
+                    f"[WARNING] Could not open the browser automatically: {e}"))
+
+    input(L(
+        "安装/修复完成后按回车重新检测（如安装程序要求，请先重启电脑）...",
+        "After installation or repair, press Enter to check again "
+        "(restart Windows first if requested)...",
+    ))
+    detected_type, detected_detail = detect_installed_pytorch_version()
+    if detected_type is not None:
+        print(L(f"[OK] PyTorch 已恢复: {detected_type} ({detected_detail})",
+                f"[OK] PyTorch is working: {detected_type} ({detected_detail})"))
+        return detected_type, detected_detail, False
+
+    print(L(f"[错误] PyTorch 仍无法加载: {detected_detail}",
+            f"[ERROR] PyTorch still could not be loaded: {detected_detail}"))
+    print(L("将删除当前环境中损坏的 PyTorch，随后重新安装所选版本。",
+            "The broken PyTorch installation will be removed, then the selected build will be reinstalled."))
+    return None, detected_detail, True
 
 
 def prepare_environment(args):
@@ -1642,6 +1700,10 @@ except:
     if not need_reinstall:
         # 检测当前安装的 PyTorch 类型
         installed_pytorch_type, installed_detail = detect_installed_pytorch_version()
+        installed_pytorch_type, installed_detail, broken_install = repair_broken_pytorch_runtime(
+            installed_pytorch_type, installed_detail
+        )
+        need_reinstall = broken_install
         requirements_lower = requirements_file.lower()
         if "amd" in requirements_lower:
             target_type = "AMD"
@@ -2280,7 +2342,8 @@ def update_dependencies(args):
         print(f"使用: {req_file}")
     else:
         args.requirements = 'auto'
-        print("未检测到 PyTorch,将进行首次安装...")
+        print(f"未检测到可用的 PyTorch: {detail}")
+        print("将进入依赖方案选择...")
     
     print()
     
@@ -2470,7 +2533,7 @@ def check_all_updates():
         print(f"  检测到 PyTorch: {pytorch_type} ({detail})")
         print(f"  依赖方案: {req_file}")
     else:
-        print("  未检测到 PyTorch")
+        print(f"  未检测到可用的 PyTorch: {detail}")
         req_file = None
 
     # 检查依赖是否满足
