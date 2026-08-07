@@ -414,7 +414,13 @@ python -m manga_translator --help
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=hgmzhn/manga-translator-ui&type=Date)](https://star-history.com/#hgmzhn/manga-translator-ui&Date)
+<a href="https://www.star-history.com/?repos=hgmzhn%2Fmanga-translator-ui&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=hgmzhn/manga-translator-ui&type=date&theme=dark&legend=top-left&sealed_token=wJmi34JS3-ufiYKvCyzrANr-YuO12VxLmfwOZ7j3MUXhYUg-P8-wb9yOJ4U5AhPutbjbuoMya-DHcGHo6g9x-yUNIQldu--QrADIwtoFHbhaiKamXEvPZg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=hgmzhn/manga-translator-ui&type=date&legend=top-left&sealed_token=wJmi34JS3-ufiYKvCyzrANr-YuO12VxLmfwOZ7j3MUXhYUg-P8-wb9yOJ4U5AhPutbjbuoMya-DHcGHo6g9x-yUNIQldu--QrADIwtoFHbhaiKamXEvPZg" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=hgmzhn/manga-translator-ui&type=date&legend=top-left&sealed_token=wJmi34JS3-ufiYKvCyzrANr-YuO12VxLmfwOZ7j3MUXhYUg-P8-wb9yOJ4U5AhPutbjbuoMya-DHcGHo6g9x-yUNIQldu--QrADIwtoFHbhaiKamXEvPZg" />
+ </picture>
+</a>
 
 </div>
 
