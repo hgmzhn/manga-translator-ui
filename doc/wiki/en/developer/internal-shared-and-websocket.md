@@ -11,7 +11,7 @@ lastUpdated: true
 
 Use this page when debugging the internal executors, tracing connection or serialization issues in `shared`/`ws` modes, or assessing the consequences of exposing these internal protocols to a network. It documents the wire contracts of the two internal links: the HTTP + pickle-frame protocol of `shared`, and the WebSocket + protobuf task protocol of `ws`. It does not repeat how to start the three service modes or their mode-level differences (see [Web, WS, and Shared Modes](../cli/web-ws-and-shared-modes.md)), nor the `web` ports and deployment (see [Web Server Ports and Deployment](./web-server-ports-and-deployment.md)); public HTTP API authentication and errors live in [HTTP API Authentication and Errors](./http-api/authentication-and-errors.md).
 
-## Feature boundary {#feature-boundary}
+## Relevant code {#feature-boundary}
 
 - `shared` is an internal HTTP executor: `MangaShare` wraps `MangaTranslator` into a FastAPI service that listens on `127.0.0.1:5003` by default, exposes three controlled endpoints, and returns pickle bytes. It is not an external service for browsers.
 - `ws` is an internal WebSocket executor client: `MangaTranslatorWS` extends the translator, actively connects to the upstream `ws://localhost:5000`, authenticates with the `x-secret` header, and exchanges protobuf `WebSocketMessage` frames. The local `--host 127.0.0.1 --port 5003 --nonce` declared by its parser are not consumed by the current implementation.
@@ -114,7 +114,7 @@ flowchart LR
 - This repository does not track `manga_translator/server/ws_pb2.py` or a matching `.proto` file; the `from ..server import ws_pb2` in `listen()` raises `ImportError`, so `ws` mode currently cannot start. This is a source-level difference, not a verified runtime behavior.
 - Restoring the mode requires regenerating `ws_pb2.py` and verifying the message fields against the upstream scheduler; until then, do not treat `ws` as a runnable service.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Constraints and notes {#dependencies-and-conflicts}
 
 - Port boundaries: `web` `0.0.0.0:8000`, `shared` `127.0.0.1:5003`, and `ws` upstream `ws://localhost:5000`; they serve different purposes and never overlap.
 - `ws --host/--port/--nonce` exist in the parser, but `MangaTranslatorWS` does not consume them; do not infer from the help text that `ws` listens on `5003`.
@@ -193,10 +193,9 @@ Messages are protobuf `WebSocketMessage` (`ws_pb2`), encoded with `SerializeToSt
 
 ### Mermaid boundary {#mermaid-boundary}
 
-The diagrams describe the real endpoints, frame format, and task state transitions in the source; they do not claim that a listener for `ws://localhost:5000` exists inside this repository, nor that `ws` mode can currently start (missing `ws_pb2.py`). Shared-executor dispatch is a legacy path retained in the source, and the official `web` mode never spawns it. This page fabricates no runtime screenshots or private credentials.
+The diagrams describe the real endpoints, frame format, and task state transitions in the source; they do not claim that a listener for `ws://localhost:5000` exists inside this repository, nor that `ws` mode can currently start (missing `ws_pb2.py`). Shared-executor dispatch is a legacy path retained in the source, and the official `web` mode never spawns it.
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | shared service | `manga_translator/mode/share.py` | Three endpoints, nonce, method whitelist, lock, pickle, frame status codes, `use_placeholder`, `timeout_keep_alive` |

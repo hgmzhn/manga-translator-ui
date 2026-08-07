@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 翻译器选择与目标语言
 
-本页说明桌面设置中的翻译器选择、目标语言以及合并后的源语言过滤。它决定使用哪个翻译实现和翻译成什么语言，不负责 API 密钥槽轮换、提示词编辑、上下文构造或翻译链的详细策略。
+这里说明桌面设置中的翻译器选择、目标语言以及合并后的源语言过滤。它决定使用哪个翻译实现和翻译成什么语言，不负责 API 密钥槽轮换、提示词编辑、上下文构造或翻译链的详细策略。
 
-## 功能边界
+## 适用场景
 
 - `translator.translator` 选择 OpenAI、Gemini、Sakura、高质量变体、无翻译或保留原文；它改变翻译实现，不是同一提供商内的 API 候选切换。
 - `translator.target_lang` 使用三字母存储代码，作为单个翻译请求的目标语言。
@@ -19,7 +19,7 @@ lastUpdated: true
 - `translator.no_text_lang_skip` 控制是否跳过已经是目标语言的文本；开启“不跳过目标语言文本”时强制送入翻译。
 - API Key/Base/Model、`failover`/`round_robin`、提示词、术语、流式、RPM 和质量重试属于 API 管理或其他翻译器页面。
 
-## UI 操作
+## 在桌面端设置
 
 ### 在“翻译”设置页选择
 
@@ -33,7 +33,7 @@ API 管理页的翻译器功能选择器也写入同一个“翻译器”配置�
 
 ## 参数
 
-> 本页各参数的界面名称、存储键与默认值的对应关系，见[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各参数的界面名称、存储键与默认值的对应关系，见[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 ### 翻译器
 
@@ -67,7 +67,7 @@ API 管理页的翻译器功能选择器也写入同一个“翻译器”配置�
 
 默认值：`false`。
 
-## 运行机理
+## 翻译请求如何处理
 
 ```mermaid
 flowchart LR
@@ -86,7 +86,7 @@ flowchart LR
 
 保存的翻译器枚举和目标语言代码会被解析成链，实现按链顺序执行。`translator_chain` 或 `selective_translation` 是串联/按语言选择，不是 API 槽轮换。API 管理仍可改变同一个 `translator.translator` 键；候选解析和冷却属于 API 管理范围。
 
-## 依赖与冲突
+## 模型、网络与质量
 
 - Detection/OCR 必须先产生文本区域和源语言信息，`keep_lang` 才能工作；它在合并后执行。
 - `none` 不执行翻译，`original` 明确保留原文结果。二者都不需要远程 API，后续排版仍由工作流决定。

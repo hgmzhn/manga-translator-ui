@@ -9,13 +9,13 @@ lastUpdated: true
 
 # OCR、过滤与文本行合并
 
-本页对应设置中的 “OCR” 页签，覆盖检测框进入 OCR 后的识别、气泡/置信度筛选、过滤列表，以及文本行合并前后的约束。本页不负责检测器如何产生检测框（见 [Detection 设置](./detection.md)），也不负责翻译、修复或排版参数。
+本页对应设置中的 “OCR” 页签，覆盖检测框进入 OCR 后的识别、气泡/置信度筛选、过滤列表，以及文本行合并前后的约束。这里不负责检测器如何产生检测框（见 [Detection 设置](./detection.md)），也不负责翻译、修复或排版参数。
 
-## 功能边界 {#feature-boundary}
+## 这组设置控制什么 {#feature-boundary}
 
 处理顺序是：检测器产生 `ctx.textlines` 和 `mask_raw`，OCR 为每个框写入文本与概率，OCR 阶段过滤无效框，然后合并文本行成为文本区域；文本区域才会进入翻译。模型气泡修复选项虽然位于本页相关配置中，但最终消费者是蒙版细化，详细修复器行为属于 [Mask 与 Inpainting](./mask-and-inpainting.md)。
 
-## UI 操作 {#ui-operations}
+## 在桌面端修改 {#ui-operations}
 
 1. 打开设置并选择 “OCR”。普通开关、数值框和下拉框直接编辑配置；“Advanced” 分隔线后的字段仍属于同一页，只是面向高级调参。
 2. “OCR Model” 选择主 OCR；打开 “Enable Hybrid OCR” 后，低置信或空文本行会交给 “Secondary OCR”。选择 OCR 模型、混合开关或备用 OCR 时，桌面 API 管理区域会按实现刷新所需的 API 组。
@@ -112,9 +112,9 @@ flowchart LR
 - “AI OCR 并发数”：限制 AI OCR 同时发出的 API 请求数；较高并发可能触发限流。默认值：`10`。
 - AI OCR 自定义提示词：默认空。
 
-OpenAI/Gemini OCR 需要对应 API 配置；本页不展示提示词或密钥。
+OpenAI/Gemini OCR 需要对应 API 配置；这里不展示提示词或密钥。
 
-## 运行机理 {#runtime}
+## 参数如何生效 {#runtime}
 
 ```mermaid
 flowchart TD
@@ -134,7 +134,7 @@ flowchart TD
 
 OCR 后过滤在合并前，最小长度在合并后。AI OCR 的并发数只限制 OCR API 请求，不代表整条图片流水线并发。
 
-## 依赖与冲突 {#dependencies}
+## 搭配使用时的注意事项 {#dependencies}
 
 - 离线 OCR 需要模型与设备后端；OpenAI/Gemini OCR 需要 API 管理页的凭据、地址和模型。
 - 混合 OCR 与高 `prob` 会增加第二次推理/请求；过严气泡阈值会漏掉画外文字。

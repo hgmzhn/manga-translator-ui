@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 设置参数索引
 
-当你想确认某个参数属于设置页的哪个页签、它的存储键和界面文案是什么、以及详细说明在哪个页面时，使用本页。本页把设置页七个页签下的全部可见参数汇总成索引表，并为每一项提供跳转到对应设置页或参数锚点的链接；参数的具体语义、三类默认值、消费者和运行机理在对应设置页展开，本页只做汇总与反向链接，不重复撰写脱离功能的文件百科。
+当你想确认某个参数属于设置页的哪个页签、它的存储键和界面文案是什么、以及详细说明在哪个页面时，使用本页。本页把设置页七个页签下的全部可见参数汇总成索引表，并为每一项提供跳转到对应设置页或参数锚点的链接；参数的具体语义、三类默认值、消费者和运行机理在对应设置页展开，这里仅做汇总与反向链接，不重复撰写脱离功能的文件百科。
 
-设置页外壳、说明面板、导入导出和配置生命周期见[设置页与配置生命周期](../desktop/settings/index.md)；全部枚举选项的 value/i18n 对照见[选项与 i18n 矩阵](./options-i18n-matrix.md)；九种工作流的阶段矩阵见[工作流矩阵](./workflow-matrix.md)。
+设置页外壳、说明面板、导入导出和配置生命周期见[设置页与配置生命周期](../desktop/settings/index.md)；全部枚举选项的 value/i18n 对照见[界面选项对照表](./options-i18n-matrix.md)；九种工作流的阶段矩阵见[工作流矩阵](./workflow-matrix.md)。
 
 ## 本页用法 {#how-to-use}
 
@@ -20,9 +20,9 @@ lastUpdated: true
 1. 在“设置页与页签”确认目标参数所属页签及对应页面。
 2. 在“参数索引”按页签找到参数行；存储键、English 与简体中文实际文案在同一行并列。
 3. 点击“跳转”列进入对应设置页的参数小节；没有独立显式锚点的参数行跳转到页面本身。
-4. 默认值、依赖、消费者和运行机理一律以跳转后的设置页正文为准，本页不展开。
+4. 默认值、依赖、消费者和运行机理一律以跳转后的设置页正文为准，这里不展开。
 
-本页只覆盖设置页中可见的参数行。`settings_tab_layout.json` 有 110 个条目，其中 109 个渲染为可见参数，1 个（`render.font_color`）因发行默认值为 `null` 且没有对应控件分支而不渲染。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
+这里仅列出设置页中可见的参数行。`settings_tab_layout.json` 有 110 个条目，其中 109 个渲染为可见参数，1 个（`render.font_color`）因发行默认值为 `null` 且没有对应控件分支而不渲染。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
 
 ## 设置页与页签 {#settings-tabs}
 
@@ -205,7 +205,7 @@ lastUpdated: true
 ## 覆盖边界与反向链接 {#coverage-and-backlinks}
 
 - 反向链接：本页是设置页七个专题页与[设置页与配置生命周期](../desktop/settings/index.md)的汇总跳转入口；参数详细说明仍以专题页为准。
-- 兄弟参考页：完整枚举选项的 value/i18n 对照见[选项与 i18n 矩阵](./options-i18n-matrix.md)，九种工作流阶段矩阵见[工作流矩阵](./workflow-matrix.md)，各页源码依据汇总见[源码依据索引](./source-evidence-index.md)，调试产物见[调试产物索引](./debug-artifact-index.md)。
+- 兄弟参考页：完整枚举选项的 value/i18n 对照见[界面选项对照表](./options-i18n-matrix.md)，九种工作流阶段矩阵见[工作流矩阵](./workflow-matrix.md)，各页代码位置汇总见[代码索引](./source-evidence-index.md)，调试产物见[调试产物索引](./debug-artifact-index.md)。
 - 由其他控件写回、不作为设置参数行显示的值：`upscale.realcugan_model` 由超分模型下拉写回（见[超分与上色](../desktop/settings/upscale-and-colorization.md)）；八个工作流标志（`cli.generate_and_export`、`cli.template`、`cli.translate_json_only`、`cli.load_text`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`、`cli.replace_translation`）由翻译工作区的工作流下拉设置（见[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)）。编辑器偏好（`editor_*`）属于 `AppSection`，但不在通用页签显示为动态行。
 - 运行时列表（字体、模型名、API 预设、提示词文件、批量方案）来自本机或用户配置，不进入本索引的固定清单。
 
@@ -233,8 +233,7 @@ lastUpdated: true
 | `Export Config` | Export Config | 导出配置 |
 | `Import Config` | Import Config | 导入配置 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 设置布局 | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | 七个页签、110 个条目、109 个可见参数、`Advanced` 分隔线 |

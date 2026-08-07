@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Replacement Rules: Raw YAML Editing, Regex, and Save
 
-Use the “Replacement Rules” page to edit `config/text_replacements.yaml` when you want to normalize translation text before it is typeset onto the image, for example to unify punctuation or fix half/full-width characters. The page offers a “Table View” and a “Raw Edit” mode over the same file; every rule is either a literal or a regex replacement, and changes are saved automatically. This page covers both views, regex semantics, the save and restore mechanism, and how the rules are consumed at render time.
+Use the “Replacement Rules” page to edit `config/text_replacements.yaml` when you want to normalize translation text before it is typeset onto the image, for example to unify punctuation or fix half/full-width characters. The page offers a “Table View” and a “Raw Edit” mode over the same file; every rule is either a literal or a regex replacement, and changes are saved automatically. This guide covers both views, regex semantics, the save and restore mechanism, and how the rules are consumed at render time.
 
 Row-level operations, group tabs, and the group execution order of the Table view are covered by [Table groups and order](./table-groups-and-order.md); rich-text rules (style matching applied to `translation` after replacements) are covered by [Rich-text rules](../rich-text-rules/table-raw-and-match.md).
 
-## Feature boundary {#feature-boundary}
+## Where the rules apply {#feature-boundary}
 
 - This page reads and writes only `config/text_replacements.yaml`: the file stores pre-render text replacement rules and never holds API credentials, translator selection, `.env`, or any other configuration.
 - The Table view and the Raw view edit the same file and the same rule set; switching to Raw disables the table toolbar and filter row (`_set_table_controls_enabled(False)`) so both places are not edited at once.
@@ -21,7 +21,7 @@ Row-level operations, group tabs, and the group execution order of the Table vie
 - Rich-text rules read `translation` after replacements and apply style matching; they belong to another file, `config/rich_text_rules.yaml`, and another page.
 - Do not put real business text, keys, usernames, or private absolute paths into the rule file; the content is read rule by rule by rendering and may appear in logs and debug artifacts.
 
-## UI operations {#ui-operations}
+## Use it in Replacement Rules {#ui-operations}
 
 ### Open the Replacement Rules page {#open-page}
 
@@ -147,7 +147,7 @@ Restoring defaults overwrites your custom rules directly and creates no `.bak` b
 - Startup initialization `ensure_runtime_files` deletes a `text_replacements.yaml` that still matches a legacy built-in template MD5 (two known old hashes: `5b8fbc89492ff2a1d5c064f5e85a458b`, `94b2787940afdde800db3aba0742ad98`), then `ensure_text_replacements_exists` recreates the built-in default template; user customizations are not touched.
 - When the file is missing, the editor status bar shows “File not found”; when reading fails it shows “Load error: {error}”.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Rules act only on the pre-render translation: `prepare_text_replacements_for_layout` stores the pre-replacement text in `translation_raw` and writes the replaced result to `translation`; after rendering, `sync_translation_raw_from_layout` projects layout changes back to `translation_raw`.
 - Rich-text document regions (`is_rich_text_document` is true) skip replacement; JSON exports of already-rendered images record `skip_text_replacements` so re-import rendering does not apply the rules twice.

@@ -9,14 +9,14 @@ lastUpdated: true
 
 # HTTP 配置、环境与资源端点
 
-当第三方客户端或 Web 前端需要读取参数结构与可选值、保存 API 密钥、上传字体和提示词，或应用管理员预设时，本页说明这些 HTTP 端点的路径、鉴权边界、请求/响应契约和底层行为。本页只记录开发者 HTTP API；Web 用户端的配置页签与上传操作见[上传、配置与翻译](../../web/upload-config-and-translate.md)和[资源、字体与提示词](../../web/resources-fonts-and-prompts.md)，管理员界面操作见[管理员界面](../../web/administrator-interface.md)，会话与状态码契约见[HTTP API 鉴权与错误](./authentication-and-errors.md)。
+当第三方客户端或 Web 前端需要读取参数结构与可选值、保存 API 密钥、上传字体和提示词，或应用管理员预设时，这里说明这些 HTTP 端点的路径、鉴权边界、请求/响应契约和底层行为。这里仅记录开发者 HTTP API；Web 用户端的配置页签与上传操作见[上传、配置与翻译](../../web/upload-config-and-translate.md)和[资源、字体与提示词](../../web/resources-fonts-and-prompts.md)，管理员界面操作见[管理员界面](../../web/administrator-interface.md)，会话与状态码契约见[HTTP API 鉴权与错误](./authentication-and-errors.md)。
 
-## 功能边界 {#feature-boundary}
+## 接口范围 {#feature-boundary}
 
-- 本页覆盖四组端点：配置元数据（`/config*`、`/fonts`、`/translators`、`/languages`、`/workflows`、`/translator-config/{translator}`、`/user/settings`、`/user/access`、`/api-key-policy`、`/i18n/*`、`/announcement`、`/api`）、环境变量（`GET|POST /env`、`GET /env/effective`）、用户资源（`/api/resources/*`）和配置管理（`/api/admin/config/*`、`/api/admin/presets*`、`/api/presets*`、`/api/config/user*`）。
-- 本页不覆盖翻译、流式、批量、历史、日志、用户/用户组/配额/审计端点；它们分别见[翻译端点](./translation-endpoints.md)、[流协议](./streaming-protocol.md)、[历史文件与下载票据](./history-files-and-download-tickets.md)和[管理端点](./admin-users-groups-quota-audit.md)。
+- 内容包括四组端点：配置元数据（`/config*`、`/fonts`、`/translators`、`/languages`、`/workflows`、`/translator-config/{translator}`、`/user/settings`、`/user/access`、`/api-key-policy`、`/i18n/*`、`/announcement`、`/api`）、环境变量（`GET|POST /env`、`GET /env/effective`）、用户资源（`/api/resources/*`）和配置管理（`/api/admin/config/*`、`/api/admin/presets*`、`/api/presets*`、`/api/config/user*`）。
+- 这里不覆盖翻译、流式、批量、历史、日志、用户/用户组/配额/审计端点；它们分别见[翻译端点](./translation-endpoints.md)、[流协议](./streaming-protocol.md)、[历史文件与下载票据](./history-files-and-download-tickets.md)和[管理端点](./admin-users-groups-quota-audit.md)。
 - `GET /env` 与 `GET /env/effective` 永不返回服务器 API Key 明文；管理员也只能在 `GET /api/admin/config/server?show_values=true` 下看到明文，且该端点要求管理员会话。
-- 本页不记录真实 API Key、Token、用户名、私有绝对路径、用户提示词正文或字体文件；默认值与白名单来自源码常量，不代表运行部署的实际配置。
+- 这里不记录真实 API Key、Token、用户名、私有绝对路径、用户提示词正文或字体文件；默认值与白名单来自源码常量，不代表运行部署的实际配置。
 
 ## 配置元数据端点 {#config-metadata-endpoints}
 
@@ -168,9 +168,9 @@ flowchart LR
     D --> T
 ```
 
-上图描述的是源码确认的 API Key 来源与合并路径；`POST /env` 是否落盘由 `save_user_keys_to_server` 决定，不改变合并顺序本身。
+上图描述的是 API Key 来源与合并路径；`POST /env` 是否落盘由 `save_user_keys_to_server` 决定，不改变合并顺序本身。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 接口约束 {#dependencies-and-conflicts}
 
 - Web 前端先用 `/user/settings` 决定“API密钥”页签与上传区域的显示，但隐藏只是前端行为，最终由服务端权限校验。
 - `/config/options` 的 `font_family` 与 `high_quality_prompt_path` 合并服务器与用户资源；删除用户字体/提示词后，前端需重新请求 `/config/options` 刷新选项。
@@ -232,10 +232,9 @@ flowchart LR
 
 ### Mermaid 数据流限制 {#mermaid-limits}
 
-上图描述的是源码确认的 API Key 来源、合并与运行时覆盖路径；它不代表每次翻译都经过预设或用户密钥，也不代表 `/env/effective` 在每次运行都会返回同样的来源组合。`require_user_keys`、`allow_server_keys`、`save_user_keys_to_server` 等策略值来自配置而非代码常量。本页未启动服务、未截图、未读取真实 `.env`、预设、用户配置或密钥；运行时行为需以最小可运行服务验证为准。
+上图描述的是 API Key 来源、合并与运行时覆盖路径；它不代表每次翻译都经过预设或用户密钥，也不代表 `/env/effective` 在每次运行都会返回同样的来源组合。`require_user_keys`、`allow_server_keys`、`save_user_keys_to_server` 等策略值来自配置而非代码常量。具体表现还会受部署配置影响。
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 配置路由 | `manga_translator/server/routes/config.py` | `/config/defaults`、`/config`、`/config/options`、`/fonts`、`/translators`、`/languages`、`/workflows`、`/translator-config/{translator}`、`/user/settings`、`/user/access`、`/api-key-policy`、`/env`、`/env/effective`、`/i18n/*`、`/announcement` 与 `WEB_API_ENV_KEYS` 白名单 |

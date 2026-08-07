@@ -9,15 +9,15 @@ lastUpdated: true
 
 # HTTP 流式传输协议
 
-翻译端点除了返回完整结果的普通响应外，还提供 `*_stream` 变体：服务端把“排队 → 处理 → 转换 → 发送”的过程拆成一系列二进制帧实时写给客户端，客户端可以一边显示进度、一边等待最终结果。本页只描述这一层传输协议（帧格式、进度事件、结果载荷、取消与客户端解析）；请求/响应模型与鉴权见[翻译端点](./translation-endpoints.md)与[认证与错误](./authentication-and-errors.md)，Web 用户界面的操作见[上传、配置与翻译](../../web/upload-config-and-translate.md)。
+翻译端点除了返回完整结果的普通响应外，还提供 `*_stream` 变体：服务端把“排队 → 处理 → 转换 → 发送”的过程拆成一系列二进制帧实时写给客户端，客户端可以一边显示进度、一边等待最终结果。这里主要说明这一层传输协议（帧格式、进度事件、结果载荷、取消与客户端解析）；请求/响应模型与鉴权见[翻译端点](./translation-endpoints.md)与[认证与错误](./authentication-and-errors.md)，Web 用户界面的操作见[上传、配置与翻译](../../web/upload-config-and-translate.md)。
 
-## 功能边界 {#feature-boundary}
+## 接口范围 {#feature-boundary}
 
-- 本页覆盖 `POST /translate/*/stream` 系列端点产生的二进制流，以及 Web 前端 `static/script.js` 中 `processStream()` 的解析方式。
-- 批量翻译 `/translate/batch/images` 返回的是 ZIP 二进制流而不是逐帧协议，只在[批量与导出流程](./batch-export-import-process.md)中说明；本页只在“分界”处提及其差异。
+- 内容包括 `POST /translate/*/stream` 系列端点产生的二进制流，以及 Web 前端 `static/script.js` 中 `processStream()` 的解析方式。
+- 批量翻译 `/translate/batch/images` 返回的是 ZIP 二进制流而不是逐帧协议，只在[批量与导出流程](./batch-export-import-process.md)中说明；这里仅在“分界”处提及其差异。
 - 内部 shared/ws 执行器（`mode/share.py`、`streaming.py`、`sent_data_internal.py`、`myqueue.py`）虽然使用相同的“1 字节状态 + 4 字节长度”帧头，但属于内部协议，见[内部 shared 与 websocket](../internal-shared-and-websocket.md)，不属于开发者 HTTP API。
 - 进度帧的 `message` 文案由服务端硬编码（中文），浏览器原样显示，不经前端 i18n 翻译；这是运行契约的一部分，不是文档缺译。
-- 本页不写入任何真实密钥、令牌、用户图片或私有提示词；示例只使用脱敏字段名与端点路径。
+- 这里不写入任何真实密钥、令牌、用户图片或私有提示词；示例只使用脱敏字段名与端点路径。
 
 ## 流式端点 {#stream-endpoints}
 
@@ -124,7 +124,7 @@ sequenceDiagram
 
 `TranslationResponse` JSON 顶层字段：`regions`（每个文本区域的排版与翻译字段）、`original_width`、`original_height`，以及可选 `upscale_ratio`、`upscaler`、`colorizer`、`mask_raw`（base64 PNG，保存的是优化后的蒙版）和 `mask_is_refined`。
 
-注意：`/with-form/image/stream/web` 的端点注释声称启用“占位符优化”以加快响应，但当前源码中 `_web_frontend_optimized` 只被写入配置、没有任何消费者读取，`use_placeholder` 也只在旧版 `mode/share.py` 中出现；该端点在当前 Web 路径下应返回完整 PNG。此项需运行验证。
+注意：`/with-form/image/stream/web` 的端点注释声称启用“占位符优化”以加快响应，但当前源码中 `_web_frontend_optimized` 只被写入配置、没有任何消费者读取，`use_placeholder` 也只在旧版 `mode/share.py` 中出现；该端点在当前 Web 路径下应返回完整 PNG。此项需在实际环境中确认。
 
 ## 取消与异常结束 {#cancellation}
 
@@ -168,7 +168,7 @@ Web 前端 `static/script.js` 的 `processStream()` 是参考实现：
 - 单文件普通翻译、仅上色/超分/修复、导入渲染等模式由 Web 前端逐文件调用 `with-form` 流端点；多文件普通翻译调用 `/translate/batch/images`（ZIP）。完整操作步骤见[上传、配置与翻译](../../web/upload-config-and-translate.md)。
 - 进度与错误帧被渲染到左侧“日志输出”区域，任务完成后还会拉取该任务日志；结果预览、下载与历史见[进度、结果与历史](../../web/progress-results-and-history.md)。
 - 管理员的取消操作界面见[管理界面](../../web/administrator-interface.md)。
-- 本页不描述 Web 用户操作，只描述浏览器实际调用的流协议；不要把端点路径写成用户界面步骤。
+- 这里不描述 Web 用户操作，只描述浏览器实际调用的流协议；不要把端点路径写成用户界面步骤。
 
 ## 开发指南 {#developer-guide}
 
@@ -192,8 +192,7 @@ Web 前端 `static/script.js` 的 `processStream()` 是参考实现：
 
 进度帧的 `message` 字段由服务端 `request_extraction.py` 硬编码（`开始处理...`、`翻译中...` 等），浏览器直接显示，不经过上表 locale。
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 流帧编码 | `manga_translator/server/request_extraction.py` | `while_streaming()`、`pack_message()`、进度/错误帧与 stage 列表 |

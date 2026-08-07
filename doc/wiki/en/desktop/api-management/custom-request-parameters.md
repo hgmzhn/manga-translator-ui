@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Custom Request Parameters
 
-When you need to attach extra request-body fields such as `temperature`, `top_p`, or `max_tokens` to translation, AI OCR, AI rendering, or AI colorization requests, this page documents the file structure of `config/custom_api_params.json`, model-preset matching, how module sections merge into OpenAI/Gemini request bodies, and the boundary with `*_API_ROTATION_STRATEGY`. It does not cover connection credentials, model selection, or API channel rotation; see [API Credentials, Addresses, and Models](./credentials-addresses-models.md) and [Slots and rotation](./slots-and-rotation.md). The master switch lives in [Settings → General](../settings/general-and-app.md).
+When you need to attach extra request-body fields such as `temperature`, `top_p`, or `max_tokens` to translation, AI OCR, AI rendering, or AI colorization requests, this guide documents the file structure of `config/custom_api_params.json`, model-preset matching, how module sections merge into OpenAI/Gemini request bodies, and the boundary with `*_API_ROTATION_STRATEGY`. It does not cover connection credentials, model selection, or API channel rotation; see [API Credentials, Addresses, and Models](./credentials-addresses-models.md) and [Slots and rotation](./slots-and-rotation.md). The master switch lives in [Settings → General](../settings/general-and-app.md).
 
-## Feature boundary
+## Configuration scope
 
 - `config/custom_api_params.json` is the extra-request-parameters file: it only appends fields to OpenAI/Gemini request bodies. It does not store connection credentials (Key/Base/Model live in `.env`), does not select a model, and does not participate in `*_API_ROTATION_STRATEGY` candidate rotation.
 - The top-level boolean key `use_custom_api_params` decides whether the file is read; a legacy value stored at `translator.use_custom_api_params` is migrated to the top level on load.
@@ -19,7 +19,7 @@ When you need to attach extra request-body fields such as `temperature`, `top_p`
 - Every preset contains exactly five sections: `common`, `translator`, `ocr`, `colorizer`, and `render`. At runtime only `common` plus the current API module's section are merged; sections of other modules never leak into the request.
 - Presets are matched by the model name actually used by the request: a top-level preset with the same name wins; otherwise the “通用” preset is used as the fallback.
 
-## UI operations
+## Use it in API Management
 
 ### Open the custom-parameter editor {#open-editor}
 
@@ -33,7 +33,7 @@ When you need to attach extra request-body fields such as `temperature`, `top_p`
 
 ## Parameters and options
 
-> For the mapping of UI names, storage keys, and default values for this page's parameters, see the reference page [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For the mapping of UI names, storage keys, and default values for this page's parameters, see the reference page [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 #### Use Custom API Params {#use-custom-api-params}
 
@@ -85,7 +85,7 @@ Sanitized example structure (no real keys or user data):
 
 The “Use Custom API Params” toggle (configuration key `use_custom_api_params`) decides whether this file is read. When enabled, each API module matches a preset by the model name actually used by the request — a same-named preset wins, otherwise it falls back to “通用” — and merges only `common` plus its own section. When disabled, the file is not read at all and request bodies stay at the code/provider defaults. A legacy value stored at `translator.use_custom_api_params` is migrated to the top level on load.
 
-## Runtime behavior
+## How requests are handled
 
 ### Preset matching and merging {#preset-resolution}
 
@@ -130,7 +130,7 @@ flowchart LR
 
 Custom parameters match a preset by the model name actually used in the current round; the model name itself comes from the endpoint selected by the channels and rotation, not from this file. Rotation changes the order and selection of candidate endpoints, not request-body fields; channel retries, cooldown, unavailability, and recovery never alter the already-merged custom parameters.
 
-## Dependencies and conflicts
+## Credentials, network, and errors
 
 - Preset matching depends on the model name used by the request; the name comes from the API-management channels or translator defaults, so the same file may select different presets on different models.
 - Custom parameters are unavailable on JSON syntax or structural errors: parsing failures are logged and empty presets are returned, and translation continues with default parameters.

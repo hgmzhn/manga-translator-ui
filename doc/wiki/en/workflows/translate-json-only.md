@@ -13,16 +13,16 @@ Use the Translate JSON Only workflow when each image already has a project JSON 
 
 Translate JSON Only forms the template/JSON family together with [Export Translation](./export-translation.md), [Export Original Text](./export-original.md), and [Import Translation and Render](./import-translation-and-render.md). The overall boundaries of the nine workflows are in [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md), with a summary table in [Workflow Matrix](../reference/workflow-matrix.md). The `cli.translate_json_only` parameter is documented in [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md#cli-translate-json-only).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
-- This page covers only the "Translate JSON Only" workflow (combo index `3`) of the nine workflows. Selecting the mode clears the eight mutually exclusive workflow fields first, then sets only `cli.translate_json_only=true` and saves the configuration.
+- This guide focuses on the "Translate JSON Only" workflow (combo index `3`) of the nine workflows. Selecting the mode clears the eight mutually exclusive workflow fields first, then sets only `cli.translate_json_only=true` and saves the configuration.
 - Inputs: the main input images (the same file-discovery rules as normal translation), and each image must have a findable, parseable project JSON. The JSON accepts both the legacy format (the value is a list of regions) and the new format (the value is a dict containing `regions`).
 - Stages executed: load regions and the mask from JSON → pre-translation dictionary replacements → translation → JSON write-back; on success the same image's `<stem>_original.<template-extension>` original-text sidecar is deleted.
 - Stages skipped: conditional colorization, conditional upscaling, detection, OCR, text-line merging, mask refinement, inpainting, rendering, and main-output-image saving.
 - Output files: the project JSON `manga_translator_work/json/<stem>_translations.json` is written back (new location takes priority; even when the JSON was read from the legacy location, write-back lands in the new location).
 - Workflow field: combo index `3` → `cli.translate_json_only=true`; GUI switching keeps the eight workflow booleans mutually exclusive.
 
-## UI operations {#ui-operations}
+## Run this workflow {#ui-operations}
 
 ### Select the Translate JSON Only workflow {#select-translate-json-only}
 
@@ -34,7 +34,7 @@ In the hint, `imagename` is the program's example name for the input `<stem>`, n
 
 "Output Directory:" only determines where the main output image goes. This mode writes no main image, so it does not affect where the JSON is read from or written back to; both always follow the per-image work-directory rules.
 
-## Runtime behavior {#runtime-behavior}
+## Processing order {#runtime-behavior}
 
 ### Input and discovery rules {#input-and-discovery}
 
@@ -45,7 +45,7 @@ In the hint, `imagename` is the program's example name for the input `<stem>`, n
 
 ### Skipped and kept stages {#skipped-and-kept-stages}
 
-The Mermaid diagram below shows the source-confirmed stage order, the parse-failure fuse, and the output files. It is the "JSON read → translate → JSON write-back" branch of the nine-workflow matrix; it shares the JSON read/write facilities with Export Original Text and Export Translation but skips their image stages.
+The Mermaid diagram below shows the stage order, the parse-failure fuse, and the output files. It is the "JSON read → translate → JSON write-back" branch of the nine-workflow matrix; it shares the JSON read/write facilities with Export Original Text and Export Translation but skips their image stages.
 
 ```mermaid
 flowchart LR
@@ -79,7 +79,7 @@ flowchart LR
 | Original-text sidecar (deleted) | `manga_translator_work/originals/<stem>_original.<template-extension>` | Deleted after a successful translation; the extension comes from the template's `output_format`, default `json` |
 | Main output image | Not written | Rendering is skipped; this mode produces no main image |
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Inputs, outputs, and limitations {#dependencies-and-conflicts}
 
 - Depends on a findable, parseable project JSON per image; if it is missing or fails to parse, the image fails and the original file is kept.
 - `batch_concurrent` is incompatible: both the desktop controller and `translate_batch()` treat it as an incompatible mode and force non-concurrent processing; saving the concurrent config in the UI does not make it a concurrent pipeline.
@@ -89,7 +89,7 @@ flowchart LR
 - This mode still consumes API/model costs for the selected translator; colorization, upscaling, detection, OCR, inpainting, and rendering consume nothing (their stages are skipped).
 - The main output directory, `save_to_source_dir`, and `cli.format` affect only the main output image; this mode writes no main image, so those settings have no direct effect on this workflow's outputs.
 
-## Related pages {#related-pages}
+## Read next {#related-pages}
 
 - Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Export Translation](./export-translation.md) · [Import Translation and Render](./import-translation-and-render.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Inpaint Only](./inpaint-only.md) · [Replace Translation](./replace-translation.md)
 - Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)

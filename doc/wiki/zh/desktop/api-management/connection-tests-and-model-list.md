@@ -11,17 +11,17 @@ lastUpdated: true
 
 在 API 管理页填好 Key、Base 与 Model 后，先用本页功能验证连接是否真的可用，再从服务端拉取模型名写回“模型”字段。测试不只弹结果框：成功或失败会写入内存中的通道状态，并影响“开始翻译”前的候选可用性校验。
 
-本页不负责凭据字段本身的填写、掩码与 `.env` 持久化（见[API 凭据、地址与模型](./credentials-addresses-models.md)），不负责通道增删与轮询策略（见[通道与轮询策略](./slots-and-rotation.md)），也不负责真实请求失败后的冷却、不可用与自动恢复状态机（见[失败、冷却与恢复](./failures-cooldown-and-recovery.md)）。
+这里不负责凭据字段本身的填写、掩码与 `.env` 持久化（见[API 凭据、地址与模型](./credentials-addresses-models.md)），不负责通道增删与轮询策略（见[通道与轮询策略](./slots-and-rotation.md)），也不负责真实请求失败后的冷却、不可用与自动恢复状态机（见[失败、冷却与恢复](./failures-cooldown-and-recovery.md)）。
 
-## 功能边界
+## 配置范围
 
 - “测试”测试单个 API 通道（Key 行右侧按钮）；“测试当前页”批量测试当前功能页签下所有已配置通道。批量测试只作用于当前页签（翻译/文字识别/上色/渲染），不会跨页签。
 - 测试结果通过 `record_api_success` / `record_api_failure` 写入内存状态；开始翻译前 `validate_api_candidate_availability()` 按必需通道组检查是否还有可用候选，全部不可用时阻止开始并弹出警告。
 - “获取模型”从服务端拉取模型列表，并把选中的模型名写回 Model 输入框。只有模型行有该按钮；Key 行只有“测试”，Base 行两个按钮都没有。
-- 本页不覆盖 `run_with_api_candidates` 的 failover/round_robin 请求重试、冷却计时与恢复逻辑，那部分状态机属于[失败、冷却与恢复](./failures-cooldown-and-recovery.md)。
+- 这里不覆盖 `run_with_api_candidates` 的 failover/round_robin 请求重试、冷却计时与恢复逻辑，那部分状态机属于[失败、冷却与恢复](./failures-cooldown-and-recovery.md)。
 - 测试与取模型都会发起真实网络请求，需要对应通道已填写 Key/Base/Model；本地 OpenAI 兼容端点（`localhost`、私有 IP、`.local` 等）在密钥为空时会自动使用 `ollama` 占位密钥。
 
-## UI 操作
+## 在 API 管理中操作
 
 ### 测试单个 API 通道
 
@@ -58,7 +58,7 @@ lastUpdated: true
 
 当通道处于 `unavailable`（永久不可用）或 `cooldown`（冷却中）时，对应通道卡片内会插入彩色状态条：`unavailable` 显示“不可用”，`cooldown` 显示“冷却中”，右侧是同步图标恢复按钮（提示文字“恢复”）。点击恢复会调用 `clear_api_status` 清除该通道的内存状态并立即重建分组。
 
-## 运行机理 {#runtime-behavior}
+## 请求如何处理 {#runtime-behavior}
 
 ### 测试目标识别与通道收集
 
@@ -108,11 +108,11 @@ flowchart LR
     DL -->|"选定模型"| W["写回 Model 输入框并保存"]
 ```
 
-上图画的是源码确认的数据流：测试结果通过共享内存状态同时影响结果弹窗、卡片状态条和开始翻译的门禁；取模型单独走 `models.list`，只在用户选定后才写回配置。它不代表“测试成功”就等于“真实翻译一定成功”——真实请求仍受轮询策略、冷却与恢复状态机影响，见[失败、冷却与恢复](./failures-cooldown-and-recovery.md)。
+上图画的是数据流：测试结果通过共享内存状态同时影响结果弹窗、卡片状态条和开始翻译的门禁；取模型单独走 `models.list`，只在用户选定后才写回配置。它不代表“测试成功”就等于“真实翻译一定成功”——真实请求仍受轮询策略、冷却与恢复状态机影响，见[失败、冷却与恢复](./failures-cooldown-and-recovery.md)。
 
-## 依赖与冲突
+## 凭据、网络与错误
 
-- 测试与取模型依赖通道的 Key/Base/Model 与网络；本页不会写真实密钥，也不会把服务端返回的模型列表当作静态枚举。
+- 测试与取模型依赖通道的 Key/Base/Model 与网络；这里不会写真实密钥，也不会把服务端返回的模型列表当作静态枚举。
 - 测试写入的状态是内存态（`_API_STATUS`），不持久化到 `.env` 或 `config.json`；重启后状态清空，卡片不显示历史状态条。
 - 开始翻译前的候选校验会把处于 `cooldown` / `unavailable` 的通道视为不可用；需要重新“测试当前页”或点击恢复按钮后再开始。
 - 混合 OCR 开启时，主/副 OCR 的 OpenAI/Gemini 分组可能同时出现，批量测试会把两组通道都纳入当前页签测试。

@@ -9,11 +9,11 @@ lastUpdated: true
 
 # 提示词结构化编辑器
 
-当你需要编辑 `dict/` 下的自定义翻译提示词文件时，提示词管理页的“编辑”会打开结构化编辑器。编辑器提供“模板编辑”与“源码编辑”两种模式：前者把 YAML/JSON 中的结构化字段拆成表单，后者直接编辑文件原文。本页说明两种模式的判定、字段与格式、校验错误以及保存后文件如何被恢复和使用。
+当你需要编辑 `dict/` 下的自定义翻译提示词文件时，提示词管理页的“编辑”会打开结构化编辑器。编辑器提供“模板编辑”与“源码编辑”两种模式：前者把 YAML/JSON 中的结构化字段拆成表单，后者直接编辑文件原文。这里说明两种模式的判定、字段与格式、校验错误以及保存后文件如何被恢复和使用。
 
-本页只覆盖编辑器本身；文件列表、新建/复制/重命名/删除和应用所选提示词见[提示词列表、应用与预览](./list-apply-and-preview.md)，系统提示词与输出格式的组合见[系统与翻译提示词](./system-and-translation-prompts.md)和[上下文与提示词](../translator/context-and-prompts.md)。
+这里仅列出编辑器本身；文件列表、新建/复制/重命名/删除和应用所选提示词见[提示词列表、应用与预览](./list-apply-and-preview.md)，系统提示词与输出格式的组合见[系统与翻译提示词](./system-and-translation-prompts.md)和[上下文与提示词](../translator/context-and-prompts.md)。
 
-## 功能边界
+## 适用场景
 
 - 结构化编辑器读写的是 `dict/` 下的用户提示词文件（`.yaml`、`.yml`、`.json`），不写 `.env`、`config.json` 或任何 API 凭据。
 - 编辑器只负责“写回文件”；“应用所选提示词”把路径写入 `translator.high_quality_prompt_path` 属于提示词列表页。
@@ -21,7 +21,7 @@ lastUpdated: true
 - AI OCR、AI 渲染的固定提示词在设置页使用各自的简单编辑器，不进入本页的模板字段；系统提示词文件（`system_prompt_hq`、`system_prompt_hq_format`、`system_prompt_line_break`、`glossary_extraction_prompt`）不出现在用户提示词列表中。
 - 页面只记录结构和脱敏占位符，不展示真实提示词正文、密钥或私有路径。
 
-## UI 操作
+## 在提示词管理中操作
 
 ### 打开编辑器 {#open-editor}
 
@@ -119,7 +119,7 @@ flowchart LR
 
 开启“自动提取新术语”（键 `translator.extract_glossary`）后，翻译提取到的新术语会通过 `merge_glossary_to_file` 自动合并回提示词文件的 `glossary`（按扩展名写 YAML 或 JSON）。也就是说，除了编辑器，运行中的翻译也会在满足条件时写回该文件。
 
-## 依赖与冲突
+## 限制与注意事项
 
 - 文件格式依赖运行时 PyYAML：`PyYAML` 缺失时 `.yaml`/`.yml` 无法解析，编辑器退化为 Raw 模式，运行时跳过自定义提示词。
 - 提示词文件只影响翻译请求的系统提示词；它不保存 API 凭据、不选择翻译器、不参与 API 候选槽轮换。

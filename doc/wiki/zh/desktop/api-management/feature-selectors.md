@@ -11,16 +11,16 @@ lastUpdated: true
 
 需要在不翻设置页的情况下快速切换翻译、OCR、上色或渲染的实现时，使用 API 管理页每个页签顶部的功能选择器。它们不是独立的“API 配置”，而是直接写入对应功能的同一个配置键，因此在这里把“翻译器”从 OpenAI 换成 Gemini 也会真的切换翻译器，并立即刷新当前页所需的凭据组。
 
-本页说明四个功能选择器分别写入哪个配置键、切换后如何刷新凭据分组、以及如何真正改变对应功能的实现。翻译实现之间的详细差异见[翻译器选择与目标语言](../translator/selection-and-languages.md)；候选槽与轮换策略见[候选槽与轮换](./slots-and-rotation.md)；凭据字段编辑与连接测试分别见[凭据、地址与模型](./credentials-addresses-models.md)和[连接测试与模型列表](./connection-tests-and-model-list.md)。
+这里说明四个功能选择器分别写入哪个配置键、切换后如何刷新凭据分组、以及如何真正改变对应功能的实现。翻译实现之间的详细差异见[翻译器选择与目标语言](../translator/selection-and-languages.md)；候选槽与轮换策略见[候选槽与轮换](./slots-and-rotation.md)；凭据字段编辑与连接测试分别见[凭据、地址与模型](./credentials-addresses-models.md)和[连接测试与模型列表](./connection-tests-and-model-list.md)。
 
-## 功能边界 {#feature-boundary}
+## 配置范围 {#feature-boundary}
 
 - API 管理页的“翻译”“OCR”“上色”“渲染”四个页签顶部各有一个功能选择器，分别绑定 `translator.translator`、`ocr.ocr`、`colorizer.colorizer`、`render.renderer` 四个配置键。
 - 与“翻译器选择”的区别：设置页“Translation”的翻译器下拉框与 API 管理页翻译页签顶部的翻译器下拉框写入同一个 `translator.translator` 键，选项和显示值来源也相同；因此在 API 管理页修改“翻译器”会真正改变翻译实现，并刷新所需凭据组，而不是只改连接信息。
 - 与“API 候选槽轮换”的区别：Key/Base/Model 槽与 `failover`/`round_robin` 只在已经选定的实现内部挑选请求端点，处理重试、冷却、不可用和恢复，不改变实现本身。
 - `translator_chain` 把上一翻译器的输出交给下一翻译器继续翻译，与本页四个选择器无关。
 
-## UI 操作 {#ui-operations}
+## 在 API 管理中操作 {#ui-operations}
 
 ### 在 API 管理页切换功能实现 {#api-tab-selectors}
 
@@ -32,7 +32,7 @@ lastUpdated: true
 
 ## 功能选择器参数 {#parameters}
 
-> 本页各参数的界面名称、存储键与默认值的对应关系，见参考页[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各参数的界面名称、存储键与默认值的对应关系，见参考页[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 #### 翻译器 {#translator-translator}
 
@@ -50,7 +50,7 @@ lastUpdated: true
 
 “渲染器”下拉框位于 API 管理页“渲染”页签顶部，也出现在设置页排版/渲染相关分组。选项：Default、OpenAI Renderer、Gemini Renderer、无。OpenAI/Gemini 渲染器需要对应凭据组，并会跳过修复、使用原图作为渲染基底；“无”时直接输出原图，不进行排版渲染。默认值：`default`。详细说明见[排版与渲染](../settings/typesetting-and-rendering.md)。
 
-## 运行机理 {#runtime-behavior}
+## 请求如何处理 {#runtime-behavior}
 
 ### 从选择器到实现 {#selector-to-implementation}
 
@@ -97,7 +97,7 @@ flowchart TD
 - 任一处切换都会写回配置，并在键为 `translator.translator` 时调用 `translation_service.set_translator()`；因此“在 API 管理页改翻译器也会真的切换翻译器”。
 - API 候选槽轮换不写这个键，只影响已选实现内部的请求端点；`translator_chain` 也不写这个键。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 凭据、网络与错误 {#dependencies-and-conflicts}
 
 - 四个选择器与设置页对应下拉框共享配置键；它们不是互相独立的设置，最后修改者生效，没有“API 页覆盖设置页”的优先级。
 - 凭据值本身存在 `.env`（或运行时覆盖），不写入这四个配置键；见[凭据、地址与模型](./credentials-addresses-models.md)。

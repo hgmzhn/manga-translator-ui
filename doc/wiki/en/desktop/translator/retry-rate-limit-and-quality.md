@@ -11,14 +11,14 @@ lastUpdated: true
 
 Use this page when translation requests occasionally time out or hit rate limits, or when you need to control API cost and how failures affect an entire batch. It covers retry attempts (`cli.attempts`), the per-minute request cap (`translator.max_requests_per_minute`), error ignoring (`cli.ignore_errors`), and post-translation quality checks. It does not cover translator selection (see [Translator selection and languages](./selection-and-languages.md)), prompt and context composition (see [Context and prompts](./context-and-prompts.md)), or API candidate slot management, `failover`/`round_robin` strategy, cooldown, and recovery (see the API-management pages).
 
-## Feature boundary
+## When to use it
 
 - **Owned here**: `cli.attempts` decides the retry budget for request transport and content validation; `translator.max_requests_per_minute` decides the actual request pacing; `cli.ignore_errors` decides how failures are isolated at the file/batch level; `translator.enable_post_translation_check` and the three `post_check_*` thresholds decide post-translation quality checks.
 - **Not owned here**: adding/removing candidate slots such as `OPENAI_API_KEY`/`_2`/`_3`, rotation strategy, cooldown, and unavailable states belong to API management; `cli.save_quality` (Image Save Quality) is output-file compression quality, not translation quality.
-- High-quality translators (`openai_hq`/`gemini_hq`) and custom prompts affect translation quality but belong to the translator-selection and prompt pages; this page only notes that they are not part of the retry budget.
+- High-quality translators (`openai_hq`/`gemini_hq`) and custom prompts affect translation quality but belong to the translator-selection and prompt pages; this guide only notes that they are not part of the retry budget.
 - `cli.attempts` and `translator.post_check_max_retry_attempts` are two independent retry budgets: the former covers request sending, the latter covers post-translation checks. They do not replace each other.
 
-## UI operations
+## Set it in the desktop app
 
 ### Configure retry and error handling in Settings
 
@@ -37,7 +37,7 @@ The current desktop settings layout does not include the post-translation check 
 
 ## Parameters and options
 
-> For how each parameter's UI name, storage key, and default value map to each other, see [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For how each parameter's UI name, storage key, and default value map to each other, see [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 #### Retry Attempts {#cli-attempts}
 
@@ -87,7 +87,7 @@ The current desktop settings layout does not include the post-translation check 
 - Default: `0.5`.
 - Mechanism: when a batch has more than 10 regions, the translations of all regions in the batch are merged and language-detected; if the result is not the target language, the whole batch is re-translated up to “Max Retry Attempts”.
 
-## Runtime behavior
+## How translation requests are handled
 
 ### Retry layers and candidate rotation {#retry-layers}
 
@@ -185,7 +185,7 @@ flowchart TD
     K --> Z
 ```
 
-## Dependencies and conflicts
+## Models, network, and quality
 
 - `cli.attempts`, `translator.max_requests_per_minute`, `cli.ignore_errors`, and the post-translation check are four independent dimensions: retry budget, request pacing, failure isolation, and quality checking do not replace each other.
 - `attempts=-1` combined with content filters or persistent 5xx responses may run for a long time; `max_requests_per_minute` only throttles sending and does not reduce the cost of a single request.

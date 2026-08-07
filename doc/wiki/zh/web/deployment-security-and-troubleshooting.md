@@ -9,15 +9,15 @@ lastUpdated: true
 
 # Web 部署、安全与排错
 
-当需要把 Web 界面部署到本机、局域网或 Docker，确认会话令牌、限流与权限边界，或遇到“端口被占用”“局域网无法访问”“登录被限流”等问题时使用本页。本页只覆盖 Web 服务的部署、安全边界与排错；账号、权限与 API Key 的具体操作见[账号、权限与 API 密钥](./accounts-permissions-and-api-keys.md)，登录与会话的界面操作见[登录、语言与会话](./login-language-and-session.md)，管理控制台见[管理员界面](./administrator-interface.md)。完整的 HTTP 路由、状态码与端口契约属于开发者文档，见[Web 服务器端口与部署](../developer/web-server-ports-and-deployment.md)与[鉴权与错误](../developer/http-api/authentication-and-errors.md)。
+当需要把 Web 界面部署到本机、局域网或 Docker，确认会话令牌、限流与权限边界，或遇到“端口被占用”“局域网无法访问”“登录被限流”等问题时使用本页。这里仅列出 Web 服务的部署、安全边界与排错；账号、权限与 API Key 的具体操作见[账号、权限与 API 密钥](./accounts-permissions-and-api-keys.md)，登录与会话的界面操作见[登录、语言与会话](./login-language-and-session.md)，管理控制台见[管理员界面](./administrator-interface.md)。完整的 HTTP 路由、状态码与端口契约属于开发者文档，见[Web 服务器端口与部署](../developer/web-server-ports-and-deployment.md)与[鉴权与错误](../developer/http-api/authentication-and-errors.md)。
 
-## 功能边界
+## 页面与接口范围
 
-- Web 服务同时提供用户界面（`GET /`）、管理界面（`GET /admin`）、登录页（`/static/login.html`）和开发者 HTTP API；本页只讲面向使用者的部署、安全边界与排错，不重复开发者 API 契约。
+- Web 服务同时提供用户界面（`GET /`）、管理界面（`GET /admin`）、登录页（`/static/login.html`）和开发者 HTTP API；这里按面向使用者的部署、安全边界与排错，不重复开发者 API 契约。
 - 默认监听 `0.0.0.0:8000`，可用 `--host`/`--port` 或环境变量 `MT_WEB_HOST`/`MT_WEB_PORT` 覆盖；`0.0.0.0` 表示监听所有 IPv4 接口，不是浏览器访问地址。
 - Docker Compose 提供 CPU 与 GPU 两个服务：CPU 版映射 `8000:8000`，GPU 版映射 `8001:8000`。
 - 会话、权限、限流与审计都在服务端强制执行；浏览器隐藏控件或删除前端令牌不能替代服务端检查。
-- 本页不记录真实密码、令牌、API Key、用户名或私有路径，也不展示 `.env` 明文。
+- 这里不记录真实密码、令牌、API Key、用户名或私有路径，也不展示 `.env` 明文。
 
 ## 部署方式 {#deploy-methods}
 
@@ -84,7 +84,7 @@ flowchart LR
 - `require_admin` 在此基础上要求 `role == 'admin'`；非管理员访问管理端点返回 `403`。
 - 翻译端点还会校验翻译器、OCR、上色器、渲染器权限，并对用户提交的参数做服务端过滤，未授权参数被静默丢弃。
 - 下载票据是短时令牌（默认 5 分钟），`GET|HEAD /api/history/downloads/t/{ticket}` 不读取会话头，只依赖票据本身；无效或过期票据返回 `404`。
-- CORS 源码配置为 `allow_origins=["*"]` 且 `allow_credentials=True`。这是服务端配置，不代表浏览器会在所有 origin/credential 组合下放行；对外部署时建议用反向代理收紧来源，并做浏览器预检运行验证。
+- CORS 源码配置为 `allow_origins=["*"]` 且 `allow_credentials=True`。这不代表浏览器会放行所有 origin/credential 组合；对外部署时建议用反向代理收紧来源，并在浏览器开发者工具中检查预检请求。
 
 ### 凭据与敏感信息
 
@@ -111,4 +111,4 @@ flowchart LR
 
 状态码的完整矩阵与触发来源见[鉴权与错误](../developer/http-api/authentication-and-errors.md)；翻译、导入导出等请求错误的详细解释见[翻译端点](../developer/http-api/translation-endpoints.md)。
 
-> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 详见参考索引：[界面选项对照表](../reference/options-i18n-matrix.md)。

@@ -9,15 +9,15 @@ lastUpdated: true
 
 # Translator Chaining
 
-Use `translator_chain` when the same batch of text must first be translated to an intermediate language by one translator and then continued by another translator into the final language. It feeds the output text list of one translator directly into the next one and runs the stages in configuration order. This page covers the chain-string format, the execution order, the difference from API candidate-slot rotation, and the boundary with context and prompts.
+Use `translator_chain` when the same batch of text must first be translated to an intermediate language by one translator and then continued by another translator into the final language. It feeds the output text list of one translator directly into the next one and runs the stages in configuration order. This guide covers the chain-string format, the execution order, the difference from API candidate-slot rotation, and the boundary with context and prompts.
 
-## Feature boundary
+## When to use it
 
 - `translator.translator_chain` is a string field on the core `TranslatorConfig`, defaulting to `null`; it splits translation into multiple `translator:language` stages executed in sequence.
 - Chaining decides only “which translators, in what order, and into which language each stage translates”. It does not pick request endpoints and does not handle retries, cooldown, unavailability, or recovery.
 - Chaining does not change context or prompt settings: `cli.context_size` history pages, `translator.high_quality_prompt_path`, and `extract_glossary` still work through their own mechanisms.
 - It competes with the single `translator` as a source of the translation generator: `translator_gen` builds `selective_translation` first, then `translator_chain`, then the single `translator`.
-- `selective_translation` is a sibling field parsed into the same `TranslatorChain` (language-based translator selection); this page does not expand it. See [Translator engine dispatch](./engine-dispatch.md).
+- `selective_translation` is a sibling field parsed into the same `TranslatorChain` (language-based translator selection); this guide does not expand it. See [Translator engine dispatch](./engine-dispatch.md).
 - The Translation group in the desktop Settings page has no `translator_chain` control row; the Web UI hides the field as an advanced key by default.
 
 ## Configuration format

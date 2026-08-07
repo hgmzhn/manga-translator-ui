@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Batch Scheme Management
 
-When you want to save a batch-edit setup—which regions to filter and what to do with them—for reuse across sessions, store it as a batch scheme. A scheme consists of a name, match conditions (`match`), and actions (`actions`). This page covers only the scheme list and the create, duplicate, rename, and delete operations, plus autosave and persistence. Configuring match conditions is covered in [Match conditions](./conditions.md), action types and their fixed execution order in [Actions and order](./actions-and-order.md), and hit preview, write-back, and restore from backup in [Preview, apply, and restore](./preview-apply-restore.md).
+When you want to save a batch-edit setup—which regions to filter and what to do with them—for reuse across sessions, store it as a batch scheme. A scheme consists of a name, match conditions (`match`), and actions (`actions`). This guide focuses on the scheme list and the create, duplicate, rename, and delete operations, plus autosave and persistence. Configuring match conditions is covered in [Match conditions](./conditions.md), action types and their fixed execution order in [Actions and order](./actions-and-order.md), and hit preview, write-back, and restore from backup in [Preview, apply, and restore](./preview-apply-restore.md).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - A scheme = name + `match` (`logic` + `conditions`) + `actions`. Schemes are stored only in `config/batch_edit_schemes.yaml`; they are not written to `config/config.json` and never enter the rendering or translation pipeline.
-- The “New / Rename / Duplicate / Delete” buttons on the scheme bar manage the scheme itself only. Condition rows, the logic combo, and the three action cards belong to sibling pages; this page only explains how they are saved as part of a scheme.
+- The “New / Rename / Duplicate / Delete” buttons on the scheme bar manage the scheme itself only. Condition rows, the logic combo, and the three action cards belong to sibling pages; this guide only explains how they are saved as part of a scheme.
 - The batch-management scope follows the main file list: the panel footer shows “Scope: {count} translated files from the main file list”. The file list itself is managed on the [File list and input](../translation/file-list-and-input.md) page.
 - Schemes contain no keys or private user data; scheme names, condition values, and action fields may contain business text, so sanitize them before sharing reports.
 
-## UI operations {#ui-operations}
+## Use it in Batch Management {#ui-operations}
 
 ### View and switch schemes
 
@@ -75,7 +75,7 @@ When you want to save a batch-edit setup—which regions to filter and what to d
 
 Error messages may contain local paths; sanitize them before copying into public reports.
 
-## Runtime behavior {#runtime-behavior}
+## How a scheme is applied {#runtime-behavior}
 
 Scheme loading, editing, and saving share one data flow:
 
@@ -106,7 +106,7 @@ flowchart TD
 - Debounce: `_AUTOSAVE_DELAY_MS = 600`. `_mark_dirty()` starts a single-shot timer and clears the previous preview when conditions or actions change.
 - The `enabled` field is preserved on read, but the current UI always writes `True` and the batch engine does not filter schemes by it; do not rely on it as an enable/disable switch.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - The scheme file serves the desktop batch-management page only; `batch_edit_schemes.py` deliberately does not register in `manga_translator/runtime_files.py` bootstrapping, so schemes never enter the rendering or translation pipeline.
 - Schemes are not written to `config/config.json` or any configuration model; they are not Settings-page parameters.

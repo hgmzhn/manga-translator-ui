@@ -9,13 +9,13 @@ lastUpdated: true
 
 # 安装与启动故障排查
 
-程序装不上、打不开或启动后立即退出时，先在本页按症状定位，再回到对应的安装页执行修复。本页只处理安装与启动阶段的故障，不重复各安装页的完整步骤；安装流程分别见[安装要求](../install/requirements.md)、[Windows 便携版](../install/windows-portable.md)、[Windows 源码安装](../install/source-windows.md)、[Linux 与 macOS](../install/linux-and-macos.md)、[Docker 部署](../install/docker.md)、[更新与版本切换](../install/update-and-version-switching.md)和[卸载与数据清理](../install/uninstall-and-data-cleanup.md)。
+程序装不上、打不开或启动后立即退出时，先在下面按症状定位，再回到对应的安装页执行修复。这里仅处理安装与启动阶段的故障，不重复各安装页的完整步骤；安装流程分别见[安装要求](../install/requirements.md)、[Windows 便携版](../install/windows-portable.md)、[Windows 源码安装](../install/source-windows.md)、[Linux 与 macOS](../install/linux-and-macos.md)、[Docker 部署](../install/docker.md)、[更新与版本切换](../install/update-and-version-switching.md)和[卸载与数据清理](../install/uninstall-and-data-cleanup.md)。
 
 模型加载、GPU 显存与内存问题见[模型、GPU 与内存](./model-gpu-and-memory.md)；API 鉴权、限流与超时见[API 鉴权、限流与超时](./api-auth-rate-limit-and-timeout.md)；输出 JSON 与排版问题见[输出 JSON 与排版](./output-json-and-rendering.md)；日志分享前的清理见[隐私、清理与日志分享](./privacy-cleanup-and-log-sharing.md)。
 
-## 功能边界 {#scope}
+## 先确认问题 {#scope}
 
-- 本页覆盖 Windows 便携版、源码/Unix、Docker 三种安装形态的安装失败，以及 Qt 桌面、CLI 和 Web 服务三种入口的启动失败。
+- 内容包括 Windows 便携版、源码/Unix、Docker 三种安装形态的安装失败，以及 Qt 桌面、CLI 和 Web 服务三种入口的启动失败。
 - “安装失败”指环境创建、依赖下载或后端选择失败；“启动失败”指入口存在但无法进入可用状态，例如报错退出、端口占用或初始化失败。
 - 安装成功不等于模型已下载、API 可用或 GPU 可用；这些属于后续运行问题，由对应排障页负责。
 
@@ -120,4 +120,4 @@ flowchart TD
     I -->|"是"| J["加载 .env 并启动 uvicorn"]
 ```
 
-上图只表达常见启动路径与错误反馈分支；真实退出码、镜像回退和 GPU 分支仍以源码与受控运行验证为准。
+上图只表达常见启动路径与错误反馈分支；真实退出码、镜像回退和 GPU 分支仍以源码与实际环境为准。

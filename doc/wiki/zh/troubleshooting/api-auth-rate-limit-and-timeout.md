@@ -9,13 +9,13 @@ lastUpdated: true
 
 # API、鉴权、限流与超时排障
 
-当翻译、OCR、上色或渲染请求报 API 错误、鉴权失败、限流或超时，先分清问题发生在“本机到外部 API”还是“浏览器到 Web 服务”，再按症状定位配置、网络或候选状态。本页只讲四类症状的诊断顺序与修复入口；候选通道、冷却状态机、重试/RPM 参数、连接测试和 Web 部署安全的具体正文分别在对应页面。
+当翻译、OCR、上色或渲染请求报 API 错误、鉴权失败、限流或超时，先分清问题发生在“本机到外部 API”还是“浏览器到 Web 服务”，再按症状定位配置、网络或候选状态。下面按四类症状给出诊断顺序和修复入口；候选通道、冷却状态机、重试/RPM 参数、连接测试和 Web 部署安全的细节分别在对应页面。
 
-## 功能边界 {#feature-boundary}
+## 先确认问题 {#feature-boundary}
 
-- 本页覆盖四类症状：API 错误（4xx/5xx）、鉴权失败（密钥无效、401/403）、限流（429/冷却/RPM）、超时与网络（timeout/connection/DNS）。
+- 内容包括四类症状：API 错误（4xx/5xx）、鉴权失败（密钥无效、401/403）、限流（429/冷却/RPM）、超时与网络（timeout/connection/DNS）。
 - 候选通道的增删、编号与 `failover`/`round_robin` 策略见[API 通道与轮询策略](../desktop/api-management/slots-and-rotation.md)；冷却、不可用、恢复与再失败状态机见[故障、冷却与恢复](../desktop/api-management/failures-cooldown-and-recovery.md)；连接测试与获取模型见[连接测试与模型列表](../desktop/api-management/connection-tests-and-model-list.md)；Key/Base/Model 字段与 `.env` 键映射见[凭据、地址与模型](../desktop/api-management/credentials-addresses-models.md)。
-- `cli.attempts`、`translator.max_requests_per_minute` 与译后质量检查的完整参数说明见[重试、限流与质量](../desktop/translator/retry-rate-limit-and-quality.md)，本页不重复参数模板。
+- `cli.attempts`、`translator.max_requests_per_minute` 与译后质量检查的完整参数说明见[重试、限流与质量](../desktop/translator/retry-rate-limit-and-quality.md)，这里不重复参数模板。
 - Web 场景：登录/注册/会话限流、并发与配额属于[Web 部署、安全与排错](../web/deployment-security-and-troubleshooting.md)与[登录、语言与会话](../web/login-language-and-session.md)；完整状态码契约属于开发者文档[鉴权与错误](../developer/http-api/authentication-and-errors.md)与[翻译端点](../developer/http-api/translation-endpoints.md)。
 - “限流”在桌面端与 Web 服务是两个不同层级：桌面端是外部 API 的 RPM 与候选冷却；Web 服务是登录/注册/并发/配额的服务端限流。不要混用两套概念排查。
 
@@ -41,7 +41,7 @@ lastUpdated: true
 - 用“测试”或“测试当前页”验证。失败弹窗标题为“API连接测试失败”，正文按网络错误、服务端异常或通用配置给出分类建议。
 - 源码把密钥无效按消息识别为永久错误：`invalid api key`、`api key not valid`、`api key expired`、`invalid authentication`、`invalid credentials`、`permission denied`、`access denied` 等命中后，候选进入“不可用”，后续请求跳过该候选，直到修改凭据或点击“恢复”。
 - Web 服务有两类“鉴权失败”：浏览器会话 401（令牌缺失/无效/过期，前端清本地令牌并跳转登录页）与服务器端保存的 API Key 无效（翻译请求 401/403）。前者见[登录、语言与会话](../web/login-language-and-session.md)，后者先检查管理界面的 API Key 策略与 `.env` 持久化，见[Web 部署、安全与排错](../web/deployment-security-and-troubleshooting.md)。
-- 本页不展示真实 Key；错误弹窗和日志中出现的明文 Key 片段不要复制到公开报告。
+- 这里不展示真实 Key；错误弹窗和日志中出现的明文 Key 片段不要复制到公开报告。
 
 ## 限流与冷却 {#rate-limit-and-cooldown}
 
@@ -85,4 +85,4 @@ flowchart TD
     Next --> Pick
 ```
 
-上图是源码确认的候选级处理顺序：先在同一候选上按 `cli.attempts` 重试，只有永久错误和限流才会改变候选状态，然后才按策略尝试下一候选。“重试次数”与“API 通道数量”是两个层级；`attempts=-1`、单候选、无失败等场景会走对应旁路，文档没有伪造运行截图。
+上图是候选级处理顺序：先在同一候选上按 `cli.attempts` 重试，只有永久错误和限流才会改变候选状态，然后才按策略尝试下一候选。“重试次数”与“API 通道数量”是两个层级；`attempts=-1`、单候选、无失败等场景会走对应旁路，文档。

@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 蒙版、修复与排版调试产物
 
-启用“详细日志”后，每张输入图会在 `result/` 下建立独立调试子目录，其中蒙版细化、图像修复和文本排版三个阶段会写入用于排查的图片与 JSON。本页说明这些产物的生成顺序、触发条件、画面/内容含义和排查用途；检测阶段的置信热图与 OCR 裁切图分别在[输入、检测与重排调试](./input-detection-and-rearrangement.md)和[OCR 与文本区域调试](./ocr-and-text-regions.md)，替换翻译与 WebSocket 的产物见[特殊工作流与 WebSocket 调试](./special-workflows-and-websocket.md)。
+启用“详细日志”后，每张输入图会在 `result/` 下建立独立调试子目录，其中蒙版细化、图像修复和文本排版三个阶段会写入用于排查的图片与 JSON。这里说明这些产物的生成顺序、触发条件、画面/内容含义和排查用途；检测阶段的置信热图与 OCR 裁切图分别在[输入、检测与重排调试](./input-detection-and-rearrangement.md)和[OCR 与文本区域调试](./ocr-and-text-regions.md)，替换翻译与 WebSocket 的产物见[特殊工作流与 WebSocket 调试](./special-workflows-and-websocket.md)。
 
-设置页中控制这些阶段的参数（“修复”与“排版”分组）见[蒙版与修复设置](../desktop/settings/mask-and-inpainting.md)和[排版与渲染设置](../desktop/settings/typesetting-and-rendering.md)；本页不重复参数默认值。
+设置页中控制这些阶段的参数（“修复”与“排版”分组）见[蒙版与修复设置](../desktop/settings/mask-and-inpainting.md)和[排版与渲染设置](../desktop/settings/typesetting-and-rendering.md)；这里不重复参数默认值。
 
 ## 排查场景 {#when-to-use}
 
@@ -91,4 +91,4 @@ flowchart LR
 - `inpaint_input.png` 使用 `Inpainter.none` 把蒙版区域涂白，不代表真实修复器的输入预处理，只用于可视化待擦除范围。
 - AI 渲染器会跳过修复阶段；`renderer=none` 跳过文本绘制；这些跳过会直接改变 `inpainted.png` 与断句记录是否出现。
 - 修复模型按 `inpainting_size` 缩放输入，极端长宽比按 `INPAINT_SPLIT_RATIO=3.0` 拆块；分块与逐块修复只改变模型输入，不改变调试图整页形态。
-- 调试图与 JSON 可能含完整用户页面、OCR 文本、译文、坐标、base64 蒙版或本机路径，默认视为用户内容，公开前逐文件检查；本页不展示真实密钥、用户图片或私有绝对路径。
+- 调试图与 JSON 可能含完整用户页面、OCR 文本、译文、坐标、base64 蒙版或本机路径，默认视为用户内容，公开前逐文件检查；这里不展示真实密钥、用户图片或私有绝对路径。

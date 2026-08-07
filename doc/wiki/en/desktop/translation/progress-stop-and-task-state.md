@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Progress, Stop, and Task State
 
-After the translation page has input files, a valid output directory, and passing API checks, this page explains the button states, file counts, percentages, stop request, and cleanup from start through completion, failure, or stopping. See [Output Directory and Workflow](./output-directory-and-workflow.md) for workflow inputs and outputs, and [File List and Input](./file-list-and-input.md) for adding, scanning, and empty-list states.
+After the translation page has input files, a valid output directory, and passing API checks, this guide explains the button states, file counts, percentages, stop request, and cleanup from start through completion, failure, or stopping. See [Output Directory and Workflow](./output-directory-and-workflow.md) for workflow inputs and outputs, and [File List and Input](./file-list-and-input.md) for adding, scanning, and empty-list states.
 
-## Feature boundary
+## What this part handles
 
-This page covers the desktop Qt translation workspace's:
+This guide covers the desktop Qt translation workspace's:
 
 - Start-button transitions through preparation, startup, running, stopping, and ready.
 - How scanning, processed files, skipped files, failed files, and completed counts reach the progress display.
@@ -21,7 +21,7 @@ This page covers the desktop Qt translation workspace's:
 
 It does not define detector, OCR, translator, inpainting, or renderer algorithms, and it does not treat the progress bar as a server-side task protocol. Stage differences among the nine workflows remain on the workflow page.
 
-## UI operations
+## Use it on the Translation page
 
 ### Start a task
 
@@ -53,7 +53,7 @@ After completion, the controller collects returned saved paths, then sets status
 
 On failure, the state becomes “任务失败”, progress is reset, and a “Translation Error” dialog opens. The dialog shows a friendly error summary and offers “Open log folder”. A partially failed batch keeps successful results while reporting success and failure counts. When every input is skipped because an output already exists, this is not treated as an API translation failure; the warning suggests deleting same-named files or enabling overwrite.
 
-## Runtime behavior
+## How the task runs
 
 ### State and progress flow
 
@@ -81,7 +81,7 @@ Progress counts are adjusted with the skipped offset and bounded to 0–100 perc
 
 Stopping first invalidates callbacks and then asks the worker to cancel; the state changes to “任务已停止” only after background scan, translation, and archive cleanup are truly finished. Model unloading depends on `app.unload_models_after_translation`.
 
-## Dependencies and conflicts
+## Task limitations
 
 - Starting depends on a valid output directory, a non-empty input list, credentials required by the selected translator, and no unfinished previous-task cleanup.
 - Scanning is still represented by the translating state, so Add Files, Add Folder, Clear List, the file list, and API management are disabled.

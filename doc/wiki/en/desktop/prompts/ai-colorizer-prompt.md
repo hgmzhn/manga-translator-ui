@@ -9,16 +9,16 @@ lastUpdated: true
 
 # AI Colorizer Prompt
 
-When `OpenAI Colorizer` or `Gemini Colorizer` colorizes a manga page, the AI colorizer reads a fixed prompt file and sends its coloring instructions, colorization rules, and reference images together with the page image to the image-generation model. This page documents where that file lives, which fields it contains, how it is loaded and injected into requests, and its boundary with the custom HQ translation prompt. Parameter details for the colorization model, colorization size, denoise strength, and history pages are in [Upscaling and colorization](../settings/upscale-and-colorization.md); the full prompt-list, apply, and preview workflow is in [Prompt list, apply, and preview](./list-apply-and-preview.md); translation prompts are covered in [Context and prompts](../translator/context-and-prompts.md).
+When `OpenAI Colorizer` or `Gemini Colorizer` colorizes a manga page, the AI colorizer reads a fixed prompt file and sends its coloring instructions, colorization rules, and reference images together with the page image to the image-generation model. This guide documents where that file lives, which fields it contains, how it is loaded and injected into requests, and its boundary with the custom HQ translation prompt. Parameter details for the colorization model, colorization size, denoise strength, and history pages are in [Upscaling and colorization](../settings/upscale-and-colorization.md); the full prompt-list, apply, and preview workflow is in [Prompt list, apply, and preview](./list-apply-and-preview.md); translation prompts are covered in [Context and prompts](../translator/context-and-prompts.md).
 
-## Feature boundary
+## When to use it
 
 - `colorizer.ai_colorizer_prompt_path` is the UI call key of the fixed prompt-edit action shown as “AI Colorizer Prompt” in Settings. It is not an ordinary configuration row and has no selectable-file combo box like `translator.high_quality_prompt_path`.
 - Both the Settings edit action and the runtime request builder always target the default path `dict/ai_colorizer_prompt.yaml` (`DEFAULT_AI_COLORIZER_PROMPT_PATH`). Neither the Qt model `ColorizerSettings` nor the release file `config/config-example.json` persists a field with the same name; do not treat this key as a switchable translation-prompt path.
 - This page never shows real prompt text, API keys, or user reference-image paths; it only documents the file structure, loading rules, and injection path.
 - The offline colorizer `Manga Colorization v2` (`mc2`) does not read any prompt file; only `openai_colorizer` and `gemini_colorizer` load `dict/ai_colorizer_prompt.yaml`.
 
-## UI operations
+## Use it in Prompt Management
 
 ### Edit the AI colorizer prompt in Settings
 
@@ -42,7 +42,7 @@ The “Prompt Management” list is built by `get_hq_prompt_options()`, which ex
 
 When a user-created file contains colorizer-specific fields such as `ai_colorizer_prompt`, `colorization_rules`, or `reference_images`, `open_prompt_editor()` detects it by content (`is_ai_colorizer_prompt_file`) and opens the same `AIColorizerPromptEditorDialog`; the preview panel also renders the “Prompt Text / Colorization Rules / Reference Images” sections. Otherwise it falls back to the generic `PromptEditorDialog`.
 
-## Runtime behavior
+## How prompts are loaded
 
 ### Prompt loading and request injection {#prompt-injection}
 
@@ -76,7 +76,7 @@ The `colorize_only` workflow returns `ctx.img_colorized` directly after coloriza
 
 `colorizer.ai_colorizer_history_pages` (“AI Colorizer History Pages”) affects only the OpenAI/Gemini colorizers: after each successful colorization the result image is kept in memory, and the next request attaches the most recent N colorized pages as `history_reference` images — image-only context, never text; `0` disables it. When fewer history pages exist, only the available ones are used; task ordering and concurrency isolation limit which pages are available.
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - Affects only AI colorizers: `mc2` and `none` never read the prompt file; rewriting it as a translation prompt does not change the offline colorizer.
 - Not interchangeable with the custom HQ translation prompt: `translator.high_quality_prompt_path` is a selectable translation-prompt path, while `dict/ai_colorizer_prompt.yaml` is the fixed AI colorizer prompt file; `get_hq_prompt_options()` explicitly excludes AI prompt stems such as `ai_colorizer_prompt` so a colorizer file cannot be applied to a translation request.

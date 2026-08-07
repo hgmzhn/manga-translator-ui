@@ -11,15 +11,15 @@ lastUpdated: true
 
 Use this page when a rule must do more than change text: it also adjusts font size, color, stroke, spacing, or direction on matched text, and when you want to load a style preset saved in the editor directly into a rule. Rule matching, table, and Raw editing are covered in [Rich-text rules: table, Raw, and matching](./table-raw-and-match.md); manually creating style presets in the editor is covered in [Floating rich-text editor](../editor/floating-rich-text.md).
 
-## Feature boundary
+## Where the rules apply
 
 - Each rule stores its styling in the `style`, `ruby`, and `tcy` fields of `config/rich_text_rules.yaml`; every control in the “Edit Rich Text Style” dialog maps back to one of those fields.
-- The “Saved rich text style:” dropdown only reads `app.saved_rich_text_presets`; this page does not create, rename, or delete presets. Preset CRUD happens in the “Rich Text Presets” sidebar of the editor's floating rich-text panel.
+- The “Saved rich text style:” dropdown only reads `app.saved_rich_text_presets`; this guide does not create, rename, or delete presets. Preset CRUD happens in the “Rich Text Presets” sidebar of the editor's floating rich-text panel.
 - Automatic rules use “fill missing fields only” semantics: existing manual rich-text fields are preserved and rules only append fields that are not set yet. The editor's incremental path instead uses `skip` semantics and skips a whole match when the span carries manual rich text.
 - `editor_auto_rich_text_rules` is the switch that auto-applies rules while typing in the editor; it is not the rules file itself and does not control the render pipeline.
 - TCY and Ruby are node-level structures, not `TextStyle` fields; rules write them through the top-level `tcy` and `ruby` fields.
 
-## UI operations
+## Use it in Rich Text Rules
 
 ### Open the style dialog {#open-style-dialog}
 
@@ -42,7 +42,7 @@ Use this page when a rule must do more than change text: it also adjusts font si
 
 ## Style fields {#style-fields}
 
-> For the storage keys, defaults, and implementation details of every field on this page, see the reference page [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For the storage keys, defaults, and implementation details of every field on this page, see the reference page [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 Each style field maps to one kind of styling in the rich-text document. Only the fields you enable in the dialog are written to the rule; before writing, the style passes through normalization and validation, and a rule that contains unknown fields fails to compile and is skipped as a whole. Field defaults are the dialog control defaults, not region or region-style defaults.
 
@@ -147,10 +147,10 @@ flowchart LR
     D --> M["Second rich-text measurement + layout rendering"]
 ```
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - The rule application order is fixed as `common` (always) → the current direction's `horizontal` / `vertical`; a later rule can override an earlier rule's same-named fields inside the automatic style, but existing manual rich-text fields always survive.
-- The style dialog is shared with the “Apply rich text style” action of Batch Management (`RichTextStyleDialog`); this page describes the rules scenario only, and the batch scenario is covered by [Batch management: preview, apply, and restore](../batch-management/preview-apply-restore.md).
+- The style dialog is shared with the “Apply rich text style” action of Batch Management (`RichTextStyleDialog`); this guide describes the rules scenario only, and the batch scenario is covered by [Batch management: preview, apply, and restore](../batch-management/preview-apply-restore.md).
 - Presets and rules are two separate stores: presets live in `app.saved_rich_text_presets` (user `config.json`) and rules in `config/rich_text_rules.yaml`; loading a preset only fills the dialog fields and never creates a rule.
 - When `editor_auto_rich_text_rules` is off, the editor stops auto-applying rules while typing, but the render pipeline still applies `config/rich_text_rules.yaml`.
 - Style values may contain user business content (colors, font names, ruby text). Before sharing logs, config exports, or debug directories, remove rule bodies, preset names, colors, and ruby text.

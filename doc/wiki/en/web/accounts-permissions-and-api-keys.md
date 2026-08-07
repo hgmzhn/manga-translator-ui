@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Accounts, Permissions, and API Keys
 
-When several people share one translation server, this page explains how to create and manage user accounts, control which translators/OCR/colorizers/renderers/workflows and parameters each user may use, and how users fill in API keys on their own page. On first startup, when no account exists, the login page guides you through creating the first administrator; afterwards an administrator assigns permissions in “用户管理” (User Management), “用户组管理” (Group Management), “配额管理” (Quota Management), and related screens. Session login and expiry details are in [Login, language, and session](./login-language-and-session.md), the overall admin console structure is in [Administrator interface](./administrator-interface.md), and font/prompt resource upload permissions are in [Resources, fonts, and prompts](./resources-fonts-and-prompts.md). The authentication contract for direct HTTP API callers is covered by [Developer HTTP API: Authentication and errors](../developer/http-api/authentication-and-errors.md) and [Admin: Users, groups, quota, and audit](../developer/http-api/admin-users-groups-quota-audit.md); this page only describes operations a user performs in the browser.
+When several people share one translation server, this guide explains how to create and manage user accounts, control which translators/OCR/colorizers/renderers/workflows and parameters each user may use, and how users fill in API keys on their own page. On first startup, when no account exists, the login page guides you through creating the first administrator; afterwards an administrator assigns permissions in “用户管理” (User Management), “用户组管理” (Group Management), “配额管理” (Quota Management), and related screens. Session login and expiry details are in [Login, language, and session](./login-language-and-session.md), the overall admin console structure is in [Administrator interface](./administrator-interface.md), and font/prompt resource upload permissions are in [Resources, fonts, and prompts](./resources-fonts-and-prompts.md). The authentication contract for direct HTTP API callers is covered by [Developer HTTP API: Authentication and errors](../developer/http-api/authentication-and-errors.md) and [Admin: Users, groups, quota, and audit](../developer/http-api/admin-users-groups-quota-audit.md); this guide focuses on operations a user performs in the browser.
 
-## Feature boundary {#feature-boundary}
+## UI and API scope {#feature-boundary}
 
-- This page covers the browser-side account lifecycle (initial setup, login, registration, password change, logout), roles/groups/feature permissions and quota, plus the user-side API key editor and policy.
+- This guide covers the browser-side account lifecycle (initial setup, login, registration, password change, logout), roles/groups/feature permissions and quota, plus the user-side API key editor and policy.
 - A “user account” is not an “HTTP API client”: the `X-Session-Token` request/response format, status codes, and route inventory belong to the developer HTTP API pages.
-- This page does not cover server startup, ports, CORS, or firewalls (see [Deployment, security, and troubleshooting](./deployment-security-and-troubleshooting.md)), nor translation tasks themselves (see [Upload, configure, and translate](./upload-config-and-translate.md)).
+- This guide does not cover server startup, ports, CORS, or firewalls (see [Deployment, security, and troubleshooting](./deployment-security-and-troubleshooting.md)), nor translation tasks themselves (see [Upload, configure, and translate](./upload-config-and-translate.md)).
 - API keys are described only through management and effective-order rules; no real keys, usernames, private paths, or user-entered values are shown.
 
 ## User accounts {#user-accounts}
@@ -133,7 +133,7 @@ Merging happens only during server-side request construction; the page never rec
 
 Administrators maintain “服务器默认API密钥” (server default API keys, `.env`) and “API密钥预设” (API key presets) in the “API密钥管理” (API key management) module. Server default keys are the fallback when no user or preset overrides anything; presets can be restricted to visible groups and assigned to users or groups as their default. In “用户管理” (User Management), an administrator can also assign each user an “API密钥预设” (API key preset; default is “继承用户组设置”, inherit group settings).
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Permissions, security, and limits {#dependencies-and-conflicts}
 
 - Registration availability depends on the administrator’s “允许用户注册” (allow user registration) switch; when off, the login page hides the Register tab and the endpoint refuses too.
 - Turning on `save_user_keys_to_server` writes user keys into the server `.env`; any user save affects the whole deployment, so plan it together with group policy in multi-user environments.
@@ -141,4 +141,4 @@ Administrators maintain “服务器默认API密钥” (server default API keys,
 - Group quota takes precedence over user-level quota, but user-level `denied_*` always wins over the group whitelist; configure the group first, then the user.
 - Hiding the API Keys tab is not the same as disabling it server-side: `show_env_editor` only controls the page editing entry, while whether a request may use server keys is decided by `allow_server_keys` / `require_user_keys`.
 
-> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> See the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).

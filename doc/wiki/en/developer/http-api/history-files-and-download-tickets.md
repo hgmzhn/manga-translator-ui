@@ -11,16 +11,16 @@ lastUpdated: true
 
 Use this page when you integrate server-side translation history, read history files, or hand translation results to users for download. It documents the HTTP API contract and storage behavior. History is written automatically by the translation pipeline and isolated per user; files never expose disk paths but are addressed by session token plus filename; downloads go through short-lived tickets whose URLs are valid for 5 minutes by default.
 
-This page covers the developer HTTP API and storage mechanics only. The corresponding web user operations are in [Progress, results, and history](../../web/progress-results-and-history.md), session authentication and common errors in [Authentication and errors](./authentication-and-errors.md), streaming translation endpoints in [Streaming protocol](./streaming-protocol.md), and batch export/import flows in [Batch export and import process](./batch-export-import-process.md).
+This guide covers the developer HTTP API and storage mechanics only. The corresponding web user operations are in [Progress, results, and history](../../web/progress-results-and-history.md), session authentication and common errors in [Authentication and errors](./authentication-and-errors.md), streaming translation endpoints in [Streaming protocol](./streaming-protocol.md), and batch export/import flows in [Batch export and import process](./batch-export-import-process.md).
 
-## Feature boundary {#feature-boundary}
+## Endpoint scope {#feature-boundary}
 
 - History is written only on translation paths that call `save_translation_to_history()`: the web frontend writes for single-file and batch “normal translation”, while the non-streaming export-original/export-translation/import-and-render/colorize-only/upscale-only/inpaint-only paths do not write.
 - On the write path, `session_token` is the task ID (single file: `task_id`; batch: `{task_id}_{i}`). `HistoryManagementService.generate_session_token()` (UUID v4) exists but is not used on the write path.
 - History is isolated per user: a regular user can only reach their own sessions, while an administrator can reach all of them; insufficient view/delete permission makes the endpoint return 403.
 - File access must satisfy both the session-ownership check and filename sanitization plus the `resolve_path_within` root constraint, preventing path traversal.
 - A download ticket is a capability: `GET /api/history/downloads/t/{ticket}` does not require a session header, so anyone holding the URL can download within the validity window. Tickets are therefore short-lived and the response sets `Cache-Control: private, no-store`.
-- This page does not cover web user operations, log endpoints, or the translation endpoints themselves; those belong to the web pages, the logs page, and [Streaming protocol](./streaming-protocol.md).
+- This guide does not cover web user operations, log endpoints, or the translation endpoints themselves; those belong to the web pages, the logs page, and [Streaming protocol](./streaming-protocol.md).
 
 ## History storage and write {#history-storage-and-write}
 
@@ -79,7 +79,7 @@ All history endpoints require login (header `X-Session-Token`); when `view_permi
 
 `GET /api/history/search?q=...` (also accepts `start_date`, `end_date`, `status`) fuzzy-matches case-insensitively against session tokens, filenames, and user IDs, returning `{success, query, results, count, stats}`.
 
-Static inspection found that `GET /{session_token}` is registered before `GET /search`, and FastAPI matches paths in registration order, so `GET /api/history/search` is captured by `/{session_token}` first (with `session_token="search"`). A minimal FastAPI reproduction confirmed that registration order decides the match; in the real service, with a valid session, the request goes through session lookup and usually returns 404 “session does not exist”, so the search logic is effectively unreachable. The current static frontend does not call this endpoint. The behavior needs runtime verification for final confirmation.
+Static inspection found that `GET /{session_token}` is registered before `GET /search`, and FastAPI matches paths in registration order, so `GET /api/history/search` is captured by `/{session_token}` first (with `session_token="search"`). A minimal FastAPI reproduction confirmed that registration order decides the match; in the real service, with a valid session, the request goes through session lookup and usually returns 404 “session does not exist”, so the search logic is effectively unreachable. The current static frontend does not call this endpoint. The behavior should be checked against the deployed version.
 
 ### Delete endpoint {#delete-endpoint}
 
@@ -145,7 +145,7 @@ The ticket response is always `{url, filename, expires_in, expires_at}`: `url` l
 - A ticket is a capability: anyone holding the URL can download within the 5-minute TTL. Never put ticket URLs or `session_token` values into logs, reports, or public documents.
 - The auto-cleanup service (`cleanup_service.py`, disabled by default: `auto_cleanup=false`, `max_age_days=7`, `max_size_gb=10`) deletes files under `results/`, `user_fonts/`, and `user_prompts/` by mtime/total size only; it does not clean `data/history/` shards or the index. After files are cleaned, the session record may still appear in the history list, and fetching files or downloading returns 404.
 - History saving is best effort: a `save_translation_to_history()` failure only logs a warning and does not affect the translation result.
-- The session token is the task ID, not the UUID v4 from `generate_session_token()`; token predictability and uniqueness depend on how task IDs are generated and need runtime verification.
+- The session token is the task ID, not the UUID v4 from `generate_session_token()`; token predictability and uniqueness depend on how task IDs are generated and need confirmation in the deployed version.
 - A regular user can only access their own history; `view_permission` defaults to `own`, and an administrator’s `/admin/all` and deletes are not restricted by “own”.
 - The search endpoint is shadowed by `/{session_token}` (see [Search endpoint](#search-endpoint)) and is not used by the static frontend.
 - This page shows no real history records, images, session tokens, usernames, or private paths; it documents the contract and sanitized structure only.
@@ -200,8 +200,7 @@ In addition, the locale files contain a set of `web_*` keys (for example `web_hi
 | Temp ZIP (`history_*.zip` / `batch_download_*.zip`) | Ticket download payload | Cleaned up when the ticket expires or is revoked |
 | `metadata.json` | Session metadata | Includes caller-provided fields such as `workflow`, `task_id`, and `text_regions` |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Routes | `manga_translator/server/routes/history.py` | 12 route declarations / 13 method-path mappings; permissions, filename sanitization, ticket responses, search shadowing |

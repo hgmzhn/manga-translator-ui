@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 运行环境与依赖要求
 
-## 功能边界
+## 适合哪些安装方式
 
-本页说明安装前置：Python/uv 版本、CPU/NVIDIA/AMD/Apple Silicon 后端、公共 Python 包、模型、字体和字典。Windows 便携包菜单与更新见[Windows 便携版](./windows-portable.md)，Unix 脚本见[Linux 与 macOS](./linux-and-macos.md)，Docker 卷见[Docker](./docker.md)。本页不记录 API Key、用户配置或翻译质量。
+这里说明安装前置：Python/uv 版本、CPU/NVIDIA/AMD/Apple Silicon 后端、公共 Python 包、模型、字体和字典。Windows 便携包菜单与更新见[Windows 便携版](./windows-portable.md)，Unix 脚本见[Linux 与 macOS](./linux-and-macos.md)，Docker 卷见[Docker](./docker.md)。这里不记录 API Key、用户配置或翻译质量。
 
 当前定义以 `pyproject.toml` 与 `uv.lock` 为准；`requirements_cpu.txt`、`requirements_gpu.txt`、`requirements_amd.txt`、`requirements_metal.txt` 是保留的旧式/平台说明，不应与当前 uv 环境混装。
 
@@ -47,7 +47,7 @@ lastUpdated: true
 
 完成后可用 `uv run --no-sync python -m desktop_qt_ui.main` 启动桌面 UI；`--no-sync` 不重新解析或安装依赖。
 
-## UI 操作
+## 安装步骤
 
 本页没有独立的桌面安装页：源码运行时通过终端选择依赖组，Windows 安装器检测显卡并选择方案。安装器文案来自 `packaging/launch.py` 与脚本，不是 `desktop_qt_ui/locales/*.json` 的桌面 i18n。
 
@@ -58,7 +58,7 @@ lastUpdated: true
 - “翻译完成后卸载模型”（`label_unload_models_after_translation`）控制任务后释放显存/内存。
 - “字体”（`label_font_family`）扫描系统字体和项目 `fonts/`；加入字体后重新打开下拉框刷新。
 
-## 运行机理
+## 安装脚本做了什么
 
 公共依赖在 `[project].dependencies`，硬件后端在 `[dependency-groups]`。`default-groups = ["gpu", "packaging"]` 使 `uv sync` 默认采用 NVIDIA；`conflicts` 声明 `cpu`、`gpu`、`amd`、`metal` 互斥。PyTorch/torchvision 按组绑定显式索引，`xformers` 仅 GPU 组，Metal 不使用 CUDA 索引。
 
@@ -79,7 +79,7 @@ flowchart TD
 
 安装和模型是两个阶段。`manga_translator/utils/inference.py` 以 `models/` 为模型根目录，OCR、检测、修复、上色、超分模型通常在首次启用时创建目录并下载/加载。`rendering/chinese_linebreak.py` 检查 HanLP 模型；缺失时记录并回退普通换行。
 
-## 依赖与冲突
+## 环境与兼容性
 
 - **CPU**：不需要 CUDA/ROCm，兼容性高但速度受 CPU/内存限制。
 - **NVIDIA GPU**：当前组含 `torch==2.13.0`、`torchvision==0.28.0`、`onnxruntime-gpu==1.28.0`、`xformers==0.0.35`；驱动需支持对应 CUDA。
@@ -96,5 +96,3 @@ flowchart TD
 | 旧 requirements | 版本可能与当前 pyproject/lock 不同 | 当前安装优先 `uv sync --locked` |
 
 **硬件与资源前置**：GPU 需相应驱动；模型下载需网络和空间；`fonts/` 支持 `.ttf`、`.otf`、`.ttc`；`dict/` 包含 `.txt` 词典及 `.yaml`/`.json` 提示词。在线服务还需网络、模型名、地址和凭据。
-
-更多开发向对照与源码依据见[参考索引](../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

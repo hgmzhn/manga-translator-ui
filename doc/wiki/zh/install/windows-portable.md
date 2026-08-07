@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Windows 便携版
 
-## 功能边界 {#scope}
+## 适合哪些安装方式 {#scope}
 
-本页说明仓库根目录下 `Win-Install-or-Update.bat`、`Win-Start.bat` 的 Windows 启动链、环境选择和维护菜单。它适用于源码/发行目录中已有这些脚本的 Windows 用户；它不替代从源码安装、Docker、Linux/macOS 或版本卸载页面，也不描述桌面翻译参数。
+这里说明仓库根目录下 `Win-Install-or-Update.bat`、`Win-Start.bat` 的 Windows 启动链、环境选择和维护菜单。它适用于源码/发行目录中已有这些脚本的 Windows 用户；它不替代从源码安装、Docker、Linux/macOS 或版本卸载页面，也不描述桌面翻译参数。
 
 “便携”指脚本优先使用应用目录内的 `packaging/python/python.exe`，而不是要求用户先激活系统环境。若没有该解释器，当前脚本仍兼容旧版 Conda 布局；这不是两套可以同时混装的依赖方案。
 
-## UI 操作 {#operations}
+## 安装步骤 {#operations}
 
 ### 首次安装或维护
 
@@ -50,7 +50,7 @@ lastUpdated: true
 
 `Win-Start.bat` 先输出 `Starting...`，运行 `desktop_qt_ui\\main.py`。应用正常关闭时显示 `Application closed.`；非零退出时显示错误码、建议重新安装和公开 Issue 地址，并询问是否打开维护脚本。若既找不到便携 Python，也找不到有效 Conda 环境，脚本报告环境缺失并退出，不会静默使用另一个 Python。
 
-## 运行机理 {#runtime}
+## 安装脚本做了什么 {#runtime}
 
 ```mermaid
 flowchart TD
@@ -72,7 +72,7 @@ flowchart TD
 
 `launch.py` 的安装流程从 `pyproject.toml` 读取依赖和 PyTorch 源；更新同时比较 `packaging/VERSION`、远程提交和依赖完整性。优先使用可找到的 uv 批量安装，找不到 uv 时按包使用 pip 回退，并在源失败时尝试其他配置的镜像。AMD Windows 路径会先检查显卡/驱动兼容性，再按脚本逻辑安装 Radeon SDK 与 PyTorch；不兼容时可能退回 CPU 或要求用户取消，不能把“检测到 AMD”当成成功启用 ROCm。
 
-## 依赖与冲突 {#dependencies}
+## 环境与兼容性 {#dependencies}
 
 - **Python 版本**：当前启动器只接受 Python 3.12；`pyproject.toml` 约束为 `>=3.12,<3.13`。系统 Python 3.13 或其他版本不能作为便携运行时的替代品。
 - **依赖组互斥**：`cpu`、`gpu`、`amd`、`metal` 在 uv 配置中互斥。不要把 CPU、NVIDIA CUDA、AMD ROCm 组叠加到同一个环境；切换硬件后应使用维护菜单检查并按提示重装匹配依赖。
@@ -81,5 +81,3 @@ flowchart TD
 - **GPU/CPU 资源**：GPU 依赖不等于模型已下载，也不保证显存足够；首次启动仍可能下载或初始化模型。CPU 方案可运行但通常更慢。安装失败时不要删除已成功包后反复切换方案。
 - **目录路径**：脚本对非 ASCII 安装路径有特殊 Miniconda 根目录查找回退（盘符根目录）；为降低 DLL、Git 和模型路径问题，优先使用可写且不含特殊字符的短路径。
 - **网络**：安装/更新需要 Git、包索引或镜像网络；API 网络是应用运行时的另一条链路，不能用“安装成功”证明翻译 API 可用。
-
-更多开发向对照与源码依据见[参考索引](../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Settings Shell, Descriptions, and Config Import/Export
 
-This page describes how the desktop Settings page organizes groups, parameter rows, and the right-hand description panel, and how it exports or imports settings JSON. It does not explain the algorithmic meaning of detection, OCR, translation, inpainting, typesetting, upscaling, or colorization parameters; those belong to [Settings and configuration lifecycle](./index.md) and the corresponding parameter pages. It also does not own API credential slots, presets, prompt lists, or editor project files.
+This guide describes how the desktop Settings page organizes groups, parameter rows, and the right-hand description panel, and how it exports or imports settings JSON. It does not explain the algorithmic meaning of detection, OCR, translation, inpainting, typesetting, upscaling, or colorization parameters; those belong to [Settings and configuration lifecycle](./index.md) and the corresponding parameter pages. It also does not own API credential slots, presets, prompt lists, or editor project files.
 
-## Feature boundary {#feature-boundary}
+## What these settings control {#feature-boundary}
 
 - The Settings shell consists of a header, seven group tabs, a scrollable parameter list, and a right-hand description panel; the header also provides “Export Config” and “Import Config”.
 - `settings_tab_layout.json` currently defines seven tabs: `General`, `OCR`, `Detection`, `Translation`, `Inpainting`, `Typesetting`, and `Mode Specific`. `Advanced`, `Replace Translation`, `Upscaling`, and `Colorization` are dividers inside tabs, not independent tabs.
@@ -19,7 +19,7 @@ This page describes how the desktop Settings page organizes groups, parameter ro
 - Export handles a JSON snapshot of the settings model and explicitly removes the temporary `app` state and `cli.verbose`; it is not an API-credential or whole-work-directory backup.
 - Import deep-merges external JSON into the current settings, restores the current `app` section, and validates through `AppSettings`; it does not import `.env`, prompt contents, translation JSON, or user images.
 
-## UI operations {#ui-operations}
+## Change it in the desktop app {#ui-operations}
 
 ### Settings shell and right-hand description {#settings-shell}
 
@@ -55,7 +55,7 @@ The snapshot starts from `AppSettings.model_dump()`. Before writing, export dele
 
 The code has no dedicated “confirm overwrite” dialog for configuration import; import directly merges and saves. Whether the native save dialog asks before replacing an existing target is only statically known and has not been confirmed in headed runtime, so it must not be documented as an application guarantee.
 
-## Runtime behavior {#runtime-behavior}
+## How the settings take effect {#runtime-behavior}
 
 ```mermaid
 flowchart TD
@@ -74,7 +74,7 @@ Normal setting events update `AppSettings` and notify UI listeners. At startup, 
 
 Normal saves use a 250 ms debounce, a single writer, a temporary file, and atomic `os.replace`; explicit file saves flush. The import/export buttons connect to `AppLogic.export_config` and `AppLogic.import_config`, rather than making the Settings page read and write files directly.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Interactions and caveats {#dependencies-and-conflicts}
 
 - Imported files must be readable UTF-8 JSON. Syntax errors, type errors, or model violations can fail import or cause relevant values to fall back to defaults.
 - Import does not update `.env` and cannot replace `app`; API credentials remain within the API-management dotenv boundary. Do not treat exported JSON as a credential backup.

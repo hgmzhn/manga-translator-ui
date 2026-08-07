@@ -9,16 +9,16 @@ lastUpdated: true
 
 # AI OCR Prompt
 
-When “OCR Model” is set to `openai_ocr` or `gemini_ocr`, AI OCR sends a prompt together with each cropped text-box image to the vision model. This page documents the prompt's configuration keys, the prompt file under `dict/`, how it is loaded and injected, the path into the AI OCR request, and the boundary with custom HQ translation prompts. Overall OCR engine selection, credentials, and candidate slots are covered by [OCR, filter, and merge](../settings/ocr-filter-and-merge.md) and [API feature selectors](../api-management/feature-selectors.md); the generic prompt-file list and apply workflow is covered by [Prompt list, apply, and preview](./list-apply-and-preview.md).
+When “OCR Model” is set to `openai_ocr` or `gemini_ocr`, AI OCR sends a prompt together with each cropped text-box image to the vision model. This guide documents the prompt's configuration keys, the prompt file under `dict/`, how it is loaded and injected, the path into the AI OCR request, and the boundary with custom HQ translation prompts. Overall OCR engine selection, credentials, and candidate slots are covered by [OCR, filter, and merge](../settings/ocr-filter-and-merge.md) and [API feature selectors](../api-management/feature-selectors.md); the generic prompt-file list and apply workflow is covered by [Prompt list, apply, and preview](./list-apply-and-preview.md).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - `ocr.ai_ocr_prompt_path` is the fixed-prompt file action on the “AI OCR Prompt” row in Settings. It is bound to the backend `dict/ai_ocr_prompt.yaml` (auto-created when missing, migrating the legacy `dict/ai_ocr_prompt.json`) and is not itself persisted to `config/config.json`.
 - `ocr.ai_ocr_custom_prompt` is a fallback prompt text that can be typed directly; `ocr.ai_ocr_concurrency` limits how many AI OCR requests are in flight for the same image.
 - `dict/ai_ocr_prompt.yaml` is consumed only by `openai_ocr` / `gemini_ocr`; `translator.high_quality_prompt_path` is the custom prompt for HQ translation, and the two files and config keys cannot be interchanged.
 - This page never embeds real prompt bodies or API keys; credentials, addresses, and models are covered by [API credentials, addresses, and models](../api-management/credentials-addresses-models.md).
 
-## UI operations {#ui-operations}
+## Use it in Prompt Management {#ui-operations}
 
 ### Configure in the “OCR” group of Settings {#configure-in-settings}
 
@@ -38,7 +38,7 @@ Format essentials: `dict/ai_ocr_prompt.yaml` is YAML whose root key is `ai_ocr_p
 
 ## Parameters and options {#parameters-and-options}
 
-> For the parameter reference (UI names, storage keys, and default values) on this page, see the reference page [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For the parameter reference (UI names, storage keys, and default values) on this page, see the reference page [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 #### AI OCR Prompt {#ocr-ai-ocr-prompt-path}
 
@@ -65,7 +65,7 @@ flowchart LR
 ```
 
 Concurrency limits only how many AI OCR API requests are in flight for the same image; candidate-slot rotation still runs per request independently and is not changed by this setting.
-## Runtime behavior {#runtime-behavior}
+## How prompts are loaded {#runtime-behavior}
 
 ### Prompt-file loading and precedence {#prompt-loading}
 
@@ -89,7 +89,7 @@ flowchart LR
 
 The prompt is sent as the text part of a `user` message together with the text-box PNG: OpenAI uses `text` + `image_url` (base64 data URL) in `messages[0].content`; Gemini uses `text` + `inlineData` in `contents[0].parts`. When custom API parameters are enabled, the `ocr` section of `config/custom_api_params.json` (default `temperature: 0.0`) is merged into the request body; credentials and candidate endpoints are resolved from `.env` / API-management slots via `resolve_runtime_api_config(feature="ocr", ...)`.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - `ocr.ocr` must be `openai_ocr` or `gemini_ocr`, otherwise the AI OCR prompt is not consumed; offline OCR (48px, PaddleOCR, etc.) uses its own model prompts and is out of scope here.
 - The prompt file is consumed only by AI OCR; `translator.high_quality_prompt_path` is the custom HQ translation prompt, see [Context and prompts](../translator/context-and-prompts.md), and the two files cannot be interchanged.

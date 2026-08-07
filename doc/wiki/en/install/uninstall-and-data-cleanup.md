@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Uninstall and Data Cleanup
 
-## Feature boundary {#scope}
+## Who this installation is for {#scope}
 
-This page explains how to stop the application and remove a Windows portable package, a source/Unix installation, or a Docker deployment, plus which configuration, model, log, result, and server files require separate handling. The current `Win-*.bat`, `Unix-*.sh`, and Docker Compose files do not provide one universal “uninstall” button or command; uninstalling mainly means deleting the installation directory, virtual environment, or host-mounted data.
+This guide explains how to stop the application and remove a Windows portable package, a source/Unix installation, or a Docker deployment, plus which configuration, model, log, result, and server files require separate handling. The current `Win-*.bat`, `Unix-*.sh`, and Docker Compose files do not provide one universal “uninstall” button or command; uninstalling mainly means deleting the installation directory, virtual environment, or host-mounted data.
 
-This page does not replace the installation steps in [Windows portable](./windows-portable.md), [Linux/macOS installation](./linux-and-macos.md), or [Docker](./docker.md), and it does not treat in-app “Clear translation results” as a complete uninstall.
+This guide does not replace the installation steps in [Windows portable](./windows-portable.md), [Linux/macOS installation](./linux-and-macos.md), or [Docker](./docker.md), and it does not treat in-app “Clear translation results” as a complete uninstall.
 
 Uninstall by installation shape:
 
@@ -22,7 +22,7 @@ Uninstall by installation shape:
 
 The detailed data-cleanup boundary per installation shape follows.
 
-## UI operations {#operations}
+## Installation steps {#operations}
 
 ### General sequence
 
@@ -44,9 +44,9 @@ The detailed data-cleanup boundary per installation shape follows.
 
 The Web admin cleanup feature only handles the directories defined by the server cleanup service; it is not an installer-directory remover. The results-page “Clear translation results” action clears the browser result list and blob URLs, not necessarily files on the host.
 
-The actual wording of the cleanup-related UI strings is listed in the [Options and I18n matrix](../reference/options-i18n-matrix.md).
+The actual wording of the cleanup-related UI strings is listed in the [UI Options Reference](../reference/options-i18n-matrix.md).
 
-## Runtime behavior {#runtime}
+## What the installer does {#runtime}
 
 ```mermaid
 flowchart TD
@@ -70,7 +70,7 @@ Docker mounts host `./data/{fonts,dict,result,models,logs,server,config}` into s
 
 Server automatic cleanup is disabled by default. Its defaults are to check every 24 hours, delete files older than 7 days, and continue deleting oldest files when the relevant directories exceed 10 GiB. It traverses only server `data/results`, user fonts, and user prompts; it does not clean the application directory, model directory, desktop logs, or input-adjacent work directories.
 
-## Dependencies and conflicts {#dependencies}
+## Environment and compatibility {#dependencies}
 
 - **Open processes**: a running Qt app, Python process, uvicorn service, or Docker container may still write files; Windows may also refuse to remove locked DLLs. Stop processes or containers first.
 - **Portable Python versus Conda/venv**: `Win-Start.bat` and `Win-Install-or-Update.bat` prefer `packaging/python/python.exe` and only then search for `manga-env` or `conda_env`. Do not remove Miniconda that another project uses, and do not leave an old PATH pointing at a deleted environment.
@@ -78,5 +78,3 @@ Server automatic cleanup is disabled by default. Its defaults are to check every
 - **Docker persistence**: `docker compose down`, removing containers, removing images, and removing bind mounts are different actions. Deleting `./data/server` loses Web accounts, sessions, history, and server resources; deleting `./data/models` forces model downloads again.
 - **Caches and credentials**: Hugging Face/Torch and similar user-level caches can live outside the application profile. `.env` and configuration files may contain API credentials. Decide whether to migrate them first, and redact keys, tokens, usernames, absolute paths, and user content before sharing logs.
 - **Version switching**: uninstall is not update. The maintenance flow may clean uv/pip download caches and remove platform-inappropriate launcher files during an update, but it does not delete all user data directories.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

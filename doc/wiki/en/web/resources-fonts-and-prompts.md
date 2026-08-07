@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Resources, Fonts, and Prompts
 
-When the server lacks the font you need, or the translator needs a custom prompt, upload your own font and prompt files in the “Options” tab of the web workspace and select them from the configuration dropdowns. This page covers only ordinary-user resource upload, listing, deletion, and configuration use; admin-managed shared fonts and prompts are described in [Administrator interface](./administrator-interface.md), and HTTP endpoint contracts live in [Config, environment, and resources API](../developer/http-api/config-env-and-resources.md).
+When the server lacks the font you need, or the translator needs a custom prompt, upload your own font and prompt files in the “Options” tab of the web workspace and select them from the configuration dropdowns. This guide focuses on ordinary-user resource upload, listing, deletion, and configuration use; admin-managed shared fonts and prompts are described in [Administrator interface](./administrator-interface.md), and HTTP endpoint contracts live in [Config, environment, and resources API](../developer/http-api/config-env-and-resources.md).
 
-## Feature boundary {#feature-boundary}
+## UI and API scope {#feature-boundary}
 
-- This page covers web user resources: upload, list, and delete fonts (TTF/OTF/TTC) and prompts (JSON), plus the `render.font_family` and `translator.high_quality_prompt_path` configuration fields.
+- This guide covers web user resources: upload, list, and delete fonts (TTF/OTF/TTC) and prompts (JSON), plus the `render.font_family` and `translator.high_quality_prompt_path` configuration fields.
 - Upload-section visibility is decided by `can_upload_fonts` and `can_upload_prompts` returned from `/user/settings`; whether deletion is allowed is decided by the server-side permission check.
 - It does not cover admin-managed shared fonts and prompts (`/upload/font`, `/upload/prompt`, `/fonts`, `/prompts` management endpoints), nor the desktop prompt-list CRUD (see [Prompt list, apply, and preview](../desktop/prompts/list-apply-and-preview.md)).
 - This page never shows real API keys, private prompt bodies, or user file contents.
 
-## UI operations {#ui-operations}
+## Use it in the Web UI {#ui-operations}
 
 ### Find the resource and configuration entries {#find-resource-entry}
 
@@ -48,7 +48,7 @@ After signing in, the right settings panel of the main workspace has four tabs: 
 
 ## Parameters and options {#parameters-and-options}
 
-> For detailed parameter information (UI names, storage keys, default values, and effective stages) on this page, see the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> For detailed parameter information (UI names, storage keys, default values, and effective stages) on this page, see the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).
 
 #### Font {#font-family}
 
@@ -58,7 +58,7 @@ The “Font” dropdown is on the “Advanced Settings” tab (render group) and
 
 The “Custom Prompt” dropdown is on the “Basic Settings” tab (translator group) and selects the custom prompt file used for translation requests; options come from the server prompt directory (system prompts excluded) plus the current user's uploaded prompts. See [Context and Prompts](../desktop/translator/context-and-prompts.md) for details.
 
-## Runtime behavior {#runtime-behavior}
+## Requests and data flow {#runtime-behavior}
 
 ### Resource lifecycle {#resource-lifecycle}
 
@@ -109,7 +109,7 @@ flowchart LR
 
 Note: the `dict/` scan excludes the four system stems `system_prompt_hq`, `system_prompt_hq_format`, `system_prompt_line_break`, and `glossary_extraction_prompt`; user prompt paths come from `get_user_prompts` and are appended after server prompts, so server prompts appear first and user prompts follow.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Permissions, security, and limits {#dependencies-and-conflicts}
 
 - After uploading a font, reload the configuration options first (focus the dropdown or sign in again) before it appears in the selector; if the font is not registered, the renderer falls back to the default family.
 - Prompts must be parseable JSON; `.txt` can be uploaded but cannot be loaded and is treated as missing during translation.
@@ -117,4 +117,4 @@ Note: the `dict/` scan excludes the four system stems `system_prompt_hq`, `syste
 - Resource permissions come from the user-group configuration (`can_upload_fonts`, `can_upload_prompts`, `can_delete_fonts`, `can_delete_prompts`); hiding UI elements only affects display and cannot bypass server checks.
 - Uploaded filenames are sanitized and duplicates get numeric suffixes; do not rely on the original uploaded filename.
 
-> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> See the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).

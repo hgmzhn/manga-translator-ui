@@ -11,9 +11,9 @@ lastUpdated: true
 
 当长篇漫画需要保持一致的人名、地名和技能名，或希望翻译过程中能实时看到增量输出、让译文按原文行数断句时，本页用于配置自动术语提取（`translator.extract_glossary`）、流式传输（`translator.enable_streaming`）和 AI 断句（`render.disable_auto_wrap`）。术语提取结果会写回自定义提示词文件；流式传输只改变请求的传输方式；AI 断句通过断句提示词和 `original_region_count` 让模型输出 `[BR]` 换行标记。
 
-本页不负责翻译器与目标语言选择（见[翻译器选择](./selection-and-languages.md)）、上下文历史与提示词组合全貌（见[上下文与提示词](./context-and-prompts.md)），也不负责渲染端自动换行、语义断句和标点清理的完整排版行为（见[排版与渲染](../settings/typesetting-and-rendering.md)）。
+这里不负责翻译器与目标语言选择（见[翻译器选择](./selection-and-languages.md)）、上下文历史与提示词组合全貌（见[上下文与提示词](./context-and-prompts.md)），也不负责渲染端自动换行、语义断句和标点清理的完整排版行为（见[排版与渲染](../settings/typesetting-and-rendering.md)）。
 
-## 功能边界
+## 适用场景
 
 - 当前配置模型中没有 `translator.glossary` 配置键；术语表以 `glossary` 键的形式存放在自定义 HQ 提示词文件（`translator.high_quality_prompt_path`）内，由自动提取功能写回。
 - `translator.extract_glossary` 是自动术语提取开关；只有自定义 HQ 提示词成功加载时它才会进入提取分支，否则即使开关开启也走普通翻译。
@@ -21,7 +21,7 @@ lastUpdated: true
 - `render.disable_auto_wrap` 在界面中显示为“AI 断句”；它同时驱动翻译端断句提示词和渲染端的 `[BR]` 强制换行语义，渲染端自动换行等行为见排版与渲染页。
 - `OPENAI_GLOSSARY_PATH`（“术语表路径”）是环境变量背书的旧式术语表路径，与 `extract_glossary` 的写回位置（自定义提示词文件）不同。
 
-## UI 操作
+## 在桌面端设置
 
 ### 在设置页开启术语提取与流式传输
 
@@ -37,7 +37,7 @@ lastUpdated: true
 
 ## 参数与选项
 
-> 本页各参数的界面名称、存储键与默认值的对应关系，见[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各参数的界面名称、存储键与默认值的对应关系，见[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 #### 自动提取新术语 {#translator-extract-glossary}
 
@@ -113,9 +113,9 @@ flowchart LR
     end
 ```
 
-渲染端自动换行、HanLP 语义断句和标点清理的完整分支见排版与渲染页；本页只说明断句提示词如何进入翻译请求。
+渲染端自动换行、HanLP 语义断句和标点清理的完整分支见排版与渲染页；这里仅说明断句提示词如何进入翻译请求。
 
-## 运行机理
+## 翻译请求如何处理
 
 ### 术语提取、合并与回填 {#glossary-feedback-loop}
 
@@ -129,7 +129,7 @@ flowchart LR
 
 用户提示词附带 `original_region_count`，渲染端据此判断译文中的 `[BR]` 数量是否符合原文行数；`check_br_and_retry` 只对区域数≥2 且缺少 `[BR]` 的译文触发重试。单行区域（`original_region_count=1`）即使模型返回了 `[BR]`/`<br>`/`【BR】`，也会自动清理成单行；该清理只依赖 `disable_auto_wrap`，与 `check_br_and_retry` 开关无关。
 
-## 依赖与冲突
+## 模型、网络与质量
 
 - `extract_glossary` 与 `high_quality_prompt_path` 强相关：没有有效自定义提示词就不会进入提取分支，术语也不会写回。
 - `enable_streaming` 与提示词、上下文、术语提取相互独立；它只改变传输方式。

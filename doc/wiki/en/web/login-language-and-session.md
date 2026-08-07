@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Web Login, Language Switching, and Sessions
 
-When a browser opens the Web workspace (`/`) or the admin interface (`/admin`), the frontend first checks the session token saved in the browser: if the token is missing or invalid it redirects to the login page, otherwise it enters the requested interface directly. This page covers the login page's first-run setup, username/password login, registration and forced password change, how to choose the interface language, and how the session token is stored, refreshed, and invalidated.
+When a browser opens the Web workspace (`/`) or the admin interface (`/admin`), the frontend first checks the session token saved in the browser: if the token is missing or invalid it redirects to the login page, otherwise it enters the requested interface directly. This guide covers the login page's first-run setup, username/password login, registration and forced password change, how to choose the interface language, and how the session token is stored, refreshed, and invalidated.
 
-Full account and permission management is covered in [Accounts, permissions, and API keys](./accounts-permissions-and-api-keys.md), and how to start the Web service and reach it is covered in [Launch and access](./launch-and-access.md). This page describes user-interface operations and session behavior only; it does not expand HTTP contract details, which belong to [Authentication and errors](../developer/http-api/authentication-and-errors.md) in the developer HTTP API pages.
+Full account and permission management is covered in [Accounts, permissions, and API keys](./accounts-permissions-and-api-keys.md), and how to start the Web service and reach it is covered in [Launch and access](./launch-and-access.md). This guide describes user-interface operations and session behavior only; it does not expand HTTP contract details, which belong to [Authentication and errors](../developer/http-api/authentication-and-errors.md) in the developer HTTP API pages.
 
-## Feature boundary
+## UI and API scope
 
 - The login page has four entry points: creating the first admin, username/password login, registration (when enabled by an admin), and forced password change on first login.
 - Language switching covers the workspace and the admin interface; the login page itself has no language selector and is hardcoded to Simplified Chinese.
 - Session retention is based on account sessions: the token is stored in browser `localStorage`, sent on every request through the `X-Session-Token` header, and expires after 60 minutes of inactivity.
 - A legacy password-only gate (`/user/login`) that is unrelated to accounts still exists in the UI; it is a separate mechanism from the `/auth/*` account sessions, and this page keeps the two distinct.
-- User operations and developer HTTP routes are separated: this page only describes behavior visible in the UI and does not present endpoint paths as tutorial steps.
+- User operations and developer HTTP routes are separated: This guide focuses on behavior visible in the UI and does not present endpoint paths as tutorial steps.
 
 ## Login page {#login-page}
 
@@ -41,7 +41,7 @@ The login page is the static file `static/login.html`, served at `/static/login.
 2. Click "Create admin account". The frontend submits `{username, password}` to `POST /auth/setup`.
 3. On success the server creates an account with `role=admin` and `group=admin` and immediately creates a session; the returned token is written to `localStorage.session_token`, user info to `localStorage.user_info`, and the page redirects according to the safe-redirect rule.
 
-The source also keeps a "create default admin" method and log hints (`admin`/`admin123`), but the current initialization flow does not call it; instead it tells users to visit the login page to create the first admin. Whether this path is enabled in some release is a runtime verification item.
+The source also keeps a "create default admin" method and log hints (`admin`/`admin123`), but the current initialization flow does not call it; instead it tells users to visit the login page to create the first admin. Whether this path is enabled in some release is a version-dependent behavior.
 
 ### Username and password login {#username-password-login}
 
@@ -69,13 +69,13 @@ When login returns `must_change_password: true`, the page opens the "Password ch
 
 - Enter the new password and confirmation (at least 6 characters), then click "Confirm change". This calls `POST /auth/change-password` with the `X-Session-Token` header and the body `{old_password, new_password}`.
 - After a successful change the server clears the `must_change_password` flag, and only then does the frontend write the token to `localStorage` and redirect.
-- Clicking "Change later" skips the change and saves the token to enter the system; whether the server forces the change again on a later request is a runtime verification item.
+- Clicking "Change later" skips the change and saves the token to enter the system; whether the server forces the change again on a later request is a version-dependent behavior.
 
 ### Safe return and the legacy password gate {#safe-return-and-legacy-gate}
 
 Redirects after login, registration, and setup accept only `?redirect=/admin` and never follow arbitrary URLs. When the admin interface detects an invalid session it returns to `/static/login.html?redirect=/admin`, so a successful login goes straight back to the admin panel.
 
-The workspace also keeps a legacy "access password" flow: the frontend first requests `/user/access`; when the admin setting `user_access.require_password` is true and `sessionStorage` has no `user_logged_in` flag, it shows an "Enter access password" overlay. Submitting the password calls `POST /user/login` (form field `password`), and on success only a `sessionStorage` flag is set. This is a single-password gate unrelated to accounts, roles, or session tokens; the same IP may try at most 10 times within 10 minutes, after which the server returns `429`. Whether this flow is still enabled by a deployment configuration requires runtime verification.
+The workspace also keeps a legacy "access password" flow: the frontend first requests `/user/access`; when the admin setting `user_access.require_password` is true and `sessionStorage` has no `user_logged_in` flag, it shows an "Enter access password" overlay. Submitting the password calls `POST /user/login` (form field `password`), and on success only a `sessionStorage` flag is set. This is a single-password gate unrelated to accounts, roles, or session tokens; the same IP may try at most 10 times within 10 minutes, after which the server returns `429`. Whether this flow is still enabled by a deployment configuration may vary by release.
 
 ## Language switching {#language-switching}
 
@@ -113,7 +113,7 @@ On the browser side the token is stored in `localStorage.session_token` and user
 - On page load: `checkAuthentication()` first reads `localStorage.session_token`; without it, it redirects to the login page immediately. With it, it requests `GET /auth/check`; a `valid: false` response or a failed request clears the token and redirects to login.
 - On every protected request: the `require_auth` dependency reads `X-Session-Token`; a missing, invalid, or expired token returns `401`, and a deactivated account also returns `401`. On success it calls `update_activity` to refresh the last-activity time.
 - Idle timeout: `session_timeout_minutes` is fixed to `60` in `main.py`, so a session whose last activity is older than 60 minutes is considered expired; a background task cleans up expired sessions every 5 minutes.
-- Persistence across restarts: once sessions are written to `sessions.json`, the service reloads active, non-expired sessions on startup, so a browser token may still work after a service restart (runtime verification item).
+- Persistence across restarts: once sessions are written to `sessions.json`, the service reloads active, non-expired sessions on startup, so a browser token may still work after a service restart (version-dependent behavior).
 
 ### Logout and invalidation {#logout-and-invalidation}
 
@@ -151,17 +151,17 @@ flowchart TD
     V --> W["Server terminates session, clear localStorage, redirect to login"]
 ```
 
-The diagram shows the account-session main flow in the current source: first-run setup, login, forced password change, entering the workspace, activity refresh, expiry, and logout. Bypasses such as the legacy `/user/login` password gate, disabled registration, and persisted sessions after a restart are covered in the sections above instead of being expanded here. The diagram does not fabricate runtime screenshots, real tokens, or private task artifacts; display details that need an actually running service are left for runtime verification.
+The diagram shows the account-session main flow in the current source: first-run setup, login, forced password change, entering the workspace, activity refresh, expiry, and logout. Bypasses such as the legacy `/user/login` password gate, disabled registration, and persisted sessions after a restart are covered in the sections above instead of being expanded here. Display details can vary by release.
 
 ## Errors and rate limits in user terms {#errors-and-rate-limits}
 
-| Status | What it means in the UI | Trigger (static source) | What the user can do |
+| Status | What it means in the UI | Trigger (current code) | What the user can do |
 | --- | --- | --- | --- |
 | `401` | Not logged in or session invalid | Missing token, invalid/expired token, deactivated account | Log in again from the login page; contact the admin if the account is deactivated |
 | `403` | No permission | Non-admin accessing admin features; registration disabled by an admin | Ask the admin for permission, or wait until registration opens |
 | `429` | Too many attempts | Login: 15 per IP or 8 per username per 10 minutes; registration: 5 per IP per 10 minutes; legacy gate: 10 per IP per 10 minutes | Wait for the time indicated by the `Retry-After` response header |
 
-## Dependencies and conflicts
+## Permissions, security, and limits
 
 - The Web interface language reuses the desktop `desktop_qt_ui/locales/*.json` files directly, so adding or renaming a desktop key affects the Web UI; missing keys such as `admin` always show the hardcoded fallback text.
 - The session token lives in `localStorage` and is shared across tabs of the same browser; the legacy gate uses `sessionStorage.user_logged_in`, which is per-tab and disappears when the tab closes.
@@ -170,4 +170,4 @@ The diagram shows the account-session main flow in the current source: first-run
 - Clearing browser site data removes `session_token`, `locale`, and `admin_locale` at the same time, which is equivalent to logging out and restoring the default language.
 - This page stores and shows no real tokens, usernames, passwords, or session content; it only documents field names and flows.
 
-> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> See the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).

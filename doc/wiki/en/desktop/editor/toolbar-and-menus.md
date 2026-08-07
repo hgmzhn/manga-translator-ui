@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Editor Toolbar and Menus
 
-When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”) and keeps two persistent controls (“Fit to Window” and original-image opacity). This page explains how the three menus expand, where each menu item leads, and how the five editor toggles are stored and persisted.
+When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”) and keeps two persistent controls (“Fit to Window” and original-image opacity). This guide explains how the three menus expand, where each menu item leads, and how the five editor toggles are stored and persisted.
 
 The complete options and canvas effects of “Display Mode” and “Arrange” live in [Display, Compare, and Arrange](./display-compare-and-arrange.md); canvas tools, property panels, the floating rich-text editor, shortcuts, and import/export are covered by [Canvas Tools and Selection](./canvas-tools-and-selection.md), [Text Properties](./text-properties.md), [Style Properties](./style-properties.md), [Floating Rich Text](./floating-rich-text.md), [Shortcuts](./shortcuts.md), and [Import/Export and Writeback](./import-export-and-writeback.md).
 
-## Feature boundary
+## What you can do
 
 - The toolbar itself never switches pages: the back-to-home entry lives in the main-window sidebar, not in the editor toolbar.
 - The “Menu” dropdown contains export, undo/redo, zoom in/out, and five checkable toggles; the five toggles are persisted in the `app` config section.
@@ -22,7 +22,7 @@ The complete options and canvas effects of “Display Mode” and “Arrange” 
 - The “Original Image Opacity” slider (0–100) controls only the transparency of the original-image overlay on the canvas; it is not an export parameter.
 - The real shortcut registration is not in the toolbar: `Ctrl+Q` (export), `Ctrl+Z` (undo), and `Ctrl+Y` (redo) are registered globally by `EditorShortcutManager`; the toolbar only shows hint text. See [Shortcuts](./shortcuts.md).
 
-## UI operations
+## Use it in the editor
 
 ### Three dropdown menus
 
@@ -46,7 +46,7 @@ The five editor toggles in the “Menu” dropdown all carry a check mark. Their
 - Click “Fit to Window”: the current image is scaled to fill the canvas viewport while keeping its aspect ratio.
 - Drag the “Original Image Opacity:” slider: `0` is fully transparent (showing the inpainted/cleaned background), `100` is fully opaque (showing the original); it starts at `0`.
 
-## Runtime behavior
+## How changes are saved
 
 ### Menu expansion and language switching
 
@@ -100,7 +100,7 @@ flowchart LR
 - When an image loads and the user has not manually adjusted the opacity, the default depends on whether an inpainted image exists: `0` with one, `1` without. Once the user drags the slider, the session stops overriding it (`_user_adjusted_alpha`).
 - Slider changes are mirrored back through the model's `original_image_alpha_changed` signal so external updates also refresh the slider position.
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - The toolbar only shows shortcut text and never registers `QAction` shortcuts, avoiding double triggers with the focus-aware registrations in `EditorShortcutManager`.
 - When focus is in a text widget, editing shortcuts such as undo/redo are left to the text control; `Q`/`W`/`E`/`A`/`D` are forwarded as text instead of switching tools/images; `Ctrl+Q` export is unaffected. See [Shortcuts](./shortcuts.md).
@@ -108,5 +108,3 @@ flowchart LR
 - “Auto Export on Image Switch” depends on the export queue and the image-loading flow: a rejected auto-export aborts the switch; when the user picks “export”, the switch waits for the export to finish.
 - Export is an asynchronous queue task that shares a state machine with editor cancellation/cleanup; on shutdown the export queue is drained before the app exits.
 - Turning off “Show Rich Text Editor Popup” immediately hides any visible floating editor; the canvas keeps focus, so delete/shortcut semantics are unchanged.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

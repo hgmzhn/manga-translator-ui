@@ -9,11 +9,11 @@ lastUpdated: true
 
 # 编辑器导入导出与写回
 
-编辑器把翻译流水线生成的工程数据读进来，让你逐区域修改文字、位置、样式、蒙版和画笔/印章层；修改完成后，执行一次“导出图片”会把当前图渲染成最终图片，同时把工程数据写回磁盘。本页说明这些数据的导入格式、导出渲染与输出路径，以及 JSON、修复图等工程数据的写回机制。
+编辑器把翻译流水线生成的工程数据读进来，让你逐区域修改文字、位置、样式、蒙版和画笔/印章层；修改完成后，执行一次“导出图片”会把当前图渲染成最终图片，同时把工程数据写回磁盘。这里说明这些数据的导入格式、导出渲染与输出路径，以及 JSON、修复图等工程数据的写回机制。
 
 右侧文件列表的增删、切页和“任务完成”进入编辑器的完整操作见[布局与文件列表](./layout-and-file-list.md)；顶栏“导出图片”菜单项与“切图时自动导出”开关的界面和持久化见[工具栏与菜单](./toolbar-and-menus.md)；`Ctrl+Q` 等快捷键的分派见[快捷键](./shortcuts.md)；蒙版与画笔/印章层如何进入工程文件见[蒙版绘制与仿制印章](./mask-paint-and-clone-stamp.md)。
 
-## 功能边界 {#feature-boundary}
+## 可以做什么 {#feature-boundary}
 
 - 本页负责编辑器与磁盘之间的数据边界：导入时读取哪些工程文件、导出时渲染什么、写回哪里，以及写回内容的格式。
 - 不负责右侧文件列表的按钮、树形展示和行状态（归[布局与文件列表](./layout-and-file-list.md)）；不负责“导出图片”菜单项和“切图时自动导出”开关的界面与持久化（归[工具栏与菜单](./toolbar-and-menus.md)）。
@@ -21,7 +21,7 @@ lastUpdated: true
 - 翻译页的“导入翻译并渲染”与编辑器共用同一套 `_translations.json` 格式，但入口不同：前者是翻译页的工作模式，后者是编辑器文件列表加载图片时自动读取工程数据。
 - 不在本页展示真实用户图片、工程 JSON、密钥或私有路径；格式只以键名和脱敏结构描述。
 
-## UI 操作 {#ui-operations}
+## 在编辑器中操作 {#ui-operations}
 
 ### 导入图片与工程数据 {#import-images-and-project-data}
 
@@ -147,7 +147,7 @@ flowchart LR
     F --> G["manga_translator_work/inpainted/*_inpainted"]
 ```
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - 编辑器导出强制 `disable_auto_wrap=True`，因此导出结果不受“启用 AI 断句”等自动换行设置影响；文本框大小和位置以编辑器为准。
 - `translation` 恒为替换后终稿：导入旧 JSON 缺 `translation_raw` 时用 `translation` 回填；写回时 `skip_text_replacements` 防止二次替换。
@@ -155,5 +155,3 @@ flowchart LR
 - 切页自动导出依赖导出队列：自动导出被拒绝会中止切图；手动导出时切图等待导出完成。
 - `editor_base` 只在 JSON 有超分/上色标记时有效；没有标记时编辑器删除过期底图并回退到原图，避免显示与当前 JSON 不匹配的旧底图。
 - JSON 不存在时导出会新建（`find_json_path` 无结果则 `get_json_path(create_dir=True)`）；写入后位于新位置，旧版同目录 JSON 仍可读但不再作为写入目标。
-
-更多开发向对照与源码依据见[参考索引](../../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。

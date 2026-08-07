@@ -9,13 +9,13 @@ lastUpdated: true
 
 # API, Authentication, Rate Limit, and Timeout Troubleshooting
 
-Use this page when translation, OCR, colorization, or rendering requests report API errors, authentication failures, rate limiting, or timeouts. First decide whether the problem is between your machine and the external API or between the browser and the Web service, then locate the configuration, network, or candidate-state issue by symptom. This page covers the diagnosis order and fix entries for four symptom groups only; candidate slots, the cooldown state machine, retry/RPM parameters, connection tests, and Web deployment security have their own pages.
+Use this page when translation, OCR, colorization, or rendering requests report API errors, authentication failures, rate limiting, or timeouts. First decide whether the problem is between your machine and the external API or between the browser and the Web service, then locate the configuration, network, or candidate-state issue by symptom. This guide covers the diagnosis order and fix entries for four symptom groups only; candidate slots, the cooldown state machine, retry/RPM parameters, connection tests, and Web deployment security have their own pages.
 
-## Feature boundary {#feature-boundary}
+## Identify the problem {#feature-boundary}
 
-- This page covers four symptom groups: API errors (4xx/5xx), authentication failures (invalid key, 401/403), rate limiting (429/cooldown/RPM), and timeouts and network issues (timeout/connection/DNS).
+- This guide covers four symptom groups: API errors (4xx/5xx), authentication failures (invalid key, 401/403), rate limiting (429/cooldown/RPM), and timeouts and network issues (timeout/connection/DNS).
 - Candidate slot add/remove, numbering, and `failover`/`round_robin` strategies are documented in [API slots and rotation strategy](../desktop/api-management/slots-and-rotation.md); the cooldown/unavailable/recovery state machine in [Failures, cooldown, and recovery](../desktop/api-management/failures-cooldown-and-recovery.md); connection tests and model listing in [Connection tests and model list](../desktop/api-management/connection-tests-and-model-list.md); and Key/Base/Model fields and `.env` key mapping in [Credentials, addresses, and models](../desktop/api-management/credentials-addresses-models.md).
-- The full parameter pages for `cli.attempts`, `translator.max_requests_per_minute`, and post-translation quality checks live in [Retry, rate limit, and quality](../desktop/translator/retry-rate-limit-and-quality.md); this page does not repeat the parameter template.
+- The full parameter pages for `cli.attempts`, `translator.max_requests_per_minute`, and post-translation quality checks live in [Retry, rate limit, and quality](../desktop/translator/retry-rate-limit-and-quality.md); this guide does not repeat the parameter template.
 - Web scenarios: login/registration/session rate limiting, concurrency, and quotas belong to [Web deployment, security, and troubleshooting](../web/deployment-security-and-troubleshooting.md) and [Login, language, and session](../web/login-language-and-session.md); the complete status-code contract belongs to the developer docs [Authentication and errors](../developer/http-api/authentication-and-errors.md) and [Translation endpoints](../developer/http-api/translation-endpoints.md).
 - “Rate limiting” is a different layer on desktop vs. Web service: on desktop it is the external API RPM and candidate cooldown; on the Web service it is server-side login/registration/concurrency/quota limiting. Do not mix the two concepts when troubleshooting.
 
@@ -85,4 +85,4 @@ flowchart TD
     Next --> Pick
 ```
 
-The diagram reflects the source-confirmed candidate-level order: the same candidate is retried per `cli.attempts` first; only permanent errors and rate limiting change candidate state before the strategy moves to the next candidate. “Retry attempts” and “API candidate count” are two different layers; `attempts=-1`, single-candidate, and no-failure runs take their documented bypasses, and no runtime screenshot has been fabricated.
+The diagram reflects the candidate-level order: the same candidate is retried per `cli.attempts` first; only permanent errors and rate limiting change candidate state before the strategy moves to the next candidate. “Retry attempts” and “API candidate count” are two different layers; `attempts=-1`, single-candidate, and no-failure runs take their documented bypasses, and

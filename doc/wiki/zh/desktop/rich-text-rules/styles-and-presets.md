@@ -11,7 +11,7 @@ lastUpdated: true
 
 当规则命中译文后，除了改变文字本身，还需要同时调整字号、颜色、描边、间距或方向时，本页用于配置每条富文本规则追加的样式字段，以及如何把编辑器里保存的样式预设直接载入规则。规则的匹配条件、表格与源码编辑见[富文本规则：表格、Raw 与匹配](./table-raw-and-match.md)；在编辑器中手工创建样式预设见[浮动富文本编辑器](../editor/floating-rich-text.md)。
 
-## 功能边界
+## 规则作用范围
 
 - 每条规则的样式存放在 `config/rich_text_rules.yaml` 的 `style`、`ruby`、`tcy` 字段；“编辑富文本样式”对话框的每个控件都映射回这些字段。
 - “已保存富文本样式：”下拉框只读取 `app.saved_rich_text_presets`，不在本页创建、重命名或删除预设；预设的增删改在编辑器浮动富文本面板的“富文本预设”侧边栏完成。
@@ -19,7 +19,7 @@ lastUpdated: true
 - `editor_auto_rich_text_rules` 是编辑器打字时自动应用规则的开关，不是规则文件本身，也不控制渲染管线。
 - 纵中横（TCY）与注音（Ruby）是节点级结构，不是 `TextStyle` 字段；规则通过顶层 `tcy` / `ruby` 两个独立字段写入。
 
-## UI 操作
+## 在富文本规则中操作
 
 ### 打开样式编辑对话框 {#open-style-dialog}
 
@@ -42,7 +42,7 @@ lastUpdated: true
 
 ## 样式字段 {#style-fields}
 
-> 本页各字段的存储键、默认值与实现细节，见参考页[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各字段的存储键、默认值与实现细节，见参考页[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 每个样式字段都对应富文本文档中的一类样式。只有你在对话框中启用的字段才会写入规则；写入前会经过归一化校验，包含未知字段的规则会编译失败并被整体跳过。字段默认值是对话框控件的默认值，不是区域或区域样式默认值。
 
@@ -147,10 +147,10 @@ flowchart LR
     D --> M["第二次富文本测量 + 排版渲染"]
 ```
 
-## 依赖与冲突
+## 限制与注意事项
 
 - 规则应用顺序固定为 `common`（通用）→ 当前方向的 `horizontal` / `vertical`；后一条规则可在自动样式内覆盖前一条的同名字段，但已有的手工富文本字段始终保留。
-- 样式对话框与批量管理的“设置富文本”动作共用 `RichTextStyleDialog`；本页只描述规则场景，批量场景见[批量管理：预览、应用与恢复](../batch-management/preview-apply-restore.md)。
+- 样式对话框与批量管理的“设置富文本”动作共用 `RichTextStyleDialog`；这里主要说明规则场景，批量场景见[批量管理：预览、应用与恢复](../batch-management/preview-apply-restore.md)。
 - 预设与规则是两套存储：预设存 `app.saved_rich_text_presets`（用户 `config.json`），规则存 `config/rich_text_rules.yaml`；载入预设只是把字段填进对话框，不自动建立新规则。
 - `editor_auto_rich_text_rules` 关闭时编辑器打字不再自动应用规则，但渲染管线仍然会应用 `config/rich_text_rules.yaml`。
 - 样式值可能包含用户业务内容（颜色、字体名、注音）。共享日志、配置导出或调试目录前必须删除规则正文、预设名称、颜色与注音文本等私有内容。

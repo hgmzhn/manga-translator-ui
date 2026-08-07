@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Update and Version Switching
 
-## Feature boundary {#scope}
+## Who this installation is for {#scope}
 
-This page documents the update-maintenance flow delegated to `packaging/launch.py --maintenance` by the install scripts: checking code and dependencies, switching Git branches or tags, changing mirrors, and changing the maintenance-menu language. It does not replace first installation, Windows runtime selection, Linux/macOS bootstrapping, or uninstall/data-cleanup documentation. Here, “version” means the code version and dependency environment, not a desktop translator setting.
+This guide documents the update-maintenance flow delegated to `packaging/launch.py --maintenance` by the install scripts: checking code and dependencies, switching Git branches or tags, changing mirrors, and changing the maintenance-menu language. It does not replace first installation, Windows runtime selection, Linux/macOS bootstrapping, or uninstall/data-cleanup documentation. Here, “version” means the code version and dependency environment, not a desktop translator setting.
 
 The maintenance menu is an interactive command-line UI. Windows uses `Win-Install-or-Update.bat`; Linux/macOS uses `Unix-Install-or-Update.sh` as a bootstrapper. Both ultimately enter the same Python maintenance menu.
 
-## UI operations {#operations}
+## Installation steps {#operations}
 
 ### Run the maintenance menu
 
@@ -52,7 +52,7 @@ Select `[4] Switch version (by tag)`. The menu fetches tags, displays at most 20
 - `[7] Language`: changes only maintenance-menu `L()` output and writes `packaging/maintenance_config.json`; it does not change desktop Qt `app.ui_language`.
 - `[8] Exit`: exits the maintenance menu. After an update or switch, use `Win-Start.bat` on Windows or `Unix-Start.sh` on Linux/macOS to start the application.
 
-## Runtime behavior {#runtime}
+## What the installer does {#runtime}
 
 ```mermaid
 flowchart TD
@@ -76,7 +76,7 @@ The update decision does not rely on a version string alone. Code needs updating
 
 Package installation prefers discoverable uv for bulk installation; when uv is unavailable, it falls back to per-package pip installation. Regular packages use PyPI mirror fallback, while PyTorch packages use the CPU/CUDA/ROCm-specific index or its fallback sources. Cleaning installation caches does not delete project configuration, models, or fonts.
 
-## Dependencies and conflicts {#dependencies}
+## Environment and compatibility {#dependencies}
 
 - `pyproject.toml` requires Python `>=3.12,<3.13`; Python 3.13 is not a replacement runtime.
 - `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive uv dependency groups. Do not layer backends in one environment after changing hardware; reinstall the matching variant selected by maintenance.
@@ -84,5 +84,3 @@ Package installation prefers discoverable uv for bulk installation; when uv is u
 - Legacy Conda is a fallback only when portable Python or Unix `.venv` is unavailable. Mixing `packaging/python`, `.venv`, `conda_env`, and external environments can create DLL, Torch, or ONNX Runtime conflicts.
 - Code updates can overwrite local source edits, and tags create detached HEAD. Back up and review configuration, prompts, models, fonts, and workspace resources before switching.
 - Updates need Git and package-index/mirror access. Translation API networking, credentials, and quota are a separate runtime path. A successful update neither proves the API works nor guarantees models are downloaded or VRAM is sufficient.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

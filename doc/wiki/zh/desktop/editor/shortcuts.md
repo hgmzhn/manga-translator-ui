@@ -9,11 +9,11 @@ lastUpdated: true
 
 # 编辑器快捷键
 
-编辑器的大多数高频操作都可以用键盘或滚轮完成：撤销/重做、复制/粘贴/删除、切换画布工具、切换图片，以及用滚轮组合调整画笔大小和选中区域字号。本页列出 `EditorShortcutManager` 实际注册的全部快捷键与滚轮组合，并解释焦点在文本控件、画布或浮动富文本窗口时这些按键分别交给谁处理。
+编辑器的大多数高频操作都可以用键盘或滚轮完成：撤销/重做、复制/粘贴/删除、切换画布工具、切换图片，以及用滚轮组合调整画笔大小和选中区域字号。这里列出 `EditorShortcutManager` 实际注册的全部快捷键与滚轮组合，并解释焦点在文本控件、画布或浮动富文本窗口时这些按键分别交给谁处理。
 
-工具栏与菜单项、画布工具、区域列表、属性面板和浮动富文本的完整操作分别见[工具栏与菜单](./toolbar-and-menus.md)、[画布工具与选区](./canvas-tools-and-selection.md)、[区域列表与文本编辑](./region-list-and-text-editing.md)、[文本属性](./text-properties.md)、[样式属性](./style-properties.md)、[浮动富文本](./floating-rich-text.md)和[导入导出与写回](./import-export-and-writeback.md)。本页只讲“按哪个键会发生什么”，不重复这些页面里的控件细节。
+工具栏与菜单项、画布工具、区域列表、属性面板和浮动富文本的完整操作分别见[工具栏与菜单](./toolbar-and-menus.md)、[画布工具与选区](./canvas-tools-and-selection.md)、[区域列表与文本编辑](./region-list-and-text-editing.md)、[文本属性](./text-properties.md)、[样式属性](./style-properties.md)、[浮动富文本](./floating-rich-text.md)和[导入导出与写回](./import-export-and-writeback.md)。这里按“按哪个键会发生什么”，不重复这些页面里的控件细节。
 
-## 功能边界 {#feature-boundary}
+## 可以做什么 {#feature-boundary}
 
 - 编辑器键盘快捷键全部由 `desktop_qt_ui/ui/editor/shortcut_manager.py#EditorShortcutManager` 注册，工具栏不注册 `QAction` 快捷键，只在“导出图片”“撤销”“重做”菜单项后追加提示文字。
 - `Undo`、`Redo`、`Copy`、`Paste`、`Select All`、`Delete` 使用 `QKeySequence.StandardKey` 注册；在 Windows 上的主绑定分别为 `Ctrl+Z`、`Ctrl+Y`、`Ctrl+C`、`Ctrl+V`、`Ctrl+A`、`Del`。实际显示会随 Qt 平台映射。
@@ -22,7 +22,7 @@ lastUpdated: true
 - `Escape` 或画布失焦会取消进行中的框选、绘制、文本框、仿制、区域拖动或中键平移，不提交任何修改。
 - 快捷键分派优先级从高到低为：焦点在其他顶层窗口（例如浮动富文本窗口）→ 焦点在主窗口文本控件 → 焦点在画布。完整冲突规则见[运行机理](#runtime-behavior)。
 
-## UI 操作 {#ui-operations}
+## 在编辑器中操作 {#ui-operations}
 
 ### 在“菜单”中查看快捷键提示 {#toolbar-hints}
 
@@ -55,7 +55,7 @@ lastUpdated: true
 | 任意含 `Ctrl` 的滚轮组合 | 按 ±5%（最小 1）调整所有选中区域字号 | 无选区时也吞掉事件，不穿透成画布缩放 |
 | 普通滚轮 | 以鼠标点为锚缩放画布 | 倍率钳制在 `0.05`–`50.0`，由 `GraphicsView.wheelEvent()` 处理 |
 
-## 运行机理 {#runtime-behavior}
+## 修改如何保存 {#runtime-behavior}
 
 ### 快捷键注册与焦点分派 {#registration-and-dispatch}
 
@@ -94,7 +94,7 @@ flowchart LR
 
 画布有进行中的交互（框选、绘制、文本框、仿制、区域拖动或中键平移）时，按 `Escape` 会调用 `_cancel_active_interaction(commit=False)` 丢弃这些交互，不提交修改；`focusOutEvent`（模态框、窗口失活、焦点转移）也走同样的丢弃路径，防止丢失 `mouseRelease` 后框选矩形或绘制预览残留在场景里。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - `Delete` 只在焦点不是文本控件时删除区域；文本控件内的 `Delete` 不会触发区域删除。
 - 浮动富文本窗口以 `WA_ShowWithoutActivating` 显示，选区变化不会调用 `focus_text()` 抢焦点，画布保留焦点，因此 `Delete`/`A`/`D`/`Q`/`W`/`E` 在浮窗出现后仍按画布语义工作；点击浮窗内的文本框后才进入文字编辑。
@@ -103,5 +103,3 @@ flowchart LR
 - 工具栏只显示快捷键提示文字而不注册 `QAction` 快捷键，避免与 `EditorShortcutManager` 的双重触发。
 - 快捷键行为依赖选区状态：无选区时 `Delete`、`Copy` 无操作，`Paste` 按鼠标位置粘贴新区域；多选时 `Copy` 只复制最后选中的区域。
 - 在编辑器之外（主窗口其它页面或系统其它窗口），这些快捷键不属于 `EditorShortcutManager` 的注册范围，不保证生效。
-
-更多开发向对照与源码依据见[参考索引](../../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。

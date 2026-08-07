@@ -9,7 +9,7 @@ lastUpdated: true
 
 # Docker 部署
 
-本页说明如何从当前源码构建 Web 服务的 CPU 或 NVIDIA GPU 容器，以及如何映射端口、保存配置和检查服务状态。Docker 镜像提供 Web 界面与 HTTP API，不包含桌面 Qt 工作区；Web 用户操作和 HTTP 契约分别见对应页面。本页不覆盖 Docker 发布镜像的来源、反向代理的具体配置或宿主机级备份策略。
+这里说明如何从当前源码构建 Web 服务的 CPU 或 NVIDIA GPU 容器，以及如何映射端口、保存配置和检查服务状态。Docker 镜像提供 Web 界面与 HTTP API，不包含桌面 Qt 工作区；Web 用户操作和 HTTP 契约分别见对应页面。这里不覆盖 Docker 发布镜像的来源、反向代理的具体配置或宿主机级备份策略。
 
 ## 使用 Compose 启动
 
@@ -120,5 +120,3 @@ Compose 路径均相对于 `packaging/`：
 若要让 Web 管理界面保存的服务器 API 配置在重建容器后保留，先创建空的 `packaging/data/app.env`，再取消 Compose 中 `./data/app.env:/app/.env` 的注释。不要把 `.env`、账号数据、会话令牌、API Key、用户图片或提示词提交到 Git；挂载目录也应按最小权限和备份保留期管理。
 
 运行时环境变量包括 `MT_WEB_HOST`、`MT_WEB_PORT`、`MT_USE_GPU`、`MT_DISABLE_ONNX_GPU`、`MT_MODELS_TTL`、`MT_RETRY_ATTEMPTS` 和 `MT_VERBOSE`。它们覆盖 Web 启动行为、后端选择、模型缓存、重试或日志；具体默认值以 `manga_translator/args.py` 和 Compose 为准。`MANGA_TRANSLATOR_ADMIN_PASSWORD` 只记录其存在和最短长度校验，不在页面展示其值。
-
-更多开发向对照与源码依据见[参考索引](../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

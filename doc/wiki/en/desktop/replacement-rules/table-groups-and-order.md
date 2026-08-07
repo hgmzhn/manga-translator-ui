@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Replacement Rule Table: Groups, Order, and Matching
 
-Use this page when fixed words, punctuation, or vertical glyphs in translations need consistent rewriting. The “Replacement Rules” page maintains a set of rules applied to translations before rendering. Every rule is loaded from `config/text_replacements.yaml` and applied top to bottom in the fixed order “Common (Always), then Horizontal/Vertical”. This page explains how the rules are grouped, ordered, and matched.
+Use this page when fixed words, punctuation, or vertical glyphs in translations need consistent rewriting. The “Replacement Rules” page maintains a set of rules applied to translations before rendering. Every rule is loaded from `config/text_replacements.yaml` and applied top to bottom in the fixed order “Common (Always), then Horizontal/Vertical”. This guide explains how the rules are grouped, ordered, and matched.
 
-This page covers the table view: groups, execution order, literal/regex matching, and where replacements run in the render pipeline. The raw YAML edit mode, regex syntax details, and the full save/restore behavior are covered by [Raw YAML, regex, and save](./raw-yaml-regex-and-save.md); the rich-text rules applied after replacements are covered by [Rich text rule table: table, raw, and match](../rich-text-rules/table-raw-and-match.md).
+This guide covers the table view: groups, execution order, literal/regex matching, and where replacements run in the render pipeline. The raw YAML edit mode, regex syntax details, and the full save/restore behavior are covered by [Raw YAML, regex, and save](./raw-yaml-regex-and-save.md); the rich-text rules applied after replacements are covered by [Rich text rule table: table, raw, and match](../rich-text-rules/table-raw-and-match.md).
 
-## Feature boundary {#feature-boundary}
+## Where the rules apply {#feature-boundary}
 
 - The three groups are fixed as `common`, `horizontal`, and `vertical`: `common` always runs, `horizontal` runs only for horizontal rendering, and `vertical` runs only for vertical rendering.
 - Each rule has five fields — `pattern`, `replace`, `regex`, `enabled`, `comment` — shown as five table columns in the table view.
 - Rules execute top to bottom within the file: earlier rules in the same group run first, and the output of one rule keeps participating in later matches (cascade).
-- This page does not cover YAML syntax validation in Raw edit mode or restoring defaults (see [Raw YAML, regex, and save](./raw-yaml-regex-and-save.md)), nor the rich-text rules applied after replacement (see the [Rich text rules](../rich-text-rules/table-raw-and-match.md) pages).
+- This guide does not cover YAML syntax validation in Raw edit mode or restoring defaults (see [Raw YAML, regex, and save](./raw-yaml-regex-and-save.md)), nor the rich-text rules applied after replacement (see the [Rich text rules](../rich-text-rules/table-raw-and-match.md) pages).
 
 ## Edit the rule table in the UI {#edit-rule-table}
 
@@ -53,7 +53,7 @@ The status bar at the bottom uses the format `group: enabled/total enabled ● [
 
 ## Rule fields {#rule-fields}
 
-> For the storage keys, defaults, and implementation details of every field on this page, see the reference page [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For the storage keys, defaults, and implementation details of every field on this page, see the reference page [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 The five table columns correspond to five pieces of information: Enabled, Pattern, Replace, Regex, and Comment. Regex, Enabled, and Comment are optional and are written back to YAML only when they differ from the default; the table save skips whole rows with an empty Pattern.
 
@@ -139,7 +139,7 @@ flowchart LR
 - In the editor, editing the “pre-replacement translation” (`translation_raw`) calls `editor_controller._apply_translation_replacements`, which syncs to the translation in real time with the same engine and falls back to the raw text on failure.
 - Rich text synchronization (`rich_text_sync.py`) runs the same common + direction groups on rich text entries (the “entry-based” version) and places the rich-text rules after replacement.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Which direction group runs depends on the region render direction, which is related to the “Direction” render setting and the detection result; replacement rules never change the direction.
 - `text_replacements.yaml` and `rich_text_rules.yaml` are separate files: replacement runs before the rich-text rules, and the rich-text rules read the already-replaced translation.

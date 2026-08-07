@@ -9,18 +9,18 @@ lastUpdated: true
 
 # Debug Folder Naming and Overview
 
-When you enable “Verbose Logging”, the app creates one debug subfolder per input image under `result/` and writes intermediate files for detection, OCR, masks, inpainting, and rendering. This page explains the subfolder naming rule, the layout of `result/`, and the stage and trigger condition of each debug artifact, so you can locate a specific run from its folder name and tell which files always appear from those that only appear under specific settings or workflows.
+When you enable “Verbose Logging”, the app creates one debug subfolder per input image under `result/` and writes intermediate files for detection, OCR, masks, inpainting, and rendering. This guide explains the subfolder naming rule, the layout of `result/`, and the stage and trigger condition of each debug artifact, so you can locate a specific run from its folder name and tell which files always appear from those that only appear under specific settings or workflows.
 
-This page does not dig into each artifact: detection and rearrangement are covered in [Input detection and rearrangement](./input-detection-and-rearrangement.md), OCR and text regions in [OCR and text regions](./ocr-and-text-regions.md), masks, inpainting and rendering in [Mask, inpainting and rendering](./mask-inpainting-and-rendering.md), and special workflows in [Special workflows and WebSocket](./special-workflows-and-websocket.md). Cleanup, sanitization, and sharing of debug artifacts are covered in [How to read and share a debug run](./how-to-read-and-share-a-debug-run.md).
+This guide does not dig into each artifact: detection and rearrangement are covered in [Input detection and rearrangement](./input-detection-and-rearrangement.md), OCR and text regions in [OCR and text regions](./ocr-and-text-regions.md), masks, inpainting and rendering in [Mask, inpainting and rendering](./mask-inpainting-and-rendering.md), and special workflows in [Special workflows and WebSocket](./special-workflows-and-websocket.md). Cleanup, sanitization, and sharing of debug artifacts are covered in [How to read and share a debug run](./how-to-read-and-share-a-debug-run.md).
 
-## Feature boundary
+## What to inspect
 
 - The “Verbose Logging” switch decides whether per-image debug subfolders are generated; when off, no timestamped image-level subfolder is created.
 - The image-level debug subfolder name is fixed as `{timestamp_ms}-{image_md5_8}-{detection_size}-{target_lang}-{translator}`, built when each input image starts processing.
 - Debug directories live under `BASE_PATH/result/`; `BASE_PATH` is the executable directory in frozen (packaged) runs and the repository root in source runs.
-- This page only covers naming and the artifact overview; each artifact is handled in depth by its own debugging page.
+- This guide focuses on naming and the artifact overview; each artifact is handled in depth by its own debugging page.
 
-## UI operations
+## Inspect debug artifacts
 
 ### Enable verbose logging in Settings
 
@@ -31,7 +31,7 @@ This page does not dig into each artifact: detection and rearrangement are cover
 
 The CLI `local` mode supports the same behavior through `-v/--verbose`; see the CLI documentation.
 
-## Runtime behavior
+## How artifacts are produced
 
 ### Image-level subfolder naming
 
@@ -146,7 +146,7 @@ The following artifacts are only generated under specific settings, detectors, w
 - These files are terminal diagnostic writes for verbose-enabled operators or bug-report recipients.
 - To determine which artifacts a run “actually contains”, locate its subfolder under `result/` using the naming rule above and cross-check the runtime settings and workflow; do not treat conditional artifacts as always present.
 
-## Dependencies and conflicts
+## Artifacts and privacy
 
 - Image-level subfolders depend on the verbose switch, the image context, and `result_sub_folder`; missing any of them falls back to a path without an image-level subfolder.
 - The `ocrs/` subfolder is produced by `_run_ocr()` in verbose mode via a temporary `MANGA_OCR_RESULT_DIR` pointing at the image-level `ocrs/`; direct OCR calls without that environment variable fall back to `result/ocrs/`.

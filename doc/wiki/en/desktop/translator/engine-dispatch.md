@@ -11,13 +11,13 @@ lastUpdated: true
 
 Use this page when you need to know which implementation the Translator selector calls, when an API is required, or how multi-step translation is chained. It covers the boundary from the Translator selector to a translator implementation and the final text consumers; target languages, skipped languages, context, prompts, streaming, and post-processing belong to [Translator selection and languages](./selection-and-languages.md) and the adjacent specialist pages.
 
-## Feature boundary
+## When to use it
 
 - **In scope**: translator selection in the desktop Settings and API Management pages; mapping from the stored value to the `Translator` enum, `TranslatorChain`, and `dispatch`; the differences between regular and high-quality OpenAI/Gemini implementations, Sakura, no translation, and original text.
 - **Out of scope**: OCR, colorizer, and renderer selectors; Key/Base/Model candidate rotation within one provider; prompt contents, context construction, and quality retries. Those belong to API Management or the other translator pages.
 - The Translator selector in API Management is not just a view filter: it writes the same `translator.translator` setting and refreshes the translation API group. API slots themselves do not change the selected engine.
 
-## UI operations
+## Set it in the desktop app
 
 ### Select an engine in Settings
 
@@ -65,7 +65,7 @@ flowchart LR
 
 ## API feature-selector boundary
 
-API Management has four feature selectors: Translation, OCR, Colorizer, and Renderer. Each is bound to one real configuration key; the keys and the refreshed API groups are listed in [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+API Management has four feature selectors: Translation, OCR, Colorizer, and Renderer. Each is bound to one real configuration key; the keys and the refreshed API groups are listed in [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 Therefore changing the Translation selector to `gemini` in API Management really changes the translation engine and refreshes Gemini translation API fields; it is not merely changing a credential label. Conversely, multiple OpenAI Key, Base, or Model slots only affect runtime candidates within the selected OpenAI provider. Candidate resolution, `failover`/`round_robin`, cooldown, and recovery belong to API Management rather than this page.
 

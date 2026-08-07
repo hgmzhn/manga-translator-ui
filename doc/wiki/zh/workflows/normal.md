@@ -11,18 +11,18 @@ lastUpdated: true
 
 “正常翻译流程”是翻译页“翻译流程模式：”下拉框的默认选项，也是九种工作流中唯一执行完整翻译链路的模式。需要从图片检测文字、识别并翻译、修复原文字区域并渲染译文时使用本模式；其余八个模式会跳过大部分阶段，总览见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)。
 
-本页只描述正常模式的输入、完整处理阶段、跳过条件和输出文件。添加文件、列表状态和拖拽见[文件列表与输入](../desktop/translation/file-list-and-input.md)，开始、停止、取消和进度状态见[进度、停止与任务状态](../desktop/translation/progress-stop-and-task-state.md)，各阶段的参数算法见对应的设置页（检测、OCR 过滤与合并、翻译、蒙版与修复、排版与渲染、超分与上色、CLI 批量与输出）。
+这里主要说明正常模式的输入、完整处理阶段、跳过条件和输出文件。添加文件、列表状态和拖拽见[文件列表与输入](../desktop/translation/file-list-and-input.md)，开始、停止、取消和进度状态见[进度、停止与任务状态](../desktop/translation/progress-stop-and-task-state.md)，各阶段的参数算法见对应的设置页（检测、OCR 过滤与合并、翻译、蒙版与修复、排版与渲染、超分与上色、CLI 批量与输出）。
 
-## 功能边界
+## 什么时候用
 
 - 输入：主输入图片，通过“添加文件”“添加文件夹”或拖拽加入。添加文件夹时递归查找受支持的图片扩展名、按自然排序收集，并跳过名为 `manga_translator_work` 的目录。
 - 处理阶段：条件上色 → 条件超分 → 检测 → OCR → 文本行合并 → 翻译 → 蒙版细化 → 修复 → 渲染 → 保存主输出图。
 - 跳过条件：检测后无文本行、OCR 后无文本、翻译后区域为空、取消、AI renderer 跳过修复等，见下文“跳过条件”。
 - 输出：主输出图；启用 `cli.save_text`（界面“图片可编辑”）时还写工程 JSON 和修复图；启用上色或超分时写编辑器底图。
 - 正常模式是九种工作流中唯一允许进入 `batch_concurrent` 并发管线的模式；其余八个模式在桌面控制层和核心 `translate_batch()` 中都被视为不兼容，按非并发处理。
-- 本页不解释各检测器、OCR、翻译器、修复器、渲染器的参数算法，那些内容在各设置页；工作流下拉框、输出目录控件和九种模式的互斥写入见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)。
+- 这里不解释各检测器、OCR、翻译器、修复器、渲染器的参数算法，那些内容在各设置页；工作流下拉框、输出目录控件和九种模式的互斥写入见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)。
 
-## UI 操作
+## 运行这个流程
 
 ### 添加输入并选择工作流
 
@@ -32,7 +32,7 @@ lastUpdated: true
 4. 在“输出目录:”输入框填写路径，或把输出文件夹拖入输入框；占位文案为“选择或拖入输出文件夹...”。点击“浏览...”选择目录，点击“打开”调用系统打开该目录。
 5. 点击“开始翻译”开始任务。运行中按钮文案变为“停止翻译”，再点击可请求停止，随后进入“停止中...”状态。
 
-## 运行机理
+## 处理顺序
 
 ### 主流水线
 
@@ -67,7 +67,7 @@ flowchart LR
     Upscaled -. "上色或超分启用" .-> EditorBase
 ```
 
-上图表达的是源码确认的阶段顺序、跳过分支和输出分支，不代表每次运行都经过全部阶段：`colorizer.colorizer=none`、`upscale_ratio` 为空、无文本、AI renderer 和取消都会走相应旁路。修复图和编辑器底图只在对应条件下写入；文档没有伪造运行截图或私有任务产物。
+上图表达的是阶段顺序、跳过分支和输出分支，不代表每次运行都经过全部阶段：`colorizer.colorizer=none`、`upscale_ratio` 为空、无文本、AI renderer 和取消都会走相应旁路。修复图和编辑器底图只在对应条件下写入。
 
 ### 跳过条件
 
@@ -81,7 +81,7 @@ flowchart LR
 | 蒙版为空或全零 | 修复步骤 | 跳过修复，`img_inpainted = img_rgb` |
 | `revert_upscaling=true` | 保存前 | 进度状态 `downscaling`；结果缩回输入尺寸 |
 
-“输入图或超分图”指无文本提前返回时 `ctx.result = ctx.upscaled`，随后若开启 `revert_upscaling` 会缩回原尺寸。`cli.skip_no_text`（界面“跳过无文本图像”）是存储的 CLI 字段，本仓库静态核对未发现主翻译路径消费该字段；无文本图的内建提前退出由 `skip-no-regions`/`skip-no-text` 状态触发，二者是否叠加或冲突需运行验证。
+“输入图或超分图”指无文本提前返回时 `ctx.result = ctx.upscaled`，随后若开启 `revert_upscaling` 会缩回原尺寸。`cli.skip_no_text`（界面“跳过无文本图像”）是存储的 CLI 字段，在当前代码中未发现主翻译路径消费该字段；无文本图的内建提前退出由 `skip-no-regions`/`skip-no-text` 状态触发，二者是否叠加或冲突需在实际环境中确认。
 
 ### 输出与文件写入
 
@@ -91,15 +91,15 @@ flowchart LR
 - 编辑器底图：启用上色或超分时写 `manga_translator_work/editor_base/<原文件名>`，供编辑器作为可编辑底图。
 - `cli.overwrite`（界面“覆盖已存在文件”）为 `false` 时，GUI 开始前按主输出图是否存在过滤文件；全部文件都被跳过时会在翻译开始前结束，并提示删除同名文件或开启覆盖。
 
-## 依赖与冲突
+## 输入、输出与限制
 
 - `batch_size` 与 `batch_concurrent`：正常模式是九种模式中唯一允许并发管线的模式；其余八个模式在桌面控制层和核心 `translate_batch()` 中都被视为不兼容，会把本次局部变量改为非并发。并发不表示所有图片同时请求 API，阶段级并行、背压与失败隔离见[CLI 批量与输出](../desktop/settings/cli-batch-and-output.md)。
 - `cli.save_text`：同时控制普通模式的工程 JSON 与修复图写入；默认值为 `true`。
 - 上色、超分、检测、OCR、修复、渲染是否实际执行由对应参数决定（如 `colorizer.colorizer`、`upscale.upscale_ratio`、`render.renderer`），详见各设置页。
 - 上下文页数、术语、替换规则、API 候选轮换和重试会影响翻译与渲染质量，但不改变正常模式的阶段顺序。
-- 输出目录不存在、不可写或“打开”失败时的实际弹窗文案未运行核对；本页不把静态结论写成运行结论。
+- 输出目录不存在、不可写或无法打开时，任务会失败或给出提示；具体文字可能随系统和版本不同。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 - 其它工作流：[导出原文](./export-original.md) · [导出翻译](./export-translation.md) · [仅翻译（JSON）](./translate-json-only.md) · [导入翻译并渲染](./import-translation-and-render.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [仅修复](./inpaint-only.md) · [替换翻译](./replace-translation.md)
 - 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)

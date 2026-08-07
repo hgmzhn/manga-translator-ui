@@ -11,15 +11,15 @@ lastUpdated: true
 
 Use this page when you want to switch whole groups of API credentials between different service configurations, or when you need to know exactly when the Key/Base/Model fields in API Management are written to disk. It documents how `.env` is read and written (`config_service.py`), how API presets (`PresetService`) are added, switched, and deleted, how configuration is reloaded or restored, and the masking boundaries for export, import, screenshots, and reports. The Key/Base/Model fields themselves are covered in [API credentials, addresses, and models](./credentials-addresses-models.md); numbered channels and rotation strategies are covered in [Slots and rotation](./slots-and-rotation.md).
 
-## Feature boundary
+## Configuration scope
 
 - `.env` is the only credential persistence location on desktop: the Key/Base/Model fields, numbered channels, and rotation strategies in API Management are all written to `.env`; `config/config.json` and `config/config-example.json` do not store API keys.
 - An API preset is a whole-group snapshot of `.env` environment variables, saved as a flat JSON file at `presets/<name>.json`; `app.current_preset` in `config.json` only records the currently selected preset name (default `"默认"`) and does not duplicate the preset contents.
 - Applying a preset replaces `.env` wholesale: only the keys contained in the preset are kept, and keys in `.env` that are not in the preset are removed. This is not an incremental merge.
-- This page covers adding, deleting, and switching presets; automatic `.env` saving (250 ms debounce plus atomic background writes); reloading and exit-time flushing; and the credential-masking boundary when exporting or importing configuration.
-- This page does not cover: Key/Base/Model inputs and masking (see [API credentials, addresses, and models](./credentials-addresses-models.md)), numbered-slot add/delete and rotation strategies (see [Slots and rotation](./slots-and-rotation.md)), failures, cooldown, and recovery (see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md)), connection tests and the model list (see [Connection tests and model list](./connection-tests-and-model-list.md)), or the “model presets” in custom request parameters (see [Custom request parameters](./custom-request-parameters.md)).
+- This guide covers adding, deleting, and switching presets; automatic `.env` saving (250 ms debounce plus atomic background writes); reloading and exit-time flushing; and the credential-masking boundary when exporting or importing configuration.
+- This guide does not cover: Key/Base/Model inputs and masking (see [API credentials, addresses, and models](./credentials-addresses-models.md)), numbered-slot add/delete and rotation strategies (see [Slots and rotation](./slots-and-rotation.md)), failures, cooldown, and recovery (see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md)), connection tests and the model list (see [Connection tests and model list](./connection-tests-and-model-list.md)), or the “model presets” in custom request parameters (see [Custom request parameters](./custom-request-parameters.md)).
 
-## UI operations
+## Use it in API Management
 
 ### Manage presets in API Management
 
@@ -36,7 +36,7 @@ Use this page when you want to switch whole groups of API credentials between di
 3. Import deep-merges the selected JSON into the current settings, preserves the current `app` section, and never writes `.env`; the dialog says “Your API keys and sensitive information have been preserved.”, so existing API keys are unaffected.
 4. After a successful import, the `config_loaded` signal is emitted, the Settings page is rebuilt and the description panel refreshes; API credentials in `.env` are not rewritten by the import.
 
-## Runtime behavior
+## How requests are handled
 
 ### Startup load
 
@@ -79,7 +79,7 @@ The diagram above only describes the write lifecycle for credentials and presets
 - “Export Config” excludes the `app` section and `cli.verbose`, and `config.json` itself contains no API keys, so the exported file has no credentials; “Import Config” never writes `.env`, so existing API keys are preserved.
 - Switching presets saves the current `.env` values into the old preset, so preset files you create or update can accumulate real keys over time; this page never displays preset contents or real key values.
 
-## Dependencies and conflicts
+## Credentials, network, and errors
 
 - `.env`, `presets/*.json`, `config/config.json`, and `config/custom_api_params.json` have different roles: credentials/environment variables, preset snapshots, UI settings, and request-body parameters. Switching presets affects only `.env`; importing configuration affects only `config.json`; the “model presets” in `custom_api_params.json` are unrelated to the API presets on this page (see [Custom request parameters](./custom-request-parameters.md)).
 - Applying a preset replaces `.env` wholesale, so keys you added by hand or keys unknown to the preset are deleted when it is applied; do not hand-edit the same file while the app still has pending writes.

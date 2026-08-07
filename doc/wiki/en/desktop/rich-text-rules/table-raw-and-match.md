@@ -9,18 +9,18 @@ lastUpdated: true
 
 # Rich-Text Rules Table, Raw Editing, and Matching
 
-Use the "Rich Text Rules" page when you want translated text to get bold, color, stroke, ruby, or tate-chu-yoko effects automatically instead of editing every region by hand. Rules match the translation after text replacement and before rendering, and only *add* rich-text fields that are not set yet; they never change the text itself. This page documents the Table View and Raw Edit editing modes, the fields of each rule, and the matching and execution flow.
+Use the "Rich Text Rules" page when you want translated text to get bold, color, stroke, ruby, or tate-chu-yoko effects automatically instead of editing every region by hand. Rules match the translation after text replacement and before rendering, and only *add* rich-text fields that are not set yet; they never change the text itself. This guide documents the Table View and Raw Edit editing modes, the fields of each rule, and the matching and execution flow.
 
 Text replacement rules are covered by [Replacement rules: table groups and order](../replacement-rules/table-groups-and-order.md) and [Replacement rules: raw YAML, regex, and saving](../replacement-rules/raw-yaml-regex-and-save.md). The meaning of individual style properties, saved style presets, and the in-editor style panel are covered by [Rich-text styles and presets](./styles-and-presets.md).
 
-## Feature boundary {#feature-boundary}
+## Where the rules apply {#feature-boundary}
 
 - Rich-text rules read the translation *after* replacement and line breaking: `[BR]`, `【BR】`, `<br>`, and newlines are first converted into paragraph boundaries, and rules never style the markers themselves.
 - Rules run per group: `common` (always) first, then `horizontal` or `vertical` depending on the region direction.
 - Rules only add style, ruby, and tate-chu-yoko (TCY) nodes; they do not replace text or delete existing manual rich-text fields. Whether a matched range with manual traces is touched is decided by the fill/skip policy (see the matching flow).
-- This page does not cover text replacement rules, manual editor styling, or saving/deleting style presets (see the linked pages), and it never stores API credentials or private user content.
+- This guide does not cover text replacement rules, manual editor styling, or saving/deleting style presets (see the linked pages), and it never stores API credentials or private user content.
 
-## UI operations {#ui-operations}
+## Use it in Rich Text Rules {#ui-operations}
 
 ### Open the rich-text rules page {#open-page}
 
@@ -56,7 +56,7 @@ Click the style button in the Rich Text Style column to open the "Edit Rich Text
 
 ## Parameters and options {#parameters-and-options}
 
-> For the storage keys, defaults, and implementation details of every field on this page, see the reference page [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For the storage keys, defaults, and implementation details of every field on this page, see the reference page [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 Each rule is a record inside one of the groups of the rich-text rules file. The following subsections explain each field; the controls and display text are the ones described under "Style edit dialog".
 
@@ -125,7 +125,7 @@ flowchart TD
 - Node wrapping: `ruby` or vertical `tcy` wraps the whole span only when the span has no line-break markers and none of its characters carry manual nodes.
 - Second measurement: regions hit by automatic rules are marked `_rich_text_rules_applied`; at render time they get an extra rich-text measurement with `skip_text_replacements=True` so local sizes, scales, and strokes reach the final render box, and the BR structure is not rewritten again.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Rich-text rules depend on text replacement running first: changing text clears the styling on the changed range, so styling must come after replacement. The fixed order is "properties → replacement → rich text".
 - Rules only add styling and never change text: if the editor's applied result differs in visible text from the translation, the rule result is discarded and the sync result is kept.

@@ -9,18 +9,18 @@ lastUpdated: true
 
 # AI 渲染提示词
 
-当“渲染器”选择 `openai_renderer` 或 `gemini_renderer` 时，整页译文不再由本地字体排版绘制，而是把页面图和区域译文一起交给图像生成模型重绘。本页说明 AI 渲染使用的固定提示词文件、加载与注入方式、进入 AI 渲染请求的路径，以及它与自定义 HQ 翻译提示词的边界。
+当“渲染器”选择 `openai_renderer` 或 `gemini_renderer` 时，整页译文不再由本地字体排版绘制，而是把页面图和区域译文一起交给图像生成模型重绘。这里说明 AI 渲染使用的固定提示词文件、加载与注入方式、进入 AI 渲染请求的路径，以及它与自定义 HQ 翻译提示词的边界。
 
-本页不覆盖渲染器枚举、字体和排版参数（见[排版与渲染](../settings/typesetting-and-rendering.md)），不覆盖 API 凭据、候选槽与轮询（见 API 管理页面），也不覆盖自定义 HQ 翻译提示词本身（见[上下文与提示词](../translator/context-and-prompts.md)）。
+这里不覆盖渲染器枚举、字体和排版参数（见[排版与渲染](../settings/typesetting-and-rendering.md)），不覆盖 API 凭据、候选槽与轮询（见 API 管理页面），也不覆盖自定义 HQ 翻译提示词本身（见[上下文与提示词](../translator/context-and-prompts.md)）。
 
-## 功能边界 {#feature-boundary}
+## 适用场景 {#feature-boundary}
 
 - `render.renderer` 决定是否进入 AI 渲染：`openai_renderer` / `gemini_renderer` 走图像生成 API，`default` 走本地 Qt/text_render 绘制，`none` 跳过文本绘制。
 - `render.ai_renderer_prompt_path` 是设置页“排版”中固定提示词编辑动作的 UI 行键，不是持久化配置值，也不是可切换路径；它始终编辑 `dict/ai_renderer_prompt.yaml`。
 - `render.ai_renderer_concurrency` 限制同一提供商同时进行的 AI 渲染 API 请求数。
 - AI 渲染提示词是固定文件，与用户可选的自定义 HQ 提示词（`translator.high_quality_prompt_path`）属于不同功能，文件不能互换。
 
-## UI 操作 {#ui-operations}
+## 在提示词管理中操作 {#ui-operations}
 
 ### 在设置页编辑 AI 渲染提示词 {#edit-in-settings}
 
@@ -37,7 +37,7 @@ lastUpdated: true
 
 ## 参数与选项 {#parameters-and-options}
 
-> 本页各参数的界面名称、存储键与默认值等对照，见参考页[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各参数的界面名称、存储键与默认值等对照，见参考页[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 #### 渲染器 {#render-renderer}
 
@@ -129,7 +129,7 @@ flowchart LR
 
 AI 渲染请求只读取 `dict/ai_renderer_prompt.yaml`，不会读取 HQ 自定义提示词；反之 HQ 翻译也不会读取 AI 渲染提示词。两者正文结构不同（HQ 提示词含占位符与输出格式，AI 渲染提示词是给图像模型的自由文本），文件互换会导致请求行为异常。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - 选择 `openai_renderer` / `gemini_renderer` 但 `.env` 缺少对应 API Key 时，UI 在开始翻译前弹出“需要填写 API 密钥”（`API Keys Required`）并阻止启动；OpenAI 渲染器在配置了本地 Base 地址时允许空 Key（`allow_empty_api_key_for_local_base`），Gemini 渲染器必须有 Key。
 - `RENDER_*` 键会进入 API 管理的候选槽与轮询（`API_ROTATION_ENV_GROUPS`），轮换不改变 `render.renderer` 与提示词文件。

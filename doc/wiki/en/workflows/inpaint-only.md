@@ -13,15 +13,15 @@ Use the Inpaint Only workflow when you only need to erase the text areas from th
 
 Inpaint Only, [Colorize Only](./colorize-only.md), and [Upscale Only](./upscale-only.md) are image-only bypass modes; the difference from the full pipeline is covered in [Normal Translation](./normal.md). The overall boundaries of the nine workflows are in [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md), with a summary table in [Workflow Matrix](../reference/workflow-matrix.md). The mask and inpainting parameters themselves are documented in [Mask and Inpainting](../desktop/settings/mask-and-inpainting.md).
 
-## Feature boundary
+## When to use it
 
 - Inputs: the main input images (the same file-discovery rules as normal translation). No workflow sidecar such as a project JSON, TXT, or paired image is required.
 - Stages executed: conditional colorize (when `colorizer.colorizer != none`) → conditional upscale (when `upscale.upscale_ratio` is set) → detection → skip OCR and fill detected lines with the literal `TEXT` → text-line merge → mask refinement → inpainting.
 - Stages skipped: OCR, translation, rendering, and text typesetting. `text_regions` is cleared before the branch ends, so the result is never rendered with translated text.
-- Output files: the main output image (the inpainted clean image; the un-inpainted work image when there are no text lines, no merged regions, or an AI renderer is selected); an editor base image when conditional colorization or upscaling is active; and a project JSON with empty `regions` when `save_text` is enabled (static source conclusion; runtime pending).
+- Output files: the main output image (the inpainted clean image; the un-inpainted work image when there are no text lines, no merged regions, or an AI renderer is selected); an editor base image when conditional colorization or upscaling is active; and a project JSON with empty `regions` when `save_text` is enabled (the exact JSON fields may differ by release).
 - Workflow field: combo index 7 writes `cli.inpaint_only=true` at runtime; GUI switching keeps the eight workflow booleans mutually exclusive.
 
-## UI operations
+## Run this workflow
 
 ### Select the Inpaint Only workflow
 
@@ -33,11 +33,11 @@ Selecting a mode only writes configuration and updates the UI texts; it does not
 
 “Output Directory:” determines where the main output image goes, with the same naming rules as normal translation: the input folder name and relative hierarchy are preserved under the normal output directory, `save_to_source_dir=true` switches to `manga_translator_work/result/` next to the source image, and an empty or `none` `cli.format` keeps the original extension.
 
-## Runtime behavior
+## Processing order
 
 ### Stages and outputs
 
-Inpaint Only reuses the first half of the normal-translation preprocessing and finishes inside the “Inpaint Only” branch of `_translate_until_translation`. The Mermaid diagram below shows the source-confirmed stage order, skip branches, and outputs. It shares conditional colorization, conditional upscaling, and detection with normal translation, but OCR and translation are skipped.
+Inpaint Only reuses the first half of the normal-translation preprocessing and finishes inside the “Inpaint Only” branch of `_translate_until_translation`. The Mermaid diagram below shows the stage order, skip branches, and outputs. It shares conditional colorization, conditional upscaling, and detection with normal translation, but OCR and translation are skipped.
 
 ```mermaid
 flowchart LR
@@ -81,16 +81,16 @@ flowchart LR
 - Manually stacking multiple workflow fields is not a supported combination; GUI switching keeps the eight fields mutually exclusive, and the backend `translate_batch()` only builds the concurrent pipeline when no incompatible mode is present.
 - As with normal translation, preprocessing still runs conditional colorization and upscaling according to `colorizer.colorizer` and `upscale.upscale_ratio`; those values are not forced by this workflow.
 
-## Dependencies and conflicts
+## Inputs, outputs, and limitations
 
 - Input dependency: the main inputs must be images supported by the file service; no project JSON, TXT, or paired image is required.
 - `cli.overwrite=false`: the GUI checks whether the main output image already exists before starting (it shares the normal-translation check branch with other main-image-only modes).
-- `cli.save_text`: the default is `true`. When enabled, the save stage still writes a project JSON with empty `regions` (including the mask and colorize/upscale info). This is a static source conclusion; the actual GUI file behavior still needs runtime verification.
-- AI renderer: with the OpenAI/Gemini renderer selected, this mode does not perform real inpainting and outputs the un-inpainted work image. The name “Inpaint Only” therefore differs from the actual behavior in that case; this is source-confirmed.
+- `cli.save_text`: the default is `true`. When enabled, the save stage still writes a project JSON with empty `regions` (including the mask and colorize/upscale info). This is the current behavior; the actual GUI file behavior may vary by release.
+- AI renderer: with the OpenAI/Gemini renderer selected, this mode does not perform real inpainting and outputs the un-inpainted work image. The name “Inpaint Only” therefore differs from the actual behavior in that case; this is current.
 - Detection, mask refinement, and inpainting consume model and VRAM costs according to their parameters; OCR and translation are skipped, so they incur no such costs.
 - The main output directory, `save_to_source_dir`, and `cli.format` affect only the main output image. This mode writes no original/translated TXT, so the export template file has no effect here.
 
-## Related pages {#related-pages}
+## Read next {#related-pages}
 
 - Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Export Translation](./export-translation.md) · [Translate JSON Only](./translate-json-only.md) · [Import Translation and Render](./import-translation-and-render.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Replace Translation](./replace-translation.md)
 - Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)

@@ -13,16 +13,16 @@ lastUpdated: true
 
 “仅翻译（JSON）”与“导出译文”“导出原文”“导入翻译并渲染”构成模板/JSON 家族，区别见[导出译文](./export-translation.md)、[导出原文](./export-original.md)和[导入翻译并渲染](./import-translation-and-render.md)；九种工作流的整体边界见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)，汇总表见[工作流矩阵](../reference/workflow-matrix.md)。`cli.translate_json_only` 的参数定义见[模式专属工作流与模板对齐](../desktop/settings/mode-specific.md#cli-translate-json-only)。
 
-## 功能边界 {#feature-boundary}
+## 什么时候用 {#feature-boundary}
 
-- 本页只覆盖九种工作流中的“仅翻译（JSON）”（下拉框索引 `3`）。选择该模式时，界面先清空八个互斥工作流字段，再只把 `cli.translate_json_only` 设为 `true` 并保存配置。
+- 这里仅列出九种工作流中的“仅翻译（JSON）”（下拉框索引 `3`）。选择该模式时，界面先清空八个互斥工作流字段，再只把 `cli.translate_json_only` 设为 `true` 并保存配置。
 - 输入：主输入图片（与正常翻译相同的文件发现规则），且每张图必须能找到可解析的工程 JSON；JSON 接受旧格式（值是一个区域列表）或新格式（值是含 `regions` 的 dict）两种结构。
 - 执行阶段：从 JSON 载入区域与蒙版 → 预词典替换 → 翻译 → JSON 回写；成功后删除同图 `<stem>_original.<模板扩展名>` 原文副文件。
 - 跳过阶段：条件上色、条件超分、检测、OCR、文本行合并、蒙版细化、修复、渲染和主输出图保存。
 - 输出文件：回写 `manga_translator_work/json/<stem>_translations.json`（新位置优先；读取自旧位置时回写仍落到新位置）。
 - 工作流字段：下拉框索引 `3` → `cli.translate_json_only=true`；GUI 切换保证八个工作流布尔字段互斥。
 
-## UI 操作 {#ui-operations}
+## 运行这个流程 {#ui-operations}
 
 ### 选择仅翻译（JSON）工作流 {#select-translate-json-only}
 
@@ -34,7 +34,7 @@ lastUpdated: true
 
 “输出目录:”只决定主输出图的位置；本模式不写主图，因此它不影响 JSON 的读取与回写位置，这两者始终按输入图片的工作目录规则定位。
 
-## 运行机理 {#runtime-behavior}
+## 处理顺序 {#runtime-behavior}
 
 ### 输入与发现规则 {#input-and-discovery}
 
@@ -45,7 +45,7 @@ lastUpdated: true
 
 ### 跳过与保留的阶段 {#skipped-and-kept-stages}
 
-下面的 Mermaid 展示源码确认的阶段顺序、解析失败保险丝和输出文件；它是九种工作流矩阵中的“JSON 读取 → 翻译 → JSON 回写”分支，与导出原文/导出译文共享 JSON 读写设施，但跳过它们的图像阶段。
+下面的 Mermaid 展示阶段顺序、解析失败保险丝和输出文件；它是九种工作流矩阵中的“JSON 读取 → 翻译 → JSON 回写”分支，与导出原文/导出译文共享 JSON 读写设施，但跳过它们的图像阶段。
 
 ```mermaid
 flowchart LR
@@ -79,7 +79,7 @@ flowchart LR
 | 原文副文件（删除） | `manga_translator_work/originals/<stem>_original.<模板扩展名>` | 成功翻译后删除；扩展名由模板 `output_format` 决定，默认 `json` |
 | 主输出图 | 不写 | 渲染被跳过，本模式不生成主图 |
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 输入、输出与限制 {#dependencies-and-conflicts}
 
 - 依赖每张图存在可解析的工程 JSON；找不到或解析失败时该图失败并保留原文件。
 - `batch_concurrent` 不兼容：桌面控制层和 `translate_batch()` 都把它视为不兼容模式，强制按非并发处理；界面仍保存并发配置也不会变成并发管线。
@@ -89,7 +89,7 @@ flowchart LR
 - 本模式仍按所选翻译器产生 API/模型成本；上色、超分、检测、OCR、修复和渲染不产生成本（阶段被跳过）。
 - 主输出目录、`save_to_source_dir`、`cli.format` 只影响主输出图；本模式不写主图，因此这些设置对本工作流输出无直接影响。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 - 其它工作流：[正常翻译流程](./normal.md) · [导出原文](./export-original.md) · [导出翻译](./export-translation.md) · [导入翻译并渲染](./import-translation-and-render.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [仅修复](./inpaint-only.md) · [替换翻译](./replace-translation.md)
 - 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)

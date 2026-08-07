@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Input, Detection, and Rearrangement Debug Artifacts
 
-When an image "detects no text", "boxes are misplaced", or "a long image is split oddly", enable "Settings → General → Verbose Logging", run again, and inspect the input image, detection-box debug images, and long-image rearrangement batches in the per-image debug folder under `result/`. This page documents when these artifacts are generated, what they show, and how to use them for troubleshooting, with emphasis on the difference between input/detection artifacts and the two long-image rearrangement branches `rearrange_{n}.png` and `yolo_rearrange_{n}.png`.
+When an image "detects no text", "boxes are misplaced", or "a long image is split oddly", enable "Settings → General → Verbose Logging", run again, and inspect the input image, detection-box debug images, and long-image rearrangement batches in the per-image debug folder under `result/`. This guide documents when these artifacts are generated, what they show, and how to use them for troubleshooting, with emphasis on the difference between input/detection artifacts and the two long-image rearrangement branches `rearrange_{n}.png` and `yolo_rearrange_{n}.png`.
 
 For the overall debug-folder naming and structure, see [Debug folder naming and overview](./folder-naming-and-overview.md); for OCR and text-region artifacts, see [OCR and text regions](./ocr-and-text-regions.md); for mask, inpainting, and rendering artifacts, see [Mask, inpainting, and rendering](./mask-inpainting-and-rendering.md). This page never shows real `.env` files, user images, private absolute paths, or real API keys; sanitize debug images and paths before sharing.
 
-## Feature boundary {#feature-boundary}
+## What to inspect {#feature-boundary}
 
 - Every artifact on this page is gated by the “Verbose Logging” switch: when it is off, no per-image debug subfolder is created and the detection stage writes no debug image.
 - `input.png`, `mask_raw.png`, `bboxes_with_scores.png`, `mask_binary.png`, `hybrid_detection_boxes.png`, `bboxes_unfiltered.png`, `bboxes_unfiltered_labeled.png`, and `bboxes.png` are the "input/detection-stage" debug artifacts.
@@ -21,7 +21,7 @@ For the overall debug-folder naming and structure, see [Debug folder naming and 
 - The two rearrangement artifacts belong to different branches: the main detectors (default/DBConvNext/CTD) produce `rearrange_{n}.png`; the YOLO OBB auxiliary detector produces `yolo_rearrange_{n}.png` when “Enable YOLO Detection” is on.
 - These files are terminal diagnostics: a static search found no later read-back of these filenames inside the repository; the consumers are operators troubleshooting a run or recipients of an issue report.
 
-## UI operations {#ui-operations}
+## Inspect debug artifacts {#ui-operations}
 
 ### Enable verbose logging and collect input/detection artifacts {#enable-verbose-and-collect}
 
@@ -120,7 +120,7 @@ flowchart TD
 
 “Verbose Logging” is a switch in Settings → General. It is the master switch for the debug artifacts on this page: when enabled, each input image gets its own debug subfolder with the debug images listed on this page, and the console log level is raised. For details, see [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md).
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Artifacts and privacy {#dependencies-and-conflicts}
 
 - Every artifact depends on `verbose=True`; when disabled, `result/` gets no per-image debug folder.
 - Early exit on no text (no text lines after detection) skips `bboxes_unfiltered*.png` and the later `bboxes.png`; `bboxes_unfiltered_labeled.png` additionally depends on `ocr.merge_special_require_full_wrap`.

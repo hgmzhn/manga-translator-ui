@@ -9,11 +9,11 @@ lastUpdated: true
 
 # HTTP Config, Environment, and Resource Endpoints
 
-Use this page when a third-party client or the web frontend needs to read parameter structure and options, save API keys, upload fonts and prompts, or apply admin presets. It documents the paths, auth boundaries, request/response contracts, and underlying behavior of these HTTP endpoints. This page covers the developer HTTP API only; the web user-side configuration tabs and uploads are documented in [Upload, configure, and translate](../../web/upload-config-and-translate.md) and [Resources, fonts, and prompts](../../web/resources-fonts-and-prompts.md), the admin interface in [Administrator interface](../../web/administrator-interface.md), and the session/status-code contract in [HTTP API authentication and errors](./authentication-and-errors.md).
+Use this page when a third-party client or the web frontend needs to read parameter structure and options, save API keys, upload fonts and prompts, or apply admin presets. It documents the paths, auth boundaries, request/response contracts, and underlying behavior of these HTTP endpoints. This guide covers the developer HTTP API only; the web user-side configuration tabs and uploads are documented in [Upload, configure, and translate](../../web/upload-config-and-translate.md) and [Resources, fonts, and prompts](../../web/resources-fonts-and-prompts.md), the admin interface in [Administrator interface](../../web/administrator-interface.md), and the session/status-code contract in [HTTP API authentication and errors](./authentication-and-errors.md).
 
-## Feature boundary {#feature-boundary}
+## Endpoint scope {#feature-boundary}
 
-- This page covers four endpoint groups: config metadata (`/config*`, `/fonts`, `/translators`, `/languages`, `/workflows`, `/translator-config/{translator}`, `/user/settings`, `/user/access`, `/api-key-policy`, `/i18n/*`, `/announcement`, `/api`), environment variables (`GET|POST /env`, `GET /env/effective`), user resources (`/api/resources/*`), and config management (`/api/admin/config/*`, `/api/admin/presets*`, `/api/presets*`, `/api/config/user*`).
+- This guide covers four endpoint groups: config metadata (`/config*`, `/fonts`, `/translators`, `/languages`, `/workflows`, `/translator-config/{translator}`, `/user/settings`, `/user/access`, `/api-key-policy`, `/i18n/*`, `/announcement`, `/api`), environment variables (`GET|POST /env`, `GET /env/effective`), user resources (`/api/resources/*`), and config management (`/api/admin/config/*`, `/api/admin/presets*`, `/api/presets*`, `/api/config/user*`).
 - It does not cover translation, streaming, batch, history, log, user/group/quota, or audit endpoints; see [Translation endpoints](./translation-endpoints.md), [Streaming protocol](./streaming-protocol.md), [History files and download tickets](./history-files-and-download-tickets.md), and [Admin, users, groups, quota, and audit](./admin-users-groups-quota-audit.md).
 - `GET /env` and `GET /env/effective` never return server API key plaintext; even admins only see plaintext via `GET /api/admin/config/server?show_values=true`, which requires an admin session.
 - This page records no real API key, token, username, private absolute path, user prompt body, or font file. Defaults and whitelists come from source constants and do not represent a running deployment's actual configuration.
@@ -168,9 +168,9 @@ flowchart LR
     D --> T
 ```
 
-The diagram describes the source-confirmed API key source and merge path; whether `POST /env` persists is decided by `save_user_keys_to_server` and does not change the merge order itself.
+The diagram describes the API key source and merge path; whether `POST /env` persists is decided by `save_user_keys_to_server` and does not change the merge order itself.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## API constraints {#dependencies-and-conflicts}
 
 - The web frontend first uses `/user/settings` to decide whether to show the "API Keys" tab and upload sections, but hiding is frontend-only; the server enforces the final permission.
 - `font_family` and `high_quality_prompt_path` in `/config/options` merge server and user resources; after deleting a user font or prompt, the frontend must re-request `/config/options` to refresh the options.
@@ -232,10 +232,9 @@ The following keys are missing from both `en_US.json` and `zh_CN.json`, so `scri
 
 ### Mermaid data-flow limits {#mermaid-limits}
 
-The diagram above describes the source-confirmed API key sources, merging, and runtime overrides; it does not mean every translation run goes through a preset or user keys, nor that `/env/effective` returns the same source combination on every run. Policy values such as `require_user_keys`, `allow_server_keys`, and `save_user_keys_to_server` come from configuration, not code constants. This page did not start a server, take screenshots, or read a real `.env`, preset, user config, or key; runtime behavior must be validated with a minimal runnable server.
+The diagram above describes the API key sources, merging, and runtime overrides; it does not mean every translation run goes through a preset or user keys, nor that `/env/effective` returns the same source combination on every run. Policy values such as `require_user_keys`, `allow_server_keys`, and `save_user_keys_to_server` come from configuration, not code constants. This page did not start a server, take screenshots, or read a real `.env`, preset, user config, or key; runtime behavior must be validated with a minimal runnable server.
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Config routes | `manga_translator/server/routes/config.py` | `/config/defaults`, `/config`, `/config/options`, `/fonts`, `/translators`, `/languages`, `/workflows`, `/translator-config/{translator}`, `/user/settings`, `/user/access`, `/api-key-policy`, `/env`, `/env/effective`, `/i18n/*`, `/announcement` and the `WEB_API_ENV_KEYS` whitelist |

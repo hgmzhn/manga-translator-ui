@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Local Input and Output
 
-This page documents the input and output of the `local` mode (translating local images/folders): which paths `-i/--input` accepts, how `-o/--output` determines the output directory, where each image is finally written, and how the console summarizes results. It does not cover the internal pipeline algorithms (see the detection, OCR, translator, inpainting, and rendering pages), `--config` and explicit parameter overrides (see [Configuration overrides](./configuration-overrides.md)), or batch concurrency and subprocess memory management (see the corresponding CLI pages). The structure of the four top-level subcommands is in [Command structure](./command-structure.md). The desktop file list and output-directory controls are in [File list and input](../desktop/translation/file-list-and-input.md) and [Output directory and workflow](../desktop/translation/output-directory-and-workflow.md).
+This guide documents the input and output of the `local` mode (translating local images/folders): which paths `-i/--input` accepts, how `-o/--output` determines the output directory, where each image is finally written, and how the console summarizes results. It does not cover the internal pipeline algorithms (see the detection, OCR, translator, inpainting, and rendering pages), `--config` and explicit parameter overrides (see [Configuration overrides](./configuration-overrides.md)), or batch concurrency and subprocess memory management (see the corresponding CLI pages). The structure of the four top-level subcommands is in [Command structure](./command-structure.md). The desktop file list and output-directory controls are in [File list and input](../desktop/translation/file-list-and-input.md) and [Output directory and workflow](../desktop/translation/output-directory-and-workflow.md).
 
-## Feature boundary {#feature-boundary}
+## Command scope {#feature-boundary}
 
 - `-i/--input` is required and accepts one or more image files or folders; folders are scanned recursively for images, skipping the `manga_translator_work` working directory.
 - `-o/--output` is an optional output directory; when omitted it falls back through “`-o` → `app.last_output_path` → default rule”.
-- This page covers only `local` input/output and the result summary; explicit overrides such as GPU/ONNX, `--format`, `--batch-size`, and `--attempts` are in [Configuration overrides](./configuration-overrides.md).
-- The console summary lines (success/failure/total) are hardcoded in `manga_translator/mode/local.py`, not i18n strings; see the [Option and i18n matrix](../reference/options-i18n-matrix.md) for the UI call keys that share the input/output concepts.
+- This guide focuses on `local` input/output and the result summary; explicit overrides such as GPU/ONNX, `--format`, `--batch-size`, and `--attempts` are in [Configuration overrides](./configuration-overrides.md).
+- The console summary lines (success/failure/total) are hardcoded in `manga_translator/mode/local.py`, not i18n strings; see the [UI Options Reference](../reference/options-i18n-matrix.md) for the UI call keys that share the input/output concepts.
 
-## UI operations {#ui-operations}
+## How to use it {#ui-operations}
 
 ### Run the local command {#run-local-command}
 
@@ -44,7 +44,7 @@ Supported input extensions (single source `manga_translator/image_formats.py`):
 
 The `local` folder scan collects image extensions only; archives/documents (`.pdf/.epub/.cbz/.cbr/.zip`) are not auto-extracted as `local` input, unlike the desktop file list.
 
-## Runtime behavior {#runtime-behavior}
+## How the command runs {#runtime-behavior}
 
 ### Input collection {#input-collection}
 
@@ -74,7 +74,7 @@ flowchart TD
     L --> M["Result summary: success / failure / total"]
 ```
 
-This diagram expresses the source-confirmed three-level output fallback and per-image output-path calculation, not a generic “config → algorithm → output” placeholder. `-o` always wins; `app.last_output_path` is the desktop “Last Output Path” and is also used by the CLI when `-o` is omitted and the value is non-empty. For a folder input the default creates `<folder name>-translated` next to the first input folder; for a file input it writes to that file’s directory. Inside the output directory, the relative hierarchy of the input folders is preserved (`<output>/<folder name>/<relative path>/<filename>`).
+This diagram expresses the three-level output fallback and per-image output-path calculation. `-o` always wins; `app.last_output_path` is the desktop “Last Output Path” and is also used by the CLI when `-o` is omitted and the value is non-empty. For a folder input the default creates `<folder name>-translated` next to the first input folder; for a file input it writes to that file’s directory. Inside the output directory, the relative hierarchy of the input folders is preserved (`<output>/<folder name>/<relative path>/<filename>`).
 
 ### Results and summary {#results-and-summary}
 
@@ -83,7 +83,7 @@ This diagram expresses the source-confirmed three-level output fallback and per-
 - The non-subprocess path writes `result/log_<timestamp>.txt`; with `-v` the log level is DEBUG.
 - Exit code is 0 on success/cancellation and 1 on configuration-load failure or an uncaught exception.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations {#dependencies-and-conflicts}
 
 - Input files must exist and be readable, and their extensions must be in the supported set. Recursive folder scanning skips `manga_translator_work`; do not treat a working directory as an ordinary input directory.
 - With overwrite disabled, images whose output file already exists are skipped (counted as “success (skipped)”); only `--overwrite` or configuration `cli.overwrite=true` re-translates them.

@@ -9,11 +9,11 @@ lastUpdated: true
 
 # 相关项目与链接
 
-## 功能边界 {#feature-boundary}
+## 涉及的代码 {#feature-boundary}
 
 - 相关项目列表是 Wiki 站点功能，不是桌面端、CLI 或 Web 服务器的运行时功能。
 - 收录由维护者人工审核；只有审核通过的条目才会展示。
-- 本页只讲友情链接申请；普通代码贡献（PR）、测试、打包发布见[参与贡献](../community/contributing.md)与对应开发者页面。
+- 这里按友情链接申请；普通代码贡献（PR）、测试、打包发布见[参与贡献](../community/contributing.md)与对应开发者页面。
 
 ## 申请方式 {#how-to-apply}
 
@@ -69,8 +69,7 @@ lastUpdated: true
 | `doc/wiki/data/README.md` | 数据治理说明 | 记录“提交不等于自动发布”与人工审核规则 |
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | 不参与本页 | 已核对无相关 key；双语文案来自数据文件 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 数据源 | `doc/wiki/data/related-projects.yml` | 当前空列表、`schema_version`、字段结构与 `LocalizedText` 双语约定 |

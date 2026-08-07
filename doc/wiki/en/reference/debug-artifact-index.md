@@ -13,17 +13,17 @@ When a translation result looks wrong or you need to report an issue to the deve
 
 This index only summarizes and backlinks. Naming rules, directory layout, and the core/conditional artifact overview are in [Debug folder naming and overview](../debugging/folder-naming-and-overview.md); the artifact families are covered in depth in [Input detection and rearrangement](../debugging/input-detection-and-rearrangement.md), [OCR and text regions](../debugging/ocr-and-text-regions.md), [Mask, inpainting and rendering](../debugging/mask-inpainting-and-rendering.md), and [Special workflows and WebSocket](../debugging/special-workflows-and-websocket.md). Cleanup, sanitization, and sharing are covered in [How to read and share a debug run](../debugging/how-to-read-and-share-a-debug-run.md).
 
-## Feature boundary
+## What's included
 
-- This page only summarizes debug artifacts and trigger conditions; it does not repeat the runtime behavior, parameters, or file-format explanations of the `debugging/` pages.
+- This guide only summarizes debug artifacts and trigger conditions; it does not repeat the runtime behavior, parameters, or file-format explanations of the `debugging/` pages.
 - Every image-level debug artifact is gated by the `cli.verbose` master switch (UI: “Verbose Logging” / `Verbose Logging`); when off, no timestamped image-level debug subfolder is created.
 - The image-level debug subfolder is named `{timestamp_ms}-{image_md5_8}-{detection_size}-{target_lang}-{translator}`, built by `_set_image_context()` when each input image starts processing, under `BASE_PATH/result/`.
 - Artifacts are grouped into “core artifacts” (most common in the normal verbose flow), “conditional artifacts” (generated only under specific settings, detectors, workflows, or modes), and “directory-level/fallback artifacts” (`log_*.txt` or fallback paths without an image-level subfolder).
-- Static source search found no later read-back of these debug file names in the repository: they are terminal diagnostic writes consumed by verbose-enabled operators or by the recipients of issue reports.
+- current code search found no later read-back of these debug file names in the repository: they are terminal diagnostic writes consumed by verbose-enabled operators or by the recipients of issue reports.
 
-## UI operations
+## How to use it
 
-The full steps for enabling verbose logging in Settings are in [Debug folder naming and overview](../debugging/folder-naming-and-overview.md). This page only records the UI strings directly relevant to this index:
+The full steps for enabling verbose logging in Settings are in [Debug folder naming and overview](../debugging/folder-naming-and-overview.md). This guide only records the UI strings directly relevant to this index:
 
 ## Debug artifact summary
 
@@ -117,7 +117,7 @@ The diagram only shows the “trigger -> artifact family -> documentation page�
 | [Special workflows and WebSocket](../debugging/special-workflows-and-websocket.md) | Replace-translation artifacts, `ws_*.png`, `<input-stem>_photoshop_script.jsx` |
 | [How to read and share a debug run](../debugging/how-to-read-and-share-a-debug-run.md) | Artifact cleanup, sanitization, and sharing of logs and directories |
 
-## Dependencies and conflicts
+## How to use this reference
 
 - The image-level debug subfolder depends on `cli.verbose`, the image context, and `result_sub_folder`; missing any of them falls back to a path without an image-level subfolder (`BASE_PATH/result/<artifact>`).
 - `BASE_PATH` points to different locations in frozen packaged runs versus source runs (executable directory vs repository root); keep this in mind when comparing across machines.
@@ -148,8 +148,7 @@ The full bilingual text of the `desc_cli_verbose` description panel (including t
 | Image-level artifacts (`input.png`, `bboxes.png`, `mask_raw.png`, `inpaint_input.png`, `mask_final.png`, `inpainted.png`, `final.png`, etc.) | PNG | Terminal diagnostic writes for manual troubleshooting |
 | Conditional artifacts (JSON/JSX/JPG, etc.) | see the debugging pages | Trigger conditions in “Debug artifact summary” |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Path contract | `manga_translator/manga_translator.py` (`_result_path()`, `_set_image_context()`, write points) | Four path branches, subfolder naming, and core/conditional artifact write points |

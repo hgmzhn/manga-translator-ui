@@ -9,18 +9,18 @@ lastUpdated: true
 
 # 历史、文件与下载票据
 
-当需要集成服务器端翻译历史、读取历史文件或把翻译结果交给用户下载时，本页说明对应的 HTTP API 契约与存储行为。历史由翻译管线在成功后自动写入并按用户隔离；文件不暴露磁盘路径，而是通过会话令牌加文件名定位；下载走短时票据，票据 URL 在默认 5 分钟内有效。
+当需要集成服务器端翻译历史、读取历史文件或把翻译结果交给用户下载时，这里说明对应的 HTTP API 契约与存储行为。历史由翻译管线在成功后自动写入并按用户隔离；文件不暴露磁盘路径，而是通过会话令牌加文件名定位；下载走短时票据，票据 URL 在默认 5 分钟内有效。
 
-本页只写开发者 HTTP API 与存储机理。Web 界面对应的用户操作见[进度、结果与历史](../../web/progress-results-and-history.md)，会话鉴权与通用错误见[鉴权与错误](./authentication-and-errors.md)，流式翻译端点见[流式协议](./streaming-protocol.md)，批量导出/导入流程见[批量导出导入流程](./batch-export-import-process.md)。
+这里仅写开发者 HTTP API 与存储机理。Web 界面对应的用户操作见[进度、结果与历史](../../web/progress-results-and-history.md)，会话鉴权与通用错误见[鉴权与错误](./authentication-and-errors.md)，流式翻译端点见[流式协议](./streaming-protocol.md)，批量导出/导入流程见[批量导出导入流程](./batch-export-import-process.md)。
 
-## 功能边界 {#feature-boundary}
+## 接口范围 {#feature-boundary}
 
 - 历史只在 `save_translation_to_history()` 被调用的翻译路径写入：Web 前端“普通翻译”单文件与批量翻译会写，导出原文/导出译文/导入译文渲染/仅上色/仅超分/仅修复的非流式路径不写。
 - `session_token` 在写入路径使用任务 ID（单文件为 `task_id`，批量为 `{task_id}_{i}`）；`HistoryManagementService.generate_session_token()`（UUID v4）存在但写入路径未使用。
 - 历史按用户隔离：普通用户只能访问自己的会话，管理员可访问全部；查看/删除权限不足时对应接口返回 403。
 - 文件访问必须同时满足“会话归属校验”与“文件名清洗 + `resolve_path_within` 根目录约束”，防止路径穿越。
 - 下载票据是能力凭证：`GET /api/history/downloads/t/{ticket}` 不要求会话头，拿到 URL 的人就能在有效期内下载，因此票据短时有效且响应带 `Cache-Control: private, no-store`。
-- 本页不覆盖 Web 用户操作、日志端点与翻译端点本身；那些分别属于 Web 页面、日志页与[流式协议](./streaming-protocol.md)。
+- 这里不覆盖 Web 用户操作、日志端点与翻译端点本身；那些分别属于 Web 页面、日志页与[流式协议](./streaming-protocol.md)。
 
 ## 历史存储与写入 {#history-storage-and-write}
 
@@ -79,7 +79,7 @@ flowchart LR
 
 `GET /api/history/search?q=...`（另支持 `start_date`、`end_date`、`status`）按会话令牌、文件名、用户 ID 做不区分大小写的模糊匹配，返回 `{success, query, results, count, stats}`。
 
-静态核对发现：`GET /{session_token}` 在 `GET /search` 之前注册，FastAPI 按注册顺序匹配路径，因此 `GET /api/history/search` 会先被 `/{session_token}` 捕获（`session_token="search"`）。最小 FastAPI 复现确认注册顺序决定匹配；真实服务中带有效会话时该请求会走会话查找并通常返回 404「会话不存在」，搜索逻辑实际不可达。当前静态前端没有调用该端点。该行为需运行验证最终确认。
+代码检查发现：`GET /{session_token}` 在 `GET /search` 之前注册，FastAPI 按注册顺序匹配路径，因此 `GET /api/history/search` 会先被 `/{session_token}` 捕获（`session_token="search"`）。最小 FastAPI 复现确认注册顺序决定匹配；真实服务中带有效会话时该请求会走会话查找并通常返回 404「会话不存在」，搜索逻辑实际不可达。当前静态前端没有调用该端点。该行为需在所用版本中确认。
 
 ### 删除端点 {#delete-endpoint}
 
@@ -145,10 +145,10 @@ sequenceDiagram
 - 票据是能力凭证：5 分钟 TTL 内任何人拿到 URL 都可下载；不要把票据 URL 或 `session_token` 写进日志、报告或公开文档。
 - 自动清理服务（`cleanup_service.py`，默认关闭：`auto_cleanup=false`、`max_age_days=7`、`max_size_gb=10`）只按 mtime/总大小删除 `results/`、`user_fonts/`、`user_prompts/` 下的文件，不清理 `data/history/` 分片与索引；文件被清理后，对应会话记录仍可能出现在历史列表，取文件或下载会 404。
 - 历史保存是尽力而为：`save_translation_to_history()` 失败只写警告，不影响翻译结果返回。
-- 会话令牌取自任务 ID，不是 `generate_session_token()` 的 UUID v4；令牌可预测性与唯一性依赖任务 ID 生成方式，需运行验证。
+- 会话令牌取自任务 ID，不是 `generate_session_token()` 的 UUID v4；令牌可预测性与唯一性依赖任务 ID 生成方式，需在实际环境中确认。
 - 普通用户只能访问自己的历史；`view_permission` 默认 `own`，管理员的 `/admin/all` 与删除不受“own”限制。
 - 搜索端点被 `/{session_token}` 遮蔽（见[搜索端点](#search-endpoint)），静态前端未使用。
-- 本页不展示真实历史记录、图片、会话令牌、用户名或私有路径，只写契约与脱敏结构。
+- 这里不展示真实历史记录、图片、会话令牌、用户名或私有路径，只写契约与脱敏结构。
 
 ## 开发指南 {#developer-guide}
 
@@ -200,8 +200,7 @@ sequenceDiagram
 | 临时 ZIP（`history_*.zip` / `batch_download_*.zip`） | 票据下载内容 | 票据到期或撤销时清理 |
 | `metadata.json` | 会话元数据 | 含 `workflow`、`task_id`、`text_regions` 等由写入方传入的字段 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 路由 | `manga_translator/server/routes/history.py` | 12 个路由声明 / 13 个方法—路径映射；权限、文件名清洗、票据响应、搜索遮蔽 |

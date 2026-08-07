@@ -9,16 +9,16 @@ lastUpdated: true
 
 # 本地输入与输出
 
-本页介绍 `local` 模式（本地图片/文件夹翻译）的输入与输出：`-i/--input` 接受哪些路径、`-o/--output` 如何决定输出目录、每张图片最终写到哪里，以及控制台如何汇总结果。它不覆盖翻译流水线内部算法（见检测、OCR、翻译、修复、排版各页），不覆盖 `--config` 与显式参数覆盖（见[配置覆盖](./configuration-overrides.md)），也不覆盖批量并发与子进程内存管理（见相应 CLI 页）。四个顶层子命令的结构见[命令结构](./command-structure.md)。桌面版的文件列表与输出目录控件见[文件列表与输入](../desktop/translation/file-list-and-input.md)与[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)。
+这里介绍 `local` 模式（本地图片/文件夹翻译）的输入与输出：`-i/--input` 接受哪些路径、`-o/--output` 如何决定输出目录、每张图片最终写到哪里，以及控制台如何汇总结果。它不覆盖翻译流水线内部算法（见检测、OCR、翻译、修复、排版各页），不覆盖 `--config` 与显式参数覆盖（见[配置覆盖](./configuration-overrides.md)），也不覆盖批量并发与子进程内存管理（见相应 CLI 页）。四个顶层子命令的结构见[命令结构](./command-structure.md)。桌面版的文件列表与输出目录控件见[文件列表与输入](../desktop/translation/file-list-and-input.md)与[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)。
 
-## 功能边界 {#feature-boundary}
+## 命令范围 {#feature-boundary}
 
 - `-i/--input` 是必填参数，接受一个或多个图片文件或文件夹；文件夹会递归扫描图片，并跳过名为 `manga_translator_work` 的工作目录。
 - `-o/--output` 是可选的输出目录；未提供时按“`-o` → `app.last_output_path` → 默认规则”三级回退。
-- 本页只写 `local` 的输入输出与结果汇总；GPU/ONNX、`--format`、`--batch-size`、`--attempts` 等显式覆盖见[配置覆盖](./configuration-overrides.md)。
-- 控制台汇总行（成功/失败/总计）来自 `manga_translator/mode/local.py` 的硬编码输出，不属于 i18n 文案；与输入/输出共享概念的 UI 调用 key 对照见[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+- 这里仅写 `local` 的输入输出与结果汇总；GPU/ONNX、`--format`、`--batch-size`、`--attempts` 等显式覆盖见[配置覆盖](./configuration-overrides.md)。
+- 控制台汇总行（成功/失败/总计）来自 `manga_translator/mode/local.py` 的硬编码输出，不属于 i18n 文案；与输入/输出共享概念的 UI 调用 key 对照见[界面选项对照表](../reference/options-i18n-matrix.md)。
 
-## UI 操作 {#ui-operations}
+## 操作方法 {#ui-operations}
 
 ### 运行 local 命令 {#run-local-command}
 
@@ -44,7 +44,7 @@ uv run --no-sync python -m manga_translator local -i <输入图片或文件夹>.
 
 `local` 的文件夹扫描只收集图片扩展名；压缩包/文档（`.pdf/.epub/.cbz/.cbr/.zip`）不会作为 `local` 输入自动解包，这与桌面文件列表不同。
 
-## 运行机理 {#runtime-behavior}
+## 命令如何执行 {#runtime-behavior}
 
 ### 输入收集 {#input-collection}
 
@@ -74,7 +74,7 @@ flowchart TD
     L --> M["结果汇总：成功 / 失败 / 总计"]
 ```
 
-图说明：这是源码确认的三级输出回退与逐图输出路径计算，不是通用“配置→算法→输出”占位图。`-o` 永远最高优先；`app.last_output_path` 是桌面保存的“最后输出路径”，CLI 未提供 `-o` 且该值非空时也会使用它。文件夹输入默认在首输入目录旁生成 `<目录名>-translated`；文件输入默认写到该文件所在目录。输出目录内按输入文件夹的相对层级保持目录结构（`<输出>/<文件夹名>/<相对路径>/<文件名>`）。
+图说明：这是三级输出回退与逐图输出路径计算。`-o` 永远最高优先；`app.last_output_path` 是桌面保存的“最后输出路径”，CLI 未提供 `-o` 且该值非空时也会使用它。文件夹输入默认在首输入目录旁生成 `<目录名>-translated`；文件输入默认写到该文件所在目录。输出目录内按输入文件夹的相对层级保持目录结构（`<输出>/<文件夹名>/<相对路径>/<文件名>`）。
 
 ### 结果与汇总 {#results-and-summary}
 
@@ -83,7 +83,7 @@ flowchart TD
 - 非子进程路径在 `result/` 下写 `log_<时间戳>.txt`，`-v` 时日志级别为 DEBUG。
 - 成功/取消返回码为 0；配置加载失败或未捕获异常返回 1。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 使用限制 {#dependencies-and-conflicts}
 
 - 输入文件必须存在且可读，扩展名必须属于支持集合。文件夹递归跳过 `manga_translator_work`，不要把工作目录当作普通输入目录。
 - 关闭覆盖时，输出文件已存在的图片会被跳过（计入“成功（跳过）”）；只有 `--overwrite` 或配置 `cli.overwrite=true` 才会重新翻译。

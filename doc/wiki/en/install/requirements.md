@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Runtime Requirements
 
-## Feature boundary
+## Who this installation is for
 
-This page covers installation prerequisites: Python and uv versions, CPU/NVIDIA/AMD/Apple Silicon backends, common Python packages, models, fonts, and dictionaries. See [Windows portable](./windows-portable.md) for the Windows package menu and updates, [Linux and macOS](./linux-and-macos.md) for Unix scripts, and [Docker](./docker.md) for volumes. It does not document API keys, user configuration, or translation quality.
+This guide covers installation prerequisites: Python and uv versions, CPU/NVIDIA/AMD/Apple Silicon backends, common Python packages, models, fonts, and dictionaries. See [Windows portable](./windows-portable.md) for the Windows package menu and updates, [Linux and macOS](./linux-and-macos.md) for Unix scripts, and [Docker](./docker.md) for volumes. It does not document API keys, user configuration, or translation quality.
 
 The current source of dependency truth is `pyproject.toml` and `uv.lock`. `requirements_cpu.txt`, `requirements_gpu.txt`, `requirements_amd.txt`, and `requirements_metal.txt` are retained legacy/platform notes and must not be mixed into a current uv environment.
 
@@ -47,7 +47,7 @@ Source installation steps: install Git, uv, and Python 3.12 → run `git clone h
 
 After syncing, launch the desktop UI with `uv run --no-sync python -m desktop_qt_ui.main`; `--no-sync` avoids resolving or installing dependencies at run time.
 
-## UI operations
+## Installation steps
 
 There is no separate desktop installation page. Source users select a dependency group in the terminal; the Windows installer detects the GPU and selects a variant. Installer text is printed by `packaging/launch.py` and scripts, not by `desktop_qt_ui/locales/*.json`.
 
@@ -58,7 +58,7 @@ After installation, desktop controls change runtime behavior but do not replace 
 - “Unload Models After Translation” (`label_unload_models_after_translation`) controls post-task memory/VRAM release.
 - “Font” (`label_font_family`) scans system fonts and project `fonts/`; reopen the dropdown after adding a file.
 
-## Runtime behavior
+## What the installer does
 
 Common dependencies are `[project].dependencies`; hardware backends are `[dependency-groups]`. `default-groups = ["gpu", "packaging"]` makes bare `uv sync` NVIDIA by default, while `conflicts` marks `cpu`, `gpu`, `amd`, and `metal` as mutually exclusive. PyTorch and torchvision bind to explicit indexes per group; `xformers` is GPU-only, and Metal does not use a CUDA index.
 
@@ -79,7 +79,7 @@ flowchart TD
 
 Installation and models are separate stages. `manga_translator/utils/inference.py` uses `models/` as the model root; OCR, detection, inpainting, colorization, and upscaling modules generally create subdirectories and download/load models when first enabled. `rendering/chinese_linebreak.py` checks HanLP models and logs a fallback to normal wrapping when they are absent.
 
-## Dependencies and conflicts
+## Environment and compatibility
 
 - **CPU**: no CUDA/ROCm; broadly compatible, but speed is limited by CPU and memory.
 - **NVIDIA GPU**: the current group contains `torch==2.13.0`, `torchvision==0.28.0`, `onnxruntime-gpu==1.28.0`, and `xformers==0.0.35`; the driver must support the CUDA runtime.
@@ -96,5 +96,3 @@ Do not append another backend to the same environment or mix `onnxruntime` with 
 | Legacy requirements | Versions may differ from current pyproject/lock | Prefer `uv sync --locked` for current installs |
 
 **Hardware and resource prerequisites**: GPU backends need matching drivers; model downloads need network and storage; `fonts/` accepts `.ttf`, `.otf`, and `.ttc`; `dict/` contains `.txt` dictionaries and `.yaml`/`.json` prompts. Online services also need network access, model names, addresses, and credentials.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

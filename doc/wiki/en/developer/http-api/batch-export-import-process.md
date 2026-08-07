@@ -11,7 +11,7 @@ lastUpdated: true
 
 Use the endpoints on this page when a script or third-party client needs to translate several images in one request, pack detection and translation results into editable JSON/text, or re-render edited translations back onto images. This is a developer HTTP API contract page: it documents the methods, request bodies, responses, authentication, status codes, and runtime flow of the batch, export, and import endpoints under `/translate`. For the complete Web UI user workflow see [Web upload, config, and translate](../../web/upload-config-and-translate.md); single-image endpoints and the custom binary streaming protocol are covered in [Translation endpoints](./translation-endpoints.md) and [Streaming protocol](./streaming-protocol.md); history and download tickets are covered in [History, files, and download tickets](./history-files-and-download-tickets.md).
 
-## Feature boundary {#feature-boundary}
+## Endpoint scope {#feature-boundary}
 
 - Batch endpoints handle “many images in one request”: `POST /translate/batch/json` returns `list[TranslationResponse]` and `POST /translate/batch/images` returns a ZIP of images; `POST /translate/queue-size` reports the distributed-executor queue length.
 - Export endpoints pack processing results for reuse: `POST /translate/export/original` and `POST /translate/export/translated` return a ZIP (`translation.json` plus template text), while the matching `/stream` variants return the same JSON over the custom binary stream.
@@ -150,7 +150,7 @@ Note: JSON import and TXT import both end up in `load_text`; TXT only adds a “
 - Input validation: images must be bytes or prefixed base64 data URIs, otherwise `422`; an empty list on `/batch/images` returns `400`.
 - Batch cancellation returns `499`; internal export/import/render failures return `500`.
 
-## Runtime behavior {#runtime-behavior}
+## Request handling {#runtime-behavior}
 
 - Batching layers: `cli.batch_size` (release default `3`, see `config/config-example.json`) controls how many images the translator processes per inner batch; `BatchTranslateRequest.batch_size` defaults to `4`; the Web frontend falls back to `5` when splitting HTTP batches. These are defaults of different layers and must not be merged.
 - Concurrency: both `get_batch_ctx` and `while_streaming` acquire the global `translation_semaphore` (`server_config.max_concurrent_tasks`, default `3`) before entering the translator thread pool; per-user concurrency and daily quota are maintained by `track_task_start` / `track_task_end` at the route layer.
@@ -158,7 +158,7 @@ Note: JSON import and TXT import both end up in `load_text`; TXT only adds a “
 - Temporary files: ZIP and non-streaming export/import clean up temporary JSON/TXT/images on both success and error paths; streaming import keeps them for the duration of the response (the source comment requires periodic cleanup).
 - Response transport: ZIP export and image import return complete bytes; `/stream` variants return custom binary frames. The full frame protocol is described in [Streaming protocol](./streaming-protocol.md).
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## API constraints {#dependencies-and-conflicts}
 
 - Batch, export, and import all depend on the session and permission system: they are unreachable without login, feature permission, or with an exceeded quota, even when the Web UI hides the entry.
 - Export original/translated depends on the default template existing (`ensure_default_template_exists`); a missing template returns `500`.
@@ -225,8 +225,7 @@ In import mode the frontend pairs an image with a same-base-name `.json` file. W
 | `desktop_qt_ui/services/workflow_service.py` | TXT import and ZIP text generation | `safe_update_large_json_from_text`, `generate_original_text`, `generate_translated_text` |
 | `config/config-example.json` | release default `batch_size: 3` | sanitized defaults only |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Routes | `manga_translator/server/routes/translation.py` | batch, export, import, and queue endpoints and response wrapping (`353`–`1333`) |

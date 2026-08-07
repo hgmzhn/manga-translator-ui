@@ -11,17 +11,17 @@ lastUpdated: true
 
 After filling in Key, Base, and Model on the API Management page, use the features on this page to verify that a connection actually works, then fetch model names from the server back into the Model field. Testing does more than show a result dialog: success or failure is written into the in-memory channel status, which also affects the candidate-availability check before starting translation.
 
-This page does not cover filling, masking, or `.env` persistence of credential fields (see [API Credentials, Addresses, and Models](./credentials-addresses-models.md)), slot add/delete and rotation strategy (see [Slots and rotation](./slots-and-rotation.md)), or the cooldown, unavailable, and auto-recovery state machine for real requests (see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md)).
+This guide does not cover filling, masking, or `.env` persistence of credential fields (see [API Credentials, Addresses, and Models](./credentials-addresses-models.md)), slot add/delete and rotation strategy (see [Slots and rotation](./slots-and-rotation.md)), or the cooldown, unavailable, and auto-recovery state machine for real requests (see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md)).
 
-## Feature boundary
+## Configuration scope
 
 - “Test” (`Test`) tests a single API channel (the button on the right of the Key row); “Test Current Tab” (`Test Current Tab`) batch-tests every configured channel on the current feature tab. The batch test applies only to the current tab (Translation/OCR/Colorization/Render) and never crosses tabs.
 - Test results are written into the in-memory status through `record_api_success` / `record_api_failure`; before starting translation, `validate_api_candidate_availability()` checks each required channel group for available candidates and blocks the start with a warning when none remain.
 - “Get Models” (`Get Models`) fetches the model list from the server and writes the selected model back into the Model input. Only the Model row has this button; the Key row has only “Test”, and the Base row has neither button.
-- This page does not cover the `run_with_api_candidates` failover/round_robin request retries, cooldown timing, or recovery logic; that state machine belongs to [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md).
+- This guide does not cover the `run_with_api_candidates` failover/round_robin request retries, cooldown timing, or recovery logic; that state machine belongs to [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md).
 - Testing and model fetching issue real network requests and require the channel to have Key/Base/Model filled in; local OpenAI-compatible endpoints (`localhost`, private IPs, `.local`, etc.) automatically use the `ollama` placeholder key when the key is empty.
 
-## UI operations
+## Use it in API Management
 
 ### Test a single API channel
 
@@ -58,7 +58,7 @@ The batch result dialog summarizes by available/unavailable. The title shows tot
 
 When a channel is `unavailable` (permanently unavailable) or `cooldown` (cooling down), the corresponding slot card inserts a colored status notice: `unavailable` shows “Unavailable” (`Unavailable`) and `cooldown` shows “Cooling down” (`Cooling down`), with a sync-icon restore button on the right (tooltip “Restore”). Clicking restore calls `clear_api_status` to remove the in-memory status and immediately rebuilds the group.
 
-## Runtime behavior {#runtime-behavior}
+## How requests are handled {#runtime-behavior}
 
 ### Test-target detection and channel collection
 
@@ -108,9 +108,9 @@ flowchart LR
     DL -->|"model selected"| W["Write back to Model input and save"]
 ```
 
-The diagram shows the source-confirmed data flow: test results feed the result dialogs, the slot-card status notices, and the translation-start gate through shared in-memory status; model fetching goes through `models.list` alone and writes back to configuration only after the user selects a model. It does not claim that a successful test guarantees a successful real translation — real requests are still governed by the rotation strategy and the cooldown/recovery state machine; see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md).
+The diagram shows the data flow: test results feed the result dialogs, the slot-card status notices, and the translation-start gate through shared in-memory status; model fetching goes through `models.list` alone and writes back to configuration only after the user selects a model. It does not claim that a successful test guarantees a successful real translation — real requests are still governed by the rotation strategy and the cooldown/recovery state machine; see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md).
 
-## Dependencies and conflicts
+## Credentials, network, and errors
 
 - Tests and model fetching depend on the channel Key/Base/Model and the network; this page never writes real keys and never treats the server model list as a static enum.
 - Status written by tests is in-memory (`_API_STATUS`) and is not persisted to `.env` or `config.json`; a restart clears the state and cards show no historical notice.

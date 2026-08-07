@@ -11,9 +11,9 @@ lastUpdated: true
 
 批量管理页以主页文件列表中的已翻译文件为作用范围：先“预览命中”，在表格里核对每个将要被改写的区域，再勾选需要写回的行，最后“对选中项执行”。写回前默认把每个 JSON 复制一份 `.bak`，因此多数误操作可以通过“从备份恢复”撤销。
 
-本页只讲预览、勾选、写回、备份与恢复。方案的增删改与自动保存见[批量方案管理](./schemes-crud.md)，条件字段与 `all`/`any` 逻辑见[匹配条件](./conditions.md)，三类批量动作与固定执行顺序见[动作与顺序](./actions-and-order.md)。编辑器自身的保存与回写见[编辑器的导入导出与回写](../editor/import-export-and-writeback.md)。
+这里按预览、勾选、写回、备份与恢复。方案的增删改与自动保存见[批量方案管理](./schemes-crud.md)，条件字段与 `all`/`any` 逻辑见[匹配条件](./conditions.md)，三类批量动作与固定执行顺序见[动作与顺序](./actions-and-order.md)。编辑器自身的保存与回写见[编辑器的导入导出与回写](../editor/import-export-and-writeback.md)。
 
-## 功能边界 {#feature-boundary}
+## 适用场景 {#feature-boundary}
 
 - 批量写回的目标是逐图 JSON（`<stem>_translations.json`），不是最终图片；批量管理不进入渲染管线。
 - 预览是必经步骤：界面没有“不预览直接执行”的按钮。
@@ -22,7 +22,7 @@ lastUpdated: true
 - 恢复只能把文件还原成同目录的 `.bak`；`.bak` 是一次性消耗品，恢复后不再存在。
 - “匹配条件”卡片与“批量动作”卡片属于批量面板的同一页，但各自的细节分别见[匹配条件](./conditions.md)与[动作与顺序](./actions-and-order.md)。
 
-## UI 操作 {#ui-operations}
+## 在批量管理中操作 {#ui-operations}
 
 ### 检查作用范围并预览命中 {#preview-matches}
 
@@ -82,7 +82,7 @@ flowchart LR
 
 取消勾选只影响本次点击“对选中项执行”时的写回行为：它不会删除历史遗留的 `.bak`，也不会阻止“从备份恢复”使用已有的备份。
 
-## 运行机理 {#runtime-behavior}
+## 方案如何应用 {#runtime-behavior}
 
 ### 预览扫描 {#scan-mechanism}
 
@@ -156,7 +156,7 @@ flowchart TD
 
 编辑器把区域常驻内存且不监听文件变化；切图时的自动导出会用内存里的旧数据全量覆盖盘上 JSON。因此如果写回/恢复的目标包含编辑器当前打开的图片，面板会在确认框追加“编辑器当前打开着‘{name}’。”的提示，并在执行成功后调用编辑器的重载入口重新加载该图片，避免内存旧数据把刚写回的内容抹掉。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - 作用范围完全来自主页文件列表快照：文件列表里没有的 JSON 不会被预览、应用或恢复；面板不自行扫描磁盘。
 - 应用前必须重新预览：条件或动作一变，旧预览作废。

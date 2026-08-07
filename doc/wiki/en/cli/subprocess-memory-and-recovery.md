@@ -11,14 +11,14 @@ lastUpdated: true
 
 Use this page when translating a large batch at once and memory consumed by models and intermediate results keeps growing during a long run. The `local` subprocess mode runs each batch in an independent subprocess while the parent process only collects files, assigns batches, and gathers results. When `--memory-limit`, `--memory-percent`, or `--batch-per-restart` is reached, the current subprocess exits early and a new subprocess continues with the remaining files; files that already completed are not translated again.
 
-This page covers only the `local --subprocess` subprocess, memory-limit, and recovery mechanics. Ordinary (non-subprocess) local translation is in [Local input and output](./local-input-output.md); command structure and the official entry point are in [Command structure](./command-structure.md); configuration overrides are in [Configuration overrides](./configuration-overrides.md); output and exit codes are in [Output, debugging, and exit codes](./output-debugging-and-exit-codes.md).
+This guide focuses on the `local --subprocess` subprocess, memory-limit, and recovery mechanics. Ordinary (non-subprocess) local translation is in [Local input and output](./local-input-output.md); command structure and the official entry point are in [Command structure](./command-structure.md); configuration overrides are in [Configuration overrides](./configuration-overrides.md); output and exit codes are in [Output, debugging, and exit codes](./output-debugging-and-exit-codes.md).
 
-## Feature boundary {#feature-boundary}
+## Command scope {#feature-boundary}
 
 - `--subprocess` changes only the `local` execution path: file collection, output directory, and skip-existing logic match the normal mode, but translation runs batch by batch inside a `multiprocessing.Process` subprocess.
 - `--memory-limit`, `--memory-percent`, and `--batch-per-restart` are consumed only when `--subprocess` is enabled; the plain `local` path ignores all three.
 - “Recovery” has three layers here: after an in-run memory limit is hit, a new subprocess continues; after a subprocess exception, the same batch is retried automatically; re-running without `--overwrite` skips files whose output already exists. The official top-level `local` has no usable cross-run `--resume` option; see the [`--resume` parameter](#resume).
-- This page does not cover `cli.attempts` (API-call retries), API candidate-slot rotation (see the API-management pages), `cli.batch_size`/`cli.batch_concurrent` (batch concurrency, see [CLI batch and output](../desktop/settings/cli-batch-and-output.md)), or the `web`/`ws`/`shared` service modes (see [Web, WS, and shared modes](./web-ws-and-shared-modes.md)).
+- This guide does not cover `cli.attempts` (API-call retries), API candidate-slot rotation (see the API-management pages), `cli.batch_size`/`cli.batch_concurrent` (batch concurrency, see [CLI batch and output](../desktop/settings/cli-batch-and-output.md)), or the `web`/`ws`/`shared` service modes (see [Web, WS, and shared modes](./web-ws-and-shared-modes.md)).
 
 ## Command-line operations {#command-line-operations}
 
@@ -53,7 +53,7 @@ See [Parameters and options](#parameters-and-options) for threshold semantics an
 
 ## Parameters and options {#parameters-and-options}
 
-> For the UI-copy and storage-key correspondence shared with desktop settings, see the [Option and i18n matrix](../reference/options-i18n-matrix.md).
+> For the UI-copy and storage-key correspondence shared with desktop settings, see the [UI Options Reference](../reference/options-i18n-matrix.md).
 
 #### --subprocess {#subprocess}
 
@@ -75,7 +75,7 @@ Restarts a subprocess after every N images to release memory. Options: positive 
 
 The resume flag exists only in the standalone module parser (`python -m manga_translator.mode.local --help`); the official top-level `local` has no such option, so do not rely on it for cross-run continuation. Cross-run recovery actually relies on the pre-filter that skips files whose output already exists when `--overwrite` is not set; use `--overwrite` to re-translate files that already exist. Options: `--resume` (declared) or omitted. Default: `false` (not present in the official parser).
 
-## Runtime behavior {#runtime-behavior}
+## How the command runs {#runtime-behavior}
 
 ### Parent scheduling loop
 
@@ -123,7 +123,7 @@ flowchart LR
 
 ### Failure and recovery
 
-Results travel between the subprocess and the parent over a `multiprocessing.Queue`. Recovery behavior per failure location is below (all are static source-review conclusions, not real-failure runtime verification):
+Results travel between the subprocess and the parent over a `multiprocessing.Queue`. Recovery behavior per failure location is below (all are current code paths, not a guarantee for every environment):
 
 | Event | Parent behavior | Effect on results |
 | --- | --- | --- |
@@ -140,11 +140,11 @@ What “checkpoint resume” actually means:
 - Across runs: the official top-level `local` has no usable `--resume`; cross-run recovery actually relies on the pre-filter that skips files whose output already exists when `--overwrite` is not set.
 - The worker also contains a torch/CUDA check block that runs every 5 images; in the current source it is a no-op (it does not free VRAM). Recorded as a static observation only.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations {#dependencies-and-conflicts}
 
 - psutil is optional: when missing, both RSS and system-memory reads return `0`, memory limits silently stop working, and only the image-count restart remains.
 - The three default layers must not be mixed: the official `local` defaults for `--memory-limit`/`--memory-percent`/`--batch-per-restart` are `0/0/0`; the `subprocess_manager.py` function-signature constants are `0/80/50`; the standalone parser in `manga_translator/mode/local.py` uses `8000/80/50`. Only `0/0/0` from the official `args.py` belongs to the top-level `local --help` contract.
-- The help text of `--format`, `--batch-size`, and `--attempts` says “overrides the configuration file”, but in the subprocess branch only the GPU/ONNX overrides are written into `cli_config`; those three values never reach `translate_with_subprocess`. This is a source discrepancy, not a completed runtime verification.
+- The help text of `--format`, `--batch-size`, and `--attempts` says “overrides the configuration file”, but in the subprocess branch only the GPU/ONNX overrides are written into `cli_config`; those three values never reach `translate_with_subprocess`. This is a source discrepancy, a code-path difference.
 - Subprocess mode runs exactly one subprocess at a time with no parallelism; `cli.batch_concurrent` does not participate in subprocess scheduling.
 - The memory limits target RAM (subprocess RSS / whole-machine memory), not GPU VRAM; VRAM exhaustion is covered by [Models, GPU, and memory](../troubleshooting/model-gpu-and-memory.md).
 - `app.unload_models_after_translation` (“Unload Models After Translation”) is a desktop-side unload switch for after a translation finishes, different from the runtime thresholds here.

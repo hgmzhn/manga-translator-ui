@@ -9,11 +9,11 @@ lastUpdated: true
 
 # 输入、检测与长图重排调试产物
 
-当某张图“检测不到文字”“框位置不对”或“长图被切得奇怪”时，通常需要打开“设置 → 通用 → 详细日志”重新运行，然后在 `result/` 的单图调试目录里核对输入图、检测框调试图和长图重排批次。本页说明这些产物的生成条件、画面含义和排查用途，重点区分输入/检测产物与 `rearrange_{n}.png`、`yolo_rearrange_{n}.png` 两个长图重排分支。
+当某张图“检测不到文字”“框位置不对”或“长图被切得奇怪”时，通常需要打开“设置 → 通用 → 详细日志”重新运行，然后在 `result/` 的单图调试目录里核对输入图、检测框调试图和长图重排批次。这里说明这些产物的生成条件、画面含义和排查用途，重点区分输入/检测产物与 `rearrange_{n}.png`、`yolo_rearrange_{n}.png` 两个长图重排分支。
 
-调试目录整体命名与结构见[调试目录与总览](./folder-naming-and-overview.md)，OCR 与文本区域产物见[OCR 与文本区域](./ocr-and-text-regions.md)，蒙版、修复与排版产物见[蒙版、修复与排版](./mask-inpainting-and-rendering.md)。本页不展示真实 `.env`、用户图片、私有绝对路径或真实 API 密钥；调试图与路径分享前必须脱敏。
+调试目录整体命名与结构见[调试目录与总览](./folder-naming-and-overview.md)，OCR 与文本区域产物见[OCR 与文本区域](./ocr-and-text-regions.md)，蒙版、修复与排版产物见[蒙版、修复与排版](./mask-inpainting-and-rendering.md)。这里不展示真实 `.env`、用户图片、私有绝对路径或真实 API 密钥；调试图与路径分享前必须脱敏。
 
-## 功能边界 {#feature-boundary}
+## 先看哪些产物 {#feature-boundary}
 
 - 本页所有产物都以“详细日志”开关为总开关：不开启时不会生成图片级调试子目录，检测阶段也不写调试图。
 - `input.png`、`mask_raw.png`、`bboxes_with_scores.png`、`mask_binary.png`、`hybrid_detection_boxes.png`、`bboxes_unfiltered.png`、`bboxes_unfiltered_labeled.png`、`bboxes.png` 属于“输入/检测阶段”调试产物。
@@ -21,7 +21,7 @@ lastUpdated: true
 - 两个重排产物分属不同分支：主检测器（默认/DBConvNext/CTD）产生 `rearrange_{n}.png`；YOLO OBB 辅助检测在“启用YOLO辅助检测”开启时产生 `yolo_rearrange_{n}.png`。
 - 这些文件是终端诊断写入：静态搜索未发现仓库内对这些文件名的后续读回；消费者是排查问题的操作者或问题报告接收者。
 
-## UI 操作 {#ui-operations}
+## 查看调试产物 {#ui-operations}
 
 ### 开启详细日志并收集输入/检测产物 {#enable-verbose-and-collect}
 
@@ -120,7 +120,7 @@ flowchart TD
 
 “详细日志”是开关，位于“设置 → 通用”。它是本页所有调试产物的总开关：开启后，每张输入图会建立独立的调试子目录并写入本页所列调试图，同时提高控制台日志级别。详细说明见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 产物与隐私 {#dependencies-and-conflicts}
 
 - 所有产物依赖 `verbose=True`；关闭时 `result/` 不写单图调试目录。
 - 无文本早退（检测后无文本行）会跳过 `bboxes_unfiltered*.png` 与后续 `bboxes.png`；`bboxes_unfiltered_labeled.png` 还依赖 `ocr.merge_special_require_full_wrap`。

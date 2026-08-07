@@ -11,9 +11,9 @@ lastUpdated: true
 
 Use this page when a script, extension, or third-party application needs to submit manga images to the Manga Translator server for translation. It documents the endpoints under `/translate` that submit translation tasks, the request and response formats, and the task status while queued and running. It does not repeat the full streaming-frame protocol (see [Streaming protocol](./streaming-protocol.md)), the session and permission error conventions (see [Authentication and errors](./authentication-and-errors.md)), or the auxiliary export/import/colorize/upscale/inpaint endpoints (see [Batch, export, and import process](./batch-export-import-process.md)). For the Web UI entry points, see [Upload, configure, and translate](../../web/upload-config-and-translate.md).
 
-## Feature boundary {#feature-boundary}
+## Endpoint scope {#feature-boundary}
 
-- This page covers the endpoints that submit a translation task and return a result: `POST /translate/json`, `/bytes`, `/image` and their `/stream` variants, the `/with-form/*` form variants, `/batch/json`, `/batch/images`, and `POST /translate/queue-size`.
+- This guide covers the endpoints that submit a translation task and return a result: `POST /translate/json`, `/bytes`, `/image` and their `/stream` variants, the `/with-form/*` form variants, `/batch/json`, `/batch/images`, and `POST /translate/queue-size`.
 - `manga_translator/server/routes/translation.py` registers 31 `/translate` route declarations in total; the export (`/export/*`), import (`/import/*`), process (`/upscale`, `/colorize`, `/inpaint`), and `/complete` endpoints belong to other pages.
 - Except for `queue-size`, every translation endpoint calls `verify_translation_auth()` inside the route: a missing or invalid `X-Session-Token` returns `401`, missing translator/OCR/colorizer/renderer permission returns `403`, and parameters disabled for the user or group are overridden with admin defaults before execution.
 - Single and batch requests share one global translator instance and thread pool; models are reused between requests. Server-side translation requests force `cli.use_gpu=False` and disable desktop-only modes such as replace translation and template alignment.
@@ -121,7 +121,7 @@ flowchart TD
 - Batch endpoints pass `task_id` to `get_batch_ctx()`, which checks `is_task_cancelled()` before converting and translating each image; a forced or detected cancellation returns `499`.
 - Users with offline translation permission (`allow_offline_translation`) get a never-disconnecting request wrapper in `/batch/images`, so the task keeps running and writes history even after the client disconnects.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## API constraints {#dependencies-and-conflicts}
 
 - Session and permissions: every translation endpoint depends on `X-Session-Token`; a disabled account, expired token, or failed activity refresh returns `401`. Permission filtering first overrides disabled parameters, then checks translator/OCR/colorizer/renderer permissions.
 - Configuration source: the `config` in a request is a full configuration snapshot; the server starts with `config/config.json` (copied from `config-example.json` when absent). Values submitted by the user are overridden by user-group/user allow and deny lists and must not be treated as the final effective values.
@@ -152,7 +152,7 @@ Workflow stored-value to endpoint mapping: `normal` → `/translate/with-form/im
 
 #### Errors, cancellation, and status codes {#errors-cancellation-and-status-codes}
 
-| Status | Trigger (static source) | Source |
+| Status | Trigger (current code) | Source |
 | --- | --- | --- |
 | `200` | Success: JSON, image, stream, bytes, or the `queue-size` integer | FastAPI default |
 | `400` | `/batch/images` without images; import/export validation failures | `translation.py:449` |
@@ -179,8 +179,7 @@ Streaming endpoints do not raise HTTP errors when translation fails midway; they
 | `manga_translator/server/runtime_api.py` | Runtime API overrides (Sakura/OCR/colorizer/renderer) | Environment-variable priority; no real keys |
 | `manga_translator/server/static/index.html`, `static/script.js` | Web frontend submission entry and stream parsing | UI-text keys and request headers |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Routes | `manga_translator/server/routes/translation.py` | Endpoint paths, methods, request/response models, workflows, and status codes |

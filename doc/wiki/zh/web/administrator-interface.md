@@ -11,13 +11,13 @@ lastUpdated: true
 
 当服务器开放给多个用户使用时，管理员通过“管理界面”（`GET /admin` 返回的 `admin-new.html`）管理账号与运行状态：创建用户、划分用户组并设置权限、配置配额、查看和撤销会话、监控与取消翻译任务、查看用户历史与系统日志、管理 API 密钥预设与服务器 `.env`、设置服务器参数、发布公告以及清理存储。只有 `role` 为 `admin` 的会话才能进入；非管理员访问会被提示并返回首页。
 
-本页只描述管理员在浏览器中的操作。底层 JSON/表单端点（如 `/api/admin/users`、`/api/admin/groups`、`/api/admin/quota/*`、`/audit/events`）的请求、响应与状态码契约见开发者 HTTP API 页面；登录与首次管理员设置见[登录、语言与会话](./login-language-and-session.md)，用户侧主工作区见[上传、配置与翻译](./upload-config-and-translate.md)。
+这里主要说明管理员在浏览器中的操作。底层 JSON/表单端点（如 `/api/admin/users`、`/api/admin/groups`、`/api/admin/quota/*`、`/audit/events`）的请求、响应与状态码契约见开发者 HTTP API 页面；登录与首次管理员设置见[登录、语言与会话](./login-language-and-session.md)，用户侧主工作区见[上传、配置与翻译](./upload-config-and-translate.md)。
 
-## 功能边界 {#feature-boundary}
+## 页面与接口范围 {#feature-boundary}
 
 - 入口限定：用户首页顶栏的“管理”链接只在会话角色为 `admin` 时显示（`static/script.js` 检查 `userSession.role === 'admin'`）；直接访问 `/admin` 也会先执行 `GET /auth/check`，令牌缺失/无效时清除 `localStorage.session_token` 并跳转 `/static/login.html?redirect=/admin`，非管理员会被提示“您没有管理员权限”并返回 `/`（`static/js/admin/app.js`）。
 - 管理面板共 12 个导航模块：仪表盘、用户管理、用户组管理、配额管理、会话管理、任务监控、历史记录、系统日志、API密钥管理、服务器配置、公告管理、清理管理。
-- `app.js` 的标题表还包含“权限管理”，但 `admin-new.html` 的导航与初始化没有注册 `modules/permissions.js`，该模块是未接线的静态列表，本页不把它当作可操作功能。
+- `app.js` 的标题表还包含“权限管理”，但 `admin-new.html` 的导航与初始化没有注册 `modules/permissions.js`，该模块是未接线的静态列表，这里不把它当作可操作功能。
 - 审计（`AuditService` + `/audit/*` 路由）会自动记录登录、改密、创建用户、权限变更、翻译开始/完成/失败等事件；当前管理面板导航没有审计模块，查询与导出走开发者 HTTP API。
 - 管理面板不是桌面 Qt 界面的复用：`admin-new.html` 大量文案是硬编码中文，只有少量控件走 i18n（见下方“UI 文案对照”），与用户站和桌面端 locale 不同。
 
@@ -47,7 +47,7 @@ flowchart TD
 
 ### 任务监控
 
-“任务监控”列出全部进行中的任务（任务ID、用户、类型、状态、进度条、开始时间、操作），进入模块后每 3 秒自动刷新，可用“暂停刷新 / 自动刷新”切换。“取消”对 `pending/queued/processing/running` 状态的任务调用 `POST /admin/tasks/{task_id}/cancel`；“详情”目前只是前端提示占位。注意“取消全部”调用 `POST /admin/tasks/cancel-all`，该端点在当前 `routes/admin.py` 中未定义（静态源码核对），实际行为需运行验证。
+“任务监控”列出全部进行中的任务（任务ID、用户、类型、状态、进度条、开始时间、操作），进入模块后每 3 秒自动刷新，可用“暂停刷新 / 自动刷新”切换。“取消”对 `pending/queued/processing/running` 状态的任务调用 `POST /admin/tasks/{task_id}/cancel`；“详情”目前只是前端提示占位。注意“取消全部”调用 `POST /admin/tasks/cancel-all`，该端点在当前 `routes/admin.py` 中未定义（当前代码），实际行为需在实际环境中确认。
 
 ## 用户管理 {#user-management}
 
@@ -115,11 +115,11 @@ flowchart TD
 
 ### 用户配额使用情况
 
-“用户配额使用情况”表按用户显示今日使用（带进度条，超过 80% 变红）与本月使用。注意：行内“编辑”与“重置”按钮当前只是前端 `prompt`/`alert` 占位，没有调用后端接口；后端存在 `/api/admin/quota/set-limits` 与 `/api/admin/quota/reset`，但本管理界面未接线（静态源码核对），真实保存行为需运行验证。
+“用户配额使用情况”表按用户显示今日使用（带进度条，超过 80% 变红）与本月使用。注意：行内“编辑”与“重置”按钮当前只是前端 `prompt`/`alert` 占位，没有调用后端接口；后端存在 `/api/admin/quota/set-limits` 与 `/api/admin/quota/reset`，但本管理界面未接线（当前代码），真实保存行为需在实际环境中确认。
 
 ### 会话管理
 
-“活跃会话”表列：用户、Token（前 12 位）、IP 地址、设备（用户代理前 30 字符）、登录时间、操作。当前会话绿色高亮并标记“当前”，没有撤销按钮；其他会话可点击“撤销”，对应 `DELETE /sessions/{session_token}`。“撤销所有其他会话”调用 `POST /sessions/revoke-all`，该端点在当前 `routes/sessions.py` 中未定义（静态源码核对），需运行验证。
+“活跃会话”表列：用户、Token（前 12 位）、IP 地址、设备（用户代理前 30 字符）、登录时间、操作。当前会话绿色高亮并标记“当前”，没有撤销按钮；其他会话可点击“撤销”，对应 `DELETE /sessions/{session_token}`。“撤销所有其他会话”调用 `POST /sessions/revoke-all`，该端点在当前 `routes/sessions.py` 中未定义（当前代码），需在实际环境中确认。
 
 ## 历史记录与系统日志 {#history-and-logs}
 
@@ -129,7 +129,7 @@ flowchart TD
 
 ### 系统日志
 
-“系统日志”以深色终端风格显示日志流（时间、级别、会话 ID 标签、消息），进入模块后每 5 秒自动刷新。支持按会话 ID 过滤、按级别过滤（全部 / DEBUG / INFO / WARNING / ERROR）、“暂停滚动 / 自动滚动”以及“📥 下载”（`GET /admin/logs/export`）。日志可能包含路径、文件名与请求细节，导出或分享前必须脱敏。“清空”调用 `POST /admin/logs/clear`，该端点在当前 `routes/admin.py` 中未定义（静态源码核对），需运行验证。
+“系统日志”以深色终端风格显示日志流（时间、级别、会话 ID 标签、消息），进入模块后每 5 秒自动刷新。支持按会话 ID 过滤、按级别过滤（全部 / DEBUG / INFO / WARNING / ERROR）、“暂停滚动 / 自动滚动”以及“📥 下载”（`GET /admin/logs/export`）。日志可能包含路径、文件名与请求细节，导出或分享前必须脱敏。“清空”调用 `POST /admin/logs/clear`，该端点在当前 `routes/admin.py` 中未定义（当前代码），需在实际环境中确认。
 
 ## API 密钥与预设 {#api-keys-and-presets}
 
@@ -137,7 +137,7 @@ flowchart TD
 2. “🔐 服务器默认API密钥”区从服务器 `.env` 读取（`GET /api/admin/config/server?show_values=true`），按分类表单展示各密钥字段；点击“💾 保存API密钥”对应 `PUT /api/admin/config/server`，默认先备份 `.env`。
 3. 用户侧生效顺序：用户填写 > 当前预设 > 服务器默认；OCR、上色、渲染专用 Key 留空时回落到对应提供商的通用翻译 Key。
 
-本页不展示任何真实密钥、令牌或 `.env` 内容；文档和截图只使用脱敏占位。
+这里不展示任何真实密钥、令牌或 `.env` 内容；文档和截图只使用脱敏占位。
 
 ## 服务器配置、公告与清理 {#config-announcement-cleanup}
 
@@ -157,7 +157,7 @@ flowchart TD
 
 “自动清理设置”包含启用自动清理、清理间隔（小时）、文件最大保留天数、最大存储空间（GB），点击“💾 保存设置”对应 `PUT /admin/settings`（写入 `cleanup`）。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 权限、安全与限制 {#dependencies-and-conflicts}
 
 - 用户、用户组、配额、会话、任务、历史、日志由不同服务管理，但相互依赖：配额解析按“用户级 > 用户组级 > 全局默认”的顺序（`quota_service.py`），权限解析由 `permission_service.py` / `permission_calculator.py` 完成；修改用户组会即时影响该组所有用户。
 - 管理面板的“配额管理”与权限编辑器里的“配额限制”是两个入口，字段键名不一致（前者 `daily_limit`/`monthly_limit`，后者 `daily_image_limit`/`daily_char_limit`），后端契约以开发者 HTTP API 页为准。
@@ -166,4 +166,4 @@ flowchart TD
 - 取消任务、清空历史、清理存储均不可恢复；涉及真实用户的删除与撤销操作必须谨慎并保留审计记录。
 - 审计事件由登录、改密、注册、创建任务、权限拒绝、翻译过程及用户/权限管理操作自动写入 `audit.log`（10MB 轮转、保留 5 个备份）；当前管理界面没有审计 UI，查询/导出只能通过 `/audit/*` 接口。
 
-> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 详见参考索引：[界面选项对照表](../reference/options-i18n-matrix.md)。

@@ -9,16 +9,16 @@ lastUpdated: true
 
 # 提示词列表、应用与预览
 
-当自定义 HQ 提示词由文件维护时，本页用于查看 `dict/` 下的用户提示词文件、把选中文件写入翻译器配置、预览文件内容并进入编辑。本页不解释“自定义提示词”参数本身的含义（见[上下文与提示词](../translator/context-and-prompts.md)），也不管理系统提示词与 AI OCR/上色/渲染提示词的固定文件（分别见[系统与翻译提示词](./system-and-translation-prompts.md)、[AI OCR 提示词](./ai-ocr-prompt.md)、[AI 上色提示词](./ai-colorizer-prompt.md)和[AI 渲染提示词](./ai-renderer-prompt.md)）。
+当自定义 HQ 提示词由文件维护时，本页用于查看 `dict/` 下的用户提示词文件、把选中文件写入翻译器配置、预览文件内容并进入编辑。这里不解释“自定义提示词”参数本身的含义（见[上下文与提示词](../translator/context-and-prompts.md)），也不管理系统提示词与 AI OCR/上色/渲染提示词的固定文件（分别见[系统与翻译提示词](./system-and-translation-prompts.md)、[AI OCR 提示词](./ai-ocr-prompt.md)、[AI 上色提示词](./ai-colorizer-prompt.md)和[AI 渲染提示词](./ai-renderer-prompt.md)）。
 
-## 功能边界 {#feature-boundary}
+## 适用场景 {#feature-boundary}
 
 - 列表只显示 `dict/` 下 `.yaml`、`.yml`、`.json` 的用户提示词文件，并排除系统提示词文件名（`system_prompt_hq`、`system_prompt_hq_format`、`system_prompt_line_break`、`glossary_extraction_prompt`、`ai_ocr_prompt`、`ai_colorizer_prompt`、`ai_renderer_prompt`）。
 - “应用所选提示词”把 `dict/<文件名>` 写入 `translator.high_quality_prompt_path` 并持久化到 `config/config.json`；它不切换翻译器类型、API 凭据或候选槽。
 - 预览分为“结构化”和“Raw”两种展示；“编辑”入口打开二级弹窗，结构化文件包含“模板编辑 / 源码编辑”两个页签。
-- 本页不写入真实密钥或私密提示词正文；错误信息中的本机路径不得复制进公开报告。
+- 这里不写入真实密钥或私密提示词正文；错误信息中的本机路径不得复制进公开报告。
 
-## UI 操作 {#ui-operations}
+## 在提示词管理中操作 {#ui-operations}
 
 ### 查看提示词列表
 
@@ -68,7 +68,7 @@ lastUpdated: true
 
 错误信息可能包含本机路径或解析细节；复制到公开报告前必须脱敏。
 
-## 运行机理 {#runtime-behavior}
+## 提示词如何加载 {#runtime-behavior}
 
 列表刷新、选中预览、应用和编辑共享同一条数据流：
 
@@ -102,7 +102,7 @@ flowchart LR
 - 编辑保存：`PromptEditorDialog` 在模板页签收集字段并序列化（YAML 用 `allow_unicode` 输出，JSON 用 `indent=2`），在源码页签校验 JSON/YAML 语法，最后以 UTF-8 写回；关闭后预览刷新。
 - 最终消费者：翻译开始时 `_load_and_prepare_prompts` 把相对路径 `dict/<文件名>` 解析为绝对路径，用 `load_custom_prompt` 加载（文件缺失时会尝试替换扩展名），存入 `ctx.custom_prompt_json`；`_build_system_prompt` 用 `_flatten_prompt_data` 把它展平后放在基础系统提示词之前。开启 `extract_glossary` 时，翻译器把提取到的新术语通过 `merge_glossary_to_file` 写回提示词文件的 `glossary` 字段。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - `translator.high_quality_prompt_path` 由 OpenAI / Gemini 翻译器（含 HQ 变体）在翻译阶段消费，`_load_and_prepare_prompts` 会在配置了该路径时加载自定义提示词；Sakura 等不使用该字段的翻译器不会读取它，切换到这类翻译器时路径仍保留但不会被消费。
 - 应用动作只写配置键，不切换翻译器或 API 候选槽；相关边界见[翻译器选择](../translator/selection-and-languages.md)与 API 管理页面。

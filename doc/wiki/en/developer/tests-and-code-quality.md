@@ -11,15 +11,15 @@ lastUpdated: true
 
 Use this page when you modify source code, add a regression test, want to reproduce CI results locally, or need to confirm the code-style requirements. It documents the `test/` directory and its conventions, the commands for running tests locally, the `ruff` code-style configuration, and the CI quality gates defined by `.github/workflows/tests.yml`.
 
-This page does not cover packaging and release (see [Packaging and release](./packaging-and-release.md)), code layering and module boundaries (see [Architecture and code boundaries](./architecture-and-code-boundaries.md)), or the full steps for adding a feature (see [Adding or changing a feature](./adding-or-changing-a-feature.md)).
+This guide does not cover packaging and release (see [Packaging and release](./packaging-and-release.md)), code layering and module boundaries (see [Architecture and code boundaries](./architecture-and-code-boundaries.md)), or the full steps for adding a feature (see [Adding or changing a feature](./adding-or-changing-a-feature.md)).
 
-## Feature boundary
+## Relevant code
 
 - Test directory and conventions: the `test/` layout rules, and the roles of `test/README.md` and `test/_bootstrap.py`.
 - Running tests locally: `uv` dependency sync, `pytest` invocation, and the pytest `testpaths`/`pythonpath` configuration.
 - Code style: the rules in `desktop_qt_ui/ruff.toml`, the local self-check command, and its relationship to CI.
 - CI quality gates: the triggers, steps, and environment variables of `tests.yml`, plus its boundary with the docs, packaging, Docker, and mirror-sync workflows.
-- The desktop "Test Current Tab" (`Test Current Tab`) connection test belongs to API management; this page only cites its i18n copy, while the full workflow lives on the API-management pages.
+- The desktop "Test Current Tab" (`Test Current Tab`) connection test belongs to API management; this guide only cites its i18n copy, while the full workflow lives on the API-management pages.
 
 ## Test directory and conventions
 
@@ -132,7 +132,7 @@ The table groups the currently tracked test files by area; it is not a coverage 
 | Prompts and translation | `test_gemini_hq_image_preparation.py`, `test_prompt_preview_fluent_icons.py` | Gemini HQ image preparation, prompt-preview icons |
 | Directly runnable scripts | `check_char_tables.py`, `render_golden.py`, `repro_seam_dilution.py`, `ps_italic_angle.py`, etc. | Debug/regression scripts not collected by pytest; run with `python test/<script>.py` |
 
-## Dependencies and conflicts
+## Constraints and notes
 
 - The `cpu` / `gpu` / `amd` / `metal` groups are mutually exclusive and cannot be installed together; CI and the commands on this page use the `cpu` group. The default `uv sync` is `gpu` + `packaging`, so running tests on a machine without an NVIDIA environment may behave differently due to the torch backend.
 - `uv.lock` is a committed lockfile that must not be hand-edited; CI uses `uv sync --locked` for reproducibility.
@@ -147,7 +147,7 @@ The table groups the currently tracked test files by area; it is not a coverage 
 
 #### Connection-test UI copy
 
-The desktop app has no "run the test suite" button; the closest testing UI is the "Test Current Tab" (`Test Current Tab`) connection test on the API-management page. The following i18n strings appear while a developer self-checks credentials; when a key differs from its final display text, use the actual value. The feature boundary lives on the API-management pages.
+The desktop app has no "run the test suite" button; the closest testing UI is the "Test Current Tab" (`Test Current Tab`) connection test on the API-management page. The following i18n strings appear while a developer checks credentials; when a key differs from its final display text, use the actual value. The full workflow is documented on the API-management pages.
 
 | UI call key | English actual value | Simplified Chinese actual value |
 | --- | --- | --- |
@@ -177,8 +177,7 @@ The desktop app has no "run the test suite" button; the closest testing UI is th
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | UI copy | Source for the three-column comparison |
 | `.gitignore` | `/test/**` and `!/test/*.py` rules | Defines the tracked test boundary |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Test conventions | `test/README.md`, `test/_bootstrap.py` | Directory rules, import order, Qt test conventions |

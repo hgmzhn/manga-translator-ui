@@ -9,11 +9,11 @@ lastUpdated: true
 
 # HTTP 翻译端点
 
-当脚本、扩展或第三方应用需要把漫画图片提交给 Manga Translator 服务端翻译时使用本页。它记录 `/translate` 前缀下提交翻译任务的端点、请求与响应格式，以及任务在排队与执行过程中的状态。本页不重复流式帧协议的完整规范（见[流式协议](./streaming-protocol.md)）、会话与权限错误约定（见[认证与错误](./authentication-and-errors.md)），也不描述导出原文/译文、导入渲染、仅上色/超分/修复等辅助端点（见[批量、导出与导入流程](./batch-export-import-process.md)）。Web 用户界面的操作入口见[上传、配置与翻译](../../web/upload-config-and-translate.md)。
+当脚本、扩展或第三方应用需要把漫画图片提交给 Manga Translator 服务端翻译时使用本页。它记录 `/translate` 前缀下提交翻译任务的端点、请求与响应格式，以及任务在排队与执行过程中的状态。这里不重复流式帧协议的完整规范（见[流式协议](./streaming-protocol.md)）、会话与权限错误约定（见[认证与错误](./authentication-and-errors.md)），也不描述导出原文/译文、导入渲染、仅上色/超分/修复等辅助端点（见[批量、导出与导入流程](./batch-export-import-process.md)）。Web 用户界面的操作入口见[上传、配置与翻译](../../web/upload-config-and-translate.md)。
 
-## 功能边界 {#feature-boundary}
+## 接口范围 {#feature-boundary}
 
-- 本页覆盖“提交翻译任务并取回结果”的端点：`POST /translate/json`、`/bytes`、`/image` 及其 `/stream` 变体，`/with-form/*` 表单变体，`/batch/json`、`/batch/images` 和 `POST /translate/queue-size`。
+- 内容包括“提交翻译任务并取回结果”的端点：`POST /translate/json`、`/bytes`、`/image` 及其 `/stream` 变体，`/with-form/*` 表单变体，`/batch/json`、`/batch/images` 和 `POST /translate/queue-size`。
 - `manga_translator/server/routes/translation.py` 一共注册 31 个 `/translate` 路由声明；其中导出（`/export/*`）、导入（`/import/*`）、处理（`/upscale`、`/colorize`、`/inpaint`）和 `/complete` 属于其他页面。
 - 除 `queue-size` 外，所有翻译端点都在路由内调用 `verify_translation_auth()`：缺少或无效的 `X-Session-Token` 返回 `401`，无翻译器/OCR/上色/渲染权限返回 `403`，用户或用户组禁用的参数会被管理员默认值覆盖后再执行。
 - 单张与批量请求共用同一个全局翻译器实例与线程池，模型在请求之间复用；服务端翻译请求统一强制 `cli.use_gpu=False`，并禁用替换翻译、模板对齐等桌面专有模式。
@@ -121,7 +121,7 @@ flowchart TD
 - 批量端点把 `task_id` 传给 `get_batch_ctx()`，每张图片转换与翻译前都检查 `is_task_cancelled()`；取消或检测到取消时返回 `499`。
 - 拥有离线翻译权限（`allow_offline_translation`）的用户在 `/batch/images` 中会使用永不断开的请求包装器，客户端断线后任务仍继续执行并写入历史。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 接口约束 {#dependencies-and-conflicts}
 
 - 会话与权限：所有翻译端点依赖 `X-Session-Token`；账号停用、令牌过期或活动刷新失败都会返回 `401`。权限过滤先覆盖禁用参数，再检查翻译器/OCR/上色/渲染权限。
 - 配置来源：请求中的 `config` 是完整配置快照；服务端启动用 `config/config.json`（不存在时复制 `config-example.json`）。用户提交的值会被用户组/用户白名单黑名单覆盖，不能当作最终生效值。
@@ -152,7 +152,7 @@ flowchart TD
 
 #### 错误、取消与状态码 {#errors-cancellation-and-status-codes}
 
-| 状态码 | 触发条件（静态源码） | 来源 |
+| 状态码 | 触发条件（当前代码） | 来源 |
 | --- | --- | --- |
 | `200` | 成功：JSON、图片、流、字节或 `queue-size` 整数 | FastAPI 默认 |
 | `400` | `/batch/images` 未提供图片；导入/导出校验失败 | `translation.py:449` |
@@ -179,8 +179,7 @@ flowchart TD
 | `manga_translator/server/runtime_api.py` | 运行时 API 覆盖（Sakura/OCR/上色/渲染） | 环境变量优先级，不写真实密钥 |
 | `manga_translator/server/static/index.html`、`static/script.js` | Web 前端提交入口与流解析 | UI 文案 key 与请求头 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 路由 | `manga_translator/server/routes/translation.py` | 端点路径、方法、请求/响应模型、工作流与状态码 |

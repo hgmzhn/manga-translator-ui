@@ -1,5 +1,5 @@
 ---
-title: 选项与 i18n 矩阵
+title: 界面选项对照表
 description: 汇总桌面端所有固定选项的存储值、English 与简体中文，并链接到对应功能页面
 pageId: reference.options-i18n-matrix
 lang: zh-CN
@@ -7,18 +7,18 @@ outline: [2, 4]
 lastUpdated: true
 ---
 
-# 选项与 i18n 矩阵
+# 界面选项对照表
 
 当需要查找某个下拉框或枚举选项实际存进配置的值，以及界面显示的英文和简体中文时，本页提供汇总矩阵。它只负责把固定选项的“存储值 → English → 简体中文”集中列出并反链到对应功能页；每个选项的默认值、影响阶段、依赖和最终消费者以对应功能页为准。
 
 本页是参考索引，不替代任何功能页面：设置参数见[设置索引](./settings-index.md)与各设置页，工作流映射见[工作流矩阵](./workflow-matrix.md)，翻译器与 API 槽轮换的边界见[翻译器选择](../desktop/translator/selection-and-languages.md)和[API 通道与轮询策略](../desktop/api-management/slots-and-rotation.md)。
 
-## 功能边界 {#feature-boundary}
+## 收录内容 {#feature-boundary}
 
 - 只收录桌面 Qt UI 中由源码固定生成的下拉框、枚举和模式选择器；字体、模型名、预设和方案名等运行时列表见[运行时列表](#runtime-lists)。
 - 只汇总选项的存储值与双语显示值，不重复每个功能页的 UI 操作、默认值矩阵和运行机理。
 - 数值输入、开关、文件编辑动作等非枚举控件不进入本矩阵；它们仍在对应功能页说明。
-- 本页不展示任何真实密钥、令牌、用户名、私有路径或用户配置内容。
+- 这里不展示任何真实密钥、令牌、用户名、私有路径或用户配置内容。
 
 ## 矩阵口径 {#matrix-conventions}
 
@@ -408,9 +408,9 @@ API 通道轮换策略下拉，以及自定义 API 参数的类型和布尔值�
 | 编辑器样式 / 富文本样式 | `app.saved_style_presets`、`app.saved_rich_text_presets` | 用户配置的键名就是显示值和存储值 |
 | 批量管理方案 | `config/batch_edit_schemes.yaml` | 用户定义的方案名和数量可变 |
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 使用说明 {#dependencies-and-conflicts}
 
-- 本页只汇总固定选项；同名设置的不同形态（例如 `render.direction` 的核心 enum `horizontal`/`vertical` 与 UI 反向映射 `h`/`v`）以对应功能页为准。
+- 这里仅汇总固定选项；同名设置的不同形态（例如 `render.direction` 的核心 enum `horizontal`/`vertical` 与 UI 反向映射 `h`/`v`）以对应功能页为准。
 - 模型名、语言等选项在语言切换后重新填充，矩阵记录的 English/简体中文是切换后的实际显示值。
 - 工作流下拉以索引为模式值并同步互斥 CLI 标志，不能把索引当作文本存储值使用。
 - API 轮换策略只影响已选定提供商内部的请求端点，不改变翻译器实现；边界见[API 通道与轮询策略](../desktop/api-management/slots-and-rotation.md)。
@@ -426,9 +426,9 @@ API 通道轮换策略下拉，以及自定义 API 参数的类型和布尔值�
 | `manga_translator/config.py`、`manga_translator/image_formats.py` | 核心枚举与输出格式 | enum 字面量直接显示时两种语言相同 |
 | `config/config-example.json` | 发行默认值 | 只作模板核对，不复制用户路径或私密内容 |
 
-## 源码依据 {#source-evidence}
+## 数据来源 {#source-evidence}
 
-| 层级 | 文件 | 本页核对内容 |
+| 数据 | 文件 | 用途 |
 | --- | --- | --- |
 | 选项与显示映射 | `desktop_qt_ui/app_logic.py` | `get_options_for_key()`、`get_display_mapping()` |
 | 设置控件 | `desktop_qt_ui/ui/main_page/dynamic_settings.py`、`layout.py` | 普通设置控件、主题/语言下拉、倍率联动 |
@@ -437,15 +437,4 @@ API 通道轮换策略下拉，以及自定义 API 参数的类型和布尔值�
 | 语言与 locale | `desktop_qt_ui/services/translation_service.py`、`desktop_qt_ui/services/i18n_service.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | 目标/保留语言与实际双语值 |
 | 工作流 | `desktop_qt_ui/ui/main_page/pages/translation_page.py`、`desktop_qt_ui/ui/main_page/runtime.py` | 九个索引值与 CLI 标志映射 |
 | 编辑器与批量 | `desktop_qt_ui/ui/widgets/property_panel.py`、`desktop_qt_ui/ui/widgets/rich_text_editor_components.py`、`desktop_qt_ui/services/batch_edit_engine.py` | 编辑器复用项、富文本推进和批量条件 |
-| Phase 0 调查 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`doc/wiki/data/i18n.generated.json`、`doc/wiki/data/settings.generated.json` | 选项清单、locale 校验与页面映射 |
-
-## 验证记录 {#verification}
-
-| 验证内容 | 状态 | 说明 |
-| --- | --- | --- |
-| 三份写作规范与 TODO | 完成 | 已完整读取 `PAGE_GUIDELINES.md`、`BLUEPRINT.md`、`TODO.md` 1.3 与 5.16 小节，只覆盖本页 TODO |
-| 选项与 locale 核对 | 完成 | 逐项核对 `en_US.json` / `zh_CN.json` 实际显示值与 `research/phase0-options-i18n-matrix.md` |
-| 页面链接 | 完成 | 每个分组反链到对应功能页，页面路径与现有 `zh/` 目录一致 |
-| 脱敏与安全 | 完成 | 未读取或展示真实 `.env`、用户配置、API key/token、用户名、私有路径或私有提示词 |
-| 路由镜像与源码依据检查 | 完成 | `node scripts/verify-route-mirror.mjs .` PASS（120 zh / 120 en）；`node scripts/verify-source-evidence.mjs .` PASS |
-| VitePress 构建 | 待统一验收 | 由协调代理在合并前运行 `npm run docs:build --prefix doc/wiki` |
+| 调查与生成数据 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`doc/wiki/data/i18n.generated.json`、`doc/wiki/data/settings.generated.json` | 选项清单、界面文案与页面映射 |

@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Region List and Text Editing
 
-When you need to check OCR results one by one, adjust a speech line, or re-recognize a text box in the editor, use the “Editable Translation” region list in the left panel and the “Text Content” section of the property panel. This page covers browsing the region list, find/replace, batch apply, source/translation editing in the property panel, and list synchronization; styles, rich text, masks, and import/export are covered on their own pages.
+When you need to check OCR results one by one, adjust a speech line, or re-recognize a text box in the editor, use the “Editable Translation” region list in the left panel and the “Text Content” section of the property panel. This guide covers browsing the region list, find/replace, batch apply, source/translation editing in the property panel, and list synchronization; styles, rich text, masks, and import/export are covered on their own pages.
 
-## Feature boundary {#feature-boundary}
+## What you can do {#feature-boundary}
 
-- The left panel has two routes: “Editable Translation” (the region list) and “Property Editor” (the property panel), with the latter shown by default. This page covers the full region-list interaction plus the “Text Content” and “Actions” sections of the property panel.
+- The left panel has two routes: “Editable Translation” (the region list) and “Property Editor” (the property panel), with the latter shown by default. This guide covers the full region-list interaction plus the “Text Content” and “Actions” sections of the property panel.
 - Each region-list row shows “number: source text” and an editable translation box. In-row edits are only list drafts; they reach the model only after you click “Apply All Translation Changes”.
 - The property-panel text section maintains three text fields: source `text`, final translation `translation`, and pre-replacement translation `translation_raw`. “Show Translation (Raw)” is checked by default; when checked you edit `translation_raw`.
 - Not covered here: style settings see [Style properties](./style-properties.md); the floating rich-text editor see [Floating rich text](./floating-rich-text.md); masks, paint, and clone stamp see [Mask paint and clone stamp](./mask-paint-and-clone-stamp.md); import/export and write-back see [Import, export, and write-back](./import-export-and-writeback.md); shortcuts see [Shortcuts](./shortcuts.md).
 
-## UI operations {#ui-operations}
+## Use it in the editor {#ui-operations}
 
 ### Open the left panel and browse the region list {#open-region-list}
 
@@ -53,7 +53,7 @@ The “Actions” section is available for both single and multi selection:
 - “Paste”: with a single selection it pastes the style (keeping position and text, overwriting font, size, color, alignment, direction, line spacing, and letter spacing); with a multi-selection or no selection it pastes the whole region at the mouse position or a default offset.
 - “Delete”: deletes the selected regions in one undoable action.
 
-## Runtime behavior {#runtime-behavior}
+## How changes are saved {#runtime-behavior}
 
 ### List synchronization flow {#list-sync-flow}
 
@@ -88,7 +88,7 @@ Sync-channel summary:
 | Property panel → model | text-modification signals | `controller.update_translated_text` etc. | Writes `translation`/`translation_raw`/`text` in real time |
 | Async task → model | stable `region_id` lookup | `controller.on_regions_update_finished` | Inserts/deletes during the wait cannot write to the wrong target |
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - The region list, property panel, and toolbar align/distribute buttons all listen to the same model selection instead of keeping their own copies; any change from one side refreshes the others.
 - Focused list rows and property-panel text boxes are not overwritten by ordinary refreshes; only async write-backs (`source="async"`) force-refresh the text fields so a stale document cannot overwrite the model.
@@ -96,5 +96,3 @@ Sync-channel summary:
 - “Auto Apply Rich Text Rules While Editing” is controlled by an editor-menu toggle; rule definitions and render timing belong to the rich-text-rules pages.
 - There are interactions with batch-management write-back and real-time replacement rules; batch write-back, `.bak`, and restore belong to the batch-management pages.
 - When focus is in a text control, `Delete` does not delete regions and `Q`/`W`/`E`/`A`/`D` are forwarded as text instead of switching tools or images; see [Shortcuts](./shortcuts.md).
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

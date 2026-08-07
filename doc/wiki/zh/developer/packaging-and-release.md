@@ -11,14 +11,14 @@ lastUpdated: true
 
 本页面向维护者，说明项目如何从源码生成可分发的桌面端与 Docker 产物、如何确定版本号、如何通过 CI 发布到 GitHub Releases 与镜像仓库，以及版本检查与更新维护的边界。它不覆盖用户安装与更新步骤（见[更新与版本切换](../install/update-and-version-switching.md)）、Web 服务端口与部署（见[Web 服务端口与部署](./web-server-ports-and-deployment.md)）、仓库模块边界（见[架构与代码边界](./architecture-and-code-boundaries.md)）或测试与代码质量（见[测试与代码质量](./tests-and-code-quality.md)）。
 
-## 功能边界 {#feature-boundary}
+## 涉及的代码 {#feature-boundary}
 
 - 版本号：发布版本以 `v*` Git tag（例如 `v2.2.10`）为权威；`packaging/VERSION` 是构建脚本与版本检查脚本共同读取的版本文件；`pyproject.toml` 的 `[project] version` 与 `packaging/launch.py` 中的硬编码 `VERSION` 只是开发标记，不参与 CI 发布。
 - 桌面端产物：`packaging/build_packages.py` 调用 PyInstaller，按 `packaging/manga-translator-cpu.spec` 与 `packaging/manga-translator-gpu.spec` 生成 `dist/manga-translator-{cpu,gpu}/`。
 - CI 发布：`.github/workflows/build-and-release.yml` 在推送 `v*` tag、发布 Release 或手动触发时构建两个变体、捆绑外部运行时资源、分卷压缩并创建 GitHub Release；`.github/workflows/docker-build-push.yml` 构建并推送 CPU/GPU Docker 镜像。
-- 本页只写打包与发布；模块代码边界、测试流程、Web 端口与部署细节分别属于[架构与代码边界](./architecture-and-code-boundaries.md)、[测试与代码质量](./tests-and-code-quality.md)和[Web 服务端口与部署](./web-server-ports-and-deployment.md)。
+- 这里仅写打包与发布；模块代码边界、测试流程、Web 端口与部署细节分别属于[架构与代码边界](./architecture-and-code-boundaries.md)、[测试与代码质量](./tests-and-code-quality.md)和[Web 服务端口与部署](./web-server-ports-and-deployment.md)。
 
-## UI 操作 {#ui-operations}
+## 操作方法 {#ui-operations}
 
 与打包发布相关的可见文案只有两类：桌面窗口标题/侧边栏的版本显示，以及源码安装版维护菜单的版本检查入口。它们都不是设置页参数；维护菜单完整操作见[更新与版本切换](../install/update-and-version-switching.md)。
 
@@ -65,7 +65,7 @@ flowchart LR
     D --> V["写入 VERSION 与 build_info.json"]
 ```
 
-图说明：这是源码确认的版本归一化与 PyInstaller 产物生成流程，不是通用“配置→算法→输出”占位图。`build_info.json` 记录 `variant` 与 `version`；同一版本参数可连续构建 `cpu` 与 `gpu` 两个互斥依赖组的产物，但一次环境只安装其中一个组。
+图说明：这是版本归一化与 PyInstaller 产物生成流程。`build_info.json` 记录 `variant` 与 `version`；同一版本参数可连续构建 `cpu` 与 `gpu` 两个互斥依赖组的产物，但一次环境只安装其中一个组。
 
 ## 发布产物 {#release-artifacts}
 
@@ -126,14 +126,14 @@ flowchart LR
 
 `packaging/docker-compose.yml` 提供两个服务：`manga-translator-cpu` 映射宿主 `8000:8000`，`manga-translator-gpu` 映射 `8001:8000`。两者把 `./data/{fonts,dict,result,models,logs,server,config}` 挂载到容器内，通过 `MT_*` 环境变量控制 Web 主机、端口、GPU、模型 TTL、重试与 verbose，并通过 `MANGA_TRANSLATOR_ADMIN_PASSWORD` 设置管理员密码（模板带默认占位值，首次启动必须替换）。取消注释 `./data/app.env:/app/.env` 挂载，可让 Web 管理界面保存的 API 密钥在重建容器后保留。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 约束与注意事项 {#dependencies-and-conflicts}
 
 - `cpu`、`gpu`、`amd`、`metal` 四个硬件后端依赖组互斥（`pyproject.toml` 的 `[tool.uv] conflicts`），一次只能安装一个；CI 的桌面打包只构建 `cpu` 与 `gpu`。
 - PyInstaller 产物不包含模型权重；模型在发布阶段从单独的 release 资产下载，因此产物体积与模型体积分开管理。
 - `packaging/VERSION` 与 `pyproject.toml` 的 `[project] version`、`launch.py` 的硬编码 `VERSION` 可能不同步；发布以 tag 为准，不要把三者当作同一来源。
 - 发布流水线依赖 GitHub Release 中预置的模型压缩包；缺失或下载失败时发布会失败。
 - Docker 构建通过 `.dockerignore` 排除 `doc/`、`*.md`、测试与构建产物，镜像内只含运行所需资源。
-- 本页不写真实 API 密钥、令牌、用户名或私有绝对路径；compose 中的管理员密码与环境变量值属于发行模板，不在文档中复制。
+- 这里不写真实 API 密钥、令牌、用户名或私有绝对路径；compose 中的管理员密码与环境变量值属于发行模板，不在文档中复制。
 
 ## 开发指南 {#developer-guide}
 
@@ -174,15 +174,14 @@ flowchart LR
 | `packaging/Dockerfile`、`docker-compose.yml`、`docker-entrypoint.sh` | Docker 镜像与部署 | 多阶段构建、空卷恢复、健康检查 |
 | `packaging/check_version.py` | 版本检查脚本 | 对比 `origin/main:packaging/VERSION` |
 | `packaging/launch.py` | 启动与维护菜单 | `--maintenance`、`--update`、`--frozen` 等参数 |
-| `Win-Start.bat`、`Win-Install-or-Update.bat`、`Unix-*.sh` | 源码安装版入口 | 调用 `launch.py`；本页不复制其内容 |
+| `Win-Start.bat`、`Win-Install-or-Update.bat`、`Unix-*.sh` | 源码安装版入口 | 调用 `launch.py`；这里不复制其内容 |
 | `.github/workflows/build-and-release.yml` | 桌面发布 CI | tag/release 触发；捆绑资源、分卷、建 Release |
 | `.github/workflows/docker-build-push.yml` | Docker 发布 CI | 推送 Docker Hub 与 ghcr.io |
 | `.github/workflows/docs-pages.yml` | Wiki 站点发布 | 与桌面发布独立，仅部署 `doc/wiki` |
 | `.github/workflows/sync-to-gitee.yml` | 仓库镜像同步 | 每次 push 同步分支与 tag 到 Gitee/GitCode |
 | `doc/CHANGELOG_v<版本>.md` | 发布说明正文 | 缺失时发布正文显示占位文案 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 版本 | `packaging/VERSION`、`packaging/build_packages.py`、`packaging/check_version.py`、`desktop_qt_ui/utils/app_version.py` | 版本来源、去 `v`、回写、运行时读取与显示 |

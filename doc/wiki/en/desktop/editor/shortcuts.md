@@ -11,9 +11,9 @@ lastUpdated: true
 
 Most high-frequency editor actions can be triggered with the keyboard or the mouse wheel: undo/redo, copy/paste/delete, switching canvas tools, switching images, and wheel combos for the brush size and the selected regions' font size. This page lists every shortcut and wheel combo actually registered by `EditorShortcutManager`, and explains who receives a key when focus is in a text widget, on the canvas, or in the floating rich-text window.
 
-The full operations of the toolbar and menus, canvas tools, region list, property panels, and floating rich text live in [Toolbar and Menus](./toolbar-and-menus.md), [Canvas Tools and Selection](./canvas-tools-and-selection.md), [Region List and Text Editing](./region-list-and-text-editing.md), [Text Properties](./text-properties.md), [Style Properties](./style-properties.md), [Floating Rich Text](./floating-rich-text.md), and [Import/Export and Writeback](./import-export-and-writeback.md). This page only answers “which key does what”; it does not repeat those pages' control details.
+The full operations of the toolbar and menus, canvas tools, region list, property panels, and floating rich text live in [Toolbar and Menus](./toolbar-and-menus.md), [Canvas Tools and Selection](./canvas-tools-and-selection.md), [Region List and Text Editing](./region-list-and-text-editing.md), [Text Properties](./text-properties.md), [Style Properties](./style-properties.md), [Floating Rich Text](./floating-rich-text.md), and [Import/Export and Writeback](./import-export-and-writeback.md). This guide only answers “which key does what”; it does not repeat those pages' control details.
 
-## Feature boundary {#feature-boundary}
+## What you can do {#feature-boundary}
 
 - All editor keyboard shortcuts are registered by `desktop_qt_ui/ui/editor/shortcut_manager.py#EditorShortcutManager`; the toolbar never registers `QAction` shortcuts and only appends hint text to the “Export Image”, “Undo”, and “Redo” menu items.
 - `Undo`, `Redo`, `Copy`, `Paste`, `Select All`, and `Delete` are registered with `QKeySequence.StandardKey`; on Windows the primary bindings are `Ctrl+Z`, `Ctrl+Y`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, and `Del`. The displayed mapping follows the Qt platform.
@@ -22,7 +22,7 @@ The full operations of the toolbar and menus, canvas tools, region list, propert
 - `Escape` or canvas focus loss cancels an in-progress box selection, drawing, text box, clone stamp, region drag, or middle-button pan without committing anything.
 - Shortcut dispatch priority, from highest to lowest: focus in another top-level window (for example the floating rich-text window) → focus in a main-window text widget → focus on the canvas. The full conflict rules are in [Runtime behavior](#runtime-behavior).
 
-## UI operations {#ui-operations}
+## Use it in the editor {#ui-operations}
 
 ### View shortcut hints in the Menu {#toolbar-hints}
 
@@ -55,7 +55,7 @@ The following table lists every keyboard shortcut actually registered by `_setup
 | Any `Ctrl`-containing wheel combo | Changes the font size of all selected regions by ±5% (minimum 1) | Swallowed even with no selection; never falls through to canvas zoom |
 | Plain wheel | Zooms the canvas anchored at the mouse position | Scale clamped to `0.05`–`50.0`, handled by `GraphicsView.wheelEvent()` |
 
-## Runtime behavior {#runtime-behavior}
+## How changes are saved {#runtime-behavior}
 
 ### Registration and focus dispatch {#registration-and-dispatch}
 
@@ -94,7 +94,7 @@ The `Shift` branch matches “modifiers equal Shift”; the `Ctrl` branch matche
 
 When the canvas has an in-progress interaction (box selection, drawing, text box, clone stamp, region drag, or middle-button pan), pressing `Escape` calls `_cancel_active_interaction(commit=False)` to discard it without committing; `focusOutEvent` (modal dialogs, window deactivation, or focus transfer) uses the same discard path so a lost `mouseRelease` cannot leave a stray box-selection rectangle or drawing preview on the scene.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - `Delete` deletes regions only when focus is not in a text widget; a `Delete` inside a text widget never triggers region deletion.
 - The floating rich-text window is shown with `WA_ShowWithoutActivating`, and selection changes never call `focus_text()` to steal focus; the canvas keeps focus, so `Delete`/`A`/`D`/`Q`/`W`/`E` keep their canvas semantics after the popup appears. Clicking the editor's text box enters text editing normally.
@@ -103,5 +103,3 @@ When the canvas has an in-progress interaction (box selection, drawing, text box
 - The toolbar only shows shortcut hint text and never registers `QAction` shortcuts, avoiding double triggers with `EditorShortcutManager`.
 - Shortcut behavior depends on selection state: with no selection, `Delete` and `Copy` do nothing and `Paste` inserts a region at the mouse position; with multiple regions, `Copy` copies only the last selected one.
 - Outside the editor (other main-window pages or other system windows), these shortcuts are outside `EditorShortcutManager`'s registration scope and are not guaranteed to work.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

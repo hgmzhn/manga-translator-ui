@@ -9,16 +9,16 @@ lastUpdated: true
 
 # 特殊工作流与 WebSocket 调试产物
 
-当“导出原文”“导出翻译”“仅翻译（JSON）”“导入翻译并渲染”“替换翻译”或“仅上色/仅超分/仅修复”等流程跳过标准流水线的部分阶段时，本页说明它们会（或不会）产生哪些调试产物；`ws` 与 `shared` 两种内部传输模式除了普通调试图外，还有自己的 `ws_*` 调试图与传输相关文件。普通翻译流程的逐阶段调试图片见[调试目录与总览](./folder-naming-and-overview.md)、[OCR 与文本区域](./ocr-and-text-regions.md)、[蒙版、修复与排版](./mask-inpainting-and-rendering.md)；`ws`/`shared` 的完整协议契约见[内部 shared 与 WebSocket 协议](../developer/internal-shared-and-websocket.md)。
+当“导出原文”“导出翻译”“仅翻译（JSON）”“导入翻译并渲染”“替换翻译”或“仅上色/仅超分/仅修复”等流程跳过标准流水线的部分阶段时，这里说明它们会（或不会）产生哪些调试产物；`ws` 与 `shared` 两种内部传输模式除了普通调试图外，还有自己的 `ws_*` 调试图与传输相关文件。普通翻译流程的逐阶段调试图片见[调试目录与总览](./folder-naming-and-overview.md)、[OCR 与文本区域](./ocr-and-text-regions.md)、[蒙版、修复与排版](./mask-inpainting-and-rendering.md)；`ws`/`shared` 的完整协议契约见[内部 shared 与 WebSocket 协议](../developer/internal-shared-and-websocket.md)。
 
-## 功能边界
+## 先看哪些产物
 
 - 调试产物分为三类：特殊工作流跳过阶段后的“条件产物”、`ws` 模式渲染回调写入的 `ws_*` 图片、以及 `shared`/`ws` 模式运行产生的日志与目录。
 - 除特别说明外，所有调试产物都需要 `verbose` 开启；不开启时只写最终输出图、JSON/文本导出等业务文件。
 - “某次运行实际存在的产物”和“当前源码在该模式下可能生成的完整产物”不同：例如导入翻译并渲染只在缺少蒙版或需要重新检测时才会触发检测分支。
-- 本页不重复 `shared`/`ws` 的端点、端口、鉴权和 pickle/protobuf 序列化细节，那些属于[内部 shared 与 WebSocket 协议](../developer/internal-shared-and-websocket.md)。
+- 这里不重复 `shared`/`ws` 的端点、端口、鉴权和 pickle/protobuf 序列化细节，那些属于[内部 shared 与 WebSocket 协议](../developer/internal-shared-and-websocket.md)。
 
-## UI 操作
+## 查看调试产物
 
 ### 在翻译页选择流程模式
 
@@ -63,7 +63,7 @@ flowchart TD
     I --> P["检测与修复调试图，无 OCR/渲染产物"]
 ```
 
-上图描述的是源码中的真实分支；没有伪造运行截图。每个分支的实际产物还依赖检测器是否返回调试图、是否有文本区域、是否缺少蒙版等条件，不能把条件产物写成每次必有。
+上图描述的是代码中的分支。每个分支的实际产物还依赖检测器是否返回调试图、是否有文本区域、是否缺少蒙版等条件，不能把条件产物写成每次必有。
 
 ### 导出类流程
 
@@ -94,11 +94,11 @@ flowchart TD
 | `ws_inmask.png` | 同上 | `ws` 模式且 verbose | 仅保留蒙版区域的输入图（RGBA × mask） |
 | `ws_output.png` | 同上 | `ws` 模式且 verbose | 仅保留蒙版区域的渲染输出（RGBA × mask），即真正上传的结果内容 |
 | `ws_final.png` | `manga_translator/mode/ws.py#server_process_inner` | `ws` 模式且 verbose，且翻译成功 | 还原到原尺寸（LANCZOS）后的最终结果 |
-| `result/<task_id>/` | `manga_translator/mode/ws.py#server_process_inner` | `ws` 模式且 verbose | 处理前先清理并重建该目录；当前源码中 `ws_*` 调试图实际经 `_result_path()` 写入图片级子目录，`result/<task_id>/` 与图片级子目录的关系需运行验证确认 |
+| `result/<task_id>/` | `manga_translator/mode/ws.py#server_process_inner` | `ws` 模式且 verbose | 处理前先清理并重建该目录；当前源码中 `ws_*` 调试图实际经 `_result_path()` 写入图片级子目录，`result/<task_id>/` 与图片级子目录的关系需在所用版本中确认 |
 
 `shared` 模式的传输相关文件只有运行日志与调试子目录本身：`MangaShare` 用 `MangaTranslator(params)` 创建翻译器，`verbose` 由参数透传，调试图写入与普通模式相同的 `result/<image-subfolder>/` 位置。`result/log_<时间戳>.txt` 是桌面 Qt UI 在 `desktop_qt_ui/main.py` 启动时配置的全局 DEBUG 日志，不属于单图调试子目录。
 
-## 运行机理
+## 产物如何生成
 
 ### 调试目录与触发条件
 
@@ -138,7 +138,7 @@ verbose 时写入 `ws_render_in`/`ws_render_out`、`ws_mask`、`ws_inmask`、`ws
 ### 共享传输协议与产物
 
 `shared` 模式在本地启动内部服务，只放行 `translate` 与 `translate_batch` 两个方法，verbose 时的调试产物与普通模式一致（写入图片级调试子目录）。其监听地址、鉴权与消息帧格式等协议细节见[内部 shared 与 WebSocket 协议](../developer/internal-shared-and-websocket.md)。
-## 依赖与冲突
+## 产物与隐私
 
 - 所有调试产物都以 `verbose` 为前提；`desc_cli_verbose` 描述的是 Qt UI 行为，CLI 各模式用 `-v` 单独控制，两者不要混写。
 - 特殊工作流与 `batch_concurrent` 不兼容：`load_text`、`translate_json_only`、`template+save_text`、`generate_and_export`、`colorize_only`、`upscale_only`、`inpaint_only`、`replace_translation` 任一开启时，`batch_concurrent` 会被忽略并回退顺序处理；`template+save_text` 还会强制 `batch_size=1`。

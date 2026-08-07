@@ -11,16 +11,16 @@ lastUpdated: true
 
 Use this page when regions across a set of images must be filtered by content, layout, or properties before bulk edits. The “Batch Management” page uses match conditions to select regions, then batch actions edit their text, rich-text styling, or properties; the two are separate, so there is no ambiguity about which condition's match range is the target.
 
-This page covers condition fields and matching rules only. Scheme CRUD is documented in [Scheme management (CRUD)](./schemes-crud.md), batch actions in [Batch actions and execution order](./actions-and-order.md), and preview, apply, backup, and restore in [Preview, apply, and restore](./preview-apply-restore.md).
+This guide covers condition fields and matching rules only. Scheme CRUD is documented in [Scheme management (CRUD)](./schemes-crud.md), batch actions in [Batch actions and execution order](./actions-and-order.md), and preview, apply, backup, and restore in [Preview, apply, and restore](./preview-apply-restore.md).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - A scheme has two parts: `match` (`logic` + `conditions`) and `actions`; conditions are the first half and only filter regions.
 - With an empty condition list, every region in scope matches (“No conditions means every region in scope is selected.”).
 - Conditions are evaluated only on structurally valid regions; malformed regions are skipped during both scanning and applying.
 - Batch-management conditions operate on region data in the `*_translations.json` files from the main file list. They have nothing to do with `batch_size` or `batch_concurrent` (image batching/concurrent translation) in the translation pipeline.
 
-## UI operations {#ui-operations}
+## Use it in Batch Management {#ui-operations}
 
 ### Configure match conditions in Batch Management
 
@@ -94,7 +94,7 @@ flowchart LR
 
 Limits: the diagram reflects the real source evaluation path. The `translation` body is the rich-text visible text (`\n`), so operators such as `contains`/`regex` see `\n` newlines, not `[BR]` markers. The apply stage re-reads the files and re-runs the same conditions instead of reusing the preview cache.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Conditions only filter regions; each action carries its own `pattern` to locate substrings inside the translation. Conditions and actions do not share a “match range”.
 - Condition evaluation depends on region fields such as `texts`/`lines`/`translation`/rich text; regions with missing OCR text or malformed structure are skipped and can never be “selected”.

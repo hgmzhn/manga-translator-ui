@@ -9,15 +9,15 @@ lastUpdated: true
 
 # 翻译器串联
 
-当同一批文本需要先由一个翻译器译到中间语言、再由另一个翻译器继续译到最终语言时，使用 `translator_chain`。它把上一级翻译器的输出文本列表直接交给下一级翻译器，按配置顺序逐级执行。本页说明链字符串的配置形式、执行顺序、与 API 候选槽轮换的区别，以及与上下文/提示词的边界。
+当同一批文本需要先由一个翻译器译到中间语言、再由另一个翻译器继续译到最终语言时，使用 `translator_chain`。它把上一级翻译器的输出文本列表直接交给下一级翻译器，按配置顺序逐级执行。这里说明链字符串的配置形式、执行顺序、与 API 候选槽轮换的区别，以及与上下文/提示词的边界。
 
-## 功能边界
+## 适用场景
 
 - `translator.translator_chain` 是核心 `TranslatorConfig` 的字符串字段，默认 `null`；它把翻译拆成多个“翻译器:目标语言”阶段并依次执行。
 - 链式翻译只决定“用哪些翻译器、按什么顺序、每级翻译到什么语言”；它不选择请求端点，也不处理重试、冷却、不可用或恢复。
 - 链式翻译不改变上下文与提示词配置：`cli.context_size` 历史页数、`translator.high_quality_prompt_path`、`extract_glossary` 等仍按各自机制生效。
 - 它与单一 `translator` 是互斥的选择来源：`translator_gen` 的构造优先级是 `selective_translation` > `translator_chain` > 单一 `translator`。
-- `selective_translation` 是同级字段，解析到同一个 `TranslatorChain`（按检测语言选择翻译器），本页不展开；见[翻译器引擎分发](./engine-dispatch.md)。
+- `selective_translation` 是同级字段，解析到同一个 `TranslatorChain`（按检测语言选择翻译器），这里不展开；见[翻译器引擎分发](./engine-dispatch.md)。
 - 桌面设置页的 Translation 分组没有 `translator_chain` 控件行；Web UI 默认把该字段列入隐藏高级参数。
 
 ## 配置形式

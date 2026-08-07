@@ -15,10 +15,13 @@ const targetPath = computed(() => {
 })
 
 const targetLabel = computed(() => (targetLocale.value === 'zh' ? '中文' : 'English'))
+const accessibleLabel = computed(() => (
+  targetLocale.value === 'zh' ? '切换到中文' : 'Switch to English'
+))
 </script>
 
 <template>
-  <a :href="targetPath" :lang="targetLocale" :aria-label="`Switch to ${targetLabel}`">
+  <a :href="targetPath" :lang="targetLocale" :aria-label="accessibleLabel">
     {{ targetLabel }}
   </a>
 </template>

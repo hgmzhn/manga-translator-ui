@@ -11,9 +11,9 @@ lastUpdated: true
 
 Use this page when a third-party admin script or integration needs to create accounts, divide user groups, set quota, or export audit logs. It documents four groups of admin HTTP endpoints: `/api/admin/users`, `/api/admin/groups`, the quota endpoints (`/api/quota/stats` and `/api/admin/quota/*`), and `/audit/*`. For the Web admin UI entry points, see [Administrator interface](../../web/administrator-interface.md); for the UI-side account and permission concepts, see [Accounts, permissions, and API keys](../../web/accounts-permissions-and-api-keys.md). Session establishment, `X-Session-Token` validation, and common status codes are in [HTTP API authentication and errors](./authentication-and-errors.md); server configuration and preset endpoints are in [Configuration, environment, and resources](./config-env-and-resources.md).
 
-## Feature boundary {#feature-boundary}
+## Endpoint scope {#feature-boundary}
 
-- This page covers the four admin endpoint groups (users, groups, quota, audit) and their backend services: `account_service`, `group_management_service`, `quota_service`, `audit_service`, and `permission_service`.
+- This guide covers the four admin endpoint groups (users, groups, quota, audit) and their backend services: `account_service`, `group_management_service`, `quota_service`, `audit_service`, and `permission_service`.
 - Except for `GET /api/quota/stats`, which only requires a session (`require_auth`), every endpoint here requires `require_admin`: a missing or invalid token returns `401`, and a non-admin role returns `403`.
 - This page never records real accounts, usernames, passwords, tokens, API keys, or private absolute paths; defaults come from source constants and do not represent the actual running configuration.
 - The legacy `/admin/*` management endpoints (settings, tasks, logs, storage, cleanup) and legacy file-management endpoints (`/upload/font`, `/prompts`, `/fonts`) belong to other pages and are not expanded here.
@@ -147,7 +147,7 @@ Event types found by statically scanning all `log_event(...)` calls: `login`, `l
 
 Admins manage accounts and groups at `GET /admin` (`admin-new.html`). The sidebar modules User Management (`users`), Group Management (`groups`), and Quota Management (`quota`) call `GET /api/admin/users`, `GET /api/admin/groups`, `GET /api/admin/groups/{id}`, and `PUT /api/admin/groups/{id}/config`; the user/group edit dialogs reuse the `permission-editor.js` component, whose labels come from the desktop-locale i18n keys. The Quota module's "default quota settings" uses the legacy `GET/PUT /admin/settings` (`default_quota` field), and the user-quota table comes from the `quota` field of `GET /api/admin/users`; it does not call the `/api/admin/quota/*` endpoints. The audit endpoints have no admin-UI tab.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## API constraints {#dependencies-and-conflicts}
 
 - A group's `parameter_config` is both the per-parameter visibility/readonly control (`GroupService`) and the carrier of group-level quota (`daily_image_limit`, `max_concurrent_tasks` under `quota`); the `quota_limits` field is saved by `GroupManagementService` and read by `QuotaManagementService`. The two group-level quota paths coexist, so both must be checked when editing.
 - Translation requests enforce daily quota and concurrency through `permission_service` (in-memory counters; group `daily_image_limit` takes priority over the user `daily_quota`); `/api/quota/*`'s `QuotaManagementService` is an independent, file-persisted implementation with user-level priority. They are not synchronized: a reset via `/api/admin/quota/reset` does not directly affect the translation entry's `daily_usage`.
@@ -196,7 +196,7 @@ Admins manage accounts and groups at `GET /admin` (`admin-new.html`). The sideba
 | `web_delete` | Delete | 删除 |
 | `web_reset` | Reset | 重置 |
 
-`admin-new.html` also contains hardcoded Chinese strings without i18n keys, such as "用户列表" (user list), "添加用户" (add user), "暂无用户" (no users), "活跃" (active), "禁用" (disabled), "编辑" (edit), "删除" (delete), "保存配额设置" (save quota settings), "默认配额设置" (default quota settings), and "用户配额使用情况" (user quota usage); the English UI is missing for these, and this document does not invent translations. The English and Simplified Chinese values above come from `desktop_qt_ui/locales/en_US.json` and `zh_CN.json`, which the admin UI reuses via `/i18n/{locale}`.
+`admin-new.html` also contains hardcoded Chinese strings without i18n keys, such as "用户列表" (user list), "添加用户" (add user), "暂无用户" (no users), "活跃" (active), "禁用" (disabled), "编辑" (edit), "删除" (delete), "保存配额设置" (save quota settings), "默认配额设置" (default quota settings), and "用户配额使用情况" (user quota usage). These parts of the admin interface remain Chinese when English is selected. The bilingual values above come from `desktop_qt_ui/locales/en_US.json` and `zh_CN.json`, which the admin UI reuses via `/i18n/{locale}`.
 
 ### Related files and formats {#related-files-and-formats}
 
@@ -208,8 +208,7 @@ Admins manage accounts and groups at `GET /admin` (`admin-new.html`). The sideba
 | `manga_translator/server/data/audit.log` | Audit-event JSON Lines log | 10MB rotation, 5 backups; contains two line schemas |
 | `manga_translator/server/data/sessions.json` | Session persistence | Sessions are terminated when users are deactivated/deleted; never show real tokens |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Routes | `manga_translator/server/routes/users.py`, `groups.py`, `quota.py`, `audit.py` | Endpoint paths, methods, request/response models, status codes, and audit events |

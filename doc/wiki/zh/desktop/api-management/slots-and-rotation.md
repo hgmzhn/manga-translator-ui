@@ -11,7 +11,7 @@ lastUpdated: true
 
 当一组 API 密钥容易触发限流，或者你同时使用官方地址和兼容服务时，可以为同一个提供商添加多个 API 通道。每个通道保存一组密钥、API 地址和模型；翻译器仍然是原来的翻译器，变化的只是下一次请求使用哪个 API 候选。
 
-本页介绍候选通道的添加、删除、编号徽标和两种轮询策略，以及它们如何组成运行时的候选列表。OpenAI 与 Gemini 翻译器之间的切换见[翻译器选择](../translator/selection-and-languages.md)，`translator_chain` 见[翻译器串联](../translator/translation-chain.md)。页签布局见[API 管理页签与提供商字段](./provider-tabs.md)，Key/Base/Model 字段与 `.env` 键映射见[凭据、地址与模型](./credentials-addresses-models.md)，冷却/不可用/恢复的完整说明见[故障、冷却与恢复](./failures-cooldown-and-recovery.md)，连接测试见[连接测试与模型列表](./connection-tests-and-model-list.md)。
+这里介绍候选通道的添加、删除、编号徽标和两种轮询策略，以及它们如何组成运行时的候选列表。OpenAI 与 Gemini 翻译器之间的切换见[翻译器选择](../translator/selection-and-languages.md)，`translator_chain` 见[翻译器串联](../translator/translation-chain.md)。页签布局见[API 管理页签与提供商字段](./provider-tabs.md)，Key/Base/Model 字段与 `.env` 键映射见[凭据、地址与模型](./credentials-addresses-models.md)，冷却/不可用/恢复的完整说明见[故障、冷却与恢复](./failures-cooldown-and-recovery.md)，连接测试见[连接测试与模型列表](./connection-tests-and-model-list.md)。
 
 ## 在界面中配置备用 API {#configure-api-slots}
 

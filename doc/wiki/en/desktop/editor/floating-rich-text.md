@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Floating Rich Text Editor
 
-Use the floating rich-text editor when a line of translation needs inline styling such as bold, color, ruby, or vertical-in-horizontal (TCY). It is an independent window docked next to the currently selected text region on the canvas and provides body editing, per-run style cards, ruby input, and saved style presets. This page covers opening, editing, and saving with the floating window; the parameter details and rendering effects of each style are covered in [Style properties](./style-properties.md), plain text fields, find/replace, and the region list are covered in [Region list and text editing](./region-list-and-text-editing.md), rich-text rule matching and preset files are covered in [Rich text styles and presets](../rich-text-rules/styles-and-presets.md), and shortcuts and focus conflicts are covered in [Shortcuts](./shortcuts.md).
+Use the floating rich-text editor when a line of translation needs inline styling such as bold, color, ruby, or vertical-in-horizontal (TCY). It is an independent window docked next to the currently selected text region on the canvas and provides body editing, per-run style cards, ruby input, and saved style presets. This guide covers opening, editing, and saving with the floating window; the parameter details and rendering effects of each style are covered in [Style properties](./style-properties.md), plain text fields, find/replace, and the region list are covered in [Region list and text editing](./region-list-and-text-editing.md), rich-text rule matching and preset files are covered in [Rich text styles and presets](../rich-text-rules/styles-and-presets.md), and shortcuts and focus conflicts are covered in [Shortcuts](./shortcuts.md).
 
-## Feature boundary {#feature-boundary}
+## What you can do {#feature-boundary}
 
 - The floating rich-text editor is a top-level tool window created by `EditorView` (`Qt.Tool` plus frameless), not a child overlay of the canvas, so it is never clipped by the canvas viewport and can be dragged onto other panels or monitors.
 - It is shown only when exactly one region is selected and the menu toggle “Show Rich Text Editor Popup” is enabled; multi-selection, clicking blank canvas, starting to drag a region, or turning the toggle off hides it and clears its binding.
@@ -19,7 +19,7 @@ Use the floating rich-text editor when a line of translation needs inline stylin
 - “Auto Apply Rich Text Rules While Editing” in the top “Menu” controls whether rich-text rules are applied incrementally while typing (on by default; styles only, characters never change).
 - Not covered here: region-level style parameters (font size, color, stroke, spacing, angle, alignment, direction) are in [Style properties](./style-properties.md); plain text editing, find/replace, and list sync in the property panel are in [Region list and text editing](./region-list-and-text-editing.md); canvas tools and selection are in [Canvas tools and selection](./canvas-tools-and-selection.md); shortcut registration and focus priority are in [Shortcuts](./shortcuts.md).
 
-## UI operations {#ui-operations}
+## Use it in the editor {#ui-operations}
 
 ### Open, position, and close the floating editor {#open-position-close}
 
@@ -53,7 +53,7 @@ Use the floating rich-text editor when a line of translation needs inline stylin
 3. The card header’s “Save Style” opens a name prompt for the current run’s style (“Enter style preset name:”, default name “Rich Text Preset N”); the name cannot be empty, and a duplicate asks to confirm “Style preset '{name}' already exists. Overwrite?”.
 4. Each sidebar row has rename and delete buttons; deleting asks for confirmation. A config write failure shows the “Failed to save style preset” error box and rolls back the in-memory presets.
 
-## Runtime behavior {#runtime-behavior}
+## How changes are saved {#runtime-behavior}
 
 ### Edit-to-save write-back flow {#edit-save-flow}
 
@@ -72,7 +72,7 @@ flowchart LR
     J -->|"skips editor's own write-back"| K["refresh_region_if_changed refreshes document"]
 ```
 
-The diagram is the real source-confirmed data flow: body or style changes enter the editor state machine, optionally apply auto rich-text rules, then commit after a 180 ms debounce; the controller writes the whole document to the model and merges consecutive edits by `merge_key`; the model notifies the view, which skips the editor’s own write-back and only refreshes the document from model data.
+The diagram is the real data flow: body or style changes enter the editor state machine, optionally apply auto rich-text rules, then commit after a 180 ms debounce; the controller writes the whole document to the model and merges consecutive edits by `merge_key`; the model notifies the view, which skips the editor’s own write-back and only refreshes the document from model data.
 
 Flush trigger summary:
 
@@ -90,7 +90,7 @@ Flush trigger summary:
 - Once focus enters the floating editor (another top-level `Qt.Tool` window), `EditorShortcutManager` detects that the window of `QApplication.focusWidget()` is no longer the editor main window and returns early for all context-aware editor shortcuts, preventing a stale main-window focus from deleting canvas regions.
 - While the body holds focus, Qt text controls handle text undo/redo and copy/paste; style changes are committed through the document and merged by the controller command.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - The floating editor only works with a single selection; it is hidden for multi-selection, no selection, or when the popup toggle is off. Selection changes from the region list and property panel drive the floating window through the same model selection.
 - “Auto Apply Rich Text Rules While Editing” affects only the incremental style application inside the editor; the rule files, matching, and preview belong to the rich-text-rules pages. Rules add styles only, never change characters, and skip ranges that already carry manual rich-text traces.
@@ -98,5 +98,3 @@ Flush trigger summary:
 - Consecutive rich-text edits merge into one undo step by `merge_key` (`region:{index}:translation_rich`); the body’s own Qt undo/redo acts on text only.
 - Style presets are stored in the application config `app.saved_rich_text_presets`, not in region data; a failed save rolls back and shows “Failed to save style preset”.
 - Positioning is screen-aware: automatic docking chooses above/below within the current screen’s available geometry; manual dragging disables auto-movement, and dragging the text box on the canvas re-docks around the new position.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

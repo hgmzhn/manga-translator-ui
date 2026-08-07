@@ -9,7 +9,7 @@ lastUpdated: true
 
 # Linux and macOS Installation
 
-This page covers the Linux/macOS source installation, update, and Qt desktop startup entry points. It is limited to the Unix bootstrap scripts, `.venv`, uv, and platform dependency selection; Windows portable installation, Docker, version switching, and uninstalling belong to their respective installation pages.
+This guide covers the Linux/macOS source installation, update, and Qt desktop startup entry points. It is limited to the Unix bootstrap scripts, `.venv`, uv, and platform dependency selection; Windows portable installation, Docker, version switching, and uninstalling belong to their respective installation pages.
 
 The scripts work in the directory containing the scripts. You can download the two scripts into a new, writable, trusted directory, or run the installer from the root of an already-cloned complete repository. Installation does not require entering keys, tokens, or user images on the command line.
 
@@ -56,13 +56,13 @@ This mode only prints the command it would run; it still checks the project file
 
 ### Maintenance menu
 
-`Unix-Install-or-Update.sh` ultimately executes `packaging/launch.py --maintenance`. The menu shows the current branch and mirror, and persists its language selection in `packaging/maintenance_config.json`. Back up uncommitted source and local configuration before updating or switching branches/tags; update actions can alter the working tree. The menu options and their actual wording and stored values are listed in the [Options and I18n matrix](../reference/options-i18n-matrix.md).
+`Unix-Install-or-Update.sh` ultimately executes `packaging/launch.py --maintenance`. The menu shows the current branch and mirror, and persists its language selection in `packaging/maintenance_config.json`. Back up uncommitted source and local configuration before updating or switching branches/tags; update actions can alter the working tree. The menu options and their actual wording and stored values are listed in the [UI Options Reference](../reference/options-i18n-matrix.md).
 
 ## Platform dependency selection
 
 The project requires Python `>=3.12,<3.13`, so the current installer fixes Python to 3.12. `pyproject.toml` separates common dependencies from four mutually exclusive dependency groups. One environment can select only one backend group.
 
-The mapping from stored values to the displayed names is listed in the [Options and I18n matrix](../reference/options-i18n-matrix.md).
+The mapping from stored values to the displayed names is listed in the [UI Options Reference](../reference/options-i18n-matrix.md).
 
 Automatic selection during installation works broadly as follows:
 
@@ -73,7 +73,7 @@ Automatic selection during installation works broadly as follows:
 
 The project's default `uv sync` groups are `gpu` and `packaging`, but the Unix maintenance path selects the appropriate variant from detection. Do not manually enable `cpu`, `gpu`, `amd`, and `metal` together: `tool.uv.conflicts` declares them mutually exclusive, and mixing them causes PyTorch/ONNX backend conflicts.
 
-## Runtime behavior
+## What the installer does
 
 ```mermaid
 flowchart TD
@@ -108,5 +108,3 @@ For Update, the maintenance menu checks local and remote versions/commits and th
 - **Compilation and wheels:** `pydensecrf` is resolved from platform-specific prebuilt-wheel sources declared by the project. Installation fails if no matching wheel is available; do not expose or commit private wheels.
 - **Graphical prerequisites:** the desktop UI depends on PyQt6. Linux Qt/system graphics libraries, macOS graphics permissions, and drivers remain operating-system responsibilities; a headless server is not the desktop-UI environment covered here.
 - **Runtime resources:** detection, OCR, inpainting, translation, and rendering can download/read models, fonts, and dictionaries based on enabled features. Put API keys only in your own configuration, never in script arguments, logs, or screenshots.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

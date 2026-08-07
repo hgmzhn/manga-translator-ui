@@ -9,16 +9,16 @@ lastUpdated: true
 
 # 替换规则表：分组、顺序与匹配逻辑
 
-当译文中的固定字词、标点符号或竖排字形需要统一改写时，可以使用“替换规则”页维护一组在渲染前应用到译文的规则。每条规则从 `config/text_replacements.yaml` 读取，按“通用 → 横排/竖排”的固定顺序逐条执行；本页说明规则如何分组、排序和匹配。
+当译文中的固定字词、标点符号或竖排字形需要统一改写时，可以使用“替换规则”页维护一组在渲染前应用到译文的规则。每条规则从 `config/text_replacements.yaml` 读取，按“通用 → 横排/竖排”的固定顺序逐条执行；这里说明规则如何分组、排序和匹配。
 
 本页负责表格视图的分组、执行顺序、字面/正则匹配和渲染链路调用位置。Raw YAML 编辑模式、正则语法细节以及保存/恢复默认的完整行为见[原始 YAML、正则与保存](./raw-yaml-regex-and-save.md)；替换完成后追加的富文本规则见[富文本规则表：表格、Raw 与匹配](../rich-text-rules/table-raw-and-match.md)。
 
-## 功能边界 {#feature-boundary}
+## 规则作用范围 {#feature-boundary}
 
 - 三个分组固定为 `common`、`horizontal`、`vertical`：`common` 始终执行，`horizontal` 只在横排渲染时执行，`vertical` 只在竖排渲染时执行。
 - 每条规则有 `pattern`、`replace`、`regex`、`enabled`、`comment` 五个字段；表格视图用五列展示这些字段。
 - 规则的执行顺序是文件内从上到下：同一分组内先写的规则先应用，替换结果会继续参与后续规则的匹配（级联）。
-- 本页不涉及源码编辑模式下的 YAML 语法校验和恢复默认（见[原始 YAML、正则与保存](./raw-yaml-regex-and-save.md)），也不涉及替换完成后的富文本规则（见[富文本规则](../rich-text-rules/table-raw-and-match.md)页面）。
+- 这里不涉及源码编辑模式下的 YAML 语法校验和恢复默认（见[原始 YAML、正则与保存](./raw-yaml-regex-and-save.md)），也不涉及替换完成后的富文本规则（见[富文本规则](../rich-text-rules/table-raw-and-match.md)页面）。
 
 ## 在界面中编辑规则表 {#edit-rule-table}
 
@@ -53,7 +53,7 @@ lastUpdated: true
 
 ## 规则字段 {#rule-fields}
 
-> 本页各字段的存储键、默认值与实现细节，见参考页[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各字段的存储键、默认值与实现细节，见参考页[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 表格的五列对应五类信息：启用、匹配、替换、正则、备注。其中正则、启用、备注为可选字段，只有与默认值不同才会写回 YAML；表格保存时跳过匹配为空的整行。
 
@@ -116,7 +116,7 @@ flowchart LR
 - 正则匹配：pattern 按 Python `re` 语法编译，支持反向引用等能力；语法错误时该条规则被跳过并记录警告，不影响其他规则。
 - 换行标记保护：`[BR]`、`【BR】`、`<br>`、`<br/>`（大小写不敏感）在替换前被替换为占位符，替换结束后恢复，避免标记内容被误替换。
 - 富文本条目版（`apply_replacements_to_entries`）会额外跳过空匹配和跨 `\n` 的命中；替换出的字符继承被替换段首字符的样式。
-- 模块内还提供 `build_h2v_dict`/`build_v2h_dict` 两个辅助函数，从 vertical/horizontal 分组抽取单字符字面映射；当前渲染链路没有引用它们（静态核对结果）。
+- 模块内还提供 `build_h2v_dict`/`build_v2h_dict` 两个辅助函数，从 vertical/horizontal 分组抽取单字符字面映射；当前渲染链路没有引用它们（代码检查结果）。
 
 ## 渲染链路中的调用位置 {#render-pipeline}
 
@@ -139,7 +139,7 @@ flowchart LR
 - 编辑器里编辑“替换前译文”（`translation_raw`）时，`editor_controller._apply_translation_replacements` 会实时用同一引擎同步到译文；失败时回退原文。
 - 富文本同步（`rich_text_sync.py`）对富文本条目跑同一套 common + 方向分组的“条目版”替换，并把富文本规则放在替换之后。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - 执行哪个方向分组取决于区域的渲染方向，与渲染设置的“方向”选项和检测结果有关；替换规则不改变方向。
 - `text_replacements.yaml` 与 `rich_text_rules.yaml` 是独立文件：替换先于富文本规则执行，富文本规则读取的是替换完成后的译文。

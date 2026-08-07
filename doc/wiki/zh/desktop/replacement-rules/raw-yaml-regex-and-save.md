@@ -9,19 +9,19 @@ lastUpdated: true
 
 # 替换规则的 Raw YAML 编辑、正则与保存
 
-当你想在译文排版到图片之前统一标点、修正全半角字符或做其他文本规范化时，使用“替换规则”页面编辑 `config/text_replacements.yaml`。页面提供“表格视图”与“源码编辑”两种模式，操作同一个文件；每条规则要么是字面替换，要么是正则替换，改动会自动保存。本页说明两种模式的用法、正则语义、保存与恢复机制，以及规则在渲染阶段的消费方式。
+当你想在译文排版到图片之前统一标点、修正全半角字符或做其他文本规范化时，使用“替换规则”页面编辑 `config/text_replacements.yaml`。页面提供“表格视图”与“源码编辑”两种模式，操作同一个文件；每条规则要么是字面替换，要么是正则替换，改动会自动保存。这里说明两种模式的用法、正则语义、保存与恢复机制，以及规则在渲染阶段的消费方式。
 
 表格视图的行级操作、分组页签与分组执行顺序的完整说明见[表格分组与顺序](./table-groups-and-order.md)；富文本规则（在替换完成后对 `translation` 做样式匹配）见[富文本规则](../rich-text-rules/table-raw-and-match.md)。
 
-## 功能边界 {#feature-boundary}
+## 规则作用范围 {#feature-boundary}
 
-- 本页只读写 `config/text_replacements.yaml`：该文件保存渲染前的文本替换规则，不保存 API 凭据、翻译器选择、`.env` 或任何其他配置。
+- 这里仅读写 `config/text_replacements.yaml`：该文件保存渲染前的文本替换规则，不保存 API 凭据、翻译器选择、`.env` 或任何其他配置。
 - 表格视图与源码编辑视图编辑的是同一个文件、同一组规则；切到源码编辑模式时表格工具栏和筛选行会被禁用（`_set_table_controls_enabled(False)`），避免两处同时编辑。
 - 规则只在渲染阶段由 `apply_replacements` 消费，作用于区域译文（`region.translation`）；不改变原文、OCR 文本或翻译请求。
 - 富文本规则读取替换完成后的 `translation` 做样式匹配，属于另一份文件 `config/rich_text_rules.yaml` 与另一个页面，不在本页。
 - 不要把真实业务文本、密钥、用户名或私有绝对路径写进规则文件；文件内容会被渲染逐条读取，并可能出现在日志与调试产物中。
 
-## UI 操作 {#ui-operations}
+## 在替换规则中操作 {#ui-operations}
 
 ### 打开替换规则页 {#open-page}
 
@@ -147,7 +147,7 @@ flowchart TD
 - 启动初始化 `ensure_runtime_files` 会删除仍为历史内置模板 MD5 的 `text_replacements.yaml`（两个已知旧哈希：`5b8fbc89492ff2a1d5c064f5e85a458b`、`94b2787940afdde800db3aba0742ad98`），随后 `ensure_text_replacements_exists` 重建内置默认模板；用户自定义内容不受影响。
 - 文件不存在时编辑器状态栏显示“文件不存在”；读取失败显示“加载失败: {error}”。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - 规则只作用于渲染前的译文：`prepare_text_replacements_for_layout` 把替换前文本存入 `translation_raw`，替换结果写入 `translation`；渲染后 `sync_translation_raw_from_layout` 会把排版改动回映到 `translation_raw`。
 - 富文本文档区域（`is_rich_text_document` 为真）跳过替换；已渲染过的 JSON 导出会记录 `skip_text_replacements`，导入重渲染时不再二次替换。

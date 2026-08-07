@@ -9,13 +9,13 @@ lastUpdated: true
 
 # 故障、冷却与恢复
 
-当某个 API 候选通道（翻译、OCR、上色或渲染的某个编号槽）请求失败时，程序会在进程内为它记录一个状态，并用它决定后续请求是否继续选择这个候选。本页说明失败后的状态机：冷却、不可用、恢复到可用，以及“配置本身有误时恢复后仍会再失败”的原因；同时列出冷却与超时参数。
+当某个 API 候选通道（翻译、OCR、上色或渲染的某个编号槽）请求失败时，程序会在进程内为它记录一个状态，并用它决定后续请求是否继续选择这个候选。这里说明失败后的状态机：冷却、不可用、恢复到可用，以及“配置本身有误时恢复后仍会再失败”的原因；同时列出冷却与超时参数。
 
-本页不负责候选通道的添加删除、编号徽标与两种轮换策略（见[API 通道与轮询策略](./slots-and-rotation.md)），不负责连接测试的对话框流程（见[连接测试与模型列表](./connection-tests-and-model-list.md)），也不负责普通请求重试的完整参数（见[重试、限流与质量](../translator/retry-rate-limit-and-quality.md)）。
+这里不负责候选通道的添加删除、编号徽标与两种轮换策略（见[API 通道与轮询策略](./slots-and-rotation.md)），不负责连接测试的对话框流程（见[连接测试与模型列表](./connection-tests-and-model-list.md)），也不负责普通请求重试的完整参数（见[重试、限流与质量](../translator/retry-rate-limit-and-quality.md)）。
 
-## 功能边界 {#feature-boundary}
+## 配置范围 {#feature-boundary}
 
-- 本页覆盖的是“候选端点”级别的状态：每个候选由 feature、provider、槽号、地址、模型和密钥指纹共同标识；状态保存在内存中，不写入 `.env` 或 `config.json`。
+- 内容包括的是“候选端点”级别的状态：每个候选由 feature、provider、槽号、地址、模型和密钥指纹共同标识；状态保存在内存中，不写入 `.env` 或 `config.json`。
 - 只有限流类错误会进入“冷却中”，只有永久错误会进入“不可用”；其他错误只记录为“失败”，不会阻止该候选被再次选中。
 - 状态机对翻译、OCR、上色和渲染的 API 组同样生效，因为四类消费者都调用同一个轮换入口 `run_with_api_candidates`。
 - 状态是进程内的：重启程序、修改 Key/Base/Model（状态身份变化）都会让旧状态失效；点击卡片上的“恢复”按钮则主动清除某个候选的状态。
@@ -87,7 +87,7 @@ flowchart LR
 
 因此排查顺序是：先确认 Key、地址和模型确实正确，再点击“恢复”并运行“测试当前页”；不要用反复点击“恢复”来代替修配置。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 凭据、网络与错误 {#dependencies-and-conflicts}
 
 - 冷却/不可用状态按 `feature:provider` 分组独立保存：翻译组冷却不会影响 OCR、上色或渲染组，反之亦然。
 - 状态只影响“候选选择”；它不会改变翻译器实现（`translator.translator`），也不会被 `translator_chain` 使用。边界见[功能选择器](./feature-selectors.md)与[翻译器串联](../translator/translation-chain.md)。

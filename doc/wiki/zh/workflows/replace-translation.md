@@ -11,9 +11,9 @@ lastUpdated: true
 
 当你有一张未翻译的“生肉图”和一张已经翻译好的同作品图片（例如汉化版、修复版或不同分辨率的版本），又缺少可复用的工程 JSON 时，使用“替换翻译”工作流。它对生肉图和翻译图分别执行检测与 OCR，按缩放后的区域重叠配对，把翻译图中的译文迁移到生肉图：修复生肉图原文区域后重新渲染，或直接从翻译图裁切文字粘贴。整个过程不调用翻译服务。
 
-本页只描述该工作流的输入、跳过阶段和输出文件。九种工作流的整体边界见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)，汇总表见[工作流矩阵](../reference/workflow-matrix.md)；添加文件、列表和拖放见[文件列表与输入](../desktop/translation/file-list-and-input.md)。
+这里主要说明该工作流的输入、跳过阶段和输出文件。九种工作流的整体边界见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)，汇总表见[工作流矩阵](../reference/workflow-matrix.md)；添加文件、列表和拖放见[文件列表与输入](../desktop/translation/file-list-and-input.md)。
 
-## 功能边界
+## 什么时候用
 
 - 输入：主输入图片是生肉图，发现规则与正常翻译相同；每张生肉图必须在同图工作目录 `manga_translator_work/translated_images/` 下放置一张同名翻译图。
 - 配对查找：先在 `translated_images/` 中找同扩展名的翻译图，再依次尝试其他受支持的图片扩展名；找不到时该张图跳过并记为失败。
@@ -22,7 +22,7 @@ lastUpdated: true
 - 输出文件：主输出图。非直接粘贴且 `save_text=true` 时另写修复图和工程 JSON；直接粘贴时明确不写二者，也不导出 PSD。
 - 工作流字段：下拉框索引 8 写入 `cli.replace_translation=true`；GUI 切换保证八个工作流布尔字段互斥。
 
-## UI 操作
+## 运行这个流程
 
 ### 选择替换翻译工作流
 
@@ -36,7 +36,7 @@ lastUpdated: true
 
 界面提示里的 `manga_translator_work/translated_images` 是程序固定文案和工作目录名，不是用户私有路径；“与生肉图同名”指文件名（不含扩展名）一致。
 
-## 运行机理
+## 处理顺序
 
 ### 输入与配对
 
@@ -51,7 +51,7 @@ lastUpdated: true
 
 ### 处理阶段与输出
 
-下面的 Mermaid 展示源码确认的双图流水线、两种收尾方式和跳过阶段；它与正常翻译的主要差异是翻译图作为第二输入、不调用翻译服务，以及可选的直接粘贴分支。
+下面的 Mermaid 展示双图流水线、两种收尾方式和跳过阶段；它与正常翻译的主要差异是翻译图作为第二输入、不调用翻译服务，以及可选的直接粘贴分支。
 
 ```mermaid
 flowchart TD
@@ -96,17 +96,17 @@ flowchart TD
 - 手工叠加多个工作流字段不是受支持组合。`translate_batch()` 的分派顺序里，替换翻译分支优先于 load_text、translate_json_only 和常规预处理；GUI 切换时八个字段互斥。
 - 与正常翻译一样，预处理阶段仍会按 `colorizer.colorizer` 和 `upscale.upscale_ratio` 对两张图执行条件上色与超分；这些值不是本工作流的强制开关。
 
-## 依赖与冲突
+## 输入、输出与限制
 
 - 翻译图依赖：`translated_images/` 目录缺失、目录存在但没有同名文件，都会跳过该张图。配对图与生肉图不同名、不同分辨率或文本位置偏差过大时，配对结果会变少，未匹配区域保留原文。
 - `render.enable_template_alignment`：设置说明明确为替换翻译专用；开启走直接粘贴，不写 JSON、修复图或 PSD；关闭时以 OCR 得到的配对区域重新渲染。
 - `cli.save_text=false`：非直接粘贴时不写修复图和工程 JSON，只保留主输出图；直接粘贴本来就不写二者。
 - `cli.overwrite=false`：GUI 开始前按“普通翻译”分支检查主输出图是否已存在，存在则跳过该张图。
 - 蒙版细化：修复阶段按 `inpainter` 配置选择模型；修复模型为 `none` 时使用替换翻译专用检测模块重新取原始蒙版并用 `REFINEMASK_INPAINT` 精炼，否则走常规 `_run_mask_refinement`，随后按 `mask_dilation_offset` 做额外膨胀。
-- 上色、超分、检测、OCR 仍按所选参数产生模型、显存和网络成本；本页不重复其参数说明。
+- 上色、超分、检测、OCR 仍按所选参数产生模型、显存和网络成本；这里不重复其参数说明。
 - 主输出目录、`save_to_source_dir`、`cli.format` 只影响主输出图；JSON、修复图和配对图不受影响。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 - 其它工作流：[正常翻译流程](./normal.md) · [导出原文](./export-original.md) · [导出翻译](./export-translation.md) · [仅翻译（JSON）](./translate-json-only.md) · [导入翻译并渲染](./import-translation-and-render.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [仅修复](./inpaint-only.md)
 - 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)

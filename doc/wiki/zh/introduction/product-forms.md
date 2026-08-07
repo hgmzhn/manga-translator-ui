@@ -11,9 +11,9 @@ lastUpdated: true
 
 本项目提供桌面 Qt 界面、`local` 命令行、Web 界面，以及供内部集成使用的 `ws` 与 `shared` 服务形态。它们共用翻译核心，但交互方式、网络边界和适用场景不同；先按使用方式选择，再进入具体参数页面。
 
-本页只帮助选择运行形态，不展开翻译参数、API 凭据、九种工作流或 HTTP 请求字段。共同输入和流程见[首次翻译](./first-translation.md)，安装方式见[Windows 便携版](../install/windows-portable.md)、[Linux/macOS 安装](../install/linux-and-macos.md)与[Docker 部署](../install/docker.md)。
+这里仅帮助选择运行形态，不展开翻译参数、API 凭据、九种工作流或 HTTP 请求字段。共同输入和流程见[首次翻译](./first-translation.md)，安装方式见[Windows 便携版](../install/windows-portable.md)、[Linux/macOS 安装](../install/linux-and-macos.md)与[Docker 部署](../install/docker.md)。
 
-## 功能边界 {#scope}
+## 先了解这些 {#scope}
 
 | 形态 | 适合解决的问题 | 不负责的事情 |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ uv run --no-sync python -m manga_translator ws
 uv run --no-sync python -m manga_translator shared
 ```
 
-`ws` 还连接默认上游 `ws://localhost:5000`，可通过 `--ws-url`、`--nonce` 等选项调整；`shared` 使用 `--nonce` 保护内部 API 通信。协议消息、锁、流式响应和 nonce/secret 契约属于开发者页面，本页不把它们宣传成普通公共 API。
+`ws` 还连接默认上游 `ws://localhost:5000`，可通过 `--ws-url`、`--nonce` 等选项调整；`shared` 使用 `--nonce` 保护内部 API 通信。协议消息、锁、流式响应和 nonce/secret 契约属于开发者页面，这里不把它们宣传成普通公共 API。
 
 ### Docker {#docker}
 
@@ -73,7 +73,7 @@ Docker 适合已有容器运维流程、希望隔离依赖或运行 Web UI 的�
 
 不要把 compose 中的管理员密码示例用于生产部署，也不要提交 `.env`。服务器数据、用户资源、会话、配额和历史元数据都应按敏感数据管理。
 
-## 运行机理 {#runtime}
+## 工作方式 {#runtime}
 
 四种正式命令模式由同一个入口解析后分发；Qt 是独立的桌面入口，但最终与命令模式共用处理链：
 
@@ -95,7 +95,7 @@ flowchart LR
 
 命令行入口在分发前确保运行时文件，再调用 `local`、`web`、`ws` 或 `shared` 执行模块。Web 在核心处理链外增加认证、权限、并发、历史和下载票据；Docker 只是把 Web 进程与资源目录放入容器。`local` 普通运行会应用显式 CLI 覆盖；子进程模式另行管理内存阈值和重启。
 
-## 依赖与冲突 {#dependencies}
+## 选择时要注意 {#dependencies}
 
 - **硬件**：各形态都可能加载 PyTorch、ONNX 或阶段模型；CPU/GPU/AMD/Metal 依赖组应按安装页选择。
 - **配置**：`config/config.json`、发行示例和代码默认值属于不同层级；用户配置优先于示例，CLI 只覆盖实际写入的字段。

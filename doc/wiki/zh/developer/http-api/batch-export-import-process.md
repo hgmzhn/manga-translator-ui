@@ -11,7 +11,7 @@ lastUpdated: true
 
 当脚本或第三方客户端需要一次翻译多张图片、把检测与翻译结果导出为可编辑的 JSON/文本，或把改好的翻译文本重新渲染回图片时，使用本页的端点。本页是开发者 HTTP API 契约页：记录 `/translate` 下批量、导出与导入端点的方法、请求体、响应、鉴权、状态码和运行流程。Web 界面的完整用户操作见 [Web 上传、配置与翻译](../../web/upload-config-and-translate.md)；单图翻译端点与自定义二进制流协议分别见[翻译端点](./translation-endpoints.md)与[流式协议](./streaming-protocol.md)；历史与下载票据见[历史、文件与下载票据](./history-files-and-download-tickets.md)。
 
-## 功能边界 {#feature-boundary}
+## 接口范围 {#feature-boundary}
 
 - 批量端点负责“多张图片一次请求”：`POST /translate/batch/json` 返回 `list[TranslationResponse]`，`POST /translate/batch/images` 返回图片 ZIP；`POST /translate/queue-size` 查询分布式执行器队列长度。
 - 导出端点负责“把图片的处理结果打包带走”：`POST /translate/export/original` 与 `POST /translate/export/translated` 返回 ZIP（`translation.json` + 模板文本），对应的 `/stream` 变体用自定义二进制流返回同一份 JSON。
@@ -19,7 +19,7 @@ lastUpdated: true
 - 以上端点全部要求 `X-Session-Token`，并执行 `verify_translation_auth` 的会话、功能权限、参数过滤、并发与每日配额检查；详见[请求与响应契约](#request-response-contract)。
 - Web 界面的“翻译流程模式：”下拉框只是入口，最终请求落在上述端点；界面本身的文件选择、结果列表与打包下载属于 Web 用户功能，不在本页重复。
 - “导出配置 / 导入配置”按钮在浏览器本地读写 `config.json`，与服务端翻译导出/导入端点不是同一个功能，详见[Web 界面中的工作流入口](#web-ui-workflow-entry)。
-- 单图翻译端点（`/translate/json`、`/translate/with-form/*` 等）与 `POST /translate/complete` 的 multipart 响应属于[翻译端点](./translation-endpoints.md)，本页不展开。
+- 单图翻译端点（`/translate/json`、`/translate/with-form/*` 等）与 `POST /translate/complete` 的 multipart 响应属于[翻译端点](./translation-endpoints.md)，这里不展开。
 
 ## Web 界面中的工作流入口 {#web-ui-workflow-entry}
 
@@ -150,7 +150,7 @@ flowchart LR
 - 输入校验：图片必须是字节或带前缀的 base64 data URI，否则 `422`；`/batch/images` 空列表返回 `400`。
 - 批量取消返回 `499`；导出、导入与渲染的内部异常返回 `500`。
 
-## 运行机理 {#runtime-behavior}
+## 请求处理方式 {#runtime-behavior}
 
 - 批次层级：`cli.batch_size`（发行默认 `3`，见 `config/config-example.json`）控制翻译器内部一次处理多少张图；`BatchTranslateRequest.batch_size` 默认 `4`；Web 前端在缺失配置时用 `5` 切分 HTTP 批次。三者是不同层的默认值，不能合并。
 - 并发控制：`get_batch_ctx` 与 `while_streaming` 都先获取全局 `translation_semaphore`（`server_config.max_concurrent_tasks`，默认 `3`）再进入翻译线程池；用户级并发与每日配额由路由层 `track_task_start` / `track_task_end` 维护。
@@ -158,7 +158,7 @@ flowchart LR
 - 临时文件：ZIP 与非流式导出/导入在成功与异常路径清理临时 JSON/TXT/图片；流式导入在响应期间保留临时文件（源码注释要求周期性清理）。
 - 响应传输：ZIP 导出与图片导入直接返回完整字节；`/stream` 变体返回自定义二进制帧。完整帧协议见[流式协议](./streaming-protocol.md)。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 接口约束 {#dependencies-and-conflicts}
 
 - 批量、导出、导入都依赖会话与权限体系：未登录、无功能权限或超配额时无法调用，即使 Web 界面隐藏了入口也一样。
 - 导出原文/译文依赖默认模板存在（`ensure_default_template_exists`）；模板缺失时返回 `500`。
@@ -225,8 +225,7 @@ flowchart LR
 | `desktop_qt_ui/services/workflow_service.py` | TXT 导入与 ZIP 文本生成 | `safe_update_large_json_from_text`、`generate_original_text`、`generate_translated_text` |
 | `config/config-example.json` | 发行默认 `batch_size: 3` | 只记录脱敏默认值 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 路由 | `manga_translator/server/routes/translation.py` | 批量、导出、导入与队列端点及响应封装（`353`–`1333`） |

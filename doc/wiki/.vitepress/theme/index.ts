@@ -1,6 +1,41 @@
-import DefaultTheme from 'vitepress/theme'
+import Teek from 'vitepress-theme-teek'
+import { MotionPlugin } from '@vueuse/motion'
 import Layout from './Layout.vue'
+import 'vitepress-theme-teek/index.css'
 import './styles.css'
+
+const bindSidebarMotion = () => {
+  if (document.documentElement.dataset.wikiSidebarMotion === 'true') return
+  document.documentElement.dataset.wikiSidebarMotion = 'true'
+
+  document.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return
+    const header = event.target.closest('.VPSidebarItem.collapsible > .item')
+    const section = header?.parentElement
+    if (!section?.classList.contains('VPSidebarItem')) return
+
+    const items = Array.from(section.children).find((child) => child.classList.contains('items'))
+    if (!(items instanceof HTMLElement)) return
+
+    const wasCollapsed = section.classList.contains('collapsed')
+    window.requestAnimationFrame(() => {
+      const isCollapsed = section.classList.contains('collapsed')
+      if (wasCollapsed === isCollapsed || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+      items.getAnimations().forEach((animation) => animation.cancel())
+      const height = `${items.scrollHeight}px`
+      items.animate(
+        wasCollapsed
+          ? [{ height: '0px', opacity: 0 }, { height, opacity: 1 }]
+          : [{ height, opacity: 1 }, { height: '0px', opacity: 0 }],
+        {
+          duration: wasCollapsed ? 260 : 200,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        },
+      )
+    })
+  })
+}
 
 const openZoomModal = (block: HTMLElement) => {
   const output = block.querySelector<HTMLElement>('.wiki-mermaid-output')
@@ -85,12 +120,17 @@ const renderMermaid = async () => {
 }
 
 export default {
-  extends: DefaultTheme,
+  extends: Teek,
   Layout,
-  enhanceApp({ router }) {
+  async enhanceApp(context) {
+    context.app.use(MotionPlugin)
     if (typeof window === 'undefined') return
+
+    bindSidebarMotion()
     window.setTimeout(() => void renderMermaid(), 0)
-    router.onAfterRouteChange = () => {
+    const previousAfterRouteChange = context.router.onAfterRouteChange
+    context.router.onAfterRouteChange = async (to) => {
+      await previousAfterRouteChange?.(to)
       window.setTimeout(() => void renderMermaid(), 0)
     }
   },

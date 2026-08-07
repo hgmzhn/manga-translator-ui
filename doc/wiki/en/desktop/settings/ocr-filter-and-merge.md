@@ -9,13 +9,13 @@ lastUpdated: true
 
 # OCR, Filtering, and Text-Line Merging
 
-This page covers the “OCR” settings tab: recognition after detection, bubble and confidence filtering, the filter list, and constraints before and after text-line merging. It does not document how detectors create boxes (see [Detection settings](./detection.md)) or translation, inpainting, and typesetting parameters.
+This guide covers the “OCR” settings tab: recognition after detection, bubble and confidence filtering, the filter list, and constraints before and after text-line merging. It does not document how detectors create boxes (see [Detection settings](./detection.md)) or translation, inpainting, and typesetting parameters.
 
-## Feature boundary {#feature-boundary}
+## What these settings control {#feature-boundary}
 
 The detector creates `ctx.textlines` and `mask_raw`; OCR writes text and probability for each box, OCR-stage filters remove invalid lines, and text lines are merged into text regions. Only then do regions enter translation. Bubble-repair options are documented here because they are related OCR settings, but their final consumer is mask refinement; detailed repair behavior belongs in [Mask and Inpainting](./mask-and-inpainting.md).
 
-## UI operations {#ui-operations}
+## Change it in the desktop app {#ui-operations}
 
 1. Open Settings and select “OCR”. Toggles, numeric fields, and combo boxes edit configuration directly; fields after the “Advanced” divider remain on this page but are advanced controls.
 2. “OCR Model” selects the primary engine. After “Enable Hybrid OCR” is enabled, empty or low-confidence lines are sent to “Secondary OCR”. Changing an OCR engine, hybrid switch, or secondary engine also refreshes the desktop API groups required by that implementation.
@@ -114,7 +114,7 @@ flowchart LR
 
 OpenAI/Gemini OCR require the corresponding API configuration; no prompt or key is shown here.
 
-## Runtime behavior {#runtime}
+## How the settings take effect {#runtime}
 
 ```mermaid
 flowchart TD
@@ -134,7 +134,7 @@ flowchart TD
 
 Post-OCR filtering occurs before merging, while minimum length is applied after merging. AI OCR concurrency limits OCR API requests only; it does not make the whole image pipeline concurrent.
 
-## Dependencies and conflicts {#dependencies}
+## Interactions and caveats {#dependencies}
 
 - Offline OCR requires its model and device backend; OpenAI/Gemini OCR requires credentials, address, and model in API Management.
 - Hybrid OCR combined with a high `prob` causes more fallback inference/requests; an overly strict bubble threshold can miss text outside bubbles.

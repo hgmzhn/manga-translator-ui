@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Workflows and File Modes
 
-The CLI `local` mode has no “workflow” command-line switch; the nine workflows are expressed as boolean fields in the `cli` section of the configuration file, the same fields written by the desktop “Translation Workflow Mode:” dropdown. This page explains how those fields reach `MangaTranslator`, which pipeline stages and output files each field changes, and how the main output image and the `manga_translator_work` sidecar files (project JSON, original/translation template exports, inpainted images, editor base images, and replace-translation pair images) are read and written for each image.
+The CLI `local` mode has no “workflow” command-line switch; the nine workflows are expressed as boolean fields in the `cli` section of the configuration file, the same fields written by the desktop “Translation Workflow Mode:” dropdown. This guide explains how those fields reach `MangaTranslator`, which pipeline stages and output files each field changes, and how the main output image and the `manga_translator_work` sidecar files (project JSON, original/translation template exports, inpainted images, editor base images, and replace-translation pair images) are read and written for each image.
 
-This page does not repeat `local` input collection or output-directory resolution (see [Local input and output](./local-input-output.md)), does not explain `--config` or explicit parameter overrides (see [Configuration overrides](./configuration-overrides.md)), and does not expand the full UI walkthrough of each workflow (see [Output directory and workflow](../desktop/translation/output-directory-and-workflow.md) and the `workflows/` pages; the summary table is [Workflow matrix](../reference/workflow-matrix.md)). The structure of the four top-level subcommands is in [Command structure](./command-structure.md).
+This guide does not repeat `local` input collection or output-directory resolution (see [Local input and output](./local-input-output.md)), does not explain `--config` or explicit parameter overrides (see [Configuration overrides](./configuration-overrides.md)), and does not expand the full UI walkthrough of each workflow (see [Output directory and workflow](../desktop/translation/output-directory-and-workflow.md) and the `workflows/` pages; the summary table is [Workflow matrix](../reference/workflow-matrix.md)). The structure of the four top-level subcommands is in [Command structure](./command-structure.md).
 
-## Feature boundary {#feature-boundary}
+## Command scope {#feature-boundary}
 
 - The official `local` subcommand has no workflow switch among its options; workflow fields come from the `cli` section of the configuration file (Qt `CliSettings` or the release config example), and `MangaTranslator` reads them from the merged parameter dictionary.
 - The nine workflow fields are `cli.load_text`, `cli.translate_json_only`, `cli.template`, `cli.generate_and_export`, `cli.colorize_only`, `cli.upscale_only`, `cli.inpaint_only`, and `cli.replace_translation`, plus `cli.save_text`, which is used together with `cli.template`.
 - The main output image is written to the directory resolved from `-o/--output` (the CLI `save_info` does not carry `save_to_source_dir`); project JSON, original/translation template files, inpainted images, editor base images, and replace-translation pair images are always written to `manga_translator_work/` next to the source image directory, regardless of `-o`.
 - Subprocess mode (`--subprocess`) consumes the same `cli` workflow fields; memory management and resume are covered in [Subprocess, memory, and recovery](./subprocess-memory-and-recovery.md).
-- The exact branches, skipped stages, and file outputs of each field are defined in the `workflows/` pages; this page covers only the CLI-facing dispatch order and file read/write boundary.
+- The exact branches, skipped stages, and file outputs of each field are defined in the `workflows/` pages; this guide focuses on the CLI-facing dispatch order and file read/write boundary.
 
 ## Workflow parameters {#workflow-parameters}
 
@@ -54,7 +54,7 @@ flowchart TD
     CONC -->|no| SERIAL["Per-image / serial batches"]
 ```
 
-Diagram note: this is the source-confirmed dispatch order of `translate_batch()`; the `load_text` pre-import only converts TXT to JSON and the batch-inner branch still applies afterwards. When several fields are `true` at once, this order applies instead of the GUI mutual-exclusion rule.
+Diagram note: this is the dispatch order of `translate_batch()`; the `load_text` pre-import only converts TXT to JSON and the batch-inner branch still applies afterwards. When several fields are `true` at once, this order applies instead of the GUI mutual-exclusion rule.
 
 ## File modes {#file-modes}
 
@@ -97,7 +97,7 @@ These directory names are reserved by `manga_translator/utils/path_manager.py`; 
 
 `replace_translation` needs a translated image as the “translation source”: `find_translated_image()` always looks in `manga_translator_work/translated_images/`, matching the same extension first and then iterating supported extensions; the translation JSON is also located inside that directory or in the legacy position. Once found, OCR obtains the paired regions and `render.enable_template_alignment` selects the “direct paste” or “re-render” branch; see [Replace translation](../workflows/replace-translation.md).
 
-## Runtime behavior {#runtime-behavior}
+## How the command runs {#runtime-behavior}
 
 ### Workflow dispatch order {#workflow-dispatch}
 
@@ -108,7 +108,7 @@ The dispatch order is described in [Mutual exclusion and priority](#exclusive-an
 - `template+save_text` forces `batch_size=1` (per-image disk writes); other workflows batch by `cli.batch_size`.
 - Colorize/upscale/inpaint only short-circuit inside normal preprocessing (`colorize_only` returns the colorized result, `upscale_only` returns the upscaled result, `inpaint_only` returns the inpainted result after mask refinement); all of them skip translation and rendering.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations {#dependencies-and-conflicts}
 
 - Workflow fields conflict with `batch_concurrent`: all eight special branches (including `template and save_text`) force the concurrent pipeline off.
 - `cli.format` affects only the main output image extension; it does not affect the project JSON (always `.json`) or the template-export extension (decided by the template `output_format`).

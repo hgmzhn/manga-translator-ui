@@ -9,18 +9,18 @@ lastUpdated: true
 
 # AI Renderer Prompt
 
-When the renderer is set to `openai_renderer` or `gemini_renderer`, page translations are no longer drawn by local font typesetting; the page image and region translations are sent to an image-generation model instead. This page documents the fixed prompt file used by AI rendering, how it is loaded and injected, the path into an AI render request, and its boundary with the custom HQ translation prompt.
+When the renderer is set to `openai_renderer` or `gemini_renderer`, page translations are no longer drawn by local font typesetting; the page image and region translations are sent to an image-generation model instead. This guide documents the fixed prompt file used by AI rendering, how it is loaded and injected, the path into an AI render request, and its boundary with the custom HQ translation prompt.
 
-This page does not cover the renderer enum, fonts, or typesetting parameters (see [Typesetting and rendering](../settings/typesetting-and-rendering.md)), API credentials, candidate slots, or rotation (see the API-management pages), nor the custom HQ translation prompt itself (see [Context and prompts](../translator/context-and-prompts.md)).
+This guide does not cover the renderer enum, fonts, or typesetting parameters (see [Typesetting and rendering](../settings/typesetting-and-rendering.md)), API credentials, candidate slots, or rotation (see the API-management pages), nor the custom HQ translation prompt itself (see [Context and prompts](../translator/context-and-prompts.md)).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - `render.renderer` decides whether AI rendering is used: `openai_renderer` / `gemini_renderer` go through an image-generation API, `default` uses local Qt/text_render drawing, and `none` skips text drawing.
 - `render.ai_renderer_prompt_path` is the UI row key for a fixed prompt-file edit action in the “Typesetting” tab, not a persisted config value and not a switchable path; it always edits `dict/ai_renderer_prompt.yaml`.
 - `render.ai_renderer_concurrency` limits how many AI render API requests run at the same time for the same provider.
 - The AI renderer prompt is a fixed file. It belongs to a different feature than the user-selectable custom HQ prompt (`translator.high_quality_prompt_path`); the files must not be interchanged.
 
-## UI operations {#ui-operations}
+## Use it in Prompt Management {#ui-operations}
 
 ### Edit the AI renderer prompt in Settings {#edit-in-settings}
 
@@ -37,7 +37,7 @@ When “Prompt Management” is opened, the list contains only user prompt files
 
 ## Parameters and options {#parameters-and-options}
 
-> For the parameter reference (UI names, storage keys, and default values) on this page, see the reference page [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For the parameter reference (UI names, storage keys, and default values) on this page, see the reference page [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 #### Renderer {#render-renderer}
 
@@ -129,7 +129,7 @@ flowchart LR
 
 An AI render request reads only `dict/ai_renderer_prompt.yaml` and never reads the HQ custom prompt; conversely, HQ translation never reads the AI renderer prompt. Their text structures differ (the HQ prompt carries placeholders and an output format, while the AI renderer prompt is free text for an image model), so interchanging the files causes unexpected request behavior.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - When `openai_renderer` / `gemini_renderer` is selected but the matching `.env` API key is missing, the UI shows the “API Keys Required” dialog before translation starts and blocks the launch. The OpenAI renderer allows an empty key when a local base address is configured (`allow_empty_api_key_for_local_base`); the Gemini renderer always requires a key.
 - `RENDER_*` keys participate in the API-management candidate slots and rotation (`API_ROTATION_ENV_GROUPS`); rotation does not change `render.renderer` or the prompt file.

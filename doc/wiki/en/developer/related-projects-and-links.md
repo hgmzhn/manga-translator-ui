@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Related Projects and Links
 
-## Feature boundary {#feature-boundary}
+## Relevant code {#feature-boundary}
 
 - The related-projects list is a Wiki site feature, not a runtime feature of the desktop app, CLI, or web server.
 - Inclusion is decided by maintainer review; only entries that pass review are shown.
-- This page covers only friendly-link applications; for ordinary code contributions (PRs), tests, and packaging/release, see [Contributing](../community/contributing.md) and the corresponding developer pages.
+- This guide focuses on friendly-link applications; for ordinary code contributions (PRs), tests, and packaging/release, see [Contributing](../community/contributing.md) and the corresponding developer pages.
 
 ## How to apply {#how-to-apply}
 
@@ -35,7 +35,7 @@ After review, maintainers add the project to the list; if it is not accepted, th
 - The list does not constitute a commercial endorsement, and entries can be delisted at any time.
 - Visitors follow external links at their own risk; the Wiki does not guarantee third-party content or safety.
 
-## Related pages {#related-pages}
+## Read next {#related-pages}
 
 - [Contributing](../community/contributing.md): opening issues (feature requests, bug reports) and submitting PRs.
 - [Adding or Changing a Feature](./adding-or-changing-a-feature.md), [Tests and Code Quality](./tests-and-code-quality.md), and [Packaging and Release](./packaging-and-release.md): code contribution and release flows.
@@ -69,8 +69,7 @@ The data files below are maintained by maintainers when including entries; appli
 | `doc/wiki/data/README.md` | Data-governance notes | Records "submission is not auto-publish" and human-review rules |
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | Not involved in this page | Confirmed no related keys; bilingual text comes from the data file |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Data source | `doc/wiki/data/related-projects.yml` | Current empty list, `schema_version`, field structure, and `LocalizedText` bilingual convention |

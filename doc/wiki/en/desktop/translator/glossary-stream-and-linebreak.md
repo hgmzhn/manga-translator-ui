@@ -13,7 +13,7 @@ Use this page when a long manga series must keep names, places, and skills consi
 
 It does not cover translator or target-language selection (see [Translator selection](./selection-and-languages.md)), the full history and prompt-composition picture (see [Context and prompts](./context-and-prompts.md)), or renderer-side auto wrapping, semantic breaking, and punctuation trimming (see [Typesetting and rendering](../settings/typesetting-and-rendering.md)).
 
-## Feature boundary
+## When to use it
 
 - There is no `translator.glossary` configuration key in the current config model; the glossary lives under a `glossary` key inside the custom HQ prompt file (`translator.high_quality_prompt_path`) and is written back by the auto-extraction feature.
 - `translator.extract_glossary` is the automatic glossary-extraction switch; it enters the extraction branch only when the custom HQ prompt loads successfully, otherwise the switch alone still uses normal translation.
@@ -21,7 +21,7 @@ It does not cover translator or target-language selection (see [Translator selec
 - `render.disable_auto_wrap` is displayed as “AI Line Breaking”. It drives both the translator-side line-break prompt and the renderer-side `[BR]` forced-wrap semantics; renderer auto wrapping itself is covered by the typesetting page.
 - `OPENAI_GLOSSARY_PATH` (displayed as “Glossary Path”) is a legacy environment-variable-backed glossary path and is separate from the location where `extract_glossary` writes terms (the custom prompt file).
 
-## UI operations
+## Set it in the desktop app
 
 ### Enable glossary extraction and streaming in Settings
 
@@ -37,7 +37,7 @@ Open “Prompt Management”, select a custom prompt file, and click “Prompt P
 
 ## Parameters and options
 
-> For how each parameter's UI name, storage key, and default value map to each other, see [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For how each parameter's UI name, storage key, and default value map to each other, see [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 #### Auto Extract Glossary {#translator-extract-glossary}
 
@@ -113,9 +113,9 @@ flowchart LR
     end
 ```
 
-The full renderer branches for auto wrapping, HanLP semantic breaking, and punctuation trimming are covered by the typesetting page; this page only explains how the line-break prompt enters the translation request.
+The full renderer branches for auto wrapping, HanLP semantic breaking, and punctuation trimming are covered by the typesetting page; this guide only explains how the line-break prompt enters the translation request.
 
-## Runtime behavior
+## How translation requests are handled
 
 ### Glossary extraction, merge, and feedback {#glossary-feedback-loop}
 
@@ -129,7 +129,7 @@ The stream preview affects console/log output only; the aggregated full text sti
 
 The user prompt carries `original_region_count`, which the renderer uses to judge whether the `[BR]` count in the translation matches the original line count; `check_br_and_retry` retries only translations with ≥2 regions that are missing `[BR]`. For single-line regions (`original_region_count=1`), even if the model returns `[BR]`/`<br>`/`【BR】`, the markers are automatically cleaned into a single line; this cleanup depends only on `disable_auto_wrap`, not on the `check_br_and_retry` switch.
 
-## Dependencies and conflicts
+## Models, network, and quality
 
 - `extract_glossary` is tightly coupled to `high_quality_prompt_path`: without a valid custom prompt there is no extraction branch and no term write-back.
 - `enable_streaming` is independent of prompts, context, and glossary extraction; it changes transport only.

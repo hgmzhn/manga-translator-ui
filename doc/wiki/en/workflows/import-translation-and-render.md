@@ -13,7 +13,7 @@ Use the Import Translation and Render workflow when translations already exist �
 
 Import Translation and Render forms the template/JSON family together with [Export Original Text](./export-original.md), [Export Translation](./export-translation.md), and [Translate JSON Only](./translate-json-only.md). The overall boundaries of the nine workflows are in [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md), with a summary table in [Workflow Matrix](../reference/workflow-matrix.md).
 
-## Feature boundary
+## When to use it
 
 - Inputs: the main input images (the same file-discovery rules as normal translation), and a project JSON that must be found for each image; optional inputs are the original/translated text sidecars (TXT import) and an existing inpainted image.
 - Stages executed: JSON/in-memory payload load → (reuse the refined mask when present, otherwise) mask refinement → inpainting → rendering → main-image saving and JSON write-back. When the JSON has no mask and `detector.import_yolo_labels` is enabled, detection runs additionally to generate a mask.
@@ -21,7 +21,7 @@ Import Translation and Render forms the template/JSON family together with [Expo
 - Output files: the main output image and the updated project JSON; an inpainted image is written when inpainting is rerun and `save_text=true`; a PSD is exported when `export_editable_psd` is enabled.
 - Workflow field: combo index 4 writes `cli.load_text=true` at runtime; GUI switching keeps the eight workflow booleans mutually exclusive.
 
-## UI operations
+## Run this workflow
 
 ### Select the Import Translation and Render workflow
 
@@ -30,11 +30,11 @@ Import Translation and Render forms the template/JSON family together with [Expo
 3. The page title becomes “Import Translation and Render” and the subtitle shows the hint: TXT files will be read from `manga_translator_work/originals/` or `translations/` and rendered (prioritizing `_original.txt`).
 4. The start button becomes “Import Translation and Render”; clicking it starts the backend task in this mode.
 
-Selecting a mode only writes configuration and updates the UI texts; it does not start a task. Before starting, add the main input images (“Add Files...”, “Add Folder...”, or drag-and-drop) and make sure every image has a parsable project JSON; images without a JSON enter the error fallback branch (static source conclusion; the runtime prompt still needs verification).
+Selecting a mode only writes configuration and updates the UI text; it does not start a task. Before starting, add the main input images (“Add Files...”, “Add Folder...”, or drag-and-drop) and make sure every image has a parsable project JSON. An image without a JSON enters the error fallback branch and produces a copy of the original image.
 
 The UI hints always read `_original.txt` / “TXT files”, but the actual sidecar extension comes from the template's `output_format` (default `json`); the hint text does not change with the template extension.
 
-## Runtime behavior
+## Processing order
 
 ### Input discovery and TXT import
 
@@ -80,7 +80,7 @@ The Mermaid above shows the stages and branches confirmed in the source. Limitat
 
 After rendering, `_save_text_to_file()` writes the latest regions (including post-render fields such as `translation` and `font_size`) back to the project JSON: it preserves existing `paint_overlay`/`stamp_overlay` layers, records `last_export_dir`, saves the mask with `mask_is_refined`, and writes `skip_text_replacements=true` when the image was rendered. If any region failed to parse (`region_parse_failures > 0`), the write-back is skipped to protect the project file from losing regions.
 
-The editor “export” channel does not go through the on-disk JSON: `export_service.py` injects an in-memory payload via `set_preloaded_load_text_payload()`, and the backend treats such a payload as an authorized final draft and only renders — skipping text replacements and JSON write-back, and using the editor-provided inpainted image directly. The editor UI and project saving are documented on the editor pages; this page only notes that the channel shares the same `load_text` branch as file-based import.
+The editor “export” channel does not go through the on-disk JSON: `export_service.py` injects an in-memory payload via `set_preloaded_load_text_payload()`, and the backend treats such a payload as an authorized final draft and only renders — skipping text replacements and JSON write-back, and using the editor-provided inpainted image directly. The editor UI and project saving are documented on the editor pages; this guide only notes that the channel shares the same `load_text` branch as file-based import.
 
 ### Concurrency and mutual exclusion
 
@@ -88,18 +88,18 @@ The editor “export” channel does not go through the on-disk JSON: `export_se
 - Manually stacking multiple workflow fields is not a supported combination. GUI switching keeps the eight booleans mutually exclusive; when syncing the combo from configuration, import translation has lower priority than replace translation, inpaint only, upscale only, and colorize only.
 - This mode makes no translation service calls and does not run conditional colorization/upscaling from `colorizer.colorizer`/`upscale.upscale_ratio`; the main output is based on the original image.
 
-## Dependencies and conflicts
+## Inputs, outputs, and limitations
 
-- The project JSON is a hard prerequisite: when `find_json_path()` finds no JSON, the per-image stage reports “translation file not found or invalid” and the error fallback outputs a copy of the original image (static source conclusion; the user-visible prompt needs runtime verification).
+- The project JSON is a hard prerequisite: when `find_json_path()` finds no JSON, the per-image stage reports “translation file not found or invalid” and the error fallback outputs a copy of the original image (current behavior; the user-visible prompt may vary by release).
 - The TXT import depends on the template: a missing template auto-creates the default; an unparsable template or a TXT with no valid entries skips the import (debug log only) and translations are not updated.
 - `cli.overwrite=false`: the GUI skips images whose main output image already exists before starting (it checks the result of `_calculate_output_path()`).
 - `cli.save_text`: the JSON write-back in this mode does not depend on it, but a rerun inpainted image is saved only when `save_text=true`.
 - `detector.import_yolo_labels`: it triggers detection-based mask generation only when the JSON has no mask; with a mask present the parameter has no effect on this workflow.
 - `render.enable_template_alignment` is a Replace Translation-only setting and is unrelated to this workflow.
-- Inpainting and rendering still consume model, VRAM, and API costs according to the selected models; this page does not repeat those parameter descriptions.
+- Inpainting and rendering still consume model, VRAM, and API costs according to the selected models; this guide does not repeat those parameter descriptions.
 - The main output directory, `save_to_source_dir`, and `cli.format` determine the main image location and extension; the JSON, inpainted image, and sidecars always follow the per-image work-directory rules.
 
-## Related pages {#related-pages}
+## Read next {#related-pages}
 
 - Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Export Translation](./export-translation.md) · [Translate JSON Only](./translate-json-only.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Inpaint Only](./inpaint-only.md) · [Replace Translation](./replace-translation.md)
 - Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)

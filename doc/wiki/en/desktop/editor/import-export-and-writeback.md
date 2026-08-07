@@ -9,19 +9,19 @@ lastUpdated: true
 
 # Editor Import/Export and Writeback
 
-The editor loads the project data produced by the translation pipeline so you can adjust text, geometry, style, masks, and paint/clone layers region by region. When you finish editing, one “Export Image” action renders the current page to a final image and writes the project data back to disk. This page covers the import formats, the rendering and output-path rules for export, and how JSON and inpainted images are written back.
+The editor loads the project data produced by the translation pipeline so you can adjust text, geometry, style, masks, and paint/clone layers region by region. When you finish editing, one “Export Image” action renders the current page to a final image and writes the project data back to disk. This guide covers the import formats, the rendering and output-path rules for export, and how JSON and inpainted images are written back.
 
 The right-panel file list (add/remove/switch pages and entering the editor after a completed task) is covered by [Layout and File List](./layout-and-file-list.md); the “Export Image” menu item and the “Auto Export on Image Switch” toggle are covered by [Toolbar and Menus](./toolbar-and-menus.md); shortcut dispatch such as `Ctrl+Q` is covered by [Shortcuts](./shortcuts.md); and how masks and paint/clone layers enter project files is covered by [Mask Painting and Clone Stamp](./mask-paint-and-clone-stamp.md).
 
-## Feature boundary {#feature-boundary}
+## What you can do {#feature-boundary}
 
-- This page covers the data boundary between the editor and disk: which project files are read on import, what is rendered and where it is written on export, and the formats of the written-back data.
+- This guide covers the data boundary between the editor and disk: which project files are read on import, what is rendered and where it is written on export, and the formats of the written-back data.
 - It does not cover the right-panel file-list buttons, tree display, or row states (see [Layout and File List](./layout-and-file-list.md)); it does not cover the “Export Image” menu item or the “Auto Export on Image Switch” toggle’s UI and persistence (see [Toolbar and Menus](./toolbar-and-menus.md)).
 - Editor export is not a full re-run of the translation pipeline: it renders the current snapshot directly and does not re-run detection, OCR, translation, colorization, or upscaling; the mask is treated as refined and the inpainted image is reused.
 - The translation page’s “Import Translation and Render” workflow shares the same `_translations.json` format with the editor, but the entry points differ: that is a translation-page workflow, while the editor reads project data automatically when a file is loaded from its list.
 - This page never shows real user images, project JSON, secrets, or private paths; formats are described with key names and sanitized structures only.
 
-## UI operations {#ui-operations}
+## Use it in the editor {#ui-operations}
 
 ### Import images and project data {#import-images-and-project-data}
 
@@ -147,7 +147,7 @@ flowchart LR
     F --> G["manga_translator_work/inpainted/*_inpainted"]
 ```
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Editor export forces `disable_auto_wrap=True`, so the result is not affected by auto-wrap settings such as AI line breaking; text-box size and position are taken from the editor.
 - `translation` is always the final post-replacement text: legacy JSON without `translation_raw` is backfilled from `translation` on load, and `skip_text_replacements` prevents double replacement on writeback.
@@ -155,5 +155,3 @@ flowchart LR
 - Auto-export on switch depends on the export queue: a rejected automatic export aborts the switch, and a manual export makes the switch wait for completion.
 - `editor_base` is valid only when the JSON has upscale/colorize markers; without them the editor deletes the stale base and falls back to the original to avoid showing a background that does not match the current JSON.
 - When the JSON does not exist, export creates it (`get_json_path(create_dir=True)` when `find_json_path` returns nothing); writes land in the new location, while legacy same-directory JSON remains readable but is no longer the write target.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

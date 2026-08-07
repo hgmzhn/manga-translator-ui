@@ -11,14 +11,14 @@ lastUpdated: true
 
 翻译请求由系统提示词与翻译提示词共同驱动：系统提示词文件控制“如何翻译”与“输出什么格式”，翻译提示词提供自定义规则、术语提取和 AI 断句要求。当你需要知道某个提示词文件何时被读取、以什么顺序拼接、`target_lang` 占位符在哪里替换，以及最终怎样进入 OpenAI/Gemini 请求时，使用本页。
 
-本页不覆盖提示词文件的列表、应用与 CRUD（见[提示词列表、应用与预览](./list-apply-and-preview.md)），也不覆盖结构化编辑器（见[提示词结构化编辑器](./structured-editor-and-format.md)）；AI OCR、AI 上色和 AI 渲染提示词分别见[AI OCR 提示词](./ai-ocr-prompt.md)、[AI 上色提示词](./ai-colorizer-prompt.md)和[AI 渲染提示词](./ai-renderer-prompt.md)。上下文历史页如何变成消息见[上下文与提示词](../translator/context-and-prompts.md)。
+这里不覆盖提示词文件的列表、应用与 CRUD（见[提示词列表、应用与预览](./list-apply-and-preview.md)），也不覆盖结构化编辑器（见[提示词结构化编辑器](./structured-editor-and-format.md)）；AI OCR、AI 上色和 AI 渲染提示词分别见[AI OCR 提示词](./ai-ocr-prompt.md)、[AI 上色提示词](./ai-colorizer-prompt.md)和[AI 渲染提示词](./ai-renderer-prompt.md)。上下文历史页如何变成消息见[上下文与提示词](../translator/context-and-prompts.md)。
 
-## 功能边界 {#feature-boundary}
+## 适用场景 {#feature-boundary}
 
 - 系统提示词固定文件：`dict/system_prompt_hq.yaml`（基础系统提示词）与 `dict/system_prompt_hq_format.yaml`（输出格式）。它们由运行时按文件名 stem 从 `dict/` 加载，不属于用户提示词列表，桌面端没有专用编辑器。
 - 翻译提示词：`translator.high_quality_prompt_path` 指向的自定义 HQ 提示词（`dict/` 下的 `.yaml`/`.yml`/`.json` 用户文件）、`dict/glossary_extraction_prompt.yaml`（术语提取规则）与 `dict/system_prompt_line_break.yaml`（AI 断句提示词）。
 - 相关配置键：`translator.high_quality_prompt_path`、`translator.extract_glossary`、`render.disable_auto_wrap`；完整参数文档见[翻译设置](../settings/translation.md)与[排版与渲染](../settings/typesetting-and-rendering.md)。
-- 本页只说明提示词如何加载、组合并进入 OpenAI/Gemini 系统指令；不涉及翻译器选择、API 凭据和候选槽轮换（见[翻译器选择](../translator/selection-and-languages.md)与[API 管理页](../api-management/slots-and-rotation.md)）。
+- 这里仅说明提示词如何加载、组合并进入 OpenAI/Gemini 系统指令；不涉及翻译器选择、API 凭据和候选槽轮换（见[翻译器选择](../translator/selection-and-languages.md)与[API 管理页](../api-management/slots-and-rotation.md)）。
 - 不在页面中写入真实 API Key、私有提示词正文或本机绝对路径；提示词内容属于用户数据，共享日志、请求导出或调试目录前必须删除。
 
 ## 普通翻译提示词文件格式 {#custom-prompt-file-format}
@@ -60,7 +60,7 @@ glossary:
   Creature: []
 ```
 
-## UI 操作 {#ui-operations}
+## 在提示词管理中操作 {#ui-operations}
 
 ### 在提示词管理页选择并应用翻译提示词 {#apply-translation-prompt}
 
@@ -74,7 +74,7 @@ glossary:
 2. 打开“设置”→“排版”分组，打开“AI 断句”。该开关写入 `render.disable_auto_wrap`；开启后翻译请求会加载 `dict/system_prompt_line_break.yaml`，并在用户输入 JSON 的每个区域上附加 `original_region_count`。
 3. `translator.high_quality_prompt_path` 的界面显示名是“自定义提示词”。它的动态设置控件在 `dynamic_settings.py` 中实现（打开下拉时重新扫描 `dict/` 并排除系统提示词）；实际设置该键的主要入口是提示词管理页的“应用所选提示词”。
 
-## 运行机理 {#runtime-behavior}
+## 提示词如何加载 {#runtime-behavior}
 
 ### 文件加载时机 {#loading-timing}
 
@@ -135,7 +135,7 @@ flowchart TD
 - 术语模式开启且响应包含 `new_terms` 时，OpenAI/Gemini 都会调用 `merge_glossary_to_file()`，把新术语合并写回自定义提示词文件的 `glossary` 字段（按扩展名写 YAML 或 JSON）。
 - 流式与非流式传输使用同一套系统指令和消息构建；`disable_auto_wrap` 开启时，当前页用户 JSON 中每个区域带有 `original_region_count`，供最终渲染检查 `[BR]` 标记数量。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - “自动提取新术语”单独开启无效：代码要求 `bool(custom_prompt_json) and extract_glossary` 同时为真，即必须存在可解析的自定义提示词且开关开启。
 - 基础系统提示词缺失回退到代码内置文本；格式或术语提示词缺失只减弱约束、不崩溃；自定义提示词解析失败时跳过该文件继续使用基础提示词。

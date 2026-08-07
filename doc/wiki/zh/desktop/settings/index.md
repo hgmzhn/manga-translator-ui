@@ -11,14 +11,14 @@ lastUpdated: true
 
 设置页用于调整桌面端翻译流程的配置，并把修改后的值交给运行时配置模型。它负责设置页签、参数控件、导入/导出和自动保存；具体参数的算法含义分别见[通用与应用](./general-and-app.md)、[CLI、批量与输出](./cli-batch-and-output.md)、[检测](./detection.md)、[OCR、过滤与合并](./ocr-filter-and-merge.md)、[翻译](./translation.md)、[蒙版与修复](./mask-and-inpainting.md)、[排版与渲染](./typesetting-and-rendering.md)、[超分与上色](./upscale-and-colorization.md)和[模式专用参数](./mode-specific.md)。设置页不负责 API 凭据槽轮换、提示词列表、编辑器项目数据或九种工作流的具体处理步骤。
 
-## 功能边界 {#feature-boundary}
+## 这组设置控制什么 {#feature-boundary}
 
 - 设置页从 `settings_tab_layout.json` 读取七个 UI 分组：General、OCR、Detection、Translation、Inpainting、Typesetting、Mode Specific；布局文件中的 `Advanced` 和其他分隔线只是组内标题。
 - 当前布局列出 110 个条目，其中 109 个是可见参数，1 个是未被当前动态设置渲染的条目。内部状态、已由工作流选择器代替的标志和废弃字段不会重复显示。
 - 配置值分为三层：Qt 的 `AppSettings` 控件模型、核心 `Config` 处理模型和发行模板 `config/config-example.json`。三层不应被文档合并成一个默认值。
-- 本页只解释设置页如何改变配置及其保存边界；检测、OCR、翻译、修复、排版、超分和上色的阶段消费者留在对应专题页。
+- 这里仅解释设置页如何改变配置及其保存边界；检测、OCR、翻译、修复、排版、超分和上色的阶段消费者留在对应专题页。
 
-## UI 操作 {#ui-operations}
+## 在桌面端修改 {#ui-operations}
 
 启动桌面端后打开设置页面。页首显示“参数设置”和“调整翻译流程的各项参数。修改后将自动保存。”，右侧提供“导出配置”和“导入配置”。左侧为分段页签，中央为可滚动参数行，右侧为“参数说明”面板；点击参数行或其控件会显示配置键和说明。
 
@@ -46,7 +46,7 @@ lastUpdated: true
 
 `app.ui_language` 或应用语言切换后，页签、标签、说明和下拉显示值重新从 locale 加载；存储值不因语言切换而改变。设置页没有单独的“应用”按钮，普通修改先立即更新内存，再由配置服务合并写盘。
 
-## 运行机理 {#runtime-behavior}
+## 参数如何生效 {#runtime-behavior}
 
 ```mermaid
 flowchart LR
@@ -69,7 +69,7 @@ flowchart LR
 - `cli.batch_size` 是阶段内批量大小，`cli.batch_concurrent` 是图片级流水线并发，二者不是同一开关；特殊工作流可能强制改写 CLI 标志。
 - 固定提示词编辑器写入对应 YAML/兼容格式文件；三种 AI 提示词分别消费，不共享一个提示词字段。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 搭配使用时的注意事项 {#dependencies-and-conflicts}
 
 - 使用 OpenAI/Gemini 翻译、AI OCR、AI 上色或 AI renderer 时，需要对应功能的环境变量和可用 API 地址；混合 OCR 选 AI 次 OCR 时还需要次 OCR 凭据。真实值不属于本文。
 - GPU、ONNX GPU、Torch 修复精度和模型选择受硬件、安装依赖和显存影响；`disable_onnx_gpu` 不等同于 `use_gpu=false`。

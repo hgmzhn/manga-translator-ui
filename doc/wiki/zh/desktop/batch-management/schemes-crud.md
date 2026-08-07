@@ -9,16 +9,16 @@ lastUpdated: true
 
 # 批量方案管理
 
-当你想把“筛选哪些区域、对这些区域做什么”这组批量编辑设置保存下来并在后续会话复用，就把它们存成一个批量方案。方案由名称、匹配条件（`match`）和动作（`actions`）三部分组成；本页只负责方案的列表与新建、复制、重命名、删除，以及自动保存与持久化。匹配条件的字段、运算符与 `all`/`any` 逻辑见[匹配条件](./conditions.md)，动作的类型与固定执行顺序见[动作与顺序](./actions-and-order.md)，命中预览、批量写回与从备份恢复见[预览、执行与恢复](./preview-apply-restore.md)。
+当你想把“筛选哪些区域、对这些区域做什么”这组批量编辑设置保存下来并在后续会话复用，就把它们存成一个批量方案。方案由名称、匹配条件（`match`）和动作（`actions`）三部分组成；这里仅负责方案的列表与新建、复制、重命名、删除，以及自动保存与持久化。匹配条件的字段、运算符与 `all`/`any` 逻辑见[匹配条件](./conditions.md)，动作的类型与固定执行顺序见[动作与顺序](./actions-and-order.md)，命中预览、批量写回与从备份恢复见[预览、执行与恢复](./preview-apply-restore.md)。
 
-## 功能边界 {#feature-boundary}
+## 适用场景 {#feature-boundary}
 
 - 一个方案 = 名称 + `match`（`logic` + `conditions`）+ `actions`；方案只保存在 `config/batch_edit_schemes.yaml`，不写入 `config/config.json`，也不参与渲染或翻译管线。
-- 方案条的“新建 / 重命名 / 复制 / 删除”只管理方案本身；条件行、逻辑下拉框与三类动作卡片是相邻页面的内容，本页只说明它们作为方案的一部分被保存。
+- 方案条的“新建 / 重命名 / 复制 / 删除”只管理方案本身；条件行、逻辑下拉框与三类动作卡片是相邻页面的内容，这里仅说明它们作为方案的一部分被保存。
 - 批量管理的作用范围跟随主页文件列表：面板底部显示“范围：主页文件列表中的 {count} 个已翻译文件”。文件列表本身在[文件列表与输入](../translation/file-list-and-input.md)页管理。
 - 方案内容不含密钥或用户私有数据；方案名、条件值与动作字段可能包含业务文本，公开报告前必须脱敏。
 
-## UI 操作 {#ui-operations}
+## 在批量管理中操作 {#ui-operations}
 
 ### 查看与切换方案
 
@@ -75,7 +75,7 @@ lastUpdated: true
 
 错误信息可能包含本机路径；复制到公开报告前必须脱敏。
 
-## 运行机理 {#runtime-behavior}
+## 方案如何应用 {#runtime-behavior}
 
 方案的读取、编辑和保存共用同一条数据流：
 
@@ -106,7 +106,7 @@ flowchart TD
 - 防抖：`_AUTOSAVE_DELAY_MS = 600`，`_mark_dirty()` 在条件或动作变化时启动单次计时器并清空上次预览结果。
 - `enabled` 字段会被读取保留，但当前 UI 保存时恒为 `True`，批量引擎也不按该字段过滤方案；不要依赖它做启用/停用开关。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - 方案文件只服务桌面批量管理页，`batch_edit_schemes.py` 明确不加入 `manga_translator/runtime_files.py` 的启动引导，因此方案不会进入渲染或翻译管线。
 - 方案不写入 `config/config.json` 或任何配置模型；它不属于设置页参数。

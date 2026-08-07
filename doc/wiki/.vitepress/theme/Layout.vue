@@ -1,18 +1,17 @@
 <script setup lang="ts">
-import DefaultTheme from 'vitepress/theme'
-import LanguageSwitch from './components/LanguageSwitch.vue'
+import Teek from 'vitepress-theme-teek'
+import { computed } from 'vue'
+import { useData } from 'vitepress'
 
-const { Layout: DefaultLayout } = DefaultTheme
+const { Layout: TeekLayout } = Teek
+const { lang } = useData()
+const skipLabel = computed(() => lang.value.startsWith('zh') ? '跳到正文' : 'Skip to content')
 </script>
 
 <template>
-  <DefaultLayout>
-    <template #nav-bar-content-after>
-      <LanguageSwitch class="wiki-language-switch" />
-    </template>
-
+  <TeekLayout>
     <template #layout-top>
-      <a class="wiki-skip-link" href="#VPContent">Skip to content</a>
+      <a class="wiki-skip-link" href="#VPContent">{{ skipLabel }}</a>
     </template>
-  </DefaultLayout>
+  </TeekLayout>
 </template>

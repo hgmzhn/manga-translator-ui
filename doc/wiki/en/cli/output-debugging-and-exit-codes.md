@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Output, Debugging, and Exit Codes
 
-This page explains where you see results after running the `local` command: the output directory and filename of the final images, the logs and debug artifacts written when `-v/--verbose` is enabled, and the process exit code when the command ends. It does not cover input collection (see [Local input and output](./local-input-output.md)), explicit overrides (see [Configuration overrides](./configuration-overrides.md)), workflow and file modes (see [Workflows and file modes](./workflow-and-file-modes.md)), or subprocess memory management (see [Subprocess, memory, and recovery](./subprocess-memory-and-recovery.md)); the structure of the four top-level subcommands is in [Command structure](./command-structure.md). The per-stage meaning and redaction rules for debug artifacts are handled by the debugging pages; this page only fixes the path contract.
+This guide explains where you see results after running the `local` command: the output directory and filename of the final images, the logs and debug artifacts written when `-v/--verbose` is enabled, and the process exit code when the command ends. It does not cover input collection (see [Local input and output](./local-input-output.md)), explicit overrides (see [Configuration overrides](./configuration-overrides.md)), workflow and file modes (see [Workflows and file modes](./workflow-and-file-modes.md)), or subprocess memory management (see [Subprocess, memory, and recovery](./subprocess-memory-and-recovery.md)); the structure of the four top-level subcommands is in [Command structure](./command-structure.md). The per-stage meaning and redaction rules for debug artifacts are handled by the debugging pages; this guide only fixes the path contract.
 
-## Feature boundary {#feature-boundary}
+## Command scope {#feature-boundary}
 
 - `-o/--output` decides the output directory of the final images. When omitted, it falls back through “`-o` → `app.last_output_path` → default rule”; see [Output directory resolution](#output-directory-resolution).
 - `-v/--verbose` only changes the log level, the log file, and the `result/` debug artifacts; it does not change the translated image itself.
@@ -99,7 +99,7 @@ flowchart TD
     A5 --> U5["OCR recognition troubleshooting"]
 ```
 
-Diagram note: enabling `-v` adds DEBUG logs and the debug folder; not every run produces every artifact. All artifacts below are conditional writes under `verbose=True`, with trigger conditions from static source checks (`research/phase0-debug-artifact-path-trace.md`); they are not guaranteed on every run:
+Diagram note: enabling `-v` adds DEBUG logs and the debug folder; not every run produces every artifact. All artifacts below are conditional writes under `verbose=True`, with trigger conditions from the current code (`research/phase0-debug-artifact-path-trace.md`); they are not guaranteed on every run:
 
 | Artifact | Trigger (always requires verbose) | Troubleshooting purpose |
 | --- | --- | --- |
@@ -136,11 +136,11 @@ The `python -m manga_translator <mode> ...` process exit-code contract is as fol
 Key points:
 
 - A single failed image does not change the process exit code: `translate_files()` returns normally after summarizing failures, so the exit code stays `0`; failures only appear in the `❌ Failed: N` summary line. When scripting, rely on the summary line or the log.
-- The non-subprocess path prints `❌ No image files found` and returns normally when no images are found (exit code `0`); the subprocess path prints the same message and then calls `sys.exit(1)`. This is a source-confirmed difference between the two paths.
+- The non-subprocess path prints `❌ No image files found` and returns normally when no images are found (exit code `0`); the subprocess path prints the same message and then calls `sys.exit(1)`. This is a difference between the two paths.
 - With no mode and no `-i/--input`, `parse_args()` prints the help and exits with `1`.
 - With `-v`, exceptions additionally print a traceback, but the exit code still follows the table above.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations {#dependencies-and-conflicts}
 
 - Debug artifacts are written only when `verbose=True`; otherwise `result/` is used for logs (non-subprocess path) or for Web/WS final-image caching.
 - `-v` increases disk usage; long-image rearrangement, hybrid detection, bubble constraints, PSD export, and each OCR implementation have independent triggers and are not guaranteed to appear together.

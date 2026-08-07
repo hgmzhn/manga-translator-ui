@@ -1,5 +1,5 @@
 ---
-title: Options and I18n Matrix
+title: UI Options Reference
 description: Summary of stored values, English, and Simplified Chinese for every fixed desktop option, with links to the owning pages
 pageId: reference.options-i18n-matrix
 lang: en-US
@@ -7,13 +7,13 @@ outline: [2, 4]
 lastUpdated: true
 ---
 
-# Options and I18n Matrix
+# UI Options Reference
 
 Use this page when you need the stored value of a combo box or enum option together with the English and Simplified Chinese text shown in the UI. It only aggregates the fixed ‚Äústored value ‚Üí English ‚Üí Simplified Chinese‚Äù mapping and backlinks to the owning feature pages; defaults, affected stages, dependencies, and final consumers remain on those pages.
 
 This is a reference index and does not replace any feature page: parameters are covered by the [Settings index](./settings-index.md) and each settings page, workflows by the [Workflow matrix](./workflow-matrix.md), and the translator-versus-API-slot boundary by [Translator selection](../desktop/translator/selection-and-languages.md) and [API slots and rotation](../desktop/api-management/slots-and-rotation.md).
 
-## Feature boundary {#feature-boundary}
+## What's included {#feature-boundary}
 
 - Covers only combo boxes, enums, and mode selectors that the desktop Qt UI generates from fixed source options; runtime lists such as fonts, model names, presets, and scheme names are documented in [Runtime lists](#runtime-lists).
 - Aggregates stored values and bilingual display values only; it does not repeat the UI operations, default matrix, or runtime behavior of each feature page.
@@ -408,7 +408,7 @@ The following controls read machine-local or user configuration, so no stable ‚Ä
 | Editor style / rich-text presets | `app.saved_style_presets`, `app.saved_rich_text_presets` | User-defined key names are both display and stored values |
 | Batch schemes | `config/batch_edit_schemes.yaml` | User-defined scheme names and counts vary |
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## How to use this reference {#dependencies-and-conflicts}
 
 - This page aggregates fixed options only; different forms of the same setting (for example the `render.direction` core enum `horizontal`/`vertical` versus the UI reverse-mapped `h`/`v`) are authoritative on the corresponding feature pages.
 - Model and language options are re-populated after a language switch; the English/Simplified Chinese recorded here are the final displayed values.
@@ -426,9 +426,9 @@ The following controls read machine-local or user configuration, so no stable ‚Ä
 | `manga_translator/config.py`, `manga_translator/image_formats.py` | Core enums and output formats | Enum literals shown directly are identical in both languages |
 | `config/config-example.json` | Release defaults | Template only; never copy user paths or private content |
 
-## Source evidence {#source-evidence}
+## Data sources {#source-evidence}
 
-| Layer | File | What was checked |
+| Data | File | Use |
 | --- | --- | --- |
 | Options and display mapping | `desktop_qt_ui/app_logic.py` | `get_options_for_key()`, `get_display_mapping()` |
 | Settings controls | `desktop_qt_ui/ui/main_page/dynamic_settings.py`, `layout.py` | Ordinary settings controls, theme/language combos, ratio linkage |
@@ -437,15 +437,4 @@ The following controls read machine-local or user configuration, so no stable ‚Ä
 | Languages and locale | `desktop_qt_ui/services/translation_service.py`, `desktop_qt_ui/services/i18n_service.py`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Target/keep languages and actual bilingual values |
 | Workflows | `desktop_qt_ui/ui/main_page/pages/translation_page.py`, `desktop_qt_ui/ui/main_page/runtime.py` | Nine index values and CLI flag mapping |
 | Editor and batch | `desktop_qt_ui/ui/widgets/property_panel.py`, `desktop_qt_ui/ui/widgets/rich_text_editor_components.py`, `desktop_qt_ui/services/batch_edit_engine.py` | Editor-reused items, rich-text advance, batch conditions |
-| Phase 0 research | `doc/wiki/research/phase0-options-i18n-matrix.md`, `doc/wiki/data/i18n.generated.json`, `doc/wiki/data/settings.generated.json` | Option inventory, locale checks, and page mapping |
-
-## Verification {#verification}
-
-| Check | Status | Notes |
-| --- | --- | --- |
-| Writing contracts and TODO | Complete | Read `PAGE_GUIDELINES.md`, `BLUEPRINT.md`, and `TODO.md` sections 1.3 and 5.16 in full; only this page's TODO is covered |
-| Options and locale check | Complete | Verified actual display values in `en_US.json` / `zh_CN.json` against `research/phase0-options-i18n-matrix.md` row by row |
-| Page links | Complete | Every group backlinks to its owning page; paths match the existing `zh/` directory |
-| Sanitization and security | Complete | No real `.env`, user configuration, API key/token, username, private path, or private prompt was read or shown |
-| Route-mirror and source-evidence checks | Complete | `node scripts/verify-route-mirror.mjs .` PASS (120 zh / 120 en); `node scripts/verify-source-evidence.mjs .` PASS |
-| VitePress build | Deferred | Coordinator should run `npm run docs:build --prefix doc/wiki` before merge |
+| Research and generated data | `doc/wiki/research/phase0-options-i18n-matrix.md`, `doc/wiki/data/i18n.generated.json`, `doc/wiki/data/settings.generated.json` | option inventory, UI text, and page mapping |

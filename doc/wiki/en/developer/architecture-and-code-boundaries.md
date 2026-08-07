@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Architecture and Code Boundaries
 
-Use this page before modifying or debugging a feature to locate which layer it belongs to and which module boundaries it crosses. The repository consists of two packages: `desktop_qt_ui` (PyQt6 desktop app) and `manga_translator` (core engine, CLI, and server). The desktop app and the CLI `local` mode share the same `MangaTranslator` pipeline; the web, shared, and WebSocket modes reuse the same core with different entry points and transports. This page only maps module boundaries and call relationships; it does not repeat the operations or parameters of individual features (see the corresponding feature pages).
+Use this page before modifying or debugging a feature to locate which layer it belongs to and which module boundaries it crosses. The repository consists of two packages: `desktop_qt_ui` (PyQt6 desktop app) and `manga_translator` (core engine, CLI, and server). The desktop app and the CLI `local` mode share the same `MangaTranslator` pipeline; the web, shared, and WebSocket modes reuse the same core with different entry points and transports. This guide only maps module boundaries and call relationships; it does not repeat the operations or parameters of individual features (see the corresponding feature pages).
 
-## Feature boundary
+## Relevant code
 
 - `desktop_qt_ui` is responsible for the UI, i18n, file lists, settings persistence, and task orchestration; it does not implement detection, OCR, translation, or rendering algorithms.
 - `manga_translator` is responsible for the config model, processing pipeline, per-stage implementations, and API calls; it contains no Qt windows, but `rendering` text layout depends on PyQt6 offscreen rendering.
@@ -19,7 +19,7 @@ Use this page before modifying or debugging a feature to locate which layer it b
 - The web-server mode does not own a translator instance directly: `server/core/task_manager.py` limits concurrency with a semaphore, and `translation_integration` wraps core calls with permission, quota, history, and logging.
 - Do not collapse "translator selection", "API feature selector", "API slot rotation", and `translator_chain` into one layer: they belong to the desktop translator pages, the API-management pages, and the core `runtime_api_resolver.py` / `api_key_rotation.py` respectively.
 
-## UI operations
+## How to use it
 
 ### Observe module entry points in the desktop app
 
@@ -90,7 +90,7 @@ flowchart LR
 
 `local`, `shared`, and `ws` share the same `MangaTranslator` as the desktop app: `local` reuses the desktop `FileService` to collect inputs; `shared` exposes an HTTP interface on port 5003; `ws` hands images and config to the core over WebSocket. The `web` server mode calls the core through `task_manager` + `translation_integration` and runs the translator instance in a thread pool so the FastAPI event loop is not blocked.
 
-## Dependencies and conflicts
+## Constraints and notes
 
 - The desktop app imports `manga_translator` directly (e.g., `app_logic.py`, `mode/local.py`); changing a core public interface requires checking desktop, CLI, and server callers at the same time.
 - `rendering` depends on PyQt6 offscreen rendering, and the server and shared modes use the same rendering implementation; headless environments must provide Qt platform plugins themselves, which is not a module-boundary issue.
@@ -149,10 +149,9 @@ flowchart LR
 
 ### Mermaid diagram limits
 
-The diagrams above show source-confirmed layers and call relationships, not "every request passes through every node". Special workflows (export original text, colorize-only, replace translation, etc.) skip most stages; with `batch_concurrent` enabled, detection, OCR, translation, and inpainting advance in parallel. No runtime screenshot or private task artifact has been fabricated, and no real keys are included.
+The diagrams above show layers and call relationships, not "every request passes through every node". Special workflows (export original text, colorize-only, replace translation, etc.) skip most stages; with `batch_concurrent` enabled, detection, OCR, translation, and inpainting advance in parallel, and no real keys are included.
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Desktop entry | `desktop_qt_ui/main.py`, `ui/main_window.py` | Navigation registration, editor initialization, and window assembly |

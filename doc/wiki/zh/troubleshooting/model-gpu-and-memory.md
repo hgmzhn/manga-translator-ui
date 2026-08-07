@@ -9,13 +9,13 @@ lastUpdated: true
 
 # 模型、GPU 与内存排障
 
-当任务卡在模型下载、报“CUDA out of memory”、GPU 模式无法启动，或翻译结束后内存/显存没有回落时，本页用于定位模型加载、GPU 设备、显存（VRAM）与内存（RAM）相关问题。安装阶段的硬件后端依赖组见[运行环境与依赖要求](../install/requirements.md)，`app.unload_models_after_translation` 等开关在界面中的位置见[通用与应用设置](../desktop/settings/general-and-app.md)。本页不重复翻译、OCR、检测、修复、超分等参数页的完整说明，也不涉及 API 鉴权与限流（见[API 鉴权、限流与超时](./api-auth-rate-limit-and-timeout.md)）和 CLI 子进程的整机内存限制（见[子进程、内存与恢复](../cli/subprocess-memory-and-recovery.md)）。
+当任务卡在模型下载、报“CUDA out of memory”、GPU 模式无法启动，或翻译结束后内存/显存没有回落时，本页用于定位模型加载、GPU 设备、显存（VRAM）与内存（RAM）相关问题。安装阶段的硬件后端依赖组见[运行环境与依赖要求](../install/requirements.md)，`app.unload_models_after_translation` 等开关在界面中的位置见[通用与应用设置](../desktop/settings/general-and-app.md)。这里不重复翻译、OCR、检测、修复、超分等参数页的完整说明，也不涉及 API 鉴权与限流（见[API 鉴权、限流与超时](./api-auth-rate-limit-and-timeout.md)）和 CLI 子进程的整机内存限制（见[子进程、内存与恢复](../cli/subprocess-memory-and-recovery.md)）。
 
-## 功能边界 {#feature-boundary}
+## 先确认问题 {#feature-boundary}
 
 - 本页负责：模型下载/校验失败、`cli.use_gpu` 设备选择、`cli.disable_onnx_gpu` 的 ONNX 路径、`app.unload_models_after_translation` 的任务后卸载，以及 `inpainting_size`、`tile_size` 等与显存相关的处置。
-- 本页不负责：安装依赖组如何选择（见 `install/requirements.md`）、修复/超分参数的完整选项（见各自设置页）、日志与调试产物的分享规范（见[如何阅读与分享调试运行](../debugging/how-to-read-and-share-a-debug-run.md)）。
-- 开关本身的 UI 归属在设置页记录；本页只解释它们在模型、GPU 与内存排障中的用途和底层行为。
+- 这里不负责：安装依赖组如何选择（见 `install/requirements.md`）、修复/超分参数的完整选项（见各自设置页）、日志与调试产物的分享规范（见[如何阅读与分享调试运行](../debugging/how-to-read-and-share-a-debug-run.md)）。
+- 开关本身的 UI 归属在设置页记录；这里仅解释它们在模型、GPU 与内存排障中的用途和底层行为。
 
 ## 常见现象与快速定位 {#symptoms}
 
@@ -59,7 +59,7 @@ lastUpdated: true
 
 “翻译完成后卸载模型”开关位于“设置 → 通用”分组，控制每次任务结束后的模型卸载与内存回收；开启后下一任务需要重新加载模型，首次响应会变慢。开启时界面显示“翻译完成后卸载模型”；关闭表示任务结束后保留模型实例。
 
-## 运行机理 {#runtime-behavior}
+## 问题怎样发生 {#runtime-behavior}
 
 ### 模型加载与下载 {#model-loading}
 
@@ -126,7 +126,7 @@ flowchart LR
 
 `web`、`ws`、`shared` 模式支持 `--models-ttl`（秒，默认 `0`）。大于 `0` 时，后台会启动清理任务，对超过 TTL 未使用的模型执行卸载；为 `0` 时模型保持常驻。桌面端不使用该 CLI 参数，其行为由“翻译完成后卸载模型”控制。
 
-## 依赖与冲突 {#dependencies}
+## 相关设置与限制 {#dependencies}
 
 - GPU 加速依赖安装阶段选择的后端组与驱动；装错依赖组或驱动不匹配时，`cli.use_gpu` 只会触发回退而不是修复环境，见[运行环境与依赖要求](../install/requirements.md)。
 - `inpainting_size` 过大会直接 OOM；`upscale.tile_size` 分块可降低超分显存峰值；`cli.batch_concurrent` 会放大并发峰值，显存受限时建议关闭。

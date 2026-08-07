@@ -11,13 +11,13 @@ lastUpdated: true
 
 This page is for Windows users who need to modify source code, run an unpackaged checkout, or manage the Python environment themselves. It describes the shortest path from repository to Qt startup. It does not replace [Requirements](./requirements.md) for the full hardware/dependency table or [Windows Portable](./windows-portable.md) for packaged execution.
 
-## Feature boundary {#scope}
+## Who this installation is for {#scope}
 
 A source install manages dependencies with Python 3.12 and uv inside the repository, then starts the Qt desktop program or CLI directly. It does not install portable Python, create a Conda environment, or automatically turn the checkout into a Docker image. Windows AMD's special ROCm installation remains the launcher's responsibility.
 
 Choose the portable package if you only want to extract and run it; choose Docker if you only need a browser-based service. A source environment enables branch switching, code changes, tests, and precise dependency selection, but you must maintain Git, uv, Python, models, and drivers yourself.
 
-## UI operations {#ui-operations}
+## Installation steps {#ui-operations}
 
 ### Prepare the repository and tools
 
@@ -77,9 +77,9 @@ When the project launcher must install/update, inspect the GPU, or switch versio
 uv run --no-sync python packaging\launch.py --maintenance
 ```
 
-The maintenance menu provides installation, code/dependency updates, `main`/`beta` switching, tag switching, Git mirror switching, version re-check, menu-language switching, and exit. Save your changes before switching branches or tags; the menu changes repository synchronization state and is not read-only. The menu options and their actual wording and stored values are listed in the [Options and I18n matrix](../reference/options-i18n-matrix.md).
+The maintenance menu provides installation, code/dependency updates, `main`/`beta` switching, tag switching, Git mirror switching, version re-check, menu-language switching, and exit. Save your changes before switching branches or tags; the menu changes repository synchronization state and is not read-only. The menu options and their actual wording and stored values are listed in the [UI Options Reference](../reference/options-i18n-matrix.md).
 
-## Runtime behavior {#runtime}
+## What the installer does {#runtime}
 
 ```mermaid
 flowchart TD
@@ -99,7 +99,7 @@ flowchart TD
 
 The maintenance mode's `prepare_environment` detects the device and checks the installed PyTorch type. Automatic mode may select NVIDIA, AMD, Apple Silicon, CPU, or Intel GPU paths. Explicit `--requirements cpu|gpu|amd|metal` selects the requested group but still handles the extra Windows AMD path and PyTorch mismatches. After installation, the Qt entry calls `desktop_qt_ui.main` and the CLI entry calls `manga_translator.__main__`; both share the core processing chain.
 
-## Dependencies and conflicts {#dependencies}
+## Environment and compatibility {#dependencies}
 
 - **Python version**: `pyproject.toml` and the launcher both constrain Python to 3.12; Python 3.13 is rejected. Check `uv run --no-sync python --version`, not only the system `python`.
 - **Mutually exclusive groups**: `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive under `[tool.uv].conflicts`. Do not run `uv sync --group cpu --group gpu` or retain the default `gpu` group alongside another backend.
@@ -109,5 +109,3 @@ The maintenance mode's `prepare_environment` detects the device and checks the i
 - **Metal**: the Metal group targets Apple Silicon macOS, using MPS PyTorch, CPU ONNX Runtime, and Cocoa from normal PyPI; do not choose it on Windows.
 - **Switching conflicts**: if the installed PyTorch type differs from the target, the launcher may uninstall `torch`, `torchvision`, and `torchaudio` and purge the pip cache. Close other Python processes using PyTorch first.
 - **Models and network**: dependency installation does not mean model downloads are complete; detector, OCR, translator, and inpainting models may download on first use or read local model files. Do not place credentials or proxy settings in public scripts.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

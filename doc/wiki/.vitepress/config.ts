@@ -1,11 +1,31 @@
 import { defineConfig } from 'vitepress'
+import type { TeekConfig } from 'vitepress-theme-teek'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const wikiDir = fileURLToPath(new URL('..', import.meta.url))
 
-type SidebarItem = { text: string; link?: string; items?: SidebarItem[] }
+const teekTheme: TeekConfig = {
+  teekTheme: true,
+  teekHome: false,
+  vpHome: true,
+  pageStyle: 'default',
+  sidebarTrigger: true,
+  windowTransition: true,
+  viewTransition: { enabled: true, mode: 'out-in', duration: 420 },
+  themeEnhance: { enabled: false },
+  articleAnalyze: { showInfo: false, imageViewer: { enabled: true } },
+  articleUpdate: { enabled: false },
+  breadcrumb: { enabled: true, showCurrentName: false },
+  codeBlock: { enabled: true, collapseHeight: 720, langTextTransform: 'none' },
+  footerInfo: {
+    theme: { show: false },
+    copyright: { show: false },
+  },
+}
+
+type SidebarItem = { text: string; link?: string; items?: SidebarItem[]; collapsed?: boolean }
 
 const TOP_LEVEL_ORDER = ['introduction', 'install', 'desktop', 'workflows', 'web', 'cli', 'developer', 'community', 'reference', 'troubleshooting']
 
@@ -80,7 +100,7 @@ function buildTree(dir: string, base: string, prefix: string): SidebarItem[] {
     const full = join(dir, e.name)
     if (e.isDirectory()) {
       const children = buildTree(full, base, prefix)
-      if (children.length) items.push({ text: dirLabel(prefix, e.name), items: children })
+      if (children.length) items.push({ text: dirLabel(prefix, e.name), items: children, collapsed: true })
     } else if (e.name.endsWith('.md')) {
       const rel = relative(base, full).replaceAll(sep, '/').replace(/\.md$/, '')
       const link = rel === 'index' ? `/${prefix}` : `/${prefix}${rel}`
@@ -88,10 +108,6 @@ function buildTree(dir: string, base: string, prefix: string): SidebarItem[] {
     }
   }
   return items
-}
-
-const sharedTheme = {
-  outline: [2, 4],
 }
 
 export default defineConfig({
@@ -111,18 +127,60 @@ export default defineConfig({
   ],
   locales: {
     root: { label: '简体中文', lang: 'zh-CN' },
-    zh: { label: '简体中文', lang: 'zh-CN', ...sharedTheme },
-    en: { label: 'English', lang: 'en-US', ...sharedTheme },
+    zh: {
+      label: '简体中文',
+      lang: 'zh-CN',
+      themeConfig: {
+        nav: [
+          { text: '快速开始', link: '/zh/introduction/first-translation' },
+          { text: '设置', link: '/zh/desktop/settings/' },
+          { text: '排障', link: '/zh/troubleshooting/installation-and-startup' },
+        ],
+        outline: { label: '本页内容', level: [2, 4] },
+        docFooter: { prev: '上一篇', next: '下一篇' },
+        lastUpdated: { text: '最后更新' },
+        returnToTopLabel: '返回顶部',
+        sidebarMenuLabel: '目录',
+        darkModeSwitchLabel: '外观',
+        lightModeSwitchTitle: '切换到浅色模式',
+        darkModeSwitchTitle: '切换到深色模式',
+      },
+    },
+    en: {
+      label: 'English',
+      lang: 'en-US',
+      themeConfig: {
+        nav: [
+          { text: 'Quick start', link: '/en/introduction/first-translation' },
+          { text: 'Settings', link: '/en/desktop/settings/' },
+          { text: 'Troubleshooting', link: '/en/troubleshooting/installation-and-startup' },
+        ],
+        outline: { label: 'On this page', level: [2, 4] },
+        docFooter: { prev: 'Previous', next: 'Next' },
+        lastUpdated: { text: 'Last updated' },
+        returnToTopLabel: 'Back to top',
+        sidebarMenuLabel: 'Menu',
+        darkModeSwitchLabel: 'Appearance',
+        lightModeSwitchTitle: 'Switch to light theme',
+        darkModeSwitchTitle: 'Switch to dark theme',
+      },
+    },
   },
   themeConfig: {
+    ...teekTheme,
     logo: '/logo.png',
-    nav: [
-      { text: '中文', link: '/zh/' },
-      { text: 'English', link: '/en/' },
+    search: { provider: 'local' },
+    socialLinks: [
+      { icon: 'github', link: 'https://github.com/hgmzhn/manga-translator-ui' },
     ],
     sidebar: {
       '/zh/': buildTree(join(wikiDir, 'zh'), join(wikiDir, 'zh'), 'zh/'),
       '/en/': buildTree(join(wikiDir, 'en'), join(wikiDir, 'en'), 'en/'),
+    },
+  },
+  vite: {
+    ssr: {
+      noExternal: ['vitepress-theme-teek'],
     },
   },
   markdown: {
@@ -141,5 +199,3 @@ export default defineConfig({
     },
   },
 })
-
-

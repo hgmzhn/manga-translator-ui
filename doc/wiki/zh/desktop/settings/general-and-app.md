@@ -11,7 +11,7 @@ lastUpdated: true
 
 本页对应设置页的 “General” 分组，以及它所承载的应用级状态和通用处理开关。它负责语言、主题、API 参数文件开关、过滤列表、全局蒙版参数、模型卸载和编辑器偏好；检测、OCR、翻译、修复、排版、超分和上色的专用参数分别见对应设置页。
 
-## 在界面中操作 {#ui-operations}
+## 在桌面端修改 {#ui-operations}
 
 打开设置页并选择 “General”。动态设置行由布局文件中的存储键生成，点击一行会在右侧说明面板显示该键的说明。修改开关、数值或下拉框后，配置立即更新；配置服务随后合并写盘。数值输入框留空会写入 `null`，由对应消费者回退到默认语义。
 
@@ -96,9 +96,9 @@ flowchart LR
 
 启动时配置优先级是：代码 `AppSettings` 默认 < `config/config-example.json` 等发行默认模板 < 用户 `config/config.json`。用户配置会按默认模板同步新增/删除键。普通设置写入 `config/config.json`；配置服务使用 250 ms 防抖合并写入，显式保存/切换操作会刷新待写队列。命令行显式参数只在 CLI 入口覆盖 `cli.*`，没有传入的参数不会被声称为覆盖。
 
-General 页的 GPU、ONNX、批量、输出和重试设置最终进入核心 `Config.cli`；CLI/批处理页面负责这些字段的完整工作流和并发说明，本页只记录它们在 General 中的控件与边界。
+General 页的 GPU、ONNX、批量、输出和重试设置最终进入核心 `Config.cli`；CLI/批处理页面负责这些字段的完整工作流和并发说明，这里仅记录它们在 General 中的控件与边界。
 
-## 依赖与冲突 {#dependencies}
+## 搭配使用时的注意事项 {#dependencies}
 
 - `cli.use_gpu` 需要匹配的 CUDA/硬件依赖；`cli.disable_onnx_gpu` 可单独关闭 ONNX GPU 后端，二者不是互斥开关。
 - `cli.batch_concurrent` 受特殊输入/工作流和资源条件限制，不能保证所有模型或 API 请求同时执行。

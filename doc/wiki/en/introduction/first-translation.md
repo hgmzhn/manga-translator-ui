@@ -12,11 +12,11 @@ lastUpdated: true
 > Not installed yet? Start with the [installation guide](../install/windows-portable.md) (Windows portable / source / Linux/macOS / Docker).
 > Online translation needs an API Key: see the [API configuration guide](../desktop/api-management/api-key-guide.md) and the [API feature selectors](../desktop/api-management/feature-selectors.md).
 
-This page covers the first complete translation on desktop in three parts: Installation → API Configuration → Steps.
+This guide covers the first complete translation on desktop in three parts: Installation → API Configuration → Steps.
 
-## Feature Boundary {#feature-boundary}
+## What to know first {#feature-boundary}
 
-This page covers only the minimal path for the first complete translation on desktop: install, configure the API (required for online translation), add images, set an output directory, keep “Normal Translation”, and start the task. Parameter details of each module (detector, OCR, translator, typesetting, and API credentials) are covered on their own pages ([Settings](../desktop/settings/index.md), [Translator](../desktop/translator/selection-and-languages.md), [API Management](../desktop/api-management/feature-selectors.md)), not here.
+This guide focuses on the minimal path for the first complete translation on desktop: install, configure the API (required for online translation), add images, set an output directory, keep “Normal Translation”, and start the task. Parameter details of each module (detector, OCR, translator, typesetting, and API credentials) are covered on their own pages ([Settings](../desktop/settings/index.md), [Translator](../desktop/translator/selection-and-languages.md), [API Management](../desktop/api-management/feature-selectors.md)), not here.
 
 For a first run, use a public, non-sensitive sample image. “Normal Translation” is not a configuration-free demo mode: online translation still requires credentials configured in API Management.
 

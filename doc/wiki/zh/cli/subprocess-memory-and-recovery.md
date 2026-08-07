@@ -11,14 +11,14 @@ lastUpdated: true
 
 当一次要翻译大量图片、且长任务中模型与中间结果占用内存持续增长时，可以使用 `local` 子进程模式。`--subprocess` 让每个批次在一个独立子进程中运行，父进程只负责收集文件、分配批次和收集结果；达到 `--memory-limit`、`--memory-percent` 或 `--batch-per-restart` 阈值后，当前子进程提前结束，剩余文件由新子进程继续处理，已经完成的文件不会重复翻译。
 
-本页只覆盖 `local --subprocess` 的子进程、内存限制与恢复机制。普通（非子进程）本地翻译见[本地输入与输出](./local-input-output.md)，命令结构与正式入口见[命令结构](./command-structure.md)，配置覆盖见[配置覆盖](./configuration-overrides.md)，输出与退出码见[输出、调试与退出码](./output-debugging-and-exit-codes.md)。
+这里仅列出 `local --subprocess` 的子进程、内存限制与恢复机制。普通（非子进程）本地翻译见[本地输入与输出](./local-input-output.md)，命令结构与正式入口见[命令结构](./command-structure.md)，配置覆盖见[配置覆盖](./configuration-overrides.md)，输出与退出码见[输出、调试与退出码](./output-debugging-and-exit-codes.md)。
 
-## 功能边界 {#feature-boundary}
+## 命令范围 {#feature-boundary}
 
 - `--subprocess` 只改变 `local` 的执行路径：文件收集、输出目录和“跳过已存在”逻辑与普通模式一致，但翻译在 `multiprocessing.Process` 子进程中逐批进行。
 - `--memory-limit`、`--memory-percent`、`--batch-per-restart` 只在启用 `--subprocess` 时被消费；普通 `local` 路径会忽略这三个参数。
 - “恢复”在本页包含三层：同一次运行内内存超限后换新子进程继续；子进程异常时同一批文件自动重试；重新运行且未启用 `--overwrite` 时跳过输出已存在的文件。正式顶层 `local` 不提供可用的跨运行 `--resume` 选项，见[`--resume` 参数](#resume)。
-- 本页不负责 `cli.attempts`（API 调用失败重试）、API 候选槽轮换（见 API 管理页面）、`cli.batch_size`/`cli.batch_concurrent`（批量并发，见[CLI 批量与输出](../desktop/settings/cli-batch-and-output.md)），以及 `web`/`ws`/`shared` 服务模式（见[Web、WS 与 Shared 模式](./web-ws-and-shared-modes.md)）。
+- 这里不负责 `cli.attempts`（API 调用失败重试）、API 候选槽轮换（见 API 管理页面）、`cli.batch_size`/`cli.batch_concurrent`（批量并发，见[CLI 批量与输出](../desktop/settings/cli-batch-and-output.md)），以及 `web`/`ws`/`shared` 服务模式（见[Web、WS 与 Shared 模式](./web-ws-and-shared-modes.md)）。
 
 ## 命令行操作 {#command-line-operations}
 
@@ -53,7 +53,7 @@ uv run --no-sync python -m manga_translator local -i ./manga_folder/ --subproces
 
 ## 参数与选项 {#parameters-and-options}
 
-> 与桌面设置共用的界面文案与存储键对照，见[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 与桌面设置共用的界面文案与存储键对照，见[界面选项对照表](../reference/options-i18n-matrix.md)。
 
 #### --subprocess {#subprocess}
 
@@ -75,7 +75,7 @@ uv run --no-sync python -m manga_translator local -i ./manga_folder/ --subproces
 
 断点续传开关只存在于独立模块解析器（`python -m manga_translator.mode.local --help`），正式顶层 `local` 没有该选项，不要依赖它完成跨运行续传。跨运行恢复实际靠“未启用 `--overwrite` 时跳过输出已存在文件”的预过滤实现；需要重新翻译已存在文件时使用 `--overwrite`。可选值：`--resume`（声明存在）或不传。默认值：`false`（正式解析器无此选项）。
 
-## 运行机理 {#runtime-behavior}
+## 命令如何执行 {#runtime-behavior}
 
 ### 父进程调度循环
 
@@ -123,7 +123,7 @@ flowchart LR
 
 ### 失败与恢复
 
-子进程与父进程之间通过 `multiprocessing.Queue` 传递结果。不同失败位置的恢复行为如下表（均为静态源码核对结论，未做真实故障运行验证）：
+子进程与父进程之间通过 `multiprocessing.Queue` 传递结果。不同失败位置的恢复行为如下表（均为代码行为，实际结果仍受系统环境影响）：
 
 | 事件 | 父进程行为 | 对结果的影响 |
 | --- | --- | --- |
@@ -140,11 +140,11 @@ flowchart LR
 - 跨运行：正式顶层 `local` 没有可用的 `--resume`；跨运行恢复实际靠“未启用 `--overwrite` 时跳过输出已存在文件”的预过滤实现。
 - worker 中还有一个每 5 张触发一次的 torch/CUDA 检查块，当前源码里是空操作（不释放显存），仅作静态观察记录。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 使用限制 {#dependencies-and-conflicts}
 
 - psutil 是可选的：缺失时 RSS 与系统内存读取都返回 `0`，内存限制静默失效，只剩按张数重启。
 - 三层默认值不能混用：正式 `local` 的 `--memory-limit`/`--memory-percent`/`--batch-per-restart` 默认是 `0/0/0`；`subprocess_manager.py` 的函数签名常量是 `0/80/50`；`manga_translator/mode/local.py` 独立解析器是 `8000/80/50`。只有正式 `args.py` 的 `0/0/0` 属于顶层 `local --help` 契约。
-- `--format`、`--batch-size`、`--attempts` 的帮助文本写着“覆盖配置文件”，但在子进程分支中只有 GPU/ONNX 覆盖会被写入 `cli_config`，这三个值不会进入 `translate_with_subprocess`。这是源码差异，不是已完成的运行验证。
+- `--format`、`--batch-size`、`--attempts` 的帮助文本写着“覆盖配置文件”，但在子进程分支中只有 GPU/ONNX 覆盖会被写入 `cli_config`，这三个值不会进入 `translate_with_subprocess`。帮助文本与当前代码不一致。
 - 子进程模式一次只运行一个子进程，没有并行；`cli.batch_concurrent` 不参与子进程调度。
 - 内存限制针对的是 RAM（子进程 RSS / 整机内存），与 GPU 显存（VRAM）无关；显存不足问题见[模型、GPU 与内存](../troubleshooting/model-gpu-and-memory.md)。
 - `app.unload_models_after_translation`（“翻译完成后卸载模型”）是桌面端翻译结束后的卸载开关，与这里的运行时阈值不同。

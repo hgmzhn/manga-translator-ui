@@ -11,9 +11,9 @@ lastUpdated: true
 
 当你需要分别配置翻译、文字识别（OCR）、上色和渲染各自使用的 API 凭据时，打开“API 管理”。该页按功能分成四个页签，每个页签对应一个功能；页签顶部是该功能的选择器，下方只显示当前选中提供商的凭据字段组。
 
-本页只说明四个页签的布局、切换，以及每个页签展示哪个提供商的哪组字段。功能选择器的完整选项与写入行为见[功能选择器](./feature-selectors.md)，Key/Base/Model 字段含义见[凭据、地址与模型](./credentials-addresses-models.md)，候选槽与轮询见[API 通道与轮询策略](./slots-and-rotation.md)，连接测试与模型列表见[连接测试与模型列表](./connection-tests-and-model-list.md)。
+这里仅说明四个页签的布局、切换，以及每个页签展示哪个提供商的哪组字段。功能选择器的完整选项与写入行为见[功能选择器](./feature-selectors.md)，Key/Base/Model 字段含义见[凭据、地址与模型](./credentials-addresses-models.md)，候选槽与轮询见[API 通道与轮询策略](./slots-and-rotation.md)，连接测试与模型列表见[连接测试与模型列表](./connection-tests-and-model-list.md)。
 
-## 功能边界
+## 配置范围
 
 - API 管理页固定包含四个页签，路由键分别为 `env_translation`、`env_ocr`、`env_colorization`、`env_render`，对应翻译、文字识别、上色和渲染四个功能。
 - 每个页签顶部有一个功能选择器下拉框，分别写入 `translator.translator`、`ocr.ocr`、`colorizer.colorizer`、`render.renderer`；文字识别页签在启用混合 OCR 时还读取 `ocr.secondary_ocr`。
@@ -21,7 +21,7 @@ lastUpdated: true
 - 每个页签显示的提供商组由该功能选择器的当前值决定；未命中任何 API 提供商时显示“不需要 API”的空状态提示，不渲染凭据卡片。
 - 翻译器选择、API 功能选择器、API 候选槽轮换是三个不同边界：本页与[功能选择器](./feature-selectors.md)负责页签、选择器与字段组；`translator.translator` 的翻译实现选择见[翻译器选择](../translator/selection-and-languages.md)；槽轮换见[API 通道与轮询策略](./slots-and-rotation.md)。
 
-## UI 操作
+## 在 API 管理中操作
 
 ### 打开 API 管理并切换页签 {#open-and-switch-tabs}
 
@@ -66,10 +66,10 @@ flowchart LR
 - 文字识别页签的特殊性：启用混合 OCR 后，主 OCR（`ocr.ocr`）和备用 OCR（`ocr.secondary_ocr`）可以分别是 `openai_ocr`/`gemini_ocr`，此时两套提供商组会同时显示在同一个页签里。
 - 未命中任何提供商时显示空状态提示（见上文三列表），而不是空白的崩溃态。
 
-## 依赖与冲突
+## 凭据、网络与错误
 
 - 页签切换不写配置；只有功能选择器和字段编辑会写入配置。不要期望“只看一眼页签”会改动任何设置。
 - 凭据字段是 `.env` 键，编辑会立即进入内存并按统一节奏合并落盘；字段组按当前选择器值重建，未选中的提供商组即使 `.env` 里有值也不会显示。
 - 同一功能的选择器与设置页共用配置键，二者是同一设置的两个编辑入口，不是两份独立配置。
 - Sakura 翻译没有 Key/Model/Base 通道槽，只有地址与词典路径；“轮询策略：”下拉框和“+ 添加 API 通道”只出现在 OpenAI/Gemini 组。
-- 冷却/不可用/恢复标记属于通道状态，见[故障、冷却与恢复](./failures-cooldown-and-recovery.md)；本页不展开轮询细节。
+- 冷却/不可用/恢复标记属于通道状态，见[故障、冷却与恢复](./failures-cooldown-and-recovery.md)；这里不展开轮询细节。

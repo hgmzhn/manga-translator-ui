@@ -9,11 +9,11 @@ lastUpdated: true
 
 # CLI 配置覆盖
 
-当你在命令行运行 `local` 模式，希望这次运行使用另一份配置文件，或临时调整几个参数而不编辑 `config/config.json` 时，使用本页介绍的三条途径：`--config` 选择配置文件，显式 CLI 参数覆盖配置文件中的 `cli.*` 值，`MT_*` 环境变量为 `web`/`ws`/`shared` 提供参数默认值。
+当你在命令行运行 `local` 模式，希望这次运行使用另一份配置文件，或临时调整几个参数而不编辑 `config/config.json` 时，使用这里介绍的三条途径：`--config` 选择配置文件，显式 CLI 参数覆盖配置文件中的 `cli.*` 值，`MT_*` 环境变量为 `web`/`ws`/`shared` 提供参数默认值。
 
-本页只说明“配置从哪里读、谁覆盖谁”。命令结构见[命令结构](./command-structure.md)，输入输出见[本地输入输出](./local-input-output.md)，子进程与内存参数见[子进程、内存与恢复](./subprocess-memory-and-recovery.md)，服务模式启动见[Web/WS/Shared 模式](./web-ws-and-shared-modes.md)。
+这里仅说明“配置从哪里读、谁覆盖谁”。命令结构见[命令结构](./command-structure.md)，输入输出见[本地输入输出](./local-input-output.md)，子进程与内存参数见[子进程、内存与恢复](./subprocess-memory-and-recovery.md)，服务模式启动见[Web/WS/Shared 模式](./web-ws-and-shared-modes.md)。
 
-## 功能边界 {#feature-boundary}
+## 命令范围 {#feature-boundary}
 
 - `--config` 只存在于 `local` 子命令；`web`、`ws`、`shared` 没有配置文件选项。
 - 显式 CLI 参数只会覆盖配置文件中的 `cli.*` 键；未传值时保留配置文件或默认值，帮助文本所称“覆盖配置文件”只有在显式传参时才成立。
@@ -69,7 +69,7 @@ CLI 覆盖发生在翻译启动前的 `cli_config` 组装阶段，不改变文�
 
 ### 子进程模式差异 {#subprocess-difference}
 
-启用 `--subprocess` 后，`run_local_mode` 只把显式传入的 `--use-gpu`、`--disable-onnx-gpu` 写入 `cli_config`，再把配置交给 `translate_with_subprocess`；`--format`、`--batch-size`、`--attempts` 的“覆盖配置文件”行为没有进入该分支。`-v`/`--overwrite` 在子进程分支作为函数参数直接传入。这是源码差异，尚未做运行验证；不启用 `--subprocess` 时，上述五个覆盖参数才按帮助语义生效。
+启用 `--subprocess` 后，`run_local_mode` 只把显式传入的 `--use-gpu`、`--disable-onnx-gpu` 写入 `cli_config`，再把配置交给 `translate_with_subprocess`；`--format`、`--batch-size`、`--attempts` 的“覆盖配置文件”行为没有进入该分支。`-v`/`--overwrite` 在子进程分支作为函数参数直接传入。这是源码差异，尚未在所有环境中确认；不启用 `--subprocess` 时，上述五个覆盖参数才按帮助语义生效。
 
 ## 配置文件详解 {#config-file-details}
 
@@ -91,7 +91,7 @@ CLI 覆盖发生在翻译启动前的 `cli_config` 组装阶段，不改变文�
 | `cli` | 命令行输出与批量 | `verbose`、`format`、`overwrite`、`batch_size`、`save_text` 等 |
 | `app` | 桌面应用状态 | `theme`、`ui_language`、`last_output_path` |
 
-除分组外，顶层还有 `filter_text_enabled`、`kernel_size`、`mask_dilation_offset`、`use_custom_api_params` 等跨阶段字段；完整字段以 `config/config-example.json` 为准，各组参数的界面说明见设置页与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+除分组外，顶层还有 `filter_text_enabled`、`kernel_size`、`mask_dilation_offset`、`use_custom_api_params` 等跨阶段字段；完整字段以 `config/config-example.json` 为准，各组参数的界面说明见设置页与[界面选项对照表](../reference/options-i18n-matrix.md)。
 
 ### 用户配置 config/config.json 如何覆盖模板 {#user-config-override}
 
@@ -181,9 +181,9 @@ flowchart LR
     end
 ```
 
-限制：该图来自静态源码；子进程分支中 `--format`/`--batch-size`/`--attempts` 是否真的不生效尚未运行验证，帮助文本与源码存在差异。
+限制：该图来自当前代码；子进程分支中 `--format`/`--batch-size`/`--attempts` 是否真的不生效尚未在所有环境中确认，帮助文本与源码存在差异。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 使用限制 {#dependencies-and-conflicts}
 
 - `--config` 只存在于 `local`；`web`、`ws`、`shared` 没有配置文件参数。
 - CLI 覆盖只影响本次运行，不回写 `config/config.json`；下次运行仍按文件内容加载。
@@ -191,4 +191,4 @@ flowchart LR
 - `--use-gpu`/`--disable-onnx-gpu` 在 `local` 未传时是 `None`（不覆盖），与 `web` 模式由环境变量提供默认值的语义不同。
 - `--attempts`（`local`）与 `--retry-attempts`（`web`）都接受 `-1` 表示无限重试，但分属不同子命令，默认值来源不同。
 - 配置文件中的 `cli.batch_concurrent` 在特殊工作流下会被强制关闭（见[工作流与文件模式](./workflow-and-file-modes.md)）；正式 `local` 解析器没有 `--concurrent` 参数，无法通过 CLI 覆盖它。
-- 本页不处理 API 密钥、`.env` 凭据解析和候选轮换；相关内容见 API 管理页与[翻译器选择](../desktop/translator/selection-and-languages.md)。
+- 这里不处理 API 密钥、`.env` 凭据解析和候选轮换；相关内容见 API 管理页与[翻译器选择](../desktop/translator/selection-and-languages.md)。

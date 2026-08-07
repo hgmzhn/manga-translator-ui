@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Web 登录、语言切换与会话
 
-浏览器访问 Web 工作区（`/`）或管理界面（`/admin`）时，前端会先检查浏览器里保存的会话令牌：没有令牌或令牌无效就跳转到登录页，有有效令牌则直接进入对应界面。本页说明登录页的首次设置、用户名密码登录、注册与强制改密，界面语言的选择方式，以及会话令牌的保存、刷新和失效行为。
+浏览器访问 Web 工作区（`/`）或管理界面（`/admin`）时，前端会先检查浏览器里保存的会话令牌：没有令牌或令牌无效就跳转到登录页，有有效令牌则直接进入对应界面。这里说明登录页的首次设置、用户名密码登录、注册与强制改密，界面语言的选择方式，以及会话令牌的保存、刷新和失效行为。
 
-账号与权限的完整管理见[账号、权限与 API 密钥](./accounts-permissions-and-api-keys.md)，Web 服务的启动与访问地址见[启动与访问](./launch-and-access.md)。本页只描述用户界面操作和会话机理，不展开 HTTP 接口契约；接口细节见开发者 HTTP API 的[鉴权与错误](../developer/http-api/authentication-and-errors.md)。
+账号与权限的完整管理见[账号、权限与 API 密钥](./accounts-permissions-and-api-keys.md)，Web 服务的启动与访问地址见[启动与访问](./launch-and-access.md)。这里主要说明用户界面操作和会话机理，不展开 HTTP 接口契约；接口细节见开发者 HTTP API 的[鉴权与错误](../developer/http-api/authentication-and-errors.md)。
 
-## 功能边界
+## 页面与接口范围
 
 - 登录页承担四种入口：首次创建管理员、用户名密码登录、注册（管理员开启时）、首次登录强制改密。
 - 语言切换覆盖主工作区和管理界面；登录页本身没有语言选择器，界面文案固定为简体中文。
@@ -41,7 +41,7 @@ lastUpdated: true
 2. 点击“创建管理员账户”。前端调用 `POST /auth/setup` 提交 `{username, password}`。
 3. 成功后服务端创建 `role=admin`、`group=admin` 的账户并立即创建会话；返回的令牌写入 `localStorage.session_token`，用户信息写入 `localStorage.user_info`，随后按安全规则跳转。
 
-源码中还保留了一个“创建默认管理员”（`admin`/`admin123`）的方法和日志提示，但当前初始化流程不会自动调用它，而是提示访问登录页创建第一个管理员；这条路径是否会在某些发行版本启用，属于运行验证项。
+源码中还保留了一个“创建默认管理员”（`admin`/`admin123`）的方法和日志提示，但当前初始化流程不会自动调用它，而是提示访问登录页创建第一个管理员；这条路径是否会在某些发行版本启用，可能因版本而异。
 
 ### 用户名密码登录 {#username-password-login}
 
@@ -69,13 +69,13 @@ lastUpdated: true
 
 - 输入新密码和确认新密码（至少 6 位），点击“确认修改”调用 `POST /auth/change-password`，请求头携带 `X-Session-Token`，请求体为 `{old_password, new_password}`。
 - 修改成功后服务端清除 `must_change_password` 标记，前端才把令牌写入 `localStorage` 并跳转。
-- 点击“稍后修改”会跳过改密直接保存令牌进入系统；服务端是否在后续请求中再次强制改密，属于运行验证项。
+- 点击“稍后修改”会跳过改密直接保存令牌进入系统；服务端是否在后续请求中再次强制改密，可能因版本而异。
 
 ### 安全返回与旧密码门 {#safe-return-and-legacy-gate}
 
 登录、注册和设置成功后的跳转只接受 `?redirect=/admin`，不会跟随任意 URL。管理界面在会话失效时会跳回 `/static/login.html?redirect=/admin`，因此登录成功后能直接回到管理面板。
 
-此外，主工作区还保留了旧版“访问密码”逻辑：前端先请求 `/user/access`，若管理员配置 `user_access.require_password` 为真且 `sessionStorage` 中没有 `user_logged_in` 标记，就弹出“请输入访问密码”覆盖层；输入密码提交到 `POST /user/login`（表单字段 `password`），成功后仅在 `sessionStorage` 写入标记。这是单密码门，与账号、角色和会话令牌无关；同一 IP 在 10 分钟内最多尝试 10 次，超限返回 `429`。该逻辑是否仍被部署配置启用，需运行验证。
+此外，主工作区还保留了旧版“访问密码”逻辑：前端先请求 `/user/access`，若管理员配置 `user_access.require_password` 为真且 `sessionStorage` 中没有 `user_logged_in` 标记，就弹出“请输入访问密码”覆盖层；输入密码提交到 `POST /user/login`（表单字段 `password`），成功后仅在 `sessionStorage` 写入标记。这是单密码门，与账号、角色和会话令牌无关；同一 IP 在 10 分钟内最多尝试 10 次，超限返回 `429`。该逻辑是否仍被部署配置启用，需在实际环境中确认。
 
 ## 语言切换 {#language-switching}
 
@@ -113,7 +113,7 @@ lastUpdated: true
 - 页面加载时：`checkAuthentication()` 先读 `localStorage.session_token`，没有就直接跳转登录页；有则请求 `GET /auth/check`，返回 `valid: false` 或请求失败就清除令牌并跳转登录页。
 - 每次受保护请求：服务端 `require_auth` 依赖读取 `X-Session-Token`，缺失、无效或过期返回 `401`，账号被停用也返回 `401`；校验成功会调用 `update_activity` 刷新最后活动时间。
 - 空闲超时：`session_timeout_minutes` 在 `main.py` 中固定为 `60`，即最后活动时间超过 60 分钟视为过期；后台每 5 分钟清理一次过期会话。
-- 持久化重启：会话写入 `sessions.json` 后，服务重启时会重新加载活动且未过期的会话，浏览器令牌在服务重启后仍可能有效（运行验证项）。
+- 持久化重启：会话写入 `sessions.json` 后，服务重启时会重新加载活动且未过期的会话，浏览器令牌在服务重启后仍可能有效（不同版本可能有差异）。
 
 ### 注销与失效 {#logout-and-invalidation}
 
@@ -155,19 +155,19 @@ flowchart TD
 
 ## 错误与限流的用户含义 {#errors-and-rate-limits}
 
-| 状态码 | 界面含义 | 触发情况（静态源码） | 用户可以做什么 |
+| 状态码 | 界面含义 | 触发情况（当前代码） | 用户可以做什么 |
 | --- | --- | --- | --- |
 | `401` | 未登录或会话失效 | 无令牌、令牌无效/过期、账号被停用 | 回到登录页重新登录；账号停用请联系管理员 |
 | `403` | 无权限 | 非管理员访问管理功能；注册被管理员关闭 | 联系管理员开通权限，或等注册开放 |
 | `429` | 尝试过于频繁 | 登录 15 次/IP/10 分钟、8 次/用户名/10 分钟；注册 5 次/IP/10 分钟；旧密码门 10 次/IP/10 分钟 | 等待响应头 `Retry-After` 指示的时间后再试 |
 
-## 依赖与冲突
+## 权限、安全与限制
 
 - Web 界面语言直接复用桌面版 `desktop_qt_ui/locales/*.json`，桌面新增或改名 key 会直接影响 Web 显示；`admin` 这样的缺失 key 会一直显示硬编码回退文案。
 - 会话令牌存在 `localStorage`，同一浏览器不同标签页共享；旧密码门使用 `sessionStorage.user_logged_in`，只对单个标签页生效、关闭标签页即失效。
 - 会话空闲超时 60 分钟与浏览器批量翻译请求的 30 分钟超时是两个独立参数：前者是服务端会话，后者是前端请求超时，不要混为一谈。
 - `/auth/*` 账号会话与 `/sessions` 会话管理接口（`session_security_service`）是两套实现：用户登录走前者，管理端会话列表/访问日志走后者。
 - 清除浏览器站点数据会同时删除 `session_token`、`locale`、`admin_locale`，效果等价于登出并恢复默认语言。
-- 本页不保存也不展示任何真实令牌、用户名、密码或会话内容；文档只描述字段名和流程。
+- 这里不保存也不展示任何真实令牌、用户名、密码或会话内容；文档只描述字段名和流程。
 
-> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 详见参考索引：[界面选项对照表](../reference/options-i18n-matrix.md)。

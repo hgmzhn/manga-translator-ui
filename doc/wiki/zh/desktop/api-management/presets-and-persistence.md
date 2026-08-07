@@ -11,15 +11,15 @@ lastUpdated: true
 
 当你想在多套服务配置之间快速切换整组 API 凭据，或者想弄清楚 API 管理页输入框里的 Key/Base/Model 到底在什么时候真正写入磁盘时，使用本页。它说明 `.env` 的读取与写入（`config_service.py`）、API 预设（`PresetService`）的新增、切换与删除、重新加载/恢复，以及导出、导入和截图/报告中的脱敏边界。Key/Base/Model 字段本身见[API 凭据、地址与模型](./credentials-addresses-models.md)，编号通道与轮询策略见[通道与轮询策略](./slots-and-rotation.md)。
 
-## 功能边界
+## 配置范围
 
 - `.env` 是桌面端唯一凭据持久化位置：API 管理页的 Key/Base/Model、编号通道、轮询策略都写入 `.env`；`config/config.json` 与 `config/config-example.json` 不保存 API 密钥。
 - API 预设是 `.env` 环境变量的整组快照，保存为 `presets/<名称>.json` 的扁平 JSON；`config.json` 的 `app.current_preset` 只记录当前选中的预设名（默认 `"默认"`），不复制预设内容。
 - 应用预设会整体替换 `.env`：只保留预设中包含的键，`.env` 里不在预设中的键会被删除；这不是增量合并。
 - 本页负责预设的新增、删除与切换，`.env` 的自动保存（250 ms 防抖 + 后台原子写盘）、重新加载与退出前刷新，以及导出/导入配置时的凭据脱敏边界。
-- 本页不负责：Key/Base/Model 输入与掩码（见[API 凭据、地址与模型](./credentials-addresses-models.md)）、编号通道增删与轮询策略（见[通道与轮询策略](./slots-and-rotation.md)）、失败冷却与恢复（见[失败、冷却与恢复](./failures-cooldown-and-recovery.md)）、连接测试与模型列表（见[连接测试与模型列表](./connection-tests-and-model-list.md)）、自定义请求参数里的“模型预设”（见[自定义请求参数](./custom-request-parameters.md)）。
+- 这里不负责：Key/Base/Model 输入与掩码（见[API 凭据、地址与模型](./credentials-addresses-models.md)）、编号通道增删与轮询策略（见[通道与轮询策略](./slots-and-rotation.md)）、失败冷却与恢复（见[失败、冷却与恢复](./failures-cooldown-and-recovery.md)）、连接测试与模型列表（见[连接测试与模型列表](./connection-tests-and-model-list.md)）、自定义请求参数里的“模型预设”（见[自定义请求参数](./custom-request-parameters.md)）。
 
-## UI 操作
+## 在 API 管理中操作
 
 ### 在 API 管理页管理预设
 
@@ -36,7 +36,7 @@ lastUpdated: true
 3. 导入配置把所选 JSON 深度合并进当前设置，保留当前 `app` 段，不写 `.env`；弹窗会提示 API 密钥等敏感信息已保留，现有 API 密钥不受影响。
 4. 导入成功后发送 `config_loaded` 信号，设置页重建并刷新说明面板；`.env` 中的 API 凭据不会被导入操作改写。
 
-## 运行机理
+## 请求如何处理
 
 ### 启动加载
 
@@ -70,16 +70,16 @@ flowchart LR
     EXIT["退出 shutdown\nflush_pending_writes"] --> WRITER
 ```
 
-上图只描述凭据与预设的写入生命周期。空键、本地空密钥占位、编号槽与轮询候选的解析见[API 凭据、地址与模型](./credentials-addresses-models.md)与[通道与轮询策略](./slots-and-rotation.md)；`config.json` 的 250 ms 防抖属于同一写线程，但本页不展开设置字段本身。
+上图只描述凭据与预设的写入生命周期。空键、本地空密钥占位、编号槽与轮询候选的解析见[API 凭据、地址与模型](./credentials-addresses-models.md)与[通道与轮询策略](./slots-and-rotation.md)；`config.json` 的 250 ms 防抖属于同一写线程，但这里不展开设置字段本身。
 
 ## 脱敏与文件安全
 
 - `.env` 与 `presets/*.json` 都保存真实凭据（明文），两者均被 `.gitignore` 忽略；不要把其中任何一行、整个文件或截图提交到仓库或公开报告。
 - 输入框对包含 `API_KEY`、`AUTH_KEY`、`TOKEN` 的键使用密码回显，可用眼睛图标切换“显示密钥/隐藏密钥”；显示密钥只是界面行为，不代表文件或日志安全。
 - “导出配置”排除 `app` 段与 `cli.verbose`，且 `config.json` 本身不含 API 密钥，因此导出产物不含凭据；“导入配置”不写 `.env`，现有 API 密钥保留。
-- 切换预设会把当前 `.env` 值保存进旧预设，因此用户创建或更新过的预设文件可能随时间包含真实密钥；本页不展示任何预设内容或真实密钥值。
+- 切换预设会把当前 `.env` 值保存进旧预设，因此用户创建或更新过的预设文件可能随时间包含真实密钥；这里不展示任何预设内容或真实密钥值。
 
-## 依赖与冲突
+## 凭据、网络与错误
 
 - `.env`、`presets/*.json`、`config/config.json`、`config/custom_api_params.json` 职责不同：分别是凭据/环境变量、预设快照、UI 设置、请求体参数。切换预设只影响 `.env`；导入配置只影响 `config.json`；`custom_api_params.json` 的“模型预设”与本页 API 预设无关（见[自定义请求参数](./custom-request-parameters.md)）。
 - 应用预设会整体替换 `.env`，因此手动编辑过 `.env` 或写入过预设不认识的键时，应用预设会删除这些键；不要在应用仍有待写操作时手改同一文件。

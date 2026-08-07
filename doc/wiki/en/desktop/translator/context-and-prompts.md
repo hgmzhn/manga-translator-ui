@@ -11,13 +11,13 @@ lastUpdated: true
 
 Use this page when adjacent pages share names, terminology, tone, or formatting. It documents the history pages attached to translation requests and the system, custom, and line-break prompts consumed by translators. It does not cover translator/API selection or candidate slots (see [Translator selection](./selection-and-languages.md) and the API-management pages), nor the complete prompt-file CRUD workflow (see [Prompt list, apply, and preview](../prompts/list-apply-and-preview.md)).
 
-## Feature boundary
+## When to use it
 
 - “Context Pages” limits the number of most recent non-empty history pages used for joint translation; it is not a text-region count or an API-slot count.
 - “Custom Prompt” is a translator resource path/file-edit action for a custom HQ prompt. This page never embeds private prompt text and does not describe AI OCR, AI colorizer, or AI renderer prompts as if they were one file.
 - HQ system, output-format, glossary-extraction, and AI line-break prompts are loaded separately and combined in a fixed order; this page follows their translation-path consumers.
 
-## UI operations
+## Set it in the desktop app
 
 ### Choose context and prompts in Settings
 
@@ -35,7 +35,7 @@ When the list is empty, a file is missing, or parsing fails, the preview shows t
 
 ## Parameters and options
 
-> For how each parameter's UI name, storage key, and default value map to each other, see [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For how each parameter's UI name, storage key, and default value map to each other, see [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 #### Context Pages {#cli-context-size}
 
@@ -53,7 +53,7 @@ When the list is empty, a file is missing, or parsing fails, the preview shows t
 - Default: `dict/prompt_example.yaml`.
 - Mechanism: the translation request parses this file, replaces the target-language placeholder with the full target-language name, and combines it with the system and output-format prompts. Parse failures are logged as warnings/errors and are not sent as valid prompts. With glossary extraction enabled, new terms from a successful response are written back to this file; longer prompts increase token and network cost.
 
-## Runtime behavior
+## How translation requests are handled
 
 ### How history pages become context messages {#history-to-messages}
 
@@ -95,7 +95,7 @@ flowchart LR
 
 The target-language placeholder in custom fields is replaced with the full target-language name. With AI line breaking, the request also carries `original_region_count` so final rendering checks can validate `[BR]` markers.
 
-## Dependencies and conflicts
+## Models, network, and quality
 
 - Context quality depends on prior OCR text and successful translations; history does not automatically correct bad OCR.
 - “Context Pages”, “Batch Size”, and “Concurrent Batch Processing” are different layers: the first controls history-page count, while the latter two control region batches and image orchestration.

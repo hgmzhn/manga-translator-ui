@@ -9,20 +9,20 @@ lastUpdated: true
 
 # Batch Actions and Order
 
-When you need to edit translated regions across the main file list, the “Batch actions” card decides what happens to each matched region: set properties, replace text, or apply rich-text styling. This page documents the three action blocks, how they are stored in a scheme file, and why they always run in the fixed order properties → text replacement → rich text.
+When you need to edit translated regions across the main file list, the “Batch actions” card decides what happens to each matched region: set properties, replace text, or apply rich-text styling. This guide documents the three action blocks, how they are stored in a scheme file, and why they always run in the fixed order properties → text replacement → rich text.
 
 Scheme creation, copy, rename, and delete are covered by [Scheme management](./schemes-crud.md); condition fields, operators, and the `all`/`any` logic by [Match conditions](./conditions.md); and preview, checkboxes, write-back, and restore by [Preview, apply, and restore](./preview-apply-restore.md). Rich-text style fields share the same style editor as rich-text rules; see [Rich-text styles and presets](../rich-text-rules/styles-and-presets.md).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - The “Batch actions” card contains exactly three action blocks: `set_fields` (Set region properties), `replace_text` (Replace matched text), and `rich_text` (Apply rich text style to matched text).
 - Actions always run in the fixed order `set_fields` → `replace_text` → `rich_text`; the UI offers no drag or move-up/move-down reordering. Entries inside the same block run top to bottom.
 - The reason for the fixed order: replacing text clears rich-text styling on the changed range, so styling must come last. Putting styling before replacement is wasted work.
 - “Set region properties” produces at most one action per scheme (all rows packed into one `fields` dict); “Replace matched text” and “Apply rich text style to matched text” produce one action per entry.
 - Conditions select which regions are in scope; each action uses its own pattern to locate a substring inside the region's translation. The two layers are separate, so there is no ambiguity about which condition's hit range is the target.
-- This page does not cover condition editing (see [Match conditions](./conditions.md)), preview/apply/restore (see [Preview, apply, and restore](./preview-apply-restore.md)), or every rich-text style field (see [Rich-text styles and presets](../rich-text-rules/styles-and-presets.md)).
+- This guide does not cover condition editing (see [Match conditions](./conditions.md)), preview/apply/restore (see [Preview, apply, and restore](./preview-apply-restore.md)), or every rich-text style field (see [Rich-text styles and presets](../rich-text-rules/styles-and-presets.md)).
 
-## UI operations {#ui-operations}
+## Use it in Batch Management {#ui-operations}
 
 ### Configure actions in Batch Management
 
@@ -79,7 +79,7 @@ flowchart LR
 
 “Styling on the hit range is cleared” refers to the rewrite of the matched substring, not a guarantee that the whole region loses styling: unchanged characters keep their styles through edit replay. The fixed order ensures that rich-text styling added last is not cleared again by a replacement action in the same scheme.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Conditions decide which regions enter the preview; actions only locate substrings inside those regions. Conditions do not participate in action execution.
 - Preview requires at least one enabled action block (`Enable at least one batch action first.`); a scheme with no actions cannot be previewed.

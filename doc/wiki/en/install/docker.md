@@ -9,7 +9,7 @@ lastUpdated: true
 
 # Docker Deployment
 
-This page explains how to build the current-source CPU or NVIDIA GPU Web service containers, map ports, retain configuration, and inspect service state. The Docker image supplies the Web UI and HTTP API, not the desktop Qt workspace; Web user operations and HTTP contracts belong to their respective pages. This page does not cover publishing image sources, concrete reverse-proxy configuration, or host-level backup policy.
+This guide explains how to build the current-source CPU or NVIDIA GPU Web service containers, map ports, retain configuration, and inspect service state. The Docker image supplies the Web UI and HTTP API, not the desktop Qt workspace; Web user operations and HTTP contracts belong to their respective pages. This guide does not cover publishing image sources, concrete reverse-proxy configuration, or host-level backup policy.
 
 ## Start with Compose
 
@@ -121,5 +121,3 @@ Compose paths are relative to `packaging/`:
 To retain server API configuration saved through the Web administration UI after container recreation, first create an empty `packaging/data/app.env`, then uncomment `./data/app.env:/app/.env` in Compose. Do not commit `.env`, account data, session tokens, API keys, user images, or prompts to Git; manage mounted directories with least privilege and a backup-retention policy.
 
 Runtime environment variables include `MT_WEB_HOST`, `MT_WEB_PORT`, `MT_USE_GPU`, `MT_DISABLE_ONNX_GPU`, `MT_MODELS_TTL`, `MT_RETRY_ATTEMPTS`, and `MT_VERBOSE`. They override Web startup behavior, backend selection, model caching, retry, or logging; their precise defaults come from `manga_translator/args.py` and Compose. This page records only the existence and minimum-length validation of `MANGA_TRANSLATOR_ADMIN_PASSWORD`, never its value.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

@@ -13,15 +13,15 @@ lastUpdated: true
 
 “仅修复”与“仅上色”“仅超分”都属于只处理图片的旁路模式，区别见[仅上色](./colorize-only.md)和[仅超分](./upscale-only.md)；与完整流水线的差异见[正常翻译流程](./normal.md)。九种工作流的整体边界见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)，汇总表见[工作流矩阵](../reference/workflow-matrix.md)。蒙版与修复参数本身见[蒙版与图像修复](../desktop/settings/mask-and-inpainting.md)。
 
-## 功能边界
+## 什么时候用
 
 - 输入：主输入图片（与正常翻译相同的文件发现规则），不需要工程 JSON、TXT 或配对图等任何工作流副文件前置。
 - 执行阶段：条件上色（`colorizer.colorizer != none` 时）→ 条件超分（`upscale.upscale_ratio` 有值时）→ 检测 → 跳过 OCR、用字面量 `TEXT` 填充检测行 → 文本行合并 → 蒙版细化 → 修复。
 - 跳过阶段：OCR、翻译、渲染和文本排版；分支结束前把 `text_regions` 清空，因此结果不会以译文渲染。
-- 输出文件：主输出图（修复后的无字图；无文字行、无合并区域或选择 AI 渲染器时是未修复的工作图）；条件上色或超分启用时还会写编辑器底图；`save_text` 开启时写空 `regions` 的工程 JSON（静态源码结论，运行待验证）。
+- 输出文件：主输出图（修复后的无字图；无文字行、无合并区域或选择 AI 渲染器时是未修复的工作图）；条件上色或超分启用时还会写编辑器底图；`save_text` 开启时写空 `regions` 的工程 JSON（根据当前实现，运行待验证）。
 - 工作流字段：下拉框第 7 项，运行时写入 `cli.inpaint_only=true`；GUI 切换保证八个工作流布尔字段互斥。
 
-## UI 操作
+## 运行这个流程
 
 ### 选择仅修复工作流
 
@@ -33,11 +33,11 @@ lastUpdated: true
 
 “输出目录:”决定主输出图的位置，命名规则与正常翻译相同：正常输出目录下保留输入文件夹名与相对层级，`save_to_source_dir=true` 时改为原图同级 `manga_translator_work/result/`，`cli.format` 为空或 `none` 时保留原扩展名。
 
-## 运行机理
+## 处理顺序
 
 ### 处理阶段与输出
 
-仅修复复用正常翻译的预处理前半段，然后在 `_translate_until_translation` 的“仅修复”分支中收尾。下面的 Mermaid 展示源码确认的阶段顺序、跳过分支和输出；它与正常翻译共享条件上色、条件超分和检测，但 OCR 与翻译被跳过。
+仅修复复用正常翻译的预处理前半段，然后在 `_translate_until_translation` 的“仅修复”分支中收尾。下面的 Mermaid 展示阶段顺序、跳过分支和输出；它与正常翻译共享条件上色、条件超分和检测，但 OCR 与翻译被跳过。
 
 ```mermaid
 flowchart LR
@@ -81,16 +81,16 @@ flowchart LR
 - 手工叠加多个工作流字段不是受支持组合；GUI 切换时八个字段互斥，后端 `translate_batch()` 只在无任何不兼容模式时才构建并发流水线。
 - 与正常翻译一样，预处理阶段仍会按 `colorizer.colorizer` 与 `upscale.upscale_ratio` 执行条件上色与超分；这些值不是本工作流的强制开关。
 
-## 依赖与冲突
+## 输入、输出与限制
 
 - 输入依赖：主输入必须是文件服务支持的图片；本模式不要求工程 JSON、TXT 或配对图等副文件。
 - `cli.overwrite=false`：GUI 开始前检查主输出图是否已存在（与其他“只写主图”模式共用普通翻译的检查分支）。
-- `cli.save_text`：默认 `true`。批量保存阶段在 `save_text` 开启时仍会写入空 `regions` 的工程 JSON（含蒙版与上色/超分信息），这是静态源码结论，实际 GUI 文件行为待运行验证。
-- AI 渲染器：选中 OpenAI/Gemini 渲染器时，本模式不执行真正的修复，输出未修复的工作图；这与“仅修复”名称存在差异，属于源码确认的行为。
+- `cli.save_text`：默认 `true`。批量保存阶段在 `save_text` 开启时仍会写入空 `regions` 的工程 JSON（含蒙版与上色/超分信息），这是根据当前实现，实际 GUI 文件行为可能因版本而异。
+- AI 渲染器：选中 OpenAI/Gemini 渲染器时，本模式不执行真正的修复，输出未修复的工作图；这与“仅修复”名称存在差异，属于行为。
 - 检测、蒙版细化和修复按所选参数产生模型与显存成本；OCR 和翻译被跳过，不产生对应成本。
 - 主输出目录、`save_to_source_dir`、`cli.format` 只影响主输出图；本模式不写原文/译文 TXT，因此导出模板文件不影响本工作流。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 - 其它工作流：[正常翻译流程](./normal.md) · [导出原文](./export-original.md) · [导出翻译](./export-translation.md) · [仅翻译（JSON）](./translate-json-only.md) · [导入翻译并渲染](./import-translation-and-render.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [替换翻译](./replace-translation.md)
 - 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)

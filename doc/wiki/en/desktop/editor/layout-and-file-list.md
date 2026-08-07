@@ -9,18 +9,18 @@ lastUpdated: true
 
 # Editor Layout and File List
 
-When you need to adjust translation results page by page, enter the editor view from the left navigation. The editor opens exactly one "current page" at a time, and the file list on the right is the page switcher: adding images or folders, clicking a row to switch pages, or deleting a row changes the canvas content directly. This page covers how to enter the editor, the four layout zones, and adding/removing, selecting, status, and switching of the file/page list.
+When you need to adjust translation results page by page, enter the editor view from the left navigation. The editor opens exactly one "current page" at a time, and the file list on the right is the page switcher: adding images or folders, clicking a row to switch pages, or deleting a row changes the canvas content directly. This guide covers how to enter the editor, the four layout zones, and adding/removing, selecting, status, and switching of the file/page list.
 
 Top-bar menus and persistent controls are covered in [Toolbar and Menus](./toolbar-and-menus.md), canvas tools and selection in [Canvas Tools and Selection](./canvas-tools-and-selection.md), display modes and arrangement in [Display, Compare, and Arrange](./display-compare-and-arrange.md), the left region list and text editing in [Region List and Text Editing](./region-list-and-text-editing.md), import/export and write-back in [Import, Export, and Write-back](./import-export-and-writeback.md), and shortcuts in [Shortcuts](./shortcuts.md). The relationship between the main "Translation Interface" file list and the editor file list is covered in [File List and Input](../translation/file-list-and-input.md).
 
-## Feature boundary {#feature-boundary}
+## What you can do {#feature-boundary}
 
-- This page covers the editor view's entry points, layout zones, and the right file/page list: add files, add folder, clear list, drag-and-drop, tree expansion, per-row removal, translated/untranslated status, current-page selection, and A/D page switching.
+- This guide covers the editor view's entry points, layout zones, and the right file/page list: add files, add folder, clear list, drag-and-drop, tree expansion, per-row removal, translated/untranslated status, current-page selection, and A/D page switching.
 - It does not cover the three top-bar dropdown menus, persistent controls, or the five editor toggles and their persistence (see [Toolbar and Menus](./toolbar-and-menus.md)); canvas zoom, tools, and selection (see [Canvas Tools and Selection](./canvas-tools-and-selection.md)); or left region-list content editing (see [Region List and Text Editing](./region-list-and-text-editing.md)).
 - The editor file list shares the same background catalog service as the main-page list, but at runtime they are two independent lists: removing a single file on the main page does not sync to the editor, and only a full "Clear List" on the main page clears the editor.
 - Only one image is edited at a time; every image row in the file list is a "page", and clicking a row or pressing a shortcut loads that row into the canvas immediately.
 
-## UI operations {#ui-operations}
+## Use it in the editor {#ui-operations}
 
 ### Enter the editor view {#enter-editor}
 
@@ -57,7 +57,7 @@ The editor view is a vertical stack of the top toolbar and a horizontal splitter
   - With "Auto Export on Image Switch" enabled (default), the current page is exported automatically first; if the export is rejected, the switch is aborted;
   - With it disabled, a three-button "未保存的编辑" dialog offers "导出图片" (export and continue switching after the export finishes), "不保存" (discard and switch), or "取消" (stay on the current page). These three button labels are hard-coded Chinese strings and do not follow the UI language.
 
-## Runtime behavior {#runtime-behavior}
+## How changes are saved {#runtime-behavior}
 
 ### File snapshot and background scan {#snapshot-and-scan}
 
@@ -93,7 +93,7 @@ When files are added while the list is empty, the `load_first` flag loads the fi
 - "Clear List": cancels the background scan, clears source paths and exclusion sets, clears the canvas state, and releases the image cache.
 - When the main "Translation Interface" clears its file list, the main window calls the editor's `clear_list()` in sync; a single-file removal on the main page does not sync to the editor's file list, but if the removed file (or the folder containing it) is the currently loaded image, the editor clears the canvas state.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - The editor file list is independent of the main-page list, so after a metadata refresh the Translated/Untranslated status and the main-page thumbnail list may briefly disagree for the same file; they agree again after the snapshot is rebuilt.
 - Auto-export on switch depends on the export queue: a rejected auto-export aborts the switch, and choosing "导出图片" waits for the export to finish. Export details are in [Import, Export, and Write-back](./import-export-and-writeback.md).
@@ -101,5 +101,3 @@ When files are added while the list is empty, the `load_first` flag loads the fi
 - Untranslated images load normally for editing and only log a warning; after another translation run generates the JSON, the row status becomes "Translated".
 - The three list states (empty, loading, error) show the placeholder hint, the loading text, and a red error message respectively; a language switch refreshes only locale-backed texts such as Translated/Untranslated, while the placeholder and loading hints do not refresh because their keys are missing.
 - The left panel defaults to "Property Editor"; switching to the "Editable Translation" tab first flushes pending region edits so the list rows and canvas data do not disagree.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

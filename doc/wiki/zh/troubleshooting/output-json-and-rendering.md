@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 输出、JSON 与渲染排障
 
-当任务结束后看不到输出图片、工程 JSON 读不进去、或最终图上没有译文或译文显示异常时，先在本页按“现象 → 日志 → 原因 → 处理”定位，再去对应功能页看参数与操作。本页与[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)、各[工作流](../workflows/normal.md)页、[编辑器导入导出与写回](../desktop/editor/import-export-and-writeback.md)和[排版与渲染](../desktop/settings/typesetting-and-rendering.md)互相链接，不重复正文：工作流输入输出、编辑器写回机制和渲染参数定义分别以对应页面为准。
+当任务结束后看不到输出图片、工程 JSON 读不进去、或最终图上没有译文或译文显示异常时，先在下面按“现象 → 日志 → 原因 → 处理”定位，再去对应功能页看参数与操作。本页与[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)、各[工作流](../workflows/normal.md)页、[编辑器导入导出与写回](../desktop/editor/import-export-and-writeback.md)和[排版与渲染](../desktop/settings/typesetting-and-rendering.md)互相链接，不重复正文：工作流输入输出、编辑器写回机制和渲染参数定义分别以对应页面为准。
 
-## 功能边界 {#feature-boundary}
+## 先确认问题 {#feature-boundary}
 
 - 本页负责“现象 → 原因 → 处理”的排障：主输出图（格式、位置、质量、覆盖）、`*_translations.json` 工程 JSON（查找、解析、蒙版、回写、备份）和文本渲染（本地 Qt、AI 渲染、字体、断句、布局）。
 - 参数默认值、选项和 UI 操作属于设置页：[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md) 记录 `format`、`save_quality`、`overwrite`、`save_text` 等，[排版与渲染](../desktop/settings/typesetting-and-rendering.md) 记录 `render.*` 全部参数。
@@ -256,7 +256,7 @@ flowchart TD
     B -->|none| I["不绘制译文：预期行为"]
 ```
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 相关设置与限制 {#dependencies-and-conflicts}
 
 - 输出目录、`save_to_source_dir`、`format`、`overwrite` 与工作流类型相互影响；导出/JSON-only/替换翻译等模式不写主图。
 - 关闭覆盖会同时影响图片、TXT 与 JSON 的跳过；`save_text=false` 时普通工作流不写 JSON，但仅翻译 JSON 仍无条件回写。

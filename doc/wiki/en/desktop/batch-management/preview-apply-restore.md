@@ -11,9 +11,9 @@ lastUpdated: true
 
 The Batch Management page works on the translated files in the main file list. You first run “Preview matches”, review every region that would be changed in the table, tick the rows to write back, and finally use “Apply to selected”. Before writing, the app copies each JSON to a `.bak` by default, so most mistakes can be undone with “Restore from backup”.
 
-This page covers preview, selection, write-back, backup, and restore only. Scheme create/rename/duplicate/delete and autosave are in [Batch scheme management](./schemes-crud.md), condition fields and the `all`/`any` logic are in [Match conditions](./conditions.md), and the three action types with their fixed order are in [Actions and order](./actions-and-order.md). The editor's own save and write-back is documented in [Editor import, export, and write-back](../editor/import-export-and-writeback.md).
+This guide covers preview, selection, write-back, backup, and restore only. Scheme create/rename/duplicate/delete and autosave are in [Batch scheme management](./schemes-crud.md), condition fields and the `all`/`any` logic are in [Match conditions](./conditions.md), and the three action types with their fixed order are in [Actions and order](./actions-and-order.md). The editor's own save and write-back is documented in [Editor import, export, and write-back](../editor/import-export-and-writeback.md).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - Batch write-back targets per-image JSON (`<stem>_translations.json`), not final images; Batch Management never enters the rendering pipeline.
 - Preview is mandatory: there is no “apply without previewing” button.
@@ -22,7 +22,7 @@ This page covers preview, selection, write-back, backup, and restore only. Schem
 - Restore can only roll a file back to its sibling `.bak`; the `.bak` is consumed in the process and no longer exists afterwards.
 - The “Match conditions” card and the “Batch actions” card live on the same panel, but their details are covered by [Match conditions](./conditions.md) and [Actions and order](./actions-and-order.md) respectively.
 
-## UI operations {#ui-operations}
+## Use it in Batch Management {#ui-operations}
 
 ### Check the scope and preview matches {#preview-matches}
 
@@ -82,7 +82,7 @@ flowchart LR
 
 Unchecking only affects the next click on “Apply to selected”: it does not delete leftover `.bak` files, and it does not stop “Restore from backup” from using backups that already exist.
 
-## Runtime behavior {#runtime-behavior}
+## How a scheme is applied {#runtime-behavior}
 
 ### Preview scanning {#scan-mechanism}
 
@@ -156,7 +156,7 @@ Preview, apply, and restore run in the background so the UI stays responsive; yo
 
 The editor keeps regions in memory and does not listen for file changes; when you switch images its auto-export overwrites the on-disk JSON from the stale in-memory copy. So when the apply/restore target includes the image currently open in the editor, the panel appends the notice “The editor currently has '{name}' open.” to the confirmation, and after success it calls the editor reload entry point to load that image again, so the in-memory copy cannot wipe out the changes just written.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - The scope comes entirely from the main file list snapshot: JSON files outside the file list are never previewed, applied, or restored; the panel does not scan the disk itself.
 - Preview again before applying: changing a condition or action invalidates the old preview.

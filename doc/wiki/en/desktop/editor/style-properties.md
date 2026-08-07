@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Editor Style Properties
 
-Use the “Style Settings” section of the property panel whenever you need to unify or fine-tune how text regions look: font, size, text color, stroke, line spacing, letter spacing, rotation angle, alignment, and layout direction. This page covers region-level base styles only: each field change is emitted as one style patch that applies to all currently selected regions. Per-segment rich-text styles (bold, glow, ruby, TCY, and so on) are covered in [Floating rich text editor](./floating-rich-text.md), text content plus OCR/translation in [Region list and text editing](./region-list-and-text-editing.md), mask/brush/clone-stamp tools in [Canvas tools and selection](./canvas-tools-and-selection.md), and style persistence through project JSON in [Import, export, and writeback](./import-export-and-writeback.md).
+Use the “Style Settings” section of the property panel whenever you need to unify or fine-tune how text regions look: font, size, text color, stroke, line spacing, letter spacing, rotation angle, alignment, and layout direction. This guide covers region-level base styles only: each field change is emitted as one style patch that applies to all currently selected regions. Per-segment rich-text styles (bold, glow, ruby, TCY, and so on) are covered in [Floating rich text editor](./floating-rich-text.md), text content plus OCR/translation in [Region list and text editing](./region-list-and-text-editing.md), mask/brush/clone-stamp tools in [Canvas tools and selection](./canvas-tools-and-selection.md), and style persistence through project JSON in [Import, export, and writeback](./import-export-and-writeback.md).
 
-## Feature boundary
+## What you can do
 
-- “Style Settings” is one of the three property-panel sections; the other two are “Image Editing” and “Text Content”. This page covers the style section only.
+- “Style Settings” is one of the three property-panel sections; the other two are “Image Editing” and “Text Content”. This guide covers the style section only.
 - Style fields are per-region data fields (`font_family`, `font_size`, `bg_colors`, and so on), not global rendering-config keys. The global rendering group in Settings participates only as a fallback when a region has no corresponding field.
 - With a single selection, the text, style, and action sections are enabled; with a multi-selection the text section is disabled while style and actions stay enabled, and changing any style field applies to all selected regions. With no selection all three sections are disabled. Multi-selection has no “mixed value” display; the style controls keep the value of the last single selection.
 - Rich-text “local styles” (bold, italic, underline, text color, glow, outer stroke, TCY, ruby, local rotation, and so on) apply to one contiguous text segment and never write these region fields.
 - A style preset saves only a subset of the region-level style fields; font size and angle are not saved.
 
-## UI operations
+## Use it in the editor
 
 ### Open the property panel and select regions
 
@@ -49,7 +49,7 @@ Hold Ctrl and scroll the wheel over the canvas to adjust the font size of all se
 
 ## Parameters and options
 
-See the [Options and I18n matrix](../../reference/options-i18n-matrix.md) for how each parameter's UI name, stored key, and default value map to each other.
+See the [UI Options Reference](../../reference/options-i18n-matrix.md) for how each parameter's UI name, stored key, and default value map to each other.
 
 #### Font {#font-family}
 
@@ -117,7 +117,7 @@ flowchart LR
     VT --> R
 ```
 
-## Runtime behavior
+## How changes are saved
 
 Every style-control change sends the “selected region indices + field patch” through `style_patch_requested` to the controller. The controller first normalizes the fields (integer font size, color-to-RGB conversion, alignment/direction label lookup, angle geometry rotation), then writes all selected regions with a single `MultiRegionUpdateCommand`, so one change corresponds to one undoable operation. The region data is then resolved by the render-parameter service for both canvas preview and final rendering.
 
@@ -144,14 +144,12 @@ flowchart LR
 
 Limitation note: the stroke color is written to `bg_colors` rather than to a same-named region field; font size, font family, line spacing, letter spacing, direction, and stroke width belong to `_FONT_AFFECTING_FIELDS` and resync the white frame, while color, alignment, and angle do not.
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - A style preset saves font, color, stroke, spacing, alignment, and direction, but not font size or angle; applying a preset never changes those two fields.
 - “Copy Region / Paste Style” copies only `font_family`, `font_size`, `font_color`, `alignment`, `direction`, `line_spacing`, and `letter_spacing`; stroke color, stroke width, and angle are not copied. The right-click “🎨 粘贴样式” item is a hard-coded Chinese literal in the source, is not i18n'ed, and does not switch with the UI language.
 - Multi-selection style edits apply the same patch to all selected regions and are recorded as one undo command; multi-selection has no “mixed value” display.
 - Ctrl+wheel font-size adjustment on the canvas is a separate entry point that shares the `font_size` field with the panel spin box; Shift+wheel brush-size adjustment belongs to the “Image Editing” section.
 - `line_spacing`/`letter_spacing` fall back to the rendering config (otherwise `1.0`) only when the region value is missing; an explicit value overrides the global one.
-- The stroke color picker uses the `saved_stroke_colors` config key, but `AppSection` only defines `saved_colors`; cross-restart persistence needs runtime verification.
+- The stroke color picker uses the `saved_stroke_colors` config key, but `AppSection` only defines `saved_colors`; cross-restart persistence may vary by release.
 - Style fields affect only the editor preview and final rendering; they never change the OCR, translation, or mask stages.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

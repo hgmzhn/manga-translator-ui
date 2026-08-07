@@ -11,15 +11,15 @@ lastUpdated: true
 
 CLI 的 `local` 模式没有“工作流”命令行开关；九个工作流通过配置文件 `cli` 节的布尔字段表达，与桌面“翻译流程模式：”下拉框写入的是同一组字段。本页解释这些字段如何进入 `MangaTranslator`、每个字段改变哪些处理阶段和输出文件，以及每张图片的主输出图与 `manga_translator_work` 副文件（工程 JSON、原文/译文模板导出、修复图、编辑器底图、替换翻译配对图）的读写规则。
 
-本页不重复 `local` 的输入收集与输出目录判定（见[本地输入与输出](./local-input-output.md)），不解释 `--config` 与显式参数覆盖（见[配置覆盖](./configuration-overrides.md)），也不逐个展开九种工作流的完整 UI 操作（见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)与 `workflows/` 各页，汇总表见[工作流矩阵](../reference/workflow-matrix.md)）。四个顶层子命令的结构见[命令结构](./command-structure.md)。
+这里不重复 `local` 的输入收集与输出目录判定（见[本地输入与输出](./local-input-output.md)），不解释 `--config` 与显式参数覆盖（见[配置覆盖](./configuration-overrides.md)），也不逐个展开九种工作流的完整 UI 操作（见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)与 `workflows/` 各页，汇总表见[工作流矩阵](../reference/workflow-matrix.md)）。四个顶层子命令的结构见[命令结构](./command-structure.md)。
 
-## 功能边界 {#feature-boundary}
+## 命令范围 {#feature-boundary}
 
 - CLI 正式 `local` 子命令的选项里没有工作流开关；工作流字段来自配置文件的 `cli` 节（Qt `CliSettings` 或发行配置示例），`MangaTranslator` 从合并后的参数字典读取它们。
 - 九个工作流字段分别是 `cli.load_text`、`cli.translate_json_only`、`cli.template`、`cli.generate_and_export`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`、`cli.replace_translation`，以及配合 `cli.template` 使用的 `cli.save_text`。
 - 主输出图写入 `-o/--output` 解析出的输出目录（CLI 的 `save_info` 不携带 `save_to_source_dir`）；工程 JSON、原文/译文模板文件、修复图、编辑器底图和替换翻译配对图始终写入原图所在目录旁的 `manga_translator_work/`，与 `-o` 无关。
 - 子进程模式（`--subprocess`）消费相同的 `cli` 工作流字段；内存管理和断点恢复见[子进程内存与恢复](./subprocess-memory-and-recovery.md)。
-- 每个字段的具体分支、跳过阶段和文件输出以 `workflows/` 各页为准；本页只写 CLI 视角的分发顺序与文件读写边界。
+- 每个字段的具体分支、跳过阶段和文件输出以 `workflows/` 各页为准；这里仅写 CLI 视角的分发顺序与文件读写边界。
 
 ## 工作流参数 {#workflow-parameters}
 
@@ -97,7 +97,7 @@ flowchart TD
 
 `replace_translation` 需要一个已翻译图作为“译文来源”：`find_translated_image()` 固定查找 `manga_translator_work/translated_images/`，先匹配同扩展名，再遍历受支持扩展名；译文 JSON 也在该目录内或旧位置查找。找到后用 OCR 得到配对区域，按 `render.enable_template_alignment` 选择“直接粘贴”或“重新渲染”两条分支；详见[替换翻译](../workflows/replace-translation.md)。
 
-## 运行机理 {#runtime-behavior}
+## 命令如何执行 {#runtime-behavior}
 
 ### 工作流分发顺序 {#workflow-dispatch}
 
@@ -108,7 +108,7 @@ flowchart TD
 - `template+save_text` 强制 `batch_size=1`（逐张落盘）；其余工作流按 `cli.batch_size` 分批。
 - 仅上色/仅超分/仅修复在常规预处理内短路：`colorize_only` 返回上色结果、`upscale_only` 返回超分结果、`inpaint_only` 在蒙版细化后返回修复图，全部跳过翻译与渲染阶段。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 使用限制 {#dependencies-and-conflicts}
 
 - 工作流字段与 `batch_concurrent` 冲突：八个特殊分支（含 `template and save_text`）都会强制禁用并发流水线。
 - `cli.format` 只影响主输出图扩展名，不影响工程 JSON（固定 `.json`）与模板导出扩展名（由模板 `output_format` 决定）。

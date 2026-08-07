@@ -9,16 +9,16 @@ lastUpdated: true
 
 # AI OCR 提示词
 
-当“OCR 模型”（`OCR Model`）选择 `openai_ocr` 或 `gemini_ocr` 时，AI OCR 会把一段提示词连同每个文本框截图一起发送给视觉模型。本页说明这段提示词的配置键、`dict/` 下的提示词文件、加载与注入方式、进入 AI OCR 请求的路径，以及与自定义 HQ 翻译提示词的边界。OCR 引擎整体选择、凭据和候选槽见[OCR、过滤与文本行合并](../settings/ocr-filter-and-merge.md)与[API 功能选择器](../api-management/feature-selectors.md)；提示词文件的通用列表与应用见[提示词列表、应用与预览](./list-apply-and-preview.md)。
+当“OCR 模型”（`OCR Model`）选择 `openai_ocr` 或 `gemini_ocr` 时，AI OCR 会把一段提示词连同每个文本框截图一起发送给视觉模型。这里说明这段提示词的配置键、`dict/` 下的提示词文件、加载与注入方式、进入 AI OCR 请求的路径，以及与自定义 HQ 翻译提示词的边界。OCR 引擎整体选择、凭据和候选槽见[OCR、过滤与文本行合并](../settings/ocr-filter-and-merge.md)与[API 功能选择器](../api-management/feature-selectors.md)；提示词文件的通用列表与应用见[提示词列表、应用与预览](./list-apply-and-preview.md)。
 
-## 功能边界 {#feature-boundary}
+## 适用场景 {#feature-boundary}
 
 - `ocr.ai_ocr_prompt_path` 是设置页“AI OCR 提示词”行的固定提示词文件编辑动作，绑定后端 `dict/ai_ocr_prompt.yaml`（缺失时自动创建，旧版 `dict/ai_ocr_prompt.json` 会迁移），本身不写入 `config/config.json`。
 - `ocr.ai_ocr_custom_prompt` 是可直接填写的备用提示词文本；`ocr.ai_ocr_concurrency` 限制同一张图内同时发出的 AI OCR 请求数。
 - `dict/ai_ocr_prompt.yaml` 只被 `openai_ocr` / `gemini_ocr` 消费；`translator.high_quality_prompt_path` 是 HQ 翻译的自定义提示词，两者文件和配置键不能互换。
-- 本页不复制真实提示词正文，也不展示 API Key；凭据、地址和模型见[API 凭据、地址与模型](../api-management/credentials-addresses-models.md)。
+- 这里不复制真实提示词正文，也不展示 API Key；凭据、地址和模型见[API 凭据、地址与模型](../api-management/credentials-addresses-models.md)。
 
-## UI 操作 {#ui-operations}
+## 在提示词管理中操作 {#ui-operations}
 
 ### 在设置页的“文字识别”分组配置 {#configure-in-settings}
 
@@ -38,7 +38,7 @@ lastUpdated: true
 
 ## 参数与选项 {#parameters-and-options}
 
-> 本页各参数的界面名称、存储键与默认值等对照，见参考页[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各参数的界面名称、存储键与默认值等对照，见参考页[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 #### AI OCR 提示词 {#ocr-ai-ocr-prompt-path}
 
@@ -65,7 +65,7 @@ flowchart LR
 ```
 
 并发数只限制同一张图内 AI OCR API 请求的同时数量；候选槽轮换仍按每个请求独立进行，不因并发设置改变。
-## 运行机理 {#runtime-behavior}
+## 提示词如何加载 {#runtime-behavior}
 
 ### 提示词文件加载与优先级 {#prompt-loading}
 
@@ -89,7 +89,7 @@ flowchart LR
 
 提示词以 `user` 消息的文本部分与文本框 PNG 图片一起发送：OpenAI 使用 `messages[0].content` 的 `text` + `image_url`（base64 data URL）；Gemini 使用 `contents[0].parts` 的 `text` + `inlineData`。启用自定义 API 参数时，`config/custom_api_params.json` 的 `ocr` 段（默认 `temperature: 0.0`）会合并进请求体；凭据与候选端点由 `resolve_runtime_api_config(feature="ocr", ...)` 从 `.env` / API 管理槽解析。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - `ocr.ocr` 必须是 `openai_ocr` 或 `gemini_ocr`，否则 AI OCR 提示词不被消费；离线 OCR（48px、PaddleOCR 等）使用各自模型提示，与本页无关。
 - 提示词文件只被 AI OCR 消费；`translator.high_quality_prompt_path` 是 HQ 翻译的自定义提示词，见[上下文与提示词](../translator/context-and-prompts.md)，两者文件不能互换。

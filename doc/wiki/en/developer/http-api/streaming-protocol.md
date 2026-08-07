@@ -9,11 +9,11 @@ lastUpdated: true
 
 # HTTP Streaming Protocol
 
-In addition to the plain endpoints that return the complete result, the translation endpoints provide `*_stream` variants: the server writes the "queued → processing → transforming → sending" process as a sequence of binary frames in real time, so the client can display progress while waiting for the final result. This page describes only that transport layer (frame format, progress events, result payloads, cancellation, and client parsing); request/response models and authentication are covered in [Translation endpoints](./translation-endpoints.md) and [Authentication and errors](./authentication-and-errors.md), and the Web user interface flow in [Upload, configuration, and translation](../../web/upload-config-and-translate.md).
+In addition to the plain endpoints that return the complete result, the translation endpoints provide `*_stream` variants: the server writes the "queued → processing → transforming → sending" process as a sequence of binary frames in real time, so the client can display progress while waiting for the final result. This guide describes only that transport layer (frame format, progress events, result payloads, cancellation, and client parsing); request/response models and authentication are covered in [Translation endpoints](./translation-endpoints.md) and [Authentication and errors](./authentication-and-errors.md), and the Web user interface flow in [Upload, configuration, and translation](../../web/upload-config-and-translate.md).
 
-## Feature boundary {#feature-boundary}
+## Endpoint scope {#feature-boundary}
 
-- This page covers the binary stream produced by the `POST /translate/*/stream` endpoints and how `processStream()` in the Web frontend `static/script.js` parses it.
+- This guide covers the binary stream produced by the `POST /translate/*/stream` endpoints and how `processStream()` in the Web frontend `static/script.js` parses it.
 - Batch translation `/translate/batch/images` returns a ZIP binary stream instead of the per-frame protocol; it is documented only in [Batch, export, and import process](./batch-export-import-process.md). This page mentions its difference only at the boundary.
 - The internal shared/ws executors (`mode/share.py`, `streaming.py`, `sent_data_internal.py`, `myqueue.py`) reuse the same "1-byte status + 4-byte length" frame header but are an internal protocol; see [Internal shared and websocket](../internal-shared-and-websocket.md). They are not part of the developer HTTP API.
 - The progress-frame `message` texts are hardcoded server-side (Chinese) and displayed verbatim by the browser without frontend i18n translation; this is part of the runtime contract, not a documentation omission.
@@ -124,7 +124,7 @@ The status-0 payload depends on the transform function bound to the endpoint:
 
 Top-level `TranslationResponse` JSON fields: `regions` (rendering and translation fields per text region), `original_width`, `original_height`, plus optional `upscale_ratio`, `upscaler`, `colorizer`, `mask_raw` (base64 PNG of the refined mask) and `mask_is_refined`.
 
-Note: the endpoint comment for `/with-form/image/stream/web` claims a "placeholder optimization" for faster responses, but in the current source `_web_frontend_optimized` is only written into the config and never read by any consumer, and `use_placeholder` appears only in the legacy `mode/share.py`. In the current Web path this endpoint should return the full PNG. This requires runtime verification.
+Note: the endpoint comment for `/with-form/image/stream/web` claims a "placeholder optimization" for faster responses, but in the current source `_web_frontend_optimized` is only written into the config and never read by any consumer, and `use_placeholder` appears only in the legacy `mode/share.py`. In the current Web path this endpoint should return the full PNG. This may vary by release.
 
 ## Cancellation and abnormal termination {#cancellation}
 
@@ -168,7 +168,7 @@ The frontend makes no assumption about frame boundaries: one `read()` may contai
 - Single-file normal translation and colorize/upscale/inpaint/import-render modes call the `with-form` stream endpoints per file from the Web frontend; multi-file normal translation calls `/translate/batch/images` (ZIP). Full steps are in [Upload, configuration, and translation](../../web/upload-config-and-translate.md).
 - Progress and error frames are rendered in the "log output" area, and the task log is fetched after completion; result preview, download, and history are in [Progress, results, and history](../../web/progress-results-and-history.md).
 - The admin cancellation UI is in [Administrator interface](../../web/administrator-interface.md).
-- This page does not describe Web user operations; it describes the stream protocol the browser actually calls. Do not present endpoint paths as UI steps.
+- This guide does not describe Web user operations; it describes the stream protocol the browser actually calls. Do not present endpoint paths as UI steps.
 
 ## Developer Guide {#developer-guide}
 
@@ -192,8 +192,7 @@ The table below lists the shared locale texts involved in the streaming flow (`/
 
 The `message` field of progress frames is hardcoded in `request_extraction.py` (`开始处理...`, `翻译中...`, etc.) and displayed directly by the browser, bypassing the locale table above.
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Frame encoding | `manga_translator/server/request_extraction.py` | `while_streaming()`, `pack_message()`, progress/error frames, and the stage list |

@@ -13,7 +13,7 @@ lastUpdated: true
 
 “导出翻译”与“导出原文”“仅翻译（JSON）”“导入翻译并渲染”构成模板/JSON 家族，区别见[导出原文](./export-original.md)、[仅翻译（JSON）](./translate-json-only.md)和[导入翻译并渲染](./import-translation-and-render.md)；九种工作流的整体边界见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)，汇总表见[工作流矩阵](../reference/workflow-matrix.md)。
 
-## 功能边界
+## 什么时候用
 
 - 输入：主输入图片（与正常翻译相同的文件发现规则），以及可读取的导出模板 `config/translation_template.json`。
 - 执行阶段：条件上色 → 条件超分 → 检测 → OCR → 文本行合并 → 翻译；有文本区域且只有原始蒙版时会细化蒙版。
@@ -21,7 +21,7 @@ lastUpdated: true
 - 输出文件：`manga_translator_work/json/<stem>_translations.json` 和 `manga_translator_work/translations/<stem>_translated.<模板扩展名>`。
 - 工作流字段：下拉框第 1 项，运行时写入 `cli.generate_and_export=true`；GUI 切换保证八个工作流布尔字段互斥。
 
-## UI 操作
+## 运行这个流程
 
 ### 选择导出译文工作流
 
@@ -33,11 +33,11 @@ lastUpdated: true
 
 “输出目录:”只决定主输出图的位置；导出翻译不写主图，因此本模式下它不影响 JSON 与译文副文件位置，这两类文件始终按输入图片的工作目录规则写入。
 
-## 运行机理
+## 处理顺序
 
 ### 处理阶段与输出
 
-导出翻译复用正常翻译的前半段流水线，然后在模板导出处理器中收尾。下面的 Mermaid 展示源码确认的阶段顺序、蒙版分支和输出文件；它与导出原文共享 `_handle_template_export`，但以 `ensure_json_with_empty_regions=false` 调用，因此无文本区域时不产出文件（导出原文则写出空模板）。
+导出翻译复用正常翻译的前半段流水线，然后在模板导出处理器中收尾。下面的 Mermaid 展示阶段顺序、蒙版分支和输出文件；它与导出原文共享 `_handle_template_export`，但以 `ensure_json_with_empty_regions=false` 调用，因此无文本区域时不产出文件（导出原文则写出空模板）。
 
 ```mermaid
 flowchart LR
@@ -81,16 +81,16 @@ flowchart LR
 - 手工叠加多个工作流字段不是受支持组合。运行时 `translate_batch()` 的分派顺序里，导出原文分支先于导出翻译分支；GUI 切换时八个字段互斥。
 - 与正常翻译一样，预处理阶段仍会按 `colorizer.colorizer` 和 `upscale.upscale_ratio` 执行条件上色与超分；这些值不是本工作流的强制开关。
 
-## 依赖与冲突
+## 输入、输出与限制
 
 - 模板依赖：模板缺失时导出步骤记录警告，工程 JSON 仍会保存；模板不可解析时译文副文件不产出。
-- 无文本区域：本模式以 `ensure_json_with_empty_regions=false` 调用共享导出流程，文本区域为空时不写 JSON 和译文副文件；这与导出原文写出空模板的行为不同（静态源码结论，空区域下的运行提示待验证）。
+- 无文本区域：本模式以 `ensure_json_with_empty_regions=false` 调用共享导出流程，文本区域为空时不写 JSON 和译文副文件；这与导出原文写出空模板的行为不同（根据当前实现，空区域下的运行提示待验证）。
 - `cli.overwrite=false`：GUI 开始前跳过译文副文件已存在的图片（检查 `get_translated_txt_path`，即按模板扩展名生成的目标文件）。
 - `cli.save_text`：本模式进入导出分支不依赖 `save_text`，JSON 和译文副文件在导出分支内无条件写出；这与导出原文要求 `template=true` 且 `save_text=true` 不同。
-- 上色、超分、检测、OCR、翻译仍按所选参数产生模型、显存、网络和 API 成本；本页不重复其参数说明。
+- 上色、超分、检测、OCR、翻译仍按所选参数产生模型、显存、网络和 API 成本；这里不重复其参数说明。
 - 主输出目录、`save_to_source_dir`、`cli.format` 只影响主输出图；本模式不写主图，因此这些设置对本工作流输出无直接影响。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 - 其它工作流：[正常翻译流程](./normal.md) · [导出原文](./export-original.md) · [仅翻译（JSON）](./translate-json-only.md) · [导入翻译并渲染](./import-translation-and-render.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [仅修复](./inpaint-only.md) · [替换翻译](./replace-translation.md)
 - 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)

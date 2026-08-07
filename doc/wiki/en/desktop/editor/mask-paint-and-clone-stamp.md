@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Mask Painting and Clone Stamp
 
-When the auto-generated repair mask misses text ghosts, covers too much background, or the image still has watermarks, grids, or bubble lines that need manual removal, switch to the mask brush, color brush, or clone stamp in the “Image Editing” group on the left side of the editor and retouch the image directly on the canvas. This page explains the write targets, display controls, auto-inpainting trigger, undo, and persistence format of these three tool families. Tool entry points, pointer semantics, zoom/panning, and selection are covered in [Canvas Tools and Selection](./canvas-tools-and-selection.md); the inpainter model and its parameters are covered in [Settings → Mask and Inpainting](../settings/mask-and-inpainting.md); shortcuts and focus rules are covered in [Shortcuts](./shortcuts.md).
+When the auto-generated repair mask misses text ghosts, covers too much background, or the image still has watermarks, grids, or bubble lines that need manual removal, switch to the mask brush, color brush, or clone stamp in the “Image Editing” group on the left side of the editor and retouch the image directly on the canvas. This guide explains the write targets, display controls, auto-inpainting trigger, undo, and persistence format of these three tool families. Tool entry points, pointer semantics, zoom/panning, and selection are covered in [Canvas Tools and Selection](./canvas-tools-and-selection.md); the inpainter model and its parameters are covered in [Settings → Mask and Inpainting](../settings/mask-and-inpainting.md); shortcuts and focus rules are covered in [Shortcuts](./shortcuts.md).
 
-## Feature boundary
+## What you can do
 
 - The mask brush (`brush`) and eraser (`eraser`) edit the **refined mask** (`refined_mask`, a binary 0/255 array), not the raw mask produced by detection. Each effective stroke commits one `MaskEditCommand` and triggers one auto-inpaint pass.
 - The color brush (`paint`, `paint_erase`) writes the **paint layer** (`paint_overlay`, RGBA); the clone stamp (`clone`, `stamp_erase`) writes the **stamp layer** (`stamp_overlay`, RGBA). These two layers are independent transparent layers above the inpainted image and never enter mask binarization.
 - “Clear All Masks” clears the refined mask (falling back to the raw mask when no refined mask exists); “Clear Paint Layer” and “Clear Stamp Layer” clear the corresponding RGBA layers. All three go through undoable commands.
-- This page does not cover tool-button switching, selection, zoom/pan, context menus, or shortcut registration (see [Canvas Tools and Selection](./canvas-tools-and-selection.md) and [Shortcuts](./shortcuts.md)), nor the global inpainter model, size, precision, and per-block settings (see [Settings → Mask and Inpainting](../settings/mask-and-inpainting.md)).
+- This guide does not cover tool-button switching, selection, zoom/pan, context menus, or shortcut registration (see [Canvas Tools and Selection](./canvas-tools-and-selection.md) and [Shortcuts](./shortcuts.md)), nor the global inpainter model, size, precision, and per-block settings (see [Settings → Mask and Inpainting](../settings/mask-and-inpainting.md)).
 
-## UI operations
+## Use it in the editor
 
 ### Choose the layer and tool in the Property Editor
 
@@ -69,7 +69,7 @@ flowchart LR
 
 The inpainted image, paint layer, and stamp layer are all stacked above the base image on the canvas, with the text regions rendered on top. The clone stamp samples from exactly this “currently visible canvas content” (the inpainted image when present, otherwise the original, then the paint layer, then the stamp content already stamped in the current stroke), so content can be propagated within the same stroke.
 
-## Runtime behavior
+## How changes are saved
 
 ### Mask strokes and auto-inpainting
 
@@ -115,7 +115,7 @@ Mask strokes, clearing all masks, paint/stamp strokes, and layer clearing all en
 - `PaintOverlayEditCommand`: `layer='paint'` acts on the paint layer and `layer='stamp'` on the stamp layer; undo/redo only changes pixels of the corresponding layer and never triggers inpainting.
 - The undo granularity is the whole stroke, not an individual dab; the focus rules for `Ctrl+Z`/`Ctrl+Y` are covered in [Shortcuts](./shortcuts.md).
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - Mask-family tools depend on the inpainter configuration being loadable (model, size, precision). If loading fails or the model is missing, the mask still updates but the inpainted image does not refresh and an error is logged.
 - The left button of brush-like tools always draws; it cannot select or drag regions. Switch back to “No Selection” for region operations.
@@ -124,5 +124,3 @@ Mask strokes, clearing all masks, paint/stamp strokes, and layer clearing all en
 - While the clone stamp is active, right-click is occupied by sampling and the context menu is fully suppressed; `Escape`/focus loss discards uncommitted strokes.
 - Stroke data is kept at full base-image resolution (RGBA layers are H×W×4), so very large images consume significant memory; display layers are downsampled, but dabs and stamps always run at full resolution.
 - The paint/stamp layers and the refined mask are written into the project file on export; the export and write-back formats are covered in [Import, Export, and Write-back](./import-export-and-writeback.md).
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Mode-Specific Workflows and Template Alignment
 
-This page covers the nine workflows on the translation page and the template-alignment parameters under “Mode Specific → Replace Translation”. It does not repeat upscale/colorization fields (see [Upscale and Colorization](./upscale-and-colorization.md)) or general stage parameters. Workflow choices are `cli` branches; template alignment is a `render` branch. The GUI clears all eight workflow flags before setting the selected one, so selecting one mode is exclusive; manually combining flags is not a supported contract.
+This guide covers the nine workflows on the translation page and the template-alignment parameters under “Mode Specific → Replace Translation”. It does not repeat upscale/colorization fields (see [Upscale and Colorization](./upscale-and-colorization.md)) or general stage parameters. Workflow choices are `cli` branches; template alignment is a `render` branch. The GUI clears all eight workflow flags before setting the selected one, so selecting one mode is exclusive; manually combining flags is not a supported contract.
 
-## UI operations
+## Change it in the desktop app
 
 Choose a mode from the “Translation Workflow Mode:” combo box. The change is persisted immediately and refreshes the description and start button; existing output handling still follows “Overwrite Existing Files”. Replace Translation additionally requires a matching translated image.
 
@@ -79,7 +79,7 @@ Under Settings → Mode Specific → Replace Translation. When enabled, text is 
 
 Under Settings → Mode Specific → Replace Translation. Integer input. Positive values dilate the paste mask by pixels (larger values widen the pasted area); `0` or a negative value performs no dilation. Default: `10`.
 
-## Runtime behavior {#workflow-branches}
+## How the settings take effect {#workflow-branches}
 
 ```mermaid
 flowchart TD
@@ -111,7 +111,7 @@ flowchart LR
 
 `batch_size` controls batch size in the non-concurrent entry point; `batch_concurrent` controls the cross-image concurrent pipeline. All special modes force concurrency off to preserve sidecar ordering, context isolation, and failure boundaries.
 
-## Dependencies and conflicts
+## Interactions and caveats
 
 - The GUI makes workflow fields mutually exclusive; manually combined configuration has no simultaneous-execution contract.
 - `save_text` is required by Export Original Text; JSON-only writes JSON unconditionally.

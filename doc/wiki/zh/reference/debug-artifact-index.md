@@ -13,21 +13,21 @@ lastUpdated: true
 
 本索引只负责汇总与反向链接。命名规则、目录结构与“基础产物/条件产物”总览见[调试目录命名与总览](../debugging/folder-naming-and-overview.md)；各产物类别的深入说明分别见[输入检测与长图重排](../debugging/input-detection-and-rearrangement.md)、[OCR 与文本区域](../debugging/ocr-and-text-regions.md)、[蒙版、修复与排版](../debugging/mask-inpainting-and-rendering.md)、[特殊工作流与 WebSocket](../debugging/special-workflows-and-websocket.md)；清理、脱敏与对外分享见[如何阅读和分享一次调试运行](../debugging/how-to-read-and-share-a-debug-run.md)。
 
-## 功能边界
+## 收录内容
 
-- 本页只汇总调试产物与触发条件，不重复各 `debugging/` 页面的运行机理、参数和文件格式说明。
+- 这里仅汇总调试产物与触发条件，不重复各 `debugging/` 页面的运行机理、参数和文件格式说明。
 - 所有图片级调试产物都受 `cli.verbose` 总开关控制（UI：详细日志）；关闭时不会生成带时间戳的图片级调试子目录。
 - 图片级调试子目录名为 `{时间戳毫秒}-{图片 MD5 前 8 位}-{检测尺寸}-{目标语言}-{翻译器}`，由 `_set_image_context()` 在每张输入图开始处理时建立，位于 `BASE_PATH/result/` 下。
 - 产物分为“基础产物”（verbose 正常流程最常出现）、“条件产物”（只在特定配置、检测器、工作流或模式下生成）和“目录级/回退产物”（`log_*.txt` 或未带图片级子目录的回退路径）三类。
-- 静态源码搜索未发现仓库内对这些调试文件名的后续读回：它们是启用 verbose 的操作者或问题报告接收者的终端诊断写入。
+- 当前代码搜索未发现仓库内对这些调试文件名的后续读回：它们是启用 verbose 的操作者或问题报告接收者的终端诊断写入。
 
-## UI 操作
+## 操作方法
 
-在设置页开启“详细日志”的完整操作步骤见[调试目录命名与总览](../debugging/folder-naming-and-overview.md)。本页只记录与本索引直接相关的 UI 文案：
+在设置页开启“详细日志”的完整操作步骤见[调试目录命名与总览](../debugging/folder-naming-and-overview.md)。这里仅记录与本索引直接相关的 UI 文案：
 
 ## 调试产物汇总
 
-下表按“基础产物 / 条件产物 / 目录级与回退产物”分组，列出当前源码在不同模式下可能生成的完整产物集合。同一行中的“深入页面”指向该产物的专门解释页；“生成阶段与触发条件”只记录静态源码核对的写入点与开关。
+下表按“基础产物 / 条件产物 / 目录级与回退产物”分组，列出当前源码在不同模式下可能生成的完整产物集合。同一行中的“深入页面”指向该产物的专门解释页；“生成阶段与触发条件”只记录当前代码的写入点与开关。
 
 ### 基础产物
 
@@ -117,7 +117,7 @@ flowchart LR
 | [特殊工作流与 WebSocket](../debugging/special-workflows-and-websocket.md) | 替换翻译产物、`ws_*.png`、`<输入文件名>_photoshop_script.jsx` |
 | [如何阅读和分享一次调试运行](../debugging/how-to-read-and-share-a-debug-run.md) | 产物清理、脱敏、日志与目录的对外分享注意事项 |
 
-## 依赖与冲突
+## 使用说明
 
 - 图片级调试子目录依赖 `cli.verbose`、图片上下文和 `result_sub_folder`；三者缺一都会落到不带图片级子目录的路径（`BASE_PATH/result/<产物>`）。
 - `BASE_PATH` 在冻结打包运行与源码运行下指向不同位置（可执行文件目录 vs 仓库根目录），跨机器对照时要注意。
@@ -135,7 +135,7 @@ flowchart LR
 | `label_verbose` | Verbose Logging | 详细日志 |
 | `Open log folder` | Open log folder | 打开日志文件夹 |
 
-`desc_cli_verbose` 说明面板的完整中英文案（含“开启后会在 result/ 目录生成 …”与实际代码命名规则的差异）已逐字记录在[调试目录命名与总览](../debugging/folder-naming-and-overview.md)，本页不重复。
+`desc_cli_verbose` 说明面板的完整中英文案（含“开启后会在 result/ 目录生成 …”与实际代码命名规则的差异）已逐字记录在[调试目录命名与总览](../debugging/folder-naming-and-overview.md)，这里不重复。
 
 ### 关联文件与格式
 
@@ -148,8 +148,7 @@ flowchart LR
 | 图片级产物（`input.png`、`bboxes.png`、`mask_raw.png`、`inpaint_input.png`、`mask_final.png`、`inpainted.png`、`final.png` 等） | PNG | 终端诊断写入，供人工排查 |
 | 条件产物（JSON/JSX/JPG 等） | 见各调试页 | 触发条件见“调试产物汇总” |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 路径契约 | `manga_translator/manga_translator.py`（`_result_path()`、`_set_image_context()`、各写入点） | 四分支路径、子目录命名与基础/条件产物写入点 |

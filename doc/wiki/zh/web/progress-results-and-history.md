@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Web 进度、结果与历史
 
-开始翻译后，本页说明如何查看任务进度、在浏览器中预览和下载结果，以及如何管理保存在服务器上的历史记录。进度通过日志框实时输出，而不是百分比进度条；结果列表只存在于当前浏览器；历史记录保存在服务器上，同一账号换浏览器也能看到。上传、配置与启动翻译见[上传配置与翻译](./upload-config-and-translate.md)，会话与语言切换见[登录、语言与会话](./login-language-and-session.md)，管理员对全部历史与任务的管理见[管理员界面](./administrator-interface.md)。
+开始翻译后，这里说明如何查看任务进度、在浏览器中预览和下载结果，以及如何管理保存在服务器上的历史记录。进度通过日志框实时输出，而不是百分比进度条；结果列表只存在于当前浏览器；历史记录保存在服务器上，同一账号换浏览器也能看到。上传、配置与启动翻译见[上传配置与翻译](./upload-config-and-translate.md)，会话与语言切换见[登录、语言与会话](./login-language-and-session.md)，管理员对全部历史与任务的管理见[管理员界面](./administrator-interface.md)。
 
-## 功能边界 {#feature-boundary}
+## 页面与接口范围 {#feature-boundary}
 
 - “结果列表”是当前浏览器内的临时视图，条目保存在 `localStorage.translationResults`（保存的是 blob 地址）；它不等于服务器历史，清空浏览器数据或更换浏览器后不可恢复。
 - “历史记录”由服务器在翻译成功后自动写入并按用户隔离；普通用户只能看到自己的历史，是否可查看、下载、删除由权限决定，无权限时对应接口返回 403。
 - 进度通过流式进度帧、每 500ms 一次的任务日志轮询和日志框呈现；界面没有百分比进度条。
-- 本页只写 Web 用户操作。流帧格式、历史与下载票据等 HTTP API 契约分别见[流式协议](../developer/http-api/streaming-protocol.md)与[历史、文件与下载票据](../developer/http-api/history-files-and-download-tickets.md)。
+- 这里仅写 Web 用户操作。流帧格式、历史与下载票据等 HTTP API 契约分别见[流式协议](../developer/http-api/streaming-protocol.md)与[历史、文件与下载票据](../developer/http-api/history-files-and-download-tickets.md)。
 
-## UI 操作 {#ui-operations}
+## 在 Web 界面中操作 {#ui-operations}
 
 ### 查看翻译进度 {#view-progress}
 
@@ -58,7 +58,7 @@ lastUpdated: true
 2. 删除同时移除服务器的会话目录与索引记录，本地相册列表同步刷新。
 3. 无删除权限时接口返回 403，前端提示“删除失败”。
 
-## 运行机理 {#runtime-behavior}
+## 请求与数据流 {#runtime-behavior}
 
 ### 流式进度帧与日志轮询 {#stream-progress-and-log-polling}
 
@@ -101,9 +101,9 @@ flowchart LR
     P --> R["短时下载票据 → ZIP"]
 ```
 
-上图描述的是源码确认的数据流，不代表每次运行都必然有历史：历史保存是尽力而为，失败只写警告；导出/导入/上色/超分/修复在 Web 前端走非流式端点时不产生历史条目，“结果列表”始终只存在于当前浏览器。本页没有伪造运行截图或私有任务产物。
+上图描述的是数据流，不代表每次运行都必然有历史：历史保存是尽力而为，失败只写警告；导出/导入/上色/超分/修复在 Web 前端走非流式端点时不产生历史条目，“结果列表”始终只存在于当前浏览器。本页或私有任务产物。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 权限、安全与限制 {#dependencies-and-conflicts}
 
 - 结果列表与服务器历史是两套独立机制：前者存 `localStorage.translationResults`（blob 地址），后者存服务器结果目录与 `translation_history.json`。不要混写。
 - 进度可见性依赖会话：`session_token` 失效后，流式请求、历史接口和日志轮询都会 401；轮询会自动停止并提示重新登录。
@@ -112,4 +112,4 @@ flowchart LR
 - 批量请求的 30 分钟前端超时与服务器 `timeout_keep_alive=1800` 对应，但不代表批内每张图都成功；取消或失败由服务器任务机制处理，见[翻译端点](../developer/http-api/translation-endpoints.md)。
 - 日志内容可能包含业务文本与路径；分享前必须删除请求正文、日志消息、路径与凭据，见[隐私、清理与日志分享](../troubleshooting/privacy-cleanup-and-log-sharing.md)。
 
-> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 详见参考索引：[界面选项对照表](../reference/options-i18n-matrix.md)。

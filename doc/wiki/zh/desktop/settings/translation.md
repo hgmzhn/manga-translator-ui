@@ -9,13 +9,13 @@ lastUpdated: true
 
 # 翻译设置
 
-## 功能边界 {#feature-boundary}
+## 这组设置控制什么 {#feature-boundary}
 
 此页只覆盖“翻译”设置页的 11 行：翻译器、目标/保留语言、流式传输、术语提取、RPM、上下文和可见的译后处理开关。它说明这些值怎样进入桌面配置和核心翻译阶段。
 
 它不替代[翻译器选择与语言](../translator/selection-and-languages.md)的实现选择、[上下文与提示词](../translator/context-and-prompts.md)的提示词内容，或 API 管理页的密钥、模型、候选槽和轮换。`translator_chain`、`skip_lang`、高质量提示词路径及译后质量检查是核心/API 或 CLI 可接受的字段，但不是当前设置布局的行，故不把它们伪写成此页控件。
 
-## UI 操作 {#ui-operations}
+## 在桌面端修改 {#ui-operations}
 
 打开“设置”，选择“翻译”。下拉框直接选择存储值；开关和数字编辑器改变后，`AppLogic.update_single_config()` 立即更新内存配置并写入配置文件。更改“翻译器”还会更新桌面翻译服务的当前实现，更改“目标语言”会更新其当前目标语言。其余行由后续任务实际读取完整配置时生效。
 
@@ -84,7 +84,7 @@ lastUpdated: true
 
 两个开关，在翻译完成后按需转换简繁：“简体转繁体”把简体结果转成繁体，“繁体转简体”把繁体结果转成简体；两者同时开启时优先执行简体转繁体。默认值：均关闭（`false`）。
 
-## 运行机理 {#runtime-behavior}
+## 参数如何生效 {#runtime-behavior}
 
 ```mermaid
 flowchart LR

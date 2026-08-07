@@ -11,16 +11,16 @@ lastUpdated: true
 
 Use the feature selector at the top of each API Management tab when you need to switch the translation, OCR, colorization, or rendering implementation without leaving the page. These selectors are not a separate "API configuration": they write directly to the same configuration key as the corresponding feature, so changing "Translator" here from OpenAI to Gemini really switches the translator and immediately refreshes the credential groups required by the current tab.
 
-This page documents which configuration key each of the four feature selectors writes, how a change refreshes the credential groups, and how a selection actually changes the feature implementation. Detailed differences between translation implementations are in [Translator selection and target languages](../translator/selection-and-languages.md); candidate slots and rotation strategies are in [Slots and rotation](./slots-and-rotation.md); credential-field editing and connection tests are in [Credentials, addresses, and models](./credentials-addresses-models.md) and [Connection tests and model list](./connection-tests-and-model-list.md) respectively.
+This guide documents which configuration key each of the four feature selectors writes, how a change refreshes the credential groups, and how a selection actually changes the feature implementation. Detailed differences between translation implementations are in [Translator selection and target languages](../translator/selection-and-languages.md); candidate slots and rotation strategies are in [Slots and rotation](./slots-and-rotation.md); credential-field editing and connection tests are in [Credentials, addresses, and models](./credentials-addresses-models.md) and [Connection tests and model list](./connection-tests-and-model-list.md) respectively.
 
-## Feature boundary {#feature-boundary}
+## Configuration scope {#feature-boundary}
 
 - The "Translation", "OCR", "Colorization", and "Render" tabs in API Management each have a feature selector at the top, bound to `translator.translator`, `ocr.ocr`, `colorizer.colorizer`, and `render.renderer` respectively.
 - Difference from "translator selection": the "Translator" dropdown on the Settings "Translation" tab and the translator dropdown at the top of the API Management translation tab write the same `translator.translator` key and share the same options and display mapping. Changing "Translator" in API Management therefore really changes the translation implementation and refreshes the required credential groups; it does not only change connection information.
 - Difference from "API candidate slot rotation": Key/Base/Model slots with `failover`/`round_robin` only pick request endpoints inside the already selected implementation, handling retries, cooldown, unavailability, and recovery; they never change the implementation itself.
 - `translator_chain` feeds one translator's output into the next translator; it is unrelated to these four selectors.
 
-## UI operations {#ui-operations}
+## Use it in API Management {#ui-operations}
 
 ### Switch feature implementations in API Management {#api-tab-selectors}
 
@@ -32,7 +32,7 @@ This page documents which configuration key each of the four feature selectors w
 
 ## Feature-selector parameters {#parameters}
 
-> For the mapping of UI names, storage keys, and default values for this page's parameters, see the reference page [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For the mapping of UI names, storage keys, and default values for this page's parameters, see the reference page [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 #### Translator {#translator-translator}
 
@@ -50,7 +50,7 @@ The “Colorization Model” dropdown is at the top of the API Management colori
 
 The “Renderer” dropdown is at the top of the API Management render tab and in the typesetting/rendering group in Settings. Options: Default, OpenAI Renderer, Gemini Renderer, None. The OpenAI/Gemini renderers require the corresponding credential group, skip inpainting, and use the original image as the render base; “None” outputs the base image directly without typesetting rendering. Default: `default`. See [Typesetting and Rendering](../settings/typesetting-and-rendering.md) for details.
 
-## Runtime behavior {#runtime-behavior}
+## How requests are handled {#runtime-behavior}
 
 ### From selector to implementation {#selector-to-implementation}
 
@@ -97,7 +97,7 @@ flowchart TD
 - Either place writes back the configuration and calls `translation_service.set_translator()` when the key is `translator.translator`; that is why "changing the translator in API Management really switches the translator".
 - API candidate slot rotation does not write this key; it only affects request endpoints inside the selected implementation. `translator_chain` does not write this key either.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Credentials, network, and errors {#dependencies-and-conflicts}
 
 - The four selectors share configuration keys with the corresponding Settings dropdowns; they are not independent settings, the last change wins, and there is no "API page overrides Settings page" priority.
 - Credential values live in `.env` (or runtime overrides), not in these four keys; see [Credentials, addresses, and models](./credentials-addresses-models.md).

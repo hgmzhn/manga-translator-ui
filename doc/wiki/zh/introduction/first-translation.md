@@ -12,11 +12,11 @@ lastUpdated: true
 > 还没安装？先看[安装文档](../install/windows-portable.md)（Windows 便携版/源码/Linux/macOS/Docker 任选）。
 > 在线翻译需要 API Key：看[API 配置教程](../desktop/api-management/api-key-guide.md)与[API 功能选择器](../desktop/api-management/feature-selectors.md)。
 
-本页按「安装 → API 配置 → 操作步骤」介绍桌面端第一次完整翻译的流程。
+下面按「安装 → API 配置 → 操作步骤」介绍桌面端第一次完整翻译的流程。
 
-## 功能边界 {#feature-boundary}
+## 先了解这些 {#feature-boundary}
 
-本页只讲桌面端第一次完整翻译的最小路径：安装、配置 API（在线翻译需要）、添加图片、设置输出目录、保持“正常翻译流程”并启动任务。检测器、OCR、翻译器、排版、API 凭据等各模块的参数细节见对应模块页（[设置](../desktop/settings/index.md)、[翻译器](../desktop/translator/selection-and-languages.md)、[API 管理](../desktop/api-management/feature-selectors.md)），不在本页展开。
+这里按桌面端第一次完整翻译的最小路径：安装、配置 API（在线翻译需要）、添加图片、设置输出目录、保持“正常翻译流程”并启动任务。检测器、OCR、翻译器、排版、API 凭据等各模块的参数细节见对应模块页（[设置](../desktop/settings/index.md)、[翻译器](../desktop/translator/selection-and-languages.md)、[API 管理](../desktop/api-management/feature-selectors.md)），不在本页展开。
 
 第一次运行建议使用一张可公开、无敏感内容的图片。“正常翻译流程”不是跳过配置的演示模式：使用在线翻译时仍需在 API 管理中配好凭据。
 
@@ -59,11 +59,11 @@ lastUpdated: true
 
 “正常翻译流程”按配置依次执行：上色 → 超分 → 检测 → OCR → 文本行合并 → 翻译 → 图像修复 → 排版渲染；每一步都可选启用，未配置的步骤会跳过。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 选择时要注意 {#dependencies-and-conflicts}
 
 - 需要可读的输入图片，以及一个存在且可写的输出目录；条件不满足时任务不会启动。
-- 支持常见图片扩展名（如 png、jpg、webp 等）；压缩包（如 .zip、.cbz）是否可用需要实际运行验证。
-- 使用在线翻译时，需要先在 API 管理中配好凭据、地址和模型；本页不展示任何真实密钥。
+- 支持常见图片扩展名（如 png、jpg、webp 等）；压缩包（如 .zip、.cbz）的支持情况取决于所用入口和解包依赖。
+- 使用在线翻译时，需要先在 API 管理中配好凭据、地址和模型；这里不展示任何真实密钥。
 - `save_text` 决定结果是否附带文本内容，`overwrite` 关闭时已存在的同名结果可能被跳过；两者都在设置中调整。
 
 存储值与默认值见[设置参数索引](../reference/settings-index.md)。

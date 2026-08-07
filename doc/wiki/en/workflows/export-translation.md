@@ -13,7 +13,7 @@ Use the Export Translation workflow when you only need the translated text of th
 
 Export Translation forms the template/JSON family together with [Export Original Text](./export-original.md), [Translate JSON Only](./translate-json-only.md), and [Import Translation and Render](./import-translation-and-render.md). The overall boundaries of the nine workflows are in [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md), with a summary table in [Workflow Matrix](../reference/workflow-matrix.md).
 
-## Feature boundary
+## When to use it
 
 - Inputs: the main input images (the same file-discovery rules as normal translation) plus a readable export template `config/translation_template.json`.
 - Stages executed: conditional colorize → conditional upscale → detection → OCR → text-line merge → translation; the mask is refined when text regions exist but only a raw mask is available.
@@ -21,7 +21,7 @@ Export Translation forms the template/JSON family together with [Export Original
 - Output files: `manga_translator_work/json/<stem>_translations.json` and `manga_translator_work/translations/<stem>_translated.<template-extension>`.
 - Workflow field: combo index 1 writes `cli.generate_and_export=true` at runtime; GUI switching keeps the eight workflow booleans mutually exclusive.
 
-## UI operations
+## Run this workflow
 
 ### Select the Export Translation workflow
 
@@ -33,11 +33,11 @@ Selecting a mode only writes configuration and updates the UI texts; it does not
 
 “Output Directory:” only determines where the main output image goes. Export Translation writes no main image, so in this mode it does not affect the JSON or translated-sidecar locations; both always follow the per-image work-directory rules.
 
-## Runtime behavior
+## Processing order
 
 ### Stages and outputs
 
-Export Translation reuses the first half of the normal-translation pipeline and finishes in the shared template-export handler. The Mermaid diagram below shows the source-confirmed stage order, mask branches, and output files. It shares `_handle_template_export` with Export Original Text but is called with `ensure_json_with_empty_regions=false`, so images without text regions produce no files (Export Original Text writes an empty template instead).
+Export Translation reuses the first half of the normal-translation pipeline and finishes in the shared template-export handler. The Mermaid diagram below shows the stage order, mask branches, and output files. It shares `_handle_template_export` with Export Original Text but is called with `ensure_json_with_empty_regions=false`, so images without text regions produce no files (Export Original Text writes an empty template instead).
 
 ```mermaid
 flowchart LR
@@ -81,16 +81,16 @@ flowchart LR
 - Manually stacking multiple workflow fields is not a supported combination. In the runtime `translate_batch()` dispatch order, the Export Original Text branch runs before the Export Translation branch; GUI switching keeps the eight fields mutually exclusive.
 - As with normal translation, conditional colorization and upscaling still run in preprocessing based on `colorizer.colorizer` and `upscale.upscale_ratio`; those values are not forced by this workflow.
 
-## Dependencies and conflicts
+## Inputs, outputs, and limitations
 
 - Template dependency: a missing template logs a warning and the project JSON is still saved; an unparsable template means no translated sidecar is produced.
-- No text regions: this mode calls the shared export flow with `ensure_json_with_empty_regions=false`, so images without text regions produce neither JSON nor a translated sidecar. This differs from Export Original Text, which writes an empty template (static source conclusion; the runtime prompt for the empty-region case still needs verification).
+- No text regions: this mode calls the shared export flow with `ensure_json_with_empty_regions=false`, so images without text regions produce neither JSON nor a translated sidecar. This differs from Export Original Text, which writes an empty template.
 - `cli.overwrite=false`: the GUI skips images whose translated sidecar already exists before starting (it checks `get_translated_txt_path`, i.e., the target file generated with the template extension).
 - `cli.save_text`: entering the export branch does not depend on `save_text`; JSON and the translated sidecar are written unconditionally inside the branch. This differs from Export Original Text, which requires `template=true` and `save_text=true`.
-- Colorization, upscaling, detection, OCR, and translation still consume model, VRAM, network, and API costs according to their parameters; this page does not repeat those parameter descriptions.
+- Colorization, upscaling, detection, OCR, and translation still consume model, VRAM, network, and API costs according to their parameters; this guide does not repeat those parameter descriptions.
 - The main output directory, `save_to_source_dir`, and `cli.format` affect only the main output image; this mode writes no main image, so those settings have no direct effect on this workflow's outputs.
 
-## Related pages {#related-pages}
+## Read next {#related-pages}
 
 - Other workflows: [Normal Translation](./normal.md) · [Export Original Text](./export-original.md) · [Translate JSON Only](./translate-json-only.md) · [Import Translation and Render](./import-translation-and-render.md) · [Colorize Only](./colorize-only.md) · [Upscale Only](./upscale-only.md) · [Inpaint Only](./inpaint-only.md) · [Replace Translation](./replace-translation.md)
 - Selecting a workflow, output directory, and mutually exclusive writes: [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md)

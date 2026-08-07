@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Installation and Startup Troubleshooting
 
-When the program cannot be installed, will not open, or exits immediately after launch, locate the symptom on this page first, then return to the matching installation page to apply the fix. This page covers installation and startup problems only and does not repeat the full steps of each installation page; see [Runtime Requirements](../install/requirements.md), [Windows Portable](../install/windows-portable.md), [Windows from Source](../install/source-windows.md), [Linux and macOS Installation](../install/linux-and-macos.md), [Docker Deployment](../install/docker.md), [Update and Version Switching](../install/update-and-version-switching.md), and [Uninstall and Data Cleanup](../install/uninstall-and-data-cleanup.md) for the installation flows.
+When the program cannot be installed, will not open, or exits immediately after launch, locate the symptom on this page first, then return to the matching installation page to apply the fix. This guide covers installation and startup problems only and does not repeat the full steps of each installation page; see [Runtime Requirements](../install/requirements.md), [Windows Portable](../install/windows-portable.md), [Windows from Source](../install/source-windows.md), [Linux and macOS Installation](../install/linux-and-macos.md), [Docker Deployment](../install/docker.md), [Update and Version Switching](../install/update-and-version-switching.md), and [Uninstall and Data Cleanup](../install/uninstall-and-data-cleanup.md) for the installation flows.
 
 Model loading, GPU VRAM, and memory issues are covered by [Model, GPU, and Memory](./model-gpu-and-memory.md); API authentication, rate limiting, and timeouts by [API Auth, Rate Limit, and Timeout](./api-auth-rate-limit-and-timeout.md); output JSON and rendering problems by [Output JSON and Rendering](./output-json-and-rendering.md); and pre-sharing log cleanup by [Privacy, Cleanup, and Log Sharing](./privacy-cleanup-and-log-sharing.md).
 
-## Feature boundary {#scope}
+## Identify the problem {#scope}
 
-- This page covers installation failures for the Windows portable, source/Unix, and Docker forms, plus startup failures for the Qt desktop, CLI, and Web server entry points.
+- This guide covers installation failures for the Windows portable, source/Unix, and Docker forms, plus startup failures for the Qt desktop, CLI, and Web server entry points.
 - "Installation failure" means environment creation, dependency download, or backend selection failed; "startup failure" means the entry point exists but cannot reach a usable state, such as an error exit, port conflict, or initialization failure.
 - A successful installation does not mean models are downloaded, an API is reachable, or the GPU is usable; those are runtime problems handled by their own troubleshooting pages.
 
@@ -120,4 +120,4 @@ flowchart TD
     I -->|"yes"| J["Load .env and start uvicorn"]
 ```
 
-The diagram shows the common startup paths and error-feedback branches only; real exit codes, mirror fallback, and GPU branches still require source review and controlled runtime verification.
+The diagram shows the common startup paths and error-feedback branches only; real exit codes, mirror fallback, and GPU branches still require source review and testing in the target environment.

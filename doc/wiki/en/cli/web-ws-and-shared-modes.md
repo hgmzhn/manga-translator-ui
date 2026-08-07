@@ -13,13 +13,13 @@ Use this page when you want to expose translation as a service. Besides `local`,
 
 See [Local input and output](./local-input-output.md) for `local` input/output, [Web launch and access](../web/launch-and-access.md) for browser operations of `web`, and the developer pages for the HTTP API contract and internal protocol details.
 
-## Feature boundary {#feature-boundary}
+## Command scope {#feature-boundary}
 
 - `web` is the only service for user-facing and developer HTTP clients: one process serves the `GET /` main workspace, the `GET /admin` admin UI, `/static/*` assets, and all JSON/form/streaming APIs. It listens on `0.0.0.0:8000` by default and can be overridden with `MT_WEB_HOST`/`MT_WEB_PORT` or `--host`/`--port`.
 - `shared` is an internal shared/API instance: it listens on `127.0.0.1:5003` by default, exposes only three controlled endpoints, protects them with the `X-Nonce` header, and returns pickle-serialized results. Browsers never access it directly.
 - `ws` is an internal WebSocket executor: it connects to the upstream `ws://localhost:5000` by default, authenticates with the `x-secret` header, and receives protobuf tasks while reporting status back. The parser declares `--host 127.0.0.1 --port 5003` for it, but the current implementation does not consume these two fields.
 - The three modes never share a default port: `web` uses `8000`, the parser default for `shared`/`ws` is `5003`, and the actual connection target of `ws` is the upstream `ws://localhost:5000`. Do not mix up `5000`, `5003`, and `8000`.
-- CLI options are fixed Chinese help strings in the source and do not go through i18n; the GPU/ONNX/retry/logging switches shared with desktop settings map to `label_*` keys; see the [Option and i18n matrix](../reference/options-i18n-matrix.md).
+- CLI options are fixed Chinese help strings in the source and do not go through i18n; the GPU/ONNX/retry/logging switches shared with desktop settings map to `label_*` keys; see the [UI Options Reference](../reference/options-i18n-matrix.md).
 
 ## Modes and ports {#modes-and-ports}
 
@@ -77,7 +77,7 @@ uv run --no-sync python -m manga_translator ws --ws-url ws://localhost:5000
 
 This repository is missing `manga_translator/server/ws_pb2.py` (the generated protobuf module), so `from ..server import ws_pb2` inside `listen()` raises `ImportError` and `ws` mode cannot actually start; `ws --help` is unaffected. This is a source-level difference, not a verified runtime behavior.
 
-## Runtime behavior {#runtime-behavior}
+## How the command runs {#runtime-behavior}
 
 ### web mode {#web-runtime}
 
@@ -126,10 +126,10 @@ flowchart LR
     U -->|"success"| F["finish_task"]
 ```
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations {#dependencies-and-conflicts}
 
 - Port boundaries: `web` defaults to `8000`, the parser default for `shared`/`ws` is `5003`, and the connection target of `ws` is `ws://localhost:5000`; they never overlap. Startup fails when a port is occupied, which is an environment issue.
 - `ws --host/--port/--nonce` exist in the parser, but the current `MangaTranslatorWS` does not consume them; do not infer from the help text that `ws` listens on `5003`.
-- This repository is missing `ws_pb2.py`, so `ws` mode cannot start; this is a source-level difference, not a runtime-verification conclusion.
+- This repository is missing `ws_pb2.py`, so `ws` mode cannot start until that generated module is supplied.
 - `shared`/`ws` are internal protocols: never access them directly from a browser and never expose them to the public internet; nonce/secret handling and pickle deserialization carry security risks, and the nonce printed in logs must not be copied into public reports.
 - This page never reads or shows real `.env` contents, `WS_SECRET`, nonces, API keys, tokens, usernames, or private paths.

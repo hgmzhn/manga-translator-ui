@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Model, GPU, and Memory Troubleshooting
 
-Use this page when a task stalls on model download, reports “CUDA out of memory”, GPU mode will not start, or memory/VRAM does not drop after translation. It covers model loading, GPU devices, VRAM, and RAM. Hardware backend groups are installed separately; see [Runtime Requirements](../install/requirements.md). The switches such as `app.unload_models_after_translation` are documented in [General and App Settings](../desktop/settings/general-and-app.md). This page does not repeat the full parameter pages for translation, OCR, detection, inpainting, or upscaling, nor API auth and rate limiting (see [API Auth, Rate Limit, and Timeout](./api-auth-rate-limit-and-timeout.md)) or CLI subprocess whole-machine memory limits (see [Subprocess, Memory, and Recovery](../cli/subprocess-memory-and-recovery.md)).
+Use this page when a task stalls on model download, reports “CUDA out of memory”, GPU mode will not start, or memory/VRAM does not drop after translation. It covers model loading, GPU devices, VRAM, and RAM. Hardware backend groups are installed separately; see [Runtime Requirements](../install/requirements.md). The switches such as `app.unload_models_after_translation` are documented in [General and App Settings](../desktop/settings/general-and-app.md). This guide does not repeat the full parameter pages for translation, OCR, detection, inpainting, or upscaling, nor API auth and rate limiting (see [API Auth, Rate Limit, and Timeout](./api-auth-rate-limit-and-timeout.md)) or CLI subprocess whole-machine memory limits (see [Subprocess, Memory, and Recovery](../cli/subprocess-memory-and-recovery.md)).
 
-## Feature boundary {#feature-boundary}
+## Identify the problem {#feature-boundary}
 
-- This page covers: model download/verification failures, device selection for `cli.use_gpu`, the ONNX path for `cli.disable_onnx_gpu`, post-task unload via `app.unload_models_after_translation`, and VRAM-related remedies such as `inpainting_size` and `tile_size`.
-- This page does not cover: how to choose installation dependency groups (see `install/requirements.md`), the full options of the inpainting/upscaling pages (see their settings pages), or how to share logs and debug artifacts (see [How to Read and Share a Debug Run](../debugging/how-to-read-and-share-a-debug-run.md)).
-- The settings pages record where each switch lives in the UI; this page explains their role in model, GPU, and memory troubleshooting and the underlying behavior.
+- This guide covers: model download/verification failures, device selection for `cli.use_gpu`, the ONNX path for `cli.disable_onnx_gpu`, post-task unload via `app.unload_models_after_translation`, and VRAM-related remedies such as `inpainting_size` and `tile_size`.
+- This guide does not cover: how to choose installation dependency groups (see `install/requirements.md`), the full options of the inpainting/upscaling pages (see their settings pages), or how to share logs and debug artifacts (see [How to Read and Share a Debug Run](../debugging/how-to-read-and-share-a-debug-run.md)).
+- The settings pages record where each switch lives in the UI; this guide explains their role in model, GPU, and memory troubleshooting and the underlying behavior.
 
 ## Common symptoms and quick diagnosis {#symptoms}
 
@@ -45,7 +45,7 @@ Open “Settings” (`Settings`) and select the “General” (`General`) group.
 
 ## Key settings {#key-settings}
 
-> For the mapping of each parameter's UI name, stored key, and default value, see the [options and i18n matrix](../reference/options-i18n-matrix.md).
+> For the mapping of each parameter's UI name, stored key, and default value, see the [UI Options Reference](../reference/options-i18n-matrix.md).
 
 #### Use GPU {#cli-use-gpu}
 
@@ -59,7 +59,7 @@ The “Disable ONNX GPU Acceleration” switch lives in the “Settings → Gene
 
 The “Unload Models After Translation” switch lives in the “Settings → General” group and controls model unloading and memory reclamation after each task; when enabled, the next task reloads the models and the first response is slower. When on, the UI shows “Unload Models After Translation”; when off, model instances are kept after the task.
 
-## Runtime behavior {#runtime-behavior}
+## Why it happens {#runtime-behavior}
 
 ### Model loading and download {#model-loading}
 
@@ -126,7 +126,7 @@ Enabling unload does not mean VRAM used by third-party processes (browsers, othe
 
 The `web`, `ws`, and `shared` modes support `--models-ttl` (seconds, default `0`). When greater than `0`, a background cleanup task unloads models idle longer than the TTL; `0` keeps models resident. The desktop app does not use this CLI parameter; its behavior is controlled by “Unload Models After Translation”.
 
-## Dependencies and conflicts {#dependencies}
+## Related settings and limitations {#dependencies}
 
 - GPU acceleration depends on the backend group and drivers selected at install time; with the wrong group or drivers, `cli.use_gpu` only triggers a fallback instead of fixing the environment; see [Runtime Requirements](../install/requirements.md).
 - An oversized `inpainting_size` directly causes OOM; `upscale.tile_size` tiling lowers upscaling peak VRAM; `cli.batch_concurrent` raises concurrent peaks, so disable it when VRAM is limited.

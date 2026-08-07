@@ -9,14 +9,14 @@ lastUpdated: true
 
 # 新增或修改功能
 
-当你想给 Manga Translator 增加一个新功能（新的设置项、新的翻译器/OCR/渲染器选项、新的页面，或新的界面文案），或者修改一个现有功能时，本页说明从配置到界面再到运行时消费的完整开发路径。它不是架构总览（见[架构与代码边界](./architecture-and-code-boundaries.md)），也不展开测试方法论、打包发布或 HTTP API 的细节（分别见[测试与代码质量](./tests-and-code-quality.md)、[打包与发布](./packaging-and-release.md)以及 `developer/http-api/` 下的页面）。
+当你想给 Manga Translator 增加一个新功能（新的设置项、新的翻译器/OCR/渲染器选项、新的页面，或新的界面文案），或者修改一个现有功能时，这里说明从配置到界面再到运行时消费的完整开发路径。它不是架构总览（见[架构与代码边界](./architecture-and-code-boundaries.md)），也不展开测试方法论、打包发布或 HTTP API 的细节（分别见[测试与代码质量](./tests-and-code-quality.md)、[打包与发布](./packaging-and-release.md)以及 `developer/http-api/` 下的页面）。
 
-## 功能边界 {#feature-boundary}
+## 涉及的代码 {#feature-boundary}
 
-- 本页只处理“改代码后功能如何生效”的链路：配置模型 → 设置页挂载 → i18n → 持久化 → 后端消费 → 测试与人工验证。
-- 桌面 UI、业务逻辑、服务层和后端流水线的具体模块边界见[架构与代码边界](./architecture-and-code-boundaries.md)；本页只给出新增功能时每一层通常要改的文件。
+- 这里仅处理“改代码后功能如何生效”的链路：配置模型 → 设置页挂载 → i18n → 持久化 → 后端消费 → 测试与人工验证。
+- 桌面 UI、业务逻辑、服务层和后端流水线的具体模块边界见[架构与代码边界](./architecture-and-code-boundaries.md)；这里仅给出新增功能时每一层通常要改的文件。
 - 新增 API 密钥、通道或轮询策略不在这里描述，见 API 管理页面；新增提示词文件、批量方案或富文本规则见对应的功能页。
-- 本页不包含真实 `.env`、用户 `config.json`、API Key、Token、用户名、私有绝对路径或私有提示词；示例默认值均来自仓库跟踪的模板与代码。
+- 这里不包含真实 `.env`、用户 `config.json`、API Key、Token、用户名、私有绝对路径或私有提示词；示例默认值均来自仓库跟踪的模板与代码。
 
 ## 功能开发流程 {#development-workflow}
 
@@ -70,7 +70,7 @@ Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个�
 
 桌面端加载优先级：用户 `config/config.json` > `config/config-example.json` > Qt 模型默认值（`config_service.py#_load_configs_with_priority`）；加载时逐键校验，无效值回退默认，`_sync_user_config` 再按发行模板增删字段。因此“新增字段后用户配置被同步”是持久化的正常行为，不是 bug。三层默认值差异的完整矩阵见 `doc/wiki/research/default-sources.md`。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 约束与注意事项 {#dependencies-and-conflicts}
 
 - 新增用户可配置参数时，`config_models.py` 与 `manga_translator/config.py` 的字段名/类型必须一致，否则桌面端保存的值到后端可能对不上。
 - 设置项标签走 `get_display_mapping('labels')`；漏加映射时，`dynamic_settings.py` 会退回显示字段名（如 `min_box_area_ratio`），不报错，但界面文案缺失。
@@ -114,8 +114,7 @@ Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个�
 | `desc_cli_context_size` | Translation context page count for multi-page joint translation. Larger values improve quality but consume more tokens. | 翻译上下文页面数，用于多页联合翻译。值越大翻译质量越好，但 token 消耗越多。 |
 | `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 配置模型 | `desktop_qt_ui/core/config_models.py`、`manga_translator/config.py` | `AppSettings` / `Config` 子模型与默认值 |

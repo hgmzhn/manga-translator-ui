@@ -11,14 +11,14 @@ lastUpdated: true
 
 When a custom HQ prompt is maintained as a file, this page lists the user prompt files under `dict/`, writes the selected file into the translator configuration, previews file content, and opens the editor. It does not explain the meaning of the Custom Prompt parameter itself (see [Context and prompts](../translator/context-and-prompts.md)), nor does it manage the fixed system prompts or the AI OCR/colorizer/renderer prompts (see [System and translation prompts](./system-and-translation-prompts.md), [AI OCR prompt](./ai-ocr-prompt.md), [AI colorizer prompt](./ai-colorizer-prompt.md), and [AI renderer prompt](./ai-renderer-prompt.md)).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - The list shows only user prompt files with `.yaml`, `.yml`, or `.json` under `dict/`, excluding system-prompt stems (`system_prompt_hq`, `system_prompt_hq_format`, `system_prompt_line_break`, `glossary_extraction_prompt`, `ai_ocr_prompt`, `ai_colorizer_prompt`, `ai_renderer_prompt`).
 - “Apply Selected Prompt” writes `dict/<filename>` into `translator.high_quality_prompt_path` and persists it to `config/config.json`; it does not switch translator type, API credentials, or candidate slots.
 - The preview has two display modes: structured and Raw. The Edit entry opens a secondary dialog; structured files contain two tabs: “Template Edit / Raw Edit”.
 - This page never embeds real keys or private prompt bodies; local paths in error messages must not be copied into public reports.
 
-## UI operations {#ui-operations}
+## Use it in Prompt Management {#ui-operations}
 
 ### View the prompt list
 
@@ -68,7 +68,7 @@ When a custom HQ prompt is maintained as a file, this page lists the user prompt
 
 Error messages may contain local paths or parse details; sanitize them before copying into public reports.
 
-## Runtime behavior {#runtime-behavior}
+## How prompts are loaded {#runtime-behavior}
 
 List refresh, selection preview, apply, and edit share one data flow:
 
@@ -102,7 +102,7 @@ flowchart LR
 - Editor save: `PromptEditorDialog` collects fields and serializes them on the template tab (YAML with `allow_unicode`, JSON with `indent=2`), validates JSON/YAML syntax on the Raw tab, writes UTF-8 back, and the preview refreshes after closing.
 - Final consumer: at translation start `_load_and_prepare_prompts` resolves the relative `dict/<filename>` to an absolute path and loads it with `load_custom_prompt` (which tries alternate extensions when the file is missing), storing the result in `ctx.custom_prompt_json`; `_build_system_prompt` flattens it with `_flatten_prompt_data` and places it before the base system prompt. With `extract_glossary` enabled, newly extracted terms are written back into the file’s `glossary` field through `merge_glossary_to_file`.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - `translator.high_quality_prompt_path` is consumed by the OpenAI/Gemini translators (including the HQ variants); `_load_and_prepare_prompts` loads the custom prompt whenever this path is set. Translators such as Sakura do not read this field, so switching to one of them keeps the path in config but it is not consumed.
 - The apply action only writes a config key; it does not switch translators or API candidate slots. See [Translator selection](../translator/selection-and-languages.md) and the API-management pages for those boundaries.

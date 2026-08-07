@@ -11,9 +11,9 @@ lastUpdated: true
 
 When a server is shared by multiple users, the administrator uses the admin interface (`admin-new.html` served at `GET /admin`) to manage accounts and runtime state: create users, organize groups and permissions, configure quotas, inspect and revoke sessions, monitor and cancel translation tasks, review user history and system logs, manage API-key presets and the server `.env`, set server parameters, publish announcements, and clean up storage. Only a session whose `role` is `admin` can enter; non-admin visitors are warned and sent back to the home page.
 
-This page covers only what an administrator does in the browser. The request, response, and status-code contracts of the underlying JSON/form endpoints (for example `/api/admin/users`, `/api/admin/groups`, `/api/admin/quota/*`, `/audit/events`) belong to the developer HTTP API pages. Login and first-time admin setup are described in [Login, language, and session](./login-language-and-session.md); the user-side workspace is covered in [Upload, configure, and translate](./upload-config-and-translate.md).
+This guide focuses on what an administrator does in the browser. The request, response, and status-code contracts of the underlying JSON/form endpoints (for example `/api/admin/users`, `/api/admin/groups`, `/api/admin/quota/*`, `/audit/events`) belong to the developer HTTP API pages. Login and first-time admin setup are described in [Login, language, and session](./login-language-and-session.md); the user-side workspace is covered in [Upload, configure, and translate](./upload-config-and-translate.md).
 
-## Feature boundary {#feature-boundary}
+## UI and API scope {#feature-boundary}
 
 - Entry is restricted: the “admin” link in the user home-page top bar is shown only when the session role is `admin` (`static/script.js` checks `userSession.role === 'admin'`). Visiting `/admin` directly still runs `GET /auth/check` first; when the token is missing or invalid, `localStorage.session_token` is cleared and the browser is redirected to `/static/login.html?redirect=/admin`; a non-admin is told “您没有管理员权限” (no admin permission) and returned to `/` (`static/js/admin/app.js`).
 - The panel has 12 navigation modules: dashboard, user management, group management, quota management, session management, task monitoring, history, system logs, API-key management, server configuration, announcement management, and cleanup management.
@@ -47,7 +47,7 @@ The dashboard shows four stat cards: active users, today's translations, running
 
 ### Task monitoring
 
-“Task monitoring” lists all running tasks (task ID, user, type, status, progress bar, start time, actions) and auto-refreshes every 3 seconds while the module is open; “暂停刷新 / 自动刷新” (pause/auto refresh) toggles it. “Cancel” calls `POST /admin/tasks/{task_id}/cancel` for tasks in `pending/queued/processing/running` states; “details” is only a front-end alert placeholder. Note that “cancel all” calls `POST /admin/tasks/cancel-all`, which is not defined in the current `routes/admin.py` (static-source check), so the actual behavior requires runtime verification.
+“Task monitoring” lists all running tasks (task ID, user, type, status, progress bar, start time, actions) and auto-refreshes every 3 seconds while the module is open; “暂停刷新 / 自动刷新” (pause/auto refresh) toggles it. “Cancel” calls `POST /admin/tasks/{task_id}/cancel` for tasks in `pending/queued/processing/running` states; “details” is only a front-end alert placeholder. Note that “cancel all” calls `POST /admin/tasks/cancel-all`, which is not defined in the current `routes/admin.py` (code checks), so the actual behavior may vary by release.
 
 ## User management {#user-management}
 
@@ -115,11 +115,11 @@ The “default quota settings” form contains daily limit, monthly limit, max f
 
 ### Per-user quota usage
 
-The “user quota usage” table shows each user's daily usage (with a progress bar that turns red above 80%) and monthly usage. Note that the row “编辑” (edit) and “重置” (reset) buttons are currently front-end `prompt`/`alert` placeholders that call no backend endpoint; the backend does expose `/api/admin/quota/set-limits` and `/api/admin/quota/reset`, but this admin UI is not wired to them (static-source check), so real persistence needs runtime verification.
+The “user quota usage” table shows each user's daily usage (with a progress bar that turns red above 80%) and monthly usage. Note that the row “编辑” (edit) and “重置” (reset) buttons are currently front-end `prompt`/`alert` placeholders that call no backend endpoint; the backend does expose `/api/admin/quota/set-limits` and `/api/admin/quota/reset`, but this admin UI is not wired to them (code checks), so real persistence may vary by release.
 
 ### Session management
 
-The “active sessions” table columns are user, token (first 12 characters), IP address, device (first 30 characters of the user agent), login time, and actions. The current session is highlighted green with a “当前” (current) badge and no revoke button; other sessions can be revoked with `DELETE /sessions/{session_token}`. “Revoke all other sessions” calls `POST /sessions/revoke-all`, which is not defined in the current `routes/sessions.py` (static-source check) and needs runtime verification.
+The “active sessions” table columns are user, token (first 12 characters), IP address, device (first 30 characters of the user agent), login time, and actions. The current session is highlighted green with a “当前” (current) badge and no revoke button; other sessions can be revoked with `DELETE /sessions/{session_token}`. “Revoke all other sessions” calls `POST /sessions/revoke-all`, which is not defined in the current `routes/sessions.py` (code checks) and may vary by release.
 
 ## History and system logs {#history-and-logs}
 
@@ -129,7 +129,7 @@ The “active sessions” table columns are user, token (first 12 characters), I
 
 ### System logs
 
-“System logs” renders a dark terminal-style stream (time, level, session-ID tag, message) that auto-refreshes every 5 seconds while the module is open. It supports filtering by session ID, filtering by level (All / DEBUG / INFO / WARNING / ERROR), “暂停滚动 / 自动滚动” (pause/resume scrolling), and “📥 下载” (download, `GET /admin/logs/export`). Logs may contain paths, filenames, and request details, so they must be sanitized before export or sharing. “Clear” calls `POST /admin/logs/clear`, which is not defined in the current `routes/admin.py` (static-source check) and needs runtime verification.
+“System logs” renders a dark terminal-style stream (time, level, session-ID tag, message) that auto-refreshes every 5 seconds while the module is open. It supports filtering by session ID, filtering by level (All / DEBUG / INFO / WARNING / ERROR), “暂停滚动 / 自动滚动” (pause/resume scrolling), and “📥 下载” (download, `GET /admin/logs/export`). Logs may contain paths, filenames, and request details, so they must be sanitized before export or sharing. “Clear” calls `POST /admin/logs/clear`, which is not defined in the current `routes/admin.py` (code checks) and may vary by release.
 
 ## API keys and presets {#api-keys-and-presets}
 
@@ -157,7 +157,7 @@ This page never shows real keys, tokens, or `.env` content; documentation and sc
 
 “Auto-cleanup settings” contains enable auto-cleanup, interval (hours), max file retention (days), and max storage (GB); “💾 保存设置” (save settings) maps to `PUT /admin/settings` (writes `cleanup`).
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Permissions, security, and limits {#dependencies-and-conflicts}
 
 - Users, groups, quotas, sessions, tasks, history, and logs are managed by different services but depend on each other: quota resolution follows “user level > group level > global default” (`quota_service.py`), permission resolution is done by `permission_service.py` / `permission_calculator.py`, and changing a group immediately affects all its users.
 - The admin “quota management” and the permission editor's “quota limits” are two entry points with different field keys (the former `daily_limit`/`monthly_limit`, the latter `daily_image_limit`/`daily_char_limit`); the backend contract is defined by the developer HTTP API pages.
@@ -166,4 +166,4 @@ This page never shows real keys, tokens, or `.env` content; documentation and sc
 - Cancelling tasks, clearing history, and cleaning storage are irreversible; deletions and revocations that touch real users must be careful and leave audit records.
 - Audit events from login, password change, registration, task creation, permission denials, translation progress, and user/permission management are written automatically to `audit.log` (10 MB rotation, 5 backups kept); the current admin UI has no audit module, so querying/exporting goes through the `/audit/*` endpoints.
 
-> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> See the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).

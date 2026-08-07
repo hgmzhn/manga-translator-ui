@@ -11,9 +11,9 @@ lastUpdated: true
 
 Use this page when you run `local` from the command line and want that run to use a different configuration file, or to adjust a few settings without editing `config/config.json`. There are three paths: `--config` selects the configuration file, explicit CLI arguments override `cli.*` values from the file, and `MT_*` environment variables provide argument defaults for `web`, `ws`, and `shared`.
 
-This page only explains where configuration comes from and what overrides what. Command structure is covered in [Command structure](./command-structure.md), inputs and outputs in [Local input and output](./local-input-output.md), subprocess and memory arguments in [Subprocess, memory, and recovery](./subprocess-memory-and-recovery.md), and service-mode startup in [Web/WS/Shared modes](./web-ws-and-shared-modes.md).
+This guide only explains where configuration comes from and what overrides what. Command structure is covered in [Command structure](./command-structure.md), inputs and outputs in [Local input and output](./local-input-output.md), subprocess and memory arguments in [Subprocess, memory, and recovery](./subprocess-memory-and-recovery.md), and service-mode startup in [Web/WS/Shared modes](./web-ws-and-shared-modes.md).
 
-## Feature boundary {#feature-boundary}
+## Command scope {#feature-boundary}
 
 - `--config` exists only on the `local` subcommand; `web`, `ws`, and `shared` have no configuration-file option.
 - Explicit CLI arguments override only `cli.*` keys from the configuration file; when a value is not passed, the file value or default is kept. The help text's “overrides the configuration file” holds only when the argument is explicitly provided.
@@ -91,7 +91,7 @@ The configuration files involved in `local` mode are mainly the release default 
 | `cli` | CLI output and batching | `verbose`, `format`, `overwrite`, `batch_size`, `save_text`, etc. |
 | `app` | Desktop app state | `theme`, `ui_language`, `last_output_path` |
 
-Besides the groups, the top level also holds cross-stage fields such as `filter_text_enabled`, `kernel_size`, `mask_dilation_offset`, and `use_custom_api_params`. The full field list is in `config/config-example.json`; the UI explanations of each group's parameters are on the settings pages and in the [Option and i18n matrix](../reference/options-i18n-matrix.md).
+Besides the groups, the top level also holds cross-stage fields such as `filter_text_enabled`, `kernel_size`, `mask_dilation_offset`, and `use_custom_api_params`. The full field list is in `config/config-example.json`; the UI explanations of each group's parameters are on the settings pages and in the [UI Options Reference](../reference/options-i18n-matrix.md).
 
 ### How user config/config.json overrides the template {#user-config-override}
 
@@ -181,9 +181,9 @@ flowchart LR
     end
 ```
 
-Limitation: this diagram comes from static source. Whether `--format`/`--batch-size`/`--attempts` really do not take effect in the subprocess branch is not runtime-verified; the help text and source differ.
+Limitation: this diagram comes from current code. Whether `--format`/`--batch-size`/`--attempts` really do not take effect in the subprocess branch may vary by release; the help text and source differ.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations {#dependencies-and-conflicts}
 
 - `--config` exists only on `local`; `web`, `ws`, and `shared` have no configuration-file argument.
 - CLI overrides affect the current run only and never write back to `config/config.json`; the next run loads from the file again.
@@ -191,4 +191,4 @@ Limitation: this diagram comes from static source. Whether `--format`/`--batch-s
 - `--use-gpu`/`--disable-onnx-gpu` default to `None` on `local` (no override), which differs from `web`, where environment variables provide defaults.
 - `--attempts` (`local`) and `--retry-attempts` (`web`) both accept `-1` for infinite retries but belong to different subcommands with different default sources.
 - `cli.batch_concurrent` from the file is force-disabled under special workflows (see [Workflow and file modes](./workflow-and-file-modes.md)); the formal `local` parser has no `--concurrent` argument, so the CLI cannot override it.
-- This page does not cover API keys, `.env` credential resolution, or candidate rotation; see the API-management pages and [Translator selection](../desktop/translator/selection-and-languages.md).
+- This guide does not cover API keys, `.env` credential resolution, or candidate rotation; see the API-management pages and [Translator selection](../desktop/translator/selection-and-languages.md).

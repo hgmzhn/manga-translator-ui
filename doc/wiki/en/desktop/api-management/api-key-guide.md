@@ -9,7 +9,7 @@ lastUpdated: true
 
 # API Configuration Guide
 
-This page explains how to apply for API keys for the most common online translation APIs and fill them in correctly on the “API Management” page. It only covers user actions; follow the actual pages of each platform. For connection tests, model fetching, and channel management after filling in the fields, see [Connection tests and model list](./connection-tests-and-model-list.md) and [API credentials, addresses, and models](./credentials-addresses-models.md).
+This guide explains how to apply for API keys for the most common online translation APIs and fill them in correctly on the “API Management” page. It only covers user actions; follow the actual pages of each platform. For connection tests, model fetching, and channel management after filling in the fields, see [Connection tests and model list](./connection-tests-and-model-list.md) and [API credentials, addresses, and models](./credentials-addresses-models.md).
 
 ## Model Selection Tips
 

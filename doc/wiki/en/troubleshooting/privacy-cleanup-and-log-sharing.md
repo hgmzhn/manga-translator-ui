@@ -13,11 +13,11 @@ Use this page when you need to free disk space, delete runtime data that contain
 
 ## Scope {#scope}
 
-- This page covers: cleaning up logs and runtime data, sanitization rules before external sharing, viewing/exporting desktop and CLI logs and Web session/system logs, and automatic rebuilding of runtime configuration tables.
-- This page does not repeat: where data is stored and sent (see the data-and-privacy page), the meaning of each debug artifact (see the debug-run page), uninstall steps by installation type (see the uninstall page), or every button and state of the Web admin UI (see the administrator-interface page).
+- This guide covers: cleaning up logs and runtime data, sanitization rules before external sharing, viewing/exporting desktop and CLI logs and Web session/system logs, and automatic rebuilding of runtime configuration tables.
+- This guide does not repeat: where data is stored and sent (see the data-and-privacy page), the meaning of each debug artifact (see the debug-run page), uninstall steps by installation type (see the uninstall page), or every button and state of the Web admin UI (see the administrator-interface page).
 - Cleanup is neither uninstall nor backup. Deleting `.env`, `config/`, server `data/`, results, model caches, and debug directories is irreversible; confirm the scope and back up anything you need first.
 
-## UI operations {#operations}
+## How to use it {#operations}
 
 ### Clean up runtime data {#cleanup-data}
 
@@ -41,7 +41,7 @@ The “Cleanup” (`Cleanup`) module in the Web admin panel only acts on the dir
 - The “Export Config” (`Export Config`) message states that the exported file does not include sensitive information such as API keys; “Import Config” (`Import Config`) preserves existing sensitive information instead of overwriting it.
 - API key fields in the API-management page default to password mode and are shown in the window only when you actively click the reveal icon; this is not protection against clipboard, screen recording, or external services.
 
-## Runtime behavior {#runtime}
+## Why it happens {#runtime}
 
 ### Log writing and cleanup boundaries {#log-writing}
 
@@ -115,7 +115,7 @@ flowchart LR
 | Sanitized log excerpts and matching debug subfolder | The entire `result/` folder or entire work directory |
 | Sanitized config excerpts | Absolute local paths, private prompts |
 
-## Dependencies and conflicts {#dependencies}
+## Related settings and limitations {#dependencies}
 
 - `verbose` and the final output directory are independent: debug artifacts are written to `result/` under the app root, while final images are written elsewhere per output configuration; cleaning the debug folder does not affect saved outputs.
 - The server cleanup service is not uninstall. “Clear all translation results” on the Web results page clears only the browser list and blob URLs, not the result files on the host. See the uninstall page for full uninstall.

@@ -9,16 +9,16 @@ lastUpdated: true
 
 # AI 上色提示词
 
-当选择 `OpenAI Colorizer` 或 `Gemini Colorizer` 给漫画页上色时，AI 上色器会读取一个固定的提示词文件，把上色指令、上色规则和参考图片随页面图片一起发送给图像生成模型。本页说明这个文件放在哪里、包含哪些字段、如何被加载并注入请求，以及它和翻译自定义 HQ 提示词的边界。上色模型、上色大小、降噪强度和历史页数的参数说明见[超分与上色](../settings/upscale-and-colorization.md)；提示词列表、应用与预览的完整流程见[提示词列表、应用与预览](./list-apply-and-preview.md)；翻译自定义提示词见[上下文与提示词](../translator/context-and-prompts.md)。
+当选择 `OpenAI Colorizer` 或 `Gemini Colorizer` 给漫画页上色时，AI 上色器会读取一个固定的提示词文件，把上色指令、上色规则和参考图片随页面图片一起发送给图像生成模型。这里说明这个文件放在哪里、包含哪些字段、如何被加载并注入请求，以及它和翻译自定义 HQ 提示词的边界。上色模型、上色大小、降噪强度和历史页数的参数说明见[超分与上色](../settings/upscale-and-colorization.md)；提示词列表、应用与预览的完整流程见[提示词列表、应用与预览](./list-apply-and-preview.md)；翻译自定义提示词见[上下文与提示词](../translator/context-and-prompts.md)。
 
-## 功能边界
+## 适用场景
 
 - `colorizer.ai_colorizer_prompt_path` 是设置页“AI 上色提示词”这一固定提示词编辑动作的 UI 调用键；它不是普通配置行，也没有像 `translator.high_quality_prompt_path` 那样的可选文件下拉框。
 - 设置页编辑动作和运行时请求构建都固定使用默认路径 `dict/ai_colorizer_prompt.yaml`（`DEFAULT_AI_COLORIZER_PROMPT_PATH`）。Qt 模型 `ColorizerSettings` 和发行配置 `config/config-example.json` 都没有同名持久化字段；不要把这个键当成可切换的翻译提示词路径。
-- 本页不展示真实提示词正文、API 密钥或用户参考图片路径；只说明文件结构、加载规则和注入路径。
+- 这里不展示真实提示词正文、API 密钥或用户参考图片路径；只说明文件结构、加载规则和注入路径。
 - 离线上色器 `Manga Colorization v2`（`mc2`）不读取提示词文件；只有 `openai_colorizer` 和 `gemini_colorizer` 会加载 `dict/ai_colorizer_prompt.yaml`。
 
-## UI 操作
+## 在提示词管理中操作
 
 ### 在设置页编辑 AI 上色提示词
 
@@ -42,7 +42,7 @@ lastUpdated: true
 
 如果用户自建文件的内容包含 `ai_colorizer_prompt`、`colorization_rules`、`reference_images` 等上色专用字段，`open_prompt_editor()` 会按内容识别（`is_ai_colorizer_prompt_file`）并打开同一个 `AIColorizerPromptEditorDialog`；预览面板也会显示“提示词正文 / 上色规则 / 参考图片”三个分区。否则回退到通用 `PromptEditorDialog`。
 
-## 运行机理
+## 提示词如何加载
 
 ### 提示词加载与请求注入 {#prompt-injection}
 
@@ -76,7 +76,7 @@ flowchart LR
 
 `colorizer.ai_colorizer_history_pages`（“AI 上色历史页数”）只对 OpenAI/Gemini 上色器生效：每页上色成功后把结果图存入内存历史，下一次请求把最近 N 张已上色页面作为 `history_reference` 参考图附加，只传图像、不传文字；`0` 关闭。历史页不足时使用已有页，任务顺序与并发隔离会限制可用历史。
 
-## 依赖与冲突
+## 限制与注意事项
 
 - 只影响 AI 上色器：`mc2` 与 `none` 不读取提示词文件；把文件内容改成翻译提示词不会让离线上色器改变行为。
 - 与翻译自定义 HQ 提示词互不通用：`translator.high_quality_prompt_path` 是可选择的翻译提示词路径，`dict/ai_colorizer_prompt.yaml` 是固定的 AI 上色提示词文件；`get_hq_prompt_options()` 明确排除 `ai_colorizer_prompt` 等 AI 提示词文件名，防止把上色文件应用到翻译请求。

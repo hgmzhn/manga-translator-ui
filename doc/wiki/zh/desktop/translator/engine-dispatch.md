@@ -9,15 +9,15 @@ lastUpdated: true
 
 # 翻译器引擎分发
 
-当需要知道“翻译器”下拉框到底会调用哪个实现、何时需要 API，以及多步翻译如何串联时使用本页。本页只讲“翻译器”选择到翻译实现和最终文本消费者的分发边界；目标语言、跳过语言、上下文、提示词、流式和译后处理见[翻译器选择与语言](./selection-and-languages.md)及相邻专题页。
+当需要知道“翻译器”下拉框到底会调用哪个实现、何时需要 API，以及多步翻译如何串联时使用本页。这里按“翻译器”选择到翻译实现和最终文本消费者的分发边界；目标语言、跳过语言、上下文、提示词、流式和译后处理见[翻译器选择与语言](./selection-and-languages.md)及相邻专题页。
 
-## 功能边界
+## 适用场景
 
 - **负责**：桌面设置页和 API 管理页中的翻译器选择；存储值到 `Translator` 枚举、`TranslatorChain` 和 `dispatch` 的映射；OpenAI/Gemini 普通与高质量实现、Sakura、无翻译和保留原文的差异。
 - **不负责**：OCR、上色、渲染下拉框；同一提供商内的 Key/Base/Model 候选轮换；提示词内容、上下文构造和质量重试；这些分别属于 API 管理或其他翻译器专题。
 - API 管理页的“翻译器”选择器不是仅筛选界面：它写入同一个 `translator.translator`，并刷新下方翻译 API 分组；但 API 槽本身不会改变所选引擎。
 
-## UI 操作
+## 在桌面端设置
 
 ### 设置页选择引擎
 
@@ -65,7 +65,7 @@ flowchart LR
 
 ## API 功能选择器的边界
 
-API 管理页有四个 feature selector：翻译、OCR、上色、渲染。它们分别绑定到四个真实配置键，键与刷新的 API 分组见[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+API 管理页有四个 feature selector：翻译、OCR、上色、渲染。它们分别绑定到四个真实配置键，键与刷新的 API 分组见[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 所以，在 API 管理页把翻译 selector 改为 `gemini` 会真正改变翻译引擎，并刷新 Gemini 的翻译 API 字段；它不是只切换“凭据标签”。相反，填写多个 OpenAI Key、Base 或 Model 槽只影响已选 OpenAI 提供商的运行时候选。候选解析、`failover`/`round_robin`、冷却和恢复属于 API 管理页，不在这里重复实现。
 

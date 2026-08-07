@@ -9,11 +9,11 @@ lastUpdated: true
 
 # 卸载与数据清理
 
-## 功能边界 {#scope}
+## 适合哪些安装方式 {#scope}
 
-本页说明如何停止应用后移除 Windows 便携版、源码/Unix 安装或 Docker 部署，以及哪些配置、模型、日志、结果和服务器资料需要单独处理。当前仓库的 `Win-*.bat`、`Unix-*.sh` 和 Docker Compose 没有提供一个统一的“卸载”按钮或卸载命令；卸载主要是删除安装目录、虚拟环境或宿主机挂载数据。
+这里说明如何停止应用后移除 Windows 便携版、源码/Unix 安装或 Docker 部署，以及哪些配置、模型、日志、结果和服务器资料需要单独处理。当前仓库的 `Win-*.bat`、`Unix-*.sh` 和 Docker Compose 没有提供一个统一的“卸载”按钮或卸载命令；卸载主要是删除安装目录、虚拟环境或宿主机挂载数据。
 
-本页不替代[Windows 便携版](./windows-portable.md)、[Linux/macOS 安装](./linux-and-macos.md)和[Docker 安装](./docker.md)中的安装步骤，也不把应用内“清空结果”误写成完整卸载。
+这里不替代[Windows 便携版](./windows-portable.md)、[Linux/macOS 安装](./linux-and-macos.md)和[Docker 安装](./docker.md)中的安装步骤，也不把应用内“清空结果”误写成完整卸载。
 
 按安装形态卸载：
 
@@ -22,7 +22,7 @@ lastUpdated: true
 
 下面按安装形态补充详细数据清理边界。
 
-## UI 操作 {#operations}
+## 安装步骤 {#operations}
 
 ### 通用顺序
 
@@ -44,9 +44,9 @@ lastUpdated: true
 
 Web 管理界面中的清理功能只处理服务器清理服务定义的目录；它不是删除程序目录的卸载器。结果页的“清空翻译结果”只清空浏览器结果列表和 blob URL，不等同于删除宿主机结果文件。
 
-清理相关界面文案的实际值见[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+清理相关界面文案的实际值见[界面选项对照表](../reference/options-i18n-matrix.md)。
 
-## 运行机理 {#runtime}
+## 安装脚本做了什么 {#runtime}
 
 ```mermaid
 flowchart TD
@@ -70,7 +70,7 @@ Docker 把宿主机 `./data/{fonts,dict,result,models,logs,server,config}` 分�
 
 服务器自动清理默认关闭；默认配置为每 24 小时检查一次、删除超过 7 天的文件，并在相关目录总量超过 10 GiB 时按最旧文件继续删除。它只遍历服务器 `data/results`、用户字体和用户提示词目录，不清理应用安装目录、模型目录、桌面日志或输入旁的工作目录。
 
-## 依赖与冲突 {#dependencies}
+## 环境与兼容性 {#dependencies}
 
 - **进程占用**：未停止的 Qt、Python、uvicorn 或 Docker 容器可能继续写文件，Windows 也可能拒绝删除 DLL；先关闭进程或停止容器。
 - **便携 Python 与 Conda/venv**：`Win-Start.bat` 和 `Win-Install-or-Update.bat` 优先使用 `packaging/python/python.exe`，缺失时才查找 `manga-env` 或 `conda_env`。不要为了卸载便携版删除仍被其他项目使用的 Miniconda；不要让旧 PATH 指向已删除环境。
@@ -78,5 +78,3 @@ Docker 把宿主机 `./data/{fonts,dict,result,models,logs,server,config}` 分�
 - **Docker 持久化**：`docker compose down`、删除容器、删除镜像和删除 bind mount 是不同动作。删除 `./data/server` 会丢失 Web 账户/会话/历史及服务器资源；删除 `./data/models` 会导致以后重新下载模型。
 - **缓存与凭据**：Hugging Face/Torch 等用户级缓存可能位于用户 profile 外部目录；`.env` 和配置文件可能含 API 凭据。删除前先决定是否迁移，分享日志前检查密钥、令牌、用户名、绝对路径和用户内容。
 - **版本切换**：卸载不是更新。维护器更新时可能清理 uv/pip 下载缓存并移除不适合当前平台的启动文件，但不会替用户删除全部数据目录。
-
-更多开发向对照与源码依据见[参考索引](../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Display, Compare, and Arrange
 
-Use this page when you need to check whether translated text hides the original artwork, verify inpainting/cleanup results, or arrange multiple text regions into aligned rows and columns. It documents switching canvas display modes, enabling the two-panel original comparison, and aligning or distributing selected regions. This page only covers “how it is displayed” and “how it is arranged”; the toolbar menu structure, zoom scaling, and the five editor toggles live in [Editor Toolbar and Menus](./toolbar-and-menus.md), region selection and dragging in [Canvas Tools and Selection](./canvas-tools-and-selection.md), and text/style editing in [Text Properties](./text-properties.md) and [Style Properties](./style-properties.md).
+Use this page when you need to check whether translated text hides the original artwork, verify inpainting/cleanup results, or arrange multiple text regions into aligned rows and columns. It documents switching canvas display modes, enabling the two-panel original comparison, and aligning or distributing selected regions. This guide focuses on “how it is displayed” and “how it is arranged”; the toolbar menu structure, zoom scaling, and the five editor toggles live in [Editor Toolbar and Menus](./toolbar-and-menus.md), region selection and dragging in [Canvas Tools and Selection](./canvas-tools-and-selection.md), and text/style editing in [Text Properties](./text-properties.md) and [Style Properties](./style-properties.md).
 
-## Feature boundary
+## What you can do
 
 - “Display Mode” is an exclusive radio selection that changes only the visibility of the text-region overlays on the canvas (text, box outlines, white frame). It never modifies region data and is not an export parameter.
 - “Compare with Original (Two Panels)” adds a read-only original-image preview to the left of the editing canvas; the right canvas renders in “Show Text and Boxes” mode so you can view the original and the current edit at the same time.
 - The “Original Image Opacity:” slider controls only the transparency of the original-image overlay on the canvas, letting you switch between “view the inpainted/cleaned result” and “view the original”. It is not an export parameter.
 - “Arrange” only moves selected text regions (it updates each region `center`); it never changes text content, style, or region size.
-- This page does not cover menu expansion, shortcuts, zoom scaling, or persistence of the five toggles (see [Editor Toolbar and Menus](./toolbar-and-menus.md)), nor mask/brush/clone-stamp tools (see [Mask, Paint, and Clone Stamp](./mask-paint-and-clone-stamp.md)).
+- This guide does not cover menu expansion, shortcuts, zoom scaling, or persistence of the five toggles (see [Editor Toolbar and Menus](./toolbar-and-menus.md)), nor mask/brush/clone-stamp tools (see [Mask, Paint, and Clone Stamp](./mask-paint-and-clone-stamp.md)).
 
-## UI operations
+## Use it in the editor
 
 ### Switch display modes
 
@@ -53,7 +53,7 @@ Use this page when you need to check whether translated text hides the original 
 
 Click “Fit to Window” on the toolbar to scale the current image to fill the canvas viewport while keeping its aspect ratio. It only changes the view, never region data; zoom scaling and wheel-zoom details live in [Editor Toolbar and Menus](./toolbar-and-menus.md).
 
-## Runtime behavior
+## How changes are saved
 
 ### How display modes control the canvas {#display-mode-mechanism}
 
@@ -116,7 +116,7 @@ Both alignment and distribution take the white-frame reference points (left/righ
 
 Spacing distribution sorts regions by their reference value, keeps the two ends fixed, computes “total span − sum of region sizes” as the total gap and divides it by `n-1`, then places each inner region at “previous region’s far edge + equal gap”. The result is equal whitespace between regions, not equally spaced centers. All results are packed into one `MultiRegionUpdateCommand` batch command that can be undone as a whole; the white frames and text move immediately instead of waiting for the debounced render.
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - Display modes affect overlay visibility only: with “Show Nothing” the region overlays are hidden and you cannot click regions on the canvas; with “Show Text Only” the outlines are hidden and region boundaries are not visible.
 - Comparison forces the right canvas to `full`: even if you previously chose “Show Text Only”, text and boxes are shown while comparing; leaving comparison requires picking another display mode again, it is not restored automatically.
@@ -125,5 +125,3 @@ Spacing distribution sorts regions by their reference value, keeps the two ends 
 - “Original Image Opacity” is not an export parameter: export goes through the export service, and the opacity only affects canvas viewing. File semantics for inpainted images and `editor_base` live in [Import/Export and Writeback](./import-export-and-writeback.md).
 - The large-image compare preview is downsampled to at most 3,000,000 pixels, so at extreme zoom the left preview may look less sharp than the canvas; this affects preview only, not export.
 - Display mode, opacity, and comparison state are kept in the editor session and never written to a configuration file; reopening the editor returns them to defaults.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

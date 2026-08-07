@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Settings Parameter Index
 
-Use this page when you need to find which settings tab a parameter belongs to, what its stored key and UI text are, and where its detailed explanation lives. It aggregates every visible parameter of the seven settings tabs into one index and links each row to the matching settings page or parameter anchor. Parameter semantics, the three default tiers, consumers, and runtime behavior are covered on the corresponding settings pages; this page only summarizes and links back, without restating standalone file documentation.
+Use this page when you need to find which settings tab a parameter belongs to, what its stored key and UI text are, and where its detailed explanation lives. It aggregates every visible parameter of the seven settings tabs into one index and links each row to the matching settings page or parameter anchor. Parameter semantics, the three default tiers, consumers, and runtime behavior are covered on the corresponding settings pages; this guide only summarizes and links back, without restating standalone file documentation.
 
-For the settings shell, description panel, import/export, and configuration lifecycle, see [Settings and Configuration Lifecycle](../desktop/settings/index.md). For the full value/i18n mapping of every enum option, see [Options and i18n Matrix](./options-i18n-matrix.md). For the nine-workflow stage matrix, see [Workflow Matrix](./workflow-matrix.md).
+For the settings shell, description panel, import/export, and configuration lifecycle, see [Settings and Configuration Lifecycle](../desktop/settings/index.md). For the full value/i18n mapping of every enum option, see [UI Options Reference](./options-i18n-matrix.md). For the nine-workflow stage matrix, see [Workflow Matrix](./workflow-matrix.md).
 
 ## How to use this page {#how-to-use}
 
@@ -20,9 +20,9 @@ Follow this order:
 1. Confirm the target tab and page in “Settings tabs and pages”.
 2. Find the parameter row under the matching tab in “Parameter index”; the stored key and the actual English and Simplified Chinese text are on the same row.
 3. Use the “Jump to” link to open the parameter section on the settings page; rows without a dedicated explicit anchor link to the page itself.
-4. Defaults, dependencies, consumers, and runtime behavior always come from the settings page you land on; this page does not expand them.
+4. Defaults, dependencies, consumers, and runtime behavior always come from the settings page you land on; this guide does not expand them.
 
-This page covers only the visible parameter rows of the settings page. `settings_tab_layout.json` has 110 entries, of which 109 render as visible parameters; the remaining one (`render.font_color`) is not rendered because its release default is `null` and it has no control branch. The following are out of scope: API-management credentials, addresses, models, slots, and rotation strategies; editor property-panel parameters; prompt lists and batch-management schemes; and the full processing steps of the nine workflows.
+This guide focuses on the visible parameter rows of the settings page. `settings_tab_layout.json` has 110 entries, of which 109 render as visible parameters; the remaining one (`render.font_color`) is not rendered because its release default is `null` and it has no control branch. The following are out of scope: API-management credentials, addresses, models, slots, and rotation strategies; editor property-panel parameters; prompt lists and batch-management schemes; and the full processing steps of the nine workflows.
 
 ## Settings tabs and pages {#settings-tabs}
 
@@ -205,7 +205,7 @@ The 11 parameters of this tab span two pages: direct-paste and template-alignmen
 ## Coverage boundary and backlinks {#coverage-and-backlinks}
 
 - Backlinks: this page is the aggregated jump entry for the seven settings topic pages and [Settings and Configuration Lifecycle](../desktop/settings/index.md); the detailed explanation remains on each topic page.
-- Sibling reference pages: the full value/i18n mapping of enum options is in [Options and i18n Matrix](./options-i18n-matrix.md), the nine-workflow stage matrix in [Workflow Matrix](./workflow-matrix.md), the per-page source-evidence summary in [Source Evidence Index](./source-evidence-index.md), and debug artifacts in [Debug Artifact Index](./debug-artifact-index.md).
+- Sibling reference pages: the full value/i18n mapping of enum options is in [UI Options Reference](./options-i18n-matrix.md), the nine-workflow stage matrix in [Workflow Matrix](./workflow-matrix.md), the per-page source-evidence summary in [Code Index](./source-evidence-index.md), and debug artifacts in [Debug Artifact Index](./debug-artifact-index.md).
 - Values written back by other controls instead of being settings rows: `upscale.realcugan_model` is written by the upscaler combo (see [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md)); the eight workflow flags (`cli.generate_and_export`, `cli.template`, `cli.translate_json_only`, `cli.load_text`, `cli.colorize_only`, `cli.upscale_only`, `cli.inpaint_only`, `cli.replace_translation`) are set by the workflow dropdown in the translation workspace (see [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md)). Editor preferences (`editor_*`) belong to `AppSection` but are not rendered as General rows.
 - Runtime lists (fonts, model names, API presets, prompt files, batch schemes) come from the local machine or user configuration and are not part of this index's fixed catalog.
 
@@ -233,8 +233,7 @@ The tabs, titles, and buttons on this page are verified against `desktop_qt_ui/l
 | `Export Config` | Export Config | 导出配置 |
 | `Import Config` | Import Config | 导入配置 |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Settings layout | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | Seven tabs, 110 entries, 109 visible parameters, `Advanced` dividers |

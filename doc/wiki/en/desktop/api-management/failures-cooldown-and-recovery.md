@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Failures, Cooldown, and Recovery
 
-When a request to an API candidate channel (a numbered slot used by translation, OCR, colorization, or rendering) fails, the program keeps an in-memory status for that candidate and uses it to decide whether later requests may still select it. This page documents the state machine after a failure — cooldown, unavailability, recovery to available, and why a wrong configuration fails again after being restored — and lists the cooldown and timeout parameters.
+When a request to an API candidate channel (a numbered slot used by translation, OCR, colorization, or rendering) fails, the program keeps an in-memory status for that candidate and uses it to decide whether later requests may still select it. This guide documents the state machine after a failure — cooldown, unavailability, recovery to available, and why a wrong configuration fails again after being restored — and lists the cooldown and timeout parameters.
 
-This page does not cover adding/deleting slots, numbering badges, or the two rotation policies (see [API Slots and Rotation](./slots-and-rotation.md)), the connection-test dialogs (see [Connection Tests and Model List](./connection-tests-and-model-list.md)), or the full parameters of ordinary request retries (see [Retries, Rate Limits, and Quality](../translator/retry-rate-limit-and-quality.md)).
+This guide does not cover adding/deleting slots, numbering badges, or the two rotation policies (see [API Slots and Rotation](./slots-and-rotation.md)), the connection-test dialogs (see [Connection Tests and Model List](./connection-tests-and-model-list.md)), or the full parameters of ordinary request retries (see [Retries, Rate Limits, and Quality](../translator/retry-rate-limit-and-quality.md)).
 
-## Feature boundary {#feature-boundary}
+## Configuration scope {#feature-boundary}
 
-- This page covers per-candidate endpoint status: each candidate is identified by feature, provider, slot, base URL, model, and a key fingerprint; the status lives in memory and is never written to `.env` or `config.json`.
+- This guide covers per-candidate endpoint status: each candidate is identified by feature, provider, slot, base URL, model, and a key fingerprint; the status lives in memory and is never written to `.env` or `config.json`.
 - Only rate-limit errors enter “Cooling down”, and only permanent errors enter “Unavailable”; every other error is recorded as “Failed” and does not prevent the candidate from being selected again.
 - The state machine applies to the translation, OCR, colorization, and rendering API groups alike, because all four consumers call the same rotation entry point `run_with_api_candidates`.
 - Status is process-local: restarting the app or editing Key/Base/Model (which changes the status identity) invalidates old state; clicking the “Restore” (`Restore`) button on a card actively clears one candidate’s state.
@@ -87,7 +87,7 @@ flowchart LR
 
 So the debugging order is: first confirm that the key, address, and model are actually correct, then click Restore and run “Test Current Tab”; do not use repeated Restore clicks as a substitute for fixing the configuration.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Credentials, network, and errors {#dependencies-and-conflicts}
 
 - Cooldown/unavailable state is kept per `feature:provider` group: a translation cooldown does not affect OCR, colorization, or rendering groups, and vice versa.
 - Status only affects candidate selection; it never changes the translator implementation (`translator.translator`) and is not used by `translator_chain`. See [Feature Selectors](./feature-selectors.md) and [Translation Chaining](../translator/translation-chain.md) for the boundary.

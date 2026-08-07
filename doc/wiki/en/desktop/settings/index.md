@@ -11,14 +11,14 @@ lastUpdated: true
 
 The Settings page adjusts the desktop translation pipeline and passes the edited values to the runtime configuration model. It owns tabs, parameter controls, import/export, and automatic saving; algorithm details belong to [General and app](./general-and-app.md), [CLI, batch, and output](./cli-batch-and-output.md), [Detection](./detection.md), [OCR, filtering, and merging](./ocr-filter-and-merge.md), [Translation](./translation.md), [Mask and inpainting](./mask-and-inpainting.md), [Typesetting and rendering](./typesetting-and-rendering.md), [Upscaling and colorization](./upscale-and-colorization.md), and [Mode-specific parameters](./mode-specific.md). It does not own API credential-slot rotation, prompt lists, editor project data, or the detailed execution of the nine workflows.
 
-## Feature boundary {#feature-boundary}
+## What these settings control {#feature-boundary}
 
 - The page reads seven UI groups from `settings_tab_layout.json`: General, OCR, Detection, Translation, Inpainting, Typesetting, and Mode Specific. `Advanced` and the other dividers are headings inside a tab, not separate tabs.
 - The current layout contains 110 entries, of which 109 are visible parameters; one entry is not rendered by the current dynamic settings code. Internal state, workflow-controlled flags, and deprecated fields are not duplicated as ordinary rows.
 - Configuration has three distinct sources: the Qt `AppSettings` model, the core `Config` processing model, and the release template `config/config-example.json`. They must not be collapsed into one default.
-- This page explains how the Settings page changes and saves configuration. Detection, OCR, translation, inpainting, typesetting, upscaling, and colorization consumers remain on their respective pages.
+- This guide explains how the Settings page changes and saves configuration. Detection, OCR, translation, inpainting, typesetting, upscaling, and colorization consumers remain on their respective pages.
 
-## UI operations {#ui-operations}
+## Change it in the desktop app {#ui-operations}
 
 Open Settings in the desktop application. The header shows “Settings” and “Adjust translation pipeline parameters. Changes are saved automatically.”, with “Export Config” and “Import Config” on the right. The left side contains segmented tabs, the center contains scrollable parameter rows, and the right side contains “Parameter Description”. Selecting a row or its control displays the configuration key and description.
 
@@ -46,7 +46,7 @@ Steps:
 
 Changing `app.ui_language` or the application language reloads tab labels, field labels, descriptions, and displayed combo values without changing stored values. There is no separate Apply button: normal edits update memory immediately and are then coalesced to disk by the configuration service.
 
-## Runtime behavior {#runtime-behavior}
+## How the settings take effect {#runtime-behavior}
 
 ```mermaid
 flowchart LR
@@ -69,7 +69,7 @@ A controller updates `AppSettings`; `update_config()` and imported per-key merge
 - `cli.batch_size` is the stage batch size; `cli.batch_concurrent` is image-level pipeline concurrency. They are different controls, and special workflows may override CLI flags.
 - Fixed prompt editors write their respective YAML/compatible files. AI OCR, AI renderer, and AI colorizer have separate prompt consumers.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Interactions and caveats {#dependencies-and-conflicts}
 
 - OpenAI/Gemini translation, AI OCR, AI colorization, or AI rendering requires the relevant environment variables and a reachable API base. Hybrid OCR with an AI secondary OCR also needs that secondary OCR credential. Real values do not belong in this page.
 - GPU, ONNX GPU, Torch inpainting precision, and model choices depend on hardware, installed dependency groups, and VRAM. `disable_onnx_gpu` is not the same as `use_gpu=false`.

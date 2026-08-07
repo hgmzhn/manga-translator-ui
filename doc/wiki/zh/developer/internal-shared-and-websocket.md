@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 内部 shared 与 WebSocket 协议
 
-当你要调试内部执行器、排查 `shared`/`ws` 模式的连接或序列化问题，或者评估把内部协议暴露到网络的后果时，本页说明两条内部链路的线上契约：`shared` 的 HTTP + pickle 帧协议，以及 `ws` 的 WebSocket + protobuf 任务协议。本页不重复三个服务模式的启动方式和模式级差异（见[Web、WS 与 Shared 模式](../cli/web-ws-and-shared-modes.md)），也不重复 web 模式的端口与部署（见[Web 服务器端口与部署](./web-server-ports-and-deployment.md)）；对外 HTTP API 的鉴权与错误见[HTTP API 鉴权与错误](./http-api/authentication-and-errors.md)。
+当你要调试内部执行器、排查 `shared`/`ws` 模式的连接或序列化问题，或者评估把内部协议暴露到网络的后果时，这里说明两条内部链路的线上契约：`shared` 的 HTTP + pickle 帧协议，以及 `ws` 的 WebSocket + protobuf 任务协议。这里不重复三个服务模式的启动方式和模式级差异（见[Web、WS 与 Shared 模式](../cli/web-ws-and-shared-modes.md)），也不重复 web 模式的端口与部署（见[Web 服务器端口与部署](./web-server-ports-and-deployment.md)）；对外 HTTP API 的鉴权与错误见[HTTP API 鉴权与错误](./http-api/authentication-and-errors.md)。
 
-## 功能边界 {#feature-boundary}
+## 涉及的代码 {#feature-boundary}
 
 - `shared` 是内部 HTTP 执行器：`MangaShare` 把 `MangaTranslator` 包装成 FastAPI 服务，默认监听 `127.0.0.1:5003`，只暴露三个受控端点，结果用 pickle 字节返回。它不是给浏览器访问的对外服务。
 - `ws` 是内部 WebSocket 执行器客户端：`MangaTranslatorWS` 继承翻译器，主动连接上游 `ws://localhost:5000`，用 `x-secret` 头认证，收发 protobuf `WebSocketMessage` 帧。解析器为它声明的本地 `--host 127.0.0.1 --port 5003 --nonce` 不被当前实现消费。
@@ -114,14 +114,14 @@ flowchart LR
 - 当前仓库未跟踪 `manga_translator/server/ws_pb2.py` 或对应 `.proto` 文件；`listen()` 中 `from ..server import ws_pb2` 会 `ImportError`，因此 `ws` 模式当前无法启动。这是源码差异，不是已验证的运行行为。
 - 恢复该模式需要重新生成 `ws_pb2.py` 并验证消息字段与上游调度器一致；在恢复前不要把 `ws` 当作可运行服务。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 约束与注意事项 {#dependencies-and-conflicts}
 
 - 端口边界：web `0.0.0.0:8000`、shared `127.0.0.1:5003`、ws 上游 `ws://localhost:5000`；三者用途不同，不互相覆盖。
 - `ws --host/--port/--nonce` 在解析器中存在，但 `MangaTranslatorWS` 不消费；不要根据帮助文本推断 ws 会监听 `5003`。
 - shared/ws 是内部协议：不要用浏览器直接访问，不要暴露公网；nonce/secret 明文传输、pickle 反序列化与 protobuf 解析都携带安全风险。
 - web 模式强制 `start_instance=False`，不会自动拉起 shared 实例；`server/main.py` 的 `start_translator_client_proc` 属于旧路径，且访问/追加了 `shared` 子解析器未声明的 `--ignore-errors`、`--pre-dict`、`--post-dict` 选项，不能当作正式行为。
 - 当前仓库缺 `ws_pb2.py`，`ws` 模式无法启动；这是源码差异。
-- 本页不读取或展示真实 `.env`、`WS_SECRET`、nonce、API key、令牌、用户名或私有路径。
+- 这里不读取或展示真实 `.env`、`WS_SECRET`、nonce、API key、令牌、用户名或私有路径。
 
 ## 开发指南 {#developer-guide}
 
@@ -193,10 +193,9 @@ flowchart LR
 
 ### Mermaid 边界 {#mermaid-boundary}
 
-上图描述源码中真实的端点、帧格式和任务状态流转，不代表 `ws://localhost:5000` 在本仓库内一定存在监听服务，也不代表 `ws` 模式当前能启动（`ws_pb2.py` 缺失）。shared 执行器分发是源码保留的旧路径，正式 `web` 模式不会自动拉起它。本页没有伪造运行截图或私有凭据。
+上图描述代码中的端点、帧格式和任务状态流转，不代表 `ws://localhost:5000` 在本仓库内一定存在监听服务，也不代表 `ws` 模式当前能启动（`ws_pb2.py` 缺失）。shared 执行器分发是源码保留的旧路径，正式 `web` 模式不会自动拉起它。。
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | shared 服务 | `manga_translator/mode/share.py` | 三个端点、nonce、方法白名单、锁、pickle、帧状态码、`use_placeholder`、`timeout_keep_alive` |

@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 设置外壳、说明面板与配置导入导出
 
-本页说明桌面端设置页如何组织分组、参数行和右侧说明，以及如何导出或导入设置 JSON。它不解释各检测、OCR、翻译、修复、排版、超分或上色参数的算法意义；这些内容分别见[设置页与配置生命周期](./index.md)及对应参数页。本页也不负责 API 凭据槽、预设管理、提示词列表或编辑器项目文件。
+这里说明桌面端设置页如何组织分组、参数行和右侧说明，以及如何导出或导入设置 JSON。它不解释各检测、OCR、翻译、修复、排版、超分或上色参数的算法意义；这些内容分别见[设置页与配置生命周期](./index.md)及对应参数页。本页也不负责 API 凭据槽、预设管理、提示词列表或编辑器项目文件。
 
-## 功能边界 {#feature-boundary}
+## 这组设置控制什么 {#feature-boundary}
 
 - 设置页外壳由标题区、七个分组页签、可滚动参数列表、右侧说明面板组成；页首另有“导出配置”和“导入配置”。
 - `settings_tab_layout.json` 当前定义 `General`、`OCR`、`Detection`、`Translation`、`Inpainting`、`Typesetting`、`Mode Specific` 七个页签。`Advanced`、`Replace Translation`、`Upscaling` 和 `Colorization` 是页签内分隔标题，不是独立页签。
@@ -19,7 +19,7 @@ lastUpdated: true
 - 配置导出只处理设置模型的 JSON 快照，并主动排除 `app` 临时状态和 `cli.verbose`；它不是 API 凭据或整个运行目录的备份。
 - 配置导入把外部 JSON 深度合并到当前配置，保留当前 `app` 段，再由 `AppSettings` 校验；它不是导入 `.env`、提示词正文、翻译 JSON 或用户图片的功能。
 
-## UI 操作 {#ui-operations}
+## 在桌面端修改 {#ui-operations}
 
 ### 设置页外壳与右侧说明 {#settings-shell}
 
@@ -33,7 +33,7 @@ lastUpdated: true
 
 这些行仍显示在设置页，但其按钮打开资源编辑器或目录，不把文件内容塞进普通配置值。
 
-具体提示词格式和各自消费者留在提示词页面；本页只记录设置页的调用边界。
+具体提示词格式和各自消费者留在提示词页面；这里仅记录设置页的调用边界。
 
 ### 导出配置 {#export-config}
 
@@ -53,9 +53,9 @@ lastUpdated: true
 5. `AppSettings.model_validate()` 成功后立即更新内存、请求保存并通知 UI；设置页可能整页重建，右侧说明、API 分组和提示词相关控件随之刷新。
 6. 成功显示“导入成功”，并明确提示当前 API Key 和敏感信息已保留；解析、校验或保存异常显示“导入失败”。
 
-代码没有为配置导入实现独立的“覆盖确认”对话框；导入是直接合并并保存。保存文件对话框是否由操作系统针对已有目标文件询问覆盖，当前仅静态核对，未作有头运行验证，不能写成应用保证的确认步骤。
+代码没有为配置导入实现独立的“覆盖确认”对话框；导入是直接合并并保存。保存文件对话框是否由操作系统针对已有目标文件询问覆盖，当前仅代码检查，未在桌面环境中确认，不能写成应用保证的确认步骤。
 
-## 运行机理 {#runtime-behavior}
+## 参数如何生效 {#runtime-behavior}
 
 ```mermaid
 flowchart TD
@@ -74,7 +74,7 @@ flowchart TD
 
 普通保存使用 250 ms 防抖、单线程写入器、临时文件和 `os.replace` 原子替换；显式文件保存会 flush。导入/导出按钮本身连接到 `AppLogic.export_config` 和 `AppLogic.import_config`，而不是直接让设置页读写文件。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 搭配使用时的注意事项 {#dependencies-and-conflicts}
 
 - 导入文件必须是可读取的 UTF-8 JSON；语法错误、类型错误或违反模型约束会使导入失败或让相关值回退到默认值。
 - 导入不会更新 `.env`，也不会覆盖 `app` 段；API 凭据仍由 API 管理的 dotenv 边界维护。不得把导出的 JSON 当作凭据备份。

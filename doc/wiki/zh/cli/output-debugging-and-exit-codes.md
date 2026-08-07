@@ -9,14 +9,14 @@ lastUpdated: true
 
 # 输出、调试与退出码
 
-本页说明 `local` 命令运行后你会在哪里看到结果：最终图片的输出目录与命名、`-v/--verbose` 开启后写入的日志和调试产物，以及命令结束时的进程退出码。它不覆盖输入收集（见[本地输入与输出](./local-input-output.md)）、显式参数覆盖（见[配置覆盖](./configuration-overrides.md)）、工作流与文件模式（见[工作流与文件模式](./workflow-and-file-modes.md)）和子进程内存管理（见[子进程内存与恢复](./subprocess-memory-and-recovery.md)）；四个顶层子命令的结构见[命令结构](./command-structure.md)。调试产物的逐阶段含义与脱敏规则由调试目录相关页面承接，本页只固定路径契约。
+这里说明 `local` 命令运行后你会在哪里看到结果：最终图片的输出目录与命名、`-v/--verbose` 开启后写入的日志和调试产物，以及命令结束时的进程退出码。它不覆盖输入收集（见[本地输入与输出](./local-input-output.md)）、显式参数覆盖（见[配置覆盖](./configuration-overrides.md)）、工作流与文件模式（见[工作流与文件模式](./workflow-and-file-modes.md)）和子进程内存管理（见[子进程内存与恢复](./subprocess-memory-and-recovery.md)）；四个顶层子命令的结构见[命令结构](./command-structure.md)。调试产物的逐阶段含义与脱敏规则由调试目录相关页面承接，这里仅固定路径契约。
 
-## 功能边界 {#feature-boundary}
+## 命令范围 {#feature-boundary}
 
 - `-o/--output` 决定最终图片的输出目录；省略时按“`-o` → `app.last_output_path` → 默认规则”三级回退，具体见[输出目录判定](#output-directory-resolution)。
 - `-v/--verbose` 只改变日志级别、日志文件和 `result/` 调试产物，不改变翻译结果图片本身。
 - 进程退出码只有三个约定值：`0` 成功/跳过/取消，`1` 配置加载失败或未捕获异常，`2` `argparse` 解析错误；单图失败不会改变退出码。
-- 本页不展示真实 `.env`、用户 `config.json`、API Key、用户名、私有绝对路径、用户图片或私有提示词；日志与调试产物分享前必须脱敏。
+- 这里不展示真实 `.env`、用户 `config.json`、API Key、用户名、私有绝对路径、用户图片或私有提示词；日志与调试产物分享前必须脱敏。
 
 ## 终端操作 {#terminal-operations}
 
@@ -99,7 +99,7 @@ flowchart TD
     A5 --> U5["OCR 识别排查"]
 ```
 
-图说明：`-v` 开启后新增 DEBUG 日志与调试目录；不是每次运行都会产生全部产物。下列产物均为 `verbose=True` 下的条件写入，具体触发条件来自静态源码核对（`research/phase0-debug-artifact-path-trace.md`），不代表每次运行必有：
+图说明：`-v` 开启后新增 DEBUG 日志与调试目录；不是每次运行都会产生全部产物。下列产物均为 `verbose=True` 下的条件写入，具体触发条件来自当前代码（`research/phase0-debug-artifact-path-trace.md`），不代表每次运行必有：
 
 | 产物 | 触发条件（均需 verbose） | 排查用途 |
 | --- | --- | --- |
@@ -136,11 +136,11 @@ flowchart TD
 要点：
 
 - 单图失败不改变进程退出码：`translate_files()` 汇总失败数量后正常返回，退出码仍为 `0`；失败只体现在 `❌ 失败: N` 汇总行。脚本化使用时以汇总行或日志为准。
-- 非子进程路径在“未找到图片”时打印 `❌ 未找到图片文件` 后正常返回（退出码 `0`）；子进程路径在同一情况打印相同信息后 `sys.exit(1)`。这是源码确认的两条路径差异。
+- 非子进程路径在“未找到图片”时打印 `❌ 未找到图片文件` 后正常返回（退出码 `0`）；子进程路径在同一情况打印相同信息后 `sys.exit(1)`。这是两条路径差异。
 - 无模式且参数不含 `-i/--input` 时，`parse_args()` 打印帮助并以 `1` 退出。
 - `-v` 下异常会额外打印 traceback，但退出码仍按上表。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 使用限制 {#dependencies-and-conflicts}
 
 - 调试产物只在 `verbose=True` 时写入；不开启时 `result/` 只用于日志（非子进程路径）或 Web/WS 的最终图缓存。
 - `-v` 会增加磁盘占用；长图重排、混合检测、气泡约束、PSD 导出和各 OCR 实现各有独立触发条件，互不保证同时出现。

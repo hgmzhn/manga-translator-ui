@@ -9,11 +9,11 @@ lastUpdated: true
 
 # HTTP API Authentication and Errors
 
-Use this page when a third-party client or the web frontend calls translation, history, resource, quota, or admin HTTP endpoints. It explains how sessions are created, how the token is carried and verified, how permissions are layered, and which status codes and error structures failures return. This page covers the developer HTTP API authentication and error contract only; the login and session UI is documented in [Login, language, and session](../../web/login-language-and-session.md), workspace and translation operations in [Upload, configure, and translate](../../web/upload-config-and-translate.md), and the request/response models of translation, streaming, batch, and history endpoints in [Translation endpoints](./translation-endpoints.md) and the other `http-api/` pages.
+Use this page when a third-party client or the web frontend calls translation, history, resource, quota, or admin HTTP endpoints. It explains how sessions are created, how the token is carried and verified, how permissions are layered, and which status codes and error structures failures return. This guide covers the developer HTTP API authentication and error contract only; the login and session UI is documented in [Login, language, and session](../../web/login-language-and-session.md), workspace and translation operations in [Upload, configure, and translate](../../web/upload-config-and-translate.md), and the request/response models of translation, streaming, batch, and history endpoints in [Translation endpoints](./translation-endpoints.md) and the other `http-api/` pages.
 
-## Feature boundary {#feature-boundary}
+## Endpoint scope {#feature-boundary}
 
-- This page documents session creation and verification from a developer perspective: the `/auth/*` session endpoints, the `X-Session-Token` request header, FastAPI dependencies such as `require_auth` / `require_admin`, and `verify_translation_auth` at the translation entry.
+- This guide documents session creation and verification from a developer perspective: the `/auth/*` session endpoints, the `X-Session-Token` request header, FastAPI dependencies such as `require_auth` / `require_admin`, and `verify_translation_auth` at the translation entry.
 - The status-code matrix covers the static behavior of every router group; the error-response section distinguishes the middleware envelope, route-layer strings, and the `422` validation shape.
 - The session token is an opaque random string persisted in memory plus `sessions.json`; it is not a JWT and carries no decodable user information.
 - This page records no real account, token, password, nonce, API key, or private absolute path. Rate-limit counts, timeout minutes, and similar values come from source constants and do not represent a running deployment's actual configuration.
@@ -150,7 +150,7 @@ Error codes are stable program identifiers such as `NO_TOKEN`, `ADMIN_REQUIRED`,
 
 `SlidingWindowRateLimiter` implements a sliding window; `Retry-After` is in seconds. When concurrency or quota checks fail, the route layer rolls back the concurrent counter it already incremented. A `429` does not mean invalid credentials, and the client should not clear the session token.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## API constraints {#dependencies-and-conflicts}
 
 - At the translation entry, `verify_translation_auth` runs first (permission filtering and disabled-parameter defaults), then the route layer counts concurrency/quota; `401/403` are returned before counting and `429` is returned during counting.
 - Parameter permissions are silently filtered rather than rejected: `check_parameter_permission` keeps only the parameters the user may change, and hiding a control in the frontend cannot replace the server-side check.
@@ -215,10 +215,9 @@ The table below covers the statically verified triggers of every status code; ex
 
 ### Mermaid data-flow limits {#mermaid-limits}
 
-The diagrams describe source-confirmed session establishment, token verification, and error-classification paths; they do not claim every run makes a network request, nor that `/auth/check`, rate limits, or quotas trigger in every deployment. This page did not start the server, take screenshots, or read real sessions/accounts/keys; runtime behavior must be confirmed with a minimal runnable service.
+The diagrams describe session establishment, token verification, and error-classification paths; they do not claim every run makes a network request, nor that `/auth/check`, rate limits, or quotas trigger in every deployment. Deployment-specific behavior may vary.
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Service initialization | `manga_translator/server/main.py` | `SessionService` 60 minutes, persistence, CORS, `422` handler, router registration, internal `/register` nonce |

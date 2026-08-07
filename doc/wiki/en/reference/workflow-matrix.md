@@ -49,7 +49,7 @@ The table below summarizes the inputs, skipped stages, and outputs of the nine w
 - `batch_concurrent` can enter the concurrent pipeline only from Normal Translation; the other eight modes are treated as incompatible in both the desktop controller and the core `translate_batch()`. The frontend switches the local variable for this run to non-concurrent, and the core branch builds a `ConcurrentPipeline` only when no incompatible mode is present.
 - `render.enable_template_alignment` ("Enable Direct Paste Mode") is specific to Replace Translation: when enabled it uses direct paste and writes no JSON, inpainted image, or PSD; when disabled it re-renders with the paired regions from OCR.
 
-## Related pages {#related-pages}
+## Read next {#related-pages}
 
 | Page | Relationship to this page |
 | --- | --- |
@@ -93,7 +93,7 @@ The boundaries of cross-mode parameters on workflow branches are:
 | `render.paste_mask_dilation_pixels` | consumed only by the direct-paste branch of Replace Translation to dilate the paste mask |
 | `cli.overwrite` | before start, the GUI checks existing side-files or the main output image per workflow: the corresponding TXT for the two exports, the original side-file for Translate JSON Only, and the main output image for the other modes |
 
-The "skip when the original side-file does not exist" condition of Translate JSON Only runs in the opposite direction of a normal overwrite check and needs runtime verification; the real GUI dialogs, files retained after cancellation, and error prompts of the nine modes also follow the unverified list in the research material.
+The "skip when the original side-file does not exist" condition of Translate JSON Only runs in the opposite direction of a normal overwrite check and may vary by release; the real GUI dialogs, files retained after cancellation, and error prompts of the nine modes also follow the unverified list in the research material.
 
 ### Related files and formats
 
@@ -112,8 +112,7 @@ Apart from the main output image, all workflow side-files are located in the per
 
 The main output image is decided by `MangaTranslator._calculate_output_path()`: the normal output directory keeps the input folder name and relative hierarchy; with `save_to_source_dir=true` it becomes `manga_translator_work/result/` next to the original; with `cli.format` empty or `none` the original extension is kept, otherwise the given extension is used.
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What this page verified |
 | --- | --- | --- |
 | UI layout | `desktop_qt_ui/ui/main_page/pages/translation_page.py:27` | translation page, workflow combo box, start button, and event wiring |

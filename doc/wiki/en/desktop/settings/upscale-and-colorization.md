@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Upscale and Colorization
 
-## Feature boundary
+## What these settings control
 
-This page covers the Upscaling and Colorization groups in the Mode Specific tab: image super-resolution, output-size restoration, local colorization, the AI colorizer prompt, and previous-page image context. It does not replace the nine-workflow matrix in [Mode Specific](./mode-specific.md), nor does it document translation, detection, OCR, inpainting, or typesetting parameters. Upscaling changes pixel dimensions; colorization changes color information; neither automatically enables detection, OCR, translation, or typesetting.
+This guide covers the Upscaling and Colorization groups in the Mode Specific tab: image super-resolution, output-size restoration, local colorization, the AI colorizer prompt, and previous-page image context. It does not replace the nine-workflow matrix in [Mode Specific](./mode-specific.md), nor does it document translation, detection, OCR, inpainting, or typesetting parameters. Upscaling changes pixel dimensions; colorization changes color information; neither automatically enables detection, OCR, translation, or typesetting.
 
-## UI operations
+## Change it in the desktop app
 
 Open “Settings” and select “Upscaling” or “Colorization” under Mode Specific. The layout file determines row order; the dynamic settings page creates a combo box, toggle, or numeric input from the field type. After an edit, the in-memory configuration updates immediately and the config service schedules a merged write to `config/config.json`; numeric inputs submit on focus loss, and invalid input is not written as a valid configuration value.
 
@@ -77,7 +77,7 @@ The “Colorization Model” combo box is on Settings → Mode Specific → Colo
 
 “Denoise Strength” is an integer input in the range `0–255`. Larger values apply stronger smoothing; `-1` disables it. It only matters in the post-colorization stage, and excessive strength can erase detail. Default: `30`.
 
-## Runtime behavior
+## How the settings take effect
 
 ### Upscale and colorization branches {#upscale-colorization-flow}
 
@@ -114,7 +114,7 @@ flowchart TD
 
 Colorize Only and Upscale Only export after their respective stage; the complete main chain and mutual exclusions for detection, OCR, translation, and rendering belong to the other pages.
 
-## Dependencies and conflicts
+## Interactions and caveats
 
 - `upscale_ratio=null` skips upscaling; `tile_size=0` only disables tiling. They are not interchangeable.
 - Ratio options depend on the model; Real-CUGAN tiers maintain the internal model field as well.

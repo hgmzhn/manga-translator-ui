@@ -9,19 +9,19 @@ lastUpdated: true
 
 # 文本属性
 
-当需要让某一句台词更醒目、把文字改成竖排、调整行距字距或旋转文字区域时，在编辑器的“属性编辑”中修改文本排版属性。本页介绍属性面板中与文本排版有关的字段：字体、字号、字体颜色、行间距、字间距、角度、对齐与方向，以及这些字段的选区语义、保存时机和渲染消费者。
+当需要让某一句台词更醒目、把文字改成竖排、调整行距字距或旋转文字区域时，在编辑器的“属性编辑”中修改文本排版属性。这里介绍属性面板中与文本排版有关的字段：字体、字号、字体颜色、行间距、字间距、角度、对齐与方向，以及这些字段的选区语义、保存时机和渲染消费者。
 
 文本内容本身的编辑（原文、译文、替换前译文、占位符/换行按钮、OCR/翻译按钮）见[区域列表与文本编辑](./region-list-and-text-editing.md)；样式预设与描边见[样式属性](./style-properties.md)；画布上的区域对齐/分布见[显示、对比与排列](./display-compare-and-arrange.md)。
 
-## 功能边界 {#feature-boundary}
+## 可以做什么 {#feature-boundary}
 
-- 左栏“属性编辑”面板从上到下包含“图像编辑”、“文本内容”、“样式设置”和“操作”四个分区。本页覆盖“样式设置”中改变文字外观的排版字段：`Font:`、`Font Size:`、`Font Color:`、`Line Spacing:`、`Letter Spacing:`、`Angle:`、`Alignment:`、`Direction:`。
-- “文本内容”与“操作”两个分区归[区域列表与文本编辑](./region-list-and-text-editing.md)，本页只引用其字段名与写回语义，不重复展开。
+- 左栏“属性编辑”面板从上到下包含“图像编辑”、“文本内容”、“样式设置”和“操作”四个分区。内容包括“样式设置”中改变文字外观的排版字段：`Font:`、`Font Size:`、`Font Color:`、`Line Spacing:`、`Letter Spacing:`、`Angle:`、`Alignment:`、`Direction:`。
+- “文本内容”与“操作”两个分区归[区域列表与文本编辑](./region-list-and-text-editing.md)，这里仅引用其字段名与写回语义，不重复展开。
 - “样式设置”中的“样式组合：”、“描边颜色：”、“描边宽度：”归[样式属性](./style-properties.md)。
 - “图像编辑”中的蒙版/画笔/印章工具与图层归[画布工具与选区](./canvas-tools-and-selection.md)及[蒙版、画笔与仿制印章](./mask-paint-and-clone-stamp.md)。
 - 属性面板的“对齐：”是文字在文本框内的对齐方式（自动/左/居中/右），不是把多个文字框互相对齐的“排列”动作；后者归[显示、对比与排列](./display-compare-and-arrange.md)。
 
-## UI 操作 {#ui-operations}
+## 在编辑器中操作 {#ui-operations}
 
 ### 属性面板分区与选区语义 {#panel-sections-and-selection}
 
@@ -52,7 +52,7 @@ lastUpdated: true
 
 ## 参数与选项 {#parameters}
 
-本页各参数的详细介绍（界面名称、存储键、默认值与生效阶段），见[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+本页各参数的详细介绍（界面名称、存储键、默认值与生效阶段），见[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 #### 字体 {#font-family}
 
@@ -100,7 +100,7 @@ lastUpdated: true
 
 区域未设置方向时按白框宽高推断显示（高大于宽显示竖排，否则横排），推断不写回区域数据。横排与竖排进入不同的排版与替换路径，详见[方向如何改变渲染](#direction-render)。
 
-## 运行机理 {#runtime-behavior}
+## 修改如何保存 {#runtime-behavior}
 
 ### 样式补丁的合并与保存时机 {#style-patch-flow}
 
@@ -143,7 +143,7 @@ flowchart LR
 
 区域没有显式方向时，属性面板按白框宽高推断显示值（高大于宽显示竖排），但不会自动写入区域 `direction`；渲染服务则在 `calculate_default_parameters()` 中按宽高比给出默认方向（宽高比大于 2 为横排、小于 0.5 为竖排、否则 `auto`）。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 限制与注意事项 {#dependencies-and-conflicts}
 
 - 排版字段的写回依赖单选或纯样式多选：多选时文本内容区禁用，只有排版修改会广播到全部选中区域。
 - 正在编辑的文本控件在常规刷新中不会被覆盖，只有异步任务写回（`source="async"`）才强制刷新，避免丢光标或 IME 组合字。
@@ -152,6 +152,4 @@ flowchart LR
 - 字号、字距、行距、方向属于字体影响字段，写回后同步白框尺寸；同步只改框的宽高和中心，正文中心保持不动。
 - 属性面板“对齐：”是文字在框内的对齐；“排列”菜单的六向对齐/分布是把文字框互相对齐，两者不要混用。
 - 字体不可用时不阻塞渲染，回退默认字体并记录警告；手改 JSON 时写入字体文件路径而不是字体族名不会生效。
-- 描边颜色/宽度与样式预设归[样式属性](./style-properties.md)，本页不重复其参数定义。
-
-更多开发向对照与源码依据见[参考索引](../../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+- 描边颜色/宽度与样式预设归[样式属性](./style-properties.md)，这里不重复其参数定义。

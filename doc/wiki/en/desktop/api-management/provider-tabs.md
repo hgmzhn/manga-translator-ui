@@ -11,9 +11,9 @@ lastUpdated: true
 
 Use this page when you need to configure the API credentials used separately by translation, OCR, colorization, and rendering. Open “API Management” (`API Management`): the page is split into four feature tabs, one per feature. Each tab shows that feature’s selector at the top and only the credential field group of the currently selected provider below it.
 
-This page covers the layout and switching of the four tabs and which provider’s field group each tab shows. For the full options and write behavior of the feature selectors, see [Feature selectors](./feature-selectors.md); for the meaning of the Key/Base/Model fields, see [Credentials, addresses, and models](./credentials-addresses-models.md); for candidate slots and rotation, see [API slots and rotation](./slots-and-rotation.md); for connection tests and the model list, see [Connection tests and model list](./connection-tests-and-model-list.md).
+This guide covers the layout and switching of the four tabs and which provider’s field group each tab shows. For the full options and write behavior of the feature selectors, see [Feature selectors](./feature-selectors.md); for the meaning of the Key/Base/Model fields, see [Credentials, addresses, and models](./credentials-addresses-models.md); for candidate slots and rotation, see [API slots and rotation](./slots-and-rotation.md); for connection tests and the model list, see [Connection tests and model list](./connection-tests-and-model-list.md).
 
-## Feature boundary
+## Configuration scope
 
 - API Management always contains four tabs with the route keys `env_translation`, `env_ocr`, `env_colorization`, and `env_render`, mapping to the translation, OCR, colorization, and rendering features.
 - Each tab has a feature-selector dropdown at the top that writes to `translator.translator`, `ocr.ocr`, `colorizer.colorizer`, and `render.renderer` respectively; the OCR tab also reads `ocr.secondary_ocr` when hybrid OCR is enabled.
@@ -21,7 +21,7 @@ This page covers the layout and switching of the four tabs and which provider’
 - The provider groups shown by a tab are decided by the current value of that feature selector; when no API provider matches, the tab shows a “no API required” empty state instead of credential cards.
 - Translator selection, API feature selectors, and API candidate-slot rotation are three different boundaries: this page and [Feature selectors](./feature-selectors.md) cover the tabs, selectors, and field groups; translator implementation selection via `translator.translator` is covered by [Translator selection](../translator/selection-and-languages.md); slot rotation is covered by [API slots and rotation](./slots-and-rotation.md).
 
-## UI operations
+## Use it in API Management
 
 ### Open API Management and switch tabs {#open-and-switch-tabs}
 
@@ -66,10 +66,10 @@ flowchart LR
 - The OCR tab is special: with hybrid OCR enabled, the primary OCR (`ocr.ocr`) and the secondary OCR (`ocr.secondary_ocr`) can each be `openai_ocr`/`gemini_ocr`, so both provider groups can appear in the same tab at the same time.
 - When no provider matches, the tab shows the “no API required” empty state (see the three-column table above) instead of a blank or broken state.
 
-## Dependencies and conflicts
+## Credentials, network, and errors
 
 - Switching tabs does not write configuration; only the feature selectors and the field editors do. Merely viewing a tab never changes a setting.
 - Credential fields are `.env` keys; edits enter memory immediately and are flushed on the shared save cadence. Field groups are rebuilt from the current selector value, so a provider group that is not selected is not displayed even if its `.env` keys contain values.
 - A selector on this page and the Settings page share the same configuration key: they are two edit entry points for the same setting, not two independent configurations.
 - Sakura translation has no Key/Model/Base slot cards, only the address and dictionary path; the “Rotation strategy:” dropdown and “+ Add API slot” appear only in OpenAI/Gemini groups.
-- Cooldown/unavailable/recovery markers are slot state; see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md). This page does not expand on rotation internals.
+- Cooldown/unavailable/recovery markers are slot state; see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md). This guide does not expand on rotation internals.

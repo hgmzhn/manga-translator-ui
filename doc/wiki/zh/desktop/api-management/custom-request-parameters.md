@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 自定义请求参数
 
-当需要给翻译、AI OCR、AI 渲染或 AI 上色请求附加 `temperature`、`top_p`、`max_tokens` 等请求体字段时，本页说明 `config/custom_api_params.json` 的文件结构、模型预设匹配、按模块分组合并进 OpenAI/Gemini 请求体的规则，以及与 `*_API_ROTATION_STRATEGY` 轮询策略的边界。本页不负责连接凭据、模型选择或 API 通道轮询；它们分别在[API 凭据、地址与模型](./credentials-addresses-models.md)和[通道与轮询策略](./slots-and-rotation.md)中说明。总开关位于[设置 → 通用](../settings/general-and-app.md)。
+当需要给翻译、AI OCR、AI 渲染或 AI 上色请求附加 `temperature`、`top_p`、`max_tokens` 等请求体字段时，这里说明 `config/custom_api_params.json` 的文件结构、模型预设匹配、按模块分组合并进 OpenAI/Gemini 请求体的规则，以及与 `*_API_ROTATION_STRATEGY` 轮询策略的边界。这里不负责连接凭据、模型选择或 API 通道轮询；它们分别在[API 凭据、地址与模型](./credentials-addresses-models.md)和[通道与轮询策略](./slots-and-rotation.md)中说明。总开关位于[设置 → 通用](../settings/general-and-app.md)。
 
-## 功能边界
+## 配置范围
 
 - `config/custom_api_params.json` 是请求体额外参数文件：它只向 OpenAI/Gemini 请求体追加字段，不保存连接凭据（Key/Base/Model 在 `.env`）、不选择模型、不参与 `*_API_ROTATION_STRATEGY` 的候选通道轮询。
 - 顶层布尔键 `use_custom_api_params` 决定是否读取该文件；旧版本放在 `translator.use_custom_api_params` 的值会在加载时迁移到顶层。
@@ -19,7 +19,7 @@ lastUpdated: true
 - 每个预设固定包含 `common`、`translator`、`ocr`、`colorizer`、`render` 五个分组；运行时只合并 `common` 与当前 API 模块分组，其他模块分组不会混入请求。
 - 预设按请求实际使用的模型名匹配：存在同名顶层预设时优先，否则回退“通用”。
 
-## UI 操作
+## 在 API 管理中操作
 
 ### 打开自定义参数编辑器 {#open-editor}
 
@@ -33,7 +33,7 @@ lastUpdated: true
 
 ## 参数与选项
 
-> 本页各参数的界面名称、存储键与默认值的对应关系，见参考页[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各参数的界面名称、存储键与默认值的对应关系，见参考页[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 #### 使用自定义API参数 {#use-custom-api-params}
 
@@ -85,7 +85,7 @@ lastUpdated: true
 
 “使用自定义API参数”开关（配置键 `use_custom_api_params`）决定是否读取这个文件：开启时，各 API 模块按请求实际使用的模型名匹配预设，命中同名预设就用它，否则回退“通用”，只合并 `common` 与当前模块分组；关闭时完全不读取该文件，请求体保持代码/提供商默认。旧版本放在 `translator.use_custom_api_params` 的值会在加载时自动迁移到顶层。
 
-## 运行机理
+## 请求如何处理
 
 ### 预设匹配与合并 {#preset-resolution}
 
@@ -130,7 +130,7 @@ flowchart LR
 
 自定义参数按“本轮实际使用的模型名”匹配预设；模型名本身来自通道与轮询选中的端点，不由该文件决定。轮询策略改变的是候选端点的顺序与选择，不是请求体字段；通道重试、冷却、不可用和恢复也不会改动已合并的自定义参数。
 
-## 依赖与冲突
+## 凭据、网络与错误
 
 - 预设匹配依赖请求使用的模型名；模型名来自 API 管理通道或翻译器默认，同一文件在不同模型上可能选中不同预设。
 - JSON 语法或结构错误时自定义参数不可用：解析失败记录错误并返回空预设，翻译等流程仍按默认参数继续。

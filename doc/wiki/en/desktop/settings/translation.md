@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Translation settings
 
-## Feature boundary {#feature-boundary}
+## What these settings control {#feature-boundary}
 
-This page covers only the 11 rows on the “Translation” settings tab: translator, target/kept languages, streaming, terminology extraction, RPM, context, and the visible post-processing switches. It explains how those values enter the desktop configuration and the core translation stage.
+This guide focuses on the 11 rows on the “Translation” settings tab: translator, target/kept languages, streaming, terminology extraction, RPM, context, and the visible post-processing switches. It explains how those values enter the desktop configuration and the core translation stage.
 
 It does not replace implementation selection in [Translator selection and languages](../translator/selection-and-languages.md), prompt content in [Context and prompts](../translator/context-and-prompts.md), or API keys, models, candidate slots, and rotation in API Management. `translator_chain`, `skip_lang`, the high-quality prompt path, and post-translation quality checks are fields accepted by core/API or CLI configuration but are not rows in the current settings layout; this page therefore does not represent them as UI controls.
 
-## UI operations {#ui-operations}
+## Change it in the desktop app {#ui-operations}
 
 Open “Settings” and select “Translation”. A combo box selects its stored value. When a switch or numeric editor changes, `AppLogic.update_single_config()` immediately updates the in-memory configuration and writes its configuration file. Changing “Translator” also updates the desktop translation service’s current implementation; changing “Target Language” updates its current target language. The remaining rows take effect when a later task reads the complete configuration.
 
@@ -84,7 +84,7 @@ See [Context and Prompts](../translator/context-and-prompts.md) for details.
 
 Two switches that convert the finished translation: “Convert to Traditional Chinese” turns simplified results into traditional, and “Convert to Simplified Chinese” turns traditional results into simplified; when both are on, simplified-to-traditional takes precedence. Default: both off (`false`).
 
-## Runtime behavior {#runtime-behavior}
+## How the settings take effect {#runtime-behavior}
 
 ```mermaid
 flowchart LR

@@ -11,11 +11,11 @@ lastUpdated: true
 
 当第三方管理脚本或集成需要创建账号、划分用户组、设置配额或导出审计日志时使用本页。它记录四组管理员 HTTP 端点：`/api/admin/users`、`/api/admin/groups`、配额端点（`/api/quota/stats` 与 `/api/admin/quota/*`）和 `/audit/*`。Web 管理界面的操作入口见[管理界面](../../web/administrator-interface.md)，账号与权限的界面侧说明见[账号、权限与 API 密钥](../../web/accounts-permissions-and-api-keys.md)；会话建立、`X-Session-Token` 校验与通用状态码见[HTTP API 鉴权与错误](./authentication-and-errors.md)，服务器配置与预设端点见[配置、环境与资源](./config-env-and-resources.md)。
 
-## 功能边界 {#feature-boundary}
+## 接口范围 {#feature-boundary}
 
-- 本页覆盖用户、用户组、配额、审计四组管理端点及其后端服务：`account_service`、`group_management_service`、`quota_service`、`audit_service` 和 `permission_service`。
+- 内容包括用户、用户组、配额、审计四组管理端点及其后端服务：`account_service`、`group_management_service`、`quota_service`、`audit_service` 和 `permission_service`。
 - 除 `GET /api/quota/stats` 只要求会话（`require_auth`）外，其余端点全部要求 `require_admin`：令牌缺失或无效返回 `401`，非管理员角色返回 `403`。
-- 本页不记录真实账号、用户名、密码、令牌、API Key 或私有绝对路径；默认值来自源码常量，不代表运行中的实际配置。
+- 这里不记录真实账号、用户名、密码、令牌、API Key 或私有绝对路径；默认值来自源码常量，不代表运行中的实际配置。
 - 旧 `/admin/*` 管理端点（设置、任务、日志、存储、清理）和旧文件管理端点（`/upload/font`、`/prompts`、`/fonts`）属于其他页面，不在本页展开。
 
 ## 管理端点总览 {#endpoint-overview}
@@ -147,7 +147,7 @@ flowchart LR
 
 管理员在 `GET /admin`（`admin-new.html`）操作账号与组。侧边栏的用户管理（`users`）、用户组管理（`groups`）、配额管理（`quota`）模块分别调用 `GET /api/admin/users`、`GET /api/admin/groups`、`GET /api/admin/groups/{id}` 与 `PUT /api/admin/groups/{id}/config`；用户/组编辑弹窗复用 `permission-editor.js` 组件，其标签来自桌面 locale 的 i18n key。配额模块的“默认配额设置”走旧的 `GET/PUT /admin/settings`（`default_quota` 字段），用户配额表格来自 `GET /api/admin/users` 返回的 `quota` 字段，并没有调用 `/api/admin/quota/*` 端点；审计端点没有对应管理界面页签。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 接口约束 {#dependencies-and-conflicts}
 
 - 用户组的 `parameter_config` 既是组内参数可见性/只读控制（`GroupService`），也承载组级配额（`quota` 下的 `daily_image_limit`、`max_concurrent_tasks`）；而 `quota_limits` 字段由 `GroupManagementService` 保存、由 `QuotaManagementService` 读取。两条组级配额路径并存，修改时需同时核对。
 - 翻译请求的每日配额与并发限制由 `permission_service`（内存计数，组级 `daily_image_limit` 优先于用户 `daily_quota`）执行；`/api/quota/*` 的 `QuotaManagementService` 是文件持久化、用户级优先的独立实现。两者互不同步：管理员用 `/api/admin/quota/reset` 重置的计数器不直接影响翻译入口的 `daily_usage`。
@@ -208,8 +208,7 @@ flowchart LR
 | `manga_translator/server/data/audit.log` | 审计事件 JSON Lines 日志 | 10MB 轮转、5 备份；含两种行格式 |
 | `manga_translator/server/data/sessions.json` | 会话持久化 | 停用/删除用户时终止会话；不展示真实令牌 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 路由 | `manga_translator/server/routes/users.py`、`groups.py`、`quota.py`、`audit.py` | 端点路径、方法、请求/响应模型、状态码与审计事件 |

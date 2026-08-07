@@ -39,7 +39,7 @@ Download the new version and replace the whole directory; alternatively use the 
 - **Missing DLL (e.g. VCRUNTIME140.dll)**: install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) and retry.
 - **GPU build crashes**: confirm the GPU supports CUDA 13.x and the NVIDIA driver is installed or updated; switch to the CPU build if it still fails.
 
-## Related pages
+## Read next
 
 - [Windows Portable](./windows-portable.md): portable package with an install/update maintenance menu.
 - [Linux and macOS](./linux-and-macos.md): Unix install script.

@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Prompt Structured Editor
 
-When you need to edit a custom translation prompt file under `dict/`, the “Edit” action on the Prompt Management page opens the structured editor. The editor offers two modes: “Template Edit”, which turns the structured fields of a YAML/JSON file into a form, and “Raw Edit”, which edits the file text directly. This page covers how the two modes are decided, the fields and formats, validation errors, and how the file is consumed and restored after saving.
+When you need to edit a custom translation prompt file under `dict/`, the “Edit” action on the Prompt Management page opens the structured editor. The editor offers two modes: “Template Edit”, which turns the structured fields of a YAML/JSON file into a form, and “Raw Edit”, which edits the file text directly. This guide covers how the two modes are decided, the fields and formats, validation errors, and how the file is consumed and restored after saving.
 
-This page covers the editor itself. The file list, create/copy/rename/delete, and applying a prompt are covered by [Prompt list, apply, and preview](./list-apply-and-preview.md); system prompts and output-format composition are covered by [System and translation prompts](./system-and-translation-prompts.md) and [Context and prompts](../translator/context-and-prompts.md).
+This guide covers the editor itself. The file list, create/copy/rename/delete, and applying a prompt are covered by [Prompt list, apply, and preview](./list-apply-and-preview.md); system prompts and output-format composition are covered by [System and translation prompts](./system-and-translation-prompts.md) and [Context and prompts](../translator/context-and-prompts.md).
 
-## Feature boundary
+## When to use it
 
 - The structured editor reads and writes user prompt files under `dict/` (`.yaml`, `.yml`, `.json`); it never writes `.env`, `config.json`, or any API credential.
 - The editor only writes the file back; “Apply Selected Prompt” writes the path to `translator.high_quality_prompt_path` and belongs to the prompt-list page.
@@ -21,7 +21,7 @@ This page covers the editor itself. The file list, create/copy/rename/delete, an
 - Fixed AI OCR and AI renderer prompts use their own simple editors in Settings and never enter this page's template fields; system prompt files (`system_prompt_hq`, `system_prompt_hq_format`, `system_prompt_line_break`, `glossary_extraction_prompt`) do not appear in the user prompt list.
 - The page records structure and sanitized placeholders only; it never shows real prompt bodies, keys, or private paths.
 
-## UI operations
+## Use it in Prompt Management
 
 ### Open the editor {#open-editor}
 
@@ -119,7 +119,7 @@ Before translation starts, `_load_and_prepare_prompts` reads `translator.high_qu
 
 With “Auto Extract Glossary” (key `translator.extract_glossary`) enabled, newly extracted terms are merged back into the file's `glossary` by `merge_glossary_to_file` (writing YAML or JSON by extension). In other words, besides the editor, a running translation can also write the prompt file back when the conditions are met.
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - The format depends on PyYAML at runtime: when `PyYAML` is missing, `.yaml`/`.yml` cannot be parsed, the editor falls back to Raw mode, and translation skips the custom prompt.
 - A prompt file affects only the translation request's system prompt; it does not store API credentials, choose a translator, or participate in API-slot rotation.

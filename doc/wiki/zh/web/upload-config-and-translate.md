@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Web 上传、配置与翻译
 
-登录 Web 界面（`/`）后，主工作区用于完成"上传图片 → 配置参数 → 发起翻译"的完整流程：左侧面板添加文件、选择工作流模式并开始任务，右侧四个标签配置参数与 API 密钥。本页只描述用户界面操作；浏览器实际调用的 HTTP 端点的请求、响应、鉴权与状态码契约见开发者文档 `../developer/http-api/translation-endpoints.md` 与 `../developer/http-api/streaming-protocol.md`。
+登录 Web 界面（`/`）后，主工作区用于完成"上传图片 → 配置参数 → 发起翻译"的完整流程：左侧面板添加文件、选择工作流模式并开始任务，右侧四个标签配置参数与 API 密钥。这里主要说明用户界面操作；浏览器实际调用的 HTTP 端点的请求、响应、鉴权与状态码契约见开发者文档 `../developer/http-api/translation-endpoints.md` 与 `../developer/http-api/streaming-protocol.md`。
 
-## 功能边界
+## 页面与接口范围
 
-- 本页覆盖 Web 用户界面中的上传、配置与发起翻译。登录与会话见[登录、语言与会话](./login-language-and-session.md)，进度、结果与历史见[进度、结果与历史](./progress-results-and-history.md)，账号、权限与 API 密钥见[账号、权限与 API 密钥](./accounts-permissions-and-api-keys.md)，字体与提示词上传见[资源、字体与提示词](./resources-fonts-and-prompts.md)，访问地址见[启动与访问](./launch-and-access.md)。
+- 内容包括 Web 用户界面中的上传、配置与发起翻译。登录与会话见[登录、语言与会话](./login-language-and-session.md)，进度、结果与历史见[进度、结果与历史](./progress-results-and-history.md)，账号、权限与 API 密钥见[账号、权限与 API 密钥](./accounts-permissions-and-api-keys.md)，字体与提示词上传见[资源、字体与提示词](./resources-fonts-and-prompts.md)，访问地址见[启动与访问](./launch-and-access.md)。
 - Web 前端不是桌面 Qt 界面的直接复用：`index.html` 自带初始中文，`script.js` 通过 i18n key 覆盖一部分静态文字；"添加文件夹"、"文件列表"、"翻译结果"、"翻译历史"、"N 个文件"等仍是 HTML/脚本硬编码，没有对应 i18n key。
 - 上传、PDF 提取、配置导入导出和结果列表都在浏览器本地完成；浏览器 `localStorage` 中的结果列表与服务器翻译历史是两套独立存储。
 - 工作流模式下拉框控制的 `cli.load_text`、`cli.translate_json_only`、`cli.template`、`cli.generate_and_export`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`，以及 `cli.batch_size`、`cli.batch_concurrent`、`cli.use_gpu` 等键被服务器端 `SERVER_HIDDEN_CONFIG_KEYS` 隐藏，不显示在 Web 配置表单中；不要手工编辑这些键。
 - 上传数量/大小限制、API 密钥编辑开关、字体与提示词上传权限来自 `/user/settings`；`0` 表示不限制。
 
-## UI 操作
+## 在 Web 界面中操作
 
 ### 添加文件与文件夹
 
@@ -54,7 +54,7 @@ lastUpdated: true
 
 ## 参数与选项
 
-> 本页各参数的详细介绍（界面名称、存储键、默认值与生效阶段），见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 本页各参数的详细介绍（界面名称、存储键、默认值与生效阶段），见参考索引：[界面选项对照表](../reference/options-i18n-matrix.md)。
 
 #### 批量大小 {#cli-batch-size}
 
@@ -94,7 +94,7 @@ flowchart LR
 
 "普通翻译且多文件"走批量接口（返回 ZIP），其余模式逐文件提交。进度帧只出现在单文件普通翻译的二进制流中；批量接口在请求完成或取消后统一返回结果。
 
-## 依赖与冲突
+## 权限、安全与限制
 
 - 上传限制（数量、单图大小、PDF 大小）来自 `/user/settings`，由管理员/用户组配额决定；`0` 表示不限制，前端在超出时拒绝添加。
 - 配置表单内容由权限过滤：用户组可隐藏参数、设置默认值；用户白名单可以解锁被用户组禁用的参数；被过滤的参数不会显示，也不应手工注入。
@@ -104,4 +104,4 @@ flowchart LR
 - 浏览器结果列表（`localStorage`）与服务器翻译历史是两套存储；清空结果列表不影响服务器历史。
 - 上传与翻译涉及业务内容。共享日志、导出文件或调试目录前必须删除请求正文、历史页文本、路径与凭据。
 
-> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 详见参考索引：[界面选项对照表](../reference/options-i18n-matrix.md)。

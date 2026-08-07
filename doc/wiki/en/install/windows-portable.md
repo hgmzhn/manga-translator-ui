@@ -9,13 +9,13 @@ lastUpdated: true
 
 # Windows Portable
 
-## Feature boundary {#scope}
+## Who this installation is for {#scope}
 
-This page documents the Windows startup chain, runtime selection, and maintenance menu provided by `Win-Install-or-Update.bat` and `Win-Start.bat` in the repository root. It is for Windows users whose source or release directory contains these scripts; it does not replace source installation, Docker, Linux/macOS, or version-uninstall pages, and it does not document desktop translation parameters.
+This guide documents the Windows startup chain, runtime selection, and maintenance menu provided by `Win-Install-or-Update.bat` and `Win-Start.bat` in the repository root. It is for Windows users whose source or release directory contains these scripts; it does not replace source installation, Docker, Linux/macOS, or version-uninstall pages, and it does not document desktop translation parameters.
 
 “Portable” means that the scripts prefer `packaging/python/python.exe` inside the application directory instead of requiring the user to activate a system environment first. If that interpreter is absent, the current scripts still support the legacy Conda layouts; these are not two dependency schemes to mix in one environment.
 
-## UI operations {#operations}
+## Installation steps {#operations}
 
 ### First installation or maintenance
 
@@ -50,7 +50,7 @@ The startup chain, environment selection, and maintenance-menu behavior of `Win-
 
 `Win-Start.bat` first prints `Starting...` and runs `desktop_qt_ui\\main.py`. A normal close prints `Application closed.`; a non-zero exit prints the exit code, recommends reinstalling, shows the public Issue URL, and asks whether to open the maintenance script. If neither portable Python nor a valid Conda environment is found, the script reports the missing environment and exits instead of silently using another Python.
 
-## Runtime behavior {#runtime}
+## What the installer does {#runtime}
 
 ```mermaid
 flowchart TD
@@ -72,7 +72,7 @@ The batch files only locate the runtime, set `PYTHONUTF8=1`, prepend runtime dir
 
 The install flow in `launch.py` reads dependencies and PyTorch sources from `pyproject.toml`; updates compare `packaging/VERSION`, the remote commit, and dependency completeness. It prefers a discoverable uv for bulk installation, falls back to per-package pip when uv is unavailable, and tries configured alternate mirrors when a source fails. The Windows AMD path checks GPU/driver compatibility before installing the Radeon SDK and PyTorch in the script's required order; an unsupported device may fall back to CPU or require cancellation. Detecting an AMD device alone does not prove that ROCm was enabled.
 
-## Dependencies and conflicts {#dependencies}
+## Environment and compatibility {#dependencies}
 
 - **Python version**: The current launcher accepts Python 3.12 only; `pyproject.toml` requires `>=3.12,<3.13`. System Python 3.13 or another version cannot substitute for the portable runtime.
 - **Mutually exclusive groups**: `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive in the uv configuration. Do not layer CPU, NVIDIA CUDA, and AMD ROCm groups into one environment; after a hardware change, use the maintenance menu to check and reinstall the matching dependencies.
@@ -81,5 +81,3 @@ The install flow in `launch.py` reads dependencies and PyTorch sources from `pyp
 - **GPU/CPU resources**: GPU dependencies do not mean models are downloaded or that available VRAM is sufficient; the first start may still download or initialize models. CPU can run the application but is usually slower. If installation fails, do not delete successful packages and repeatedly switch schemes without checking the cause.
 - **Paths**: The script has a special drive-root Miniconda lookup when the installation path contains non-ASCII characters. To reduce DLL, Git, and model-path problems, prefer a short, writable path without special characters.
 - **Network**: Installation/update needs Git and package-index or mirror access. API networking is a separate runtime path; successful installation does not prove a translation API is usable.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../reference/source-evidence-index.md) and the [Options and I18n matrix](../reference/options-i18n-matrix.md).

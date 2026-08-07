@@ -9,15 +9,15 @@ lastUpdated: true
 
 # Navigation and Language
 
-This page explains how the desktop Qt window switches among the translation workspace, settings, API management, prompts, rules, batch management, and the editor, as well as the boundary between theme and UI-language configuration. The file list, workflow controls, editor tools, and secondary dialogs are documented on their respective feature pages.
+This guide explains how the desktop Qt window switches among the translation workspace, settings, API management, prompts, rules, batch management, and the editor, as well as the boundary between theme and UI-language configuration. The file list, workflow controls, editor tools, and secondary dialogs are documented on their respective feature pages.
 
-## Feature boundary {#feature-boundary}
+## Purpose {#feature-boundary}
 
 - The sidebar registers seven regular main pages. Editor View is a separate bottom navigation item and is not part of those seven page mappings.
 - The translation page is selected at startup. When the sidebar is collapsed it becomes a narrow icon strip; hover tooltips identify the items. The window code sets the expanded width to 200px.
 - Theme and language controls live in the main page's Application Settings area, not as additional sidebar items. Changing the UI language affects desktop UI text, not the translation target language.
 
-## UI operations {#ui-operations}
+## How to use it {#ui-operations}
 
 ### Use the main navigation {#use-main-navigation}
 
@@ -38,7 +38,7 @@ Use the “Theme:” and “Language:” combo boxes in Application Settings on 
 3. The window title, internal actions, main-page text, and the seven regular sidebar labels and collapsed-state tooltips are refreshed. An already-created editor view also receives its `refresh_ui_texts()` call.
 4. Changing language refreshes text and display controls only; it does not switch pages or call `switchTo()`, so the source proves that the current page is retained. The editor bottom-navigation label is not in the seven-item `_refresh_navigation_texts()` dictionary, so its language refresh is not claimed as verified behavior.
 
-## Runtime behavior {#runtime-behavior}
+## How it works {#runtime-behavior}
 
 ```mermaid
 flowchart TD
@@ -60,7 +60,7 @@ After a language change, the new locale is written to the application configurat
 
 When the theme is `system`, the window reads the Windows light/dark setting. When the system becomes dark it applies `dark` and saves the earlier non-dark preference; when the system returns to light it restores that preference. The system-theme watcher checks every five seconds. Selecting another theme stops the watcher and saves the selection.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Things to know {#dependencies-and-conflicts}
 
 - Language switching depends on the corresponding locale files and the `I18nManager` locale mapping. A missing locale file is loaded as an empty translation dictionary by the service; do not assume every control has a translation.
 - Theme switching depends on the application's theme styling implementation. `system` changes the theme selection and system watcher only; it does not change language.

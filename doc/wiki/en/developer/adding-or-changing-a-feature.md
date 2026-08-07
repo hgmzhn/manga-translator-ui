@@ -11,9 +11,9 @@ lastUpdated: true
 
 Use this page when you want to add a new feature to Manga Translator — a new setting, a new translator/OCR/renderer option, a new page, or new UI copy — or modify an existing one. It describes the full path from configuration to UI to runtime consumption. It is not an architecture overview (see [Architecture and code boundaries](./architecture-and-code-boundaries.md)), and it does not expand on test methodology, packaging/release, or HTTP API details (see [Tests and code quality](./tests-and-code-quality.md), [Packaging and release](./packaging-and-release.md), and the pages under `developer/http-api/`).
 
-## Feature boundary {#feature-boundary}
+## Relevant code {#feature-boundary}
 
-- This page covers only how a code change takes effect: config model → settings-page mounting → i18n → persistence → backend consumption → tests and manual verification.
+- This guide focuses on how a code change takes effect: config model → settings-page mounting → i18n → persistence → backend consumption → tests and manual verification.
 - The detailed module boundaries of the desktop UI, business logic, services, and backend pipeline live in [Architecture and code boundaries](./architecture-and-code-boundaries.md); this page lists which files a new feature usually touches at each layer.
 - Adding API credentials, slots, or rotation strategies is not described here (see the API-management pages); adding prompt files, batch schemes, or rich-text rules is covered by the corresponding feature pages.
 - This page contains no real `.env`, user `config.json`, API key, token, username, private absolute path, or private prompt; example defaults come only from tracked templates and code.
@@ -70,7 +70,7 @@ The same config key has three separate default sources. Do not merge them when a
 
 Desktop loading priority: user `config/config.json` > `config/config-example.json` > Qt model defaults (`config_service.py#_load_configs_with_priority`). Loading validates each key and falls back to defaults for invalid values; `_sync_user_config` then adds/removes fields according to the release template. So "the user config is synced after adding a field" is normal persistence behavior, not a bug. The full three-layer difference matrix lives in `doc/wiki/research/default-sources.md`.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Constraints and notes {#dependencies-and-conflicts}
 
 - When adding a user-configurable parameter, the field names/types in `config_models.py` and `manga_translator/config.py` must match, or the value saved by the desktop app may not line up with what the backend reads.
 - Setting labels come from `get_display_mapping('labels')`; if the mapping is missing, `dynamic_settings.py` falls back to showing the raw field name (for example `min_box_area_ratio`) without an error, but the copy is missing.
@@ -114,8 +114,7 @@ The following copy is directly relevant to this workflow (key → actual `en_US`
 | `desc_cli_context_size` | Translation context page count for multi-page joint translation. Larger values improve quality but consume more tokens. | 翻译上下文页面数，用于多页联合翻译。值越大翻译质量越好，但 token 消耗越多。 |
 | `label_batch_concurrent` | Concurrent Batch Processing | 并发批量处理 |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Config models | `desktop_qt_ui/core/config_models.py`, `manga_translator/config.py` | `AppSettings` / `Config` submodels and defaults |

@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Translator Selection and Target Languages
 
-This page documents desktop translator selection, target language, and source-language filtering after text-line merging. It does not document API slot rotation, prompt editing, context construction, or detailed translation-chain behavior.
+This guide documents desktop translator selection, target language, and source-language filtering after text-line merging. It does not document API slot rotation, prompt editing, context construction, or detailed translation-chain behavior.
 
-## Feature boundary
+## When to use it
 
 - `translator.translator` selects OpenAI, Gemini, Sakura, high-quality variants, no translation, or original text. It changes the translation implementation, not endpoint rotation within one provider.
 - `translator.target_lang` stores a three-letter code used as the target of an individual translation request.
@@ -19,7 +19,7 @@ This page documents desktop translator selection, target language, and source-la
 - `translator.no_text_lang_skip` controls whether text already detected as the target language may be skipped. Enabling “Don't Skip Target Lang” forces it through translation.
 - API Key/Base/Model, `failover`/`round_robin`, prompts, glossary, streaming, RPM, and quality retries belong to API-management or other translator pages.
 
-## UI operations
+## Set it in the desktop app
 
 ### Select values in the Translation settings tab
 
@@ -33,7 +33,7 @@ The translator feature selector in API Management writes the same “Translator�
 
 ## Parameters
 
-> For how each parameter's UI name, storage key, and default value map to each other, see [Options and I18n Matrix](../../reference/options-i18n-matrix.md).
+> For how each parameter's UI name, storage key, and default value map to each other, see [UI Options Reference](../../reference/options-i18n-matrix.md).
 
 ### Translator
 
@@ -67,7 +67,7 @@ The “Don't Skip Target Lang” toggle is in Settings → Translation. When ena
 
 Default: `false`.
 
-## Runtime behavior
+## How translation requests are handled
 
 ```mermaid
 flowchart LR
@@ -86,7 +86,7 @@ flowchart LR
 
 The saved translator enum and target-language code are resolved into a chain, and implementations run in chain order. `translator_chain` or `selective_translation` is chaining/language-based selection, not API slot rotation. API Management can change the same `translator.translator` key; candidate resolution and cooldown remain API-management concerns.
 
-## Dependencies and conflicts
+## Models, network, and quality
 
 - Detection/OCR must produce text regions and source-language information before `keep_lang` can operate; it runs after merging.
 - `none` performs no translation while `original` explicitly preserves the original result. Neither requires a remote API; later rendering remains workflow-dependent.

@@ -11,15 +11,15 @@ lastUpdated: true
 
 Use this page when OCR misrecognizes or misses text, merges multiple lines into one, or when text-region merging and ordering do not follow the reading order. It explains the OCR input crops, text-region boxes, and the `ocrs/` subdirectory written under `result/` when verbose logging is enabled. These are conditionally written static debug files: they are triggered only by the “Verbose Logging” switch, do not participate in the final result, and are not generated on every run.
 
-This page covers only the OCR-input and text-region visual artifacts. Detection thresholds and `mask_raw.png`, `bboxes_with_scores.png`, `mask_binary.png`, `hybrid_detection_boxes.png` are covered in [Detection and rearrangement](./input-detection-and-rearrangement.md); OCR engines, hybrid OCR, filtering, and merge parameters are covered in [OCR, filtering, and textline merge](../desktop/settings/ocr-filter-and-merge.md); debug folder naming and global cleanup are covered in [Debug folder naming and overview](./folder-naming-and-overview.md).
+This guide focuses on the OCR-input and text-region visual artifacts. Detection thresholds and `mask_raw.png`, `bboxes_with_scores.png`, `mask_binary.png`, `hybrid_detection_boxes.png` are covered in [Detection and rearrangement](./input-detection-and-rearrangement.md); OCR engines, hybrid OCR, filtering, and merge parameters are covered in [OCR, filtering, and textline merge](../desktop/settings/ocr-filter-and-merge.md); debug folder naming and global cleanup are covered in [Debug folder naming and overview](./folder-naming-and-overview.md).
 
-## Feature boundary {#feature-boundary}
+## What to inspect {#feature-boundary}
 
 - Artifacts covered here: `ocrs/<index>.png` (per-line OCR input crops), `bboxes_unfiltered.png` and `bboxes_unfiltered_labeled.png` (textline boxes before OCR), `bboxes.png` (final text-region boxes after merging), plus the path, trigger conditions, visual meaning, and troubleshooting use of the `ocrs/` subdirectory.
 - The artifacts are written only when “Verbose Logging” is enabled; the desktop toggle lives in Settings → General, and the CLI uses `-v/--verbose`. Full details of the toggle are in [CLI, batch, and output](../desktop/settings/cli-batch-and-output.md).
 - Mask, inpainting, rendering, replacement-translation, and WebSocket debug artifacts are covered elsewhere (e.g. [Mask, inpainting, and rendering](./mask-inpainting-and-rendering.md)); conditional artifacts are never described as present on every run.
 
-## UI operations {#ui-operations}
+## Inspect debug artifacts {#ui-operations}
 
 ### Enable verbose logging {#enable-verbose}
 
@@ -47,7 +47,7 @@ Debug files are located under `result/<image debug subfolder>/` (`result/` besid
 - If OCR produces no textlines (all empty, low confidence, or matching the filter list): the run reports `skip-no-text`, `ctx.text_regions` is set to an empty list, and `bboxes.png` is not written.
 - Therefore, a missing `bboxes.png` in the debug folder does not necessarily mean a write failure; it may be a no-text early exit. Check the log for `skip-no-regions` / `skip-no-text` first.
 
-## Runtime behavior {#runtime}
+## How artifacts are produced {#runtime}
 
 ### Debug chain from textlines to text regions {#data-flow}
 
@@ -88,7 +88,7 @@ What `bboxes.png` shows:
 - Hybrid OCR (`ocr.use_hybrid_ocr`) re-runs lines that the primary OCR left empty or below confidence with `ocr.secondary_ocr`; both runs write to `ocrs/`, so indices may collide and be overwritten, and which run the final file keeps must be confirmed per run.
 - The no-text early exit happens after filtering; `bboxes.png` is then not generated. This does not affect other stage artifacts such as `input.png` or `final.png`.
 
-## Dependencies and conflicts {#dependencies}
+## Artifacts and privacy {#dependencies}
 
 - `ocrs/` and all box images depend on `cli.verbose=True`; with verbose off, none of the artifacts on this page are produced.
 - `bboxes_unfiltered_labeled.png` depends on the model-assisted merge toggle (`ocr.merge_special_require_full_wrap`); it is not written when the toggle is off.

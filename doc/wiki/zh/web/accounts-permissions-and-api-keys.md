@@ -9,13 +9,13 @@ lastUpdated: true
 
 # 账号、权限与 API 密钥
 
-多人共用一台翻译服务器时，本页说明如何创建和管理用户账号、控制每个用户能使用的翻译器/OCR/上色/渲染/工作流与参数，以及用户如何在自己的页面填写 API 密钥。首次启动没有任何账号时，登录页会引导创建第一个管理员；之后由管理员在“用户管理”“用户组管理”“配额管理”等界面分配权限。会话登录与失效细节见[登录、语言与会话](./login-language-and-session.md)，管理员控制台的整体结构见[管理员界面](./administrator-interface.md)，字体与提示词资源的上传权限见[资源、字体与提示词](./resources-fonts-and-prompts.md)。开发者直接调用 HTTP API 时的鉴权契约见[开发者 HTTP API：鉴权与错误](../developer/http-api/authentication-and-errors.md)与[管理员：用户、组、配额与审计](../developer/http-api/admin-users-groups-quota-audit.md)；本页只写用户在浏览器中的操作。
+多人共用一台翻译服务器时，这里说明如何创建和管理用户账号、控制每个用户能使用的翻译器/OCR/上色/渲染/工作流与参数，以及用户如何在自己的页面填写 API 密钥。首次启动没有任何账号时，登录页会引导创建第一个管理员；之后由管理员在“用户管理”“用户组管理”“配额管理”等界面分配权限。会话登录与失效细节见[登录、语言与会话](./login-language-and-session.md)，管理员控制台的整体结构见[管理员界面](./administrator-interface.md)，字体与提示词资源的上传权限见[资源、字体与提示词](./resources-fonts-and-prompts.md)。开发者直接调用 HTTP API 时的鉴权契约见[开发者 HTTP API：鉴权与错误](../developer/http-api/authentication-and-errors.md)与[管理员：用户、组、配额与审计](../developer/http-api/admin-users-groups-quota-audit.md)；这里仅写用户在浏览器中的操作。
 
-## 功能边界 {#feature-boundary}
+## 页面与接口范围 {#feature-boundary}
 
-- 本页覆盖浏览器中的账号生命周期（首次设置、登录、注册、改密、退出）、角色/用户组/功能权限与配额，以及用户侧 API 密钥编辑和策略。
+- 内容包括浏览器中的账号生命周期（首次设置、登录、注册、改密、退出）、角色/用户组/功能权限与配额，以及用户侧 API 密钥编辑和策略。
 - “用户账号”不等于“HTTP API 客户端”：`X-Session-Token` 的请求/响应格式、状态码和路由清单属于开发者 HTTP API 页面。
-- 本页不介绍服务器启动、端口、CORS 与防火墙（见[部署、安全与故障排查](./deployment-security-and-troubleshooting.md)），也不介绍翻译任务本身（见[上传、配置与翻译](./upload-config-and-translate.md)）。
+- 这里不介绍服务器启动、端口、CORS 与防火墙（见[部署、安全与故障排查](./deployment-security-and-troubleshooting.md)），也不介绍翻译任务本身（见[上传、配置与翻译](./upload-config-and-translate.md)）。
 - API 密钥只描述管理和生效规则；不展示任何真实密钥、用户名、私有路径或用户填写内容。
 
 ## 用户账号 {#user-accounts}
@@ -133,7 +133,7 @@ flowchart LR
 
 管理员在“API密钥管理”模块维护“服务器默认API密钥”（`.env`）和“API密钥预设”。服务器默认密钥是没有任何用户/预设覆盖时的兜底；预设可以配置可见用户组，并被分配给用户或用户组作为默认。管理员还可在“用户管理”中为每个用户指定“API密钥预设”（默认“继承用户组设置”）。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 权限、安全与限制 {#dependencies-and-conflicts}
 
 - 注册是否可用取决于管理员“允许用户注册”开关；关闭后登录页不显示注册页签，接口也会拒绝。
 - `save_user_keys_to_server` 开启会把用户密钥写入服务器 `.env`，任何用户保存都会影响全局，多用户环境应与用户组策略一起规划。
@@ -141,4 +141,4 @@ flowchart LR
 - 用户组配额优先于用户级配额，但用户级 `denied_*` 始终优先于用户组白名单；配置时应先看用户组再改用户。
 - API 密钥页签隐藏不等于服务端禁用：`show_env_editor` 只控制页面编辑入口，最终请求是否使用服务器密钥由 `allow_server_keys` / `require_user_keys` 决定。
 
-> 详见参考索引：[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+> 详见参考索引：[界面选项对照表](../reference/options-i18n-matrix.md)。

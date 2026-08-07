@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Detection
 
-This page covers converting an input image into text regions, a detection mask, and detection results for OCR. OCR, text-line merging, mask refinement, and inpainting belong to their respective settings pages. This page documents only the controls in the Detection tab, detection-stage behavior, and the annotation/debug files it actually uses.
+This guide covers converting an input image into text regions, a detection mask, and detection results for OCR. OCR, text-line merging, mask refinement, and inpainting belong to their respective settings pages. This guide focuses on the controls in the Detection tab, detection-stage behavior, and the annotation/debug files it actually uses.
 
-## UI operations
+## Change it in the desktop app
 
 In the desktop application, open “Settings” and select the “Detection” tab (the tab title is hard-coded in the layout and has no locale replacement). Basic items appear first; `Advanced` separates the size, threshold, and YOLO parameters. The dynamic settings page creates a combo box, toggle switch, or numeric input according to the current configuration type. Finishing an edit or changing a switch updates the in-memory configuration and schedules a merged config-file write.
 
@@ -81,7 +81,7 @@ When the “Include Bubble Text in SFX Filter” toggle is off, text inside a bu
 
 “Min Box Area Ratio” is a floating-point input that compares each box’s area with total image pixels. When greater than 0, boxes at or below the threshold are filtered; setting it to `0` disables this filter. A threshold that is too high loses small text. Default: `0`.
 
-## Runtime behavior
+## How the settings take effect
 
 ### Detection branches and outputs {#detection-flow}
 
@@ -123,7 +123,7 @@ flowchart LR
 
 The diagrams express only branches confirmed by source; they are not a complete workflow diagram.
 
-## Dependencies and conflicts
+## Interactions and caveats
 
 - The selected offline detector model must load on the selected device; GPU/ONNX backend issues affect detection but hardware installation is outside this page.
 - YOLO OBB and SFX filtering require the auxiliary YOLO model. Without auxiliary results, the main detector result remains the fallback.

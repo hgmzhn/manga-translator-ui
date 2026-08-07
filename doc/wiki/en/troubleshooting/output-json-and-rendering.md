@@ -11,9 +11,9 @@ lastUpdated: true
 
 Use this page when a task finishes but you cannot see the output image, a project JSON cannot be read, or the final image has no or broken translated text. Start with the "symptom → log → cause → fix" flow here, then open the feature page for parameters and operations. This page cross-links with [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md), the [workflow](../workflows/normal.md) pages, [Editor Import/Export and Writeback](../desktop/editor/import-export-and-writeback.md), and [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md) without duplicating their content: workflow inputs/outputs, editor writeback, and rendering parameters are defined on those pages.
 
-## Feature boundary {#feature-boundary}
+## Identify the problem {#feature-boundary}
 
-- This page covers symptom-to-fix diagnosis: the main output image (location, format, quality, overwrite), the `*_translations.json` project JSON (lookup, parsing, masks, writeback, backups), and text rendering (local Qt, AI rendering, fonts, line breaking, layout).
+- This guide covers symptom-to-fix diagnosis: the main output image (location, format, quality, overwrite), the `*_translations.json` project JSON (lookup, parsing, masks, writeback, backups), and text rendering (local Qt, AI rendering, fonts, line breaking, layout).
 - Parameter defaults, options, and UI operations belong to the settings pages: [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md) documents `format`, `save_quality`, `overwrite`, `save_text`, and [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md) documents every `render.*` parameter.
 - Inputs, outputs, skipped stages, and file formats of the nine workflows belong to the [workflow](../workflows/normal.md) pages and [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md); editor project-data reads and writes belong to [Editor Import/Export and Writeback](../desktop/editor/import-export-and-writeback.md).
 - Not covered here: detection/OCR/translation/inpainting/colorization/upscaling failures (see the matching settings and debugging pages), API keys/rate limits/timeouts (see [API Auth, Rate Limit, and Timeout](./api-auth-rate-limit-and-timeout.md)), and log/privacy cleanup (see [Privacy Cleanup and Log Sharing](./privacy-cleanup-and-log-sharing.md)).
@@ -256,7 +256,7 @@ flowchart TD
     B -->|none| I["No translation drawn: expected behavior"]
 ```
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Related settings and limitations {#dependencies-and-conflicts}
 
 - Output directory, `save_to_source_dir`, `format`, and `overwrite` interact with the workflow type; export/JSON-only/replace-translation modes do not write a main image.
 - Disabling overwrite also skips images, TXT, and JSON; with `save_text=false` normal workflows do not write JSON, but Translate JSON Only still writes back unconditionally.

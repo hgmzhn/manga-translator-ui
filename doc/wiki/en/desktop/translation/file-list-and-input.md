@@ -9,13 +9,13 @@ lastUpdated: true
 
 # File List and Input
 
-## Feature boundary
+## What this part handles
 
-This page explains how the desktop “Translation Interface” collects, displays, and removes pending inputs: individual image files, folders, dropped paths, and supported archives/documents. The file list only manages input sources, the thumbnail tree, and selection state; output directory, workflow selection, start action, and task progress belong to [Output Directory and Workflow](./output-directory-and-workflow.md) and [Progress, Stop, and Task State](./progress-stop-and-task-state.md).
+This guide explains how the desktop “Translation Interface” collects, displays, and removes pending inputs: individual image files, folders, dropped paths, and supported archives/documents. The file list only manages input sources, the thumbnail tree, and selection state; output directory, workflow selection, start action, and task progress belong to [Output Directory and Workflow](./output-directory-and-workflow.md) and [Progress, Stop, and Task State](./progress-stop-and-task-state.md).
 
 An archive can appear in the input list without having been extracted. Extraction and image discovery happen during the scan that starts the task.
 
-## UI operations
+## Use it on the Translation page
 
 ### Adding files, folders, and drops
 
@@ -48,7 +48,7 @@ The list displays scan results as a one- or multi-level folder tree: folder node
 
 If the scan started with a task finds no valid images, the application shows “File List Empty” and “Please add image files to translate!”. An archive that cannot be extracted, or an unsupported file, is not a valid image input by itself.
 
-## Runtime behavior
+## How the task runs
 
 ### From input sources to the file tree
 
@@ -80,7 +80,7 @@ The actual relative layout for different archive contents, duplicate names, and 
 
 Removing a source node does not delete the original image, archive, or translation JSON from disk. When a file or folder is removed, the main logic updates its source list and exclusion sets, then the main window requests a new snapshot; the list view also immediately removes the node from its in-memory model and clears related thumbnail-cache entries. Clearing the list likewise changes only in-memory sources and exclusions and does not clean the user work directory.
 
-## Dependencies and conflicts
+## Task limitations
 
 - An input path must exist and be readable, and an image extension must belong to the supported set. The legacy `FileService.validate_image_file()` also checks the image MIME type and read permission.
 - Recursive folder scans skip `manga_translator_work`; do not treat the project directory as a fresh original-image directory.

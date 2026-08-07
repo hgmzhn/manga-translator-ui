@@ -9,13 +9,13 @@ lastUpdated: true
 
 # 更新与版本切换
 
-## 功能边界 {#scope}
+## 适合哪些安装方式 {#scope}
 
-本页说明安装脚本交给 `packaging/launch.py --maintenance` 的更新维护流程：检查代码与依赖、切换 Git 分支或 tag、切换镜像源，以及维护菜单语言。它不替代首次安装、Windows 运行时选择、Linux/macOS 引导或卸载/数据清理页面；其中“版本”指代码版本和依赖环境，不是桌面应用内的翻译器设置。
+这里说明安装脚本交给 `packaging/launch.py --maintenance` 的更新维护流程：检查代码与依赖、切换 Git 分支或 tag、切换镜像源，以及维护菜单语言。它不替代首次安装、Windows 运行时选择、Linux/macOS 引导或卸载/数据清理页面；其中“版本”指代码版本和依赖环境，不是桌面应用内的翻译器设置。
 
 维护菜单是交互式命令行界面。Windows 使用 `Win-Install-or-Update.bat`，Linux/macOS 使用 `Unix-Install-or-Update.sh` 引导；两者最终都进入同一个 Python 维护菜单。
 
-## UI 操作 {#operations}
+## 安装步骤 {#operations}
 
 ### 运行维护菜单
 
@@ -52,7 +52,7 @@ lastUpdated: true
 - `[7] 切换语言`：只改变维护菜单 `L()` 输出，并写入 `packaging/maintenance_config.json`；不改变桌面 Qt 的 `app.ui_language`。
 - `[8] 退出`：离开维护菜单。更新或切换完成后，Windows 再运行 `Win-Start.bat`，Unix/macOS 再运行 `Unix-Start.sh`。
 
-## 运行机理 {#runtime}
+## 安装脚本做了什么 {#runtime}
 
 ```mermaid
 flowchart TD
@@ -76,7 +76,7 @@ flowchart TD
 
 包安装优先使用可发现的 uv 批量安装；uv 不可用时回退为 pip 逐包安装。普通包走 PyPI 镜像回退，PyTorch 包走对应 CPU/CUDA/ROCm 专用索引或其回退源。安装缓存清理不删除项目配置、模型或字体。
 
-## 依赖与冲突 {#dependencies}
+## 环境与兼容性 {#dependencies}
 
 - `pyproject.toml` 要求 Python `>=3.12,<3.13`；Python 3.13 不可作为替代环境。
 - `cpu`、`gpu`、`amd`、`metal` 是 uv 互斥 dependency groups。切换硬件后不要在同一个环境叠加多个后端；应按维护菜单检测结果重装匹配方案。
@@ -84,5 +84,3 @@ flowchart TD
 - 旧 Conda 只在便携 Python/Unix `.venv` 不可用时回退。混用 `packaging/python`、`.venv`、`conda_env` 或外部环境可能造成 DLL、Torch、ONNX Runtime 冲突。
 - 代码更新可能覆盖本地源码修改；tag 会进入 detached HEAD。配置、提示词、模型、字体和工作目录资源应在切换前单独备份并审查。
 - 更新需要 Git 和包索引/镜像网络；翻译 API 的运行时网络、密钥和配额是另一条链路。更新成功不代表 API 可用，也不保证模型已下载或显存足够。
-
-更多开发向对照与源码依据见[参考索引](../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

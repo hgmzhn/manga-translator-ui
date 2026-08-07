@@ -57,7 +57,20 @@ html {
 .VPDoc h1,
 .VPDoc h2,
 .VPDoc h3 {
-  letter-spacing: -0.018em;
+  letter-spacing: 0;
+}
+
+.wiki-home-logo {
+  display: flex;
+  justify-content: center;
+  min-height: 140px;
+  margin: 4px 0 24px;
+}
+
+.wiki-home-logo img {
+  width: min(260px, 72vw);
+  height: auto;
+  object-fit: contain;
 }
 
 .VPDoc table {
@@ -232,5 +245,438 @@ html[lang="en-US"] .wiki-mermaid-zoom::after {
 /* Beautiful-mermaid diagrams: ensure site font stack for CJK labels */
 .wiki-mermaid-output svg text {
   font-family: var(--vp-font-family-base);
+}
+
+/* Teek keeps VitePress' accessible sidebar markup; animate its native groups. */
+.VPSidebarItem.collapsible > .items {
+  display: block !important;
+  height: auto;
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity 0.18s ease;
+  will-change: height, opacity;
+}
+
+.VPSidebarItem.collapsible.collapsed > .items {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.VPSidebarItem.collapsible > .item {
+  min-height: 36px;
+  border-radius: 6px;
+  transition: background-color 0.18s ease;
+}
+
+.VPSidebarItem.collapsible > .item:hover {
+  background: var(--vp-c-bg-soft);
+}
+
+.VPSidebarItem.collapsible > .item .caret-icon {
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .VPSidebarItem.collapsible > .items,
+  .VPSidebarItem.collapsible > .item,
+  .VPSidebarItem.collapsible > .item .caret-icon {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Wiki application shell */
+:root {
+  --wiki-nav-bg: rgba(255, 255, 255, 0.94);
+  --wiki-sidebar-bg: #f6f8f7;
+  --wiki-sidebar-border: #dfe5e3;
+  --wiki-control-bg: #eef2f1;
+  --wiki-control-hover: #e4ebea;
+  --wiki-accent-warm: #b45f3d;
+  --vp-sidebar-width: 286px;
+  --vp-nav-height: 66px;
+}
+
+.dark {
+  --wiki-nav-bg: rgba(20, 25, 26, 0.94);
+  --wiki-sidebar-bg: #171e1f;
+  --wiki-sidebar-border: #303a3a;
+  --wiki-control-bg: #222c2c;
+  --wiki-control-hover: #2b3737;
+  --wiki-accent-warm: #e3916d;
+}
+
+.VPNavBar:not(.home) {
+  background: var(--wiki-nav-bg);
+  backdrop-filter: saturate(135%) blur(14px);
+}
+
+.VPNavBar .divider-line {
+  background-color: var(--wiki-sidebar-border);
+}
+
+.VPNavBarTitle .title {
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 740;
+}
+
+.VPNavBarTitle .logo {
+  width: 30px;
+  height: 30px;
+}
+
+.VPNavBarMenuLink {
+  position: relative;
+  padding: 0 2px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.VPNavBarMenuLink::after {
+  position: absolute;
+  right: 0;
+  bottom: 12px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--vp-c-brand-1);
+  content: "";
+  opacity: 0;
+  transform: scaleX(0.35);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.VPNavBarMenuLink:hover::after,
+.VPNavBarMenuLink.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.VPNavBarSearch .DocSearch-Button,
+.VPNavBarSearch .VPLocalSearchBox .shell,
+.VPNavBarSearch button {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--wiki-control-bg);
+  box-shadow: none;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.VPNavBarSearch button:hover {
+  border-color: var(--vp-c-divider);
+  background: var(--wiki-control-hover);
+}
+
+.VPSidebar {
+  border-right: 1px solid var(--wiki-sidebar-border);
+  background: var(--wiki-sidebar-bg);
+}
+
+.VPSidebar .nav {
+  padding-top: 6px;
+}
+
+.VPSidebarItem.level-0 {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--wiki-sidebar-border);
+  margin-bottom: 8px;
+}
+
+.VPSidebarItem.level-0:last-child {
+  border-bottom: 0;
+}
+
+.VPSidebarItem.level-0 > .item {
+  padding: 2px 6px 2px 10px;
+}
+
+.VPSidebarItem.level-0 > .item .text {
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 26px;
+}
+
+.VPSidebarItem.level-1 > .item,
+.VPSidebarItem.level-2 > .item,
+.VPSidebarItem.level-3 > .item {
+  min-height: 32px;
+  border-radius: 6px;
+  padding: 0 7px;
+}
+
+.VPSidebarItem.level-1 > .item .text,
+.VPSidebarItem.level-2 > .item .text,
+.VPSidebarItem.level-3 > .item .text {
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 21px;
+}
+
+.VPSidebarItem.is-link > .item:hover,
+.VPSidebarItem.is-active > .item {
+  background: var(--wiki-control-hover);
+}
+
+.VPSidebarItem.level-1.is-active > .item,
+.VPSidebarItem.level-2.is-active > .item,
+.VPSidebarItem.level-3.is-active > .item {
+  box-shadow: inset 3px 0 var(--vp-c-brand-1);
+}
+
+.VPSidebarItem.level-1 .items,
+.VPSidebarItem.level-2 .items,
+.VPSidebarItem.level-3 .items,
+.VPSidebarItem.level-4 .items,
+.VPSidebarItem.level-5 .items {
+  border-left-color: var(--wiki-sidebar-border);
+}
+
+.tk-layout.has-sidebar-trigger .tk-sidebar-trigger {
+  z-index: 30;
+}
+
+.tk-layout.has-sidebar-trigger .tk-sidebar-trigger > div {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--wiki-sidebar-border);
+  border-radius: 6px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-2);
+}
+
+.tk-layout.has-sidebar-trigger .tk-sidebar-trigger > div:hover {
+  border-color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  box-shadow: none;
+}
+
+/* Article surface */
+.VPDoc {
+  padding: 48px 32px 72px;
+}
+
+.VPDoc .container {
+  max-width: 1240px;
+}
+
+.VPDoc.has-aside .content-container {
+  max-width: 860px;
+}
+
+.VPDoc .content {
+  color: var(--vp-c-text-1);
+}
+
+.VPDoc .content > h1 {
+  margin-top: 0;
+  color: var(--vp-c-text-1);
+  font-size: 38px;
+  font-weight: 760;
+  line-height: 1.22;
+}
+
+.VPDoc .content > h2 {
+  margin-top: 54px;
+  padding-top: 28px;
+  border-top: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-1);
+  font-size: 26px;
+  line-height: 1.35;
+}
+
+.VPDoc .content > h3 {
+  margin-top: 34px;
+  color: var(--vp-c-text-1);
+  font-size: 20px;
+  line-height: 1.45;
+}
+
+.VPDoc .content p,
+.VPDoc .content li {
+  color: var(--vp-c-text-2);
+  line-height: 1.85;
+}
+
+.VPDoc .content a {
+  font-weight: 560;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.VPDoc .content strong {
+  color: var(--vp-c-text-1);
+  font-weight: 700;
+}
+
+.VPDoc .content :not(pre) > code {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 4px;
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-bg-soft);
+  font-size: 0.9em;
+}
+
+.VPDoc div[class*='language-'] {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: #f5f7f7;
+  box-shadow: none;
+}
+
+.dark .VPDoc div[class*='language-'] {
+  background: #1b2223;
+}
+
+.VPDoc div[class*='language-'] code {
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.VPDoc .custom-block {
+  border: 1px solid var(--vp-c-divider);
+  border-left: 3px solid var(--vp-c-brand-1);
+  border-radius: 6px;
+  background: var(--vp-c-bg-soft);
+}
+
+.VPDoc blockquote {
+  border-left: 3px solid var(--wiki-accent-warm);
+  color: var(--vp-c-text-2);
+}
+
+.VPDoc hr {
+  border-color: var(--vp-c-divider);
+}
+
+.VPDoc table {
+  overflow: hidden;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 7px;
+  border-spacing: 0;
+}
+
+.VPDoc th {
+  color: var(--vp-c-text-1);
+  background: var(--vp-c-bg-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.VPDoc td,
+.VPDoc th {
+  border-right: 1px solid var(--vp-c-divider);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.VPDoc tr:last-child td {
+  border-bottom: 0;
+}
+
+.VPDoc td:last-child,
+.VPDoc th:last-child {
+  border-right: 0;
+}
+
+.VPDocAside {
+  padding-left: 28px;
+}
+
+.VPDocAsideOutline {
+  border-left: 1px solid var(--vp-c-divider);
+}
+
+.VPDocAsideOutline .outline-marker {
+  width: 2px;
+  border-radius: 2px;
+  background: var(--vp-c-brand-1);
+}
+
+.VPDocAsideOutline .outline-link {
+  font-size: 13px;
+  line-height: 1.55;
+  transition: color 0.18s ease, padding-left 0.18s ease;
+}
+
+.VPDocAsideOutline .outline-link:hover,
+.VPDocAsideOutline .outline-link.active {
+  color: var(--vp-c-brand-1);
+}
+
+.VPDocFooter {
+  margin-top: 68px;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.VPDocFooter .edit-info,
+.VPDocFooter .last-updated {
+  color: var(--vp-c-text-3);
+  font-size: 12px;
+}
+
+.VPDocFooter .prev-next {
+  gap: 12px;
+}
+
+.VPDocFooter .pager {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 7px;
+  background: var(--vp-c-bg);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.VPDocFooter .pager:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-2px);
+}
+
+.VPDoc:has(.wiki-vue-home) .container,
+.VPDoc:has(.wiki-vue-home) .content-container,
+.VPDoc:has(.wiki-vue-home) .content {
+  max-width: none;
+}
+
+@media (max-width: 959px) {
+  .VPDoc {
+    padding: 34px 24px 56px;
+  }
+
+  .VPDoc.has-aside .content-container {
+    max-width: none;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --vp-nav-height: 58px;
+  }
+
+  .VPDoc {
+    padding: 28px 18px 48px;
+  }
+
+  .VPDoc .content > h1 {
+    font-size: 30px;
+  }
+
+  .VPDoc .content > h2 {
+    margin-top: 42px;
+    padding-top: 22px;
+    font-size: 23px;
+  }
+
+  .VPDoc .content > h3 {
+    font-size: 19px;
+  }
+
+  .VPDocAside {
+    display: none;
+  }
+
+  .VPDocFooter .prev-next {
+    display: grid;
+  }
 }
 

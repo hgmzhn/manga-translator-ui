@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Web 服务器端口与部署
 
-当你要把 Web 服务跑起来给局域网或公网使用、排查端口冲突，或者为 CI/CD 编写启动脚本时，本页说明 `web` 模式的监听契约、正式部署方式、Docker 端口映射和 `MT_*` 环境变量。本页面向开发者，不重复终端用户的界面操作（见[启动与访问](../web/launch-and-access.md)）、用户向安全边界（见[部署安全与故障排查](../web/deployment-security-and-troubleshooting.md)）和镜像安装步骤（见[Docker 部署](../install/docker.md)）；HTTP 路由契约见[开发者 HTTP API](./http-api/translation-endpoints.md)等页面。
+当你要把 Web 服务跑起来给局域网或公网使用、排查端口冲突，或者为 CI/CD 编写启动脚本时，这里说明 `web` 模式的监听契约、正式部署方式、Docker 端口映射和 `MT_*` 环境变量。本页面向开发者，不重复终端用户的界面操作（见[启动与访问](../web/launch-and-access.md)）、用户向安全边界（见[部署安全与故障排查](../web/deployment-security-and-troubleshooting.md)）和镜像安装步骤（见[Docker 部署](../install/docker.md)）；HTTP 路由契约见[开发者 HTTP API](./http-api/translation-endpoints.md)等页面。
 
-## 功能边界 {#feature-boundary}
+## 涉及的代码 {#feature-boundary}
 
 - `web` 模式是唯一对外提供 HTTP API 与 Web 界面的正式 CLI 入口；默认监听 `0.0.0.0:8000`，可被 `MT_WEB_HOST` / `MT_WEB_PORT` 覆盖。
 - `shared` 与 `ws` 是内部执行模式，分别默认监听 `127.0.0.1:5003` 和连接上游 `ws://localhost:5000`；它们不是给浏览器访问的对外端口。
-- 本页只记录端口、部署与环境变量；模型加载、GPU、超时与并发等运行参数只说明其入口，详细机理见对应参数页。
+- 这里仅记录端口、部署与环境变量；模型加载、GPU、超时与并发等运行参数只说明其入口，详细机理见对应参数页。
 
 ## 端口契约 {#ports-contract}
 
-`0.0.0.0` 表示服务器监听所有 IPv4 接口，不是浏览器访问地址；本机通常用 `http://127.0.0.1:8000` 或 `http://localhost:8000`，局域网客户端必须使用服务器实际 LAN 地址。对外可达性取决于防火墙、端口映射和网络环境，静态源码无法断言。
+`0.0.0.0` 表示服务器监听所有 IPv4 接口，不是浏览器访问地址；本机通常用 `http://127.0.0.1:8000` 或 `http://localhost:8000`，局域网客户端必须使用服务器实际 LAN 地址。对外可达性取决于防火墙、端口映射和网络环境，当前代码无法断言。
 
 ```mermaid
 flowchart LR
@@ -79,11 +79,11 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 
 优先级：显式命令行参数 > 进程启动时已存在的环境变量 > `.env` 文件 > 代码默认值。`main.py` 以 `override=False` 加载 `.env`，因此已存在于进程环境中的同名变量不会被 `.env` 覆盖；管理界面 `POST /env` 通过 `EnvService` 写入应用目录 `.env` 后再以 `override=True` 重载。
 
-本页不列出也不展示任何真实密钥。`OPENAI_API_KEY`、`GEMINI_API_KEY` 等凭据变量只由翻译器读取，服务端 `/env` 与 `/env/effective` 不返回明文。
+这里不列出也不展示任何真实密钥。`OPENAI_API_KEY`、`GEMINI_API_KEY` 等凭据变量只由翻译器读取，服务端 `/env` 与 `/env/effective` 不返回明文。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 约束与注意事项 {#dependencies-and-conflicts}
 
-- `0.0.0.0` 监听所有接口不等于对外可用；Windows 防火墙、云安全组和 NAT 端口映射决定局域网/公网可达性，静态源码不能证明实际暴露范围。
+- `0.0.0.0` 监听所有接口不等于对外可用；Windows 防火墙、云安全组和 NAT 端口映射决定局域网/公网可达性，当前代码不能证明实际暴露范围。
 - 端口占用：`web` 默认 `8000`、Docker GPU 主机入口 `8001` 与 `shared` / `ws` 的 `5003` 分属不同用途；若同一主机上多实例或旧版服务占用端口，Uvicorn 会启动失败。
 - CORS 配置为 `allow_origins=["*"]` + `allow_credentials=True`，但这是源码配置，不代表浏览器对每种 origin/credential 组合都会放行；跨域部署需用浏览器预检实际验证。
 - `MANGA_TRANSLATOR_WEB_SERVER=true` 会阻止翻译器（OpenAI/Gemini 等）重新加载 `.env`，避免覆盖服务器密钥；这与 CLI 本地模式的 `.env` 重载行为不同。
@@ -134,7 +134,7 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 | `web_use_custom_config` | Use Custom Config | 使用自定义配置 |
 | `web_save_config` | Save Config | 保存配置 |
 
-这些 `web_*` key 来自桌面共享 locale（`desktop_qt_ui/locales/en_US.json`、`zh_CN.json`）。`admin-new.html` 当前把“服务器配置”等导航与面板文字硬编码为中文，尚未逐项调用这些 key；英文界面显示需要未来 i18n 阶段核对，本页不擅自补译。
+这些 `web_*` key 来自桌面共享 locale（`desktop_qt_ui/locales/en_US.json`、`zh_CN.json`）。`admin-new.html` 当前把“服务器配置”等导航与面板文字硬编码为中文，尚未逐项调用这些 key；英文界面显示需要未来 i18n 阶段核对，这里不擅自补译。
 
 ### 关联文件与格式 {#related-files}
 
@@ -151,10 +151,9 @@ docker compose up --build -d manga-translator-gpu   # 健康后访问 http://127
 
 ### Mermaid 边界 {#mermaid-boundary}
 
-上面的端口图只表示各正式 CLI 模式绑定的端点，不代表 `web` 模式会自动拉起 `shared` / `ws` 进程，也不代表 `ws://localhost:5000` 在本仓库内一定存在一个监听服务。Docker 映射只描述 Compose 模板中的端口映射；真实暴露范围、防火墙和反向代理配置需在目标环境验证。本页没有伪造运行截图或私有凭据。
+上面的端口图只表示各正式 CLI 模式绑定的端点，不代表 `web` 模式会自动拉起 `shared` / `ws` 进程，也不代表 `ws://localhost:5000` 在本仓库内一定存在一个监听服务。Docker 映射只描述 Compose 模板中的端口映射；真实暴露范围、防火墙和反向代理配置需在目标环境验证。。
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | CLI 契约 | `manga_translator/args.py`、`manga_translator/__main__.py` | 四个模式、`web --host/--port`、`MT_*` 默认值与分发 |

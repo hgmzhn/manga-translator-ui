@@ -11,14 +11,14 @@ lastUpdated: true
 
 This page is for maintainers. It explains how the project turns source code into distributable desktop and Docker artifacts, how version numbers are determined, how CI publishes to GitHub Releases and container registries, and the boundary of version-check and update-maintenance flows. It does not cover user-facing install and update steps (see [Update and version switching](../install/update-and-version-switching.md)), web-server ports and deployment (see [Web server ports and deployment](./web-server-ports-and-deployment.md)), repository module boundaries (see [Architecture and code boundaries](./architecture-and-code-boundaries.md)), or tests and code quality (see [Tests and code quality](./tests-and-code-quality.md)).
 
-## Feature boundary {#feature-boundary}
+## Relevant code {#feature-boundary}
 
 - Version: a `v*` Git tag (for example `v2.2.10`) is authoritative for releases. `packaging/VERSION` is the version file shared by the build script and the version-check scripts. The `[project] version` in `pyproject.toml` and the hardcoded `VERSION` in `packaging/launch.py` are development markers only and do not participate in CI releases.
 - Desktop artifacts: `packaging/build_packages.py` invokes PyInstaller with `packaging/manga-translator-cpu.spec` and `packaging/manga-translator-gpu.spec` to produce `dist/manga-translator-{cpu,gpu}/`.
 - CI release: `.github/workflows/build-and-release.yml` builds both variants, bundles external runtime resources, creates split archives, and creates a GitHub Release on `v*` tag pushes, published releases, or manual dispatch. `.github/workflows/docker-build-push.yml` builds and pushes CPU/GPU Docker images.
-- This page covers packaging and release only. Module code boundaries, test flows, and web ports/deployment belong to [Architecture and code boundaries](./architecture-and-code-boundaries.md), [Tests and code quality](./tests-and-code-quality.md), and [Web server ports and deployment](./web-server-ports-and-deployment.md) respectively.
+- This guide covers packaging and release only. Module code boundaries, test flows, and web ports/deployment belong to [Architecture and code boundaries](./architecture-and-code-boundaries.md), [Tests and code quality](./tests-and-code-quality.md), and [Web server ports and deployment](./web-server-ports-and-deployment.md) respectively.
 
-## UI operations {#ui-operations}
+## How to use it {#ui-operations}
 
 Only two kinds of visible copy relate to packaging and release: the desktop window-title/sidebar version display and the source-install maintenance menu's version-check entry. Neither is a settings-page parameter; the full maintenance-menu workflow lives in [Update and version switching](../install/update-and-version-switching.md).
 
@@ -65,7 +65,7 @@ flowchart LR
     D --> V["write VERSION and build_info.json"]
 ```
 
-Diagram note: this is the source-confirmed version normalization and PyInstaller artifact flow, not a generic "config → algorithm → output" placeholder. `build_info.json` records `variant` and `version`; the same version argument can build both `cpu` and `gpu` artifacts of the two mutually exclusive dependency groups, but a single environment installs only one group.
+Diagram note: this is the version normalization and PyInstaller artifact flow. `build_info.json` records `variant` and `version`; the same version argument can build both `cpu` and `gpu` artifacts of the two mutually exclusive dependency groups, but a single environment installs only one group.
 
 ## Release artifacts {#release-artifacts}
 
@@ -126,7 +126,7 @@ Diagram note: this is the real dependency and step order of the workflow file. `
 
 `packaging/docker-compose.yml` defines two services: `manga-translator-cpu` maps host `8000:8000`, and `manga-translator-gpu` maps `8001:8000`. Both mount `./data/{fonts,dict,result,models,logs,server,config}` into the container, use `MT_*` environment variables for the web host, port, GPU, model TTL, retries, and verbose logging, and set the admin password through `MANGA_TRANSLATOR_ADMIN_PASSWORD` (the template ships a default placeholder value that must be replaced on first startup). Uncommenting the `./data/app.env:/app/.env` mount keeps API keys saved in the web admin UI across container rebuilds.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Constraints and notes {#dependencies-and-conflicts}
 
 - The four hardware backend dependency groups `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive (`[tool.uv] conflicts` in `pyproject.toml`); only one can be installed at a time, and CI desktop packaging builds only `cpu` and `gpu`.
 - PyInstaller artifacts do not contain model weights; models are downloaded from a separate release asset during release, so artifact size and model size are managed independently.
@@ -174,15 +174,14 @@ On startup the packaged app reads the `VERSION` file from runtime resources thro
 | `packaging/Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh` | Docker image and deployment | Multi-stage build, empty-volume restore, health check |
 | `packaging/check_version.py` | Version-check script | Compares `origin/main:packaging/VERSION` |
 | `packaging/launch.py` | Launcher and maintenance menu | `--maintenance`, `--update`, `--frozen` and more |
-| `Win-Start.bat`, `Win-Install-or-Update.bat`, `Unix-*.sh` | Source-install entry points | Invoke `launch.py`; this page does not copy their contents |
+| `Win-Start.bat`, `Win-Install-or-Update.bat`, `Unix-*.sh` | Source-install entry points | Invoke `launch.py`; this guide does not copy their contents |
 | `.github/workflows/build-and-release.yml` | Desktop release CI | Tag/release triggered; bundling, split archives, Release |
 | `.github/workflows/docker-build-push.yml` | Docker release CI | Pushes to Docker Hub and ghcr.io |
 | `.github/workflows/docs-pages.yml` | Wiki site publishing | Independent of desktop releases; deploys `doc/wiki` only |
 | `.github/workflows/sync-to-gitee.yml` | Repository mirror sync | Mirrors branches and tags to Gitee/GitCode on every push |
 | `doc/CHANGELOG_v<version>.md` | Release notes body | Release body shows a placeholder when missing |
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | Version | `packaging/VERSION`, `packaging/build_packages.py`, `packaging/check_version.py`, `desktop_qt_ui/utils/app_version.py` | Version sources, `v` stripping, write-back, runtime read and display |

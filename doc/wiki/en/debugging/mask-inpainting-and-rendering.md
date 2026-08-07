@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Mask, Inpainting and Rendering Debug Artifacts
 
-When “Verbose Logging” is enabled, every input image gets its own debug subfolder under `result/`, where the mask-refinement, inpainting, and text-rendering stages write images and JSON for troubleshooting. This page documents the order in which these artifacts are produced, their trigger conditions, what each image or JSON shows, and how to use them for debugging. The detection-stage confidence heatmap and OCR crops live in [Input, detection and rearrangement debugging](./input-detection-and-rearrangement.md) and [OCR and text-region debugging](./ocr-and-text-regions.md); replace-translation and WebSocket artifacts are covered in [Special workflows and WebSocket debugging](./special-workflows-and-websocket.md).
+When “Verbose Logging” is enabled, every input image gets its own debug subfolder under `result/`, where the mask-refinement, inpainting, and text-rendering stages write images and JSON for troubleshooting. This guide documents the order in which these artifacts are produced, their trigger conditions, what each image or JSON shows, and how to use them for debugging. The detection-stage confidence heatmap and OCR crops live in [Input, detection and rearrangement debugging](./input-detection-and-rearrangement.md) and [OCR and text-region debugging](./ocr-and-text-regions.md); replace-translation and WebSocket artifacts are covered in [Special workflows and WebSocket debugging](./special-workflows-and-websocket.md).
 
-The settings that control these stages (the “Inpainting” and “Typesetting” groups) are documented in [Mask and inpainting settings](../desktop/settings/mask-and-inpainting.md) and [Typesetting and rendering settings](../desktop/settings/typesetting-and-rendering.md); this page does not repeat parameter defaults.
+The settings that control these stages (the “Inpainting” and “Typesetting” groups) are documented in [Mask and inpainting settings](../desktop/settings/mask-and-inpainting.md) and [Typesetting and rendering settings](../desktop/settings/typesetting-and-rendering.md); this guide does not repeat parameter defaults.
 
 ## Debugging scenarios {#when-to-use}
 

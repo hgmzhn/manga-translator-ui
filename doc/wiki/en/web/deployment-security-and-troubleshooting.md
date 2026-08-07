@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Web Deployment, Security, and Troubleshooting
 
-Use this page when you need to deploy the web interface locally, on a LAN, or with Docker; confirm the session-token, rate-limit, and permission boundaries; or run into problems such as “port already in use”, “LAN clients cannot connect”, or “login is rate limited”. This page covers web deployment, security boundaries, and troubleshooting only. Account, permission, and API-key operations live in [Accounts, permissions, and API keys](./accounts-permissions-and-api-keys.md); login and session UI flows live in [Login, language, and session](./login-language-and-session.md); the admin console is covered in [Administrator interface](./administrator-interface.md). The complete HTTP routing, status-code, and port contracts are developer documentation; see [Web server ports and deployment](../developer/web-server-ports-and-deployment.md) and [Authentication and errors](../developer/http-api/authentication-and-errors.md).
+Use this page when you need to deploy the web interface locally, on a LAN, or with Docker; confirm the session-token, rate-limit, and permission boundaries; or run into problems such as “port already in use”, “LAN clients cannot connect”, or “login is rate limited”. This guide covers web deployment, security boundaries, and troubleshooting only. Account, permission, and API-key operations live in [Accounts, permissions, and API keys](./accounts-permissions-and-api-keys.md); login and session UI flows live in [Login, language, and session](./login-language-and-session.md); the admin console is covered in [Administrator interface](./administrator-interface.md). The complete HTTP routing, status-code, and port contracts are developer documentation; see [Web server ports and deployment](../developer/web-server-ports-and-deployment.md) and [Authentication and errors](../developer/http-api/authentication-and-errors.md).
 
-## Feature boundary
+## UI and API scope
 
-- The web service serves the user interface (`GET /`), the admin interface (`GET /admin`), the login page (`/static/login.html`), and the developer HTTP API together. This page documents user-facing deployment, security boundaries, and troubleshooting only and does not repeat the developer API contract.
+- The web service serves the user interface (`GET /`), the admin interface (`GET /admin`), the login page (`/static/login.html`), and the developer HTTP API together. This guide documents user-facing deployment, security boundaries, and troubleshooting only and does not repeat the developer API contract.
 - The default listen address is `0.0.0.0:8000`, overridable with `--host`/`--port` or the `MT_WEB_HOST`/`MT_WEB_PORT` environment variables. `0.0.0.0` means listening on all IPv4 interfaces; it is not a browser access address.
 - Docker Compose ships two services: the CPU image maps `8000:8000` and the GPU image maps `8001:8000`.
 - Sessions, permissions, rate limits, and audit logging are enforced server-side; hiding a control in the browser or deleting the front-end token does not replace server-side checks.
@@ -111,4 +111,4 @@ flowchart LR
 
 The full status-code matrix and trigger sources are in [Authentication and errors](../developer/http-api/authentication-and-errors.md); detailed translation, import, and export request errors are in [Translation endpoints](../developer/http-api/translation-endpoints.md).
 
-> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> See the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).

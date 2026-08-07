@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Contributing
 
-This page explains how to contribute to the Manga Translator project: opening issues for feature requests and bug reports, submitting code via pull requests, and joining community channels.
+This guide explains how to contribute to the Manga Translator project: opening issues for feature requests and bug reports, submitting code via pull requests, and joining community channels.
 
-## Feature boundary {#feature-boundary}
+## Ways to contribute {#feature-boundary}
 
-- This page covers only how to participate: opening issues, opening PRs, and community channels.
+- This guide focuses on how to participate: opening issues, opening PRs, and community channels.
 - For feature development flows, see [Adding or Changing a Feature](../developer/adding-or-changing-a-feature.md); for tests and code quality, see [Tests and Code Quality](../developer/tests-and-code-quality.md); for packaging and release, see [Packaging and Release](../developer/packaging-and-release.md); for architecture and code boundaries, see [Architecture and Code Boundaries](../developer/architecture-and-code-boundaries.md).
 - For friendly-link applications, see [Related Projects and Links](../developer/related-projects-and-links.md).
 
@@ -42,7 +42,7 @@ Code contributions go through pull requests: fork the repository, create a branc
 - Community channels such as chat groups and documentation navigation are listed in the repository [README](https://github.com/hgmzhn/manga-translator-ui/blob/main/README.md) (English version: [README_EN.md](https://github.com/hgmzhn/manga-translator-ui/blob/main/README_EN.md)).
 - For online documentation, see the DeepWiki link in the README.
 
-## Related pages {#related-pages}
+## Read next {#related-pages}
 
 - [Adding or Changing a Feature](../developer/adding-or-changing-a-feature.md): feature development flow and change steps.
 - [Tests and Code Quality](../developer/tests-and-code-quality.md): test directories, uv commands, and format checks.

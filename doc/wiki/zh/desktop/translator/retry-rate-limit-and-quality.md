@@ -9,16 +9,16 @@ lastUpdated: true
 
 # 重试、限流与翻译质量
 
-当翻译请求偶发超时、触发速率限制，或者需要控制 API 成本和失败对整批任务的影响时，使用本页配置重试次数（`cli.attempts`）、每分钟最大请求数（`translator.max_requests_per_minute`）、忽略错误（`cli.ignore_errors`）以及译后质量检查参数。本页不负责选择翻译器（见[翻译器选择与语言](./selection-and-languages.md)）、提示词与上下文组合（见[上下文与提示词](./context-and-prompts.md)），也不负责 API 候选槽的增删、`failover`/`round_robin` 策略和冷却恢复（见 API 管理页面）。
+当翻译请求偶发超时、触发速率限制，或者需要控制 API 成本和失败对整批任务的影响时，使用本页配置重试次数（`cli.attempts`）、每分钟最大请求数（`translator.max_requests_per_minute`）、忽略错误（`cli.ignore_errors`）以及译后质量检查参数。这里不负责选择翻译器（见[翻译器选择与语言](./selection-and-languages.md)）、提示词与上下文组合（见[上下文与提示词](./context-and-prompts.md)），也不负责 API 候选槽的增删、`failover`/`round_robin` 策略和冷却恢复（见 API 管理页面）。
 
-## 功能边界
+## 适用场景
 
 - **负责**：`cli.attempts` 决定翻译请求在传输层与内容校验层的重试预算；`translator.max_requests_per_minute` 决定每分钟实际请求节奏；`cli.ignore_errors` 决定失败在文件/批次层面的隔离方式；`translator.enable_post_translation_check` 与三个 `post_check_*` 阈值参数决定译后质量检查。
 - **不负责**：`OPENAI_API_KEY`/`_2`/`_3` 等候选槽的增删、轮换策略、冷却与不可用状态属于 API 管理；`cli.save_quality`（图像保存质量）是输出文件压缩质量，不是翻译质量。
-- 高质量翻译（`openai_hq`/`gemini_hq`）与自定义提示词影响译文质量，但属于翻译器选择与提示词页面；本页只说明它们不参与重试计数。
+- 高质量翻译（`openai_hq`/`gemini_hq`）与自定义提示词影响译文质量，但属于翻译器选择与提示词页面；这里仅说明它们不参与重试计数。
 - `cli.attempts` 与 `translator.post_check_max_retry_attempts` 是两个独立的重试预算：前者覆盖请求发送，后者覆盖译后检查，不能互相替代。
 
-## UI 操作
+## 在桌面端设置
 
 ### 在设置页配置重试与错误处理
 
@@ -37,7 +37,7 @@ lastUpdated: true
 
 ## 参数与选项
 
-> 本页各参数的界面名称、存储键与默认值的对应关系，见[选项与 i18n 矩阵](../../reference/options-i18n-matrix.md)。
+> 本页各参数的界面名称、存储键与默认值的对应关系，见[界面选项对照表](../../reference/options-i18n-matrix.md)。
 
 #### 重试次数 {#cli-attempts}
 
@@ -87,7 +87,7 @@ lastUpdated: true
 - 默认值：`0.5`。
 - 原理：批次内文本区域总数超过 10 时，合并该批次所有区域的译文并检测语言；不是目标语言时按“翻译检查最大重试次数”整批重译。
 
-## 运行机理
+## 翻译请求如何处理
 
 ### 重试层级与候选轮换 {#retry-layers}
 
@@ -185,7 +185,7 @@ flowchart TD
     K --> Z
 ```
 
-## 依赖与冲突
+## 模型、网络与质量
 
 - `cli.attempts`、`translator.max_requests_per_minute`、`cli.ignore_errors` 与译后检查是四个独立维度：重试预算、请求节奏、失败隔离和质量检查互不替代。
 - `attempts=-1` 与内容过滤/持续 5xx 叠加可能长时间不退出；`max_requests_per_minute` 只限制发送节奏，不降低单次请求成本。

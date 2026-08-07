@@ -11,7 +11,7 @@ lastUpdated: true
 
 Use this page when you need to expose the Web service to a LAN or the public, debug a port conflict, or write a startup script for CI/CD. It documents the `web` mode listen contract, the official deployment methods, Docker port mappings, and the `MT_*` environment variables. This page targets developers and does not repeat end-user UI operations (see [Launch and access](../web/launch-and-access.md)), user-facing security boundaries (see [Deployment security and troubleshooting](../web/deployment-security-and-troubleshooting.md)), or image installation steps (see [Docker deployment](../install/docker.md)); HTTP route contracts live in [Developer HTTP API](./http-api/translation-endpoints.md) and related pages.
 
-## Feature boundary {#feature-boundary}
+## Relevant code {#feature-boundary}
 
 - `web` is the only official CLI entry that exposes both the HTTP API and the Web UI; it listens on `0.0.0.0:8000` by default and can be overridden with `MT_WEB_HOST` / `MT_WEB_PORT`.
 - `shared` and `ws` are internal execution modes that listen on `127.0.0.1:5003` and connect upstream to `ws://localhost:5000` by default; they are not external ports for browser access.
@@ -19,7 +19,7 @@ Use this page when you need to expose the Web service to a LAN or the public, de
 
 ## Port contract {#ports-contract}
 
-`0.0.0.0` means the server listens on all IPv4 interfaces; it is not a browser address. Locally you usually use `http://127.0.0.1:8000` or `http://localhost:8000`; LAN clients must use the server's real LAN address. External reachability depends on firewall, port mapping, and network environment, which static source cannot assert.
+`0.0.0.0` means the server listens on all IPv4 interfaces; it is not a browser address. Locally you usually use `http://127.0.0.1:8000` or `http://localhost:8000`; LAN clients must use the server's real LAN address. External reachability depends on firewall, port mapping, and network environment, which source code alone cannot assert.
 
 ```mermaid
 flowchart LR
@@ -79,11 +79,11 @@ In packaged builds the application directory is the directory of `sys.executable
 
 Precedence: explicit command-line argument > environment variables already present when the process starts > `.env` file > code default. `main.py` loads `.env` with `override=False`, so same-name variables already in the process environment are not overwritten; the admin `POST /env` endpoint writes the application-directory `.env` through `EnvService` and then reloads it with `override=True`.
 
-This page does not list or display any real secret. Credential variables such as `OPENAI_API_KEY` and `GEMINI_API_KEY` are only read by translators; the server `/env` and `/env/effective` endpoints never return plaintext.
+This guide does not list or display any real secret. Credential variables such as `OPENAI_API_KEY` and `GEMINI_API_KEY` are only read by translators; the server `/env` and `/env/effective` endpoints never return plaintext.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Constraints and notes {#dependencies-and-conflicts}
 
-- Listening on `0.0.0.0` does not mean the service is externally reachable; the Windows firewall, cloud security groups, and NAT port mapping decide LAN/public reachability, and static source cannot prove the actual exposure.
+- Listening on `0.0.0.0` does not mean the service is externally reachable; the Windows firewall, cloud security groups, and NAT port mapping decide LAN/public reachability, and source code alone cannot prove the actual exposure.
 - Port usage: `web` defaults to `8000`, the Docker GPU host entry is `8001`, and `shared` / `ws` use `5003` for different purposes; if another instance or an older service occupies a port on the same host, Uvicorn fails to start.
 - CORS is configured as `allow_origins=["*"]` plus `allow_credentials=True`, but that is a source configuration and does not mean browsers will allow every origin/credential combination; cross-origin deployments need real browser preflight verification.
 - `MANGA_TRANSLATOR_WEB_SERVER=true` makes translators (OpenAI/Gemini and others) skip reloading `.env` to avoid overwriting server keys; this differs from the CLI local mode's `.env` reload behavior.
@@ -134,7 +134,7 @@ This page targets developers; the checkable UI copy mainly comes from the Web ad
 | `web_use_custom_config` | Use Custom Config | 使用自定义配置 |
 | `web_save_config` | Save Config | 保存配置 |
 
-These `web_*` keys come from the shared desktop locales (`desktop_qt_ui/locales/en_US.json`, `zh_CN.json`). `admin-new.html` currently hardcodes navigation and panel text such as “服务器配置” in Chinese and does not yet call these keys one by one; the English display needs verification in a future i18n phase, and this page does not invent translations.
+These `web_*` keys come from the shared desktop locales (`desktop_qt_ui/locales/en_US.json`, `zh_CN.json`). `admin-new.html` currently hardcodes navigation and panel text such as “服务器配置” in Chinese and does not call these keys one by one, so parts of the admin interface remain Chinese when English is selected.
 
 ### Related files and formats {#related-files}
 
@@ -151,10 +151,9 @@ These `web_*` keys come from the shared desktop locales (`desktop_qt_ui/locales/
 
 ### Mermaid boundary {#mermaid-boundary}
 
-The port diagram above only represents the endpoints bound by each official CLI mode; it does not mean `web` automatically spawns `shared` / `ws` processes, nor that a listener for `ws://localhost:5000` necessarily exists inside this repository. The Docker mapping only describes the Compose template's port mapping; the real exposure scope, firewall, and reverse-proxy configuration must be verified in the target environment. This page fabricates no runtime screenshots or private credentials.
+The port diagram above only represents the endpoints bound by each official CLI mode; it does not mean `web` automatically spawns `shared` / `ws` processes, nor that a listener for `ws://localhost:5000` necessarily exists inside this repository. The Docker mapping only describes the Compose template's port mapping; the real exposure scope, firewall, and reverse-proxy configuration must be verified in the target environment.
 
-### Source evidence {#source-evidence}
-
+### Code locations {#source-evidence}
 | Layer | File | What was checked |
 | --- | --- | --- |
 | CLI contract | `manga_translator/args.py`, `manga_translator/__main__.py` | Four modes, `web --host/--port`, `MT_*` defaults, and dispatch |

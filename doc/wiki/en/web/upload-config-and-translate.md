@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Web Upload, Configuration, and Translation
 
-After logging into the web interface (`/`), the main workspace covers the full "upload images → configure parameters → start translation" flow: the left panel adds files, selects a workflow mode, and starts the task, while the four tabs on the right configure parameters and API keys. This page describes user-interface operations only. The request, response, authentication, and status-code contracts of the HTTP endpoints the browser calls are documented in the developer pages `../developer/http-api/translation-endpoints.md` and `../developer/http-api/streaming-protocol.md`.
+After logging into the web interface (`/`), the main workspace covers the full "upload images → configure parameters → start translation" flow: the left panel adds files, selects a workflow mode, and starts the task, while the four tabs on the right configure parameters and API keys. This guide describes user-interface operations only. The request, response, authentication, and status-code contracts of the HTTP endpoints the browser calls are documented in the developer pages `../developer/http-api/translation-endpoints.md` and `../developer/http-api/streaming-protocol.md`.
 
-## Feature boundary
+## UI and API scope
 
-- This page covers upload, configuration, and starting a translation in the web user interface. Login and sessions are covered in [Login, language, and session](./login-language-and-session.md), progress, results, and history in [Progress, results, and history](./progress-results-and-history.md), accounts, permissions, and API keys in [Accounts, permissions, and API keys](./accounts-permissions-and-api-keys.md), font and prompt uploads in [Resources, fonts, and prompts](./resources-fonts-and-prompts.md), and access URLs in [Launch and access](./launch-and-access.md).
+- This guide covers upload, configuration, and starting a translation in the web user interface. Login and sessions are covered in [Login, language, and session](./login-language-and-session.md), progress, results, and history in [Progress, results, and history](./progress-results-and-history.md), accounts, permissions, and API keys in [Accounts, permissions, and API keys](./accounts-permissions-and-api-keys.md), font and prompt uploads in [Resources, fonts, and prompts](./resources-fonts-and-prompts.md), and access URLs in [Launch and access](./launch-and-access.md).
 - The web frontend is not a direct reuse of the desktop Qt UI: `index.html` ships with initial Chinese text, and `script.js` overrides part of the static text through i18n keys. Strings such as "添加文件夹" (Add Folder), "文件列表" (File List), "翻译结果" (Translation Results), "翻译历史" (Translation History), and "N 个文件" (N files) remain hardcoded in HTML/script and have no i18n key.
 - Uploading, PDF extraction, config import/export, and the results list all happen in the browser. The results list in `localStorage` and the server-side translation history are two separate stores.
 - Keys controlled by the workflow-mode dropdown — `cli.load_text`, `cli.translate_json_only`, `cli.template`, `cli.generate_and_export`, `cli.colorize_only`, `cli.upscale_only`, `cli.inpaint_only` — and also `cli.batch_size`, `cli.batch_concurrent`, and `cli.use_gpu` are hidden by the server-side `SERVER_HIDDEN_CONFIG_KEYS` set and never appear in the web config form; do not edit them by hand.
 - Upload count/size limits, the API-key editor switch, and font/prompt upload permissions come from `/user/settings`; `0` means unlimited.
 
-## UI operations
+## Use it in the Web UI
 
 ### Add files and folders
 
@@ -54,7 +54,7 @@ The "Translation Workflow Mode:" (`Translation Workflow Mode:`) dropdown lists s
 
 ## Parameters and options
 
-> For detailed parameter information (UI names, storage keys, default values, and effective stages) on this page, see the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> For detailed parameter information (UI names, storage keys, default values, and effective stages) on this page, see the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).
 
 #### Batch Size {#cli-batch-size}
 
@@ -94,7 +94,7 @@ flowchart LR
 
 "Normal translation with multiple files" uses the batch endpoint (returning a ZIP); all other modes submit files one by one. Progress frames appear only in the binary stream of single-file normal translation; the batch endpoint returns its result uniformly after the request completes or is cancelled.
 
-## Dependencies and conflicts
+## Permissions, security, and limits
 
 - Upload limits (count, per-image size, PDF size) come from `/user/settings` and are set by admin/group quotas; `0` means unlimited, and the frontend rejects additions that exceed them.
 - The config form is filtered by permissions: a group can hide parameters or set defaults; a user allowlist can unlock parameters disabled by the group. Filtered parameters are not shown and should not be injected by hand.
@@ -104,4 +104,4 @@ flowchart LR
 - The browser results list (`localStorage`) and the server translation history are two separate stores; clearing the results list does not affect server history.
 - Uploads and translations can contain business content. Before sharing logs, exported files, or debug directories, remove request bodies, historical page text, paths, and credentials.
 
-> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> See the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).

@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Special Workflows and WebSocket Debug Artifacts
 
-When modes such as Export Original Text, Export Translation, Translate JSON Only, Import Translation and Render, Replace Translation, or Colorize Only / Upscale Only / Inpaint Only skip parts of the standard pipeline, this page explains which debug artifacts they do (or do not) produce. The two internal transport modes, `ws` and `shared`, additionally write `ws_*` debug images and transport-related files of their own. Per-stage debug images for the normal pipeline are covered in [Debug Folder Naming and Overview](./folder-naming-and-overview.md), [OCR and Text Regions](./ocr-and-text-regions.md), and [Mask, Inpainting and Rendering](./mask-inpainting-and-rendering.md); the full protocol contract for `ws`/`shared` lives in [Internal Shared and WebSocket Protocol](../developer/internal-shared-and-websocket.md).
+When modes such as Export Original Text, Export Translation, Translate JSON Only, Import Translation and Render, Replace Translation, or Colorize Only / Upscale Only / Inpaint Only skip parts of the standard pipeline, this guide explains which debug artifacts they do (or do not) produce. The two internal transport modes, `ws` and `shared`, additionally write `ws_*` debug images and transport-related files of their own. Per-stage debug images for the normal pipeline are covered in [Debug Folder Naming and Overview](./folder-naming-and-overview.md), [OCR and Text Regions](./ocr-and-text-regions.md), and [Mask, Inpainting and Rendering](./mask-inpainting-and-rendering.md); the full protocol contract for `ws`/`shared` lives in [Internal Shared and WebSocket Protocol](../developer/internal-shared-and-websocket.md).
 
-## Feature boundary
+## What to inspect
 
 - Debug artifacts fall into three groups: conditional artifacts of special workflows that skip stages, the `ws_*` images written by the `ws` mode rendering callback, and the logs and directories produced while `shared`/`ws` run.
 - Unless stated otherwise, every debug artifact requires `verbose` to be enabled; otherwise only business files such as the final image, JSON, or text exports are written.
 - "Artifacts that actually exist in one run" differs from "all artifacts the current source may generate in that mode": for example, Import Translation and Render only triggers the detection branch when a mask is missing or detection must be rerun.
-- This page does not repeat the endpoints, ports, authentication, or pickle/protobuf serialization details of `shared`/`ws`; those belong to [Internal Shared and WebSocket Protocol](../developer/internal-shared-and-websocket.md).
+- This guide does not repeat the endpoints, ports, authentication, or pickle/protobuf serialization details of `shared`/`ws`; those belong to [Internal Shared and WebSocket Protocol](../developer/internal-shared-and-websocket.md).
 
-## UI operations
+## Inspect debug artifacts
 
 ### Choosing a workflow mode on the translation page
 
@@ -94,11 +94,11 @@ In `ws` mode (`MangaTranslatorWS`), verbose additionally writes the following re
 | `ws_inmask.png` | Same | `ws` mode and verbose | Input image masked to the render region (RGBA × mask) |
 | `ws_output.png` | Same | `ws` mode and verbose | Rendered output masked to the render region (RGBA × mask), i.e. the content actually uploaded |
 | `ws_final.png` | `manga_translator/mode/ws.py#server_process_inner` | `ws` mode and verbose, and translation succeeded | Final result resized back to the original dimensions (LANCZOS) |
-| `result/<task_id>/` | `manga_translator/mode/ws.py#server_process_inner` | `ws` mode and verbose | Cleaned and recreated before processing; the current source writes `ws_*` debug images into the per-image subfolder via `_result_path()`, so the relationship between `result/<task_id>/` and the per-image subfolder needs runtime verification |
+| `result/<task_id>/` | `manga_translator/mode/ws.py#server_process_inner` | `ws` mode and verbose | Cleaned and recreated before processing; the current source writes `ws_*` debug images into the per-image subfolder via `_result_path()`, so the relationship between `result/<task_id>/` and the per-image subfolder may vary by release |
 
 The only transport-related files of `shared` mode are the runtime log and the debug subfolders themselves: `MangaShare` creates the translator with `MangaTranslator(params)`, `verbose` is passed through the parameters, and debug images land in the same `result/<image-subfolder>/` location as normal mode. `result/log_<timestamp>.txt` is the global DEBUG log configured by the desktop Qt UI at startup in `desktop_qt_ui/main.py`; it is not part of a per-image debug subfolder.
 
-## Runtime behavior
+## How artifacts are produced
 
 ### Debug directory and trigger conditions
 
@@ -138,7 +138,7 @@ With verbose, `ws_render_in`/`ws_render_out`, `ws_mask`, `ws_inmask`, and `ws_ou
 ### Shared transport protocol and artifacts
 
 `shared` mode starts an internal service locally and only allows the `translate` and `translate_batch` methods; with verbose its debug artifacts are the same as the normal mode (written into the per-image debug subfolder). Address, authentication, and message-frame details are covered in [Internal Shared and WebSocket Protocol](../developer/internal-shared-and-websocket.md).
-## Dependencies and conflicts
+## Artifacts and privacy
 
 - Every debug artifact requires `verbose`; `desc_cli_verbose` describes the Qt UI behavior, while each CLI mode controls it with `-v` separately — do not mix the two.
 - Special workflows are incompatible with `batch_concurrent`: when any of `load_text`, `translate_json_only`, `template+save_text`, `generate_and_export`, `colorize_only`, `upscale_only`, `inpaint_only`, or `replace_translation` is enabled, `batch_concurrent` is ignored and processing falls back to sequential; `template+save_text` also forces `batch_size=1`.

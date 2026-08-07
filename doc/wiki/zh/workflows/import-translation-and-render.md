@@ -13,7 +13,7 @@ lastUpdated: true
 
 “导入翻译并渲染”与“导出原文”“导出翻译”“仅翻译（JSON）”构成模板/JSON 家族，区别见[导出原文](./export-original.md)、[导出翻译](./export-translation.md)和[仅翻译（JSON）](./translate-json-only.md)；九种工作流的整体边界见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)，汇总表见[工作流矩阵](../reference/workflow-matrix.md)。
 
-## 功能边界
+## 什么时候用
 
 - 输入：主输入图片（与正常翻译相同的文件发现规则），以及每张图必须能找到的工程 JSON；可选输入是原文/译文副文件（TXT 导入）和已存在的修复图。
 - 执行阶段：JSON/内存载荷读取 →（已有精炼蒙版则复用，否则）蒙版细化 → 修复 → 渲染 → 主图保存与 JSON 回写。JSON 无蒙版且开启 `detector.import_yolo_labels` 时额外执行检测生成蒙版。
@@ -21,7 +21,7 @@ lastUpdated: true
 - 输出文件：主输出图、更新后的工程 JSON；重新执行修复且 `save_text=true` 时还写修复图；启用 `export_editable_psd` 时导出 PSD。
 - 工作流字段：下拉框第 4 项，运行时写入 `cli.load_text=true`；GUI 切换保证八个工作流布尔字段互斥。
 
-## UI 操作
+## 运行这个流程
 
 ### 选择导入翻译并渲染工作流
 
@@ -30,11 +30,11 @@ lastUpdated: true
 3. 页面标题变为“导入翻译并渲染”，副标题提示：将从 `manga_translator_work/originals/` 或 `translations/` 目录读取 TXT 文件并渲染（优先使用 `_original.txt`）。
 4. 开始按钮变为“导入翻译并渲染”；点击后按该模式启动后端任务。
 
-选择模式只写入配置并更新界面文案，不会自动开始任务。开始前应先添加主输入图片（“添加文件…”“添加文件夹…”或拖放），并确认每张图都有可解析的工程 JSON；缺少 JSON 的图片会进入错误回退分支（静态源码结论，运行提示待验证）。
+选择模式只写入配置并更新界面文案，不会自动开始任务。开始前应先添加主输入图片（“添加文件…”“添加文件夹…”或拖放），并确认每张图都有可解析的工程 JSON；缺少 JSON 的图片会进入错误回退分支（根据当前实现，运行提示待验证）。
 
 界面提示固定写作 `_original.txt`/“TXT 文件”，但实际副文件扩展名由模板 `output_format` 决定（默认 `json`），提示文案不随模板扩展名变化。
 
-## 运行机理
+## 处理顺序
 
 ### 输入发现与 TXT 导入
 
@@ -66,7 +66,7 @@ flowchart LR
     Input -. "正常路径跳过" .-> Skip["上色 / 超分 / 检测 / OCR / 合并 / 翻译"]
 ```
 
-上面的 Mermaid 是源码确认的阶段与分支。限制说明：检测只在“JSON 无蒙版且 `import_yolo_labels=true`”时额外运行；AI renderer（`renderer` 为 OpenAI/Gemini）会跳过真正修复并用工作图作为渲染底图；已存在修复图只在 JSON 带蒙版时复用，否则重新修复。
+上面的 Mermaid 是阶段与分支。限制说明：检测只在“JSON 无蒙版且 `import_yolo_labels=true`”时额外运行；AI renderer（`renderer` 为 OpenAI/Gemini）会跳过真正修复并用工作图作为渲染底图；已存在修复图只在 JSON 带蒙版时复用，否则重新修复。
 
 ### 蒙版、修复与渲染
 
@@ -80,7 +80,7 @@ flowchart LR
 
 渲染完成后，`_save_text_to_file()` 把最新 regions（含 `translation`、`font_size` 等渲染后字段）回写工程 JSON：保留已有 `paint_overlay`/`stamp_overlay` 图层、记录 `last_export_dir`、保存蒙版与 `mask_is_refined`；渲染过时写 `skip_text_replacements=true`。若有区域解析失败（`region_parse_failures > 0`），出于保护工程文件的目的跳过回写，避免丢失区域。
 
-编辑器“导出”通道不经过磁盘 JSON：`export_service.py` 通过 `set_preloaded_load_text_payload()` 注入内存载荷，后端把这种载荷视为已授权终稿，只做纯渲染——跳过文本替换、跳过 JSON 回写，修复图直接使用编辑器提供的结果。该通道的 UI 操作和工程保存由编辑器页面说明，本页只说明它与文件式导入共享 `load_text` 分支。
+编辑器“导出”通道不经过磁盘 JSON：`export_service.py` 通过 `set_preloaded_load_text_payload()` 注入内存载荷，后端把这种载荷视为已授权终稿，只做纯渲染——跳过文本替换、跳过 JSON 回写，修复图直接使用编辑器提供的结果。该通道的 UI 操作和工程保存由编辑器页面说明，这里仅说明它与文件式导入共享 `load_text` 分支。
 
 ### 与并发和互斥的关系
 
@@ -88,18 +88,18 @@ flowchart LR
 - 手工叠加多个工作流字段不是受支持组合。GUI 切换时八个布尔字段互斥；从配置同步下拉框时，导入翻译的优先级低于替换翻译、仅修复、仅超分、仅上色。
 - 本模式不执行翻译服务调用，也不按 `colorizer.colorizer`/`upscale.upscale_ratio` 做条件上色与超分；主输出尺寸基于原图。
 
-## 依赖与冲突
+## 输入、输出与限制
 
-- 工程 JSON 是硬性前置：`find_json_path()` 找不到 JSON 时逐图阶段报“翻译文件缺失/无效”，错误回退分支输出原图副本（静态源码结论，用户可见提示待运行验证）。
+- 工程 JSON 是硬性前置：`find_json_path()` 找不到 JSON 时逐图阶段报“翻译文件缺失/无效”，错误回退分支输出原图副本（根据当前实现，用户可见提示可能因版本而异）。
 - TXT 导入依赖模板：模板缺失时自动创建默认模板；模板不可解析或 TXT 无有效条目时导入被跳过（仅调试日志），译文不会更新。
 - `cli.overwrite=false`：GUI 开始前跳过主输出图已存在的图片（检查 `_calculate_output_path()` 的结果）。
 - `cli.save_text`：本模式的 JSON 回写不依赖它，但重新生成的修复图只有 `save_text=true` 才落盘。
 - `detector.import_yolo_labels`：只在 JSON 无蒙版时触发检测补蒙版；有蒙版时该参数不影响本工作流。
 - `render.enable_template_alignment` 是替换翻译专用设置，与本工作流无关。
-- 修复与渲染仍按所选模型产生模型、显存和 API 成本；本页不重复其参数说明。
+- 修复与渲染仍按所选模型产生模型、显存和 API 成本；这里不重复其参数说明。
 - 主输出目录、`save_to_source_dir`、`cli.format` 决定主输出图的位置与扩展名；JSON、修复图和副文件始终按输入图片的工作目录规则写入。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 - 其它工作流：[正常翻译流程](./normal.md) · [导出原文](./export-original.md) · [导出翻译](./export-translation.md) · [仅翻译（JSON）](./translate-json-only.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [仅修复](./inpaint-only.md) · [替换翻译](./replace-translation.md)
 - 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)

@@ -13,13 +13,13 @@ lastUpdated: true
 
 九个模式的整体对照和输出目录设置见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)；`cli.template` 与 `cli.save_text` 的参数说明见[模式专属工作流与模板对齐](../desktop/settings/mode-specific.md#cli-template)和[CLI 批量与输出](../desktop/settings/cli-batch-and-output.md#cli-save-text)。
 
-## 功能边界 {#feature-boundary}
+## 什么时候用 {#feature-boundary}
 
-- 本页只覆盖九种工作流中的“导出原文”（下拉框索引 `2`）。选择该模式时，界面先清空八个互斥工作流字段，再只把 `cli.template` 设为 `true` 并保存配置；运行时要同时满足 `cli.save_text=true` 才进入导出分支。
+- 这里仅列出九种工作流中的“导出原文”（下拉框索引 `2`）。选择该模式时，界面先清空八个互斥工作流字段，再只把 `cli.template` 设为 `true` 并保存配置；运行时要同时满足 `cli.save_text=true` 才进入导出分支。
 - 输入是主输入图片与可读取的翻译模板；输出是工程 JSON 与原文副文件，不写主输出图。每张图以输入图片的不含扩展名 `<stem>` 组织工作目录。
-- 本页不重复检测、OCR、上色、超分、蒙版、修复或渲染各自的参数算法；工作流选择不是翻译器选择，也不是 API 候选槽切换（见[翻译器选择](../desktop/translator/selection-and-languages.md)）。
+- 这里不重复检测、OCR、上色、超分、蒙版、修复或渲染各自的参数算法；工作流选择不是翻译器选择，也不是 API 候选槽切换（见[翻译器选择](../desktop/translator/selection-and-languages.md)）。
 
-## UI 操作 {#ui-operations}
+## 运行这个流程 {#ui-operations}
 
 ### 选择导出原文工作流 {#select-export-original}
 
@@ -29,7 +29,7 @@ lastUpdated: true
 
 提示中的 `图片名` 是程序对输入 `<stem>` 的示例称呼，不是用户私有文件名；`manga_translator_work/originals/` 是每图工作目录下的固定子目录名。
 
-## 运行机理 {#runtime-behavior}
+## 处理顺序 {#runtime-behavior}
 
 “导出原文”只有在 `template=true` **且** `save_text=true` 时才进入导出分支（源码中的 `is_template_save_mode`）。核心 `translate_batch()` 会强制 `batch_size=1` 逐张落盘，并把该模式列为 `batch_concurrent` 不兼容；桌面控制层也会把本次并发局部变量改为 `false`。高质量翻译流程同样会因导入/导出模式被跳过。
 
@@ -43,11 +43,11 @@ flowchart LR
     Tpl -. "人工翻译后" .-> Import["导入翻译并渲染模式"]
 ```
 
-上图只表达源码确认的阶段顺序：`_translate_until_translation()` 完成条件上色/超分、检测、OCR 和文本行合并；`_handle_template_and_save_text()` 再按需细化蒙版、保存 JSON 并生成原文模板。没有文本区域时仍会保存空 JSON 并生成空模板文件。
+上图只表达阶段顺序：`_translate_until_translation()` 完成条件上色/超分、检测、OCR 和文本行合并；`_handle_template_and_save_text()` 再按需细化蒙版、保存 JSON 并生成原文模板。没有文本区域时仍会保存空 JSON 并生成空模板文件。
 
 ### 输入与发现规则 {#input-and-discovery}
 
-- 主输入必须是文件服务支持的图片；添加文件夹时递归查找并按自然排序收集，跳过名为 `manga_translator_work` 的目录。压缩包和文档扩展名由同一服务识别，但压缩包内副文件与本工作流的配对尚未运行验证。
+- 主输入必须是文件服务支持的图片；添加文件夹时递归查找并按自然排序收集，跳过名为 `manga_translator_work` 的目录。压缩包和文档扩展名由同一服务识别，但压缩包内副文件与本工作流的配对尚未在所有环境中确认。
 - 每图工作目录以输入图片的原始路径和不含扩展名的 `<stem>` 为基准：原文副文件写入 `manga_translator_work/originals/<stem>_original.<template-format>`。
 - 需要可读取的模板文件；`config/translation_template.json` 缺失或无法读取时，`output_format` 回退为 `json`。
 - 启用 `detector.import_yolo_labels` 且导入到 YOLO 标注时，检测阶段直接用导入框替代检测器结果，并标记为“template mode”。
@@ -57,7 +57,7 @@ flowchart LR
 - 跳过：翻译、修复、渲染和主输出图保存；不调用翻译服务，因此不产生 API 翻译请求。
 - 保留：条件上色 → 条件超分 → 检测 → OCR → 文本行合并；有非空区域且有原始蒙版时执行蒙版细化。
 - 例外：导入 YOLO 标签的导出模式跳过蒙版细化且不在 JSON 中保存蒙版。
-- 边界：GUI 只设置 `template`，配置默认 `save_text=true`；若外部配置把 `save_text` 改为 `false`，将不会进入导出分支，实际退化路径需运行验证。
+- 边界：GUI 只设置 `template`，配置默认 `save_text=true`；若外部配置把 `save_text` 改为 `false`，将不会进入导出分支，实际退化路径需在实际环境中确认。
 
 ### 蒙版与 JSON 细节 {#mask-and-json-details}
 
@@ -75,14 +75,14 @@ flowchart LR
 | 主输出图 | 不写 | 渲染被跳过，导出不生成主图 |
 | 编辑器底图 | `manga_translator_work/editor_base/<原图文件名>` | 仅当启用上色或超分时条件写入 |
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 输入、输出与限制 {#dependencies-and-conflicts}
 
 - 依赖 `cli.save_text=true` 与可读取模板；`batch_concurrent` 不兼容，前端与核心都会按非并发处理，导出原文还强制 `batch_size=1`。
 - `cli.overwrite=false` 时，开始前检查 `<stem>_original.<template-format>` 是否存在，存在则跳过该图并记入 skipped。
 - 与导出翻译共享模板和 JSON 写入路径；与导入翻译并渲染构成“导出原文 → 人工翻译 → 导入渲染”的配对，见[导入翻译并渲染](./import-translation-and-render.md)。
 - 显示名称描述“目标”，不自动启用或关闭上色/超分模型；上色器与倍率仍由 `colorizer.colorizer`、`upscale.upscale_ratio` 等常规参数决定。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 - 其它工作流：[正常翻译流程](./normal.md) · [导出翻译](./export-translation.md) · [仅翻译（JSON）](./translate-json-only.md) · [导入翻译并渲染](./import-translation-and-render.md) · [仅上色](./colorize-only.md) · [仅超分](./upscale-only.md) · [仅修复](./inpaint-only.md) · [替换翻译](./replace-translation.md)
 - 九种工作流的选择、输出目录与互斥写入：[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)

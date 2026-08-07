@@ -9,11 +9,11 @@ lastUpdated: true
 
 # 参与贡献
 
-本页说明如何参与 Manga Translator 项目：通过 Issue 提出功能建议与 Bug 反馈、通过 PR 贡献代码，以及加入社区交流渠道。
+这里说明如何参与 Manga Translator 项目：通过 Issue 提出功能建议与 Bug 反馈、通过 PR 贡献代码，以及加入社区交流渠道。
 
-## 功能边界 {#feature-boundary}
+## 参与方式 {#feature-boundary}
 
-- 本页只讲“如何参与”：提 Issue、提 PR 与社区渠道。
+- 下面列出提 Issue、提 PR 和加入社区渠道的方式。
 - 功能开发链路见[新增或修改功能](../developer/adding-or-changing-a-feature.md)，测试与代码质量见[测试与代码质量](../developer/tests-and-code-quality.md)，打包与发布见[打包与发布](../developer/packaging-and-release.md)，架构与代码边界见[架构与代码边界](../developer/architecture-and-code-boundaries.md)。
 - 友情链接申请见[相关项目与链接](../developer/related-projects-and-links.md)。
 

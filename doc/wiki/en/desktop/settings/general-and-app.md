@@ -9,9 +9,9 @@ lastUpdated: true
 
 # General and Application Settings
 
-This page covers the settings page’s “General” group and the application state it carries. It documents language, theme, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
+This guide covers the settings page’s “General” group and the application state it carries. It documents language, theme, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
 
-## UI operations {#ui-operations}
+## Change it in the desktop app {#ui-operations}
 
 Open Settings and select “General”. Dynamic rows are generated from storage keys in the layout file; clicking a row shows its description in the right-hand description panel. Changing a toggle, number, or combo box updates the configuration immediately, after which the configuration service coalesces the disk write. Leaving a numeric field empty writes `null`, so the relevant consumer applies its default semantics.
 
@@ -98,7 +98,7 @@ At startup, the priority is code `AppSettings` defaults < the release template s
 
 General’s GPU, ONNX, batch, output, and retry settings ultimately enter core `Config.cli`; the CLI/batch page owns their complete workflow and concurrency explanation, while this page records their General controls and boundaries.
 
-## Dependencies and conflicts {#dependencies}
+## Interactions and caveats {#dependencies}
 
 - `cli.use_gpu` requires matching CUDA/hardware dependencies; `cli.disable_onnx_gpu` can disable only the ONNX GPU backend, so the two switches are not mutually exclusive.
 - `cli.batch_concurrent` is constrained by special inputs/workflows and resource conditions; it does not guarantee simultaneous execution of every model or API request.

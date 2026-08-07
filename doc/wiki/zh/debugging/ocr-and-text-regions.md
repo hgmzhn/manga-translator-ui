@@ -11,15 +11,15 @@ lastUpdated: true
 
 当 OCR 把文字识别错、漏识别、把多行并成一行，或者文本区域的合并与排序不符合阅读顺序时，本页用于读懂“详细日志”在 `result/` 调试目录中生成的 OCR 输入裁剪图、文本区域框和 `ocrs/` 子目录。这些是条件写入的静态调试中间文件：只由“详细日志”开关触发，不参与最终结果，也不代表每次翻译都会生成。
 
-本页只覆盖 OCR 输入与文本区域框的可视化产物。检测阈值与 `mask_raw.png`、`bboxes_with_scores.png`、`mask_binary.png`、`hybrid_detection_boxes.png` 等见[检测与重排](./input-detection-and-rearrangement.md)；OCR 引擎、混合 OCR、过滤与合并参数见[OCR、过滤与文本行合并](../desktop/settings/ocr-filter-and-merge.md)；调试目录命名与全局清理见[调试目录命名与总览](./folder-naming-and-overview.md)。
+这里仅列出 OCR 输入与文本区域框的可视化产物。检测阈值与 `mask_raw.png`、`bboxes_with_scores.png`、`mask_binary.png`、`hybrid_detection_boxes.png` 等见[检测与重排](./input-detection-and-rearrangement.md)；OCR 引擎、混合 OCR、过滤与合并参数见[OCR、过滤与文本行合并](../desktop/settings/ocr-filter-and-merge.md)；调试目录命名与全局清理见[调试目录命名与总览](./folder-naming-and-overview.md)。
 
-## 功能边界 {#feature-boundary}
+## 先看哪些产物 {#feature-boundary}
 
-- 本页覆盖的产物：`ocrs/<index>.png`（单行 OCR 输入裁剪图）、`bboxes_unfiltered.png` 与 `bboxes_unfiltered_labeled.png`（OCR 前的文本行框）、`bboxes.png`（合并后的最终文本区域框），以及 `ocrs/` 子目录的路径、触发条件、画面含义与排查用途。
+- 内容包括的产物：`ocrs/<index>.png`（单行 OCR 输入裁剪图）、`bboxes_unfiltered.png` 与 `bboxes_unfiltered_labeled.png`（OCR 前的文本行框）、`bboxes.png`（合并后的最终文本区域框），以及 `ocrs/` 子目录的路径、触发条件、画面含义与排查用途。
 - 产物仅在“详细日志”开关开启时写入；桌面端在“设置 → 通用”中开启，CLI 使用 `-v/--verbose` 参数。该开关的完整说明见[CLI、批处理与输出](../desktop/settings/cli-batch-and-output.md)。
 - 不覆盖蒙版、修复、排版、替换翻译和 WebSocket 的调试产物（分别在[蒙版、修复与排版](./mask-inpainting-and-rendering.md)等页面）；不把条件产物描述成每次运行必有。
 
-## UI 操作 {#ui-operations}
+## 查看调试产物 {#ui-operations}
 
 ### 开启详细日志 {#enable-verbose}
 
@@ -47,7 +47,7 @@ lastUpdated: true
 - OCR 后没有文本行（全部为空文本、低置信或命中过滤列表）：报告 `skip-no-text`，`ctx.text_regions` 置为空列表，不写 `bboxes.png`。
 - 因此“调试目录里没有 `bboxes.png`”不一定是写入失败，也可能是无文本早退；请先看日志中的 `skip-no-regions` / `skip-no-text`。
 
-## 运行机理 {#runtime}
+## 产物如何生成 {#runtime}
 
 ### 从文本行到文本区域的调试链路 {#data-flow}
 
@@ -88,7 +88,7 @@ flowchart LR
 - 混合 OCR（`ocr.use_hybrid_ocr`）把主 OCR 空文本或低置信的行交给 `ocr.secondary_ocr` 重新识别，两次运行都会写 `ocrs/`，编号可能冲突并被覆盖，因此同一编号最终保留哪次结果需要以实际运行为准。
 - 无文本早退发生在过滤之后，此时 `bboxes.png` 不生成；这不影响 `input.png`、`final.png` 等其他阶段产物。
 
-## 依赖与冲突 {#dependencies}
+## 产物与隐私 {#dependencies}
 
 - `ocrs/` 与所有框图都依赖 `cli.verbose=True`；关闭 verbose 后不产生任何本页产物。
 - `bboxes_unfiltered_labeled.png` 依赖模型辅助合并开关（`ocr.merge_special_require_full_wrap`），关闭时不写该文件。

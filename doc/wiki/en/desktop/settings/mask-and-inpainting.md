@@ -9,9 +9,9 @@ lastUpdated: true
 
 # Mask And Inpainting
 
-This page covers the Settings “Inpainting” group: how detected and OCR-associated text regions become an inpainting mask, and how source text inside that mask is removed. It does not change detector output, OCR recognition, or text filtering, and it does not document translated-text layout, fonts, or AI renderers; those belong to the Detection, OCR, and Typesetting pages respectively.
+This guide covers the Settings “Inpainting” group: how detected and OCR-associated text regions become an inpainting mask, and how source text inside that mask is removed. It does not change detector output, OCR recognition, or text filtering, and it does not document translated-text layout, fonts, or AI renderers; those belong to the Detection, OCR, and Typesetting pages respectively.
 
-## UI operations {#ui-operations}
+## Change it in the desktop app {#ui-operations}
 
 Open Settings and select “Inpainting.” The layout shows the inpainting model, mask dilation, two bubble-range switches, solid filling, and per-block inpainting; after the “Advanced” divider it shows size, precision, kernel size, and the PyTorch-force switch. Dynamic setting rows use switches, integer inputs, or combo boxes. A change immediately updates in-memory `AppSettings`; the configuration service batches the configuration-file write after 250 ms. Numeric fields have no Apply button: their values are read when the next mask-refinement or inpainting stage runs.
 
@@ -73,7 +73,7 @@ Defaults: Inpainting Size `2048`; Inpainting Precision `fp32`.
 
 When enabled, the offline inpainting model is forced to load through the PyTorch backend. CPU normally prefers ONNX; enable this when ONNX has problems. Default: `false`.
 
-## Runtime behavior {#runtime}
+## How the settings take effect {#runtime}
 
 ```mermaid
 flowchart TD
@@ -98,7 +98,7 @@ flowchart TD
 
 The main pipeline calls mask refinement with `ctx.mask_raw`, text regions, and the global parameters; it then calls inpainting with the resulting `ctx.mask`. With no text regions or an empty mask, the inpainting stage is skipped and the original work image remains. If refinement raises, the inpaint-only workflow falls back to simple dilation; whether an inpainting failure continues is governed by general `cli.ignore_errors`. When an AI renderer is selected, the main pipeline explicitly skips inpainting and renders on the original image. This renderer boundary does not change how this page stores its settings.
 
-## Dependencies and conflicts {#dependencies}
+## Interactions and caveats {#dependencies}
 
 - Mask refinement needs text regions and a raw mask from an earlier stage; with no text regions, these switches have nothing to process.
 - Both bubble-range switches depend on MangaLens output. Cache misses, no detections, or errors retain the refined mask. They must not be described as OCR re-detection or OCR filtering.

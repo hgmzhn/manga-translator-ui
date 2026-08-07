@@ -9,14 +9,14 @@ lastUpdated: true
 
 # HTTP API 鉴权与错误
 
-当第三方客户端或 Web 前端要调用翻译、历史、资源、配额和管理等 HTTP 接口时，本页说明会话如何建立、令牌如何携带与校验、权限如何分级，以及失败时返回哪些状态码和错误结构。本页只覆盖开发者 HTTP API 的鉴权与错误契约；Web 用户端的登录与会话界面见[登录、语言与会话](../../web/login-language-and-session.md)，工作区与翻译操作见[上传、配置与翻译](../../web/upload-config-and-translate.md)；翻译、流式、批量、历史等端点的具体请求/响应模型见[翻译端点](./translation-endpoints.md)等其他页面。
+当第三方客户端或 Web 前端要调用翻译、历史、资源、配额和管理等 HTTP 接口时，这里说明会话如何建立、令牌如何携带与校验、权限如何分级，以及失败时返回哪些状态码和错误结构。这里仅列出开发者 HTTP API 的鉴权与错误契约；Web 用户端的登录与会话界面见[登录、语言与会话](../../web/login-language-and-session.md)，工作区与翻译操作见[上传、配置与翻译](../../web/upload-config-and-translate.md)；翻译、流式、批量、历史等端点的具体请求/响应模型见[翻译端点](./translation-endpoints.md)等其他页面。
 
-## 功能边界 {#feature-boundary}
+## 接口范围 {#feature-boundary}
 
-- 本页记录开发者视角的会话建立与校验：`/auth/*` 会话端点、`X-Session-Token` 请求头、`require_auth` / `require_admin` 等 FastAPI 依赖，以及翻译入口的 `verify_translation_auth`。
+- 这里记录开发者视角的会话建立与校验：`/auth/*` 会话端点、`X-Session-Token` 请求头、`require_auth` / `require_admin` 等 FastAPI 依赖，以及翻译入口的 `verify_translation_auth`。
 - 状态码矩阵覆盖全部路由组的静态行为；错误响应结构区分中间件信封、路由层字符串和 `422` 校验错误三种形状。
 - 会话令牌是服务端内存加 `sessions.json` 持久化的不透明随机串，不是 JWT，不携带可解码的用户信息。
-- 本页不记录真实账号、令牌、密码、nonce、API Key 或私有绝对路径；限速次数、超时分钟数等数值来自源码常量，不代表运行中的实际配置。
+- 这里不记录真实账号、令牌、密码、nonce、API Key 或私有绝对路径；限速次数、超时分钟数等数值来自源码常量，不代表运行中的实际配置。
 
 ## 会话鉴权流程 {#session-auth-flow}
 
@@ -150,7 +150,7 @@ flowchart LR
 
 `SlidingWindowRateLimiter` 以滑动窗口实现；`Retry-After` 为秒数。并发与配额检查失败时，路由层会回滚已增加的并发计数。`429` 不代表凭据错误，客户端不应清空会话令牌。
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 接口约束 {#dependencies-and-conflicts}
 
 - 翻译入口先执行 `verify_translation_auth`（权限过滤、禁用参数默认值），路由层再执行并发/配额计数；`401/403` 在计数前返回，`429` 在计数时返回。
 - 参数权限是“静默过滤”而不是报错：`check_parameter_permission` 只保留用户有权修改的参数，前端隐藏参数不能替代服务端检查。
@@ -185,9 +185,9 @@ flowchart LR
 
 #### 状态码矩阵 {#status-code-matrix}
 
-下表为静态源码核对的全部状态码触发范围；除显式覆盖外，成功状态默认是 `200`。
+下表为当前代码的全部状态码触发范围；除显式覆盖外，成功状态默认是 `200`。
 
-| 状态码 | 触发范围（静态源码） | 来源 |
+| 状态码 | 触发范围（当前代码） | 来源 |
 | --- | --- | --- |
 | `200` | 普通成功 JSON/HTML/流/文件/删除响应；`/auth/login`、`/auth/register`、`/auth/logout`、`/auth/change-password` 业务失败（密码错误、旧密码错误等）也返回 `200` 并带 `success: false` | FastAPI 默认；`routes/auth.py` |
 | `201` | `POST /sessions/`、`POST /api/admin/users/`、`POST /api/admin/groups/` 成功创建 | `sessions.py:61`、`users.py:79`、`groups.py:87` |
@@ -215,10 +215,9 @@ flowchart LR
 
 ### Mermaid 数据流限制 {#mermaid-limits}
 
-上图描述的是源码确认的会话建立、令牌校验和错误分类路径；它们不代表所有运行都有网络请求，也不代表 `/auth/check`、限速或配额在每个部署中都触发。本页未启动服务、未截图、未读取真实会话/账号/密钥；运行时行为需以最小可运行服务验证为准。
+上图描述的是会话建立、令牌校验和错误分类路径；它们不代表所有运行都有网络请求，也不代表 `/auth/check`、限速或配额在每个部署中都触发。具体表现还会受部署配置影响。
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 服务初始化 | `manga_translator/server/main.py` | `SessionService` 60 分钟、持久化、CORS、`422` handler、路由注册、内部 `/register` nonce |

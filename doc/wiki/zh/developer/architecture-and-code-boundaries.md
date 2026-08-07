@@ -9,9 +9,9 @@ lastUpdated: true
 
 # 架构与代码边界
 
-在修改或排查某个功能前，先用本页定位它属于哪一层、跨越哪些模块边界。仓库由 `desktop_qt_ui`（PyQt6 桌面端）和 `manga_translator`（核心引擎、CLI 与服务器）两个包组成；桌面端和 CLI 的 `local` 模式共享同一套 `MangaTranslator` 流水线，Web/共享/WebSocket 模式也复用同一核心，只是入口和传输方式不同。本页只画模块边界和调用关系，不重复各功能的操作与参数细节（见对应功能页）。
+在修改或排查某个功能前，先用本页定位它属于哪一层、跨越哪些模块边界。仓库由 `desktop_qt_ui`（PyQt6 桌面端）和 `manga_translator`（核心引擎、CLI 与服务器）两个包组成；桌面端和 CLI 的 `local` 模式共享同一套 `MangaTranslator` 流水线，Web/共享/WebSocket 模式也复用同一核心，只是入口和传输方式不同。这里仅画模块边界和调用关系，不重复各功能的操作与参数细节（见对应功能页）。
 
-## 功能边界
+## 涉及的代码
 
 - `desktop_qt_ui` 负责界面、i18n、文件列表、设置持久化和任务编排；不直接实现检测、OCR、翻译或渲染算法。
 - `manga_translator` 负责配置模型、处理流水线、各阶段实现和 API 调用；不包含 Qt 窗口，但 `rendering` 的字体排版依赖 PyQt6 离屏渲染。
@@ -19,7 +19,7 @@ lastUpdated: true
 - Web 服务器模式不直接持有翻译实例：`server/core/task_manager.py` 用信号量限制并发，并通过 `translation_integration` 在权限、配额、历史和日志包裹下调用核心。
 - 不要把“翻译器选择”“API 功能选择器”“API 槽轮换”和 `translator_chain` 混为一层：它们分别归属桌面翻译器页、API 管理页与核心的 `runtime_api_resolver.py` / `api_key_rotation.py`。
 
-## UI 操作
+## 操作方法
 
 ### 在桌面端观察模块入口
 
@@ -90,7 +90,7 @@ flowchart LR
 
 `local`、`shared`、`ws` 三个模式与桌面端共享同一个 `MangaTranslator`：`local` 复用桌面 `FileService` 收集输入；`shared` 在 5003 端口暴露 HTTP 接口；`ws` 通过 WebSocket 把图片和配置交给核心。`web` 服务器模式则通过 `task_manager` + `translation_integration` 调用核心，并把翻译实例放入线程池执行，避免阻塞 FastAPI 事件循环。
 
-## 依赖与冲突
+## 约束与注意事项
 
 - 桌面端直接 import `manga_translator`（如 `app_logic.py`、`mode/local.py`），因此修改核心公共接口时必须同时核对桌面、CLI 和服务器三类调用方。
 - `rendering` 依赖 PyQt6 离屏渲染，而服务器与共享模式也使用同一渲染实现；无显示环境运行时需自行准备 Qt 平台插件，这不是模块边界问题。
@@ -149,10 +149,9 @@ flowchart LR
 
 ### Mermaid 数据流限制
 
-上图画的是源码中的分层和调用关系，不是“每个请求都会经过全部节点”。特殊工作流（导出原文、仅上色、替换翻译等）会跳过大部分阶段；`batch_concurrent` 开启时检测、OCR、翻译、修复并行推进。文档没有伪造运行截图或私有任务产物，也没有包含真实密钥。
+上图画的是源码中的分层和调用关系，不是“每个请求都会经过全部节点”。特殊工作流（导出原文、仅上色、替换翻译等）会跳过大部分阶段；`batch_concurrent` 开启时检测、OCR、翻译、修复并行推进。，也没有包含真实密钥。
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 桌面入口 | `desktop_qt_ui/main.py`、`ui/main_window.py` | 导航注册、编辑器初始化和窗口装配 |

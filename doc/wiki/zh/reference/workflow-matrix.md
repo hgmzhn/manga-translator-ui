@@ -11,7 +11,7 @@ lastUpdated: true
 
 本页是翻译页“翻译流程模式：”九种工作流的参考索引：用一张矩阵汇总每种工作流的输入、跳过阶段和输出，并反向链接到对应页面。需要某种工作流的完整操作、参数边界、文件格式和跳过条件时，从矩阵行进入对应的[工作流页面](../workflows/normal.md)；九种模式的选择、开始按钮文案、输出目录控件和互斥写入见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)，添加文件与列表状态见[文件列表与输入](../desktop/translation/file-list-and-input.md)，模式对参数的强制覆盖见[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)。
 
-本页只负责汇总和反向链接，不替代各工作流页面与设置页面；检测、OCR、翻译、蒙版、修复、排版、超分与上色的参数算法见对应设置页，不在本页重复。
+这里仅负责汇总和反向链接，不替代各工作流页面与设置页面；检测、OCR、翻译、蒙版、修复、排版、超分与上色的参数算法见对应设置页，不在本页重复。
 
 ## 选择器与工作流字段 {#selector-and-workflow-fields}
 
@@ -49,7 +49,7 @@ lastUpdated: true
 - `batch_concurrent` 仅正常翻译可进入并发管线；其余八种模式在桌面控制层和核心 `translate_batch()` 中都被视为不兼容，前端会把本次局部变量改为非并发，核心分支也只在“无不兼容模式”时构建 `ConcurrentPipeline`。
 - `render.enable_template_alignment`（“启用直接粘贴模式”）是替换翻译专用：开启时走直接粘贴，不写 JSON、修复图或 PSD；关闭时以 OCR 得到的配对区域重新渲染。
 
-## 相关页面 {#related-pages}
+## 继续阅读 {#related-pages}
 
 | 页面 | 与本页的关系 |
 | --- | --- |
@@ -93,7 +93,7 @@ lastUpdated: true
 | `render.paste_mask_dilation_pixels` | 只消费在替换翻译的直接粘贴分支，膨胀粘贴蒙版 |
 | `cli.overwrite` | GUI 开始前按工作流检查既有副文件或主输出图：导出原文/翻译检查对应 TXT，仅翻译 JSON 检查原文副文件，其他模式检查主输出图 |
 
-仅翻译 JSON 的“原文副文件不存在则跳过”条件方向与通常覆盖检查不同，需运行验证；九种模式的真实 GUI 弹窗、取消后文件保留和错误提示也以研究资料的未验证清单为准。
+仅翻译 JSON 的“原文副文件不存在则跳过”条件方向与通常覆盖检查不同，需在实际环境中确认；九种模式的真实 GUI 弹窗、取消后文件保留和错误提示也以研究资料的未验证清单为准。
 
 ### 关联文件与格式
 
@@ -112,8 +112,7 @@ lastUpdated: true
 
 主输出图由 `MangaTranslator._calculate_output_path()` 决定：正常输出目录保留输入文件夹名与相对层级；`save_to_source_dir=true` 时改为原图同级 `manga_translator_work/result/`；`cli.format` 为空或 `none` 时保留原扩展名，否则使用给定扩展名。
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | UI 布局 | `desktop_qt_ui/ui/main_page/pages/translation_page.py:27` | 翻译页、工作流下拉、开始按钮及事件连接 |

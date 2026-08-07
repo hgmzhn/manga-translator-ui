@@ -9,16 +9,16 @@ lastUpdated: true
 
 # API Credentials, Addresses, and Models
 
-Use this page when you call remote APIs such as OpenAI, Gemini, or Sakura. It documents the three credential fields — key (Key), API address (Base), and model name (Model) — how they are stored in `.env`, how they are reused through numbered channels (`_2`, `_3`, …), and how the UI hides and masks them. This page does not cover provider tabs, feature selectors, slot rotation, connection tests, custom request parameters, or presets; those are documented in [Provider tabs](./provider-tabs.md), [Feature selectors](./feature-selectors.md), [Slots and rotation](./slots-and-rotation.md), [Connection tests and model list](./connection-tests-and-model-list.md), [Custom request parameters](./custom-request-parameters.md), and [Presets and persistence](./presets-and-persistence.md).
+Use this page when you call remote APIs such as OpenAI, Gemini, or Sakura. It documents the three credential fields — key (Key), API address (Base), and model name (Model) — how they are stored in `.env`, how they are reused through numbered channels (`_2`, `_3`, …), and how the UI hides and masks them. This guide does not cover provider tabs, feature selectors, slot rotation, connection tests, custom request parameters, or presets; those are documented in [Provider tabs](./provider-tabs.md), [Feature selectors](./feature-selectors.md), [Slots and rotation](./slots-and-rotation.md), [Connection tests and model list](./connection-tests-and-model-list.md), [Custom request parameters](./custom-request-parameters.md), and [Presets and persistence](./presets-and-persistence.md).
 
-## Feature boundary
+## Configuration scope
 
 - Key/Base/Model are the three fields of an “API slot” card: Key stores the secret, Base stores the request URL, and Model stores the model name. Each maps to its own `.env` key.
 - Only the provider group activated by the current feature selector shows credential cards. OpenAI/Gemini use Key/Base/Model; Sakura has only an address and a dictionary path, with no Key or Model.
 - `.env` is the only credential persistence location on desktop. `config.json` and `config/config-example.json` do not store API keys. The `user_api_key`/`user_api_base`/`user_api_model` fields are configuration overrides for the multi-user web scenario, not inputs on this page.
 - Numbered suffixes such as `_2`, `_3` are candidate channels within the same provider, not new translators; switching translators is still driven by `translator.translator`.
 
-## UI operations
+## Use it in API Management
 
 ### Fill in credentials in API Management
 
@@ -53,7 +53,7 @@ The three fields of one provider can be numbered to form multiple candidate chan
 - The key and token placeholders are “Paste your key” and “Paste your token” respectively and never contain real values.
 - `.env` is a plain-text local file located next to the packaged executable or at the project root in development. Never commit, export, or screenshot real keys. Presets may store API environment variables, but exported config JSON explicitly excludes API keys; see [Presets and persistence](./presets-and-persistence.md).
 
-## Runtime behavior
+## How requests are handled
 
 On startup, `ConfigService` reads `.env` into memory and loads it into `os.environ` (`load_app_dotenv(override=True)`). Every edit updates the in-memory value and `os.environ` immediately, is coalesced by a `QTimer` over 250 ms, and is then atomically rewritten to `.env` as `KEY="value"` lines on the “config-writer” background thread. Translators, OCR, colorizers, and renderers call `resolve_runtime_api_config()` in `parse_args()`, read environment variables per numbered slot, build candidate endpoints, and hand them to the `failover`/`round_robin` strategy for the actual HTTP request.
 
@@ -70,7 +70,7 @@ flowchart LR
 
 For OpenAI-compatible local endpoints (`localhost`, private IPs, `.local`, etc.), an empty key is normalized to the `ollama` placeholder so local services such as Ollama work without a key; non-local endpoints still require a real key.
 
-## Dependencies and conflicts
+## Credentials, network, and errors
 
 - The feature selector decides which provider group is shown; changing the translator inside API Management writes the same `translator.translator` key and refreshes the required credential groups.
 - With hybrid OCR (`ocr.use_hybrid_ocr`) enabled, the OpenAI/Gemini groups for the primary and secondary OCR may be shown at the same time.

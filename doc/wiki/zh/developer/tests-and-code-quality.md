@@ -11,15 +11,15 @@ lastUpdated: true
 
 本页面向仓库贡献者：当你要修改源码、新增回归测试、在本地复现 CI 结果，或想确认代码风格要求时使用。它说明 `test/` 目录与测试约定、本地运行测试的命令、`ruff` 代码风格配置，以及 `.github/workflows/tests.yml` 代表的 CI 质量门禁。
 
-本页不负责打包与发布流程（见[打包与发布](./packaging-and-release.md)），不介绍代码分层与模块边界（见[架构与代码边界](./architecture-and-code-boundaries.md)），也不讲解新增功能的完整实施步骤（见[新增或修改功能](./adding-or-changing-a-feature.md)）。
+这里不负责打包与发布流程（见[打包与发布](./packaging-and-release.md)），不介绍代码分层与模块边界（见[架构与代码边界](./architecture-and-code-boundaries.md)），也不讲解新增功能的完整实施步骤（见[新增或修改功能](./adding-or-changing-a-feature.md)）。
 
-## 功能边界
+## 涉及的代码
 
 - 测试目录与约定：`test/` 的目录规则、`test/README.md` 和 `test/_bootstrap.py` 的作用。
 - 本地运行测试：`uv` 同步依赖、`pytest` 运行参数、pytest 的 `testpaths`/`pythonpath` 配置。
 - 代码风格：`desktop_qt_ui/ruff.toml` 的规则、本地自检命令及其与 CI 的关系。
 - CI 质量门禁：`tests.yml` 的触发条件、步骤、环境变量，以及与文档、打包、Docker、镜像同步工作流的边界。
-- 桌面端“测试当前页”（`Test Current Tab`）连接测试属于 API 管理功能，本页只引用其 i18n 文案，完整操作见 API 管理页面。
+- 桌面端“测试当前页”（`Test Current Tab`）连接测试属于 API 管理功能，这里仅引用其 i18n 文案，完整操作见 API 管理页面。
 
 ## 测试目录与约定
 
@@ -132,7 +132,7 @@ flowchart LR
 | 提示词与翻译 | `test_gemini_hq_image_preparation.py`、`test_prompt_preview_fluent_icons.py` | Gemini HQ 图片准备、提示词预览图标 |
 | 可直接运行脚本 | `check_char_tables.py`、`render_golden.py`、`repro_seam_dilution.py`、`ps_italic_angle.py` 等 | 非 pytest 收集的调试/回归脚本，用 `python test/<script>.py` 直接运行 |
 
-## 依赖与冲突
+## 约束与注意事项
 
 - `cpu` / `gpu` / `amd` / `metal` 四组互斥，不能同时安装；CI 和本页命令固定使用 `cpu` 组。默认 `uv sync` 是 `gpu` + `packaging`，在没有 NVIDIA 环境的机器上直接跑测试可能因 torch 后端不同出现行为差异。
 - `uv.lock` 是锁定文件，已提交且不可手改；CI 使用 `uv sync --locked` 保证可复现。
@@ -147,7 +147,7 @@ flowchart LR
 
 #### 连接测试的界面文案
 
-桌面端没有“运行测试套件”的按钮；与测试最接近的界面是 API 管理页的“测试当前页”（`Test Current Tab`）连接测试。下列 i18n 文案在开发者自检凭据时会出现，key 与最终显示文字不同时以实际值为准；功能边界见 API 管理页面。
+桌面端没有“运行测试套件”的按钮；与测试最接近的界面是 API 管理页的“测试当前页”（`Test Current Tab`）连接测试。下列 i18n 文案在开发者自检凭据时会出现，key 与最终显示文字不同时以实际值为准；完整操作见 API 管理页面。
 
 | UI 调用 key | English 实际值 | 简体中文实际值 |
 | --- | --- | --- |
@@ -177,8 +177,7 @@ flowchart LR
 | `desktop_qt_ui/locales/en_US.json` / `zh_CN.json` | 界面文案 | 三列对照的依据 |
 | `.gitignore` | `test/**` 与 `!/test/*.py` 规则 | 控制测试文件的版本库边界 |
 
-### 源码依据 {#source-evidence}
-
+### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
 | 测试约定 | `test/README.md`、`test/_bootstrap.py` | 目录规则、导入顺序、Qt 测试约定 |

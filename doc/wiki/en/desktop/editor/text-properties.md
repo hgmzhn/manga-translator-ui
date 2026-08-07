@@ -13,15 +13,15 @@ Use this page when a line of dialogue needs to stand out, text must run vertical
 
 Editing text content itself (original text, translation, pre-replacement translation, the placeholder/newline buttons, and the OCR/Translate buttons) is covered in [Region List and Text Editing](./region-list-and-text-editing.md); style presets and stroke are covered in [Style Properties](./style-properties.md); aligning/distributing regions on the canvas is covered in [Display, Compare, and Arrange](./display-compare-and-arrange.md).
 
-## Feature boundary {#feature-boundary}
+## What you can do {#feature-boundary}
 
-- The left-panel “Property Editor” contains, top to bottom, the “Image Editing”, “Text Content”, “Style Settings”, and “Actions” groups. This page covers the typography fields in “Style Settings” that change a region’s text appearance: `Font:`, `Font Size:`, `Font Color:`, `Line Spacing:`, `Letter Spacing:`, `Angle:`, `Alignment:`, and `Direction:`.
-- The “Text Content” and “Actions” groups belong to [Region List and Text Editing](./region-list-and-text-editing.md); this page only references their field names and writeback semantics without repeating them.
+- The left-panel “Property Editor” contains, top to bottom, the “Image Editing”, “Text Content”, “Style Settings”, and “Actions” groups. This guide covers the typography fields in “Style Settings” that change a region’s text appearance: `Font:`, `Font Size:`, `Font Color:`, `Line Spacing:`, `Letter Spacing:`, `Angle:`, `Alignment:`, and `Direction:`.
+- The “Text Content” and “Actions” groups belong to [Region List and Text Editing](./region-list-and-text-editing.md); this guide only references their field names and writeback semantics without repeating them.
 - “Style Preset:”, “Stroke Color:”, and “Stroke Width:” in “Style Settings” belong to [Style Properties](./style-properties.md).
 - The mask/brush/clone-stamp tools and layers in “Image Editing” belong to [Canvas Tools and Selection](./canvas-tools-and-selection.md) and [Mask, Paint, and Clone Stamp](./mask-paint-and-clone-stamp.md).
 - The “Alignment:” field here is the text alignment inside the text box (auto/left/center/right). It is not the “Arrange” action that aligns multiple text boxes to each other; the latter belongs to [Display, Compare, and Arrange](./display-compare-and-arrange.md).
 
-## UI operations {#ui-operations}
+## Use it in the editor {#ui-operations}
 
 ### Property-panel sections and selection semantics {#panel-sections-and-selection}
 
@@ -52,7 +52,7 @@ The “Text Content” group maintains three text fields: source `text`, final `
 
 ## Parameters and options {#parameters}
 
-See the [Options and I18n matrix](../../reference/options-i18n-matrix.md) for how each parameter's UI name, stored key, and default value map to each other.
+See the [UI Options Reference](../../reference/options-i18n-matrix.md) for how each parameter's UI name, stored key, and default value map to each other.
 
 #### Font {#font-family}
 
@@ -100,7 +100,7 @@ Choose the text layout direction from the dropdown in Property panel → Style S
 
 A region without an explicit direction is shown by white-frame aspect ratio (taller than wide shows vertical, otherwise horizontal); the inference does not write back to the region data. Horizontal and vertical take different layout and replacement paths; see [How direction changes rendering](#direction-render).
 
-## Runtime behavior {#runtime-behavior}
+## How changes are saved {#runtime-behavior}
 
 ### Style-patch merging and save timing {#style-patch-flow}
 
@@ -143,7 +143,7 @@ flowchart LR
 
 When a region has no explicit direction, the Property Editor infers the displayed value from the white-frame aspect ratio (taller than wide shows vertical) without writing region `direction`; the render service, in `calculate_default_parameters()`, derives the default direction by aspect ratio instead (ratio above 2 is horizontal, below 0.5 is vertical, otherwise `auto`).
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Typography writeback depends on single selection or style-only multi selection: with multiple regions selected the text-content group is disabled and only typography changes broadcast to all selected regions.
 - A text control being edited is not overwritten by ordinary refreshes; only asynchronous writebacks (`source="async"`) force-refresh text fields, protecting the caret and IME composition.
@@ -152,6 +152,4 @@ When a region has no explicit direction, the Property Editor infers the displaye
 - Font size, letter spacing, line spacing, and direction are font-affecting fields; after writeback the white-frame size is resynced. The sync changes only the frame’s width, height, and center while keeping the body center fixed.
 - The “Alignment:” field is text alignment inside the box; the six-way align/distribute actions in the “Arrange” menu align text boxes to each other. Do not mix the two.
 - An unavailable font does not block rendering: it falls back to the default font with a warning; hand-editing JSON with a font-file path instead of a family name will not take effect.
-- Stroke color/width and style presets belong to [Style Properties](./style-properties.md); this page does not repeat their parameter definitions.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).
+- Stroke color/width and style presets belong to [Style Properties](./style-properties.md); this guide does not repeat their parameter definitions.

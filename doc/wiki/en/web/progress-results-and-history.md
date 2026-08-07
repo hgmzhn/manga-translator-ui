@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Web Progress, Results, and History
 
-After a translation starts, this page explains how to watch task progress, preview and download results in the browser, and manage the history records stored on the server. Progress is shown in real time through the log box rather than a percentage bar; the results list exists only in the current browser; history is stored on the server, so the same account can see it from any browser. Uploading, configuration, and starting a translation are covered in [Upload, config, and translate](./upload-config-and-translate.md), sessions and language switching in [Login, language, and session](./login-language-and-session.md), and administrator management of all history and tasks in [Administrator interface](./administrator-interface.md).
+After a translation starts, this guide explains how to watch task progress, preview and download results in the browser, and manage the history records stored on the server. Progress is shown in real time through the log box rather than a percentage bar; the results list exists only in the current browser; history is stored on the server, so the same account can see it from any browser. Uploading, configuration, and starting a translation are covered in [Upload, config, and translate](./upload-config-and-translate.md), sessions and language switching in [Login, language, and session](./login-language-and-session.md), and administrator management of all history and tasks in [Administrator interface](./administrator-interface.md).
 
-## Feature boundary {#feature-boundary}
+## UI and API scope {#feature-boundary}
 
 - The “results list” is a temporary view inside the current browser; entries are saved in `localStorage.translationResults` (as blob URLs). It is not server history and cannot be recovered after clearing browser data or switching browsers.
 - “History records” are written automatically by the server after a successful translation and are isolated per user; a regular user sees only their own history, and whether it can be viewed, downloaded, or deleted depends on permissions. The corresponding endpoints return 403 without permission.
 - Progress is presented through streaming progress frames, task-log polling every 500 ms, and the log box; there is no percentage progress bar.
-- This page covers web user operations only. The frame format and the history/download-ticket HTTP contracts live in [Streaming protocol](../developer/http-api/streaming-protocol.md) and [History, files, and download tickets](../developer/http-api/history-files-and-download-tickets.md).
+- This guide covers web user operations only. The frame format and the history/download-ticket HTTP contracts live in [Streaming protocol](../developer/http-api/streaming-protocol.md) and [History, files, and download tickets](../developer/http-api/history-files-and-download-tickets.md).
 
-## UI operations {#ui-operations}
+## Use it in the Web UI {#ui-operations}
 
 ### View translation progress {#view-progress}
 
@@ -58,7 +58,7 @@ After a translation starts, this page explains how to watch task progress, previ
 2. Deletion removes both the server session directory and the index record; the local gallery list refreshes.
 3. Without delete permission the endpoint returns 403 and the UI shows “删除失败”.
 
-## Runtime behavior {#runtime-behavior}
+## Requests and data flow {#runtime-behavior}
 
 ### Stream progress frames and log polling {#stream-progress-and-log-polling}
 
@@ -101,9 +101,9 @@ flowchart LR
     P --> R["Short-lived download ticket → ZIP"]
 ```
 
-The diagram describes the source-confirmed data flow and does not claim that every run has history: saving is best-effort and only warns on failure; export/import/colorize/upscale/inpaint go through non-streaming endpoints in the web UI and produce no history entry, and the results list always exists only in the current browser. No runtime screenshot or private task artifact has been fabricated.
+The diagram describes the data flow and does not claim that every run has history: saving is best-effort and only warns on failure; export/import/colorize/upscale/inpaint go through non-streaming endpoints in the web UI and produce no history entry, and the results list always exists only in the current browser.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Permissions, security, and limits {#dependencies-and-conflicts}
 
 - The results list and server history are two independent mechanisms: the former lives in `localStorage.translationResults` (blob URLs), the latter in the server result directory and `translation_history.json`. Do not mix them up.
 - Progress visibility depends on the session: once `session_token` expires, streaming requests, history endpoints, and log polling all return 401; polling stops automatically and prompts a re-login.
@@ -112,4 +112,4 @@ The diagram describes the source-confirmed data flow and does not claim that eve
 - The 30-minute frontend timeout for batch requests matches the server’s `timeout_keep_alive=1800`, but it does not mean every image in the batch succeeded; cancellation and failures are handled by the server task machinery, see [Translation endpoints](../developer/http-api/translation-endpoints.md).
 - Log content may contain business text and paths; remove request bodies, log messages, paths, and credentials before sharing, see [Privacy, cleanup, and log sharing](../troubleshooting/privacy-cleanup-and-log-sharing.md).
 
-> See the reference index: [Options and I18n Matrix](../reference/options-i18n-matrix.md).
+> See the reference index: [UI Options Reference](../reference/options-i18n-matrix.md).

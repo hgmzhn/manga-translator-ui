@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Output Directory and Workflow
 
-In the “Translation Task” card on the translation page, you can set the main output directory and choose the processing mode. This page covers only the output-path controls, the nine workflows, and their effect on outputs and processing stages. Adding inputs and list states are in [File List and Input](./file-list-and-input.md); start, progress, and stop states are in [Progress, Stop, and Task State](./progress-stop-and-task-state.md).
+In the “Translation Task” card on the translation page, you can set the main output directory and choose the processing mode. This guide focuses on the output-path controls, the nine workflows, and their effect on outputs and processing stages. Adding inputs and list states are in [File List and Input](./file-list-and-input.md); start, progress, and stop states are in [Progress, Stop, and Task State](./progress-stop-and-task-state.md).
 
-## Feature boundary
+## What this part handles
 
-This page covers:
+This guide covers:
 
 - Entering, browsing, and opening the output directory.
 - The nine options of the “Translation Workflow Mode:” combo box, and the button and hint text after switching.
@@ -21,7 +21,7 @@ This page covers:
 
 It does not define the parameter algorithms of detectors, OCR, translators, inpainting, or renderers, nor does it treat workflow selection as translator or API candidate-slot switching. Setting multiple workflow fields manually is not a GUI-supported combination.
 
-## UI operations
+## Use it on the Translation page
 
 ### Setting the output directory
 
@@ -38,7 +38,7 @@ When the combo box changes, the GUI first clears the eight mutually exclusive CL
 
 After a selection, the title shows the current mode and the subtitle shows the matching hint. For example, Export Translation hints to check `manga_translator_work/translations/`, and Import Translation and Render hints to read TXT from `manga_translator_work/originals/` or `translations/`, preferring `_original.txt`. These paths are program-displayed hints and work-directory names, not private user paths.
 
-## Runtime behavior
+## How the task runs
 
 ### Normal output chain
 
@@ -74,10 +74,10 @@ When the GUI switches, the eight boolean fields are mutually exclusive. When the
 
 `batch_concurrent` is incompatible with Import Translation, JSON-only, both exports, Colorize Only, Upscale Only, Inpaint Only, and Replace Translation; both the desktop controller and the core treat these modes as non-concurrent. Special modes do not become concurrent pipelines just because the UI still saves a concurrent configuration.
 
-## Dependencies and conflicts
+## Task limitations
 
 - The main input must be an image supported by the file service; folder additions recurse and naturally sort, skipping directories named `manga_translator_work`. Archives and documents are recognized by the same service, but sidecar pairing inside archives is not yet runtime-verified.
 - Export Translation and Export Original Text depend on a readable template; an invalid template format falls back to `json`. Import Translation, JSON-only, and Replace Translation depend on the corresponding project JSON, TXT, or pair image.
-- `cli.overwrite` checks existing TXT, sidecar, or main output images per mode before starting; the overwrite prompt and the JSON-only behavior when the original sidecar is missing still need runtime verification.
+- `cli.overwrite` checks existing TXT, sidecar, or main output images per mode before starting; the overwrite prompt and the JSON-only behavior when the original sidecar is missing still need confirmation in the deployed version.
 - `cli.save_text` defaults to `true` in the Qt/release configuration and affects the normal mode’s JSON, inpainted images, and project writes; Export Original Text requires it to enter the export branch. JSON-only writes JSON back unconditionally.
-- The models, VRAM, network, and API cost of colorization, upscaling, detection, OCR, inpainting, and rendering are decided by the selected stage parameters; this page does not repeat them.
+- The models, VRAM, network, and API cost of colorization, upscaling, detection, OCR, inpainting, and rendering are decided by the selected stage parameters; this guide does not repeat them.

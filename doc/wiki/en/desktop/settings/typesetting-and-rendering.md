@@ -9,7 +9,7 @@ lastUpdated: true
 
 # Typesetting and Rendering
 
-This page covers the `render.*` parameters in the “Typesetting” settings tab and the direct-paste parameters in “Mode Specific”. They control line breaking, font size, direction, color, stroke, spacing, and final text drawing. Detection, OCR, translation content, and inpainting belong to their respective settings pages. This page does not document API credentials; it explains how AI rendering consumes an already configured rendering API.
+This guide covers the `render.*` parameters in the “Typesetting” settings tab and the direct-paste parameters in “Mode Specific”. They control line breaking, font size, direction, color, stroke, spacing, and final text drawing. Detection, OCR, translation content, and inpainting belong to their respective settings pages. This guide does not document API credentials; it explains how AI rendering consumes an already configured rendering API.
 
 ## Configure it in the UI
 

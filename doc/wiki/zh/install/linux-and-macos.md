@@ -9,7 +9,7 @@ lastUpdated: true
 
 # Linux 与 macOS 安装
 
-本页说明 Linux/macOS 的源码安装、更新和 Qt 桌面启动入口。它只负责 Unix 引导脚本、`.venv`、uv 和平台依赖选择；Windows 便携版、Docker、版本切换和卸载分别见对应安装页。
+这里说明 Linux/macOS 的源码安装、更新和 Qt 桌面启动入口。它只负责 Unix 引导脚本、`.venv`、uv 和平台依赖选择；Windows 便携版、Docker、版本切换和卸载分别见对应安装页。
 
 脚本会在脚本所在目录工作。可以在一个新的、可写且信任的目录中下载两个脚本，也可以在已经克隆的完整仓库根目录中运行安装脚本。安装过程中不会要求把密钥、Token 或用户图片写入命令行。
 
@@ -56,13 +56,13 @@ MANGAT_DRY_RUN=1 ./Unix-Start.sh
 
 ### 维护菜单
 
-`Unix-Install-or-Update.sh` 最终执行 `packaging/launch.py --maintenance`。菜单会显示当前分支和镜像源，并把语言选择持久化到 `packaging/maintenance_config.json`。更新、切换分支或 tag 前先备份未提交的源码和本地配置；更新操作可能改变工作树内容。菜单各项的实际文案与存储值见[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+`Unix-Install-or-Update.sh` 最终执行 `packaging/launch.py --maintenance`。菜单会显示当前分支和镜像源，并把语言选择持久化到 `packaging/maintenance_config.json`。更新、切换分支或 tag 前先备份未提交的源码和本地配置；更新操作可能改变工作树内容。菜单各项的实际文案与存储值见[界面选项对照表](../reference/options-i18n-matrix.md)。
 
 ## 平台依赖选择
 
 项目要求 Python `>=3.12,<3.13`，即当前安装脚本固定使用 Python 3.12。`pyproject.toml` 把公共依赖与四个互斥 dependency group 分开；一次环境只能选择一个后端组。
 
-各存储值对应的界面名称见[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+各存储值对应的界面名称见[界面选项对照表](../reference/options-i18n-matrix.md)。
 
 安装阶段的自动选择大致如下：
 
@@ -73,7 +73,7 @@ MANGAT_DRY_RUN=1 ./Unix-Start.sh
 
 `uv sync` 的项目默认组是 `gpu` 和 `packaging`，但 Unix 维护流程根据检测结果选择对应变体。不要手动同时启用 `cpu`、`gpu`、`amd`、`metal`；`tool.uv.conflicts` 已将它们声明为互斥，混装会造成 PyTorch/ONNX 后端冲突。
 
-## 运行机理
+## 安装脚本做了什么
 
 ```mermaid
 flowchart TD
@@ -108,5 +108,3 @@ flowchart TD
 - **编译与 wheel**：`pydensecrf` 按平台从项目声明的预编译 wheel 来源解析；目标平台没有匹配 wheel 时安装会失败，不应自行展示或提交私有 wheel。
 - **图形前置**：桌面 UI 依赖 PyQt6。Linux 的 Qt/系统图形库、macOS 的图形权限与驱动仍由操作系统提供；无头服务器不是本页的桌面 UI 运行环境。
 - **运行资源**：检测、OCR、修复、翻译和排版还可能按所选功能下载/读取模型、字体和字典。API 密钥只在用户自己的配置中填写，不能放进脚本参数、日志或截图。
-
-更多开发向对照与源码依据见[参考索引](../reference/source-evidence-index.md)与[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。

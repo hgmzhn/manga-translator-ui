@@ -9,17 +9,17 @@ lastUpdated: true
 
 # Canvas Tools and Selection
 
-Once you enter the editor, the canvas is the main workspace for adjusting text regions and retouching the image. This page explains how to switch each canvas tool (selection, mask brush, eraser, color paint, clone stamp) and how to select, drag, and zoom the canvas and its text regions. How mask strokes are written into the refined mask and how the paint/stamp layers and their clear buttons work are covered in [Mask, Paint, and Clone Stamp](./mask-paint-and-clone-stamp.md); toolbar menus, display modes, and arrange actions are covered in [Toolbar and Menus](./toolbar-and-menus.md); shortcut registration and focus priority are covered in [Shortcuts](./shortcuts.md).
+Once you enter the editor, the canvas is the main workspace for adjusting text regions and retouching the image. This guide explains how to switch each canvas tool (selection, mask brush, eraser, color paint, clone stamp) and how to select, drag, and zoom the canvas and its text regions. How mask strokes are written into the refined mask and how the paint/stamp layers and their clear buttons work are covered in [Mask, Paint, and Clone Stamp](./mask-paint-and-clone-stamp.md); toolbar menus, display modes, and arrange actions are covered in [Toolbar and Menus](./toolbar-and-menus.md); shortcut registration and focus priority are covered in [Shortcuts](./shortcuts.md).
 
-## Feature boundary
+## What you can do
 
 - The canvas tool is a single active state `active_tool`. Its values are `select`, `brush`, `eraser`, `paint`, `paint_erase`, `clone`, `stamp_erase`, and the temporary drawing state `draw_textbox`. The UI changes it only through the Property Editor buttons, the `Q`/`W`/`E` keys, and the context-menu item “Add Text Box”.
 - Selection (click, box select, multi-select) and region dragging happen only under the `select` tool. With a brush-like tool, pressing the left button no longer selects regions; it draws a stroke instead.
 - View zoom and panning (wheel zoom, zoom in/out, fit to window, middle-button drag) transform the whole canvas view and never change region data. `Ctrl+wheel` resizes the font of selected regions and `Shift+wheel` changes the shared brush size; both combinations belong to the [Shortcuts](./shortcuts.md) page.
 - The selection is synchronized bidirectionally between the canvas, the region list, and the Property Editor. Region source/translation editing, find-and-replace, OCR/Translate buttons, and list behavior are covered in [Region List and Text Editing](./region-list-and-text-editing.md).
-- Mask refinement and the data structure and rendering of the paint/stamp layers belong to [Mask, Paint, and Clone Stamp](./mask-paint-and-clone-stamp.md); this page only explains the tool entry points and pointer semantics.
+- Mask refinement and the data structure and rendering of the paint/stamp layers belong to [Mask, Paint, and Clone Stamp](./mask-paint-and-clone-stamp.md); this guide only explains the tool entry points and pointer semantics.
 
-## UI operations
+## Use it in the editor
 
 ### Switch canvas tools in the Property Editor
 
@@ -84,7 +84,7 @@ flowchart LR
     D -->|"Backward sync setSelected"| B
 ```
 
-## Runtime behavior
+## How changes are saved
 
 ### Tool state machine
 
@@ -96,7 +96,7 @@ flowchart LR
 
 `SelectionManager` uses a `_syncing` flag to prevent feedback loops: Qt scene `selectionChanged` → model `set_selection`; model `selection_changed` → `setSelected` on each item. Box selection uses `scene.items(rect, IntersectsItemShape)` for precise hits instead of `boundingRect`, so rotated and thin regions are not mis-selected. After the region items are rebuilt, `restore_selection_after_rebuild` restores the selection.
 
-## Dependencies and conflicts
+## Limitations and notes
 
 - Region selection only happens under the `select` tool; the left button of a brush-like tool always draws and cannot pick a region.
 - `Delete` region deletion and `Ctrl+Z`/`Ctrl+Y` undo/redo are focus-aware: with focus in a text control they are left to text editing, and only with canvas focus do they act on regions; see [Shortcuts](./shortcuts.md).
@@ -104,5 +104,3 @@ flowchart LR
 - Switching tabs resets the tool to that tab’s “No Selection”, so the mask brush and the color paint brush cannot be active at the same time.
 - The context-menu items “🔍 OCR识别选中项”, “🌐 翻译选中项”, “📋 复制区域”, “🎨 粘贴样式”, “🗑️ 删除选中的 N 个区域”, “➕ 添加文本框”, “📋 粘贴区域”, and “🔄 刷新视图” are hardcoded Chinese literals in the code without `en_US`/`zh_CN` counterparts and do not switch language; while the clone stamp is active the right button is reserved for sampling and the menu is fully suppressed.
 - View zoom is clamped between 0.05 and 50 to keep wheel zoom from runaway and to avoid stroke artifacts at extremely small scales; zoom only changes the view transform, never the region data.
-
-For further developer-facing mappings and source evidence, see the [Source evidence index](../../reference/source-evidence-index.md) and the [Options and I18n matrix](../../reference/options-i18n-matrix.md).

@@ -13,7 +13,7 @@ This project provides a Qt desktop application, the `local` CLI, a Web interface
 
 This page helps you choose a runtime form; it does not document translation parameters, API credentials, the nine workflows, or HTTP request fields. See [First Translation](./first-translation.md) for the common input and process, and [Windows Portable](../install/windows-portable.md), [Linux and macOS](../install/linux-and-macos.md), and [Docker](../install/docker.md) for installation options.
 
-## Feature boundary {#scope}
+## What to know first {#scope}
 
 | Form | Best for | Not responsible for |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ uv run --no-sync python -m manga_translator ws
 uv run --no-sync python -m manga_translator shared
 ```
 
-`ws` also connects to the default upstream `ws://localhost:5000`; options such as `--ws-url` and `--nonce` can adjust it. `shared` uses `--nonce` to protect internal API communication. Message formats, locks, streaming responses, and nonce/secret contracts belong in developer pages; this page does not present them as a general public API.
+`ws` also connects to the default upstream `ws://localhost:5000`; options such as `--ws-url` and `--nonce` can adjust it. `shared` uses `--nonce` to protect internal API communication. Message formats, locks, streaming responses, and nonce/secret contracts belong in developer pages; this guide does not present them as a general public API.
 
 ### Docker {#docker}
 
@@ -73,7 +73,7 @@ Docker suits users with an existing container operations workflow, dependency is
 
 Do not use the administrator password shown in a compose example for production, and do not commit `.env`. Treat server data, user resources, sessions, quotas, and history metadata as sensitive data.
 
-## Runtime behavior {#runtime}
+## How it works {#runtime}
 
 The four formal command modes are parsed and dispatched by one entry point. Qt is a separate desktop entry point, but it ultimately shares the processing chain with the command modes:
 
@@ -95,7 +95,7 @@ flowchart LR
 
 Before dispatching, the CLI entry point ensures runtime files and then calls the `local`, `web`, `ws`, or `shared` execution module. Web adds authentication, permissions, concurrency, history, and download tickets around the core processing chain. Docker only places the Web process and its resource directories in a container. Normal `local` execution applies explicit CLI overrides; subprocess mode separately manages memory thresholds and restarts.
 
-## Dependencies and conflicts {#dependencies}
+## What to consider {#dependencies}
 
 - **Hardware**: every form may load PyTorch, ONNX, or stage models; choose the CPU/GPU/AMD/Metal dependency group in the installation documentation.
 - **Configuration**: `config/config.json`, the distribution example, and code defaults are separate layers. User configuration takes precedence over the example, while CLI values override only fields that the CLI actually writes.

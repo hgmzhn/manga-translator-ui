@@ -13,13 +13,13 @@ lastUpdated: true
 
 `local` 的输入输出见[本地输入与输出](./local-input-output.md)，`web` 的浏览器操作见[Web 启动与访问](../web/launch-and-access.md)，HTTP API 契约和内部协议细节见开发者页面。
 
-## 功能边界 {#feature-boundary}
+## 命令范围 {#feature-boundary}
 
 - `web` 是唯一面向用户和开发者 HTTP 客户端的服务：同一进程提供 `GET /` 主工作区、`GET /admin` 管理界面、`/static/*` 静态资源和全部 JSON/表单/流式 API。默认监听 `0.0.0.0:8000`，可用 `MT_WEB_HOST`/`MT_WEB_PORT` 或 `--host`/`--port` 覆盖。
 - `shared` 是内部 shared/API 实例：默认 `127.0.0.1:5003`，只暴露三个受控端点，用 `X-Nonce` 头保护，返回 pickle 序列化结果。浏览器不直接访问。
 - `ws` 是内部 WebSocket 执行器：默认连接上游 `ws://localhost:5000`，用 `x-secret` 头认证，接收 protobuf 任务并回传状态。解析器虽然为它声明了 `--host 127.0.0.1 --port 5003`，但当前实现不消费这两个字段。
 - 三种模式互不占用默认端口：web 是 `8000`，shared/ws 的解析器默认是 `5003`，ws 的实际连接目标是 `ws://localhost:5000` 上游。不要把 `5000`、`5003`、`8000` 混写。
-- CLI 选项是源码中的固定中文帮助文案，不经过 i18n；与桌面设置共享的 GPU/ONNX/重试/日志开关映射到 `label_*` key，见[选项与 i18n 矩阵](../reference/options-i18n-matrix.md)。
+- CLI 选项是源码中的固定中文帮助文案，不经过 i18n；与桌面设置共享的 GPU/ONNX/重试/日志开关映射到 `label_*` key，见[界面选项对照表](../reference/options-i18n-matrix.md)。
 
 ## 三种模式与端口 {#modes-and-ports}
 
@@ -77,7 +77,7 @@ uv run --no-sync python -m manga_translator ws --ws-url ws://localhost:5000
 
 当前仓库缺少 `manga_translator/server/ws_pb2.py`（protobuf 生成模块），`listen()` 中的 `from ..server import ws_pb2` 会直接 `ImportError`，因此 `ws` 模式目前无法实际启动；`ws --help` 不受影响。这是源码差异，不是已验证的运行行为。
 
-## 运行机理 {#runtime-behavior}
+## 命令如何执行 {#runtime-behavior}
 
 ### web 模式 {#web-runtime}
 
@@ -126,10 +126,10 @@ flowchart LR
     U -->|"成功"| F["finish_task"]
 ```
 
-## 依赖与冲突 {#dependencies-and-conflicts}
+## 使用限制 {#dependencies-and-conflicts}
 
 - 端口边界：web 默认 `8000`，shared/ws 解析器默认 `5003`，ws 连接目标是 `ws://localhost:5000`；三者不互相覆盖。端口被占用时启动失败，属环境问题。
 - `ws --host/--port/--nonce` 在解析器中存在，但 `MangaTranslatorWS` 当前不消费这些字段；不要根据帮助文本推断 ws 会监听 `5003`。
-- 当前仓库缺少 `ws_pb2.py`，`ws` 模式无法启动；这是源码差异，不是运行验证结论。
+- 当前仓库缺少 `ws_pb2.py`，补齐这个生成模块前无法启动 `ws` 模式。
 - shared/ws 是内部协议：不要用浏览器直接访问，不要暴露到公网；nonce/secret 和 pickle 反序列化都有安全风险，日志里打印的 nonce 不得复制进公开报告。
-- 本页不读取或展示真实 `.env`、`WS_SECRET`、nonce、API key、令牌、用户名或私有路径。
+- 这里不读取或展示真实 `.env`、`WS_SECRET`、nonce、API key、令牌、用户名或私有路径。

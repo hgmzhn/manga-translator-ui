@@ -9,16 +9,16 @@ lastUpdated: true
 
 # API 凭据、地址与模型
 
-当使用 OpenAI、Gemini 或 Sakura 等远程 API 时，本页说明如何填写各提供商的密钥（Key）、API 地址（Base）与模型名（Model）三个字段，它们如何保存到 `.env`、如何通过编号通道（`_2`、`_3` …）复用，以及界面如何隐藏和脱敏这些值。本页不负责提供商页签、功能选择器、槽轮换策略、连接测试、自定义请求参数和预设；它们分别在[提供商页签](./provider-tabs.md)、[功能选择器](./feature-selectors.md)、[通道与轮询策略](./slots-and-rotation.md)、[连接测试与模型列表](./connection-tests-and-model-list.md)、[自定义请求参数](./custom-request-parameters.md) 和[预设与持久化](./presets-and-persistence.md) 中说明。
+当使用 OpenAI、Gemini 或 Sakura 等远程 API 时，这里说明如何填写各提供商的密钥（Key）、API 地址（Base）与模型名（Model）三个字段，它们如何保存到 `.env`、如何通过编号通道（`_2`、`_3` …）复用，以及界面如何隐藏和脱敏这些值。这里不负责提供商页签、功能选择器、槽轮换策略、连接测试、自定义请求参数和预设；它们分别在[提供商页签](./provider-tabs.md)、[功能选择器](./feature-selectors.md)、[通道与轮询策略](./slots-and-rotation.md)、[连接测试与模型列表](./connection-tests-and-model-list.md)、[自定义请求参数](./custom-request-parameters.md) 和[预设与持久化](./presets-and-persistence.md) 中说明。
 
-## 功能边界
+## 配置范围
 
 - Key/Base/Model 是“API 通道”卡片的三个字段：Key 保存密钥、Base 保存请求地址、Model 保存模型名，三者各自对应一个 `.env` 键。
 - 只有被当前功能选择器激活的提供商分组才显示凭据卡片。OpenAI/Gemini 使用 Key/Base/Model；Sakura 只有地址和词典路径，没有 Key 与 Model。
 - `.env` 是桌面端唯一凭据持久化位置；`config.json` 与 `config/config-example.json` 不保存 API 密钥。Web 多用户场景的 `user_api_key`/`user_api_base`/`user_api_model` 是配置覆盖，不属于本页输入框。
 - `_2`、`_3` 等编号后缀是同一提供商内部的候选通道，不是新翻译器；切换翻译器仍由 `translator.translator` 决定。
 
-## UI 操作
+## 在 API 管理中操作
 
 ### 在 API 管理页填写凭据
 
@@ -53,7 +53,7 @@ lastUpdated: true
 - 密钥与令牌的占位符分别是“粘贴你的密钥”和“粘贴你的令牌”，不包含真实值。
 - `.env` 是明文本地文件，位于打包后的 exe 目录或开发时的项目根目录；不要提交、导出或截图真实密钥。预设可以保存 API 环境变量，但导出的配置 JSON 明确排除 API 密钥，见[预设与持久化](./presets-and-persistence.md)。
 
-## 运行机理
+## 请求如何处理
 
 `ConfigService` 启动时把 `.env` 读入内存并加载到 `os.environ`（`load_app_dotenv(override=True)`）。输入框每次修改都会立即更新内存和 `os.environ`，并由 `QTimer` 以 250ms 合并，之后在“config-writer”后台线程中把整个 `.env` 原子重写为 `KEY="value"` 行。翻译器、OCR、上色器和渲染器在 `parse_args()` 时调用 `resolve_runtime_api_config()`，按编号槽读取环境变量并构造候选端点，最后交给 `failover`/`round_robin` 策略发起实际请求。
 
@@ -70,7 +70,7 @@ flowchart LR
 
 对 OpenAI 兼容的本地端点（`localhost`、私有 IP、`.local` 等），空密钥会被规范化为 `ollama` 占位值，使 Ollama 等本地服务无需填写密钥即可工作；非本地端点仍要求真实密钥。
 
-## 依赖与冲突
+## 凭据、网络与错误
 
 - 功能选择器决定显示哪个提供商分组；在 API 管理页切换翻译器会写同一个 `translator.translator` 键，并刷新所需凭据组。
 - 开启混合 OCR（`ocr.use_hybrid_ocr`）时，主 OCR 与副 OCR 对应的 OpenAI/Gemini 分组可能同时显示。

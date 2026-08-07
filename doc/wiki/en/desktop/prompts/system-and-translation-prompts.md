@@ -11,14 +11,14 @@ lastUpdated: true
 
 Translation requests are driven by system prompts and translation prompts together: the system prompt files control “how to translate” and “what to output,” while translation prompts supply custom rules, glossary extraction, and AI line-breaking requirements. Use this page when you need to know when a prompt file is read, in what order it is concatenated, where the `target_lang` placeholder is replaced, and how the result enters an OpenAI/Gemini request.
 
-This page does not cover prompt-file listing, applying, or CRUD (see [Prompt list, apply, and preview](./list-apply-and-preview.md)), nor the structured editor (see [Structured prompt editor and format](./structured-editor-and-format.md)); AI OCR, AI colorizer, and AI renderer prompts are covered in [AI OCR prompt](./ai-ocr-prompt.md), [AI colorizer prompt](./ai-colorizer-prompt.md), and [AI renderer prompt](./ai-renderer-prompt.md). How history pages become messages is covered in [Context and Prompts](../translator/context-and-prompts.md).
+This guide does not cover prompt-file listing, applying, or CRUD (see [Prompt list, apply, and preview](./list-apply-and-preview.md)), nor the structured editor (see [Structured prompt editor and format](./structured-editor-and-format.md)); AI OCR, AI colorizer, and AI renderer prompts are covered in [AI OCR prompt](./ai-ocr-prompt.md), [AI colorizer prompt](./ai-colorizer-prompt.md), and [AI renderer prompt](./ai-renderer-prompt.md). How history pages become messages is covered in [Context and Prompts](../translator/context-and-prompts.md).
 
-## Feature boundary {#feature-boundary}
+## When to use it {#feature-boundary}
 
 - Fixed system prompt files: `dict/system_prompt_hq.yaml` (base system prompt) and `dict/system_prompt_hq_format.yaml` (output format). They are loaded from `dict/` at runtime by filename stem, are not part of the user prompt list, and have no dedicated desktop editor.
 - Translation prompts: the custom HQ prompt pointed to by `translator.high_quality_prompt_path` (user `.yaml`/`.yml`/`.json` files under `dict/`), `dict/glossary_extraction_prompt.yaml` (glossary-extraction rules), and `dict/system_prompt_line_break.yaml` (AI line-breaking prompt).
 - Related config keys: `translator.high_quality_prompt_path`, `translator.extract_glossary`, `render.disable_auto_wrap`; full parameter documentation is in [Translation settings](../settings/translation.md) and [Typesetting and rendering](../settings/typesetting-and-rendering.md).
-- This page only explains how prompts are loaded, combined, and injected into the OpenAI/Gemini system instruction; it does not cover translator selection, API credentials, or candidate-slot rotation (see [Translator selection](../translator/selection-and-languages.md) and [API management](../api-management/slots-and-rotation.md)).
+- This guide only explains how prompts are loaded, combined, and injected into the OpenAI/Gemini system instruction; it does not cover translator selection, API credentials, or candidate-slot rotation (see [Translator selection](../translator/selection-and-languages.md) and [API management](../api-management/slots-and-rotation.md)).
 - No real API key, private prompt text, or local absolute path is written on this page. Prompt content is user data; remove it from logs, request exports, and debug directories before sharing.
 
 ## Plain Translation Prompt File Format {#custom-prompt-file-format}
@@ -60,7 +60,7 @@ glossary:
   Creature: []
 ```
 
-## UI operations {#ui-operations}
+## Use it in Prompt Management {#ui-operations}
 
 ### Select and apply a translation prompt in Prompt Management {#apply-translation-prompt}
 
@@ -74,7 +74,7 @@ Full list, preview, and editing operations are in [Prompt list, apply, and previ
 2. Open “Settings” → “Typesetting” and enable “AI Line Breaking”. This writes `render.disable_auto_wrap`; when enabled, the translation request loads `dict/system_prompt_line_break.yaml` and attaches `original_region_count` to each region in the user input JSON.
 3. The on-screen name of `translator.high_quality_prompt_path` is “Custom Prompt”. Its dynamic-settings control is implemented in `dynamic_settings.py` (it rescans `dict/` and excludes system prompts when the dropdown opens); the actual entry point for setting this key is “Apply Selected Prompt” in Prompt Management.
 
-## Runtime behavior {#runtime-behavior}
+## How prompts are loaded {#runtime-behavior}
 
 ### When files are loaded {#loading-timing}
 
@@ -135,7 +135,7 @@ flowchart TD
 - When glossary mode is enabled and the response contains `new_terms`, both OpenAI and Gemini call `merge_glossary_to_file()` to merge the new terms back into the `glossary` field of the custom prompt file (YAML or JSON depending on the extension).
 - Streaming and non-streaming transports use the same system instruction and message construction; with `disable_auto_wrap` enabled, each region in the current-page user JSON carries `original_region_count` so final rendering can validate the `[BR]` marker count.
 
-## Dependencies and conflicts {#dependencies-and-conflicts}
+## Limitations and notes {#dependencies-and-conflicts}
 
 - Enabling “Auto Extract Glossary” alone has no effect: the code requires `bool(custom_prompt_json) and extract_glossary` to both be true, i.e. a parseable custom prompt must exist and the toggle must be on.
 - A missing base system prompt falls back to built-in code text; a missing format or glossary prompt only weakens constraints without crashing; an unparseable custom prompt is skipped and the base prompt is still used.
