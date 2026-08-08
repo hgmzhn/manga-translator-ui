@@ -24,7 +24,7 @@
   "mask_dilation_offset": 50,
   "use_custom_api_params": true,
   "translator": {
-    "translator": "original",
+    "translator": "openai",
     "target_lang": "CHS",
     "keep_lang": "none",
     "enable_streaming": false,
@@ -90,6 +90,7 @@
     "uppercase": false,
     "lowercase": false,
     "font_family": "Microsoft YaHei UI",
+    "disable_system_fonts": true,
     "no_hyphenation": false,
     "bubble_layout_english": false,
     "font_color": null,

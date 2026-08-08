@@ -1138,7 +1138,7 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "release_json_value": "original",
+        "release_json_value": "openai",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
       },
       "lifecycle_stages": [
@@ -1655,7 +1655,7 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "release_json_value": false,
+        "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_system_fonts"
       },
       "lifecycle_stages": [
