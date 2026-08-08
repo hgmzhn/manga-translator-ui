@@ -62,6 +62,36 @@ from ui.widgets.hover_hint import set_hover_hint
 from manga_translator.runtime_paths import get_config_path
 
 
+_DEFAULT_FOLDER_SORT = "name_ascending"
+_FOLDER_SORT_STATE_TO_SPEC = {
+    "name_ascending": (0, Qt.SortOrder.AscendingOrder),
+    "name_descending": (0, Qt.SortOrder.DescendingOrder),
+    "size_ascending": (1, Qt.SortOrder.AscendingOrder),
+    "size_descending": (1, Qt.SortOrder.DescendingOrder),
+    "type_ascending": (2, Qt.SortOrder.AscendingOrder),
+    "type_descending": (2, Qt.SortOrder.DescendingOrder),
+    "modified_ascending": (3, Qt.SortOrder.AscendingOrder),
+    "modified_descending": (3, Qt.SortOrder.DescendingOrder),
+}
+_FOLDER_SORT_SPEC_TO_STATE = {
+    spec: state for state, spec in _FOLDER_SORT_STATE_TO_SPEC.items()
+}
+
+
+def _normalize_folder_sort_state(value: object) -> str:
+    if isinstance(value, str) and value in _FOLDER_SORT_STATE_TO_SPEC:
+        return value
+    return _DEFAULT_FOLDER_SORT
+
+
+def _folder_sort_spec(state: object) -> tuple[int, Qt.SortOrder]:
+    return _FOLDER_SORT_STATE_TO_SPEC[_normalize_folder_sort_state(state)]
+
+
+def _folder_sort_state(column: int, order: Qt.SortOrder) -> Optional[str]:
+    return _FOLDER_SORT_SPEC_TO_STATE.get((column, order))
+
+
 class CaseInsensitiveSortProxyModel(QSortFilterProxyModel):
     """不区分大小写的排序代理模型"""
     
@@ -264,6 +294,7 @@ class FolderDialog(FluentSecondaryDialog):
 
         # 加载收藏文件夹
         self._load_favorite_folders()
+        self.folder_sort_state = self._load_folder_sort_state()
 
         self._init_ui()
         self._connect_signals()
@@ -274,7 +305,7 @@ class FolderDialog(FluentSecondaryDialog):
             self.navigate_to(start_dir, add_to_history=True)
         else:
             self.navigate_to(str(Path.home()), add_to_history=True)
-    
+
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
         if self.i18n:
@@ -437,7 +468,8 @@ class FolderDialog(FluentSecondaryDialog):
 
         self.folder_tree.setHeaderHidden(False)
         self.folder_tree.setSortingEnabled(True)
-        self.folder_tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        sort_column, sort_order = _folder_sort_spec(self.folder_sort_state)
+        self.folder_tree.sortByColumn(sort_column, sort_order)
         self.folder_tree.setAlternatingRowColors(False)
         header = self.folder_tree.header()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
@@ -804,6 +836,7 @@ class FolderDialog(FluentSecondaryDialog):
         self.folder_tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.folder_tree.doubleClicked.connect(self._on_folder_double_clicked)
         self.folder_tree.customContextMenuRequested.connect(self._show_folder_tree_context_menu)
+        self.folder_tree.header().sortIndicatorChanged.connect(self._on_folder_sort_indicator_changed)
         self.shortcuts_tree.customContextMenuRequested.connect(self._show_shortcuts_context_menu)
 
     def _refresh_header_i18n(self):
@@ -927,6 +960,13 @@ class FolderDialog(FluentSecondaryDialog):
             self.folder_tree.sortByColumn(1, Qt.SortOrder.AscendingOrder)
         elif index == 5:  # 大小 ↓
             self.folder_tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
+
+    def _on_folder_sort_indicator_changed(self, column: int, order: Qt.SortOrder):
+        state = _folder_sort_state(column, order)
+        if state is None or state == self.folder_sort_state:
+            return
+        self.folder_sort_state = state
+        self._save_folder_sort_state()
 
     def _toggle_path_edit(self):
         """切换路径编辑模式"""
@@ -1057,6 +1097,54 @@ class FolderDialog(FluentSecondaryDialog):
         except Exception as e:
             print(f"加载收藏文件夹失败: {e}")
             self.favorite_folders = []
+
+    def _load_folder_sort_state(self) -> str:
+        """Load the last folder-tree sort selection."""
+        try:
+            if self.config_service:
+                value = self.config_service.get_config().app.folder_dialog_sort
+            else:
+                value = _DEFAULT_FOLDER_SORT
+                config_path = self._get_config_path()
+                if os.path.exists(config_path):
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config_dict = json.load(f)
+                    value = config_dict.get('app', {}).get(
+                        'folder_dialog_sort',
+                        _DEFAULT_FOLDER_SORT,
+                    )
+            return _normalize_folder_sort_state(value)
+        except Exception as e:
+            print(f"加载文件夹排序方式失败: {e}")
+            return _DEFAULT_FOLDER_SORT
+
+    def _save_folder_sort_state(self):
+        """Persist the folder-tree sort selection."""
+        try:
+            if self.config_service:
+                config = self.config_service.get_config()
+                config.app.folder_dialog_sort = self.folder_sort_state
+                self.config_service.set_config(config)
+                self.config_service.save_config_file()
+                return
+
+            config_path = self._get_config_path()
+            config_dict = {}
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config_dict = json.load(f)
+                except Exception:
+                    config_dict = {}
+
+            if not isinstance(config_dict.get('app'), dict):
+                config_dict['app'] = {}
+            config_dict['app']['folder_dialog_sort'] = self.folder_sort_state
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config_dict, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"保存文件夹排序方式失败: {e}")
 
     def _save_favorite_folders(self):
         """保存收藏文件夹到配置文件"""

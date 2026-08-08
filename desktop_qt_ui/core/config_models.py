@@ -170,6 +170,7 @@ class AppSection(BaseModel):
     last_open_dir: str = '.'
     last_output_path: str = ""
     favorite_folders: Optional[List[str]] = None
+    folder_dialog_sort: str = "name_ascending"
     theme: str = "light"  # 主题选项由 theme_registry.py 统一定义
     theme_user_preference: str = "light"
     ui_language: str = "auto"  # UI语言：auto(自动检测), zh_CN, en_US, ja_JP, ko_KR 等

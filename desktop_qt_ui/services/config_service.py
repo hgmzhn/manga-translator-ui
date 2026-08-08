@@ -445,6 +445,7 @@ class ConfigService(QObject):
                 'last_open_dir': '.',
                 'last_output_path': '',
                 'favorite_folders': None,
+                'folder_dialog_sort': 'name_ascending',
                 'theme': 'light',
                 'ui_language': 'auto',
                 'current_preset': '默认',

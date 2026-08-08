@@ -2,7 +2,6 @@
   "schema_version": 1,
   "generated_from": {
     "phase0_ui_parameter_catalog": "phase0-ui-parameter-fields.json",
-    "default_matrix": "research/default-sources.md",
     "ui_label_binding": "desktop_qt_ui/app_logic.py#get_display_mapping",
     "locales": [
       "desktop_qt_ui/locales/en_US.json",
@@ -29,9 +28,6 @@
       "wiki_page": "desktop/settings/general-and-app.md",
       "control": "combo",
       "defaults": {
-        "core": "—",
-        "qt": "`\"auto\"`",
-        "release": "`\"auto\"`",
         "release_json_value": "auto",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.ui_language"
       },
@@ -54,9 +50,6 @@
       "wiki_page": "desktop/settings/general-and-app.md",
       "control": "combo",
       "defaults": {
-        "core": "—",
-        "qt": "`\"light\"`",
-        "release": "`\"light\"`",
         "release_json_value": "light",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.theme"
       },
@@ -79,9 +72,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.verbose"
       },
@@ -105,9 +95,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.ignore_errors"
       },
@@ -131,9 +118,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`true`",
-        "qt": "`true`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.use_gpu"
       },
@@ -157,9 +141,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.disable_onnx_gpu"
       },
@@ -183,9 +164,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "combo",
       "defaults": {
-        "core": "`null`",
-        "qt": "`\"不指定\"`",
-        "release": "`\"不指定\"`",
         "release_json_value": "不指定",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.format"
       },
@@ -209,9 +187,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`true`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.overwrite"
       },
@@ -235,9 +210,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.skip_no_text"
       },
@@ -261,9 +233,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`true`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_text"
       },
@@ -287,9 +256,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "int-input",
       "defaults": {
-        "core": "`100`",
-        "qt": "`100`",
-        "release": "`100`",
         "release_json_value": 100,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_quality"
       },
@@ -313,9 +279,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "int-input",
       "defaults": {
-        "core": "`-1`",
-        "qt": "`-1`",
-        "release": "`3`",
         "release_json_value": 3,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.attempts"
       },
@@ -339,9 +302,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "int-input",
       "defaults": {
-        "core": "`1`",
-        "qt": "`1`",
-        "release": "`3`",
         "release_json_value": 3,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.batch_size"
       },
@@ -365,9 +325,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.batch_concurrent"
       },
@@ -391,9 +348,6 @@
       "wiki_page": "desktop/settings/general-and-app.md",
       "control": "toggle + edit-custom-api-params action",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.use_custom_api_params"
       },
@@ -416,9 +370,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_to_source_dir"
       },
@@ -442,9 +393,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.export_editable_psd"
       },
@@ -468,9 +416,6 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.psd_script_only"
       },
@@ -494,9 +439,6 @@
       "wiki_page": "desktop/settings/general-and-app.md",
       "control": "toggle",
       "defaults": {
-        "core": "—",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.unload_models_after_translation"
       },
@@ -519,9 +461,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"48px\"`",
-        "qt": "`\"48px\"`",
-        "release": "`\"48px\"`",
         "release_json_value": "48px",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr"
       },
@@ -545,9 +484,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`true`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_hybrid_ocr"
       },
@@ -571,9 +507,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"48px\"`",
-        "qt": "`\"mocr\"`",
-        "release": "`\"mocr\"`",
         "release_json_value": "mocr",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.secondary_ocr"
       },
@@ -597,9 +530,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "prompt-editor-button",
       "defaults": {
-        "core": "not serialized (fixed prompt editor action)",
-        "qt": "not serialized (fixed prompt editor action)",
-        "release": "not serialized (prompt loader default)",
         "release_json_value": null,
         "source": "manga_translator/ocr/prompt_loader.py#DEFAULT_AI_OCR_PROMPT_PATH"
       },
@@ -623,9 +553,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "int-input",
       "defaults": {
-        "core": "`1`",
-        "qt": "`1`",
-        "release": "`10`",
         "release_json_value": 10,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ai_ocr_concurrency"
       },
@@ -649,9 +576,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"auto\"`",
-        "qt": "`\"auto\"`",
-        "release": "`\"Japanese\"`",
         "release_json_value": "Japanese",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr_vl_language_hint"
       },
@@ -675,9 +599,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "optional-input",
       "defaults": {
-        "core": "`null`",
-        "qt": "`null`",
-        "release": "`null`",
         "release_json_value": null,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr_vl_custom_prompt"
       },
@@ -701,9 +622,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_model_bubble_filter"
       },
@@ -727,9 +645,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "int-input",
       "defaults": {
-        "core": "`0`",
-        "qt": "`0`",
-        "release": "`0`",
         "release_json_value": 0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.min_text_length"
       },
@@ -753,9 +668,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.0`",
-        "qt": "`0.0`",
-        "release": "`0.0`",
         "release_json_value": 0.0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ignore_bubble"
       },
@@ -779,9 +691,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "toggle",
       "defaults": {
-        "core": "`true`",
-        "qt": "`true`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_special_require_full_wrap"
       },
@@ -805,9 +714,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.1`",
-        "qt": "`0.1`",
-        "release": "`0.1`",
         "release_json_value": 0.1,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.model_bubble_overlap_threshold"
       },
@@ -831,9 +737,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "toggle + open-filter-list action",
       "defaults": {
-        "core": "—",
-        "qt": "`true`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.filter_text_enabled"
       },
@@ -857,9 +760,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "float-input",
       "defaults": {
-        "core": "`null`",
-        "qt": "`0.1`",
-        "release": "`0.1`",
         "release_json_value": 0.1,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.prob"
       },
@@ -883,9 +783,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.8`",
-        "qt": "`0.8`",
-        "release": "`0.8`",
         "release_json_value": 0.8,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_gamma"
       },
@@ -909,9 +806,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "float-input",
       "defaults": {
-        "core": "`2.5`",
-        "qt": "`2.5`",
-        "release": "`2.5`",
         "release_json_value": 2.5,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_sigma"
       },
@@ -935,9 +829,6 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.0`",
-        "qt": "`0.0`",
-        "release": "`0.0`",
         "release_json_value": 0.0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.merge_edge_ratio_threshold"
       },
@@ -961,9 +852,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"default\"`",
-        "qt": "`\"default\"`",
-        "release": "`\"default\"`",
         "release_json_value": "default",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.detector"
       },
@@ -986,9 +874,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.import_yolo_labels"
       },
@@ -1011,9 +896,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.use_yolo_obb"
       },
@@ -1036,9 +918,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.use_sfx_filter"
       },
@@ -1061,9 +940,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.sfx_filter_include_bubble_text"
       },
@@ -1086,9 +962,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "int-input",
       "defaults": {
-        "core": "`0.0009`",
-        "qt": "`0.0009`",
-        "release": "`0`",
         "release_json_value": 0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.min_box_area_ratio"
       },
@@ -1111,9 +984,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "int-input",
       "defaults": {
-        "core": "`2048`",
-        "qt": "`2048`",
-        "release": "`2048`",
         "release_json_value": 2048,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.detection_size"
       },
@@ -1136,9 +1006,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "int-input",
       "defaults": {
-        "core": "`341`",
-        "qt": "`341`",
-        "release": "`341`",
         "release_json_value": 341,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.det_rearrange_min_effective_short_side"
       },
@@ -1161,9 +1028,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.5`",
-        "qt": "`0.5`",
-        "release": "`0.5`",
         "release_json_value": 0.5,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.text_threshold"
       },
@@ -1186,9 +1050,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.7`",
-        "qt": "`0.5`",
-        "release": "`0.5`",
         "release_json_value": 0.5,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.box_threshold"
       },
@@ -1211,9 +1072,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "float-input",
       "defaults": {
-        "core": "`2.3`",
-        "qt": "`2.5`",
-        "release": "`2.5`",
         "release_json_value": 2.5,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.unclip_ratio"
       },
@@ -1236,9 +1094,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.4`",
-        "qt": "`0.4`",
-        "release": "`0.4`",
         "release_json_value": 0.4,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.yolo_obb_conf"
       },
@@ -1261,9 +1116,6 @@
       "wiki_page": "desktop/settings/detection.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.1`",
-        "qt": "`0.1`",
-        "release": "`0.1`",
         "release_json_value": 0.1,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#DetectorSettings.yolo_obb_overlap_threshold"
       },
@@ -1286,9 +1138,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"openai_hq\"`",
-        "qt": "`\"openai_hq\"`",
-        "release": "`\"openai\"`",
         "release_json_value": "original",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
       },
@@ -1311,9 +1160,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"ENG\"`",
-        "qt": "`\"CHS\"`",
-        "release": "`\"CHS\"`",
         "release_json_value": "CHS",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.target_lang"
       },
@@ -1336,9 +1182,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"none\"`",
-        "qt": "`\"none\"`",
-        "release": "`\"none\"`",
         "release_json_value": "none",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.keep_lang"
       },
@@ -1361,9 +1204,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "toggle",
       "defaults": {
-        "core": "`true`",
-        "qt": "`true`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.enable_streaming"
       },
@@ -1386,9 +1226,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.no_text_lang_skip"
       },
@@ -1411,9 +1248,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.extract_glossary"
       },
@@ -1436,9 +1270,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "int-input",
       "defaults": {
-        "core": "`0`",
-        "qt": "`0`",
-        "release": "`0`",
         "release_json_value": 0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.max_requests_per_minute"
       },
@@ -1461,9 +1292,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.remove_trailing_period"
       },
@@ -1486,9 +1314,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "int-input",
       "defaults": {
-        "core": "`3`",
-        "qt": "`3`",
-        "release": "`3`",
         "release_json_value": 3,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.context_size"
       },
@@ -1512,9 +1337,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.convert_to_traditional"
       },
@@ -1537,9 +1359,6 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.convert_to_simplified"
       },
@@ -1562,9 +1381,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"lama_large\"`",
-        "qt": "`\"lama_mpe\"`",
-        "release": "`\"lama_large\"`",
         "release_json_value": "lama_large",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainter"
       },
@@ -1588,9 +1404,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "int-input",
       "defaults": {
-        "core": "`20`",
-        "qt": "`70`",
-        "release": "`50`",
         "release_json_value": 50,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.mask_dilation_offset"
       },
@@ -1613,9 +1426,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.limit_mask_dilation_to_bubble_mask"
       },
@@ -1639,9 +1449,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.use_model_bubble_repair_intersection"
       },
@@ -1665,9 +1472,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.solid_fill_pure_bubbles"
       },
@@ -1691,9 +1495,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.per_block_inpainting"
       },
@@ -1717,9 +1518,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "int-input",
       "defaults": {
-        "core": "`2048`",
-        "qt": "`2048`",
-        "release": "`2048`",
         "release_json_value": 2048,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainting_size"
       },
@@ -1743,9 +1541,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"bf16\"`",
-        "qt": "`\"fp32\"`",
-        "release": "`\"fp32\"`",
         "release_json_value": "fp32",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.inpainting_precision"
       },
@@ -1769,9 +1564,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "int-input",
       "defaults": {
-        "core": "`3`",
-        "qt": "`3`",
-        "release": "`3`",
         "release_json_value": 3,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSettings.kernel_size"
       },
@@ -1794,9 +1586,6 @@
       "wiki_page": "desktop/settings/mask-and-inpainting.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.force_use_torch_inpainting"
       },
@@ -1820,9 +1609,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"default\"`",
-        "qt": "`\"default\"`",
-        "release": "`\"default\"`",
         "release_json_value": "default",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.renderer"
       },
@@ -1846,9 +1632,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "font-combo + open-font-directory action",
       "defaults": {
-        "core": "`null`",
-        "qt": "`\"\"`",
-        "release": "`\"Microsoft YaHei UI\"`",
         "release_json_value": "Microsoft YaHei UI",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_family"
       },
@@ -1872,9 +1655,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_system_fonts"
       },
@@ -1898,9 +1678,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "prompt-editor-button",
       "defaults": {
-        "core": "not serialized (fixed prompt editor action)",
-        "qt": "not serialized (fixed prompt editor action)",
-        "release": "not serialized (prompt loader default)",
         "release_json_value": null,
         "source": "manga_translator/rendering/prompt_loader.py#DEFAULT_AI_RENDERER_PROMPT_PATH"
       },
@@ -1924,9 +1701,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "int-input",
       "defaults": {
-        "core": "`1`",
-        "qt": "`1`",
-        "release": "`1`",
         "release_json_value": 1,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.ai_renderer_concurrency"
       },
@@ -1950,9 +1724,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"auto\"`",
-        "qt": "`\"auto\"`",
-        "release": "`\"auto\"`",
         "release_json_value": "auto",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.alignment"
       },
@@ -1976,9 +1747,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.semantic_linebreak"
       },
@@ -2002,9 +1770,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.remove_linebreak_punctuation"
       },
@@ -2028,9 +1793,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`true`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_auto_wrap"
       },
@@ -2054,9 +1816,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.optimize_line_breaks"
       },
@@ -2080,9 +1839,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.strict_smart_scaling"
       },
@@ -2106,9 +1862,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.check_br_and_retry"
       },
@@ -2132,9 +1885,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "float-input",
       "defaults": {
-        "core": "`0.07`",
-        "qt": "`0.07`",
-        "release": "`0.07`",
         "release_json_value": 0.07,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.stroke_width"
       },
@@ -2158,9 +1908,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_font_border"
       },
@@ -2184,9 +1931,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.center_text_in_bubble"
       },
@@ -2210,9 +1954,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "int-input",
       "defaults": {
-        "core": "`0`",
-        "qt": "`0`",
-        "release": "`0`",
         "release_json_value": 0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size_offset"
       },
@@ -2236,9 +1977,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "int-input",
       "defaults": {
-        "core": "`-1`",
-        "qt": "`0`",
-        "release": "`0`",
         "release_json_value": 0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size_minimum"
       },
@@ -2262,9 +2000,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"auto\"`",
-        "qt": "`\"auto\"`",
-        "release": "`\"auto\"`",
         "release_json_value": "auto",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.direction"
       },
@@ -2288,9 +2023,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.uppercase"
       },
@@ -2314,9 +2046,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.lowercase"
       },
@@ -2340,9 +2069,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.no_hyphenation"
       },
@@ -2366,9 +2092,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.bubble_layout_english"
       },
@@ -2392,9 +2115,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "float-input",
       "defaults": {
-        "core": "`null`",
-        "qt": "`1.0`",
-        "release": "`1.0`",
         "release_json_value": 1.0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.line_spacing"
       },
@@ -2418,9 +2138,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "float-input",
       "defaults": {
-        "core": "`null`",
-        "qt": "`1.0`",
-        "release": "`1.0`",
         "release_json_value": 1.0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.letter_spacing"
       },
@@ -2444,9 +2161,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "optional-input",
       "defaults": {
-        "core": "`null`",
-        "qt": "`null`",
-        "release": "`null`",
         "release_json_value": null,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_size"
       },
@@ -2470,9 +2184,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "toggle",
       "defaults": {
-        "core": "`true`",
-        "qt": "`true`",
-        "release": "`true`",
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.rtl"
       },
@@ -2496,9 +2207,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"smart_scaling\"`",
-        "qt": "`\"smart_scaling\"`",
-        "release": "`\"balloon_fill\"`",
         "release_json_value": "balloon_fill",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.layout_mode"
       },
@@ -2522,9 +2230,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "int-input",
       "defaults": {
-        "core": "`0`",
-        "qt": "`0`",
-        "release": "`0`",
         "release_json_value": 0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.max_font_size"
       },
@@ -2548,9 +2253,6 @@
       "wiki_page": "desktop/settings/typesetting-and-rendering.md",
       "control": "float-input",
       "defaults": {
-        "core": "`1.0`",
-        "qt": "`1.0`",
-        "release": "`1.0`",
         "release_json_value": 1.0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_scale_ratio"
       },
@@ -2574,9 +2276,6 @@
       "wiki_page": "desktop/settings/mode-specific.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.enable_template_alignment"
       },
@@ -2600,9 +2299,6 @@
       "wiki_page": "desktop/settings/mode-specific.md",
       "control": "int-input",
       "defaults": {
-        "core": "`10`",
-        "qt": "`10`",
-        "release": "`10`",
         "release_json_value": 10,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.paste_mask_dilation_pixels"
       },
@@ -2626,9 +2322,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"esrgan\"`",
-        "qt": "`\"esrgan\"`",
-        "release": "`\"mangajanai\"`",
         "release_json_value": "mangajanai",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.upscaler"
       },
@@ -2651,9 +2344,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "dynamic-combo",
       "defaults": {
-        "core": "`null`",
-        "qt": "`null`",
-        "release": "`null`",
         "release_json_value": null,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.upscale_ratio"
       },
@@ -2676,9 +2366,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "int-input",
       "defaults": {
-        "core": "`null`",
-        "qt": "`null`",
-        "release": "`400`",
         "release_json_value": 400,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.tile_size"
       },
@@ -2701,9 +2388,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "toggle",
       "defaults": {
-        "core": "`false`",
-        "qt": "`false`",
-        "release": "`false`",
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#UpscaleSettings.revert_upscaling"
       },
@@ -2726,9 +2410,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "combo",
       "defaults": {
-        "core": "`\"none\"`",
-        "qt": "`\"none\"`",
-        "release": "`\"none\"`",
         "release_json_value": "none",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.colorizer"
       },
@@ -2751,9 +2432,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "prompt-editor-button",
       "defaults": {
-        "core": "not serialized (fixed prompt editor action)",
-        "qt": "not serialized (fixed prompt editor action)",
-        "release": "not serialized (prompt loader default)",
         "release_json_value": null,
         "source": "manga_translator/colorization/prompt_loader.py#DEFAULT_AI_COLORIZER_PROMPT_PATH"
       },
@@ -2776,9 +2454,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "int-input",
       "defaults": {
-        "core": "`0`",
-        "qt": "`0`",
-        "release": "`0`",
         "release_json_value": 0,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.ai_colorizer_history_pages"
       },
@@ -2801,9 +2476,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "int-input",
       "defaults": {
-        "core": "`576`",
-        "qt": "`576`",
-        "release": "`2048`",
         "release_json_value": 2048,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.colorization_size"
       },
@@ -2826,9 +2498,6 @@
       "wiki_page": "desktop/settings/upscale-and-colorization.md",
       "control": "int-input",
       "defaults": {
-        "core": "`30`",
-        "qt": "`30`",
-        "release": "`30`",
         "release_json_value": 30,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#ColorizerSettings.denoise_sigma"
       },

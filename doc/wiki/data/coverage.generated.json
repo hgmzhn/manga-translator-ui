@@ -32,7 +32,6 @@
       "`desktop_qt_ui/ui/main_page/settings_tab_layout.json`",
       "`desktop_qt_ui/core/config_models.py`",
       "`desktop_qt_ui/app_logic.py`",
-      "`research/default-sources.md`",
       "`phase0-ui-parameter-fields.json`",
       "`research/phase0-options-i18n-matrix.md`"
     ],

@@ -52,6 +52,7 @@ except ImportError:
     pass
 
 from ui.main_window import MainWindow
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 from services import init_services
 from utils.app_version import get_app_version
@@ -250,6 +251,14 @@ def main():
     # Windows特殊处理：必须在创建QApplication之前设置AppUserModelID
     if sys.platform == 'win32':
         _set_windows_app_user_model_id()
+
+        # qframelesswindow#185: opening a FramelessDialog must not force its
+        # sibling widgets to become native, or maximize/restore can duplicate
+        # and offset their rendered surfaces.
+        QApplication.setAttribute(
+            Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings,
+            True,
+        )
     
     # 1. 创建 QApplication 实例
     app = QApplication(sys.argv)

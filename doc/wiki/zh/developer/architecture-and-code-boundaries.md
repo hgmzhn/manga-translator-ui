@@ -65,7 +65,7 @@ flowchart TB
     WEB --> MT
 ```
 
-图中的实线是源码中的直接调用：桌面 `TranslationWorker` 构造 `MangaTranslator` 并调用 `translate_batch()`；各阶段模块统一暴露 `get_*`、`prepare()`、`dispatch()`（以及部分 `unload()`）接口。`config.py` 是唯一的核心配置来源，`desktop_qt_ui/core/config_models.py` 的 `AppSettings` 是 Qt 侧的镜像模型；两者的键并非一一对应，三层默认值差异见 `doc/wiki/research/default-sources.md`。
+图中的实线是源码中的直接调用：桌面 `TranslationWorker` 构造 `MangaTranslator` 并调用 `translate_batch()`；各阶段模块统一暴露 `get_*`、`prepare()`、`dispatch()`（以及部分 `unload()`）接口。`config.py` 是唯一的核心配置来源，`desktop_qt_ui/core/config_models.py` 的 `AppSettings` 是 Qt 侧的镜像模型；两者的键并非一一对应。
 
 ## 调用关系
 

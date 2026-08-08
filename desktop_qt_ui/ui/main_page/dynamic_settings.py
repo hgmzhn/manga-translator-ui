@@ -202,6 +202,7 @@ _SKIPPED_SETTING_KEYS = frozenset({
     "app.last_open_dir",
     "app.last_output_path",
     "app.favorite_folders",
+    "app.folder_dialog_sort",
     "app.current_preset",
 })
 
@@ -1116,7 +1117,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         # realcugan_model 将通过 upscale_ratio 动态下拉框处理
         # gimp_font 已废弃；字体统一使用 font_family。
         # replace_translation 和 replace_translation_mode 通过工作流模式下拉框控制
-        # app 配置组的字段：last_open_dir, last_output_path, favorite_folders, current_preset 是内部状态，不显示在UI中
+        # app 路径、收藏、文件夹排序和当前预设属于内部状态，不显示在 UI 中。
         if full_key in _SKIPPED_SETTING_KEYS:
             continue
 

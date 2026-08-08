@@ -243,5 +243,5 @@ lastUpdated: true
 | UI/i18n | `desktop_qt_ui/app_logic.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | label 映射与实际中英文显示值 |
 | 配置模型 | `desktop_qt_ui/core/config_models.py`、`manga_translator/config.py` | Qt/核心参数定义与默认 |
 | 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 109 条参数记录、1353 个 i18n 条目 |
-| 调查资料 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`phase0-page-coverage-matrix.md`、`default-sources.md` | 选项矩阵、覆盖矩阵和默认值差异 |
+| 调查资料 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`phase0-page-coverage-matrix.md` | 选项矩阵和覆盖矩阵 |
 | 设置专题页 | `doc/wiki/zh/desktop/settings/*.md` | 参数锚点与跳转目标逐项核对 |

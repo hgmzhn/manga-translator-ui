@@ -65,7 +65,7 @@ flowchart TB
     WEB --> MT
 ```
 
-The solid arrows are direct calls in source: the desktop `TranslationWorker` constructs `MangaTranslator` and calls `translate_batch()`; every stage module exposes `get_*`, `prepare()`, and `dispatch()` (and some `unload()`) consistently. `config.py` is the single core configuration source, and `desktop_qt_ui/core/config_models.py` `AppSettings` is the Qt-side mirror model; their keys are not one-to-one, and the three-layer default differences are recorded in `doc/wiki/research/default-sources.md`.
+The solid arrows are direct calls in source: the desktop `TranslationWorker` constructs `MangaTranslator` and calls `translate_batch()`; every stage module exposes `get_*`, `prepare()`, and `dispatch()` (and some `unload()`) consistently. `config.py` is the single core configuration source, and `desktop_qt_ui/core/config_models.py` `AppSettings` is the Qt-side mirror model; their keys are not one-to-one.
 
 ## Call relationships
 

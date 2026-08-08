@@ -58,18 +58,6 @@ flowchart TD
 
 Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个语言包生成到 `doc/wiki/data/i18n.generated.json`（`--check` 检查是否过期）；设置字段目录由 `doc/wiki/scripts/build-settings-catalog.py` 从 `app_logic.py#get_display_mapping`、发行模板和两个语言包生成到 `doc/wiki/data/settings.generated.json`。修改语言包后应重跑这两个脚本，不能手工改生成的 JSON。
 
-## 三层默认值 {#three-layer-defaults}
-
-同一个配置键在三处有不同的默认值来源，新增字段时不要把三者合并：
-
-| 来源 | 定义文件 | 说明 |
-| --- | --- | --- |
-| Core `Config()` | `manga_translator/config.py` | 后端 `Config` 模型的 Pydantic 默认值，CLI 与 Web 也读它 |
-| Qt `AppSettings()` | `desktop_qt_ui/core/config_models.py` | 桌面端设置模型的默认值 |
-| Release `config-example.json` | `config/config-example.json` | 发行模板；桌面端用它兜底并同步用户配置 |
-
-桌面端加载优先级：用户 `config/config.json` > `config/config-example.json` > Qt 模型默认值（`config_service.py#_load_configs_with_priority`）；加载时逐键校验，无效值回退默认，`_sync_user_config` 再按发行模板增删字段。因此“新增字段后用户配置被同步”是持久化的正常行为，不是 bug。三层默认值差异的完整矩阵见 `doc/wiki/research/default-sources.md`。
-
 ## 约束与注意事项 {#dependencies-and-conflicts}
 
 - 新增用户可配置参数时，`config_models.py` 与 `manga_translator/config.py` 的字段名/类型必须一致，否则桌面端保存的值到后端可能对不上。

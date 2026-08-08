@@ -75,7 +75,6 @@
 - [x] [完成] 固定编辑器菜单、工具、属性、快捷键和焦点冲突清单。 - evidence: `research/editor-inventory.md`; static source/i18n inventory: 2026-08-06
 - [x] [完成] 生成 UI 参数字段清单并报告与“约 110 项”基线的差异。`phase0-ui-parameter-fields.json`; validate: layout 110, visible 109, delta -1.
 - [x] [完成] 生成所有枚举/下拉选项的 value、English、简体中文和 i18n key 清单。 - evidence: `research/phase0-options-i18n-matrix.md`; static desktop source/i18n inventory: 2026-08-06
-- [x] [完成] 固定核心默认、Qt UI 默认、发行配置默认和差异清单。 - evidence: `research/default-sources.md`（Core 120 / Qt 131 / Release 131；差异矩阵与运行态未决项：2026-08-06）
 - [x] [完成] 固定九个工作流、输入输出、跳过阶段和互斥参数清单。 - EVIDENCE: `research/workflow-matrix-source-evidence.md` 已完成九个工作流的静态源码/i18n 清单；运行验证列为后续任务。
 - [x] [完成] 固定 CLI 正式子命令、参数和实际 `--help` 清单。 - evidence: `research/cli-command-inventory.md`; help: PASS 2026-08-06
 - [x] [完成] 固定 Web 用户功能、HTTP 路由、鉴权、端口和状态码清单。 - evidence: `research/phase0-web-user-http.md`（静态源码；150 个方法—路径映射、运行态未决项已记录：2026-08-06）

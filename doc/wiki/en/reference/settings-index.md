@@ -243,5 +243,5 @@ The tabs, titles, and buttons on this page are verified against `desktop_qt_ui/l
 | UI/i18n | `desktop_qt_ui/app_logic.py`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Label mapping and actual bilingual display values |
 | Config models | `desktop_qt_ui/core/config_models.py`, `manga_translator/config.py` | Qt/core parameter definitions and defaults |
 | Generated data | `doc/wiki/data/settings.generated.json`, `doc/wiki/data/i18n.generated.json` | 109 parameter records, 1353 i18n entries |
-| Research | `doc/wiki/research/phase0-options-i18n-matrix.md`, `phase0-page-coverage-matrix.md`, `default-sources.md` | Option matrix, coverage matrix, default differences |
+| Research | `doc/wiki/research/phase0-options-i18n-matrix.md`, `phase0-page-coverage-matrix.md` | Option and coverage matrices |
 | Settings topic pages | `doc/wiki/en/desktop/settings/*.md` | Parameter anchors and jump targets checked row by row |

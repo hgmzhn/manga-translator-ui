@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt
 from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QWidget
 from qfluentwidgets import CardWidget, FluentStyleSheet
 from qframelesswindow import FramelessDialog
@@ -21,14 +21,50 @@ def normalize_dialog_parent(parent):
     return top_level if top_level is not None else candidate
 
 
+def _centered_window_position(size: QSize, anchor: QRect, available: QRect) -> QPoint:
+    """Return an owner-centered position clamped to the screen work area."""
+    x = anchor.center().x() - size.width() // 2
+    y = anchor.center().y() - size.height() // 2
+    max_x = max(available.right() - size.width() + 1, available.left())
+    max_y = max(available.bottom() - size.height() + 1, available.top())
+    return QPoint(
+        min(max(x, available.left()), max_x),
+        min(max(y, available.top()), max_y),
+    )
+
+
+def _resolve_dialog_owner(dialog: QWidget, owner: QWidget | None = None) -> QWidget | None:
+    candidate = owner if owner is not None else dialog.parentWidget()
+    if candidate is None:
+        active = QApplication.activeWindow()
+        if active is not dialog:
+            candidate = active
+    normalized = normalize_dialog_parent(candidate) if candidate is not None else None
+    return None if normalized is dialog else normalized
+
+
+def center_dialog_on_owner(dialog: QWidget, owner: QWidget | None = None) -> None:
+    """Center a top-level dialog over its owner and keep it on the same screen."""
+    owner = _resolve_dialog_owner(dialog, owner)
+
+    screen = owner.screen() if owner is not None else dialog.screen()
+    screen = screen or QApplication.primaryScreen()
+    if screen is None:
+        return
+
+    available = screen.availableGeometry()
+    anchor = owner.frameGeometry() if owner is not None and owner.isVisible() else available
+    dialog.move(_centered_window_position(dialog.size(), anchor, available))
+
+
 class FluentSecondaryDialog(FramelessDialog):
     """Shared Fluent shell for secondary dialogs.
 
     - 父级自动归一化到顶层窗口（parent=None 时回退 activeWindow）；
     - 默认 TitleBar 隐藏，但按住背景空白区/纯展示控件可拖动窗口
       （startSystemMove，无边框窗口拖动的正规做法）；
-    - 首次 show 前把最小尺寸/初始尺寸夹到屏幕可用区域的 90% 以内，
-      并把窗口位置兜回工作区，保证任何屏幕/缩放下按钮不出屏。
+    - 首次 show 前把最小尺寸/初始尺寸夹到屏幕可用区域的 90% 以内；
+    - 每次 show 时相对所属顶层窗口居中，并把位置夹在同一屏幕工作区内。
     """
 
     _SCREEN_CLAMP_RATIO = 0.9
@@ -89,9 +125,12 @@ class FluentSecondaryDialog(FramelessDialog):
             self._screen_clamped = True
             self._clamp_to_screen()
         super().showEvent(event)
+        center_dialog_on_owner(self)
 
     def _clamp_to_screen(self):
-        screen = self.screen() or QApplication.primaryScreen()
+        owner = _resolve_dialog_owner(self)
+        screen = owner.screen() if owner is not None else self.screen()
+        screen = screen or QApplication.primaryScreen()
         if screen is None:
             return
         available = screen.availableGeometry()
