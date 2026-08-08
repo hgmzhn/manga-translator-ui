@@ -183,12 +183,6 @@ uv run --no-sync python -m manga_translator --help
 
 ---
 
-## 🧪 测试范围
-
-不编写 Qt/Fluent 界面控件、交互或视觉表现的自动化测试。界面迭代频繁，维护成本高于收益；相关改动以人工验证为准。
-
----
-
 ## ⭐ Star 趋势
 
 <div align="center">
