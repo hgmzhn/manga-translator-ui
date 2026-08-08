@@ -58,6 +58,7 @@ def _paint_vertical_ruby(canvas: np.ndarray, plan: RubyPlan, body_right: float, 
     ruby_style = plan.source.style.copy()
     ruby_style.emphasis = False
     ruby_style.underline = False
+    ruby_style.strikethrough = False
     fill = _style_fill_color(ruby_style, fg)
     stroke = _style_stroke_color(ruby_style, None)
     x = body_right + plan.cross_center
@@ -220,10 +221,10 @@ def _render_rich_text_horizontal(
 
     # 一次遍历构建绘制项（每个字形只光栅化一次，派生 effects/stroke/fill
     # 三层），再按全局 effects → stroke → fill 顺序三次粘贴；emphasis 圆点
-    # 与下划线属 fill 层，按其在遍历序中的位置插入，逐像素等价于旧的三遍
+    # 与文字装饰属 fill 层，按其在遍历序中的位置插入，逐像素等价于旧的三遍
     # 光栅化。
     glyph_items = []  # (parts, x, y)
-    fill_extras = []  # (index_in_glyph_items, 'disc'|'underline', args)
+    fill_extras = []  # (index_in_glyph_items, 'disc'|'bar', args)
     for layout, normalized_baseline in zip(layouts, geometry['baselines']):
         line_width = layout.logical_width
         if reversed_direction:
@@ -253,6 +254,7 @@ def _render_rich_text_horizontal(
                 ruby_style = span.style.copy()
                 ruby_style.emphasis = False
                 ruby_style.underline = False
+                ruby_style.strikethrough = False
                 for glyph in ruby.glyphs:
                     parts = _text_layer_parts(
                         glyph.char, ruby_style, ruby.font_size, ruby.stroke_ratio,
@@ -276,12 +278,21 @@ def _render_rich_text_horizontal(
                     ))
             if run.underline is not None:
                 fill_extras.append((
-                    len(glyph_items), 'underline',
+                    len(glyph_items), 'bar',
                     (cursor_x + run.underline.main_start,
                      cursor_x + run.underline.main_end,
                      baseline_y + run.underline.cross_center,
                      run.underline.thickness,
                      _style_fill_color(run.underline.source.style, fg)),
+                ))
+            if run.strikethrough is not None:
+                fill_extras.append((
+                    len(glyph_items), 'bar',
+                    (cursor_x + run.strikethrough.main_start,
+                     cursor_x + run.strikethrough.main_end,
+                     baseline_y + run.strikethrough.cross_center,
+                     run.strikethrough.thickness,
+                     _style_fill_color(run.strikethrough.source.style, fg)),
                 ))
             cursor_x += run.logical_width
 
@@ -290,7 +301,7 @@ def _render_rich_text_horizontal(
             cx, cy, radius, color = args
             _draw_rgba_disc(canvas, cx, cy, radius, color)
         else:
-            # 下划线：主轴 [x0, x1) × 交叉轴以 center_y 为中心的实心横条
+            # 文字装饰：主轴 [x0, x1) × 交叉轴以 center_y 为中心的实心横条
             x0, x1, center_y, thickness, color = args
             _draw_rgba_bar(canvas, x0, center_y - thickness / 2.0, x1 - x0, thickness, color)
 
@@ -408,20 +419,29 @@ def _render_rich_text_vertical(
             ))
         for underline in layout.underline_plans:
             fill_extras.append((
-                len(glyph_items), 'underline',
+                len(glyph_items), 'bar',
                 (line_origin_y + underline.main_start,
                  line_origin_y + underline.main_end,
                  body_right + underline.cross_center,
                  underline.thickness,
                  _style_fill_color(underline.source.style, fg)),
             ))
+        for strikethrough in layout.strikethrough_plans:
+            fill_extras.append((
+                len(glyph_items), 'bar',
+                (line_origin_y + strikethrough.main_start,
+                 line_origin_y + strikethrough.main_end,
+                 body_right + strikethrough.cross_center,
+                 strikethrough.thickness,
+                 _style_fill_color(strikethrough.source.style, fg)),
+            ))
 
     def _run_fill_extra(kind, args):
         if kind == 'disc':
             cx, cy, radius, color = args
             _draw_rgba_disc(canvas, cx, cy, radius, color)
-        elif kind == 'underline':
-            # 下划线：主轴 [y0, y1) × 交叉轴以 center_x 为中心的实心竖条
+        elif kind == 'bar':
+            # 文字装饰：主轴 [y0, y1) × 交叉轴以 center_x 为中心的实心竖条
             y0, y1, center_x, thickness, color = args
             _draw_rgba_bar(canvas, center_x - thickness / 2.0, y0, thickness, y1 - y0, color)
         else:

@@ -68,3 +68,4 @@ class VerticalColumnPlan:
     underline_plans: tuple[UnderlinePlan, ...] = ()
     line_kerning: float | None = None
     next_kerning: float | None = None
+    strikethrough_plans: tuple[UnderlinePlan, ...] = ()

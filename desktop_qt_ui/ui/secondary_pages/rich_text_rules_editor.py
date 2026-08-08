@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QMessageBox,
@@ -69,6 +70,7 @@ def _style_summary(style: dict, empty_text: str) -> str:
         "bold": "B",
         "italic": "I",
         "underline": "U",
+        "strikethrough": "ST",
         "color": "C",
         "scale": "%",
         "fontSize": "S",
@@ -137,16 +139,20 @@ class RichTextStyleControls(SimpleCardWidget):
 
         self.bold = CheckBox(self._t("Bold"))
         self.underline = CheckBox(self._t("Underline"))
+        self.strikethrough = CheckBox(self._t("Strikethrough"))
         self.emphasis = CheckBox(self._t("Emphasis"))
         self.tcy = CheckBox(self._t("Vertical-in-Horizontal (TCY)"))
         switches = QWidget(self)
-        switch_layout = QHBoxLayout(switches)
+        switch_layout = QGridLayout(switches)
         switch_layout.setContentsMargins(0, 0, 0, 0)
-        switch_layout.addWidget(self.bold)
-        switch_layout.addWidget(self.underline)
-        switch_layout.addWidget(self.emphasis)
-        switch_layout.addWidget(self.tcy)
-        switch_layout.addStretch()
+        switch_layout.setHorizontalSpacing(12)
+        switch_layout.setVerticalSpacing(4)
+        switch_layout.addWidget(self.bold, 0, 0)
+        switch_layout.addWidget(self.underline, 0, 1)
+        switch_layout.addWidget(self.strikethrough, 0, 2)
+        switch_layout.addWidget(self.emphasis, 1, 0)
+        switch_layout.addWidget(self.tcy, 1, 1, 1, 2)
+        switch_layout.setColumnStretch(2, 1)
         add_form_row("Switches", switches)
 
         ruby_editor = FluentLineEdit(self)
@@ -328,6 +334,7 @@ class RichTextStyleControls(SimpleCardWidget):
         self.font_family.editor.refresh_ui_texts()
         self.bold.setText(self._t("Bold"))
         self.underline.setText(self._t("Underline"))
+        self.strikethrough.setText(self._t("Strikethrough"))
         self.emphasis.setText(self._t("Emphasis"))
         self.tcy.setText(self._t("Vertical-in-Horizontal (TCY)"))
         self.ruby.editor.setPlaceholderText(self._t("Ruby text"))
@@ -355,6 +362,7 @@ class RichTextStyleControls(SimpleCardWidget):
         values = text_style_to_control_values(style)
         self.bold.setChecked(bool(values["bold"]))
         self.underline.setChecked(bool(values["underline"]))
+        self.strikethrough.setChecked(bool(values["strikethrough"]))
         self.emphasis.setChecked(bool(values["emphasis"]))
         for key, field in self._fields.items():
             value = values.get(key)
@@ -374,10 +382,16 @@ class RichTextStyleControls(SimpleCardWidget):
                 field.editor.setValue(value)
 
     def style(self) -> dict:
-        values = {"bold": True, "underline": True, "emphasis": True}
+        values = {
+            "bold": True,
+            "underline": True,
+            "strikethrough": True,
+            "emphasis": True,
+        }
         enabled = set()
         if self.bold.isChecked(): enabled.add("bold")
         if self.underline.isChecked(): enabled.add("underline")
+        if self.strikethrough.isChecked(): enabled.add("strikethrough")
         if self.emphasis.isChecked(): enabled.add("emphasis")
         for key, field in self._fields.items():
             if not field.enabled.isChecked():

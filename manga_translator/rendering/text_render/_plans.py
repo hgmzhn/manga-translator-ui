@@ -116,6 +116,7 @@ class HorizontalRunPlan:
     ruby: RubyPlan | None = None
     emphasis: EmphasisPlan | None = None
     underline: UnderlinePlan | None = None
+    strikethrough: UnderlinePlan | None = None
 
 
 @dataclass(frozen=True)

@@ -37,7 +37,7 @@ Use this page when a rule must do more than change text: it also adjusts font si
 
 ### Style summary and filtering {#style-summary}
 
-- The “Rich Text Style” column button shows an abbreviation summary of the set fields: `B` bold, `I` italic, `U` underline, `C` color, `%` scale, `S` font size, `F` font family, `O` stroke, `OS` outer stroke, `G` glow, `D` emphasis, `FA` force advance, `K` kerning, `PK` pre kerning, `LK` line kerning, `NK` next kerning, `XY/Rot` transform, `R` ruby, `T` TCY.
+- The “Rich Text Style” column button shows an abbreviation summary of the set fields: `B` bold, `I` italic, `U` underline, `ST` strikethrough, `C` color, `%` scale, `S` font size, `F` font family, `O` stroke, `OS` outer stroke, `G` glow, `D` emphasis, `FA` force advance, `K` kerning, `PK` pre kerning, `LK` line kerning, `NK` next kerning, `XY/Rot` transform, `R` ruby, `T` TCY.
 - The filter box “Type to filter by pattern / style / comment...” also matches the style JSON, so you can locate rules by typing a color value or a font size.
 
 ## Style fields {#style-fields}
@@ -53,6 +53,10 @@ Check the box to render matched text with bold glyphs; it does not conflict with
 #### Underline {#field-underline}
 
 Check the box to draw an underline under matched text.
+
+#### Strikethrough {#field-strikethrough}
+
+Check the box to draw a line through matched text. Horizontal text uses a horizontal line through the glyph body; vertical text uses a vertical line through the column center.
 
 #### Emphasis {#field-emphasis}
 

@@ -527,8 +527,9 @@ def _build_horizontal_ruby_plan(
         return None
     ruby_style = span.style.copy()
     ruby_style.emphasis = False
-    # 注音不继承正文的着重号与下划线（装饰只作用于正文行）
+    # 注音不继承正文装饰（装饰只作用于正文行）
     ruby_style.underline = False
+    ruby_style.strikethrough = False
     ruby_font = max(1, int(round(run.font_size * RICH_TEXT_POLICY.horizontal_ruby_size)))
     ruby_stroke_ratio = _style_stroke_ratio(ruby_style, ruby_font, 0.0, stroke_enabled)
     raw_glyphs = []
@@ -721,6 +722,21 @@ def _finalize_rich_horizontal_line(
                 float(run.logical_width),
                 float(underline.thickness),
             ))
+        if run.span.style.strikethrough and run.logical_width > 0:
+            strikethrough = plan_underline(
+                run.span, 0.0, run.logical_width, run.font_size
+            )
+            strikethrough.cross_center = (
+                run.font_size * RICH_TEXT_POLICY.strikethrough_offset
+            )
+            run.strikethrough = strikethrough
+            decoration_rect = (
+                cursor,
+                strikethrough.cross_center - strikethrough.thickness / 2.0,
+                float(run.logical_width),
+                float(strikethrough.thickness),
+            )
+            paint_rects.append(decoration_rect)
         cursor += run.logical_width
 
     logical_width = sum(run.logical_width for run in runs)
@@ -1135,6 +1151,7 @@ def _build_rich_vertical_layout(
         ruby_plans = []
         emphasis_plans = []
         underline_plans = []
+        strikethrough_plans = []
         item_index = 0
         while item_index < len(laid):
             item = laid[item_index]
@@ -1176,6 +1193,24 @@ def _build_rich_vertical_layout(
                             + underline.thickness / 2.0
                         )),
                     )
+            if span.style.strikethrough:
+                intervals = [
+                    interval for interval in
+                    (_vertical_item_main_interval(candidate) for candidate in group_items)
+                    if interval is not None
+                ]
+                if intervals:
+                    strikethrough = plan_underline(
+                        span,
+                        min(start for start, _ in intervals),
+                        max(end for _, end in intervals),
+                        group_items[0].font_size,
+                    )
+                    # Vertical decorations use body_right as their cross-axis
+                    # origin.  A negative half-column offset places this line
+                    # through the fixed body-column center.
+                    strikethrough.cross_center = -thickness / 2.0
+                    strikethrough_plans.append(strikethrough)
             if isinstance(item, TcyPlan):
                 item_index = group_end
                 continue
@@ -1281,6 +1316,7 @@ def _build_rich_vertical_layout(
             ruby_plans=tuple(ruby_plans),
             emphasis_plans=tuple(emphasis_plans),
             underline_plans=tuple(underline_plans),
+            strikethrough_plans=tuple(strikethrough_plans),
             line_kerning=line_kerning,
             next_kerning=next_kerning,
         ))

@@ -16,7 +16,7 @@ Use the “Style Settings” section of the property panel whenever you need to 
 - “Style Settings” is one of the three property-panel sections; the other two are “Image Editing” and “Text Content”. This guide covers the style section only.
 - Style fields are per-region data fields (`font_family`, `font_size`, `bg_colors`, and so on), not global rendering-config keys. The global rendering group in Settings participates only as a fallback when a region has no corresponding field.
 - With a single selection, the text, style, and action sections are enabled; with a multi-selection the text section is disabled while style and actions stay enabled, and changing any style field applies to all selected regions. With no selection all three sections are disabled. Multi-selection has no “mixed value” display; the style controls keep the value of the last single selection.
-- Rich-text “local styles” (bold, italic, underline, text color, glow, outer stroke, TCY, ruby, local rotation, and so on) apply to one contiguous text segment and never write these region fields.
+- Rich-text “local styles” (bold, italic, underline, strikethrough, text color, glow, outer stroke, TCY, ruby, local rotation, and so on) apply to one contiguous text segment and never write these region fields.
 - A style preset saves only a subset of the region-level style fields; font size and angle are not saved.
 
 ## Use it in the editor

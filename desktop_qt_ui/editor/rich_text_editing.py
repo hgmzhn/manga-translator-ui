@@ -137,6 +137,7 @@ def text_style_to_control_values(style: Any) -> dict:
     return {
         "bold": bool(style.get("bold", False)),
         "underline": bool(style.get("underline", False)),
+        "strikethrough": bool(style.get("strikethrough", False)),
         "emphasis": bool(style.get("emphasis", False)),
         "verticalAdvance": style.get("verticalAdvance"),
         "italic": italic,
@@ -161,7 +162,8 @@ def text_style_from_control_values(values: dict, enabled: set[str]) -> dict:
     """由共享控件值构建严格的 richtext.v1 style。未启用字段不写入。"""
     style: dict[str, Any] = {}
     for key in (
-        "bold", "underline", "emphasis", "italic", "color", "fontSize", "scale",
+        "bold", "underline", "strikethrough", "emphasis", "italic", "color",
+        "fontSize", "scale",
         "fontFamily", "stroke", "outerStroke", "glow", "kerning",
         "preKerning", "lineKerning", "nextKerning", "verticalAdvance",
     ):
@@ -666,7 +668,11 @@ def style_for_range(document: dict, start: int, end: int) -> dict:
     for style in styles:
         if not isinstance(style, dict):
             continue
-        for key in ("bold", "italic", "underline", "scale", "emphasis", "noTcy", "verticalAdvance", "kerning", "preKerning", "lineKerning", "nextKerning"):
+        for key in (
+            "bold", "italic", "underline", "strikethrough", "scale",
+            "emphasis", "noTcy", "verticalAdvance", "kerning", "preKerning",
+            "lineKerning", "nextKerning",
+        ):
             if key in style and key not in result:
                 result[key] = style.get(key)
         if "color" in style and "color" not in result:
@@ -807,6 +813,8 @@ def _style_row_value(entry: _CharEntry, row_key: str) -> Any:
         return bool(style.get("bold"))
     if row_key == "U":
         return bool(style.get("underline"))
+    if row_key == "ST":
+        return bool(style.get("strikethrough"))
     if row_key == "C":
         return style.get("color")
     if row_key == "I":
@@ -839,6 +847,8 @@ def _style_matches_row_key(style: dict, row_key: str) -> bool:
         return bool(style.get("bold"))
     if row_key == "U":
         return bool(style.get("underline"))
+    if row_key == "ST":
+        return bool(style.get("strikethrough"))
     if row_key == "C":
         return "color" in style
     if row_key == "I":

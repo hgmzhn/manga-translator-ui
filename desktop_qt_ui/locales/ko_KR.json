@@ -1306,6 +1306,7 @@
   "Stroke Color": "테두리 색",
   "OCR Confidence": "OCR 신뢰도",
   "Underline": "밑줄",
+  "Strikethrough": "취소선",
   "Has Rich Text": "서식 있음",
   "Line Count": "줄 수",
   "Region Index": "영역 번호",

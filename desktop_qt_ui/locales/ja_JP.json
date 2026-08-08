@@ -1306,6 +1306,7 @@
   "Stroke Color": "縁取りの色",
   "OCR Confidence": "OCR 信頼度",
   "Underline": "下線",
+  "Strikethrough": "取り消し線",
   "Has Rich Text": "リッチテキストあり",
   "Line Count": "行数",
   "Region Index": "領域番号",

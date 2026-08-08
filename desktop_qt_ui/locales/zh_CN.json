@@ -1315,6 +1315,7 @@
   "Stroke Color": "描边颜色",
   "OCR Confidence": "OCR 置信度",
   "Underline": "下划线",
+  "Strikethrough": "删除线",
   "Has Rich Text": "含富文本",
   "Line Count": "行数",
   "Region Index": "区域序号",

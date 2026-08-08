@@ -1306,6 +1306,7 @@
   "Stroke Color": "Color del contorno",
   "OCR Confidence": "Confianza del OCR",
   "Underline": "Subrayado",
+  "Strikethrough": "Tachado",
   "Has Rich Text": "Tiene texto enriquecido",
   "Line Count": "Número de líneas",
   "Region Index": "Índice de región",

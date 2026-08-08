@@ -1308,6 +1308,7 @@
   "Stroke Color": "描邊顏色",
   "OCR Confidence": "OCR 信心值",
   "Underline": "底線",
+  "Strikethrough": "刪除線",
   "Has Rich Text": "含富文本",
   "Line Count": "行數",
   "Region Index": "區域序號",

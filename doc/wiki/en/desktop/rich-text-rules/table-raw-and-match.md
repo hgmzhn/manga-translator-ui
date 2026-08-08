@@ -50,7 +50,7 @@ Table View is the default mode and shows rules per group:
 Click the style button in the Rich Text Style column to open the "Edit Rich Text Style" dialog:
 
 - At the top, a preset can be loaded from the "Saved rich text style:" combo box.
-- The "Switches" row provides "Bold", "Underline", "Emphasis", and "Vertical-in-Horizontal (TCY)".
+- The "Switches" area provides "Bold", "Underline", "Strikethrough", "Emphasis", and "Vertical-in-Horizontal (TCY)".
 - The remaining fields are optional and enabled with the checkbox on each row: Ruby Text, Italic Angle, Text Color, Font Size, Scale, Force Advance (Half/Full), Font Family, Stroke, Outer Stroke, Glow, Kerning, Pre Kerning, Line Kerning, Next Kerning, Rotation, Offset X, and Offset Y.
 - The dialog hint reads "Enable only the style properties this rule should apply.". On OK the style is validated; an invalid style raises an "Invalid Style" warning.
 

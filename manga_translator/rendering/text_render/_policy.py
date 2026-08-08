@@ -22,6 +22,8 @@ class RichTextRenderPolicy:
     underline_thickness: float = 0.06
     underline_offset: float = 0.14
     vertical_underline_offset: float = 0.10
+    # 横排删除线中心相对基线的位置；线宽复用 underline_thickness。
+    strikethrough_offset: float = -0.30
     ruby_overflow_ratio: float = 1.20
     # 纵中横块允许的最大墨迹宽度（基准字号倍数），超出按比例整组水平压缩。
     # 与参考实现（mtu-json-gui）一致：留 1.1 倍余量，防止全角数字挤压过度。

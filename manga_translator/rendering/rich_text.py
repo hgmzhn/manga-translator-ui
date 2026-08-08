@@ -100,6 +100,7 @@ class TextStyle:
     line_kerning: Optional[float] = None
     next_kerning: Optional[float] = None
     transform: TextTransform = field(default_factory=TextTransform)
+    strikethrough: bool = False
 
     def copy(self) -> "TextStyle":
         return copy.deepcopy(self)
@@ -115,6 +116,7 @@ class TextStyle:
                 'bold',
                 'italic',
                 'underline',
+                'strikethrough',
                 'color',
                 'scale',
                 'fontSize',
@@ -138,6 +140,7 @@ class TextStyle:
             bold=bool(value.get('bold', False)),
             italic=_parse_italic(value.get('italic', False)),
             underline=bool(value.get('underline', False)),
+            strikethrough=bool(value.get('strikethrough', False)),
             color=value.get('color'),
             scale=float(value.get('scale', 1.0) or 1.0),
             font_size=font_size,
@@ -160,6 +163,7 @@ class TextStyle:
             'bold': self.bold or None,
             'italic': self.italic or None,
             'underline': self.underline or None,
+            'strikethrough': self.strikethrough or None,
             'color': self.color,
             'scale': None if self.scale == 1.0 else self.scale,
             'fontSize': self.font_size,
