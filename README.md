@@ -183,6 +183,12 @@ uv run --no-sync python -m manga_translator --help
 
 ---
 
+## 🧪 测试范围
+
+自动化测试只覆盖核心业务逻辑、数据处理和稳定的接口契约。Qt/Fluent 界面控件、交互和视觉表现不编写自动化测试：界面迭代频繁，维护这些测试的成本高于收益，相关改动以人工验证为准。
+
+---
+
 ## ⭐ Star 趋势
 
 <div align="center">
