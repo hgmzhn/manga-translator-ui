@@ -1246,6 +1246,10 @@ class GraphicsViewInputMixin:
                         }
 
             config = get_config_service().get_config()
+            # 新建文本框的字体和对齐方式应与排版设置保持一致。
+            # font_family 为空时交给渲染器使用其默认字体。
+            default_font_family = getattr(config.render, "font_family", "") or ""
+            default_alignment = getattr(config.render, "alignment", "auto") or "auto"
             default_line_spacing = config.render.line_spacing if hasattr(config.render, "line_spacing") else 1.0
             default_letter_spacing = (
                 config.render.letter_spacing if hasattr(config.render, "letter_spacing") else 1.0
@@ -1268,11 +1272,11 @@ class GraphicsViewInputMixin:
                 "white_frame_rect_local": white_frame_rect_local,
                 "has_custom_white_frame": True,
                 "center": [cx, cy],
-                "font_family": template_data.get("font_family", "Arial"),
+                "font_family": default_font_family,
                 "font_size": template_data.get("font_size", 24),
                 "font_color": template_data.get("font_color", "#000000"),
                 "bg_colors": template_data.get("bg_colors", [255, 255, 255]),
-                "alignment": template_data.get("alignment", "center"),
+                "alignment": default_alignment,
                 "direction": inferred_direction,
                 "angle": template_data.get("angle", 0),
                 "line_spacing": default_line_spacing,
