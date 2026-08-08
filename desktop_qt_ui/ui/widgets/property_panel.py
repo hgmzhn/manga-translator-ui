@@ -19,7 +19,6 @@ from qfluentwidgets import (
     CheckBox,
     CompactDoubleSpinBox,
     CompactSpinBox,
-    ComboBox,
     FluentIcon as FIF,
     PopUpAniStackedWidget,
     PrimaryPushButton,
@@ -39,7 +38,7 @@ from utils.font_list import FontComboBox
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
 from .sidebar import FluentScrollArea
-from .wheel_filter import install_wheel_filter
+from .wheel_filter import TopLevelComboBox as ComboBox, install_wheel_filter
 
 # from .collapsible_frame import CollapsibleFrame  # 不再使用折叠框
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text

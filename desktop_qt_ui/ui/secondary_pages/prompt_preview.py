@@ -32,9 +32,7 @@ from qfluentwidgets import (
     TitleLabel,
     ToolButton,
 )
-from qfluentwidgets import (
-    ComboBox as QComboBox,
-)
+from ui.widgets.wheel_filter import TopLevelComboBox as QComboBox
 from qfluentwidgets import (
     LineEdit as QLineEdit,
 )
