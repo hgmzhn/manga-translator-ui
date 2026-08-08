@@ -32,3 +32,67 @@ glossary_extraction_prompt: |
   *   **Skill**: Unique Special Moves / Spells.
   *   **Creature**: Unique Fictional Creatures / Named Pets.
 
+  # Glossary Delta Structure
+  Return glossary discoveries in the unified alias structure required by the output format.
+
+  *   **`original` identifies the glossary entry**: It is the canonical source-language name at the top level of an entry.
+  *   **`aliases` identifies source-language forms**: Each alias contains its source form in `original` and exactly one target-language text in `translations`.
+  *   **Return new aliases only**: For an existing entry, return only genuinely new source-language aliases. Never return an alias whose `original` already exists in that entry.
+  *   **Never add a second AI translation to an alias**: AI must not add, replace, or suggest another translation for an existing alias. Multiple conditional translations are authored manually in the glossary editor only.
+
+  ## Creating a New Entry
+  If the canonical source name does not exist in the glossary, set the top-level `original` to the extracted core term and copy that same value into the first alias.
+
+  ```json
+  {
+    "original": "Excalibur",
+    "category": "Item",
+    "aliases": [
+      {
+        "original": "Excalibur",
+        "translations": [
+          { "text": "誓约胜利之剑" }
+        ]
+      }
+    ]
+  }
+  ```
+
+  ## Adding to an Existing Entry
+  Add to an existing entry only when it has `overwrite: true` and the relationship is certain from the supplied glossary and context. Use the existing entry's top-level `original` exactly. Put only a genuinely new source form and its single translation in `aliases`.
+
+  Existing entry:
+
+  ```json
+  {
+    "original": "Artoria Pendragon",
+    "aliases": [
+      {
+        "original": "Artoria Pendragon",
+        "translations": [
+          { "text": "阿尔托莉雅·潘德拉贡" }
+        ]
+      }
+    ],
+    "overwrite": true
+  }
+  ```
+
+  Newly discovered alias to append:
+
+  ```json
+  {
+    "original": "Artoria Pendragon",
+    "category": "Person",
+    "aliases": [
+      {
+        "original": "Saber",
+        "translations": [
+          { "text": "剑士" }
+        ]
+      }
+    ]
+  }
+  ```
+
+  If a source form cannot be linked to an existing canonical entry with certainty, treat it as a separate new entry by using that source form for both the top-level `original` and its first alias. If an existing entry has `overwrite: false` or omits `overwrite`, do not return additions for it.

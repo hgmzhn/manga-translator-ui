@@ -15,7 +15,13 @@ system_prompt: ""
 glossary:
   Person:
     - original: ""
-      translation: ""
+      aliases:
+        - original: ""
+          translations:
+            - text: ""
+              condition: ""
+      description: ""
+      overwrite: false
   Location: []
   Org: []
   Item: []

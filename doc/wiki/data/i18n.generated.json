@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1356,
-    "exact": 1356,
+    "keys": 1368,
+    "exact": 1368,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -88,6 +88,18 @@
       "key": "A scheme named '{name}' already exists.",
       "en_US": "A scheme named '{name}' already exists.",
       "zh_CN": "已存在名为“{name}”的方案。",
+      "status": "exact"
+    },
+    {
+      "key": "AI Additions",
+      "en_US": "AI Additions",
+      "zh_CN": "允许 AI 补充",
+      "status": "exact"
+    },
+    {
+      "key": "AI may append extracted aliases to this term",
+      "en_US": "AI may append extracted aliases to this term",
+      "zh_CN": "AI 可向该术语追加自动提取的新叫法",
       "status": "exact"
     },
     {
@@ -259,6 +271,12 @@
       "status": "exact"
     },
     {
+      "key": "Add Alias",
+      "en_US": "Add Alias",
+      "zh_CN": "添加叫法",
+      "status": "exact"
+    },
+    {
       "key": "Add Files",
       "en_US": "Add Files",
       "zh_CN": "添加文件",
@@ -298,6 +316,12 @@
       "key": "Add Section",
       "en_US": "Add Section",
       "zh_CN": "添加字段",
+      "status": "exact"
+    },
+    {
+      "key": "Add Translation",
+      "en_US": "Add Translation",
+      "zh_CN": "添加译文",
       "status": "exact"
     },
     {
@@ -364,6 +388,18 @@
       "key": "After",
       "en_US": "After",
       "zh_CN": "改后",
+      "status": "exact"
+    },
+    {
+      "key": "Alias Original",
+      "en_US": "Alias / Source Form",
+      "zh_CN": "叫法原文",
+      "status": "exact"
+    },
+    {
+      "key": "Aliases",
+      "en_US": "Aliases / Forms",
+      "zh_CN": "别名（叫法）",
       "status": "exact"
     },
     {
@@ -436,6 +472,12 @@
       "key": "All sections added",
       "en_US": "All sections added",
       "zh_CN": "所有字段已添加",
+      "status": "exact"
+    },
+    {
+      "key": "Allow AI additions",
+      "en_US": "Allow AI additions",
+      "zh_CN": "允许 AI 补充条目",
       "status": "exact"
     },
     {
@@ -847,6 +889,12 @@
       "status": "exact"
     },
     {
+      "key": "Condition",
+      "en_US": "Condition",
+      "zh_CN": "使用条件",
+      "status": "exact"
+    },
+    {
       "key": "Config exported successfully to:\n{path}\n\nNote: Sensitive information like API keys are not included.",
       "en_US": "Config exported successfully to:\n{path}\n\nNote: Sensitive information like API keys are not included.",
       "zh_CN": "配置已成功导出到：\n{path}\n\n注意：API密钥等敏感信息未包含在导出文件中。",
@@ -979,6 +1027,12 @@
       "status": "exact"
     },
     {
+      "key": "Delete Alias",
+      "en_US": "Delete Alias",
+      "zh_CN": "删除叫法",
+      "status": "exact"
+    },
+    {
       "key": "Delete Row",
       "en_US": "Delete Row",
       "zh_CN": "删除行",
@@ -988,6 +1042,12 @@
       "key": "Delete Style",
       "en_US": "Delete Style",
       "zh_CN": "删除样式",
+      "status": "exact"
+    },
+    {
+      "key": "Delete Translation",
+      "en_US": "Delete Translation",
+      "zh_CN": "删除译文",
       "status": "exact"
     },
     {
@@ -1129,6 +1189,12 @@
       "status": "exact"
     },
     {
+      "key": "Drag to reorder regions",
+      "en_US": "Drag to reorder regions",
+      "zh_CN": "拖动调整区域顺序",
+      "status": "exact"
+    },
+    {
       "key": "Duplicate",
       "en_US": "Duplicate",
       "zh_CN": "复制",
@@ -1222,12 +1288,6 @@
       "key": "Edit the raw file content directly",
       "en_US": "Edit the raw file content directly",
       "zh_CN": "直接编辑文件原始内容",
-      "status": "exact"
-    },
-    {
-      "key": "Editable Translation",
-      "en_US": "Editable Translation",
-      "zh_CN": "可编辑译文",
       "status": "exact"
     },
     {
@@ -2152,12 +2212,6 @@
       "key": "Next Kerning",
       "en_US": "Next Kerning",
       "zh_CN": "与后一行间距",
-      "status": "exact"
-    },
-    {
-      "key": "Nicknames",
-      "en_US": "Nicknames",
-      "zh_CN": "昵称",
       "status": "exact"
     },
     {
@@ -3559,6 +3613,12 @@
       "status": "exact"
     },
     {
+      "key": "Strikethrough",
+      "en_US": "Strikethrough",
+      "zh_CN": "删除线",
+      "status": "exact"
+    },
+    {
       "key": "String",
       "en_US": "String",
       "zh_CN": "字符串",
@@ -3919,6 +3979,12 @@
       "status": "exact"
     },
     {
+      "key": "Translation List",
+      "en_US": "Translation List",
+      "zh_CN": "译文列表",
+      "status": "exact"
+    },
+    {
       "key": "Translation Rules",
       "en_US": "Translation Rules",
       "zh_CN": "翻译规则",
@@ -3940,6 +4006,12 @@
       "key": "Translation completed, {count} files saved.\n\nOpen results in editor?",
       "en_US": "Translation completed, {count} files saved.\n\nOpen results in editor?",
       "zh_CN": "翻译完成，成功保存 {count} 个文件。\n\n是否在编辑器中打开结果？",
+      "status": "exact"
+    },
+    {
+      "key": "Translations",
+      "en_US": "Translations",
+      "zh_CN": "多译文",
       "status": "exact"
     },
     {

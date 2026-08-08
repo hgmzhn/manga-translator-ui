@@ -30,7 +30,13 @@ system_prompt: ""
 glossary:
   Person:
     - original: ""
-      translation: ""
+      aliases:
+        - original: ""
+          translations:
+            - text: ""
+              condition: ""
+      description: ""
+      overwrite: false
   Location: []
   Org: []
   Item: []
@@ -39,7 +45,7 @@ glossary:
 ```
 
 - `system_prompt`：字符串，自定义系统提示词正文，可留空。留空时只使用内置基础提示词；填写的内容会叠加在基础提示词之前。
-- `glossary`：术语表，按 `Person` / `Location` / `Org` / `Item` / `Skill` / `Creature` 分组。每组是 `- original: ""` 与 `translation: ""` 组成的条目列表；空数组（如 `Location: []`）表示不启用该组。
+- `glossary`：术语表，按 `Person` / `Location` / `Org` / `Item` / `Skill` / `Creature` 分组。所有分类使用同一结构：顶层 `original` 是正式原文，`aliases` 保存不同叫法，每个叫法的 `translations` 保存一个或多个人工译文及可选 `condition`；空数组（如 `Location: []`）表示该分类没有条目。
 - 占位符：正文中的 <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> 会在每次请求构造时被替换为目标语言名称，见[占位符替换](#placeholders)。
 
 脱敏示例（只演示结构与占位符用法，不含真实提示词内容）：
@@ -50,11 +56,20 @@ system_prompt: |
 glossary:
   Person:
     - original: "示例角色名"
-      translation: "示例角色译名"
+      aliases:
+        - original: "示例角色名"
+          translations:
+            - text: "示例角色译名"
+      description: "示例角色介绍"
+      overwrite: true
   Location: []
   Org:
     - original: "示例组织名"
-      translation: "示例组织译名"
+      aliases:
+        - original: "示例组织名"
+          translations:
+            - text: "示例组织译名"
+      overwrite: false
   Item: []
   Skill: []
   Creature: []

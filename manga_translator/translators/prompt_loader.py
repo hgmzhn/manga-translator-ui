@@ -152,15 +152,28 @@ def load_system_prompt_hq_format(dict_dir: str, target_lang: str, extract_glossa
 
     if extract_glossary:
         optional_new_terms_rule = (
-            '      -   The object MUST also contain a key "new_terms" which is a list of objects.\n'
-            '      -   If no new terms are found, return `"new_terms": []`.\n'
-            '      -   Each item in the "new_terms" list MUST have "original", "translation", and "category".\n'
+            '    -   The object MUST also contain a key "new_terms" which is a list of objects.\n'
+            '    -   If no new terms are found, return `"new_terms": []`.\n'
+            '    -   Each item in "new_terms" MUST have "original", "category", and "aliases".\n'
+            '    -   "aliases" MUST be a list. Each alias MUST have "original" and "translations".\n'
+            '    -   Each alias "translations" list MUST contain exactly one object with only "text".\n'
         )
         optional_new_terms_example_suffix = (
             ',\n'
-            '    "new_terms": [\n'
-            f'      {{ "original": "Excalibur", "translation": "<{target_lang} translation>", "category": "Item" }}\n'
-            '    ]\n'
+            '  "new_terms": [\n'
+            '    {\n'
+            '      "original": "Excalibur",\n'
+            '      "category": "Item",\n'
+            '      "aliases": [\n'
+            '        {\n'
+            '          "original": "Excalibur",\n'
+            '          "translations": [\n'
+            f'            {{ "text": "<{target_lang} translation>" }}\n'
+            '          ]\n'
+            '        }\n'
+            '      ]\n'
+            '    }\n'
+            '  ]\n'
         )
         optional_new_terms_final_instruction = ' Return "new_terms": [] when no new terms are found.'
     else:

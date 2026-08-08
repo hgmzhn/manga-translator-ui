@@ -1400,7 +1400,7 @@ class CommonTranslator(InfererModule):
         self._stream_inline_last_len = 0
         self._stream_inline_buffer = ""
         self._stream_json_seen: Dict[int, str] = {}
-        self._stream_term_seen: Dict[Tuple[str, str], str] = {}
+        self._stream_term_seen: Dict[Tuple[str, str, str], str] = {}
         self._stream_preview_buffer = ""
         self._stream_preview_scan_pos = 0
         self._stream_preview_object_starts: List[int] = []
@@ -2336,36 +2336,41 @@ class CommonTranslator(InfererModule):
 
         self.logger.info("---------------------------")
 
-    def _emit_terms_from_list(self, new_terms: List[Dict[str, str]]) -> None:
-        """统一输出术语提取结果；按(原文,译文)去重并优先保留带分类版本。"""
+    def _emit_terms_from_list(self, new_terms: List[Dict[str, Any]]) -> None:
+        """统一输出术语提取结果；按正式名称、叫法和译文去重。"""
         if not new_terms:
             return
         for term in new_terms:
             if not isinstance(term, dict):
                 continue
             term_o = str(term.get("original") or term.get("src") or "").strip()
-            term_t = str(term.get("translation") or term.get("dst") or "").strip()
             term_c = str(term.get("category") or "").strip()
-            if not term_o or not term_t:
+            aliases = _auto_alias_deltas(term)
+            if not term_o or not aliases:
                 continue
 
-            key = (term_o, term_t)
-            prev_category = self._stream_term_seen.get(key)
-            if prev_category is not None:
-                if prev_category == term_c:
-                    continue
-                if prev_category and not term_c:
-                    continue
-            # 无分类先缓存，不立即输出；后续若拿到分类再输出，避免重复两条
-            if not term_c and prev_category is None:
-                self._stream_term_seen[key] = ""
-                continue
-            self._stream_term_seen[key] = term_c
+            for alias in aliases:
+                alias_o = alias["original"]
+                for translation in alias["translations"]:
+                    term_t = translation["text"]
+                    key = (term_o, alias_o, term_t)
+                    prev_category = self._stream_term_seen.get(key)
+                    if prev_category is not None:
+                        if prev_category == term_c:
+                            continue
+                        if prev_category and not term_c:
+                            continue
+                    # 无分类先缓存，不立即输出；后续若拿到分类再输出，避免重复两条
+                    if not term_c and prev_category is None:
+                        self._stream_term_seen[key] = ""
+                        continue
+                    self._stream_term_seen[key] = term_c
 
-            if term_c:
-                self.logger.info(f"[TERM] {term_o} -> {term_t} ({term_c})")
-            else:
-                self.logger.info(f"[TERM] {term_o} -> {term_t}")
+                    relation = term_o if term_o == alias_o else f"{term_o} [{alias_o}]"
+                    if term_c:
+                        self.logger.info(f"[TERM] {relation} -> {term_t} ({term_c})")
+                    else:
+                        self.logger.info(f"[TERM] {relation} -> {term_t}")
 
     def _filter_stream_preview_delta(self, delta_text: str) -> str:
         """
@@ -2551,28 +2556,16 @@ class CommonTranslator(InfererModule):
         for tid, translated in translation_items:
             self._emit_stream_preview_translation_item(prefix, tid, translated, source_texts=source_texts)
 
-        term_items: List[Dict[str, str]] = []
-        if "original" in parsed and "translation" in parsed:
-            term_items.append(
-                {
-                    "original": str(parsed.get("original") or ""),
-                    "translation": str(parsed.get("translation") or ""),
-                    "category": str(parsed.get("category") or ""),
-                }
-            )
+        term_items: List[Dict[str, Any]] = []
+        if "original" in parsed and "aliases" in parsed:
+            term_items.append(dict(parsed))
 
         nested_terms = parsed.get("new_terms") or parsed.get("glossary")
         if isinstance(nested_terms, list):
             for item in nested_terms:
                 if not isinstance(item, dict):
                     continue
-                term_items.append(
-                    {
-                        "original": str(item.get("original") or item.get("src") or ""),
-                        "translation": str(item.get("translation") or item.get("dst") or ""),
-                        "category": str(item.get("category") or ""),
-                    }
-                )
+                term_items.append(dict(item))
 
         if term_items:
             if not self._stream_result_header_printed:
@@ -3073,7 +3066,7 @@ def extract_json_payload_from_mixed_text(text: str) -> Tuple[str, bool]:
         return raw, False
     return best_candidate, True
 
-def parse_hq_response(result_text: str) -> Tuple[List[str], List[Dict[str, str]]]:
+def parse_hq_response(result_text: str) -> Tuple[List[str], List[Dict[str, Any]]]:
     """
     专门解析HQ翻译器的响应，支持提取翻译和新术语
     Parse HQ translator response, supporting extraction of translations and new terms
@@ -3256,14 +3249,6 @@ def parse_hq_response(result_text: str) -> Tuple[List[str], List[Dict[str, str]]
         logger.info(f"Regex extracted {len(matches)} translations with IDs")
         translations = [match[1].replace('\\"', '"').replace('\\n', '\n') for match in matches]
         
-        # 尝试提取术语 (简单正则)
-        # 假设 new_terms 在后面，格式类似 {"original": "...", ...}
-        # 这里的正则很难完美匹配嵌套结构，只能尽力而为
-        term_pattern = r'\{\s*"original"\s*:\s*"([^"]+)"\s*,\s*"translation"\s*:\s*"([^"]+)"\s*,\s*"category"\s*:\s*"([^"]+)"\s*\}'
-        term_matches = re.findall(term_pattern, result_text)
-        for tm in term_matches:
-            new_terms.append({"original": tm[0], "translation": tm[1], "category": tm[2]})
-            
         return translations, new_terms
 
     # 3.2 尝试只提取 translation 字段
@@ -3297,7 +3282,106 @@ def parse_json_or_text_response(result_text: str) -> List[str]:
 
 
 
-def merge_glossary_to_file(file_path: str, new_terms: List[Dict[str, str]]) -> bool:
+def _glossary_match_key(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _auto_alias_deltas(term: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Read a sanitized ``aliases[].translations[].text`` AI delta."""
+    grouped: List[Dict[str, Any]] = []
+    indexes: Dict[str, int] = {}
+    raw_aliases = term.get("aliases")
+
+    if isinstance(raw_aliases, list):
+        for raw_alias in raw_aliases:
+            if not isinstance(raw_alias, dict):
+                continue
+            alias_original = str(raw_alias.get("original") or "").strip()
+            raw_translations = raw_alias.get("translations")
+            if (
+                not alias_original
+                or not isinstance(raw_translations, list)
+                or len(raw_translations) != 1
+                or not isinstance(raw_translations[0], dict)
+            ):
+                continue
+
+            text = str(raw_translations[0].get("text") or "").strip()
+            if not text:
+                continue
+
+            alias_key = _glossary_match_key(alias_original)
+            if alias_key in indexes:
+                continue
+            indexes[alias_key] = len(grouped)
+            grouped.append(
+                {"original": alias_original, "translations": [{"text": text}]}
+            )
+
+    return grouped
+
+
+def _merge_auto_glossary_aliases(
+    entry: Dict[str, Any], incoming_aliases: List[Dict[str, Any]]
+) -> bool:
+    """Append AI alias deltas without changing any authored data."""
+    canonical_original = str(entry.get("original") or "").strip()
+    aliases = entry.get("aliases")
+
+    if not isinstance(aliases, list):
+        legacy_translation = str(entry.get("translation") or "").strip()
+        canonical_key = _glossary_match_key(canonical_original)
+        has_new_content = any(
+            _glossary_match_key(alias["original"]) != canonical_key
+            for alias in incoming_aliases
+        )
+        if not has_new_content:
+            return False
+
+        translations = []
+        if legacy_translation:
+            legacy_item = {"text": legacy_translation}
+            legacy_condition = str(entry.get("condition") or "").strip()
+            if legacy_condition:
+                legacy_item["condition"] = legacy_condition
+            translations.append(legacy_item)
+        aliases = [{"original": canonical_original, "translations": translations}]
+        entry.pop("translation", None)
+        entry.pop("condition", None)
+        entry["aliases"] = aliases
+
+    modified = False
+    for incoming_alias in incoming_aliases:
+        alias_original = incoming_alias["original"]
+        alias_key = _glossary_match_key(alias_original)
+        target_alias = next(
+            (
+                alias
+                for alias in aliases
+                if isinstance(alias, dict)
+                and _glossary_match_key(alias.get("original")) == alias_key
+            ),
+            None,
+        )
+        if target_alias is None:
+            aliases.append(
+                {
+                    "original": alias_original,
+                    "translations": [
+                        {"text": item["text"]}
+                        for item in incoming_alias["translations"]
+                    ],
+                }
+            )
+            modified = True
+            continue
+        # AI may create a new alias, but never append another translation to
+        # an alias that already exists. Conditional variants remain manual.
+        continue
+    return modified
+
+
+def merge_glossary_to_file(file_path: str, new_terms: List[Dict[str, Any]]) -> bool:
     """
     将新提取的术语合并到提示词文件中
     Merge newly extracted terms into the prompt file
@@ -3306,7 +3390,7 @@ def merge_glossary_to_file(file_path: str, new_terms: List[Dict[str, str]]) -> b
     
     Args:
         file_path: 提示词文件路径
-        new_terms: 新术语列表 [{"original": "...", "translation": "...", "category": "..."}]
+        new_terms: 统一别名结构的新增或追加增量
     """
     import json
     import os
@@ -3354,42 +3438,56 @@ def merge_glossary_to_file(file_path: str, new_terms: List[Dict[str, str]]) -> b
         modified = False
         
         for term in new_terms:
-            raw_category = term.get("category", "Item")
-            original = term.get("original")
-            translation = term.get("translation")
+            if not isinstance(term, dict):
+                continue
+            raw_category = term.get("category")
+            original = str(term.get("original") or "").strip()
+            incoming_aliases = _auto_alias_deltas(term)
             
-            if not original or not translation:
+            if not original or not incoming_aliases:
                 continue
 
             # 映射 Category 到标准 Key
-            target_key = "Item" # Default fallback
-            if raw_category:
-                normalized_cat = raw_category.lower()
-                if normalized_cat in valid_keys_map:
-                    target_key = valid_keys_map[normalized_cat]
-                else:
-                    # 尝试模糊匹配或直接使用 Title Case
-                    for k in valid_keys_map.values():
-                        if k.lower() == normalized_cat:
-                            target_key = k
-                            break
+            normalized_cat = str(raw_category or "").strip().lower()
+            target_key = valid_keys_map.get(normalized_cat)
+            if target_key is None:
+                continue
             
-            # 检查是否已存在 (根据 original 去重)
-            exists = False
-            if target_key in glossary:
-                for existing_term in glossary[target_key]:
-                    if existing_term.get("original") == original:
-                        exists = True
-                        break
-            else:
+            if not isinstance(glossary.get(target_key), list):
                 glossary[target_key] = []
-            
-            if not exists:
-                glossary[target_key].append({
-                    "original": original,
-                    "translation": translation
-                })
-                modified = True
+
+            original_key = _glossary_match_key(original)
+            target_entry = next(
+                (
+                    entry
+                    for entry in glossary[target_key]
+                    if isinstance(entry, dict)
+                    and _glossary_match_key(entry.get("original")) == original_key
+                ),
+                None,
+            )
+            if target_entry is not None:
+                if target_entry.get("overwrite") is True:
+                    modified = (
+                        _merge_auto_glossary_aliases(target_entry, incoming_aliases)
+                        or modified
+                    )
+                continue
+
+            # A newly created entry must contain its canonical source form.
+            if (
+                _glossary_match_key(incoming_aliases[0]["original"])
+                != _glossary_match_key(original)
+            ):
+                continue
+
+            new_entry: Dict[str, Any] = {
+                "original": original,
+                "aliases": incoming_aliases,
+                "overwrite": False,
+            }
+            glossary[target_key].append(new_entry)
+            modified = True
         
         if modified:
             # 确保存储目录存在

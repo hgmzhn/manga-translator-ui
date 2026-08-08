@@ -30,7 +30,13 @@ system_prompt: ""
 glossary:
   Person:
     - original: ""
-      translation: ""
+      aliases:
+        - original: ""
+          translations:
+            - text: ""
+              condition: ""
+      description: ""
+      overwrite: false
   Location: []
   Org: []
   Item: []
@@ -39,7 +45,7 @@ glossary:
 ```
 
 - `system_prompt`: a string for the custom system prompt body; it can be empty. When empty, only the built-in base prompt is used; when filled, this content is prepended before the base prompt.
-- `glossary`: the terminology table grouped by `Person` / `Location` / `Org` / `Item` / `Skill` / `Creature`. Each group is a list of `- original: ""` and `translation: ""` entries; an empty array (such as `Location: []`) disables that group.
+- `glossary`: the terminology table grouped by `Person` / `Location` / `Org` / `Item` / `Skill` / `Creature`. Every category uses the same shape: top-level `original` is the canonical source name, `aliases` stores its source-language forms, and each alias owns one or more manually authored `translations` with an optional `condition`; an empty array (such as `Location: []`) means the category has no entries.
 - Placeholder: <code>&#123;&#123;&#123;target_lang&#125;&#125;&#125;</code> in the text is replaced with the target language name at each request construction, see [Placeholder replacement](#placeholders).
 
 Desensitized example (structure and placeholder usage only, no real prompt content):
@@ -50,11 +56,20 @@ system_prompt: |
 glossary:
   Person:
     - original: "Example Character Name"
-      translation: "Example Character Translation"
+      aliases:
+        - original: "Example Character Name"
+          translations:
+            - text: "Example Character Translation"
+      description: "Example character description"
+      overwrite: true
   Location: []
   Org:
     - original: "Example Organization Name"
-      translation: "Example Organization Translation"
+      aliases:
+        - original: "Example Organization Name"
+          translations:
+            - text: "Example Organization Translation"
+      overwrite: false
   Item: []
   Skill: []
   Creature: []

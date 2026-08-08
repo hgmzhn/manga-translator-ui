@@ -21,6 +21,7 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    CheckBox,
     FluentIcon as FIF,
     HorizontalSeparator,
     IconWidget,
@@ -51,6 +52,13 @@ from qfluentwidgets import (
 )
 
 from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
+from ui.secondary_pages.glossary_entry_model import (
+    alias_rows,
+    alias_summary,
+    aliases_from_rows,
+    normalize_glossary_entry,
+    serialize_glossary_entry,
+)
 from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import install_hover_hint
 
@@ -168,73 +176,47 @@ def _make_glossary_table(entries: List[Dict[str, str]]) -> QTableWidget:
     return table
 
 
-def _normalize_person_glossary_entry(entry: Any) -> Dict[str, Any]:
-    if not isinstance(entry, dict):
-        entry = {}
-
-    nicknames = entry.get("nicknames", [])
-    if isinstance(nicknames, str):
-        nicknames = [item.strip() for item in nicknames.split(",") if item.strip()]
-    elif isinstance(nicknames, list):
-        nicknames = [str(item).strip() for item in nicknames if str(item).strip()]
-    else:
-        nicknames = []
-
-    description = str(
-        entry.get("description")
-        or entry.get("introduction")
-        or entry.get("intro")
-        or ""
-    ).strip()
-
-    return {
-        "original": str(entry.get("original", "")).strip(),
-        "translation": str(entry.get("translation", "")).strip(),
-        "nicknames": nicknames,
-        "description": description,
-    }
-
-
-def _set_person_glossary_row(table: QTableWidget, row: int, entry: Dict[str, Any]):
-    normalized = _normalize_person_glossary_entry(entry)
-    nicknames_text = ", ".join(normalized["nicknames"])
+def _set_glossary_entry_row(
+    table: QTableWidget,
+    row: int,
+    entry: Dict[str, Any],
+):
+    normalized = (
+        entry
+        if isinstance(entry, dict) and "_has_overwrite" in entry
+        else normalize_glossary_entry(entry)
+    )
     description_preview = normalized["description"].replace("\r\n", "\n").replace("\n", " / ")
+    allow_changes = normalized.get("_has_overwrite") and normalized.get("overwrite") is True
     values = [
         normalized["original"],
-        normalized["translation"],
-        nicknames_text,
+        alias_summary(normalized),
         description_preview,
+        _current_t("Yes") if allow_changes else _current_t("No"),
     ]
 
     for col, value in enumerate(values):
         item = QTableWidgetItem(value)
-        item.setData(Qt.ItemDataRole.UserRole, dict(normalized))
+        item.setData(Qt.ItemDataRole.UserRole, normalized)
         table.setItem(row, col, item)
 
 
-def _get_person_glossary_row(table: QTableWidget, row: int) -> Dict[str, Any]:
+def _get_glossary_entry_row(table: QTableWidget, row: int) -> Dict[str, Any]:
     if row < 0 or row >= table.rowCount():
-        return _normalize_person_glossary_entry({})
-
+        return normalize_glossary_entry({"aliases": []})
     item = table.item(row, 0)
     if item is not None:
         payload = item.data(Qt.ItemDataRole.UserRole)
         if isinstance(payload, dict):
-            return _normalize_person_glossary_entry(payload)
-
-    original = (table.item(row, 0) or QTableWidgetItem("")).text()
-    translation = (table.item(row, 1) or QTableWidgetItem("")).text()
-    nicknames_text = (table.item(row, 2) or QTableWidgetItem("")).text()
-    description = (table.item(row, 3) or QTableWidgetItem("")).text()
-    return _normalize_person_glossary_entry({
-        "original": original,
-        "translation": translation,
-        "nicknames": nicknames_text,
-        "description": description,
-    })
+            return payload
+    return normalize_glossary_entry({"original": item.text() if item is not None else "", "aliases": []})
 
 
-def _make_person_glossary_table(entries: List[Dict[str, Any]], editable: bool = False) -> QTableWidget:
+def _make_glossary_entry_table(
+    entries: List[Dict[str, Any]],
+    *,
+    editable: bool = False,
+) -> QTableWidget:
     table = QTableWidget()
     table.setBorderVisible(True)
     table.setBorderRadius(8)
@@ -242,28 +224,28 @@ def _make_person_glossary_table(entries: List[Dict[str, Any]], editable: bool = 
     table.setColumnCount(4)
     table.setHorizontalHeaderLabels([
         _current_t("Original"),
-        _current_t("Translation"),
-        _current_t("Nicknames"),
-        _current_t("Introduction"),
+        _current_t("Aliases"),
+        _current_t("Description"),
+        _current_t("AI Additions"),
     ])
     table.horizontalHeader().setStretchLastSection(True)
     table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
     table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
     table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+    table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
     table.verticalHeader().setVisible(False)
     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
     table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     table.setAlternatingRowColors(True)
 
     for row, entry in enumerate(entries):
-        _set_person_glossary_row(table, row, entry)
+        _set_glossary_entry_row(table, row, entry)
 
     if editable:
         table.verticalHeader().setDefaultSectionSize(28)
     else:
         _auto_size_table_height(table, max(len(entries), 1), 300)
     return table
-
 
 def _normalize_reference_images(raw_items: Any) -> List[Dict[str, str]]:
     entries: List[Dict[str, str]] = []
@@ -552,7 +534,9 @@ class PromptPreviewPanel(CardWidget):
                     tab_page = SimpleCardWidget(glossary_stack)
                     tab_lay = QVBoxLayout(tab_page)
                     tab_lay.setContentsMargins(4, 4, 4, 4)
-                    tab_lay.addWidget(_make_person_glossary_table(entries) if cat_key == "Person" else _make_glossary_table(entries))
+                    tab_lay.addWidget(
+                        _make_glossary_entry_table(entries)
+                    )
                     route_key = f"glossary_{cat_key}"
                     page_index = glossary_stack.count()
                     glossary_stack.addWidget(tab_page)
@@ -579,7 +563,9 @@ class PromptPreviewPanel(CardWidget):
                     tab_page = SimpleCardWidget(glossary_stack)
                     tab_lay = QVBoxLayout(tab_page)
                     tab_lay.setContentsMargins(4, 4, 4, 4)
-                    tab_lay.addWidget(_make_person_glossary_table(entries) if cat_key == "Person" else _make_glossary_table(entries))
+                    tab_lay.addWidget(
+                        _make_glossary_entry_table(entries)
+                    )
                     route_key = f"glossary_{cat_key}"
                     page_index = glossary_stack.count()
                     glossary_stack.addWidget(tab_page)
@@ -710,7 +696,7 @@ def _styled_text_edit(text: str = "", read_only: bool = False) -> QPlainTextEdit
     te.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
     return te
 
-class PersonGlossaryEntryDialog(FluentSecondaryDialog):
+class GlossaryEntryDialog(FluentSecondaryDialog):
     def __init__(
         self,
         entry: Optional[Dict[str, Any]] = None,
@@ -721,15 +707,17 @@ class PersonGlossaryEntryDialog(FluentSecondaryDialog):
     ):
         super().__init__(parent)
         self._t = t_func or (lambda x: x)
-        self._entry = _normalize_person_glossary_entry(entry or {})
+        self._is_new_entry = entry is None
+        self._entry = normalize_glossary_entry(entry or {"aliases": []})
+        self._last_auto_alias_original = ""
         self._category = category if category else "Person"
         category_options = available_categories or list(_GLOSSARY_CATEGORIES)
         self._available_categories = list(dict.fromkeys([*category_options, self._category]))
         self._setup_ui()
 
     def _setup_ui(self):
-        self.setMinimumSize(520, 420)
-        self.resize(560, 460)
+        self.setMinimumSize(620, 560)
+        self.resize(700, 720)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 14)
@@ -739,7 +727,16 @@ class PersonGlossaryEntryDialog(FluentSecondaryDialog):
         root.addWidget(self._title_label)
         root.addWidget(_divider())
 
-        root.addWidget(_dim_label(self._t("Category")))
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget(scroll)
+        form = QVBoxLayout(content)
+        form.setContentsMargins(2, 2, 8, 2)
+        form.setSpacing(10)
+
+        form.addWidget(_dim_label(self._t("Category")))
         self._category_combo = QComboBox()
         for item in self._available_categories:
             self._category_combo.addItem(self._t(item), userData=item)
@@ -747,33 +744,47 @@ class PersonGlossaryEntryDialog(FluentSecondaryDialog):
         if combo_index >= 0:
             self._category_combo.setCurrentIndex(combo_index)
         self._category_combo.currentIndexChanged.connect(self._sync_category_ui)
-        root.addWidget(self._category_combo)
+        form.addWidget(self._category_combo)
 
-        root.addWidget(_dim_label(self._t("Original")))
+        form.addWidget(_dim_label(self._t("Original")))
         self._original_edit = QLineEdit()
         self._original_edit.setText(self._entry.get("original", ""))
-        root.addWidget(self._original_edit)
+        form.addWidget(self._original_edit)
 
-        root.addWidget(_dim_label(self._t("Translation")))
-        self._translation_edit = QLineEdit()
-        self._translation_edit.setText(self._entry.get("translation", ""))
-        root.addWidget(self._translation_edit)
+        form.addWidget(_dim_label(self._t("Aliases")))
+        rows = alias_rows(self._entry)
+        if self._is_new_entry and not rows:
+            rows = [{"original": "", "text": "", "condition": ""}]
+        self._aliases_table = self._make_alias_table(rows)
+        self._aliases_table.setMinimumHeight(190)
+        form.addWidget(self._aliases_table)
+        form.addLayout(
+            self._table_buttons(
+                self._aliases_table,
+                add_text=self._t("Add Alias"),
+                delete_text=self._t("Delete Alias"),
+                duplicate_text=self._t("Add Translation"),
+            )
+        )
+        self._original_edit.textChanged.connect(self._sync_new_alias_original)
+        self._sync_new_alias_original(self._original_edit.text())
 
-        self._person_fields = CardWidget(self)
-        person_layout = QVBoxLayout(self._person_fields)
-        person_layout.setContentsMargins(12, 10, 12, 12)
-        person_layout.setSpacing(10)
+        self._overwrite_box = CheckBox(self._t("Allow AI additions"), content)
+        self._overwrite_box.setChecked(self._entry.get("overwrite") is True)
+        install_hover_hint(
+            self._overwrite_box,
+            self._t("AI may append extracted aliases to this term"),
+        )
+        form.addWidget(self._overwrite_box)
 
-        person_layout.addWidget(_dim_label(self._t("Nicknames")))
-        self._nicknames_edit = QLineEdit()
-        self._nicknames_edit.setText(", ".join(self._entry.get("nicknames", [])))
-        person_layout.addWidget(self._nicknames_edit)
-
-        person_layout.addWidget(_dim_label(self._t("Introduction")))
+        form.addWidget(_divider())
+        form.addWidget(_dim_label(self._t("Description")))
         self._description_edit = _styled_text_edit(self._entry.get("description", ""))
-        self._description_edit.setFixedHeight(160)
-        person_layout.addWidget(self._description_edit, 1)
-        root.addWidget(self._person_fields, 1)
+        self._description_edit.setMinimumHeight(110)
+        form.addWidget(self._description_edit)
+        form.addStretch()
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -793,6 +804,139 @@ class PersonGlossaryEntryDialog(FluentSecondaryDialog):
         root.addLayout(btn_row)
         self._sync_category_ui()
 
+    @staticmethod
+    def _make_alias_table(values: List[Dict[str, Any]]) -> QTableWidget:
+        table = QTableWidget()
+        table.setBorderVisible(True)
+        table.setBorderRadius(8)
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(
+            [_current_t("Alias Original"), _current_t("Translation"), _current_t("Condition")]
+        )
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setAlternatingRowColors(True)
+        table.setRowCount(len(values))
+        for row, value in enumerate(values):
+            table.setItem(row, 0, QTableWidgetItem(str(value.get("original", ""))))
+            table.setItem(row, 1, QTableWidgetItem(str(value.get("text", ""))))
+            table.setItem(row, 2, QTableWidgetItem(str(value.get("condition", ""))))
+        return table
+
+    def _table_buttons(
+        self,
+        table: QTableWidget,
+        *,
+        add_text: str,
+        delete_text: str,
+        duplicate_text: Optional[str] = None,
+    ) -> QHBoxLayout:
+        row = QHBoxLayout()
+        add_btn = QPushButton(add_text)
+        add_btn.setIcon(FIF.ADD)
+        add_btn.clicked.connect(lambda checked=False, t=table: self._add_pair_row(t))
+        row.addWidget(add_btn)
+        if duplicate_text:
+            duplicate_btn = QPushButton(duplicate_text)
+            duplicate_btn.setIcon(FIF.ADD)
+            duplicate_btn.clicked.connect(
+                lambda checked=False, t=table: self._add_alias_translation_row(t)
+            )
+            row.addWidget(duplicate_btn)
+        up_btn = ToolButton(FIF.UP)
+        up_btn.setToolTip(self._t("Move Up"))
+        up_btn.clicked.connect(lambda checked=False, t=table: self._move_pair_row(t, -1))
+        row.addWidget(up_btn)
+        down_btn = ToolButton(FIF.DOWN)
+        down_btn.setToolTip(self._t("Move Down"))
+        down_btn.clicked.connect(lambda checked=False, t=table: self._move_pair_row(t, 1))
+        row.addWidget(down_btn)
+        delete_btn = QPushButton(delete_text)
+        delete_btn.setIcon(FIF.DELETE)
+        delete_btn.clicked.connect(lambda checked=False, t=table: self._delete_pair_row(t))
+        row.addWidget(delete_btn)
+        row.addStretch()
+        return row
+
+    @staticmethod
+    def _add_pair_row(table: QTableWidget):
+        row = table.rowCount()
+        table.insertRow(row)
+        for column in range(table.columnCount()):
+            table.setItem(row, column, QTableWidgetItem(""))
+        table.setCurrentCell(row, 0)
+        table.editItem(table.item(row, 0))
+
+    @staticmethod
+    def _add_alias_translation_row(table: QTableWidget):
+        source_row = table.currentRow()
+        if source_row < 0:
+            source_row = table.rowCount() - 1
+        alias_original = ""
+        if source_row >= 0:
+            alias_original = (
+                table.item(source_row, 0) or QTableWidgetItem("")
+            ).text().strip()
+        row = source_row + 1
+        table.insertRow(row)
+        table.setItem(row, 0, QTableWidgetItem(alias_original))
+        table.setItem(row, 1, QTableWidgetItem(""))
+        table.setItem(row, 2, QTableWidgetItem(""))
+        table.setCurrentCell(row, 1)
+        table.editItem(table.item(row, 1))
+
+    @staticmethod
+    def _delete_pair_row(table: QTableWidget):
+        row = table.currentRow()
+        if row >= 0:
+            table.removeRow(row)
+
+    @staticmethod
+    def _move_pair_row(table: QTableWidget, direction: int):
+        row = table.currentRow()
+        target = row + direction
+        if row < 0 or target < 0 or target >= table.rowCount():
+            return
+        values = []
+        for col in range(table.columnCount()):
+            values.append((table.item(row, col) or QTableWidgetItem("")).text())
+        target_values = []
+        for col in range(table.columnCount()):
+            target_values.append((table.item(target, col) or QTableWidgetItem("")).text())
+        for col, value in enumerate(target_values):
+            table.setItem(row, col, QTableWidgetItem(value))
+        for col, value in enumerate(values):
+            table.setItem(target, col, QTableWidgetItem(value))
+        table.selectRow(target)
+
+    @staticmethod
+    def _collect_alias_rows(table: QTableWidget) -> List[Dict[str, str]]:
+        values = []
+        for row in range(table.rowCount()):
+            original = (table.item(row, 0) or QTableWidgetItem("")).text().strip()
+            translation = (table.item(row, 1) or QTableWidgetItem("")).text().strip()
+            condition = (table.item(row, 2) or QTableWidgetItem("")).text().strip()
+            if original or translation or condition:
+                values.append(
+                    {"original": original, "text": translation, "condition": condition}
+                )
+        return values
+
+    def _sync_new_alias_original(self, original: str):
+        if not self._is_new_entry or self._aliases_table.rowCount() <= 0:
+            return
+        item = self._aliases_table.item(0, 0)
+        if item is None:
+            item = QTableWidgetItem("")
+            self._aliases_table.setItem(0, 0, item)
+        if item.text().strip() not in ("", self._last_auto_alias_original):
+            return
+        self._last_auto_alias_original = original.strip()
+        item.setText(self._last_auto_alias_original)
+
     def _current_category(self) -> str:
         category = self._category_combo.currentData()
         if not isinstance(category, str) or not category:
@@ -800,20 +944,25 @@ class PersonGlossaryEntryDialog(FluentSecondaryDialog):
         return category
 
     def _sync_category_ui(self):
-        is_person = self._current_category() == "Person"
-        self._person_fields.setVisible(is_person)
         title_text = self._t(self._current_category()) + " · " + self._t("Edit")
         self.setWindowTitle(title_text)
         self._title_label.setText(title_text)
 
     def get_entry(self) -> Dict[str, Any]:
-        nicknames = [item.strip() for item in self._nicknames_edit.text().split(",") if item.strip()]
-        return _normalize_person_glossary_entry({
-            "original": self._original_edit.text(),
-            "translation": self._translation_edit.text(),
-            "nicknames": nicknames,
-            "description": self._description_edit.toPlainText(),
+        entry = dict(self._entry)
+        original = self._original_edit.text().strip()
+        entry.update({
+            "original": original,
+            "aliases": aliases_from_rows(
+                self._collect_alias_rows(self._aliases_table),
+                original,
+            ),
+            "overwrite": self._overwrite_box.isChecked(),
+            "description": self._description_edit.toPlainText().strip(),
+            "_has_overwrite": True,
+            "_description_key": "description",
         })
+        return entry
 
     def get_category(self) -> str:
         return self._current_category()
@@ -1205,14 +1354,16 @@ class PromptEditorDialog(FluentSecondaryDialog):
         tab_lay.setContentsMargins(6, 6, 6, 6)
         tab_lay.setSpacing(6)
 
-        if cat_key == "Person":
-            tbl = _make_person_glossary_table(normalized_entries, editable=True)
-            tbl.itemDoubleClicked.connect(
-                lambda item, category=cat_key, t=tbl: self._edit_person_glossary_row(category, t, item.row())
+        tbl = _make_glossary_entry_table(
+            normalized_entries,
+            editable=True,
+        )
+        tbl.itemDoubleClicked.connect(
+            lambda item, category=cat_key, t=tbl: self._edit_glossary_row(
+                category, t, item.row()
             )
-            tab_lay.addWidget(_dim_label(self._t("Double-click a row to edit details")))
-        else:
-            tbl = _make_editable_glossary_table(normalized_entries)
+        )
+        tab_lay.addWidget(_dim_label(self._t("Double-click a row to edit details")))
 
         tbl.setMinimumHeight(120)
         self._glossary_tables[cat_key] = tbl
@@ -1223,18 +1374,17 @@ class PromptEditorDialog(FluentSecondaryDialog):
         add_btn = QPushButton(self._t("Add Row"))
         add_btn.setIcon(FIF.ADD)
         g_btn_row.addWidget(add_btn)
-        if cat_key == "Person":
-            add_btn.clicked.connect(lambda checked=False, category=cat_key, t=tbl: self._add_person_glossary_row(category, t))
-            edit_btn = QPushButton(self._t("Edit"))
-            edit_btn.setIcon(FIF.EDIT)
-            edit_btn.clicked.connect(
-                lambda checked=False, category=cat_key, t=tbl: self._edit_selected_person_glossary_row(category, t)
+        add_btn.clicked.connect(
+            lambda checked=False, category=cat_key, t=tbl: self._add_glossary_row(category, t)
+        )
+        edit_btn = QPushButton(self._t("Edit"))
+        edit_btn.setIcon(FIF.EDIT)
+        edit_btn.clicked.connect(
+            lambda checked=False, category=cat_key, t=tbl: self._edit_selected_glossary_row(
+                category, t
             )
-            g_btn_row.addWidget(edit_btn)
-        else:
-            add_btn.clicked.connect(
-                lambda checked=False, category=cat_key, t=tbl: self._add_basic_glossary_row(category, t)
-            )
+        )
+        g_btn_row.addWidget(edit_btn)
         move_up_btn = QPushButton(self._t("Move Up"))
         move_up_btn.setIcon(FIF.UP)
         move_up_btn.clicked.connect(lambda checked=False, t=tbl: self._move_table_row(t, -1))
@@ -1289,32 +1439,32 @@ class PromptEditorDialog(FluentSecondaryDialog):
         if category in self._glossary_tables:
             self._refresh_glossary_tab_titles()
 
-    def _add_basic_glossary_row(self, category: str, table: QTableWidget):
-        self._add_table_row(table, 2)
-        if category in self._glossary_tables:
-            self._refresh_glossary_tab_titles()
-
-    def _apply_person_glossary_result(
+    def _apply_glossary_result(
         self,
         source_category: str,
         source_table: QTableWidget,
         source_row: Optional[int],
-        dialog: PersonGlossaryEntryDialog,
+        dialog: GlossaryEntryDialog,
     ):
         target_category = dialog.get_category()
         entry = dialog.get_entry()
         target_table = self._ensure_glossary_category_tab(target_category)
 
         if source_row is not None and source_row >= 0 and source_category == target_category:
-            _set_person_glossary_row(target_table, source_row, entry)
+            _set_glossary_entry_row(
+                target_table,
+                source_row,
+                entry,
+            )
             target_table.selectRow(source_row)
         else:
             target_row = target_table.rowCount()
             target_table.insertRow(target_row)
-            if target_category == "Person":
-                _set_person_glossary_row(target_table, target_row, entry)
-            else:
-                _set_basic_glossary_row(target_table, target_row, entry)
+            _set_glossary_entry_row(
+                target_table,
+                target_row,
+                entry,
+            )
 
             if source_row is not None and source_row >= 0:
                 source_table.removeRow(source_row)
@@ -1327,8 +1477,8 @@ class PromptEditorDialog(FluentSecondaryDialog):
 
         self._refresh_glossary_tab_titles()
 
-    def _add_person_glossary_row(self, category: str, table: QTableWidget):
-        dialog = PersonGlossaryEntryDialog(
+    def _add_glossary_row(self, category: str, table: QTableWidget):
+        dialog = GlossaryEntryDialog(
             category=category,
             available_categories=self._glossary_category_options(),
             t_func=self._t,
@@ -1336,19 +1486,19 @@ class PromptEditorDialog(FluentSecondaryDialog):
         )
         if dialog.exec() != DialogCode.Accepted:
             return
-        self._apply_person_glossary_result(category, table, None, dialog)
+        self._apply_glossary_result(category, table, None, dialog)
 
-    def _edit_selected_person_glossary_row(self, category: str, table: QTableWidget):
+    def _edit_selected_glossary_row(self, category: str, table: QTableWidget):
         row = table.currentRow()
         if row < 0:
             return
-        self._edit_person_glossary_row(category, table, row)
+        self._edit_glossary_row(category, table, row)
 
-    def _edit_person_glossary_row(self, category: str, table: QTableWidget, row: int):
+    def _edit_glossary_row(self, category: str, table: QTableWidget, row: int):
         if row < 0:
             return
-        dialog = PersonGlossaryEntryDialog(
-            _get_person_glossary_row(table, row),
+        dialog = GlossaryEntryDialog(
+            _get_glossary_entry_row(table, row),
             category=category,
             available_categories=self._glossary_category_options(),
             t_func=self._t,
@@ -1356,7 +1506,7 @@ class PromptEditorDialog(FluentSecondaryDialog):
         )
         if dialog.exec() != DialogCode.Accepted:
             return
-        self._apply_person_glossary_result(category, table, row, dialog)
+        self._apply_glossary_result(category, table, row, dialog)
 
     # ─── 字段操作：移动 & 删除 ─────────────────────────
     def _refresh_section_move_buttons(self):
@@ -1655,24 +1805,10 @@ class PromptEditorDialog(FluentSecondaryDialog):
             glossary_data = {}
             for cat_key, tbl in self._glossary_tables.items():
                 entries: List[Dict[str, Any]] = []
-                if cat_key == "Person":
-                    for row in range(tbl.rowCount()):
-                        person_entry = _get_person_glossary_row(tbl, row)
-                        if person_entry["original"]:
-                            item: Dict[str, Any] = {
-                                "original": person_entry["original"],
-                                "translation": person_entry["translation"],
-                            }
-                            if person_entry["nicknames"]:
-                                item["nicknames"] = person_entry["nicknames"]
-                            if person_entry["description"]:
-                                item["description"] = person_entry["description"]
-                            entries.append(item)
-                else:
-                    for row in range(tbl.rowCount()):
-                        entry = _get_basic_glossary_row(tbl, row)
-                        if entry["original"]:
-                            entries.append(entry)
+                for row in range(tbl.rowCount()):
+                    entry = _get_glossary_entry_row(tbl, row)
+                    if entry["original"]:
+                        entries.append(serialize_glossary_entry(entry))
                 # 保留空分类，避免保存后 glossary 被塌缩成 {}。
                 glossary_data[cat_key] = entries
 

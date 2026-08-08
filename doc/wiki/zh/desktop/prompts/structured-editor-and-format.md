@@ -51,7 +51,9 @@ lastUpdated: true
 
 ### 术语词典分类 {#glossary-categories}
 
-`glossary` 下的分类页签按固定分类排序，分类名即存储值，不随界面语言翻译；例如 `Org` 在页签上的英文显示值是 Organization。`Person` 分类使用四列表格（原文、翻译、昵称、介绍），双击行打开条目对话框，可修改分类并把条目移到其他分类；其余分类使用原文/翻译两列表格。`Person` 条目的 `nicknames` 和 `description` 只在非空时写入文件。空分类会保留，避免保存后 `glossary` 被塌缩成空对象。
+`glossary` 下的分类页签按固定分类排序，分类名即存储值，不随界面语言翻译；例如 `Org` 在页签上的英文显示值是 Organization。所有分类都使用相同的条目结构：顶层 `original` 是正式原文名称，`aliases` 保存不同的别名或叫法；每个叫法包含自己的 `translations`，每条译文包含 `text` 和可选 `condition`。编辑器用“叫法原文 / 译文 / 使用条件”三列表编辑，同一叫法的多行会保存为同一个 `aliases` 项的多个译文分支。新建条目没有叫法时，正式名称会自动复制为第一条叫法。所有分类都可填写 `description`。
+
+`overwrite` 控制相同正式原文的自动提取结果能否追加新的叫法，默认不允许。自动提取返回顶层 `original`、`category` 和 `aliases`；每个别名必须只有一个 `translations[].text`。已有正式原文只有在 `overwrite: true` 时才接受新的叫法；已经存在的叫法会被整条忽略，不会追加第二个 AI 译文。AI 携带的条件、描述、覆盖开关及其他未知字段不会写回。仅兼容最初的单个 `translation` 存储格式；通过结构化编辑器保存后会转成统一的 `aliases` 结构。空分类会保留，避免保存后 `glossary` 被塌缩成空对象。
 
 ## 校验、保存与恢复 {#validation-save-restore}
 
@@ -117,7 +119,7 @@ flowchart LR
 
 翻译开始前，`_load_and_prepare_prompts` 读取 `translator.high_quality_prompt_path`，用 `load_custom_prompt` 按扩展名解析文件（`.yaml` → `.yml` → `.json` 顺序查找，根不是对象时返回空）。解析出的结构化数据随后被 `_flatten_prompt_data` 递归拍平成文本块，注入到 OpenAI/Gemini 的系统提示词中；目标语言占位符（写作 `target_lang` 三层花括号占位符）会被替换为目标语言全称。
 
-开启“自动提取新术语”（键 `translator.extract_glossary`）后，翻译提取到的新术语会通过 `merge_glossary_to_file` 自动合并回提示词文件的 `glossary`（按扩展名写 YAML 或 JSON）。也就是说，除了编辑器，运行中的翻译也会在满足条件时写回该文件。
+开启“自动提取新术语”（键 `translator.extract_glossary`）后，翻译提取到的新术语会通过 `merge_glossary_to_file` 自动合并回提示词文件的 `glossary`（按扩展名写 YAML 或 JSON）。新原文会创建同名的第一条 `aliases` 叫法，并在其 `translations` 中写入提取译文；已有原文只有在条目显式设置 `overwrite: true` 时才追加尚不存在的叫法，已有叫法的整条 AI 结果会丢弃。自动合并不会修改已有译文、条件、描述、覆盖开关或其他人工字段。也就是说，除了编辑器，运行中的翻译也会在满足条件时写回该文件。
 
 ## 限制与注意事项
 
