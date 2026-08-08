@@ -4,7 +4,7 @@ from typing import Any
 from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
-from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import QPointF, QRect, QSize, Qt, QTimer, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -35,6 +35,46 @@ from ui.widgets.rich_text_floating_editor import RichTextFloatingEditor
 from .graphics_view import GraphicsView
 from .original_compare_view import OriginalCompareView
 from .shortcut_manager import EditorShortcutManager
+
+
+def _rich_editor_beside_position(
+    *,
+    region_left: int,
+    region_right: int,
+    region_center_y: int,
+    popup_width: int,
+    popup_height: int,
+    available: QRect,
+    margin: int = 8,
+    side: str | None = None,
+    preserve_top: bool = False,
+    previous_top: int | None = None,
+) -> tuple[int, int, str]:
+    """Return a screen-clamped position immediately beside a text region."""
+    region_left = int(region_left)
+    region_right = int(region_right)
+    popup_width = max(1, int(popup_width))
+    popup_height = max(1, int(popup_height))
+    margin = max(0, int(margin))
+    right_space = available.right() - region_right - margin + 1
+    left_space = region_left - available.left() - margin
+    if side not in {"left", "right"}:
+        if right_space >= popup_width:
+            side = "right"
+        elif left_space >= popup_width:
+            side = "left"
+        else:
+            side = "right" if right_space >= left_space else "left"
+
+    x = region_right + margin if side == "right" else region_left - popup_width - margin
+    y = int(previous_top) if preserve_top and previous_top is not None else int(
+        round(region_center_y - popup_height / 2.0)
+    )
+    min_x = available.left() + margin
+    min_y = available.top() + margin
+    max_x = max(min_x, available.right() - popup_width - margin + 1)
+    max_y = max(min_y, available.bottom() - popup_height - margin + 1)
+    return max(min_x, min(x, max_x)), max(min_y, min(y, max_y)), side
 
 
 class EditorView(QWidget):
@@ -659,31 +699,28 @@ class EditorView(QWidget):
         # ``QGraphicsView.mapFromScene`` returns viewport-local coordinates.
         # The editor is a top-level window, so convert both anchors to desktop
         # coordinates before positioning it.
-        top_anchor = viewport.mapToGlobal(
-            self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.top()))
+        left_anchor = viewport.mapToGlobal(
+            self.graphics_view.mapFromScene(QPointF(rect.left(), rect.center().y()))
         )
-        bottom_anchor = viewport.mapToGlobal(
-            self.graphics_view.mapFromScene(QPointF(rect.center().x(), rect.bottom()))
+        right_anchor = viewport.mapToGlobal(
+            self.graphics_view.mapFromScene(QPointF(rect.right(), rect.center().y()))
         )
         previous_top = self.rich_text_editor.y()
-        preserve_above_top = (
+        preserve_popup_top = (
             preserve_top
             and self.rich_text_editor.isVisible()
             and region_index == self._rich_editor_anchor_region
-            and self._rich_editor_anchor_side == "above"
+            and self._rich_editor_anchor_side in {"left", "right"}
         )
         # 不调用 adjustSize()：浮窗尺寸由它自己的 _refresh_layout_size 管理，
         # 这里再 adjustSize 会和浮窗抢尺寸导致抖动
         popup_w = self.rich_text_editor.width()
         popup_h = self.rich_text_editor.height()
         margin = 8
-        x = int(top_anchor.x() - popup_w / 2)
-
         # Automatic placement is screen-aware rather than canvas-aware.  We
-        # only keep the popup on the active screen; it is otherwise free to
         # occupy any area outside the canvas and can be dragged to another
         # screen without being clipped by the viewport.
-        screen = QApplication.screenAt(top_anchor)
+        screen = QApplication.screenAt(right_anchor)
         if screen is None:
             screen = self.rich_text_editor.screen() or self.window().screen()
         if screen is None:
@@ -692,31 +729,23 @@ class EditorView(QWidget):
             return
         available = screen.availableGeometry()
 
-        # 当前文本框的停靠侧保持稳定。样式区展开/收起只改变浮窗高度，
-        # 不再在文本框上方和下方来回切换，避免浮窗扫过文本框造成抽搐。
+        # 当前文本框的停靠侧保持稳定。样式区展开/收起只改变浮窗尺寸，
+        # 不再在文本框上方和下方来回切换或遮挡正文预览。
         if region_index != self._rich_editor_anchor_region:
             self._rich_editor_anchor_region = region_index
             self._rich_editor_anchor_side = None
-        if self._rich_editor_anchor_side is None:
-            space_above = int(top_anchor.y()) - available.top() - margin
-            space_below = available.bottom() - int(bottom_anchor.y()) - margin
-            if space_above >= popup_h:
-                self._rich_editor_anchor_side = "above"
-            elif space_below >= popup_h:
-                self._rich_editor_anchor_side = "below"
-            else:
-                self._rich_editor_anchor_side = "above" if space_above >= space_below else "below"
-
-        if self._rich_editor_anchor_side == "above":
-            y = previous_top if preserve_above_top else int(top_anchor.y() - popup_h - margin)
-        else:
-            y = int(bottom_anchor.y() + margin)
-        min_x = available.left() + margin
-        min_y = available.top() + margin
-        max_x = max(min_x, available.right() - popup_w - margin + 1)
-        max_y = max(min_y, available.bottom() - popup_h - margin + 1)
-        x = max(min_x, min(x, max_x))
-        y = max(min_y, min(y, max_y))
+        x, y, self._rich_editor_anchor_side = _rich_editor_beside_position(
+            region_left=left_anchor.x(),
+            region_right=right_anchor.x(),
+            region_center_y=right_anchor.y(),
+            popup_width=popup_w,
+            popup_height=popup_h,
+            available=available,
+            margin=margin,
+            side=self._rich_editor_anchor_side,
+            preserve_top=preserve_popup_top,
+            previous_top=previous_top,
+        )
         self.rich_text_editor.move(x, y)
 
     def hideEvent(self, event):
