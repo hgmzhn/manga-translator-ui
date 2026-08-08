@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from editor.commands import UpdateRegionCommand, _NO_MASK_CHANGE
+from editor.commands import MoveRegionCommand, UpdateRegionCommand, _NO_MASK_CHANGE
 from editor.geometry_commit_pipeline import build_rotate_region_data
 from editor.region_geometry_state import RegionGeometryState
 from services import (
@@ -2005,3 +2005,23 @@ class EditorController(QObject):
     def set_selection_from_list(self, indices: list):
         """Slot to handle selection changes originating from the RegionListView."""
         self.model.set_selection(indices)
+
+    @pyqtSlot(int, int)
+    def move_region_from_list(self, source_index: int, target_index: int):
+        """将译文列表的拖放操作写入模型和撤销历史。"""
+        if source_index == target_index:
+            return
+        region_count = len(self.model.get_regions())
+        if not (
+            0 <= source_index < region_count
+            and 0 <= target_index < region_count
+        ):
+            return
+        self.execute_command(
+            MoveRegionCommand(
+                self.model,
+                source_index,
+                target_index,
+                description=f"Move Region {source_index} to {target_index}",
+            )
+        )

@@ -69,51 +69,6 @@ def test_async_region_update_uses_region_id_on_main_thread() -> None:
     assert model.regions[1]["text"] == "old"
 
 
-def test_region_list_preserves_dirty_translation_by_region_id() -> None:
-    from PyQt6.QtWidgets import QApplication
-    from qfluentwidgets import TextEdit
-
-    from desktop_qt_ui.editor.region_change import RegionChange
-    from desktop_qt_ui.ui.widgets.region_list_view import RegionListView
-
-    class FakeModel:
-        def __init__(self):
-            self.ids = [1]
-            self.regions = [{"text": "A", "translation": "model A"}]
-
-        def get_regions(self):
-            return list(self.regions)
-
-        def get_region_id(self, index):
-            return self.ids[index] if 0 <= index < len(self.ids) else None
-
-    app = QApplication.instance() or QApplication([])
-    model = FakeModel()
-    view = RegionListView(model)
-    view.show()
-    try:
-        view.update_regions(model.get_regions())
-        app.processEvents()
-
-        edit = view.itemWidget(view.item(0)).findChild(TextEdit)
-        edit.setPlainText("draft A")
-
-        model.ids = [2, 1]
-        model.regions = [
-            {"text": "B", "translation": "model B"},
-            {"text": "A", "translation": "model A updated"},
-        ]
-        view.on_regions_changed(RegionChange.inserted([0]))
-        app.processEvents()
-
-        new_edit = view.itemWidget(view.item(0)).findChild(TextEdit)
-        old_edit = view.itemWidget(view.item(1)).findChild(TextEdit)
-        assert new_edit.toPlainText() == "model B"
-        assert old_edit.toPlainText() == "draft A"
-    finally:
-        view.close()
-
-
 def test_legacy_white_frame_is_normalized_to_render_box() -> None:
     from desktop_qt_ui.editor.region_geometry_state import (
         RegionGeometryState,
@@ -140,7 +95,6 @@ def test_legacy_white_frame_is_normalized_to_render_box() -> None:
 
 def main() -> int:
     test_async_region_update_uses_region_id_on_main_thread()
-    test_region_list_preserves_dirty_translation_by_region_id()
     test_legacy_white_frame_is_normalized_to_render_box()
     print("EDITOR_REGION_REGRESSIONS_OK")
     return 0

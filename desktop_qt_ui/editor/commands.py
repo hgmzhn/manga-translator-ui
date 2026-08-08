@@ -174,6 +174,28 @@ class DeleteRegionCommand(QUndoCommand):
         self._model.set_selection([self._index])
 
 
+class MoveRegionCommand(QUndoCommand):
+    """调整区域顺序，同时支持撤销和重做。"""
+
+    def __init__(
+        self,
+        model: "EditorModel",
+        source_index: int,
+        target_index: int,
+        description: str = "Move Region",
+    ):
+        super().__init__(description)
+        self._model = model
+        self._source_index = int(source_index)
+        self._target_index = int(target_index)
+
+    def redo(self):
+        self._model.move_region(self._source_index, self._target_index)
+
+    def undo(self):
+        self._model.move_region(self._target_index, self._source_index)
+
+
 class MaskEditCommand(QUndoCommand):
     """用于处理蒙版编辑的命令。"""
 

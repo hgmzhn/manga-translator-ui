@@ -107,6 +107,12 @@ class EditorSession:
             self._bump_document_revision()
         return removed
 
+    def move_region(self, source_index: int, target_index: int) -> Optional[int]:
+        moved_to = self.resource_manager.move_region(source_index, target_index)
+        if moved_to is not None and moved_to != source_index:
+            self._bump_document_revision()
+        return moved_to
+
     def store_derived_regions(self, updates: dict[int, dict]) -> None:
         """按索引覆盖指定 region 数据（region_id 不变），用于渲染派生字段写回。"""
         applied = False

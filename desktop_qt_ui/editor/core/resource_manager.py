@@ -501,6 +501,18 @@ class ResourceManager:
         resource = self._regions.pop(region_id)
         return resource.data
 
+    def move_region(self, source_index: int, target_index: int) -> Optional[int]:
+        """移动区域的显示顺序，保留区域资源和稳定 ``region_id``。"""
+        if not (0 <= source_index < len(self._region_order)):
+            return None
+        target_index = max(0, min(int(target_index), len(self._region_order) - 1))
+        if source_index == target_index:
+            return target_index
+
+        region_id = self._region_order.pop(source_index)
+        self._region_order.insert(target_index, region_id)
+        return target_index
+
     def get_region_id(self, index: int) -> Optional[int]:
         if 0 <= index < len(self._region_order):
             return self._region_order[index]
@@ -650,6 +662,5 @@ class ResourceManager:
     def __del__(self):
         """析构函数"""
         self.cleanup_all()
-
 
 

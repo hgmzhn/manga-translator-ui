@@ -1,15 +1,62 @@
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QSize, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QHBoxLayout,
     QListWidgetItem,
     QVBoxLayout,
 )
-from qfluentwidgets import BodyLabel, CardWidget, ListWidget, TextEdit
+from qfluentwidgets import (
+    BodyLabel,
+    CardWidget,
+    FluentIcon as FIF,
+    ListWidget,
+    TextEdit,
+    ToolButton,
+)
+from services import get_i18n_manager
 
+from .hover_hint import set_hover_hint
 from .widget_cleanup import delete_widget
 
 
 _REGION_KEY_ROLE = Qt.ItemDataRole.UserRole.value + 1
+
+
+class _RegionDragHandle(ToolButton):
+    drag_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setIcon(FIF.MOVE)
+        self._drag_start: QPoint | None = None
+        self.setFixedSize(28, 28)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            self._drag_start is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+            and (event.position().toPoint() - self._drag_start).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            self._drag_start = None
+            self.drag_requested.emit()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_start = None
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().mouseReleaseEvent(event)
 
 
 class RegionListView(ListWidget):
@@ -17,15 +64,28 @@ class RegionListView(ListWidget):
     显示和管理当前图片中所有文本区域的列表。
     """
     region_selected = pyqtSignal(list)
+    region_move_requested = pyqtSignal(int, int)
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
         self.model = model
+        self.i18n = get_i18n_manager()
         self._block_signals = False
         self._pending_regions = None
         self._pending_drafts = {}
         self._pending_selection = []
+        self._drag_source_row: int | None = None
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setDragDropOverwriteMode(False)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.currentItemChanged.connect(self._on_item_changed)
+
+    def _t(self, key: str) -> str:
+        return self.i18n.translate(key) if self.i18n is not None else key
 
     def on_regions_changed(self, change):
         regions = self.model.get_regions()
@@ -99,7 +159,7 @@ class RegionListView(ListWidget):
         self.flush_pending_regions()
 
     def flush_pending_regions(self):
-        """在「可编辑译文」标签页真正可见时按差量更新列表。
+        """在「译文列表」标签页真正可见时按差量更新列表。
 
         按行位置复用现有行（只更新文本/数据），仅增删数量变化的行，
         避免整表 clear+重建销毁正在输入的 TextEdit（丢焦点/光标/吃 IME
@@ -170,29 +230,40 @@ class RegionListView(ListWidget):
         *,
         insert: bool = False,
     ) -> None:
+        item = QListWidgetItem()
         item_container = CardWidget()
         layout = QVBoxLayout(item_container)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(6)
+        drag_handle = _RegionDragHandle(item_container)
+        set_hover_hint(drag_handle, self._t("Drag to reorder regions"))
+        drag_handle.pressed.connect(lambda item=item: self._select_drag_item(item))
+        drag_handle.drag_requested.connect(lambda item=item: self._start_row_drag(item))
+
         original_label = BodyLabel(f"{index + 1}: {region.get('text', '')}")
         original_label.setWordWrap(True)
+        header_layout.addWidget(drag_handle, 0, Qt.AlignmentFlag.AlignTop)
+        header_layout.addWidget(original_label, 1)
 
         model_text = region.get("translation", "")
         translated_edit = TextEdit()
         translated_edit.setPlainText(model_text if draft_text is None else draft_text)
         translated_edit.setProperty("modelText", model_text)
-        translated_edit.setPlaceholderText("译文")
+        translated_edit.setPlaceholderText(self._t("Translation"))
         translated_edit.setFixedHeight(60)
 
-        layout.addWidget(original_label)
+        layout.addLayout(header_layout)
         layout.addWidget(translated_edit)
 
         # 差量更新时直接取用，避免 findChild
         item_container.original_label = original_label
         item_container.translated_edit = translated_edit
+        item_container.drag_handle = drag_handle
 
-        item = QListWidgetItem()
         if insert:
             self.insertItem(index, item)
         else:
@@ -221,10 +292,14 @@ class RegionListView(ListWidget):
         if translated_edit is None:
             translated_edit = widget.findChild(TextEdit)
         if translated_edit is not None:
+            same_region = item.data(_REGION_KEY_ROLE) == self._region_key(index)
             model_text = region.get("translation", "")
             translated_edit.setProperty("modelText", model_text)
             target_text = model_text if draft_text is None else draft_text
-            if not translated_edit.hasFocus() and translated_edit.toPlainText() != target_text:
+            if (
+                (not translated_edit.hasFocus() or not same_region)
+                and translated_edit.toPlainText() != target_text
+            ):
                 translated_edit.setPlainText(target_text)
 
         item.setData(Qt.ItemDataRole.UserRole, index)
@@ -249,6 +324,58 @@ class RegionListView(ListWidget):
             widget = self.itemWidget(item)
             if widget is not None:
                 self._sync_row_size(item, widget)
+
+    def refresh_ui_texts(self) -> None:
+        for row in range(self.count()):
+            item = self.item(row)
+            widget = self.itemWidget(item)
+            if widget is None:
+                continue
+            translated_edit = getattr(widget, "translated_edit", None)
+            if translated_edit is not None:
+                translated_edit.setPlaceholderText(self._t("Translation"))
+            drag_handle = getattr(widget, "drag_handle", None)
+            if drag_handle is not None:
+                set_hover_hint(drag_handle, self._t("Drag to reorder regions"))
+
+    def _select_drag_item(self, item: QListWidgetItem) -> None:
+        if self.row(item) < 0:
+            return
+        self.setCurrentItem(item)
+        item.setSelected(True)
+
+    def _start_row_drag(self, item: QListWidgetItem) -> None:
+        source_row = self.row(item)
+        if source_row < 0:
+            return
+        self._select_drag_item(item)
+        self._drag_source_row = source_row
+        try:
+            self.startDrag(Qt.DropAction.MoveAction)
+        finally:
+            self._drag_source_row = None
+
+    def dropEvent(self, event) -> None:
+        source_row = self._drag_source_row
+        if source_row is None or not (0 <= source_row < self.count()):
+            event.ignore()
+            return
+
+        position = event.position().toPoint()
+        target_index = self.indexAt(position)
+        if target_index.isValid():
+            insertion_row = target_index.row()
+            if position.y() > self.visualRect(target_index).center().y():
+                insertion_row += 1
+        else:
+            insertion_row = self.count()
+
+        target_row = insertion_row - 1 if source_row < insertion_row else insertion_row
+        target_row = max(0, min(target_row, self.count() - 1))
+        event.setDropAction(Qt.DropAction.MoveAction)
+        event.accept()
+        if target_row != source_row:
+            self.region_move_requested.emit(source_row, target_row)
 
     def get_all_translations(self):
         """获取列表中所有编辑后的译文"""

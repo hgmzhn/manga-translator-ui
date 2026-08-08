@@ -6,12 +6,12 @@
 
 ## 固定入口与接线
 
-`EditorView` 在构造时创建 `EditorToolbar`、左栏的“可编辑译文”和“属性编辑”、中心 `GraphicsView`、右栏文件列表及 `EditorShortcutManager`。属性面板和工具栏信号最终接到 controller；模型的选区、画笔大小、画笔颜色和活动工具又回写各 UI 部件。因此下表中的顶栏、属性和画布工具不是互不关联的平行控件。
+`EditorView` 在构造时创建 `EditorToolbar`、左栏的“译文列表”和“属性编辑”、中心 `GraphicsView`、右栏文件列表及 `EditorShortcutManager`。属性面板和工具栏信号最终接到 controller；模型的选区、画笔大小、画笔颜色和活动工具又回写各 UI 部件。因此下表中的顶栏、属性和画布工具不是互不关联的平行控件。
 
 | UI 部件 | 实际名称 / 行为 | 主要源码依据 |
 | --- | --- | --- |
 | 顶栏 | `EditorToolbar`；三个单级下拉菜单加“适应窗口”和“原图不透明度”常驻控件 | `desktop_qt_ui/ui/widgets/editor_toolbar.py:87`、`desktop_qt_ui/ui/widgets/editor_toolbar.py:173` |
-| 左栏 | `Editable Translation` 与 `Property Editor` 两个路由；默认显示后者 | `desktop_qt_ui/ui/editor/view.py:332`、`desktop_qt_ui/ui/editor/view.py:364` |
+| 左栏 | `Translation List` 与 `Property Editor` 两个路由；默认显示后者 | `desktop_qt_ui/ui/editor/view.py` |
 | 中心 | `GraphicsView`；工具状态由 `EditorModel.active_tool` 提供 | `desktop_qt_ui/ui/editor/graphics_view.py:64`、`desktop_qt_ui/editor/editor_model.py:227` |
 | 右栏 | 添加文件、添加文件夹、清空列表和文件选择；不在本文逐项展开 | `desktop_qt_ui/ui/editor/view.py:759` |
 | 信号接线 | 工具栏、画布和属性面板均已连接至 controller；富文本浮窗写回 `update_translation_rich` | `desktop_qt_ui/ui/editor/view.py:770`、`desktop_qt_ui/ui/editor/view.py:801`、`desktop_qt_ui/ui/editor/view.py:809` |
@@ -126,13 +126,13 @@
 
 ## 左栏：区域列表与属性控件
 
-### 可编辑译文列表
+### 译文列表
 
-每一行显示编号加原文，及一个可编辑译文 `TextEdit`。列表支持全局查找替换和“应用所有译文修改”；画布/模型选区会反向选中列表项。`translated_edit.setPlaceholderText("译文")` 是未经 i18n 的中文字面量，后续本地化页面必须将其列为缺失项，不能虚构英文标签。
+每一行显示编号加原文、可编辑译文 `TextEdit` 和拖动手柄。拖动行会改变模型中的区域顺序，并可通过撤销栈恢复；列表支持全局查找替换和“应用所有译文修改”，画布/模型选区会反向选中列表项。列表发起的选择不会打开富文本浮窗。
 
 | UI 调用 key | English 实际值 | 简体中文实际值 | 用途 |
 | --- | --- | --- | --- |
-| `Editable Translation` | Editable Translation | 可编辑译文 | 左栏路由标题 |
+| `Translation List` | Translation List | 译文列表 | 左栏路由标题 |
 | `Find` | Find | 查找 | 查找输入框占位 |
 | `Replace with` | Replace with | 替换为 | 替换输入框占位 |
 | `Replace All` | Replace All | 全部替换 | 修改各列表项草稿 |

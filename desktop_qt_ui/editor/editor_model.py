@@ -14,8 +14,9 @@ class EditorModel(QObject):
     编辑器数据模型：region 状态的单一事实来源。
 
     所有 region 改动必须通过 update_region / update_regions / insert_region /
-    remove_region / replace_regions 进入；「API 即事件」——每个 mutation 直接
-    发出对应的 RegionChange，经 regions_changed 广播，视图按 kind 做最小刷新。
+    remove_region / move_region / replace_regions 进入；「API 即事件」——每个
+    mutation 直接发出对应的 RegionChange，经 regions_changed 广播，视图按
+    kind 做最小刷新。
     渲染派生数据经 store_derived_regions 写回，不发通知。
     """
 
@@ -130,6 +131,35 @@ class EditorModel(QObject):
             if selection_changed:
                 self.selection_changed.emit(self.session.get_selection())
         return removed
+
+    def move_region(self, source_index: int, target_index: int) -> Optional[int]:
+        """调整 region 顺序，并按稳定 ID 保留当前选区。"""
+        region_count = len(self.get_regions())
+        if not (0 <= source_index < region_count):
+            return None
+        target_index = max(0, min(int(target_index), region_count - 1))
+        if source_index == target_index:
+            return target_index
+
+        selected_region_ids = [
+            region_id
+            for index in self.get_selection()
+            if (region_id := self.get_region_id(index)) is not None
+        ]
+        moved_to = self.session.move_region(source_index, target_index)
+        if moved_to is None:
+            return None
+
+        remapped_selection = sorted(
+            index
+            for region_id in selected_region_ids
+            if (index := self.find_region_index(region_id)) is not None
+        )
+        selection_changed = self.session.set_selection(remapped_selection)
+        self.regions_changed.emit(RegionChange.reset(source="reorder"))
+        if selection_changed:
+            self.selection_changed.emit(self.session.get_selection())
+        return moved_to
 
     def replace_regions(self, regions: List[Dict[str, Any]]) -> None:
         """整体替换 region 列表（换图/清空/导入），发出 reset。"""

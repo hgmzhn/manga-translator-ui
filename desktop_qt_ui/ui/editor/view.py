@@ -117,6 +117,7 @@ class EditorView(QWidget):
         self._rich_editor_anchor_region = -1
         self._rich_editor_anchor_side: str | None = None
         self._rich_editor_restore_on_show = False
+        self._selection_from_translation_list = False
         self.add_files_button: PushButton | None = None
         self.add_folder_button: PushButton | None = None
         self.clear_list_button: PushButton | None = None
@@ -386,7 +387,7 @@ class EditorView(QWidget):
         left_layout.addWidget(self.left_segmented_widget)
         left_layout.addWidget(self.left_stack, 1)
         
-        # 创建“可编辑译文”标签页
+        # 创建“译文列表”标签页
         translation_widget = SimpleCardWidget(left_panel)
         translation_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         translation_layout = QVBoxLayout(translation_widget)
@@ -420,7 +421,7 @@ class EditorView(QWidget):
 
         self.property_panel = PropertyPanel(self.model, self.app_logic, self)
 
-        self._add_left_page(self.LEFT_TRANSLATION_ROUTE, translation_widget, self._t("Editable Translation"))
+        self._add_left_page(self.LEFT_TRANSLATION_ROUTE, translation_widget, self._t("Translation List"))
         self._add_left_page(self.LEFT_PROPERTY_ROUTE, self.property_panel, self._t("Property Editor"))
         self.left_segmented_widget.currentItemChanged.connect(self._on_left_route_changed)
 
@@ -473,13 +474,20 @@ class EditorView(QWidget):
     def _on_left_route_index_changed(self, index: int):
         if index == 0 and self.region_list_view is not None:
             self.region_list_view.flush_pending_regions()
+            self._hide_rich_text_editor_for_list_action()
+
+    def _translation_list_is_active(self) -> bool:
+        if self.left_stack is None:
+            return False
+        translation_index = self._left_route_indexes.get(self.LEFT_TRANSLATION_ROUTE)
+        return translation_index is not None and self.left_stack.currentIndex() == translation_index
 
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）"""
         if self.left_segmented_widget is None:
             return
 
-        self.left_segmented_widget.setItemText(self.LEFT_TRANSLATION_ROUTE, self._t("Editable Translation"))
+        self.left_segmented_widget.setItemText(self.LEFT_TRANSLATION_ROUTE, self._t("Translation List"))
         self.left_segmented_widget.setItemText(self.LEFT_PROPERTY_ROUTE, self._t("Property Editor"))
     
     def refresh_ui_texts(self):
@@ -496,6 +504,8 @@ class EditorView(QWidget):
             self.replace_all_button.setText(self._t("Replace All"))
         if self.apply_translations_button is not None:
             self.apply_translations_button.setText(self._t("Apply All Translation Changes"))
+        if self.region_list_view is not None:
+            self.region_list_view.refresh_ui_texts()
         
         # 刷新工具栏
         if self.toolbar is not None:
@@ -573,6 +583,9 @@ class EditorView(QWidget):
     def _on_selection_changed_for_rich_editor(self, selected_indices: list):
         if self.rich_text_editor is None:
             return
+        if self._selection_from_translation_list or self._translation_list_is_active():
+            self._hide_rich_text_editor_for_list_action()
+            return
         if not self._rich_text_popup_enabled:
             self._rich_editor_restore_on_show = False
             self.rich_text_editor.hide()
@@ -610,6 +623,32 @@ class EditorView(QWidget):
         self.rich_text_editor.raise_()
         # F09：选中不再调用 focus_text() 抢焦点——焦点留在画布，
         # Delete/A/D/Q/W/E 等画布快捷键保持生效；点击文本框自然获焦进入编辑。
+
+    def _hide_rich_text_editor_for_list_action(self) -> None:
+        self._rich_editor_restore_on_show = False
+        editor = self.rich_text_editor
+        if editor is None:
+            return
+        editor.flush_pending_changes()
+        editor.hide()
+
+    def _on_region_selected_from_list(self, indices: list) -> None:
+        self._selection_from_translation_list = True
+        try:
+            self._hide_rich_text_editor_for_list_action()
+            self.controller.set_selection_from_list(indices)
+        finally:
+            self._selection_from_translation_list = False
+
+    def _on_region_move_requested_from_list(
+        self, source_index: int, target_index: int
+    ) -> None:
+        self._selection_from_translation_list = True
+        try:
+            self._hide_rich_text_editor_for_list_action()
+            self.controller.move_region_from_list(source_index, target_index)
+        finally:
+            self._selection_from_translation_list = False
 
     def _on_regions_changed_for_rich_editor(self, change=None):
         """模型区域数据变化时同步浮动编辑器（F08）。
@@ -659,13 +698,13 @@ class EditorView(QWidget):
             self.rich_text_editor.hide()
 
     def _restore_rich_text_editor_after_region_drag(self):
-        if not self._rich_text_popup_enabled:
+        if not self._rich_text_popup_enabled or self._translation_list_is_active():
             return
         # 等几何提交和可能的 item 重建完成后，再按新位置恢复浮动编辑器。
         QTimer.singleShot(0, self._show_rich_text_editor_after_region_drag)
 
     def _show_rich_text_editor_after_region_drag(self):
-        if not self._rich_text_popup_enabled:
+        if not self._rich_text_popup_enabled or self._translation_list_is_active():
             return
         editor = self.rich_text_editor
         selected = self.model.get_selection()
@@ -798,7 +837,10 @@ class EditorView(QWidget):
         self.model.compare_image_changed.connect(self._on_compare_image_changed)
 
         # --- View to Controller ---
-        self.region_list_view.region_selected.connect(self.controller.set_selection_from_list)
+        self.region_list_view.region_selected.connect(self._on_region_selected_from_list)
+        self.region_list_view.region_move_requested.connect(
+            self._on_region_move_requested_from_list
+        )
         self.apply_translations_button.clicked.connect(self._on_apply_changes_clicked)
         self.replace_all_button.clicked.connect(self._on_replace_all_clicked)
 
