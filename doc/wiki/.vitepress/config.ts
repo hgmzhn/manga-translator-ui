@@ -133,7 +133,7 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: '快速开始', link: '/zh/introduction/first-translation' },
-          { text: '设置', link: '/zh/desktop/settings/' },
+          { text: '设置', link: '/zh/reference/settings-index' },
           { text: '排障', link: '/zh/troubleshooting/installation-and-startup' },
         ],
         outline: { label: '本页内容', level: [2, 4] },
@@ -152,7 +152,7 @@ export default defineConfig({
       themeConfig: {
         nav: [
           { text: 'Quick start', link: '/en/introduction/first-translation' },
-          { text: 'Settings', link: '/en/desktop/settings/' },
+          { text: 'Settings', link: '/en/reference/settings-index' },
           { text: 'Troubleshooting', link: '/en/troubleshooting/installation-and-startup' },
         ],
         outline: { label: 'On this page', level: [2, 4] },

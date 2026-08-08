@@ -73,25 +73,25 @@ const copy = computed(() => isZh.value ? {
 const tasks = computed(() => isZh.value ? [
   { icon: Download, title: '安装桌面端', detail: 'Windows 便携版、发行版和源码安装', link: 'install/windows-portable' },
   { icon: Languages, title: '翻译第一张图', detail: '从导入图片到检查输出的完整流程', link: 'introduction/first-translation' },
-  { icon: Settings2, title: '调整翻译设置', detail: '检测、OCR、翻译、修复和排版', link: 'desktop/settings/' },
+  { icon: Settings2, title: '调整翻译设置', detail: '检测、OCR、翻译、修复和排版', link: 'reference/settings-index' },
   { icon: PenTool, title: '修改译文与画面', detail: '文本框、蒙版、样式和快捷键', link: 'desktop/editor/layout-and-file-list' },
   { icon: Boxes, title: '批量处理文件', detail: '工作流、输入输出和任务管理', link: 'workflows/normal' },
   { icon: FileJson, title: '接入程序或脚本', detail: 'CLI、HTTP API 和 WebSocket', link: 'developer/http-api/translation-endpoints' },
 ] : [
   { icon: Download, title: 'Install the desktop app', detail: 'Windows portable, releases, and source installs', link: 'install/windows-portable' },
   { icon: Languages, title: 'Translate the first image', detail: 'A complete run from import to output review', link: 'introduction/first-translation' },
-  { icon: Settings2, title: 'Tune translation settings', detail: 'Detection, OCR, translation, inpainting, and rendering', link: 'desktop/settings/' },
+  { icon: Settings2, title: 'Tune translation settings', detail: 'Detection, OCR, translation, inpainting, and rendering', link: 'reference/settings-index' },
   { icon: PenTool, title: 'Edit text and artwork', detail: 'Text regions, masks, styles, and shortcuts', link: 'desktop/editor/layout-and-file-list' },
   { icon: Boxes, title: 'Process files in batches', detail: 'Workflows, input, output, and task management', link: 'workflows/normal' },
   { icon: FileJson, title: 'Integrate an app or script', detail: 'CLI, HTTP API, and WebSocket', link: 'developer/http-api/translation-endpoints' },
 ])
 
 const modes = computed(() => isZh.value ? [
-  { icon: Monitor, name: '桌面端', detail: '本机翻译、逐张检查并在可视化编辑器中精修。', link: 'desktop/navigation-and-language', action: '查看桌面端文档' },
+  { icon: Monitor, name: '桌面端', detail: '本机翻译、逐张检查并在可视化编辑器中精修。', link: 'desktop/settings/cli-batch-and-output', action: '查看桌面端文档' },
   { icon: Globe2, name: 'Web 界面', detail: '在浏览器上传图片、管理任务、账号和翻译历史。', link: 'web/launch-and-access', action: '查看 Web 文档' },
   { icon: TerminalSquare, name: '命令行与 API', detail: '适合批处理、自动化脚本和服务集成。', link: 'cli/command-structure', action: '查看开发文档' },
 ] : [
-  { icon: Monitor, name: 'Desktop app', detail: 'Translate locally, review each image, and refine it in the visual editor.', link: 'desktop/navigation-and-language', action: 'Desktop documentation' },
+  { icon: Monitor, name: 'Desktop app', detail: 'Translate locally, review each image, and refine it in the visual editor.', link: 'desktop/settings/cli-batch-and-output', action: 'Desktop documentation' },
   { icon: Globe2, name: 'Web UI', detail: 'Upload images and manage tasks, accounts, and history in a browser.', link: 'web/launch-and-access', action: 'Web documentation' },
   { icon: TerminalSquare, name: 'CLI and APIs', detail: 'Built for batches, automation scripts, and service integrations.', link: 'cli/command-structure', action: 'Developer documentation' },
 ])
@@ -136,7 +136,7 @@ const problems = computed(() => isZh.value ? [
             <a class="home-button home-button-primary" :href="docLink('introduction/first-translation')">
               {{ copy.start }}<ArrowRight :size="17" />
             </a>
-            <a class="home-button home-button-secondary" :href="docLink('install/release-download')">
+            <a class="home-button home-button-secondary" :href="docLink('install/windows-portable')">
               <Download :size="17" />{{ copy.install }}
             </a>
           </div>

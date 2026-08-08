@@ -16,7 +16,7 @@ This guide covers the first complete translation on desktop in three parts: Inst
 
 ## What to know first {#feature-boundary}
 
-This guide focuses on the minimal path for the first complete translation on desktop: install, configure the API (required for online translation), add images, set an output directory, keep “Normal Translation”, and start the task. Parameter details of each module (detector, OCR, translator, typesetting, and API credentials) are covered on their own pages ([Settings](../desktop/settings/index.md), [Translator](../desktop/translator/selection-and-languages.md), [API Management](../desktop/api-management/feature-selectors.md)), not here.
+This guide focuses on the minimal path for the first complete translation on desktop: install, configure the API (required for online translation), add images, set an output directory, keep “Normal Translation”, and start the task. Parameter details of each module (detector, OCR, translator, typesetting, and API credentials) are covered on their own pages ([Settings](../reference/settings-index.md), [Translator](../desktop/translator/selection-and-languages.md), [API Management](../desktop/api-management/feature-selectors.md)), not here.
 
 For a first run, use a public, non-sensitive sample image. “Normal Translation” is not a configuration-free demo mode: online translation still requires credentials configured in API Management.
 

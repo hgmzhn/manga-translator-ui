@@ -16,7 +16,7 @@ lastUpdated: true
 
 ## 先了解这些 {#feature-boundary}
 
-这里按桌面端第一次完整翻译的最小路径：安装、配置 API（在线翻译需要）、添加图片、设置输出目录、保持“正常翻译流程”并启动任务。检测器、OCR、翻译器、排版、API 凭据等各模块的参数细节见对应模块页（[设置](../desktop/settings/index.md)、[翻译器](../desktop/translator/selection-and-languages.md)、[API 管理](../desktop/api-management/feature-selectors.md)），不在本页展开。
+这里按桌面端第一次完整翻译的最小路径：安装、配置 API（在线翻译需要）、添加图片、设置输出目录、保持“正常翻译流程”并启动任务。检测器、OCR、翻译器、排版、API 凭据等各模块的参数细节见对应模块页（[设置](../reference/settings-index.md)、[翻译器](../desktop/translator/selection-and-languages.md)、[API 管理](../desktop/api-management/feature-selectors.md)），不在本页展开。
 
 第一次运行建议使用一张可公开、无敏感内容的图片。“正常翻译流程”不是跳过配置的演示模式：使用在线翻译时仍需在 API 管理中配好凭据。
 

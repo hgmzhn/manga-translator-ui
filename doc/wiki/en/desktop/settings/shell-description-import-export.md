@@ -9,7 +9,7 @@ lastUpdated: true
 
 # Settings Shell, Descriptions, and Config Import/Export
 
-This guide describes how the desktop Settings page organizes groups, parameter rows, and the right-hand description panel, and how it exports or imports settings JSON. It does not explain the algorithmic meaning of detection, OCR, translation, inpainting, typesetting, upscaling, or colorization parameters; those belong to [Settings and configuration lifecycle](./index.md) and the corresponding parameter pages. It also does not own API credential slots, presets, prompt lists, or editor project files.
+This guide describes how the desktop Settings page organizes groups, parameter rows, and the right-hand description panel, and how it exports or imports settings JSON. It does not explain the algorithmic meaning of detection, OCR, translation, inpainting, typesetting, upscaling, or colorization parameters; those belong in the [Settings Parameter Index](../../reference/settings-index.md) and the corresponding parameter pages. It also does not own API credential slots, presets, prompt lists, or editor project files.
 
 ## What these settings control {#feature-boundary}
 
