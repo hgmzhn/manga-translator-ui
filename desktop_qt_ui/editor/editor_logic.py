@@ -224,6 +224,13 @@ class EditorLogic(QObject):
 
     # --- File Management Methods ---
 
+    def _set_last_open_dir(self, path: str) -> None:
+        """Persist the directory used by the editor's file dialogs."""
+        if not path:
+            return
+        self.config_service.update_config({"app": {"last_open_dir": path}})
+        self.config_service.save_config_file()
+
     @pyqtSlot()
     def open_and_add_files(self):
         """Opens a file dialog to add files to the editor's list."""
@@ -236,7 +243,7 @@ class EditorLogic(QObject):
         )
         if file_paths:
             self.add_files(file_paths)
-            # TODO: Find a way to save last_open_dir back to config service
+            self._set_last_open_dir(os.path.dirname(file_paths[0]))
 
     @pyqtSlot()
     def open_and_add_folder(self):
@@ -252,6 +259,7 @@ class EditorLogic(QObject):
         )
 
         if folders:
+            self._set_last_open_dir(folders[0])
             self.add_folders(folders)
 
     def add_files(self, files: List[str]):
