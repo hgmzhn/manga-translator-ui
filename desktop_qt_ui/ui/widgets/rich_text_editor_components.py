@@ -451,6 +451,12 @@ class StyleRunCard(SimpleCardWidget):
     ruby_finished = pyqtSignal(int, int, str)
     ruby_changed = pyqtSignal(int, int, str)
 
+    # Paired controls share the compact width available after the key/name
+    # columns.  Keeping this policy here makes every pair (effects and offsets)
+    # behave consistently as the editor width changes.
+    _PAIR_CONTROL_MIN_WIDTH = 88
+    _PAIR_CONTROL_MAX_WIDTH = 132
+
     def refresh_theme(self) -> None:
         """Refresh the card surface after a runtime Fluent theme change."""
         self.backgroundColorAni.stop()
@@ -790,9 +796,25 @@ class StyleRunCard(SimpleCardWidget):
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(CaptionLabel(left_label))
+
+        for control in (left, right):
+            control.setMinimumWidth(self._PAIR_CONTROL_MIN_WIDTH)
+            control.setMaximumWidth(self._PAIR_CONTROL_MAX_WIDTH)
+
+        left_caption = CaptionLabel(left_label, widget)
+        right_caption = CaptionLabel(right_label, widget)
+        # Keep axis labels from consuming the stretch allocated to the inputs.
+        left_caption.setFixedWidth(
+            max(12, left_caption.fontMetrics().horizontalAdvance(left_label) + 2)
+        )
+        right_caption.setFixedWidth(
+            max(12, right_caption.fontMetrics().horizontalAdvance(right_label) + 2)
+        )
+        left_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(left_caption)
         layout.addWidget(left, 1)
-        layout.addWidget(CaptionLabel(right_label))
+        layout.addWidget(right_caption)
         layout.addWidget(right, 1)
         return widget
 

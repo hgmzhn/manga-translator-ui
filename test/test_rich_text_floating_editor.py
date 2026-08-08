@@ -318,6 +318,20 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         self.assertEqual(style["transform"]["offsetX"], 8.0)
         self.assertEqual(len(changes), 3)
 
+    def test_pair_controls_use_compact_uniform_inputs(self):
+        editor = self._editor({"translation": "偏移"})
+        editor._select_python_range(0, 2)
+        editor.toolbar.buttons["XY"].click()
+        self.app.processEvents()
+
+        pair = editor.run_list.run_cards[0].controls["XY"]
+        controls = pair.findChildren(CompactDoubleSpinBox)
+
+        self.assertEqual(len(controls), 2)
+        self.assertEqual({control.minimumWidth() for control in controls}, {88})
+        self.assertEqual({control.maximumWidth() for control in controls}, {132})
+        self.assertLessEqual(pair.minimumSizeHint().width(), 260)
+
     def test_style_only_edit_preserves_pre_replacement_translation(self):
         editor = self._editor({
             "translation": "AB",
