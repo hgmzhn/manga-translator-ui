@@ -4388,8 +4388,8 @@
     },
     {
       "key": "desc_cli_verbose",
-      "en_US": "Output detailed debug info to logs for troubleshooting.\n\nWhen enabled, Qt UI writes these items under result/:\n- log_timestamp.txt: Qt UI runtime log\n- timestamp-image-target-translator/: debug intermediate files for a single task\n\nCleanup: close Qt UI first, then delete the unneeded log_*.txt files and matching timestamp debug folders under result/.",
-      "zh_CN": "输出详细的调试信息到日志，方便排查问题。\n\n开启后会在 result/ 目录生成：\n- log_时间戳.txt：Qt UI 运行日志\n- 时间戳-图片名-目标语言-翻译器/：单次任务的调试中间文件\n\n清理方法：先关闭 Qt UI，再到 result/ 目录删除不需要的 log_*.txt 和对应的时间戳调试文件夹即可。",
+      "en_US": "Qt UI always creates the log_timestamp.txt runtime log in result/ at startup, whether this option is enabled or disabled.\n\nWhen enabled, the console includes DEBUG-level messages and each processed image gets a timestamped debug folder. It stores cached intermediate files for input, detection/OCR, inpainting, and rendering. These files can be numerous and use substantial disk space, so enable this only while troubleshooting.\n\nCleanup: close Qt UI first, then delete the unneeded log_*.txt files and timestamped debug folders under result/.",
+      "zh_CN": "Qt UI 启动时，无论此项是否开启，都会在 result/ 目录创建 log_时间戳.txt 运行日志。\n\n开启后，控制台会显示 DEBUG 级别信息；每张已处理图片还会创建带时间戳的调试文件夹，保存输入图、检测/OCR、修复和渲染等调试缓存/中间文件。这些文件可能很多并占用大量磁盘空间，建议只在排查问题时开启。\n\n清理方法：先关闭 Qt UI，再到 result/ 目录删除不需要的 log_*.txt 和带时间戳的调试文件夹即可。",
       "status": "exact"
     },
     {

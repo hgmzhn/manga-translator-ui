@@ -26,7 +26,7 @@ Open the "Translation" page. The dropdown at the top is labeled "Translation Wor
 
 ### Enabling verbose logging in settings
 
-Open "Settings" → the "General" group and check "Verbose Logging". When enabled, the Qt UI writes a runtime log `log_<timestamp>.txt` under `result/` and creates a per-image debug subfolder for each translation; when disabled, none of these debug files are written. The `local`, `ws`, `shared`, and `web` CLI subcommands each provide their own `-v/--verbose` switch.
+Open "Settings" → the "General" group and check "Verbose Logging". Qt UI creates the runtime log `result/log_<timestamp>.txt` at startup regardless of this setting. With verbose logging enabled, it additionally raises console output to DEBUG level and creates a per-image debug subfolder containing cached intermediate artifacts; with it disabled, those image-level debug subfolders are not created. The `local`, `ws`, `shared`, and `web` CLI subcommands each provide their own `-v/--verbose` switch.
 
 ## Special workflow debug artifacts
 

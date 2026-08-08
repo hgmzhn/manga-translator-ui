@@ -983,7 +983,7 @@
   "RGB: {r},{g},{b}": "RGB: {r},{g},{b}",
   "desc_app_ui_language": "인터페이스 표시 언어. 전환 후 텍스트가 즉시 업데이트됩니다.",
   "desc_app_theme": "UI 테마입니다. 라이트, 다크, 그레이, 오션, 포레스트, 선셋, 로즈 및 시스템 설정 따르기를 지원합니다.",
-  "desc_cli_verbose": "문제 해결을 위해 상세한 디버그 정보를 로그에 출력합니다.\n\n활성화하면 Qt UI는 result/ 폴더 아래에 다음을 생성합니다:\n- log_timestamp.txt: Qt UI 실행 로그\n- timestamp-image-target-translator/: 단일 작업의 디버그 중간 파일\n\n정리 방법: 먼저 Qt UI를 종료한 뒤 result/ 폴더에서 불필요한 log_*.txt 파일과 해당 타임스탬프 디버그 폴더를 삭제하면 됩니다.",
+  "desc_cli_verbose": "이 옵션을 켜거나 끄는 것과 관계없이 Qt UI는 시작할 때 result/ 폴더에 log_timestamp.txt 실행 로그를 만듭니다.\n\n활성화하면 콘솔에 DEBUG 수준의 메시지가 표시되고, 처리한 이미지마다 타임스탬프가 있는 디버그 폴더도 생성됩니다. 입력 이미지, 감지/OCR, 인페인팅, 렌더링 등의 디버그 캐시/중간 파일이 저장되므로 파일 수와 디스크 사용량이 크게 늘어날 수 있습니다. 문제를 조사할 때만 활성화하세요.\n\n정리 방법: 먼저 Qt UI를 종료한 뒤 result/ 폴더에서 불필요한 log_*.txt 파일과 타임스탬프가 있는 디버그 폴더를 삭제하면 됩니다.",
   "desc_cli_ignore_errors": "오류를 무시하고 나머지 이미지를 계속 처리하여 작업을 중단하지 않습니다.",
   "desc_cli_use_gpu": "GPU 가속을 활성화합니다. CUDA 지원이 필요하며, 처리 속도가 크게 향상됩니다.",
   "desc_cli_disable_onnx_gpu": "ONNX Runtime GPU 가속을 비활성화합니다. GPU 모드에서 호환성 문제가 있을 때 시도해 보세요.",

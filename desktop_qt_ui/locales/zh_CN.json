@@ -990,7 +990,7 @@
   "RGB: {r},{g},{b}": "RGB：{r},{g},{b}",
   "desc_app_ui_language": "界面显示语言。切换后界面文本会即时更新。",
   "desc_app_theme": "界面主题。支持浅色、深色、灰色、海洋、森林、落日、玫瑰和跟随系统。",
-  "desc_cli_verbose": "输出详细的调试信息到日志，方便排查问题。\n\n开启后会在 result/ 目录生成：\n- log_时间戳.txt：Qt UI 运行日志\n- 时间戳-图片名-目标语言-翻译器/：单次任务的调试中间文件\n\n清理方法：先关闭 Qt UI，再到 result/ 目录删除不需要的 log_*.txt 和对应的时间戳调试文件夹即可。",
+  "desc_cli_verbose": "Qt UI 启动时，无论此项是否开启，都会在 result/ 目录创建 log_时间戳.txt 运行日志。\n\n开启后，控制台会显示 DEBUG 级别信息；每张已处理图片还会创建带时间戳的调试文件夹，保存输入图、检测/OCR、修复和渲染等调试缓存/中间文件。这些文件可能很多并占用大量磁盘空间，建议只在排查问题时开启。\n\n清理方法：先关闭 Qt UI，再到 result/ 目录删除不需要的 log_*.txt 和带时间戳的调试文件夹即可。",
   "desc_cli_ignore_errors": "遇到错误时忽略并继续处理后续图片，不中断整个任务。",
   "desc_cli_use_gpu": "启用 GPU 加速。需要 CUDA 支持，可大幅提升处理速度。",
   "desc_cli_disable_onnx_gpu": "禁用 ONNX Runtime GPU 加速。如果 GPU 模式出现兼容问题，可尝试启用此选项。",

@@ -27,7 +27,7 @@ The formal local CLI entry point is `manga_translator/args.py`: `python -m manga
 
 #### Verbose Logging {#cli-verbose}
 
-The “Verbose Logging” toggle is on Settings → General. When enabled, full-process logs and debug artifacts are recorded; results are unchanged, but disk use increases. Default: `false`.
+The “Verbose Logging” toggle is on Settings → General. Qt UI always creates `result/log_<timestamp>.txt` at startup, even when this toggle is off. Enabling it raises console output to DEBUG level and creates a per-image debug folder containing cached intermediate input, detection/OCR, inpainting, and rendering artifacts. Results are unchanged, but the extra files can be numerous and consume substantial disk space; use it only for troubleshooting. Default: `false`.
 
 #### Retry Attempts {#cli-attempts}
 

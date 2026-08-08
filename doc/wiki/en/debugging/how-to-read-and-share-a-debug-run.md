@@ -23,7 +23,7 @@ Use this page when a translation result looks wrong, an error occurs, or you nee
 
 1. Open “Settings” and select the “General” group.
 2. Turn on “Verbose Logging” and save.
-3. Run a translation task again. With it enabled, `result/` gains a runtime log `log_<timestamp>.txt` and one debug subfolder per image.
+3. Run a translation task again. Qt UI already creates `result/log_<timestamp>.txt` at startup whether verbose logging is enabled or not; with it enabled, the task also creates one debug subfolder per image.
 4. When a “Translation Error” dialog appears, click “Open log folder” to jump straight to the log directory.
 
 ### Locate the log and debug directory {#locate-logs-and-debug-directory}
