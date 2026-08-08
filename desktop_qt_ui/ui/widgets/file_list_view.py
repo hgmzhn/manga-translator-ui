@@ -308,6 +308,13 @@ class FileCatalogDelegate(QStyledItemDelegate):
     def __init__(self, parent: Optional[QObject] = None, translate=None):
         super().__init__(parent)
         self._translate = translate or (lambda key: key)
+        self._remove_enabled = True
+
+    def set_remove_enabled(self, enabled: bool) -> None:
+        self._remove_enabled = bool(enabled)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "viewport"):
+            parent.viewport().update()
 
     def sizeHint(self, _option: QStyleOptionViewItem, _index: QModelIndex) -> QSize:
         return QSize(120, self.ROW_HEIGHT)
@@ -399,10 +406,14 @@ class FileCatalogDelegate(QStyledItemDelegate):
                 metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, text_rect.width()),
             )
 
+        painter.save()
+        if not self._remove_enabled:
+            painter.setOpacity(0.35)
         FIF.CLOSE.render(
             painter,
             QRect(close_rect.center().x() - 8, close_rect.center().y() - 8, 16, 16),
         )
+        painter.restore()
         painter.restore()
 
     def editorEvent(self, event, model, option, index) -> bool:
@@ -413,6 +424,8 @@ class FileCatalogDelegate(QStyledItemDelegate):
         rect = option.rect.adjusted(4, 3, -4, -3)
         if not self._close_rect(rect).contains(event.position().toPoint()):
             return False
+        if not self._remove_enabled:
+            return True
         if event.type() == QEvent.Type.MouseButtonRelease:
             path = index.data(PATH_ROLE)
             if isinstance(path, str):
@@ -501,6 +514,10 @@ class FileListView(TreeView):
         channel = self._channel
         self.destroyed.connect(lambda _obj=None: service.cancel(channel))
         self._sync_empty_state_overlay()
+
+    def set_remove_enabled(self, enabled: bool) -> None:
+        """Enable or disable the per-item remove affordance without disabling selection."""
+        self._delegate.set_remove_enabled(enabled)
 
     def _t(self, key: str, **kwargs) -> str:
         try:

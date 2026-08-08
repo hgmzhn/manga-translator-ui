@@ -32,12 +32,69 @@ def _logic():
         excluded_files=set(),
         file_to_folder_map={},
         files_added=_Signal(),
+        file_removed=_Signal(),
+        files_cleared=_Signal(),
         file_sources_changed=_Signal(),
         logger=SimpleNamespace(info=lambda *_args: None, warning=lambda *_args: None),
         _ui_log=lambda *_args: None,
         _path_key=MainAppLogic._path_key,
         _path_is_within=MainAppLogic._path_is_within,
     )
+
+
+def test_file_list_edits_remain_blocked_while_translation_runs(monkeypatch):
+    logic = _logic()
+    logic.state_manager.is_translating = lambda: True
+    monkeypatch.setattr(app_logic_module.os.path, "isdir", lambda _path: False)
+
+    first = r"C:\batch\page1.png"
+    second = r"C:\batch\page2.png"
+    MainAppLogic.add_files(logic, [first, second])
+    assert logic.source_files == []
+
+    MainAppLogic.remove_file(logic, first)
+    assert logic.source_files == []
+
+    logic.source_files = [second]
+    MainAppLogic.clear_file_list(logic)
+    assert logic.source_files == [second]
+
+
+def test_translation_state_keeps_main_file_controls_enabled(monkeypatch):
+    class Widget:
+        def __init__(self):
+            self.enabled = True
+
+        def setEnabled(self, value):
+            self.enabled = bool(value)
+
+    class StartButton(Widget):
+        def setText(self, _text):
+            pass
+
+    view = SimpleNamespace(
+        controller=SimpleNamespace(
+            state_manager=SimpleNamespace(is_translating=lambda: True),
+        ),
+        add_files_button=Widget(),
+        add_folder_button=Widget(),
+        clear_list_button=Widget(),
+        file_list=Widget(),
+        env_page=Widget(),
+        start_button=StartButton(),
+        _t=lambda key: key,
+        _enable_stop_button=lambda: None,
+    )
+    monkeypatch.setattr(main_view_runtime.QTimer, "singleShot", lambda *_args: None)
+
+    main_view_runtime.on_translation_state_changed(view, True)
+
+    assert not view.add_files_button.enabled
+    assert not view.add_folder_button.enabled
+    assert not view.clear_list_button.enabled
+    assert view.file_list.enabled
+    assert not view.env_page.enabled
+    assert not view.start_button.enabled
 
 
 def test_batch_single_files_do_not_run_pairwise_containment(monkeypatch):

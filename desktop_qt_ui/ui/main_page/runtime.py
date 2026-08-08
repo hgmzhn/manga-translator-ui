@@ -95,16 +95,21 @@ def reset_progress(self):
 
 def on_translation_state_changed(self, is_translating: bool):
     """根据翻译状态更新开始/停止按钮。"""
+    # 文件列表保持可选择，以便翻译期间仍可从主页进入编辑器；文件增删
+    # 控件和业务层修改入口继续锁定，避免改变当前任务的输入。
     for name in (
         "add_files_button",
         "add_folder_button",
         "clear_list_button",
-        "file_list",
         "env_page",
     ):
         widget = getattr(self, name, None)
         if widget is not None:
             widget.setEnabled(not is_translating)
+
+    file_list = getattr(self, "file_list", None)
+    if file_list is not None and hasattr(file_list, "set_remove_enabled"):
+        file_list.set_remove_enabled(not is_translating)
 
     if is_translating:
         self.start_button.setEnabled(False)

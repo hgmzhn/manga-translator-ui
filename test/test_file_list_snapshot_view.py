@@ -186,6 +186,17 @@ def test_view_uses_model_delegate_and_gui_thread_pixmap() -> None:
             assert view.currentIndex().data().startswith("page2")
             second_index = view.catalog_model.index_for_path(str(second))
             second_rect = view.visualRect(second_index)
+            view.set_remove_enabled(False)
+            QTest.mouseClick(
+                view.viewport(),
+                Qt.MouseButton.LeftButton,
+                pos=QPoint(second_rect.right() - 18, second_rect.center().y()),
+            )
+            app.processEvents()
+            assert removed == []
+            assert _catalog_path(second) in view.catalog_model.image_paths()
+
+            view.set_remove_enabled(True)
             QTest.mouseClick(
                 view.viewport(),
                 Qt.MouseButton.LeftButton,
