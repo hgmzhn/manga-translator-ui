@@ -11,11 +11,11 @@
     "release_config": "config/config-example.json"
   },
   "baseline_comparison": {
-    "requested_baseline": 110,
-    "layout_parameter_entries": 110,
-    "visible_parameter_fields": 109,
+    "requested_baseline": 111,
+    "layout_parameter_entries": 111,
+    "visible_parameter_fields": 110,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 110 string entries, matching the requested baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 109 visible settings rows (one below 110)."
+    "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111)."
   },
   "records": [
     {
@@ -1289,7 +1289,7 @@
         "core": "`\"openai_hq\"`",
         "qt": "`\"openai_hq\"`",
         "release": "`\"openai\"`",
-        "release_json_value": "openai",
+        "release_json_value": "original",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
       },
       "lifecycle_stages": [
@@ -1857,6 +1857,32 @@
         "rendering"
       ],
       "file_action": true,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "render.disable_system_fonts",
+      "ui": {
+        "tab": "Typesetting",
+        "i18n_key": "label_disable_system_fonts",
+        "english": "Disable System Fonts",
+        "simplified_chinese": "禁止使用系统字体库"
+      },
+      "wiki_page": "desktop/settings/typesetting-and-rendering.md",
+      "control": "toggle",
+      "defaults": {
+        "core": "`false`",
+        "qt": "`false`",
+        "release": "`false`",
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_system_fonts"
+      },
+      "lifecycle_stages": [
+        "typesetting",
+        "rendering"
+      ],
+      "file_action": false,
       "consumers": [],
       "consumer_status": "pending Phase 3 source trace",
       "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
@@ -2826,7 +2852,7 @@
     }
   ],
   "validation": {
-    "record_count": 109,
+    "record_count": 110,
     "ui_labels": "Every record resolves an actual UI label key in both desktop locales.",
     "consumer_trace": "Not generated from Phase 0; intentionally left pending for Phase 3 evidence."
   }

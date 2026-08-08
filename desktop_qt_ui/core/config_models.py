@@ -77,6 +77,7 @@ class RenderSettings(BaseModel):
     uppercase: bool = False
     lowercase: bool = False
     font_family: str = ""
+    disable_system_fonts: bool = False
     no_hyphenation: bool = False
     bubble_layout_english: bool = False
     font_color: Optional[str] = None

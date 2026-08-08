@@ -114,6 +114,7 @@
 | `render.enable_template_alignment` | `false` | `false` | `false` |  |
 | `render.font_color` | `null` | `null` | `null` |  |
 | `render.font_family` | `null` | `""` | `"Microsoft YaHei UI"` | yes |
+| `render.disable_system_fonts` | `false` | `false` | `false` |  |
 | `render.font_scale_ratio` | `1.0` | `1.0` | `1.0` |  |
 | `render.font_size` | `null` | `null` | `null` |  |
 | `render.font_size_minimum` | `-1` | `0` | `0` | yes |

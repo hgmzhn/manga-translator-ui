@@ -14,11 +14,11 @@
     ]
   },
   "baseline_comparison": {
-    "requested_baseline": 110,
-    "layout_parameter_entries": 110,
-    "visible_parameter_fields": 109,
+    "requested_baseline": 111,
+    "layout_parameter_entries": 111,
+    "visible_parameter_fields": 110,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 110 string entries, matching the requested baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 109 visible settings rows (one below 110)."
+    "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111)."
   },
   "visible_fields": [
     {
@@ -454,6 +454,12 @@
       "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.font_family"
     },
     {
+      "key": "render.disable_system_fonts",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.disable_system_fonts"
+    },
+    {
       "key": "render.ai_renderer_prompt_path",
       "page": "Typesetting",
       "control": "prompt-editor-button",
@@ -688,6 +694,6 @@
   ],
   "reproduction": {
     "command": "uv run --no-sync python doc/wiki/verify_phase0_ui_parameter_fields.py",
-      "expected_result": "PASS: layout=110, fixed-actions=3, visible=109, baseline-delta=-1, excluded=render.font_color"
+      "expected_result": "PASS: layout=111, fixed-actions=3, visible=110, baseline-delta=-1, excluded=render.font_color"
   }
 }

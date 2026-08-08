@@ -24,7 +24,7 @@ from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
 from ui.widgets.widget_cleanup import clear_layout
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
-from utils.font_list import FontComboBox
+from utils.font_list import FontComboBox, set_system_fonts_enabled
 
 
 class QLineEdit(FluentLineEdit):
@@ -656,6 +656,8 @@ def set_parameters(self, config: dict):
     """
     Receives a config dictionary and starts the incremental creation of setting widgets.
     """
+    render_config = config.get("render", {}) if isinstance(config, dict) else {}
+    set_system_fonts_enabled(not bool(render_config.get("disable_system_fonts", False)))
     try:
         config_signature = json.dumps(config, sort_keys=True, ensure_ascii=False, default=str)
     except Exception:
@@ -948,6 +950,9 @@ def _on_setting_changed(self, value, full_key, display_map=None):
     # 特殊处理：当 upscaler 变化时，更新 upscale_ratio 动态下拉框
     if full_key == "upscale.upscaler":
         self._update_upscale_ratio_options(final_value)
+
+    if full_key == "render.disable_system_fonts":
+        set_system_fonts_enabled(not bool(final_value))
     
     self.setting_changed.emit(full_key, final_value)
     if full_key in {

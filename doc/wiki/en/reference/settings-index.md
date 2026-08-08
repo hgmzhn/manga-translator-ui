@@ -151,12 +151,13 @@ The 10 parameters of this tab are explained in [Mask And Inpainting](../desktop/
 
 ### Typesetting {#tab-typesetting}
 
-The 28 parameters of this tab are explained in [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md). The parameter sections of that page have no dedicated explicit anchors, so all rows link to the page itself.
+The 29 parameters of this tab are explained in [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md). The parameter sections of that page have no dedicated explicit anchors, so all rows link to the page itself.
 
 | Stored value | English actual value | Simplified Chinese actual value | Jump to |
 | --- | --- | --- | --- |
 | `render.renderer` | Renderer | 渲染器 | [Page](../desktop/settings/typesetting-and-rendering.md) |
 | `render.font_family` | Font | 字体 | [Page](../desktop/settings/typesetting-and-rendering.md) |
+| `render.disable_system_fonts` | Disable System Fonts | 禁止使用系统字体库 | [Page](../desktop/settings/typesetting-and-rendering.md) |
 | `render.ai_renderer_prompt_path` | AI Renderer Prompt | AI 渲染提示词 | [Page](../desktop/settings/typesetting-and-rendering.md) |
 | `render.ai_renderer_concurrency` | AI Renderer Concurrency | AI 渲染并发数 | [Page](../desktop/settings/typesetting-and-rendering.md) |
 | `render.alignment` | Alignment | 对齐方式 | [Page](../desktop/settings/typesetting-and-rendering.md) |

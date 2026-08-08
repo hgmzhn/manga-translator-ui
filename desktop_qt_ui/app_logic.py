@@ -1233,6 +1233,7 @@ class MainAppLogic(QObject):
                     "per_block_inpainting": self._t("label_per_block_inpainting"),
                     "renderer": self._t("label_renderer"),
                     "font_family": self._t("label_font_family"),
+                    "disable_system_fonts": self._t("label_disable_system_fonts"),
                     "alignment": self._t("label_alignment"),
                     "disable_font_border": self._t("label_disable_font_border"),
                     "disable_auto_wrap": self._t("label_disable_auto_wrap"),

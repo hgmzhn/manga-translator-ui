@@ -11,12 +11,13 @@ import hashlib
 import logging
 import os
 import unicodedata
+import weakref
 from collections import Counter
 from collections.abc import Callable
 from functools import lru_cache
 
 from PyQt6.QtCore import QEvent, QLocale, QSignalBlocker, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QRawFont
+from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QRawFont, QWheelEvent
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import ComboBox, LineEdit, MenuAnimationType
 from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
@@ -42,6 +43,8 @@ _FONT_SEARCH_PLACEHOLDERS = {
     "es_ES": "Buscar fuentes…",
     "en_US": "Search fonts…",
 }
+_SYSTEM_FONTS_ENABLED = True
+_FONT_COMBO_INSTANCES: weakref.WeakSet = weakref.WeakSet()
 
 
 def fonts_directory() -> str:
@@ -70,8 +73,8 @@ def list_font_files() -> list[tuple[str, str]]:
     return font_files
 
 
-def list_font_families() -> list[str]:
-    """返回系统字体与已注册应用字体的 family 列表。
+def list_font_families(include_system: bool | None = None) -> list[str]:
+    """返回项目字体和（可选的）系统字体 family 列表。
 
     过滤掉以 ``[`` 开头的家族名——它们经 Qt 的 foundry 语法解析后家族名为空，
     QFont 选中的永远是错误字体（系统级安装的工具箱字体会产生这类条目）。
@@ -85,6 +88,15 @@ def list_font_families() -> list[str]:
         name for name in QFontDatabase.families()
         if name and not qt_family_is_ambiguous(name) and QFontDatabase.isScalable(name)
     }
+    if include_system is None:
+        include_system = _SYSTEM_FONTS_ENABLED
+    if not include_system:
+        project_families = {
+            family
+            for families_for_file in _REGISTERED_FONT_FAMILIES.values()
+            for family in families_for_file
+        }
+        families.intersection_update(project_families)
     return sorted(families, key=str.casefold)
 
 
@@ -240,9 +252,12 @@ def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str
     return _original_font_display_name(best[2]), aliases
 
 
-def list_font_family_entries(locale_code: str) -> list[tuple[str, str, tuple[str, ...]]]:
+def list_font_family_entries(
+    locale_code: str,
+    include_system: bool | None = None,
+) -> list[tuple[str, str, tuple[str, ...]]]:
     entries = []
-    for family in list_font_families():
+    for family in list_font_families(include_system=include_system):
         display, aliases = localized_font_family(family, locale_code)
         entries.append((family, display, aliases))
 
@@ -324,7 +339,10 @@ def populate_font_combo(combo, current: str | None = None, locale_code: str = "e
     combo.clear()
     combo._font_search_terms = {}
     combo._font_alias_to_family = {}
-    for display, family, aliases in list_font_family_entries(locale_code):
+    for display, family, aliases in list_font_family_entries(
+        locale_code,
+        include_system=getattr(combo, "_include_system_fonts", _SYSTEM_FONTS_ENABLED),
+    ):
         combo.addItem(display, userData=family)
         combo._font_search_terms[family] = _search_key(" ".join((display, *aliases)))
         for alias in aliases:
@@ -441,9 +459,12 @@ class FontComboBox(ComboBox):
 
     def __init__(self, parent=None, locale_getter: Callable[[], str] | None = None):
         self._locale_getter = locale_getter
+        self._include_system_fonts = _SYSTEM_FONTS_ENABLED
+        self._wheel_delta = 0
         self._font_search_terms: dict[str, str] = {}
         self._font_alias_to_family: dict[str, str] = {}
         super().__init__(parent)
+        _FONT_COMBO_INSTANCES.add(self)
         self.currentIndexChanged.connect(self._emit_current_font_changed)
         self.refresh(QFont().family())
 
@@ -472,6 +493,33 @@ class FontComboBox(ComboBox):
 
     def refresh_ui_texts(self) -> None:
         self.refresh()
+
+    def set_include_system_fonts(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._include_system_fonts == enabled:
+            return
+        current = self.currentFamily()
+        self._include_system_fonts = enabled
+        self.refresh(current)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """Optionally cycle the font family without opening the menu."""
+        if not bool(self.property("wheel_switch_enabled")):
+            event.ignore()
+            return
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if not delta:
+            event.ignore()
+            return
+        self._wheel_delta += int(delta)
+        steps = int(self._wheel_delta / 120)
+        self._wheel_delta -= steps * 120
+        if steps and self.count() > 0:
+            index = self.currentIndex()
+            if index < 0:
+                index = 0
+            self.setCurrentIndex(max(0, min(self.count() - 1, index - steps)))
+        event.accept()
 
     def _locale_code(self) -> str:
         if self._locale_getter is not None:
@@ -508,3 +556,15 @@ class FontComboBox(ComboBox):
 
     def _emit_current_font_changed(self, _index: int) -> None:
         self.currentFontChanged.emit(self.currentFont())
+
+
+def set_system_fonts_enabled(enabled: bool) -> None:
+    """Update the shared font source policy and refresh existing selectors."""
+    global _SYSTEM_FONTS_ENABLED
+    enabled = bool(enabled)
+    _SYSTEM_FONTS_ENABLED = enabled
+    for combo in list(_FONT_COMBO_INSTANCES):
+        try:
+            combo.set_include_system_fonts(enabled)
+        except RuntimeError:
+            continue

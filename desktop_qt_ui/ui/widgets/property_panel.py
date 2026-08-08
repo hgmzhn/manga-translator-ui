@@ -713,6 +713,7 @@ class PropertyPanel(QWidget):
         
         locale_getter = self.i18n.get_current_locale if self.i18n else None
         self.font_family_combo = FontComboBox(self, locale_getter=locale_getter)
+        self.font_family_combo.setProperty("wheel_switch_enabled", True)
         self.font_family_combo.setMinimumWidth(120)
         self.font_label = BodyLabel(self._t("Font:"))
         style_layout.addRow(self.font_label, self.font_family_combo)

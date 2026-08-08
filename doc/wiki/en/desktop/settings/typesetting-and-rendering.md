@@ -15,7 +15,7 @@ This guide covers the `render.*` parameters in the “Typesetting” settings ta
 
 Open “Settings” → “Typesetting”. Each dynamic row shows a field label on the left and a selector, checkbox, numeric/text input, or an “Edit” file action on the right; the description panel shows the current field’s explanation. Changes update the in-memory configuration immediately, and a `render.*` change emits the render-settings-changed signal so the editor can refresh; the config service then writes the configuration file. Selecting `openai_renderer` or `gemini_renderer` requires the corresponding API candidates in API management before translation can start.
 
-The “Font” dropdown lists operating-system fonts and `.ttf`, `.otf`, and `.ttc` files in the project `fonts/` directory. Add a font file there and reopen the dropdown to refresh it. The AI renderer prompt is a file-edit action: “Edit” opens the fixed YAML file directly; do not treat its path as an ordinary renderer enum.
+The “Font” dropdown lists operating-system fonts and `.ttf`, `.otf`, and `.ttc` files in the project `fonts/` directory. Add a font file there and reopen the dropdown to refresh it. Enable “Disable System Fonts” to keep only project fonts in the list. The AI renderer prompt is a file-edit action: “Edit” opens the fixed YAML file directly; do not treat its path as an ordinary renderer enum.
 
 ## Parameter reference
 
@@ -27,7 +27,11 @@ Choose how text is drawn in the “Renderer” combo box. Options: Default (loca
 
 #### Font
 
-Choose a font in the “Font” combo box; options come from operating-system fonts and `.ttf`, `.otf`, and `.ttc` files in the project `fonts/` directory. Add a font file there and reopen the combo box to refresh it. Default: `Microsoft YaHei UI`.
+Choose a font in the “Font” combo box; options come from operating-system fonts and `.ttf`, `.otf`, and `.ttc` files in the project `fonts/` directory. Add a font file there and reopen the combo box to refresh it. In the editor’s “Style Settings → Font” control, you can also use the mouse wheel to cycle through fonts and refresh the text-box preview immediately. Default: `Microsoft YaHei UI`.
+
+#### Disable System Fonts
+
+When enabled, the Typesetting and editor font lists only show fonts registered from the project `fonts/` directory and exclude fonts installed by the operating system. Default: off (`false`). An existing system font remains as the current value for configuration compatibility; new selections are limited to project fonts.
 
 #### Alignment
 

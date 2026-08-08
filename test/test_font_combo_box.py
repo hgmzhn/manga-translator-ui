@@ -3,7 +3,8 @@ import _bootstrap  # noqa: F401
 import types
 from unittest.mock import patch
 
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtGui import QAction, QWheelEvent
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import ComboBox
 
@@ -31,6 +32,23 @@ def test_font_list_skips_non_scalable_families():
         patch.object(font_list, "QFontDatabase", database),
     ):
         assert font_list.list_font_families() == ["Outline Font"]
+    app.processEvents()
+
+
+def test_font_list_can_exclude_system_families():
+    app = _app()
+    database = types.SimpleNamespace(
+        families=lambda: ["Project Font", "System Font"],
+        isScalable=lambda _family: True,
+    )
+
+    with (
+        patch.object(font_list, "list_font_files"),
+        patch.object(font_list, "QFontDatabase", database),
+        patch.dict(font_list._REGISTERED_FONT_FAMILIES, {"project.ttf": ["Project Font"]}, clear=True),
+    ):
+        assert font_list.list_font_families(include_system=False) == ["Project Font"]
+        assert font_list.list_font_families(include_system=True) == ["Project Font", "System Font"]
     app.processEvents()
 
 
@@ -161,12 +179,58 @@ def test_font_combo_box_keeps_fluent_style_and_font_preview():
         app.processEvents()
 
 
+def test_font_combo_box_wheel_switches_only_when_enabled():
+    app = _app()
+
+    def populate(combo, current=None, locale_code="en_US"):
+        combo.clear()
+        for family in ("Alpha Sans", "Beta Serif", "Gamma Mono"):
+            combo.addItem(family, userData=family)
+        if current:
+            combo.setCurrentFamily(current)
+
+    with patch.object(font_list, "populate_font_combo", side_effect=populate):
+        combo = font_list.FontComboBox()
+        combo.setCurrentIndex(1)
+
+        event = QWheelEvent(
+            QPointF(1, 1),
+            QPointF(1, 1),
+            QPoint(0, 0),
+            QPoint(0, 120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.ScrollUpdate,
+            False,
+        )
+        combo.wheelEvent(event)
+        assert combo.currentFamily() == "Beta Serif"
+
+        combo.setProperty("wheel_switch_enabled", True)
+        event = QWheelEvent(
+            QPointF(1, 1),
+            QPointF(1, 1),
+            QPoint(0, 0),
+            QPoint(0, -120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.ScrollUpdate,
+            False,
+        )
+        combo.wheelEvent(event)
+        assert combo.currentFamily() == "Gamma Mono"
+        combo.close()
+    app.processEvents()
+
+
 def main() -> int:
     test_font_list_skips_non_scalable_families()
+    test_font_list_can_exclude_system_families()
     test_font_list_merges_legacy_and_typographic_names_for_same_face()
     test_font_list_keeps_typographic_names_for_different_faces_separate()
     test_localized_font_family_restores_original_brackets_for_display()
     test_font_combo_box_keeps_fluent_style_and_font_preview()
+    test_font_combo_box_wheel_switches_only_when_enabled()
     print("font combo box check passed")
     return 0
 

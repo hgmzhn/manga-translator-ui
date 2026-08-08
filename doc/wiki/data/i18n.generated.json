@@ -6,10 +6,10 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1353,
-    "exact": 1350,
-    "missingInEnglish": 1,
-    "missingInChinese": 2
+    "keys": 1356,
+    "exact": 1356,
+    "missingInEnglish": 0,
+    "missingInChinese": 0
   },
   "entries": [
     {
@@ -988,6 +988,12 @@
       "key": "Delete Style",
       "en_US": "Delete Style",
       "zh_CN": "删除样式",
+      "status": "exact"
+    },
+    {
+      "key": "Delete and Recover Removed Text",
+      "en_US": "Delete and Recover Removed Text",
+      "zh_CN": "删除文本框并恢复原图",
       "status": "exact"
     },
     {
@@ -2510,9 +2516,9 @@
     },
     {
       "key": "Person Entry",
-      "en_US": null,
+      "en_US": "Person Entry",
       "zh_CN": "人物词条",
-      "status": "missing_in_en_US"
+      "status": "exact"
     },
     {
       "key": "Persona",
@@ -4717,6 +4723,12 @@
       "status": "exact"
     },
     {
+      "key": "desc_render_disable_system_fonts",
+      "en_US": "When enabled, the font list only shows fonts from the project fonts directory and excludes fonts installed by the operating system.",
+      "zh_CN": "开启后字体列表只显示项目 fonts 目录中的字体，不再使用操作系统安装的系统字体。",
+      "status": "exact"
+    },
+    {
       "key": "desc_render_enable_template_alignment",
       "en_US": "Direct paste mode: crop regions from translated image and paste to raw image by coordinate matching, preserving original font style. Only works in Replace Translation mode.",
       "zh_CN": "直接粘贴模式：根据坐标匹配从翻译图裁剪区域粘贴到生肉图，保留原始字体样式。仅替换翻译模式下生效。",
@@ -5569,6 +5581,12 @@
       "status": "exact"
     },
     {
+      "key": "label_disable_system_fonts",
+      "en_US": "Disable System Fonts",
+      "zh_CN": "禁止使用系统字体库",
+      "status": "exact"
+    },
+    {
       "key": "label_enable_post_translation_check",
       "en_US": "Enable Post-Translation Check",
       "zh_CN": "启用翻译后检查",
@@ -6039,8 +6057,8 @@
     {
       "key": "label_theme",
       "en_US": "Theme",
-      "zh_CN": null,
-      "status": "missing_in_zh_CN"
+      "zh_CN": "主题",
+      "status": "exact"
     },
     {
       "key": "label_tile_size",
@@ -6063,8 +6081,8 @@
     {
       "key": "label_ui_language",
       "en_US": "Language",
-      "zh_CN": null,
-      "status": "missing_in_zh_CN"
+      "zh_CN": "语言",
+      "status": "exact"
     },
     {
       "key": "label_unclip_ratio",

@@ -151,12 +151,13 @@ lastUpdated: true
 
 ### 排版 {#tab-typesetting}
 
-本页签 28 个参数的说明见[排版与渲染](../desktop/settings/typesetting-and-rendering.md)。该页参数小节没有独立显式锚点，全部跳转到页面本身。
+本页签 29 个参数的说明见[排版与渲染](../desktop/settings/typesetting-and-rendering.md)。该页参数小节没有独立显式锚点，全部跳转到页面本身。
 
 | 存储值 | English 实际值 | 简体中文实际值 | 跳转 |
 | --- | --- | --- | --- |
 | `render.renderer` | Renderer | 渲染器 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.font_family` | Font | 字体 | [页面](../desktop/settings/typesetting-and-rendering.md) |
+| `render.disable_system_fonts` | Disable System Fonts | 禁止使用系统字体库 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.ai_renderer_prompt_path` | AI Renderer Prompt | AI 渲染提示词 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.ai_renderer_concurrency` | AI Renderer Concurrency | AI 渲染并发数 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.alignment` | Alignment | 对齐方式 | [页面](../desktop/settings/typesetting-and-rendering.md) |

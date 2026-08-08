@@ -542,6 +542,7 @@ class PermissionEditor {
             <div class="form-section">
                 <h3>${this.t('label_font_family', '字体设置')}</h3>
                 ${this.createFormRow(this.t('label_font_family', '字体'), this.createSelect('render', 'font_family', opts.font_family), '', 'render', 'font_family')}
+                ${this.createFormRow(this.t('label_disable_system_fonts', '禁止使用系统字体库'), this.createCheckbox('render', 'disable_system_fonts'), '', 'render', 'disable_system_fonts')}
                 ${this.createFormRow(this.t('label_font_size', '字体大小'), this.createInput('render', 'font_size', 'number'), '', 'render', 'font_size')}
                 ${this.createFormRow(this.t('label_font_size_offset', '字体大小偏移量'), this.createInput('render', 'font_size_offset', 'number'), '', 'render', 'font_size_offset')}
                 ${this.createFormRow(this.t('label_font_size_minimum', '最小字体大小'), this.createInput('render', 'font_size_minimum', 'number'), '', 'render', 'font_size_minimum')}

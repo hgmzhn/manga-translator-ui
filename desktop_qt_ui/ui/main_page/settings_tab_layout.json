@@ -127,6 +127,7 @@
       "items": [
         "render.renderer",
         "render.font_family",
+        "render.disable_system_fonts",
         "render.ai_renderer_prompt_path",
         "render.ai_renderer_concurrency",
         "render.alignment",
