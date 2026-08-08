@@ -2,7 +2,6 @@
 
 <img src="doc/images/主页.png" width="760" alt="Manga Translator UI main window">
 
-# Manga Translator UI
 
 **Translate the text in manga pages with one click** — detect → OCR → translate → inpaint → typeset, with a built-in visual editor for the whole pipeline
 

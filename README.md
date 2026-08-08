@@ -2,7 +2,6 @@
 
 <img src="doc/images/主页.png" width="760" alt="Manga Translator UI 主界面">
 
-# Manga Translator UI
 
 **一键翻译漫画图片中的文字** — 检测 → OCR → 翻译 → 消字 → 嵌字，全流程内置可视化编辑器
 
