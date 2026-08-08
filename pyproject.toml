@@ -82,7 +82,6 @@ dependencies = [
     "torchsummary",
     "open_clip_torch==3.1.0",
     "python-bidi==0.6.6",
-    "tufup==0.9.0",
     "google-cloud==0.34.0",
     # 简繁体中文转换
     "opencc-python-reimplemented==0.1.7",
