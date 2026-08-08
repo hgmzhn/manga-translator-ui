@@ -232,6 +232,7 @@ CLAUDE.md
 /.codex/
 /.agents/
 /AGENTS.md
+/.playwright-mcp/
 
 # Local GitHub command presets
 .github/commands/
