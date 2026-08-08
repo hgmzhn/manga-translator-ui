@@ -1163,7 +1163,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             if value:
                 combo.setCurrentFamily(str(value))
             combo.currentFontChanged.connect(
-                lambda font, k=full_key: self._on_setting_changed(font.family(), k, None)
+                lambda _font, k=full_key, c=combo: self._on_setting_changed(c.currentFamily(), k, None)
             )
             button = QPushButton(self._t("Open Directory"))
             button.clicked.connect(self.controller.open_fonts_directory)

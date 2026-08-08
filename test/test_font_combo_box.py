@@ -4,10 +4,11 @@ import types
 from unittest.mock import patch
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QAction, QWheelEvent
+from PyQt6.QtGui import QAction, QFont, QWheelEvent
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import ComboBox
 
+from manga_translator.rendering.text_render import _fonts as text_fonts
 from utils import font_list
 
 
@@ -18,6 +19,12 @@ def _app() -> QApplication:
     global _APPLICATION
     _APPLICATION = QApplication.instance() or QApplication([])
     return _APPLICATION
+
+
+def _font_with_style(family: str, style: str, _size: int) -> QFont:
+    font = QFont(family)
+    font.setStyleName(style)
+    return font
 
 
 def test_font_list_skips_non_scalable_families():
@@ -64,7 +71,7 @@ def test_font_list_merges_legacy_and_typographic_names_for_same_face():
     with (
         patch.object(font_list, "list_font_families", return_value=families),
         patch.object(font_list, "_font_family_name_records", return_value=records),
-        patch.object(font_list, "_font_face_signature", return_value=b"same-face"),
+        patch.object(font_list, "_resolved_font_identity", return_value=(400, 0, 100, "regular")),
     ):
         entries = font_list.list_font_family_entries("zh_CN")
 
@@ -90,7 +97,7 @@ def test_font_list_keeps_typographic_names_for_different_faces_separate():
     with (
         patch.object(font_list, "list_font_families", return_value=families),
         patch.object(font_list, "_font_family_name_records", return_value=records),
-        patch.object(font_list, "_font_face_signature", side_effect=lambda family: family.encode()),
+        patch.object(font_list, "_resolved_font_identity", side_effect=lambda family: (family,)),
     ):
         entries = font_list.list_font_family_entries("en_US")
 
@@ -98,6 +105,59 @@ def test_font_list_keeps_typographic_names_for_different_faces_separate():
         ("Example-W", "Example-W"),
         ("Example-W-Regular", "Example-W-Regular"),
     ]
+
+
+def test_font_list_expands_each_family_style_into_a_selectable_entry():
+    with (
+        patch.object(
+            font_list,
+            "list_font_family_entries",
+            return_value=[("Preview Sans", "Preview Sans", ("Preview Sans", "Preview Sans CN"))],
+        ),
+        patch.object(font_list, "QFontDatabase", types.SimpleNamespace(
+            styles=lambda family: ["Regular", "Bold", "Light"],
+        )),
+    ):
+        entries = font_list.list_font_style_entries("en_US")
+
+    assert [(display, value) for display, value, _aliases in entries] == [
+        ("Preview Sans - Bold", "Preview Sans::Bold"),
+        ("Preview Sans - Light", "Preview Sans::Light"),
+        ("Preview Sans - Regular", "Preview Sans"),
+    ]
+    regular_aliases = entries[2][2]
+    assert "Preview Sans CN" in regular_aliases
+    assert "Preview Sans CN::Bold" in entries[0][2]
+
+
+def test_font_list_merges_legacy_style_family_by_resolved_face():
+    families = [
+        ("Preview Sans", "Preview Sans", ("Preview Sans",)),
+        ("Preview Sans Light", "Preview Sans Light", ("Preview Sans Light",)),
+    ]
+
+    def styles(family):
+        return ["Regular", "Light"] if family == "Preview Sans" else ["Regular"]
+
+    def signature(family, style):
+        return {
+            ("Preview Sans", "Regular"): b"regular",
+            ("Preview Sans", "Light"): b"light",
+            ("Preview Sans Light", "Regular"): b"light",
+        }[(family, style)]
+
+    with (
+        patch.object(font_list, "list_font_family_entries", return_value=families),
+        patch.object(font_list, "QFontDatabase", types.SimpleNamespace(styles=styles)),
+        patch.object(font_list, "_resolved_font_identity", side_effect=signature),
+    ):
+        entries = font_list.list_font_style_entries("en_US")
+
+    assert [(display, value) for display, value, _aliases in entries] == [
+        ("Preview Sans - Light", "Preview Sans::Light"),
+        ("Preview Sans - Regular", "Preview Sans"),
+    ]
+    assert "Preview Sans Light" in entries[0][2]
 
 
 def test_localized_font_family_restores_original_brackets_for_display():
@@ -176,7 +236,63 @@ def test_font_combo_box_keeps_fluent_style_and_font_preview():
 
         menu.close()
         combo.close()
-        app.processEvents()
+    app.processEvents()
+
+
+def test_font_combo_box_preserves_selected_style():
+    app = _app()
+
+    with (
+        patch.object(
+            font_list,
+            "list_font_style_entries",
+            return_value=[
+                ("Preview Sans - Regular", "Preview Sans", ("Preview Sans",)),
+                (
+                    "Preview Sans - Bold",
+                    "Preview Sans::Bold",
+                    ("Preview Sans::Bold", "Preview Sans Bold"),
+                ),
+            ],
+        ),
+        patch.object(font_list.QFontDatabase, "font", side_effect=_font_with_style),
+    ):
+        combo = font_list.FontComboBox()
+        combo.setCurrentFamily("Preview Sans::Bold")
+
+        assert combo.currentFamily() == "Preview Sans::Bold"
+        assert combo.currentFont().family() == "Preview Sans"
+        assert combo.currentFont().styleName() == "Bold"
+
+        combo.setCurrentFamily("Preview Sans Bold")
+        assert combo.currentFamily() == "Preview Sans::Bold"
+
+        combo.close()
+    app.processEvents()
+
+
+def test_renderer_applies_style_encoded_in_font_selection():
+    app = _app()
+    previous_state = getattr(text_fonts._thread_state, "value", None)
+    try:
+        text_fonts._thread_state.value = text_fonts.FontState()
+        with (
+            patch.object(text_fonts, "_ensure_qt_runtime"),
+            patch.object(text_fonts, "_register_project_fonts"),
+            patch.object(text_fonts, "_match_family", return_value="Preview Sans"),
+            patch.object(text_fonts.QFontDatabase, "font", side_effect=_font_with_style),
+        ):
+            text_fonts.set_font("Preview Sans::Light")
+            font = text_fonts._layout_font(24, 1.0)
+
+        assert font.family() == "Preview Sans"
+        assert font.styleName() == "Light"
+    finally:
+        if previous_state is None:
+            delattr(text_fonts._thread_state, "value")
+        else:
+            text_fonts._thread_state.value = previous_state
+    app.processEvents()
 
 
 def test_font_combo_box_wheel_never_changes_and_menu_hover_previews():
@@ -225,8 +341,12 @@ def main() -> int:
     test_font_list_can_exclude_system_families()
     test_font_list_merges_legacy_and_typographic_names_for_same_face()
     test_font_list_keeps_typographic_names_for_different_faces_separate()
+    test_font_list_expands_each_family_style_into_a_selectable_entry()
+    test_font_list_merges_legacy_style_family_by_resolved_face()
     test_localized_font_family_restores_original_brackets_for_display()
     test_font_combo_box_keeps_fluent_style_and_font_preview()
+    test_font_combo_box_preserves_selected_style()
+    test_renderer_applies_style_encoded_in_font_selection()
     test_font_combo_box_wheel_never_changes_and_menu_hover_previews()
     print("font combo box check passed")
     return 0

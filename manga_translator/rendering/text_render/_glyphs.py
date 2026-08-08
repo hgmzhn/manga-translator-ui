@@ -90,8 +90,8 @@ def _glyph_spec_via_layout(cdpt: str, font_size: int) -> Optional[GlyphSpec]:
 
 def _glyph_spec(cdpt: str, font_size: int) -> GlyphSpec:
     state = _state()
-    # 缓存 key 含当前字体家族，避免切换字体后命中旧缓存
-    key = (cdpt, int(font_size), state.font_family, bool(state.bold))
+    # 缓存 key 含当前字体家族和样式，避免切换字体后命中旧缓存
+    key = (cdpt, int(font_size), state.font_family, state.font_style, bool(state.bold))
     cached = _cache_get(state.glyph_specs, key)
     if cached is not None:
         return cached

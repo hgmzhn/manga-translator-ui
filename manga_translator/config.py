@@ -190,7 +190,7 @@ class RenderConfig(BaseModel):
     bubble_layout_english: bool = False
     """Enable bubble-based English typesetting (balloon mask line breaking) and force horizontal rendering."""
     font_family: Optional[str] = None
-    """Qt font family used for rendering."""
+    """Qt font family, optionally suffixed with ``::style``, used for rendering."""
     font_color: Optional[str] = None
     """Overwrite the text fg/bg color detected by the OCR model. Use hex string without the "#" such as FFFFFF for a white foreground or FFFFFF:000000 to also have a black background around the text."""
     line_spacing: Optional[float] = None

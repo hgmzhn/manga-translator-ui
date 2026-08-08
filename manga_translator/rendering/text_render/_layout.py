@@ -1348,6 +1348,7 @@ def _vertical_base(
     state = _state()
     key = (
         state.font_family,
+        state.font_style,
         bool(state.bold),
         int(font_size),
         cdpt,
@@ -1497,7 +1498,7 @@ def _measure_horizontal_text_width(text: str, font_size: int, letter_spacing: fl
     if '\n' in normalized or '\r' in normalized:
         return max((_measure_horizontal_text_width(part, font_size, letter_spacing) for part in normalized.splitlines()), default=0)
     state = _state()
-    key = ('logical-width', state.font_family, bool(state.bold), int(font_size), round(_normalize_letter_spacing(letter_spacing), 4), normalized)
+    key = ('logical-width', state.font_family, state.font_style, bool(state.bold), int(font_size), round(_normalize_letter_spacing(letter_spacing), 4), normalized)
     cached = state.measures.get(key)
     if cached is not None:
         return cached

@@ -31,6 +31,7 @@ except Exception:
     pass
 
 DEFAULT_FONT_FAMILY = 'Microsoft YaHei UI'
+FONT_STYLE_SEPARATOR = '::'
 _thread_state = threading.local()
 _qt_runtime_lock = threading.Lock()
 _qt_runtime_app = None
@@ -50,6 +51,7 @@ class LayoutFontDescriptor:
 @dataclass
 class FontState:
     font_family: str = ''
+    font_style: str = ''
     bold: bool = False
     raw_fonts: dict = field(default_factory=OrderedDict)
     qfonts: dict = field(default_factory=OrderedDict)
@@ -353,10 +355,19 @@ def _font_descriptor(path: str) -> LayoutFontDescriptor:
     return descriptor
 
 
-def _set_family(state: FontState, family: str):
-    if state.font_family == family:
+def _split_font_value(value: str) -> tuple[str, str]:
+    """Parse the optional style suffix used by desktop font selectors."""
+    family, separator, style = str(value or '').rpartition(FONT_STYLE_SEPARATOR)
+    if separator and family and style:
+        return family, style
+    return str(value or ''), ''
+
+
+def _set_family(state: FontState, family: str, style: str = ''):
+    if state.font_family == family and state.font_style == style:
         return
     state.font_family = family
+    state.font_style = style
     state.qfonts.clear()
     # glyph_specs/glyphs 的 key 含字体家族，切换字体时无需清空，
     # 保留缓存避免重复解析大字体文件的字形数据
@@ -389,23 +400,25 @@ def _match_family(requested: str):
 
 
 def set_font(font: str):
-    """Select a Qt font family; a legacy font file path is mapped to its family."""
+    """Select a Qt family/style; a legacy font file path is mapped to its face."""
     state = getattr(_thread_state, 'value', None) or FontState()
     _thread_state.value = state
     requested = str(font or '').strip()
     resolved = _resolve_existing_font_path(requested)
     if resolved:
         try:
-            _set_family(state, _font_descriptor(resolved).family)
+            descriptor = _font_descriptor(resolved)
+            _set_family(state, descriptor.family, descriptor.style)
             return
         except Exception:
             logger.exception('Could not load font file: %s', resolved)
 
     _ensure_qt_runtime()
     _register_project_fonts()
-    family = _match_family(requested)
+    requested_family, requested_style = _split_font_value(requested)
+    family = _match_family(requested_family)
     if family is None and requested and _register_system_fonts():
-        family = _match_family(requested)
+        family = _match_family(requested_family)
     if family is not None and qt_family_is_ambiguous(family):
         logger.warning('Bracketed font family may not match correctly in Qt: %s', family)
     if family is None:
@@ -414,7 +427,7 @@ def set_font(font: str):
         family = DEFAULT_FONT_FAMILY
         if requested:
             logger.warning('Qt font family not found: %s; using %s', requested, family)
-    _set_family(state, family)
+    _set_family(state, family, requested_style)
 
 
 def load_font_file(path: str) -> str:
@@ -450,6 +463,7 @@ def _bold_scope(bold: bool):
 def _style_font_scope(style: TextStyle):
     state = _state()
     previous_family = state.font_family
+    previous_style = state.font_style
     previous_bold = state.bold
     requested_font = getattr(style, 'font_family', None)
     if requested_font:
@@ -458,20 +472,23 @@ def _style_font_scope(style: TextStyle):
     try:
         yield
     finally:
-        set_font(previous_family or DEFAULT_FONT_FAMILY)
+        _set_family(state, previous_family or DEFAULT_FONT_FAMILY, previous_style)
         state.bold = previous_bold
 
 
 def _layout_font(font_size: int, letter_spacing: float) -> QFont:
     state = _state()
     family = state.font_family or DEFAULT_FONT_FAMILY
-    key = (family, bool(state.bold), int(max(font_size, 1)), round(float(letter_spacing), 4))
+    style = state.font_style
+    key = (family, style, bool(state.bold), int(max(font_size, 1)), round(float(letter_spacing), 4))
     qfont = _cache_get(state.qfonts, key)
     if qfont is None:
-        qfont = QFont()
-        qfont.setFamilies([family])
-        qfont.setBold(state.bold)
-        qfont.setPixelSize(key[2])
+        qfont = QFontDatabase.font(family, style, 12) if style else QFont()
+        if not style:
+            qfont.setFamilies([family])
+        if state.bold or not style:
+            qfont.setBold(state.bold)
+        qfont.setPixelSize(key[3])
         qfont.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         qfont.setStyleStrategy(QFont.StyleStrategy.PreferOutline)
         qfont.setKerning(True)
