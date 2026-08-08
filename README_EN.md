@@ -97,7 +97,7 @@ Works with Japanese manga, Korean comics, and Western comics, in black-and-white
 - 🌐 **Web UI** - Includes account and quota management
 - 🐳 **Docker deployment** - Supports containerized operation
 
-📖 [Full shortcut reference](https://hgmzhn.github.io/manga-translator-ui/en/desktop/editor/shortcuts) ｜ [Every setting explained](https://hgmzhn.github.io/manga-translator-ui/en/desktop/settings/)
+📖 [Full shortcut reference](https://hgmzhn.github.io/manga-translator-ui/en/desktop/editor/shortcuts) ｜ [Every setting explained](https://hgmzhn.github.io/manga-translator-ui/en/reference/settings-index)
 
 ---
 
@@ -109,15 +109,11 @@ Works with Japanese manga, Korean comics, and Western comics, in black-and-white
 
 #### Portable package (⭐ Recommended, supports updates)
 
-No separate Python installation is required. Download the [portable package](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable), extract it, run `Win-Install-or-Update.bat`, then start with `Win-Start.bat`. Choose `[2] Update` in the installer menu when updating.
-
-📖 [Portable package walkthrough](https://hgmzhn.github.io/manga-translator-ui/en/install/windows-portable) ｜ [Updates and version switching](https://hgmzhn.github.io/manga-translator-ui/en/install/update-and-version-switching)
+No separate Python installation is required. Download the [portable package](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable), extract it, run `Win-Install-or-Update.bat`, then start with `Win-Start.bat`. Choose `[2] Update` in the installer menu when updating. 📖 [Portable package walkthrough](https://hgmzhn.github.io/manga-translator-ui/en/install/windows-portable) ｜ [Updates and version switching](https://hgmzhn.github.io/manga-translator-ui/en/install/update-and-version-switching)
 
 #### Packaged release
 
-Download from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract, and double-click `app.exe`. CPU and NVIDIA GPU builds are available; AMD GPU users should use the portable package or install from source.
-
-📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
+Download from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract, and double-click `app.exe`. CPU and NVIDIA GPU builds are available; AMD GPU users should use the portable package or install from source. 📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
 
 #### Run from source (developers)
 
@@ -135,9 +131,7 @@ chmod +x Unix-Install-or-Update.sh && ./Unix-Install-or-Update.sh
 
 After installation, start with `./Unix-Start.sh`; update code and dependencies with `./Unix-Install-or-Update.sh`.
 
-Apple Silicon uses Metal/MPS; Linux automatically selects NVIDIA, AMD ROCm, or CPU dependencies.
-
-📖 [Linux and macOS installation](https://hgmzhn.github.io/manga-translator-ui/en/install/linux-and-macos)
+Apple Silicon uses Metal/MPS; Linux automatically selects NVIDIA, AMD ROCm, or CPU dependencies. 📖 [Linux and macOS installation](https://hgmzhn.github.io/manga-translator-ui/en/install/linux-and-macos)
 
 ### Docker Deployment (Experimental)
 
@@ -145,9 +139,7 @@ Apple Silicon uses Metal/MPS; Linux automatically selects NVIDIA, AMD ROCm, or C
 docker run -d --name manga-translator -p 8000:8000 --restart unless-stopped -v manga-translator-models:/app/models -v manga-translator-fonts:/app/fonts -v manga-translator-dict:/app/dict -v manga-translator-config:/app/config -v manga-translator-server:/app/manga_translator/server/data -v manga-translator-logs:/app/logs -v manga-translator-result:/app/result hgmzhn/manga-translator:latest-cpu
 ```
 
-The named volumes persist models, fonts, dictionaries, configuration, account data, logs, and translation results even if the container is removed. Open `http://localhost:8000` after startup; see the deployment guides for GPU support or custom host directories.
-
-📖 [Docker deployment](https://hgmzhn.github.io/manga-translator-ui/en/install/docker) ｜ [Web UI launch and access](https://hgmzhn.github.io/manga-translator-ui/en/web/launch-and-access)
+The named volumes persist models, fonts, dictionaries, configuration, account data, logs, and translation results even if the container is removed. Open `http://localhost:8000` after startup; see the deployment guides for GPU support or custom host directories. 📖 [Docker deployment](https://hgmzhn.github.io/manga-translator-ui/en/install/docker) ｜ [Web UI launch and access](https://hgmzhn.github.io/manga-translator-ui/en/web/launch-and-access)
 
 ---
 
@@ -155,16 +147,9 @@ The named volumes persist models, fonts, dictionaries, configuration, account da
 
 ### 🖥️ Qt UI Mode
 
-1. Fill in API information if you want to use online translators → [API key guide](https://hgmzhn.github.io/manga-translator-ui/en/desktop/api-management/api-key-guide)
-2. Turn off `Use GPU` if you are using the CPU build
-3. Set the output directory
-4. Add images
-5. Choose a translator
-   - Recommended for first use: `OpenAI High Quality` or `Gemini High Quality`
-   - If you want a separate Google-official key/model set, `Vertex High Quality` is also available
-6. Start translation
+After opening the app, choose the source language, target language, and translator. If you use an online translator, configure its [API key](https://hgmzhn.github.io/manga-translator-ui/en/desktop/api-management/api-key-guide) first. `OpenAI High Quality` and `Gemini High Quality` are recommended for first-time users; choose `Vertex High Quality` if you want separate Google-official key and model settings.
 
-📖 [Your first translation, step by step](https://hgmzhn.github.io/manga-translator-ui/en/introduction/first-translation)
+Set the output directory, add images or a folder, then click **Start Translation**. Turn off **Use GPU** when running the CPU build. 📖 [Your first translation, step by step](https://hgmzhn.github.io/manga-translator-ui/en/introduction/first-translation)
 
 ### ⌨️ CLI Mode
 
@@ -189,56 +174,13 @@ uv run --no-sync python -m manga_translator web --host 127.0.0.1 --port 8000 --u
 uv run --no-sync python -m manga_translator --help
 ```
 
-📖 [Command structure and arguments](https://hgmzhn.github.io/manga-translator-ui/en/cli/command-structure)
+📖 Need CLI options? [View command structure and arguments](https://hgmzhn.github.io/manga-translator-ui/en/cli/command-structure)
 
----
+📋 Looking for another workflow? [View the workflow overview](https://hgmzhn.github.io/manga-translator-ui/en/workflows/normal)
 
-## 📋 Workflows
+⚙️ Want to configure every setting? [View the settings and parameter reference](https://hgmzhn.github.io/manga-translator-ui/en/reference/settings-index)
 
-| Workflow | Purpose |
-|---|---|
-| Normal translation | Translate images directly, end to end |
-| Export translation | Translate first, then export text with the template-configured extension (JSON by default) |
-| Export original text | Detect and OCR only, then export the original text for manual translation |
-| Import translation and render | Import translated content from TXT or JSON and render again |
-| Translate JSON only / Colorize only / Upscale only / Inpaint only / Replace translation | Run a single stage of the pipeline |
-
-📖 [Workflow overview](https://hgmzhn.github.io/manga-translator-ui/en/workflows/normal)
-
----
-
-## ⚙️ Common Translators
-
-**Online translators (require API keys)**
-
-- **OpenAI** — uses GPT-family models
-- **Google Gemini** — uses Gemini-family models
-- **Sakura** — optimized for Japanese
-- Google Cloud or Vertex-related API keys can also be entered directly in the `Gemini` fields; keep the default official `Base URL`
-
-**High-quality translators (recommended)**
-
-- **OpenAI High Quality** — uses multimodal GPT-4o-class models
-- **Gemini High Quality** — uses multimodal Gemini models
-- 📸 Uses image context together with text, which usually gives more accurate translations
-
-**AI OCR / colorization / rendering (optional)**
-
-- **AI OCR** (`openai_ocr`, `gemini_ocr`), **AI colorization** (`openai_colorizer`, `gemini_colorizer`), **AI rendering** (`openai_renderer`, `gemini_renderer`)
-- In the desktop UI, configure them under `API Management` → `OCR` / `Colorization` / `Render`; the web admin UI exposes matching groups
-
-📖 [Translator selection and languages](https://hgmzhn.github.io/manga-translator-ui/en/desktop/translator/selection-and-languages) ｜ [Every setting explained](https://hgmzhn.github.io/manga-translator-ui/en/desktop/settings/)
-
----
-
-## 🔍 Need Help?
-
-1. Turn on `Verbose Logging` in the settings
-2. Check the debug files under `result/`
-3. Adjust detector and OCR related parameters
-4. After troubleshooting, clean up old logs and debug folders to keep `result/` from growing too large
-
-📖 [Installation and startup issues](https://hgmzhn.github.io/manga-translator-ui/en/troubleshooting/installation-and-startup) ｜ [Output, JSON and rendering issues](https://hgmzhn.github.io/manga-translator-ui/en/troubleshooting/output-json-and-rendering) ｜ [How to read and share a debug run](https://hgmzhn.github.io/manga-translator-ui/en/debugging/how-to-read-and-share-a-debug-run)
+🔍 Something went wrong? [View troubleshooting](https://hgmzhn.github.io/manga-translator-ui/en/troubleshooting/installation-and-startup)
 
 ---
 

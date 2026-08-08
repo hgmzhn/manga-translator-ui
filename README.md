@@ -97,7 +97,7 @@
 - 🌐 **Web UI** - 提供账号与配额管理
 - 🐳 **Docker 部署** - 支持容器化运行
 
-📖 [编辑器快捷键全表](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/editor/shortcuts) ｜ [设置逐项说明](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/settings/)
+📖 [编辑器快捷键全表](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/editor/shortcuts) ｜ [设置逐项说明](https://hgmzhn.github.io/manga-translator-ui/zh/reference/settings-index)
 
 ---
 
@@ -109,15 +109,11 @@
 
 #### 便携安装包（⭐ 推荐，支持更新）
 
-无需预装 Python。下载 [便携整合包](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable)，解压后运行 `Win-Install-or-Update.bat`，再双击 `Win-Start.bat` 启动；更新时在安装菜单选择 `[2] 更新`。
-
-📖 [便携包安装详解](https://hgmzhn.github.io/manga-translator-ui/zh/install/windows-portable) ｜ [更新与版本切换](https://hgmzhn.github.io/manga-translator-ui/zh/install/update-and-version-switching)
+无需预装 Python。下载 [便携整合包](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable)，解压后运行 `Win-Install-or-Update.bat`，再双击 `Win-Start.bat` 启动；更新时在安装菜单选择 `[2] 更新`。 📖 [便携包安装详解](https://hgmzhn.github.io/manga-translator-ui/zh/install/windows-portable) ｜ [更新与版本切换](https://hgmzhn.github.io/manga-translator-ui/zh/install/update-and-version-switching)
 
 #### 下载打包版本
 
-从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载并解压，双击 `app.exe`。提供 CPU 和 NVIDIA GPU 版本；AMD GPU 请使用便携安装包或源码安装。
-
-📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
+从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载并解压，双击 `app.exe`。提供 CPU 和 NVIDIA GPU 版本；AMD GPU 请使用便携安装包或源码安装。 📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
 
 #### 从源码运行（开发者）
 
@@ -135,9 +131,7 @@ chmod +x Unix-Install-or-Update.sh && ./Unix-Install-or-Update.sh
 
 安装完成后启动：`./Unix-Start.sh`；更新代码和依赖：`./Unix-Install-or-Update.sh`。
 
-Apple Silicon 使用 Metal/MPS；Linux 会自动选择 NVIDIA、AMD ROCm 或 CPU 依赖组。
-
-📖 [Linux 与 macOS 安装](https://hgmzhn.github.io/manga-translator-ui/zh/install/linux-and-macos)
+Apple Silicon 使用 Metal/MPS；Linux 会自动选择 NVIDIA、AMD ROCm 或 CPU 依赖组。 📖 [Linux 与 macOS 安装](https://hgmzhn.github.io/manga-translator-ui/zh/install/linux-and-macos)
 
 ### Docker 部署（实验性）
 
@@ -145,9 +139,7 @@ Apple Silicon 使用 Metal/MPS；Linux 会自动选择 NVIDIA、AMD ROCm 或 CPU
 docker run -d --name manga-translator -p 8000:8000 --restart unless-stopped -v manga-translator-models:/app/models -v manga-translator-fonts:/app/fonts -v manga-translator-dict:/app/dict -v manga-translator-config:/app/config -v manga-translator-server:/app/manga_translator/server/data -v manga-translator-logs:/app/logs -v manga-translator-result:/app/result hgmzhn/manga-translator:latest-cpu
 ```
 
-命名卷会持久化模型、字体、词典、配置、账号数据、日志和翻译结果；删除容器不会删除这些数据。启动后访问 `http://localhost:8000`，需要 GPU 或自定义宿主机目录时参阅相关部署文档。
-
-📖 [Docker 部署](https://hgmzhn.github.io/manga-translator-ui/zh/install/docker) ｜ [Web UI 启动与访问](https://hgmzhn.github.io/manga-translator-ui/zh/web/launch-and-access)
+命名卷会持久化模型、字体、词典、配置、账号数据、日志和翻译结果；删除容器不会删除这些数据。启动后访问 `http://localhost:8000`，需要 GPU 或自定义宿主机目录时参阅相关部署文档。 📖 [Docker 部署](https://hgmzhn.github.io/manga-translator-ui/zh/install/docker) ｜ [Web UI 启动与访问](https://hgmzhn.github.io/manga-translator-ui/zh/web/launch-and-access)
 
 ---
 
@@ -155,16 +147,9 @@ docker run -d --name manga-translator -p 8000:8000 --restart unless-stopped -v m
 
 ### 🖥️ Qt 界面模式
 
-1. 填写 API（如使用在线翻译器）→ [API Key 配置指南](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/api-management/api-key-guide)
-2. 关闭 GPU（仅 CPU 版本）
-3. 设置输出目录
-4. 添加图片
-5. 选择翻译器
-   - 首次使用推荐：**高质量翻译 OpenAI** 或 **高质量翻译 Gemini**
-   - 如需单独管理 Google 官方 Key，也可使用 **高质量翻译 Vertex**
-6. 开始翻译
+打开程序后，先选择源语言、目标语言和翻译器；使用在线翻译器时，请先填写 [API Key](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/api-management/api-key-guide)。首次使用推荐 **高质量翻译 OpenAI** 或 **高质量翻译 Gemini**；如需单独管理 Google 官方 Key 和模型，也可以选择 **高质量翻译 Vertex**。
 
-📖 [第一次翻译（手把手）](https://hgmzhn.github.io/manga-translator-ui/zh/introduction/first-translation)
+设置输出目录，添加图片或文件夹，然后点击“开始翻译”即可。CPU 版本请先关闭“使用 GPU”。 📖 [第一次翻译（手把手）](https://hgmzhn.github.io/manga-translator-ui/zh/introduction/first-translation)
 
 ### ⌨️ 命令行模式
 
@@ -189,56 +174,13 @@ uv run --no-sync python -m manga_translator web --host 127.0.0.1 --port 8000 --u
 uv run --no-sync python -m manga_translator --help
 ```
 
-📖 [命令结构与参数](https://hgmzhn.github.io/manga-translator-ui/zh/cli/command-structure)
+📖 想了解命令行参数？[查看命令结构与参数](https://hgmzhn.github.io/manga-translator-ui/zh/cli/command-structure)
 
----
+📋 想了解其他工作流程？[查看工作流程总览](https://hgmzhn.github.io/manga-translator-ui/zh/workflows/normal)
 
-## 📋 工作流程
+⚙️ 想了解各项设置？[查看设置与参数说明](https://hgmzhn.github.io/manga-translator-ui/zh/reference/settings-index)
 
-| 工作流程 | 用途 |
-|---|---|
-| 正常翻译 | 直接翻译图片，一步到位 |
-| 导出翻译 | 翻译后按模板配置的扩展名导出文本（默认 JSON） |
-| 导出原文 | 仅检测识别，导出原文用于手动翻译 |
-| 导入翻译并渲染 | 从 TXT/JSON 导入翻译内容重新渲染 |
-| 仅翻译 JSON / 仅上色 / 仅超分 / 仅修复 / 替换翻译 | 单步执行管线中的某一环 |
-
-📖 [工作流程总览](https://hgmzhn.github.io/manga-translator-ui/zh/workflows/normal)
-
----
-
-## ⚙️ 常用翻译器
-
-**在线翻译器（需要 API Key）**
-
-- **OpenAI** — 使用 GPT 系列模型
-- **Gemini** — 使用 Google Gemini 模型
-- **Sakura** — 专门针对日语优化的翻译模型
-- Google Cloud / Vertex 相关 API Key 也直接填写到 `Gemini` 配置即可；`Base URL` 保持默认官方地址，无需修改
-
-**高质量翻译器（推荐）**
-
-- **高质量翻译 OpenAI** — 使用 GPT-4o 多模态模型
-- **高质量翻译 Gemini** — 使用 Gemini 多模态模型
-- 📸 结合图片上下文，翻译更准确
-
-**AI 识别 / 上色 / 渲染（可选）**
-
-- **AI OCR**（`openai_ocr`、`gemini_ocr`）、**AI 上色**（`openai_colorizer`、`gemini_colorizer`）、**AI 渲染**（`openai_renderer`、`gemini_renderer`）
-- 桌面端可在 `API 管理` 的 `OCR` / `上色` / `渲染` 标签分别配置；Web 管理端也同步提供对应的分组
-
-📖 [翻译器选择与语言](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/translator/selection-and-languages) ｜ [设置逐项说明](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/settings/)
-
----
-
-## 🔍 遇到问题？
-
-1. 在「设置 → 通用」中勾选 **详细日志**
-2. 查看 `result/` 目录中的调试文件
-3. 调整检测器和 OCR 参数
-4. 排查完成后按文档清理旧日志（避免 `result/` 目录过大）
-
-📖 [安装与启动排障](https://hgmzhn.github.io/manga-translator-ui/zh/troubleshooting/installation-and-startup) ｜ [输出、JSON 与渲染排障](https://hgmzhn.github.io/manga-translator-ui/zh/troubleshooting/output-json-and-rendering) ｜ [如何读懂并分享一次调试运行](https://hgmzhn.github.io/manga-translator-ui/zh/debugging/how-to-read-and-share-a-debug-run)
+🔍 出现错误？[查看故障排查](https://hgmzhn.github.io/manga-translator-ui/zh/troubleshooting/installation-and-startup)
 
 ---
 
