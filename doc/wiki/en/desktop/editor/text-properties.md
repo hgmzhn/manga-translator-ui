@@ -38,7 +38,7 @@ Multi selection has no dedicated “mixed value” UI: the style controls keep t
 ### Edit typography fields {#edit-typography-fields}
 
 1. Select one text region on the canvas; the “Style Settings” group becomes enabled.
-2. “Font:” is a searchable `FontComboBox` listing system fonts and fonts registered from the project `fonts/` directory; clicking or using the mouse wheel cycles the font, writes the region `font_family`, and refreshes the text-box preview. When “Disable System Fonts” is enabled in Typesetting, new choices here are limited to project fonts.
+2. “Font:” is a searchable `FontComboBox` listing system fonts and fonts registered from the project `fonts/` directory; hovering a list item temporarily refreshes the text-box preview, while clicking commits the region `font_family`. Leaving or closing the list restores the current font. When “Disable System Fonts” is enabled in Typesetting, new choices here are limited to project fonts.
 3. “Font Size:” is a number input (8–1000) plus a slider (8–150) that stay in sync; values beyond the slider range can still be typed into the input.
 4. “Font Color:” is a color picker; recently used colors are saved to the `saved_colors` config entry.
 5. “Line Spacing:” and “Letter Spacing:” range from 0.1 to 5.0 in 0.1 steps, start at 1.0, and act as multipliers of the base spacing.

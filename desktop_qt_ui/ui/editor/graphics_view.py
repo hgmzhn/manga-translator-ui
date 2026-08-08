@@ -83,6 +83,7 @@ class GraphicsView(
         self.overlay_layers = OverlayLayerManager(self)
 
         self._region_items = []
+        self._font_preview_overrides: dict[int, dict] = {}
         self._snap_enabled = False
         self._center_scale_enabled = False
         self._pending_geometry_edit_kinds: dict[int, str] = {}

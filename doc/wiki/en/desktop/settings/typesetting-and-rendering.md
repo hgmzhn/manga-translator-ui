@@ -27,7 +27,7 @@ Choose how text is drawn in the “Renderer” combo box. Options: Default (loca
 
 #### Font
 
-Choose a font in the “Font” combo box; options come from operating-system fonts and `.ttf`, `.otf`, and `.ttc` files in the project `fonts/` directory. Add a font file there and reopen the combo box to refresh it. In the editor’s “Style Settings → Font” control, you can also use the mouse wheel to cycle through fonts and refresh the text-box preview immediately. Default: `Microsoft YaHei UI`.
+Choose a font in the “Font” combo box; options come from operating-system fonts and `.ttf`, `.otf`, and `.ttc` files in the project `fonts/` directory. Add a font file there and reopen the combo box to refresh it. In the editor’s “Style Settings → Font” list, hovering temporarily refreshes the text-box preview; clicking commits the font, and leaving the list restores the current font. Default: `Microsoft YaHei UI`.
 
 #### Disable System Fonts
 

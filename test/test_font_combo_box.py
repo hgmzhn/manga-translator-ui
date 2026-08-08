@@ -3,7 +3,7 @@ import _bootstrap  # noqa: F401
 import types
 from unittest.mock import patch
 
-from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QAction, QWheelEvent
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import ComboBox
@@ -179,7 +179,7 @@ def test_font_combo_box_keeps_fluent_style_and_font_preview():
         app.processEvents()
 
 
-def test_font_combo_box_wheel_switches_only_when_enabled():
+def test_font_combo_box_wheel_never_changes_and_menu_hover_previews():
     app = _app()
 
     def populate(combo, current=None, locale_code="en_US"):
@@ -206,19 +206,16 @@ def test_font_combo_box_wheel_switches_only_when_enabled():
         combo.wheelEvent(event)
         assert combo.currentFamily() == "Beta Serif"
 
-        combo.setProperty("wheel_switch_enabled", True)
-        event = QWheelEvent(
-            QPointF(1, 1),
-            QPointF(1, 1),
-            QPoint(0, 0),
-            QPoint(0, -120),
-            Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
-            Qt.ScrollPhase.ScrollUpdate,
-            False,
-        )
-        combo.wheelEvent(event)
-        assert combo.currentFamily() == "Gamma Mono"
+        previews = []
+        combo.fontPreviewChanged.connect(previews.append)
+        menu = combo._createComboMenu()
+        for item in combo.items:
+            menu.addAction(QAction(item.text, menu))
+        menu._on_item_entered(menu.view.item(2))
+        assert previews == ["Gamma Mono"]
+        menu.leaveEvent(QEvent(QEvent.Type.Leave))
+        assert previews[-1] == ""
+        menu.close()
         combo.close()
     app.processEvents()
 
@@ -230,7 +227,7 @@ def main() -> int:
     test_font_list_keeps_typographic_names_for_different_faces_separate()
     test_localized_font_family_restores_original_brackets_for_display()
     test_font_combo_box_keeps_fluent_style_and_font_preview()
-    test_font_combo_box_wheel_switches_only_when_enabled()
+    test_font_combo_box_wheel_never_changes_and_menu_hover_previews()
     print("font combo box check passed")
     return 0
 

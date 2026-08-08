@@ -60,7 +60,6 @@ class WheelEventFilter(QObject):
             event.type() == QEvent.Type.Wheel
             and isinstance(obj, QWidget)
             and not obj.hasFocus()
-            and not bool(obj.property("wheel_switch_enabled"))
         ):
             event.ignore()
             return True

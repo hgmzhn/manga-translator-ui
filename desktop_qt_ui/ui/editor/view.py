@@ -869,6 +869,7 @@ class EditorView(QWidget):
         self.property_panel.letter_spacing_changed.connect(self.controller.update_letter_spacing)
         self.property_panel.angle_changed.connect(self.controller.update_angle)
         self.property_panel.font_family_changed.connect(self.controller.update_font_family)
+        self.property_panel.font_family_preview_requested.connect(self._on_font_family_preview_requested)
         self.property_panel.alignment_changed.connect(self.controller.update_alignment)
         self.property_panel.direction_changed.connect(self.controller.update_direction)
         self.property_panel.style_patch_requested.connect(self.controller.update_region_style_patch)
@@ -900,6 +901,15 @@ class EditorView(QWidget):
 
         # --- Global App Logic to Controller ---
         self.app_logic.render_setting_changed.connect(self.controller.handle_global_render_setting_change)
+
+    @pyqtSlot(list, str)
+    def _on_font_family_preview_requested(self, region_indices: list, family: str):
+        if self.graphics_view is None:
+            return
+        if family:
+            self.graphics_view.preview_region_style(region_indices, {"font_family": family})
+        else:
+            self.graphics_view.clear_region_style_preview()
 
     def _create_center_panel(self) -> QWidget:
         """创建中心画布区域"""

@@ -167,6 +167,7 @@ class PropertyPanel(QWidget):
     alignment_changed = pyqtSignal(int, str)
     direction_changed = pyqtSignal(int, str)
     style_patch_requested = pyqtSignal(list, dict)
+    font_family_preview_requested = pyqtSignal(list, str)
     copy_region_requested = pyqtSignal()
     paste_region_requested = pyqtSignal()
     delete_region_requested = pyqtSignal()
@@ -713,7 +714,6 @@ class PropertyPanel(QWidget):
         
         locale_getter = self.i18n.get_current_locale if self.i18n else None
         self.font_family_combo = FontComboBox(self, locale_getter=locale_getter)
-        self.font_family_combo.setProperty("wheel_switch_enabled", True)
         self.font_family_combo.setMinimumWidth(120)
         self.font_label = BodyLabel(self._t("Font:"))
         style_layout.addRow(self.font_label, self.font_family_combo)
@@ -843,6 +843,7 @@ class PropertyPanel(QWidget):
 
         # Style
         self.font_family_combo.currentIndexChanged.connect(self._on_font_family_changed)
+        self.font_family_combo.fontPreviewChanged.connect(self._on_font_family_preview_changed)
         self.font_size_input.valueChanged.connect(self._on_font_size_input_changed)
         self.font_size_slider.valueChanged.connect(self._on_font_size_slider_changed)
         self.font_color_picker.color_changed.connect(self._on_font_color_changed)
@@ -1811,6 +1812,13 @@ class PropertyPanel(QWidget):
         # Get the font filename from combo box data
         font_filename = self.font_family_combo.currentFamily()
         self._emit_style_patch({"font_family": font_filename})
+
+    def _on_font_family_preview_changed(self, family: str):
+        if self.block_updates:
+            return
+        selected_indices = self.model.get_selection()
+        if selected_indices:
+            self.font_family_preview_requested.emit(list(selected_indices), str(family or ""))
 
     def _on_font_color_changed(self, hex_color):
         """字体颜色变化时的处理"""

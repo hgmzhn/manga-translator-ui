@@ -43,6 +43,7 @@ class GraphicsViewRenderingMixin:
         self.render_debounce_timer.start()
 
     def on_regions_changed(self, change):
+        self.clear_region_style_preview()
         if change.kind == "updated":
             for region_index in change.indices:
                 if 0 <= region_index < len(self._region_items):
@@ -288,6 +289,10 @@ class GraphicsViewRenderingMixin:
             self.model.store_derived_regions(updates)
 
     def _build_render_snapshot(self, index: int, region_data: dict, item: RegionTextItem | None) -> RegionRenderSnapshot:
+        preview_patch = getattr(self, "_font_preview_overrides", {}).get(index)
+        if preview_patch:
+            region_data = copy.deepcopy(region_data)
+            region_data.update(preview_patch)
         geo_state = item.geo if (item is not None and hasattr(item, "geo")) else None
         return RegionRenderSnapshot.from_sources(
             region_index=index,
@@ -360,7 +365,8 @@ class GraphicsViewRenderingMixin:
                 pixmap, pos = render_result
                 actual_dst_points = dst_points
             item.set_dst_points(actual_dst_points)
-            self._persist_single_render_box(index, actual_dst_points)
+            if index not in getattr(self, "_font_preview_overrides", {}):
+                self._persist_single_render_box(index, actual_dst_points)
             item.update_text_pixmap(
                 pixmap,
                 pos,
@@ -370,6 +376,38 @@ class GraphicsViewRenderingMixin:
             )
         else:
             clear_region_text(item)
+
+    def preview_region_style(self, region_indices, patch: dict) -> None:
+        """Render a temporary style preview without changing model data or history."""
+        if not isinstance(patch, dict) or not patch:
+            return
+        regions = self.model.get_regions()
+        overrides = {}
+        for raw_index in region_indices or []:
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= index < len(regions):
+                overrides[index] = copy.deepcopy(patch)
+        if not overrides:
+            return
+        self._font_preview_overrides = overrides
+        for index in overrides:
+            self._recalculate_single_region_render_data(index)
+            self._update_single_region_text_visual(index)
+        self.scene.update()
+
+    def clear_region_style_preview(self) -> None:
+        """Restore model-backed rendering after a temporary style preview."""
+        if not getattr(self, "_font_preview_overrides", None):
+            return
+        indices = list(self._font_preview_overrides)
+        self._font_preview_overrides = {}
+        for index in indices:
+            self._recalculate_single_region_render_data(index)
+            self._update_single_region_text_visual(index)
+        self.scene.update()
 
     def _perform_render_update(self):
         self._immediate_render_update_pending = False

@@ -377,6 +377,8 @@ class _FontComboBoxMenu(ComboBoxMenu):
         | Qt.WindowType.NoDropShadowWindowHint
     )
 
+    fontHovered = pyqtSignal(str)
+
     def __init__(self, families, search_terms, placeholder, parent=None):
         self._families = families
         self._search_terms = search_terms
@@ -395,6 +397,17 @@ class _FontComboBoxMenu(ComboBoxMenu):
         self._content_layout.addWidget(self.view)
         self.hBoxLayout.addWidget(self._container, 1)
         self.search_edit.textChanged.connect(self._filter_items)
+        self.view.setMouseTracking(True)
+        self.view.itemEntered.connect(self._on_item_entered)
+
+    def _on_item_entered(self, item) -> None:
+        row = self.view.row(item)
+        if 0 <= row < len(self._families):
+            self.fontHovered.emit(self._families[row])
+
+    def leaveEvent(self, event):
+        self.fontHovered.emit("")
+        super().leaveEvent(event)
 
     def _createActionItem(self, action, before=None):
         row = len(self._actions)
@@ -456,11 +469,11 @@ class FontComboBox(ComboBox):
     """QFontComboBox-compatible selector backed by Fluent ComboBox styling."""
 
     currentFontChanged = pyqtSignal(QFont)
+    fontPreviewChanged = pyqtSignal(str)
 
     def __init__(self, parent=None, locale_getter: Callable[[], str] | None = None):
         self._locale_getter = locale_getter
         self._include_system_fonts = _SYSTEM_FONTS_ENABLED
-        self._wheel_delta = 0
         self._font_search_terms: dict[str, str] = {}
         self._font_alias_to_family: dict[str, str] = {}
         super().__init__(parent)
@@ -470,12 +483,15 @@ class FontComboBox(ComboBox):
 
     def _createComboMenu(self):
         locale_code = self._locale_code()
-        return _FontComboBoxMenu(
+        menu = _FontComboBoxMenu(
             [str(item.userData or item.text) for item in self.items],
             [self._font_search_terms.get(str(item.userData), _search_key(item.text)) for item in self.items],
             _FONT_SEARCH_PLACEHOLDERS.get(locale_code, _FONT_SEARCH_PLACEHOLDERS["en_US"]),
             self,
         )
+        menu.fontHovered.connect(self.fontPreviewChanged)
+        menu.closedSignal.connect(lambda: self.fontPreviewChanged.emit(""))
+        return menu
 
     def _showComboMenu(self):
         self.refresh()
@@ -503,23 +519,8 @@ class FontComboBox(ComboBox):
         self.refresh(current)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """Optionally cycle the font family without opening the menu."""
-        if not bool(self.property("wheel_switch_enabled")):
-            event.ignore()
-            return
-        delta = event.angleDelta().y() or event.pixelDelta().y()
-        if not delta:
-            event.ignore()
-            return
-        self._wheel_delta += int(delta)
-        steps = int(self._wheel_delta / 120)
-        self._wheel_delta -= steps * 120
-        if steps and self.count() > 0:
-            index = self.currentIndex()
-            if index < 0:
-                index = 0
-            self.setCurrentIndex(max(0, min(self.count() - 1, index - steps)))
-        event.accept()
+        """Font selection is explicit: scrolling never changes the family."""
+        event.ignore()
 
     def _locale_code(self) -> str:
         if self._locale_getter is not None:
