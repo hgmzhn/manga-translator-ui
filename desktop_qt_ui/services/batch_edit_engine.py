@@ -805,7 +805,7 @@ def apply_scheme_to_region(region: dict, scheme: dict) -> Optional[dict]:
 # ─── 扫描 ───
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatchItem:
     json_path: str
     image_key: str

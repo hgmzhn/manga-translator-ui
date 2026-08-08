@@ -13,13 +13,12 @@ from __future__ import annotations
 import os
 from typing import Callable, Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
     QMessageBox,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -33,7 +32,7 @@ from qfluentwidgets import (
     ScrollArea,
     SimpleCardWidget,
     StrongBodyLabel,
-    TableWidget,
+    TableView,
 )
 
 from services import get_config_service, get_i18n_manager
@@ -59,6 +58,137 @@ from ui.secondary_pages.themed_message_box import (
 from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 from ui.widgets.wheel_filter import TopLevelComboBox as ComboBox
+
+
+class BatchMatchTableModel(QAbstractTableModel):
+    """按需提供批量预览行，避免为每个单元格创建 Qt 对象。
+
+    文件列表使用同样的 Model/View 边界：命中数据可以完整保留在 Python
+    内存中，但只有可视区域会被 Qt 视图绘制。勾选状态采用默认值加例外行，
+    因此全选/全不选不会逐行触发数万次 UI 更新。
+    """
+
+    COLUMN_COUNT = 6
+
+    def __init__(self, headers: list[str], parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._headers = list(headers)
+        self._matches: list = []
+        self._checked_default = True
+        self._checked_exceptions: set[int] = set()
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self._matches)
+
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        return 0 if parent.isValid() else self.COLUMN_COUNT
+
+    def headerData(self, section: int, orientation: Qt.Orientation,
+                   role: int = int(Qt.ItemDataRole.DisplayRole)):
+        if (
+            orientation == Qt.Orientation.Horizontal
+            and role == int(Qt.ItemDataRole.DisplayRole)
+            and 0 <= section < len(self._headers)
+        ):
+            return self._headers[section]
+        return None
+
+    @staticmethod
+    def _values(item) -> tuple[str, ...]:
+        return (
+            "",
+            str(item.image_name),
+            str(item.region_index),
+            str(item.before_text).replace("\n", "\\n"),
+            str(item.after_text).replace("\n", "\\n"),
+            str(item.summary),
+        )
+
+    def _is_checked(self, row: int) -> bool:
+        if self._checked_default:
+            return row not in self._checked_exceptions
+        return row in self._checked_exceptions
+
+    def data(self, index: QModelIndex, role: int = int(Qt.ItemDataRole.DisplayRole)):
+        if not index.isValid() or not (0 <= index.row() < len(self._matches)):
+            return None
+        item = self._matches[index.row()]
+        column = index.column()
+        if column == 0 and role == int(Qt.ItemDataRole.CheckStateRole):
+            return Qt.CheckState.Checked if self._is_checked(index.row()) else Qt.CheckState.Unchecked
+        if role == int(Qt.ItemDataRole.DisplayRole):
+            return self._values(item)[column]
+        if role == int(Qt.ItemDataRole.ToolTipRole):
+            values = self._values(item)
+            return str(item.json_path) if column == 1 else values[column]
+        return None
+
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if index.column() == 0:
+            flags |= Qt.ItemFlag.ItemIsUserCheckable
+        return flags
+
+    def setData(self, index: QModelIndex, value, role: int = int(Qt.ItemDataRole.EditRole)) -> bool:
+        if (
+            not index.isValid()
+            or index.column() != 0
+            or role != int(Qt.ItemDataRole.CheckStateRole)
+        ):
+            return False
+        checked = value == Qt.CheckState.Checked or value == 2
+        row = index.row()
+        if checked == self._checked_default:
+            self._checked_exceptions.discard(row)
+        else:
+            self._checked_exceptions.add(row)
+        self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
+        return True
+
+    def set_headers(self, headers: list[str]) -> None:
+        self._headers = list(headers)
+        if self.COLUMN_COUNT:
+            self.headerDataChanged.emit(
+                Qt.Orientation.Horizontal, 0, self.COLUMN_COUNT - 1
+            )
+
+    def set_matches(self, matches: list) -> None:
+        self.beginResetModel()
+        # The scan result already owns a list. Reuse it instead of copying all
+        # references a second time when a large preview is delivered.
+        self._matches = matches if isinstance(matches, list) else list(matches)
+        self._checked_default = True
+        self._checked_exceptions.clear()
+        self.endResetModel()
+
+    def clear_matches(self) -> None:
+        self.set_matches([])
+
+    def set_all_checked(self, checked: bool) -> None:
+        checked = bool(checked)
+        if checked == self._checked_default and not self._checked_exceptions:
+            return
+        self._checked_default = checked
+        self._checked_exceptions.clear()
+        if self._matches:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._matches) - 1, 0),
+                [Qt.ItemDataRole.CheckStateRole],
+            )
+
+    def selected_matches(self) -> list:
+        if self._checked_default:
+            return [
+                item for row, item in enumerate(self._matches)
+                if row not in self._checked_exceptions
+            ]
+        return [
+            item for row, item in enumerate(self._matches)
+            if row in self._checked_exceptions
+        ]
 
 
 class BatchEditPanel(CardWidget):
@@ -253,22 +383,30 @@ class BatchEditPanel(CardWidget):
         header_layout.addWidget(self.backup_box)
         layout.addWidget(header)
 
-        self.table = TableWidget(card)
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(self._table_headers())
+        self.table = TableView(card)
+        self._table_model = BatchMatchTableModel(self._table_headers(), self.table)
+        self.table.setModel(self._table_model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setMinimumHeight(220)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(32)
         header_view = self.table.horizontalHeader()
         header_view.setSectionResizeMode(self.COL_CHECK, QHeaderView.ResizeMode.Fixed)
-        header_view.setSectionResizeMode(self.COL_IMAGE, QHeaderView.ResizeMode.ResizeToContents)
+        header_view.setSectionResizeMode(self.COL_IMAGE, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(self.COL_REGION, QHeaderView.ResizeMode.Fixed)
         header_view.setSectionResizeMode(self.COL_BEFORE, QHeaderView.ResizeMode.Stretch)
         header_view.setSectionResizeMode(self.COL_AFTER, QHeaderView.ResizeMode.Stretch)
-        header_view.setSectionResizeMode(self.COL_SUMMARY, QHeaderView.ResizeMode.ResizeToContents)
+        header_view.setSectionResizeMode(self.COL_SUMMARY, QHeaderView.ResizeMode.Interactive)
         self.table.setColumnWidth(self.COL_CHECK, 40)
+        self.table.setColumnWidth(self.COL_IMAGE, 180)
         self.table.setColumnWidth(self.COL_REGION, 70)
+        self.table.setColumnWidth(self.COL_SUMMARY, 140)
         layout.addWidget(self.table, 1)
 
         footer = QWidget(card)
@@ -509,7 +647,7 @@ class BatchEditPanel(CardWidget):
 
     def _clear_matches(self) -> None:
         self._matches = []
-        self.table.setRowCount(0)
+        self._table_model.clear_matches()
         self.match_summary.setText("")
         self.apply_button.setEnabled(False)
 
@@ -533,10 +671,8 @@ class BatchEditPanel(CardWidget):
 
     def _on_scan_ready(self, _generation: int, result) -> None:
         self._close_progress()
-        self._matches = list(result.matches)
-        self.table.setRowCount(0)
-        for item in self._matches:
-            self._append_match_row(item)
+        self._matches = result.matches if isinstance(result.matches, list) else list(result.matches)
+        self._table_model.set_matches(self._matches)
         self.match_summary.setText(self._t(
             "{regions} regions in {files} files",
             regions=len(self._matches), files=result.file_count,
@@ -554,38 +690,11 @@ class BatchEditPanel(CardWidget):
                 "\n".join(f"{path}\n    {message}" for path, message in result.errors),
             )
 
-    def _append_match_row(self, item) -> None:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        check = QTableWidgetItem()
-        check.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-        check.setCheckState(Qt.CheckState.Checked)
-        self.table.setItem(row, self.COL_CHECK, check)
-        for column, value in (
-            (self.COL_IMAGE, item.image_name),
-            (self.COL_REGION, str(item.region_index)),
-            (self.COL_BEFORE, item.before_text.replace("\n", "\\n")),
-            (self.COL_AFTER, item.after_text.replace("\n", "\\n")),
-            (self.COL_SUMMARY, item.summary),
-        ):
-            cell = QTableWidgetItem(value)
-            cell.setToolTip(item.json_path if column == self.COL_IMAGE else value)
-            self.table.setItem(row, column, cell)
-
     def _set_all_checked(self, checked: bool) -> None:
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, self.COL_CHECK)
-            if item is not None:
-                item.setCheckState(state)
+        self._table_model.set_all_checked(checked)
 
     def _selected_matches(self) -> list:
-        selected = []
-        for row, item in enumerate(self._matches):
-            cell = self.table.item(row, self.COL_CHECK)
-            if cell is not None and cell.checkState() == Qt.CheckState.Checked:
-                selected.append(item)
-        return selected
+        return self._table_model.selected_matches()
 
     # ─── 执行 ───
 
@@ -787,7 +896,7 @@ class BatchEditPanel(CardWidget):
         self.restore_button.setToolTip(
             self._t("Roll every file in scope back to its .bak, then delete the .bak")
         )
-        self.table.setHorizontalHeaderLabels(self._table_headers())
+        self._table_model.set_headers(self._table_headers())
         for row in self._condition_rows:
             row.refresh_ui_texts()
         for action_card in (self.set_fields_card, self.replace_card, self.rich_text_card):
