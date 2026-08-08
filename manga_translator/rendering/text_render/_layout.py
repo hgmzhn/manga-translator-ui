@@ -591,7 +591,11 @@ def _build_horizontal_ruby_plan(
     )
 
 
-def _rich_horizontal_main_rect(run: HorizontalRunPlan) -> Rect:
+def _rich_horizontal_main_rect(
+    run: HorizontalRunPlan,
+    *,
+    include_paint_effects: bool = True,
+) -> Rect:
     """Transformed main-ink rectangle relative to run cursor and baseline."""
     if not run.has_ink:
         return Rect(0.0, 0.0, 0.0, 0.0)
@@ -600,7 +604,13 @@ def _rich_horizontal_main_rect(run: HorizontalRunPlan) -> Rect:
     top = run.top_rel
     height = run.ink_height
     width = run.ink_width
-    out_h, out_w, dx, dy = _style_layer_effects_geometry(height, width, span.style, run.font_size)
+    out_h, out_w, dx, dy = _style_layer_effects_geometry(
+        height,
+        width,
+        span.style,
+        run.font_size,
+        include_paint_effects=include_paint_effects,
+    )
     return Rect(
         left + float(dx) + span.style.transform.offset_x * run.font_size / 100.0,
         top + float(dy) + span.style.transform.offset_y * run.font_size / 100.0,
@@ -624,14 +634,22 @@ def _finalize_rich_horizontal_line(
 ) -> HorizontalLinePlan:
     cursor = 0.0
     body_rects = []
+    spacing_rects = []
     paint_rects = []
     for run in runs:
         main_rect = _rich_horizontal_main_rect(run)
+        spacing_rect = _rich_horizontal_main_rect(run, include_paint_effects=False)
         run.main_rect = main_rect
         if main_rect.width > 0 and main_rect.height > 0:
             rect = (cursor + main_rect.x, main_rect.y, main_rect.width, main_rect.height)
             body_rects.append(rect)
             paint_rects.append(rect)
+            spacing_rects.append((
+                cursor + spacing_rect.x,
+                spacing_rect.y,
+                spacing_rect.width,
+                spacing_rect.height,
+            ))
 
             ruby = run.ruby
             if ruby is not None:
@@ -639,6 +657,12 @@ def _finalize_rich_horizontal_line(
                 ruby_height = max(glyph.paint_height for glyph in ruby.glyphs)
                 ruby.cross_center = main_rect.y - gap - ruby_height / 2.0
                 paint_rects.append((
+                    cursor + ruby.paint_start,
+                    ruby.cross_center - ruby_height / 2.0,
+                    ruby.paint_end - ruby.paint_start,
+                    float(ruby_height),
+                ))
+                spacing_rects.append((
                     cursor + ruby.paint_start,
                     ruby.cross_center - ruby_height / 2.0,
                     ruby.paint_end - ruby.paint_start,
@@ -668,6 +692,12 @@ def _finalize_rich_horizontal_line(
                         float(emphasis.frame_size),
                         float(emphasis.frame_size),
                     ))
+                    spacing_rects.append((
+                        cursor + main_center - emphasis.frame_size / 2.0,
+                        top,
+                        float(emphasis.frame_size),
+                        float(emphasis.frame_size),
+                    ))
 
         if run.span.style.underline and run.logical_width > 0:
             # 下划线沿行方向铺满 run 的 advance 宽，纵向位置只由基线和字号
@@ -685,13 +715,21 @@ def _finalize_rich_horizontal_line(
                 float(run.logical_width),
                 float(underline.thickness),
             ))
+            spacing_rects.append((
+                cursor,
+                underline.cross_center - underline.thickness / 2.0,
+                float(run.logical_width),
+                float(underline.thickness),
+            ))
         cursor += run.logical_width
 
     logical_width = sum(run.logical_width for run in runs)
     if not paint_rects:
         half = max(float(base_font_size), 1.0) / 2.0
         bounds = Bounds(0.0, -half, logical_width, half)
-        return HorizontalLinePlan(tuple(runs), logical_width, bounds, bounds, line_kerning, next_kerning)
+        return HorizontalLinePlan(
+            tuple(runs), logical_width, bounds, bounds, line_kerning, next_kerning, bounds
+        )
 
     def bounds(rects):
         left = min(rect[0] for rect in rects)
@@ -703,6 +741,9 @@ def _finalize_rich_horizontal_line(
     # 只有装饰没有正文墨迹时（例如整行都是带下划线的空格），正文框退化为
     # 装饰框，避免 body_rects 为空。
     body_left, body_top, body_right, body_bottom = bounds(body_rects or paint_rects)
+    spacing_left, spacing_top, spacing_right, spacing_bottom = bounds(
+        spacing_rects or body_rects or paint_rects
+    )
     paint_left, paint_top, paint_right, paint_bottom = bounds(paint_rects)
     return HorizontalLinePlan(
         tuple(runs),
@@ -711,6 +752,7 @@ def _finalize_rich_horizontal_line(
         Bounds(paint_left, paint_top, paint_right, paint_bottom),
         line_kerning,
         next_kerning,
+        Bounds(spacing_left, spacing_top, spacing_right, spacing_bottom),
     )
 
 
@@ -777,7 +819,9 @@ def _rich_horizontal_layout_geometry(layouts: list[HorizontalLinePlan], font_siz
         baselines.append(-layouts[0].paint_bounds.top)
         for previous, current in zip(layouts, layouts[1:]):
             local_gap = gap + _adjacent_line_adjustment(previous, current, font_size)
-            advance = previous.paint_bounds.bottom - current.paint_bounds.top + local_gap
+            previous_spacing = previous.spacing_bounds or previous.body_bounds
+            current_spacing = current.spacing_bounds or current.body_bounds
+            advance = previous_spacing.bottom - current_spacing.top + local_gap
             baselines.append(baselines[-1] + max(1.0, advance))
 
     paint_top = min((baseline + layout.paint_bounds.top for baseline, layout in zip(baselines, layouts)), default=0.0)

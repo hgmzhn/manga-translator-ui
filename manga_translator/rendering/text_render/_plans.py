@@ -126,6 +126,9 @@ class HorizontalLinePlan:
     paint_bounds: Bounds
     line_kerning: float | None = None
     next_kerning: float | None = None
+    # Bounds used to place the next line.  Paint-only effects such as glow
+    # belong to ``paint_bounds`` but must not become extra line spacing.
+    spacing_bounds: Bounds | None = None
 
 
 def plan_emphasis(

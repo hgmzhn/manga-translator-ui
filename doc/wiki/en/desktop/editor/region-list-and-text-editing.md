@@ -51,7 +51,7 @@ The “Actions” section is available for both single and multi selection:
 
 - “Copy”: copies the selected region data to the internal clipboard.
 - “Paste”: with a single selection it pastes the style (keeping position and text, overwriting font, size, color, alignment, direction, line spacing, and letter spacing); with a multi-selection or no selection it pastes the whole region at the mouse position or a default offset.
-- “Delete”: deletes the selected regions in one undoable action.
+- “Delete”: deletes the selected regions in one undoable action. When the editor-menu “Delete and Recover Removed Text” toggle is enabled, it also removes the corresponding original and refined masks so the erased area is restored to the original image; the region deletion and mask changes can be undone/redone together.
 
 ## How changes are saved {#runtime-behavior}
 

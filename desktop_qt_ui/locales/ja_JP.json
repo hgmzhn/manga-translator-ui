@@ -527,6 +527,7 @@
   "Show Rich Text Editor Popup": "リッチテキスト編集ポップアップを表示",
   "Auto Apply Rich Text Rules While Editing": "編集時にリッチテキストルールを自動適用",
   "Auto Export on Image Switch": "画像切替時に自動エクスポート",
+  "Delete and Recover Removed Text": "テキストボックスを削除して元画像を復元",
   "Reference: Selection": "基準：選択範囲",
   "Reference: Canvas": "基準：キャンバス",
   "Inpaint Preview:": "インペイントプレビュー：",

@@ -15,6 +15,7 @@ class _PatchDeleteMarker:
 
 
 _PATCH_DELETE = _PatchDeleteMarker()
+_NO_MASK_CHANGE = object()
 
 
 def _values_equal(left: Any, right: Any) -> bool:
@@ -135,19 +136,41 @@ class DeleteRegionCommand(QUndoCommand):
         region_index: int,
         region_data: Dict[str, Any],
         description: str = "Delete Region",
+        old_raw_mask: Any = _NO_MASK_CHANGE,
+        new_raw_mask: Any = _NO_MASK_CHANGE,
+        old_refined_mask: Any = _NO_MASK_CHANGE,
+        new_refined_mask: Any = _NO_MASK_CHANGE,
     ):
         super().__init__(description)
         self._model = model
         self._index = region_index
         self._deleted_data = copy.deepcopy(region_data)
+        self._old_raw_mask = self._copy_mask_value(old_raw_mask)
+        self._new_raw_mask = self._copy_mask_value(new_raw_mask)
+        self._old_refined_mask = self._copy_mask_value(old_refined_mask)
+        self._new_refined_mask = self._copy_mask_value(new_refined_mask)
+
+    @staticmethod
+    def _copy_mask_value(value):
+        if value is _NO_MASK_CHANGE:
+            return value
+        return None if value is None else np.array(value, copy=True)
+
+    def _apply_masks(self, raw_mask, refined_mask) -> None:
+        if raw_mask is not _NO_MASK_CHANGE and hasattr(self._model, "set_raw_mask"):
+            self._model.set_raw_mask(self._copy_mask_value(raw_mask))
+        if refined_mask is not _NO_MASK_CHANGE and hasattr(self._model, "set_refined_mask"):
+            self._model.set_refined_mask(self._copy_mask_value(refined_mask))
 
     def redo(self):
         """执行删除操作。"""
         self._model.remove_region(self._index)
+        self._apply_masks(self._new_raw_mask, self._new_refined_mask)
 
     def undo(self):
         """撤销删除操作。"""
         self._index = self._model.insert_region(self._index, copy.deepcopy(self._deleted_data))
+        self._apply_masks(self._old_raw_mask, self._old_refined_mask)
         self._model.set_selection([self._index])
 
 

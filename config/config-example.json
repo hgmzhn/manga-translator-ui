@@ -12,6 +12,7 @@
     "editor_rich_text_popup_enabled": true,
     "editor_auto_export_on_switch": true,
     "editor_auto_rich_text_rules": true,
+    "editor_delete_and_recover": false,
     "unload_models_after_translation": false,
     "saved_colors": null,
     "saved_style_presets": null,

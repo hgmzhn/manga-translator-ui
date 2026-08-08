@@ -453,6 +453,7 @@ class ConfigService(QObject):
                 'editor_rich_text_popup_enabled': True,
                 'editor_auto_export_on_switch': True,
                 'editor_auto_rich_text_rules': True,
+                'editor_delete_and_recover': False,
                 'saved_colors': None,
                 'saved_style_presets': None,
                 'saved_rich_text_presets': None,

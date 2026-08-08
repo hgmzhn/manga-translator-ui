@@ -11,13 +11,14 @@ from unittest.mock import patch
 
 ROOT = _bootstrap.ROOT
 
-from PyQt6.QtGui import QColor, QTextCursor
+from PyQt6.QtCore import QRect
+from PyQt6.QtGui import QColor, QPalette, QTextCursor
 from PyQt6.QtWidgets import QApplication, QToolButton
 from qfluentwidgets import CompactDoubleSpinBox, SimpleCardWidget
 
 from desktop_qt_ui.editor.editor_controller import EditorController
 from desktop_qt_ui.editor.rich_text_editing import visible_text_from_document
-from desktop_qt_ui.ui.editor.view import EditorView
+from desktop_qt_ui.ui.editor.view import EditorView, _rich_editor_beside_position
 from desktop_qt_ui.ui.secondary_pages.rich_text_rules_editor import RichTextStyleControls
 from desktop_qt_ui.ui.widgets.rich_text_editor_components import RubyEditBar
 from desktop_qt_ui.ui.widgets.rich_text_floating_editor import RichTextFloatingEditor
@@ -104,6 +105,56 @@ class RichTextFloatingEditorTests(unittest.TestCase):
         ):
             editor.refresh_theme()
             self.assertEqual(editor.backgroundColor, QColor(250, 250, 250))
+
+    def test_styled_run_cards_follow_dark_theme_refresh(self):
+        editor = self._editor({"translation": "深色"})
+        editor._select_python_range(0, 2)
+        editor.toolbar.buttons["B"].click()
+        self.app.processEvents()
+
+        with patch(
+            "desktop_qt_ui.ui.widgets.rich_text_floating_editor.isDarkTheme",
+            return_value=True,
+        ), patch(
+            "desktop_qt_ui.ui.widgets.rich_text_editor_components.isDarkTheme",
+            return_value=True,
+        ), patch(
+            "qfluentwidgets.components.widgets.card_widget.isDarkTheme",
+            return_value=True,
+        ):
+            editor.refresh_theme()
+
+        self.assertTrue(editor.run_list.run_cards)
+        self.assertEqual(
+            editor.run_list.run_cards[0].backgroundColor,
+            QColor(255, 255, 255, 13),
+        )
+        self.assertEqual(
+            editor.run_list.content.palette().color(QPalette.ColorRole.Base),
+            QColor(32, 32, 32),
+        )
+
+    def test_popup_position_prefers_available_side_of_region(self):
+        available = QRect(0, 0, 1200, 800)
+        x, y, side = _rich_editor_beside_position(
+            region_left=700,
+            region_right=900,
+            region_center_y=400,
+            popup_width=240,
+            popup_height=200,
+            available=available,
+        )
+        self.assertEqual((x, y, side), (908, 300, "right"))
+
+        x, y, side = _rich_editor_beside_position(
+            region_left=500,
+            region_right=1150,
+            region_center_y=400,
+            popup_width=240,
+            popup_height=200,
+            available=available,
+        )
+        self.assertEqual((x, y, side), (252, 300, "left"))
 
     def _open_new_ruby(self, editor):
         editor._select_python_range(0, 2)

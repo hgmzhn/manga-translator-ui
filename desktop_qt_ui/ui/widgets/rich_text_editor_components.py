@@ -451,6 +451,12 @@ class StyleRunCard(SimpleCardWidget):
     ruby_finished = pyqtSignal(int, int, str)
     ruby_changed = pyqtSignal(int, int, str)
 
+    def refresh_theme(self) -> None:
+        """Refresh the card surface after a runtime Fluent theme change."""
+        self.backgroundColorAni.stop()
+        self.setBackgroundColor(self._normalBackgroundColor())
+        self.update()
+
     def __init__(
         self,
         segment: StyledTextSegment,
@@ -920,6 +926,33 @@ class StyledRunList(ScrollArea):
             self.run_cards.append(card)
         self.setVisible(bool(values))
         self.recalculate_height()
+
+    def refresh_theme(self) -> None:
+        surface = QColor(32, 32, 32) if isDarkTheme() else QColor(250, 250, 250)
+        palette = self.palette()
+        roles = (
+            QPalette.ColorRole.Window,
+            QPalette.ColorRole.Base,
+            QPalette.ColorRole.AlternateBase,
+            QPalette.ColorRole.Button,
+            QPalette.ColorRole.Mid,
+            QPalette.ColorRole.Dark,
+            QPalette.ColorRole.Midlight,
+        )
+        for group in (
+            QPalette.ColorGroup.Active,
+            QPalette.ColorGroup.Inactive,
+            QPalette.ColorGroup.Disabled,
+        ):
+            for role in roles:
+                palette.setColor(group, role, surface)
+        for widget in (self, self.viewport(), self.content):
+            widget.setPalette(palette)
+            widget.setAutoFillBackground(True)
+            widget.update()
+        for card in self.run_cards:
+            card.refresh_theme()
+        self.update()
 
     def recalculate_height(self) -> int:
         """Use the current layout's real hint as the only run-list height source."""

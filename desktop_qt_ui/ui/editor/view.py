@@ -98,6 +98,7 @@ class EditorView(QWidget):
             rich_text_popup_enabled=self._rich_text_popup_enabled,
             auto_export_on_switch=self._read_editor_auto_export_on_switch(),
             auto_rich_text_rules=self._read_editor_auto_rich_text_rules(),
+            delete_and_recover=self._read_editor_delete_and_recover(),
         )
         self.toolbar.setFixedHeight(56)
         self.layout.addWidget(self.toolbar)
@@ -164,6 +165,9 @@ class EditorView(QWidget):
 
     def _read_editor_auto_rich_text_rules(self, config=None) -> bool:
         return self._read_app_flag("editor_auto_rich_text_rules", True, config)
+
+    def _read_editor_delete_and_recover(self, config=None) -> bool:
+        return self._read_app_flag("editor_delete_and_recover", False, config)
 
     def _apply_editor_snap_enabled(self, enabled: bool):
         enabled = bool(enabled)
@@ -273,6 +277,18 @@ class EditorView(QWidget):
             )
         self.config_service.save_config_file()
 
+    @pyqtSlot(bool)
+    def _on_editor_delete_and_recover_changed(self, enabled: bool):
+        """持久化删除文本框时恢复原图的开关。"""
+        enabled = bool(enabled)
+        if self.config_service is None:
+            return
+
+        current_config = self.config_service.get_config()
+        if self._read_editor_delete_and_recover(current_config) != enabled:
+            self.config_service.update_config({"app": {"editor_delete_and_recover": enabled}})
+        self.config_service.save_config_file()
+
     @pyqtSlot(dict)
     def _on_config_changed(self, config: dict):
         self._apply_editor_snap_enabled(self._read_editor_snap_enabled(config))
@@ -283,6 +299,7 @@ class EditorView(QWidget):
         if self.toolbar is not None:
             self.toolbar.set_auto_export_on_switch(self._read_editor_auto_export_on_switch(config))
             self.toolbar.set_auto_rich_text_rules(self._read_editor_auto_rich_text_rules(config))
+            self.toolbar.set_delete_and_recover(self._read_editor_delete_and_recover(config))
 
     def force_save_property_panel_edits(self):
         """强制保存property panel中的文本编辑"""
@@ -790,6 +807,9 @@ class EditorView(QWidget):
         )
         self.toolbar.auto_rich_text_rules_changed.connect(
             self._on_editor_auto_rich_text_rules_changed
+        )
+        self.toolbar.delete_and_recover_changed.connect(
+            self._on_editor_delete_and_recover_changed
         )
 
         if self.config_service is not None:

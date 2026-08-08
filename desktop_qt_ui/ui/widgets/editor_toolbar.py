@@ -108,6 +108,7 @@ class EditorToolbar(CardWidget):
     rich_text_popup_enabled_changed = pyqtSignal(bool)
     auto_export_on_switch_changed = pyqtSignal(bool)
     auto_rich_text_rules_changed = pyqtSignal(bool)
+    delete_and_recover_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -117,6 +118,7 @@ class EditorToolbar(CardWidget):
         auto_export_on_switch: bool = True,
         center_scale_enabled: bool = False,
         auto_rich_text_rules: bool = True,
+        delete_and_recover: bool = False,
     ):
         super().__init__(parent)
         self.i18n = get_i18n_manager()
@@ -134,6 +136,7 @@ class EditorToolbar(CardWidget):
         self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
         self._auto_export_on_switch = bool(auto_export_on_switch)
         self._auto_rich_text_rules = bool(auto_rich_text_rules)
+        self._delete_and_recover = bool(delete_and_recover)
         self.main_menu: RoundMenu | None = None
         self.display_menu: RoundMenu | None = None
         self.arrange_menu: RoundMenu | None = None
@@ -307,6 +310,15 @@ class EditorToolbar(CardWidget):
         self.auto_export_action.setChecked(self._auto_export_on_switch)
         self.auto_export_action.triggered.connect(self._on_auto_export_action_triggered)
         menu.addAction(self.auto_export_action)
+
+        self.delete_and_recover_action = Action(
+            FIF.DELETE,
+            self._t("Delete and Recover Removed Text"),
+        )
+        self.delete_and_recover_action.setCheckable(True)
+        self.delete_and_recover_action.setChecked(self._delete_and_recover)
+        self.delete_and_recover_action.triggered.connect(self._on_delete_and_recover_action_triggered)
+        menu.addAction(self.delete_and_recover_action)
 
         self.main_menu = menu
         self.menu_button.setMenu(menu)
@@ -505,6 +517,27 @@ class EditorToolbar(CardWidget):
 
     def is_auto_export_on_switch(self) -> bool:
         return self._auto_export_on_switch
+
+    def _on_delete_and_recover_action_triggered(self, checked: bool = False):
+        self.set_delete_and_recover(checked, emit=True)
+
+    def set_delete_and_recover(self, enabled: bool, emit: bool = False):
+        """同步删除文本框时恢复原图的持久化开关。"""
+        enabled = bool(enabled)
+        changed = enabled != self._delete_and_recover
+        self._delete_and_recover = enabled
+
+        action = getattr(self, "delete_and_recover_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.delete_and_recover_changed.emit(enabled)
+
+    def is_delete_and_recover(self) -> bool:
+        return self._delete_and_recover
 
     def _on_align_ref_selected(self, reference: str):
         if reference == self._align_ref:

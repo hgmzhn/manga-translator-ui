@@ -255,7 +255,14 @@ def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: i
     return result, offset_x, offset_y
 
 
-def _style_layer_effects_geometry(height: int, width: int, style: TextStyle, font_size: int):
+def _style_layer_effects_geometry(
+    height: int,
+    width: int,
+    style: TextStyle,
+    font_size: int,
+    *,
+    include_paint_effects: bool = True,
+):
     """_apply_style_layer_effects 的纯几何版本（度量用，F21）。
 
     mirror 不改变尺寸；rotation 用与渲染路径相同的矩阵经 _warp_geometry 按
@@ -265,7 +272,7 @@ def _style_layer_effects_geometry(height: int, width: int, style: TextStyle, fon
     if height <= 0 or width <= 0:
         return height, width, 0.0, 0.0
 
-    paint_pad = _style_paint_effect_pad(style, font_size)
+    paint_pad = _style_paint_effect_pad(style, font_size) if include_paint_effects else 0
     if paint_pad:
         height += paint_pad * 2
         width += paint_pad * 2

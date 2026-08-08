@@ -532,6 +532,7 @@
   "Show Rich Text Editor Popup": "显示富文本编辑弹窗",
   "Auto Apply Rich Text Rules While Editing": "编辑时自动应用富文本规则",
   "Auto Export on Image Switch": "切图时自动导出",
+  "Delete and Recover Removed Text": "删除文本框并恢复原图",
   "Reference: Selection": "参照：选区",
   "Reference: Canvas": "参照：画布",
   "Inpaint Preview:": "修复预览:",

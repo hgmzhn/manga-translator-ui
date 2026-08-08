@@ -178,6 +178,7 @@ class AppSection(BaseModel):
     editor_rich_text_popup_enabled: bool = True  # 是否显示编辑器富文本浮动弹窗
     editor_auto_export_on_switch: bool = True  # 切图时自动导出未保存的编辑（关闭则弹确认框）
     editor_auto_rich_text_rules: bool = True  # 编辑译文时自动应用富文本规则（命中已带手工富文本则整段跳过）
+    editor_delete_and_recover: bool = False  # 删除文本框时同时移除其蒙版并恢复原图
     unload_models_after_translation: bool = False  # 翻译完成后卸载模型（释放内存更彻底，但下次使用需要重新加载）
     saved_colors: Optional[List[str]] = None  # 保存的常用颜色列表
     saved_style_presets: Optional[Dict[str, Dict[str, Any]]] = None  # 编辑器保存的样式组合

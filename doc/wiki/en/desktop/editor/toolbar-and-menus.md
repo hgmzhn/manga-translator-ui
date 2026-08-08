@@ -9,14 +9,14 @@ lastUpdated: true
 
 # Editor Toolbar and Menus
 
-When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”) and keeps two persistent controls (“Fit to Window” and original-image opacity). This guide explains how the three menus expand, where each menu item leads, and how the five editor toggles are stored and persisted.
+When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”) and keeps two persistent controls (“Fit to Window” and original-image opacity). This guide explains how the three menus expand, where each menu item leads, and how the six editor toggles are stored and persisted.
 
 The complete options and canvas effects of “Display Mode” and “Arrange” live in [Display, Compare, and Arrange](./display-compare-and-arrange.md); canvas tools, property panels, the floating rich-text editor, shortcuts, and import/export are covered by [Canvas Tools and Selection](./canvas-tools-and-selection.md), [Text Properties](./text-properties.md), [Style Properties](./style-properties.md), [Floating Rich Text](./floating-rich-text.md), [Shortcuts](./shortcuts.md), and [Import/Export and Writeback](./import-export-and-writeback.md).
 
 ## What you can do
 
 - The toolbar itself never switches pages: the back-to-home entry lives in the main-window sidebar, not in the editor toolbar.
-- The “Menu” dropdown contains export, undo/redo, zoom in/out, and five checkable toggles; the five toggles are persisted in the `app` config section.
+- The “Menu” dropdown contains export, undo/redo, zoom in/out, and six checkable toggles; the six toggles are persisted in the `app` config section.
 - “Display Mode” is an exclusive radio selection that decides whether the canvas shows the original, text, boxes, nothing, or a two-panel comparison; “Arrange” provides a reference radio, alignment, and spacing distribution. Their complete options belong to [Display, Compare, and Arrange](./display-compare-and-arrange.md).
 - Zoom in/out is view scaling only: it scales by 1.15 per step and clamps the canvas scale to `0.05`–`50.0`; “Fit to Window” only fits the view. Neither modifies any region data.
 - The “Original Image Opacity” slider (0–100) controls only the transparency of the original-image overlay on the canvas; it is not an export parameter.
@@ -26,17 +26,18 @@ The complete options and canvas effects of “Display Mode” and “Arrange” 
 
 ### Three dropdown menus
 
-1. Open “Menu”: it shows “Export Image” (with a `(Ctrl+Q)` hint appended by code), undo/redo (hinted `Ctrl+Z` / `Ctrl+Y`), zoom in/out (`Zoom In (+)` / `Zoom Out (-)`), and five checkable editor toggles.
+1. Open “Menu”: it shows “Export Image” (with a `(Ctrl+Q)` hint appended by code), undo/redo (hinted `Ctrl+Z` / `Ctrl+Y`), zoom in/out (`Zoom In (+)` / `Zoom Out (-)`), and six checkable editor toggles.
 
-#### The five edit toggles
+#### The six edit toggles
 
-The five editor toggles in the “Menu” dropdown all carry a check mark. Their meanings and defaults are:
+The six editor toggles in the “Menu” dropdown all carry a check mark. Their meanings and defaults are:
 
 - **Enable Editor Snapping** (default `false`): snaps text-box rotation to `0/90/180/270/360/-90/-180/-270/-360` and to the angles of other text boxes; moving and scaling also align through the snapping logic, which makes it easier to line up the layout.
 - **Scale Text Boxes from Center** (default `false`): scales text boxes from their center point instead of from a fixed opposite edge or corner.
 - **Show Rich Text Editor Popup** (default `true`): automatically opens the floating rich-text editor when editing rich text; turn it off to stop the popup. See [Floating Rich Text](./floating-rich-text.md).
 - **Auto Apply Rich Text Rules While Editing** (default `true`): applies rich-text styles automatically while you edit, based on the matching rules; turn it off to apply styles only on manual action. See [Rich-Text Rules Table, Raw Editing, and Matching](../rich-text-rules/table-raw-and-match.md).
 - **Auto Export on Image Switch** (default `true`): automatically exports the current image when you switch to another one if it has unsaved changes; turn it off to be asked how to handle the unsaved changes first. See [Import/Export and Writeback](./import-export-and-writeback.md).
+- **Delete and Recover Removed Text** (default `false`): when deleting text boxes, also removes their corresponding original and refined masks so the erased area is restored to the original image. The deletion and mask changes are one undoable/redoable operation. The config key is `app.editor_delete_and_recover`. This feature is based on the BallonsTranslator (BT) implementation.
 
 2. Open “Display Mode”: a radio group that switches between five canvas display states; see [Display, Compare, and Arrange](./display-compare-and-arrange.md) for the effects.
 3. Open “Arrange”: first pick a reference (selection/canvas), then apply alignment or distribution; the menu stays open after a click so you can continue. See [Display, Compare, and Arrange](./display-compare-and-arrange.md) for the full options.
@@ -55,7 +56,7 @@ All three dropdown buttons open single-level menus; there are no nested submenus
 ```mermaid
 flowchart LR
     subgraph TB["Editor toolbar EditorToolbar"]
-        M["Menu"] --> MI["Export / Undo-Redo / Zoom + 5 toggles"]
+        M["Menu"] --> MI["Export / Undo-Redo / Zoom + 6 toggles"]
         D["Display Mode"] --> DI["5 exclusive display states"]
         A["Arrange"] --> AI["Reference radio + align/distribute (stays open)"]
         F["Fit to Window"]
@@ -68,7 +69,7 @@ flowchart LR
     O --> OV["controller.set_original_image_alpha"]
 ```
 
-- “Menu” uses a `CheckableMenu` with a leading indicator column: checking one of the five toggles shows the indicator, and the icon and text columns stay independent.
+- “Menu” uses a `CheckableMenu` with a leading indicator column: checking one of the six toggles shows the indicator, and the icon and text columns stay independent.
 - The five “Display Mode” states and the “Arrange” reference options are exclusive `QActionGroup` radios.
 - “Arrange” is a stay-open menu: it remains expanded after choosing a reference or applying an alignment/distribution so you can keep operating; clicking outside or pressing `Esc` closes it.
 - On language switch, `EditorView.refresh_ui_texts()` calls `EditorToolbar.refresh_ui_texts()`, which rebuilds all three menus and restores the display mode, reference, toggles, and enabled states from internal fields so no state is lost.

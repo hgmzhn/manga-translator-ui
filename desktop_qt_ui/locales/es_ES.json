@@ -527,6 +527,7 @@
   "Show Rich Text Editor Popup": "Mostrar ventana emergente del editor de texto enriquecido",
   "Auto Apply Rich Text Rules While Editing": "Aplicar automáticamente reglas de texto enriquecido al editar",
   "Auto Export on Image Switch": "Exportar automáticamente al cambiar de imagen",
+  "Delete and Recover Removed Text": "Eliminar cuadro de texto y recuperar el original",
   "Reference: Selection": "Referencia: selección",
   "Reference: Canvas": "Referencia: lienzo",
   "Inpaint Preview:": "Vista previa de inpainting:",

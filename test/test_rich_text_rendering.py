@@ -1537,6 +1537,39 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertGreater(styled_metrics["height"], plain_metrics["height"])
         self.assertEqual((surface.shape[1], surface.shape[0]), (styled_metrics["width"], styled_metrics["height"]))
 
+    def test_glow_does_not_change_horizontal_line_spacing(self):
+        def document(style):
+            return ensure_rich_text_document({
+                "format": RICH_TEXT_FORMAT,
+                "blocks": [
+                    {"type": "paragraph", "inlines": [
+                        {"type": "text", "text": "第一行", "style": style},
+                    ]},
+                    {"type": "paragraph", "inlines": [
+                        {"type": "text", "text": "第二行", "style": style},
+                    ]},
+                ],
+            })
+
+        plain_layout = text_render._build_rich_horizontal_layout(
+            document({}), 164, 0.0, None, False, 1.0
+        )
+        glow_layout = text_render._build_rich_horizontal_layout(
+            document({"glow": {"color": "#00ffff", "blur": 0.10}}),
+            164,
+            0.0,
+            None,
+            False,
+            1.0,
+        )
+        plain_geometry = text_render._rich_horizontal_layout_geometry(plain_layout, 164, 0.1)
+        glow_geometry = text_render._rich_horizontal_layout_geometry(glow_layout, 164, 0.1)
+
+        plain_advance = plain_geometry["baselines"][1] - plain_geometry["baselines"][0]
+        glow_advance = glow_geometry["baselines"][1] - glow_geometry["baselines"][0]
+        self.assertAlmostEqual(glow_advance, plain_advance, places=3)
+        self.assertGreater(glow_geometry["paint_height"], plain_geometry["paint_height"])
+
     def test_local_stroke_width_scales_with_font_size(self):
         from manga_translator.rendering.text_render._compose import _style_stroke_ratio
 

@@ -49,7 +49,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
 
     rich_text_changed = pyqtSignal(int, object, str)
     # ``True`` means the consumer should preserve the current top edge while
-    # applying the new size (important for an editor docked above the canvas).
+    # applying a size change to a side-docked editor.
     layout_size_changed = pyqtSignal(bool)
 
     _DRAG_BORDER_WIDTH = 12
@@ -215,6 +215,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.backgroundColorAni.stop()
         self.setBackgroundColor(self._normalBackgroundColor())
         self.preset_sidebar.refresh_theme()
+        self.run_list.refresh_theme()
         for picker in self.findChildren(ColorPickerWidget):
             picker.refresh_theme()
         self.update()

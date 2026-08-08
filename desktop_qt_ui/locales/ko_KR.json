@@ -527,6 +527,7 @@
   "Show Rich Text Editor Popup": "서식 있는 텍스트 편집 팝업 표시",
   "Auto Apply Rich Text Rules While Editing": "편집 시 서식 있는 텍스트 규칙 자동 적용",
   "Auto Export on Image Switch": "이미지 전환 시 자동 내보내기",
+  "Delete and Recover Removed Text": "텍스트 상자 삭제 및 원본 복원",
   "Reference: Selection": "기준: 선택 영역",
   "Reference: Canvas": "기준: 캔버스",
   "Inpaint Preview:": "인페인트 미리보기:",

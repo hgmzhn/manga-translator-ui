@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
-from editor.commands import UpdateRegionCommand
+from editor.commands import UpdateRegionCommand, _NO_MASK_CHANGE
 from editor.geometry_commit_pipeline import build_rotate_region_data
 from editor.region_geometry_state import RegionGeometryState
 from services import (
@@ -1536,6 +1536,9 @@ class EditorController(QObject):
         from editor.commands import DeleteRegionCommand
 
         regions = self.model.get_regions()
+        recover_removed_text = self._delete_and_recover_enabled()
+        current_raw_mask = self._copy_mask(self.model.get_raw_mask()) if recover_removed_text else None
+        current_refined_mask = self._copy_mask(self.model.get_refined_mask()) if recover_removed_text else None
         pending_commands = []
         sorted_indices = sorted(
             {
@@ -1548,12 +1551,36 @@ class EditorController(QObject):
 
         for region_index in sorted_indices:
             if 0 <= region_index < len(regions):
+                old_raw_mask = new_raw_mask = old_refined_mask = new_refined_mask = _NO_MASK_CHANGE
+                if recover_removed_text:
+                    from editor.mask_region import remove_region_from_mask
+
+                    if current_raw_mask is not None:
+                        old_raw_mask = current_raw_mask
+                        new_raw_mask = remove_region_from_mask(
+                            current_raw_mask,
+                            regions[region_index],
+                            self._delete_mask_expand_px(),
+                        )
+                        current_raw_mask = new_raw_mask
+                    if current_refined_mask is not None:
+                        old_refined_mask = current_refined_mask
+                        new_refined_mask = remove_region_from_mask(
+                            current_refined_mask,
+                            regions[region_index],
+                            self._delete_mask_expand_px(),
+                        )
+                        current_refined_mask = new_refined_mask
                 pending_commands.append(
                     DeleteRegionCommand(
                         model=self.model,
                         region_index=region_index,
                         region_data=regions[region_index],
                         description=f"Delete Region {region_index}",
+                        old_raw_mask=old_raw_mask,
+                        new_raw_mask=new_raw_mask,
+                        old_refined_mask=old_refined_mask,
+                        new_refined_mask=new_refined_mask,
                     )
                 )
 
@@ -1565,6 +1592,25 @@ class EditorController(QObject):
 
         # 清除选择
         self.model.set_selection([])
+
+    @staticmethod
+    def _copy_mask(mask):
+        return None if mask is None else np.array(mask, copy=True)
+
+    def _delete_and_recover_enabled(self) -> bool:
+        try:
+            config = self.config_service.get_config()
+            return bool(getattr(getattr(config, "app", None), "editor_delete_and_recover", False))
+        except Exception:
+            return False
+
+    def _delete_mask_expand_px(self) -> int:
+        """Match the approximate dilation radius used by mask refinement."""
+        try:
+            offset = int(getattr(self.config_service.get_config(), "mask_dilation_offset", 0))
+        except (TypeError, ValueError, AttributeError):
+            offset = 0
+        return max(0, int(round(offset * 0.3)))
 
     def enter_drawing_mode(self):
         """进入绘制模式以添加新文本框"""
