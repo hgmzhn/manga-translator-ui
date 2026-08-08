@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
-    ComboBox,
     LineEdit,
     PlainTextEdit,
     PopUpAniStackedWidget,
@@ -33,6 +32,7 @@ from ui.theme import (
     monospace_font as _monospace_font,
 )
 from ui.widgets.widget_cleanup import delete_widget
+from ui.widgets.wheel_filter import TopLevelComboBox as ComboBox
 
 
 def _identity_translate(text: str, **kwargs) -> str:

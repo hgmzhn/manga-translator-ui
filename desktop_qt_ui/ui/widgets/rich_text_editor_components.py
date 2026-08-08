@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     CaptionLabel,
-    ComboBox,
     CompactDoubleSpinBox,
     CompactSpinBox,
     FluentIcon as FIF,
@@ -45,6 +44,7 @@ from utils.font_list import FontComboBox
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
 from .widget_cleanup import clear_layout
+from .wheel_filter import TopLevelComboBox as ComboBox
 
 
 def _tr(key: str, **kwargs) -> str:

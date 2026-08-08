@@ -5,15 +5,63 @@
 事件直通父级滚动区域；获得键盘焦点（点击 / Tab）后保持控件默认滚轮行为。
 """
 
-from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtCore import QAbstractAnimation, QEvent, QObject, Qt
 from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox, QSlider, QWidget
 from qfluentwidgets import ComboBox
+from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
 
 # 需要接管滚轮语义的控件类型（注意：不含 QScrollBar，滚动条必须始终响应滚轮）
 _WHEEL_TARGET_TYPES = (QAbstractSpinBox, QComboBox, QSlider, ComboBox)
 
 
-class NoWheelComboBox(ComboBox):
+def _stop_popup_animation(menu: QWidget) -> None:
+    """Stop Fluent's popup animation before a menu is closed or destroyed.
+
+    Fluent Widgets keeps the animation object on the menu, while the animation
+    targets the menu itself.  Closing a ``WA_DeleteOnClose`` menu during its
+    entrance animation can therefore leave Qt trying to update a deleted target.
+    """
+    manager = getattr(menu, "aniManager", None)
+    if manager is None:
+        return
+
+    animation = getattr(manager, "aniGroup", None) or getattr(manager, "ani", None)
+    if animation is not None and animation.state() != QAbstractAnimation.State.Stopped:
+        animation.stop()
+
+
+class _SafeComboBoxMenu(ComboBoxMenu):
+    """Combo menu that does not outlive its target animation."""
+
+    def closeEvent(self, event):
+        _stop_popup_animation(self)
+        super().closeEvent(event)
+
+
+class TopLevelComboBox(ComboBox):
+    """Fluent combo box whose popup is owned by the real top-level window.
+
+    Most controls live below a ``QStackedWidget``.  Using the control itself as
+    a ``QMenu`` parent makes Qt try to activate the stacked page's
+    ``QWidgetWindow`` on Windows, producing a warning and occasionally a
+    misplaced popup.
+    """
+
+    def _popup_parent(self) -> QWidget:
+        window = self.window()
+        return window if window is not None and window.isWindow() else self
+
+    def _createComboMenu(self):
+        return _SafeComboBoxMenu(self._popup_parent())
+
+    def _closeComboMenu(self):
+        menu = self.dropMenu
+        if menu is not None:
+            _stop_popup_animation(menu)
+        super()._closeComboMenu()
+
+
+class NoWheelComboBox(TopLevelComboBox):
     """禁用滚轮事件的下拉框"""
 
     def __init__(self, parent=None):

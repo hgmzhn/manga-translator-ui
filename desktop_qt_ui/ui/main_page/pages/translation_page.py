@@ -2,7 +2,6 @@ from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
-    ComboBox,
     HeaderCardWidget,
     LineEdit,
     PrimaryPushButton,
@@ -12,6 +11,7 @@ from qfluentwidgets import (
 )
 
 from ui.widgets.file_list_view import FileListView
+from ui.widgets.wheel_filter import TopLevelComboBox as ComboBox
 
 
 def create_translation_page(self) -> QWidget:

@@ -19,7 +19,7 @@ from functools import lru_cache
 from PyQt6.QtCore import QEvent, QLocale, QSignalBlocker, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase, QGuiApplication, QRawFont, QWheelEvent
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
-from qfluentwidgets import ComboBox, LineEdit, MenuAnimationType
+from qfluentwidgets import LineEdit, MenuAnimationType
 from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
 
 from manga_translator.rendering.text_render import (
@@ -27,6 +27,7 @@ from manga_translator.rendering.text_render import (
     register_font_file,
     strip_qt_foundry_brackets,
 )
+from ui.widgets.wheel_filter import TopLevelComboBox, _stop_popup_animation
 
 from .resource_helper import resource_path
 
@@ -464,8 +465,12 @@ class _FontComboBoxMenu(ComboBoxMenu):
             return
         super().keyPressEvent(e)
 
+    def closeEvent(self, event):
+        _stop_popup_animation(self)
+        super().closeEvent(event)
 
-class FontComboBox(ComboBox):
+
+class FontComboBox(TopLevelComboBox):
     """QFontComboBox-compatible selector backed by Fluent ComboBox styling."""
 
     currentFontChanged = pyqtSignal(QFont)
@@ -487,7 +492,7 @@ class FontComboBox(ComboBox):
             [str(item.userData or item.text) for item in self.items],
             [self._font_search_terms.get(str(item.userData), _search_key(item.text)) for item in self.items],
             _FONT_SEARCH_PLACEHOLDERS.get(locale_code, _FONT_SEARCH_PLACEHOLDERS["en_US"]),
-            self,
+            self._popup_parent(),
         )
         menu.fontHovered.connect(self.fontPreviewChanged)
         menu.closedSignal.connect(lambda: self.fontPreviewChanged.emit(""))

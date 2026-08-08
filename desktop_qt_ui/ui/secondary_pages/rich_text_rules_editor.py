@@ -24,7 +24,6 @@ from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     CheckBox,
-    ComboBox,
     CompactDoubleSpinBox,
     CompactSpinBox,
     PlainTextEdit,
@@ -53,6 +52,7 @@ from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
 from ui.secondary_pages.replacements_editor import YamlHighlighter, _fixed_width_font
 from ui.secondary_pages.themed_message_box import themed_question, themed_warning
 from ui.widgets.color_picker import ColorPickerWidget
+from ui.widgets.wheel_filter import TopLevelComboBox as ComboBox
 from utils.font_list import FontComboBox
 
 

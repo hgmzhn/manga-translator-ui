@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (
     CaptionLabel,
     CheckBox,
-    ComboBox,
     CompactDoubleSpinBox,
     CompactSpinBox,
     FluentIcon as FIF,
@@ -50,6 +49,7 @@ from services.batch_edit_schemes import (
 )
 from ui.secondary_pages.fluent_dialog import DialogCode
 from ui.widgets.color_picker import ColorPickerWidget
+from ui.widgets.wheel_filter import TopLevelComboBox as ComboBox
 from utils.font_list import FontComboBox
 
 

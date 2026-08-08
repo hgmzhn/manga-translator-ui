@@ -28,7 +28,6 @@ from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     CheckBox,
-    ComboBox,
     FluentIcon as FIF,
     PushButton,
     ScrollArea,
@@ -59,6 +58,7 @@ from ui.secondary_pages.themed_message_box import (
 )
 from ui.secondary_pages.themed_progress_dialog import create_progress_dialog
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
+from ui.widgets.wheel_filter import TopLevelComboBox as ComboBox
 
 
 class BatchEditPanel(CardWidget):
