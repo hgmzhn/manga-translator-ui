@@ -1,5 +1,5 @@
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
     QApplication,
@@ -17,6 +17,7 @@ from qfluentwidgets import (
     CheckableMenu,
     DropDownPushButton,
     FluentIcon as FIF,
+    MenuAnimationType,
     MenuIndicatorType,
     RoundMenu,
     SingleDirectionScrollArea,
@@ -59,7 +60,39 @@ class _LeadingIndicatorMenuStyle(QProxyStyle):
         return rect
 
 
-class _IconCheckableMenu(CheckableMenu):
+class _ScreenBoundMenuMixin:
+    """Shift a centered popup back on-screen when its anchor is near an edge."""
+
+    def _screen_geometry_for(self, pos: QPoint):
+        app = QApplication.instance()
+        screen = app.screenAt(pos) if app is not None else None
+        if screen is None:
+            window_handle = self.windowHandle()
+            screen = window_handle.screen() if window_handle is not None else None
+        if screen is None and app is not None:
+            screen = app.primaryScreen()
+        return screen.availableGeometry() if screen is not None else None
+
+    def _safe_popup_position(self, pos: QPoint) -> QPoint:
+        rect = self._screen_geometry_for(pos)
+        if rect is None:
+            return pos
+
+        margins = self.layout().contentsMargins()
+        # RoundMenu computes x as ``anchor.x() - left_margin`` without a
+        # corresponding lower bound.  Clamp the anchor only when that would
+        # place the popup outside the left edge; its own right-edge handling is
+        # retained for the opposite side.
+        minimum_anchor_x = rect.left() + margins.left()
+        if pos.x() < minimum_anchor_x:
+            return QPoint(minimum_anchor_x, pos.y())
+        return pos
+
+    def exec(self, pos, ani=True, aniType=MenuAnimationType.DROP_DOWN):
+        super().exec(self._safe_popup_position(pos), ani, aniType)
+
+
+class _IconCheckableMenu(_ScreenBoundMenuMixin, CheckableMenu):
     """带独立左侧选中标记列和语义图标列的 CheckableMenu。"""
 
     def __init__(self, title="", parent=None, indicatorType=MenuIndicatorType.CHECK):
@@ -67,6 +100,10 @@ class _IconCheckableMenu(CheckableMenu):
         self._leading_indicator_style = _LeadingIndicatorMenuStyle()
         self._leading_indicator_style.setParent(self.view)
         self.view.setStyle(self._leading_indicator_style)
+
+
+class _ScreenBoundCheckableMenu(_ScreenBoundMenuMixin, CheckableMenu):
+    """Checkable menu variant used by the display-mode popup."""
 
 
 class _StayOpenCheckableMenu(_IconCheckableMenu):
@@ -324,7 +361,10 @@ class EditorToolbar(CardWidget):
         self.menu_button.setMenu(menu)
 
         # --- 显示模式菜单：五种画布显示状态单选 ---
-        display_menu = CheckableMenu(parent=menu_parent, indicatorType=MenuIndicatorType.RADIO)
+        display_menu = _ScreenBoundCheckableMenu(
+            parent=menu_parent,
+            indicatorType=MenuIndicatorType.RADIO,
+        )
         display_group = QActionGroup(display_menu)
         display_group.setExclusive(True)
         self.display_mode_actions: dict[str, Action] = {}

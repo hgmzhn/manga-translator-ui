@@ -18,6 +18,7 @@ import pytest
 
 ROOT = _bootstrap.ROOT
 
+from PyQt6.QtCore import QPoint, QRect  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QStackedWidget, QVBoxLayout, QWidget  # noqa: E402
 
 
@@ -160,6 +161,23 @@ def test_popup_menus_use_top_level_parent_when_toolbar_is_stacked():
     finally:
         host.close()
         host.deleteLater()
+
+
+def test_popup_anchor_shifts_when_centered_position_is_left_of_screen():
+    """A wide menu near the left edge must use an on-screen anchor."""
+    toolbar = _make_toolbar()
+    try:
+        menu = toolbar.main_menu
+        menu._screen_geometry_for = lambda _pos: QRect(0, 0, 640, 480)
+
+        shifted = menu._safe_popup_position(QPoint(-80, 100))
+        assert shifted == QPoint(menu.layout().contentsMargins().left(), 100)
+
+        centered = menu._safe_popup_position(QPoint(180, 100))
+        assert centered == QPoint(180, 100)
+    finally:
+        toolbar.close()
+        toolbar.deleteLater()
 
 
 def test_align_reference_and_actions():
