@@ -1,33 +1,54 @@
 line_break_prompt: |
-  As a professional manga translator, you must handle line breaks intelligently using the `original_region_count` provided in the input JSON.
+  You must insert `[BR]` markers into each final manga translation according to its `original_region_count`.
 
-  **NOTE**: `original_region_count` = number of lines in the original text.
+  `original_region_count` is the number of lines in the source text region. It is a layout requirement and must be respected without damaging the grammar, meaning, tone, or natural expression of the translation.
 
-  **TASK**: Insert `[BR]` markers into your translation string to optimize for readability AND match the original text structure.
+  Apply these steps independently to every translation:
 
-  **RULES based on `original_region_count` (N):**
+  1. First produce the complete and natural translation without considering line breaks.
+  2. Identify natural semantic boundaries in the finished translation.
+  3. Insert `[BR]` markers only at those boundaries whenever possible.
+  4. Among valid boundaries, choose placements that approach the source line count and keep the rendered widths reasonably balanced.
 
-  1.  **N = 1**: **DO NOT** insert any `[BR]` markers. Keep as a single line.
-  2.  **N = 2**: You **MUST** insert exactly **one** `[BR]` marker to split the translation into two lines.
-  3.  **N >= 3**: You should insert `[BR]` markers to create **N-1 or N** text segments. Prioritize readability. You generally should not have fewer than `N-2` breaks unless the translation is significantly shorter than the original.
+  ## Priority order
+  1. Preserve the complete meaning, tone, wording, and punctuation.
+  2. Keep grammatical and semantic units intact.
+  3. For multi-line source regions, preserve at least two translation segments.
+  4. Approach the source line count when natural boundaries permit it.
+  5. Balance the approximate rendered widths of the resulting segments.
 
-  **DETAILED QUALITY GUIDELINES:**
+  Higher-priority rules always override lower-priority rules. Never create an unnatural, incomplete, or ambiguous segment merely to balance line lengths. However, never omit all line breaks for a multi-line source region, because rendering the translation as one line may shrink the text excessively.
 
-  1.  **CONTEXT-BASED BREAKING**:
-      *   **GOOD Alone**: Strong emotional expressions ("Ah!", "No!"), emphatic responses, or dramatic exclamations.
-      *   **BAD Alone**: Weak particles (prepositions like "of", "to"), casual connectors ("and", "so"), or pronouns ("I", "you") unless emphatic.
-      *   **Avoid Orphans**: Do not let a single character stand alone on the last line unless it's a specific effect.
+  ## Target marker count
+  Let N = `original_region_count`.
 
-  2.  **GRAMMATICAL BREAK POINTS**:
-      *   Break after complete phrases or clauses.
-      *   Break before conjunctions.
-      *   Break at punctuation marks.
+  - N = 1: Insert exactly 0 `[BR]` markers.
+  - N = 2: Insert exactly 1 `[BR]` marker, producing exactly 2 non-empty segments.
+  - N >= 3: Aim to insert exactly N-1 `[BR]` markers, producing N non-empty segments. If N natural segments are not possible, use fewer markers, but always insert at least 1 `[BR]` marker and produce at least 2 non-empty segments.
 
-  3.  **VISUAL BALANCE**:
-      *   Try to maintain relatively even line lengths (e.g., a diamond or block shape).
-      *   Avoid an inverted pyramid (long top, tiny bottom) unless it fits the speech bubble shape.
+  When N >= 3, a natural translation with fewer than N segments is better than a grammatically broken translation with exactly N segments. However, every translation with N >= 2 must still contain at least one `[BR]` marker.
 
-  **CRITICAL RESTRICTIONS**:
-  *   **NO PLACEHOLDERS**: Never output text like "[translation here]". Translate the actual text.
-  *   **FORMAT**: Only use `[BR]` for line breaks. Do not use `\n`.
-  *   **INTEGRITY**: The `[BR]` marker is part of the translation string (e.g., "Hello[BR]World").
+  ## Valid break positions
+  Prefer breaks:
+  - after a complete sentence or clause;
+  - between coordinated or logically separate clauses;
+  - at punctuation boundaries;
+  - between complete phrases that remain clear and readable independently;
+  - around an intentional exclamation, response, sound effect, or dramatic pause.
+
+  Never separate parts that form one grammatical or semantic unit, including a modifier and the expression it modifies; a short subject and its predicate; a verb and its object, complement, auxiliary, or required particle; a function word and the phrase it belongs to; a conjunction and the clause it introduces; punctuation and the expression it completes; a fixed expression, proper name, title, form of address, number, or measurement; or any short expression whose parts are not independently meaningful.
+
+  If no ideal semantic boundary exists, do not remove all line breaks. Choose the least disruptive grammatical boundary that keeps both segments readable and reasonably balanced. Never add, delete, repeat, reorder, or rewrite text merely to create line breaks.
+
+  ## Visual balance
+  - Consider approximate rendered width rather than character count alone.
+  - Avoid extremely uneven segments when a natural alternative exists.
+  - Never sacrifice grammar or meaning for visual symmetry.
+  - Avoid a very short final segment unless it is intentionally independent and meaningful.
+
+  ## Integrity and syntax
+  - Only insert `[BR]` into the finished translation.
+  - Use only the literal marker `[BR]`; never use actual newlines, `<br>`, `【BR】`, or other variants.
+  - Never place `[BR]` at the beginning or end of a translation.
+  - Never output consecutive markers such as `[BR][BR]`.
+  - Do not add explanations, comments, placeholders, or extra output fields.

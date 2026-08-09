@@ -17,6 +17,7 @@ from manga_translator.rendering.chinese_linebreak import (
     _attach_suffix_tokens,
     _inject_space_units,
     _is_structural_break_unit,
+    _merge_lines_to_target_segments,
     _semantic_units,
     candidate_semantic_break_penalty,
     chinese_linebreak_models_available,
@@ -88,6 +89,13 @@ def test_suffix_not_attached_across_space():
     units = [SemanticUnit("我"), SemanticUnit("的")]
     result = _attach_suffix_tokens(units)
     assert [unit.text for unit in result] == ["我的"]
+
+def test_merge_lines_to_target_segments_returns_all_partitions():
+    lines = ["身为商人︐", "没有", "什么", "比掌握", "情报更", "有用的了"]
+    candidates = _merge_lines_to_target_segments(lines, 3)
+    assert len(candidates) == 10
+    assert ["身为商人︐没有", "什么比掌握", "情报更有用的了"] in candidates
+    assert ["身为商人︐", "没有什么比掌握", "情报更有用的了"] in candidates
 
 
 # ---------------------------------------------------------------------------

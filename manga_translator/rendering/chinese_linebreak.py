@@ -13,6 +13,7 @@ import threading
 import unicodedata
 import warnings
 from dataclasses import dataclass
+from itertools import combinations
 from typing import Any, Callable, Optional, Tuple
 
 import cv2
@@ -318,6 +319,33 @@ class BubbleLinebreakChoice:
     selected: Optional[BubbleLinebreakEvaluation]
     candidates: Tuple[tuple[tuple[int, int, int, float, float], BubbleLinebreakEvaluation], ...]
     evaluations: Tuple[dict[str, Any], ...] = ()
+
+
+def _line_metric_lengths(
+    text_with_br: str,
+    font_size: int,
+    horizontal: bool,
+    letter_spacing: float,
+) -> list[float]:
+    measure = _make_measure(font_size, horizontal, letter_spacing)
+    return [float(max(0, measure(line))) for line in _split_br_text(text_with_br)]
+
+
+def _line_metric_uniformity(
+    text_with_br: str,
+    font_size: int,
+    horizontal: bool,
+    letter_spacing: float,
+) -> float:
+    lengths = [value for value in _line_metric_lengths(text_with_br, font_size, horizontal, letter_spacing) if value > 0]
+    if len(lengths) <= 1:
+        return 0.0
+    mean = sum(lengths) / len(lengths)
+    if mean <= 0:
+        return float("inf")
+    variance = sum((value - mean) ** 2 for value in lengths) / len(lengths)
+    return math.sqrt(variance) / mean
+
 
 
 # ---------------------------------------------------------------------------
@@ -728,6 +756,31 @@ def layout_chinese_cjk_candidates(
         candidates.append((budget, lines, metrics))
     return candidates
 
+def _merge_lines_to_target_segments(
+    lines: list[str],
+    target_segments: int,
+) -> list[list[str]]:
+    """枚举已有语义断点的全部目标分区，不在此处做评分或择优。
+
+    ``lines`` 是语义布局已经暴露出的合法断点序列。函数只删除其中的
+    一部分断点，生成所有连续分区；候选的语义代价、像素均匀度和气泡
+    适配统一交给调用方评估，避免在生成阶段偷偷丢掉语义更好的方案。
+    """
+    target = max(1, int(target_segments))
+    count = len(lines)
+    if target <= 1 or count <= target:
+        return []
+
+    candidates: list[list[str]] = []
+    for cut_positions in combinations(range(1, count), target - 1):
+        boundaries = (0, *cut_positions, count)
+        candidates.append(
+            [
+                "".join(lines[boundaries[index] : boundaries[index + 1]])
+                for index in range(target)
+            ]
+        )
+    return candidates
 
 def _make_measure(font_size: int, horizontal: bool, letter_spacing: float) -> Callable[[str], int]:
     if horizontal:
@@ -887,6 +940,7 @@ def choose_chinese_bubble_linebreak_with_trace(
     budgets = _bubble_candidate_budgets(total_budget, line_budget, target_segments)
     candidate_items: list[tuple[str, dict[str, Any]]] = []
     seen: set[str] = set()
+    target = max(1, int(target_segments))
 
     def add_candidate(candidate_text: str, source: dict[str, Any]) -> None:
         if not candidate_text or candidate_text in seen:
@@ -895,6 +949,8 @@ def choose_chinese_bubble_linebreak_with_trace(
         candidate_items.append((candidate_text, source))
 
     add_candidate(current_text, {"source": "current"})
+    measure = _make_measure(font_size, horizontal, letter_spacing)
+
     for budget, lines, metrics in layout_chinese_cjk_candidates(
         font_size,
         source_text,
@@ -906,6 +962,21 @@ def choose_chinese_bubble_linebreak_with_trace(
             "[BR]".join(lines),
             {"source": "budget", "budget": budget, "lines": lines, "metrics": metrics},
         )
+        if len(lines) > target:
+            for partition_index, merged_lines in enumerate(
+                _merge_lines_to_target_segments(lines, target),
+                start=1,
+            ):
+                add_candidate(
+                    "[BR]".join(merged_lines),
+                    {
+                        "source": "partition",
+                        "budget": budget,
+                        "partition_index": partition_index,
+                        "lines": merged_lines,
+                        "metrics": [int(measure(line)) for line in merged_lines],
+                    },
+                )
 
     scored_candidates: list[tuple[tuple[int, int, int, float, float], BubbleLinebreakEvaluation]] = []
     evaluations: list[dict[str, Any]] = []
@@ -913,7 +984,7 @@ def choose_chinese_bubble_linebreak_with_trace(
 
     for index, (candidate_text, source) in enumerate(candidate_items, start=1):
         semantic_penalty = candidate_semantic_break_penalty(source_text, candidate_text)
-        uniformity = _line_text_uniformity(candidate_text)
+        uniformity = _line_metric_uniformity(candidate_text, font_size, horizontal, letter_spacing)
         evaluated = evaluate(candidate_text)
         if evaluated is None:
             evaluations.append(
@@ -951,12 +1022,13 @@ def choose_chinese_bubble_linebreak_with_trace(
             )
             continue
 
+        metric_lengths = _line_metric_lengths(candidate_text, font_size, horizontal, letter_spacing)
         score = (
             0 if evaluated.fits else 1,
-            semantic_penalty,
             0 if evaluated.fits else int(evaluated.overflow_pixels),
+            semantic_penalty,
             uniformity,
-            -float(_longest_line_len(candidate_text)),
+            -max(metric_lengths, default=0.0),
         )
         evaluations.append({**base_record, "accepted": True, "score": list(score)})
         scored_candidates.append((score, evaluated))
