@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401
+
 import base64
 import json
 import os
@@ -11,9 +13,9 @@ from types import SimpleNamespace
 from typing import Optional
 
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
+ROOT = _bootstrap.ROOT
+# 该脚本是交互式调试窗口，不沿用自动化测试的 offscreen 平台。
+os.environ.pop("QT_QPA_PLATFORM", None)
 
 
 from PyQt6.QtCore import QTimer, Qt
