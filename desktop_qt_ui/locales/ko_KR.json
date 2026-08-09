@@ -183,6 +183,7 @@
   "api_rotation_strategy_round_robin": "라운드 로빈",
   "API slot {index}": "API 채널 {index}",
   "+ Add API slot": "+ API 채널 추가",
+  "Drag to reorder API slots": "드래그하여 API 채널 순서 변경",
   "No translation API required": "현재 번역기는 OpenAI/Gemini API 키가 필요하지 않습니다.",
   "No OCR API required": "현재 OCR은 OpenAI/Gemini API 키가 필요하지 않습니다.",
   "No colorization API required": "현재 채색기는 OpenAI/Gemini API 키가 필요하지 않습니다.",

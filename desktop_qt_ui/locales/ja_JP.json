@@ -183,6 +183,7 @@
   "api_rotation_strategy_round_robin": "ラウンドロビン",
   "API slot {index}": "APIスロット {index}",
   "+ Add API slot": "+ APIスロットを追加",
+  "Drag to reorder API slots": "ドラッグして API スロットの順序を変更",
   "No translation API required": "現在の翻訳エンジンには OpenAI/Gemini APIキーは不要です。",
   "No OCR API required": "現在の OCR には OpenAI/Gemini APIキーは不要です。",
   "No colorization API required": "現在の着色機能には OpenAI/Gemini APIキーは不要です。",

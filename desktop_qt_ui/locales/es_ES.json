@@ -183,6 +183,7 @@
   "api_rotation_strategy_round_robin": "Round robin",
   "API slot {index}": "Canal API {index}",
   "+ Add API slot": "+ Agregar canal API",
+  "Drag to reorder API slots": "Arrastrar para reordenar los canales API",
   "No translation API required": "El traductor actual no requiere una clave API de OpenAI/Gemini.",
   "No OCR API required": "El OCR actual no requiere una clave API de OpenAI/Gemini.",
   "No colorization API required": "El colorizador actual no requiere una clave API de OpenAI/Gemini.",

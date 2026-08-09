@@ -11,7 +11,7 @@ lastUpdated: true
 
 Use this page when a set of API keys often hits rate limits, or when you use the official address and compatible services at the same time. You can add multiple API slots for the same provider; each slot stores one key, API address, and model. The translator stays the same — only the API candidate used by the next request changes.
 
-This guide covers adding, deleting, numbering badges, and the two rotation policies of candidate slots, and how they form the runtime candidate list. Switching between the OpenAI and Gemini translators is covered by [Translator selection](../translator/selection-and-languages.md); `translator_chain` is covered by [Translation chaining](../translator/translation-chain.md). For the tab layout see [API management tabs and provider fields](./provider-tabs.md); for the Key/Base/Model fields and `.env` key mapping see [Credentials, addresses, and models](./credentials-addresses-models.md); for the full cooldown/unavailable/recovery behavior see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md); for connection tests see [Connection tests and model list](./connection-tests-and-model-list.md).
+This guide covers adding, deleting, drag-reordering, numbering badges, and the two rotation policies of candidate slots, and how they form the runtime candidate list. Switching between the OpenAI and Gemini translators is covered by [Translator selection](../translator/selection-and-languages.md); `translator_chain` is covered by [Translation chaining](../translator/translation-chain.md). For the tab layout see [API management tabs and provider fields](./provider-tabs.md); for the Key/Base/Model fields and `.env` key mapping see [Credentials, addresses, and models](./credentials-addresses-models.md); for the full cooldown/unavailable/recovery behavior see [Failures, cooldown, and recovery](./failures-cooldown-and-recovery.md); for connection tests see [Connection tests and model list](./connection-tests-and-model-list.md).
 
 ## Configure backup APIs in the UI {#configure-api-slots}
 
@@ -19,17 +19,18 @@ Open “API Management” (`API Management`) and choose the feature tab that use
 
 Using OpenAI translation as an example, each slot card shows the following three fields. When you switch to Gemini, OCR, colorization, or rendering, the fields change to the i18n labels of the matching feature and provider.
 
-A slot title has two parts: the badge on the left shows a two-digit number (for example `01`) and the label on the right reads “API slot”. The code does not embed the number into the title text; the number appears only in the badge.
+The far left of each slot header is a drag handle, followed by a two-digit badge (for example `01`) and the “API slot” title. The number appears only in the badge, not in the title text.
 
 1. Fill in “OpenAI API Key”, “OpenAI Model”, and “OpenAI API Base” on the `01` “API slot” card.
 2. Click “+ Add API slot” (`+ Add API slot`) to create a second candidate. The three `.env` keys of the new slot are first written as empty values, then the UI refreshes.
 3. Fill in complete connection information on the `02` “API slot”. Empty slots do not become valid candidates (except for local OpenAI-compatible endpoints, where an empty key is normalized to the `ollama` placeholder value).
-4. In the “Rotation strategy:” (`Rotation strategy:`) dropdown, choose “Ordered failover” (`Ordered failover`) or “Round robin” (`Round robin`).
-5. Use “Test Current Tab” (`Test Current Tab`) to confirm that at least one candidate can connect.
+4. Hold the move icon at the far left of a card header and drag the card above or below another card. The insertion line previews the new position; on release the complete Key/Model/Base group is rewritten to consecutive slot indexes, so ordered failover immediately follows the new order.
+5. In the “Rotation strategy:” (`Rotation strategy:`) dropdown, choose “Ordered failover” (`Ordered failover`) or “Round robin” (`Round robin`).
+6. Use “Test Current Tab” (`Test Current Tab`) to confirm that at least one candidate can connect.
 
 “Test Current Tab” only tests every configured slot of the current feature tab (concurrency 3) and does not test other tabs; the result dialog shows “{total} total, {available} available, {unavailable} unavailable” and marks each slot as available, cooling down, or unavailable, refreshing the status bar on the matching card. If the current feature has no slot to test, the UI shows “No API channels to test”.
 
-When you delete a middle slot, the later slots move forward so the numbering stays consecutive; the `.env` keys of the deleted slot are removed. Deleting a slot does not switch the translator and does not change the OCR, colorization, or rendering APIs on other tabs. The UI caps the number of slots at 10 (`API_ROTATION_UI_MAX_SLOTS = min(10, 30)`); the “+ Add API slot” button is hidden once the cap is reached.
+Drag-reordering moves complete slots only: it never separates Key/Model/Base and does not change the rotation policy or other feature tabs. When you delete a middle slot, later slots move forward so numbering stays consecutive and the deleted slot's `.env` keys are removed. The UI caps the number of slots at 10 (`API_ROTATION_UI_MAX_SLOTS = min(10, 30)`); the “+ Add API slot” button is hidden once the cap is reached.
 
 ## What is the difference between the two rotation policies {#rotation-strategies}
 

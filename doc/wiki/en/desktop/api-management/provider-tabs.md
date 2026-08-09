@@ -38,7 +38,7 @@ Each tab contains one section card whose first row is a fixed “feature-selecto
 ### Provider field groups and the empty state {#provider-groups-and-empty-state}
 
 - Every provider matched by the selector gets one credential card. OpenAI/Gemini cards contain a “Rotation strategy:” dropdown, numbered slot cards (Key, Model, and Base fields), and a “+ Add API slot” button; Sakura is a simplified two-field card (address and dictionary path) with no rotation strategy or slots.
-- Each slot card shows a two-digit badge on the left (for example `01`) and a fixed “API slot” title; the field labels inside the card carry no index. The indexed display name such as “OpenAI API Key #2” is used in batch-test result lists.
+- Each slot card starts with a drag handle, followed by a two-digit badge (for example `01`) and the fixed “API slot” title; field labels inside the card carry no index. Indexed names such as “OpenAI API Key #2” are used in batch-test result lists. Dragging reorders the complete Key/Model/Base candidate group.
 - Secret fields (API Key / AUTH Key / Token) are masked by default and can be toggled with the eye button (“Show key” / “Hide key”); every key row has a “Test” button on its right and every model row has a “Get Models” button.
 - When the current selector value needs no OpenAI/Gemini credentials (for example translator `none`/`original`, OCR `48px`, colorizer `none`, or renderer `default`), the card area shows the matching “no API required” hint and renders no credential fields.
 

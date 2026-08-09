@@ -25,9 +25,10 @@ from manga_translator.image_formats import (
     IMAGE_FILE_DIALOG_PATTERNS,
 )
 from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtCore import QByteArray, QMimeData, QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QDrag, QIcon, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -53,6 +54,184 @@ from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 API_ROTATION_UI_MAX_SLOTS = min(10, MAX_ROTATION_SLOTS)
 
 logger = logging.getLogger(__name__)
+
+_API_SLOT_MIME_TYPE = "application/x-manga-translator-api-slot"
+
+
+class _ApiSlotDragHandle(ToolButton):
+    drag_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setIcon(FIF.MOVE)
+        self.setFixedSize(28, 28)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self._drag_start: QPoint | None = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            self._drag_start is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+            and (event.position().toPoint() - self._drag_start).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            self._drag_start = None
+            self.drag_requested.emit()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_start = None
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+
+def _resolve_api_slot_drop_target(
+    source_index: int,
+    hovered_index: int,
+    *,
+    drop_after: bool,
+    slot_count: int,
+) -> int:
+    """Convert a before/after card drop into the moved slot's final 1-based index."""
+    slot_count = max(1, int(slot_count))
+    source_row = max(0, min(int(source_index) - 1, slot_count - 1))
+    hovered_row = max(0, min(int(hovered_index) - 1, slot_count - 1))
+    insertion_row = hovered_row + (1 if drop_after else 0)
+    target_row = insertion_row - 1 if source_row < insertion_row else insertion_row
+    return max(0, min(target_row, slot_count - 1)) + 1
+
+
+class _ApiRotationSlotCard(SimpleCardWidget):
+    reorder_requested = pyqtSignal(int, int)
+
+    def __init__(self, group_key: str, slot_index: int, slot_count: int, parent=None):
+        super().__init__(parent)
+        self._group_key = str(group_key)
+        self._slot_index = int(slot_index)
+        self._slot_count = int(slot_count)
+        self._drop_after: bool | None = None
+        self.setAcceptDrops(True)
+
+    def start_drag(self) -> None:
+        mime_data = QMimeData()
+        payload = f"{self._group_key}\0{self._slot_index}".encode("utf-8")
+        mime_data.setData(_API_SLOT_MIME_TYPE, QByteArray(payload))
+
+        drag = QDrag(self)
+        drag.setMimeData(mime_data)
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def _drag_source_index(self, mime_data) -> int | None:
+        if not mime_data.hasFormat(_API_SLOT_MIME_TYPE):
+            return None
+        try:
+            payload = bytes(mime_data.data(_API_SLOT_MIME_TYPE)).decode("utf-8")
+            group_key, index_text = payload.split("\0", 1)
+            if group_key != self._group_key:
+                return None
+            source_index = int(index_text)
+        except (UnicodeDecodeError, ValueError):
+            return None
+        if not 1 <= source_index <= self._slot_count:
+            return None
+        return source_index
+
+    def _set_drop_position(self, drop_after: bool | None) -> None:
+        if self._drop_after == drop_after:
+            return
+        self._drop_after = drop_after
+        self.update()
+
+    def dragEnterEvent(self, event):
+        if self._drag_source_index(event.mimeData()) is None:
+            event.ignore()
+            return
+        event.setDropAction(Qt.DropAction.MoveAction)
+        event.accept()
+
+    def dragMoveEvent(self, event):
+        if self._drag_source_index(event.mimeData()) is None:
+            self._set_drop_position(None)
+            event.ignore()
+            return
+        self._set_drop_position(event.position().y() >= self.height() / 2)
+        event.setDropAction(Qt.DropAction.MoveAction)
+        event.accept()
+
+    def dragLeaveEvent(self, event):
+        self._set_drop_position(None)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        source_index = self._drag_source_index(event.mimeData())
+        if source_index is None:
+            self._set_drop_position(None)
+            event.ignore()
+            return
+
+        target_index = _resolve_api_slot_drop_target(
+            source_index,
+            self._slot_index,
+            drop_after=bool(self._drop_after),
+            slot_count=self._slot_count,
+        )
+        self._set_drop_position(None)
+        event.setDropAction(Qt.DropAction.MoveAction)
+        event.accept()
+        if target_index != source_index:
+            self.reorder_requested.emit(source_index, target_index)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._drop_after is None:
+            return
+        painter = QPainter(self)
+        pen = QPen(self.palette().highlight().color(), 3)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        y = self.height() - 2 if self._drop_after else 2
+        painter.drawLine(12, y, max(12, self.width() - 12), y)
+
+
+def _build_api_rotation_reorder_updates(
+    current_values: dict,
+    slot_keys: tuple[str, ...],
+    source_index: int,
+    target_index: int,
+    slot_count: int,
+) -> dict[str, str]:
+    """Build one atomic env update that moves a complete Key/Model/Base slot."""
+    slot_count = max(1, int(slot_count))
+    source_index = max(1, min(int(source_index), slot_count))
+    target_index = max(1, min(int(target_index), slot_count))
+    if source_index == target_index:
+        return {}
+
+    ordered_values = [
+        tuple(
+            str(current_values.get(get_indexed_env_key(base_key, index), "") or "")
+            for base_key in slot_keys
+        )
+        for index in range(1, slot_count + 1)
+    ]
+    moved_values = ordered_values.pop(source_index - 1)
+    ordered_values.insert(target_index - 1, moved_values)
+
+    updates: dict[str, str] = {}
+    for index, values in enumerate(ordered_values, start=1):
+        for base_key, value in zip(slot_keys, values):
+            env_key = get_indexed_env_key(base_key, index)
+            if env_key:
+                updates[env_key] = value
+    return updates
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +486,7 @@ def create_api_rotation_widgets(
     def add_slot(index: int):
         nonlocal row
 
-        slot_card = SimpleCardWidget()
+        slot_card = _ApiRotationSlotCard(api_key_env, index, slot_count)
 
         slot_card_layout = QVBoxLayout(slot_card)
         slot_card_layout.setContentsMargins(12, 10, 12, 12)
@@ -315,6 +494,19 @@ def create_api_rotation_widgets(
 
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
+
+        drag_handle = _ApiSlotDragHandle(slot_card)
+        drag_handle.setToolTip(self._t("Drag to reorder API slots"))
+        drag_handle.setAccessibleName(self._t("Drag to reorder API slots"))
+        drag_handle.drag_requested.connect(slot_card.start_drag)
+        slot_card.reorder_requested.connect(
+            lambda source_index, target_index, keys=slot_keys: _reorder_api_rotation_slot(
+                self,
+                keys,
+                source_index,
+                target_index,
+            )
+        )
 
         slot_badge = CaptionLabel(f"{index:02d}")
         slot_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -333,6 +525,7 @@ def create_api_rotation_widgets(
             )
         )
 
+        header_layout.addWidget(drag_handle)
         header_layout.addWidget(slot_badge)
         header_layout.addWidget(slot_label)
         header_layout.addWidget(HorizontalSeparator(), 1)
@@ -398,6 +591,46 @@ def create_api_rotation_widgets(
         add_button.clicked.connect(add_next_slot)
         layout.addWidget(add_button, row, 0, 1, 3, Qt.AlignmentFlag.AlignLeft)
         row += 1
+
+
+def _reorder_api_rotation_slot(
+    self,
+    slot_keys: tuple[str, str, str],
+    source_index: int,
+    target_index: int,
+):
+    """Persist a dragged card order by reindexing complete API slot values."""
+    flush_all_pending_env_vars(self)
+
+    config_service = self.controller.config_service
+    current_values = config_service.load_env_vars()
+    slot_count = get_rotation_slot_count(
+        current_values,
+        slot_keys,
+        default=1,
+        maximum=API_ROTATION_UI_MAX_SLOTS,
+    )
+    updates = _build_api_rotation_reorder_updates(
+        current_values,
+        slot_keys,
+        source_index,
+        target_index,
+        slot_count,
+    )
+    if not updates:
+        return
+    if not config_service.save_env_vars(updates):
+        logger.error(
+            "Failed to reorder API slots from %s to %s for %s",
+            source_index,
+            target_index,
+            slot_keys[0],
+        )
+        return
+
+    self._env_api_groups_signature = None
+    self._refresh_env_api_groups(force=True)
+    self._refresh_api_feature_selectors()
 
 
 def _delete_api_rotation_slot(self, slot_keys: tuple[str, str, str], slot_index: int):

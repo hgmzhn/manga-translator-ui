@@ -25,12 +25,12 @@ Use this page when you call remote APIs such as OpenAI, Gemini, or Sakura. It do
 1. Open “API Management” (`API Management`) in the left navigation. The page subtitle reads “Manage API keys and environment variables for each translator”.
 2. Choose a tab: “Translation” (`Translation`), “OCR” (`OCR`), “Colorization” (`Colorization`), or “Render” (`Render`).
 3. Each tab starts with a feature-selector row (label such as “Translator:”) and a “Test Current Tab” (`Test Current Tab`) button. Changing the selector refreshes the credential groups below; see [Feature selectors](./feature-selectors.md) for the exact boundary.
-4. The active provider shows one or more “API slot” cards. Each card header has a two-digit badge on the left (for example `01`, `02`), the text “API slot” on the right, and a delete button (`Delete`) in the top-right corner. The number appears only in the badge, not in the title text.
+4. The active provider shows one or more “API slot” cards. Each card header starts with a drag handle, followed by a two-digit badge (for example `01`, `02`) and the “API slot” title; a delete button (`Delete`) sits in the top-right corner. The number appears only in the badge, not in the title text.
 5. Each card lists three fields in order: Key (for example “OpenAI API Key”), Model (for example “OpenAI Model”), and Base (for example “OpenAI API Base”).
 6. Secret inputs start masked (password echo mode). The inline eye icon toggles between “Show key” (`Show key`) and “Hide key” (`Hide key`).
 7. The Key row has a “Test” (`Test`) button on the right, the Model row has a “Get Models” (`Get Models`) button, and the Base row has no button.
 8. Clicking “+ Add API slot” (`+ Add API slot`) creates the next numbered channel (`_2`) for the current provider; the button hides once the UI limit is reached.
-9. Any edit updates the in-memory value and `os.environ` immediately, then is coalesced over 250 ms and atomically rewritten to `.env` on a background thread.
+9. Hold the drag handle to change slot order; the complete Key/Model/Base group is rewritten to new consecutive indexes. Any field edit updates the in-memory value and `os.environ` immediately, then is coalesced over 250 ms and atomically rewritten to `.env` on a background thread.
 
 ## Numbered channel fields
 
@@ -42,7 +42,7 @@ The three fields of one provider can be numbered to form multiple candidate chan
 - `get_indexed_env_key(base_key, index)` generates the numbered key: `index <= 1` returns the base key, otherwise it returns `f"{base_key}_{index}"`.
 - `get_rotation_slot_count()` scans the current `.env` for all keys shaped like `<base>_<index>` and uses the highest index as the channel count; empty slots still render cards.
 - The UI limit is `API_ROTATION_UI_MAX_SLOTS = min(10, MAX_ROTATION_SLOTS)`, where the engine-level `MAX_ROTATION_SLOTS` is `30`; once the limit is reached, the “+ Add API slot” button is hidden.
-- “+ Add API slot” first writes empty values for the new index’s three keys, then refreshes. Deleting a card calls `_delete_api_rotation_slot()`, which shifts all later slots forward to keep numbering consecutive, then deletes the last slot’s keys.
+- “+ Add API slot” first writes empty values for the new index's three keys, then refreshes. Drag-reordering uses `_build_api_rotation_reorder_updates()` to rewrite each numbered Key/Model/Base group as one unit. Deleting a card calls `_delete_api_rotation_slot()`, which shifts all later slots forward to keep numbering consecutive, then deletes the last slot's keys.
 - Each provider group also has a strategy key such as `OPENAI_API_ROTATION_STRATEGY` or `OCR_OPENAI_API_ROTATION_STRATEGY`, written by the “Rotation strategy:” dropdown; how the strategy orders requests is covered in [Slots and rotation](./slots-and-rotation.md).
 - At runtime the resolver reads Key/Base/Model for indexes 1..channel count and drops duplicate endpoints whose `(api_key, base_url, model)` tuple is identical.
 

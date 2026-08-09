@@ -183,6 +183,7 @@
   "api_rotation_strategy_round_robin": "輪詢",
   "API slot {index}": "API 通道 {index}",
   "+ Add API slot": "+ 新增 API 通道",
+  "Drag to reorder API slots": "拖曳調整 API 通道順序",
   "No translation API required": "目前翻譯器不需要 OpenAI/Gemini API Key。",
   "No OCR API required": "目前 OCR 不需要 OpenAI/Gemini API Key。",
   "No colorization API required": "目前上色器不需要 OpenAI/Gemini API Key。",

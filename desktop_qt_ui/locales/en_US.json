@@ -185,6 +185,7 @@
   "api_rotation_strategy_round_robin": "Round robin",
   "API slot {index}": "API slot {index}",
   "+ Add API slot": "+ Add API slot",
+  "Drag to reorder API slots": "Drag to reorder API slots",
   "No translation API required": "The current translator does not require an OpenAI/Gemini API key.",
   "No OCR API required": "The current OCR does not require an OpenAI/Gemini API key.",
   "No colorization API required": "The current colorizer does not require an OpenAI/Gemini API key.",

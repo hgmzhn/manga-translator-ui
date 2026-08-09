@@ -11,7 +11,7 @@ lastUpdated: true
 
 当一组 API 密钥容易触发限流，或者你同时使用官方地址和兼容服务时，可以为同一个提供商添加多个 API 通道。每个通道保存一组密钥、API 地址和模型；翻译器仍然是原来的翻译器，变化的只是下一次请求使用哪个 API 候选。
 
-这里介绍候选通道的添加、删除、编号徽标和两种轮询策略，以及它们如何组成运行时的候选列表。OpenAI 与 Gemini 翻译器之间的切换见[翻译器选择](../translator/selection-and-languages.md)，`translator_chain` 见[翻译器串联](../translator/translation-chain.md)。页签布局见[API 管理页签与提供商字段](./provider-tabs.md)，Key/Base/Model 字段与 `.env` 键映射见[凭据、地址与模型](./credentials-addresses-models.md)，冷却/不可用/恢复的完整说明见[故障、冷却与恢复](./failures-cooldown-and-recovery.md)，连接测试见[连接测试与模型列表](./connection-tests-and-model-list.md)。
+这里介绍候选通道的添加、删除、拖拽排序、编号徽标和两种轮询策略，以及它们如何组成运行时的候选列表。OpenAI 与 Gemini 翻译器之间的切换见[翻译器选择](../translator/selection-and-languages.md)，`translator_chain` 见[翻译器串联](../translator/translation-chain.md)。页签布局见[API 管理页签与提供商字段](./provider-tabs.md)，Key/Base/Model 字段与 `.env` 键映射见[凭据、地址与模型](./credentials-addresses-models.md)，冷却/不可用/恢复的完整说明见[故障、冷却与恢复](./failures-cooldown-and-recovery.md)，连接测试见[连接测试与模型列表](./connection-tests-and-model-list.md)。
 
 ## 在界面中配置备用 API {#configure-api-slots}
 
@@ -19,17 +19,18 @@ lastUpdated: true
 
 以 OpenAI 翻译为例，每张通道卡片显示以下三个字段。切换到 Gemini、OCR、上色或渲染时，字段会换成对应功能和提供商的 i18n 文案。
 
-通道标题由两部分组成：左侧徽标显示两位编号（例如 `01`），右侧显示“API 通道”。代码没有把编号直接拼进标题文字，编号只出现在徽标中。
+通道标题最左侧是拖拽手柄，随后是两位编号徽标（例如 `01`）和“API 通道”标题。编号只出现在徽标中，不会拼进标题文字。
 
 1. 在编号 `01` 的“API 通道”卡片中填写“OpenAI API 密钥”“OpenAI 模型”和“OpenAI API 地址”。
 2. 点击“+ 添加 API 通道”，创建第二组候选。新通道的三个 `.env` 键会先写入空值再刷新界面。
 3. 为编号 `02` 的“API 通道”填写完整的连接信息。留空的通道不会成为有效候选（本地 OpenAI 兼容端点除外：空密钥会被规范化为 `ollama` 占位值）。
-4. 在“轮询策略：”下拉框中选择“按顺序故障切换”或“轮询”。
-5. 使用“测试当前页”确认至少有一个候选可以连接。
+4. 按住卡片标题最左侧的移动图标，把卡片拖到目标卡片上方或下方；插入提示线显示新位置。松开后整组 Key/Model/Base 会一起改写到新的连续编号，按顺序故障切换会立即使用新顺序。
+5. 在“轮询策略：”下拉框中选择“按顺序故障切换”或“轮询”。
+6. 使用“测试当前页”确认至少有一个候选可以连接。
 
 “测试当前页”只测试当前功能页签内所有已配置的通道（并发数为 3），不会测试其他页签；结果弹窗显示“共 N 个，可用 X 个，不可用 Y 个”，并把每个通道标记为可用、冷却中或不可用，状态条随即刷新在对应卡片上。如果当前功能没有可测试的通道，会提示“没有可测试的 API 通道”。
 
-删除中间通道时，后面的通道会向前补位，因此编号始终连续；被删除通道的 `.env` 键会被清理。删除通道不会切换翻译器，也不会修改其他功能页签中的 OCR、上色或渲染 API。界面上限为 10 个通道（`API_ROTATION_UI_MAX_SLOTS = min(10, 30)`），达到上限后“+ 添加 API 通道”按钮隐藏。
+拖拽排序只重排当前提供商的完整通道，不会拆散 Key/Model/Base，也不会修改轮询策略或其他功能页签。删除中间通道时，后面的通道会向前补位，因此编号始终连续；被删除通道的 `.env` 键会被清理。界面上限为 10 个通道（`API_ROTATION_UI_MAX_SLOTS = min(10, 30)`），达到上限后“+ 添加 API 通道”按钮隐藏。
 
 ## 两种轮换策略有什么区别 {#rotation-strategies}
 

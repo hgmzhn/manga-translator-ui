@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1368,
-    "exact": 1368,
+    "keys": 1369,
+    "exact": 1369,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -1186,6 +1186,12 @@
       "key": "Drag and drop files or folders here\nor click the buttons above to add",
       "en_US": "Drag and drop files or folders here\nor click the buttons above to add",
       "zh_CN": "拖拽文件或文件夹到此处\n或点击上方按钮添加",
+      "status": "exact"
+    },
+    {
+      "key": "Drag to reorder API slots",
+      "en_US": "Drag to reorder API slots",
+      "zh_CN": "拖动调整 API 通道顺序",
       "status": "exact"
     },
     {

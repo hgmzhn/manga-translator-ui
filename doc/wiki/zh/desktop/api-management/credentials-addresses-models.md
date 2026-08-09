@@ -25,12 +25,12 @@ lastUpdated: true
 1. 打开左侧导航“API 管理”。页面副标题为“管理每个翻译器的 API 密钥和环境变量”。
 2. 在顶部页签中选择“翻译”、“文字识别”、“上色”或“渲染”。
 3. 每个页签顶部是功能选择器行（标签如“翻译器：”）和“测试当前页”按钮。切换功能会刷新下方凭据分组，详细边界见[功能选择器](./feature-selectors.md)。
-4. 被激活的提供商显示一张或多张“API 通道”卡片。卡片标题左侧是两位编号徽标（例如 `01`、`02`），右侧是“API 通道”，右上角是删除按钮。编号只显示在徽标中，不拼进标题文字。
+4. 被激活的提供商显示一张或多张“API 通道”卡片。卡片标题最左侧是拖拽手柄，随后是两位编号徽标（例如 `01`、`02`）与“API 通道”，右上角是删除按钮。编号只显示在徽标中，不拼进标题文字。
 5. 卡片内按顺序显示三个字段：Key（例如“OpenAI API Key”）、Model（例如“OpenAI Model”）、Base（例如“OpenAI API Base”）。
 6. 密钥输入框默认以掩码显示（密码回显模式），点击行内眼睛图标可在“显示密钥”与“隐藏密钥”之间切换。
 7. Key 行右侧有“测试”按钮，Model 行右侧有“获取模型”按钮，Base 行没有按钮。
 8. 点击“+ 添加 API 通道”会为当前提供商创建编号为 `_2` 的下一个通道；达到界面上限后按钮隐藏。
-9. 任一字段修改后立即更新内存与 `os.environ`，并在 250ms 合并后由后台线程原子写回 `.env`。
+9. 按住拖拽手柄可调整通道顺序；整组 Key/Model/Base 会一起写入新的连续编号。任一字段修改后立即更新内存与 `os.environ`，并在 250ms 合并后由后台线程原子写回 `.env`。
 
 ## 编号通道字段
 
@@ -42,7 +42,7 @@ lastUpdated: true
 - `get_indexed_env_key(base_key, index)` 负责生成编号键：`index <= 1` 返回基础键，否则返回 `f"{base_key}_{index}"`。
 - `get_rotation_slot_count()` 扫描当前 `.env` 中所有形如 `<base>_<编号>` 的键，取最大编号作为通道数量；空槽的卡片会照常显示。
 - 界面上限 `API_ROTATION_UI_MAX_SLOTS = min(10, MAX_ROTATION_SLOTS)`，其中引擎层 `MAX_ROTATION_SLOTS = 30`；达到上限后“+ 添加 API 通道”按钮隐藏。
-- “+ 添加 API 通道”先为新编号的三个键写入空值再刷新；删除某张卡片时 `_delete_api_rotation_slot()` 会把后续槽整体前移，保持卡片编号连续，再删除最后一个槽的键。
+- “+ 添加 API 通道”先为新编号的三个键写入空值再刷新；拖拽排序由 `_build_api_rotation_reorder_updates()` 整组改写各编号的 Key/Model/Base；删除某张卡片时 `_delete_api_rotation_slot()` 会把后续槽整体前移，保持卡片编号连续，再删除最后一个槽的键。
 - 每个提供商组还有一个策略键，例如 `OPENAI_API_ROTATION_STRATEGY`、`OCR_OPENAI_API_ROTATION_STRATEGY`，由“轮询策略：”下拉框写入；策略如何决定请求顺序见[通道与轮询策略](./slots-and-rotation.md)。
 - 运行时按 1..通道数读取每个编号的 Key/Base/Model，并去掉 `(api_key, base_url, model)` 完全相同的重复端点。
 
