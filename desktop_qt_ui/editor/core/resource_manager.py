@@ -269,7 +269,6 @@ class ResourceManager:
                 resource.release()
             self._image_cache.clear()
         _release_gpu_memory()
-        self.logger.info("Cleared all image cache")
 
     def release_image_cache_except_current(self, force: bool = False) -> int:
         """只保留当前图，释放 image_cache 中的其他图片。"""
