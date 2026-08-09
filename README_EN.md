@@ -3,7 +3,7 @@
 <img src="doc/images/主页.png" width="760" alt="Manga Translator UI main window">
 
 
-**Translate the text in manga pages with one click** — detect → OCR → translate → inpaint → typeset, with a built-in visual editor for the whole pipeline
+**Translate text in all mainstream manga images with one click** — detect → OCR → translate → inpaint → typeset, with a built-in full rich-text editor
 
 [![Wiki](https://img.shields.io/badge/Wiki-Read%20the%20docs-4C8BF5?style=for-the-badge)](https://hgmzhn.github.io/manga-translator-ui/en/)
 [![Download](https://img.shields.io/badge/Download-Releases-2EA043?style=for-the-badge)](https://github.com/hgmzhn/manga-translator-ui/releases)
@@ -25,12 +25,15 @@
 
 </div>
 
-Works with Japanese manga, Korean comics, and Western comics, in black-and-white or in color. The app detects text, runs OCR, translates, inpaints and typesets automatically, supports Japanese, Chinese, English and more, and ships with a visual editor for adjusting layout, styles and rich text box by box.
+**💬 QQ Group: 1079089991 (password: `kP9#mB2!vR5*sL1`)**
 
-> 📖 **The full documentation now lives in the online wiki** → **[hgmzhn.github.io/manga-translator-ui](https://hgmzhn.github.io/manga-translator-ui/en/)**
-> Installation · every setting explained · editor · batch management · workflows · CLI · troubleshooting · developer docs. Bilingual, with full-text search.
+**Developers** are welcome to submit **PRs** and help improve the project. If you are unsure whether a change fits the project direction, or want to discuss an implementation before coding, open an Issue first. Before submitting, read the **[PR contribution guidelines](https://hgmzhn.github.io/manga-translator-ui/en/community/contributing)**.
 
-**💬 QQ Group: 1079089991 (password: `kP9#mB2!vR5*sL1`)** ｜ **🐛 [Open an Issue](https://github.com/hgmzhn/manga-translator-ui/issues)**
+If you encounter any problem, please **[open an Issue](https://github.com/hgmzhn/manga-translator-ui/issues)** and include the environment, reproduction steps, logs, or screenshots whenever possible so it can be diagnosed quickly.
+
+If this tool has helped you, you can [support the author](#-support-the-author)! Your support is what keeps the project maintained—thank you!
+
+**🔗 Friend Link: [MTU-JSON-GUI](https://github.com/charlespfan/mtu-json-gui)**: A Web-based visual typesetting tool built specifically for [Manga Translator UI](https://github.com/hgmzhn/manga-translator-ui). Beyond text replacement, it includes a geometric layout engine that algorithmically handles alignment, spacing, and perspective issues in manga typesetting.
 
 ---
 
@@ -44,8 +47,29 @@ Works with Japanese manga, Korean comics, and Western comics, in black-and-white
 <td align="center"><b>After Translation</b></td>
 </tr>
 <tr>
-<td><img src="doc/images/0012.png" width="400" alt="Before translation"></td>
-<td><img src="doc/images/110012.png" width="400" alt="After translation"></td>
+<td><img src="doc/images/20012.png" width="400" alt="Before translation"></td>
+<td><img src="doc/images/0012.png" width="400" alt="After translation"></td>
+</tr>
+</table>
+
+</div>
+
+### Application Interface
+
+<div align="center">
+
+<table>
+<tr>
+<td colspan="2" align="center"><b>Visual Editor</b></td>
+</tr>
+<tr>
+<td colspan="2"><img src="doc/images/QQ20260810-014750.png" width="760" alt="Visual editor interface"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><b>Settings</b></td>
+</tr>
+<tr>
+<td colspan="2"><img src="doc/images/QQ20260810-013652.png" width="760" alt="Settings interface"></td>
 </tr>
 </table>
 

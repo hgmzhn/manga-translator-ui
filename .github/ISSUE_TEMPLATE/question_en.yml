@@ -1,0 +1,84 @@
+name: English | Question / Help
+
+description: English template for installation, configuration, usage, compatibility, or general questions
+
+title: "[QUESTION] "
+labels:
+  - question
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You can use this template for any question about using the project.
+        Search existing Issues and the project documentation before submitting.
+        Do not disclose API keys, tokens, cookies, account details, or private files.
+
+  - type: dropdown
+    id: question_type
+    attributes:
+      label: Question Type
+      description: Select the closest category
+      options:
+        - Installation or startup
+        - Configuration or models
+        - Translation, recognition, or rendering results
+        - Editor or UI usage
+        - Performance, VRAM, or compatibility
+        - PR or implementation discussion
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Clearly describe the problem, what you have already tried, and what help you need
+      placeholder: |
+        I am trying to / I encountered:
+        ...
+
+        I have already tried:
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide the versions and environment details relevant to the question
+      placeholder: |
+        - OS: Windows 11
+        - Project version / branch / commit:
+        - Python:
+        - Launch method:
+        - GPU / driver:
+        - Models, translator, or configuration used:
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional Information (optional)
+      description: Attach logs, screenshots, config snippets, sample files, or related Issue/PR links; redact sensitive information first
+      placeholder: |
+        - Reproduction steps:
+        - Error message or logs:
+        - Screenshots / files:
+        - Related Issue / PR:
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing Issues and the project documentation
+          required: true
+        - label: I have redacted API keys, tokens, cookies, account details, and other sensitive information
+          required: true

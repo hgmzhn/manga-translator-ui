@@ -1,0 +1,84 @@
+name: 中文 | 使用问题 / 求助
+
+description: 中文模板：提交安装、配置、使用、兼容性或其他一般问题
+
+title: "[QUESTION] "
+labels:
+  - question
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        遇到任何使用问题都可以在这里提问。
+        提交前请先搜索现有 Issues 和项目文档，确认没有相同问题。
+        请勿公开 API Key、Token、Cookie、账号信息或包含隐私的文件。
+
+  - type: dropdown
+    id: question_type
+    attributes:
+      label: 问题类型
+      description: 请选择最接近的类型
+      options:
+        - 安装或启动
+        - 配置或模型
+        - 翻译、识别或渲染效果
+        - 编辑器或界面操作
+        - 性能、显存或兼容性
+        - PR 或功能实现咨询
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 问题描述
+      description: 请清楚描述你遇到的问题、已经尝试过的方案，以及希望得到的帮助
+      placeholder: |
+        我想实现/遇到的问题是：
+        ...
+
+        我已经尝试：
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 请提供与问题相关的版本和环境信息
+      placeholder: |
+        - 系统：Windows 11
+        - 项目版本 / 分支 / Commit：
+        - Python：
+        - 启动方式：
+        - GPU / 驱动：
+        - 使用的模型、翻译器或配置：
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: 补充信息（可选）
+      description: 可附日志、截图、配置片段、示例文件或相关 Issue/PR 链接；敏感信息请先脱敏
+      placeholder: |
+        - 复现步骤：
+        - 报错信息或日志：
+        - 截图 / 文件：
+        - 相关 Issue / PR：
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交检查
+      options:
+        - label: 我已搜索现有 Issues 和项目文档
+          required: true
+        - label: 我已对 API Key、Token、Cookie、账号信息等敏感内容做脱敏处理
+          required: true

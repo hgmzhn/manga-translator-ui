@@ -3,7 +3,7 @@
 <img src="doc/images/主页.png" width="760" alt="Manga Translator UI 主界面">
 
 
-**一键翻译漫画图片中的文字** — 检测 → OCR → 翻译 → 消字 → 嵌字，全流程内置可视化编辑器
+**一键翻译所有主流漫画图片中的文字** — 检测 → OCR → 翻译 → 消字 → 嵌字，内置完整富文本编辑器
 
 [![在线 Wiki](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%20Wiki-%E9%98%85%E8%AF%BB%E6%96%87%E6%A1%A3-4C8BF5?style=for-the-badge)](https://hgmzhn.github.io/manga-translator-ui/zh/)
 [![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-%E5%AE%89%E8%A3%85%E5%8C%85-2EA043?style=for-the-badge)](https://github.com/hgmzhn/manga-translator-ui/releases)
@@ -25,12 +25,15 @@
 
 </div>
 
-支持日漫、韩漫、美漫，黑白漫和彩漫均可识别。自动完成文本检测、OCR、翻译、消字与嵌字，支持日语、中文、英语等多种语言，内置可视化编辑器可逐框调整排版、样式与富文本。
+**💬 QQ 交流群：1079089991（群密码：`kP9#mB2!vR5*sL1`）**
 
-> 📖 **完整文档已经搬到在线 Wiki** → **[hgmzhn.github.io/manga-translator-ui](https://hgmzhn.github.io/manga-translator-ui/zh/)**
-> 安装 · 设置逐项说明 · 编辑器 · 批量管理 · 工作流程 · CLI · 排障 · 开发者文档，中英双语、站内全文搜索。
+欢迎**开发者**提交 **PR**，共同改进项目；如果不确定改动是否符合项目方向，或希望先讨论实现方案，可以先提交 Issue 说明想法。提交前请阅读 **[PR 贡献规范](https://hgmzhn.github.io/manga-translator-ui/zh/community/contributing)**。
 
-**💬 QQ 交流群：1079089991（密码：`kP9#mB2!vR5*sL1`）** ｜ **🐛 [提交 Issue](https://github.com/hgmzhn/manga-translator-ui/issues)**
+使用过程中遇到任何问题，也欢迎 **[提交 Issue](https://github.com/hgmzhn/manga-translator-ui/issues)**，并尽量附上运行环境、复现步骤、日志或截图，方便快速定位。
+
+如果这个工具帮到了你，欢迎[打赏作者](#-支持作者)！你的支持是持续维护的最大动力，感谢各位老板！
+
+**🔗 友情链接：[MTU-JSON-GUI](https://github.com/charlespfan/mtu-json-gui)**：专为 [Manga Translator UI](https://github.com/hgmzhn/manga-translator-ui) 打造的 Web 端可视化嵌字工具。除了文本替换，还内置几何排版引擎，可通过算法自动处理日漫排版中的对齐、间距与透视问题。
 
 ---
 
@@ -44,8 +47,29 @@
 <td align="center"><b>翻译后</b></td>
 </tr>
 <tr>
-<td><img src="doc/images/0012.png" width="400" alt="翻译前"></td>
-<td><img src="doc/images/110012.png" width="400" alt="翻译后"></td>
+<td><img src="doc/images/20012.png" width="400" alt="翻译前"></td>
+<td><img src="doc/images/0012.png" width="400" alt="翻译后"></td>
+</tr>
+</table>
+
+</div>
+
+### 程序界面
+
+<div align="center">
+
+<table>
+<tr>
+<td colspan="2" align="center"><b>可视化编辑器</b></td>
+</tr>
+<tr>
+<td colspan="2"><img src="doc/images/QQ20260810-014750.png" width="760" alt="可视化编辑器界面"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><b>参数设置</b></td>
+</tr>
+<tr>
+<td colspan="2"><img src="doc/images/QQ20260810-013652.png" width="760" alt="参数设置界面"></td>
 </tr>
 </table>
 
@@ -67,11 +91,10 @@
 
 ### 排版与富文本
 
-- 🎈 **智能气泡排版** - 译文自动缩进气泡形状里面，支持智能气泡、智能缩放与严格边界三种模式，以及气泡内居中和根据气泡排版开关（[排版与渲染](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/settings/typesetting-and-rendering)）
-- ✂️ **中文语义断句** - 本地 HanLP 模型按语义决定换行点，模型缺失时自动回退普通换行，也可以和 AI 断句叠加使用（[断句设置](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/settings/typesetting-and-rendering)）
+- 🎈 **智能气泡排版** - 译文自动缩进气泡形状里面，支持智能气泡、智能缩放与严格边界三种模式，以及气泡内居中和根据气泡排版开关
+- ✂️ **中文语义断句** - 本地 HanLP 模型按语义决定换行点，模型缺失时自动回退普通换行
 - 🤖 **AI 智能断句** - 根据上下文自动优化换行，提升译文可读性
 - 🖋️ **横排 / 竖排自动判定** - 按文本方向选择合适的排版方式
-- 🎨 **完整富文本** - 支持行内加粗、变色、描边、改字号、注音（Ruby）与竖排内横排（TCY），浮动编辑器支持预设和规则自动套用（[浮动富文本编辑器](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/editor/floating-rich-text) ｜ [富文本规则](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/rich-text-rules/styles-and-presets)）
 - 🧩 **富文本规则自动套用** - 按规则在输入文字时自动应用样式
 - 🔤 **字体管理** - 支持系统字体与 `fonts/` 自定义字体
 
@@ -79,6 +102,7 @@
 
 - ✏️ **区域编辑** - 移动、旋转、变形文本框
 - 📐 **文本编辑** - 手动翻译，逐框调整字号、颜色、描边与间距
+- 🎨 **完整富文本** - 支持行内加粗、变色、描边、改字号、注音（Ruby）与竖排内横排（TCY），浮动编辑器支持预设和规则自动套用
 - 🖌️ **蒙版编辑** - 画笔工具、橡皮擦、仿制印章
 - 🔍 **原图对比** - 与原图双栏对比
 - 📏 **多选排版** - 对齐文本框并分布间距
@@ -89,7 +113,7 @@
 ### 批量与自动化
 
 - 📦 **批量处理** - 一次处理整个文件夹
-- 🧰 **批量管理** - 按条件匹配区域，批量修改属性、替换文字或应用富文本样式；执行前预览命中结果，支持写回前备份与恢复（[使用说明](https://hgmzhn.github.io/manga-translator-ui/zh/desktop/batch-management/schemes-crud)）
+- 🧰 **批量管理** - 按条件匹配区域，批量修改属性、替换文字或应用富文本样式；执行前预览命中结果，支持写回前备份与恢复
 - 📥 **PSD 导出** - 导出原图、修复图和文本分层，便于继续编辑
 - 🔄 **JSON / TXT 导入导出** - 导入、导出文本并支持写回
 - ⌨️ **命令行模式** - 适合批量处理和自动化脚本
