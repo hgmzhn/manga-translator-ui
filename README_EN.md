@@ -31,7 +31,7 @@
 
 If you encounter any problem, please **[open an Issue](https://github.com/hgmzhn/manga-translator-ui/issues)** and include the environment, reproduction steps, logs, or screenshots whenever possible so it can be diagnosed quickly.
 
-If this tool has helped you, you can [support the author](#-support-the-author)! Your support is what keeps the project maintained—thank you!
+If this tool has helped you, you can **[support the author](#support-author)**! Your support is what keeps the project maintained—thank you!
 
 **🔗 Friend Link: [MTU-JSON-GUI](https://github.com/charlespfan/mtu-json-gui)**: A Web-based visual typesetting tool built specifically for [Manga Translator UI](https://github.com/hgmzhn/manga-translator-ui). Beyond text replacement, it includes a geometric layout engine that algorithmically handles alignment, spacing, and perspective issues in manga typesetting.
 
@@ -244,6 +244,8 @@ uv run --no-sync python -m manga_translator --help
 And all the contributors and users who support the project ❤️
 
 ---
+
+<a id="support-author"></a>
 
 ## ❤️ Support the Author
 

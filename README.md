@@ -31,7 +31,7 @@
 
 使用过程中遇到任何问题，也欢迎 **[提交 Issue](https://github.com/hgmzhn/manga-translator-ui/issues)**，并尽量附上运行环境、复现步骤、日志或截图，方便快速定位。
 
-如果这个工具帮到了你，欢迎[打赏作者](#-支持作者)！你的支持是持续维护的最大动力，感谢各位老板！
+如果这个工具帮到了你，欢迎 **[打赏作者](#support-author)**！你的支持是持续维护的最大动力，**感谢**各位**老板**！
 
 **🔗 友情链接：[MTU-JSON-GUI](https://github.com/charlespfan/mtu-json-gui)**：专为 [Manga Translator UI](https://github.com/hgmzhn/manga-translator-ui) 打造的 Web 端可视化嵌字工具。除了文本替换，还内置几何排版引擎，可通过算法自动处理日漫排版中的对齐、间距与透视问题。
 
@@ -244,6 +244,8 @@ uv run --no-sync python -m manga_translator --help
 以及所有贡献者和用户的支持 ❤️
 
 ---
+
+<a id="support-author"></a>
 
 ## ❤️ 支持作者
 
