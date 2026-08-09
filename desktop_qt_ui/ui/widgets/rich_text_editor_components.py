@@ -531,10 +531,10 @@ class StyleRunCard(SimpleCardWidget):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _apply_control_value(control: QWidget, setter, value) -> None:
-        """把新值写进控件；持焦点的控件不覆盖（值本来就来自它）。"""
+    def _apply_control_value(control: QWidget, setter, value, *, preserve_focus: bool = True) -> None:
+        """把新值写进控件；可选择保留正在编辑控件的本地值。"""
         focus_widget = QApplication.focusWidget()
-        if focus_widget is not None and (
+        if preserve_focus and focus_widget is not None and (
             focus_widget is control or control.isAncestorOf(focus_widget)
         ):
             return
@@ -546,7 +546,14 @@ class StyleRunCard(SimpleCardWidget):
 
     def _register_applier(self, key: str, control: QWidget, getter, setter) -> None:
         def applier(style, transform, segment, draft, _control=control, _getter=getter, _setter=setter):
-            self._apply_control_value(_control, _setter, _getter(style, transform, segment, draft))
+            # FontComboBox is a discrete selector; unlike live text inputs it
+            # has no uncommitted value that should survive a model refresh.
+            self._apply_control_value(
+                _control,
+                _setter,
+                _getter(style, transform, segment, draft),
+                preserve_focus=key != "F",
+            )
 
         self._value_appliers.setdefault(key, []).append(applier)
 

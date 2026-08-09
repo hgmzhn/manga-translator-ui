@@ -699,16 +699,19 @@ class FontComboBox(TopLevelComboBox):
         return str(self.currentData() or self.currentText() or "")
 
     def setCurrentFamily(self, family: str) -> None:
-        family = str(family or "")
-        if not family:
+        value = str(family or "")
+        if not value:
             self.setCurrentIndex(-1)
             return
-        family = self._font_alias_to_family.get(_search_key(family), family)
-        index = self.findData(family)
+        value = self._font_alias_to_family.get(_search_key(value), value)
+        index = self.findData(value)
         if index < 0:
-            display, aliases = localized_font_family(family, self._locale_code())
-            self.addItem(display, userData=family)
-            self._font_search_terms[family] = _search_key(" ".join((display, *aliases)))
+            family_name, style = split_font_value(value)
+            display, aliases = localized_font_family(family_name, self._locale_code())
+            if style:
+                display = f"{display} - {style}"
+            self.addItem(display, userData=value)
+            self._font_search_terms[value] = _search_key(" ".join((display, *aliases, style)))
             index = self.count() - 1
         self.setCurrentIndex(index)
 
