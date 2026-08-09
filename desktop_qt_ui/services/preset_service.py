@@ -30,7 +30,6 @@ class PresetService:
         # 创建默认预设（如果不存在）
         self._create_default_preset()
         
-        self.logger.info(f"预设目录: {self.presets_dir}")
 
     def _get_known_preset_env_keys(self) -> List[str]:
         """获取预设应覆盖的全部 env 键。"""

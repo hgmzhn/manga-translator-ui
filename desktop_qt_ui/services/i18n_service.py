@@ -57,7 +57,6 @@ class I18nManager:
         # 加载翻译
         self._load_all_translations()
         
-        self.logger.info(f"初始化国际化管理器，配置语言: {config_language}, 当前语言: {self.current_locale}")
     
     def _init_supported_locales(self):
         """初始化支持的语言列表"""

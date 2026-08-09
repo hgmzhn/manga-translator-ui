@@ -338,12 +338,6 @@ class LogService:
         # 同步设置manga_translator的日志级别
         logging.getLogger('manga-translator').setLevel(level)
         
-        # 日志提示
-        logger = logging.getLogger(self.app_name)
-        if verbose:
-            logger.info("[日志服务] 控制台日志级别已设置为 DEBUG（详细日志）")
-        else:
-            logger.info("[日志服务] 控制台日志级别已设置为 INFO（正常日志）")
     
     def get_logger(self, name: str = None) -> logging.Logger:
         """获取日志器"""

@@ -1,3 +1,6 @@
+from contextlib import redirect_stdout
+from io import StringIO
+
 import logging
 import os
 import sys
@@ -50,6 +53,10 @@ try:
     import torch  # noqa: F401
 except ImportError:
     pass
+
+# qfluentwidgets 会在导入时无条件打印推广信息，桌面入口只静默这一次导入。
+with redirect_stdout(StringIO()):
+    import qfluentwidgets  # noqa: F401
 
 from ui.main_window import MainWindow
 from PyQt6.QtCore import Qt
@@ -161,7 +168,6 @@ def _apply_windows_native_window_icon(window, icon_path: str):
 
         if big_icon_handle or small_icon_handle:
             window._native_icon_handles = (big_icon_handle, small_icon_handle)
-            logging.info(f"Windows 原生窗口图标已设置: {icon_path}")
             return True
 
         logging.warning(f"Windows 原生窗口图标加载失败: {icon_path}")
@@ -245,7 +251,6 @@ def main():
     # 0x8001010e (RPC_E_WRONG_THREAD)，faulthandler 每次都无锁遍历所有
     # 运行中线程的帧栈，与 OCR/修复线程竞态最终产生 access violation 导致闪退
     faulthandler.enable(file=file_handler.stream, all_threads=False)
-    logging.info("已启用崩溃捕获 (faulthandler)，崩溃信息将记录在此文件中")
 
     # --- 环境设置 ---
     # Windows特殊处理：必须在创建QApplication之前设置AppUserModelID
@@ -307,7 +312,6 @@ def main():
     app_icon, icon_source = load_icon_from_resources(icon_candidates)
     if app_icon and not app_icon.isNull():
         app.setWindowIcon(app_icon)
-        logging.info(f"UI 图标加载成功: {icon_source}")
     else:
         logging.warning("UI 图标加载失败：未找到可用的 icon.ico/icon.png/icon.icns")
 
@@ -435,7 +439,6 @@ def main():
 
     # 4. 启动事件循环
     ret = app.exec()
-    logging.info("Exiting application...")
 
     # Persist the latest coalesced config/.env snapshots before services vanish.
     try:

@@ -13,7 +13,6 @@ class AsyncService:
         self.logger = logging.getLogger(__name__)
         self._job_manager = AsyncJobManager()
         self._running = True
-        self.logger.info("AsyncService initialized with new AsyncJobManager")
 
     def submit_task(self, coro: Coroutine):
         """提交协程到后台事件循环。"""
@@ -51,7 +50,6 @@ class AsyncService:
 
     def shutdown(self):
         """关闭服务"""
-        self.logger.info("Shutting down AsyncService")
         self._running = False
         self._job_manager.shutdown(wait=False)
 

@@ -168,7 +168,6 @@ class MainAppLogic(QObject):
         self.excluded_files: set = set() # 记录从已添加文件夹中排除的单文件/压缩包
 
         self.app_config = AppConfig()
-        self._ui_log("主页面应用业务逻辑初始化完成")
 
     @staticmethod
     def _path_key(path: str) -> str:
@@ -1587,11 +1586,9 @@ class MainAppLogic(QObject):
 
     def get_last_open_dir(self) -> str:
         path = self.config_service.get_config().app.last_open_dir
-        self.logger.info(f"Retrieved last open directory: {path}")
         return path
 
     def set_last_open_dir(self, path: str):
-        self.logger.info(f"Saving last open directory: {path}")
         self.update_single_config('app.last_open_dir', path)
 
     def add_folder(self):
@@ -2079,7 +2076,6 @@ class MainAppLogic(QObject):
         """停止翻译任务"""
         if self.current_worker and hasattr(self.current_worker, 'stop'):
             self._stop_requested = True
-            self._ui_log("正在请求停止任务...")
             self.state_manager.set_status_message("正在停止...")
             if hasattr(self, 'main_view') and self.main_view:
                 self.main_view.set_stopping_state()
@@ -3793,7 +3789,6 @@ class TranslationRunnable(QRunnable):
     
     def stop(self):
         """停止任务"""
-        self.logger.info("--- 收到停止请求")
         self._is_running = False
         if self._worker is not None:
             self._worker._is_running = False

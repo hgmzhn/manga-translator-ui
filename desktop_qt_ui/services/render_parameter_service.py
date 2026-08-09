@@ -115,7 +115,6 @@ class RenderParameterService:
         self.presets: Dict[str, ParameterPreset] = {}
         self._init_default_presets()
 
-        self.logger.info("渲染参数管理服务初始化完成")
 
     def get_default_parameters(self) -> RenderParameters:
         """获取当前配置服务的默认参数"""

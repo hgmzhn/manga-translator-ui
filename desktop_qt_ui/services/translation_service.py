@@ -244,4 +244,3 @@ class TranslationService:
 
     def cleanup(self):
         """释放翻译服务持有的运行期状态。"""
-        self.logger.info("TranslationService cleanup complete")

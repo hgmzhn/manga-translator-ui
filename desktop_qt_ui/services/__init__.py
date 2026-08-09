@@ -88,12 +88,10 @@ class ServiceContainer:
             self.logger.warning(f"设置日志级别失败: {e}")
         
         self.services['state'].set_app_ready(True)
-        self.logger.info("基础服务初始化完成")
     
     def _init_heavy_services(self):
         """在后台线程初始化非UI的重量级服务"""
         try:
-            self.logger.info("H_SERVICE_INIT: Initializing heavy services...")
             
             self.services['file'] = FileService()
             self.services['translation'] = TranslationService()
@@ -103,7 +101,6 @@ class ServiceContainer:
             self.services['render_parameter'] = RenderParameterService()
             self.services['resource_manager'] = ResourceManager()  # 新的资源管理器
 
-            self.logger.info("后台重量级服务初始化完成")
             
         except Exception as e:
             self.logger.error(f"后台重量级服务初始化失败: {e}")
@@ -112,7 +109,6 @@ class ServiceContainer:
         """在UI主线程初始化UI相关服务"""
         # This method is now mostly obsolete as ShortcutManager and DragDropService are removed.
         # Kept for potential future UI-specific services.
-        self.logger.info("UI-specific services initialization skipped (services are obsolete).")
     
     def _default_drop_callback(self, files):
         """默认拖拽回调"""
@@ -129,7 +125,6 @@ class ServiceContainer:
     def register_service(self, name: str, service_instance: Any):
         """注册新服务"""
         self.services[name] = service_instance
-        self.logger.info(f"注册服务: {name}")
 
     def _call_service_hook(self, service_name: str, *hook_names: str):
         """按顺序调用服务支持的关闭钩子。"""
@@ -147,7 +142,6 @@ class ServiceContainer:
     
     def shutdown_services(self):
         """关闭所有服务"""
-        self.logger.info("开始关闭服务...")
         
         shutdown_steps = [
             ("async", ("shutdown",)),

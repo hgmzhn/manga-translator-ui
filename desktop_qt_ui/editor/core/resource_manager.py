@@ -616,7 +616,6 @@ class ResourceManager:
 
     def cleanup_all(self) -> None:
         """清理所有资源"""
-        self.logger.info("Cleaning up all resources")
 
         # 清空蒙版
         self.clear_masks()
@@ -637,7 +636,6 @@ class ResourceManager:
 
         _release_gpu_memory()
 
-        self.logger.info("All resources cleaned up")
 
     def release_memory_after_export(self) -> None:
         """导出后释放内存

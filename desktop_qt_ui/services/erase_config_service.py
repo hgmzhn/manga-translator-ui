@@ -120,7 +120,6 @@ class EraseConfigService:
             )
         }
         
-        self.logger.info("擦除算法配置服务初始化完成")
     
     def load_config_from_file(self, config_path: str) -> bool:
         """从配置文件加载设置"""
