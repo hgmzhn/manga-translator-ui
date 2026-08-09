@@ -15,11 +15,25 @@ from collections import Counter
 from collections.abc import Callable
 from functools import lru_cache
 
-from PyQt6.QtCore import QEvent, QLocale, QSignalBlocker, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import (
+    QAbstractListModel,
+    QEvent,
+    QLocale,
+    QModelIndex,
+    QPoint,
+    QSignalBlocker,
+    QSize,
+    QSortFilterProxyModel,
+    Qt,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QFont, QFontDatabase, QFontInfo, QGuiApplication, QRawFont, QWheelEvent
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QListView, QVBoxLayout, QWidget
 from qfluentwidgets import LineEdit, MenuAnimationType
 from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
+from qfluentwidgets.components.widgets.menu import IndicatorMenuItemDelegate, MenuAnimationManager
+from qfluentwidgets.components.widgets.scroll_bar import SmoothScrollDelegate
 
 from manga_translator.rendering.text_render import (
     qt_family_is_ambiguous,
@@ -46,6 +60,17 @@ _FONT_SEARCH_PLACEHOLDERS = {
 }
 _SYSTEM_FONTS_ENABLED = True
 _FONT_COMBO_INSTANCES: weakref.WeakSet = weakref.WeakSet()
+_FONT_DIRECTORY_SIGNATURE: tuple | None = None
+_FONT_FILE_LIST_CACHE: tuple[tuple[str, str], ...] = ()
+_FONT_FAMILY_CACHE: dict[bool, tuple[str, ...]] = {}
+
+def _clear_font_catalog_caches() -> None:
+    _FONT_FAMILY_CACHE.clear()
+    localized_font_family.cache_clear()
+    _list_font_family_entries_cached.cache_clear()
+    _font_styles.cache_clear()
+    _list_font_style_entries_cached.cache_clear()
+    _cached_qfont_for_value.cache_clear()
 
 
 def fonts_directory() -> str:
@@ -54,43 +79,60 @@ def fonts_directory() -> str:
 
 
 def list_font_files() -> list[tuple[str, str]]:
-    """枚举项目字体文件，并在 Qt 已启动时将它们注册为应用字体。"""
-    font_files: list[tuple[str, str]] = []
+    """Enumerate project font files, registering newly discovered faces once."""
+    global _FONT_DIRECTORY_SIGNATURE, _FONT_FILE_LIST_CACHE
     try:
         fonts_dir = fonts_directory()
-        if os.path.isdir(fonts_dir):
-            for filename in os.listdir(fonts_dir):
-                if filename.lower().endswith(FONT_FILE_EXTENSIONS):
-                    font_files.append((os.path.splitext(filename)[0], filename))
-                    path = os.path.normcase(os.path.abspath(os.path.join(fonts_dir, filename)))
-                    if QGuiApplication.instance() is not None and path not in _REGISTERED_FONT_FAMILIES:
-                        _REGISTERED_FONT_FAMILIES[path] = register_font_file(path)
-                        _remember_original_font_names(path)
-                        _font_family_name_records.cache_clear()
-                        _resolved_font_identity.cache_clear()
+        try:
+            stat = os.stat(fonts_dir)
+            signature = (stat.st_mtime_ns, stat.st_ctime_ns)
+        except OSError:
+            signature = None
+        if signature != _FONT_DIRECTORY_SIGNATURE:
+            font_files: list[tuple[str, str]] = []
+            if signature is not None:
+                for entry in os.scandir(fonts_dir):
+                    if entry.is_file() and entry.name.lower().endswith(FONT_FILE_EXTENSIONS):
+                        font_files.append((os.path.splitext(entry.name)[0], entry.name))
+            font_files.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
+            _FONT_FILE_LIST_CACHE = tuple(font_files)
+            _FONT_DIRECTORY_SIGNATURE = signature
     except OSError as exc:
         logger.warning(f"扫描字体目录失败: {exc}")
-    font_files.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
-    return font_files
+        _FONT_FILE_LIST_CACHE = ()
+
+    catalog_changed = False
+    if QGuiApplication.instance() is not None:
+        fonts_dir = fonts_directory()
+        for _stem, filename in _FONT_FILE_LIST_CACHE:
+            path = os.path.normcase(os.path.abspath(os.path.join(fonts_dir, filename)))
+            if path in _REGISTERED_FONT_FAMILIES:
+                continue
+            _REGISTERED_FONT_FAMILIES[path] = register_font_file(path)
+            _remember_original_font_names(path)
+            catalog_changed = True
+        if catalog_changed:
+            _font_family_name_records.cache_clear()
+            _resolved_font_identity.cache_clear()
+            _clear_font_catalog_caches()
+    return list(_FONT_FILE_LIST_CACHE)
 
 
 def list_font_families(include_system: bool | None = None) -> list[str]:
-    """返回项目字体和（可选的）系统字体 family 列表。
-
-    过滤掉以 ``[`` 开头的家族名——它们经 Qt 的 foundry 语法解析后家族名为空，
-    QFont 选中的永远是错误字体（系统级安装的工具箱字体会产生这类条目）。
-    同时排除无法用于任意字号排版的位图字体，避免 Windows DirectWrite 加载旧式
-    GDI 字体时持续报 ``CreateFontFaceFromHDC() failed``。
-    """
+    """Return the scalable project and optional system font families."""
     if QGuiApplication.instance() is None:
         return []
     list_font_files()
+    if include_system is None:
+        include_system = _SYSTEM_FONTS_ENABLED
+    include_system = bool(include_system)
+    cached = _FONT_FAMILY_CACHE.get(include_system)
+    if cached is not None:
+        return list(cached)
     families = {
         name for name in QFontDatabase.families()
         if name and not qt_family_is_ambiguous(name) and QFontDatabase.isScalable(name)
     }
-    if include_system is None:
-        include_system = _SYSTEM_FONTS_ENABLED
     if not include_system:
         project_families = {
             family
@@ -98,7 +140,9 @@ def list_font_families(include_system: bool | None = None) -> list[str]:
             for family in families_for_file
         }
         families.intersection_update(project_families)
-    return sorted(families, key=str.casefold)
+    result = tuple(sorted(families, key=str.casefold))
+    _FONT_FAMILY_CACHE[include_system] = result
+    return list(result)
 
 
 def font_family_for_file(filename: str) -> str:
@@ -239,6 +283,7 @@ def _language_score(language: str, locale_code: str) -> int:
     return 1 if not language else 0
 
 
+@lru_cache(maxsize=None)
 def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str, ...]]:
     """Return the localized display family and all searchable aliases."""
     records = _font_family_name_records(family)
@@ -271,10 +316,11 @@ def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str
     return _original_font_display_name(best[2]), aliases
 
 
-def list_font_family_entries(
+@lru_cache(maxsize=None)
+def _list_font_family_entries_cached(
     locale_code: str,
-    include_system: bool | None = None,
-) -> list[tuple[str, str, tuple[str, ...]]]:
+    include_system: bool,
+) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
     entries = []
     for family in list_font_families(include_system=include_system):
         display, aliases = localized_font_family(family, locale_code)
@@ -367,9 +413,19 @@ def list_font_family_entries(
         )
         for display, family, aliases in merged
     ]
-    return sorted(result, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1])))
+    return tuple(sorted(result, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1]))))
 
 
+def list_font_family_entries(
+    locale_code: str,
+    include_system: bool | None = None,
+) -> list[tuple[str, str, tuple[str, ...]]]:
+    if include_system is None:
+        include_system = _SYSTEM_FONTS_ENABLED
+    return list(_list_font_family_entries_cached(locale_code, bool(include_system)))
+
+
+@lru_cache(maxsize=None)
 def _font_styles(family: str) -> list[str]:
     """Return Qt styles for a family, with a stable default first."""
     try:
@@ -401,10 +457,11 @@ def split_font_value(value: str) -> tuple[str, str]:
     return str(value or ''), ''
 
 
-def list_font_style_entries(
+@lru_cache(maxsize=None)
+def _list_font_style_entries_cached(
     locale_code: str,
-    include_system: bool | None = None,
-) -> list[tuple[str, str, tuple[str, ...]]]:
+    include_system: bool,
+) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
     """Return selectable family/style entries for the font controls.
 
     A font collection commonly contains several styles under one family. Showing
@@ -479,13 +536,27 @@ def list_font_style_entries(
             for alias in entry_aliases
         ))
         merged.append((canonical[0], canonical[1], aliases))
-    return sorted(merged, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1])))
+    return tuple(sorted(merged, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1]))))
+
+
+def list_font_style_entries(
+    locale_code: str,
+    include_system: bool | None = None,
+) -> list[tuple[str, str, tuple[str, ...]]]:
+    if include_system is None:
+        include_system = _SYSTEM_FONTS_ENABLED
+    return list(_list_font_style_entries_cached(locale_code, bool(include_system)))
+
+
+@lru_cache(maxsize=4096)
+def _cached_qfont_for_value(value: str) -> QFont:
+    family, style = split_font_value(value)
+    return QFontDatabase.font(family, style, 12) if style else QFont(family)
 
 
 def qfont_for_value(value: str) -> QFont:
     """Build a preview font from a persisted family/style selection."""
-    family, style = split_font_value(value)
-    return QFontDatabase.font(family, style, 12) if style else QFont(family)
+    return QFont(_cached_qfont_for_value(str(value or "")))
 
 
 def populate_font_combo(combo, current: str | None = None, locale_code: str = "en_US") -> None:
@@ -522,15 +593,155 @@ def populate_font_combo(combo, current: str | None = None, locale_code: str = "e
     combo.setCurrentIndex(combo.count() - 1)
 
 
-class _FontComboBoxMenu(ComboBoxMenu):
-    """Fluent searchable menu whose rows preview their font family and style.
+class _FontMenuModel(QAbstractListModel):
+    """Full font catalog model with precomputed searchable metadata."""
 
-    菜单刻意不用 ``Qt.Popup``：Popup 窗口拿不到 Windows 键盘焦点，Qt 的
-    ``focusObject`` 会停在主窗口原来那个控件上，于是持有键盘焦点的窗口被解除
-    输入法关联——搜索框只剩 ASCII 敲得进去，中文等靠输入法的文字全被挡掉。
-    改成普通工具窗口后菜单自己拿焦点，代价是 Popup 白送的"点别处即关闭"要由
-    ``event``/``mousePressEvent`` 自己接管。
-    """
+    SearchRole = int(Qt.ItemDataRole.UserRole) + 1
+
+    def __init__(self, entries, parent=None):
+        super().__init__(parent)
+        self._entries = tuple(entries)
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self._entries)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid() or not 0 <= index.row() < len(self._entries):
+            return None
+        display, value, search_terms = self._entries[index.row()]
+        if role == Qt.ItemDataRole.DisplayRole:
+            return display
+        if role == Qt.ItemDataRole.UserRole:
+            return value
+        if role == self.SearchRole:
+            return search_terms
+        if role == Qt.ItemDataRole.SizeHintRole:
+            width = self.parent().fontMetrics().horizontalAdvance(display) if self.parent() else len(display) * 8
+            return QSize(40 + width, 33)
+        return None
+
+
+class _FontFilterProxyModel(QSortFilterProxyModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._query = ""
+
+    def set_filter(self, text: str):
+        query = _search_key(text.strip())
+        if query == self._query:
+            return
+        self._query = query
+        self.invalidateRowsFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        if not self._query:
+            return True
+        model = self.sourceModel()
+        index = model.index(source_row, 0, source_parent)
+        return self._query in str(model.data(index, _FontMenuModel.SearchRole) or "")
+
+
+class _FontMenuDelegate(IndicatorMenuItemDelegate):
+    """Resolve and paint preview fonts only for rows requested by the viewport."""
+
+    def paint(self, painter, option, index):
+        value = index.model().data(index, Qt.ItemDataRole.UserRole)
+        option.font = _cached_qfont_for_value(str(value or ""))
+        super().paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        hint = index.model().data(index, Qt.ItemDataRole.SizeHintRole)
+        return QSize(max(hint.width(), 1), 33)
+
+
+class _FontMenuListView(QListView):
+    """QListView replacement retaining MenuActionListWidget sizing semantics."""
+
+    def __init__(self, entries, parent=None):
+        super().__init__(parent)
+        self._itemHeight = 33
+        self._maxVisibleItems = -1
+        self._font_model = _FontMenuModel(entries, self)
+        self._filter_model = _FontFilterProxyModel(self)
+        self._filter_model.setSourceModel(self._font_model)
+        self.setModel(self._filter_model)
+        self.setObjectName("comboListWidget")
+        self.setViewportMargins(0, 2, 0, 6)
+        self.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.setMouseTracking(True)
+        self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setUniformItemSizes(True)
+        self.setItemDelegate(_FontMenuDelegate(self))
+        self.scrollDelegate = SmoothScrollDelegate(self)
+        self._natural_width = 1
+
+    def recalculateNaturalWidth(self):
+        self._natural_width = max(
+            (40 + self.fontMetrics().boundingRect(entry[0]).width() for entry in self._font_model._entries),
+            default=1,
+        )
+
+    def setItemHeight(self, height: int):
+        self._itemHeight = int(height)
+        self.adjustSize()
+
+    def setMaxVisibleItems(self, num: int):
+        self._maxVisibleItems = int(num)
+        self.adjustSize()
+
+    def maxVisibleItems(self):
+        return self._maxVisibleItems
+
+    def itemsHeight(self):
+        rows = self._filter_model.rowCount()
+        if self._maxVisibleItems > 0:
+            rows = min(rows, self._maxVisibleItems)
+        margins = self.viewportMargins()
+        return rows * self._itemHeight + margins.top() + margins.bottom()
+
+    def heightForAnimation(self, pos, aniType):
+        manager = MenuAnimationManager.make(self, aniType)
+        _width, available_height = manager.availableViewSize(pos)
+        return min(self.itemsHeight(), available_height)
+
+    def adjustSize(self, pos=None, aniType=MenuAnimationType.NONE):
+        manager = MenuAnimationManager.make(self, aniType)
+        available_width, available_height = manager.availableViewSize(pos)
+        margins = self.viewportMargins()
+        width = max(
+            min(available_width, self._natural_width + margins.left() + margins.right() + 2),
+            self.minimumWidth(),
+        )
+        height = min(available_height, self.itemsHeight() + 2)
+        if self._maxVisibleItems > 0:
+            height = min(height, self._maxVisibleItems * self._itemHeight + margins.top() + margins.bottom() + 2)
+        self.setFixedSize(max(width, 1), max(height, 1))
+
+    def setCurrentRow(self, source_row: int):
+        source_index = self._font_model.index(source_row, 0)
+        index = self._filter_model.mapFromSource(source_index)
+        if not index.isValid():
+            self.clearSelection()
+            self.setCurrentIndex(QModelIndex())
+            return
+        self.setCurrentIndex(index)
+        self.selectionModel().select(index, self.selectionModel().SelectionFlag.ClearAndSelect)
+
+    def set_filter(self, text: str):
+        self._filter_model.set_filter(text)
+
+    def source_row(self, index: QModelIndex) -> int:
+        if not index.isValid():
+            return -1
+        return self._filter_model.mapToSource(index).row()
+
+
+
+
+class _FontComboBoxMenu(ComboBoxMenu):
+    """Fluent searchable menu backed by a full model and virtualized view."""
 
     _WINDOW_FLAGS = (
         Qt.WindowType.Tool
@@ -539,14 +750,19 @@ class _FontComboBoxMenu(ComboBoxMenu):
     )
 
     fontHovered = pyqtSignal(str)
+    fontSelected = pyqtSignal(int)
 
-    def __init__(self, font_values, search_terms, placeholder, parent=None):
-        self._font_values = font_values
-        self._search_terms = search_terms
+    def __init__(self, font_entries, placeholder, parent=None):
+        self._font_entries = tuple(font_entries)
         self._was_activated = False
         super().__init__(parent)
         self.setWindowFlags(self._WINDOW_FLAGS)
-        self.hBoxLayout.removeWidget(self.view)
+        old_view = self.view
+        self.hBoxLayout.removeWidget(old_view)
+        old_view.hide()
+        old_view.deleteLater()
+        self.view = _FontMenuListView(self._font_entries, self)
+        self.setShadowEffect()
         self._container = QWidget(self)
         self._content_layout = QVBoxLayout(self._container)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
@@ -558,30 +774,38 @@ class _FontComboBoxMenu(ComboBoxMenu):
         self._content_layout.addWidget(self.view)
         self.hBoxLayout.addWidget(self._container, 1)
         self.search_edit.textChanged.connect(self._filter_items)
-        self.view.setMouseTracking(True)
-        self.view.itemEntered.connect(self._on_item_entered)
+        self.view.entered.connect(self._on_index_entered)
+        self.view.clicked.connect(self._on_index_clicked)
+        self._apply_view_style()
 
-    def _on_item_entered(self, item) -> None:
-        row = self.view.row(item)
-        if 0 <= row < len(self._font_values):
-            self.fontHovered.emit(self._font_values[row])
+    def _apply_view_style(self):
+        self.view.setStyleSheet(
+            self.styleSheet().replace("MenuActionListWidget", "_FontMenuListView")
+        )
+        self.view.recalculateNaturalWidth()
+        self.view.adjustSize()
+
+
+    def _on_index_entered(self, index):
+        row = self.view.source_row(index)
+        if 0 <= row < len(self._font_entries):
+            self.fontHovered.emit(self._font_entries[row][1])
+        else:
+            self.fontHovered.emit("")
+
+    def _on_index_clicked(self, index):
+        row = self.view.source_row(index)
+        if not 0 <= row < len(self._font_entries):
+            return
+        self._hideMenu(False)
+        self.fontSelected.emit(row)
 
     def leaveEvent(self, event):
         self.fontHovered.emit("")
         super().leaveEvent(event)
 
-    def _createActionItem(self, action, before=None):
-        row = len(self._actions)
-        item = super()._createActionItem(action, before)
-        if row < len(self._font_values):
-            item.setFont(qfont_for_value(self._font_values[row]))
-        return item
-
     def _filter_items(self, text: str) -> None:
-        query = _search_key(text.strip())
-        for row in range(self.view.count()):
-            item = self.view.item(row)
-            item.setHidden(bool(query) and query not in self._search_terms[row])
+        self.view.set_filter(text)
         self.view.scrollToTop()
 
     def adjustSize(self):
@@ -596,7 +820,6 @@ class _FontComboBoxMenu(ComboBoxMenu):
 
     def exec(self, pos, ani=True, aniType=MenuAnimationType.DROP_DOWN):
         result = super().exec(pos, ani, aniType)
-        # 工具窗口不像 Popup 那样自动接管键盘，要主动激活才拿得到输入法。
         self.activateWindow()
         QTimer.singleShot(0, self.search_edit.setFocus)
         return result
@@ -606,18 +829,13 @@ class _FontComboBoxMenu(ComboBoxMenu):
         if e.type() == QEvent.Type.WindowActivate:
             self._was_activated = True
         elif e.type() == QEvent.Type.WindowDeactivate and self._was_activated:
-            # 顶替 Popup 的自动收起：点到别的窗口、或切走应用就关闭。激活之前
-            # 的失活事件要忽略，否则菜单在拿到焦点前就把自己关了。
             self._hideMenu(True)
         return result
 
     def mousePressEvent(self, e):
-        # 基类靠 Popup 的鼠标捕获在这里收"点到菜单外部"的点击；工具窗口只会收到
-        # 菜单内部的点击（例如搜索框四周的留白），不能当成关闭信号。
         pass
 
     def keyPressEvent(self, e):
-        # 焦点在搜索框上，Esc 先到这里；补上 Popup 原本负责的取消语义。
         if e.key() == Qt.Key.Key_Escape:
             self._hideMenu(True)
             return
@@ -636,6 +854,7 @@ class FontComboBox(TopLevelComboBox):
 
     def __init__(self, parent=None, locale_getter: Callable[[], str] | None = None):
         self._locale_getter = locale_getter
+        self._cached_locale_code: str | None = None
         self._include_system_fonts = _SYSTEM_FONTS_ENABLED
         self._font_search_terms: dict[str, str] = {}
         self._font_alias_to_family: dict[str, str] = {}
@@ -646,19 +865,55 @@ class FontComboBox(TopLevelComboBox):
 
     def _createComboMenu(self):
         locale_code = self._locale_code()
+        entries = [
+            (
+                item.text,
+                str(item.userData or item.text),
+                self._font_search_terms.get(str(item.userData), _search_key(item.text)),
+            )
+            for item in self.items
+        ]
         menu = _FontComboBoxMenu(
-            [str(item.userData or item.text) for item in self.items],
-            [self._font_search_terms.get(str(item.userData), _search_key(item.text)) for item in self.items],
+            entries,
             _FONT_SEARCH_PLACEHOLDERS.get(locale_code, _FONT_SEARCH_PLACEHOLDERS["en_US"]),
             self._popup_parent(),
         )
         menu.fontHovered.connect(self.fontPreviewChanged)
+        menu.fontSelected.connect(self._on_menu_font_selected)
         menu.closedSignal.connect(lambda: self.fontPreviewChanged.emit(""))
+        menu.adjustSize()
         return menu
 
     def _showComboMenu(self):
         self.refresh()
-        super()._showComboMenu()
+        if not self.items:
+            return
+        menu = self._createComboMenu()
+        if menu.view.width() < self.width():
+            menu.view.setMinimumWidth(self.width())
+            menu.view.adjustSize()
+            menu.adjustSize()
+        menu.setMaxVisibleItems(self.maxVisibleItems())
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        menu.closedSignal.connect(self._onDropMenuClosed)
+        self.dropMenu = menu
+        menu.view.setCurrentRow(self.currentIndex())
+
+        x = -menu.width() // 2 + menu.layout().contentsMargins().left() + self.width() // 2
+        pd = self.mapToGlobal(QPoint(x, self.height()))
+        hd = menu.view.heightForAnimation(pd, MenuAnimationType.DROP_DOWN)
+        pu = self.mapToGlobal(QPoint(x, 0))
+        hu = menu.view.heightForAnimation(pu, MenuAnimationType.PULL_UP)
+        if hd >= hu:
+            menu.view.adjustSize(pd, MenuAnimationType.DROP_DOWN)
+            menu.exec(pd, aniType=MenuAnimationType.DROP_DOWN)
+        else:
+            menu.view.adjustSize(pu, MenuAnimationType.PULL_UP)
+            menu.exec(pu, aniType=MenuAnimationType.PULL_UP)
+
+    def _on_menu_font_selected(self, row: int):
+        if 0 <= row < self.count():
+            self._onItemClicked(row)
 
     def refresh(self, current_family: str | None = None) -> None:
         family = self.currentFamily() if current_family is None else str(current_family or "")
@@ -671,6 +926,7 @@ class FontComboBox(TopLevelComboBox):
             del blocker
 
     def refresh_ui_texts(self) -> None:
+        self._cached_locale_code = None
         self.refresh()
 
     def set_include_system_fonts(self, enabled: bool) -> None:
@@ -686,14 +942,16 @@ class FontComboBox(TopLevelComboBox):
         event.ignore()
 
     def _locale_code(self) -> str:
+        if self._cached_locale_code is not None:
+            return self._cached_locale_code
+        locale_code = ""
         if self._locale_getter is not None:
             try:
                 locale_code = str(self._locale_getter() or "")
-                if locale_code:
-                    return locale_code
             except RuntimeError:
                 pass
-        return QLocale.system().name()
+        self._cached_locale_code = locale_code or QLocale.system().name()
+        return self._cached_locale_code
 
     def currentFamily(self) -> str:
         return str(self.currentData() or self.currentText() or "")
