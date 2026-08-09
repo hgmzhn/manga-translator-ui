@@ -621,10 +621,9 @@ def _reorder_api_rotation_slot(
         return
     if not config_service.save_env_vars(updates):
         logger.error(
-            "Failed to reorder API slots from %s to %s for %s",
+            "Failed to reorder API slots from %s to %s",
             source_index,
             target_index,
-            slot_keys[0],
         )
         return
 
