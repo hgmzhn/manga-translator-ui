@@ -37,44 +37,72 @@ from .original_compare_view import OriginalCompareView
 from .shortcut_manager import EditorShortcutManager
 
 
-def _rich_editor_beside_position(
+def _rich_editor_preferred_position(
     *,
     region_left: int,
+    region_top: int,
     region_right: int,
-    region_center_y: int,
+    region_bottom: int,
     popup_width: int,
     popup_height: int,
     available: QRect,
     margin: int = 8,
-    side: str | None = None,
     preserve_top: bool = False,
     previous_top: int | None = None,
 ) -> tuple[int, int, str]:
-    """Return a screen-clamped position immediately beside a text region."""
+    """Place the editor below, then right, then left; never above the region."""
     region_left = int(region_left)
+    region_top = int(region_top)
     region_right = int(region_right)
+    region_bottom = int(region_bottom)
     popup_width = max(1, int(popup_width))
     popup_height = max(1, int(popup_height))
     margin = max(0, int(margin))
-    right_space = available.right() - region_right - margin + 1
-    left_space = region_left - available.left() - margin
-    if side not in {"left", "right"}:
-        if right_space >= popup_width:
-            side = "right"
-        elif left_space >= popup_width:
-            side = "left"
-        else:
-            side = "right" if right_space >= left_space else "left"
-
-    x = region_right + margin if side == "right" else region_left - popup_width - margin
-    y = int(previous_top) if preserve_top and previous_top is not None else int(
-        round(region_center_y - popup_height / 2.0)
+    spaces = {
+        "below": available.bottom() - region_bottom - margin + 1,
+        "right": available.right() - region_right - margin + 1,
+        "left": region_left - available.left() - margin,
+    }
+    required = {
+        "below": popup_height,
+        "right": popup_width,
+        "left": popup_width,
+    }
+    preferences = ("below", "right", "left")
+    placement = next(
+        (name for name in preferences if spaces[name] >= required[name]),
+        None,
     )
+    if placement is None:
+        # Never fall back above the region. If no direction fits completely,
+        # use the roomier horizontal side; left is allowed only in this case.
+        placement = max(
+            ("right", "left"),
+            key=lambda name: spaces[name] / required[name],
+        )
+
+    region_center_x = (region_left + region_right) / 2.0
+    region_center_y = (region_top + region_bottom) / 2.0
+    if placement == "below":
+        x = int(round(region_center_x - popup_width / 2.0))
+        y = region_bottom + margin
+    else:
+        x = (
+            region_right + margin
+            if placement == "right"
+            else region_left - popup_width - margin
+        )
+        y = (
+            int(previous_top)
+            if preserve_top and previous_top is not None
+            else int(round(region_center_y - popup_height / 2.0))
+        )
+
     min_x = available.left() + margin
     min_y = available.top() + margin
     max_x = max(min_x, available.right() - popup_width - margin + 1)
     max_y = max(min_y, available.bottom() - popup_height - margin + 1)
-    return max(min_x, min(x, max_x)), max(min_y, min(y, max_y)), side
+    return max(min_x, min(x, max_x)), max(min_y, min(y, max_y)), placement
 
 
 class EditorView(QWidget):
@@ -115,7 +143,7 @@ class EditorView(QWidget):
         self.graphics_view: GraphicsView | None = None
         self.rich_text_editor: RichTextFloatingEditor | None = None
         self._rich_editor_anchor_region = -1
-        self._rich_editor_anchor_side: str | None = None
+        self._rich_editor_anchor_placement: str | None = None
         self._rich_editor_restore_on_show = False
         self._selection_from_translation_list = False
         self.add_files_button: PushButton | None = None
@@ -239,7 +267,7 @@ class EditorView(QWidget):
         if not enabled:
             self._rich_editor_restore_on_show = False
             self._rich_editor_anchor_region = -1
-            self._rich_editor_anchor_side = None
+            self._rich_editor_anchor_placement = None
             if changed or editor.isVisible():
                 # clear_region 会先刷新去抖期内的编辑内容，再解除绑定并隐藏。
                 editor.clear_region()
@@ -601,14 +629,14 @@ class EditorView(QWidget):
         self._rich_editor_restore_on_show = False
         if not has_single_selection:
             self._rich_editor_anchor_region = -1
-            self._rich_editor_anchor_side = None
+            self._rich_editor_anchor_placement = None
             self.rich_text_editor.clear_region()
             return
 
         region_index = int(selected_indices[0])
         if region_index != self._rich_editor_anchor_region:
             self._rich_editor_anchor_region = region_index
-            self._rich_editor_anchor_side = None
+            self._rich_editor_anchor_placement = None
             self.rich_text_editor.reset_manual_position()
         # F22：换绑前先把上一区域去抖期内的待发内容写回，再取新区域数据
         self.rich_text_editor.flush_pending_changes()
@@ -713,7 +741,7 @@ class EditorView(QWidget):
         region_index = int(selected[0])
         # 拖动后文本框位置已经改变，按新位置重新选择一次停靠侧。
         self._rich_editor_anchor_region = region_index
-        self._rich_editor_anchor_side = None
+        self._rich_editor_anchor_placement = None
         editor.reset_manual_position()
         self._position_rich_text_editor(region_index)
         editor.show()
@@ -735,28 +763,28 @@ class EditorView(QWidget):
 
         rect = item.sceneBoundingRect()
         viewport = self.graphics_view.viewport()
-        # ``QGraphicsView.mapFromScene`` returns viewport-local coordinates.
-        # The editor is a top-level window, so convert both anchors to desktop
-        # coordinates before positioning it.
-        left_anchor = viewport.mapToGlobal(
-            self.graphics_view.mapFromScene(QPointF(rect.left(), rect.center().y()))
-        )
-        right_anchor = viewport.mapToGlobal(
-            self.graphics_view.mapFromScene(QPointF(rect.right(), rect.center().y()))
-        )
+
+        def desktop_position(scene_position: QPointF):
+            return viewport.mapToGlobal(self.graphics_view.mapFromScene(scene_position))
+
+        center = rect.center()
+        left_anchor = desktop_position(QPointF(rect.left(), center.y()))
+        top_anchor = desktop_position(QPointF(center.x(), rect.top()))
+        right_anchor = desktop_position(QPointF(rect.right(), center.y()))
+        bottom_anchor = desktop_position(QPointF(center.x(), rect.bottom()))
         previous_top = self.rich_text_editor.y()
         preserve_popup_top = (
             preserve_top
             and self.rich_text_editor.isVisible()
             and region_index == self._rich_editor_anchor_region
-            and self._rich_editor_anchor_side in {"left", "right"}
+            and self._rich_editor_anchor_placement in {"left", "right"}
         )
         # 不调用 adjustSize()：浮窗尺寸由它自己的 _refresh_layout_size 管理，
         # 这里再 adjustSize 会和浮窗抢尺寸导致抖动
         popup_w = self.rich_text_editor.width()
         popup_h = self.rich_text_editor.height()
         margin = 8
-        # Automatic placement is screen-aware rather than canvas-aware.  We
+        # Automatic placement is screen-aware rather than canvas-aware. We
         # occupy any area outside the canvas and can be dragged to another
         # screen without being clipped by the viewport.
         screen = QApplication.screenAt(right_anchor)
@@ -768,20 +796,20 @@ class EditorView(QWidget):
             return
         available = screen.availableGeometry()
 
-        # 当前文本框的停靠侧保持稳定。样式区展开/收起只改变浮窗尺寸，
-        # 不再在文本框上方和下方来回切换或遮挡正文预览。
+        # Re-evaluate on every geometry change so a left fallback is abandoned
+        # as soon as the preferred below or right placement fits again.
         if region_index != self._rich_editor_anchor_region:
             self._rich_editor_anchor_region = region_index
-            self._rich_editor_anchor_side = None
-        x, y, self._rich_editor_anchor_side = _rich_editor_beside_position(
+            self._rich_editor_anchor_placement = None
+        x, y, self._rich_editor_anchor_placement = _rich_editor_preferred_position(
             region_left=left_anchor.x(),
+            region_top=top_anchor.y(),
             region_right=right_anchor.x(),
-            region_center_y=right_anchor.y(),
+            region_bottom=bottom_anchor.y(),
             popup_width=popup_w,
             popup_height=popup_h,
             available=available,
             margin=margin,
-            side=self._rich_editor_anchor_side,
             preserve_top=preserve_popup_top,
             previous_top=previous_top,
         )
