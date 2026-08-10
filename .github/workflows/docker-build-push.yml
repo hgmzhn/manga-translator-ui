@@ -87,6 +87,51 @@ jobs:
           flavor: |
             latest=false
       
+      - name: Delete existing version tags before push
+        if: github.event_name != 'pull_request' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+        run: |
+          set -Eeuo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]; then
+            echo "Not a semantic version tag: $GITHUB_REF_NAME; skip deletion."
+            exit 0
+          fi
+          TARGET_TAG="${VERSION}-${{ matrix.build_type }}"
+          echo "Removing existing Docker tag: $TARGET_TAG"
+
+          HUB_TOKEN=$(curl --fail --silent --show-error \
+            --user "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" \
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${DOCKERHUB_USERNAME}/${IMAGE_NAME}:pull,push" \
+            | jq -r '.token')
+          if [[ -z "$HUB_TOKEN" || "$HUB_TOKEN" == "null" ]]; then
+            echo 'Docker Hub authentication token was not returned.' >&2
+            exit 1
+          fi
+          HUB_STATUS=$(curl --silent --show-error -o /dev/null -w '%{http_code}' \
+            --request DELETE \
+            --header "Authorization: Bearer ${HUB_TOKEN}" \
+            "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${IMAGE_NAME}/tags/${TARGET_TAG}/")
+          if [[ "$HUB_STATUS" != '204' && "$HUB_STATUS" != '404' ]]; then
+            echo "Docker Hub tag deletion failed with HTTP $HUB_STATUS" >&2
+            exit 1
+          fi
+
+          VERSION_IDS=$(TARGET_TAG="$TARGET_TAG" gh api --paginate \
+            "/users/${PACKAGE_OWNER}/packages/container/${IMAGE_NAME}/versions?per_page=100" \
+            --jq '.[] | select((.metadata.container.tags // []) | index(env.TARGET_TAG)) | .id')
+          while IFS= read -r VERSION_ID; do
+            [[ -z "$VERSION_ID" ]] && continue
+            echo "Removing GHCR package version $VERSION_ID for $TARGET_TAG"
+            gh api --method DELETE \
+              "/users/${PACKAGE_OWNER}/packages/container/${IMAGE_NAME}/versions/${VERSION_ID}"
+          done <<< "$VERSION_IDS"
+
+          echo "Existing Docker tags removed; the next step will push the new image."
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v5

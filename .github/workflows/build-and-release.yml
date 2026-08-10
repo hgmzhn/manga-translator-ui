@@ -4,249 +4,169 @@ on:
   push:
     tags:
       - 'v*'
-  release:
-    types:
-      - published
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-cpu:
+  build-portable:
     runs-on: windows-latest
-    name: Build CPU Version
+    name: Build ${{ matrix.variant }} Portable Package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - variant: cpu
+          torch-index: https://download.pytorch.org/whl/cpu
+        - variant: gpu
+          torch-index: https://download.pytorch.org/whl/cu130
+        - variant: amd
+          torch-index: https://pypi.org/simple
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-    - name: Install dependencies
+    - name: Prepare portable package from reference release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: pwsh
       run: |
-        python -m pip install uv
-        uv sync --locked --no-default-groups --group cpu --group packaging
-    - name: Build CPU version
-      run: uv run --no-sync python packaging/build_packages.py "${{ github.ref_name }}" --build cpu
-    - name: Upload CPU artifacts
+        $ErrorActionPreference = 'Stop'
+        $archive = Join-Path $env:RUNNER_TEMP 'manga-translator-ui-portable.7z'
+        $portableDir = Join-Path $env:GITHUB_WORKSPACE 'portable'
+        gh release download portable --repo hgmzhn/manga-translator-ui --pattern manga-translator-ui-portable.7z --output $archive --clobber
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to download the portable reference package.' }
+        Remove-Item $portableDir -Recurse -Force -ErrorAction SilentlyContinue
+        7z x $archive -o$portableDir -y
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to extract the portable reference package.' }
+        Remove-Item $archive -Force
+        $nested = Join-Path $portableDir 'manga-translator-ui-portable'
+        if (Test-Path (Join-Path $nested 'Win-Start.bat')) { $portableDir = $nested }
+        $excluded = @('.git', '.github', '.venv', '.venv_cpu', '.venv_gpu', 'build', 'dist', 'models', 'models_backup', 'result', 'logs', 'scripts', 'test', 'reference-code', 'PortableGit', 'uploads', 'upload-cache', 'originals', 'manga_translator_work', 'memory_profiles', '.idea', '.vscode')
+        Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force |
+          Where-Object { $_.Name -notin $excluded -and $_.Name -ne 'portable' } |
+          ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $portableDir -Recurse -Force }
+        Remove-Item (Join-Path $portableDir '.git') -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.git') -Destination (Join-Path $portableDir '.git') -Recurse -Force
+        if (-not (Test-Path (Join-Path $portableDir 'packaging\python\python.exe'))) { throw 'Portable Python was not found in the reference package.' }
+        if (-not (Test-Path (Join-Path $portableDir 'packaging\uv.exe'))) { throw 'Portable uv was not found in the reference package.' }
+        Set-Content -LiteralPath (Join-Path $portableDir 'VERSION') -Value ('${{ github.ref_name }}' -replace '^v', '') -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $portableDir 'packaging\VERSION') -Value ('${{ github.ref_name }}' -replace '^v', '') -Encoding utf8
+        "PORTABLE_DIR=$portableDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+    - name: Install ${{ matrix.variant }} dependencies into bundled Python
+      if: ${{ matrix.variant != 'amd' }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $uv = Join-Path $env:PORTABLE_DIR 'packaging\uv.exe'
+        $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
+        $requirements = 'requirements-portable-${{ matrix.variant }}.txt'
+        & $uv export --locked --no-default-groups --group '${{ matrix.variant }}' --format requirements.txt --output-file $requirements
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked dependencies.' }
+        & $uv pip sync --python $python --index '${{ matrix.torch-index }}' --index-strategy unsafe-best-match $requirements
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to install dependencies into bundled Python.' }
+    - name: Install AMD base dependencies into bundled Python
+      if: ${{ matrix.variant == 'amd' }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $uv = Join-Path $env:PORTABLE_DIR 'packaging\uv.exe'
+        $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
+        $requirements = 'requirements-portable-amd.txt'
+        & $uv export --locked --no-default-groups --group amd --no-emit-package torch --no-emit-package torchvision --format requirements.txt --output-file $requirements
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked AMD base dependencies.' }
+        & $uv pip install --python $python --no-deps --requirement $requirements
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to install AMD base dependencies into bundled Python.' }
+    - name: Install Windows AMD ROCm runtime
+      if: ${{ matrix.variant == 'amd' }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
+        & $python -m pip uninstall torch torchvision torchaudio -y
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to remove the non-ROCm PyTorch runtime.' }
+        & $python -m pip install --no-cache-dir `
+          'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl' `
+          'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl' `
+          'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl' `
+          'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm-7.2.1.tar.gz'
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to install the AMD ROCm SDK.' }
+        & $python -m pip install --no-cache-dir `
+          'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl' `
+          'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchaudio-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl' `
+          'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchvision-0.24.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl'
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to install the AMD ROCm PyTorch runtime.' }
+    - name: Clean dependency caches
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $uv = Join-Path $env:PORTABLE_DIR 'packaging\uv.exe'
+        $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
+        & $uv cache clean
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to clean the uv cache.' }
+        & $python -m pip cache purge
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to clean the pip cache.' }
+    - name: Install model files into portable package
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $modelArchive = Join-Path $env:RUNNER_TEMP 'models.7z'
+        gh release download v1.7.9 --repo hgmzhn/manga-translator-ui --pattern models.7z --output $modelArchive --clobber
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to download model files.' }
+        Remove-Item (Join-Path $env:PORTABLE_DIR 'models') -Recurse -Force -ErrorAction SilentlyContinue
+        7z x $modelArchive -o$env:PORTABLE_DIR -y
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to extract model files.' }
+        Remove-Item $modelArchive -Force
+        if (-not (Test-Path (Join-Path $env:PORTABLE_DIR 'models'))) { throw 'The model archive did not contain a models directory.' }
+    - name: Smoke test bundled runtime
+      if: ${{ matrix.variant != 'amd' }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
+        & $python -c "import PyQt6, torch, onnxruntime; print(torch.__version__, onnxruntime.__version__)"
+        if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime import smoke test failed.' }
+    - name: Smoke test AMD bundled runtime metadata
+      if: ${{ matrix.variant == 'amd' }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
+        & $python -c "from importlib.metadata import version; import PyQt6, onnxruntime; v = version('torch'); assert 'rocm7.2.1' in v, v; print(v, onnxruntime.__version__)"
+        if ($LASTEXITCODE -ne 0) { throw 'AMD bundled runtime metadata smoke test failed.' }
+    - name: Archive ${{ matrix.variant }} portable package
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'release'
+        New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+        Push-Location $env:PORTABLE_DIR
+        7z a -v1990m -m0=lzma2 -ms=on (Join-Path $releaseDir 'manga-translator-${{ matrix.variant }}-${{ github.ref_name }}.7z') .
+        $archiveExitCode = $LASTEXITCODE
+        Pop-Location
+        if ($archiveExitCode -ne 0) { throw 'Failed to archive the portable package.' }
+    - name: Upload ${{ matrix.variant }} portable archive
       uses: actions/upload-artifact@v4
       with:
-        name: manga-translator-cpu
-        path: dist/manga-translator-cpu/
-
-  build-gpu:
-    runs-on: windows-latest
-    name: Build GPU Version
-    steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-    - name: Install dependencies
-      run: |
-        python -m pip install uv
-        uv sync --locked --no-default-groups --group gpu --group packaging
-    - name: Build GPU version
-      run: uv run --no-sync python packaging/build_packages.py "${{ github.ref_name }}" --build gpu
-    - name: Upload GPU artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: manga-translator-gpu
-        path: dist/manga-translator-gpu/
-
+        name: manga-translator-${{ matrix.variant }}-portable
+        path: release/*.7z.*
   release-and-publish:
-    needs: [build-cpu, build-gpu]
+    needs: [build-portable]
     runs-on: ubuntu-latest
     name: Create Release and Publish Updates
     permissions:
-      contents: write # Required to push to gh-pages branch
+      contents: write
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-
-    - name: Download and Extract GPU Models
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        echo "Downloading GPU models from release assets..."
-        gh release download v1.6.0 -p "models.7z"
-
-        echo "Decompressing GPU models..."
-        7z x "models.7z" -o./extracted_models_gpu
-
-        echo "Setting up GPU models directory..."
-        rm -rf ./models_gpu
-        mv ./extracted_models_gpu/models ./models_gpu
-        echo "GPU models ready."
-
-    - name: Download and Extract CPU Models
-      run: |
-        echo "Downloading CPU models from v1.7.9..."
-        curl -L -o models_cpu.7z https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.7.9/models.7z
-
-        echo "Decompressing CPU models..."
-        7z x "models_cpu.7z" -o./extracted_models_cpu
-
-        echo "Setting up CPU models directory..."
-        rm -rf ./models_cpu
-        mv ./extracted_models_cpu/models ./models_cpu
-        echo "CPU models ready."
-
-    # - name: Restore Previous TUF Assets
-    #   env:
-    #     GH_TOKEN: ${{ github.token }}
-    #   run: |
-    #     echo "Checking for previous release to restore assets for diffing..."
-    #     # Get the tag of the release before this one
-    #     PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
-    #     if [ -z "$PREVIOUS_TAG" ]; then
-    #       echo "No previous tag found. Assuming this is the first release. Skipping asset restore."
-    #       exit 0
-    #     fi
-    #     echo "Found previous release tag: $PREVIOUS_TAG"
-    #     
-    #     TUF_TARGETS_DIR="update_repository/targets"
-    #     mkdir -p $TUF_TARGETS_DIR
-
-    #     echo "Downloading assets from release $PREVIOUS_TAG..."
-    #     gh release download $PREVIOUS_TAG -D $TUF_TARGETS_DIR -p "*.tar.gz.7z.*" || true
-    #     
-    #     echo "Merging split archives..."
-    #     for f in $(find $TUF_TARGETS_DIR -name '*.tar.gz.7z.001'); do
-    #       echo "Merging $f..."
-    #       # The `e` command extracts and automatically merges multi-part archives
-    #       7z e -o"$TUF_TARGETS_DIR" "$f"
-    #       # Clean up the downloaded split parts
-    #       rm $f*
-    #     done
-    #     echo "Asset restoration complete. Final files in $TUF_TARGETS_DIR:"
-    #     ls -l $TUF_TARGETS_DIR
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Install 7-Zip
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y p7zip-full
-
-    - name: Download all artifacts
+    - name: Download portable archives
       uses: actions/download-artifact@v4
       with:
-        path: dist/
-
-    # - name: Restore TUF Private Keys
-    #   env:
-    #     TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_KEY }}
-    #     TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_KEY }}
-    #     TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
-    #     TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
-    #   run: |
-    #     echo "Restoring TUF private keys from secrets..."
-    #     KEYS_DIR="keys"
-    #     mkdir -p $KEYS_DIR
-    #     echo "$TUF_ROOT_KEY" > "$KEYS_DIR/root"
-    #     echo "$TUF_TARGETS_KEY" > "$KEYS_DIR/targets"
-    #     echo "$TUF_SNAPSHOT_KEY" > "$KEYS_DIR/snapshot"
-    #     echo "$TUF_TIMESTAMP_KEY" > "$KEYS_DIR/timestamp"
-    #     echo "Private keys restored."
-
-    # - name: Update TUF Repository
-    #   run: |
-    #     python build_packages.py ${{ github.ref_name }} --update-repo --skip-build
-
-    # - name: Verify TUF metadata
-    #   run: |
-    #     echo "Verifying contents of update_repository before deployment:"
-    #     ls -lR update_repository/
-
-    # - name: Deploy Repository to GitHub Pages
-    #   uses: peaceiris/actions-gh-pages@v3
-    #   with:
-    #     personal_token: ${{ secrets.GH_PAT }}
-    #     publish_dir: ./update_repository
-    #     publish_branch: gh-pages
-    #     user_name: 'github-actions[bot]'
-    #     user_email: 'github-actions[bot]@users.noreply.github.com'
-    #     commit_message: 'Deploy TUF repository for ${{ github.ref_name }}'
-    #     exclude_assets: '**/*.tar.gz'
-
-    - name: Bundle external runtime resources next to app
-      run: |
-        echo "Bundling runtime resources next to app.exe..."
-        APP_VERSION="${GITHUB_REF_NAME#v}"
-        echo "Embedding app version: ${APP_VERSION}"
-
-        for variant in cpu gpu; do
-          dist_dir="dist/manga-translator-${variant}"
-          rm -rf \
-            "$dist_dir/_internal/config" \
-            "$dist_dir/_internal/examples" \
-            "$dist_dir/_internal/fonts" \
-            "$dist_dir/_internal/models" \
-            "$dist_dir/_internal/dict" \
-            "$dist_dir/_internal/doc" \
-            "$dist_dir/_internal/desktop_qt_ui" \
-            "$dist_dir/_internal/presets" \
-            "$dist_dir/_internal/logs" \
-            "$dist_dir/_internal/result"
-          rm -f "$dist_dir/_internal/VERSION"
-          rm -rf "$dist_dir/_internal/manga_translator/server/static"
-
-          rm -rf "$dist_dir/config" "$dist_dir/fonts" "$dist_dir/models" \
-            "$dist_dir/dict" "$dist_dir/doc" "$dist_dir/desktop_qt_ui" \
-            "$dist_dir/manga_translator/server/static"
-          cp -r config "$dist_dir/config"
-          cp -r fonts "$dist_dir/fonts"
-          cp -r dict "$dist_dir/dict"
-          cp -r doc "$dist_dir/doc"
-          mkdir -p "$dist_dir/desktop_qt_ui"
-          cp -r desktop_qt_ui/locales "$dist_dir/desktop_qt_ui/locales"
-          cp -r desktop_qt_ui/ui "$dist_dir/desktop_qt_ui/ui"
-          mkdir -p "$dist_dir/manga_translator/server"
-          cp -r manga_translator/server/static "$dist_dir/manga_translator/server/static"
-          printf '%s\n' "$APP_VERSION" > "$dist_dir/VERSION"
-        done
-
-        cp -r models_cpu dist/manga-translator-cpu/models
-        cp -r models_gpu dist/manga-translator-gpu/models
-
-    - name: Create Release Archives using 7-Zip with Splitting
-      run: |
-        mkdir -p release_assets
-        echo "Archiving CPU version..."
-        cd dist/manga-translator-cpu/
-        7z a -v1990m -m0=lzma2 -ms=on ../../release_assets/manga-translator-cpu-${{ github.ref_name }}.7z .
-        cd ../../
-        echo "CPU version archived. Deleting source directory to save space..."
-        rm -rf dist/manga-translator-cpu
-        echo "Archiving GPU version..."
-        cd dist/manga-translator-gpu/
-        7z a -v1990m -m0=lzma2 -ms=on ../../release_assets/manga-translator-gpu-${{ github.ref_name }}.7z .
-        cd ../../
-        echo "GPU version archived. Deleting source directory to save space..."
-        rm -rf dist/manga-translator-gpu
-
-    # - name: Prepare TUF Assets for Release
-    #   run: |
-    #     echo "Preparing TUF assets..."
-    #     TUF_TARGETS_DIR="update_repository/targets"
-    #     RELEASE_ASSETS_DIR="release_assets"
-    #     # Copy any TUF assets that are small enough directly
-    #     find $TUF_TARGETS_DIR -type f -size -1990M -exec cp {} $RELEASE_ASSETS_DIR/ \;
-    #     # For TUF assets that are too large, create split archives
-    #     find $TUF_TARGETS_DIR -type f -size +1990M | while read f; do
-    #       echo "Splitting large TUF asset: $f"
-    #       7z a -v1990m "$RELEASE_ASSETS_DIR/$(basename "$f").7z" "$f"
-    #     done
-    #     echo "Final release assets list:"
-    #     ls -l $RELEASE_ASSETS_DIR
-
+        path: release_assets
+        merge-multiple: true
     - name: Read CHANGELOG
       id: changelog
       run: |
@@ -263,7 +183,20 @@ jobs:
         else
           printf 'changelog=%s\n' "未找到更新日志文件" >> "$GITHUB_OUTPUT"
         fi
-
+    - name: Delete existing GitHub Release for this version
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]; then
+          echo "Not a semantic version tag: $GITHUB_REF_NAME; skip old release deletion."
+          exit 0
+        fi
+        if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "Deleting existing release $GITHUB_REF_NAME before publishing..."
+          gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
+        else
+          echo "No existing release for $GITHUB_REF_NAME."
+        fi
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:

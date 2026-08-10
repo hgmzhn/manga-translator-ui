@@ -13,9 +13,9 @@ lastUpdated: true
 
 ## 涉及的代码 {#feature-boundary}
 
-- 版本号：发布版本以 `v*` Git tag（例如 `v2.2.10`）为权威；`packaging/VERSION` 是构建脚本与版本检查脚本共同读取的版本文件；`pyproject.toml` 的 `[project] version` 与 `packaging/launch.py` 中的硬编码 `VERSION` 只是开发标记，不参与 CI 发布。
-- 桌面端产物：`packaging/build_packages.py` 调用 PyInstaller，按 `packaging/manga-translator-cpu.spec` 与 `packaging/manga-translator-gpu.spec` 生成 `dist/manga-translator-{cpu,gpu}/`。
-- CI 发布：`.github/workflows/build-and-release.yml` 在推送 `v*` tag、发布 Release 或手动触发时构建两个变体、捆绑外部运行时资源、分卷压缩并创建 GitHub Release；`.github/workflows/docker-build-push.yml` 构建并推送 CPU/GPU Docker 镜像。
+- 版本号：`v*` Git tag（例如 `v2.2.10`）是发布权威。`packaging/VERSION` 是包内版本文件；`pyproject.toml` 的 `[project] version` 与 `packaging/launch.py` 中的硬编码 `VERSION` 只是开发标记。
+- 发布包：`.github/workflows/build-and-release.yml` 以 `scripts/manga-translator-ui-portable` 的目录布局为参考，从 `portable` Release 下载基础包，覆盖当前源码，在内置 Python 中安装锁定的 CPU、NVIDIA GPU 或 Windows AMD 依赖，再解压模型文件并生成分卷归档。
+- Docker：`.github/workflows/docker-build-push.yml` 继续构建并推送 CPU/GPU Docker 镜像。
 - 这里仅写打包与发布；模块代码边界、测试流程、Web 端口与部署细节分别属于[架构与代码边界](./architecture-and-code-boundaries.md)、[测试与代码质量](./tests-and-code-quality.md)和[Web 服务端口与部署](./web-server-ports-and-deployment.md)。
 
 ## 操作方法 {#ui-operations}
@@ -28,91 +28,90 @@ lastUpdated: true
 
 | 文件/位置 | 当前值 | 作用 |
 | --- | --- | --- |
-| `packaging/VERSION` | `v2.2.10`（带 `v`） | 构建与版本检查的权威文件；`build_packages.py` 会把 tag 版本回写到这里 |
-| Git tag `v*` | 如 `v2.2.10` | CI 发布版本来源；`github.ref_name` 直接传给构建脚本 |
-| `pyproject.toml [project] version` | `1.7.6` | 项目元数据标记；与发布版本不同步，不参与 CI 打包 |
-| `packaging/launch.py` 常量 `VERSION` | `1.7.6` | 启动横幅的硬编码显示值；不参与 CI 打包 |
+| `packaging/VERSION` | `v2.2.10`（带 `v`） | 包内版本检查文件；CI 写入不带 `v` 的发布版本 |
+| Git tag `v*` | 如 `v2.2.10` | CI 发布版本来源；`github.ref_name` 直接写入便携包 |
+| `pyproject.toml [project] version` | `1.7.6` | 项目元数据标记；不参与 CI 发布 |
+| `packaging/launch.py` 常量 `VERSION` | `1.7.6` | 开发环境横幅标记；不参与 CI 发布 |
 
-`build_packages.py` 的版本归一化：版本参数先去掉 `v` 前缀；`sync_version_file()` 把有效版本写回 `packaging/VERSION`；每个变体产物目录内写入 `VERSION`（不带 `v`）和 `build_info.json`（`{"variant": ..., "version": ...}`）。桌面端运行时读取并显示该版本。
+CI 从 tag 去掉 `v` 后同时写入包根目录 `VERSION` 和 `packaging/VERSION`。便携包自身保留 `Win-Start.bat`、`Win-Install-or-Update.bat`、内置 Python、uv 和 PortableGit。
 
 ### 版本检查 {#version-check}
 
 `packaging/check_version.py` 与 `launch.py#check_version_info()` 都读取本地 `packaging/VERSION`，在 `git fetch` 成功后读取 `origin/<分支>:packaging/VERSION` 与远程对比；`launch.py` 还会统计 `HEAD..origin/<分支>` 的落后提交数。fetch 失败或无法联网时如实显示“无法获取远程版本信息”，不会用旧的 `origin/*` 引用误报“已是最新”。
 
-## 桌面端打包 {#desktop-packaging}
+## 便携发布包构建 {#desktop-packaging}
 
-### 打包脚本 {#packaging-script}
+### 构建入口 {#packaging-script}
 
-`packaging/build_packages.py` 是唯一的 PyInstaller 入口：
+CI 不再把 PyInstaller `dist/` 作为发布包。`.github/workflows/build-and-release.yml` 使用 `portable` Release 中的便携基础包（目录布局与 `scripts/manga-translator-ui-portable` 相同），再覆盖当前源码。
 
-```powershell
-uv run --no-sync python packaging/build_packages.py <版本> --build cpu|gpu|both
-```
+每个 CPU/GPU/AMD 矩阵任务按以下顺序执行：
 
-- `<版本>` 必填；`--build` 默认 `both`，可只构建 `cpu` 或 `gpu`。
-- CI 先执行 `uv sync --locked --no-default-groups --group cpu|gpu --group packaging` 准备环境；`packaging` 依赖组只含 `pyinstaller` 与 `pyinstaller-hooks-contrib`。
-- spec 文件入口是 `desktop_qt_ui/main.py`，收集 `onnxruntime`、`py3langid`、`unidic_lite`、`pythainlp`、`nlpo3`、`opencc` 的数据与二进制，并携带运行时钩子 `pyi_rth_onnxruntime.py`。
-- 构建完成后写入 `dist/manga-translator-{variant}/VERSION` 与 `build_info.json`；任一变体失败都会终止整个脚本。
+1. 解压便携基础包，保留内置 `packaging/python`、`packaging/uv.exe` 和 `PortableGit`。
+2. 覆盖当前源码并写入版本文件。
+3. 用 `uv export --locked` 导出对应 dependency group，再用 `uv pip sync --python packaging/python/python.exe` 安装到包内 Python。
+4. AMD 变体额外卸载普通 PyTorch，按 `packaging/launch.py` 相同顺序安装 Radeon ROCm SDK 7.2.1 和配套 PyTorch wheels。
+5. 下载并解压 `v1.7.9` Release 的 `models.7z` 到包内 `models/`。
+6. CPU/GPU 导入运行时，AMD 校验 ROCm wheel 元数据，再以 1990 MiB 分卷压缩。
+
+`packaging/build_packages.py` 和 spec 文件仍可用于本地 PyInstaller 调试，但不再是该 CI 发布流程的入口。
 
 ### 构建步骤 {#build-steps}
 
 ```mermaid
 flowchart LR
-    T["v* tag / 本地版本参数"] --> B["build_packages.py：去掉 v 前缀"]
-    B --> S["sync_version_file：回写 packaging/VERSION"]
-    S --> P["PyInstaller 按 variant spec 构建"]
-    P --> D["dist/manga-translator-{cpu,gpu}/"]
-    D --> V["写入 VERSION 与 build_info.json"]
+    T["v* tag"] --> B["下载 portable 基础包"]
+    B --> S["覆盖当前源码并写 VERSION"]
+    S --> D["uv export --locked + uv pip sync"]
+    D --> M["解压 models.7z"]
+    M --> Q["PyQt6/torch/onnxruntime smoke test"]
+    Q --> Z["7z 分卷并上传 CPU/GPU/AMD 归档"]
 ```
 
-图说明：这是版本归一化与 PyInstaller 产物生成流程。`build_info.json` 记录 `variant` 与 `version`；同一版本参数可连续构建 `cpu` 与 `gpu` 两个互斥依赖组的产物，但一次环境只安装其中一个组。
+依赖安装和模型安装都发生在打包任务中，发布阶段只负责下载三个归档、读取 CHANGELOG 并创建 GitHub Release。
 
 ## 发布产物 {#release-artifacts}
 
 ### 产物布局 {#artifact-layout}
 
-CI 的“Bundle external runtime resources next to app”步骤把可替换资源放到 `app.exe` 旁而不是 `_internal/` 内：先从 `_internal/` 删除 `config`、`examples`、`fonts`、`models`、`dict`、`doc`、`desktop_qt_ui`、`presets`、`logs`、`result` 与 `VERSION`，再从仓库复制 `config`、`fonts`、`dict`、`doc`、`desktop_qt_ui/locales`、`desktop_qt_ui/ui`、`manga_translator/server/static`，并把发布版本写入根目录 `VERSION`。模型目录从单独的模型压缩包解压到产物根目录。
+发布归档是完整的 Windows 便携目录，不包含 `app.exe`。它包含便携基础包的运行时和当前源码：
 
 | 目录/文件 | 内容 | 说明 |
 | --- | --- | --- |
-| `app.exe` | PyInstaller 单文件入口 | `desktop_qt_ui/main.py` 的编译结果 |
-| `_internal/` | Python 运行时与第三方库 | 不包含可替换的 config/fonts/models/dict/doc |
-| `config/`、`fonts/`、`dict/`、`doc/` | 仓库资源 | 从仓库复制到可执行文件旁 |
-| `desktop_qt_ui/locales/`、`ui/` | Qt 界面资源 | 打包版从外部读取，便于替换 |
-| `manga_translator/server/static/` | Web 前端静态资源 | 供内置 Web 服务使用 |
-| `models/` | 模型权重 | 发布阶段从模型压缩包解压 |
-| `VERSION` | 版本号（不带 `v`） | 桌面端启动时读取并显示 |
+| `Win-Start.bat` | 启动入口 | 使用包内 Python 运行桌面端 |
+| `Win-Install-or-Update.bat` | 维护入口 | 可重新安装依赖或更新代码 |
+| `packaging/python/` | Python 3.12 运行时和已安装依赖 | CPU/GPU/AMD 包各自独立 |
+| `packaging/uv.exe`、`PortableGit/` | 便携工具 | 不依赖系统 Python/Git |
+| `config/`、`fonts/`、`dict/`、`doc/` | 应用资源 | 与源码一起发布 |
+| `models/` | AI 模型权重 | 构建阶段从 `models.7z` 解压 |
+| `VERSION` | 发布版本号 | 去掉 `v` 前缀 |
 
 ### 分卷压缩 {#split-archives}
 
-发布资产按变体分卷压缩为 7z：`manga-translator-{cpu,gpu}-<tag>.7z.001`、`.002`…，命令为 `7z a -v1990m -m0=lzma2 -ms=on`（1990 MiB 分卷、LZMA2、固态压缩）。解压后是完整的可分发目录。
+发布资产按三个变体分别生成 `manga-translator-{cpu,gpu,amd}-<tag>.7z.001`、`.002`…，命令使用 `7z a -v1990m -m0=lzma2 -ms=on`。解压第一个分卷即可得到完整便携目录。
 
 ## CI 发布流水线 {#ci-release-pipeline}
 
 ### 触发方式 {#release-triggers}
 
-`build-and-release.yml` 在推送 `v*` tag、GitHub Release 发布（`release: published`）或手动 `workflow_dispatch` 时触发；`docker-build-push.yml` 在推送 `v*` tag 或手动触发时构建并推送 Docker 镜像。GitHub Releases 产物还会随镜像同步到 Gitee/GitCode 仓库（`sync-to-gitee.yml`）。
+`build-and-release.yml` 在推送 `v*` tag 或手动触发时运行。为避免删除并重建 Release 造成事件循环，不再监听 `release: published`。Docker 工作流仍独立构建 CPU/GPU 镜像。
 
 ### 流水线步骤 {#pipeline-steps}
 
 ```mermaid
 flowchart LR
-    T["推送 v* tag / 发布 Release"] --> C["build-cpu：Windows + Python 3.12 + uv sync cpu/packaging"]
-    T --> G["build-gpu：Windows + Python 3.12 + uv sync gpu/packaging"]
-    C --> A1["build_packages.py --build cpu"]
-    G --> A2["build_packages.py --build gpu"]
-    A1 --> U1["上传 dist/manga-translator-cpu/"]
-    A2 --> U2["上传 dist/manga-translator-gpu/"]
-    U1 --> R["release-and-publish（ubuntu-latest）"]
-    U2 --> R
-    R --> M["下载并解压 CPU/GPU 模型压缩包"]
-    M --> B["捆绑外部运行时资源到 app 旁 + 写 VERSION"]
-    B --> Z["7z 分卷压缩 release_assets/"]
-    Z --> L["读取 doc/CHANGELOG_v<版本>.md"]
-    L --> RL["创建 GitHub Release 并上传资产"]
+    T["v* tag / 手动触发"] --> C["Windows 矩阵：cpu、gpu、amd"]
+    C --> P["下载 portable 基础包并覆盖源码"]
+    P --> D["安装锁定依赖到内置 Python"]
+    D --> M["安装模型文件"]
+    M --> A["smoke test + 7z 分卷"]
+    A --> R["Ubuntu 发布任务"]
+    R --> L["读取 CHANGELOG"]
+    L --> X["删除同 tag 的旧 GitHub Release"]
+    X --> G["创建 GitHub Release"]
 ```
 
-图说明：这是工作流文件的真实依赖与步骤顺序。`release-and-publish` 的 `needs: [build-cpu, build-gpu]` 保证两个变体都成功后才发布；CHANGELOG 文件缺失时发布正文显示“未找到更新日志文件”。工作流中注释掉的 TUF 更新仓库与密钥恢复步骤当前未启用，不代表存在真实的自动更新签名通道。
+发布任务依赖矩阵任务全部成功；发布前会删除同 tag 的旧 GitHub Release，再上传新归档。任一依赖安装、模型下载、运行时导入或压缩失败都会阻止发布。
 
 ## Docker 镜像 {#docker-images}
 
@@ -120,7 +119,7 @@ flowchart LR
 
 `packaging/Dockerfile` 是多阶段构建：`base-cpu` 基于 `python:3.12-slim`，`base-gpu` 基于 `nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04`，由 `BUILD_TYPE` 参数选择。两者都安装系统依赖后执行 `uv sync --locked --no-default-groups --group cpu|gpu`，调用 `ensure_runtime_files()` 生成运行时配置与提示词表，并把 `config`、`fonts`、`dict`、`server data` 备份到 `default_*` 目录，供入口脚本在挂载空卷时恢复。镜像以 Web 服务方式启动（`MANGA_TRANSLATOR_WEB_SERVER=true`、`QT_QPA_PLATFORM=offscreen`、`EXPOSE 8000`），健康检查请求 `http://localhost:8000/`，默认命令为 `python -m manga_translator web --host 0.0.0.0 --port 8000`。
 
-`docker-build-push.yml` 用矩阵 `[cpu, gpu]` 构建 `linux/amd64`，登录 Docker Hub 与 ghcr.io 后推送镜像，tag 均带 `-cpu`/`-gpu` 后缀：分支/PR 引用、semver `<版本>` 与 `<主>.<次>`、`latest`。
+`docker-build-push.yml` 用矩阵 `[cpu, gpu]` 构建 `linux/amd64`，登录 Docker Hub 与 ghcr.io 后，先删除当前 semver 版本对应的 Docker Hub/ GHCR tag，再推送新镜像。tag 均带 `-cpu`/`-gpu` 后缀：分支/PR 引用、semver `<版本>` 与 `<主>.<次>`、`latest`。
 
 ### Compose 部署 {#compose-deployment}
 
@@ -128,10 +127,11 @@ flowchart LR
 
 ## 约束与注意事项 {#dependencies-and-conflicts}
 
-- `cpu`、`gpu`、`amd`、`metal` 四个硬件后端依赖组互斥（`pyproject.toml` 的 `[tool.uv] conflicts`），一次只能安装一个；CI 的桌面打包只构建 `cpu` 与 `gpu`。
-- PyInstaller 产物不包含模型权重；模型在发布阶段从单独的 release 资产下载，因此产物体积与模型体积分开管理。
-- `packaging/VERSION` 与 `pyproject.toml` 的 `[project] version`、`launch.py` 的硬编码 `VERSION` 可能不同步；发布以 tag 为准，不要把三者当作同一来源。
-- 发布流水线依赖 GitHub Release 中预置的模型压缩包；缺失或下载失败时发布会失败。
+- `cpu`、`gpu`、`amd`、`metal` 四个硬件后端依赖组互斥；CI 便携发布构建 Windows `cpu`、`gpu` 和 `amd` 三个包。
+- AMD 包在锁定公共依赖后，按启动器相同顺序安装 Radeon ROCm SDK 7.2.1 与配套 PyTorch wheels；需要 AMD 26.2.2 驱动和受支持显卡。
+- 发布包已经包含锁定依赖和 `models/`；归档体积会显著增大，必须保留 1990 MiB 分卷。
+- `packaging/VERSION`、`pyproject.toml [project] version` 与 `launch.py` 的硬编码版本可能不同步；发布以 tag 写入的 `VERSION` 为准。
+- 流水线依赖 `portable` 基础包和 `v1.7.9/models.7z` 两个既有 Release 资产；任一资产缺失或下载失败都会阻止发布。
 - Docker 构建通过 `.dockerignore` 排除 `doc/`、`*.md`、测试与构建产物，镜像内只含运行所需资源。
 - 这里不写真实 API 密钥、令牌、用户名或私有绝对路径；compose 中的管理员密码与环境变量值属于发行模板，不在文档中复制。
 

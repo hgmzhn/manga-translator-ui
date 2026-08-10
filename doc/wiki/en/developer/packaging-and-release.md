@@ -13,9 +13,9 @@ This page is for maintainers. It explains how the project turns source code into
 
 ## Relevant code {#feature-boundary}
 
-- Version: a `v*` Git tag (for example `v2.2.10`) is authoritative for releases. `packaging/VERSION` is the version file shared by the build script and the version-check scripts. The `[project] version` in `pyproject.toml` and the hardcoded `VERSION` in `packaging/launch.py` are development markers only and do not participate in CI releases.
-- Desktop artifacts: `packaging/build_packages.py` invokes PyInstaller with `packaging/manga-translator-cpu.spec` and `packaging/manga-translator-gpu.spec` to produce `dist/manga-translator-{cpu,gpu}/`.
-- CI release: `.github/workflows/build-and-release.yml` builds both variants, bundles external runtime resources, creates split archives, and creates a GitHub Release on `v*` tag pushes, published releases, or manual dispatch. `.github/workflows/docker-build-push.yml` builds and pushes CPU/GPU Docker images.
+- Version: a `v*` Git tag (for example `v2.2.10`) is authoritative. `packaging/VERSION` is the in-package version file; `[project] version` in `pyproject.toml` and the hardcoded `VERSION` in `packaging/launch.py` are development markers.
+- Release packages: `.github/workflows/build-and-release.yml` follows the layout of `scripts/manga-translator-ui-portable`. It downloads the `portable` Release as a base, overlays current source, installs locked CPU, NVIDIA GPU, or Windows AMD dependencies into bundled Python, installs model files, and creates split archives.
+- Docker: `.github/workflows/docker-build-push.yml` continues to build and push CPU/GPU images.
 - This guide covers packaging and release only. Module code boundaries, test flows, and web ports/deployment belong to [Architecture and code boundaries](./architecture-and-code-boundaries.md), [Tests and code quality](./tests-and-code-quality.md), and [Web server ports and deployment](./web-server-ports-and-deployment.md) respectively.
 
 ## How to use it {#ui-operations}
@@ -28,91 +28,90 @@ Only two kinds of visible copy relate to packaging and release: the desktop wind
 
 | File/location | Current value | Role |
 | --- | --- | --- |
-| `packaging/VERSION` | `v2.2.10` (with `v`) | Authoritative file for builds and version checks; `build_packages.py` writes the tag version back here |
-| Git tag `v*` | e.g. `v2.2.10` | CI release version source; `github.ref_name` is passed straight to the build script |
-| `pyproject.toml [project] version` | `1.7.6` | Project-metadata marker; out of sync with release versions and unused by CI packaging |
-| `packaging/launch.py` constant `VERSION` | `1.7.6` | Hardcoded banner display value; unused by CI packaging |
+| `packaging/VERSION` | `v2.2.10` (with `v`) | In-package version-check file; CI writes the release version without `v` |
+| Git tag `v*` | e.g. `v2.2.10` | CI release source; `github.ref_name` is written into the portable package |
+| `pyproject.toml [project] version` | `1.7.6` | Project metadata marker; unused by CI releases |
+| `packaging/launch.py` constant `VERSION` | `1.7.6` | Development banner marker; unused by CI releases |
 
-Version normalization in `build_packages.py`: the version argument has its `v` prefix stripped; `sync_version_file()` writes the effective version back to `packaging/VERSION`; each variant directory gets a `VERSION` file (without `v`) and a `build_info.json` (`{"variant": ..., "version": ...}`). The desktop runtime reads and displays that version.
+CI strips the leading `v` from the tag and writes both root `VERSION` and `packaging/VERSION`. The package keeps `Win-Start.bat`, `Win-Install-or-Update.bat`, bundled Python, uv, and PortableGit.
 
 ### Version check {#version-check}
 
 Both `packaging/check_version.py` and `launch.py#check_version_info()` read the local `packaging/VERSION`, fetch from the remote, and compare it with `origin/<branch>:packaging/VERSION`; `launch.py` also counts the commits behind with `HEAD..origin/<branch>`. When the fetch fails or the network is unavailable, they honestly report that the remote version could not be obtained instead of misreporting "up to date" using stale `origin/*` refs.
 
-## Desktop packaging {#desktop-packaging}
+## Portable release build {#desktop-packaging}
 
-### Packaging script {#packaging-script}
+### Build entry {#packaging-script}
 
-`packaging/build_packages.py` is the single PyInstaller entry point:
+CI no longer publishes the PyInstaller `dist/` tree. `.github/workflows/build-and-release.yml` downloads the `portable` Release as a base package, using the same directory layout as `scripts/manga-translator-ui-portable`, then overlays current source.
 
-```powershell
-uv run --no-sync python packaging/build_packages.py <version> --build cpu|gpu|both
-```
+Each CPU/GPU/AMD matrix job runs these steps in order:
 
-- `<version>` is required; `--build` defaults to `both` and can restrict the build to `cpu` or `gpu`.
-- CI prepares the environment with `uv sync --locked --no-default-groups --group cpu|gpu --group packaging`; the `packaging` dependency group contains only `pyinstaller` and `pyinstaller-hooks-contrib`.
-- The spec entry is `desktop_qt_ui/main.py`; it collects data and binaries from `onnxruntime`, `py3langid`, `unidic_lite`, `pythainlp`, `nlpo3`, and `opencc`, and carries the runtime hook `pyi_rth_onnxruntime.py`.
-- After the build it writes `dist/manga-translator-{variant}/VERSION` and `build_info.json`; failure of any variant aborts the whole script.
+1. Extract the base package while retaining bundled `packaging/python`, `packaging/uv.exe`, and `PortableGit`.
+2. Overlay current source and write version files.
+3. Export the matching dependency group with `uv export --locked`, then install it with `uv pip sync --python packaging/python/python.exe`.
+4. For AMD, remove normal PyTorch and install Radeon ROCm SDK 7.2.1 plus matching PyTorch wheels in the same order as `packaging/launch.py`.
+5. Download and extract `models.7z` from Release `v1.7.9` into `models/`.
+6. Import runtime modules for CPU/GPU, validate ROCm wheel metadata for AMD, then create 1990 MiB split archives.
+
+`packaging/build_packages.py` and the spec files remain available for local PyInstaller debugging, but they are no longer the entry point for this CI release.
 
 ### Build steps {#build-steps}
 
 ```mermaid
 flowchart LR
-    T["v* tag / local version argument"] --> B["build_packages.py: strip v prefix"]
-    B --> S["sync_version_file: write back packaging/VERSION"]
-    S --> P["PyInstaller builds from the variant spec"]
-    P --> D["dist/manga-translator-{cpu,gpu}/"]
-    D --> V["write VERSION and build_info.json"]
+    T["v* tag"] --> B["download portable base"]
+    B --> S["overlay source and write VERSION"]
+    S --> D["uv export --locked + uv pip sync"]
+    D --> M["extract models.7z"]
+    M --> Q["PyQt6/torch/onnxruntime smoke test"]
+    Q --> Z["split and upload CPU/GPU/AMD archives"]
 ```
 
-Diagram note: this is the version normalization and PyInstaller artifact flow. `build_info.json` records `variant` and `version`; the same version argument can build both `cpu` and `gpu` artifacts of the two mutually exclusive dependency groups, but a single environment installs only one group.
+Dependency and model installation happen inside the build jobs. The publish job only downloads the three archives, reads the changelog, and creates the GitHub Release.
 
 ## Release artifacts {#release-artifacts}
 
 ### Artifact layout {#artifact-layout}
 
-The "Bundle external runtime resources next to app" CI step places replaceable resources next to `app.exe` instead of inside `_internal/`: it first deletes `config`, `examples`, `fonts`, `models`, `dict`, `doc`, `desktop_qt_ui`, `presets`, `logs`, `result`, and `VERSION` from `_internal/`, then copies `config`, `fonts`, `dict`, `doc`, `desktop_qt_ui/locales`, `desktop_qt_ui/ui`, and `manga_translator/server/static` from the repository, and writes the release version into a root-level `VERSION` file. The model directory is extracted from a separate model archive into the artifact root.
+Each release archive is a complete Windows portable directory and does not contain `app.exe`:
 
 | Directory/file | Content | Note |
 | --- | --- | --- |
-| `app.exe` | PyInstaller one-file entry | Compiled result of `desktop_qt_ui/main.py` |
-| `_internal/` | Python runtime and third-party libraries | Does not include replaceable config/fonts/models/dict/doc |
-| `config/`, `fonts/`, `dict/`, `doc/` | Repository resources | Copied from the repository next to the executable |
-| `desktop_qt_ui/locales/`, `ui/` | Qt interface resources | Read externally by the packaged app, so they can be replaced |
-| `manga_translator/server/static/` | Web frontend static assets | Used by the built-in web server |
-| `models/` | Model weights | Extracted from a model archive during release |
-| `VERSION` | Version number (without `v`) | Read and displayed at desktop startup |
+| `Win-Start.bat` | Startup entry | Runs the desktop UI with bundled Python |
+| `Win-Install-or-Update.bat` | Maintenance entry | Reinstalls dependencies or updates source |
+| `packaging/python/` | Python 3.12 runtime and installed dependencies | Separate CPU/GPU/AMD environments |
+| `packaging/uv.exe`, `PortableGit/` | Portable tools | No system Python or Git required |
+| `config/`, `fonts/`, `dict/`, `doc/` | Application resources | Released with source |
+| `models/` | AI model weights | Extracted from `models.7z` during the build |
+| `VERSION` | Release version | Leading `v` removed |
 
 ### Split archives {#split-archives}
 
-Release assets are archived per variant as split 7z files: `manga-translator-{cpu,gpu}-<tag>.7z.001`, `.002`…, using `7z a -v1990m -m0=lzma2 -ms=on` (1990 MiB volumes, LZMA2, solid). Extracting them yields the complete distributable directory.
+The three assets are named `manga-translator-{cpu,gpu,amd}-<tag>.7z.001`, `.002`, and so on. The command uses `7z a -v1990m -m0=lzma2 -ms=on`; extracting the first volume restores the complete portable directory.
 
 ## CI release pipeline {#ci-release-pipeline}
 
 ### Release triggers {#release-triggers}
 
-`build-and-release.yml` runs on `v*` tag pushes, GitHub Release publishing (`release: published`), and manual `workflow_dispatch`. `docker-build-push.yml` builds and pushes Docker images on `v*` tag pushes or manual dispatch. GitHub Releases artifacts are also mirrored with branches and tags to the Gitee/GitCode repositories (`sync-to-gitee.yml`).
+`build-and-release.yml` runs for `v*` tag pushes and manual dispatch. It deliberately does not listen to `release: published`, because deleting and recreating a release would otherwise trigger a loop. The Docker workflow remains independent.
 
 ### Pipeline steps {#pipeline-steps}
 
 ```mermaid
 flowchart LR
-    T["push v* tag / publish Release"] --> C["build-cpu: Windows + Python 3.12 + uv sync cpu/packaging"]
-    T --> G["build-gpu: Windows + Python 3.12 + uv sync gpu/packaging"]
-    C --> A1["build_packages.py --build cpu"]
-    G --> A2["build_packages.py --build gpu"]
-    A1 --> U1["upload dist/manga-translator-cpu/"]
-    A2 --> U2["upload dist/manga-translator-gpu/"]
-    U1 --> R["release-and-publish (ubuntu-latest)"]
-    U2 --> R
-    R --> M["download and extract CPU/GPU model archives"]
-    M --> B["bundle external runtime resources next to app + write VERSION"]
-    B --> Z["7z split archives into release_assets/"]
-    Z --> L["read doc/CHANGELOG_v<version>.md"]
-    L --> RL["create GitHub Release and upload assets"]
+    T["v* tag / manual dispatch"] --> C["Windows matrix: cpu, gpu, amd"]
+    C --> P["download portable base and overlay source"]
+    P --> D["install locked dependencies into bundled Python"]
+    D --> M["install model files"]
+    M --> A["smoke test + split archive"]
+    A --> R["Ubuntu publish job"]
+    R --> L["read CHANGELOG"]
+    L --> X["delete existing release for the tag"]
+    X --> G["create GitHub Release"]
 ```
 
-Diagram note: this is the real dependency and step order of the workflow file. `release-and-publish` has `needs: [build-cpu, build-gpu]`, so publishing starts only after both variants succeed; when the CHANGELOG file is missing, the release body shows "未找到更新日志文件". The commented-out TUF update-repository and private-key restore steps are not enabled and do not imply a real signed auto-update channel.
+The publish job waits for every matrix job. Before uploading, it deletes any existing GitHub Release for the same tag and then creates the replacement. Any dependency install, model download, runtime import, or archive failure prevents publication.
 
 ## Docker images {#docker-images}
 
@@ -120,7 +119,7 @@ Diagram note: this is the real dependency and step order of the workflow file. `
 
 `packaging/Dockerfile` is a multi-stage build: `base-cpu` is based on `python:3.12-slim`, `base-gpu` on `nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04`, selected by the `BUILD_TYPE` argument. Both stages install system dependencies, run `uv sync --locked --no-default-groups --group cpu|gpu`, call `ensure_runtime_files()` to generate runtime config and prompt tables, and back up `config`, `fonts`, `dict`, and `server data` into `default_*` directories so the entrypoint can restore them when volumes are mounted empty. The image runs as a web service (`MANGA_TRANSLATOR_WEB_SERVER=true`, `QT_QPA_PLATFORM=offscreen`, `EXPOSE 8000`), its health check requests `http://localhost:8000/`, and the default command is `python -m manga_translator web --host 0.0.0.0 --port 8000`.
 
-`docker-build-push.yml` uses a `[cpu, gpu]` matrix to build `linux/amd64`, logs in to Docker Hub and ghcr.io, and pushes images with tags that all carry a `-cpu`/`-gpu` suffix: branch/PR refs, semver `<version>` and `<major>.<minor>`, and `latest`.
+`docker-build-push.yml` uses a `[cpu, gpu]` matrix to build `linux/amd64`, logs in to Docker Hub and ghcr.io, deletes the current semver tag from Docker Hub and GHCR, and then pushes the replacement image. Tags carry a `-cpu`/`-gpu` suffix for branch/PR refs, semver `<version>` and `<major>.<minor>`, and `latest`.
 
 ### Compose deployment {#compose-deployment}
 
@@ -128,10 +127,11 @@ Diagram note: this is the real dependency and step order of the workflow file. `
 
 ## Constraints and notes {#dependencies-and-conflicts}
 
-- The four hardware backend dependency groups `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive (`[tool.uv] conflicts` in `pyproject.toml`); only one can be installed at a time, and CI desktop packaging builds only `cpu` and `gpu`.
-- PyInstaller artifacts do not contain model weights; models are downloaded from a separate release asset during release, so artifact size and model size are managed independently.
-- `packaging/VERSION`, the `[project] version` in `pyproject.toml`, and the hardcoded `VERSION` in `launch.py` can be out of sync; releases are based on the tag, so never treat the three as one source.
-- The release pipeline depends on pre-seeded model archives in GitHub Releases; missing or failed downloads fail the release.
+- The four hardware backend groups `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive; CI builds Windows `cpu`, `gpu`, and `amd` portable packages.
+- After locked common dependencies, the AMD package installs Radeon ROCm SDK 7.2.1 and matching PyTorch wheels in launcher order; AMD driver 26.2.2 and a supported GPU are required.
+- Release packages already contain locked dependencies and `models/`; archive size is therefore large and the 1990 MiB split must remain.
+- `packaging/VERSION`, `[project] version` in `pyproject.toml`, and the hardcoded launcher version may differ; the tag-derived `VERSION` in the package is authoritative for releases.
+- The pipeline depends on the existing `portable` base asset and `v1.7.9/models.7z`; either asset missing or failing to download prevents publication.
 - Docker builds exclude `doc/`, `*.md`, tests, and build artifacts via `packaging/.dockerignore`, so the image contains only runtime resources.
 - This page never writes real API keys, tokens, usernames, or private absolute paths; admin-password and environment-variable values in compose are release-template values and are not copied into the documentation.
 
