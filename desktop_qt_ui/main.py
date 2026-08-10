@@ -314,6 +314,10 @@ def main():
     # 3. 创建并显示主窗口
     main_window = MainWindow()
 
+    # FluentTitleBar 只监听 windowIconChanged，不会读取已继承的应用图标。
+    if app_icon and not app_icon.isNull():
+        main_window.setWindowIcon(app_icon)
+
     # Windows 任务栏在首次显示时可能读取窗口类图标，而不是 WM_GETICON。
     if sys.platform == 'win32':
         _apply_windows_window_class_icon(main_window, icon_relative_path)
