@@ -105,17 +105,16 @@ def _set_windows_app_user_model_id():
     except Exception:
         logging.exception("设置 Windows AppUserModelID 失败")
 
+def _apply_windows_window_class_icon(window, icon_path: str):
+    """在首次显示前设置窗口类图标，供任务栏初始化时读取。"""
+    if not icon_path:
+        return False
 
-def _apply_windows_native_window_icon(window, icon_path: str):
-    """为 Windows 原生窗口句柄设置大小图标，覆盖 python.exe 默认图标。"""
     try:
         import ctypes
         from ctypes import wintypes
 
-        hwnd = wintypes.HWND(int(window.winId()))
         user32 = ctypes.windll.user32
-        user32.GetSystemMetrics.argtypes = [ctypes.c_int]
-        user32.GetSystemMetrics.restype = ctypes.c_int
         user32.LoadImageW.argtypes = [
             wintypes.HINSTANCE,
             wintypes.LPCWSTR,
@@ -125,54 +124,36 @@ def _apply_windows_native_window_icon(window, icon_path: str):
             wintypes.UINT,
         ]
         user32.LoadImageW.restype = wintypes.HANDLE
-        user32.SendMessageW.argtypes = [
+        user32.SetClassLongPtrW.argtypes = [
             wintypes.HWND,
-            wintypes.UINT,
-            wintypes.WPARAM,
-            wintypes.LPARAM,
+            ctypes.c_int,
+            ctypes.c_void_p,
         ]
-        user32.SendMessageW.restype = ctypes.c_ssize_t
+        user32.SetClassLongPtrW.restype = ctypes.c_ssize_t
 
         image_icon = 1
-        wm_seticon = 0x0080
-        icon_small = 0
-        icon_big = 1
         lr_loadfromfile = 0x0010
-
-        sm_cxicon = 11
-        sm_cyicon = 12
-        sm_cxsmicon = 49
-        sm_cysmicon = 50
-
-        big_icon_handle = user32.LoadImageW(
-            None,
-            icon_path,
-            image_icon,
-            user32.GetSystemMetrics(sm_cxicon),
-            user32.GetSystemMetrics(sm_cyicon),
-            lr_loadfromfile,
+        big_icon = user32.LoadImageW(
+            None, icon_path, image_icon, 256, 256, lr_loadfromfile
         )
-        small_icon_handle = user32.LoadImageW(
-            None,
-            icon_path,
-            image_icon,
-            user32.GetSystemMetrics(sm_cxsmicon),
-            user32.GetSystemMetrics(sm_cysmicon),
-            lr_loadfromfile,
+        small_icon = user32.LoadImageW(
+            None, icon_path, image_icon, 32, 32, lr_loadfromfile
         )
 
-        if big_icon_handle:
-            user32.SendMessageW(hwnd, wm_seticon, icon_big, big_icon_handle)
-        if small_icon_handle:
-            user32.SendMessageW(hwnd, wm_seticon, icon_small, small_icon_handle)
+        hwnd = wintypes.HWND(int(window.winId()))
+        if big_icon:
+            user32.SetClassLongPtrW(hwnd, -14, big_icon)  # GCLP_HICON
+        if small_icon:
+            user32.SetClassLongPtrW(hwnd, -34, small_icon)  # GCLP_HICONSM
 
-        if big_icon_handle or small_icon_handle:
-            window._native_icon_handles = (big_icon_handle, small_icon_handle)
+        if big_icon or small_icon:
+            # Keep the native handles alive for the whole window lifetime.
+            window._native_class_icon_handles = (big_icon, small_icon)
             return True
 
-        logging.warning(f"Windows 原生窗口图标加载失败: {icon_path}")
+        logging.warning(f"Windows窗口类图标加载失败: {icon_path}")
     except Exception:
-        logging.exception("设置 Windows 原生窗口图标失败")
+        logging.exception("设置Windows窗口类图标失败")
     return False
 
 
@@ -292,28 +273,20 @@ def main():
     from PyQt6.QtCore import qInstallMessageHandler
     qInstallMessageHandler(qt_message_handler)
     
-    app_icon = None
-    native_windows_icon_path = None
-    native_macos_icon_path = None
-
-    icon_candidates = []
     if sys.platform == 'darwin':
-        icon_candidates.extend([
-            os.path.join('doc', 'images', 'icon.icns'),
-            os.path.join('doc', 'images', 'icon.png'),
-            os.path.join('desktop_qt_ui', 'ui', 'icons', 'icon.ico'),
-        ])
+        icon_relative_path = os.path.join('doc', 'images', 'icon.icns')
+    elif sys.platform == 'win32':
+        icon_relative_path = os.path.join('desktop_qt_ui', 'ui', 'icons', 'icon.ico')
     else:
-        icon_candidates.extend([
-            os.path.join('desktop_qt_ui', 'ui', 'icons', 'icon.ico'),
-            os.path.join('doc', 'images', 'icon.png'),
-        ])
+        icon_relative_path = os.path.join('doc', 'images', 'icon.png')
 
-    app_icon, icon_source = load_icon_from_resources(icon_candidates)
+    # 单一图标源；Qt 应用图标和 Windows 窗口类图标都使用它。
+    app_icon, icon_source = load_icon_from_resources([icon_relative_path])
     if app_icon and not app_icon.isNull():
         app.setWindowIcon(app_icon)
+        logging.info(f"UI 图标已设置: {icon_source}")
     else:
-        logging.warning("UI 图标加载失败：未找到可用的 icon.ico/icon.png/icon.icns")
+        logging.warning(f"UI 图标加载失败: {icon_relative_path}")
 
     if sys.platform == 'darwin':
         native_macos_icon_path = next(
@@ -325,13 +298,6 @@ def main():
         else:
             logging.warning("macOS 原生应用图标未找到：doc/images/icon.icns")
 
-    if sys.platform == 'win32':
-        native_windows_icon_path = next(
-            iter_existing_resource_paths([os.path.join('desktop_qt_ui', 'ui', 'icons', 'icon.ico')]),
-            None,
-        )
-        if not native_windows_icon_path:
-            logging.warning("Windows 原生窗口图标未找到：desktop_qt_ui/ui/icons/icon.ico")
 
     # 2. 初始化所有服务
     # 打包后资源根目录为 app.exe 所在目录；_internal 只保留依赖。
@@ -347,15 +313,11 @@ def main():
 
     # 3. 创建并显示主窗口
     main_window = MainWindow()
+
+    # Windows 任务栏在首次显示时可能读取窗口类图标，而不是 WM_GETICON。
+    if sys.platform == 'win32':
+        _apply_windows_window_class_icon(main_window, icon_relative_path)
     
-    # 确保主窗口也设置了图标
-    if app_icon and not app_icon.isNull():
-        main_window.setWindowIcon(app_icon)
-    
-    # WM_SETICON 在 show() 之前设置：winId() 会提前创建原生句柄，
-    # 避免 show 之后再改图标触发一次非客户区刷新
-    if sys.platform == 'win32' and native_windows_icon_path:
-        _apply_windows_native_window_icon(main_window, native_windows_icon_path)
 
     main_window.show()
 
