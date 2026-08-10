@@ -95,4 +95,4 @@ Sync-channel summary:
 - `translation` and `translation_raw` are two fields of the same region, not two regions; “Show Translation (Raw)” only changes which field you edit.
 - “Auto Apply Rich Text Rules While Editing” is controlled by an editor-menu toggle; rule definitions and render timing belong to the rich-text-rules pages.
 - There are interactions with batch-management write-back and real-time replacement rules; batch write-back, `.bak`, and restore belong to the batch-management pages.
-- When focus is in a text control, `Delete` does not delete regions and `Q`/`W`/`E`/`A`/`D` are forwarded as text instead of switching tools or images; see [Shortcuts](./shortcuts.md).
+- When focus is in a text control, `Delete` does not delete regions and `1`/`2`/`3`/`Q`/`W`/`E`/`A`/`D` are forwarded as text instead of switching tabs, tools, or images; see [Shortcuts](./shortcuts.md).

@@ -86,7 +86,7 @@ flowchart LR
 
 ### 焦点与快捷键优先级 {#focus-and-shortcuts}
 
-- 浮动编辑器用 `WA_ShowWithoutActivating` 显示：选中区域时不抢画布焦点，画布快捷键（`Delete`、`A`/`D` 切图、`Q`/`W`/`E` 工具切换）继续按画布语义生效；点击正文框后才进入文字编辑。
+- 浮动编辑器用 `WA_ShowWithoutActivating` 显示：选中区域时不抢画布焦点，画布快捷键（`Delete`、`A`/`D` 切图、`1`/`2`/`3` 切图像编辑页、`Q`/`W`/`E` 切当前页工具）继续按画布语义生效；点击正文框后才进入文字编辑。
 - 焦点进入浮动编辑器（另一个顶层 `Qt.Tool` 窗口）后，`EditorShortcutManager` 检测 `QApplication.focusWidget()` 的窗口不再是编辑器主窗口，所有 context-aware 编辑器快捷键直接返回，不会用主窗口残留焦点误删画布区域。
 - 正文框持焦点时，文本控件的撤销/重做、复制粘贴等由 Qt 文本控件处理；样式修改通过文档提交与控制器命令合并。
 

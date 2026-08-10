@@ -18,6 +18,7 @@ The full operations of the toolbar and menus, canvas tools, region list, propert
 - All editor keyboard shortcuts are registered by `desktop_qt_ui/ui/editor/shortcut_manager.py#EditorShortcutManager`; the toolbar never registers `QAction` shortcuts and only appends hint text to the “Export Image”, “Undo”, and “Redo” menu items.
 - `Undo`, `Redo`, `Copy`, `Paste`, `Select All`, and `Delete` are registered with `QKeySequence.StandardKey`; on Windows the primary bindings are `Ctrl+Z`, `Ctrl+Y`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, and `Del`. The displayed mapping follows the Qt platform.
 - `Ctrl+S` saves project data without rendering; `Ctrl+Q` renders the current snapshot without saving project data; `Ctrl+Shift+R` toggles the floating rich-text editor and works while that tool window has focus.
+- `1`/`2`/`3` switch the Image Editing tab, while `Q`/`W`/`E` choose the three tools on the current tab; `A`/`D` navigate images. The tab numbers are shown in hover hints rather than in the tab labels.
 
 ## Use it in the editor {#ui-operations}
 
@@ -27,16 +28,19 @@ Open the editor toolbar's “Menu”: “Export Image”, “Undo”, and “Red
 
 ### Keyboard shortcut reference {#shortcut-reference}
 
-The following table lists every keyboard shortcut actually registered by `_setup_editor_shortcuts()`. Behavior differs when focus is in a text widget (`QTextEdit` or `QLineEdit`) versus on the canvas; with text focus, `Q`/`W`/`E`/`A`/`D` are forwarded to the widget as ordinary characters instead of switching tools or images.
+The following table lists every keyboard shortcut actually registered by `_setup_editor_shortcuts()`. Behavior differs when focus is in a text widget (`QTextEdit` or `QLineEdit`) versus on the canvas; with text focus, `1`/`2`/`3`/`Q`/`W`/`E`/`A`/`D` are forwarded to the widget as ordinary characters instead of switching tabs, tools, or images.
 
 | Shortcut | With focus in a text widget | Canvas focus |
 | --- | --- | --- |
 | `Ctrl+S` | Saves project data; does not render | Saves project data; does not render |
 | `Ctrl+Shift+R` | Toggles the floating rich-text editor | Toggles the floating rich-text editor |
 | `Ctrl+Q` | Still exports (flushes pending floating rich-text changes first) | Still exports |
-| `Q` | Types the character `q` | Switches to the select tool |
-| `W` | Types the character `w` | Switches to the brush tool |
-| `E` | Types the character `e` | Switches to the eraser tool |
+| `1` | Types the character `1` | Switches to the Mask tab |
+| `2` | Types the character `2` | Switches to the Paint tab |
+| `3` | Types the character `3` | Switches to the Clone Stamp tab |
+| `Q` | Types the character `q` | Chooses the first tool (No Selection) on the current tab |
+| `W` | Types the character `w` | Chooses the second tool (Brush or Clone Stamp) on the current tab |
+| `E` | Types the character `e` | Chooses the third tool (Eraser) on the current tab |
 | `A` | Types the character `a` | Selects the previous image in the file list |
 | `D` | Types the character `d` | Selects the next image in the file list |
 
@@ -59,15 +63,15 @@ flowchart TD
     A["QShortcut triggered<br/>EditorShortcutManager"] --> B{"focusWidget non-null and top-level window<br/>equals EditorView's window?"}
     B -->|no| X["Return immediately<br/>no focused widget or other top-level window"]
     B -->|yes| C{"Focus is QTextEdit / QLineEdit?"}
-    C -->|yes| D["Undo/Redo/Copy/Paste/SelectAll<br/>call text-widget methods; Q/W/E/A/D forwarded as characters"]
+    C -->|yes| D["Undo/Redo/Copy/Paste/SelectAll<br/>call text-widget methods; 1/2/3/Q/W/E/A/D forwarded as characters"]
     C -->|no| E["Editor semantics"]
     E --> E1["Undo/Redo → controller<br/>Copy → copy last selected region<br/>Paste → paste style or region<br/>SelectAll → select all regions<br/>Delete → delete selected regions"]
-    E --> E2["Q/W/E → select / brush / eraser<br/>A/D → previous / next image in file list"]
+    E --> E2["1/2/3 → Mask / Paint / Clone Stamp tab<br/>Q/W/E → three tools on the current tab<br/>A/D → previous / next image in file list"]
 ```
 
 ### Key forwarding with text focus {#text-widget-forwarding}
 
-When focus is in a text widget, the `Q`/`W`/`E`/`A`/`D` handlers forward ordinary characters to that widget. `Ctrl+S` always invokes the editor save action, `Ctrl+Q` invokes export without project writeback, and `Ctrl+Shift+R` toggles the floating rich-text editor even when focus is in its `Qt.Tool` window.
+When focus is in a text widget, the `1`/`2`/`3`/`Q`/`W`/`E`/`A`/`D` handlers forward ordinary characters to that widget. `Ctrl+S` always invokes the editor save action, `Ctrl+Q` invokes export without project writeback, and `Ctrl+Shift+R` toggles the floating rich-text editor even when focus is in its `Qt.Tool` window.
 
 ### Wheel event filtering {#wheel-event-filter}
 
@@ -90,7 +94,7 @@ When the canvas has an in-progress interaction (box selection, drawing, text box
 ## Limitations and notes {#dependencies-and-conflicts}
 
 - `Delete` deletes regions only when focus is not in a text widget; a `Delete` inside a text widget never triggers region deletion.
-- The floating rich-text window is shown with `WA_ShowWithoutActivating`, and selection changes never call `focus_text()` to steal focus; the canvas keeps focus, so `Delete`/`A`/`D`/`Q`/`W`/`E` keep their canvas semantics after the popup appears. Clicking the editor's text box enters text editing normally.
+- The floating rich-text window is shown with `WA_ShowWithoutActivating`, and selection changes never call `focus_text()` to steal focus; the canvas keeps focus, so `Delete`/`A`/`D`/`1`/`2`/`3`/`Q`/`W`/`E` keep their canvas semantics after the popup appears. Clicking the editor's text box enters text editing normally.
 - A canvas mouse press first calls `force_save_property_panel_edits()` and then `setFocus()` on the canvas, so property-panel text being edited is not lost when switching to the canvas.
 - Rows being edited in the region list use delta sync to preserve drafts: a focused translation box is not overwritten by model updates, avoiding lost focus, caret, or IME composition; property-panel text being edited is likewise not overwritten by regular refresh, with asynchronous forced field updates as the exception.
 - The toolbar only shows shortcut hint text and never registers `QAction` shortcuts, avoiding double triggers with `EditorShortcutManager`.

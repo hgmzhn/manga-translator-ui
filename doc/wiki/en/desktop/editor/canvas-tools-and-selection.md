@@ -13,7 +13,7 @@ Once you enter the editor, the canvas is the main workspace for adjusting text r
 
 ## What you can do
 
-- The canvas tool is a single active state `active_tool`. Its values are `select`, `brush`, `eraser`, `paint`, `paint_erase`, `clone`, `stamp_erase`, and the temporary drawing state `draw_textbox`. The UI changes it only through the Property Editor buttons, the `Q`/`W`/`E` keys, and the context-menu item “Add Text Box”.
+- The canvas tool is a single active state `active_tool`. Its values are `select`, `brush`, `eraser`, `paint`, `paint_erase`, `clone`, `stamp_erase`, and the temporary drawing state `draw_textbox`. The UI changes it through the Property Editor buttons, the `1`/`2`/`3` and `Q`/`W`/`E` keys, and the context-menu item “Add Text Box”.
 - Selection (click, box select, multi-select) and region dragging happen only under the `select` tool. With a brush-like tool, pressing the left button no longer selects regions; it draws a stroke instead.
 - View zoom and panning (wheel zoom, zoom in/out, fit to window, middle-button drag) transform the whole canvas view and never change region data. `Ctrl+wheel` resizes the font of selected regions and `Shift+wheel` changes the shared brush size; both combinations belong to the [Shortcuts](./shortcuts.md) page.
 - The selection is synchronized bidirectionally between the canvas, the region list, and the Property Editor. Region source/translation editing, find-and-replace, OCR/Translate buttons, and list behavior are covered in [Region List and Text Editing](./region-list-and-text-editing.md).
@@ -23,13 +23,13 @@ Once you enter the editor, the canvas is the main workspace for adjusting text r
 
 ### Switch canvas tools in the Property Editor
 
-After opening the editor, the left panel defaults to “Property Editor”. In the “Image Editing” group there are three tabs, `Mask`, `Paint`, and `Clone Stamp`; each tab offers a set of mutually exclusive tool buttons. All three tabs share one button group, so checking a tool on any tab unchecks the tools on the other tabs.
+After opening the editor, the left panel defaults to “Property Editor”. In the “Image Editing” group there are three tabs, `Mask`, `Paint`, and `Clone Stamp`; hover a tab to see its `1`/`2`/`3` shortcut. Each tab offers a set of mutually exclusive tool buttons. All three tabs share one button group, so checking a tool on any tab unchecks the tools on the other tabs.
 
 The tool buttons on the three tabs emit the active values `select`, `brush`, `eraser`, `paint`, `paint_erase`, `clone`, and `stamp_erase` respectively, and the checked state is mirrored back from the model when the active tool changes. When you switch tabs and the current tool does not belong to the new tab, the active tool is reset to that tab’s “No Selection” button, avoiding cross-tab tool conflicts.
 
 The Mask tab additionally offers “Show Refined Mask” and “Clear All Masks”; the Paint tab offers “Show Paint Layer”, “Clear Paint Layer”, and “Brush Color:”; the Clone Stamp tab offers “Show Stamp Layer” and “Clear Stamp Layer”. All three tabs share one “Brush Size:” model field with a range of 5–200 and an initial value of 30.
 
-Instead of opening the panel, press `Q` for the “Selection Tool”, `W` for the “Brush Tool”, and `E` for the “Eraser Tool”. Right-clicking on blank canvas and choosing “Add Text Box” enters the `draw_textbox` drawing mode.
+Without opening the panel, press `1`/`2`/`3` to switch to the Mask/Paint/Clone Stamp tab. `Q`/`W`/`E` always choose the three buttons from left to right on the current tab: No Selection, Brush (Clone Stamp on the third tab), and Eraser. Right-clicking blank canvas and choosing “Add Text Box” enters the `draw_textbox` drawing mode.
 
 ### Canvas pointer operations
 
@@ -62,14 +62,11 @@ The diagrams below sketch the tool state transitions and the bidirectional selec
 
 ```mermaid
 flowchart LR
-    S["Selection Tool (default)"] -->|"Property-panel buttons / Q / W / E"| B["Mask brush / eraser"]
-    S -->|"Paint-tab buttons"| P["Color brush / color eraser"]
-    S -->|"Clone Stamp-tab buttons"| C["Clone stamp / stamp eraser"]
+    S["No Selection (default)"] -->|"1 / 2 / 3"| T["Mask / Paint / Clone Stamp tab"]
+    T -->|"Q / W / E"| B["Three tools on the current tab"]
     S -->|"Context menu: Add Text Box"| D["Add Text Box"]
     D -->|"Drag out a rectangle and release (≥20px)"| S
     B -->|"Switch tool or tab"| S
-    P -->|"Switch tool or tab"| S
-    C -->|"Switch tool or tab"| S
 ```
 
 The selection changes at either end are mirrored to the other end: clicks/box selects on the canvas first land in the Qt scene selection state, then `SelectionManager` converts them into the model’s index list, and the Property Editor, region list, and floating rich-text editor all read the same model selection; clicking in the region list writes back through the controller to the model and refreshes the canvas selection.

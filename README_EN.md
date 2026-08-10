@@ -107,7 +107,7 @@ If this tool has helped you, you can **[support the author](#support-author)**! 
 - 🔍 **Original comparison** - Compare the edited page side by side with the original
 - 📏 **Multi-selection layout** - Align text boxes and distribute spacing
 - ⏪ **Undo / redo** - Maintains a complete operation history
-- ⌨️ **Keyboard shortcuts** - `A/D` navigate images, `Q/W/E` switch tools, `Ctrl+A` select all regions, `Ctrl+S` save project data, `Ctrl+Q` export the image, and `Ctrl+Shift+R` show/hide the floating rich-text editor
+- ⌨️ **Keyboard shortcuts** - `A/D` navigate images, `1/2/3` switch the Mask/Paint/Clone Stamp tabs, `Q/W/E` choose the three tools on the current tab, `Ctrl+A` selects all regions, `Ctrl+S` saves project data, `Ctrl+Q` exports the image, and `Ctrl+Shift+R` shows/hides the floating rich-text editor
 - 🖱️ **Mouse-wheel shortcuts** - Resize text boxes and brushes with modifier keys
 
 ### Batch and Automation

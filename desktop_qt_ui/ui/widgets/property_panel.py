@@ -400,12 +400,12 @@ class PropertyPanel(QWidget):
         self.paint_brush_button = TogglePushButton()
         self.paint_brush_button.setText(self._t("Brush"))
         self.paint_brush_button.setIcon(FIF.BRUSH)
-        set_hover_hint(self.paint_brush_button, self._t("Brush Tool"))
+        set_hover_hint(self.paint_brush_button, self._t("Brush Tool") + " (W)")
 
         self.paint_eraser_button = TogglePushButton()
         self.paint_eraser_button.setText(self._t("Eraser"))
         self.paint_eraser_button.setIcon(FIF.ERASE_TOOL)
-        set_hover_hint(self.paint_eraser_button, self._t("Eraser Tool"))
+        set_hover_hint(self.paint_eraser_button, self._t("Eraser Tool") + " (E)")
 
         # 复用同一个互斥按钮组，保证和蒙版页工具互相切换时正确取消选中
         self.mask_tool_group.addButton(self.paint_select_button, 3)
@@ -480,12 +480,12 @@ class PropertyPanel(QWidget):
         self.paint_clone_button = TogglePushButton()
         self.paint_clone_button.setText(self._t("Clone Stamp"))
         self.paint_clone_button.setIcon(FIF.COPY)
-        set_hover_hint(self.paint_clone_button, self._t("Clone Stamp Hint"))
+        set_hover_hint(self.paint_clone_button, self._t("Clone Stamp Hint") + " (W)")
 
         self.stamp_eraser_button = TogglePushButton()
         self.stamp_eraser_button.setText(self._t("Eraser"))
         self.stamp_eraser_button.setIcon(FIF.ERASE_TOOL)
-        set_hover_hint(self.stamp_eraser_button, self._t("Eraser Tool"))
+        set_hover_hint(self.stamp_eraser_button, self._t("Eraser Tool") + " (E)")
 
         self.mask_tool_group.addButton(self.stamp_select_button, 6)
         self.mask_tool_group.addButton(self.paint_clone_button, 7)
@@ -541,6 +541,15 @@ class PropertyPanel(QWidget):
         self.paint_stack.addWidget(widget)
         self._paint_route_indexes[route_key] = index
         self.paint_segmented_widget.addItem(route_key, text)
+        shortcut_hints = {
+            self.MASK_ROUTE: self._t("Mask") + " (1)",
+            self.PAINT_ROUTE: self._t("Paint") + " (2)",
+            self.STAMP_ROUTE: self._t("Clone Stamp") + " (3)",
+        }
+        set_hover_hint(
+            self.paint_segmented_widget.items[route_key],
+            shortcut_hints[route_key],
+        )
 
     def _set_paint_route(self, route_key: str, emit_changed: bool = True):
         if self.paint_stack is None or self.paint_segmented_widget is None:
@@ -583,6 +592,23 @@ class PropertyPanel(QWidget):
 
     def _paint_route_for_index(self, index: int) -> str:
         return {1: self.PAINT_ROUTE, 2: self.STAMP_ROUTE}.get(index, self.MASK_ROUTE)
+
+    def activate_image_edit_tab(self, index: int):
+        """切换图像编辑页；页签切换沿用现有逻辑回到该页的“不选择”。"""
+        if index not in (0, 1, 2):
+            return
+        self._set_paint_route(self._paint_route_for_index(index))
+
+    def activate_image_edit_tool(self, position: int):
+        """按当前图像编辑页激活第 position 个工具按钮。"""
+        page_buttons = (
+            (self.select_button, self.brush_button, self.eraser_button),
+            (self.paint_select_button, self.paint_brush_button, self.paint_eraser_button),
+            (self.stamp_select_button, self.paint_clone_button, self.stamp_eraser_button),
+        )
+        if position not in (0, 1, 2):
+            return
+        page_buttons[self._paint_current_index()][position].click()
 
     def _create_text_section(self, layout):
         self.text_edit_frame, text_card = self._make_group(self._t("Text Content"))
@@ -1051,8 +1077,22 @@ class PropertyPanel(QWidget):
         if hasattr(self, 'paint_color_picker'):
             self.paint_color_picker.refresh_ui_texts()
         if hasattr(self, 'paint_segmented_widget'):
-            self.paint_segmented_widget.setItemText(self.MASK_ROUTE, self._t("Mask"))
-            self.paint_segmented_widget.setItemText(self.PAINT_ROUTE, self._t("Paint"))
+            self.paint_segmented_widget.setItemText(
+                self.MASK_ROUTE, self._t("Mask")
+            )
+            self.paint_segmented_widget.setItemText(
+                self.PAINT_ROUTE, self._t("Paint")
+            )
+            self.paint_segmented_widget.setItemText(
+                self.STAMP_ROUTE, self._t("Clone Stamp")
+            )
+            shortcut_hints = {
+                self.MASK_ROUTE: self._t("Mask") + " (1)",
+                self.PAINT_ROUTE: self._t("Paint") + " (2)",
+                self.STAMP_ROUTE: self._t("Clone Stamp") + " (3)",
+            }
+            for route_key, hint in shortcut_hints.items():
+                set_hover_hint(self.paint_segmented_widget.items[route_key], hint)
         if hasattr(self, 'clear_paint_overlay_button'):
             self.clear_paint_overlay_button.setText(self._t("Clear Paint Layer"))
         if hasattr(self, 'insert_placeholder_button'):

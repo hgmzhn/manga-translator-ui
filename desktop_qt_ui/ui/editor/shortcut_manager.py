@@ -194,6 +194,25 @@ class EditorShortcutManager(ShortcutManager):
             self._handle_tool_eraser,
             context_aware=True,
         )
+        # 图像编辑页快捷键 1/2/3（蒙版/画笔/印章）
+        self.register_shortcut(
+            "image_edit_tab_mask",
+            QKeySequence("1"),
+            self._handle_image_edit_tab_mask,
+            context_aware=True,
+        )
+        self.register_shortcut(
+            "image_edit_tab_paint",
+            QKeySequence("2"),
+            self._handle_image_edit_tab_paint,
+            context_aware=True,
+        )
+        self.register_shortcut(
+            "image_edit_tab_stamp",
+            QKeySequence("3"),
+            self._handle_image_edit_tab_stamp,
+            context_aware=True,
+        )
 
         # 上一张图片 (A)
         self.register_shortcut(
@@ -324,30 +343,57 @@ class EditorShortcutManager(ShortcutManager):
 
             shortcut.setEnabled(True)
 
+    def _activate_image_edit_tool(self, position: int):
+        self.editor_view.property_panel.activate_image_edit_tool(position)
+
     def _handle_tool_select(self, focused_widget):
-        """处理选择工具快捷键 (Q)"""
+        """处理当前图像编辑页第一个工具快捷键 (Q)。"""
         if self.is_text_widget(focused_widget):
             self._forward_key_to_widget(
                 focused_widget, Qt.Key.Key_Q, "q", "tool_select"
             )
         else:
-            self.controller.set_active_tool("select")
+            self._activate_image_edit_tool(0)
 
     def _handle_tool_brush(self, focused_widget):
-        """处理画笔工具快捷键 (W)"""
+        """处理当前图像编辑页第二个工具快捷键 (W)。"""
         if self.is_text_widget(focused_widget):
             self._forward_key_to_widget(focused_widget, Qt.Key.Key_W, "w", "tool_brush")
         else:
-            self.controller.set_active_tool("brush")
+            self._activate_image_edit_tool(1)
 
     def _handle_tool_eraser(self, focused_widget):
-        """处理橡皮擦工具快捷键 (E)"""
+        """处理当前图像编辑页第三个工具快捷键 (E)。"""
         if self.is_text_widget(focused_widget):
             self._forward_key_to_widget(
                 focused_widget, Qt.Key.Key_E, "e", "tool_eraser"
             )
         else:
-            self.controller.set_active_tool("eraser")
+            self._activate_image_edit_tool(2)
+
+    def _handle_image_edit_tab(self, focused_widget, index, key_code, text, name):
+        if self.is_text_widget(focused_widget):
+            self._forward_key_to_widget(focused_widget, key_code, text, name)
+        else:
+            self.editor_view.property_panel.activate_image_edit_tab(index)
+
+    def _handle_image_edit_tab_mask(self, focused_widget):
+        """处理蒙版页快捷键 (1)。"""
+        self._handle_image_edit_tab(
+            focused_widget, 0, Qt.Key.Key_1, "1", "image_edit_tab_mask"
+        )
+
+    def _handle_image_edit_tab_paint(self, focused_widget):
+        """处理画笔页快捷键 (2)。"""
+        self._handle_image_edit_tab(
+            focused_widget, 1, Qt.Key.Key_2, "2", "image_edit_tab_paint"
+        )
+
+    def _handle_image_edit_tab_stamp(self, focused_widget):
+        """处理印章页快捷键 (3)。"""
+        self._handle_image_edit_tab(
+            focused_widget, 2, Qt.Key.Key_3, "3", "image_edit_tab_stamp"
+        )
 
     def _handle_prev_image(self, focused_widget):
         """处理上一张图片快捷键 (A)"""

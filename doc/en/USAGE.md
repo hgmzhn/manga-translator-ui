@@ -413,9 +413,10 @@ If you want to adjust the result after translation:
 
 Shortcuts:
 
-- `Q`: selection tool
-- `W`: brush tool
-- `E`: eraser tool
+- `1` / `2` / `3`: switch the Mask / Paint / Clone Stamp tab
+- `Q`: choose the first tool (No Selection) on the current tab
+- `W`: choose the second tool (Brush or Clone Stamp) on the current tab
+- `E`: choose the third tool (Eraser) on the current tab
 
 **Text actions**
 
@@ -469,7 +470,7 @@ The right panel is `Property Editor`, where you can edit:
 - `Shift + wheel`: change mask brush size
 - plain wheel: zoom the view
 
-> 💡 Single-key shortcuts such as `A`, `D`, `Q`, `W`, and `E` are context-aware. If focus is inside a text input, those keys type normally instead of triggering tool switches.
+> 💡 Single-key shortcuts such as `A`, `D`, `1`, `2`, `3`, `Q`, `W`, and `E` are context-aware. If focus is inside a text input, those keys type normally instead of triggering tab, tool, or image switches.
 
 **Editor-related details** → [./FEATURES.md](./FEATURES.md)
 

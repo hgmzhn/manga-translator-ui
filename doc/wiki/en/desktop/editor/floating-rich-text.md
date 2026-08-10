@@ -86,7 +86,7 @@ Flush trigger summary:
 
 ### Focus and shortcut priority {#focus-and-shortcuts}
 
-- The floating editor is shown with `WA_ShowWithoutActivating`: selecting a region does not steal canvas focus, so canvas shortcuts (`Delete`, `A`/`D` image switching, `Q`/`W`/`E` tool switching) keep their canvas semantics until the body is clicked.
+- The floating editor is shown with `WA_ShowWithoutActivating`: selecting a region does not steal canvas focus, so canvas shortcuts (`Delete`, `A`/`D` image switching, `1`/`2`/`3` image-editing tab switching, and `Q`/`W`/`E` current-tab tool switching) keep their canvas semantics until the body is clicked.
 - Once focus enters the floating editor (another top-level `Qt.Tool` window), `EditorShortcutManager` detects that the window of `QApplication.focusWidget()` is no longer the editor main window and returns early for all context-aware editor shortcuts, preventing a stale main-window focus from deleting canvas regions.
 - While the body holds focus, Qt text controls handle text undo/redo and copy/paste; style changes are committed through the document and merged by the controller command.
 

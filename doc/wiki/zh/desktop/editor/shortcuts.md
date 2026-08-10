@@ -17,7 +17,7 @@ lastUpdated: true
 
 - 编辑器键盘快捷键全部由 `desktop_qt_ui/ui/editor/shortcut_manager.py#EditorShortcutManager` 注册，工具栏不注册 `QAction` 快捷键，只在“导出图片”“撤销”“重做”菜单项后追加提示文字。
 - `Undo`、`Redo`、`Copy`、`Paste`、`Select All`、`Delete` 使用 `QKeySequence.StandardKey` 注册；在 Windows 上的主绑定分别为 `Ctrl+Z`、`Ctrl+Y`、`Ctrl+C`、`Ctrl+V`、`Ctrl+A`、`Del`。实际显示会随 Qt 平台映射。
-- `Ctrl+Q` 导出、`Q`/`W`/`E` 切换工具、`A`/`D` 切换图片是固定字面量，不随平台变化。
+- `Ctrl+Q` 导出、`1`/`2`/`3` 切换图像编辑页、`Q`/`W`/`E` 切换当前页工具、`A`/`D` 切换图片是固定字面量，不随平台变化；页签上的数字仅通过悬浮提示显示。
 - 滚轮组合通过安装在画布 viewport 上的事件过滤器处理：`Shift+滚轮` 调整共享画笔大小，任意含 `Ctrl` 的滚轮组合调整选中区域字号，普通滚轮交给 `GraphicsView` 缩放画布。
 - `Escape` 或画布失焦会取消进行中的框选、绘制、文本框、仿制、区域拖动或中键平移，不提交任何修改。
 - 快捷键分派优先级从高到低为：焦点在其他顶层窗口（例如浮动富文本窗口）→ 焦点在主窗口文本控件 → 焦点在画布。完整冲突规则见[运行机理](#runtime-behavior)。
@@ -30,7 +30,7 @@ lastUpdated: true
 
 ### 键盘快捷键速查 {#shortcut-reference}
 
-以下表格是 `_setup_editor_shortcuts()` 实际注册的全部键盘快捷键。焦点在文本控件（`QTextEdit` 或 `QLineEdit`）时的行为与画布焦点不同；`Q`/`W`/`E`/`A`/`D` 在文本焦点下会作为普通字符转发给文本控件，不切换工具或图片。
+以下表格是 `_setup_editor_shortcuts()` 实际注册的全部键盘快捷键。焦点在文本控件（`QTextEdit` 或 `QLineEdit`）时的行为与画布焦点不同；`1`/`2`/`3`/`Q`/`W`/`E`/`A`/`D` 在文本焦点下会作为普通字符转发给文本控件，不切换页签、工具或图片。
 
 | 快捷键 | 文本控件焦点时 | 画布焦点时 |
 | --- | --- | --- |
@@ -41,9 +41,12 @@ lastUpdated: true
 | `Ctrl+A` | 全选文本 | 选中全部区域 |
 | `Del` | 不删除区域 | 删除选中区域 |
 | `Ctrl+Q` | 仍导出（先冲刷浮动富文本待提交内容） | 仍导出 |
-| `Q` | 输入字符 `q` | 切换为选择工具 |
-| `W` | 输入字符 `w` | 切换为画笔工具 |
-| `E` | 输入字符 `e` | 切换为橡皮擦工具 |
+| `1` | 输入字符 `1` | 切换到“蒙版”页 |
+| `2` | 输入字符 `2` | 切换到“画笔”页 |
+| `3` | 输入字符 `3` | 切换到“印章”页 |
+| `Q` | 输入字符 `q` | 选择当前页第一个工具（不选择） |
+| `W` | 输入字符 `w` | 选择当前页第二个工具（画笔或仿制印章） |
+| `E` | 输入字符 `e` | 选择当前页第三个工具（橡皮擦） |
 | `A` | 输入字符 `a` | 文件列表选择上一张图片 |
 | `D` | 输入字符 `d` | 文件列表选择下一张图片 |
 
@@ -66,15 +69,15 @@ flowchart TD
     A["QShortcut 触发<br/>EditorShortcutManager"] --> B{"focusWidget 非空且顶层窗口<br/>等于 EditorView 所在窗口?"}
     B -->|否| X["直接返回<br/>焦点为空或其它顶层窗口"]
     B -->|是| C{"焦点是 QTextEdit / QLineEdit?"}
-    C -->|是| D["Undo/Redo/Copy/Paste/SelectAll<br/>调用文本控件方法；Q/W/E/A/D 转发字符"]
+    C -->|是| D["Undo/Redo/Copy/Paste/SelectAll<br/>调用文本控件方法；1/2/3/Q/W/E/A/D 转发字符"]
     C -->|否| E["编辑器语义"]
     E --> E1["Undo/Redo → controller<br/>Copy → 复制最后选中区域<br/>Paste → 粘贴样式或区域<br/>SelectAll → 全选区域<br/>Delete → 删除选中区域"]
-    E --> E2["Q/W/E → select / brush / eraser<br/>A/D → 文件列表上一张 / 下一张"]
+    E --> E2["1/2/3 → 蒙版 / 画笔 / 印章页<br/>Q/W/E → 当前页从左到右三个工具<br/>A/D → 文件列表上一张 / 下一张"]
 ```
 
 ### 文本焦点时的按键转发 {#text-widget-forwarding}
 
-焦点在文本控件时，`Q`/`W`/`E`/`A`/`D` 的处理会临时禁用对应快捷键，然后向文本控件合成发送 `KeyPress` 与 `KeyRelease` 事件（例如 `q`），发送完再恢复快捷键，避免递归触发。`Ctrl+Q` 导出不区分焦点：它直接调用 `EditorView.export_image()`，导出前先 `flush_pending_changes()` 冲刷浮动富文本编辑器中防抖期内的正文与注音内容。
+焦点在文本控件时，`1`/`2`/`3`/`Q`/`W`/`E`/`A`/`D` 的处理会临时禁用对应快捷键，然后向文本控件合成发送 `KeyPress` 与 `KeyRelease` 事件（例如 `q`），发送完再恢复快捷键，避免递归触发。`Ctrl+Q` 导出不区分焦点：它直接调用 `EditorView.export_image()`，导出前先 `flush_pending_changes()` 冲刷浮动富文本编辑器中防抖期内的正文与注音内容。
 
 ### 滚轮事件过滤 {#wheel-event-filter}
 
@@ -97,7 +100,7 @@ flowchart LR
 ## 限制与注意事项 {#dependencies-and-conflicts}
 
 - `Delete` 只在焦点不是文本控件时删除区域；文本控件内的 `Delete` 不会触发区域删除。
-- 浮动富文本窗口以 `WA_ShowWithoutActivating` 显示，选区变化不会调用 `focus_text()` 抢焦点，画布保留焦点，因此 `Delete`/`A`/`D`/`Q`/`W`/`E` 在浮窗出现后仍按画布语义工作；点击浮窗内的文本框后才进入文字编辑。
+- 浮动富文本窗口以 `WA_ShowWithoutActivating` 显示，选区变化不会调用 `focus_text()` 抢焦点，画布保留焦点，因此 `Delete`/`A`/`D`/`1`/`2`/`3`/`Q`/`W`/`E` 在浮窗出现后仍按画布语义工作；点击浮窗内的文本框后才进入文字编辑。
 - 画布鼠标按下会先 `force_save_property_panel_edits()` 再 `setFocus()` 给画布，防止切画布时丢失属性面板正在编辑的文本。
 - 区域列表的正在编辑行使用差量同步保留草稿：持焦点的译文框不会被模型更新覆盖，避免丢焦点、光标或 IME 组合字；属性面板的正在编辑文本在常规刷新时同样不覆盖，异步强制字段更新是例外。
 - 工具栏只显示快捷键提示文字而不注册 `QAction` 快捷键，避免与 `EditorShortcutManager` 的双重触发。
