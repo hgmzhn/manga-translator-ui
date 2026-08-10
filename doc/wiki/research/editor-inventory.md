@@ -26,18 +26,21 @@
 
 | 行为 / 存储值 | UI 调用 key | English 实际值 | 简体中文实际值 | 源码事实 |
 | --- | --- | --- | --- | --- |
-| 导出 | `Export Image` | Export Image | 导出图片 | 文本显示 `(Ctrl+Q)`；发出 `export_requested` |
+| 保存按钮 | `Save` | Save | 保存 | 顶部独立按钮；`Ctrl+S`；发出 `save_requested` |
+| 导出按钮 | `Export Image` | Export Image | 导出图片 | 顶部独立按钮；`Ctrl+Q`；发出 `export_requested` |
 | 撤销 | `Undo` | Undo | 撤销 | 文本显示 `(Ctrl+Z)`；发出 `undo_requested` |
 | 重做 | `Redo` | Redo | 重做 | 文本显示 `(Ctrl+Y)`；发出 `redo_requested` |
 | 放大 | `Zoom In (+)` | Zoom In (+) | 放大 (+) | 发出 `zoom_in_requested` |
 | 缩小 | `Zoom Out (-)` | Zoom Out (-) | 缩小 (-) | 发出 `zoom_out_requested` |
 | 吸附开关 | `Enable Editor Snapping` | Enable Editor Snapping | 启用编辑器吸附 | `app.editor_snap_enabled`，默认 `false` |
 | 中心缩放开关 | `Scale Text Boxes from Center` | Scale Text Boxes from Center | 中心点缩放 | `app.editor_center_scale_enabled`，默认 `false` |
-| 浮动富文本开关 | `Show Rich Text Editor Popup` | Show Rich Text Editor Popup | 显示富文本编辑弹窗 | `app.editor_rich_text_popup_enabled`，默认 `true` |
+| 浮动富文本开关 | `Show Rich Text Editor Popup` | Show Rich Text Editor Popup | 显示富文本编辑弹窗 | `Ctrl+Shift+R` 切换；`app.editor_rich_text_popup_enabled`，默认 `true` |
 | 编辑时自动规则 | `Auto Apply Rich Text Rules While Editing` | Auto Apply Rich Text Rules While Editing | 编辑时自动应用富文本规则 | `app.editor_auto_rich_text_rules`，默认 `true` |
+| 切图自动保存 | `Auto Save on Image Switch` | Auto Save on Image Switch | 切图时自动保存 | `app.editor_auto_save_on_switch`，默认 `true` |
 | 切图自动导出 | `Auto Export on Image Switch` | Auto Export on Image Switch | 切图时自动导出 | `app.editor_auto_export_on_switch`，默认 `true` |
+| 不再提醒未保存 | `Do Not Warn About Unsaved Changes` | Do Not Warn About Unsaved Changes | 不再提醒未保存 | `app.editor_suppress_unsaved_warning`，默认 `false`；仅在自动保存与自动导出均关闭时生效 |
 
-菜单条目和五个开关定义见 `desktop_qt_ui/ui/widgets/editor_toolbar.py:226`；`EditorView` 对应的应用、持久化和默认回退见 `desktop_qt_ui/ui/editor/view.py:153`、`desktop_qt_ui/ui/editor/view.py:206`；配置模型和发行示例同样给出这五个默认值，见 `desktop_qt_ui/core/config_models.py:176`、`config/config-example.json:10`。
+菜单条目和七个开关定义见 `desktop_qt_ui/ui/widgets/editor_toolbar.py`；`EditorView` 负责应用和持久化配置；配置模型在 `desktop_qt_ui/core/config_models.py` 中定义默认值。自动保存只写工程数据，自动导出只提交渲染快照；两个开关同时启用时会分别执行。
 
 ### `Display Mode`
 

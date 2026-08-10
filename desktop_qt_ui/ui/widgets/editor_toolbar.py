@@ -1,4 +1,3 @@
-
 from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import (
@@ -16,15 +15,20 @@ from qfluentwidgets import (
     CardWidget,
     CheckableMenu,
     DropDownPushButton,
-    FluentIcon as FIF,
     MenuAnimationType,
     MenuIndicatorType,
+    PrimaryPushButton,
+    PushButton,
     RoundMenu,
     SingleDirectionScrollArea,
     Slider,
     ToolButton,
     VerticalSeparator,
 )
+from qfluentwidgets import (
+    FluentIcon as FIF,
+)
+
 from services import get_i18n_manager
 from ui.fluent_icon import themed_fluent_svg_icon
 from ui.widgets.hover_hint import set_hover_hint
@@ -43,7 +47,9 @@ class _LeadingIndicatorMenuStyle(QProxyStyle):
     def __init__(self):
         app_style = QApplication.style()
         base_style = (
-            QStyleFactory.create(app_style.objectName()) if app_style is not None else None
+            QStyleFactory.create(app_style.objectName())
+            if app_style is not None
+            else None
         )
         if base_style is not None:
             super().__init__(base_style)
@@ -125,11 +131,12 @@ class EditorToolbar(CardWidget):
     """
     编辑器顶部工具栏。常驻控件只保留适应窗口、原图不透明度滑条，
     其余操作分装进三个单级下拉菜单（不分级）：
-    「菜单」= 导出/撤销重做/缩放 + 通用开关；「显示模式」= 画布显示单选；
+    「菜单」= 撤销重做/缩放 + 通用开关；「显示模式」= 画布显示单选；
     「排列」= 参照单选 + 对齐/分布文字选项（点击不关闭，可连续操作）。
     返回主页不设入口：主窗口侧边栏随时可切换页面。
     """
-    # --- Define signals for all actions ---
+
+    save_requested = pyqtSignal()
     export_requested = pyqtSignal()
     undo_requested = pyqtSignal()
     redo_requested = pyqtSignal()
@@ -143,7 +150,9 @@ class EditorToolbar(CardWidget):
     snap_enabled_changed = pyqtSignal(bool)
     center_scale_enabled_changed = pyqtSignal(bool)
     rich_text_popup_enabled_changed = pyqtSignal(bool)
+    auto_save_on_switch_changed = pyqtSignal(bool)
     auto_export_on_switch_changed = pyqtSignal(bool)
+    suppress_unsaved_warning_changed = pyqtSignal(bool)
     auto_rich_text_rules_changed = pyqtSignal(bool)
     delete_and_recover_changed = pyqtSignal(bool)
 
@@ -152,7 +161,9 @@ class EditorToolbar(CardWidget):
         parent=None,
         snap_enabled: bool = False,
         rich_text_popup_enabled: bool = True,
+        auto_save_on_switch: bool = True,
         auto_export_on_switch: bool = True,
+        suppress_unsaved_warning: bool = False,
         center_scale_enabled: bool = False,
         auto_rich_text_rules: bool = True,
         delete_and_recover: bool = False,
@@ -171,7 +182,9 @@ class EditorToolbar(CardWidget):
         self._snap_enabled = bool(snap_enabled)
         self._center_scale_enabled = bool(center_scale_enabled)
         self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
+        self._auto_save_on_switch = bool(auto_save_on_switch)
         self._auto_export_on_switch = bool(auto_export_on_switch)
+        self._suppress_unsaved_warning = bool(suppress_unsaved_warning)
         self._auto_rich_text_rules = bool(auto_rich_text_rules)
         self._delete_and_recover = bool(delete_and_recover)
         self.main_menu: RoundMenu | None = None
@@ -195,12 +208,18 @@ class EditorToolbar(CardWidget):
         outer_layout.setSpacing(0)
 
         self.scroll_area = SingleDirectionScrollArea(self, Qt.Orientation.Horizontal)
-        self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.scroll_area.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.scroll_area.setMinimumHeight(44)
         self.scroll_area.setWidgetResizable(False)
         self.scroll_area.setFrameShape(SingleDirectionScrollArea.Shape.NoFrame)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
         self.scroll_area.enableTransparentBackground()
         outer_layout.addWidget(self.scroll_area)
 
@@ -226,6 +245,18 @@ class EditorToolbar(CardWidget):
         self.arrange_button.setText(self._t("Arrange"))
         layout.addWidget(self.arrange_button)
 
+        self.save_button = PrimaryPushButton()
+        self.save_button.setIcon(FIF.SAVE)
+        self.save_button.setText(self._t("Save"))
+        self.save_button.clicked.connect(self.save_requested)
+        layout.addWidget(self.save_button)
+
+        self.export_button = PushButton()
+        self.export_button.setIcon(FIF.IMAGE_EXPORT)
+        self.export_button.setText(self._t("Export Image"))
+        self.export_button.clicked.connect(self.export_requested)
+        layout.addWidget(self.export_button)
+
         self._build_menus()
 
         layout.addWidget(self._create_separator())
@@ -243,12 +274,16 @@ class EditorToolbar(CardWidget):
         layout.addWidget(self.opacity_label)
         self.original_image_alpha_slider = Slider(Qt.Orientation.Horizontal)
         self.original_image_alpha_slider.setRange(0, 100)
-        self.original_image_alpha_slider.setValue(0)  # Default to 0 (fully transparent, show inpainted)
+        self.original_image_alpha_slider.setValue(
+            0
+        )  # Default to 0 (fully transparent, show inpainted)
         self.original_image_alpha_slider.setMinimumWidth(140)
         layout.addWidget(self.original_image_alpha_slider)
 
         layout.addStretch()  # Pushes everything to the left
-        self.content_widget.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.content_widget.setSizePolicy(
+            QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed
+        )
         self.scroll_area.setWidget(self.content_widget)
         self.scroll_area.enableTransparentBackground()
         self._sync_content_width()
@@ -270,16 +305,11 @@ class EditorToolbar(CardWidget):
             menu_parent = self
         # 旧菜单里的主题图标按钮即将销毁，先清空登记表防止悬空引用
         self._themed_icon_buttons.clear()
+        menu = _IconCheckableMenu(
+            parent=menu_parent, indicatorType=MenuIndicatorType.CHECK
+        )
 
-        # --- 通用菜单：导出 / 撤销重做 / 缩放 / 持久化开关 ---
-        menu = _IconCheckableMenu(parent=menu_parent, indicatorType=MenuIndicatorType.CHECK)
-
-        # 导出的真实快捷键 Ctrl+Q 由 EditorShortcutManager 全局注册，这里只做文本提示
-        self.export_action = Action(FIF.IMAGE_EXPORT, self._t("Export Image") + " (Ctrl+Q)")
-        self.export_action.setEnabled(self._export_enabled)
-        self.export_action.triggered.connect(self.export_requested)
-        menu.addAction(self.export_action)
-        menu.addSeparator()
+        # --- 通用菜单：撤销重做 / 缩放 / 持久化开关 ---
 
         # 撤销/重做的真实快捷键由 EditorShortcutManager 全局注册（带焦点感知），
         # 这里只在文本上做提示，不设 QAction shortcut，避免双重触发。
@@ -318,16 +348,20 @@ class EditorToolbar(CardWidget):
         )
         self.center_scale_action.setCheckable(True)
         self.center_scale_action.setChecked(self._center_scale_enabled)
-        self.center_scale_action.triggered.connect(self._on_center_scale_action_triggered)
+        self.center_scale_action.triggered.connect(
+            self._on_center_scale_action_triggered
+        )
         menu.addAction(self.center_scale_action)
 
         self.rich_text_popup_action = Action(
             themed_fluent_svg_icon("ic_fluent_text_edit_style_24_regular.svg"),
-            self._t("Show Rich Text Editor Popup"),
+            self._t("Show Rich Text Editor Popup") + " (Ctrl+Shift+R)",
         )
         self.rich_text_popup_action.setCheckable(True)
         self.rich_text_popup_action.setChecked(self._rich_text_popup_enabled)
-        self.rich_text_popup_action.triggered.connect(self._on_rich_text_popup_action_triggered)
+        self.rich_text_popup_action.triggered.connect(
+            self._on_rich_text_popup_action_triggered
+        )
         menu.addAction(self.rich_text_popup_action)
 
         self.auto_rich_text_rules_action = Action(
@@ -336,11 +370,22 @@ class EditorToolbar(CardWidget):
         )
         self.auto_rich_text_rules_action.setCheckable(True)
         self.auto_rich_text_rules_action.setChecked(self._auto_rich_text_rules)
-        self.auto_rich_text_rules_action.triggered.connect(self._on_auto_rich_text_rules_action_triggered)
+        self.auto_rich_text_rules_action.triggered.connect(
+            self._on_auto_rich_text_rules_action_triggered
+        )
         menu.addAction(self.auto_rich_text_rules_action)
 
+        self.auto_save_action = Action(
+            FIF.SAVE,
+            self._t("Auto Save on Image Switch"),
+        )
+        self.auto_save_action.setCheckable(True)
+        self.auto_save_action.setChecked(self._auto_save_on_switch)
+        self.auto_save_action.triggered.connect(self._on_auto_save_action_triggered)
+        menu.addAction(self.auto_save_action)
+
         self.auto_export_action = Action(
-            FIF.SAVE_AS,
+            FIF.IMAGE_EXPORT,
             self._t("Auto Export on Image Switch"),
         )
         self.auto_export_action.setCheckable(True)
@@ -348,13 +393,26 @@ class EditorToolbar(CardWidget):
         self.auto_export_action.triggered.connect(self._on_auto_export_action_triggered)
         menu.addAction(self.auto_export_action)
 
+        self.suppress_unsaved_warning_action = Action(
+            FIF.INFO,
+            self._t("Do Not Warn About Unsaved Changes"),
+        )
+        self.suppress_unsaved_warning_action.setCheckable(True)
+        self.suppress_unsaved_warning_action.setChecked(self._suppress_unsaved_warning)
+        self.suppress_unsaved_warning_action.triggered.connect(
+            self._on_suppress_unsaved_warning_action_triggered
+        )
+        menu.addAction(self.suppress_unsaved_warning_action)
+
         self.delete_and_recover_action = Action(
             FIF.DELETE,
             self._t("Delete and Recover Removed Text"),
         )
         self.delete_and_recover_action.setCheckable(True)
         self.delete_and_recover_action.setChecked(self._delete_and_recover)
-        self.delete_and_recover_action.triggered.connect(self._on_delete_and_recover_action_triggered)
+        self.delete_and_recover_action.triggered.connect(
+            self._on_delete_and_recover_action_triggered
+        )
         menu.addAction(self.delete_and_recover_action)
 
         self.main_menu = menu
@@ -372,7 +430,9 @@ class EditorToolbar(CardWidget):
             action = Action(self._t(text_key))
             action.setCheckable(True)
             action.setChecked(mode == self._display_mode)
-            action.triggered.connect(lambda checked, m=mode: self._on_display_mode_selected(m))
+            action.triggered.connect(
+                lambda checked, m=mode: self._on_display_mode_selected(m)
+            )
             display_group.addAction(action)
             display_menu.addAction(action)
             self.display_mode_actions[mode] = action
@@ -381,18 +441,26 @@ class EditorToolbar(CardWidget):
         self.display_mode_button.setMenu(display_menu)
 
         # --- 排列菜单：参照单选 + 对齐/分布选项（文字+图标，点击不关闭） ---
-        arrange_menu = _StayOpenCheckableMenu(parent=menu_parent, indicatorType=MenuIndicatorType.RADIO)
+        arrange_menu = _StayOpenCheckableMenu(
+            parent=menu_parent, indicatorType=MenuIndicatorType.RADIO
+        )
         ref_group = QActionGroup(arrange_menu)
         ref_group.setExclusive(True)
         self.align_ref_actions: dict[str, Action] = {}
         for reference, icon_file, text_key in (
-            ("selection", "ic_fluent_select_object_24_regular.svg", "Reference: Selection"),
+            (
+                "selection",
+                "ic_fluent_select_object_24_regular.svg",
+                "Reference: Selection",
+            ),
             ("canvas", "ic_fluent_image_24_regular.svg", "Reference: Canvas"),
         ):
             action = Action(themed_fluent_svg_icon(icon_file), self._t(text_key))
             action.setCheckable(True)
             action.setChecked(reference == self._align_ref)
-            action.triggered.connect(lambda checked, r=reference: self._on_align_ref_selected(r))
+            action.triggered.connect(
+                lambda checked, r=reference: self._on_align_ref_selected(r)
+            )
             ref_group.addAction(action)
             arrange_menu.addAction(action)
             self.align_ref_actions[reference] = action
@@ -401,7 +469,11 @@ class EditorToolbar(CardWidget):
         self.align_actions: dict[str, Action] = {}
         for mode, icon_file, text_key in (
             ("left", "align_left.svg", "Align Left"),
-            ("horizontal_center", "align_horizontal_center.svg", "Align Horizontal Center"),
+            (
+                "horizontal_center",
+                "align_horizontal_center.svg",
+                "Align Horizontal Center",
+            ),
             ("right", "align_right.svg", "Align Right"),
             ("top", "align_top.svg", "Align Top"),
             ("vertical_center", "align_vertical_center.svg", "Align Vertical Center"),
@@ -409,23 +481,31 @@ class EditorToolbar(CardWidget):
         ):
             action = Action(themed_fluent_svg_icon(icon_file), self._t(text_key))
             action.setEnabled(False)
-            action.triggered.connect(lambda checked, m=mode: self.align_requested.emit(m))
+            action.triggered.connect(
+                lambda checked, m=mode: self.align_requested.emit(m)
+            )
             arrange_menu.addAction(action)
             self.align_actions[mode] = action
 
         arrange_menu.addSeparator()
         self._dist_v_action = Action(
-            themed_fluent_svg_icon("distribute_spacing_v.svg"), self._t("Distribute Vertical Spacing")
+            themed_fluent_svg_icon("distribute_spacing_v.svg"),
+            self._t("Distribute Vertical Spacing"),
         )
         self._dist_v_action.setEnabled(False)
-        self._dist_v_action.triggered.connect(lambda: self.distribute_requested.emit("spacing_v"))
+        self._dist_v_action.triggered.connect(
+            lambda: self.distribute_requested.emit("spacing_v")
+        )
         arrange_menu.addAction(self._dist_v_action)
 
         self._dist_h_action = Action(
-            themed_fluent_svg_icon("distribute_spacing_h.svg"), self._t("Distribute Horizontal Spacing")
+            themed_fluent_svg_icon("distribute_spacing_h.svg"),
+            self._t("Distribute Horizontal Spacing"),
         )
         self._dist_h_action.setEnabled(False)
-        self._dist_h_action.triggered.connect(lambda: self.distribute_requested.emit("spacing_h"))
+        self._dist_h_action.triggered.connect(
+            lambda: self.distribute_requested.emit("spacing_h")
+        )
         arrange_menu.addAction(self._dist_h_action)
 
         # 重建（语言切换）后按当前选区数恢复启停状态
@@ -537,11 +617,32 @@ class EditorToolbar(CardWidget):
     def is_auto_rich_text_rules(self) -> bool:
         return self._auto_rich_text_rules
 
+    def _on_auto_save_action_triggered(self, checked: bool = False):
+        self.set_auto_save_on_switch(checked, emit=True)
+
+    def set_auto_save_on_switch(self, enabled: bool, emit: bool = False):
+        """同步切图自动保存开关。"""
+        enabled = bool(enabled)
+        changed = enabled != self._auto_save_on_switch
+        self._auto_save_on_switch = enabled
+
+        action = getattr(self, "auto_save_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.auto_save_on_switch_changed.emit(enabled)
+
+    def is_auto_save_on_switch(self) -> bool:
+        return self._auto_save_on_switch
+
     def _on_auto_export_action_triggered(self, checked: bool = False):
         self.set_auto_export_on_switch(checked, emit=True)
 
     def set_auto_export_on_switch(self, enabled: bool, emit: bool = False):
-        """同步切图自动导出开关；外部配置同步时默认不回发信号。"""
+        """同步切图自动导出开关。"""
         enabled = bool(enabled)
         changed = enabled != self._auto_export_on_switch
         self._auto_export_on_switch = enabled
@@ -557,6 +658,27 @@ class EditorToolbar(CardWidget):
 
     def is_auto_export_on_switch(self) -> bool:
         return self._auto_export_on_switch
+
+    def _on_suppress_unsaved_warning_action_triggered(self, checked: bool = False):
+        self.set_suppress_unsaved_warning(checked, emit=True)
+
+    def set_suppress_unsaved_warning(self, enabled: bool, emit: bool = False):
+        """同步切图时不再提醒未保存编辑的开关。"""
+        enabled = bool(enabled)
+        changed = enabled != self._suppress_unsaved_warning
+        self._suppress_unsaved_warning = enabled
+
+        action = getattr(self, "suppress_unsaved_warning_action", None)
+        if action is not None and action.isChecked() != enabled:
+            action.blockSignals(True)
+            action.setChecked(enabled)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.suppress_unsaved_warning_changed.emit(enabled)
+
+    def is_suppress_unsaved_warning(self) -> bool:
+        return self._suppress_unsaved_warning
 
     def _on_delete_and_recover_action_triggered(self, checked: bool = False):
         self.set_delete_and_recover(checked, emit=True)
@@ -624,10 +746,15 @@ class EditorToolbar(CardWidget):
             content_width = self.content_widget.sizeHint().width()
 
         self.content_widget.setMinimumWidth(content_width)
-        viewport_width = self.scroll_area.viewport().width() if hasattr(self, "scroll_area") else 0
+        viewport_width = (
+            self.scroll_area.viewport().width() if hasattr(self, "scroll_area") else 0
+        )
         self.content_widget.resize(
             max(content_width, viewport_width),
-            max(self.content_widget.sizeHint().height(), self.scroll_area.viewport().height()),
+            max(
+                self.content_widget.sizeHint().height(),
+                self.scroll_area.viewport().height(),
+            ),
         )
 
     def showEvent(self, event):
@@ -640,7 +767,9 @@ class EditorToolbar(CardWidget):
 
     def _connect_signals(self):
         self.fit_window_button.clicked.connect(self.fit_window_requested)
-        self.original_image_alpha_slider.valueChanged.connect(self.original_image_alpha_changed)
+        self.original_image_alpha_slider.valueChanged.connect(
+            self.original_image_alpha_changed
+        )
 
     # --- Public Slots ---
     def update_undo_redo_state(self, can_undo: bool, can_redo: bool):
@@ -658,15 +787,18 @@ class EditorToolbar(CardWidget):
         self.original_image_alpha_slider.blockSignals(False)
 
     def set_export_enabled(self, enabled: bool):
-        """设置导出选项的启用状态"""
+        """设置保存和导出按钮的启用状态。"""
         self._export_enabled = bool(enabled)
-        self.export_action.setEnabled(self._export_enabled)
+        self.save_button.setEnabled(self._export_enabled)
+        self.export_button.setEnabled(self._export_enabled)
 
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）。菜单整体重建，状态从字段恢复。"""
         self.menu_button.setText(self._t("Menu"))
         self.display_mode_button.setText(self._t("Display Mode"))
         self.arrange_button.setText(self._t("Arrange"))
+        self.save_button.setText(self._t("Save"))
+        self.export_button.setText(self._t("Export Image"))
         set_hover_hint(self.fit_window_button, self._t("Fit to Window"))
         self.opacity_label.setText(self._t("Original Image Opacity:"))
         self._build_menus()

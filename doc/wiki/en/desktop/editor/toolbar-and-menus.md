@@ -9,35 +9,37 @@ lastUpdated: true
 
 # Editor Toolbar and Menus
 
-When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”) and keeps two persistent controls (“Fit to Window” and original-image opacity). This guide explains how the three menus expand, where each menu item leads, and how the six editor toggles are stored and persisted.
+When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”), exposes separate “Save” and “Export Image” buttons, and keeps two persistent controls (“Fit to Window” and original-image opacity). This guide explains how the three menus expand, where each menu item leads, and how the seven editor toggles are stored and persisted.
 
 The complete options and canvas effects of “Display Mode” and “Arrange” live in [Display, Compare, and Arrange](./display-compare-and-arrange.md); canvas tools, property panels, the floating rich-text editor, shortcuts, and import/export are covered by [Canvas Tools and Selection](./canvas-tools-and-selection.md), [Text Properties](./text-properties.md), [Style Properties](./style-properties.md), [Floating Rich Text](./floating-rich-text.md), [Shortcuts](./shortcuts.md), and [Import/Export and Writeback](./import-export-and-writeback.md).
 
 ## What you can do
 
 - The toolbar itself never switches pages: the back-to-home entry lives in the main-window sidebar, not in the editor toolbar.
-- The “Menu” dropdown contains export, undo/redo, zoom in/out, and six checkable toggles; the six toggles are persisted in the `app` config section.
+- The “Menu” dropdown contains undo/redo, zoom in/out, and seven checkable toggles; the “Save” and “Export Image” buttons are separate actions.
 - “Display Mode” is an exclusive radio selection that decides whether the canvas shows the original, text, boxes, nothing, or a two-panel comparison; “Arrange” provides a reference radio, alignment, and spacing distribution. Their complete options belong to [Display, Compare, and Arrange](./display-compare-and-arrange.md).
 - Zoom in/out is view scaling only: it scales by 1.15 per step and clamps the canvas scale to `0.05`–`50.0`; “Fit to Window” only fits the view. Neither modifies any region data.
 - The “Original Image Opacity” slider (0–100) controls only the transparency of the original-image overlay on the canvas; it is not an export parameter.
-- The real shortcut registration is not in the toolbar: `Ctrl+Q` (export), `Ctrl+Z` (undo), and `Ctrl+Y` (redo) are registered globally by `EditorShortcutManager`; the toolbar only shows hint text. See [Shortcuts](./shortcuts.md).
+- The real shortcut registration is not in the toolbar: `Ctrl+S` (save), `Ctrl+Q` (export), and `Ctrl+Shift+R` (show/hide the floating rich-text editor) are registered by `EditorShortcutManager`; the toolbar only shows hint text.
 
 ## Use it in the editor
 
 ### Three dropdown menus
 
-1. Open “Menu”: it shows “Export Image” (with a `(Ctrl+Q)` hint appended by code), undo/redo (hinted `Ctrl+Z` / `Ctrl+Y`), zoom in/out (`Zoom In (+)` / `Zoom Out (-)`), and six checkable editor toggles.
+1. Open “Menu”: it shows undo/redo, zoom in/out, and seven checkable editor toggles. “Save” and “Export Image” are separate top-level buttons.
 
-#### The six edit toggles
+#### The seven edit toggles
 
-The six editor toggles in the “Menu” dropdown all carry a check mark. Their meanings and defaults are:
+The seven editor toggles in the “Menu” dropdown all carry a check mark. Their meanings and defaults are:
 
-- **Enable Editor Snapping** (default `false`): snaps text-box rotation to `0/90/180/270/360/-90/-180/-270/-360` and to the angles of other text boxes; moving and scaling also align through the snapping logic, which makes it easier to line up the layout.
-- **Scale Text Boxes from Center** (default `false`): scales text boxes from their center point instead of from a fixed opposite edge or corner.
-- **Show Rich Text Editor Popup** (default `true`): automatically opens the floating rich-text editor when editing rich text; turn it off to stop the popup. See [Floating Rich Text](./floating-rich-text.md).
-- **Auto Apply Rich Text Rules While Editing** (default `true`): applies rich-text styles automatically while you edit, based on the matching rules; turn it off to apply styles only on manual action. See [Rich-Text Rules Table, Raw Editing, and Matching](../rich-text-rules/table-raw-and-match.md).
-- **Auto Export on Image Switch** (default `true`): automatically exports the current image when you switch to another one if it has unsaved changes; turn it off to be asked how to handle the unsaved changes first. See [Import/Export and Writeback](./import-export-and-writeback.md).
-- **Delete and Recover Removed Text** (default `false`): when deleting text boxes, also removes their corresponding original and refined masks so the erased area is restored to the original image. The deletion and mask changes are one undoable/redoable operation. The config key is `app.editor_delete_and_recover`. This feature is based on the BallonsTranslator (BT) implementation.
+- **Enable Editor Snapping** (default `false`): snaps text-box rotation, movement, and scaling through the snapping logic.
+- **Scale Text Boxes from Center** (default `false`): scales text boxes from their center point.
+- **Show Rich Text Editor Popup** (default `true`): automatically opens the floating rich-text editor; `Ctrl+Shift+R` toggles it.
+- **Auto Apply Rich Text Rules While Editing** (default `true`): applies rich-text styles automatically while editing.
+- **Auto Save on Image Switch** (default `true`, `app.editor_auto_save_on_switch`): saves project data when switching images with unsaved edits.
+- **Auto Export on Image Switch** (default `true`, `app.editor_auto_export_on_switch`): submits a rendered-image export when switching images with unsaved edits; export does not save project data.
+- **Do Not Warn About Unsaved Changes** (default `false`, `app.editor_suppress_unsaved_warning`): when both automatic switch actions are off, skips the unsaved-edits dialog and discards the current unsaved project changes on switch.
+- **Delete and Recover Removed Text** (default `false`): restores the original image area when deleting text boxes.
 
 2. Open “Display Mode”: a radio group that switches between five canvas display states; see [Display, Compare, and Arrange](./display-compare-and-arrange.md) for the effects.
 3. Open “Arrange”: first pick a reference (selection/canvas), then apply alignment or distribution; the menu stays open after a click so you can continue. See [Display, Compare, and Arrange](./display-compare-and-arrange.md) for the full options.
@@ -69,20 +71,18 @@ flowchart LR
     O --> OV["controller.set_original_image_alpha"]
 ```
 
-- “Menu” uses a `CheckableMenu` with a leading indicator column: checking one of the six toggles shows the indicator, and the icon and text columns stay independent.
+- “Menu” uses a `CheckableMenu` with a leading indicator column: checking one of the seven toggles shows the indicator, and the icon and text columns stay independent.
 - The five “Display Mode” states and the “Arrange” reference options are exclusive `QActionGroup` radios.
 - “Arrange” is a stay-open menu: it remains expanded after choosing a reference or applying an alignment/distribution so you can keep operating; clicking outside or pressing `Esc` closes it.
 - On language switch, `EditorView.refresh_ui_texts()` calls `EditorToolbar.refresh_ui_texts()`, which rebuilds all three menus and restores the display mode, reference, toggles, and enabled states from internal fields so no state is lost.
 - When the window is too narrow, toolbar content moves into a horizontal scroll area instead of wrapping or collapsing.
 
-### Export and auto-export on image switch
+### Save, export, and automatic actions on image switch
 
-- Clicking “Export Image” (or pressing `Ctrl+Q`) runs `EditorView.export_image()` → `controller.export_image()`: it first calls `commit_pending_edits()` to flush unsaved edits, then hands the work to the background export queue (`EditorControllerExportService`). Progress is shown as a Toast; failures have their own error messages.
-- While a document is loading, `toolbar.set_export_enabled(False)` disables export; it is re-enabled after the loaded data is applied.
-- “Auto Export on Image Switch” decides how unsaved edits are handled when switching images:
-  - On: unsaved edits trigger an automatic export (`automatic=True`); if export is rejected, the image switch is aborted.
-  - Off: an “Unsaved edits” three-button dialog appears (“导出图片”/“不保存”/“取消”). These three labels are currently hard-coded Chinese in source with no i18n key; they are a known gap, and no English label is invented here.
-- The auto-export consumer reads the configuration directly when switching images; it does not depend on view-memory state.
+- Clicking “Save” (or pressing `Ctrl+S`) writes project data and marks the current editor state clean; it does not render a final image.
+- Clicking “Export Image” (or pressing `Ctrl+Q`) flushes pending drafts, creates an immutable render snapshot, and queues the final-image render; it does not write project data or mark the state clean.
+- “Auto Save on Image Switch” and “Auto Export on Image Switch” are independent. If both are enabled, both actions run; neither substitutes for the other.
+- If both automatic actions are disabled, “Do Not Warn About Unsaved Changes” skips the confirmation dialog and switches directly, discarding unsaved project changes. Otherwise the dialog offers save, discard, or cancel.
 
 ### Undo and redo
 
@@ -103,9 +103,6 @@ flowchart LR
 
 ## Limitations and notes
 
-- The toolbar only shows shortcut text and never registers `QAction` shortcuts, avoiding double triggers with the focus-aware registrations in `EditorShortcutManager`.
-- When focus is in a text widget, editing shortcuts such as undo/redo are left to the text control; `Q`/`W`/`E`/`A`/`D` are forwarded as text instead of switching tools/images; `Ctrl+Q` export is unaffected. See [Shortcuts](./shortcuts.md).
-- The availability of “Arrange” items depends on the selection count: with the canvas reference one selected region is enough for alignment, with the selection reference two are required, and spacing distribution needs three.
-- “Auto Export on Image Switch” depends on the export queue and the image-loading flow: a rejected auto-export aborts the switch; when the user picks “export”, the switch waits for the export to finish.
-- Export is an asynchronous queue task that shares a state machine with editor cancellation/cleanup; on shutdown the export queue is drained before the app exits.
-- Turning off “Show Rich Text Editor Popup” immediately hides any visible floating editor; the canvas keeps focus, so delete/shortcut semantics are unchanged.
+- The toolbar only shows shortcut text and never registers `QAction` shortcuts, avoiding double triggers with `EditorShortcutManager`.
+- The save/export actions are intentionally separate: saving persists project data, while exporting only renders the current snapshot.
+- Turning off “Show Rich Text Editor Popup” immediately hides any visible floating editor; `Ctrl+Shift+R` performs the same toggle.

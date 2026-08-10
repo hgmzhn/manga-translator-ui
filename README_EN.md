@@ -107,7 +107,7 @@ If this tool has helped you, you can **[support the author](#support-author)**! 
 - 🔍 **Original comparison** - Compare the edited page side by side with the original
 - 📏 **Multi-selection layout** - Align text boxes and distribute spacing
 - ⏪ **Undo / redo** - Maintains a complete operation history
-- ⌨️ **Keyboard shortcuts** - Includes image navigation, tool switching, selection, and export shortcuts
+- ⌨️ **Keyboard shortcuts** - `A/D` navigate images, `Q/W/E` switch tools, `Ctrl+A` select all regions, `Ctrl+S` save project data, `Ctrl+Q` export the image, and `Ctrl+Shift+R` show/hide the floating rich-text editor
 - 🖱️ **Mouse-wheel shortcuts** - Resize text boxes and brushes with modifier keys
 
 ### Batch and Automation
@@ -134,9 +134,9 @@ If this tool has helped you, you can **[support the author](#support-author)**! 
 
 No separate Python installation is required. Download the [portable package](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable), extract it, run `Win-Install-or-Update.bat`, then start with `Win-Start.bat`. Choose `[2] Update` in the installer menu when updating. 📖 [Portable package walkthrough](https://hgmzhn.github.io/manga-translator-ui/en/install/windows-portable) ｜ [Updates and version switching](https://hgmzhn.github.io/manga-translator-ui/en/install/update-and-version-switching)
 
-#### Packaged release
+#### Download a portable release
 
-Download from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract, and double-click `app.exe`. CPU and NVIDIA GPU builds are available; AMD GPU users should use the portable package or install from source. 📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
+Download a CPU, NVIDIA GPU, or experimental AMD build from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract it, and run `Win-Start.bat`. Python dependencies and model files are already installed; the AMD build requires a supported GPU and driver 26.2.2. 📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
 
 #### Run from source (developers)
 

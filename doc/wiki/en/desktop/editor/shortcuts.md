@@ -9,18 +9,15 @@ lastUpdated: true
 
 # Editor Shortcuts
 
-Most high-frequency editor actions can be triggered with the keyboard or the mouse wheel: undo/redo, copy/paste/delete, switching canvas tools, switching images, and wheel combos for the brush size and the selected regions' font size. This page lists every shortcut and wheel combo actually registered by `EditorShortcutManager`, and explains who receives a key when focus is in a text widget, on the canvas, or in the floating rich-text window.
+Most high-frequency editor actions can be triggered with the keyboard or the mouse wheel: save/export, undo/redo, copy/paste/delete, switching canvas tools, switching images, toggling the floating rich-text editor, and wheel combos for brush size and selected-region font size. This page lists every shortcut and wheel combo actually registered by `EditorShortcutManager`, and explains who receives a key when focus is in a text widget, on the canvas, or in the floating rich-text window.
 
-The full operations of the toolbar and menus, canvas tools, region list, property panels, and floating rich text live in [Toolbar and Menus](./toolbar-and-menus.md), [Canvas Tools and Selection](./canvas-tools-and-selection.md), [Region List and Text Editing](./region-list-and-text-editing.md), [Text Properties](./text-properties.md), [Style Properties](./style-properties.md), [Floating Rich Text](./floating-rich-text.md), and [Import/Export and Writeback](./import-export-and-writeback.md). This guide only answers “which key does what”; it does not repeat those pages' control details.
+The full operations of the toolbar and menus, canvas tools, region list, property panels, floating rich text, and import/export live in the linked editor pages. This guide only answers “which key does what”.
 
 ## What you can do {#feature-boundary}
 
 - All editor keyboard shortcuts are registered by `desktop_qt_ui/ui/editor/shortcut_manager.py#EditorShortcutManager`; the toolbar never registers `QAction` shortcuts and only appends hint text to the “Export Image”, “Undo”, and “Redo” menu items.
 - `Undo`, `Redo`, `Copy`, `Paste`, `Select All`, and `Delete` are registered with `QKeySequence.StandardKey`; on Windows the primary bindings are `Ctrl+Z`, `Ctrl+Y`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`, and `Del`. The displayed mapping follows the Qt platform.
-- `Ctrl+Q` (export), `Q`/`W`/`E` (tool switching), and `A`/`D` (image switching) are fixed literals and do not change across platforms.
-- Wheel combos are handled by an event filter installed on the canvas viewport: `Shift+wheel` changes the shared brush size, any `Ctrl`-containing wheel combo changes the selected regions' font size, and a plain wheel is passed to `GraphicsView` to zoom the canvas.
-- `Escape` or canvas focus loss cancels an in-progress box selection, drawing, text box, clone stamp, region drag, or middle-button pan without committing anything.
-- Shortcut dispatch priority, from highest to lowest: focus in another top-level window (for example the floating rich-text window) → focus in a main-window text widget → focus on the canvas. The full conflict rules are in [Runtime behavior](#runtime-behavior).
+- `Ctrl+S` saves project data without rendering; `Ctrl+Q` renders the current snapshot without saving project data; `Ctrl+Shift+R` toggles the floating rich-text editor and works while that tool window has focus.
 
 ## Use it in the editor {#ui-operations}
 
@@ -34,12 +31,8 @@ The following table lists every keyboard shortcut actually registered by `_setup
 
 | Shortcut | With focus in a text widget | Canvas focus |
 | --- | --- | --- |
-| `Ctrl+Z` | Undo text editing | Undoes the editor action |
-| `Ctrl+Y` | Redo text editing | Redoes the editor action |
-| `Ctrl+C` | Copy text | Copies the last selected region |
-| `Ctrl+V` | Paste text | With one selected region, pastes its style; with none, pastes a region at the mouse or default position |
-| `Ctrl+A` | Select all text | Selects all regions |
-| `Del` | Does not delete regions | Deletes the selected regions |
+| `Ctrl+S` | Saves project data; does not render | Saves project data; does not render |
+| `Ctrl+Shift+R` | Toggles the floating rich-text editor | Toggles the floating rich-text editor |
 | `Ctrl+Q` | Still exports (flushes pending floating rich-text changes first) | Still exports |
 | `Q` | Types the character `q` | Switches to the select tool |
 | `W` | Types the character `w` | Switches to the brush tool |
@@ -74,7 +67,7 @@ flowchart TD
 
 ### Key forwarding with text focus {#text-widget-forwarding}
 
-When focus is in a text widget, the `Q`/`W`/`E`/`A`/`D` handlers temporarily disable the corresponding shortcut, synthesize a `KeyPress` plus `KeyRelease` event (for example `q`) sent to the widget, and then re-enable the shortcut to avoid recursion. `Ctrl+Q` export does not depend on focus: it calls `EditorView.export_image()` directly, which first runs `flush_pending_changes()` to flush debounced rich-text body and ruby edits from the floating editor.
+When focus is in a text widget, the `Q`/`W`/`E`/`A`/`D` handlers forward ordinary characters to that widget. `Ctrl+S` always invokes the editor save action, `Ctrl+Q` invokes export without project writeback, and `Ctrl+Shift+R` toggles the floating rich-text editor even when focus is in its `Qt.Tool` window.
 
 ### Wheel event filtering {#wheel-event-filter}
 

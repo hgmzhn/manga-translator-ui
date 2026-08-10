@@ -9,14 +9,13 @@ lastUpdated: true
 
 # Editor Import/Export and Writeback
 
-The editor loads the project data produced by the translation pipeline so you can adjust text, geometry, style, masks, and paint/clone layers region by region. When you finish editing, one “Export Image” action renders the current page to a final image and writes the project data back to disk. This guide covers the import formats, the rendering and output-path rules for export, and how JSON and inpainted images are written back.
+The editor loads project data produced by the translation pipeline so you can adjust text, geometry, style, masks, and paint/clone layers region by region. “Save” writes the project data without rendering; “Export Image” renders the current snapshot without writing project data. This guide covers the import formats, rendering and output-path rules for export, and the formats of project data written by the explicit save action.
 
-The right-panel file list (add/remove/switch pages and entering the editor after a completed task) is covered by [Layout and File List](./layout-and-file-list.md); the “Export Image” menu item and the “Auto Export on Image Switch” toggle are covered by [Toolbar and Menus](./toolbar-and-menus.md); shortcut dispatch such as `Ctrl+Q` is covered by [Shortcuts](./shortcuts.md); and how masks and paint/clone layers enter project files is covered by [Mask Painting and Clone Stamp](./mask-paint-and-clone-stamp.md).
+The right-panel file list is covered by [Layout and File List](./layout-and-file-list.md); toolbar actions and persistence are covered by [Toolbar and Menus](./toolbar-and-menus.md); shortcut dispatch such as `Ctrl+S`, `Ctrl+Q`, and `Ctrl+Shift+R` is covered by [Shortcuts](./shortcuts.md); masks and paint/clone layers are covered by [Mask Painting and Clone Stamp](./mask-paint-and-clone-stamp.md).
 
 ## What you can do {#feature-boundary}
 
-- This guide covers the data boundary between the editor and disk: which project files are read on import, what is rendered and where it is written on export, and the formats of the written-back data.
-- It does not cover the right-panel file-list buttons, tree display, or row states (see [Layout and File List](./layout-and-file-list.md)); it does not cover the “Export Image” menu item or the “Auto Export on Image Switch” toggle’s UI and persistence (see [Toolbar and Menus](./toolbar-and-menus.md)).
+- This guide covers the data boundary between the editor and disk: which project files are read on import, what is rendered and where it is written on export, and the formats of project data written by explicit save.
 - Editor export is not a full re-run of the translation pipeline: it renders the current snapshot directly and does not re-run detection, OCR, translation, colorization, or upscaling; the mask is treated as refined and the inpainted image is reused.
 - The translation page’s “Import Translation and Render” workflow shares the same `_translations.json` format with the editor, but the entry points differ: that is a translation-page workflow, while the editor reads project data automatically when a file is loaded from its list.
 - This page never shows real user images, project JSON, secrets, or private paths; formats are described with key names and sanitized structures only.
@@ -29,19 +28,19 @@ The right-panel file list (add/remove/switch pages and entering the editor after
 2. Click a row (or press `A`/`D` to switch pages) to load that image: the editor reads the associated `*_translations.json`, inpainted image, and paint layers in the background, then shows the canvas for editing.
 3. After a translation task finishes, the main window shows a “Task Completed” confirmation; choosing “Yes” enters the editor and opens the source image behind the result (resolved through `translation_map.json` or this task’s output mapping).
 
-### Export the current image {#export-current-image}
+### Save and export the current image {#export-current-image}
 
-1. Open the “Menu” dropdown in the toolbar and click “Export Image”, or press `Ctrl+Q`.
-2. The editor first flushes pending drafts such as the floating rich-text editor, then writes back the project data and enters the export queue; a progress toast is shown while exporting and a success toast appears when finished.
-3. With “Auto Export on Image Switch” enabled, switching to the next page exports the current page first; a rejected automatic export aborts the switch.
+1. Click “Save” or press `Ctrl+S` to persist JSON, masks, overlays, and the current inpainted image. Saving does not render a final image.
+2. Click “Export Image” or press `Ctrl+Q` to flush pending drafts and queue a final-image render. Exporting does not write project data or clear the unsaved state.
+3. “Auto Save on Image Switch” and “Auto Export on Image Switch” are independent switch actions. If both are enabled, both run when switching from a dirty page.
 
 ### Unsaved changes and page switching {#unsaved-changes-and-switching}
 
-With “Auto Export on Image Switch” disabled, switching pages while the current page has unsaved edits shows a three-button dialog (hardcoded Chinese in the source):
+When both automatic switch actions are disabled, “Do Not Warn About Unsaved Changes” determines whether the confirmation dialog is shown. If enabled, switching discards unsaved project changes without prompting; if disabled, the dialog offers save, discard, or cancel.
 
 | Button | Behavior |
 | --- | --- |
-| Export Image | Exports the current page first and loads the target page only after a successful export; no switch if export is rejected or fails |
+| Save | Writes project data, marks the state clean, and continues switching |
 | Don’t Save | Discards the unsaved edits and loads the target page directly |
 | Cancel | Aborts the switch and stays on the current page |
 
@@ -115,43 +114,35 @@ flowchart LR
 
 ### JSON writeback {#json-writeback}
 
-On export, `EditorControllerExportService.save_editor_json()` writes the current snapshot to the `*_translations.json` found by `find_json_path()`:
+On explicit “Save”, `EditorControllerExportService.save_editor_state()` writes the current project snapshot to the `*_translations.json` found by `find_json_path()`:
 
-- The top-level key is the absolute source path; `regions` are normalized by `_normalize_regions_for_backend`: missing `translation`, `texts`, `font_size`, `angle`, `target_lang`, `language`, and `direction` are filled, `fg_colors`/`fg_color` tuples become hex `font_color`, and `v`/`h` become `vertical`/`horizontal`.
-- `skip_text_replacements: true` is always written: the editor’s `translation` field is the final post-replacement text (`translation_raw` holds the pre-replacement text), so the backend render must not replace it again.
-- When a mask exists, `mask_raw` (base64 PNG) is written with `mask_is_refined: true`, so the backend skips mask refinement.
-- Non-empty paint/clone layers are written as base64 PNG (RGBA) keys `paint_overlay` / `stamp_overlay`.
-- Existing upscale/colorize markers and `last_export_dir` are preserved (`preserve_existing_preprocess_flags`) so the next export does not lose the background-source markers.
-- Writes use a temp file in the same directory plus `os.replace` for atomic replacement, so the backend never reads a half-written JSON.
+- The top-level key is the absolute source path; regions, masks, paint/clone overlays, and existing preprocess markers are preserved through the atomic JSON write.
+- Writes use a temp file in the same directory plus `os.replace`, so the editor never leaves a half-written JSON file.
+
+“Export Image” does not call this writeback path. It creates an immutable in-memory render snapshot and queues final-image rendering only.
 
 ### Inpainted writeback {#inpainted-writeback}
 
-`save_inpainted_image()` writes the current inpainted image (the base image when none exists) to `manga_translator_work/inpainted/<image-name>_inpainted.<ext>` with quality from `cli.save_quality`, again using temp file + `os.replace`. If the backend regenerates an inpainted image during rendering, it also writes it back to the same path (`_persist_backend_inpainted_image`), so the next editing session sees the newest inpaint result.
+`save_inpainted_image()` writes the current inpainted image to `manga_translator_work/inpainted/<image-name>_inpainted.<ext>` as part of explicit Save, using a temp file plus `os.replace`.
 
-### Writeback flow {#writeback-flow}
+### Save writeback flow {#writeback-flow}
 
 ```mermaid
 flowchart LR
-    A["Edit operations (QUndoCommand)"] --> B["Commit snapshot on export"]
-    B --> C["_save_regions_data_internal"]
-    C --> C1["Normalize regions + skip_text_replacements"]
-    C --> C2["mask_raw base64 PNG + mask_is_refined"]
-    C --> C3["paint/stamp overlay base64 PNG"]
-    C --> C4["Preserve upscale/colorizer/last_export_dir"]
+    A["Edit operations (QUndoCommand)"] --> B["Ctrl+S / Save button"]
+    B --> C["save_editor_state"]
+    C --> C1["JSON: regions + masks + overlays"]
+    C --> C2["Preserve preprocess markers"]
     C1 --> D["Temp file + os.replace atomic write"]
     C2 --> D
-    C3 --> D
-    C4 --> D
     D --> E["*_translations.json"]
-    B --> F["save_inpainted_image"]
+    C --> F["save_inpainted_image when available"]
     F --> G["manga_translator_work/inpainted/*_inpainted"]
 ```
 
 ## Limitations and notes {#dependencies-and-conflicts}
 
 - Editor export forces `disable_auto_wrap=True`, so the result is not affected by auto-wrap settings such as AI line breaking; text-box size and position are taken from the editor.
-- `translation` is always the final post-replacement text: legacy JSON without `translation_raw` is backfilled from `translation` on load, and `skip_text_replacements` prevents double replacement on writeback.
-- External writebacks such as batch management modify the JSON, but the editor keeps regions in memory and does not watch file changes; after a batch writeback the batch panel calls `load_image_and_regions` to reload the editor, otherwise the auto-export on switch would overwrite the new data with stale memory. See [Batch Management: Preview, Apply, and Restore](../batch-management/preview-apply-restore.md).
-- Auto-export on switch depends on the export queue: a rejected automatic export aborts the switch, and a manual export makes the switch wait for completion.
-- `editor_base` is valid only when the JSON has upscale/colorize markers; without them the editor deletes the stale base and falls back to the original to avoid showing a background that does not match the current JSON.
-- When the JSON does not exist, export creates it (`get_json_path(create_dir=True)` when `find_json_path` returns nothing); writes land in the new location, while legacy same-directory JSON remains readable but is no longer the write target.
+- Auto-export on switch depends on the export queue: a rejected automatic export aborts the switch, while automatic save is a separate synchronous writeback action.
+- `editor_base` is valid only when the JSON has upscale/colorize markers; without them the editor deletes the stale base and falls back to the original.
+- If no JSON exists, the explicit Save action creates it; Export Image alone does not create project JSON.

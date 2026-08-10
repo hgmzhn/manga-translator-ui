@@ -14,7 +14,6 @@ from qfluentwidgets import Dialog, PushButton
 
 from services import get_render_parameter_service
 
-from .controller_export_service import ExportOutcome
 from .document_load_worker import DocumentLoadWorker
 from .session import DocumentLoadFailure, DocumentSnapshot
 
@@ -75,7 +74,9 @@ class EditorControllerDocumentService:
     def file_service(self):
         return self.controller.file_service
 
-    def clear_editor_state(self, release_image_cache: bool = False, keep_document: bool = False) -> None:
+    def clear_editor_state(
+        self, release_image_cache: bool = False, keep_document: bool = False
+    ) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)
         if loading_toast is not None:
             try:
@@ -151,7 +152,11 @@ class EditorControllerDocumentService:
         self._is_shutdown = True
         self._cancel_pending_load()
         self._cancel_pending_prefetch()
-        for executor in (self._load_executor, self._prefetch_executor, self._aux_load_executor):
+        for executor in (
+            self._load_executor,
+            self._prefetch_executor,
+            self._aux_load_executor,
+        ):
             try:
                 executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
@@ -203,7 +208,9 @@ class EditorControllerDocumentService:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = _json.load(f)
         except Exception as e:
-            self.logger.warning(f"Failed to read JSON for editor_base staleness check: {e}")
+            self.logger.warning(
+                f"Failed to read JSON for editor_base staleness check: {e}"
+            )
             return False
 
         image_data = None
@@ -227,82 +234,93 @@ class EditorControllerDocumentService:
         except FileNotFoundError:
             pass
         except Exception as e:
-            self.logger.warning(f"Failed to remove stale editor_base image {work_image_path}: {e}")
+            self.logger.warning(
+                f"Failed to remove stale editor_base image {work_image_path}: {e}"
+            )
 
     def load_image_and_regions(self, image_path: str) -> None:
         if self._is_shutdown:
             return
-        # 脏检测前先提交视图层草稿（如浮动编辑器 debounce 期内容），
-        # 否则刚打完字 180ms 内切图会漏检并丢草稿
         self.controller.commit_pending_edits()
-        if self.controller.export_service.has_changes_since_last_export():
-            if self._auto_export_on_switch_enabled():
-                if self.controller.export_image(automatic=True) is None:
-                    self.logger.warning("Auto-export rejected; image switch aborted")
-                    return
-            else:
+        if self.controller.export_service.has_unsaved_changes():
+            auto_export = self._auto_export_on_switch_enabled()
+            auto_save = self._auto_save_on_switch_enabled()
+            if auto_export and self.controller.export_image(automatic=True) is None:
+                self.logger.warning("Auto-export rejected; image switch aborted")
+                return
+            if auto_save and not self.controller.save_editor_state():
+                self.logger.warning("Auto-save rejected; image switch aborted")
+                return
+            if (
+                not auto_export
+                and not auto_save
+                and not self._suppress_unsaved_warning_enabled()
+            ):
                 action = self._ask_unsaved_action()
                 if action == "cancel":
                     return
-                if action == "export":
-                    export_future = self.controller.export_image()
-                    if export_future is None:
-                        self.logger.warning("Export request was not scheduled; aborted deferred image load.")
-                        return
-                    export_future.add_done_callback(
-                        lambda future, target_path=image_path: self._continue_load_after_export(
-                            target_path,
-                            future,
-                        )
-                    )
+                if action == "save" and not self.controller.save_editor_state():
+                    self.logger.warning("Save request failed; image switch aborted")
                     return
-
         self.do_load_image(image_path)
 
     def _auto_export_on_switch_enabled(self) -> bool:
         try:
             config = self.controller.config_service.get_config()
-            return bool(getattr(getattr(config, "app", None), "editor_auto_export_on_switch", True))
+            return bool(
+                getattr(
+                    getattr(config, "app", None), "editor_auto_export_on_switch", True
+                )
+            )
         except Exception:
             return True
 
+    def _auto_save_on_switch_enabled(self) -> bool:
+        try:
+            config = self.controller.config_service.get_config()
+            return bool(
+                getattr(
+                    getattr(config, "app", None), "editor_auto_save_on_switch", True
+                )
+            )
+        except Exception:
+            return True
+
+    def _suppress_unsaved_warning_enabled(self) -> bool:
+        try:
+            config = self.controller.config_service.get_config()
+            return bool(
+                getattr(
+                    getattr(config, "app", None),
+                    "editor_suppress_unsaved_warning",
+                    False,
+                )
+            )
+        except Exception:
+            return False
+
     def _ask_unsaved_action(self) -> str:
-        """弹"未保存的编辑"三键对话框，返回 'export' | 'discard' | 'cancel'。"""
-        dialog_parent = self.view if self.view is not None else QApplication.activeWindow()
+        """弹未保存编辑对话框，返回 save/discard/cancel。"""
+        dialog_parent = (
+            self.view if self.view is not None else QApplication.activeWindow()
+        )
         dialog = Dialog(
             "未保存的编辑",
-            "当前图片有未保存的编辑\n\n导出图片时会同时保存 JSON。",
+            "当前图片有未保存的编辑\n\n保存工程数据后再切换图片。",
             dialog_parent,
         )
         dialog.setTitleBarVisible(True)
-        dialog.yesButton.setText("导出图片")
+        dialog.yesButton.setText("保存")
         dialog.cancelButton.setText("取消")
         discard_button = PushButton("不保存", dialog.buttonGroup)
         dialog.buttonLayout.insertWidget(1, discard_button, 1)
-        selected_action = {"value": "export"}
+        selected_action = {"value": "save"}
         discard_button.clicked.connect(lambda: selected_action.update(value="discard"))
         discard_button.clicked.connect(dialog.accept)
         dialog.setFixedSize(max(dialog.width(), 460), max(dialog.height(), 220))
-
         if dialog.exec() != Dialog.DialogCode.Accepted:
             return "cancel"
         return selected_action["value"]
-
-    def _continue_load_after_export(self, image_path: str, future) -> None:
-        try:
-            result = future.result()
-        except Exception as e:
-            self.logger.error("Deferred image load skipped because export task failed: %s", e, exc_info=True)
-            return
-
-        if isinstance(result, ExportOutcome) and result.success:
-            self.controller._deferred_load_requested.emit(image_path)
-            return
-
-        self.logger.info(
-            "Deferred image load skipped because export did not complete successfully: %s",
-            result,
-        )
 
     def do_load_image(self, image_path: str) -> None:
         if self._is_shutdown:
@@ -314,7 +332,9 @@ class EditorControllerDocumentService:
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:
-            self.controller._loading_toast = toast_manager.show_info("正在加载...", duration=0)
+            self.controller._loading_toast = toast_manager.show_info(
+                "正在加载...", duration=0
+            )
 
         generation = self._load_generation
 
@@ -390,11 +410,15 @@ class EditorControllerDocumentService:
 
         self.resource_manager.release_image_cache_except_current()
 
-        self.prefetch_images(getattr(self.controller, "_pending_editor_prefetch_paths", []))
+        self.prefetch_images(
+            getattr(self.controller, "_pending_editor_prefetch_paths", [])
+        )
         self.controller._log_memory_snapshot("after-apply-loaded-document")
 
         if snapshot.regions and snapshot.raw_mask is not None:
-            self.async_service.submit_task(self.controller.inpaint_service.async_refine_and_inpaint())
+            self.async_service.submit_task(
+                self.controller.inpaint_service.async_refine_and_inpaint()
+            )
 
     def prefetch_images(self, image_paths: list[str]) -> None:
         """后台预读相邻图片和 QImage，降低下一次切图等待。"""
@@ -426,7 +450,9 @@ class EditorControllerDocumentService:
                 if not qimage.isNull():
                     resource.qimage = qimage
             except Exception as e:
-                self.logger.debug("Editor image prefetch skipped for %s: %s", image_path, e)
+                self.logger.debug(
+                    "Editor image prefetch skipped for %s: %s", image_path, e
+                )
 
     def handle_load_error(self, error_msg: str) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)

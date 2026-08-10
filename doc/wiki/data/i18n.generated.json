@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1369,
-    "exact": 1369,
+    "keys": 1371,
+    "exact": 1371,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -580,6 +580,12 @@
       "key": "Auto Export on Image Switch",
       "en_US": "Auto Export on Image Switch",
       "zh_CN": "切图时自动导出",
+      "status": "exact"
+    },
+    {
+      "key": "Auto Save on Image Switch",
+      "en_US": "Auto Save on Image Switch",
+      "zh_CN": "切图时自动保存",
       "status": "exact"
     },
     {
@@ -1162,6 +1168,12 @@
       "key": "Distribute Vertical Spacing",
       "en_US": "Distribute Vertical Spacing",
       "zh_CN": "垂直间距分布",
+      "status": "exact"
+    },
+    {
+      "key": "Do Not Warn About Unsaved Changes",
+      "en_US": "Do Not Warn About Unsaved Changes",
+      "zh_CN": "不再提醒未保存",
       "status": "exact"
     },
     {

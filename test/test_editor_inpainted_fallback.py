@@ -55,7 +55,10 @@ def test_failed_inpainted_load_yields_none(tmp_path):
     service.controller = _FailingController()
     worker = DocumentLoadWorker(service, "unused.png", None)
 
-    assert worker._load_inpainted_image(str(tmp_path / "missing.png"), (32, 24)) == (None, None)
+    assert worker._load_inpainted_image(str(tmp_path / "missing.png"), (32, 24)) == (
+        None,
+        None,
+    )
 
 
 def test_session_keeps_inpainted_none():
@@ -138,10 +141,11 @@ class _StubConfigService:
 
 
 class _RecordingExportService(EditorControllerExportService):
-    """把落盘和排队这些重活换成记录，只观察 inpainted 兜底是否生效。"""
+    """把排队重活换成记录，只观察导出快照和落盘边界。"""
 
     def __init__(self, controller):
         super().__init__(controller)
+        self.saved_json = False
         self.saved_inpainted = None
         self.submitted_job = None
 
@@ -155,7 +159,7 @@ class _RecordingExportService(EditorControllerExportService):
         return str(Path(source_path).with_name("out.png"))
 
     def save_editor_json(self, **kwargs):
-        return None
+        self.saved_json = True
 
     def save_inpainted_image(self, source_path, config_dict, image):
         self.saved_inpainted = image
@@ -168,8 +172,8 @@ class _RecordingExportService(EditorControllerExportService):
         return future
 
 
-def test_export_falls_back_to_base_image_when_no_inpainted(tmp_path):
-    """导出侧显式兜底：没有修复图时仍用底图写 _inpainted.jpg 并带给后端。"""
+def test_export_falls_back_to_base_image_without_saving_project(tmp_path):
+    """没有修复图时导出快照兜底到底图，但不写工程数据。"""
     source_path = str(tmp_path / "page.png")
     base = Image.new("RGB", (32, 24), (200, 100, 50))
     base.save(source_path)
@@ -181,8 +185,9 @@ def test_export_falls_back_to_base_image_when_no_inpainted(tmp_path):
         future = service.export_image(automatic=True)
 
         assert future is not None, "导出被拒绝了"
-        assert service.saved_inpainted is not None, "没有修复图时应当用底图兜底写盘"
-        assert service.saved_inpainted.size == base.size
+        assert service.saved_json is False
+        assert service.saved_inpainted is None
+        assert controller.history_service.cleaned is False
         assert service.submitted_job is not None
         assert service.submitted_job.inpainted_image is not None, "后端应仍收到修复图"
     finally:
@@ -198,7 +203,7 @@ def main() -> int:
         test_missing_inpainted_file_yields_none,
         test_failed_inpainted_load_yields_none,
         test_session_keeps_inpainted_none,
-        test_export_falls_back_to_base_image_when_no_inpainted,
+        test_export_falls_back_to_base_image_without_saving_project,
     ]
     for test in tests:
         try:

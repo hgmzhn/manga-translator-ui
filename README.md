@@ -107,7 +107,7 @@
 - 🔍 **原图对比** - 与原图双栏对比
 - 📏 **多选排版** - 对齐文本框并分布间距
 - ⏪ **撤销/重做** - 完整操作历史
-- ⌨️ **快捷键支持** - 支持 A/D 切换图片，Q/W/E 切换工具，Ctrl+A 全选文本框，Ctrl+Q 导出图片
+- ⌨️ **快捷键支持** - `A/D` 切换图片，`Q/W/E` 切换工具，`Ctrl+A` 全选文本框，`Ctrl+S` 保存工程数据，`Ctrl+Q` 导出图片，`Ctrl+Shift+R` 显示/关闭浮动富文本编辑器
 - 🖱️ **鼠标滚轮快捷键** - Ctrl+滚轮缩放文本框，Shift+滚轮调整画笔大小
 
 ### 批量与自动化
@@ -134,9 +134,9 @@
 
 无需预装 Python。下载 [便携整合包](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable)，解压后运行 `Win-Install-or-Update.bat`，再双击 `Win-Start.bat` 启动；更新时在安装菜单选择 `[2] 更新`。 📖 [便携包安装详解](https://hgmzhn.github.io/manga-translator-ui/zh/install/windows-portable) ｜ [更新与版本切换](https://hgmzhn.github.io/manga-translator-ui/zh/install/update-and-version-switching)
 
-#### 下载打包版本
+#### 下载发布便携包
 
-从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载并解压，双击 `app.exe`。提供 CPU 和 NVIDIA GPU 版本；AMD GPU 请使用便携安装包或源码安装。 📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
+从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载 CPU、NVIDIA GPU 或实验性 AMD 版本，解压后双击 `Win-Start.bat`。包内已安装 Python 依赖和模型文件；AMD 版本要求受支持显卡与 26.2.2 驱动。 📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
 
 #### 从源码运行（开发者）
 

@@ -69,7 +69,7 @@ class ExportOutcome:
 
 
 class EditorControllerExportService:
-    """导出与导出前持久化流程。"""
+    """编辑器工程保存与渲染图片导出流程。"""
 
     def __init__(self, controller: "EditorController"):
         self.controller = controller
@@ -94,13 +94,68 @@ class EditorControllerExportService:
     def config_service(self):
         return self.controller.config_service
 
-    def has_changes_since_last_export(self) -> bool:
-        """脏检测唯一真相源：QUndoStack 的 clean 状态。
-
-        所有会改动导出结果的编辑都必须走 QUndoCommand；工程数据原子保存并
-        成功进入渲染队列后 mark_clean()，撤销回到 clean 点自动视为无改动。
-        """
+    def has_unsaved_changes(self) -> bool:
+        """脏检测唯一真相源：仅成功保存工程数据后标记 clean。"""
         return not self.controller.history_service.is_clean()
+
+    def save_editor_state(self) -> bool:
+        """同步保存 JSON 与当前修复图，不执行图片渲染导出。"""
+        self.controller.commit_pending_edits()
+        source_path = self.model.get_source_image_path()
+        if not source_path:
+            self._reject_export("保存失败：当前图片没有来源路径")
+            return False
+        try:
+            image = self.controller._get_current_image()
+            if image is None:
+                self._reject_export("保存失败：缺少图像数据")
+                return False
+            regions = copy.deepcopy(self.controller._get_regions() or [])
+            mask = self.model.get_refined_mask()
+            if mask is None:
+                mask = self.model.get_raw_mask()
+            mask_snapshot = None if mask is None else np.array(mask, copy=True)
+            config = self.config_service.get_config()
+            config_dict = self._build_config_dict(config)
+            paint_snapshot = self._snapshot_overlay(
+                self.model.get_paint_overlay_image()
+            )
+            stamp_snapshot = self._snapshot_overlay(
+                self.model.get_stamp_overlay_image()
+            )
+            from services.export_service import ExportService
+
+            persistence_service = ExportService()
+            self.save_editor_json(
+                export_service=persistence_service,
+                source_path=os.path.abspath(source_path),
+                regions=regions,
+                mask=mask_snapshot,
+                config_dict=config_dict,
+                last_export_dir=self._read_saved_export_dir(source_path),
+                paint_overlay=paint_snapshot,
+                stamp_overlay=stamp_snapshot,
+            )
+            inpainted = self.model.get_inpainted_image()
+            if inpainted is not None:
+                inpainted_snapshot = self.controller._snapshot_image_for_export(
+                    inpainted, "inpainted image"
+                )
+                try:
+                    self.save_inpainted_image(
+                        os.path.abspath(source_path), config_dict, inpainted_snapshot
+                    )
+                finally:
+                    _close_images(inpainted_snapshot)
+            self.controller.history_service.mark_clean()
+            toast_manager = self.controller.get_toast_manager()
+            if toast_manager is not None:
+                toast_manager.show_success("保存成功", 2500)
+            return True
+        except Exception as e:
+            self.logger.error("Failed to save editor state", exc_info=True)
+            self._reject_export(f"保存失败：{e}")
+            return False
 
     def export_image(
         self,
@@ -129,13 +184,18 @@ class EditorControllerExportService:
                 self.logger.warning("Cannot export: no mask data available for regions")
                 return self._reject_export("导出失败：没有可用的蒙版数据")
 
-            image_snapshot = self.controller._snapshot_image_for_export(image, "base image")
-            paint_snapshot = self._snapshot_overlay(self.model.get_paint_overlay_image())
-            stamp_snapshot = self._snapshot_overlay(self.model.get_stamp_overlay_image())
+            image_snapshot = self.controller._snapshot_image_for_export(
+                image, "base image"
+            )
+            paint_snapshot = self._snapshot_overlay(
+                self.model.get_paint_overlay_image()
+            )
+            stamp_snapshot = self._snapshot_overlay(
+                self.model.get_stamp_overlay_image()
+            )
             inpainted_base = self.model.get_inpainted_image()
             if inpainted_base is None:
-                # 没有修复图时导出仍以底图充当修复图：既写出 _inpainted.jpg，
-                # 也让后端 load_text 跳过自己的修复步骤，行为与历史一致。
+                # 没有修复图时导出仍以底图作为渲染底图。
                 inpainted_base = image
             inpainted_snapshot = self.controller._snapshot_image_for_export(
                 inpainted_base,
@@ -147,31 +207,6 @@ class EditorControllerExportService:
             config_dict = self._build_config_dict(config)
             self._prepare_render_config(config_dict)
             output_path = self._build_output_path(config, source_path)
-
-            try:
-                from services.export_service import ExportService
-
-                persistence_service = ExportService()
-                self.save_editor_json(
-                    export_service=persistence_service,
-                    source_path=os.path.abspath(source_path),
-                    regions=regions_snapshot,
-                    mask=mask_snapshot,
-                    config_dict=config_dict,
-                    last_export_dir=os.path.dirname(output_path),
-                    paint_overlay=paint_snapshot,
-                    stamp_overlay=stamp_snapshot,
-                )
-                if inpainted_snapshot is not None:
-                    self.save_inpainted_image(
-                        os.path.abspath(source_path),
-                        config_dict,
-                        inpainted_snapshot,
-                    )
-            except Exception as e:
-                self.logger.error("Failed to persist editor state before export", exc_info=True)
-                _close_images(image_snapshot, inpainted_snapshot)
-                return self._reject_export(f"保存工程数据失败：{e}")
 
             job = ExportJob(
                 automatic=bool(automatic),
@@ -190,7 +225,6 @@ class EditorControllerExportService:
                 job.release_resources()
                 return self._reject_export("导出队列已经关闭")
 
-            self.controller.history_service.mark_clean()
             return future
         except Exception as e:
             self.logger.error(f"Error during export request: {e}", exc_info=True)
@@ -283,7 +317,11 @@ class EditorControllerExportService:
 
         # 解绑：与编辑器 snapshot 同步——用户手动白框存在时优先白框，
         # 让导出和预览的渲染中心走同一条路。
-        if has_custom and isinstance(custom_box, (list, tuple)) and len(custom_box) == 4:
+        if (
+            has_custom
+            and isinstance(custom_box, (list, tuple))
+            and len(custom_box) == 4
+        ):
             return custom_box
         if isinstance(render_box, (list, tuple)) and len(render_box) == 4:
             return render_box
@@ -311,21 +349,28 @@ class EditorControllerExportService:
             angle = float(region.get("angle") or 0.0)
             rad = math.radians(angle)
             cos_a, sin_a = math.cos(rad), math.sin(rad)
-            region["center"] = [cx + lx * cos_a - ly * sin_a, cy + lx * sin_a + ly * cos_a]
+            region["center"] = [
+                cx + lx * cos_a - ly * sin_a,
+                cy + lx * sin_a + ly * cos_a,
+            ]
             # 同步平移 local 坐标，以新 center 为原点，防止存/读漂移
             if "white_frame_rect_local" in region:
                 wf = region["white_frame_rect_local"]
                 if isinstance(wf, (list, tuple)) and len(wf) == 4:
                     region["white_frame_rect_local"] = [
-                        float(wf[0]) - lx, float(wf[1]) - ly,
-                        float(wf[2]) - lx, float(wf[3]) - ly,
+                        float(wf[0]) - lx,
+                        float(wf[1]) - ly,
+                        float(wf[2]) - lx,
+                        float(wf[3]) - ly,
                     ]
             if "render_box_rect_local" in region:
                 rb = region["render_box_rect_local"]
                 if isinstance(rb, (list, tuple)) and len(rb) == 4:
                     region["render_box_rect_local"] = [
-                        float(rb[0]) - lx, float(rb[1]) - ly,
-                        float(rb[2]) - lx, float(rb[3]) - ly,
+                        float(rb[0]) - lx,
+                        float(rb[1]) - ly,
+                        float(rb[2]) - lx,
+                        float(rb[3]) - ly,
                     ]
         except (TypeError, ValueError):
             return
@@ -334,7 +379,9 @@ class EditorControllerExportService:
         json_path = find_json_path(source_path)
         if not json_path:
             json_path = get_json_path(source_path, create_dir=True)
-            self.logger.info(f"No existing JSON found, will create new one at: {json_path}")
+            self.logger.info(
+                f"No existing JSON found, will create new one at: {json_path}"
+            )
         else:
             self.logger.info(f"Found existing JSON, will replace: {json_path}")
         return json_path
@@ -422,6 +469,7 @@ class EditorControllerExportService:
             if not json_path or not os.path.exists(json_path):
                 return None
             import json as _json
+
             with open(json_path, "r", encoding="utf-8") as f:
                 data = _json.load(f)
             if not isinstance(data, dict) or not data:
@@ -444,27 +492,45 @@ class EditorControllerExportService:
         if saved_export_dir:
             output_dir = saved_export_dir
         else:
-            save_to_source_dir = getattr(config.cli, "save_to_source_dir", False) if hasattr(config, "cli") else False
+            save_to_source_dir = (
+                getattr(config.cli, "save_to_source_dir", False)
+                if hasattr(config, "cli")
+                else False
+            )
             if save_to_source_dir and source_path:
-                output_dir = os.path.join(os.path.dirname(source_path), "manga_translator_work", "result")
+                output_dir = os.path.join(
+                    os.path.dirname(source_path), "manga_translator_work", "result"
+                )
             else:
-                output_dir = getattr(config.app, "last_output_path", None) if hasattr(config, "app") else None
+                output_dir = (
+                    getattr(config.app, "last_output_path", None)
+                    if hasattr(config, "app")
+                    else None
+                )
                 if not output_dir or not os.path.exists(output_dir):
-                    output_dir = os.path.dirname(source_path) if source_path else os.getcwd()
+                    output_dir = (
+                        os.path.dirname(source_path) if source_path else os.getcwd()
+                    )
         os.makedirs(output_dir, exist_ok=True)
 
         if source_path:
             base_name = os.path.splitext(os.path.basename(source_path))[0]
-            output_format = getattr(config.cli, "format", "") if hasattr(config, "cli") else ""
+            output_format = (
+                getattr(config.cli, "format", "") if hasattr(config, "cli") else ""
+            )
             if output_format == "不指定":
                 output_format = None
             if output_format and output_format.strip():
                 output_filename = f"{base_name}.{output_format.lower()}"
             else:
                 original_ext = os.path.splitext(source_path)[1].lower()
-                output_filename = f"{base_name}{original_ext}" if original_ext else f"{base_name}.png"
+                output_filename = (
+                    f"{base_name}{original_ext}" if original_ext else f"{base_name}.png"
+                )
         else:
-            output_filename = f"exported_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            output_filename = (
+                f"exported_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            )
 
         return os.path.join(output_dir, output_filename)
 
@@ -496,12 +562,14 @@ class EditorControllerExportService:
                 enhanced_region["direction"] = "auto"
 
             self.apply_white_frame_center(enhanced_region)
-            enhanced_region.update(render_service.export_parameters_for_backend(index, enhanced_region))
+            enhanced_region.update(
+                render_service.export_parameters_for_backend(index, enhanced_region)
+            )
             enhanced_regions.append(enhanced_region)
         return enhanced_regions
 
     def execute_export_job(self, job: ExportJob) -> ExportOutcome:
-        """Render one already-persisted immutable snapshot on the queue worker."""
+        """在队列线程中渲染不可变快照，不写编辑器工程数据。"""
         from services.export_service import ExportService
 
         export_service = ExportService()

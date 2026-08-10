@@ -54,8 +54,9 @@ The editor view is a vertical stack of the top toolbar and a horizontal splitter
 
 - Click an image row to switch pages; with canvas focus, press `A` / `D` to switch to the previous / next image (with focus in a text widget, `A` / `D` are typed as text; see [Shortcuts](./shortcuts.md)).
 - If there are unsaved edits before switching:
-  - With "Auto Export on Image Switch" enabled (default), the current page is exported automatically first; if the export is rejected, the switch is aborted;
-  - With it disabled, a three-button "未保存的编辑" dialog offers "导出图片" (export and continue switching after the export finishes), "不保存" (discard and switch), or "取消" (stay on the current page). These three button labels are hard-coded Chinese strings and do not follow the UI language.
+  - With "Auto Save on Image Switch" enabled, project data is saved automatically;
+  - With "Auto Export on Image Switch" enabled, a rendered-image export is queued automatically; export does not save project data;
+  - With both automatic actions disabled, "Do Not Warn About Unsaved Changes" skips the dialog and discards unsaved project changes; otherwise a three-button dialog offers "Save", "Don't Save", or "Cancel".
 
 ## How changes are saved {#runtime-behavior}
 
