@@ -147,7 +147,8 @@ jobs:
       run: |
         $ErrorActionPreference = 'Stop'
         $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
-        & $python -c "import PyQt6, torch, onnxruntime; print(torch.__version__, onnxruntime.__version__)"
+        # PyQt6 must load last; its Qt DLL paths can break torch/onnxruntime resolution on Windows.
+        & $python -c "import torch, onnxruntime, PyQt6; print(torch.__version__, onnxruntime.__version__)"
         if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime import smoke test failed.' }
     - name: Smoke test AMD bundled runtime metadata
       if: ${{ matrix.variant == 'amd' }}
@@ -155,7 +156,8 @@ jobs:
       run: |
         $ErrorActionPreference = 'Stop'
         $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
-        & $python -c "from importlib.metadata import version; import PyQt6, onnxruntime; v = version('torch'); assert 'rocm7.2.1' in v, v; print(v, onnxruntime.__version__)"
+        # PyQt6 must load last; its Qt DLL paths can break onnxruntime resolution on Windows.
+        & $python -c "from importlib.metadata import version; import onnxruntime, PyQt6; v = version('torch'); assert 'rocm7.2.1' in v, v; print(v, onnxruntime.__version__)"
         if ($LASTEXITCODE -ne 0) { throw 'AMD bundled runtime metadata smoke test failed.' }
     - name: Archive ${{ matrix.variant }} portable package
       shell: pwsh
