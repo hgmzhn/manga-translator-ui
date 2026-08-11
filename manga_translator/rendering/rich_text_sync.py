@@ -4,9 +4,8 @@
 ``(位置, 删除数, 插入文本)`` 操作记录;本模块把这些操作按同样位置回放到
 richtext.v1 文档的字符条目上,让样式跟随未改动的字符,不做任何 diff 推测。
 
-坐标口径:所有文本均为 ``\n`` 换行的"编辑框规范形"(编辑框中的字面 ``↵``
-由调用方先换成 ``\n``),与文档 ``plain_text()`` 一一对应;模型层的
-``[BR]`` 形式不在本模块出现。
+坐标口径:所有文本均为 ``\n`` 换行的编辑框原文，与文档
+``plain_text()`` 一一对应；模型层的 ``[BR]`` 形式不在本模块出现。
 
 样式策略(用户拍板):
 - 编辑插入的字符只在"中间"继承样式——前后邻居都存在、都不是换行、
@@ -26,7 +25,11 @@ import logging
 import re
 from typing import Any, List, Optional, Sequence
 
-from .rich_text import RichTextDocument, ensure_rich_text_document, normalize_rich_linebreaks
+from .rich_text import (
+    RichTextDocument,
+    ensure_rich_text_document,
+    normalize_rich_linebreaks,
+)
 from .rich_text_rules import (
     _document_from_rule_entries,
     _rule_entries_from_document,
@@ -72,7 +75,7 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
         # 计入 charsRemoved(全选替换 6 字符报 removed=7),这里钳到实际长度;
         # 钳错了也会被调用方的 post_text 校验兜住。
         removed = min(removed, len(entries) - position)
-        del entries[position:position + removed]
+        del entries[position : position + removed]
 
         prev_entry = entries[position - 1] if position > 0 else None
         next_entry = entries[position] if position < len(entries) else None
@@ -101,7 +104,9 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
                 new_entries.append(_RuleEntry("\n", {}))
             else:
                 new_entries.append(
-                    _RuleEntry(char, copy.deepcopy(inherited_style), node=inherited_node)
+                    _RuleEntry(
+                        char, copy.deepcopy(inherited_style), node=inherited_node
+                    )
                 )
         entries[position:position] = new_entries
     return entries
@@ -135,7 +140,7 @@ def apply_replacements_to_entries(
                     replacement_text = match.expand(repl)
                 except Exception:
                     replacement_text = repl
-                span = entries[match.start():match.end()]
+                span = entries[match.start() : match.end()]
                 first = span[0]
                 node = first.node if all(e.node is first.node for e in span) else None
                 new_entries: List[_RuleEntry] = []
@@ -146,7 +151,7 @@ def apply_replacements_to_entries(
                         new_entries.append(
                             _RuleEntry(char, copy.deepcopy(first.style), node=node)
                         )
-                entries[match.start():match.end()] = new_entries
+                entries[match.start() : match.end()] = new_entries
     return entries
 
 

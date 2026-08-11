@@ -8,18 +8,12 @@ Qt 文本框的 ``contentsChange`` 给出 ``(位置, 删除数, 插入数)``,但
 ``[pos, removed_len, inserted_text]``;预编辑期间文本未变的"假替换"收窄后
 为空,直接丢弃。这是对已记录操作的精确收窄,不是模糊 diff。
 
-坐标口径:字面 ``↵``(编辑框中换行的显示形式)与真实换行统一为 ``\n``,
-两者都是单字符,位置一一对应。
+坐标口径与编辑框一致，直接使用真实 ``\n`` 换行；每个换行仍占一个字符。
 """
 
 from __future__ import annotations
 
 from typing import List, Optional
-
-
-def canonical_editor_text(text: str) -> str:
-    """编辑框文本的规范形:字面 ↵ 与真实换行统一为 \\n。"""
-    return text.replace("↵", "\n")
 
 
 def minimal_edit_op(
@@ -36,8 +30,8 @@ def minimal_edit_op(
     分隔符)由切片越界自然钳制。
     """
     pos = max(0, int(position))
-    removed_text = mirror[pos:pos + max(0, int(chars_removed))]
-    added_text = current[pos:pos + max(0, int(chars_added))]
+    removed_text = mirror[pos : pos + max(0, int(chars_removed))]
+    added_text = current[pos : pos + max(0, int(chars_added))]
     while removed_text and added_text and removed_text[0] == added_text[0]:
         removed_text = removed_text[1:]
         added_text = added_text[1:]
@@ -47,7 +41,7 @@ def minimal_edit_op(
         added_text = added_text[:-1]
     if not removed_text and not added_text:
         return None
-    return [pos, len(removed_text), canonical_editor_text(added_text)]
+    return [pos, len(removed_text), added_text]
 
 
 class EditOpRecorder:
@@ -62,7 +56,7 @@ class EditOpRecorder:
 
     def __init__(self) -> None:
         self._ops: List[list] = []
-        # 框内原样形镜像(含字面 ↵),用于收窄下一次报告
+        # 框内原样文本镜像，用于收窄下一次报告
         self._doc_text = ""
         # 上次 take/reset 时的规范形文本,作为下一份 edit_info 的 pre_text
         self._baseline = ""
@@ -71,7 +65,7 @@ class EditOpRecorder:
         """以当前文本为准重建基线(程序化刷新后调用)。"""
         self._doc_text = current_text
         self._ops = []
-        self._baseline = canonical_editor_text(current_text)
+        self._baseline = current_text
 
     def invalidate(self, current_text: str) -> None:
         """程序化写入:镜像跟进,累积操作作废;基线由随后的 reset 统一重建。"""
@@ -94,7 +88,7 @@ class EditOpRecorder:
 
     def take_edit_info(self, current_text: str) -> dict:
         """取走累积操作,返回 {ops, pre_text, post_text}(\\n 口径)并推进基线。"""
-        post_text = canonical_editor_text(current_text)
+        post_text = current_text
         edit_info = {
             "ops": self._ops,
             "pre_text": self._baseline,

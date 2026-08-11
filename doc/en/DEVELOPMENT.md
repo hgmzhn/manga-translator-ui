@@ -398,8 +398,8 @@ When changing install or update behavior, do not change only the `.bat` or `.sh`
 ### CI/CD
 
 - `.github/workflows/build-and-release.yml`
-  - builds Windows CPU and GPU PyInstaller packages
-  - prepares external runtime resources next to the executable on Ubuntu and publishes a Release
+  - builds CPU, NVIDIA GPU, and AMD Windows runtimes from the portable base, installs locked dependencies and models, then creates split 7z archives
+  - collects all three build artifacts on Ubuntu and publishes the GitHub Release
 - `.github/workflows/docker-build-push.yml`
   - builds CPU and GPU Docker images based on `packaging/Dockerfile`
 

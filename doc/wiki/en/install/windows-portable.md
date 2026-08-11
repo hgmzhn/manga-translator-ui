@@ -35,7 +35,7 @@ The portable package is published under the `portable` tag in GitHub Releases:
 4. To update, run `Win-Install-or-Update.bat` again and select `[2] Update`.
 5. To uninstall, delete the whole folder (the new build is fully green and writes no registry entries; legacy Conda uninstall is covered by [Uninstall and data cleanup](./uninstall-and-data-cleanup.md)).
 
-> If installation keeps failing, switch to the [Download Packed Release](./release-download.md): a CPU/GPU archive from GitHub Releases that you extract and run via app.exe — no Python installation required.
+> If installation keeps failing, use a [portable release](./release-download.md): download the CPU, NVIDIA GPU, or AMD volumes from GitHub Releases, extract `.001`, and run `Win-Start.bat` without installing Python.
 
 The startup chain, environment selection, and maintenance-menu behavior of `Win-Install-or-Update.bat` and `Win-Start.bat` are described in the following sections.
 

@@ -35,7 +35,7 @@
   - **AMD 显卡**：支持 ROCm（实验性）
     - 支持的显卡：**仅 RX 7000/9000 系列（RDNA 3/4）**
     - ⚠️ RX 5000/6000 系列请使用 CPU 版本
-    - ⚠️ AMD GPU 仅支持便携安装包方式，不支持打包版本
+    - ⚠️ Windows AMD 可使用实验性 AMD 发布便携包或维护脚本；要求受支持显卡和 AMD 26.2.2 驱动
     - ⚠️ Windows 上 ROCm 支持有限，Linux 下体验更好
 - **存储空间**：10 GB SSD
 
@@ -111,9 +111,9 @@
 
 ---
 
-## 安装方式二：下载打包版本
+## 安装方式二：下载已集成发布包
 
-适合不想安装 Python 的用户，但文件较大（约 3-5 GB）。
+适合希望直接解压运行的 Windows 用户。发布包已经包含便携 Python、对应硬件依赖和模型文件，因此下载体积较大。
 
 ### 1. 访问发布页面
 
@@ -121,65 +121,34 @@
 
 ### 2. 选择版本
 
-下载最新版本的安装包：
+- `manga-translator-cpu-vX.X.X.7z.001`：兼容性最好，不需要独立显卡。
+- `manga-translator-gpu-vX.X.X.7z.001`：NVIDIA CUDA 13.x 版本，需要匹配的显卡驱动。
+- `manga-translator-amd-vX.X.X.7z.001`：实验性 Radeon ROCm 7.2.1 版本，需要受支持显卡和 AMD 26.2.2 驱动。
 
-**CPU 版本**：
-- 文件名：`manga-translator-cpu-vX.X.X.zip` 或分卷文件
-- 适用范围：所有电脑
-- 优点：无需 GPU，兼容性好
-- 缺点：翻译速度较慢
+### 3. 分卷解压
 
-**GPU 版本**：
-- 文件名：`manga-translator-gpu-vX.X.X.zip` 或分卷文件
-- 适用范围：拥有 NVIDIA 显卡的电脑
-- 要求：CUDA 13.x 支持
-- 优点：翻译速度快
-- 缺点：需要兼容的 NVIDIA 显卡
+下载同一版本的全部 `.7z.001`、`.002` 等分卷到同一目录，保持原文件名不变，然后解压 `.001`。缺少任一分卷都会导致解压失败。
 
-### 3. 分卷下载说明
+### 4. 启动
 
-如果文件被分成多个压缩包（如 `part1.rar`, `part2.rar`, `part3.rar`...），请按照以下步骤操作：
+解压后的目录包含：
 
-1. **下载所有分卷**：
-   - 必须下载所有分卷文件到同一文件夹
-   - 例如：`part1.rar`, `part2.rar`, `part3.rar`
+```text
+manga-translator/
+├── Win-Start.bat
+├── Win-Install-or-Update.bat
+├── packaging/
+│   ├── python/         # Python 3.12 和已安装依赖
+│   └── uv.exe
+├── PortableGit/
+├── models/             # 已安装模型文件
+├── config/
+├── dict/
+├── fonts/
+└── desktop_qt_ui/
+```
 
-2. **解压第一个分卷**：
-   - 只需右键点击 `part1.rar`
-   - 选择"解压到..."或"Extract to..."
-   - 其他分卷会自动参与解压
-
-3. **注意事项**：
-   - 所有分卷必须在同一目录
-   - 不要重命名分卷文件
-   - 缺少任何一个分卷都会导致解压失败
-
-### 4. 安装步骤
-
-1. **解压文件**：
-   ```
-   将下载的压缩包解压到任意目录
-   例如：D:\manga-translator\
-   ```
-
-2. **检查文件结构**：
-   ```
-   manga-translator/
-   ├── app.exe          # 主程序
-   ├── _internal/       # PyInstaller/Python 依赖文件
-   ├── fonts/           # 字体文件
-   ├── models/          # AI 模型文件
-   ├── config/          # 可编辑配置
-   ├── dict/            # 词典和提示词
-   ├── doc/             # 文档与图标资源
-   └── desktop_qt_ui/   # UI 静态资源和语言文件
-   ```
-
-3. **运行程序**：
-   - 双击 `app.exe` 启动程序
-   - 首次运行会自动加载模型文件
-
----
+双击 `Win-Start.bat` 启动。需要重新安装依赖或切换版本时运行 `Win-Install-or-Update.bat`。
 
 ## 安装方式三：从源码运行
 
@@ -543,8 +512,7 @@ A: 运行 `./Unix-Install-or-Update.sh`，在 Python 菜单中选择 [2] 更新�
 
 ### 1. 启动程序
 
-双击 `app.exe`，程序会自动：
-- 加载 AI 模型（首次运行需要几分钟）
+双击 `Win-Start.bat`，程序会直接使用包内依赖和模型文件：
 - 初始化翻译引擎
 - 打开主界面
 
@@ -596,12 +564,12 @@ A: 运行 `./Unix-Install-or-Update.sh`，在 Python 菜单中选择 [2] 更新�
 
 ### 程序无法启动
 
-**问题**：双击 `app.exe` 没有反应或闪退
+**问题**：双击 `Win-Start.bat` 没有反应或闪退
 
 **解决方法**：
-1. 检查是否解压了所有文件（不要直接在压缩包中运行）
+1. 检查是否解压了所有分卷（不要直接在压缩包中运行）
 2. 检查杀毒软件是否拦截了程序
-3. 以管理员身份运行 `app.exe`
+3. 运行 `Win-Install-or-Update.bat` 检查依赖
 4. 查看 `logs/error.log` 文件
 
 ### 缺少 DLL 文件

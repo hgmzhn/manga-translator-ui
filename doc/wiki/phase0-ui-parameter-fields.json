@@ -14,25 +14,13 @@
     ]
   },
   "baseline_comparison": {
-    "requested_baseline": 111,
-    "layout_parameter_entries": 111,
-    "visible_parameter_fields": 110,
+    "requested_baseline": 109,
+    "layout_parameter_entries": 109,
+    "visible_parameter_fields": 108,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111)."
+    "difference_explanation": "The layout has 109 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 108 visible settings rows (one below 109)."
   },
   "visible_fields": [
-    {
-      "key": "app.ui_language",
-      "page": "General",
-      "control": "combo",
-      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.ui_language"
-    },
-    {
-      "key": "app.theme",
-      "page": "General",
-      "control": "combo",
-      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.theme"
-    },
     {
       "key": "cli.verbose",
       "page": "General",

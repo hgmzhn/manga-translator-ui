@@ -37,7 +37,7 @@ This document provides detailed installation steps, system requirements, first-r
   - **AMD GPU**: ROCm support is experimental
     - Supported cards: **RX 7000 / 9000 only**
     - ⚠️ RX 5000 / 6000 should use the CPU build
-    - ⚠️ AMD GPU is supported through the portable-installer path, not the packaged release
+    - ⚠️ Windows AMD can use the experimental AMD portable release or the maintenance installer; a supported GPU and AMD driver 26.2.2 are required
     - ⚠️ ROCm support on Windows is limited. Linux usually works better
 - **Storage**: SSD with 10 GB or more free space
 
@@ -113,9 +113,9 @@ The new setup is fully portable: **just delete the whole folder**. For old conda
 
 ---
 
-## Method 2: Packaged Release
+## Method 2: Integrated Portable Release
 
-This is the simplest path if you do not want to install Python, but the download is large.
+This path is for Windows users who want to extract and run immediately. Each release already contains portable Python, the selected hardware dependencies, and model files, so downloads are large.
 
 ### 1. Open the release page
 
@@ -123,58 +123,34 @@ Go to [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases).
 
 ### 2. Choose a build
 
-**CPU build**
+- `manga-translator-cpu-vX.X.X.7z.001`: best compatibility; no dedicated GPU required.
+- `manga-translator-gpu-vX.X.X.7z.001`: NVIDIA CUDA 13.x; requires a matching driver.
+- `manga-translator-amd-vX.X.X.7z.001`: experimental Radeon ROCm 7.2.1; requires a supported GPU and AMD driver 26.2.2.
 
-- Filename pattern: `manga-translator-cpu-vX.X.X.zip` or split archives
-- Works on all machines
-- No dedicated GPU required
-- Slower than GPU builds
+### 3. Extract split volumes
 
-**GPU build**
+Download every `.7z.001`, `.002`, and later volume for the selected build into one directory without renaming them, then extract `.001`. Missing any volume makes extraction fail.
 
-- Filename pattern: `manga-translator-gpu-vX.X.X.zip` or split archives
-- For NVIDIA GPUs
-- Requires CUDA 13.x support
-- Faster, but needs compatible hardware
+### 4. Start
 
-### 3. Split archive notes
+The extracted directory contains:
 
-If the release is split into multiple archive parts such as `part1.rar`, `part2.rar`, `part3.rar`:
+```text
+manga-translator/
+├── Win-Start.bat
+├── Win-Install-or-Update.bat
+├── packaging/
+│   ├── python/         # Python 3.12 and installed dependencies
+│   └── uv.exe
+├── PortableGit/
+├── models/             # Installed model files
+├── config/
+├── dict/
+├── fonts/
+└── desktop_qt_ui/
+```
 
-1. Download **all** parts into the same folder
-2. Extract only the first part
-3. Keep the original filenames unchanged
-4. Missing any part will cause extraction to fail
-
-### 4. Install steps
-
-1. **Extract the archive**
-
-   ```text
-   Extract to any folder, for example:
-   D:\manga-translator\
-   ```
-
-2. **Check the structure**
-
-   ```text
-   manga-translator/
-   ├── app.exe
-   ├── _internal/       # PyInstaller/Python dependencies only
-   ├── fonts/
-   ├── models/
-   ├── config/
-   ├── dict/
-   ├── doc/
-   └── desktop_qt_ui/
-   ```
-
-3. **Run the program**
-
-- Double-click `app.exe`
-- The first run will load model files automatically
-
----
+Double-click `Win-Start.bat`. Run `Win-Install-or-Update.bat` when you need to reinstall dependencies or switch versions.
 
 ## Method 3: Run from Source
 
@@ -490,15 +466,10 @@ This section uses the current Qt UI labels from `en_US.json`.
 
 Start one of these:
 
-- `Win-Start.bat`
-- `app.exe`
-- `python -m desktop_qt_ui.main`
+- `Win-Start.bat` for a Windows portable release
+- `python -m desktop_qt_ui.main` for a source environment
 
-On the first run, the app will:
-
-- Load AI models, which can take several minutes
-- Initialize translation backends
-- Open the main window on `Translation Interface`
+The app uses the bundled dependency environment and local model files, initializes translation backends, then opens the main window on `Translation Interface`.
 
 ### 2. CPU build users: turn off GPU
 
@@ -559,14 +530,14 @@ If you want to fine-tune the result later, open it in `Editor View`.
 
 **Symptoms**
 
-- `app.exe` does nothing
+- `Win-Start.bat` exits with an error
 - The window flashes and closes immediately
 
 **Try this**
 
-1. Make sure the package is fully extracted
-2. Check whether antivirus blocked the executable
-3. Run the launcher as administrator
+1. Make sure every archive volume was fully extracted
+2. Check whether antivirus blocked the package
+3. Run `Win-Install-or-Update.bat` to check dependencies
 4. Check the runtime log under `result/log_*.txt`
 
 ### Missing DLL files

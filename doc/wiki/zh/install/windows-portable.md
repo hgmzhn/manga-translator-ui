@@ -35,7 +35,7 @@ lastUpdated: true
 4. 更新：再次双击 `Win-Install-or-Update.bat`，选择 `[2] 更新`。
 5. 卸载：直接删除整个文件夹即可（新版为完全绿色安装，不写注册表；旧版 Conda 布局的卸载见[卸载与数据清理](./uninstall-and-data-cleanup.md)）。
 
-> 如果安装一直失败，可以改用[下载打包版本](./release-download.md)：GitHub Releases 的 CPU/GPU 压缩包，解压后双击 app.exe 即可使用，无需自行安装 Python。
+> 如果安装一直失败，可以改用[下载发布便携包](./release-download.md)：从 GitHub Releases 下载 CPU、NVIDIA GPU 或 AMD 分卷包，解压 `.001` 后运行 `Win-Start.bat`，无需自行安装 Python。
 
 `Win-Install-or-Update.bat` 与 `Win-Start.bat` 的启动链、环境选择和维护菜单行为见下文各节。
 

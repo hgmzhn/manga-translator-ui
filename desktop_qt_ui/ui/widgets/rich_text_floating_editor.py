@@ -5,7 +5,14 @@ from collections.abc import Iterable
 
 from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QMessageBox,
+    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 from qfluentwidgets import SimpleCardWidget, VerticalSeparator, isDarkTheme, themeColor
 
 from editor.rich_text_editing import (
@@ -23,7 +30,11 @@ from editor.rich_text_editing import (
 from editor.rich_text_editor_state import RichTextEditorState
 from editor.rich_text_presets import RichTextPresetStore, normalize_rich_text_preset
 from services import get_config_service, get_i18n_manager
-from ui.secondary_pages.themed_message_box import themed_critical, themed_question, themed_warning
+from ui.secondary_pages.themed_message_box import (
+    themed_critical,
+    themed_question,
+    themed_warning,
+)
 from ui.secondary_pages.themed_text_input_dialog import themed_get_text
 from utils.font_list import FontComboBox
 
@@ -80,6 +91,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._dragging = False
         self._drag_offset = QPoint()
         self._manually_positioned = False
+        self._selection_drag_active = False
+        self._layout_reposition_deferred = False
 
         self._emit_debounce_timer = QTimer(self)
         self._emit_debounce_timer.setSingleShot(True)
@@ -118,7 +131,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
         layout.addWidget(self.text_box)
 
         self.toolbar = RichTextToolbar(self.main_panel)
-        self.toolbar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.toolbar.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
         layout.addWidget(self.toolbar)
 
         # One card per actual contiguous run; every property is its own row.
@@ -227,14 +242,21 @@ class RichTextFloatingEditor(SimpleCardWidget):
     def _connect_signals(self) -> None:
         self.text_box.document().contentsChange.connect(self._on_text_changed)
         self.text_box.cursorPositionChanged.connect(self._on_cursor_position_changed)
-        self.text_box.focus_gained.connect(self._finish_active_ruby_before_target_change)
+        self.text_box.focus_gained.connect(
+            self._finish_active_ruby_before_target_change
+        )
         self.text_box.focus_lost.connect(self.flush_pending_changes)
+        self.text_box.selection_drag_changed.connect(self._on_selection_drag_changed)
         self.toolbar.toggled.connect(self._on_toolbar_toggled)
         self.run_list.range_selected.connect(self._select_python_range)
         self.run_list.patch_requested.connect(self._apply_style_to_explicit_range)
         self.run_list.remove_requested.connect(self._remove_style_from_explicit_range)
-        self.run_list.save_preset_requested.connect(self._save_preset_from_explicit_range)
-        self.run_list.clear_styles_requested.connect(self._clear_all_styles_from_explicit_range)
+        self.run_list.save_preset_requested.connect(
+            self._save_preset_from_explicit_range
+        )
+        self.run_list.clear_styles_requested.connect(
+            self._clear_all_styles_from_explicit_range
+        )
         self.run_list.ruby_started.connect(self._start_ruby_edit)
         self.run_list.ruby_changed.connect(self._update_ruby_draft)
         self.run_list.ruby_apply_requested.connect(self._apply_ruby_text)
@@ -243,6 +265,20 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self.preset_sidebar.rename_requested.connect(self._rename_rich_text_preset)
         self.preset_sidebar.delete_requested.connect(self._delete_rich_text_preset)
         self.preset_sidebar.collapsed_changed.connect(self._on_preset_sidebar_collapsed)
+
+    def _on_selection_drag_changed(self, active: bool) -> None:
+        """Keep the tool window fixed under the pointer while selecting text."""
+        self._selection_drag_active = bool(active)
+        if self._selection_drag_active or not self._layout_reposition_deferred:
+            return
+
+        self._layout_reposition_deferred = False
+        if self._layout_refresh_timer.isActive():
+            # The queued pass may see an unchanged size because an earlier pass
+            # already resized during the drag. Force its one post-drag signal.
+            self._layout_position_signal_pending = True
+            return
+        self.layout_size_changed.emit(True)
 
     def _auto_rich_text_rules_enabled(self) -> bool:
         """编辑时自动应用富文本规则的开关（与编辑器菜单/配置共用）。"""
@@ -253,7 +289,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
             config = service.get_config()
         except Exception:
             return False
-        return bool(getattr(getattr(config, "app", None), "editor_auto_rich_text_rules", True))
+        return bool(
+            getattr(getattr(config, "app", None), "editor_auto_rich_text_rules", True)
+        )
 
     def _on_text_changed(self, position: int, chars_removed: int, chars_added: int):
         if self._updating or not self._state.has_region:
@@ -265,7 +303,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
             chars_added,
         )
         cursor = self.text_box.textCursor()
-        self._state.set_selection_from_qt(cursor.selectionStart(), cursor.selectionEnd())
+        self._state.set_selection_from_qt(
+            cursor.selectionStart(), cursor.selectionEnd()
+        )
         self._emit_debounce_timer.start()
         self._refresh_inspector()
 
@@ -337,13 +377,18 @@ class RichTextFloatingEditor(SimpleCardWidget):
                 return
         if key == "R":
             if checked:
-                existing = str(style_for_range(self._state.document, start, end).get("rubyText") or "")
+                existing = str(
+                    style_for_range(self._state.document, start, end).get("rubyText")
+                    or ""
+                )
                 self._state.begin_ruby_edit(start, end, existing)
                 self._refresh_inspector()
                 QTimer.singleShot(0, lambda: self.run_list.focus_ruby(start, end))
             else:
                 self._state.ruby_draft = None
-                self._commit_document(remove_ruby_from_range(self._state.document, start, end))
+                self._commit_document(
+                    remove_ruby_from_range(self._state.document, start, end)
+                )
             return
         if key == "T":
             document = (
@@ -423,7 +468,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
         return False
 
     def _confirm(self, title: str, text: str) -> bool:
-        reply = themed_question(self, title, text, default_button=QMessageBox.StandardButton.No)
+        reply = themed_question(
+            self, title, text, default_button=QMessageBox.StandardButton.No
+        )
         return reply == QMessageBox.StandardButton.Yes
 
     def _prompt_preset_name(
@@ -449,18 +496,26 @@ class RichTextFloatingEditor(SimpleCardWidget):
             return None
         name = str(name).strip()
         if not name:
-            themed_warning(self, self._t("Warning"), self._t("Style preset name cannot be empty"))
+            themed_warning(
+                self, self._t("Warning"), self._t("Style preset name cannot be empty")
+            )
             return None
-        if name != skip and name in existing and not self._confirm(
-            self._t("Confirm"),
-            self._t("Style preset '{name}' already exists. Overwrite?", name=name),
+        if (
+            name != skip
+            and name in existing
+            and not self._confirm(
+                self._t("Confirm"),
+                self._t("Style preset '{name}' already exists. Overwrite?", name=name),
+            )
         ):
             return None
         return name
 
     def _preset_payload_for_range(self, start: int, end: int) -> dict | None:
         """Read the live document so in-place spin edits are never stale."""
-        segments = styled_segments_for_range(self._state.document, start, end, expand_empty=False)
+        segments = styled_segments_for_range(
+            self._state.document, start, end, expand_empty=False
+        )
         if len(segments) != 1:
             return None
         segment = segments[0]
@@ -520,7 +575,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
         if name not in current:
             self._refresh_preset_sidebar()
             return
-        if not self._confirm(self._t("Confirm"), self._t("Delete style preset '{name}'?", name=name)):
+        if not self._confirm(
+            self._t("Confirm"), self._t("Delete style preset '{name}'?", name=name)
+        ):
             return
         updated = copy.deepcopy(current)
         del updated[name]
@@ -648,7 +705,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
                 ruby_draft = (
                     draft.target_start,
                     draft.target_end,
-                    self._state.editor_text[draft.target_start:draft.target_end],
+                    self._state.editor_text[draft.target_start : draft.target_end],
                     draft.text,
                 )
             pending_styles = None
@@ -657,7 +714,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
                 pending_styles = (
                     draft.target_start,
                     draft.target_end,
-                    self._state.editor_text[draft.target_start:draft.target_end],
+                    self._state.editor_text[draft.target_start : draft.target_end],
                     set(draft.keys),
                 )
             self.run_list.set_segments(
@@ -691,8 +748,15 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._layout_position_signal_pending = False
         old_size = self.size()
         self._refresh_layout_size()
-        if emit_position or self.size() != old_size:
-            self.layout_size_changed.emit(True)
+        if not emit_position and self.size() == old_size:
+            return
+        if self._selection_drag_active:
+            # Resizing keeps the top-left corner stable. Re-anchoring here would
+            # move the QTextEdit underneath the stationary mouse and make the
+            # selection endpoint jump to a different character.
+            self._layout_reposition_deferred = True
+            return
+        self.layout_size_changed.emit(True)
 
     def _refresh_layout_size(self) -> None:
         """Recalculate the complete floating editor height in one place."""
@@ -751,14 +815,20 @@ class RichTextFloatingEditor(SimpleCardWidget):
     def _is_drag_border(self, pos) -> bool:
         border = self._DRAG_BORDER_WIDTH
         return (
-            pos.x() <= border or pos.y() <= border
-            or pos.x() >= self.width() - border or pos.y() >= self.height() - border
+            pos.x() <= border
+            or pos.y() <= border
+            or pos.x() >= self.width() - border
+            or pos.y() >= self.height() - border
         )
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._is_drag_border(event.position()):
+        if event.button() == Qt.MouseButton.LeftButton and self._is_drag_border(
+            event.position()
+        ):
             self._dragging = True
-            self._drag_offset = event.globalPosition().toPoint() - self.mapToGlobal(QPoint(0, 0))
+            self._drag_offset = event.globalPosition().toPoint() - self.mapToGlobal(
+                QPoint(0, 0)
+            )
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         event.accept()
 
@@ -771,12 +841,17 @@ class RichTextFloatingEditor(SimpleCardWidget):
                 self.move(target_global)
             else:
                 parent = self.parentWidget()
-                self.move(parent.mapFromGlobal(target_global) if parent is not None else target_global)
+                self.move(
+                    parent.mapFromGlobal(target_global)
+                    if parent is not None
+                    else target_global
+                )
             self._manually_positioned = True
         else:
             self.setCursor(
                 Qt.CursorShape.SizeAllCursor
-                if self._is_drag_border(event.position()) else Qt.CursorShape.ArrowCursor
+                if self._is_drag_border(event.position())
+                else Qt.CursorShape.ArrowCursor
             )
         event.accept()
 

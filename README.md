@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="doc/images/主页.png" width="760" alt="Manga Translator UI 主界面">
+<img src="doc/images/主页.png" width="360" style="max-width: 100%; height: auto;" alt="Manga Translator UI 主界面">
 
 
 **一键翻译所有主流漫画图片中的文字** — 检测 → OCR → 翻译 → 消字 → 嵌字，内置完整富文本编辑器
@@ -54,7 +54,7 @@
 
 </div>
 
-### 程序界面
+### 🖥️ 程序界面
 
 <div align="center">
 
@@ -63,13 +63,13 @@
 <td colspan="2" align="center"><b>可视化编辑器</b></td>
 </tr>
 <tr>
-<td colspan="2"><img src="doc/images/QQ20260810-014750.png" width="760" alt="可视化编辑器界面"></td>
+<td colspan="2"><img src="doc/images/QQ20260811-044038.png" width="760" alt="可视化编辑器界面"></td>
 </tr>
 <tr>
 <td colspan="2" align="center"><b>参数设置</b></td>
 </tr>
 <tr>
-<td colspan="2"><img src="doc/images/QQ20260810-013652.png" width="760" alt="参数设置界面"></td>
+<td colspan="2"><img src="doc/images/QQ20260811-044012.png" width="760" alt="参数设置界面"></td>
 </tr>
 </table>
 

@@ -25,7 +25,6 @@ from qfluentwidgets import (
     CaptionLabel,
     CompactDoubleSpinBox,
     CompactSpinBox,
-    FluentIcon as FIF,
     LineEdit,
     PushButton,
     ScrollArea,
@@ -36,6 +35,9 @@ from qfluentwidgets import (
     TransparentToolButton,
     isDarkTheme,
 )
+from qfluentwidgets import (
+    FluentIcon as FIF,
+)
 
 from editor.rich_text_editing import StyledTextSegment
 from services import get_config_service, get_i18n_manager
@@ -43,8 +45,8 @@ from utils.font_list import FontComboBox
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
-from .widget_cleanup import clear_layout
 from .wheel_filter import TopLevelComboBox as ComboBox
+from .widget_cleanup import clear_layout
 
 
 def _tr(key: str, **kwargs) -> str:
@@ -62,8 +64,8 @@ def _current_locale() -> str:
 class StyleSpec:
     """Single source of truth for one style key."""
 
-    name: str            # property-row label (i18n key)
-    hint: str            # toolbar / tooltip text (i18n key)
+    name: str  # property-row label (i18n key)
+    hint: str  # toolbar / tooltip text (i18n key)
     default_patch: dict  # style patch applied when the toolbar button is checked
 
 
@@ -80,19 +82,29 @@ STYLE_SPECS: dict[str, StyleSpec] = {
     "F": StyleSpec("Font", "Font Family", {}),
     "O": StyleSpec("Stroke", "Stroke", {"stroke": {"color": "#ffffff", "width": 0.07}}),
     "G": StyleSpec("Glow", "Glow", {"glow": {"color": "#00ffff", "blur": 0.10}}),
-    "OS": StyleSpec("Outer Stroke", "Outer Stroke", {"outerStroke": {"color": "#000000", "width": 0.20}}),
+    "OS": StyleSpec(
+        "Outer Stroke",
+        "Outer Stroke",
+        {"outerStroke": {"color": "#000000", "width": 0.20}},
+    ),
     "D": StyleSpec("Emphasis", "Emphasis", {"emphasis": True}),
     "FA": StyleSpec("Force Advance", "Force Advance", {"verticalAdvance": "half"}),
     "T": StyleSpec("TCY", "Vertical-in-Horizontal (TCY)", {}),
     "R": StyleSpec("Ruby", "Ruby Text", {}),
-    "Rot": StyleSpec("Rotation", "Rotation", {"transform": {"rotation": 90.0}}),
+    "Rot": StyleSpec("Rotation", "Rotation", {"transform": {"rotation": -90.0}}),
     "K": StyleSpec("Kerning", "Kerning", {"kerning": 0.0}),
     "PK": StyleSpec("Pre Kerning", "Pre Kerning", {"preKerning": 0.0}),
     "LK": StyleSpec("Line Kerning", "Line Kerning", {"lineKerning": 0.0}),
     "NK": StyleSpec("Next Kerning", "Next Kerning", {"nextKerning": 0.0}),
-    "XY": StyleSpec("Offset", "X / Y Offset", {"transform": {"offsetX": 0.0, "offsetY": 0.0}}),
-    "M": StyleSpec("Mirror Horizontal", "Mirror Horizontal", {"transform": {"mirrorX": True}}),
-    "MV": StyleSpec("Mirror Vertical", "Mirror Vertical", {"transform": {"mirrorY": True}}),
+    "XY": StyleSpec(
+        "Offset", "X / Y Offset", {"transform": {"offsetX": 0.0, "offsetY": 0.0}}
+    ),
+    "M": StyleSpec(
+        "Mirror Horizontal", "Mirror Horizontal", {"transform": {"mirrorX": True}}
+    ),
+    "MV": StyleSpec(
+        "Mirror Vertical", "Mirror Vertical", {"transform": {"mirrorY": True}}
+    ),
 }
 
 STYLE_KEYS = tuple(STYLE_SPECS)
@@ -127,17 +139,44 @@ def clear_style_patch(key: str) -> dict:
 class RichTextBodyEdit(TextEdit):
     focus_gained = pyqtSignal()
     focus_lost = pyqtSignal()
+    selection_drag_changed = pyqtSignal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._selection_drag_active = False
+
+    def _set_selection_drag_active(self, active: bool) -> None:
+        active = bool(active)
+        if active == self._selection_drag_active:
+            return
+        self._selection_drag_active = active
+        self.selection_drag_changed.emit(active)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Mark the gesture before QTextEdit moves the cursor: that cursor
+            # change can rebuild the inspector and resize the tool window.
+            self._set_selection_drag_active(True)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._set_selection_drag_active(False)
 
     def focusInEvent(self, event):
         super().focusInEvent(event)
         self.focus_gained.emit()
 
     def focusOutEvent(self, event):
+        self._set_selection_drag_active(False)
         self.focus_lost.emit()
         super().focusOutEvent(event)
 
 
-def _double_spin_box(value: float, minimum: float, maximum: float, decimals: int = 2) -> CompactDoubleSpinBox:
+def _double_spin_box(
+    value: float, minimum: float, maximum: float, decimals: int = 2
+) -> CompactDoubleSpinBox:
     control = CompactDoubleSpinBox()
     control.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
     control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -180,7 +219,9 @@ class RichTextToolbar(QWidget):
             button.setFixedSize(48, 30)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(
-                lambda checked=False, style_key=key: self.toggled.emit(style_key, checked)
+                lambda checked=False, style_key=key: self.toggled.emit(
+                    style_key, checked
+                )
             )
             layout.addWidget(button, index // self._COLUMNS, index % self._COLUMNS)
             self.buttons[key] = button
@@ -315,22 +356,36 @@ class RichTextPresetSidebar(SimpleCardWidget):
         layout.setSpacing(3)
 
         apply_button = PushButton(name, row)
-        apply_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        apply_button.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         set_hover_hint(apply_button, _tr("Choose a saved style to apply"))
         apply_button.setAccessibleName(_tr("Choose a saved style to apply"))
-        apply_button.clicked.connect(lambda _checked=False, preset_name=name: self.preset_applied.emit(preset_name))
+        apply_button.clicked.connect(
+            lambda _checked=False, preset_name=name: self.preset_applied.emit(
+                preset_name
+            )
+        )
 
         rename_button = TransparentToolButton(FIF.EDIT, row)
         rename_button.setFixedSize(24, 28)
         set_hover_hint(rename_button, _tr("Rename preset"))
         rename_button.setAccessibleName(_tr("Rename preset"))
-        rename_button.clicked.connect(lambda _checked=False, preset_name=name: self.rename_requested.emit(preset_name))
+        rename_button.clicked.connect(
+            lambda _checked=False, preset_name=name: self.rename_requested.emit(
+                preset_name
+            )
+        )
 
         delete_button = TransparentToolButton(FIF.DELETE, row)
         delete_button.setFixedSize(24, 28)
         set_hover_hint(delete_button, _tr("Delete preset"))
         delete_button.setAccessibleName(_tr("Delete preset"))
-        delete_button.clicked.connect(lambda _checked=False, preset_name=name: self.delete_requested.emit(preset_name))
+        delete_button.clicked.connect(
+            lambda _checked=False, preset_name=name: self.delete_requested.emit(
+                preset_name
+            )
+        )
 
         layout.addWidget(apply_button, 1)
         layout.addWidget(rename_button)
@@ -341,13 +396,19 @@ class RichTextPresetSidebar(SimpleCardWidget):
         self.set_collapsed(not self._collapsed)
 
     def _refresh_toggle_state(self, *, emit: bool) -> None:
-        self.setFixedWidth(self.COLLAPSED_WIDTH if self._collapsed else self.EXPANDED_WIDTH)
+        self.setFixedWidth(
+            self.COLLAPSED_WIDTH if self._collapsed else self.EXPANDED_WIDTH
+        )
         self.title.setVisible(not self._collapsed)
         self.scroll.setVisible(not self._collapsed)
         self.toggle_button.setIcon(
             FIF.CARE_RIGHT_SOLID if self._collapsed else FIF.CARE_LEFT_SOLID
         )
-        hint = _tr("Expand preset sidebar") if self._collapsed else _tr("Collapse preset sidebar")
+        hint = (
+            _tr("Expand preset sidebar")
+            if self._collapsed
+            else _tr("Collapse preset sidebar")
+        )
         set_hover_hint(self.toggle_button, hint)
         self.toggle_button.setAccessibleName(hint)
         if emit:
@@ -372,9 +433,15 @@ class RubyEditBar(QWidget):
         self.apply_button.setMinimumSize(48, 28)
         layout.addWidget(self.input, 1)
         layout.addWidget(self.apply_button)
-        self.apply_button.clicked.connect(lambda: self.apply_requested.emit(self.input.text()))
-        self.input.returnPressed.connect(lambda: self.apply_requested.emit(self.input.text()))
-        self.input.editingFinished.connect(lambda: self.editing_finished.emit(self.input.text()))
+        self.apply_button.clicked.connect(
+            lambda: self.apply_requested.emit(self.input.text())
+        )
+        self.input.returnPressed.connect(
+            lambda: self.apply_requested.emit(self.input.text())
+        )
+        self.input.editingFinished.connect(
+            lambda: self.editing_finished.emit(self.input.text())
+        )
         self.input.textChanged.connect(self.text_changed)
         self.refresh_ui_texts()
 
@@ -396,7 +463,9 @@ class RubyEditBar(QWidget):
         self.input.selectAll()
 
 
-def style_keys_for_segment(segment: StyledTextSegment, forced_keys: Iterable[str] = ()) -> list[str]:
+def style_keys_for_segment(
+    segment: StyledTextSegment, forced_keys: Iterable[str] = ()
+) -> list[str]:
     style = segment.style or {}
     transform = style.get("transform") or {}
     present = {
@@ -490,8 +559,12 @@ class StyleRunCard(SimpleCardWidget):
         header_layout.setSpacing(5)
 
         self.header = PushButton(segment.text, header_row)
-        self.header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.header.clicked.connect(lambda: self.range_selected.emit(segment.start, segment.end))
+        self.header.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.header.clicked.connect(
+            lambda: self.range_selected.emit(segment.start, segment.end)
+        )
         save_preset = ToolButton(FIF.ADD, header_row)
         save_preset.setFixedSize(28, 30)
         set_hover_hint(save_preset, _tr("Save Style"))
@@ -510,19 +583,24 @@ class StyleRunCard(SimpleCardWidget):
         # in-place spin-box edits).
         target_start, target_end = self._target_range()
         save_preset.clicked.connect(
-            lambda _checked=False, a=target_start, b=target_end:
-            self.save_preset_requested.emit(a, b)
+            lambda _checked=False, a=target_start, b=target_end: (
+                self.save_preset_requested.emit(a, b)
+            )
         )
         clear_styles.clicked.connect(
-            lambda _checked=False, a=target_start, b=target_end:
-            self.clear_styles_requested.emit(a, b)
+            lambda _checked=False, a=target_start, b=target_end: (
+                self.clear_styles_requested.emit(a, b)
+            )
         )
 
         for key in self.keys:
             layout.addWidget(self._create_property_row(key, ruby_draft_text))
 
     def _target_range(self) -> tuple[int, int]:
-        if self.segment.node_type in {"ruby", "tcy"} and self.segment.node_start is not None:
+        if (
+            self.segment.node_type in {"ruby", "tcy"}
+            and self.segment.node_start is not None
+        ):
             return self.segment.node_start, self.segment.node_end or self.segment.end
         return self.segment.start, self.segment.end
 
@@ -531,11 +609,15 @@ class StyleRunCard(SimpleCardWidget):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _apply_control_value(control: QWidget, setter, value, *, preserve_focus: bool = True) -> None:
+    def _apply_control_value(
+        control: QWidget, setter, value, *, preserve_focus: bool = True
+    ) -> None:
         """把新值写进控件；可选择保留正在编辑控件的本地值。"""
         focus_widget = QApplication.focusWidget()
-        if preserve_focus and focus_widget is not None and (
-            focus_widget is control or control.isAncestorOf(focus_widget)
+        if (
+            preserve_focus
+            and focus_widget is not None
+            and (focus_widget is control or control.isAncestorOf(focus_widget))
         ):
             return
         control.blockSignals(True)
@@ -545,7 +627,15 @@ class StyleRunCard(SimpleCardWidget):
             control.blockSignals(False)
 
     def _register_applier(self, key: str, control: QWidget, getter, setter) -> None:
-        def applier(style, transform, segment, draft, _control=control, _getter=getter, _setter=setter):
+        def applier(
+            style,
+            transform,
+            segment,
+            draft,
+            _control=control,
+            _getter=getter,
+            _setter=setter,
+        ):
             # FontComboBox is a discrete selector; unlike live text inputs it
             # has no uncommitted value that should survive a model refresh.
             self._apply_control_value(
@@ -557,7 +647,9 @@ class StyleRunCard(SimpleCardWidget):
 
         self._value_appliers.setdefault(key, []).append(applier)
 
-    def update_values(self, segment: StyledTextSegment, ruby_draft_text: str | None = None) -> None:
+    def update_values(
+        self, segment: StyledTextSegment, ruby_draft_text: str | None = None
+    ) -> None:
         """结构签名相同时就地刷新：把新的样式值写进现有控件，不重建行。
 
         由 StyledRunList.set_segments 在签名比对通过后调用；start/end、
@@ -591,15 +683,18 @@ class StyleRunCard(SimpleCardWidget):
         name_label.setTextColor(QColor(0, 0, 0, 150), QColor(255, 255, 255, 158))
         name_label.setMinimumWidth(84)
         name_label.setMaximumWidth(116)
-        name_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        name_label.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        )
         control = self._create_control(key, ruby_draft_text)
         remove = TransparentToolButton(FIF.CLOSE, row)
         remove.setObjectName("removeStyle")
         remove.setFixedSize(24, 26)
         start, end = self._target_for_key(key)
         remove.clicked.connect(
-            lambda _checked=False, a=start, b=end, style_key=key:
-            self.remove_requested.emit(a, b, style_key)
+            lambda _checked=False, a=start, b=end, style_key=key: (
+                self.remove_requested.emit(a, b, style_key)
+            )
         )
         hint = _tr(STYLE_SPECS[key].hint)
         set_hover_hint(key_label, hint)
@@ -624,11 +719,20 @@ class StyleRunCard(SimpleCardWidget):
             return None
         if key == "I":
             value = style.get("italic", 15.0)
-            control = _double_spin_box(15.0 if isinstance(value, bool) else value, -85.0, 85.0, 1)
-            control.valueChanged.connect(lambda value: self._emit_patch(key, {"italic": float(value)}))
+            control = _double_spin_box(
+                15.0 if isinstance(value, bool) else value, -85.0, 85.0, 1
+            )
+            control.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"italic": float(value)})
+            )
             self._register_applier(
-                key, control,
-                lambda s, *_: 15.0 if isinstance(s.get("italic", 15.0), bool) else float(s.get("italic", 15.0)),
+                key,
+                control,
+                lambda s, *_: (
+                    15.0
+                    if isinstance(s.get("italic", 15.0), bool)
+                    else float(s.get("italic", 15.0))
+                ),
                 control.setValue,
             )
             return control
@@ -638,27 +742,36 @@ class StyleRunCard(SimpleCardWidget):
                 style.get("color", "#E53935"),
                 "saved_colors",
             )
-            control.color_changed.connect(lambda value: self._emit_patch(key, {"color": value}))
+            control.color_changed.connect(
+                lambda value: self._emit_patch(key, {"color": value})
+            )
             self._register_applier(
-                key, control,
+                key,
+                control,
                 lambda s, *_: str(s.get("color", "#E53935")),
                 control.set_color,
             )
             return control
         if key == "S":
             control = _spin_box(int(style.get("fontSize", 24)), 1, 1000)
-            control.valueChanged.connect(lambda value: self._emit_patch(key, {"fontSize": int(value)}))
+            control.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"fontSize": int(value)})
+            )
             self._register_applier(
-                key, control,
+                key,
+                control,
                 lambda s, *_: int(s.get("fontSize", 24)),
                 control.setValue,
             )
             return control
         if key == "%":
             control = _double_spin_box(style.get("scale", 1.2), 0.1, 10.0)
-            control.valueChanged.connect(lambda value: self._emit_patch(key, {"scale": float(value)}))
+            control.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"scale": float(value)})
+            )
             self._register_applier(
-                key, control,
+                key,
+                control,
                 lambda s, *_: float(s.get("scale", 1.2)),
                 control.setValue,
             )
@@ -667,7 +780,9 @@ class StyleRunCard(SimpleCardWidget):
             control = ComboBox(self)
             control.addItem(_tr("Half Advance"), userData="half")
             control.addItem(_tr("Full Advance"), userData="full")
-            control.setCurrentIndex(max(0, control.findData(style.get("verticalAdvance", "half"))))
+            control.setCurrentIndex(
+                max(0, control.findData(style.get("verticalAdvance", "half")))
+            )
             control.currentIndexChanged.connect(
                 lambda _index: self._emit_patch(
                     key,
@@ -687,16 +802,21 @@ class StyleRunCard(SimpleCardWidget):
             control = FontComboBox(self, locale_getter=_current_locale)
             control.setCurrentFamily(str(style.get("fontFamily") or ""))
             control.currentIndexChanged.connect(
-                lambda _index: self._emit_patch(key, {"fontFamily": control.currentFamily()})
+                lambda _index: self._emit_patch(
+                    key, {"fontFamily": control.currentFamily()}
+                )
             )
             self._register_applier(
-                key, control,
+                key,
+                control,
                 lambda s, *_: str(s.get("fontFamily") or ""),
                 lambda value, _control=control: _control.setCurrentFamily(value),
             )
             return control
         if key in _EFFECT_SPECS:
-            source, color_title, color_default, number_key, number_default = _EFFECT_SPECS[key]
+            source, color_title, color_default, number_key, number_default = (
+                _EFFECT_SPECS[key]
+            )
             values = style.get(source) or {}
             color = self._color_picker(
                 color_title,
@@ -705,22 +825,29 @@ class StyleRunCard(SimpleCardWidget):
             )
             number = _double_spin_box(values.get(number_key, number_default), 0.0, 5.0)
             color.color_changed.connect(
-                lambda value, field=source: self._emit_patch(key, {field: {"color": value}})
+                lambda value, field=source: self._emit_patch(
+                    key, {field: {"color": value}}
+                )
             )
             number.valueChanged.connect(
-                lambda value, field=source, part=number_key:
-                self._emit_patch(key, {field: {part: float(value)}})
+                lambda value, field=source, part=number_key: self._emit_patch(
+                    key, {field: {part: float(value)}}
+                )
             )
             self._register_applier(
-                key, color,
-                lambda s, *_, field=source, default=color_default:
-                str((s.get(field) or {}).get("color", default)),
+                key,
+                color,
+                lambda s, *_, field=source, default=color_default: str(
+                    (s.get(field) or {}).get("color", default)
+                ),
                 color.set_color,
             )
             self._register_applier(
-                key, number,
-                lambda s, *_, field=source, part=number_key, default=number_default:
-                float((s.get(field) or {}).get(part, default)),
+                key,
+                number,
+                lambda s, *_, field=source, part=number_key, default=number_default: (
+                    float((s.get(field) or {}).get(part, default))
+                ),
                 number.setValue,
             )
             return self._pair(
@@ -730,15 +857,26 @@ class StyleRunCard(SimpleCardWidget):
                 _tr("Blur" if key == "G" else "Width"),
             )
         if key == "R":
-            text = self.segment.ruby_text if ruby_draft_text is None else ruby_draft_text
+            text = (
+                self.segment.ruby_text if ruby_draft_text is None else ruby_draft_text
+            )
             control = RubyEditBar(text, self)
             start, end = self._target_for_key(key)
-            control.editing_started.connect(lambda: self.ruby_started.emit(start, end, control.text()))
-            control.apply_requested.connect(lambda value: self.ruby_apply_requested.emit(start, end, value))
-            control.editing_finished.connect(lambda value: self.ruby_finished.emit(start, end, value))
-            control.text_changed.connect(lambda value: self.ruby_changed.emit(start, end, value))
+            control.editing_started.connect(
+                lambda: self.ruby_started.emit(start, end, control.text())
+            )
+            control.apply_requested.connect(
+                lambda value: self.ruby_apply_requested.emit(start, end, value)
+            )
+            control.editing_finished.connect(
+                lambda value: self.ruby_finished.emit(start, end, value)
+            )
+            control.text_changed.connect(
+                lambda value: self.ruby_changed.emit(start, end, value)
+            )
             self._register_applier(
-                key, control.input,
+                key,
+                control.input,
                 lambda s, t, seg, draft: str(seg.ruby_text if draft is None else draft),
                 control.input.setText,
             )
@@ -746,51 +884,72 @@ class StyleRunCard(SimpleCardWidget):
         if key == "Rot":
             control = _double_spin_box(transform.get("rotation", 0.0), -180.0, 180.0, 1)
             control.valueChanged.connect(
-                lambda value: self._emit_patch(key, {"transform": {"rotation": float(value)}})
+                lambda value: self._emit_patch(
+                    key, {"transform": {"rotation": float(value)}}
+                )
             )
             self._register_applier(
-                key, control,
+                key,
+                control,
                 lambda s, t, *_: float(t.get("rotation", 0.0)),
                 control.setValue,
             )
             return control
         if key in {"K", "PK", "LK", "NK"}:
-            field = {"K": "kerning", "PK": "preKerning", "LK": "lineKerning", "NK": "nextKerning"}[key]
+            field = {
+                "K": "kerning",
+                "PK": "preKerning",
+                "LK": "lineKerning",
+                "NK": "nextKerning",
+            }[key]
             control = _double_spin_box(style.get(field, 0.0), -5.0, 5.0)
             control.valueChanged.connect(
                 lambda value, name=field: self._emit_patch(key, {name: float(value)})
             )
             self._register_applier(
-                key, control,
+                key,
+                control,
                 lambda s, *_, name=field: float(s.get(name, 0.0)),
                 control.setValue,
             )
             return control
         if key == "XY":
-            x_control = _double_spin_box(transform.get("offsetX", 0.0), -500.0, 500.0, 1)
-            y_control = _double_spin_box(transform.get("offsetY", 0.0), -500.0, 500.0, 1)
+            x_control = _double_spin_box(
+                transform.get("offsetX", 0.0), -500.0, 500.0, 1
+            )
+            y_control = _double_spin_box(
+                transform.get("offsetY", 0.0), -500.0, 500.0, 1
+            )
             x_control.setSuffix("%")
             y_control.setSuffix("%")
             x_control.valueChanged.connect(
-                lambda value: self._emit_patch(key, {"transform": {"offsetX": float(value)}})
+                lambda value: self._emit_patch(
+                    key, {"transform": {"offsetX": float(value)}}
+                )
             )
             y_control.valueChanged.connect(
-                lambda value: self._emit_patch(key, {"transform": {"offsetY": float(value)}})
+                lambda value: self._emit_patch(
+                    key, {"transform": {"offsetY": float(value)}}
+                )
             )
             self._register_applier(
-                key, x_control,
+                key,
+                x_control,
                 lambda s, t, *_: float(t.get("offsetX", 0.0)),
                 x_control.setValue,
             )
             self._register_applier(
-                key, y_control,
+                key,
+                y_control,
                 lambda s, t, *_: float(t.get("offsetY", 0.0)),
                 y_control.setValue,
             )
             return self._pair(x_control, y_control, "X", "Y")
         return None
 
-    def _color_picker(self, title: str, default: str, config_key: str) -> ColorPickerWidget:
+    def _color_picker(
+        self, title: str, default: str, config_key: str
+    ) -> ColorPickerWidget:
         return ColorPickerWidget(
             dialog_title=title,
             default_color=str(default),
@@ -800,7 +959,9 @@ class StyleRunCard(SimpleCardWidget):
             parent=self,
         )
 
-    def _pair(self, left: QWidget, right: QWidget, left_label: str, right_label: str) -> QWidget:
+    def _pair(
+        self, left: QWidget, right: QWidget, left_label: str, right_label: str
+    ) -> QWidget:
         widget = QWidget(self)
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -874,11 +1035,14 @@ class StyledRunList(ScrollArea):
         forced_by_range: dict[tuple[int, int], set[str]] = {}
         draft_text_by_range: dict[tuple[int, int], str] = {}
 
-        def ensure_forced_target(start: int, end: int, text: str, keys: Iterable[str]) -> tuple[int, int]:
+        def ensure_forced_target(
+            start: int, end: int, text: str, keys: Iterable[str]
+        ) -> tuple[int, int]:
             target = (int(start), int(end))
             matching = next(
                 (
-                    segment for segment in values
+                    segment
+                    for segment in values
                     if (segment.node_start, segment.node_end) == target
                     or (segment.start, segment.end) == target
                 ),
@@ -886,7 +1050,8 @@ class StyledRunList(ScrollArea):
             )
             if matching is None:
                 values[:] = [
-                    segment for segment in values
+                    segment
+                    for segment in values
                     if segment.end <= target[0] or segment.start >= target[1]
                 ]
                 values.append(StyledTextSegment(target[0], target[1], text, {}))
@@ -907,10 +1072,15 @@ class StyledRunList(ScrollArea):
         for segment in values:
             node_target = (segment.node_start, segment.node_end)
             own_target = (segment.start, segment.end)
-            matched_target = node_target if node_target in forced_by_range else own_target
+            matched_target = (
+                node_target if node_target in forced_by_range else own_target
+            )
             forced: set[str] = set()
             draft_text = None
-            if matched_target in forced_by_range and matched_target not in forced_assigned:
+            if (
+                matched_target in forced_by_range
+                and matched_target not in forced_assigned
+            ):
                 forced = forced_by_range[matched_target]
                 draft_text = draft_text_by_range.get(matched_target)
                 forced_assigned.add(matched_target)
@@ -924,9 +1094,12 @@ class StyledRunList(ScrollArea):
         # the first click after a ruby ``editingFinished``.
         signature = tuple(
             (
-                segment.start, segment.end, segment.text,
+                segment.start,
+                segment.end,
+                segment.text,
                 segment.node_type,
-                segment.node_start, segment.node_end,
+                segment.node_start,
+                segment.node_end,
                 tuple(style_keys_for_segment(segment, forced)),
             )
             for segment, forced, _draft in plans
@@ -994,7 +1167,9 @@ class StyledRunList(ScrollArea):
             target = 0
         else:
             content_hint = int(self.content_layout.sizeHint().height())
-            target = min(self.MAX_VISIBLE_HEIGHT, max(self.MIN_VISIBLE_HEIGHT, content_hint))
+            target = min(
+                self.MAX_VISIBLE_HEIGHT, max(self.MIN_VISIBLE_HEIGHT, content_hint)
+            )
         if target != self._content_height:
             self._content_height = target
             self.setFixedHeight(target)

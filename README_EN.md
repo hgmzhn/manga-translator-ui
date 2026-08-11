@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="doc/images/主页.png" width="760" alt="Manga Translator UI main window">
+<img src="doc/images/主页.png" width="360" style="max-width: 100%; height: auto;" alt="Manga Translator UI main window">
 
 
 **Translate text in all mainstream manga images with one click** — detect → OCR → translate → inpaint → typeset, with a built-in full rich-text editor
@@ -54,7 +54,7 @@ If this tool has helped you, you can **[support the author](#support-author)**! 
 
 </div>
 
-### Application Interface
+### 🖥️ Application Interface
 
 <div align="center">
 
@@ -63,13 +63,13 @@ If this tool has helped you, you can **[support the author](#support-author)**! 
 <td colspan="2" align="center"><b>Visual Editor</b></td>
 </tr>
 <tr>
-<td colspan="2"><img src="doc/images/QQ20260810-014750.png" width="760" alt="Visual editor interface"></td>
+<td colspan="2"><img src="doc/images/QQ20260811-044038.png" width="760" alt="Visual editor interface"></td>
 </tr>
 <tr>
 <td colspan="2" align="center"><b>Settings</b></td>
 </tr>
 <tr>
-<td colspan="2"><img src="doc/images/QQ20260810-013652.png" width="760" alt="Settings interface"></td>
+<td colspan="2"><img src="doc/images/QQ20260811-044012.png" width="760" alt="Settings interface"></td>
 </tr>
 </table>
 

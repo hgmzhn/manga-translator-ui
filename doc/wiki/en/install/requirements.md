@@ -26,7 +26,7 @@ The current source of dependency truth is `pyproject.toml` and `uv.lock`. `requi
 | NVIDIA GPU | GTX 1060 or newer with 6 GB VRAM; driver must support CUDA 13.x | More VRAM is better |
 | AMD GPU | RX 7000/9000 series only (RDNA 3/4); ROCm is experimental. Use the CPU build on RX 5000/6000 | — |
 
-> AMD GPUs are supported only through the portable installer, not the packaged builds; ROCm support on Windows is limited, and Linux is the better experience.
+> Windows AMD users can choose the experimental AMD portable release or install through the maintenance script. Both require a supported GPU, Radeon ROCm 7.2.1, and AMD driver 26.2.2; this remains an experimental Windows path.
 
 ## Pre-install checks
 

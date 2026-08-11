@@ -331,8 +331,8 @@ python packaging/build_packages.py <version> --build both
 ### CI/CD
 
 - `.github/workflows/build-and-release.yml`
-  - Windows 上构建 CPU/GPU PyInstaller 包
-  - Ubuntu 上把运行时资源整理到可执行文件同级，并发布 Release
+  - Windows 上基于便携基础包构建 CPU、NVIDIA GPU、AMD 三种运行时，安装锁定依赖和模型后生成 7z 分卷
+  - Ubuntu 上汇总三个构建产物，并发布 GitHub Release
 - `.github/workflows/docker-build-push.yml`
   - 基于 `packaging/Dockerfile` 构建 CPU/GPU Docker 镜像
 

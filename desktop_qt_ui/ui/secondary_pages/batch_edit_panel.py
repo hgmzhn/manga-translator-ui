@@ -27,23 +27,25 @@ from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     CheckBox,
-    FluentIcon as FIF,
     PushButton,
     ScrollArea,
     SimpleCardWidget,
     StrongBodyLabel,
     TableView,
 )
+from qfluentwidgets import (
+    FluentIcon as FIF,
+)
 
-from services import get_config_service, get_i18n_manager
 from services import batch_edit_engine as engine
+from services import batch_edit_schemes as scheme_store
+from services import get_config_service, get_i18n_manager
 from services.batch_edit_service import (
     CHANNEL_APPLY,
     CHANNEL_RESTORE,
     CHANNEL_SCAN,
     BatchEditService,
 )
-from services import batch_edit_schemes as scheme_store
 from ui.secondary_pages.batch_edit_condition_widgets import (
     ConditionRow,
     ReplaceTextActionCard,
@@ -83,8 +85,12 @@ class BatchMatchTableModel(QAbstractTableModel):
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else self.COLUMN_COUNT
 
-    def headerData(self, section: int, orientation: Qt.Orientation,
-                   role: int = int(Qt.ItemDataRole.DisplayRole)):
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = int(Qt.ItemDataRole.DisplayRole),
+    ):
         if (
             orientation == Qt.Orientation.Horizontal
             and role == int(Qt.ItemDataRole.DisplayRole)
@@ -115,7 +121,11 @@ class BatchMatchTableModel(QAbstractTableModel):
         item = self._matches[index.row()]
         column = index.column()
         if column == 0 and role == int(Qt.ItemDataRole.CheckStateRole):
-            return Qt.CheckState.Checked if self._is_checked(index.row()) else Qt.CheckState.Unchecked
+            return (
+                Qt.CheckState.Checked
+                if self._is_checked(index.row())
+                else Qt.CheckState.Unchecked
+            )
         if role == int(Qt.ItemDataRole.DisplayRole):
             return self._values(item)[column]
         if role == int(Qt.ItemDataRole.ToolTipRole):
@@ -131,7 +141,9 @@ class BatchMatchTableModel(QAbstractTableModel):
             flags |= Qt.ItemFlag.ItemIsUserCheckable
         return flags
 
-    def setData(self, index: QModelIndex, value, role: int = int(Qt.ItemDataRole.EditRole)) -> bool:
+    def setData(
+        self, index: QModelIndex, value, role: int = int(Qt.ItemDataRole.EditRole)
+    ) -> bool:
         if (
             not index.isValid()
             or index.column() != 0
@@ -182,11 +194,13 @@ class BatchMatchTableModel(QAbstractTableModel):
     def selected_matches(self) -> list:
         if self._checked_default:
             return [
-                item for row, item in enumerate(self._matches)
+                item
+                for row, item in enumerate(self._matches)
                 if row not in self._checked_exceptions
             ]
         return [
-            item for row, item in enumerate(self._matches)
+            item
+            for row, item in enumerate(self._matches)
             if row in self._checked_exceptions
         ]
 
@@ -216,10 +230,18 @@ class BatchEditPanel(CardWidget):
         self._progress = None
 
         self._service = BatchEditService(self)
-        self._service.scan_ready.connect(self._on_scan_ready, Qt.ConnectionType.QueuedConnection)
-        self._service.apply_ready.connect(self._on_apply_ready, Qt.ConnectionType.QueuedConnection)
-        self._service.restore_ready.connect(self._on_restore_ready, Qt.ConnectionType.QueuedConnection)
-        self._service.progress.connect(self._on_progress, Qt.ConnectionType.QueuedConnection)
+        self._service.scan_ready.connect(
+            self._on_scan_ready, Qt.ConnectionType.QueuedConnection
+        )
+        self._service.apply_ready.connect(
+            self._on_apply_ready, Qt.ConnectionType.QueuedConnection
+        )
+        self._service.restore_ready.connect(
+            self._on_restore_ready, Qt.ConnectionType.QueuedConnection
+        )
+        self._service.progress.connect(
+            self._on_progress, Qt.ConnectionType.QueuedConnection
+        )
         self._service.error.connect(self._on_error, Qt.ConnectionType.QueuedConnection)
 
         self._autosave = QTimer(self)
@@ -308,7 +330,9 @@ class BatchEditPanel(CardWidget):
         self.logic_combo.addItem(self._t("Match all"), userData=scheme_store.LOGIC_ALL)
         self.logic_combo.addItem(self._t("Match any"), userData=scheme_store.LOGIC_ANY)
         self.logic_combo.currentIndexChanged.connect(self._mark_dirty)
-        self.add_condition_button = PushButton(self._t("Add condition"), header, FIF.ADD)
+        self.add_condition_button = PushButton(
+            self._t("Add condition"), header, FIF.ADD
+        )
         self.add_condition_button.clicked.connect(lambda: self._add_condition_row())
         header_layout.addWidget(self.conditions_title)
         header_layout.addWidget(self.logic_combo)
@@ -348,10 +372,16 @@ class BatchEditPanel(CardWidget):
         layout.addWidget(self.actions_hint)
 
         locale_getter = self.i18n.get_current_locale if self.i18n else None
-        self.set_fields_card = SetFieldsActionCard(self._t, self.config_service, locale_getter, card)
+        self.set_fields_card = SetFieldsActionCard(
+            self._t, self.config_service, locale_getter, card
+        )
         self.replace_card = ReplaceTextActionCard(self._t, card)
         self.rich_text_card = RichTextActionCard(self._t, card)
-        for action_card in (self.set_fields_card, self.replace_card, self.rich_text_card):
+        for action_card in (
+            self.set_fields_card,
+            self.replace_card,
+            self.rich_text_card,
+        ):
             action_card.changed.connect(self._mark_dirty)
             layout.addWidget(action_card)
         return card
@@ -398,11 +428,17 @@ class BatchEditPanel(CardWidget):
         self.table.verticalHeader().setDefaultSectionSize(32)
         header_view = self.table.horizontalHeader()
         header_view.setSectionResizeMode(self.COL_CHECK, QHeaderView.ResizeMode.Fixed)
-        header_view.setSectionResizeMode(self.COL_IMAGE, QHeaderView.ResizeMode.Interactive)
+        header_view.setSectionResizeMode(
+            self.COL_IMAGE, QHeaderView.ResizeMode.Interactive
+        )
         header_view.setSectionResizeMode(self.COL_REGION, QHeaderView.ResizeMode.Fixed)
-        header_view.setSectionResizeMode(self.COL_BEFORE, QHeaderView.ResizeMode.Stretch)
+        header_view.setSectionResizeMode(
+            self.COL_BEFORE, QHeaderView.ResizeMode.Stretch
+        )
         header_view.setSectionResizeMode(self.COL_AFTER, QHeaderView.ResizeMode.Stretch)
-        header_view.setSectionResizeMode(self.COL_SUMMARY, QHeaderView.ResizeMode.Interactive)
+        header_view.setSectionResizeMode(
+            self.COL_SUMMARY, QHeaderView.ResizeMode.Interactive
+        )
         self.table.setColumnWidth(self.COL_CHECK, 40)
         self.table.setColumnWidth(self.COL_IMAGE, 180)
         self.table.setColumnWidth(self.COL_REGION, 70)
@@ -412,7 +448,9 @@ class BatchEditPanel(CardWidget):
         footer = QWidget(card)
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(0, 0, 0, 0)
-        self.restore_button = PushButton(self._t("Restore from backup"), footer, FIF.HISTORY)
+        self.restore_button = PushButton(
+            self._t("Restore from backup"), footer, FIF.HISTORY
+        )
         self.restore_button.setToolTip(
             self._t("Roll every file in scope back to its .bak, then delete the .bak")
         )
@@ -461,7 +499,10 @@ class BatchEditPanel(CardWidget):
 
     def _update_scope_label(self) -> None:
         self.scope_label.setText(
-            self._t("Scope: {count} translated files from the main file list", count=len(self._json_paths()))
+            self._t(
+                "Scope: {count} translated files from the main file list",
+                count=len(self._json_paths()),
+            )
         )
 
     # ─── 方案 ───
@@ -499,7 +540,9 @@ class BatchEditPanel(CardWidget):
         try:
             scheme = scheme or scheme_store.new_scheme("")
             match = scheme.get("match") or {}
-            logic_index = self.logic_combo.findData(match.get("logic", scheme_store.LOGIC_ALL))
+            logic_index = self.logic_combo.findData(
+                match.get("logic", scheme_store.LOGIC_ALL)
+            )
             self.logic_combo.setCurrentIndex(logic_index if logic_index >= 0 else 0)
 
             for row in list(self._condition_rows):
@@ -510,28 +553,39 @@ class BatchEditPanel(CardWidget):
             by_type: dict[str, list[dict]] = {}
             for action in scheme.get("actions") or []:
                 by_type.setdefault(action["type"], []).append(action)
-            self.set_fields_card.load_actions(by_type.get(scheme_store.ACTION_SET_FIELDS) or [])
-            self.replace_card.load_actions(by_type.get(scheme_store.ACTION_REPLACE_TEXT) or [])
-            self.rich_text_card.load_actions(by_type.get(scheme_store.ACTION_RICH_TEXT) or [])
+            self.set_fields_card.load_actions(
+                by_type.get(scheme_store.ACTION_SET_FIELDS) or []
+            )
+            self.replace_card.load_actions(
+                by_type.get(scheme_store.ACTION_REPLACE_TEXT) or []
+            )
+            self.rich_text_card.load_actions(
+                by_type.get(scheme_store.ACTION_RICH_TEXT) or []
+            )
         finally:
             self._loading = False
         self._clear_matches()
 
     def _collect_scheme(self) -> dict:
-        name = self._schemes[self._current_index]["name"] if 0 <= self._current_index < len(self._schemes) \
+        name = (
+            self._schemes[self._current_index]["name"]
+            if 0 <= self._current_index < len(self._schemes)
             else self._t("New scheme")
+        )
         actions: list[dict] = []
         for card in (self.set_fields_card, self.replace_card, self.rich_text_card):
             actions.extend(card.to_actions())
-        return scheme_store.normalize_scheme({
-            "name": name,
-            "enabled": True,
-            "match": {
-                "logic": self.logic_combo.currentData() or scheme_store.LOGIC_ALL,
-                "conditions": [row.to_dict() for row in self._condition_rows],
-            },
-            "actions": actions,
-        }) or scheme_store.new_scheme(name)
+        return scheme_store.normalize_scheme(
+            {
+                "name": name,
+                "enabled": True,
+                "match": {
+                    "logic": self.logic_combo.currentData() or scheme_store.LOGIC_ALL,
+                    "conditions": [row.to_dict() for row in self._condition_rows],
+                },
+                "actions": actions,
+            }
+        ) or scheme_store.new_scheme(name)
 
     def _mark_dirty(self, *_args) -> None:
         if self._loading:
@@ -579,7 +633,9 @@ class BatchEditPanel(CardWidget):
     def _on_rename_scheme(self) -> None:
         if not (0 <= self._current_index < len(self._schemes)):
             return
-        name = self._ask_name(self._t("Rename"), self._schemes[self._current_index]["name"])
+        name = self._ask_name(
+            self._t("Rename"), self._schemes[self._current_index]["name"]
+        )
         if not name:
             return
         self._schemes[self._current_index]["name"] = name
@@ -590,12 +646,16 @@ class BatchEditPanel(CardWidget):
         if not (0 <= self._current_index < len(self._schemes)):
             return
         name = self._schemes[self._current_index]["name"]
-        if themed_question(
-            self, self._t("Delete"),
-            self._t("Delete scheme '{name}'?", name=name),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        ) != QMessageBox.StandardButton.Yes:
+        if (
+            themed_question(
+                self,
+                self._t("Delete"),
+                self._t("Delete scheme '{name}'?", name=name),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
             return
         self._autosave.stop()
         del self._schemes[self._current_index]
@@ -609,22 +669,34 @@ class BatchEditPanel(CardWidget):
 
     def _ask_name(self, title: str, default: str) -> str:
         text, ok = themed_get_text(
-            self, title, self._t("Scheme name"), default,
-            ok_text=self._t("OK"), cancel_text=self._t("Cancel"),
+            self,
+            title,
+            self._t("Scheme name"),
+            default,
+            ok_text=self._t("OK"),
+            cancel_text=self._t("Cancel"),
         )
         name = str(text or "").strip()
         if not ok or not name:
             return ""
         if any(scheme["name"] == name for scheme in self._schemes):
-            themed_warning(self, title, self._t("A scheme named '{name}' already exists.", name=name))
+            themed_warning(
+                self,
+                title,
+                self._t("A scheme named '{name}' already exists.", name=name),
+            )
             return ""
         return name
 
     # ─── 条件行 ───
 
-    def _add_condition_row(self, condition: Optional[dict] = None, silent: bool = False) -> ConditionRow:
+    def _add_condition_row(
+        self, condition: Optional[dict] = None, silent: bool = False
+    ) -> ConditionRow:
         locale_getter = self.i18n.get_current_locale if self.i18n else None
-        row = ConditionRow(self._t, self.config_service, locale_getter, self._conditions_host)
+        row = ConditionRow(
+            self._t, self.config_service, locale_getter, self._conditions_host
+        )
         if condition:
             row.load(condition)
         row.changed.connect(self._mark_dirty)
@@ -655,37 +727,59 @@ class BatchEditPanel(CardWidget):
         json_paths = self._json_paths()
         if not json_paths:
             themed_warning(
-                self, self._t("Preview matches"),
-                self._t("The main file list has no translated files yet. Add files on the "
-                        "translation page first."),
+                self,
+                self._t("Preview matches"),
+                self._t(
+                    "The main file list has no translated files yet. Add files on the "
+                    "translation page first."
+                ),
             )
             return
         scheme = self._collect_scheme()
         if not scheme.get("actions"):
-            themed_warning(self, self._t("Preview matches"),
-                           self._t("Enable at least one batch action first."))
+            themed_warning(
+                self,
+                self._t("Preview matches"),
+                self._t("Enable at least one batch action first."),
+            )
             return
         self._clear_matches()
-        self._open_progress(self._t("Preview matches"), self._t("Scanning..."), len(json_paths), CHANNEL_SCAN)
+        self._open_progress(
+            self._t("Preview matches"),
+            self._t("Scanning..."),
+            len(json_paths),
+            CHANNEL_SCAN,
+        )
         self._service.request_scan(json_paths, scheme)
 
     def _on_scan_ready(self, _generation: int, result) -> None:
         self._close_progress()
-        self._matches = result.matches if isinstance(result.matches, list) else list(result.matches)
+        self._matches = (
+            result.matches if isinstance(result.matches, list) else list(result.matches)
+        )
         self._table_model.set_matches(self._matches)
-        self.match_summary.setText(self._t(
-            "{regions} regions in {files} files",
-            regions=len(self._matches), files=result.file_count,
-        ))
+        self.match_summary.setText(
+            self._t(
+                "{regions} regions in {files} files",
+                regions=len(self._matches),
+                files=result.file_count,
+            )
+        )
         self.apply_button.setEnabled(bool(self._matches))
-        detail = self._t("Scanned {regions} regions in {files} files",
-                         regions=result.scanned_regions, files=result.scanned_files)
+        detail = self._t(
+            "Scanned {regions} regions in {files} files",
+            regions=result.scanned_regions,
+            files=result.scanned_files,
+        )
         if result.skipped_regions:
-            detail += " / " + self._t("{count} malformed regions skipped", count=result.skipped_regions)
+            detail += " / " + self._t(
+                "{count} malformed regions skipped", count=result.skipped_regions
+            )
         self._set_status(detail)
         if result.errors:
             show_error_dialog(
-                self, self._t("Preview matches"),
+                self,
+                self._t("Preview matches"),
                 self._t("{count} files could not be read", count=len(result.errors)),
                 "\n".join(f"{path}\n    {message}" for path, message in result.errors),
             )
@@ -701,7 +795,7 @@ class BatchEditPanel(CardWidget):
     def _conflicting_editor_image(self, target_paths) -> Optional[str]:
         """编辑器正打开的图是否在本次写回范围内。
 
-        编辑器把 region 常驻内存且没有任何文件监听，切图时的自动导出会用内存里
+        编辑器把 region 常驻内存且没有任何文件监听，切图时的自动保存会用内存里
         的旧数据全量覆盖 —— 不提示的话批量修改会被静默抹掉。
         """
         if self._editor_image_getter is None:
@@ -712,7 +806,9 @@ class BatchEditPanel(CardWidget):
             return None
         if not current:
             return None
-        current_json = self._json_by_file.get(os.path.abspath(current)) or self._json_by_file.get(current)
+        current_json = self._json_by_file.get(
+            os.path.abspath(current)
+        ) or self._json_by_file.get(current)
         if not current_json:
             return None
         return current if os.path.abspath(current_json) in set(target_paths) else None
@@ -720,12 +816,17 @@ class BatchEditPanel(CardWidget):
     def _on_apply(self) -> None:
         selected = self._selected_matches()
         if not selected:
-            themed_warning(self, self._t("Apply to selected"), self._t("Nothing is selected."))
+            themed_warning(
+                self, self._t("Apply to selected"), self._t("Nothing is selected.")
+            )
             return
 
         files = len({item.json_path for item in selected})
-        message = self._t("Apply this scheme to {regions} regions in {files} files?",
-                          regions=len(selected), files=files)
+        message = self._t(
+            "Apply this scheme to {regions} regions in {files} files?",
+            regions=len(selected),
+            files=files,
+        )
         conflict = self._conflicting_editor_image({item.json_path for item in selected})
         if conflict:
             message += "\n\n" + self._t(
@@ -736,15 +837,22 @@ class BatchEditPanel(CardWidget):
         if not self.backup_box.isChecked():
             message += "\n\n" + self._t("Backups are disabled. This cannot be undone.")
 
-        if themed_question(
-            self, self._t("Apply to selected"), message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        ) != QMessageBox.StandardButton.Yes:
+        if (
+            themed_question(
+                self,
+                self._t("Apply to selected"),
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
             return
 
         self._pending_editor_reload = conflict
-        self._open_progress(self._t("Apply to selected"), self._t("Writing..."), files, CHANNEL_APPLY)
+        self._open_progress(
+            self._t("Apply to selected"), self._t("Writing..."), files, CHANNEL_APPLY
+        )
         self._service.request_apply(
             [item.key for item in selected],
             self._collect_scheme(),
@@ -753,8 +861,13 @@ class BatchEditPanel(CardWidget):
 
     def _on_apply_ready(self, _generation: int, report) -> None:
         self._close_progress()
-        self._set_status(self._t("Updated {regions} regions in {files} files",
-                                 regions=report.changed_regions, files=len(report.written_files)))
+        self._set_status(
+            self._t(
+                "Updated {regions} regions in {files} files",
+                regions=report.changed_regions,
+                files=len(report.written_files),
+            )
+        )
         reload_target = getattr(self, "_pending_editor_reload", None)
         self._pending_editor_reload = None
         if reload_target and self._editor_reload is not None:
@@ -764,7 +877,8 @@ class BatchEditPanel(CardWidget):
                 pass
         if report.errors:
             show_error_dialog(
-                self, self._t("Apply to selected"),
+                self,
+                self._t("Apply to selected"),
                 self._t("{count} files could not be written", count=len(report.errors)),
                 "\n".join(f"{path}\n    {message}" for path, message in report.errors),
             )
@@ -779,35 +893,53 @@ class BatchEditPanel(CardWidget):
     def _on_restore(self) -> None:
         paths = self._restorable_paths()
         if not paths:
-            themed_warning(self, self._t("Restore from backup"),
-                           self._t("No backup found for the files in scope."))
+            themed_warning(
+                self,
+                self._t("Restore from backup"),
+                self._t("No backup found for the files in scope."),
+            )
             return
 
-        message = self._t("Roll {files} files back to their backup? The backup is consumed.",
-                          files=len(paths))
+        message = self._t(
+            "Roll {files} files back to their backup? The backup is consumed.",
+            files=len(paths),
+        )
         # 恢复也是全量覆盖，编辑器内存里的旧副本同样会把它盖回去
-        conflict = self._conflicting_editor_image(os.path.abspath(path) for path in paths)
+        conflict = self._conflicting_editor_image(
+            os.path.abspath(path) for path in paths
+        )
         if conflict:
             message += "\n\n" + self._t(
                 "The editor currently has '{name}' open. Its in-memory copy will overwrite these "
                 "changes when you switch images. The editor will be reloaded after applying.",
                 name=os.path.basename(conflict),
             )
-        if themed_question(
-            self, self._t("Restore from backup"), message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        ) != QMessageBox.StandardButton.Yes:
+        if (
+            themed_question(
+                self,
+                self._t("Restore from backup"),
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
             return
 
         self._pending_editor_reload = conflict
-        self._open_progress(self._t("Restore from backup"), self._t("Restoring..."),
-                            len(paths), CHANNEL_RESTORE)
+        self._open_progress(
+            self._t("Restore from backup"),
+            self._t("Restoring..."),
+            len(paths),
+            CHANNEL_RESTORE,
+        )
         self._service.request_restore(paths)
 
     def _on_restore_ready(self, _generation: int, report) -> None:
         self._close_progress()
-        self._set_status(self._t("Restored {files} files", files=len(report.restored_files)))
+        self._set_status(
+            self._t("Restored {files} files", files=len(report.restored_files))
+        )
         reload_target = getattr(self, "_pending_editor_reload", None)
         self._pending_editor_reload = None
         if reload_target and self._editor_reload is not None:
@@ -817,7 +949,8 @@ class BatchEditPanel(CardWidget):
                 pass
         if report.errors:
             show_error_dialog(
-                self, self._t("Restore from backup"),
+                self,
+                self._t("Restore from backup"),
                 self._t("{count} files could not be written", count=len(report.errors)),
                 "\n".join(f"{path}\n    {message}" for path, message in report.errors),
             )
@@ -838,7 +971,9 @@ class BatchEditPanel(CardWidget):
         self._progress = None
         self._set_status(self._t("Cancelled"))
 
-    def _on_progress(self, _channel: str, _generation: int, done: int, total: int) -> None:
+    def _on_progress(
+        self, _channel: str, _generation: int, done: int, total: int
+    ) -> None:
         if self._progress is None:
             return
         self._progress.setRange(0, max(total, 0))
@@ -857,7 +992,9 @@ class BatchEditPanel(CardWidget):
         self._set_status(f"{self._t('Error')}: {message}")
         themed_warning(
             self,
-            self._t("Preview matches") if channel == CHANNEL_SCAN else self._t("Apply to selected"),
+            self._t("Preview matches")
+            if channel == CHANNEL_SCAN
+            else self._t("Apply to selected"),
             message,
         )
 
@@ -879,13 +1016,17 @@ class BatchEditPanel(CardWidget):
         self.logic_combo.setItemText(0, self._t("Match all"))
         self.logic_combo.setItemText(1, self._t("Match any"))
         self.add_condition_button.setText(self._t("Add condition"))
-        self.conditions_hint.setText(self._t("No conditions means every region in scope is selected."))
+        self.conditions_hint.setText(
+            self._t("No conditions means every region in scope is selected.")
+        )
         self.actions_title.setText(self._t("Batch actions"))
-        self.actions_hint.setText(self._t(
-            "Applied in a fixed order: properties, then text replacement, then rich text. "
-            "Changing the text clears styling on the changed range, so styling must come last. "
-            "Within a block, entries run top to bottom."
-        ))
+        self.actions_hint.setText(
+            self._t(
+                "Applied in a fixed order: properties, then text replacement, then rich text. "
+                "Changing the text clears styling on the changed range, so styling must come last. "
+                "Within a block, entries run top to bottom."
+            )
+        )
         self.preview_button.setText(self._t("Preview matches"))
         self.select_all_button.setText(self._t("Select All"))
         self.select_none_button.setText(self._t("Select None"))
@@ -899,7 +1040,11 @@ class BatchEditPanel(CardWidget):
         self._table_model.set_headers(self._table_headers())
         for row in self._condition_rows:
             row.refresh_ui_texts()
-        for action_card in (self.set_fields_card, self.replace_card, self.rich_text_card):
+        for action_card in (
+            self.set_fields_card,
+            self.replace_card,
+            self.rich_text_card,
+        ):
             action_card.refresh_ui_texts()
         self._update_scope_label()
 

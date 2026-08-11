@@ -26,7 +26,7 @@ lastUpdated: true
 | NVIDIA GPU | GTX 1060 及以上、6 GB 显存；驱动需支持 CUDA 13.x | 显存更大更佳 |
 | AMD GPU | 仅 RX 7000/9000 系列（RDNA 3/4），ROCm 为实验性支持；RX 5000/6000 请使用 CPU 版 | — |
 
-> AMD GPU 仅支持便携安装包方式，不支持打包版本；Windows 上 ROCm 支持有限，Linux 下体验更好。
+> Windows AMD 可选择实验性的 AMD 发布便携包或通过维护脚本安装；两者均要求受支持的显卡、Radeon ROCm 7.2.1 和 AMD 26.2.2 驱动。ROCm 在 Windows 上仍属实验性路径。
 
 ## 安装前检查
 
