@@ -204,6 +204,4 @@ def create_settings_page(self) -> QWidget:
             self.settings_tab_title_key_by_route[route_key] = tab_key
             self.tab_frames[tab_key] = form_host
 
-    self._populate_theme_combo()
-    self._populate_language_combo()
     return page

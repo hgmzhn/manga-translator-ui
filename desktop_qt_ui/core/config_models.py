@@ -191,6 +191,7 @@ class AppSection(BaseModel):
     theme: str = "light"  # 主题选项由 theme_registry.py 统一定义
     theme_user_preference: str = "light"
     ui_language: str = "auto"  # UI语言：auto(自动检测), zh_CN, en_US, ja_JP, ko_KR 等
+    auto_check_updates: bool = True  # 启动时是否自动检查新版本
     current_preset: str = "默认"  # 当前使用的预设名称
     editor_snap_enabled: bool = False  # 编辑器文本框移动/旋转时是否启用吸附
     editor_center_scale_enabled: bool = False  # 拖动文本框边/角时是否围绕中心对称缩放

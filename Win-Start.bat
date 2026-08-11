@@ -21,9 +21,16 @@ if exist "%SCRIPT_DIR%\packaging\python\python.exe" (
     goto :env_ready
 )
 
-echo [INFO] Bundled Python not found, trying Conda - legacy layout...
+REM ===== 2) Project virtual environment - source/development installs =====
+if exist "%SCRIPT_DIR%\.venv\Scripts\python.exe" (
+    set "PY=%SCRIPT_DIR%\.venv\Scripts\python.exe"
+    echo [OK] Using project virtual environment: !PY!
+    goto :env_ready
+)
 
-REM ===== 2) Conda fallback - legacy installs =====
+echo [INFO] Bundled Python and project .venv not found, trying Conda - legacy layout...
+
+REM ===== 3) Conda fallback - legacy installs =====
 set "CONDA_ENV_NAME=manga-env"
 set "LEGACY_ENV=%SCRIPT_DIR%\conda_env"
 set "MINICONDA_ROOT="

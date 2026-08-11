@@ -1,5 +1,5 @@
-
-from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
@@ -8,10 +8,21 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, ProgressBar
 
 from services import get_config_service, get_i18n_manager
+from services.update_service import UpdateChecker, UpdateInfo, launch_update_maintenance
 from ui.main_page import dynamic_settings as main_view_dynamic
 from ui.main_page import env_management as main_view_env
 from ui.main_page import layout as layout_parts
 from ui.main_page import runtime as main_view_runtime
+from ui.main_page.pages.about_page import (
+    _on_about_branch_changed,
+    _on_about_mirror_changed,
+    _open_about_directory,
+    _open_about_url,
+    create_about_page,
+    refresh_about_page_texts,
+    set_about_update_status,
+    show_update_dialog,
+)
 from ui.main_page.pages.batch_edit_page import create_batch_edit_page
 from ui.main_page.pages.env_page import create_env_page
 from ui.main_page.pages.prompt_page import create_prompt_page
@@ -52,12 +63,16 @@ class MainView(QObject):
 
     _create_translation_page = create_translation_page
     _create_settings_page = create_settings_page
+    _create_about_page = create_about_page
+    _refresh_about_page_texts = refresh_about_page_texts
+    _set_about_update_status = set_about_update_status
+    _show_update_dialog = show_update_dialog
+    _open_about_directory = _open_about_directory
+    _open_about_url = _open_about_url
+    _on_about_mirror_changed = _on_about_mirror_changed
+    _on_about_branch_changed = _on_about_branch_changed
     _create_env_page = create_env_page
     _create_prompt_page = create_prompt_page
-    _populate_theme_combo = layout_parts.populate_theme_combo
-    _populate_language_combo = layout_parts.populate_language_combo
-    _on_theme_combo_changed = layout_parts.on_theme_combo_changed
-    _on_language_combo_changed = layout_parts.on_language_combo_changed
     _refresh_prompt_manager = layout_parts.refresh_prompt_manager
     _apply_selected_prompt = layout_parts.apply_selected_prompt
     _on_prompt_selection_changed = layout_parts.on_prompt_selection_changed
@@ -120,14 +135,19 @@ class MainView(QObject):
         self.app_version = get_app_version()
         self.env_widgets = {}
         self._active_api_tasks = {}
+        self._update_check_in_progress = False
+        self._latest_update_info: UpdateInfo | None = None
+        self._update_branch = "main"
+        self.update_checker = UpdateChecker(self)
+        self.update_checker.check_finished.connect(self._on_update_check_finished)
+        self.update_checker.check_failed.connect(self._on_update_check_failed)
+        self.update_checker.checking_changed.connect(self._on_update_checking_changed)
         self.api_task_finished.connect(self._on_api_task_future_finished)
-
-        self.env_var_changed.connect(self.controller.save_env_var)
-        self._navigation_switcher = None
 
         self.translation_page = self._create_translation_page()
         self.translation_interface = self._create_translation_interface(self.translation_page)
         self.settings_page = self._create_settings_page()
+        self.about_page = self._create_about_page()
         self.env_page = self._create_env_page()
         self.prompt_page = self._create_prompt_page()
         self.replacements_page = self._create_replacements_page()
@@ -136,13 +156,13 @@ class MainView(QObject):
         self.page_widgets = {
             "translation": self.translation_interface,
             "settings": self.settings_page,
+            "about": self.about_page,
             "env": self.env_page,
             "prompts": self.prompt_page,
             "replacements": self.replacements_page,
             "rich_text_rules": self.rich_text_rules_page,
             "batch_edit": self.batch_edit_page,
         }
-
         # 不在这里调用 _create_dynamic_settings，等待 app_logic.initialize 发送 config_loaded 信号
         # self._create_dynamic_settings()  # 删除这行，避免重复创建
 
@@ -151,7 +171,7 @@ class MainView(QObject):
         self.controller.state_manager.current_config_changed.connect(self.update_start_button_text)
         QTimer.singleShot(100, self.update_start_button_text) # Set initial text
         QTimer.singleShot(100, self._sync_workflow_mode_from_config) # Sync workflow mode dropdown
-        self.apply_fluent_theme()
+        QTimer.singleShot(1500, self._maybe_auto_check_updates)
 
     def _create_translation_interface(self, translation_page: QWidget) -> QWidget:
         interface = QWidget()
@@ -194,6 +214,63 @@ class MainView(QObject):
         if self.i18n:
             return self.i18n.translate(key, **kwargs)
         return key
+
+    def _maybe_auto_check_updates(self):
+        if bool(self.config_service.get_config().app.auto_check_updates):
+            self.check_for_updates(auto=True)
+
+    def check_for_updates(self, auto: bool = False):
+        if self._update_check_in_progress:
+            return
+        self._update_check_in_progress = True
+        self._update_check_auto = bool(auto)
+        self._set_about_update_status("Checking for Updates Status")
+        self._refresh_about_page_texts()
+        self.update_checker.check(self.app_version, branch=self._update_branch)
+
+    def _on_update_checking_changed(self, checking: bool):
+        self._update_check_in_progress = bool(checking)
+        if hasattr(self, "about_check_updates_button"):
+            self.about_check_updates_button.setEnabled(not checking)
+        self._refresh_about_page_texts()
+
+    def _on_update_check_finished(self, info: UpdateInfo):
+        self._latest_update_info = info
+        if info.is_update_available:
+            if info.commits_behind > 0:
+                self._set_about_update_status(
+                    "Commit Update Available Status", count=info.commits_behind
+                )
+            else:
+                self._set_about_update_status(
+                    "Update Available Status", version=info.latest_version
+                )
+            if hasattr(self, "about_open_release_button"):
+                self.about_open_release_button.setVisible(True)
+            self._show_update_dialog(info)
+        else:
+            self._set_about_update_status(
+                "Already Latest Version", version=info.current_version
+            )
+
+    def _on_update_check_failed(self, message: str):
+        self._set_about_update_status("Update Check Failed", error=message)
+
+    def open_latest_release(self):
+        if self._latest_update_info:
+            QDesktopServices.openUrl(QUrl(self._latest_update_info.release_url))
+
+    def start_update_maintenance(self) -> bool:
+        """Launch the existing packaging/launch.py maintenance workflow."""
+        started = launch_update_maintenance(self._update_branch)
+        if started:
+            self._set_about_update_status("Update Process Started")
+            parent = self._dialog_parent()
+            if parent is not None:
+                QTimer.singleShot(300, parent.close)
+        else:
+            self._set_about_update_status("Update Process Failed")
+        return started
 
     def _dialog_parent(self) -> QWidget | None:
         """返回可用作对话框/控件父级的 QWidget。
@@ -245,6 +322,7 @@ class MainView(QObject):
         routes = getattr(self, "settings_tab_routes", [])
         for route_key, title_key in zip(routes, tab_titles):
             self.settings_tabs.setItemText(route_key, self._t(title_key))
+
 
     def _translated_setting_label(self, full_key: str) -> str:
         key = str(full_key or "").rsplit(".", 1)[-1]
@@ -300,13 +378,10 @@ class MainView(QObject):
 
     def refresh_ui_texts(self):
         """刷新所有UI文本（用于语言切换）。"""
+        if hasattr(self, "about_page"):
+            self._refresh_about_page_texts()
         self.refresh_tab_titles()
 
-        if hasattr(self, "theme_label"):
-            self.theme_label.setText(self._t("Theme:"))
-        if hasattr(self, "language_label"):
-            self.language_label.setText(self._t("Language:"))
-        self._populate_theme_combo()
 
         if hasattr(self, "translation_page_title"):
             self.translation_page_title.setText(self._t("Translation Interface"))

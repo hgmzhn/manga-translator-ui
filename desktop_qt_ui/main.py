@@ -248,8 +248,8 @@ def main():
     
     # 1. 创建 QApplication 实例
     app = QApplication(sys.argv)
-    app.setApplicationName("Manga Translator")
-    app.setOrganizationName("Manga Translator")
+    app.setApplicationName("Manga Translator UI")
+    app.setOrganizationName("Manga Translator UI")
     app_version = get_app_version()
     if app_version != "unknown":
         app.setApplicationVersion(app_version)

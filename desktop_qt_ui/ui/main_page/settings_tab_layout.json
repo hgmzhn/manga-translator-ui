@@ -8,8 +8,6 @@
       "title": "General",
       "marked": false,
       "items": [
-        "app.ui_language",
-        "app.theme",
         "cli.verbose",
         "cli.ignore_errors",
         "cli.use_gpu",

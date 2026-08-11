@@ -22,8 +22,8 @@ from qfluentwidgets import PushButton as QPushButton
 
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
-from ui.widgets.widget_cleanup import clear_layout
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
+from ui.widgets.widget_cleanup import clear_layout
 from utils.font_list import FontComboBox, set_system_fonts_enabled
 
 
@@ -172,10 +172,6 @@ def _add_api_section_panel(
 
 
 _CACHED_SETTINGS_WIDGET_ATTRS = (
-    "theme_combo",
-    "language_combo",
-    "theme_label",
-    "language_label",
     "translator_combo",
     "upscale_ratio_combo",
 )
@@ -243,6 +239,7 @@ def _clear_layout_widgets(layout, *, restore_stretch: bool = False):
 
 def _env_group_structure_signature(active_api_groups: dict, current_env_values: dict) -> str:
     from manga_translator.api_key_rotation import get_rotation_slot_count
+
     from ui.main_page.env_management import API_ROTATION_UI_MAX_SLOTS
 
     slot_counts = {}
@@ -559,7 +556,7 @@ def _setting_control_kind(full_key: str, key: str, value, options, display_map) 
         return None
     if full_key in _FIXED_PROMPT_KEYS:
         return "prompt-button"
-    if full_key in {"app.theme", "app.ui_language", "upscale.upscale_ratio"}:
+    if full_key == "upscale.upscale_ratio":
         return "combo"
     if full_key == "filter_text_enabled":
         return "toggle-action"
@@ -621,18 +618,13 @@ def _sync_setting_widget_values(self, config: dict) -> bool:
                 elif isinstance(widget, QComboBox):
                     if full_key == "upscale.upscale_ratio":
                         continue
-                    if full_key in {"app.theme", "app.ui_language"}:
-                        index = widget.findData(value)
-                        if index >= 0:
-                            widget.setCurrentIndex(index)
+                    target = display_map.get(value, value) if display_map else value
+                    if full_key == "translator.high_quality_prompt_path":
+                        target = os.path.basename(value) if value else ""
+                    if target is None and widget.count():
+                        widget.setCurrentIndex(0)
                     else:
-                        target = display_map.get(value, value) if display_map else value
-                        if full_key == "translator.high_quality_prompt_path":
-                            target = os.path.basename(value) if value else ""
-                        if target is None and widget.count():
-                            widget.setCurrentIndex(0)
-                        else:
-                            widget.setCurrentText(str(target or ""))
+                        widget.setCurrentText(str(target or ""))
                 elif hasattr(widget, "setText"):
                     widget.setText("" if value is None else str(value))
             finally:
@@ -1122,11 +1114,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             continue
 
         label_text = key
-        if full_key == "app.theme":
-            label_text = self._t("Theme:").rstrip(":：")
-        elif full_key == "app.ui_language":
-            label_text = self._t("Language:").rstrip(":：")
-        elif full_key == "app.unload_models_after_translation":
+        if full_key == "app.unload_models_after_translation":
             translated = self._t("label_unload_models_after_translation")
             label_text = translated if translated != "label_unload_models_after_translation" else "Unload Models After Translation"
         if self.controller.get_display_mapping('labels') and self.controller.get_display_mapping('labels').get(key):
@@ -1136,19 +1124,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         options = self.controller.get_options_for_key(key)
         display_map = self.controller.get_display_mapping(key)
 
-        if full_key == "app.theme":
-            widget = QComboBox()
-            self.theme_combo = widget
-            widget.currentIndexChanged.connect(self._on_theme_combo_changed)
-            self._populate_theme_combo()
-
-        elif full_key == "app.ui_language":
-            widget = QComboBox()
-            self.language_combo = widget
-            widget.currentIndexChanged.connect(self._on_language_combo_changed)
-            self._populate_language_combo()
-
-        elif full_key == "filter_text_enabled":
+        if full_key == "filter_text_enabled":
             # 特殊处理：过滤列表开关 + 编辑过滤列表按钮
             checkbox = ToggleSwitch(checked=value)
             checkbox.checkedChanged.connect(lambda checked, k=full_key: self._on_setting_changed(bool(checked), k, None))
@@ -1346,15 +1322,10 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
                 else:
                     widget.setPlaceholderText("Read the text and return only the recognized text.")
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
-        
         if widget is not None:
             row = _ClickableRow(self, full_key, label_text, widget)
             value_widget = widget[0] if isinstance(widget, (list, tuple)) else widget
             self._settings_value_bindings[full_key] = (value_widget, dict(display_map or {}))
-            if full_key == "app.theme":
-                self.theme_label = row
-            elif full_key == "app.ui_language":
-                self.language_label = row
             _append_settings_row(parent_layout, row)
             added_rows += 1
 

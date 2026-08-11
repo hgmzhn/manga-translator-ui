@@ -29,6 +29,7 @@ class MainWindow(FluentWindow):
     负责承载所有UI组件、侧边导航、页面切换等。
     侧边栏默认收起为窄图标条，点左上角汉堡按钮可展开（参照 AiNiee 的配置）。
     """
+
     def __init__(self):
         super().__init__()
 
@@ -36,15 +37,18 @@ class MainWindow(FluentWindow):
         self.i18n = get_i18n_manager()
         self.app_version = get_app_version()
         self._qt_translator = None
-        self._apply_qt_translator(self.i18n.get_current_locale() if self.i18n else "en_US")
-        
+        self._apply_qt_translator(
+            self.i18n.get_current_locale() if self.i18n else "en_US"
+        )
+
         self._update_window_title()
-        self.resize(1300, 800) # 设置默认窗口大小（增加20像素）
-        self.setMinimumSize(800, 600) # 设置最小窗口大小
+        self.resize(1300, 800)  # 设置默认窗口大小（增加20像素）
+        self.setMinimumSize(800, 600)  # 设置最小窗口大小
         # 不设置最大大小，允许无限制调整
-        
+
         # 窗口居中显示
         from PyQt6.QtGui import QScreen
+
         screen = QScreen.availableGeometry(self.screen())
         x = (screen.width() - self.width()) // 2
         y = (screen.height() - self.height()) // 2
@@ -58,9 +62,9 @@ class MainWindow(FluentWindow):
         # 顶部标题栏压窄：默认 48 → 36，内容区上边距同步收紧
         self.titleBar.setFixedHeight(36)
         self.widgetLayout.setContentsMargins(0, 36, 0, 0)
-        
+
         # 窗口图标已在 main.py 中设置，这里不需要重复设置
-        
+
         # 当前应用的主题（用于逻辑判断）
         self.current_applied_theme = "light"
 
@@ -70,7 +74,7 @@ class MainWindow(FluentWindow):
         self._connect_signals()
 
         self.app_logic.initialize()
-        
+
         # 检查是否需要启动系统主题监听
         config = self.config_service.get_config()
         if config.app.theme == "system":
@@ -78,7 +82,7 @@ class MainWindow(FluentWindow):
             self.theme_check_timer = QTimer(self)
             self.theme_check_timer.timeout.connect(self._check_system_theme_change)
             self.theme_check_timer.start(5000)  # 每5秒检查一次
-    
+
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
         if self.i18n:
@@ -86,8 +90,8 @@ class MainWindow(FluentWindow):
         return key
 
     def _update_window_title(self):
-        """更新窗口标题，保持标题与版本号同步。"""
-        self.setWindowTitle(format_app_title(self._t("Manga Translator"), self.app_version))
+        """Keep the product name stable across interface languages."""
+        self.setWindowTitle(format_app_title("Manga Translator UI", self.app_version))
 
     def _setup_logic_and_models(self):
         """实例化所有逻辑和数据模型"""
@@ -104,6 +108,7 @@ class MainWindow(FluentWindow):
                 initial_theme = config.app.theme_user_preference
 
         from ui.theme import apply_application_theme
+
         apply_application_theme(initial_theme, QApplication.instance())
         self.current_applied_theme = initial_theme
 
@@ -115,7 +120,7 @@ class MainWindow(FluentWindow):
         self._main_catalog_generation = 0
         self._main_catalog_loading = False
         self._pending_editor_open = None
-        ServiceManager.register_service('app_logic', self.app_logic)
+        ServiceManager.register_service("app_logic", self.app_logic)
         self.editor_model = None
         self.editor_controller = None
         self.editor_logic = None
@@ -139,13 +144,44 @@ class MainWindow(FluentWindow):
 
     def _register_main_interfaces(self):
         pages = [
-            ("translation", self.main_view.translation_interface, FIF.HOME, self._t("Translation Interface")),
-            ("settings", self.main_view.settings_page, FIF.SETTING, self._t("Settings")),
+            (
+                "translation",
+                self.main_view.translation_interface,
+                FIF.HOME,
+                self._t("Translation Interface"),
+            ),
+            (
+                "settings",
+                self.main_view.settings_page,
+                FIF.SETTING,
+                self._t("Settings"),
+            ),
             ("env", self.main_view.env_page, FIF.CONNECT, self._t("API Management")),
-            ("prompts", self.main_view.prompt_page, FIF.DOCUMENT, self._t("Prompt Management")),
-            ("replacements", self.main_view.replacements_page, FIF.EDIT, self._t("Replacement Rules")),
-            ("rich_text_rules", self.main_view.rich_text_rules_page, FIF.FONT, self._t("Rich Text Rules")),
-            ("batch_edit", self.main_view.batch_edit_page, FIF.LIBRARY, self._t("Batch Management")),
+            (
+                "prompts",
+                self.main_view.prompt_page,
+                FIF.DOCUMENT,
+                self._t("Prompt Management"),
+            ),
+            (
+                "replacements",
+                self.main_view.replacements_page,
+                FIF.EDIT,
+                self._t("Replacement Rules"),
+            ),
+            (
+                "rich_text_rules",
+                self.main_view.rich_text_rules_page,
+                FIF.FONT,
+                self._t("Rich Text Rules"),
+            ),
+            (
+                "batch_edit",
+                self.main_view.batch_edit_page,
+                FIF.LIBRARY,
+                self._t("Batch Management"),
+            ),
+            ("about", self.main_view.about_page, FIF.INFO, "About Application"),
         ]
         for key, page, icon, text in pages:
             page.setObjectName(f"main_{key}_page")
@@ -156,7 +192,11 @@ class MainWindow(FluentWindow):
         self.switchTo(self.main_view.translation_interface)
 
     def _switch_main_page(self, page_key: str):
-        page = self.main_view.page_widgets.get(page_key) if hasattr(self.main_view, "page_widgets") else None
+        page = (
+            self.main_view.page_widgets.get(page_key)
+            if hasattr(self.main_view, "page_widgets")
+            else None
+        )
         if page is not None:
             self.switchTo(page)
             self._on_main_page_activated(page_key)
@@ -168,12 +208,14 @@ class MainWindow(FluentWindow):
             self._on_main_page_activated(page_key)
 
     def _on_main_page_activated(self, page_key: str):
-        if page_key == "settings" and not getattr(self.main_view, "_settings_ui_ready", False):
+        if page_key == "settings" and not getattr(
+            self.main_view, "_settings_ui_ready", False
+        ):
             self.main_view.set_parameters(self.config_service.get_config().model_dump())
+        elif page_key == "about":
+            self.main_view._refresh_about_page_texts()
         elif page_key == "env":
             self.main_view._refresh_env_api_groups()
-        elif page_key == "prompts":
-            self.main_view._refresh_prompt_manager()
         elif page_key == "replacements":
             if hasattr(self.main_view, "replacements_editor_panel"):
                 self.main_view.replacements_editor_panel.refresh()
@@ -182,7 +224,9 @@ class MainWindow(FluentWindow):
                 self.main_view.rich_text_rules_editor_panel.refresh()
         elif page_key == "batch_edit":
             if hasattr(self.main_view, "batch_edit_panel"):
-                self.main_view.batch_edit_panel.set_catalog_snapshot(self._file_catalog_snapshot)
+                self.main_view.batch_edit_panel.set_catalog_snapshot(
+                    self._file_catalog_snapshot
+                )
                 self.main_view.batch_edit_panel.refresh()
 
     def _ensure_editor_initialized(self):
@@ -216,14 +260,16 @@ class MainWindow(FluentWindow):
             position=NavigationItemPosition.BOTTOM,
         )
 
-        self.app_logic.config_loaded.connect(self.editor_view.property_panel.repopulate_options)
+        self.app_logic.config_loaded.connect(
+            self.editor_view.property_panel.repopulate_options
+        )
 
         self.editor_view._apply_editor_style(self.current_applied_theme)
         self.editor_view.property_panel.repopulate_options()
 
         if hasattr(self.main_view, "batch_edit_panel"):
             # 编辑器把 region 常驻内存且不监听文件变化，批量写回后必须让它重新
-            # 加载，否则切图时的自动导出会用旧数据覆盖掉刚写进去的修改。
+            # 加载，否则切图时的自动保存会用旧数据覆盖掉刚写进去的修改。
             self.main_view.batch_edit_panel.set_editor_context(
                 self.editor_model.get_source_image_path,
                 self.editor_controller.load_image_and_regions,
@@ -245,21 +291,22 @@ class MainWindow(FluentWindow):
     def _load_theme(self):
         """根据配置初始化 qfluentwidgets 主题。"""
         from services import get_config_service
+
         config_service = get_config_service()
         config = config_service.get_config()
-        
+
         # 获取主题设置，Pydantic会自动使用默认值'light'
         theme = config.app.theme
         self._apply_theme(theme)
-    
+
     def _apply_theme(self, theme: str):
         """应用指定的主题"""
-        
+
         # 处理系统主题逻辑：如果是 'system'，则解析为实际主题
-        if theme == 'system':
+        if theme == "system":
             sys_theme = self._detect_windows_theme()
-            if sys_theme == 'dark':
-                self._apply_theme('dark')
+            if sys_theme == "dark":
+                self._apply_theme("dark")
             else:
                 config = self.config_service.get_config()
                 # 使用用户偏好（所有非 dark 主题）
@@ -268,39 +315,43 @@ class MainWindow(FluentWindow):
 
         # 记录当前实际应用的主题
         self.current_applied_theme = theme
-        
+
         app = QApplication.instance()
         from ui.theme import apply_application_theme
 
         apply_application_theme(theme, app)
 
         # 通知各视图刷新局部 Fluent 主题状态（MainView 是纯逻辑对象，无需 update）
-        if hasattr(self, 'main_view') and self.main_view:
+        if hasattr(self, "main_view") and self.main_view:
             self.main_view.apply_fluent_theme(theme)
-        if hasattr(self, 'editor_view') and self.editor_view:
+        if hasattr(self, "editor_view") and self.editor_view:
             self.editor_view._apply_editor_style(theme)
             self.editor_view.update()
         if hasattr(self, "stacked_widget") and self.stacked_widget:
             self.stacked_widget.update()
         self.update()
         # 延迟到事件循环下一拍统一应用一次原生标题栏主题，避免同一次切换重复设置
-        QTimer.singleShot(0, lambda active_theme=theme: self._apply_native_title_bar_theme(active_theme))
+        QTimer.singleShot(
+            0,
+            lambda active_theme=theme: self._apply_native_title_bar_theme(active_theme),
+        )
 
     def _apply_native_title_bar_theme(self, theme: str):
         """同步 Windows 原生标题栏颜色，避免深色内容区配浅色系统标题栏。"""
         from ui.theme import apply_native_title_bar_theme
 
         apply_native_title_bar_theme(self, theme, logger=self.logger)
-    
+
     def _detect_windows_theme(self) -> str:
         """检测Windows系统主题（深色/浅色）
         返回: 'dark' 或 'light'
         """
         try:
             import winreg
+
             key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
             )
             value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
             winreg.CloseKey(key)
@@ -315,14 +366,16 @@ class MainWindow(FluentWindow):
         config = self.config_service.get_config()
         if config.app.theme != "system":
             # 如果用户切换到其他主题，停止监听
-            if hasattr(self, 'theme_check_timer'):
+            if hasattr(self, "theme_check_timer"):
                 self.theme_check_timer.stop()
             return
-        
+
         current_system_theme = self._detect_windows_theme()
         if current_system_theme != self.last_system_theme:
-            self.logger.info(f"系统主题变化: {self.last_system_theme} -> {current_system_theme}")
-            
+            self.logger.info(
+                f"系统主题变化: {self.last_system_theme} -> {current_system_theme}"
+            )
+
             if current_system_theme == "dark":
                 # 系统切换到深色
                 if self.current_applied_theme != "dark":
@@ -338,43 +391,44 @@ class MainWindow(FluentWindow):
                 user_pref = config.app.theme_user_preference
                 self._apply_theme(user_pref)
                 self.logger.info(f"恢复用户偏好: {user_pref}")
-            
+
             self.last_system_theme = current_system_theme
 
     def _change_theme(self, theme: str):
         """切换主题并保存到配置"""
         from services import get_config_service
+
         config_service = get_config_service()
         config = config_service.get_config()
-        
+
         if theme == "system":
             # 应用主题（逻辑主题）
             self._apply_theme("system")
-            
+
             # 启动监听
             self.last_system_theme = self._detect_windows_theme()
-            if not hasattr(self, 'theme_check_timer'):
+            if not hasattr(self, "theme_check_timer"):
                 self.theme_check_timer = QTimer(self)
                 self.theme_check_timer.timeout.connect(self._check_system_theme_change)
-            
+
             if not self.theme_check_timer.isActive():
                 self.theme_check_timer.start(5000)
         else:
             # 停止监听
-            if hasattr(self, 'theme_check_timer'):
+            if hasattr(self, "theme_check_timer"):
                 self.theme_check_timer.stop()
-                
+
             # 应用主题
             self._apply_theme(theme)
-            
+
             # 保存所有非 dark 主题，供“跟随系统”在浅色系统下恢复。
             if theme != "dark":
                 config.app.theme_user_preference = theme
-        
+
         # 保存到配置
         config.app.theme = theme
         config_service.set_config(config)
-        
+
         # 保存到文件
         config_service.save_config_file()
 
@@ -384,10 +438,18 @@ class MainWindow(FluentWindow):
         self.app_logic.file_sources_changed.connect(self._request_main_file_snapshot)
         self.app_logic.file_removed.connect(self._on_file_removed_update_editor)
         self.app_logic.files_cleared.connect(self._on_files_cleared_update_editor)
-        self.app_logic.output_path_updated.connect(self.main_view.update_output_path_display)
-        self.app_logic.task_completed.connect(self.on_task_completed, type=Qt.ConnectionType.QueuedConnection)
-        self.app_logic.error_dialog_requested.connect(self._show_error_dialog, type=Qt.ConnectionType.QueuedConnection)
-        self.app_logic.warning_dialog_requested.connect(self._show_warning_dialog, type=Qt.ConnectionType.QueuedConnection)
+        self.app_logic.output_path_updated.connect(
+            self.main_view.update_output_path_display
+        )
+        self.app_logic.task_completed.connect(
+            self.on_task_completed, type=Qt.ConnectionType.QueuedConnection
+        )
+        self.app_logic.error_dialog_requested.connect(
+            self._show_error_dialog, type=Qt.ConnectionType.QueuedConnection
+        )
+        self.app_logic.warning_dialog_requested.connect(
+            self._show_warning_dialog, type=Qt.ConnectionType.QueuedConnection
+        )
         self.file_list_data_service.loading.connect(
             self._on_main_catalog_loading,
             type=Qt.ConnectionType.QueuedConnection,
@@ -405,35 +467,49 @@ class MainWindow(FluentWindow):
         self.main_view.setting_changed.connect(self.app_logic.update_single_config)
         self.main_view.editor_view_requested.connect(self.switch_to_editor_view)
         self.main_view.theme_change_requested.connect(self._change_theme)
-        self.main_view.language_change_requested.connect(self._change_language, type=Qt.ConnectionType.QueuedConnection)
+        self.main_view.language_change_requested.connect(
+            self._change_language, type=Qt.ConnectionType.QueuedConnection
+        )
 
         # --- View to Coordinator Connections ---
-        self.main_view.file_list.file_selected.connect(self.on_file_selected_from_main_list)
-        self.main_view.file_list.files_dropped.connect(self.app_logic.add_files)  # 拖放文件支持
+        self.main_view.file_list.file_selected.connect(
+            self.on_file_selected_from_main_list
+        )
+        self.main_view.file_list.files_dropped.connect(
+            self.app_logic.add_files
+        )  # 拖放文件支持
         # self.main_view.enter_editor_button.clicked.connect(self.enter_editor_mode) # Example for a dedicated button
 
         # --- View Switching Connections ---
-        self.main_view_action.triggered.connect(lambda: self.switchTo(self.main_view.translation_interface))
+        self.main_view_action.triggered.connect(
+            lambda: self.switchTo(self.main_view.translation_interface)
+        )
         self.editor_view_action.triggered.connect(self.switch_to_editor_view)
 
         # --- 撤销/重做延迟转发到编辑器controller ---
         self.undo_action.triggered.connect(self._handle_undo)
         self.redo_action.triggered.connect(self._handle_redo)
-        
+
         # --- 主题切换连接 ---
         for theme_key, action in getattr(self, "theme_actions", {}).items():
-            action.triggered.connect(lambda checked=False, selected_theme=theme_key: self._change_theme(selected_theme))
+            action.triggered.connect(
+                lambda checked=False, selected_theme=theme_key: self._change_theme(
+                    selected_theme
+                )
+            )
 
     @pyqtSlot()
     def _request_main_file_snapshot(self):
         self._main_catalog_loading = True
         self.main_view.file_list.set_loading()
         try:
-            self._main_catalog_generation = self.file_list_data_service.request_snapshot(
-                "main",
-                tuple(self.app_logic.source_files),
-                tuple(self.app_logic.excluded_subfolders),
-                tuple(self.app_logic.excluded_files),
+            self._main_catalog_generation = (
+                self.file_list_data_service.request_snapshot(
+                    "main",
+                    tuple(self.app_logic.source_files),
+                    tuple(self.app_logic.excluded_subfolders),
+                    tuple(self.app_logic.excluded_files),
+                )
             )
         except RuntimeError as exc:
             self._main_catalog_loading = False
@@ -448,10 +524,7 @@ class MainWindow(FluentWindow):
 
     @pyqtSlot(str, int, object)
     def _on_main_catalog_ready(self, channel: str, generation: int, snapshot: object):
-        if (
-            channel != "main"
-            or generation != self._main_catalog_generation
-        ):
+        if channel != "main" or generation != self._main_catalog_generation:
             return
         self._main_catalog_loading = False
         self._file_catalog_snapshot = snapshot
@@ -487,9 +560,11 @@ class MainWindow(FluentWindow):
         Coordinator slot. Handles when a file is double-clicked in the main view.
         It tells the editor logic to load the file, then switches the view.
         """
-        self.logger.info(f"File double-clicked from main list: {file_path}. Switching to editor.")
+        self.logger.info(
+            f"File double-clicked from main list: {file_path}. Switching to editor."
+        )
         self.enter_editor_mode(file_to_load=file_path)
-    
+
     def _on_file_removed_update_editor(self, file_path: str):
         """当主页文件被移除时，更新编辑器（如果编辑器正在显示该文件）"""
         if not self.editor_view or not self.editor_controller:
@@ -497,12 +572,13 @@ class MainWindow(FluentWindow):
         if self.stacked_widget.currentWidget() == self.editor_view:
             # 检查当前加载的图片是否被移除
             current_image = self.editor_controller.model.get_source_image_path()
-            
+
             if current_image:
                 import os
+
                 norm_current = os.path.normpath(current_image)
                 norm_removed = os.path.normpath(file_path)
-                
+
                 # 如果移除的是当前图片
                 if norm_current == norm_removed:
                     self.editor_controller._clear_editor_state()
@@ -510,15 +586,18 @@ class MainWindow(FluentWindow):
                 elif os.path.isdir(file_path):
                     try:
                         # 检查当前图片是否在被移除的文件夹内
-                        if os.path.commonpath([norm_current, norm_removed]) == norm_removed:
+                        if (
+                            os.path.commonpath([norm_current, norm_removed])
+                            == norm_removed
+                        ):
                             self.editor_controller._clear_editor_state()
                     except ValueError:
                         # 不同驱动器，跳过
                         pass
-            
+
             # 注意：编辑器有自己独立的文件列表，不需要同步主页的删除操作
             # 只有当主页文件全部清空时，才清空编辑器列表
-    
+
     def _on_files_cleared_update_editor(self):
         """当文件列表被清空时，清空编辑器"""
         if not self.editor_view or not self.editor_logic:
@@ -552,10 +631,12 @@ class MainWindow(FluentWindow):
             self._qt_translator = None
 
         translator = QTranslator(self)
-        qt_translations_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+        qt_translations_dir = QLibraryInfo.path(
+            QLibraryInfo.LibraryPath.TranslationsPath
+        )
 
         # locale_code 形如 zh_CN / en_US，依次尝试精确与语言级别匹配
-        language = QLocale(locale_code).name().split('_', 1)[0]
+        language = QLocale(locale_code).name().split("_", 1)[0]
         candidates = (
             f"qtbase_{locale_code}",
             f"qtbase_{language}",
@@ -567,33 +648,33 @@ class MainWindow(FluentWindow):
         if loaded:
             app.installTranslator(translator)
             self._qt_translator = translator
-    
+
     def _refresh_ui_texts(self):
         """刷新UI文本"""
         self._update_window_title()
         self._refresh_action_texts()
-        
+
         # 刷新主视图的所有文本
-        if hasattr(self, 'main_view') and self.main_view:
+        if hasattr(self, "main_view") and self.main_view:
             self.main_view.refresh_ui_texts()
             self._refresh_navigation_texts()
-        
+
         # 刷新编辑器视图的所有文本（如果存在）
-        if hasattr(self, 'editor_view') and self.editor_view:
-            if hasattr(self.editor_view, 'refresh_ui_texts'):
+        if hasattr(self, "editor_view") and self.editor_view:
+            if hasattr(self.editor_view, "refresh_ui_texts"):
                 self.editor_view.refresh_ui_texts()
 
     def _refresh_action_texts(self):
         """刷新内部动作文本（菜单栏隐藏时仍保留动作对象）"""
-        if hasattr(self, 'add_files_action'):
+        if hasattr(self, "add_files_action"):
             self.add_files_action.setText(self._t("&Add Files..."))
-        if hasattr(self, 'undo_action'):
+        if hasattr(self, "undo_action"):
             self.undo_action.setText(self._t("&Undo"))
-        if hasattr(self, 'redo_action'):
+        if hasattr(self, "redo_action"):
             self.redo_action.setText(self._t("&Redo"))
-        if hasattr(self, 'main_view_action'):
+        if hasattr(self, "main_view_action"):
             self.main_view_action.setText(self._t("Main View"))
-        if hasattr(self, 'editor_view_action'):
+        if hasattr(self, "editor_view_action"):
             self.editor_view_action.setText(self._t("Editor View"))
         for theme_key, theme_label in THEME_OPTIONS:
             action = getattr(self, "theme_actions", {}).get(theme_key)
@@ -607,7 +688,7 @@ class MainWindow(FluentWindow):
     def _handle_redo(self):
         if self.editor_controller:
             self.editor_controller.redo()
-    
+
     @pyqtSlot(list)
     def on_task_completed(self, saved_files: list):
         """
@@ -633,9 +714,12 @@ class MainWindow(FluentWindow):
 
             reply = show_error_dialog(
                 self,
-                self._t('Task Completed'),
+                self._t("Task Completed"),
                 "",
-                self._t("Translation completed, {count} files saved.\n\nOpen results in editor?", count=len(saved_files)),
+                self._t(
+                    "Translation completed, {count} files saved.\n\nOpen results in editor?",
+                    count=len(saved_files),
+                ),
                 icon=QMessageBox.Icon.Question,
                 buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 default_button=QMessageBox.StandardButton.No,
@@ -646,29 +730,30 @@ class MainWindow(FluentWindow):
         except Exception as e:
             self.logger.error(f"on_task_completed 发生异常: {e}", exc_info=True)
             import traceback
+
             traceback.print_exc()
 
     def _should_prompt_open_results_in_editor(self) -> bool:
         """Only prompt for workflows that produce editor-meaningful results."""
         try:
             config = self.config_service.get_config()
-            cli = getattr(config, 'cli', None)
+            cli = getattr(config, "cli", None)
             if cli is None:
                 return True
 
-            if getattr(cli, 'replace_translation', False):
+            if getattr(cli, "replace_translation", False):
                 return True
 
-            if getattr(cli, 'load_text', False):
+            if getattr(cli, "load_text", False):
                 return True
 
             incompatible_modes = (
-                getattr(cli, 'translate_json_only', False),
-                getattr(cli, 'template', False),
-                getattr(cli, 'generate_and_export', False),
-                getattr(cli, 'colorize_only', False),
-                getattr(cli, 'upscale_only', False),
-                getattr(cli, 'inpaint_only', False),
+                getattr(cli, "translate_json_only", False),
+                getattr(cli, "template", False),
+                getattr(cli, "generate_and_export", False),
+                getattr(cli, "colorize_only", False),
+                getattr(cli, "upscale_only", False),
+                getattr(cli, "inpaint_only", False),
             )
             return not any(incompatible_modes)
         except Exception as e:
@@ -706,7 +791,9 @@ class MainWindow(FluentWindow):
         return os.path.normpath(os.path.abspath(os.path.join(os.getcwd(), "result")))
 
     def _open_log_folder(self, folder: str):
-        target = os.path.normpath(os.path.abspath(folder or os.path.join(os.getcwd(), "result")))
+        target = os.path.normpath(
+            os.path.abspath(folder or os.path.join(os.getcwd(), "result"))
+        )
         os.makedirs(target, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
@@ -779,18 +866,22 @@ class MainWindow(FluentWindow):
             if target_path:
                 self.editor_logic.load_image_into_editor(target_path)
             elif editor_snapshot.editor_files:
-                self.editor_logic.load_image_into_editor(editor_snapshot.editor_files[0])
+                self.editor_logic.load_image_into_editor(
+                    editor_snapshot.editor_files[0]
+                )
 
             self.switchTo(self.editor_view)
         except Exception as e:
             self.logger.error(f"enter_editor_mode 发生异常: {e}", exc_info=True)
             import traceback
+
             traceback.print_exc()
 
     def _refresh_navigation_texts(self):
         nav_labels = {
             "translation": self._t("Translation Interface"),
             "settings": self._t("Settings"),
+            "about": "About Application",
             "env": self._t("API Management"),
             "prompts": self._t("Prompt Management"),
             "replacements": self._t("Replacement Rules"),
@@ -803,12 +894,15 @@ class MainWindow(FluentWindow):
                 item.setText(text)
                 # 收起状态下条目靠悬停提示识别，语言切换时一并刷新
                 item.setToolTip(text)
-
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        if hasattr(self, "main_view") and hasattr(self.main_view, "update_checker"):
+            self.main_view.update_checker.stop()
         unfinished_exports = 0
         if self.editor_controller is not None:
-            unfinished_exports = self.editor_controller.export_service.unfinished_count()
+            unfinished_exports = (
+                self.editor_controller.export_service.unfinished_count()
+            )
         if unfinished_exports:
             from PyQt6.QtWidgets import QMessageBox
 

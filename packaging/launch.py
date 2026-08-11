@@ -1,16 +1,14 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 漫画翻译器启动脚本
 Manga Translator UI Launcher
 """
 
-import os
-import sys
 import argparse
-import subprocess
-import importlib.util
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -20,9 +18,31 @@ PYTHON_VERSION_MAX = (3, 12)  # 仅支持Python 3.12,不支持3.13+
 
 # 路径配置
 PATH_ROOT = Path(__file__).parent.parent
+if str(PATH_ROOT) not in sys.path:
+    sys.path.insert(0, str(PATH_ROOT))
+
+from git_update_helpers import (
+    GIT_MIRRORS as SHARED_GIT_MIRRORS,
+)
+from git_update_helpers import (
+    SUPPORTED_BRANCHES as SHARED_SUPPORTED_BRANCHES,
+)
+from git_update_helpers import (
+    current_branch as shared_current_branch,
+)
+from git_update_helpers import (
+    fetch_origin,
+    git_output,
+    set_origin_url,
+)
+from git_update_helpers import (
+    update_branch as shared_update_branch,
+)
 
 # 获取环境变量
 python = sys.executable
+AUTO_UPDATE_MODE = False
+UPDATE_BRANCH_OVERRIDE = None
 
 # Git路径配置 (优先使用便携版)
 portable_git = PATH_ROOT / "PortableGit" / "cmd" / "git.exe"
@@ -646,25 +666,69 @@ def ensure_git_safe_directory():
 
 
 def restart_maintenance(action):
-    """Restart the maintenance process so updated launcher code is loaded."""
-    if action not in {'install', 'update'}:
-        raise ValueError(f'Unsupported maintenance resume action: {action}')
-    print(L('代码更新完成，正在重新加载维护程序...',
-            'Code updated. Reloading the maintenance program...'))
+    """Restart into updated maintenance code while preserving auto-update flags."""
+    if action not in {"install", "update"}:
+        raise ValueError(f"Unsupported maintenance resume action: {action}")
+    print(
+        L(
+            "代码更新完成，正在重新加载维护程序...",
+            "Code updated. Reloading the maintenance program...",
+        )
+    )
     script_path = str(Path(__file__).resolve())
+    command = [sys.executable, script_path, "--maintenance", f"--resume-{action}"]
+    if AUTO_UPDATE_MODE:
+        command.append("--auto-update")
+    if UPDATE_BRANCH_OVERRIDE:
+        command.extend(["--branch", UPDATE_BRANCH_OVERRIDE])
     sys.stdout.flush()
     sys.stderr.flush()
     try:
-        os.execv(
-            sys.executable,
-            [sys.executable, script_path, '--maintenance', f'--resume-{action}'],
-        )
+        os.execv(sys.executable, command)
     except OSError as e:
         print(L(f'[错误] 无法重新加载维护程序: {e}',
                 f'[ERROR] Could not reload the maintenance program: {e}'))
         print(L('请重新运行安装/更新脚本，更新后的代码不会在当前进程中继续执行。',
                 'Run the install/update script again; the updated code will not continue in this process.'))
         raise SystemExit(1) from e
+
+def restart_desktop_ui():
+    """Start a fresh desktop UI process after automatic maintenance finishes."""
+    try:
+        if sys.platform == "win32":
+            start_script = PATH_ROOT / "Win-Start.bat"
+            if start_script.exists():
+                subprocess.Popen(
+                    ["cmd.exe", "/d", "/c", str(start_script)],
+                    cwd=PATH_ROOT,
+                    creationflags=(
+                        subprocess.CREATE_NEW_PROCESS_GROUP
+                        | subprocess.DETACHED_PROCESS
+                    ),
+                )
+                return True
+        unix_start = PATH_ROOT / "Unix-Start.sh"
+        if unix_start.exists():
+            subprocess.Popen(
+                [str(unix_start)],
+                cwd=PATH_ROOT,
+                start_new_session=True,
+            )
+            return True
+        subprocess.Popen(
+            [sys.executable, str(PATH_ROOT / "desktop_qt_ui" / "main.py")],
+            cwd=PATH_ROOT,
+            start_new_session=True,
+        )
+        return True
+    except OSError as exc:
+        print(
+            L(
+                f"[错误] 更新完成，但无法重新启动桌面端: {exc}",
+                f"[ERROR] Update finished, but the desktop UI could not restart: {exc}",
+            )
+        )
+        return False
 
 
 def detect_gpu():
@@ -839,11 +903,11 @@ def detect_gpu():
                     return gpu_type, gpu_name
         
         # 多张显卡，提示用户选择
-        print('')
+        print()
         print('=' * 55)
         print('检测到多张显卡')
         print('=' * 55)
-        print('')
+        print()
         
         for idx, (gpu_type, gpu_name) in enumerate(options, 1):
             hint_parts = []
@@ -866,9 +930,9 @@ def detect_gpu():
             hint = f" ({', '.join(hint_parts)})" if hint_parts else ''
             print(f'  [{idx}] {gpu_name}{hint}')
         
-        print('')
+        print()
         print(f'  默认选择: [{default_idx}]')
-        print('')
+        print()
         
         while True:
             choice = input(f'请选择要使用的显卡 (1-{len(options)}, 默认{default_idx}): ').strip()
@@ -1135,15 +1199,15 @@ def print_supported_amd_gpu_types():
 
 def choose_when_amd_unsupported():
     """AMD 不支持时给用户选择，默认 CPU"""
-    print('')
+    print()
     print('⚠️  当前显卡不在 AMD ROCm PyTorch 支持列表中。')
     print_supported_amd_gpu_types()
-    print('')
+    print()
     print('请选择:')
     print('  [1] 使用 CPU 版本 (默认, 推荐)')
     print('  [2] 强制安装 AMD 版本 (实验性, 可能失败)')
     print('  [3] 退出安装')
-    print('')
+    print()
 
     while True:
         choice = input('请选择 (1/2/3, 默认1): ').strip()
@@ -1339,27 +1403,30 @@ def prepare_environment(args):
     
     # 确保 packaging 已安装 (需要 < 25.0 版本)
     try:
-        import packaging
-        import packaging.version
         import packaging.utils
+        import packaging.version
+
+        import packaging
         # 检查是否有 packaging.requirements (在 25.0 中已移除)
         try:
-            from packaging.requirements import Requirement
+            from packaging.requirements import Requirement  # noqa: F401
         except (ImportError, AttributeError):
             # packaging 版本过高,需要降级
             print('检测到 packaging 版本不兼容,正在安装兼容版本...')
             run_pip("install 'packaging<25.0'", "packaging")
-            import packaging
-            import packaging.version
             import packaging.utils
+            import packaging.version
+
+            import packaging
             print('✓ packaging 安装成功')
     except (ModuleNotFoundError, ImportError):
         print('正在安装 packaging 模块...')
         run_pip("install 'packaging<25.0'", "packaging")
         try:
-            import packaging
-            import packaging.version
             import packaging.utils
+            import packaging.version  # noqa: F401
+
+            import packaging  # noqa: F401
             print('✓ packaging 安装成功')
         except (ModuleNotFoundError, ImportError):
             print('✗ 警告: packaging 安装失败')
@@ -1377,7 +1444,7 @@ def prepare_environment(args):
         check_variant_deps = lambda v: check_reqs(get_variant_packages(v))
         print('✓ 依赖检查工具加载成功')
     except ImportError as e:
-        print(f'✗ 警告: 无法导入依赖检查工具')
+        print('✗ 警告: 无法导入依赖检查工具')
         print(f'   原因: {e}')
         print('   将跳过增量检查,强制重新安装所有依赖')
         check_variant_deps = lambda v: False
@@ -1435,9 +1502,9 @@ except:
                         detected_installed_amd = True
                         rocm_version = output.split('|')[1]
                         # 已安装 AMD ROCm PyTorch，获取版本信息
-                        print(f'\n检测到已安装 AMD ROCm PyTorch')
+                        print('\n检测到已安装 AMD ROCm PyTorch')
                         print(f'ROCm 版本: {rocm_version}')
-                        print('')
+                        print()
                         
                         # 询问是否更新
                         update_choice = input('是否更新 AMD ROCm PyTorch? (y/n, 默认n): ').strip().lower()
@@ -1501,21 +1568,21 @@ except:
             print('=' * 50)
             print('检测到 NVIDIA GPU')
             print('=' * 50)
-            print('')
+            print()
             
             # 检查 CUDA 版本
             if cuda_major is not None:
                 if cuda_major < 13:
                     print('⚠️  警告: 检测到 CUDA 版本低于 13')
                     print(f'   当前 CUDA 版本: {cuda_version}')
-                    print(f'   GPU 版本需要: CUDA 13.x')
-                    print(f'   驱动需支持 CUDA 13.0')
-                    print('')
+                    print('   GPU 版本需要: CUDA 13.x')
+                    print('   驱动需支持 CUDA 13.0')
+                    print()
                     print('您的 CUDA 版本过低，无法使用 GPU 版本。')
                     print('请选择:')
                     print('  [1] 更新 NVIDIA 驱动后重新运行安装')
                     print('  [2] 使用 CPU 版本')
-                    print('')
+                    print()
                     
                     while True:
                         choice = input('请选择 (1/2, 默认2): ').strip()
@@ -1535,11 +1602,11 @@ except:
                     print('GPU 版本需要:')
                     print('  - NVIDIA 显卡支持 CUDA 13.x')
                     print('  - 显卡驱动需支持 CUDA 13.0')
-                    print('')
+                    print()
                     print(f'✓ 您的 CUDA 版本 {cuda_version} 符合要求')
-                    print('')
+                    print()
                     print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
-                    print('')
+                    print()
                     
                     while True:
                         choice = input('使用 GPU 版本? (y/n, 默认y): ').strip().lower()
@@ -1556,13 +1623,13 @@ except:
             else:
                 # 无法检测 CUDA 版本
                 print('⚠️  无法检测 CUDA 版本 (可能未安装 nvidia-smi)')
-                print('')
+                print()
                 print('GPU 版本需要:')
                 print('  - NVIDIA 显卡支持 CUDA 13.x')
                 print('  - 显卡驱动需支持 CUDA 13.0')
-                print('')
+                print()
                 print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
-                print('')
+                print()
                 
                 while True:
                     choice = input('使用 GPU 版本? (y/n, 默认y): ').strip().lower()
@@ -1584,29 +1651,29 @@ except:
             print('=' * 50)
             print('检测到 AMD GPU')
             print('=' * 50)
-            print('')
+            print()
             
             if detected_gfx:
                 print(f'自动识别架构: {arch_name}')
                 print(f'对应 gfx 版本: {detected_gfx}')
                 if not has_torch:
-                    print(f'⚠️  该显卡不支持 AMD ROCm PyTorch')
-                    print(f'⚠️  建议使用 CPU 版本')
+                    print('⚠️  该显卡不支持 AMD ROCm PyTorch')
+                    print('⚠️  建议使用 CPU 版本')
             else:
                 print('⚠️  无法自动识别 AMD GPU 架构')
             
-            print('')
+            print()
             print('AMD GPU 支持选项:')
             print('  [1] AMD ROCm GPU 版本 (实验性,需要兼容的 AMD 显卡)')
             print('  [2] CPU 版本 (推荐,兼容性好)')
             print('  ⚠️ Windows 版 ROCm 7.2.1 PyTorch 需要 AMD 显卡驱动 26.2.2')
-            print('')
+            print()
             
             if detected_gfx and has_torch:
                 print(f'建议: 选择 [1] 并使用检测到的 {detected_gfx}')
             else:
                 print('建议: 选择 [2] CPU 版本')
-            print('')
+            print()
 
             # 检测到不支持时：展示支持型号并给出选择（默认 CPU）
             if not (detected_gfx and has_torch):
@@ -1647,13 +1714,13 @@ except:
             print('=' * 50)
             print('检测到 Apple Silicon')
             print('=' * 50)
-            print('')
+            print()
             if gpu_name:
                 print(f'芯片型号: {gpu_name}')
-            print('')
+            print()
             print('✓ Apple Silicon 支持 Metal 加速')
             print('✓ 将使用 Metal 版本以获得最佳性能')
-            print('')
+            print()
             requirements_file = 'metal'
             print(f'✓ 使用: {requirements_file} (Apple Metal)')
                     
@@ -1662,12 +1729,12 @@ except:
             print('=' * 50)
             print('⚠️  无法自动检测显卡类型')
             print('=' * 50)
-            print('')
+            print()
             print('请手动选择安装版本:')
             print('  [1] NVIDIA GPU 版本 (CUDA) - 需要 NVIDIA 显卡')
             print('  [2] AMD GPU 版本 (ROCm) - 需要兼容的 AMD 显卡')
             print('  [3] CPU 版本 - 兼容所有电脑')
-            print('')
+            print()
             
             while True:
                 choice = input('请选择 (1/2/3, 默认3): ').strip()
@@ -1677,19 +1744,19 @@ except:
                     break
                 elif choice == '2':
                     # AMD GPU（纯自动检测）
-                    print('')
+                    print()
                     print('✓ 支持 PyTorch 的 AMD gfx 版本:')
                     print('  - gfx94X-dcgpu: MI300A / MI300X')
                     print('  - gfx950-dcgpu: MI350X / MI355X')
                     print('  - gfx110X-dgpu: RX 7900 XTX / RX 7800 XT / RX 7700S (Framework Laptop 16)')
                     print('  - gfx1151:      AMD Strix Halo iGPU')
                     print('  - gfx120X-all:  RX 9060 / RX 9060 XT / RX 9070 / RX 9070 XT')
-                    print('')
+                    print()
                     print('✗ 不支持 PyTorch 的版本:')
                     print('  - gfx101X-dgpu: RX 5000 系列')
                     print('  - gfx103X-dgpu: RX 6000 系列')
                     print('  - gfx90X-dcgpu: Vega / Radeon VII')
-                    print('')
+                    print()
 
                     detected_gfx, arch_name, has_torch = detect_amd_gfx_version(gpu_name) if gpu_name else (None, None, False)
                     if detected_gfx and has_torch:
@@ -1728,14 +1795,14 @@ except:
             print('=' * 50)
             print('检测到 Intel GPU')
             print('=' * 50)
-            print('')
+            print()
             print('⚠️  Intel GPU 在 PyTorch 上的支持有限')
             print('推荐使用 CPU 版本以获得最佳兼容性')
-            print('')
+            print()
             print('请选择:')
             print('  [1] NVIDIA GPU 版本 (如果有独立显卡)')
             print('  [2] CPU 版本 (推荐)')
-            print('')
+            print()
             
             while True:
                 choice = input('请选择 (1/2, 默认2): ').strip()
@@ -1778,10 +1845,10 @@ except:
             print('=' * 50)
             print(f'当前安装: {installed_pytorch_type} 版本 ({installed_detail})')
             print(f'目标版本: {target_type} 版本')
-            print('')
+            print()
             print('不同版本的 PyTorch 会导致 DLL 冲突和加载失败')
             print('建议卸载旧版本后重新安装')
-            print('')
+            print()
             need_reinstall = True
     
     # 如果需要重装 PyTorch，先卸载
@@ -1801,7 +1868,7 @@ except:
                     print('请关闭所有使用 PyTorch 的程序，然后按回车继续...')
                     input()
                 else:
-                    print(f'警告: PyTorch 卸载失败，将尝试强制覆盖安装')
+                    print('警告: PyTorch 卸载失败，将尝试强制覆盖安装')
                     print(f'错误: {e}')
         
         # 强制清理 pip 缓存，避免使用缓存的错误版本
@@ -1821,7 +1888,7 @@ except:
             print(f'gfx 版本: {amd_gfx_version}')
         print('模式: ROCm SDK 7.2.1 固定 URL 安装')
         print('⚠️  前置要求: Windows 版 ROCm 7.2.1 PyTorch 必须安装 AMD 显卡驱动 26.2.2')
-        print('')
+        print()
 
         # 第1步：先安装 ROCm SDK 依赖
         rocm_sdk_urls = [
@@ -1868,7 +1935,7 @@ except:
     print(f'\n正在检查依赖方案: {requirements_file}')
     if not check_variant_deps(requirements_file) or need_reinstall:
         if need_reinstall:
-            print(f'强制重新安装所有依赖...')
+            print('强制重新安装所有依赖...')
             # 只有 Windows AMD 用户才会在前面单独安装 PyTorch，其他平台从 dependency group 安装。
             if windows_amd_install:
                 print('跳过依赖方案中的 PyTorch（AMD ROCm 已单独安装）')
@@ -1878,11 +1945,11 @@ except:
             else:
                 run_pip_requirements(requirements_file, f"{requirements_file} 方案依赖")
         else:
-            print(f'发现缺失依赖,正在安装...')
+            print('发现缺失依赖,正在安装...')
             # 使用逐个包安装，失败时从失败的包开始切换镜像重试
             run_pip_requirements(requirements_file, f"{requirements_file} 方案依赖")
     else:
-        print(f'依赖已满足 ✓')
+        print('依赖已满足 ✓')
 
     # 清理残留的 torchaudio（依赖方案中已不包含它；旧版本残留会因 ABI 不匹配
     # 导致 transformers 导入时加载 libtorchaudio.pyd 失败，OCR 报错）
@@ -1934,13 +2001,9 @@ except:
 # ============================================================
 # Git 镜像源 / 分支 / 版本(tag) 管理
 # ============================================================
-GIT_MIRRORS = [
-    ('GitHub 官方', 'GitHub official', 'https://github.com/hgmzhn/manga-translator-ui.git'),
-    ('Gitee 镜像 (国内推荐)', 'Gitee mirror (recommended in China)', 'https://gitee.com/hgmzhn/manga-translator-ui.git'),
-    ('GitCode 镜像', 'GitCode mirror', 'https://gitcode.com/hgmzhn/manga-translator-ui'),
-]
+GIT_MIRRORS = list(SHARED_GIT_MIRRORS)
 
-SUPPORTED_BRANCHES = ['main', 'beta']
+SUPPORTED_BRANCHES = list(SHARED_SUPPORTED_BRANCHES)
 
 # 维护菜单语言配置（持久化在 packaging/maintenance_config.json）
 MAINT_CONFIG_FILE = PATH_ROOT / 'packaging' / 'maintenance_config.json'
@@ -2014,53 +2077,39 @@ def switch_language():
 
 
 def _git_output(cmd_args, timeout=15):
-    """执行 git 命令并返回 stdout（失败返回 None）"""
-    try:
-        result = subprocess.run(
-            [git] + cmd_args,
-            capture_output=True, text=True, check=False, timeout=timeout,
-            encoding='utf-8', errors='ignore'
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    return None
+    """Execute a Git read command through the shared helper."""
+    return git_output(PATH_ROOT, cmd_args, timeout=timeout, executable=git)
 
 
 def get_remote_url():
     """获取当前 origin 远程地址"""
-    return _git_output(['config', '--get', 'remote.origin.url']) or ''
+    return _git_output(["config", "--get", "remote.origin.url"]) or ""
 
 
 def get_mirror_display_name(url=None):
     """把远程地址转成可读的镜像源名称"""
     url = (url if url is not None else get_remote_url()).strip()
-    normalized = url.removesuffix('.git')
+    normalized = url.removesuffix(".git")
     for zh_name, en_name, mirror_url in GIT_MIRRORS:
-        if normalized == mirror_url.removesuffix('.git'):
+        if normalized == mirror_url.removesuffix(".git"):
             return L(zh_name, en_name)
-    return url or L('未配置', 'not configured')
+    return url or L("未配置", "not configured")
 
 
 def get_current_branch():
     """返回 (分支名或tag名, 是否游离状态)"""
-    branch = _git_output(['rev-parse', '--abbrev-ref', 'HEAD'])
-    if branch and branch != 'HEAD':
-        return branch, False
-    tag = _git_output(['describe', '--tags', '--exact-match'])
-    if tag:
-        return tag, True
-    commit = _git_output(['rev-parse', '--short', 'HEAD']) or 'unknown'
-    return commit, True
+    return shared_current_branch(PATH_ROOT, executable=git)
 
 
 def get_update_branch():
-    """获取用于更新比对的分支（游离状态或未知分支时回落到 main）"""
-    branch, detached = get_current_branch()
-    if not detached and branch in SUPPORTED_BRANCHES:
-        return branch
-    return 'main'
+    """获取更新分支，自动模式可显式指定 main 或 beta。"""
+    if UPDATE_BRANCH_OVERRIDE in SUPPORTED_BRANCHES:
+        return UPDATE_BRANCH_OVERRIDE
+    return shared_update_branch(
+        PATH_ROOT,
+        executable=git,
+        supported_branches=tuple(SUPPORTED_BRANCHES),
+    )
 
 
 def switch_mirror():
@@ -2095,8 +2144,7 @@ def switch_mirror():
     else:
         print(L("无效选项", "Invalid option"))
         return False
-    result = subprocess.run([git, 'remote', 'set-url', 'origin', new_url], capture_output=True)
-    if result.returncode == 0:
+    if set_origin_url(PATH_ROOT, new_url, executable=git):
         print(L(f"[OK] 镜像源已切换为: {get_mirror_display_name(new_url)}",
                 f"[OK] Mirror switched to: {get_mirror_display_name(new_url)}"))
         return True
@@ -2259,28 +2307,35 @@ def check_version_info():
     print(L(f"镜像源   - {get_mirror_display_name()}", f"Mirror  - {get_mirror_display_name()}"))
 
     fetch_ok = False
-    try:
-        fetch_result = subprocess.run(
-            [git, 'fetch', 'origin'],
-            capture_output=True,
-            check=False,
-            timeout=30
-        )
-        fetch_ok = (fetch_result.returncode == 0)
-    except Exception:
-        fetch_ok = False
+    current_commit = _git_output(["rev-parse", "HEAD"]) or "unknown"
+    fetch_ok = fetch_origin(
+        PATH_ROOT,
+        update_branch,
+        timeout=30,
+        executable=git,
+    )
 
     # 只有本次 fetch 成功，后续远程版本/提交对比才可信；
     # 否则避免拿旧的 origin/* 引用误报“已是最新”。
     remote_version = "unknown"
+    remote_commit = "unknown"
     behind = None
     if fetch_ok:
-        remote_version = _git_output(['show', f'origin/{update_branch}:packaging/VERSION']) or "unknown"
-        behind = _git_output(['rev-list', '--count', f'HEAD..origin/{update_branch}'])
+        remote_version = _git_output(
+            ["show", f"origin/{update_branch}:packaging/VERSION"]
+        ) or "unknown"
+        remote_commit = _git_output(["rev-parse", f"origin/{update_branch}"]) or "unknown"
+        behind = _git_output(["rev-list", "--count", f"HEAD..origin/{update_branch}"])
 
     print(L(f"当前版本 - {current_version}", f"Local   - {current_version}"))
-    print(L(f"远程版本 - {remote_version} (origin/{update_branch})",
-            f"Remote  - {remote_version} (origin/{update_branch})"))
+    print(
+        L(
+            f"远程版本 - {remote_version} (origin/{update_branch})",
+            f"Remote  - {remote_version} (origin/{update_branch})",
+        )
+    )
+    print(L(f"当前提交 - {current_commit}", f"Local commit  - {current_commit}"))
+    print(L(f"远程提交 - {remote_commit}", f"Remote commit - {remote_commit}"))
 
     if not fetch_ok or remote_version == "unknown":
         print()
@@ -2812,20 +2867,23 @@ def run_install(args):
     install_dependencies(args)
 
 
-def run_full_update(args):
-    """更新：检查代码+依赖，需要时同步代码并安装依赖"""
+def run_full_update(args, automatic=False):
+    """更新代码和依赖；桌面端自动更新时跳过二次确认。"""
     code_needs_update, deps_needs_update, _, _, req_file, missing_packages = check_all_updates()
 
     print()
     if not code_needs_update and not deps_needs_update:
         print(L("[信息] 代码和依赖都已是最新，无需更新", "[INFO] Code and dependencies are up to date"))
-        return
+        return True
 
     print()
-    confirm = input(L("是否继续更新? (y/n): ", "Continue update? (y/n): ")).strip().lower()
-    if confirm not in ['y', 'yes']:
-        print(L("取消更新", "Update cancelled"))
-        return
+    if not automatic:
+        confirm = input(L("是否继续更新? (y/n): ", "Continue update? (y/n): ")).strip().lower()
+        if confirm not in ["y", "yes"]:
+            print(L("取消更新", "Update cancelled"))
+            return False
+    else:
+        print(L("桌面端已确认更新，开始同步代码和依赖。", "Desktop UI confirmed the update; syncing code and dependencies."))
 
     print()
     print("=" * 40)
@@ -2843,17 +2901,17 @@ def run_full_update(args):
             print(L("[失败] 更新未完成，请修复问题后重试",
                     "[FAILED] Update was not completed; fix the problem and retry"))
             print("=" * 40)
-            return
+            return False
         else:
             restart_maintenance('update')
-            return
+            return True
     else:
         print()
         print(L("[1/2] 代码已是最新，跳过", "[1/2] Code already up to date, skipping"))
 
     if deps_needs_update:
         if not update_runtime_dependencies(args, req_file, missing_packages):
-            return
+            return False
     else:
         print()
         print(L("[2/2] 依赖已满足，跳过", "[2/2] Dependencies satisfied, skipping"))
@@ -2861,10 +2919,11 @@ def run_full_update(args):
         print("=" * 40)
         print(L("[完成] 更新完成", "[DONE] Update complete"))
         print("=" * 40)
+    return True
 
 
-def maintenance_menu(resume_action=None):
-    """安装或更新 菜单"""
+def maintenance_menu(resume_action=None, automatic=False):
+    """运行交互式维护菜单或桌面端确认后的自动更新。"""
     init_language()
     print()
     print("=" * 40)
@@ -2881,7 +2940,15 @@ def maintenance_menu(resume_action=None):
     if resume_action:
         if not resume_updated_code(args, resume_action):
             raise SystemExit(1)
+        if automatic:
+            restart_desktop_ui()
+            return
         input(L("\n按回车键继续...", "\nPress Enter to continue..."))
+
+    if automatic:
+        run_full_update(args, automatic=True)
+        restart_desktop_ui()
+        return
 
     # 首次显示版本信息
     check_version_info()
@@ -2944,15 +3011,25 @@ def maintenance_menu(resume_action=None):
 
 def main():
     """Run the install/update maintenance interface."""
+    global AUTO_UPDATE_MODE, UPDATE_BRANCH_OVERRIDE
     if not is_python_version_valid():
         return 1
 
     parser = argparse.ArgumentParser(description='漫画翻译器安装/更新维护程序')
     parser.add_argument('--maintenance', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument("--auto-update", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--branch",
+        choices=SUPPORTED_BRANCHES,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     resume_group = parser.add_mutually_exclusive_group()
     resume_group.add_argument('--resume-install', action='store_true', help=argparse.SUPPRESS)
     resume_group.add_argument('--resume-update', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    AUTO_UPDATE_MODE = bool(args.auto_update)
+    UPDATE_BRANCH_OVERRIDE = args.branch
 
     resume_action = None
     if args.resume_install:
@@ -2961,7 +3038,7 @@ def main():
         resume_action = 'update'
 
     os.chdir(PATH_ROOT)
-    maintenance_menu(resume_action=resume_action)
+    maintenance_menu(resume_action=resume_action, automatic=AUTO_UPDATE_MODE)
     return 0
 
 
