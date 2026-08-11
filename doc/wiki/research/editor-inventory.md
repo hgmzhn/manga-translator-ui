@@ -35,12 +35,14 @@
 | 吸附开关 | `Enable Editor Snapping` | Enable Editor Snapping | 启用编辑器吸附 | `app.editor_snap_enabled`，默认 `false` |
 | 中心缩放开关 | `Scale Text Boxes from Center` | Scale Text Boxes from Center | 中心点缩放 | `app.editor_center_scale_enabled`，默认 `false` |
 | 浮动富文本开关 | `Show Rich Text Editor Popup` | Show Rich Text Editor Popup | 显示富文本编辑弹窗 | `Ctrl+Shift+R` 切换；`app.editor_rich_text_popup_enabled`，默认 `true` |
+| 固定富文本浮窗 | `Pin Rich Text Editor Popup` | Pin Rich Text Editor Popup | 固定富文本编辑弹窗 | `app.editor_rich_text_popup_pinned`，默认 `false`；固定位置并阻止自动隐藏 |
 | 编辑时自动规则 | `Auto Apply Rich Text Rules While Editing` | Auto Apply Rich Text Rules While Editing | 编辑时自动应用富文本规则 | `app.editor_auto_rich_text_rules`，默认 `true` |
 | 切图自动保存 | `Auto Save on Image Switch` | Auto Save on Image Switch | 切图时自动保存 | `app.editor_auto_save_on_switch`，默认 `true` |
 | 切图自动导出 | `Auto Export on Image Switch` | Auto Export on Image Switch | 切图时自动导出 | `app.editor_auto_export_on_switch`，默认 `true` |
 | 不再提醒未保存 | `Do Not Warn About Unsaved Changes` | Do Not Warn About Unsaved Changes | 不再提醒未保存 | `app.editor_suppress_unsaved_warning`，默认 `false`；仅在自动保存与自动导出均关闭时生效 |
+| 删除并恢复原图 | `Delete and Recover Removed Text` | Delete and Recover Removed Text | 删除文本框并恢复原图 | `app.editor_delete_and_recover`，默认 `false` |
 
-菜单条目和七个开关定义见 `desktop_qt_ui/ui/widgets/editor_toolbar.py`；`EditorView` 负责应用和持久化配置；配置模型在 `desktop_qt_ui/core/config_models.py` 中定义默认值。自动保存只写工程数据，自动导出只提交渲染快照；两个开关同时启用时会分别执行。
+菜单条目和九个开关定义见 `desktop_qt_ui/ui/widgets/editor_toolbar.py`；`EditorView` 负责应用和持久化配置；配置模型在 `desktop_qt_ui/core/config_models.py` 中定义默认值。自动保存只写工程数据，自动导出只提交渲染快照；两个开关同时启用时会分别执行。
 
 ### `Display Mode`
 
@@ -221,7 +223,7 @@
 
 ### 浮窗的同步与可见性
 
-- 只有一个区域被选中且 `app.editor_rich_text_popup_enabled` 为真时，`EditorView` 绑定该区域、定位并显示浮窗；多选或无选区会清除并隐藏浮窗。来源：`desktop_qt_ui/ui/editor/view.py:516`。
+- 只有一个区域被选中且 `app.editor_rich_text_popup_enabled` 为真时，`EditorView` 绑定该区域、定位并显示浮窗；`app.editor_rich_text_popup_pinned` 为真时，浮窗保持当前位置并在无选区或列表操作时保持显示，否则多选或无选区会清除并隐藏浮窗。
 - 导出前会同步 `flush_pending_changes()`，避免 180ms 防抖期内的正文或注音改动未写入模型。来源：`desktop_qt_ui/ui/editor/view.py:486`、`desktop_qt_ui/ui/widgets/rich_text_floating_editor.py:177`。
 - 区域数据从属性面板、撤销等外部路径变更时，可见浮窗先提交自身去抖内容再刷新；自身发起的写回被识别并跳过，防止旧文档覆盖模型或光标跳动。来源：`desktop_qt_ui/ui/editor/view.py:557`。
 

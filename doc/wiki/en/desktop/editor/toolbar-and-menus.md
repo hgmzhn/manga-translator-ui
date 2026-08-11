@@ -9,14 +9,14 @@ lastUpdated: true
 
 # Editor Toolbar and Menus
 
-When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”), exposes separate “Save” and “Export Image” buttons, and keeps two persistent controls (“Fit to Window” and original-image opacity). This guide explains how the three menus expand, where each menu item leads, and how the seven editor toggles are stored and persisted.
+When you enter the editor, a fixed horizontal toolbar sits at the top. It groups high-frequency actions into three single-level dropdown menus (“Menu”, “Display Mode”, “Arrange”), exposes separate “Save” and “Export Image” buttons, and keeps two persistent controls (“Fit to Window” and original-image opacity). This guide explains how the three menus expand, where each menu item leads, and how the nine editor toggles are stored and persisted.
 
 The complete options and canvas effects of “Display Mode” and “Arrange” live in [Display, Compare, and Arrange](./display-compare-and-arrange.md); canvas tools, property panels, the floating rich-text editor, shortcuts, and import/export are covered by [Canvas Tools and Selection](./canvas-tools-and-selection.md), [Text Properties](./text-properties.md), [Style Properties](./style-properties.md), [Floating Rich Text](./floating-rich-text.md), [Shortcuts](./shortcuts.md), and [Import/Export and Writeback](./import-export-and-writeback.md).
 
 ## What you can do
 
 - The toolbar itself never switches pages: the back-to-home entry lives in the main-window sidebar, not in the editor toolbar.
-- The “Menu” dropdown contains undo/redo, zoom in/out, and seven checkable toggles; the “Save” and “Export Image” buttons are separate actions.
+- The “Menu” dropdown contains undo/redo, zoom in/out, and nine checkable toggles; the “Save” and “Export Image” buttons are separate actions.
 - “Display Mode” is an exclusive radio selection that decides whether the canvas shows the original, text, boxes, nothing, or a two-panel comparison; “Arrange” provides a reference radio, alignment, and spacing distribution. Their complete options belong to [Display, Compare, and Arrange](./display-compare-and-arrange.md).
 - Zoom in/out is view scaling only: it scales by 1.15 per step and clamps the canvas scale to `0.05`–`50.0`; “Fit to Window” only fits the view. Neither modifies any region data.
 - The “Original Image Opacity” slider (0–100) controls only the transparency of the original-image overlay on the canvas; it is not an export parameter.
@@ -26,15 +26,16 @@ The complete options and canvas effects of “Display Mode” and “Arrange” 
 
 ### Three dropdown menus
 
-1. Open “Menu”: it shows undo/redo, zoom in/out, and seven checkable editor toggles. “Save” and “Export Image” are separate top-level buttons.
+1. Open “Menu”: it shows undo/redo, zoom in/out, and nine checkable editor toggles. “Save” and “Export Image” are separate top-level buttons.
 
-#### The seven edit toggles
+#### The nine edit toggles
 
-The seven editor toggles in the “Menu” dropdown all carry a check mark. Their meanings and defaults are:
+The nine editor toggles in the “Menu” dropdown all carry a check mark. Their meanings and defaults are:
 
 - **Enable Editor Snapping** (default `false`): snaps text-box rotation, movement, and scaling through the snapping logic.
 - **Scale Text Boxes from Center** (default `false`): scales text boxes from their center point.
 - **Show Rich Text Editor Popup** (default `true`): automatically opens the floating rich-text editor; `Ctrl+Shift+R` toggles it.
+- **Pin Rich Text Editor Popup** (default `false`, `app.editor_rich_text_popup_pinned`): keeps the popup at its current position and prevents automatic hiding; changes are written to the configuration file immediately and restored after restart.
 - **Auto Apply Rich Text Rules While Editing** (default `true`): applies rich-text styles automatically while editing.
 - **Auto Save on Image Switch** (default `true`, `app.editor_auto_save_on_switch`): saves project data when switching images with unsaved edits.
 - **Auto Export on Image Switch** (default `true`, `app.editor_auto_export_on_switch`): submits a rendered-image export when switching images with unsaved edits; export does not save project data.
@@ -58,7 +59,7 @@ All three dropdown buttons open single-level menus; there are no nested submenus
 ```mermaid
 flowchart LR
     subgraph TB["Editor toolbar EditorToolbar"]
-        M["Menu"] --> MI["Export / Undo-Redo / Zoom + 6 toggles"]
+        M["Menu"] --> MI["Export / Undo-Redo / Zoom + 9 toggles"]
         D["Display Mode"] --> DI["5 exclusive display states"]
         A["Arrange"] --> AI["Reference radio + align/distribute (stays open)"]
         F["Fit to Window"]
@@ -71,7 +72,7 @@ flowchart LR
     O --> OV["controller.set_original_image_alpha"]
 ```
 
-- “Menu” uses a `CheckableMenu` with a leading indicator column: checking one of the seven toggles shows the indicator, and the icon and text columns stay independent.
+- “Menu” uses a `CheckableMenu` with a leading indicator column: checking one of the nine toggles shows the indicator, and the icon and text columns stay independent.
 - The five “Display Mode” states and the “Arrange” reference options are exclusive `QActionGroup` radios.
 - “Arrange” is a stay-open menu: it remains expanded after choosing a reference or applying an alignment/distribution so you can keep operating; clicking outside or pressing `Esc` closes it.
 - On language switch, `EditorView.refresh_ui_texts()` calls `EditorToolbar.refresh_ui_texts()`, which rebuilds all three menus and restores the display mode, reference, toggles, and enabled states from internal fields so no state is lost.
@@ -106,3 +107,4 @@ flowchart LR
 - The toolbar only shows shortcut text and never registers `QAction` shortcuts, avoiding double triggers with `EditorShortcutManager`.
 - The save/export actions are intentionally separate: saving persists project data, while exporting only renders the current snapshot.
 - Turning off “Show Rich Text Editor Popup” immediately hides any visible floating editor; `Ctrl+Shift+R` performs the same toggle.
+- “Pin Rich Text Editor Popup” persists through `app.editor_rich_text_popup_pinned`; it is restored from configuration after restart.

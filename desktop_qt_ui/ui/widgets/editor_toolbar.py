@@ -162,6 +162,7 @@ class EditorToolbar(CardWidget):
         parent=None,
         snap_enabled: bool = False,
         rich_text_popup_enabled: bool = True,
+        rich_text_popup_pinned: bool = False,
         auto_save_on_switch: bool = True,
         auto_export_on_switch: bool = True,
         suppress_unsaved_warning: bool = False,
@@ -183,7 +184,7 @@ class EditorToolbar(CardWidget):
         self._snap_enabled = bool(snap_enabled)
         self._center_scale_enabled = bool(center_scale_enabled)
         self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
-        self._rich_text_popup_pinned = False
+        self._rich_text_popup_pinned = bool(rich_text_popup_pinned)
         self._auto_save_on_switch = bool(auto_save_on_switch)
         self._auto_export_on_switch = bool(auto_export_on_switch)
         self._suppress_unsaved_warning = bool(suppress_unsaved_warning)

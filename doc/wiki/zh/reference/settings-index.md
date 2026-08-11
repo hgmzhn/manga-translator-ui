@@ -205,7 +205,7 @@ lastUpdated: true
 
 - 反向链接：本页是设置页专题文档的汇总跳转入口；参数详细说明仍以专题页为准。
 - 兄弟参考页：完整枚举选项的 value/i18n 对照见[界面选项对照表](./options-i18n-matrix.md)，九种工作流阶段矩阵见[工作流矩阵](./workflow-matrix.md)，各页代码位置汇总见[代码索引](./source-evidence-index.md)，调试产物见[调试产物索引](./debug-artifact-index.md)。
-- 由其他控件写回、不作为设置参数行显示的值：`upscale.realcugan_model` 由超分模型下拉写回（见[超分与上色](../desktop/settings/upscale-and-colorization.md)）；八个工作流标志（`cli.generate_and_export`、`cli.template`、`cli.translate_json_only`、`cli.load_text`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`、`cli.replace_translation`）由翻译工作区的工作流下拉设置（见[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)）。编辑器偏好（`editor_*`）属于 `AppSection`，但不在通用页签显示为动态行。
+- 由其他控件写回、不作为设置参数行显示的值：`upscale.realcugan_model` 由超分模型下拉写回（见[超分与上色](../desktop/settings/upscale-and-colorization.md)）；八个工作流标志（`cli.generate_and_export`、`cli.template`、`cli.translate_json_only`、`cli.load_text`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`、`cli.replace_translation`）由翻译工作区的工作流下拉设置（见[模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)）。编辑器偏好（`editor_*`，包括菜单写回的 `app.editor_rich_text_popup_pinned`）属于 `AppSection`，但不在通用页签显示为动态行。
 - 运行时列表（字体、模型名、API 预设、提示词文件、批量方案）来自本机或用户配置，不进入本索引的固定清单。
 
 ## 开发指南 {#developer-guide}

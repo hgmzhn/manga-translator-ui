@@ -219,7 +219,6 @@ class ConfigService(QObject):
         self._deferred_write_error = None
         return error
 
-
     def _initialize_write_pipeline(self) -> None:
         self._write_lock = threading.RLock()
         self._pending_config_writes: Dict[str, Dict[str, Any]] = {}
@@ -503,6 +502,7 @@ class ConfigService(QObject):
                     "editor_snap_enabled": False,
                     "editor_center_scale_enabled": False,
                     "editor_rich_text_popup_enabled": True,
+                    "editor_rich_text_popup_pinned": False,
                     "editor_auto_save_on_switch": True,
                     "editor_auto_export_on_switch": True,
                     "editor_suppress_unsaved_warning": False,

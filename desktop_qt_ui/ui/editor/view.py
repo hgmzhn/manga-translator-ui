@@ -135,7 +135,7 @@ class EditorView(QWidget):
         self._snap_enabled = self._read_editor_snap_enabled()
         self._center_scale_enabled = self._read_editor_center_scale_enabled()
         self._rich_text_popup_enabled = self._read_editor_rich_text_popup_enabled()
-        self._rich_text_popup_pinned = False
+        self._rich_text_popup_pinned = self._read_editor_rich_text_popup_pinned()
         self._compare_mode_enabled = False
         self.toolbar: EditorToolbar | None = None
         self.main_splitter: QSplitter | None = None
@@ -178,6 +178,7 @@ class EditorView(QWidget):
             snap_enabled=self._snap_enabled,
             center_scale_enabled=self._center_scale_enabled,
             rich_text_popup_enabled=self._rich_text_popup_enabled,
+            rich_text_popup_pinned=self._rich_text_popup_pinned,
             auto_save_on_switch=self._read_editor_auto_save_on_switch(),
             auto_export_on_switch=self._read_editor_auto_export_on_switch(),
             suppress_unsaved_warning=self._read_editor_suppress_unsaved_warning(),
@@ -243,6 +244,9 @@ class EditorView(QWidget):
 
     def _read_editor_rich_text_popup_enabled(self, config=None) -> bool:
         return self._read_app_flag("editor_rich_text_popup_enabled", True, config)
+
+    def _read_editor_rich_text_popup_pinned(self, config=None) -> bool:
+        return self._read_app_flag("editor_rich_text_popup_pinned", False, config)
 
     def _read_editor_auto_save_on_switch(self, config=None) -> bool:
         return self._read_app_flag("editor_auto_save_on_switch", True, config)
@@ -364,8 +368,18 @@ class EditorView(QWidget):
 
     @pyqtSlot(bool)
     def _on_editor_rich_text_popup_pinned_changed(self, pinned: bool):
-        """固定后保持浮窗位置，并阻止编辑页内的自动隐藏。"""
+        """应用并持久化富文本浮窗固定开关。"""
+        pinned = bool(pinned)
         self._apply_editor_rich_text_popup_pinned(pinned)
+        if self.config_service is None:
+            return
+
+        current_config = self.config_service.get_config()
+        if self._read_editor_rich_text_popup_pinned(current_config) != pinned:
+            self.config_service.update_config(
+                {"app": {"editor_rich_text_popup_pinned": pinned}}
+            )
+        self.config_service.save_config_file()
 
     @pyqtSlot(bool)
     def _on_editor_auto_save_on_switch_changed(self, enabled: bool):
@@ -445,6 +459,9 @@ class EditorView(QWidget):
         )
         self._apply_editor_rich_text_popup_enabled(
             self._read_editor_rich_text_popup_enabled(config)
+        )
+        self._apply_editor_rich_text_popup_pinned(
+            self._read_editor_rich_text_popup_pinned(config)
         )
         if self.toolbar is not None:
             self.toolbar.set_auto_save_on_switch(

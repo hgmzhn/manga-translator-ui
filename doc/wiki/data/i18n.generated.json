@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1465,
-    "exact": 1465,
+    "keys": 1463,
+    "exact": 1463,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -1003,6 +1003,12 @@
       "status": "exact"
     },
     {
+      "key": "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access.",
+      "en_US": "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access.",
+      "zh_CN": "配置保存失败，修改未保存。请检查文件权限，以及杀毒软件或安全软件是否拦截了文件访问。",
+      "status": "exact"
+    },
+    {
       "key": "Confirm",
       "en_US": "Confirm",
       "zh_CN": "确认",
@@ -1969,18 +1975,6 @@
       "status": "exact"
     },
     {
-      "key": "Insert newline",
-      "en_US": "Insert newline",
-      "zh_CN": "插入换行符",
-      "status": "exact"
-    },
-    {
-      "key": "Insert placeholder ＿",
-      "en_US": "Insert placeholder ＿",
-      "zh_CN": "插入占位符 ＿",
-      "status": "exact"
-    },
-    {
       "key": "International Sponsor",
       "en_US": "International support",
       "zh_CN": "海外赞助",
@@ -2374,12 +2368,6 @@
       "key": "New scheme",
       "en_US": "New scheme",
       "zh_CN": "新方案",
-      "status": "exact"
-    },
-    {
-      "key": "Newline↵",
-      "en_US": "Newline↵",
-      "zh_CN": "换行↵",
       "status": "exact"
     },
     {
@@ -2785,9 +2773,9 @@
       "status": "exact"
     },
     {
-      "key": "Placeholder",
-      "en_US": "Placeholder",
-      "zh_CN": "占位符",
+      "key": "Pin Rich Text Editor Popup",
+      "en_US": "Pin Rich Text Editor Popup",
+      "zh_CN": "固定富文本编辑弹窗",
       "status": "exact"
     },
     {
