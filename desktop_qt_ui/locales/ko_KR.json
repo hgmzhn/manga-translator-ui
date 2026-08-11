@@ -589,6 +589,7 @@
   "Enable Editor Snapping": "편집기 스냅 활성화",
   "Scale Text Boxes from Center": "텍스트 상자를 중심 기준으로 크기 조절",
   "Show Rich Text Editor Popup": "서식 있는 텍스트 편집 팝업 표시",
+  "Pin Rich Text Editor Popup": "서식 있는 텍스트 편집 팝업 고정",
   "Auto Apply Rich Text Rules While Editing": "편집 시 서식 있는 텍스트 규칙 자동 적용",
   "Auto Save on Image Switch": "이미지 전환 시 자동 저장",
   "Auto Export on Image Switch": "이미지 전환 시 자동 내보내기",

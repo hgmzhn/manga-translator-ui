@@ -50,6 +50,36 @@ from .rich_text_editor_components import (
 )
 
 
+class _DragHandle(QWidget):
+    """Transparent edge hit area with deterministic drag-cursor feedback."""
+
+    def __init__(self, editor: "RichTextFloatingEditor"):
+        super().__init__(editor)
+        self._editor = editor
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._editor._begin_drag(event.globalPosition().toPoint())
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._editor._dragging and event.buttons() & Qt.MouseButton.LeftButton:
+            self._editor._drag_to(event.globalPosition().toPoint())
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._editor._finish_drag()
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+        event.accept()
+
+
 class RichTextFloatingEditor(SimpleCardWidget):
     """Independent floating ``richtext.v1`` editor.
 
@@ -148,6 +178,9 @@ class RichTextFloatingEditor(SimpleCardWidget):
         root_layout.addWidget(self.preset_sidebar)
         self._sync_window_width_to_sidebar()
         self._refresh_preset_sidebar()
+        self._set_editor_content_enabled(False)
+        self._drag_handles = tuple(_DragHandle(self) for _ in range(4))
+        self._layout_drag_handles()
 
         self._connect_signals()
         self.hide()
@@ -157,6 +190,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
     # ------------------------------------------------------------------
 
     def set_region(self, region_index: int, region_data: dict):
+        self._set_editor_content_enabled(True)
         self.flush_pending_changes()
         display_text = self._state.bind_region(region_index, region_data)
         self._updating = True
@@ -174,7 +208,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         finally:
             self._updating = False
 
-    def clear_region(self):
+    def clear_region(self, *, hide: bool = True):
         self.flush_pending_changes()
         self._state.clear_region()
         self._updating = True
@@ -186,8 +220,10 @@ class RichTextFloatingEditor(SimpleCardWidget):
             self.run_list.set_segments([])
         finally:
             self._updating = False
+        self._set_editor_content_enabled(False)
         self._queue_layout_refresh()
-        self.hide()
+        if hide:
+            self.hide()
 
     def flush_pending_changes(self):
         """Synchronously commit both body debounce and the fixed Ruby draft."""
@@ -213,6 +249,15 @@ class RichTextFloatingEditor(SimpleCardWidget):
 
     def reset_manual_position(self):
         self._manually_positioned = False
+
+    def _set_editor_content_enabled(self, enabled: bool) -> None:
+        for widget in (
+            self.text_box,
+            self.toolbar,
+            self.run_list,
+            self.preset_sidebar,
+        ):
+            widget.setEnabled(enabled)
 
     def refresh_ui_texts(self) -> None:
         """Retranslate the complete floating editor after a locale change."""
@@ -785,11 +830,57 @@ class RichTextFloatingEditor(SimpleCardWidget):
         if self.height() != target_height:
             self.resize(self.width(), target_height)
 
+    def _layout_drag_handles(self) -> None:
+        border = self._DRAG_BORDER_WIDTH
+        width = self.width()
+        height = self.height()
+        middle_height = max(0, height - border * 2)
+        top, bottom, left, right = self._drag_handles
+        top.setGeometry(0, 0, width, border)
+        bottom.setGeometry(0, max(0, height - border), width, border)
+        left.setGeometry(0, border, border, middle_height)
+        right.setGeometry(max(0, width - border), border, border, middle_height)
+        for handle in self._drag_handles:
+            handle.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_drag_handles"):
+            self._layout_drag_handles()
+
+    def _begin_drag(self, global_pos: QPoint) -> None:
+        self._dragging = True
+        self._drag_offset = global_pos - self.mapToGlobal(QPoint(0, 0))
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def _drag_to(self, global_pos: QPoint) -> None:
+        target_global = global_pos - self._drag_offset
+        # A top-level widget's ``move`` expects desktop coordinates even when
+        # it still has a QObject parent for lifetime management.
+        if self.isWindow():
+            self.move(target_global)
+        else:
+            parent = self.parentWidget()
+            self.move(
+                parent.mapFromGlobal(target_global)
+                if parent is not None
+                else target_global
+            )
+        self._manually_positioned = True
+
+    def _finish_drag(self) -> None:
+        if not self._dragging:
+            return
+        self._dragging = False
+        self._manually_positioned = True
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+
     def _end_drag(self) -> None:
         """复位拖拽状态并恢复光标；隐藏/关闭时左键 release 不会再来。"""
-        if self._dragging:
-            self._dragging = False
-            self.unsetCursor()
+        self._dragging = False
+        self.unsetCursor()
+        for handle in self._drag_handles:
+            handle.setCursor(Qt.CursorShape.SizeAllCursor)
 
     def hideEvent(self, event):
         self._end_drag()
@@ -825,28 +916,12 @@ class RichTextFloatingEditor(SimpleCardWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._is_drag_border(
             event.position()
         ):
-            self._dragging = True
-            self._drag_offset = event.globalPosition().toPoint() - self.mapToGlobal(
-                QPoint(0, 0)
-            )
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._begin_drag(event.globalPosition().toPoint())
         event.accept()
 
     def mouseMoveEvent(self, event):
         if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
-            target_global = event.globalPosition().toPoint() - self._drag_offset
-            # A top-level widget's ``move`` expects desktop coordinates even
-            # when it still has a QObject parent for lifetime management.
-            if self.isWindow():
-                self.move(target_global)
-            else:
-                parent = self.parentWidget()
-                self.move(
-                    parent.mapFromGlobal(target_global)
-                    if parent is not None
-                    else target_global
-                )
-            self._manually_positioned = True
+            self._drag_to(event.globalPosition().toPoint())
         else:
             self.setCursor(
                 Qt.CursorShape.SizeAllCursor
@@ -856,10 +931,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
         event.accept()
 
     def mouseReleaseEvent(self, event):
-        if self._dragging and event.button() == Qt.MouseButton.LeftButton:
-            self._dragging = False
-            self._manually_positioned = True
-            self.setCursor(Qt.CursorShape.SizeAllCursor)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._finish_drag()
         event.accept()
 
     def leaveEvent(self, event):

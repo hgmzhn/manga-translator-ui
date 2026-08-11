@@ -150,6 +150,7 @@ class EditorToolbar(CardWidget):
     snap_enabled_changed = pyqtSignal(bool)
     center_scale_enabled_changed = pyqtSignal(bool)
     rich_text_popup_enabled_changed = pyqtSignal(bool)
+    rich_text_popup_pinned_changed = pyqtSignal(bool)
     auto_save_on_switch_changed = pyqtSignal(bool)
     auto_export_on_switch_changed = pyqtSignal(bool)
     suppress_unsaved_warning_changed = pyqtSignal(bool)
@@ -182,6 +183,7 @@ class EditorToolbar(CardWidget):
         self._snap_enabled = bool(snap_enabled)
         self._center_scale_enabled = bool(center_scale_enabled)
         self._rich_text_popup_enabled = bool(rich_text_popup_enabled)
+        self._rich_text_popup_pinned = False
         self._auto_save_on_switch = bool(auto_save_on_switch)
         self._auto_export_on_switch = bool(auto_export_on_switch)
         self._suppress_unsaved_warning = bool(suppress_unsaved_warning)
@@ -363,6 +365,15 @@ class EditorToolbar(CardWidget):
             self._on_rich_text_popup_action_triggered
         )
         menu.addAction(self.rich_text_popup_action)
+        self.rich_text_popup_pinned_action = Action(
+            self._t("Pin Rich Text Editor Popup")
+        )
+        self.rich_text_popup_pinned_action.setCheckable(True)
+        self.rich_text_popup_pinned_action.setChecked(self._rich_text_popup_pinned)
+        self.rich_text_popup_pinned_action.triggered.connect(
+            self._on_rich_text_popup_pinned_action_triggered
+        )
+        menu.addAction(self.rich_text_popup_pinned_action)
 
         self.auto_rich_text_rules_action = Action(
             FIF.FONT,
@@ -576,11 +587,15 @@ class EditorToolbar(CardWidget):
         return self._center_scale_enabled
 
     def _on_rich_text_popup_action_triggered(self, checked: bool = False):
+        if not checked:
+            self.set_rich_text_popup_pinned(False, emit=True)
         self.set_rich_text_popup_enabled(checked, emit=True)
 
     def set_rich_text_popup_enabled(self, enabled: bool, emit: bool = False):
         """同步富文本浮动编辑器开关；外部配置同步时默认不回发信号。"""
         enabled = bool(enabled)
+        if not enabled and self._rich_text_popup_pinned:
+            self.set_rich_text_popup_pinned(False, emit=emit)
         changed = enabled != self._rich_text_popup_enabled
         self._rich_text_popup_enabled = enabled
 
@@ -595,6 +610,29 @@ class EditorToolbar(CardWidget):
 
     def is_rich_text_popup_enabled(self) -> bool:
         return self._rich_text_popup_enabled
+
+    def _on_rich_text_popup_pinned_action_triggered(self, checked: bool = False):
+        if checked and not self._rich_text_popup_enabled:
+            self.set_rich_text_popup_enabled(True, emit=True)
+        self.set_rich_text_popup_pinned(checked, emit=True)
+
+    def set_rich_text_popup_pinned(self, pinned: bool, emit: bool = False):
+        """同步富文本浮窗固定开关；该状态仅在当前运行期间保留。"""
+        pinned = bool(pinned)
+        changed = pinned != self._rich_text_popup_pinned
+        self._rich_text_popup_pinned = pinned
+
+        action = getattr(self, "rich_text_popup_pinned_action", None)
+        if action is not None and action.isChecked() != pinned:
+            action.blockSignals(True)
+            action.setChecked(pinned)
+            action.blockSignals(False)
+
+        if emit and changed:
+            self.rich_text_popup_pinned_changed.emit(pinned)
+
+    def is_rich_text_popup_pinned(self) -> bool:
+        return self._rich_text_popup_pinned
 
     def _on_auto_rich_text_rules_action_triggered(self, checked: bool = False):
         self.set_auto_rich_text_rules(checked, emit=True)

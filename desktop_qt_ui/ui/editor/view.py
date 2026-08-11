@@ -135,6 +135,7 @@ class EditorView(QWidget):
         self._snap_enabled = self._read_editor_snap_enabled()
         self._center_scale_enabled = self._read_editor_center_scale_enabled()
         self._rich_text_popup_enabled = self._read_editor_rich_text_popup_enabled()
+        self._rich_text_popup_pinned = False
         self._compare_mode_enabled = False
         self.toolbar: EditorToolbar | None = None
         self.main_splitter: QSplitter | None = None
@@ -285,6 +286,8 @@ class EditorView(QWidget):
         if editor is None:
             return
         if not enabled:
+            if self._rich_text_popup_pinned:
+                self._apply_editor_rich_text_popup_pinned(False)
             self._rich_editor_restore_on_show = False
             self._rich_editor_anchor_region = -1
             self._rich_editor_anchor_placement = None
@@ -294,6 +297,27 @@ class EditorView(QWidget):
             return
         if changed:
             self._on_selection_changed_for_rich_editor(self.model.get_selection())
+
+    def _apply_editor_rich_text_popup_pinned(self, pinned: bool):
+        pinned = bool(pinned)
+        self._rich_text_popup_pinned = pinned
+        if self.toolbar is not None:
+            self.toolbar.set_rich_text_popup_pinned(pinned)
+
+        editor = self.rich_text_editor
+        if editor is None or not self._rich_text_popup_enabled or not self.isVisible():
+            return
+        selected = self.model.get_selection()
+        has_single_selection = bool(selected) and len(selected) == 1
+        if pinned:
+            if editor.isVisible() or has_single_selection:
+                self._on_selection_changed_for_rich_editor(selected)
+            return
+        if self._translation_list_is_active() or not has_single_selection:
+            editor.clear_region()
+            return
+        editor.reset_manual_position()
+        self._position_rich_text_editor(int(selected[0]))
 
     @pyqtSlot(bool)
     def _on_editor_snap_enabled_changed(self, enabled: bool):
@@ -337,6 +361,11 @@ class EditorView(QWidget):
                 {"app": {"editor_rich_text_popup_enabled": enabled}}
             )
         self.config_service.save_config_file()
+
+    @pyqtSlot(bool)
+    def _on_editor_rich_text_popup_pinned_changed(self, pinned: bool):
+        """固定后保持浮窗位置，并阻止编辑页内的自动隐藏。"""
+        self._apply_editor_rich_text_popup_pinned(pinned)
 
     @pyqtSlot(bool)
     def _on_editor_auto_save_on_switch_changed(self, enabled: bool):
@@ -704,50 +733,64 @@ class EditorView(QWidget):
         self.toolbar.update_align_distribute_buttons(count)
 
     def _on_selection_changed_for_rich_editor(self, selected_indices: list):
-        if self.rich_text_editor is None:
+        editor = self.rich_text_editor
+        if editor is None:
             return
-        if self._selection_from_translation_list or self._translation_list_is_active():
+        if (
+            self._selection_from_translation_list or self._translation_list_is_active()
+        ) and not self._rich_text_popup_pinned:
             self._hide_rich_text_editor_for_list_action()
             return
         if not self._rich_text_popup_enabled:
             self._rich_editor_restore_on_show = False
-            self.rich_text_editor.hide()
+            editor.hide()
             return
         has_single_selection = bool(selected_indices) and len(selected_indices) == 1
         if not self.isVisible():
             # A top-level tool window is not hidden automatically with the
             # stacked editor page. Remember whether it should appear when the
             # page becomes visible, but never show it over another page.
-            self._rich_editor_restore_on_show = has_single_selection
-            self.rich_text_editor.hide()
+            self._rich_editor_restore_on_show = (
+                has_single_selection or self._rich_text_popup_pinned
+            )
+            editor.hide()
             return
         self._rich_editor_restore_on_show = False
         if not has_single_selection:
             self._rich_editor_anchor_region = -1
             self._rich_editor_anchor_placement = None
-            self.rich_text_editor.clear_region()
+            keep_visible = self._rich_text_popup_pinned and editor.isVisible()
+            editor.clear_region(hide=not keep_visible)
+            if keep_visible:
+                editor.raise_()
             return
 
         region_index = int(selected_indices[0])
         if region_index != self._rich_editor_anchor_region:
             self._rich_editor_anchor_region = region_index
             self._rich_editor_anchor_placement = None
-            self.rich_text_editor.reset_manual_position()
+            if not self._rich_text_popup_pinned:
+                editor.reset_manual_position()
         # F22：换绑前先把上一区域去抖期内的待发内容写回，再取新区域数据
-        self.rich_text_editor.flush_pending_changes()
+        editor.flush_pending_changes()
         region_data = self.model.get_region_by_index(region_index)
         if not region_data:
-            self.rich_text_editor.clear_region()
+            keep_visible = self._rich_text_popup_pinned and editor.isVisible()
+            editor.clear_region(hide=not keep_visible)
             return
 
-        self.rich_text_editor.set_region(region_index, region_data)
-        self._position_rich_text_editor(region_index)
-        self.rich_text_editor.show()
-        self.rich_text_editor.raise_()
+        was_visible = editor.isVisible()
+        editor.set_region(region_index, region_data)
+        if not self._rich_text_popup_pinned or not was_visible:
+            self._position_rich_text_editor(region_index)
+        editor.show()
+        editor.raise_()
         # F09：选中不再调用 focus_text() 抢焦点——焦点留在画布，
         # Delete/A/D/Q/W/E 等画布快捷键保持生效；点击文本框自然获焦进入编辑。
 
     def _hide_rich_text_editor_for_list_action(self) -> None:
+        if self._rich_text_popup_pinned:
+            return
         self._rich_editor_restore_on_show = False
         editor = self.rich_text_editor
         if editor is None:
@@ -798,39 +841,50 @@ class EditorView(QWidget):
         editor.flush_pending_changes()
         region_data = self.model.get_region_by_index(region_index)
         if not region_data:
-            editor.clear_region()
+            keep_visible = self._rich_text_popup_pinned and editor.isVisible()
+            editor.clear_region(hide=not keep_visible)
             return
         editor.refresh_region_if_changed(region_index, region_data)
 
     def _position_rich_text_editor_for_selection(self, *args):
         preserve_top = len(args) == 1 and isinstance(args[0], bool) and args[0]
+        editor = self.rich_text_editor
         if not self._rich_text_popup_enabled:
-            if self.rich_text_editor is not None:
-                self.rich_text_editor.hide()
+            if editor is not None:
+                editor.hide()
+            return
+        if self._rich_text_popup_pinned and editor is not None and editor.isVisible():
             return
         selected = self.model.get_selection()
         if selected and len(selected) == 1:
-            if (
-                self.rich_text_editor is not None
-                and self.rich_text_editor.is_manually_positioned()
-            ):
+            if editor is not None and editor.is_manually_positioned():
                 return
             self._position_rich_text_editor(int(selected[0]), preserve_top=preserve_top)
-        elif self.rich_text_editor is not None:
-            self.rich_text_editor.hide()
+        elif editor is not None:
+            editor.hide()
 
     def _hide_rich_text_editor_for_region_drag(self):
+        if self._rich_text_popup_pinned:
+            return
         if self.rich_text_editor is not None:
             self.rich_text_editor.hide()
 
     def _restore_rich_text_editor_after_region_drag(self):
-        if not self._rich_text_popup_enabled or self._translation_list_is_active():
+        if (
+            not self._rich_text_popup_enabled
+            or self._rich_text_popup_pinned
+            or self._translation_list_is_active()
+        ):
             return
         # 等几何提交和可能的 item 重建完成后，再按新位置恢复浮动编辑器。
         QTimer.singleShot(0, self._show_rich_text_editor_after_region_drag)
 
     def _show_rich_text_editor_after_region_drag(self):
-        if not self._rich_text_popup_enabled or self._translation_list_is_active():
+        if (
+            not self._rich_text_popup_enabled
+            or self._rich_text_popup_pinned
+            or self._translation_list_is_active()
+        ):
             return
         editor = self.rich_text_editor
         selected = self.model.get_selection()
@@ -943,6 +997,10 @@ class EditorView(QWidget):
         selected = self.model.get_selection()
         if selected and len(selected) == 1:
             self._on_selection_changed_for_rich_editor(selected)
+        elif self._rich_text_popup_pinned and self.rich_text_editor is not None:
+            self.rich_text_editor.clear_region(hide=False)
+            self.rich_text_editor.show()
+            self.rich_text_editor.raise_()
 
     def _connect_signals(self):
         # --- Model to View ---
@@ -1021,6 +1079,10 @@ class EditorView(QWidget):
         self.toolbar.rich_text_popup_enabled_changed.connect(
             self._on_editor_rich_text_popup_enabled_changed
         )
+        self.toolbar.rich_text_popup_pinned_changed.connect(
+            self._on_editor_rich_text_popup_pinned_changed
+        )
+
         self.toolbar.auto_rich_text_rules_changed.connect(
             self._on_editor_auto_rich_text_rules_changed
         )
