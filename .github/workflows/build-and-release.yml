@@ -69,11 +69,15 @@ jobs:
         $ErrorActionPreference = 'Stop'
         $uv = Join-Path $env:PORTABLE_DIR 'packaging\uv.exe'
         $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
-        $requirements = 'requirements-portable-${{ matrix.variant }}.txt'
-        & $uv export --locked --no-default-groups --group '${{ matrix.variant }}' --format requirements.txt --output-file $requirements
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked dependencies.' }
-        & $uv pip sync --python $python --index '${{ matrix.torch-index }}' --index-strategy unsafe-best-match $requirements
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to install dependencies into bundled Python.' }
+        $requirements = Join-Path $env:RUNNER_TEMP 'requirements-portable-${{ matrix.variant }}.txt'
+        try {
+          & $uv export --locked --no-hashes --no-default-groups --group '${{ matrix.variant }}' --format requirements.txt --output-file $requirements
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked dependencies.' }
+          & $uv pip sync --python $python --index '${{ matrix.torch-index }}' --index-strategy unsafe-best-match $requirements
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to install dependencies into bundled Python.' }
+        } finally {
+          Remove-Item $requirements -Force -ErrorAction SilentlyContinue
+        }
     - name: Install AMD base dependencies into bundled Python
       if: ${{ matrix.variant == 'amd' }}
       shell: pwsh
@@ -81,11 +85,15 @@ jobs:
         $ErrorActionPreference = 'Stop'
         $uv = Join-Path $env:PORTABLE_DIR 'packaging\uv.exe'
         $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
-        $requirements = 'requirements-portable-amd.txt'
-        & $uv export --locked --no-default-groups --group amd --no-emit-package torch --no-emit-package torchvision --format requirements.txt --output-file $requirements
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked AMD base dependencies.' }
-        & $uv pip install --python $python --no-deps --requirement $requirements
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to install AMD base dependencies into bundled Python.' }
+        $requirements = Join-Path $env:RUNNER_TEMP 'requirements-portable-amd.txt'
+        try {
+          & $uv export --locked --no-hashes --no-default-groups --group amd --no-emit-package torch --no-emit-package torchvision --format requirements.txt --output-file $requirements
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked AMD base dependencies.' }
+          & $uv pip install --python $python --no-deps --requirement $requirements
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to install AMD base dependencies into bundled Python.' }
+        } finally {
+          Remove-Item $requirements -Force -ErrorAction SilentlyContinue
+        }
     - name: Install Windows AMD ROCm runtime
       if: ${{ matrix.variant == 'amd' }}
       shell: pwsh
