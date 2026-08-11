@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 
 from manga_translator.runtime_paths import get_application_dir
 
+DEFAULT_PRESET_NAME = "默认"
+
 
 class PresetService:
     """预设管理服务"""
@@ -92,7 +94,7 @@ class PresetService:
     
     def _create_default_preset(self):
         """创建默认预设"""
-        default_preset_path = os.path.join(self.presets_dir, "默认.json")
+        default_preset_path = os.path.join(self.presets_dir, f"{DEFAULT_PRESET_NAME}.json")
         if not os.path.exists(default_preset_path):
             default_env = self._build_default_preset_env()
             try:
@@ -160,6 +162,10 @@ class PresetService:
     
     def delete_preset(self, preset_name: str) -> bool:
         """删除预设"""
+        if preset_name == DEFAULT_PRESET_NAME:
+            self.logger.warning("默认预设不可删除")
+            return False
+
         try:
             preset_path = os.path.join(self.presets_dir, f"{preset_name}.json")
             

@@ -1729,6 +1729,11 @@ def refresh_preset_list(self):
                 pending_preset_change = self.preset_combo.currentText()
     finally:
         self.preset_combo.blockSignals(False)
+    if hasattr(self, "delete_preset_button"):
+        self.delete_preset_button.setEnabled(
+            self.preset_combo.currentText() not in ("", "默认")
+        )
+
 
     if pending_preset_change is not None:
         self._on_preset_changed(pending_preset_change)
@@ -1781,6 +1786,9 @@ def on_delete_preset_clicked(self):
     if not preset_name:
         QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("Please select a preset to delete"))
         return
+    if preset_name == "默认":
+        return
+
 
     reply = QMessageBox.question(
         self._dialog_parent(),

@@ -898,6 +898,7 @@ def _finalize_settings_ui(self, build_seq: int | None = None):
 
     self.delete_preset_button = QPushButton(self._t("Delete"))
     set_hover_hint(self.delete_preset_button, self._t("Delete selected preset"))
+    self.delete_preset_button.setEnabled(self.preset_combo.currentText() not in ("", "默认"))
 
     self.env_preset_layout.addWidget(preset_label)
     self.env_preset_layout.addWidget(self.preset_combo)
@@ -910,6 +911,13 @@ def _finalize_settings_ui(self, build_seq: int | None = None):
     self.add_preset_button.clicked.connect(self._on_add_preset_clicked)
     self.delete_preset_button.clicked.connect(self._on_delete_preset_clicked)
     self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
+    delete_preset_button = self.delete_preset_button
+    self.preset_combo.currentTextChanged.connect(
+        lambda preset_name, button=delete_preset_button: button.setEnabled(
+            preset_name not in ("", "默认")
+        )
+    )
+
     
     _refresh_env_api_groups(self, force=True)
     self._refresh_api_feature_selectors()
