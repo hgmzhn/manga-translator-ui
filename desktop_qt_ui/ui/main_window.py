@@ -452,6 +452,16 @@ class MainWindow(FluentWindow):
         self.app_logic.warning_dialog_requested.connect(
             self._show_warning_dialog, type=Qt.ConnectionType.QueuedConnection
         )
+        self.config_service.write_failed.connect(
+            self._show_config_write_failed,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
+        deferred_write_error = self.config_service.take_deferred_write_error()
+        if deferred_write_error:
+            QTimer.singleShot(
+                0,
+                lambda error=deferred_write_error: self._show_config_write_failed(error),
+            )
         self.file_list_data_service.loading.connect(
             self._on_main_catalog_loading,
             type=Qt.ConnectionType.QueuedConnection,
@@ -467,6 +477,7 @@ class MainWindow(FluentWindow):
 
         # --- View to Logic Connections ---
         self.main_view.setting_changed.connect(self.app_logic.update_single_config)
+        self.main_view.env_var_changed.connect(self.app_logic.save_env_var)
         self.main_view.editor_view_requested.connect(self.switch_to_editor_view)
         self.main_view.theme_change_requested.connect(self._change_theme)
         self.main_view.language_change_requested.connect(
@@ -811,6 +822,22 @@ class MainWindow(FluentWindow):
             )
         except Exception as e:
             self.logger.error(f"_show_warning_dialog error: {e}", exc_info=True)
+
+    @pyqtSlot(str)
+    def _show_config_write_failed(self, error: str):
+        """明确提示配置写入失败，避免用户误以为 API Key 已保存。"""
+        try:
+            guidance = self._t(
+                "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access."
+            )
+            detail = str(error or "").strip()
+            message = f"{guidance}\n\n{detail}" if detail else guidance
+            show_error_dialog(self, self._t("Error"), "", message)
+        except Exception as exc:
+            self.logger.error(
+                f"_show_config_write_failed error: {exc}", exc_info=True
+            )
+
 
     def switch_to_editor_view(self):
         """

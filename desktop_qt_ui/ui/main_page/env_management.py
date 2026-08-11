@@ -843,9 +843,17 @@ def flush_env_var_immediately(self, key: str):
 
 
 def flush_all_pending_env_vars(self, wait: bool = True):
-    """显式 API/预设操作可等待 ConfigService 原子落盘。"""
-    config_service = getattr(self.controller, 'config_service', None)
-    flush = getattr(config_service, 'flush_pending_writes', None)
+    """先提交当前控件值，再按需等待 ConfigService 原子落盘。"""
+    config_service = getattr(self.controller, "config_service", None)
+    save_many = getattr(config_service, "save_env_vars", None)
+    if callable(save_many):
+        visible_values = {
+            key: _get_env_widget_value(widget)
+            for key, (_label, widget) in getattr(self, "env_widgets", {}).items()
+        }
+        if visible_values:
+            save_many(visible_values)
+    flush = getattr(config_service, "flush_pending_writes", None)
     if wait and callable(flush):
         flush()
 

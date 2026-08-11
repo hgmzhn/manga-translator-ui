@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Dict, Mapping, Optional, Union
 
@@ -59,6 +60,49 @@ def read_dotenv_file(path: PathLike) -> Dict[str, str]:
         for key, value in values.items()
         if key is not None
     }
+
+
+def remove_invalid_dotenv_lines(path: PathLike) -> int:
+    """Delete statements that python-dotenv cannot parse, preserving valid content."""
+    env_path = Path(path)
+    if not env_path.exists():
+        return 0
+
+    lines: list[str] = []
+    removed = 0
+    with env_path.open("r", encoding="utf-8") as source:
+        for mapping in parse_stream(source):
+            if mapping.error:
+                removed += 1
+                continue
+            lines.append(mapping.original.string)
+
+    if removed:
+        temp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="",
+                dir=env_path.parent,
+                prefix=f".{env_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = temp_file.name
+                temp_file.write("".join(lines))
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, env_path)
+            temp_path = None
+        finally:
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+    return removed
+
 
 
 def load_app_dotenv(

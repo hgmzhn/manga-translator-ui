@@ -1298,6 +1298,7 @@
   "Skip only when OCR text exactly matches one of these rules.": "Skip only when OCR text exactly matches one of these rules.",
   "Warning": "Warning",
   "Error": "Error",
+  "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access.": "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access.",
   "Filter:": "Filter:",
   "Type to filter by pattern / replace / comment...": "Type to filter by pattern / replace / comment...",
   "Selection": "Selection",

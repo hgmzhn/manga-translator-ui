@@ -1289,6 +1289,7 @@
   "Skip only when OCR text exactly matches one of these rules.": "Omitir solo cuando el texto OCR coincida exactamente con una de estas reglas.",
   "Warning": "Advertencia",
   "Error": "Error",
+  "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access.": "No se pudo guardar la configuración. Los cambios no se guardaron. Compruebe los permisos del archivo y si el antivirus o el software de seguridad está bloqueando el acceso.",
   "Filter:": "Filtrar:",
   "Type to filter by pattern / replace / comment...": "Escriba para filtrar por patrón / reemplazo / comentario...",
   "Selection": "Selección",

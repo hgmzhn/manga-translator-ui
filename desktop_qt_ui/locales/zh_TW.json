@@ -1291,6 +1291,7 @@
   "Skip only when OCR text exactly matches one of these rules.": "僅當 OCR 文字與以下某條規則完全一致時跳過該文字區域。",
   "Warning": "警告",
   "Error": "錯誤",
+  "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access.": "設定儲存失敗，變更未儲存。請檢查檔案權限，以及防毒軟體或安全軟體是否攔截了檔案存取。",
   "Filter:": "過濾:",
   "Type to filter by pattern / replace / comment...": "輸入匹配 / 替換 / 備註以過濾...",
   "Selection": "選區",

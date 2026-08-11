@@ -33,6 +33,7 @@ from manga_translator.utils.dotenv_utils import (
     format_env_line,
     load_app_dotenv,
     read_dotenv_file,
+    remove_invalid_dotenv_lines,
     validate_env_key,
 )
 from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
@@ -159,6 +160,8 @@ class ConfigService(QObject):
         else:
             self.env_path = os.path.join(self.root_dir, ".env")
         os.environ[APP_DOTENV_PATH_ENV] = self.env_path
+        self._deferred_write_error: Optional[str] = None
+        self._remove_invalid_env_lines()
         try:
             self._env_values = read_dotenv_file(self.env_path)
             load_app_dotenv(self.env_path, override=True)
@@ -200,6 +203,22 @@ class ConfigService(QObject):
         self._env_cache = None
         self._config_cache = None
         self._initialize_write_pipeline()
+
+    def _remove_invalid_env_lines(self) -> None:
+        try:
+            removed = remove_invalid_dotenv_lines(self.env_path)
+        except Exception as exc:
+            self._deferred_write_error = f"{self.env_path}: {exc}"
+            self.logger.error(f"清理 .env 解析错误行失败: {exc}")
+            return
+        if removed:
+            self.logger.warning(f"已删除 .env 中 {removed} 行无法解析的配置")
+
+    def take_deferred_write_error(self) -> Optional[str]:
+        error = self._deferred_write_error
+        self._deferred_write_error = None
+        return error
+
 
     def _initialize_write_pipeline(self) -> None:
         self._write_lock = threading.RLock()
@@ -654,7 +673,7 @@ class ConfigService(QObject):
                     message,
                     exc_info=(type(error), error, error.__traceback__),
                 )
-                self.write_failed.emit(message)
+                self.write_failed.emit(str(error))
 
         future.add_done_callback(on_done)
         return future
@@ -704,6 +723,7 @@ class ConfigService(QObject):
         """
         self.logger.info("正在强制重新加载配置...")
         self.flush_pending_writes()
+        self._remove_invalid_env_lines()
 
         # 1. 重新加载 .env 文件到 os.environ。翻译引擎会自动从此读取。
         load_app_dotenv(self.env_path, override=True)

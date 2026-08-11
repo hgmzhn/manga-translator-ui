@@ -3,6 +3,7 @@ from ui.main_page.env_management import (
     _build_api_rotation_reorder_updates,
     _reorder_api_rotation_slot,
     _resolve_api_slot_drop_target,
+    flush_all_pending_env_vars,
 )
 
 SLOT_KEYS = ("OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_API_BASE")
@@ -132,3 +133,46 @@ def test_api_slot_reorder_persists_one_batch_and_refreshes_page() -> None:
     assert view.refresh_calls == [True]
     assert view.selector_refresh_count == 1
     assert view._env_api_groups_signature is None
+
+
+def test_flush_all_pending_env_vars_saves_visible_values_before_refresh() -> None:
+    class Widget:
+        def __init__(self, value):
+            self.value = value
+
+        def text(self):
+            return self.value
+
+    class ConfigService:
+        def __init__(self):
+            self.saved_batches = []
+            self.flush_count = 0
+
+        def save_env_vars(self, updates):
+            self.saved_batches.append(dict(updates))
+            return True
+
+        def flush_pending_writes(self):
+            self.flush_count += 1
+            return True
+
+    class Controller:
+        def __init__(self, config_service):
+            self.config_service = config_service
+
+    class View:
+        def __init__(self):
+            self.config_service = ConfigService()
+            self.controller = Controller(self.config_service)
+            self.env_widgets = {
+                "OPENAI_API_KEY": (None, Widget("test-key")),
+                "OPENAI_MODEL": (None, Widget("gpt-test")),
+            }
+
+    view = View()
+    flush_all_pending_env_vars(view)
+
+    assert view.config_service.saved_batches == [
+        {"OPENAI_API_KEY": "test-key", "OPENAI_MODEL": "gpt-test"}
+    ]
+    assert view.config_service.flush_count == 1

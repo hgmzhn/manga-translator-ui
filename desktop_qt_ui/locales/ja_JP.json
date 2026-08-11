@@ -1289,6 +1289,7 @@
   "Skip only when OCR text exactly matches one of these rules.": "OCR テキストが以下のいずれかと完全一致する場合のみ、そのテキスト領域をスキップします。",
   "Warning": "警告",
   "Error": "エラー",
+  "Configuration save failed. Changes were not saved. Check file permissions and antivirus or security software blocking access.": "設定の保存に失敗し、変更は保存されませんでした。ファイルのアクセス権限、およびウイルス対策・セキュリティソフトによるアクセス遮断を確認してください。",
   "Filter:": "フィルター:",
   "Type to filter by pattern / replace / comment...": "パターン / 置換 / コメントで絞り込み...",
   "Selection": "選択範囲",
