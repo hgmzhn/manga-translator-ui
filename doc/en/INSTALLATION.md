@@ -31,7 +31,7 @@ This document provides detailed installation steps, system requirements, first-r
 
 - **Memory**: 16 GB RAM or more
 - **GPU**:
-  - **NVIDIA GPU**: CUDA 13.x compatible, with a driver that supports CUDA 13.0
+  - **NVIDIA GPU**: CUDA 12.6 compatible, with a driver that supports CUDA 12.6
     - Recommended VRAM: 6 GB or more
     - Typical supported class: GTX 1060 and above
   - **AMD GPU**: ROCm support is experimental
@@ -71,7 +71,7 @@ Double-click `Win-Install-or-Update.bat` and choose **[1] Install** in the maint
 2. **Force-sync the latest code**: after a successful sync, the maintenance launcher reloads the updated code before continuing
 3. **GPU detection**: automatically detects NVIDIA / AMD / integrated graphics; with multiple GPUs you get a list to pick from
 4. **Choose a PyTorch build**:
-   - **NVIDIA**: CUDA 13.x (driver must support CUDA 13.0)
+   - **NVIDIA**: CUDA 12.6 (driver must support CUDA 12.6)
    - **AMD**: ROCm, experimental, **RX 7000 / 9000 series only**
    - **Other / integrated graphics**: CPU build
 5. **Fast batch dependency install with uv**:
@@ -124,7 +124,7 @@ Go to [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases).
 ### 2. Choose a build
 
 - `manga-translator-cpu-vX.X.X.7z.001`: best compatibility; no dedicated GPU required.
-- `manga-translator-gpu-vX.X.X.7z.001`: NVIDIA CUDA 13.x; requires a matching driver.
+- `manga-translator-gpu-vX.X.X.7z.001`: NVIDIA CUDA 12.6; requires a matching driver.
 - `manga-translator-amd-vX.X.X.7z.001`: experimental Radeon ROCm 7.2.1; requires a supported GPU and AMD driver 26.2.2.
 
 ### 3. Extract split volumes
@@ -168,7 +168,7 @@ cd manga-translator-ui
 Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal`). Install one backend with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-# NVIDIA GPU (CUDA 13.0, source-development default; also installs packaging/test)
+# NVIDIA GPU (CUDA 12.6, source-development default; also installs packaging/test)
 uv sync
 
 # CPU
@@ -560,7 +560,7 @@ If you want to fine-tune the result later, open it in `Editor View`.
 
 **Try this**
 
-1. Confirm the GPU supports CUDA 13.x
+1. Confirm the GPU and driver support CUDA 12.6
 2. Update the NVIDIA driver
 3. If the issue is ONNX-specific, open `Settings` -> `General` and enable `Disable ONNX GPU Acceleration`
 4. If the machine is not compatible, switch to the CPU build

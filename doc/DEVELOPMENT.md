@@ -16,8 +16,8 @@
 
 - 公共依赖写在 `[project] dependencies`。
 - 四种后端是互斥的 dependency groups：`cpu` / `gpu` / `amd` / `metal`（`[tool.uv] conflicts` 保证互斥）。
-- 默认组是 `gpu` + `packaging` + `test`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 13.0，并保留 PyInstaller 与测试工具；安装器使用 `--no-default-groups`，不会检查或安装 `test` 组。
-- PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cpu` 用 `download.pytorch.org/whl/cpu`，`gpu` 用 `whl/cu130`，Linux `amd` 用 `whl/rocm7.2`，`metal` 走默认 PyPI；Windows AMD 的 Radeon wheels 仍由 `packaging/launch.py` 单独安装。
+- 默认组是 `gpu` + `packaging` + `test`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 12.6，并保留 PyInstaller 与测试工具；安装器使用 `--no-default-groups`，不会检查或安装 `test` 组。
+- PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cpu` 用 `download.pytorch.org/whl/cpu`，`gpu` 用 `whl/cu126`，Linux `amd` 用 `whl/rocm7.2`，`metal` 走默认 PyPI；Windows AMD 的 Radeon wheels 仍由 `packaging/launch.py` 单独安装。
 - `uv.lock` 是锁定文件，已提交在仓库里，请勿手改。
 
 旧的 `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` 已删除。
@@ -27,7 +27,7 @@
 推荐使用 uv，按你的运行目标只装一套 dependency group：
 
 ```bash
-# NVIDIA GPU（CUDA 13.0，默认）
+# NVIDIA GPU（CUDA 12.6，默认）
 uv sync
 
 # 其他后端关闭默认组后显式选择

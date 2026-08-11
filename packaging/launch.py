@@ -70,18 +70,18 @@ PYTORCH_INDEX_FALLBACKS = {
         "https://mirror.sjtu.edu.cn/pytorch-wheels/cpu/",
         "https://mirrors.aliyun.com/pytorch-wheels/cpu/",
     ],
-    "https://download.pytorch.org/whl/cu130": [
-        "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
+    "https://download.pytorch.org/whl/cu126": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu126/",
     ],
 }
 
 # 对部分 PyTorch 源使用自定义尝试顺序。
-# 例如 cu130 优先走国内镜像，失败后再回退官方源。
+# 例如 cu126 优先走国内镜像，失败后再回退官方源。
 PYTORCH_INDEX_PRIORITY = {
-    "https://download.pytorch.org/whl/cu130": [
-        "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
-        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu130/",
-        "https://download.pytorch.org/whl/cu130",
+    "https://download.pytorch.org/whl/cu126": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu126/",
+        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu126/",
+        "https://download.pytorch.org/whl/cu126",
     ],
 }
 
@@ -1559,11 +1559,11 @@ except:
             
             # 检查 CUDA 版本
             if cuda_major is not None:
-                if cuda_major < 13:
-                    print('⚠️  警告: 检测到 CUDA 版本低于 13')
+                if tuple(map(int, cuda_version.split('.')[:2])) < (12, 6):
+                    print('⚠️  警告: 检测到 CUDA 版本低于 12.6')
                     print(f'   当前 CUDA 版本: {cuda_version}')
-                    print('   GPU 版本需要: CUDA 13.x')
-                    print('   驱动需支持 CUDA 13.0')
+                    print('   GPU 版本需要: CUDA 12.6')
+                    print('   驱动需支持 CUDA 12.6')
                     print()
                     print('您的 CUDA 版本过低，无法使用 GPU 版本。')
                     print('请选择:')
@@ -1587,8 +1587,8 @@ except:
                 else:
                     # CUDA 版本符合要求
                     print('GPU 版本需要:')
-                    print('  - NVIDIA 显卡支持 CUDA 13.x')
-                    print('  - 显卡驱动需支持 CUDA 13.0')
+                    print('  - NVIDIA 显卡支持 CUDA 12.6')
+                    print('  - 显卡驱动需支持 CUDA 12.6')
                     print()
                     print(f'✓ 您的 CUDA 版本 {cuda_version} 符合要求')
                     print()
@@ -1612,8 +1612,8 @@ except:
                 print('⚠️  无法检测 CUDA 版本 (可能未安装 nvidia-smi)')
                 print()
                 print('GPU 版本需要:')
-                print('  - NVIDIA 显卡支持 CUDA 13.x')
-                print('  - 显卡驱动需支持 CUDA 13.0')
+                print('  - NVIDIA 显卡支持 CUDA 12.6')
+                print('  - 显卡驱动需支持 CUDA 12.6')
                 print()
                 print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
                 print()
@@ -1951,35 +1951,6 @@ except:
         except Exception:
             pass
 
-    # uv 精确同步：按 uv.lock 卸掉清单之外的残留包（上面的 pip 安装路径只装不卸）
-    # 仅限仓库自带环境（便携 Python / venv）；conda 旧环境只做上面的特例清理；
-    # Windows AMD 的固定 URL wheels 不在 uv.lock 中，精确同步会把它们卸掉，因此跳过。
-    env_root = Path(python).parent
-    if env_root.name.lower() == 'scripts':
-        env_root = env_root.parent
-    uv = find_uv()
-    if not windows_amd_install and uv and PATH_ROOT in env_root.parents:
-        try:
-            # pip/uv 等自举工具不在 lock 中，同步时保留（只保留已安装的）
-            import importlib.metadata as _md
-            keep = []
-            for _tool in ('pip', 'setuptools', 'wheel', 'uv'):
-                try:
-                    _md.version(_tool)
-                    keep.append(_tool)
-                except _md.PackageNotFoundError:
-                    pass
-            req_file = PATH_ROOT / 'packaging' / 'sync_requirements.txt'
-            run(f'{uv} export --frozen --no-hashes --emit-index-url --no-default-groups '
-                f'--group {requirements_file} --project "{PATH_ROOT}" -o "{req_file}"',
-                "导出依赖清单", "导出依赖清单失败")
-            if keep:
-                with open(req_file, 'a', encoding='utf-8') as f:
-                    f.write('\n' + '\n'.join(keep) + '\n')
-            run(f'{uv} pip sync --python "{python}" "{req_file}"',
-                "同步依赖环境（清理多余包）", "依赖同步失败", live=True)
-        except Exception as e:
-            print(f'[警告] uv 精确同步失败（不影响使用）: {e}')
 
     # 返回 AMD PyTorch 相关信息
     return use_amd_pytorch, amd_gfx_version

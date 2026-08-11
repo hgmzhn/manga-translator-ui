@@ -23,7 +23,7 @@ lastUpdated: true
 | 内存 | 8 GB | 16 GB 或更多 |
 | 磁盘 | 5 GB 可用空间 | 10 GB SSD |
 | Python（源码版） | 3.12（`>=3.12,<3.13`） | 3.12 |
-| NVIDIA GPU | GTX 1060 及以上、6 GB 显存；驱动需支持 CUDA 13.x | 显存更大更佳 |
+| NVIDIA GPU | GTX 1060 及以上、6 GB 显存；驱动需支持 CUDA 12.6 | 显存更大更佳 |
 | AMD GPU | 仅 RX 7000/9000 系列（RDNA 3/4），ROCm 为实验性支持；RX 5000/6000 请使用 CPU 版 | — |
 
 > Windows AMD 可选择实验性的 AMD 发布便携包或通过维护脚本安装；两者均要求受支持的显卡、Radeon ROCm 7.2.1 和 AMD 26.2.2 驱动。ROCm 在 Windows 上仍属实验性路径。
@@ -38,7 +38,7 @@ lastUpdated: true
 
 | 目标环境 | 命令 | 说明 |
 | --- | --- | --- |
-| NVIDIA CUDA（源码开发默认） | `uv sync` | 默认 `gpu`、`packaging` 与 `test` 组，PyTorch 使用 CUDA 13.0 索引 |
+| NVIDIA CUDA（源码开发默认） | `uv sync` | 默认 `gpu`、`packaging` 与 `test` 组，PyTorch 使用 CUDA 12.6 索引 |
 | CPU | `uv sync --no-default-groups --group cpu` | CPU PyTorch 与 `onnxruntime` |
 | Linux AMD ROCm | `uv sync --no-default-groups --group amd` | ROCm 7.2 索引；Linux x86_64 条件项安装 ROCm PyTorch/Triton |
 | macOS Apple Silicon | `uv sync --no-default-groups --group metal` | PyPI PyTorch/MPS；ONNX Runtime 仍为 CPU 版 |
@@ -66,7 +66,7 @@ lastUpdated: true
 flowchart TD
     A["Python 3.12 + uv"] --> B["读取 pyproject.toml / uv.lock"]
     B --> C{"选择一个后端组"}
-    C -->|gpu| D["CUDA 13.0 + onnxruntime-gpu + xformers"]
+    C -->|gpu| D["CUDA 12.6 + onnxruntime-gpu + xformers"]
     C -->|cpu| E["CPU PyTorch + onnxruntime"]
     C -->|amd| F["Linux ROCm 7.2 条件依赖"]
     C -->|metal| G["macOS PyTorch MPS + CPU ONNX Runtime"]

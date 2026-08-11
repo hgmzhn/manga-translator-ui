@@ -47,7 +47,7 @@
 - `[project].dependencies`：公共依赖；
 - `[dependency-groups]`：`cpu` / `gpu` / `amd` / `metal` 四个互斥后端组，以及独立的 `packaging` 打包组和 `test` 测试组；
 - `[tool.uv].default-groups`：源码开发默认使用 `gpu` + `packaging` + `test`；
-- `[[tool.uv.index]]` + `[tool.uv.sources].torch`：定义各变体对应的 PyTorch 主源（如 cpu → `download.pytorch.org/whl/cpu`，gpu → `.../cu130`）；
+- `[[tool.uv.index]]` + `[tool.uv.sources].torch`：定义各变体对应的 PyTorch 主源（如 cpu → `download.pytorch.org/whl/cpu`，gpu → `.../cu126`）；
 - `tool.uv.sources` 中 url/git 类型来源（如 pydensecrf）按平台 marker 解析成 `name @ url` 形式交给安装器。
 
 `get_variant_packages(variant)` 返回公共依赖 + 指定 dependency group 的完整包列表；`get_variant_index_url(variant)` 返回该变体的 PyTorch 主源。便携安装流程把这些依赖直接装入 `packaging\python`，不会创建 `.venv`。
@@ -67,7 +67,7 @@
 
 - 缓存目录固定为 `UV_CACHE_DIR = packaging\uv_cache`（与包同盘，避免跨盘硬链接退化成整份复制）；
 - 包列表分两批安装：
-  - **PyTorch 相关包**（torch/torchvision/torchaudio/xformers/nvidia-* 等一大串前缀名单，torchsummary、torchmetrics 除外）：按 `get_pytorch_index_candidates()` 顺序回退。cu130 优先国内镜像（阿里云 → 上交大 → 官方源兜底）；官方 `download.pytorch.org` 是标准 PEP 503 索引作 `--index-url`，国内镜像是静态 wheel 目录，用 `--find-links` 挂载、其余依赖走 PyPI 镜像；
+  - **PyTorch 相关包**（torch/torchvision/torchaudio/xformers/nvidia-* 等一大串前缀名单，torchsummary、torchmetrics 除外）：按 `get_pytorch_index_candidates()` 顺序回退。cu126 优先国内镜像（阿里云 → 上交大 → 官方源兜底）；官方 `download.pytorch.org` 是标准 PEP 503 索引作 `--index-url`，国内镜像是静态 wheel 目录，用 `--find-links` 挂载、其余依赖走 PyPI 镜像；
   - **普通包**：走 PyPI 镜像按顺序回退：清华 → 阿里云 → 豆瓣 → PyPI 官方（环境变量 `INDEX_URL` 可插队为首选）；
 - 任一批次所有源都失败时抛异常，由上层回退到 pip 逐包安装。
 
@@ -97,7 +97,7 @@
 ### 4.3 NVIDIA
 
 - 通过 `nvidia-smi` 读取驱动版本和 CUDA 版本，正则**兼容新旧输出格式**：`CUDA Version: 12.8` 与新版的 `CUDA UMD Version: 13.3`；
-- CUDA ≥ 13 时默认推荐 GPU 方案（cu130）；CUDA < 13 时提示更新驱动或改用 CPU；无法检测时由用户自行选择 y/n。
+- CUDA ≥ 12.6 时默认推荐 GPU 方案（cu126）；CUDA < 12.6 时提示更新驱动或改用 CPU；无法检测时由用户自行选择 y/n。
 
 ### 4.4 AMD（Linux ROCm 7.2 / Windows Radeon ROCm 7.2.1）
 

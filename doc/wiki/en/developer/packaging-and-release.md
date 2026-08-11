@@ -49,7 +49,7 @@ Each CPU/GPU/AMD matrix job runs these steps in order:
 
 1. Extract the base package while retaining bundled `packaging/python`, `packaging/uv.exe`, and `PortableGit`.
 2. Overlay current source and write version files.
-3. Export the matching dependency group with `uv export --locked`, then install it with `uv pip sync --python packaging/python/python.exe`.
+3. Export the matching dependency group with `uv export --locked`, then install it with `uv pip install --python packaging/python/python.exe --requirement requirements.txt`.
 4. For AMD, remove normal PyTorch and install Radeon ROCm SDK 7.2.1 plus matching PyTorch wheels in the same order as `packaging/launch.py`.
 5. Download and extract `models.7z` from Release `v1.7.9` into `models/`.
 6. Import runtime modules for CPU/GPU, validate ROCm wheel metadata for AMD, then create 1990 MiB split archives.
@@ -62,7 +62,7 @@ Each CPU/GPU/AMD matrix job runs these steps in order:
 flowchart LR
     T["v* tag"] --> B["download portable base"]
     B --> S["overlay source and write VERSION"]
-    S --> D["uv export --locked + uv pip sync"]
+    S --> D["uv export --locked + uv pip install"]
     D --> M["extract models.7z"]
     M --> Q["PyQt6/torch/onnxruntime smoke test"]
     Q --> Z["split and upload CPU/GPU/AMD archives"]

@@ -20,7 +20,7 @@ jobs:
         - variant: cpu
           torch-index: https://download.pytorch.org/whl/cpu
         - variant: gpu
-          torch-index: https://download.pytorch.org/whl/cu130
+          torch-index: https://download.pytorch.org/whl/cu126
         - variant: amd
           torch-index: https://pypi.org/simple
     steps:
@@ -73,7 +73,7 @@ jobs:
         try {
           & $uv export --locked --no-hashes --no-default-groups --group '${{ matrix.variant }}' --format requirements.txt --output-file $requirements
           if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked dependencies.' }
-          & $uv pip sync --python $python --index '${{ matrix.torch-index }}' --index-strategy unsafe-best-match $requirements
+          & $uv pip install --python $python --index '${{ matrix.torch-index }}' --index-strategy unsafe-best-match --requirement $requirements
           if ($LASTEXITCODE -ne 0) { throw 'Failed to install dependencies into bundled Python.' }
         } finally {
           Remove-Item $requirements -Force -ErrorAction SilentlyContinue

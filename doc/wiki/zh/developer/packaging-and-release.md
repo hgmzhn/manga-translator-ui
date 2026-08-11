@@ -49,7 +49,7 @@ CI 不再把 PyInstaller `dist/` 作为发布包。`.github/workflows/build-and-
 
 1. 解压便携基础包，保留内置 `packaging/python`、`packaging/uv.exe` 和 `PortableGit`。
 2. 覆盖当前源码并写入版本文件。
-3. 用 `uv export --locked` 导出对应 dependency group，再用 `uv pip sync --python packaging/python/python.exe` 安装到包内 Python。
+3. 用 `uv export --locked` 导出对应 dependency group，再用 `uv pip install --python packaging/python/python.exe --requirement requirements.txt` 安装到包内 Python。
 4. AMD 变体额外卸载普通 PyTorch，按 `packaging/launch.py` 相同顺序安装 Radeon ROCm SDK 7.2.1 和配套 PyTorch wheels。
 5. 下载并解压 `v1.7.9` Release 的 `models.7z` 到包内 `models/`。
 6. CPU/GPU 导入运行时，AMD 校验 ROCm wheel 元数据，再以 1990 MiB 分卷压缩。
@@ -62,7 +62,7 @@ CI 不再把 PyInstaller `dist/` 作为发布包。`.github/workflows/build-and-
 flowchart LR
     T["v* tag"] --> B["下载 portable 基础包"]
     B --> S["覆盖当前源码并写 VERSION"]
-    S --> D["uv export --locked + uv pip sync"]
+    S --> D["uv export --locked + uv pip install"]
     D --> M["解压 models.7z"]
     M --> Q["PyQt6/torch/onnxruntime smoke test"]
     Q --> Z["7z 分卷并上传 CPU/GPU/AMD 归档"]

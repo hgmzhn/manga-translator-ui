@@ -31,3 +31,9 @@ def test_default_development_environment_includes_test_group():
 
     assert "pytest==9.1.1" in data["dependency-groups"]["test"]
     assert "test" in data["tool"]["uv"]["default-groups"]
+
+
+def test_gpu_uses_cuda_126_pytorch_index():
+    launch = load_launch("launch_gpu_index_test")
+
+    assert launch.get_variant_index_url("gpu") == "https://download.pytorch.org/whl/cu126"

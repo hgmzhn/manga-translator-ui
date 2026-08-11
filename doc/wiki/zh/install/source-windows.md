@@ -40,7 +40,7 @@ lastUpdated: true
 按硬件只选择一组依赖，命令在仓库根目录执行：
 
 ```powershell
-# NVIDIA GPU（CUDA 13.0，源码开发默认；同时安装 packaging/test 组）
+# NVIDIA GPU（CUDA 12.6，源码开发默认；同时安装 packaging/test 组）
 uv sync
 
 # CPU 版本
@@ -104,7 +104,7 @@ flowchart TD
 - **Python 版本**：`pyproject.toml` 和启动器都限制 Python 3.12；Python 3.13 会被拒绝。检查 `uv run --no-sync python --version`，不要只检查系统默认 `python`。
 - **后端组互斥**：`cpu`、`gpu`、`amd`、`metal` 在 `[tool.uv].conflicts` 中互斥。不要用 `uv sync --group cpu --group gpu` 混装，也不要把默认 `gpu` 组和另一个后端组一起保留。
 - **默认组**：项目默认组为 `gpu`、`packaging` 和 `test`；`uv sync` 因而会安装 CUDA GPU、打包工具与测试工具。CPU/AMD/Metal 运行环境使用 `--no-default-groups`，不会安装 `test` 组。
-- **NVIDIA**：GPU 组使用 `torch`/`torchvision` 的 `pytorch-cu130` 索引、`onnxruntime-gpu` 和 `xformers`；驱动必须支持 CUDA 13.0。CUDA 版本不满足时，维护流程可建议改用 CPU。
+- **NVIDIA**：GPU 组使用 `torch`/`torchvision` 的 `pytorch-cu126` 索引、`onnxruntime-gpu` 和 `xformers`；驱动必须支持 CUDA 12.6。CUDA 版本不满足时，维护流程可建议改用 CPU。
 - **AMD**：Linux AMD 组使用 ROCm 7.2 索引和带平台标记的 torch/torchvision/triton；Windows AMD 由启动器先安装 Radeon ROCm SDK，再安装固定的 AMD PyTorch，兼容性受驱动和 gfx 架构影响。
 - **Metal**：Metal 组面向 macOS Apple Silicon，使用普通 PyPI 的 MPS PyTorch、CPU ONNX Runtime 和 Cocoa；不要在 Windows 选择该组。
 - **依赖冲突切换**：启动器检测到已安装 PyTorch 类型与目标不同，可能卸载 `torch`、`torchvision`、`torchaudio` 并清理 pip 缓存。先关闭其他使用 PyTorch 的 Python 进程。

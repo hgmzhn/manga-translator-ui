@@ -521,7 +521,7 @@ Detailed debug reference:
 
 Try this:
 
-1. Check whether the GPU supports CUDA 13.x
+1. Check whether the GPU and driver support CUDA 12.6
 2. Update the NVIDIA driver
 3. Enable `Disable ONNX GPU Acceleration` in `Settings` -> `General`
 4. Fall back to the CPU build if the machine is not compatible

@@ -40,7 +40,7 @@ If the repository already exists, enter it and check the working-tree status bef
 Select exactly one backend group for the hardware; run the commands from the repository root:
 
 ```powershell
-# NVIDIA GPU (CUDA 13.0, source-development default; also installs packaging/test)
+# NVIDIA GPU (CUDA 12.6, source-development default; also installs packaging/test)
 uv sync
 
 # CPU
@@ -104,7 +104,7 @@ The maintenance mode's `prepare_environment` detects the device and checks the i
 - **Python version**: `pyproject.toml` and the launcher both constrain Python to 3.12; Python 3.13 is rejected. Check `uv run --no-sync python --version`, not only the system `python`.
 - **Mutually exclusive groups**: `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive under `[tool.uv].conflicts`. Do not run `uv sync --group cpu --group gpu` or retain the default `gpu` group alongside another backend.
 - **Default groups**: the project defaults to `gpu`, `packaging`, and `test`; `uv sync` therefore installs CUDA GPU, packaging tools, and test tools. CPU/AMD/Metal runtime environments use `--no-default-groups` and do not install the `test` group.
-- **NVIDIA**: the GPU group uses the `pytorch-cu130` index for `torch`/`torchvision`, `onnxruntime-gpu`, and `xformers`; the driver must support CUDA 13.0. If CUDA is insufficient, maintenance may recommend CPU.
+- **NVIDIA**: the GPU group uses the `pytorch-cu126` index for `torch`/`torchvision`, `onnxruntime-gpu`, and `xformers`; the driver must support CUDA 12.6. If CUDA is insufficient, maintenance may recommend CPU.
 - **AMD**: the Linux AMD group uses the ROCm 7.2 index and platform-marked torch/torchvision/triton. Windows AMD first installs the Radeon ROCm SDK and then fixed AMD PyTorch wheels; driver and gfx architecture determine compatibility.
 - **Metal**: the Metal group targets Apple Silicon macOS, using MPS PyTorch, CPU ONNX Runtime, and Cocoa from normal PyPI; do not choose it on Windows.
 - **Switching conflicts**: if the installed PyTorch type differs from the target, the launcher may uninstall `torch`, `torchvision`, and `torchaudio` and purge the pip cache. Close other Python processes using PyTorch first.

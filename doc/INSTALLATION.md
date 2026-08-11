@@ -29,7 +29,7 @@
 
 - **内存**：16 GB RAM 或更多
 - **GPU**：
-  - **NVIDIA 显卡**：支持 CUDA 13.x（驱动需支持 CUDA 13.0）
+  - **NVIDIA 显卡**：支持 CUDA 12.6（驱动需支持 CUDA 12.6）
     - 建议显存：6 GB 或更多
     - 支持的 NVIDIA 显卡：GTX 1060 及以上
   - **AMD 显卡**：支持 ROCm（实验性）
@@ -69,7 +69,7 @@
 2. **强制同步最新代码**：同步失败会提示切换到另一条线路重试
 3. **检测显卡**：自动识别 NVIDIA / AMD / 集显；多显卡时列出让用户选择
 4. **选择 PyTorch 版本**：
-   - **NVIDIA**：CUDA 13.x（驱动需支持 CUDA 13.0）
+   - **NVIDIA**：CUDA 12.6（驱动需支持 CUDA 12.6）
    - **AMD**：ROCm（实验性，**仅 RX 7000/9000 系列**）
    - **其他/集显**：CPU 版本
 5. **uv 高速批量安装依赖**：
@@ -122,7 +122,7 @@
 ### 2. 选择版本
 
 - `manga-translator-cpu-vX.X.X.7z.001`：兼容性最好，不需要独立显卡。
-- `manga-translator-gpu-vX.X.X.7z.001`：NVIDIA CUDA 13.x 版本，需要匹配的显卡驱动。
+- `manga-translator-gpu-vX.X.X.7z.001`：NVIDIA CUDA 12.6 版本，需要匹配的显卡驱动。
 - `manga-translator-amd-vX.X.X.7z.001`：实验性 Radeon ROCm 7.2.1 版本，需要受支持显卡和 AMD 26.2.2 驱动。
 
 ### 3. 分卷解压
@@ -166,7 +166,7 @@ cd manga-translator-ui
 依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 dependency groups），使用 [uv](https://docs.astral.sh/uv/) 安装。下面四种后端只选一种：
 
 ```bash
-# NVIDIA GPU（CUDA 13.0，源码开发默认；同时安装 packaging/test 组）
+# NVIDIA GPU（CUDA 12.6，源码开发默认；同时安装 packaging/test 组）
 uv sync
 
 # CPU 版本
@@ -586,9 +586,9 @@ A: 运行 `./Unix-Install-or-Update.sh`，在 Python 菜单中选择 [2] 更新�
 **问题**：GPU 版本运行时崩溃或报错
 
 **解决方法**：
-1. 确认显卡支持 CUDA 13.x
+1. 确认显卡和驱动支持 CUDA 12.6
 2. 安装或更新 NVIDIA 显卡驱动
-3. 下载并安装 [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads)
+3. 如需开发工具链，下载并安装 [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads)
 4. 如果仍然失败，使用 CPU 版本
 
 ### 翻译失败
