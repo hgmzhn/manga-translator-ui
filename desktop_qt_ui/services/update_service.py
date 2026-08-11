@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from git_update_helpers import (
+from desktop_qt_ui.core.git_update_helpers import (
     commits_behind,
     current_commit,
     fetch_origin,

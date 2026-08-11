@@ -125,3 +125,42 @@ def test_automatic_full_update_skips_confirmation(monkeypatch):
     args = type("Args", (), {"requirements": "auto"})()
     assert maintenance_launch.run_full_update(args, automatic=True)
     assert dependency_updates == [["example-package"]]
+
+
+def test_restart_desktop_ui_uses_current_maintenance_interpreter(monkeypatch):
+    captured = {}
+
+    def fake_popen(args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(maintenance_launch.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(maintenance_launch.sys, "platform", "win32")
+
+    assert maintenance_launch.restart_desktop_ui()
+    assert captured["args"] == [
+        maintenance_launch.sys.executable,
+        str(maintenance_launch.PATH_ROOT / "desktop_qt_ui" / "main.py"),
+    ]
+    assert captured["kwargs"]["cwd"] == maintenance_launch.PATH_ROOT
+    assert captured["kwargs"]["creationflags"] & maintenance_launch.subprocess.DETACHED_PROCESS
+
+
+def test_automatic_maintenance_restarts_after_update(monkeypatch):
+    events = []
+    monkeypatch.setattr(maintenance_launch, "init_language", lambda: None)
+    monkeypatch.setattr(
+        maintenance_launch,
+        "run_full_update",
+        lambda _args, automatic=False: events.append(("update", automatic)) or True,
+    )
+    monkeypatch.setattr(
+        maintenance_launch,
+        "restart_desktop_ui",
+        lambda: events.append(("restart", True)) or True,
+    )
+
+    maintenance_launch.maintenance_menu(automatic=True)
+
+    assert events == [("update", True), ("restart", True)]

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Callable
 
-from git_update_helpers import (
+from desktop_qt_ui.core.git_update_helpers import (
     GIT_MIRRORS,
     current_commit,
     git_executable,

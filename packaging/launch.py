@@ -21,21 +21,21 @@ PATH_ROOT = Path(__file__).parent.parent
 if str(PATH_ROOT) not in sys.path:
     sys.path.insert(0, str(PATH_ROOT))
 
-from git_update_helpers import (
+from desktop_qt_ui.core.git_update_helpers import (
     GIT_MIRRORS as SHARED_GIT_MIRRORS,
 )
-from git_update_helpers import (
+from desktop_qt_ui.core.git_update_helpers import (
     SUPPORTED_BRANCHES as SHARED_SUPPORTED_BRANCHES,
 )
-from git_update_helpers import (
+from desktop_qt_ui.core.git_update_helpers import (
     current_branch as shared_current_branch,
 )
-from git_update_helpers import (
+from desktop_qt_ui.core.git_update_helpers import (
     fetch_origin,
     git_output,
     set_origin_url,
 )
-from git_update_helpers import (
+from desktop_qt_ui.core.git_update_helpers import (
     update_branch as shared_update_branch,
 )
 
@@ -693,33 +693,20 @@ def restart_maintenance(action):
         raise SystemExit(1) from e
 
 def restart_desktop_ui():
-    """Start a fresh desktop UI process after automatic maintenance finishes."""
-    try:
-        if sys.platform == "win32":
-            start_script = PATH_ROOT / "Win-Start.bat"
-            if start_script.exists():
-                subprocess.Popen(
-                    ["cmd.exe", "/d", "/c", str(start_script)],
-                    cwd=PATH_ROOT,
-                    creationflags=(
-                        subprocess.CREATE_NEW_PROCESS_GROUP
-                        | subprocess.DETACHED_PROCESS
-                    ),
-                )
-                return True
-        unix_start = PATH_ROOT / "Unix-Start.sh"
-        if unix_start.exists():
-            subprocess.Popen(
-                [str(unix_start)],
-                cwd=PATH_ROOT,
-                start_new_session=True,
-            )
-            return True
-        subprocess.Popen(
-            [sys.executable, str(PATH_ROOT / "desktop_qt_ui" / "main.py")],
-            cwd=PATH_ROOT,
-            start_new_session=True,
+    """Restart the desktop UI with the interpreter that completed maintenance."""
+    command = [sys.executable, str(PATH_ROOT / "desktop_qt_ui" / "main.py")]
+    kwargs = {"cwd": PATH_ROOT}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
         )
+    else:
+        kwargs["start_new_session"] = True
+
+    print(L("正在重新启动桌面端...", "Restarting the desktop UI..."))
+    sys.stdout.flush()
+    try:
+        subprocess.Popen(command, **kwargs)
         return True
     except OSError as exc:
         print(
@@ -2941,13 +2928,16 @@ def maintenance_menu(resume_action=None, automatic=False):
         if not resume_updated_code(args, resume_action):
             raise SystemExit(1)
         if automatic:
-            restart_desktop_ui()
+            if not restart_desktop_ui():
+                raise SystemExit(1)
             return
         input(L("\n按回车键继续...", "\nPress Enter to continue..."))
 
     if automatic:
-        run_full_update(args, automatic=True)
-        restart_desktop_ui()
+        if not run_full_update(args, automatic=True):
+            raise SystemExit(1)
+        if not restart_desktop_ui():
+            raise SystemExit(1)
         return
 
     # 首次显示版本信息
