@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1371,
-    "exact": 1371,
+    "keys": 1431,
+    "exact": 1431,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -265,6 +265,24 @@
       "status": "exact"
     },
     {
+      "key": "About Application",
+      "en_US": "About Application",
+      "zh_CN": "关于应用",
+      "status": "exact"
+    },
+    {
+      "key": "About Application Description",
+      "en_US": "Manga Translator UI is a desktop application for translating, editing, and batch-processing manga images.",
+      "zh_CN": "Manga Translator UI 是一个用于漫画图片翻译、编辑和批处理的桌面应用。",
+      "status": "exact"
+    },
+    {
+      "key": "About Application Subtitle",
+      "en_US": "View app information, adjust interface preferences, and get the latest release.",
+      "zh_CN": "查看应用信息，调整界面偏好并获取最新版本。",
+      "status": "exact"
+    },
+    {
       "key": "Actions",
       "en_US": "Actions",
       "zh_CN": "操作",
@@ -457,6 +475,12 @@
       "status": "exact"
     },
     {
+      "key": "Alipay Sponsor",
+      "en_US": "Alipay",
+      "zh_CN": "支付宝赞助",
+      "status": "exact"
+    },
+    {
       "key": "All Files",
       "en_US": "All Files",
       "zh_CN": "所有文件",
@@ -481,6 +505,12 @@
       "status": "exact"
     },
     {
+      "key": "Already Latest Version",
+      "en_US": "You are using the latest version ({version}).",
+      "zh_CN": "当前已是最新版本（{version}）。",
+      "status": "exact"
+    },
+    {
       "key": "Angle",
       "en_US": "Angle",
       "zh_CN": "角度",
@@ -490,6 +520,24 @@
       "key": "Angle:",
       "en_US": "Angle:",
       "zh_CN": "角度：",
+      "status": "exact"
+    },
+    {
+      "key": "Application Directories",
+      "en_US": "Application Directories",
+      "zh_CN": "应用目录",
+      "status": "exact"
+    },
+    {
+      "key": "Application Directories Subtitle",
+      "en_US": "Open the folders used by the application.",
+      "zh_CN": "打开软件使用的目录。",
+      "status": "exact"
+    },
+    {
+      "key": "Application Preferences",
+      "en_US": "Application Preferences",
+      "zh_CN": "应用偏好",
       "status": "exact"
     },
     {
@@ -589,6 +637,12 @@
       "status": "exact"
     },
     {
+      "key": "Automatically Check for Updates",
+      "en_US": "Automatically check for updates",
+      "zh_CN": "自动检查更新",
+      "status": "exact"
+    },
+    {
       "key": "Automatically style text matched after replacement rules are applied",
       "en_US": "Add rich-text styles after text replacements (order: Common (Always), Horizontal/Vertical, then rich-text rules). Existing matching rich-text fields are preserved, and BR markers remain paragraph boundaries.",
       "zh_CN": "自动为文本替换完成后的译文追加富文本样式（顺序：替换规则中的“通用（始终执行）”→ 横/竖排 → 富文本规则；已有相同富文本属性不会覆盖；BR 标记会作为换行边界保护）",
@@ -652,6 +706,12 @@
       "key": "Before",
       "en_US": "Before",
       "zh_CN": "原文",
+      "status": "exact"
+    },
+    {
+      "key": "Beta Branch",
+      "en_US": "Beta (testing)",
+      "zh_CN": "Beta（测试版）",
       "status": "exact"
     },
     {
@@ -775,6 +835,24 @@
       "status": "exact"
     },
     {
+      "key": "Check for Updates",
+      "en_US": "Check for Updates",
+      "zh_CN": "检查更新",
+      "status": "exact"
+    },
+    {
+      "key": "Checking for Updates",
+      "en_US": "Checking for Updates",
+      "zh_CN": "正在检查更新",
+      "status": "exact"
+    },
+    {
+      "key": "Checking for Updates Status",
+      "en_US": "Checking for the latest release…",
+      "zh_CN": "正在检查最新版本…",
+      "status": "exact"
+    },
+    {
       "key": "Choose a saved rich text style to load",
       "en_US": "Choose a saved rich text style to load",
       "zh_CN": "选择一个已保存富文本样式并载入",
@@ -877,6 +955,12 @@
       "status": "exact"
     },
     {
+      "key": "Commit Update Available Status",
+      "en_US": "{count} new commit(s) are available.",
+      "zh_CN": "检测到 {count} 个新提交。",
+      "status": "exact"
+    },
+    {
       "key": "Common",
       "en_US": "Common",
       "zh_CN": "常用颜色",
@@ -910,6 +994,12 @@
       "key": "Config imported successfully!\n\nSource: {path}\n\nNote: Your API keys and sensitive information have been preserved.",
       "en_US": "Config imported successfully!\n\nSource: {path}\n\nNote: Your API keys and sensitive information have been preserved.",
       "zh_CN": "配置已成功导入！\n\n来源：{path}\n\n注意：您的API密钥等敏感信息已保留，未被覆盖。",
+      "status": "exact"
+    },
+    {
+      "key": "Configuration Directory",
+      "en_US": "Configuration",
+      "zh_CN": "配置文件目录",
       "status": "exact"
     },
     {
@@ -970,6 +1060,12 @@
       "key": "Creature",
       "en_US": "Creature",
       "zh_CN": "生物",
+      "status": "exact"
+    },
+    {
+      "key": "Current Version: {version}",
+      "en_US": "Current version: {version}",
+      "zh_CN": "当前版本：{version}",
       "status": "exact"
     },
     {
@@ -1699,6 +1795,36 @@
       "status": "exact"
     },
     {
+      "key": "GitCode Mirror",
+      "en_US": "GitCode mirror",
+      "zh_CN": "GitCode 镜像",
+      "status": "exact"
+    },
+    {
+      "key": "GitHub Commit Hash: {hash}",
+      "en_US": "GitHub Commit: {hash}",
+      "zh_CN": "GitHub 提交：{hash}",
+      "status": "exact"
+    },
+    {
+      "key": "GitHub Official",
+      "en_US": "GitHub official",
+      "zh_CN": "GitHub 官方",
+      "status": "exact"
+    },
+    {
+      "key": "GitHub Repository",
+      "en_US": "GitHub Repository",
+      "zh_CN": "GitHub 仓库",
+      "status": "exact"
+    },
+    {
+      "key": "Gitee Mirror",
+      "en_US": "Gitee mirror",
+      "zh_CN": "Gitee 镜像",
+      "status": "exact"
+    },
+    {
       "key": "Glossary",
       "en_US": "Glossary",
       "zh_CN": "术语词典",
@@ -1855,6 +1981,12 @@
       "status": "exact"
     },
     {
+      "key": "International Sponsor",
+      "en_US": "International support",
+      "zh_CN": "海外赞助",
+      "status": "exact"
+    },
+    {
       "key": "Introduction",
       "en_US": "Introduction",
       "zh_CN": "介绍",
@@ -1942,6 +2074,12 @@
       "key": "Language:",
       "en_US": "Language:",
       "zh_CN": "语言：",
+      "status": "exact"
+    },
+    {
+      "key": "Later",
+      "en_US": "Later",
+      "zh_CN": "稍后",
       "status": "exact"
     },
     {
@@ -2041,6 +2179,18 @@
       "status": "exact"
     },
     {
+      "key": "Logs Directory",
+      "en_US": "Logs",
+      "zh_CN": "日志目录",
+      "status": "exact"
+    },
+    {
+      "key": "Main Branch",
+      "en_US": "Main (stable)",
+      "zh_CN": "Main（稳定版）",
+      "status": "exact"
+    },
+    {
       "key": "Main View",
       "en_US": "Main View",
       "zh_CN": "主视图",
@@ -2066,8 +2216,8 @@
     },
     {
       "key": "Manga Translator",
-      "en_US": "Manga Translator",
-      "zh_CN": "漫画翻译器",
+      "en_US": "Manga Translator UI",
+      "zh_CN": "Manga Translator UI",
       "status": "exact"
     },
     {
@@ -2215,6 +2365,12 @@
       "status": "exact"
     },
     {
+      "key": "New Version Available",
+      "en_US": "A new version is available",
+      "zh_CN": "有新版本可用",
+      "status": "exact"
+    },
+    {
       "key": "New scheme",
       "en_US": "New scheme",
       "zh_CN": "新方案",
@@ -2254,6 +2410,12 @@
       "key": "No OCR API required",
       "en_US": "The current OCR does not require an OpenAI/Gemini API key.",
       "zh_CN": "当前 OCR 不需要 OpenAI/Gemini API Key。",
+      "status": "exact"
+    },
+    {
+      "key": "No Release Notes",
+      "en_US": "No release notes were provided.",
+      "zh_CN": "此版本没有发布说明。",
       "status": "exact"
     },
     {
@@ -2440,6 +2602,18 @@
       "key": "Open File",
       "en_US": "Open File",
       "zh_CN": "打开文件",
+      "status": "exact"
+    },
+    {
+      "key": "Open Ko-fi",
+      "en_US": "Open Ko-fi",
+      "zh_CN": "打开 Ko-fi",
+      "status": "exact"
+    },
+    {
+      "key": "Open Release Page",
+      "en_US": "Open Release Page",
+      "zh_CN": "打开发布页面",
       "status": "exact"
     },
     {
@@ -2791,6 +2965,12 @@
       "status": "exact"
     },
     {
+      "key": "Prompts Directory",
+      "en_US": "Prompts",
+      "zh_CN": "提示词目录",
+      "status": "exact"
+    },
+    {
       "key": "Properties the hit already has win; only the missing ones are added",
       "en_US": "Properties the hit already has win; only the missing ones are added",
       "zh_CN": "命中区间已有的同名项赢，只补它没有的",
@@ -2800,6 +2980,12 @@
       "key": "Property Editor",
       "en_US": "Property Editor",
       "zh_CN": "属性编辑",
+      "status": "exact"
+    },
+    {
+      "key": "Published At: {date}",
+      "en_US": "Published: {date}",
+      "zh_CN": "发布时间：{date}",
       "status": "exact"
     },
     {
@@ -3565,6 +3751,18 @@
       "status": "exact"
     },
     {
+      "key": "Software Updates",
+      "en_US": "Software Updates",
+      "zh_CN": "软件更新",
+      "status": "exact"
+    },
+    {
+      "key": "Software Updates Subtitle",
+      "en_US": "Check the selected remote branch and let the maintenance tool install updates.",
+      "zh_CN": "检查所选更新源的远程分支，并交给维护工具安装更新。",
+      "status": "exact"
+    },
+    {
       "key": "Sort:",
       "en_US": "Sort:",
       "zh_CN": "排序:",
@@ -3580,6 +3778,18 @@
       "key": "Source Text",
       "en_US": "Source Text",
       "zh_CN": "原文",
+      "status": "exact"
+    },
+    {
+      "key": "Sponsor",
+      "en_US": "Sponsor",
+      "zh_CN": "给个赞助",
+      "status": "exact"
+    },
+    {
+      "key": "Sponsor Message",
+      "en_US": "Thank you for supporting the project. Choose a local payment code below, or use Ko-fi for international support.",
+      "zh_CN": "感谢你对项目的支持。国内可扫描微信或支付宝二维码，海外可通过 Ko-fi 赞助。",
       "status": "exact"
     },
     {
@@ -3706,6 +3916,18 @@
       "key": "Sunset",
       "en_US": "Sunset",
       "zh_CN": "落日",
+      "status": "exact"
+    },
+    {
+      "key": "Support Project Subtitle",
+      "en_US": "If this project helps you, consider supporting its continued development.",
+      "zh_CN": "如果觉得项目好用，欢迎赞助支持持续开发。",
+      "status": "exact"
+    },
+    {
+      "key": "Support the Project",
+      "en_US": "Support the Project",
+      "zh_CN": "赞助项目",
       "status": "exact"
     },
     {
@@ -4093,6 +4315,12 @@
       "status": "exact"
     },
     {
+      "key": "Unknown",
+      "en_US": "Unknown",
+      "zh_CN": "未知",
+      "status": "exact"
+    },
+    {
       "key": "Unrecognized format – showing raw content",
       "en_US": "Unrecognized format – showing raw content",
       "zh_CN": "无法识别格式 – 显示原始内容",
@@ -4105,9 +4333,99 @@
       "status": "exact"
     },
     {
+      "key": "Update Available",
+      "en_US": "Update Available",
+      "zh_CN": "发现新版本",
+      "status": "exact"
+    },
+    {
+      "key": "Update Available Status",
+      "en_US": "Version {version} is available.",
+      "zh_CN": "发现新版本 {version}。",
+      "status": "exact"
+    },
+    {
+      "key": "Update Branch",
+      "en_US": "Update Branch",
+      "zh_CN": "更新分支",
+      "status": "exact"
+    },
+    {
+      "key": "Update Branch Changed",
+      "en_US": "Update branch switched to {name}.",
+      "zh_CN": "更新分支已切换为{name}。",
+      "status": "exact"
+    },
+    {
+      "key": "Update Check Failed",
+      "en_US": "Update check failed: {error}",
+      "zh_CN": "检查更新失败：{error}",
+      "status": "exact"
+    },
+    {
+      "key": "Update Check Not Run",
+      "en_US": "Updates have not been checked yet.",
+      "zh_CN": "尚未检查更新。",
+      "status": "exact"
+    },
+    {
+      "key": "Update Commit Summary",
+      "en_US": "Commit: {current} → {latest} · {count} behind",
+      "zh_CN": "提交：{current} → {latest} · 落后 {count} 个",
+      "status": "exact"
+    },
+    {
+      "key": "Update Log",
+      "en_US": "Update Log",
+      "zh_CN": "更新日志",
+      "status": "exact"
+    },
+    {
       "key": "Update Mask",
       "en_US": "Update Mask",
       "zh_CN": "更新蒙版",
+      "status": "exact"
+    },
+    {
+      "key": "Update Now",
+      "en_US": "Update Now",
+      "zh_CN": "立即更新",
+      "status": "exact"
+    },
+    {
+      "key": "Update Process Failed",
+      "en_US": "Could not start the updater.",
+      "zh_CN": "无法启动更新程序。",
+      "status": "exact"
+    },
+    {
+      "key": "Update Process Started",
+      "en_US": "The updater has started; the app will close.",
+      "zh_CN": "更新程序已启动，应用即将关闭。",
+      "status": "exact"
+    },
+    {
+      "key": "Update Source",
+      "en_US": "Update Source",
+      "zh_CN": "更新源",
+      "status": "exact"
+    },
+    {
+      "key": "Update Source Changed",
+      "en_US": "Update source switched to {name}.",
+      "zh_CN": "更新源已切换为{name}。",
+      "status": "exact"
+    },
+    {
+      "key": "Update Source Switch Failed",
+      "en_US": "Could not switch the update source.",
+      "zh_CN": "无法切换更新源。",
+      "status": "exact"
+    },
+    {
+      "key": "Update Version Summary",
+      "en_US": "Current: {current}  →  Latest: {latest}",
+      "zh_CN": "当前版本：{current}  →  最新版本：{latest}",
       "status": "exact"
     },
     {
@@ -4126,6 +4444,12 @@
       "key": "Upscaling",
       "en_US": "Upscaling",
       "zh_CN": "超分",
+      "status": "exact"
+    },
+    {
+      "key": "Use System Proxy",
+      "en_US": "Use System Proxy",
+      "zh_CN": "使用系统代理",
       "status": "exact"
     },
     {
@@ -4159,6 +4483,24 @@
       "status": "exact"
     },
     {
+      "key": "WeChat Sponsor",
+      "en_US": "WeChat",
+      "zh_CN": "微信赞赏",
+      "status": "exact"
+    },
+    {
+      "key": "Web Resources",
+      "en_US": "Web Resources",
+      "zh_CN": "网页资源",
+      "status": "exact"
+    },
+    {
+      "key": "Web Resources Subtitle",
+      "en_US": "Project source code and documentation.",
+      "zh_CN": "项目源码和在线文档。",
+      "status": "exact"
+    },
+    {
       "key": "White",
       "en_US": "White",
       "zh_CN": "白色",
@@ -4168,6 +4510,12 @@
       "key": "Width",
       "en_US": "Width",
       "zh_CN": "宽度",
+      "status": "exact"
+    },
+    {
+      "key": "Wiki",
+      "en_US": "Wiki",
+      "zh_CN": "Wiki 文档",
       "status": "exact"
     },
     {
@@ -4345,6 +4693,12 @@
       "status": "exact"
     },
     {
+      "key": "desc_app_auto_check_updates",
+      "en_US": "Automatically check for new releases shortly after startup.",
+      "zh_CN": "启动后自动检查是否有新版本。",
+      "status": "exact"
+    },
+    {
       "key": "desc_app_theme",
       "en_US": "UI theme. Supports Light, Dark, Gray, Ocean, Forest, Sunset, Rose, and Follow System.",
       "zh_CN": "界面主题。支持浅色、深色、灰色、海洋、森林、落日、玫瑰和跟随系统。",
@@ -4360,6 +4714,12 @@
       "key": "desc_app_unload_models_after_translation",
       "en_US": "Unload all models after translation to free VRAM and memory. Good for low VRAM, but requires reloading for next translation.",
       "zh_CN": "翻译完成后卸载所有模型以释放显存和内存。适合显存不足的场景，但下次翻译需要重新加载。",
+      "status": "exact"
+    },
+    {
+      "key": "desc_app_use_system_proxy",
+      "en_US": "Allow application network requests to use the operating system proxy settings.",
+      "zh_CN": "让应用网络请求使用操作系统的代理设置。",
       "status": "exact"
     },
     {

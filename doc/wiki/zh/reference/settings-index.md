@@ -22,7 +22,7 @@ lastUpdated: true
 3. 点击“跳转”列进入对应设置页的参数小节；没有独立显式锚点的参数行跳转到页面本身。
 4. 默认值、依赖、消费者和运行机理一律以跳转后的设置页正文为准，这里不展开。
 
-这里仅列出设置页中可见的参数行。`settings_tab_layout.json` 有 110 个条目，其中 109 个渲染为可见参数，1 个（`render.font_color`）因发行默认值为 `null` 且没有对应控件分支而不渲染。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
+本页聚焦设置页的可见参数行。`settings_tab_layout.json` 有 109 个条目，其中 108 个渲染为可见参数；剩余的 `render.font_color` 因发行默认值为 `null` 且没有对应控件分支而不渲染。界面语言、主题、系统代理、更新检查和自动检查更新开关属于“关于应用”页面，不是设置页参数行。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
 
 ## 设置页与页签 {#settings-tabs}
 
@@ -30,7 +30,7 @@ lastUpdated: true
 
 | 布局标题 / UI 调用 key | English 实际值 | 简体中文实际值 | 可见参数数 | 对应页面 |
 | --- | --- | --- | ---: | --- |
-| `General` | General | 通用 | 19 | [通用与应用设置](../desktop/settings/general-and-app.md)、[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md) |
+| `General` | General | 通用 | 17 | [通用与应用设置](../desktop/settings/general-and-app.md)、[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md) |
 | `OCR` | OCR | 文字识别 | 17 | [OCR、过滤与文本行合并](../desktop/settings/ocr-filter-and-merge.md) |
 | `Detection` | Detection | 检测 | 13 | [检测](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [翻译设置](../desktop/settings/translation.md) |
@@ -38,7 +38,7 @@ lastUpdated: true
 | `Typesetting` | Typesetting | 排版 | 28 | [排版与渲染](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 11 | [模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)、[超分与上色](../desktop/settings/upscale-and-colorization.md) |
 
-七个页签合计 109 个可见参数行。
+七个页签合计 107 个可见参数行。
 
 ## 参数索引 {#parameter-index}
 
@@ -46,12 +46,10 @@ lastUpdated: true
 
 ### 通用 {#tab-general}
 
-通用页签的 19 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
+通用页签的 17 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
 
 | 存储值 | English 实际值 | 简体中文实际值 | 跳转 |
 | --- | --- | --- | --- |
-| `app.ui_language` | Language: | 语言： | [#app-ui-language](../desktop/settings/general-and-app.md#app-ui-language) |
-| `app.theme` | Theme: | 主题： | [#app-theme](../desktop/settings/general-and-app.md#app-theme) |
 | `cli.verbose` | Verbose Logging | 详细日志 | [#cli-verbose](../desktop/settings/cli-batch-and-output.md#cli-verbose) |
 | `cli.ignore_errors` | Ignore Errors | 忽略错误 | [#cli-ignore-errors](../desktop/settings/cli-batch-and-output.md#cli-ignore-errors) |
 | `cli.use_gpu` | Use GPU | 使用 GPU | [#cli-use-gpu](../desktop/settings/cli-batch-and-output.md#cli-use-gpu) |

@@ -4,6 +4,7 @@ import re
 
 from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, QUrl, pyqtSlot
 from PyQt6.QtGui import QAction, QDesktopServices
+from PyQt6.QtNetwork import QNetworkProxyFactory
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import FluentWindow, NavigationItemPosition
@@ -98,6 +99,9 @@ class MainWindow(FluentWindow):
         self.config_service = get_config_service()
         self.state_manager = get_state_manager()
         config = self.config_service.get_config()
+        QNetworkProxyFactory.setUseSystemConfiguration(
+            bool(config.app.use_system_proxy)
+        )
 
         initial_theme = config.app.theme
         if initial_theme == "system":

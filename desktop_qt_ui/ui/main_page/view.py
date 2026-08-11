@@ -16,6 +16,7 @@ from ui.main_page import runtime as main_view_runtime
 from ui.main_page.pages.about_page import (
     _on_about_branch_changed,
     _on_about_mirror_changed,
+    _on_about_system_proxy_changed,
     _open_about_directory,
     _open_about_url,
     create_about_page,
@@ -71,6 +72,7 @@ class MainView(QObject):
     _open_about_url = _open_about_url
     _on_about_mirror_changed = _on_about_mirror_changed
     _on_about_branch_changed = _on_about_branch_changed
+    _on_about_system_proxy_changed = _on_about_system_proxy_changed
     _create_env_page = create_env_page
     _create_prompt_page = create_prompt_page
     _refresh_prompt_manager = layout_parts.refresh_prompt_manager

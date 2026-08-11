@@ -13,11 +13,13 @@ from desktop_qt_ui.core.git_update_helpers import (
     set_origin_url,
 )
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QPixmap
+from PyQt6.QtNetwork import QNetworkProxyFactory
 from PyQt6.QtWidgets import (
     QApplication,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -30,6 +32,7 @@ from qfluentwidgets import (
     IconWidget,
     PrimaryPushButton,
     PushButton,
+    ScrollArea,
     StrongBodyLabel,
     SubtitleLabel,
 )
@@ -47,6 +50,7 @@ from utils.resource_helper import resource_path
 PROJECT_ROOT = Path(resource_path("."))
 GITHUB_REPOSITORY_URL = "https://github.com/hgmzhn/manga-translator-ui"
 GITHUB_COMMIT_HASH = os.environ.get("GITHUB_SHA") or current_commit(PROJECT_ROOT)
+KOFI_URL = "https://ko-fi.com/hgzmhn"
 WIKI_URL = "https://hgmzhn.github.io/manga-translator-ui/zh/"
 
 
@@ -64,7 +68,9 @@ def _populate_about_mirror_combo(self):
     try:
         self.about_update_mirror_combo.clear()
         for label_key, (_, _, mirror_url) in zip(MIRROR_LABEL_KEYS, GIT_MIRRORS):
-            self.about_update_mirror_combo.addItem(self._t(label_key), mirror_url)
+            self.about_update_mirror_combo.addItem(
+                self._t(label_key), userData=mirror_url
+            )
         current = remote_url(PROJECT_ROOT, executable=git_executable(PROJECT_ROOT))
         self.about_update_mirror_combo.setCurrentIndex(mirror_index(current))
     finally:
@@ -95,7 +101,9 @@ def _populate_about_branch_combo(self):
     try:
         self.about_update_branch_combo.clear()
         for label_key, branch in zip(BRANCH_LABEL_KEYS, BRANCH_VALUES):
-            self.about_update_branch_combo.addItem(self._t(label_key), branch)
+            self.about_update_branch_combo.addItem(
+                self._t(label_key), userData=branch
+            )
         selected = getattr(self, "_update_branch", "main")
         index = BRANCH_VALUES.index(selected) if selected in BRANCH_VALUES else 0
         self.about_update_branch_combo.setCurrentIndex(index)
@@ -112,6 +120,12 @@ def _on_about_branch_changed(self, index: int):
         )
 
 
+def _on_about_system_proxy_changed(self, checked: bool):
+    enabled = bool(checked)
+    QNetworkProxyFactory.setUseSystemConfiguration(enabled)
+    self.controller.update_single_config("app.use_system_proxy", enabled)
+
+
 def _open_about_url(self, url: str):
     QDesktopServices.openUrl(QUrl(url))
 
@@ -123,7 +137,9 @@ def _populate_about_theme_combo(self):
         self.about_theme_combo.clear()
         selected_index = 0
         for index, (theme_key, theme_label) in enumerate(THEME_OPTIONS):
-            self.about_theme_combo.addItem(self._t(theme_label), theme_key)
+            self.about_theme_combo.addItem(
+                self._t(theme_label), userData=theme_key
+            )
             if config.app.theme == theme_key:
                 selected_index = index
         self.about_theme_combo.setCurrentIndex(selected_index)
@@ -141,7 +157,9 @@ def _populate_about_language_combo(self):
             for index, (locale_code, locale_info) in enumerate(
                 self.i18n.get_available_locales().items()
             ):
-                self.about_language_combo.addItem(locale_info.name, locale_code)
+                self.about_language_combo.addItem(
+                    locale_info.name, userData=locale_code
+                )
                 if locale_code == current_language:
                     selected_index = index
         if self.about_language_combo.count():
@@ -177,7 +195,9 @@ def _create_section_card(title: str, subtitle: str, icon) -> tuple[CardWidget, Q
     return card, layout
 
 
-def _add_setting_row(layout: QGridLayout, row: int, title: str, subtitle: str, control: QWidget):
+def _add_setting_row(
+    layout: QGridLayout, row: int, title: str, subtitle: str, control: QWidget
+) -> tuple[BodyLabel, CaptionLabel]:
     labels = QVBoxLayout()
     labels.setSpacing(2)
     title_label = BodyLabel(title)
@@ -187,6 +207,7 @@ def _add_setting_row(layout: QGridLayout, row: int, title: str, subtitle: str, c
     labels.addWidget(subtitle_label)
     layout.addLayout(labels, row, 0)
     layout.addWidget(control, row, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    return title_label, subtitle_label
 
 def _add_resource_row(self, layout: QGridLayout, row: int, title_key: str, path: str):
     title_label = BodyLabel(self._t(title_key))
@@ -221,8 +242,74 @@ def _add_about_link(self, layout: QHBoxLayout, title_key: str, url: str):
     layout.addWidget(link_button)
 
 
+def show_sponsor_dialog(self):
+    from qfluentwidgets import Dialog
+
+    parent = normalize_dialog_parent(self._dialog_parent())
+    dialog = Dialog("", "", parent)
+    dialog.setWindowTitle(self._t("Support the Project"))
+    dialog.titleLabel.hide()
+    dialog.contentLabel.hide()
+    dialog.textLayout.setSpacing(12)
+
+    heading = SubtitleLabel(self._t("Support the Project"), dialog)
+    message = BodyLabel(self._t("Sponsor Message"), dialog)
+    message.setWordWrap(True)
+    dialog.textLayout.addWidget(heading)
+    dialog.textLayout.addWidget(message)
+
+    qr_layout = QHBoxLayout()
+    qr_layout.setSpacing(16)
+    for title_key, image_path in (
+        ("WeChat Sponsor", "doc/images/mm_reward_qrcode_1765200960689.png"),
+        ("Alipay Sponsor", "doc/images/IMG_20251223_173711.jpg"),
+    ):
+        card = CardWidget(dialog)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(8)
+        image_label = QLabel(card)
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pixmap = QPixmap(resource_path(image_path))
+        image_label.setPixmap(
+            pixmap.scaled(
+                220,
+                220,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        caption = StrongBodyLabel(self._t(title_key), card)
+        caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(image_label)
+        card_layout.addWidget(caption)
+        qr_layout.addWidget(card, 1)
+    dialog.textLayout.addLayout(qr_layout)
+
+    international = BodyLabel(self._t("International Sponsor"), dialog)
+    ko_fi_button = PrimaryPushButton(self._t("Open Ko-fi"), dialog)
+    ko_fi_button.setIcon(FIF.LINK)
+    ko_fi_button.clicked.connect(
+        lambda: QDesktopServices.openUrl(QUrl(KOFI_URL))
+    )
+    ko_fi_row = QHBoxLayout()
+    ko_fi_row.addWidget(international)
+    ko_fi_row.addStretch(1)
+    ko_fi_row.addWidget(ko_fi_button)
+    dialog.textLayout.addLayout(ko_fi_row)
+
+    dialog.yesButton.hide()
+    dialog.cancelButton.setText(self._t("Close"))
+    _apply_flexible_size(dialog, 620, 560)
+    dialog.exec()
+
+
 def create_about_page(self) -> QWidget:
-    page = QWidget()
+    scroll = ScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(ScrollArea.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    page = QWidget(scroll)
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(28, 26, 28, 24)
     page_layout.setSpacing(18)
@@ -268,6 +355,7 @@ def create_about_page(self) -> QWidget:
     self.about_resource_rows = []
     self.about_link_buttons = []
 
+    self.about_preference_rows = []
     preferences_card, preferences_layout = _create_section_card(
         self._t("Application Preferences"),
         self._t("Settings Page Subtitle"),
@@ -281,36 +369,42 @@ def create_about_page(self) -> QWidget:
 
     self.about_theme_combo = ComboBox()
     self.about_theme_combo.setMinimumWidth(210)
-    self.about_theme_combo.currentIndexChanged.connect(
+    self.about_theme_combo.activated.connect(
         lambda index: self.theme_change_requested.emit(
             self.about_theme_combo.itemData(index)
         )
         if index >= 0 and self.about_theme_combo.itemData(index)
         else None
     )
-    _add_setting_row(
+    title_label, subtitle_label = _add_setting_row(
         preferences_grid,
         0,
         self._t("Theme:").rstrip(":："),
         self._t("desc_app_theme"),
         self.about_theme_combo,
     )
+    self.about_preference_rows.append(
+        (title_label, subtitle_label, "Theme:", "desc_app_theme")
+    )
 
     self.about_language_combo = ComboBox()
     self.about_language_combo.setMinimumWidth(210)
-    self.about_language_combo.currentIndexChanged.connect(
+    self.about_language_combo.activated.connect(
         lambda index: self.language_change_requested.emit(
             self.about_language_combo.itemData(index)
         )
         if index >= 0 and self.about_language_combo.itemData(index)
         else None
     )
-    _add_setting_row(
+    title_label, subtitle_label = _add_setting_row(
         preferences_grid,
         1,
         self._t("Language:").rstrip(":："),
         self._t("desc_app_ui_language"),
         self.about_language_combo,
+    )
+    self.about_preference_rows.append(
+        (title_label, subtitle_label, "Language:", "desc_app_ui_language")
     )
 
     self.about_auto_check_checkbox = ToggleSwitch(
@@ -323,16 +417,46 @@ def create_about_page(self) -> QWidget:
             "app.auto_check_updates", bool(checked)
         )
     )
-    _add_setting_row(
+    title_label, subtitle_label = _add_setting_row(
         preferences_grid,
         2,
         self._t("Automatically Check for Updates"),
         self._t("desc_app_auto_check_updates"),
         self.about_auto_check_checkbox,
     )
+    self.about_preference_rows.append(
+        (
+            title_label,
+            subtitle_label,
+            "Automatically Check for Updates",
+            "desc_app_auto_check_updates",
+        )
+    )
+    self.about_system_proxy_checkbox = ToggleSwitch(
+        checked=bool(self.config_service.get_config().app.use_system_proxy)
+    )
+    self.about_system_proxy_checkbox.setOnText(self._t("Yes"))
+    self.about_system_proxy_checkbox.setOffText(self._t("No"))
+    self.about_system_proxy_checkbox.checkedChanged.connect(
+        self._on_about_system_proxy_changed
+    )
+    title_label, subtitle_label = _add_setting_row(
+        preferences_grid,
+        3,
+        self._t("Use System Proxy"),
+        self._t("desc_app_use_system_proxy"),
+        self.about_system_proxy_checkbox,
+    )
+    self.about_preference_rows.append(
+        (
+            title_label,
+            subtitle_label,
+            "Use System Proxy",
+            "desc_app_use_system_proxy",
+        )
+    )
     preferences_layout.addLayout(preferences_grid)
-    preferences_layout.addStretch(1)
-    content.addWidget(preferences_card, 3)
+    content.addWidget(preferences_card, 3, Qt.AlignmentFlag.AlignTop)
 
     update_card, update_layout = _create_section_card(
         self._t("Software Updates"),
@@ -374,7 +498,6 @@ def create_about_page(self) -> QWidget:
     branch_row.addStretch(1)
     branch_row.addWidget(self.about_update_branch_combo)
     update_layout.addLayout(branch_row)
-    update_layout.addStretch(1)
 
     update_buttons = QHBoxLayout()
     update_buttons.setSpacing(8)
@@ -389,7 +512,7 @@ def create_about_page(self) -> QWidget:
     update_buttons.addWidget(self.about_open_release_button)
     update_buttons.addStretch(1)
     update_layout.addLayout(update_buttons)
-    content.addWidget(update_card, 2)
+    content.addWidget(update_card, 2, Qt.AlignmentFlag.AlignTop)
     resources = QHBoxLayout()
     resources.setSpacing(18)
     directories_card, directories_layout = _create_section_card(
@@ -406,9 +529,10 @@ def create_about_page(self) -> QWidget:
     _add_resource_row(self, directory_grid, 1, "Configuration Directory", "config")
     _add_resource_row(self, directory_grid, 2, "Prompts Directory", "dict")
     directories_layout.addLayout(directory_grid)
-    directories_layout.addStretch(1)
-    resources.addWidget(directories_card, 3)
+    resources.addWidget(directories_card, 3, Qt.AlignmentFlag.AlignTop)
 
+    right_resources = QVBoxLayout()
+    right_resources.setSpacing(18)
     links_card, links_layout = _create_section_card(
         self._t("Web Resources"),
         self._t("Web Resources Subtitle"),
@@ -421,15 +545,36 @@ def create_about_page(self) -> QWidget:
     _add_about_link(self, link_buttons, "Wiki", WIKI_URL)
     link_buttons.addStretch(1)
     links_layout.addLayout(link_buttons)
-    links_layout.addStretch(1)
-    resources.addWidget(links_card, 2)
+    right_resources.addWidget(links_card)
 
-    page_layout.addLayout(content, 1)
+    sponsor_card, sponsor_layout = _create_section_card(
+        self._t("Support the Project"),
+        self._t("Support Project Subtitle"),
+        FIF.HEART,
+    )
+    self.about_sponsor_card = sponsor_card
+    self.about_sponsor_button = PrimaryPushButton(self._t("Sponsor"))
+    self.about_sponsor_button.setIcon(FIF.HEART)
+    self.about_sponsor_button.clicked.connect(lambda: show_sponsor_dialog(self))
+    sponsor_buttons = QHBoxLayout()
+    sponsor_buttons.addWidget(self.about_sponsor_button)
+    sponsor_buttons.addStretch(1)
+    sponsor_layout.addLayout(sponsor_buttons)
+    right_resources.addWidget(sponsor_card)
+    right_resources.addStretch(1)
+    resources.addLayout(right_resources, 2)
+
+    page_layout.addLayout(content)
     page_layout.addLayout(resources)
     page_layout.addStretch(1)
+    _populate_about_theme_combo(self)
+    _populate_about_language_combo(self)
     _populate_about_mirror_combo(self)
     _populate_about_branch_combo(self)
-    return page
+    scroll.setWidget(page)
+    scroll.enableTransparentBackground()
+    return scroll
+
 
 def refresh_about_page_texts(self):
     self.about_app_name.setText(self._t("Manga Translator"))
@@ -440,6 +585,15 @@ def refresh_about_page_texts(self):
             version=format_version_label(self.app_version) or self._t("Unknown"),
         )
     )
+    for title_label, subtitle_label, title_key, subtitle_key in self.about_preference_rows:
+        title_label.setText(self._t(title_key).rstrip(":："))
+        subtitle_label.setText(self._t(subtitle_key))
+    for toggle in (
+        self.about_auto_check_checkbox,
+        self.about_system_proxy_checkbox,
+    ):
+        toggle.setOnText(self._t("Yes"))
+        toggle.setOffText(self._t("No"))
     self.about_check_updates_button.setText(
         self._t("Checking for Updates")
         if getattr(self, "_update_check_in_progress", False)
@@ -464,6 +618,11 @@ def refresh_about_page_texts(self):
             "Application Directories Subtitle",
         ),
         (self.about_links_card, "Web Resources", "Web Resources Subtitle"),
+        (
+            self.about_sponsor_card,
+            "Support the Project",
+            "Support Project Subtitle",
+        ),
     ):
         card._about_title_label.setText(self._t(title_key))
         card._about_subtitle_label.setText(self._t(subtitle_key))
@@ -472,6 +631,7 @@ def refresh_about_page_texts(self):
         button.setText(self._t("Open Directory"))
     for button, title_key in self.about_link_buttons:
         button.setText(self._t(title_key))
+    self.about_sponsor_button.setText(self._t("Sponsor"))
     _populate_about_theme_combo(self)
     _populate_about_language_combo(self)
     _populate_about_mirror_combo(self)

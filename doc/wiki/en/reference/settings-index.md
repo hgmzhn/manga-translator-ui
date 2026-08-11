@@ -22,7 +22,7 @@ Follow this order:
 3. Use the “Jump to” link to open the parameter section on the settings page; rows without a dedicated explicit anchor link to the page itself.
 4. Defaults, dependencies, consumers, and runtime behavior always come from the settings page you land on; this guide does not expand them.
 
-This guide focuses on the visible parameter rows of the settings page. `settings_tab_layout.json` has 110 entries, of which 109 render as visible parameters; the remaining one (`render.font_color`) is not rendered because its release default is `null` and it has no control branch. The following are out of scope: API-management credentials, addresses, models, slots, and rotation strategies; editor property-panel parameters; prompt lists and batch-management schemes; and the full processing steps of the nine workflows.
+This guide focuses on the visible parameter rows of the settings page. `settings_tab_layout.json` has 109 entries, of which 108 render as visible parameters; the remaining one (`render.font_color`) is not rendered because its release default is `null` and it has no control branch. Interface language, theme, system proxy, update checks, and the automatic-update preference belong to About Application and are not settings-page parameter rows. The following are out of scope: API-management credentials, addresses, models, slots, and rotation strategies; editor property-panel parameters; prompt lists and batch-management schemes; and the full processing steps of the nine workflows.
 
 ## Settings tabs and pages {#settings-tabs}
 
@@ -30,7 +30,7 @@ The settings page groups parameters by the left-side tabs; tab titles come from 
 
 | Layout title / UI call key | English actual value | Simplified Chinese actual value | Visible parameter count | Page |
 | --- | --- | --- | ---: | --- |
-| `General` | General | 通用 | 19 | [General and Application Settings](../desktop/settings/general-and-app.md), [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md) |
+| `General` | General | 通用 | 17 | [General and Application Settings](../desktop/settings/general-and-app.md), [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md) |
 | `OCR` | OCR | 文字识别 | 17 | [OCR, Filtering, and Text-Line Merging](../desktop/settings/ocr-filter-and-merge.md) |
 | `Detection` | Detection | 检测 | 13 | [Detection](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [Translation settings](../desktop/settings/translation.md) |
@@ -38,7 +38,7 @@ The settings page groups parameters by the left-side tabs; tab titles come from 
 | `Typesetting` | Typesetting | 排版 | 28 | [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 11 | [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md), [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md) |
 
-The seven tabs total 109 visible parameter rows.
+The seven tabs total 107 visible parameter rows.
 
 ## Parameter index {#parameter-index}
 
@@ -46,12 +46,10 @@ The tables below group parameters by settings tab and record the stored key, the
 
 ### General {#tab-general}
 
-The 19 parameters of the General tab span two pages: application-level parameters are in [General and Application Settings](../desktop/settings/general-and-app.md), and CLI/output parameters are in [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md).
+The 17 parameters of the General tab span two pages: application-level parameters are in [General and Application Settings](../desktop/settings/general-and-app.md), and CLI/output parameters are in [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md).
 
 | Stored value | English actual value | Simplified Chinese actual value | Jump to |
 | --- | --- | --- | --- |
-| `app.ui_language` | Language: | 语言： | [#app-ui-language](../desktop/settings/general-and-app.md#app-ui-language) |
-| `app.theme` | Theme: | 主题： | [#app-theme](../desktop/settings/general-and-app.md#app-theme) |
 | `cli.verbose` | Verbose Logging | 详细日志 | [#cli-verbose](../desktop/settings/cli-batch-and-output.md#cli-verbose) |
 | `cli.ignore_errors` | Ignore Errors | 忽略错误 | [#cli-ignore-errors](../desktop/settings/cli-batch-and-output.md#cli-ignore-errors) |
 | `cli.use_gpu` | Use GPU | 使用 GPU | [#cli-use-gpu](../desktop/settings/cli-batch-and-output.md#cli-use-gpu) |

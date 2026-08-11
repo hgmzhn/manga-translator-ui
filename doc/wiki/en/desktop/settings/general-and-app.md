@@ -9,52 +9,24 @@ lastUpdated: true
 
 # General and Application Settings
 
-This guide covers the settings page’s “General” group and the application state it carries. It documents language, theme, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
+This guide covers the settings page’s “General” group and the application state it carries. It documents general processing switches, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
 
 ## Change it in the desktop app {#ui-operations}
 
-Open Settings and select “General”. Dynamic rows are generated from storage keys in the layout file; clicking a row shows its description in the right-hand description panel. Changing a toggle, number, or combo box updates the configuration immediately, after which the configuration service coalesces the disk write. Leaving a numeric field empty writes `null`, so the relevant consumer applies its default semantics.
+Open Settings and select “General”. Dynamic rows are generated from storage keys in the layout file; clicking a row shows its description in the right-hand description panel. Changing a toggle, number, or combo box updates the configuration immediately, after which the configuration service coalesces the disk write. Language, theme, update checks, and the automatic-update preference are managed on the About Application page.
 
 The “Use Custom API Params” row includes an “Edit” button that opens `config/custom_api_params.json`; this is a file-edit action, not JSON embedded in `AppSettings`. The filter-list row includes an “Edit Filter List” button for the filter-word file. The font-directory button is in Typesetting, not this page.
 
-### Theme, language, and presets
+### Application preferences and updates
 
-- “Theme” options are generated from `THEME_OPTIONS` in `theme_registry.py`; selection emits a theme-change signal and immediately refreshes Qt styling.
-- “Language” options come from `I18nManager.get_available_locales()`, not from guessing keys in `en_US.json` / `zh_CN.json`. Selection refreshes desktop text, Qt built-in widget translations, and navigation, then saves `app.ui_language`.
-- The API preset toolbar displays the current API preset. Switching a preset refreshes API forms and credential slots; it does not change the translator or detector implementation. The current preset name is stored in `app.current_preset` and is application state rather than a normal dynamic settings row.
+Open About Application from the main navigation to change the interface language and theme. “Use System Proxy” controls whether application network requests use the operating system proxy settings. The same page contains “Automatically check for updates”, “Check for Updates”, and a release dialog. The check reads the latest GitHub release without blocking the UI. “Update Now” starts the existing `Win-Install-or-Update.bat` / `packaging/launch.py --maintenance` workflow; the app closes after the handoff. The “Support the Project” entry at the bottom shows WeChat and Alipay QR codes and provides a Ko-fi link for international supporters.
+
+The API preset toolbar displays the current API preset. Switching a preset refreshes API forms and credential slots; it does not change the translator or detector implementation. The current preset name is stored in `app.current_preset` and is application state rather than a normal dynamic settings row.
 
 ## Parameters
 
 > For the mapping of UI names, storage keys, and default values of the parameters on this page, see the [Settings Parameter Index](../../reference/settings-index.md).
 
-### Language {#app-ui-language}
-
-The “Language” combo box is on Settings → General and decides the desktop interface language; selecting it refreshes the interface text immediately.
-
-- `auto`: detects the system language automatically (falls back to Simplified Chinese when not registered).
-- `zh_CN`: Simplified Chinese.
-- `zh_TW`: Traditional Chinese.
-- `en_US`: English.
-- `ja_JP`: Japanese.
-- `ko_KR`: Korean.
-- `es_ES`: Spanish.
-
-It changes the interface language only, not the translation target language. Default: `auto`.
-
-### Theme {#app-theme}
-
-The “Theme” combo box is on Settings → General and selects the interface color scheme; selecting it refreshes the styling immediately.
-
-- `light`: light theme.
-- `dark`: dark theme.
-- `gray`: gray theme.
-- `ocean`: ocean theme.
-- `forest`: forest theme.
-- `sunset`: sunset theme.
-- `rose`: rose theme.
-- `system`: follows the OS appearance and selects a registered theme.
-
-Default: `light`.
 
 ### Use Custom API Params {#custom-api-params}
 
