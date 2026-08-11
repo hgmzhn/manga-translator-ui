@@ -28,7 +28,7 @@ lastUpdated: true
    - 选择下载线路（GitHub 官方 / Gitee 国内镜像，国内推荐 Gitee）。
    - 脚本强制同步最新代码；同步失败会提示切换线路重试。
    - 自动检测显卡（NVIDIA / AMD / 集显；多显卡时列出选择）。
-   - 选择 PyTorch 版本：NVIDIA 选 CUDA 12.6；AMD 选 ROCm（实验性，仅 RX 7000/9000 系列）；其他或集显选 CPU。
+   - 选择 PyTorch 版本：默认 NVIDIA 包使用 CUDA 13.0；`gpu-cuda12.6` 包使用 CUDA 12.6；AMD 使用 ROCm（实验性）；其他或集显选 CPU。
    - uv 批量安装依赖（PyPI 多镜像回退：清华 → 阿里 → 豆瓣 → 官方），失败可重试，已安装包保留。
    - 完成后自动清理下载缓存。
 3. 安装完成后，以后每次使用双击 `Win-Start.bat` 启动。

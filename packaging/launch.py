@@ -70,18 +70,18 @@ PYTORCH_INDEX_FALLBACKS = {
         "https://mirror.sjtu.edu.cn/pytorch-wheels/cpu/",
         "https://mirrors.aliyun.com/pytorch-wheels/cpu/",
     ],
-    "https://download.pytorch.org/whl/cu126": [
-        "https://mirrors.aliyun.com/pytorch-wheels/cu126/",
+    "https://download.pytorch.org/whl/cu130": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
     ],
 }
 
 # 对部分 PyTorch 源使用自定义尝试顺序。
-# 例如 cu126 优先走国内镜像，失败后再回退官方源。
+# 例如 cu130 优先走国内镜像，失败后再回退官方源。
 PYTORCH_INDEX_PRIORITY = {
-    "https://download.pytorch.org/whl/cu126": [
-        "https://mirrors.aliyun.com/pytorch-wheels/cu126/",
-        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu126/",
-        "https://download.pytorch.org/whl/cu126",
+    "https://download.pytorch.org/whl/cu130": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
+        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu130/",
+        "https://download.pytorch.org/whl/cu130",
     ],
 }
 
@@ -405,9 +405,9 @@ def run_pip(args, desc=None):
         try:
             mirror_name = urllib.parse.urlparse(mirror).hostname or mirror
             if i == 0:
-                print(f"正在安装 {desc}...")
+                print(L(f"正在安装 {desc}...", f"Installing {desc}..."))
             else:
-                print(f"尝试备用镜像源: {mirror_name}")
+                print(L(f"尝试备用镜像源: {mirror_name}", f"Trying fallback mirror: {mirror_name}"))
             
             cmd = build_pip_command(args, mirror)
             result = subprocess.run(cmd, shell=True, env=os.environ)
@@ -416,14 +416,16 @@ def run_pip(args, desc=None):
                 return ""
             else:
                 last_error = f"返回码: {result.returncode}"
-                print(f"镜像源 {mirror_name} 安装失败，{last_error}")
+                print(L(f"镜像源 {mirror_name} 安装失败，{last_error}", f"Mirror {mirror_name} installation failed ({last_error})"))
                 
         except Exception as e:
             last_error = str(e)
-            print(f"镜像源 {mirror_name} 出错: {last_error}")
+            print(L(f"镜像源 {mirror_name} 出错: {last_error}", f"Mirror {mirror_name} error: {last_error}"))
     
-    # 所有镜像源都失败
-    raise RuntimeError(f"无法安装 {desc}，所有镜像源均失败。最后错误: {last_error}")
+    raise RuntimeError(L(
+        f"无法安装 {desc}，所有镜像源均失败。最后错误: {last_error}",
+        f"Could not install {desc}; all mirrors failed. Last error: {last_error}",
+    ))
 
 
 # 需要从 PyTorch 源下载的包列表（包括 PyTorch 及其依赖）
@@ -498,24 +500,20 @@ def run_pip_packages_fallback(packages, primary_index_url, desc=None):
         trusted_host_line = build_trusted_host_args([index_source, "https://download.pytorch.org"])
         return f'"{python}" -m pip {pip_args} --prefer-binary{index_url_line}{trusted_host_line} --disable-pip-version-check --no-warn-script-location'
 
-    # 如果用户指定了 INDEX_URL，优先使用
     if index_url:
         mirrors_to_try = [index_url] + [m for m in MIRROR_URLS if m != index_url]
     else:
         mirrors_to_try = MIRROR_URLS.copy()
 
     total = len(packages)
-    print(f"正在安装 {desc or '依赖'}... (共 {total} 个包)")
+    print(L(f"正在安装 {desc or '依赖'}... (共 {total} 个包)", f"Installing {desc or 'dependencies'}... ({total} packages)"))
 
     pkg_idx = 0
     while pkg_idx < total:
         pkg = packages[pkg_idx]
-
-        # 获取包名用于显示（去除版本约束）
         pkg_display = pkg.split('==')[0].split('>=')[0].split('<=')[0].split('[')[0].split('@')[0].strip()
-        print(f"[{pkg_idx + 1}/{total}] 安装 {pkg_display}...")
+        print(L(f"[{pkg_idx + 1}/{total}] 安装 {pkg_display}...", f"[{pkg_idx + 1}/{total}] Installing {pkg_display}..."))
 
-        # 检查是否是 PyTorch 相关包，需要使用主源
         use_primary = is_pytorch_source_package(pkg_display) and primary_index_url
         index_candidates = get_pytorch_index_candidates(primary_index_url) if use_primary else mirrors_to_try
 
@@ -524,10 +522,9 @@ def run_pip_packages_fallback(packages, primary_index_url, desc=None):
         for source_idx, current_index in enumerate(index_candidates):
             source_name = urllib.parse.urlparse(current_index).hostname or current_index
             if use_primary:
-                print(f"    (使用 PyTorch 源: {current_index})")
+                print(L(f"    (使用 PyTorch 源: {current_index})", f"    (PyTorch index: {current_index})"))
 
             cmd = build_pip_command(f'install "{pkg}"', current_index)
-
             try:
                 result = subprocess.run(cmd, shell=True, env=os.environ)
                 if result.returncode == 0:
@@ -535,22 +532,22 @@ def run_pip_packages_fallback(packages, primary_index_url, desc=None):
                     break
 
                 last_error = f"返回码: {result.returncode}"
-                print(f"[失败] {pkg_display} 在 {source_name} 安装失败，{last_error}")
+                print(L(f"[失败] {pkg_display} 在 {source_name} 安装失败，{last_error}", f"[FAILED] Installing {pkg_display} from {source_name} failed ({last_error})"))
             except Exception as e:
                 last_error = str(e)
-                print(f"[错误] 安装 {pkg_display} 时出错: {e}")
+                print(L(f"[错误] 安装 {pkg_display} 时出错: {e}", f"[ERROR] Installing {pkg_display} failed: {e}"))
 
             if source_idx + 1 < len(index_candidates):
                 next_index = index_candidates[source_idx + 1]
                 next_name = urllib.parse.urlparse(next_index).hostname or next_index
-                print(f"[重试] 切换到镜像 {next_name}，从 {pkg_display} 重新开始...")
+                print(L(f"[重试] 切换到镜像 {next_name}，从 {pkg_display} 重新开始...", f"[RETRY] Switching to mirror {next_name}; retrying {pkg_display}..."))
 
         if not installed:
-            raise RuntimeError(f"无法安装 {pkg_display}，所有镜像源均失败。最后错误: {last_error}")
+            raise RuntimeError(L(f"无法安装 {pkg_display}，所有镜像源均失败。最后错误: {last_error}", f"Could not install {pkg_display}; all mirrors failed. Last error: {last_error}"))
 
         pkg_idx += 1
 
-    print(f"[完成] {desc or '依赖'} 安装完成")
+    print(L(f"[完成] {desc or '依赖'} 安装完成", f"[DONE] {desc or 'dependencies'} installed"))
 
 
 def run_uv_packages(uv, packages, primary_index_url, desc=None):
@@ -1559,11 +1556,11 @@ except:
             
             # 检查 CUDA 版本
             if cuda_major is not None:
-                if tuple(map(int, cuda_version.split('.')[:2])) < (12, 6):
-                    print('⚠️  警告: 检测到 CUDA 版本低于 12.6')
+                if tuple(map(int, cuda_version.split('.')[:2])) < (13, 0):
+                    print('⚠️  警告: 检测到 CUDA 版本低于 13.0')
                     print(f'   当前 CUDA 版本: {cuda_version}')
-                    print('   GPU 版本需要: CUDA 12.6')
-                    print('   驱动需支持 CUDA 12.6')
+                    print('   GPU 版本需要: CUDA 13.0')
+                    print('   驱动需支持 CUDA 13.0')
                     print()
                     print('您的 CUDA 版本过低，无法使用 GPU 版本。')
                     print('请选择:')
@@ -1587,8 +1584,8 @@ except:
                 else:
                     # CUDA 版本符合要求
                     print('GPU 版本需要:')
-                    print('  - NVIDIA 显卡支持 CUDA 12.6')
-                    print('  - 显卡驱动需支持 CUDA 12.6')
+                    print('  - NVIDIA 显卡支持 CUDA 13.0')
+                    print('  - 驱动需支持 CUDA 13.0')
                     print()
                     print(f'✓ 您的 CUDA 版本 {cuda_version} 符合要求')
                     print()
@@ -1612,8 +1609,8 @@ except:
                 print('⚠️  无法检测 CUDA 版本 (可能未安装 nvidia-smi)')
                 print()
                 print('GPU 版本需要:')
-                print('  - NVIDIA 显卡支持 CUDA 12.6')
-                print('  - 显卡驱动需支持 CUDA 12.6')
+                print('  - NVIDIA 显卡支持 CUDA 13.0')
+                print('  - 驱动需支持 CUDA 13.0')
                 print()
                 print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
                 print()

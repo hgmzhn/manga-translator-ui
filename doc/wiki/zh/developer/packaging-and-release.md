@@ -14,7 +14,7 @@ lastUpdated: true
 ## 涉及的代码 {#feature-boundary}
 
 - 版本号：`v*` Git tag（例如 `v2.2.10`）是发布权威。`packaging/VERSION` 是包内版本文件；`pyproject.toml` 的 `[project] version` 与 `packaging/launch.py` 中的硬编码 `VERSION` 只是开发标记。
-- 发布包：`.github/workflows/build-and-release.yml` 以 `scripts/manga-translator-ui-portable` 的目录布局为参考，从 `portable` Release 下载基础包，覆盖当前源码，在内置 Python 中安装锁定的 CPU、NVIDIA GPU 或 Windows AMD 依赖，再解压模型文件并生成分卷归档。
+- 发布包：`.github/workflows/build-and-release.yml` 以 `scripts/manga-translator-ui-portable` 的目录布局为参考，从 `portable` Release 下载基础包，覆盖所选源码引用，在内置 Python 中安装锁定的 CPU、NVIDIA CUDA 13.0 GPU、NVIDIA CUDA 12.6 GPU 或 Windows AMD 依赖，再解压模型文件并生成分卷归档。
 - Docker：`.github/workflows/docker-build-push.yml` 继续构建并推送 CPU/GPU Docker 镜像。
 - 这里仅写打包与发布；模块代码边界、测试流程、Web 端口与部署细节分别属于[架构与代码边界](./architecture-and-code-boundaries.md)、[测试与代码质量](./tests-and-code-quality.md)和[Web 服务端口与部署](./web-server-ports-and-deployment.md)。
 
@@ -52,7 +52,7 @@ CI 不再把 PyInstaller `dist/` 作为发布包。`.github/workflows/build-and-
 3. 用 `uv export --locked` 导出对应 dependency group，再用 `uv pip install --python packaging/python/python.exe --requirement requirements.txt` 安装到包内 Python。
 4. AMD 变体额外卸载普通 PyTorch，按 `packaging/launch.py` 相同顺序安装 Radeon ROCm SDK 7.2.1 和配套 PyTorch wheels。
 5. 下载并解压 `v1.7.9` Release 的 `models.7z` 到包内 `models/`。
-6. CPU/GPU 导入运行时，AMD 校验 ROCm wheel 元数据，再以 1990 MiB 分卷压缩。
+6. 导入 CPU/GPU 运行时，校验 AMD 的 ROCm wheel 元数据，然后分别为 CPU、默认 CUDA 13.0 GPU、CUDA 12.6 GPU 和 AMD 创建分卷归档；RTX 50 系列用户必须选择 NVIDIA GPU 分卷包。
 
 `packaging/build_packages.py` 和 spec 文件仍可用于本地 PyInstaller 调试，但不再是该 CI 发布流程的入口。
 
@@ -88,7 +88,7 @@ flowchart LR
 
 ### 分卷压缩 {#split-archives}
 
-发布资产按三个变体分别生成 `manga-translator-{cpu,gpu,amd}-<tag>.7z.001`、`.002`…，命令使用 `7z a -v1990m -m0=lzma2 -ms=on`。解压第一个分卷即可得到完整便携目录。
+四个资产命名为 `manga-translator-cpu-<tag>.7z.*`、`manga-translator-gpu-<tag>.7z.*`、`manga-translator-gpu-cuda12.6-<tag>.7z.*` 和 `manga-translator-amd-<tag>.7z.*`。命令使用 `7z a -v1990m -m0=lzma2 -ms=on`；解压第一个分卷即可恢复完整便携目录。
 
 ## CI 发布流水线 {#ci-release-pipeline}
 

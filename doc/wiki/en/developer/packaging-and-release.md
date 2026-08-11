@@ -14,7 +14,7 @@ This page is for maintainers. It explains how the project turns source code into
 ## Relevant code {#feature-boundary}
 
 - Version: a `v*` Git tag (for example `v2.2.10`) is authoritative. `packaging/VERSION` is the in-package version file; `[project] version` in `pyproject.toml` and the hardcoded `VERSION` in `packaging/launch.py` are development markers.
-- Release packages: `.github/workflows/build-and-release.yml` follows the layout of `scripts/manga-translator-ui-portable`. It downloads the `portable` Release as a base, overlays current source, installs locked CPU, NVIDIA GPU, or Windows AMD dependencies into bundled Python, installs model files, and creates split archives.
+- Release packages: `.github/workflows/build-and-release.yml` follows the layout of `scripts/manga-translator-ui-portable`. It downloads the `portable` Release as a base, overlays the selected source ref, installs locked CPU, NVIDIA CUDA 13.0 GPU, NVIDIA CUDA 12.6 GPU, or Windows AMD dependencies into bundled Python, installs model files, and creates split archives.
 - Docker: `.github/workflows/docker-build-push.yml` continues to build and push CPU/GPU images.
 - This guide covers packaging and release only. Module code boundaries, test flows, and web ports/deployment belong to [Architecture and code boundaries](./architecture-and-code-boundaries.md), [Tests and code quality](./tests-and-code-quality.md), and [Web server ports and deployment](./web-server-ports-and-deployment.md) respectively.
 
@@ -52,7 +52,7 @@ Each CPU/GPU/AMD matrix job runs these steps in order:
 3. Export the matching dependency group with `uv export --locked`, then install it with `uv pip install --python packaging/python/python.exe --requirement requirements.txt`.
 4. For AMD, remove normal PyTorch and install Radeon ROCm SDK 7.2.1 plus matching PyTorch wheels in the same order as `packaging/launch.py`.
 5. Download and extract `models.7z` from Release `v1.7.9` into `models/`.
-6. Import runtime modules for CPU/GPU, validate ROCm wheel metadata for AMD, then create 1990 MiB split archives.
+6. Import runtime modules for CPU/GPU, validate ROCm wheel metadata for AMD, then create split archives for CPU, default CUDA 13.0 GPU, CUDA 12.6 GPU, and AMD; RTX 50-series users must select one of the NVIDIA GPU archives.
 
 `packaging/build_packages.py` and the spec files remain available for local PyInstaller debugging, but they are no longer the entry point for this CI release.
 
@@ -88,7 +88,7 @@ Each release archive is a complete Windows portable directory and does not conta
 
 ### Split archives {#split-archives}
 
-The three assets are named `manga-translator-{cpu,gpu,amd}-<tag>.7z.001`, `.002`, and so on. The command uses `7z a -v1990m -m0=lzma2 -ms=on`; extracting the first volume restores the complete portable directory.
+The four assets are named `manga-translator-cpu-<tag>.7z.*`, `manga-translator-gpu-<tag>.7z.*`, `manga-translator-gpu-cuda12.6-<tag>.7z.*`, and `manga-translator-amd-<tag>.7z.*`. The command uses `7z a -v1990m -m0=lzma2 -ms=on`; extracting the first volume restores the complete portable directory.
 
 ## CI release pipeline {#ci-release-pipeline}
 

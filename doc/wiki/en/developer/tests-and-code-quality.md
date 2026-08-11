@@ -56,7 +56,7 @@ uv sync --no-default-groups --group cpu --group test
 uv run --no-sync pytest test
 ```
 
-- The default `uv sync` installs `gpu` + `packaging` + `test` (NVIDIA CUDA 12.6, PyInstaller, and test tools). The installer disables default groups, so it does not check test dependencies. The `cpu`, `gpu`, `amd`, and `metal` groups are mutually exclusive via `[tool.uv] conflicts` in `pyproject.toml`.
+- The default `uv sync` installs `gpu` + `packaging` + `test` (NVIDIA CUDA 13.0, PyInstaller, and test tools). The `cuda12.6` branch builds the alternate CUDA 12.6 environment. The installer disables default groups, so it does not check test dependencies. The `cpu`, `gpu`, `amd`, and `metal` groups are mutually exclusive via `[tool.uv] conflicts` in `pyproject.toml`.
 - `[tool.pytest.ini_options]` in `pyproject.toml` fixes `testpaths = ["test"]` and `pythonpath = [".", "desktop_qt_ui"]`, preventing pytest from inheriting configuration and source paths from an adjacent older repository.
 - When running the full suite, the pytest-reported `rootdir` must be the current Git repository root. If an older repository still exists in a parent directory, stale configuration can import the old `manga_translator` (e.g. `ModuleNotFoundError: No module named 'rusty_manga_image_translator'`); in that case verify the actual import path with `PYTHONPATH=.` first, and never report an adjacent repository's results as this repository's.
 - Verified in this workspace on 2026-08-07: `uv run --no-sync pytest test --collect-only -q` collected 379 tests in about 26 seconds. This task did not run the full suite; CI owns the full run.

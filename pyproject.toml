@@ -1,7 +1,7 @@
 # uv 依赖配置（替代 requirements_cpu/gpu/amd/metal.txt）
 #
 # 安装方式（四选一，dependency groups 互斥）:
-#   uv sync                                      # 默认：NVIDIA CUDA 12.6 + 打包/测试工具
+#   uv sync                                      # 默认：NVIDIA CUDA 13.0 + 打包/测试工具；CUDA 12.6 见 cuda12.6 分支
 #   uv sync --no-default-groups --group cpu      # CPU 版
 #   uv sync --no-default-groups --group amd      # Linux AMD ROCm 7.2
 #   # Windows AMD: use the Windows installer; it installs Radeon SDK before PyTorch.
@@ -168,19 +168,19 @@ pythonpath = [".", "desktop_qt_ui"]
 # torch 索引按 dependency group 绑定；metal 不绑定，回落到默认 PyPI（自动 MPS 版）
 torch = [
     { index = "pytorch-cpu", group = "cpu" },
-    { index = "pytorch-cu126", group = "gpu" },
+    { index = "pytorch-cu130", group = "gpu" },
     { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 torchvision = [
     { index = "pytorch-cpu", group = "cpu" },
-    { index = "pytorch-cu126", group = "gpu" },
+    { index = "pytorch-cu130", group = "gpu" },
     { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 triton-rocm = [
     { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 xformers = [
-    { index = "pytorch-cu126", group = "gpu" },
+    { index = "pytorch-cu130", group = "gpu" },
 ]
 # pydensecrf 按平台选择安装来源
 # Windows/macOS/Linux x86_64: 预编译 wheel（避免本地编译失败）
@@ -218,8 +218,8 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [[tool.uv.index]]

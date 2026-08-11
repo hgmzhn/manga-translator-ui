@@ -21,8 +21,8 @@ Dependencies are now declared in `pyproject.toml` at the repository root:
 
 - Common dependencies live in `[project] dependencies`.
 - The four backends are mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
-- The default groups are `gpu` + `packaging` + `test`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 12.6 and keeps PyInstaller and the test tools installed. The installer uses `--no-default-groups`, so it neither checks nor installs the `test` group.
-- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: `cpu` uses `download.pytorch.org/whl/cpu`, `gpu` uses `whl/cu126`, Linux `amd` uses `whl/rocm7.2`, and `metal` uses the default PyPI; Windows AMD Radeon wheels remain installed separately by `packaging/launch.py`.
+- The default groups are `gpu` + `packaging` + `test`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 13.0. The reproducible CUDA 12.6 environment is maintained on the `cuda12.6` branch. The installer uses `--no-default-groups`, so it neither checks nor installs the `test` group.
+- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: the main branch uses `whl/cu130` for `gpu`, the `cuda12.6` branch uses `whl/cu126`, `cpu` uses `download.pytorch.org/whl/cpu`, Linux `amd` uses `whl/rocm7.2`, and `metal` uses the default PyPI.
 - `uv.lock` is the lockfile. It is committed to the repository; do not edit it by hand.
 
 The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` files have been removed.
@@ -32,7 +32,7 @@ The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt`
 uv is recommended. Install only one dependency group for the target runtime:
 
 ```bash
-# NVIDIA GPU (CUDA 12.6, default)
+# NVIDIA GPU (CUDA 13.0, default; use the cuda12.6 branch for CUDA 12.6)
 uv sync
 
 # For other backends, disable the defaults and select one group
@@ -398,8 +398,8 @@ When changing install or update behavior, do not change only the `.bat` or `.sh`
 ### CI/CD
 
 - `.github/workflows/build-and-release.yml`
-  - builds CPU, NVIDIA GPU, and AMD Windows runtimes from the portable base, installs locked dependencies and models, then creates split 7z archives
-  - collects all three build artifacts on Ubuntu and publishes the GitHub Release
+  - builds CPU, NVIDIA CUDA 13.0 GPU, NVIDIA CUDA 12.6 GPU, and AMD Windows runtimes from the portable base, installs locked dependencies and models, then creates split 7z archives
+  - collects all four build artifacts on Ubuntu and publishes the GitHub Release
 - `.github/workflows/docker-build-push.yml`
   - builds CPU and GPU Docker images based on `packaging/Dockerfile`
 

@@ -23,7 +23,8 @@ The current source of dependency truth is `pyproject.toml` and `uv.lock`. `requi
 | RAM | 8 GB | 16 GB or more |
 | Disk | 5 GB free space | 10 GB SSD |
 | Python (source) | 3.12 (`>=3.12,<3.13`) | 3.12 |
-| NVIDIA GPU | GTX 1060 or newer with 6 GB VRAM; driver must support CUDA 12.6 | More VRAM is better |
+| NVIDIA GPU | GTX 1060 or newer with 6 GB VRAM; driver must support CUDA 13.0 by default, or CUDA 12.6 for the alternate build | More VRAM is better |
+> RTX 50-series NVIDIA cards must use the NVIDIA GPU package; select the CUDA 13.0 default package or the CUDA 12.6 package only when its driver supports that runtime.
 | AMD GPU | RX 7000/9000 series only (RDNA 3/4); ROCm is experimental. Use the CPU build on RX 5000/6000 | — |
 
 > Windows AMD users can choose the experimental AMD portable release or install through the maintenance script. Both require a supported GPU, Radeon ROCm 7.2.1, and AMD driver 26.2.2; this remains an experimental Windows path.
@@ -38,7 +39,7 @@ The current source of dependency truth is `pyproject.toml` and `uv.lock`. `requi
 
 | Target | Command | Meaning |
 | --- | --- | --- |
-| NVIDIA CUDA (source-development default) | `uv sync` | Default `gpu`, `packaging`, and `test` groups; PyTorch uses the CUDA 12.6 index |
+| NVIDIA CUDA (source-development default) | `uv sync` | Default `gpu`, `packaging`, and `test` groups; PyTorch uses CUDA 13.0. The `cuda12.6` branch builds the CUDA 12.6 package |
 | CPU | `uv sync --no-default-groups --group cpu` | CPU PyTorch and `onnxruntime` |
 | Linux AMD ROCm | `uv sync --no-default-groups --group amd` | ROCm 7.2 index; conditional ROCm PyTorch/Triton on Linux x86_64 |
 | macOS Apple Silicon | `uv sync --no-default-groups --group metal` | PyPI PyTorch/MPS; CPU ONNX Runtime |
@@ -66,12 +67,13 @@ Common runtime dependencies are `[project].dependencies`; hardware backends, pac
 flowchart TD
     A["Python 3.12 + uv"] --> B["Read pyproject.toml / uv.lock"]
     B --> C{"Choose one backend group"}
-    C -->|gpu| D["CUDA 12.6 + onnxruntime-gpu + xformers"]
-    C -->|cpu| E["CPU PyTorch + onnxruntime"]
-    C -->|amd| F["Conditional Linux ROCm 7.2 dependencies"]
-    C -->|metal| G["macOS PyTorch MPS + CPU ONNX Runtime"]
-    D --> H["Common runtime dependencies"]
-    E --> H
+    C -->|gpu| D["CUDA 13.0 + onnxruntime-gpu + xformers"]
+    C -->|cuda12.6| E["CUDA 12.6 + onnxruntime-gpu + xformers"]
+    C -->|cpu| F["CPU PyTorch + onnxruntime"]
+    C -->|amd| G["Conditional Linux ROCm 7.2 dependencies"]
+    C -->|metal| H["macOS PyTorch MPS + CPU ONNX Runtime"]
+    D --> I["Common runtime dependencies"]
+    E --> I
     F --> H
     G --> H
     H --> I["Desktop / CLI / Web runtime"]

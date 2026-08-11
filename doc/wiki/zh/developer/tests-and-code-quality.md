@@ -56,7 +56,7 @@ uv sync --no-default-groups --group cpu --group test
 uv run --no-sync pytest test
 ```
 
-- 默认 `uv sync` 安装 `gpu` + `packaging` + `test`（NVIDIA CUDA 12.6、PyInstaller 与测试工具）；安装器禁用默认组，因此不会检测测试依赖。`cpu`、`gpu`、`amd`、`metal` 四组互斥，见 `pyproject.toml` 的 `[tool.uv] conflicts`。
+- 默认 `uv sync` 安装 `gpu` + `packaging` + `test`（NVIDIA CUDA 13.0、PyInstaller 与测试工具）；`cuda12.6` 分支构建备用 CUDA 12.6 环境。安装器禁用默认组，因此不会检测测试依赖。`cpu`、`gpu`、`amd`、`metal` 四组互斥，见 `pyproject.toml` 的 `[tool.uv] conflicts`。
 - `pyproject.toml` 的 `[tool.pytest.ini_options]` 固定 `testpaths = ["test"]`、`pythonpath = [".", "desktop_qt_ui"]`，避免 pytest 向上继承相邻旧仓库的配置和源码路径。
 - 运行完整测试时，pytest 输出的 `rootdir` 必须是当前 Git 仓库根目录。如果本机上级目录还保留另一份旧仓库，旧配置可能误导入旧版 `manga_translator`（例如 `ModuleNotFoundError: No module named 'rusty_manga_image_translator'`）；此时先用 `PYTHONPATH=.` 直接运行测试验证实际导入路径，不能把相邻仓库的结果当作本仓测试结果。
 - 2026-08-07 本工作区核对：`uv run --no-sync pytest test --collect-only -q` 成功收集 379 个测试（耗时约 26 秒）；本任务没有执行完整运行，完整运行由 CI 承担。

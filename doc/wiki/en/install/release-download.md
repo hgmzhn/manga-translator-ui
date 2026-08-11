@@ -13,11 +13,11 @@ Current GitHub Releases contain a **complete Windows portable directory**, not t
 
 ## How current release packages are built
 
-When a version tag triggers `.github/workflows/build-and-release.yml`, the release workflow creates CPU, NVIDIA GPU, and AMD portable packages separately:
+When a version tag triggers `.github/workflows/build-and-release.yml`, the release workflow creates CPU, NVIDIA CUDA 13.0 GPU, NVIDIA CUDA 12.6 GPU, and AMD portable packages separately:
 
 1. CI first downloads `manga-translator-ui-portable.7z` from the `portable` release. This base already contains Python 3.12, uv, and `PortableGit`; the tagged source tree is then overlaid. PortableGit is retained from the base instead of being downloaded again for every version build.
 2. It exports the matching dependency group from the locked `uv.lock` and installs those packages directly into `packaging/python` inside the archive.
-3. The AMD variant separately installs the Windows Radeon ROCm 7.2.1 SDK and matching PyTorch build; the NVIDIA variant uses the CUDA 12.6 index.
+3. The AMD variant separately installs the Windows Radeon ROCm 7.2.1 SDK and matching PyTorch build; the default NVIDIA variant uses CUDA 13.0, and the `gpu-cuda12.6` variant uses CUDA 12.6.
 4. It adds the model files and smoke-tests PyQt6, PyTorch, and ONNX Runtime.
 5. It creates approximately 1990 MiB 7-Zip volumes and attaches every volume to the versioned GitHub Release.
 
@@ -30,7 +30,9 @@ Open the latest version on [GitHub Releases](https://github.com/hgmzhn/manga-tra
 | Release filename prefix | Best for | Runtime |
 | --- | --- | --- |
 | `manga-translator-cpu-vX.Y.Z.7z.*` | Any Windows x64 computer; use it without a discrete GPU or when compatibility is uncertain | CPU PyTorch / ONNX Runtime |
-| `manga-translator-gpu-vX.Y.Z.7z.*` | NVIDIA GPUs | CUDA 12.6; the NVIDIA driver must support CUDA 12.6 |
+| `manga-translator-gpu-vX.Y.Z.7z.*` | NVIDIA GPUs | CUDA 13.0; the NVIDIA driver must support CUDA 13.0 |
+| `manga-translator-gpu-cuda12.6-vX.Y.Z.7z.*` | NVIDIA GPUs with older compatible drivers | CUDA 12.6; the NVIDIA driver must support CUDA 12.6 |
+| Compatibility note | RTX 50-series cards must use the NVIDIA GPU archive | Choose CUDA 13.0 by default; use CUDA 12.6 only with a compatible driver |
 | `manga-translator-amd-vX.Y.Z.7z.*` | AMD GPUs supported by Windows ROCm | Experimental Radeon ROCm 7.2.1; AMD driver 26.2.2 is required |
 
 The AMD package works only with GPUs supported by Radeon ROCm 7.2.1. Use the CPU package when uncertain, and never mix CPU, NVIDIA, and AMD volumes.
@@ -62,7 +64,7 @@ Do not copy another variant's `packaging/python` over the current one. The three
 - **There is no `app.exe`**: current releases start through `Win-Start.bat` and the bundled Python runtime; this is expected.
 - **Extraction fails**: verify that every volume has the same version and hardware prefix, finished downloading, and is being extracted from `.001`.
 - **The launcher exits immediately**: install the x64 Visual C++ runtime, check whether antivirus quarantined scripts, DLLs, or Python files, then run `Win-Install-or-Update.bat` to inspect the environment.
-- **The NVIDIA build cannot use the GPU**: update the driver and confirm that it supports CUDA 12.6; use the CPU package if the problem remains.
+- **The NVIDIA build cannot use the GPU**: update the driver and confirm that it supports the CUDA version selected by the package; use the CPU package if the problem remains.
 - **The AMD build cannot load PyTorch**: confirm that the GPU is supported by Windows ROCm 7.2.1 and install AMD driver 26.2.2; use the CPU package when unsupported.
 
 ## Related pages

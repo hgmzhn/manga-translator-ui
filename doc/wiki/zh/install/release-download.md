@@ -13,11 +13,11 @@ lastUpdated: true
 
 ## 当前发布包如何生成
 
-版本标签触发 `.github/workflows/build-and-release.yml` 后，发布流程会分别构建 CPU、NVIDIA GPU 和 AMD 三种便携包：
+版本标签触发 `.github/workflows/build-and-release.yml` 后，发布流程会分别构建 CPU、NVIDIA CUDA 13.0 GPU、NVIDIA CUDA 12.6 GPU 和 AMD 四种便携包：
 
 1. CI 先从 `portable` 标签下载 `manga-translator-ui-portable.7z`；这个便携基础包已包含 Python 3.12、uv 和 `PortableGit`，随后再覆盖为当前标签的代码。`PortableGit` 会从基础包保留下来，不会在每次版本构建时重复下载。
 2. 从已锁定的 `uv.lock` 导出对应依赖组，把依赖直接安装进包内的 `packaging/python`。
-3. AMD 包单独安装 Windows Radeon ROCm 7.2.1 SDK 和配套 PyTorch；NVIDIA 包使用 CUDA 12.6 源。
+3. AMD 包单独安装 Windows Radeon ROCm 7.2.1 SDK 和配套 PyTorch；默认 NVIDIA 包使用 CUDA 13.0，`gpu-cuda12.6` 包使用 CUDA 12.6。
 4. 把模型文件放进包内，执行 PyQt6、PyTorch、ONNX Runtime 冒烟检查。
 5. 使用 7-Zip 按约 1990 MiB 分卷，上传全部分卷到对应版本的 GitHub Release。
 
@@ -30,7 +30,9 @@ lastUpdated: true
 | 发布文件前缀 | 适用设备 | 运行时 |
 | --- | --- | --- |
 | `manga-translator-cpu-vX.Y.Z.7z.*` | 所有 Windows x64 电脑；无独显或不确定兼容性时选它 | CPU PyTorch / ONNX Runtime |
-| `manga-translator-gpu-vX.Y.Z.7z.*` | NVIDIA 显卡 | CUDA 12.6；显卡驱动必须支持 CUDA 12.6 |
+| `manga-translator-gpu-vX.Y.Z.7z.*` | NVIDIA 显卡 | CUDA 13.0；显卡驱动必须支持 CUDA 13.0 |
+| `manga-translator-gpu-cuda12.6-vX.Y.Z.7z.*` | 使用较旧兼容驱动的 NVIDIA 显卡 | CUDA 12.6；显卡驱动必须支持 CUDA 12.6 |
+| 兼容性提示 | RTX 50 系列显卡必须使用 NVIDIA GPU 分卷包 | 默认选择 CUDA 13.0；仅在驱动兼容时选择 CUDA 12.6 |
 | `manga-translator-amd-vX.Y.Z.7z.*` | 受 Windows ROCm 支持的 AMD 显卡 | 实验性 Radeon ROCm 7.2.1；要求 AMD 26.2.2 驱动 |
 
 AMD 包只适用于 Radeon ROCm 7.2.1 支持范围内的显卡。无法确认兼容性时先使用 CPU 包；不要把 CPU、NVIDIA 和 AMD 分卷混在一起。
@@ -62,7 +64,7 @@ AMD 包只适用于 Radeon ROCm 7.2.1 支持范围内的显卡。无法确认兼
 - **目录里没有 `app.exe`**：当前发布包通过 `Win-Start.bat` 和包内 Python 启动，这是预期结构。
 - **无法解压**：确认同一版本、同一硬件前缀的所有分卷都已下载完成，并从 `.001` 开始解压。
 - **双击后闪退**：先安装 x64 Visual C++ 运行库，确认杀毒软件没有隔离脚本、DLL 或 Python 文件，再运行 `Win-Install-or-Update.bat` 检查环境。
-- **NVIDIA 版无法加载 GPU**：更新显卡驱动并确认驱动支持 CUDA 12.6；仍失败时改用 CPU 包。
+- **NVIDIA 版无法加载 GPU**：更新显卡驱动并确认其支持所选包的 CUDA 版本；仍失败时改用 CPU 包。
 - **AMD 版无法加载 PyTorch**：确认显卡在 Windows ROCm 7.2.1 支持范围内并安装 AMD 26.2.2 驱动；不兼容时改用 CPU 包。
 
 ## 关联页面

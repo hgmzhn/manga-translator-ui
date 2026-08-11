@@ -12,16 +12,26 @@ permissions:
 jobs:
   build-portable:
     runs-on: windows-latest
-    name: Build ${{ matrix.variant }} Portable Package
+    name: Build ${{ matrix.package-label }} Portable Package
     strategy:
       fail-fast: false
       matrix:
         include:
         - variant: cpu
+          package-label: cpu
+          source-ref: tag
           torch-index: https://download.pytorch.org/whl/cpu
         - variant: gpu
+          package-label: gpu
+          source-ref: tag
+          torch-index: https://download.pytorch.org/whl/cu130
+        - variant: gpu
+          package-label: gpu-cuda12.6
+          source-ref: cuda12.6
           torch-index: https://download.pytorch.org/whl/cu126
         - variant: amd
+          package-label: amd
+          source-ref: tag
           torch-index: https://pypi.org/simple
     steps:
     - uses: actions/checkout@v4
@@ -31,6 +41,14 @@ jobs:
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
+        $sourceRef = '${{ matrix.source-ref }}'
+        if ($sourceRef -eq 'tag') { $sourceRef = '${{ github.ref_name }}' }
+        if ($sourceRef -ne '${{ github.ref_name }}') {
+          & git fetch origin $sourceRef
+          if ($LASTEXITCODE -ne 0) { throw "Failed to fetch source ref $sourceRef." }
+          & git checkout --force -B $sourceRef "origin/$sourceRef"
+          if ($LASTEXITCODE -ne 0) { throw "Failed to check out source ref $sourceRef." }
+        }
         $archive = Join-Path $env:RUNNER_TEMP 'manga-translator-ui-portable.7z'
         $extractDir = Join-Path $env:GITHUB_WORKSPACE 'portable'
         gh release download portable --repo hgmzhn/manga-translator-ui --pattern manga-translator-ui-portable.7z --output $archive --clobber
@@ -69,7 +87,7 @@ jobs:
         $ErrorActionPreference = 'Stop'
         $uv = Join-Path $env:PORTABLE_DIR 'packaging\uv.exe'
         $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
-        $requirements = Join-Path $env:RUNNER_TEMP 'requirements-portable-${{ matrix.variant }}.txt'
+        $requirements = Join-Path $env:RUNNER_TEMP 'requirements-portable-${{ matrix.package-label }}.txt'
         try {
           & $uv export --locked --no-hashes --no-default-groups --group '${{ matrix.variant }}' --format requirements.txt --output-file $requirements
           if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked dependencies.' }
@@ -159,21 +177,21 @@ jobs:
         # PyQt6 must load last; its Qt DLL paths can break onnxruntime resolution on Windows.
         & $python -c "from importlib.metadata import version; import onnxruntime, PyQt6; v = version('torch'); assert 'rocm7.2.1' in v, v; print(v, onnxruntime.__version__)"
         if ($LASTEXITCODE -ne 0) { throw 'AMD bundled runtime metadata smoke test failed.' }
-    - name: Archive ${{ matrix.variant }} portable package
+    - name: Archive ${{ matrix.package-label }} portable package
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
         $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'release'
         New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
         Push-Location $env:PORTABLE_DIR
-        7z a -v1990m -m0=lzma2 -ms=on (Join-Path $releaseDir 'manga-translator-${{ matrix.variant }}-${{ github.ref_name }}.7z') .
+        7z a -v1990m -m0=lzma2 -ms=on (Join-Path $releaseDir 'manga-translator-${{ matrix.package-label }}-${{ github.ref_name }}.7z') .
         $archiveExitCode = $LASTEXITCODE
         Pop-Location
         if ($archiveExitCode -ne 0) { throw 'Failed to archive the portable package.' }
-    - name: Upload ${{ matrix.variant }} portable archive
+    - name: Upload ${{ matrix.package-label }} portable archive
       uses: actions/upload-artifact@v4
       with:
-        name: manga-translator-${{ matrix.variant }}-portable
+        name: manga-translator-${{ matrix.package-label }}-portable
         path: release/*.7z.*
   release-and-publish:
     needs: [build-portable]
