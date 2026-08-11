@@ -36,7 +36,7 @@ jobs:
         gh release download portable --repo hgmzhn/manga-translator-ui --pattern manga-translator-ui-portable.7z --output $archive --clobber
         if ($LASTEXITCODE -ne 0) { throw 'Failed to download the portable reference package.' }
         Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
-        7z x $archive -o$extractDir -y
+        7z x $archive "-o$extractDir" -y
         if ($LASTEXITCODE -ne 0) { throw 'Failed to extract the portable reference package.' }
         Remove-Item $archive -Force
         $pythonCandidates = @(
