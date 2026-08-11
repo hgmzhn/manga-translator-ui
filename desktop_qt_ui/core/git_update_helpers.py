@@ -30,6 +30,32 @@ def git_executable(root: Path) -> str:
         return str(portable_git)
     return os.environ.get("GIT") or shutil.which("git") or "git"
 
+_GIT_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+def _run_git(
+    root: Path,
+    args: list[str],
+    *,
+    timeout: float,
+    executable: str | None = None,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run Git without creating a console window in the desktop application."""
+    try:
+        return subprocess.run(
+            [executable or git_executable(root), *args],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="ignore",
+            creationflags=_GIT_CREATION_FLAGS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
 
 def git_output(
     root: Path,
@@ -39,20 +65,8 @@ def git_output(
     executable: str | None = None,
 ) -> str | None:
     """Run a Git read command and return trimmed stdout on success."""
-    try:
-        result = subprocess.run(
-            [executable or git_executable(root), *args],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout,
-            encoding="utf-8",
-            errors="ignore",
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
+    result = _run_git(root, args, timeout=timeout, executable=executable)
+    if result is None or result.returncode != 0:
         return None
     return result.stdout.strip()
 
@@ -70,20 +84,13 @@ def remote_url(root: Path, *, executable: str | None = None) -> str:
 
 def set_origin_url(root: Path, url: str, *, executable: str | None = None) -> bool:
     """Persist a new origin URL for both the UI and maintenance launcher."""
-    try:
-        result = subprocess.run(
-            [executable or git_executable(root), "remote", "set-url", "origin", url],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=15,
-            encoding="utf-8",
-            errors="ignore",
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
+    result = _run_git(
+        root,
+        ["remote", "set-url", "origin", url],
+        timeout=15,
+        executable=executable,
+    )
+    return result is not None and result.returncode == 0
 
 
 def mirror_index(url: str) -> int:
@@ -132,20 +139,13 @@ def fetch_origin(
     executable: str | None = None,
 ) -> bool:
     """Fetch one origin branch, returning whether the remote ref is current."""
-    try:
-        result = subprocess.run(
-            [executable or git_executable(root), "fetch", "origin", branch],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout,
-            encoding="utf-8",
-            errors="ignore",
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
+    result = _run_git(
+        root,
+        ["fetch", "origin", branch],
+        timeout=timeout,
+        executable=executable,
+    )
+    return result is not None and result.returncode == 0
 
 
 def current_commit(root: Path, *, short: bool = False, executable: str | None = None) -> str:

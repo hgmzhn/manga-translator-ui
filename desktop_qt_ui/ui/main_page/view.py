@@ -171,7 +171,7 @@ class MainView(QObject):
         self.controller.state_manager.current_config_changed.connect(self.update_start_button_text)
         QTimer.singleShot(100, self.update_start_button_text) # Set initial text
         QTimer.singleShot(100, self._sync_workflow_mode_from_config) # Sync workflow mode dropdown
-        QTimer.singleShot(1500, self._maybe_auto_check_updates)
+        QTimer.singleShot(5000, self._maybe_auto_check_updates)
 
     def _create_translation_interface(self, translation_page: QWidget) -> QWidget:
         interface = QWidget()

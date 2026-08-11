@@ -34,11 +34,10 @@ class UpdateInfo:
 
     @property
     def is_update_available(self) -> bool:
-        versions_are_valid = bool(
-            _version_parts(self.latest_version) and _version_parts(self.current_version)
-        )
-        version_update = versions_are_valid and (
-            compare_versions(self.latest_version, self.current_version) >= 0
+        version_update = (
+            bool(_version_parts(self.latest_version))
+            and bool(_version_parts(self.current_version))
+            and compare_versions(self.latest_version, self.current_version) > 0
         )
         commit_update = self.commits_behind > 0
         return version_update or commit_update

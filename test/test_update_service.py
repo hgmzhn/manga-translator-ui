@@ -1,6 +1,7 @@
 import _bootstrap  # noqa: F401, I001
 import builtins
 import importlib.util
+from desktop_qt_ui.core import git_update_helpers
 from services import update_service
 from services.update_service import UpdateInfo, compare_versions
 
@@ -26,12 +27,26 @@ def test_compare_versions_handles_v_prefix_and_missing_patch_parts():
     assert compare_versions("2.1.99", "2.2") == -1
 
 
-def test_update_info_reports_same_or_newer_release_as_available():
+def test_git_commands_use_no_window_creation_flags(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured.update(kwargs)
+        return git_update_helpers.subprocess.CompletedProcess(args, 0, "ok\n", "")
+
+    monkeypatch.setattr(git_update_helpers.subprocess, "run", fake_run)
+    monkeypatch.setattr(git_update_helpers, "_GIT_CREATION_FLAGS", 0x08000000)
+
+    assert git_update_helpers.git_output(tmp_path, ["status"], executable="git") == "ok"
+    assert captured["creationflags"] == 0x08000000
+
+
+def test_update_info_reports_only_newer_release_as_available():
     newer = UpdateInfo("2.2.10", "2.2.11", "https://example.test", "", "")
     same = UpdateInfo("2.2.10", "2.2.10", "https://example.test", "", "")
     unknown = UpdateInfo("unknown", "unknown", "https://example.test", "", "")
     assert newer.is_update_available
-    assert same.is_update_available
+    assert not same.is_update_available
     assert not unknown.is_update_available
 
 
