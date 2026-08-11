@@ -130,13 +130,17 @@ jobs:
       run: |
         $ErrorActionPreference = 'Stop'
         $modelArchive = Join-Path $env:RUNNER_TEMP 'models.7z'
-        gh release download v1.7.9 --repo hgmzhn/manga-translator-ui --pattern models.7z --output $modelArchive --clobber
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to download model files.' }
-        Remove-Item (Join-Path $env:PORTABLE_DIR 'models') -Recurse -Force -ErrorAction SilentlyContinue
-        7z x $modelArchive -o$env:PORTABLE_DIR -y
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to extract model files.' }
-        Remove-Item $modelArchive -Force
-        if (-not (Test-Path (Join-Path $env:PORTABLE_DIR 'models'))) { throw 'The model archive did not contain a models directory.' }
+        $portableDir = $env:PORTABLE_DIR
+        try {
+          gh release download v1.7.9 --repo hgmzhn/manga-translator-ui --pattern models.7z --output $modelArchive --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to download model files.' }
+          Remove-Item (Join-Path $portableDir 'models') -Recurse -Force -ErrorAction SilentlyContinue
+          7z x $modelArchive "-o$portableDir" -y
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to extract model files.' }
+          if (-not (Test-Path (Join-Path $portableDir 'models'))) { throw 'The model archive did not contain a models directory.' }
+        } finally {
+          Remove-Item $modelArchive -Force -ErrorAction SilentlyContinue
+        }
     - name: Smoke test bundled runtime
       if: ${{ matrix.variant != 'amd' }}
       shell: pwsh
