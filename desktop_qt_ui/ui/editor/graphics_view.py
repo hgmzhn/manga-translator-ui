@@ -1,11 +1,11 @@
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPalette, QTransform
 from PyQt6.QtWidgets import QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
-from services import get_logger
-from ui.theme import is_dark_theme
 
 from editor.editor_model import EditorModel
 from editor.render_coordinator import RenderCoordinator
+from services import get_logger
+from ui.theme import is_dark_theme
 
 from .graphics_view_input import GraphicsViewInputMixin
 from .graphics_view_layers import GraphicsViewLayersMixin
@@ -167,6 +167,13 @@ class GraphicsView(
             if r.isValid() and not r.isNull():
                 return QRectF(r)
         return None
+
+    def get_view_scene_rect(self) -> QRectF | None:
+        """返回当前视图实际使用的场景范围，供双栏视图同步平移边界。"""
+        rect = self.scene.sceneRect()
+        if rect.isValid() and not rect.isNull():
+            return QRectF(rect)
+        return self.get_image_scene_rect()
 
     def _setup_view(self):
         self.setMouseTracking(True)

@@ -1,7 +1,8 @@
-from editor.image_utils import build_display_image_frame
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QMargins, QPointF, QRectF, Qt
 from PyQt6.QtGui import QPainter, QPalette, QPixmap, QTransform
 from PyQt6.QtWidgets import QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+
+from editor.image_utils import build_display_image_frame
 
 from .graphics_view import canvas_background_color
 
@@ -109,6 +110,7 @@ class OriginalCompareView(QGraphicsView):
         self._last_transform = QTransform(transform)
         self._last_center_scene = QPointF(center_scene)
         self._last_scene_rect = self._resolve_source_scene_rect()
+        self._sync_source_viewport_geometry()
 
         if self._image_item is None:
             return
@@ -121,16 +123,33 @@ class OriginalCompareView(QGraphicsView):
         self.viewport().update()
 
     def _resolve_source_scene_rect(self) -> QRectF | None:
-        # 只取图片 item 矩形：主场景 itemsBoundingRect 会被旋转辅助线等
-        # 临时超长 item 污染，导致对比视图滚动范围失控
+        # 主画布显式维护了不受临时 item 影响的 sceneRect，并在图片四周留出
+        # 平移余量。双栏必须复用同一范围，否则靠近边缘时 centerOn 会在左栏
+        # 提前被图片边界钳制，造成两栏错位。
         if self._source_view is None:
             return None
-        getter = getattr(self._source_view, "get_image_scene_rect", None)
+        getter = getattr(self._source_view, "get_view_scene_rect", None)
         if getter is None:
             return None
         return getter()
 
+    def _sync_source_viewport_geometry(self) -> None:
+        """让只读栏的有效视口与可能显示滚动条的主画布完全等大。"""
+        if self._source_view is None:
+            return
+        source_viewport = self._source_view.viewport()
+        content_rect = self.contentsRect()
+        margins = QMargins(
+            0,
+            0,
+            max(0, content_rect.width() - source_viewport.width()),
+            max(0, content_rect.height() - source_viewport.height()),
+        )
+        if self.viewportMargins() != margins:
+            self.setViewportMargins(margins)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._sync_source_viewport_geometry()
         if self._image_item is not None and self._last_center_scene is not None:
             self.centerOn(self._last_center_scene)
