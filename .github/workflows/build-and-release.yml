@@ -32,15 +32,25 @@ jobs:
       run: |
         $ErrorActionPreference = 'Stop'
         $archive = Join-Path $env:RUNNER_TEMP 'manga-translator-ui-portable.7z'
-        $portableDir = Join-Path $env:GITHUB_WORKSPACE 'portable'
+        $extractDir = Join-Path $env:GITHUB_WORKSPACE 'portable'
         gh release download portable --repo hgmzhn/manga-translator-ui --pattern manga-translator-ui-portable.7z --output $archive --clobber
         if ($LASTEXITCODE -ne 0) { throw 'Failed to download the portable reference package.' }
-        Remove-Item $portableDir -Recurse -Force -ErrorAction SilentlyContinue
-        7z x $archive -o$portableDir -y
+        Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+        7z x $archive -o$extractDir -y
         if ($LASTEXITCODE -ne 0) { throw 'Failed to extract the portable reference package.' }
         Remove-Item $archive -Force
-        $nested = Join-Path $portableDir 'manga-translator-ui-portable'
-        if (Test-Path (Join-Path $nested 'Win-Start.bat')) { $portableDir = $nested }
+        $pythonCandidates = @(
+          Get-ChildItem -LiteralPath $extractDir -Filter python.exe -File -Recurse |
+            Where-Object { $_.FullName -match '[\\/]packaging[\\/]python[\\/]python\.exe$' }
+        )
+        if ($pythonCandidates.Count -ne 1) {
+          throw "Expected exactly one portable Python, found $($pythonCandidates.Count)."
+        }
+        $portableDir = $pythonCandidates[0].Directory.Parent.Parent.FullName
+        if (-not (Test-Path (Join-Path $portableDir 'Win-Start.bat'))) {
+          throw "Portable root was not found next to $($pythonCandidates[0].FullName)."
+        }
+
         $excluded = @('.git', '.github', '.venv', '.venv_cpu', '.venv_gpu', 'build', 'dist', 'models', 'models_backup', 'result', 'logs', 'scripts', 'test', 'reference-code', 'PortableGit', 'uploads', 'upload-cache', 'originals', 'manga_translator_work', 'memory_profiles', '.idea', '.vscode')
         Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force |
           Where-Object { $_.Name -notin $excluded -and $_.Name -ne 'portable' } |

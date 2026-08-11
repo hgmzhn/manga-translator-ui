@@ -32,6 +32,8 @@ def test_check_version_info_fetch_failure_reports_warning(tmp_path, monkeypatch,
     def fake_run(cmd, *args, **kwargs):
         if cmd[1:3] == ["fetch", "origin"]:
             return SimpleNamespace(returncode=1, stdout="", stderr="network error")
+        if cmd[1:3] == ["rev-parse", "HEAD"]:
+            return SimpleNamespace(returncode=0, stdout="abc123\n", stderr="")
         raise AssertionError(f"unexpected subprocess call: {cmd}")
 
     monkeypatch.setattr(launch.subprocess, "run", fake_run)
