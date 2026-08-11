@@ -14,17 +14,18 @@ import cv2
 import numpy as np
 
 from ..utils import InfererModule, ModelWrapper, is_valuable_text, repeating_sequence
+from ..utils.image_modes import normalize_rgb_image
 from ..utils.openai_compat import (
     is_local_openai_compatible_endpoint,
     resolve_openai_compatible_api_key,
 )
-from ..utils.image_modes import normalize_rgb_image
 from ..utils.retry import (
     get_retry_attempts_from_config,
     normalize_retry_attempts,
     resolve_total_attempts,
     summarize_response_text,
 )
+from ..utils.system_proxy import system_proxy_request_kwargs
 
 try:
     import readline
@@ -271,7 +272,8 @@ class AsyncOpenAICurlCffi:
                 url,
                 json=data,
                 headers=headers,
-                timeout=self.parent.timeout
+                timeout=self.parent.timeout,
+                **system_proxy_request_kwargs(url),
             )
 
             if response.status_code != 200:
@@ -303,7 +305,8 @@ class AsyncOpenAICurlCffi:
                     url,
                     json=data,
                     headers=headers,
-                    timeout=self.parent.stream_timeout
+                    timeout=self.parent.stream_timeout,
+                    **system_proxy_request_kwargs(url),
                 ) as response:
                     if response.status_code != 200:
                         text = await response.atext()
@@ -359,7 +362,8 @@ class AsyncOpenAICurlCffi:
             response = await self.parent.session.get(
                 url,
                 headers=headers,
-                timeout=self.parent.timeout
+                timeout=self.parent.timeout,
+                **system_proxy_request_kwargs(url),
             )
 
             if response.status_code != 200:
@@ -684,7 +688,8 @@ class AsyncGeminiCurlCffi:
                 url,
                 json=data,
                 headers=request_headers,
-                timeout=self.parent.timeout
+                timeout=self.parent.timeout,
+                **system_proxy_request_kwargs(url),
             )
 
             if response.status_code != 200:
@@ -741,7 +746,8 @@ class AsyncGeminiCurlCffi:
                     stream_url,
                     json=data,
                     headers=headers,
-                    timeout=self.parent.stream_timeout
+                    timeout=self.parent.stream_timeout,
+                    **system_proxy_request_kwargs(stream_url),
                 ) as response:
                     if response.status_code != 200:
                         text = await response.atext()
@@ -782,7 +788,8 @@ class AsyncGeminiCurlCffi:
             response = await self.parent.session.get(
                 url,
                 headers=headers,
-                timeout=self.parent.timeout
+                timeout=self.parent.timeout,
+                **system_proxy_request_kwargs(url),
             )
 
             if response.status_code != 200:

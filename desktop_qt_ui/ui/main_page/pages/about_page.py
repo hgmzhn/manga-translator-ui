@@ -12,9 +12,9 @@ from desktop_qt_ui.core.git_update_helpers import (
     remote_url,
     set_origin_url,
 )
+from manga_translator.utils.system_proxy import set_system_proxy_enabled
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QPixmap
-from PyQt6.QtNetwork import QNetworkProxyFactory
 from PyQt6.QtWidgets import (
     QApplication,
     QGridLayout,
@@ -122,7 +122,7 @@ def _on_about_branch_changed(self, index: int):
 
 def _on_about_system_proxy_changed(self, checked: bool):
     enabled = bool(checked)
-    QNetworkProxyFactory.setUseSystemConfiguration(enabled)
+    set_system_proxy_enabled(enabled)
     self.controller.update_single_config("app.use_system_proxy", enabled)
 
 

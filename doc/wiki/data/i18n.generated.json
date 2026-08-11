@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1431,
-    "exact": 1431,
+    "keys": 1465,
+    "exact": 1465,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -4627,6 +4627,18 @@
       "status": "exact"
     },
     {
+      "key": "api_models_error_failed",
+      "en_US": "Failed to retrieve the model list: {error}",
+      "zh_CN": "获取模型列表失败：{error}",
+      "status": "exact"
+    },
+    {
+      "key": "api_models_error_unsupported",
+      "en_US": "This translator does not support retrieving the model list.",
+      "zh_CN": "该翻译器不支持获取模型列表。",
+      "status": "exact"
+    },
+    {
       "key": "api_rotation_strategy_failover",
       "en_US": "Ordered failover",
       "zh_CN": "按顺序故障切换",
@@ -4636,6 +4648,72 @@
       "key": "api_rotation_strategy_round_robin",
       "en_US": "Round robin",
       "zh_CN": "轮询",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_address_example",
+      "en_US": "API address example: {address}",
+      "zh_CN": "API 地址示例：{address}",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_config",
+      "en_US": "Please check that the model, API address, and API key are correct.",
+      "zh_CN": "请检查模型、API 地址和 API 密钥是否正确。",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_connection_failed",
+      "en_US": "Connection failed: {error}",
+      "zh_CN": "连接失败：{error}",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_gemini_no_image",
+      "en_US": "The Gemini image response did not contain an image.",
+      "zh_CN": "Gemini 图像响应中没有图片。",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_model_unavailable",
+      "en_US": "Connection succeeded, but model {model} is unavailable: {error}",
+      "zh_CN": "连接成功，但模型 {model} 不可用：{error}",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_network",
+      "en_US": "A connection error, timeout, or Host resolution error was detected.\nFirst, check that the model, API address, and API key are correct. If the configuration is correct, check your network connection and try enabling the system proxy under About App → App Preferences.",
+      "zh_CN": "检测到连接错误、超时或 Host 解析错误。\n请先检查模型、API 地址和 API 密钥是否正确；如果配置无误，再检查网络连接，并尝试在「关于应用 → 应用偏好」中开启系统代理。",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_raw",
+      "en_US": "Raw error:\n{error}",
+      "zh_CN": "原始错误：\n{error}",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_remote_image",
+      "en_US": "Failed to download the generated image: HTTP {status}",
+      "zh_CN": "下载生成图片失败：HTTP {status}",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_sakura_base",
+      "en_US": "Please configure SAKURA_API_BASE first.",
+      "zh_CN": "请先配置 SAKURA_API_BASE。",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_service",
+      "en_US": "First, check that the model, API address, and API key are correct.\nIf the configuration is correct, the API site, relay channel, or server may be temporarily experiencing issues, or the current network connection may be unstable. Try again later or switch to a different API site / channel.",
+      "zh_CN": "请先检查模型、API 地址和 API 密钥是否正确。\n如果配置无误，这也可能是 API 站点、中转渠道或服务端暂时异常，或当前网络链路不稳定；建议稍后重试，或更换 API 站点 / 渠道。",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_unsupported",
+      "en_US": "This translator does not support API testing.",
+      "zh_CN": "该翻译器不支持 API 测试。",
       "status": "exact"
     },
     {
@@ -4718,8 +4796,8 @@
     },
     {
       "key": "desc_app_use_system_proxy",
-      "en_US": "Allow application network requests to use the operating system proxy settings.",
-      "zh_CN": "让应用网络请求使用操作系统的代理设置。",
+      "en_US": "Use the operating system proxy for API tests, translation, OCR, AI rendering, and AI colorization. PAC and bypass rules are resolved separately for each request URL.",
+      "zh_CN": "让 API 测试、翻译、OCR、AI 渲染和 AI 上色使用操作系统代理；每个请求地址会分别匹配 PAC 与绕过规则。",
       "status": "exact"
     },
     {
@@ -5536,6 +5614,132 @@
       "key": "format_not_specified",
       "en_US": "Not Specified",
       "zh_CN": "不指定",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_api_404_html",
+      "en_US": "Error: API returned a 404 error\n\nDetails:\n   The API returned an HTML 404 error page instead of a normal JSON response.\n   This usually means the API address is incorrect or the model name does not exist.\n\nSolutions:\n   1. Check the API address configuration (most common)\n      - Location: API Management → Corresponding Feature Page → API Address\n      - Correct format: https://api.openai.com/v1\n      - Note: The address must end in /v1. Do not add or omit any path components\n\n   2. Check that the model name is correct\n      - Location: API Management → Corresponding Feature Page → Model\n      - Make sure the model name exactly matches the model provided by the API service\n      - Note: Model names are case-sensitive\n      - Tip: You can use Test Connection to view the list of available models\n\n   3. If you are using a custom API (such as a relay API or third-party service)\n      - Verify the API address format required by the relay service\n      - Verify that the relay service supports the model you are using\n      - Contact the relay service provider to confirm the configuration\n\n",
+      "zh_CN": "错误原因：API返回404错误\n\n详细说明：\n   API返回了HTML格式的404错误页面，而不是正常的JSON响应。\n   这通常意味着API地址错误或模型名称不存在。\n\n解决方案：\n   1. 检查API地址配置（最常见）\n      - 位置：API 管理 → 对应功能页 → API 地址\n      - 正确格式：https://api.openai.com/v1\n      - 注意：地址末尾必须是 /v1，不要多加或少加路径\n\n   2. 检查模型名称是否正确\n      - 位置：API 管理 → 对应功能页 → 模型\n      - 确认模型名称与API服务提供的模型完全匹配\n      - 注意：模型名称区分大小写\n      - 提示：可以使用「测试连接」功能查看可用模型列表\n\n   3. 如果使用自定义API（如中转API、第三方服务）\n      - 确认中转服务的API地址格式\n      - 确认中转服务支持你使用的模型\n      - 联系中转服务提供商确认配置\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_api_credentials",
+      "en_US": "Error: API key or candidate unavailable\n\nDetails:\n   The API key is missing, invalid, or expired, or there are no available candidates in the current candidate pool.\n\nSolutions:\n   1. Check that the API key is correct\n      - Location: API Management → Corresponding Feature Page → API Key\n      - Make sure the key does not contain extra spaces or line breaks\n\n   2. Verify that the API key is valid\n      - OpenAI: https://platform.openai.com/api-keys\n      - Gemini: https://aistudio.google.com/app/apikey\n\n   3. If a channel has been marked unavailable, you can re-enable the corresponding Key/channel in API Management\n      - You can also use Test Current Page to verify the candidate's availability again\n\n   4. Check whether the API quota has been exhausted\n      - Sign in to the corresponding platform to check the balance and usage\n\n",
+      "zh_CN": "错误原因：API密钥或候选不可用\n\n详细说明：\n   API密钥缺失、无效、过期，或当前候选池里没有可用候选。\n\n解决方案：\n   1. 检查API密钥是否正确\n      - 位置：API 管理 → 对应功能页 → API 密钥\n      - 确认密钥没有多余的空格或换行\n\n   2. 验证API密钥是否有效\n      - OpenAI: https://platform.openai.com/api-keys\n      - Gemini: https://aistudio.google.com/app/apikey\n\n   3. 如果通道已被标记为不可用，可在 API 管理里重新启用对应 Key/通道\n      - 也可以使用「测试当前页」重新确认候选是否可用\n\n   4. 检查API额度是否用完\n      - 登录对应平台查看余额和使用情况\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_br_markers",
+      "en_US": "Error: AI line break check failed\n\nDetails:\n   The AI failed to correctly add line break markers [BR] during translation, so the process still failed after multiple retries.\n\nSolutions (choose one):\n   1. Turn off AI Line Break Check (recommended)\n      - Location: Settings → Typesetting → AI Line Break Check\n      - Description: Allows the AI to omit line break markers in rare cases\n\n   2. Increase Retry Count\n      - Location: Settings → General → Retry Count\n      - Recommendation: Set it to 10 or higher (-1 means unlimited retries)\n\n   3. Switch translation models\n      - Some models understand line break markers better\n      - Recommendation: Try gpt-5.2, gemini-3-pro, or grok-4.2\n\n   4. Turn off AI Line Break Auto Text Expansion\n      - Location: Settings → Typesetting → AI Line Break Auto Text Expansion\n      - Description: Uses traditional automatic line wrapping (which may result in less precise typesetting)\n\n   5. Reduce the batch size\n      - Location: Settings → General → Batch Size\n      - Recommendation: Reduce the batch size (for example, from 3 to 1 or 2)\n      - Description: The less text processed in each batch, the easier it is for the AI to correctly add line break markers\n\n",
+      "zh_CN": "错误原因：AI断句检查失败\n\n详细说明：\n   AI翻译时未能正确添加断句标记 [BR]，导致多次重试后仍然失败。\n\n解决方案（选择其一）：\n   1. 关闭「AI断句检查」选项（推荐）\n      - 位置：设置 → 排版 → AI断句检查\n      - 说明：允许AI在少数情况下不添加断句标记\n\n   2. 增加「重试次数」\n      - 位置：设置 → 通用 → 重试次数\n      - 建议：设置为 10 或更高（-1 表示无限重试）\n\n   3. 更换翻译模型\n      - 某些模型对断句标记的理解更好\n      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n   4. 关闭「AI断句自动扩大文字」功能\n      - 位置：设置 → 排版 → AI断句自动扩大文字\n      - 说明：使用传统的自动换行（可能导致排版不够精确）\n\n   5. 减小批量大小\n      - 位置：设置 → 通用 → 批量大小\n      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n      - 说明：批量处理的文本越少，AI越容易正确添加断句标记\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_colorizer_unsupported",
+      "en_US": "Error: The current model does not support colorization\n\nSolutions:\n   1. Switch colorizers: Under Colorization Model, select Manga Colorization v2 or another available colorizer\n      - Location: Settings → Mode-Specific → Colorization → Colorization Model\n   2. Turn off colorization: Under Colorization Model, select None (none, no colorization)\n      - Location: Settings → Mode-Specific → Colorization → Colorization Model\n   3. To continue using OpenAI/Gemini for colorization, select a model that supports image output/image editing under API Management → Colorization\n\n",
+      "zh_CN": "错误原因：当前模型不支持上色\n\n解决方案：\n   1. 切换上色器：在「上色模型」选择 Manga Colorization v2 或其它可用上色器\n      - 位置：设置 → 模式相关 → 上色 → 上色模型\n   2. 关闭上色：在「上色模型」选择「无」（none，不上色）\n      - 位置：设置 → 模式相关 → 上色 → 上色模型\n   3. 继续使用 OpenAI/Gemini 上色时，在 API 管理 → 上色 中换一个支持图片输出/图片编辑的模型\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_content_filter",
+      "en_US": "Error: Content blocked by safety policies\n\nDetails:\n   The AI detected content that may violate usage policies.\n\nSolutions:\n   1. Check the image content\n      - The API may refuse to process certain sensitive content\n\n   2. Switch translators\n      - Try another translator (such as Gemini or DeepL)\n\n   3. Increase Retry Count\n      - Location: Settings → General → Retry Count\n      - Retrying may sometimes resolve temporary filtering issues\n\n",
+      "zh_CN": "错误原因：内容被安全策略拦截\n\n详细说明：\n   AI检测到内容可能违反使用政策。\n\n解决方案：\n   1. 检查图片内容\n      - 某些敏感内容可能被API拒绝处理\n\n   2. 更换翻译器\n      - 尝试使用其他翻译器（如 Gemini、DeepL）\n\n   3. 增加重试次数\n      - 位置：设置 → 通用 → 重试次数\n      - 有时重试可以解决临时的过滤问题\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_empty_ai_response",
+      "en_US": "Error: AI API returned empty text (empty response)\n\nDetails:\n   The current request did not return any parsable text content (this can happen with both OpenAI and Gemini).\n   Content moderation may have been triggered, or a busy server may have caused a temporary empty response.\n\nSolutions:\n   1. Switch models (recommended)\n      - OpenAI: gpt-5.2, gpt-5.2-mini\n      - Gemini: gemini-3-pro, gemini-3-flash\n\n   2. Switch sites (API address)\n      - Official Gemini address: https://generativelanguage.googleapis.com\n      - Official OpenAI address: https://api.openai.com/v1\n      - If you are using a third-party relay, try another provider or switch to the official API\n\n   3. Change the content of the image being translated and try again\n      - Avoid sensitive imagery or high-risk terms to reduce the chance of moderation blocks\n\n   4. Try again later (common when servers are busy)\n\n",
+      "zh_CN": "错误原因：AI接口返回空文本（空回）\n\n详细说明：\n   当前请求没有返回可解析的文本内容（OpenAI/Gemini 都可能出现）。\n   可能是触发了内容审核，或者服务器繁忙导致临时空回。\n\n解决方案：\n   1. 更换模型（推荐）\n      - OpenAI：gpt-5.2、gpt-5.2-mini\n      - Gemini：gemini-3-pro、gemini-3-flash\n\n   2. 更换站点（API地址）\n      - Gemini 官方地址：https://generativelanguage.googleapis.com\n      - OpenAI 官方地址：https://api.openai.com/v1\n      - 若使用第三方中转，尝试更换服务商或改用官方 API\n\n   3. 更换翻译图片的内容后再试\n      - 避免敏感画面或高风险词汇，降低审核拦截概率\n\n   4. 稍后重试（服务器繁忙时常见）\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_generic",
+      "en_US": "Error:\n   {error}\n\nTips:\n   1. Log file: {log_path}\n   2. Keep the complete log file and send it to an AI to analyze the specific cause\n   3. If the cause still cannot be determined, submit a GitHub issue with the log file:\n      https://github.com/hgmzhn/manga-translator-ui/issues\n\n",
+      "zh_CN": "错误原因：\n   {error}\n\n提示：\n   1. 日志文件：{log_path}\n   2. 请保留完整日志文件，并把日志发给 AI 分析具体原因\n   3. 如果仍无法判断，请带上日志文件提交 GitHub issue：\n      https://github.com/hgmzhn/manga-translator-ui/issues\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_http_403",
+      "en_US": "Error: Access denied (HTTP 403)\n\nDetails:\n   The server denied access, possibly because of insufficient permissions or regional restrictions.\n\nSolutions:\n   1. Check API key permissions\n      - Make sure the API key has permission to access this service\n\n   2. Check the account status\n      - Make sure the account has not been suspended or restricted\n\n",
+      "zh_CN": "错误原因：访问被拒绝 (HTTP 403)\n\n详细说明：\n   服务器拒绝访问，可能是权限不足或地区限制。\n\n解决方案：\n   1. 检查API密钥权限\n      - 确认API密钥有访问该服务的权限\n\n   2. 检查账户状态\n      - 确认账户未被封禁或限制\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_http_404",
+      "en_US": "Error: Resource not found (HTTP 404)\n\nDetails:\n   The requested API endpoint does not exist, or the model name is incorrect.\n   The translator type may also be incompatible with the API address.\n\nSolutions:\n   1. Check whether the translator type matches the API address (most common)\n      - If the API address uses the xxxx/v1 format (OpenAI-compatible API)\n        → Select the OpenAI or OpenAI High Quality translator\n      - If you are using the official Gemini API (generativelanguage.googleapis.com)\n        → Select the Gemini or Gemini High Quality translator\n      - Location: Settings → Translation → Translator\n\n   2. Check that the API address is correct\n      - Location: API Management → Corresponding Feature Page → API Address\n      - OpenAI default: https://api.openai.com/v1\n      - Gemini default: https://generativelanguage.googleapis.com\n      - Note: Do not add or omit /v1 at the end of the address\n\n   3. Check the model name\n      - Location: API Management → Corresponding Feature Page → Model\n      - Make sure the model name is spelled correctly (for example, gpt-5.2, not gpt52)\n      - Use Test Connection to view the list of available models\n\n   4. Verify model availability\n      - Some models may have been discontinued or renamed\n      - Check the official documentation for a list of available models\n\n",
+      "zh_CN": "错误原因：资源未找到 (HTTP 404)\n\n详细说明：\n   请求的API端点不存在或模型名称错误。\n   也可能是翻译器类型与API地址不匹配。\n\n解决方案：\n   1. 检查翻译器类型是否匹配API地址（最常见）\n      - 如果API地址是 xxxx/v1 格式（OpenAI兼容接口）\n        → 应选择「OpenAI」或「OpenAI高质量」翻译器\n      - 如果使用 Gemini 官方 API (generativelanguage.googleapis.com)\n        → 应选择「Gemini」或「Gemini高质量」翻译器\n      - 位置：设置 → 翻译 → 翻译器\n\n   2. 检查API地址是否正确\n      - 位置：API 管理 → 对应功能页 → API 地址\n      - OpenAI默认：https://api.openai.com/v1\n      - Gemini默认：https://generativelanguage.googleapis.com\n      - 注意：地址末尾的 /v1 不要多加或少加\n\n   3. 检查模型名称\n      - 位置：API 管理 → 对应功能页 → 模型\n      - 确认模型名称拼写正确（如 gpt-5.2 不是 gpt52）\n      - 使用「测试连接」功能查看可用模型列表\n\n   4. 验证模型可用性\n      - 某些模型可能已下线或更名\n      - 访问官方文档查看可用模型列表\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_http_429",
+      "en_US": "Error: API request rejected (HTTP 429)\n\nDetails:\n   An HTTP 429 error can have several possible causes:\n   • The API key is incorrect or invalid\n   • The account has an insufficient balance or an overdue payment\n   • The request rate exceeds the limit (RPM/TPM)\n   • The current account tier does not support this model\n\nSolutions (check in order):\n   1. Check that the API key is correct (most common)\n      - Location: API Management → Corresponding Feature Page → API Key\n      - Make sure the key does not contain extra spaces or line breaks\n      - Use Test Connection to verify that the key is valid\n\n   2. Check the account balance and status\n      - OpenAI: https://platform.openai.com/usage\n      - Gemini: https://aistudio.google.com/app/apikey\n      - Make sure the account has sufficient funds and no overdue balance\n      - Make sure the account is in good standing (not restricted)\n\n   3. Check whether the model is supported\n      - Some models require a specific account tier or paid plan\n      - Try switching to a model supported by the account\n\n   4. Reduce the request rate\n      - Location: Settings → Translation → Maximum Requests per Minute\n      - Recommendation: Set it to 3-10 (depending on the API plan)\n      - A setting of 3 is recommended for free accounts\n\n   5. Try again later\n      - Wait a few minutes, then try translating again\n\n   6. Upgrade the API plan\n      - Contact the API provider to upgrade to a higher-tier plan\n\n",
+      "zh_CN": "错误原因：API请求被拒绝 (HTTP 429)\n\n详细说明：\n   HTTP 429 错误有多种可能原因：\n   • API密钥错误或无效\n   • 账户余额不足或欠费\n   • 请求速率超过限制（RPM/TPM）\n   • 当前账户级别不支持该模型\n\n解决方案（按顺序检查）：\n   1. 检查API密钥是否正确（最常见）\n      - 位置：API 管理 → 对应功能页 → API 密钥\n      - 确认密钥没有多余的空格或换行\n      - 使用「测试连接」功能验证密钥是否有效\n\n   2. 检查账户余额和状态\n      - OpenAI: https://platform.openai.com/usage\n      - Gemini: https://aistudio.google.com/app/apikey\n      - 确认账户余额充足且未欠费\n      - 确认账户状态正常（未被限制）\n\n   3. 检查模型是否支持\n      - 某些模型需要特定的账户级别或付费套餐\n      - 尝试更换为账户支持的模型\n\n   4. 降低请求速率\n      - 位置：设置 → 翻译 → 每分钟最大请求数\n      - 建议：设置为 3-10（取决于API套餐）\n      - 免费账户建议设置为 3\n\n   5. 稍后重试\n      - 等待几分钟后再次尝试翻译\n\n   6. 升级API套餐\n      - 联系API提供商升级到更高级别的套餐\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_http_500",
+      "en_US": "Error: Internal server error (HTTP 500)\n\nDetails:\n   The API server encountered an internal error. This is usually a temporary issue.\n\nSolutions:\n   1. Increase Retry Count (recommended)\n      - Location: Settings → General → Retry Count\n      - Recommendation: Set it to 10 or higher\n      - Server errors are usually temporary, so retrying may succeed\n\n   2. Try again later\n      - Wait a few minutes for the server to recover\n\n   3. Check the API service status\n      - OpenAI: https://status.openai.com/\n      - Check for a widespread service outage\n\n",
+      "zh_CN": "错误原因：服务器内部错误 (HTTP 500)\n\n详细说明：\n   API服务器遇到内部错误，这通常是临时问题。\n\n解决方案：\n   1. 增加重试次数（推荐）\n      - 位置：设置 → 通用 → 重试次数\n      - 建议：设置为 10 或更高\n      - 服务器错误通常是临时的，重试可能成功\n\n   2. 稍后重试\n      - 等待几分钟，让服务器恢复正常\n\n   3. 检查API服务状态\n      - OpenAI: https://status.openai.com/\n      - 查看是否有大规模服务中断\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_http_gateway",
+      "en_US": "Error: Gateway/service unavailable (HTTP {code})\n\nDetails:\n   - 502: The gateway received an invalid response\n   - 503: The service is temporarily unavailable (usually due to maintenance or overload)\n   - 504: Gateway timeout\n\nSolutions:\n   1. Wait and try again (recommended)\n      - These errors are usually temporary\n      - Wait 5-10 minutes, then translate again\n\n   2. Increase Retry Count\n      - Location: Settings → General → Retry Count\n      - Recommendation: Set it to 10 or higher\n\n   3. Check the API service status\n      - Visit the API provider's status page\n      - OpenAI: https://status.openai.com/\n\n   4. Change the API address\n      - If you are using a third-party API relay, try a different address\n\n",
+      "zh_CN": "错误原因：网关/服务不可用 (HTTP {code})\n\n详细说明：\n   - 502: 网关接收到无效响应\n   - 503: 服务暂时不可用（通常是维护或过载）\n   - 504: 网关超时\n\n解决方案：\n   1. 等待后重试（推荐）\n      - 这些错误通常是临时的\n      - 等待5-10分钟后重新翻译\n\n   2. 增加重试次数\n      - 位置：设置 → 通用 → 重试次数\n      - 建议：设置为 10 或更高\n\n   3. 检查API服务状态\n      - 访问API提供商的状态页面\n      - OpenAI: https://status.openai.com/\n\n   4. 更换API地址\n      - 如果使用第三方API中转，尝试更换地址\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_language_unsupported",
+      "en_US": "Error: The translator does not support the current language\n\nSolutions:\n   1. Switch translators\n      - Location: Settings → Translation → Translator\n      - Recommendation: Use a translator that supports more languages (such as OpenAI or Gemini)\n\n   2. Check the target language setting\n      - Location: Settings → Translation → Target Language\n      - Make sure the selected language is supported by the current translator\n\n",
+      "zh_CN": "错误原因：翻译器不支持当前语言\n\n解决方案：\n   1. 更换翻译器\n      - 位置：设置 → 翻译 → 翻译器\n      - 建议：使用支持更多语言的翻译器（如 OpenAI、Gemini）\n\n   2. 检查目标语言设置\n      - 位置：设置 → 翻译 → 目标语言\n      - 确认选择的语言被当前翻译器支持\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_model_unsupported",
+      "en_US": "Error: The model does not exist, or the current API site does not support it\n\nDetails:\n   The API connection is working, but the server cannot find the model name you entered.\n   This usually means the model name is misspelled, the capitalization does not match, the model has been discontinued, or the current relay/channel does not provide the model.\n\nSolutions:\n   1. Check that the model name exactly matches the name provided by the service provider (most common)\n      - Location: API Management → Corresponding Feature Page → Model\n      - Note: Model names are usually case-sensitive, and prefixes or version numbers cannot be omitted\n\n   2. Use Test Connection or the model list feature to confirm which models the current site actually supports\n      - Location: API Management → Corresponding Feature Page → Test Current Page / Get Model List\n      - First confirm that the site actually provides the model you want to use\n\n   3. If you are using a third-party OpenAI-compatible site (such as a relay, channel, SiliconFlow, etc.)\n      - Do not assume that it supports every official OpenAI model name\n      - You must use the provider's actual model ID instead\n\n   4. Check whether the API address matches the translator type\n      - OpenAI-compatible APIs should use the OpenAI or OpenAI High Quality translator\n      - If the site and translator types do not match, model detection may also fail\n\n   5. If the model was recently renamed, discontinued, or moved to another channel\n      - Visit the corresponding provider's model marketplace or official documentation\n      - Switch to a model name that is currently available and try again\n\n",
+      "zh_CN": "错误原因：模型不存在，或当前 API 站点不支持该模型\n\n详细说明：\n   API 已经连通，但服务端找不到你填写的模型名称。\n   这通常是模型名拼写不对、大小写不一致、模型已下线，或当前中转/渠道并不提供这个模型。\n\n解决方案：\n   1. 检查模型名称是否与服务商提供的名称完全一致（最常见）\n      - 位置：API 管理 → 对应功能页 → 模型\n      - 注意：模型名称通常区分大小写，不能省略前缀或版本号\n\n   2. 使用「测试连接」或模型列表功能确认当前站点实际支持哪些模型\n      - 位置：API 管理 → 对应功能页 → 测试当前页 / 获取模型列表\n      - 先确认该站点真的提供你要用的模型\n\n   3. 如果你用的是第三方 OpenAI 兼容站点（如中转、渠道、硅基流动等）\n      - 不要假设它支持 OpenAI 官方的全部模型名\n      - 需要改成该服务商自己的实际模型 ID\n\n   4. 检查 API 地址和翻译器类型是否匹配\n      - OpenAI 兼容接口应使用「OpenAI」或「OpenAI高质量」翻译器\n      - 若站点和翻译器类型不匹配，也可能导致模型判断异常\n\n   5. 若该模型最近改名、下线或迁移渠道\n      - 访问对应服务商的模型广场或官方文档\n      - 换成当前仍可用的模型名后再试\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_multimodal_unsupported",
+      "en_US": "Error: The model does not support multimodal input\n\nDetails:\n   The High Quality Translator (OpenAI High Quality Translation or Gemini High Quality Translation) is currently selected.\n   These translators need to send images to the AI for analysis, but the current model does not support image input.\n\nSolutions (choose one):\n   1. Switch to a standard translator (recommended)\n      - Location: Settings → Translation → Translator\n      - Change OpenAI High Quality Translation to OpenAI\n      - Change Gemini High Quality Translation to Google Gemini\n      - Description: Standard translators do not need to send images; they only translate text\n\n   2. Switch to a model that supports multimodal input\n      - OpenAI: gpt-5.2, gpt-5.2-mini\n      - Gemini: gemini-3-pro, gemini-3-flash\n      - Grok: grok-4.2\n      - Note: DeepSeek models do not support multimodal input\n\n",
+      "zh_CN": "错误原因：模型不支持多模态输入\n\n详细说明：\n   当前使用的是「高质量翻译器」（OpenAI高质量翻译 或 Gemini高质量翻译），\n   这些翻译器需要发送图片给AI进行分析，但当前模型不支持图片输入。\n\n解决方案（选择其一）：\n   1. 切换到普通翻译器（推荐）\n      - 位置：设置 → 翻译 → 翻译器\n      - 将「OpenAI高质量翻译」改为「OpenAI」\n      - 将「Gemini高质量翻译」改为「Google Gemini」\n      - 说明：普通翻译器不需要发送图片，只翻译文本\n\n   2. 更换为支持多模态的模型\n      - OpenAI: gpt-5.2、gpt-5.2-mini\n      - Gemini: gemini-3-pro、gemini-3-flash\n      - Grok: grok-4.2\n      - 注意：DeepSeek模型不支持多模态\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_network",
+      "en_US": "Error: Network connection or Host resolution failed\n\nDetails:\n   Could not connect to the API server, possibly because of a network error, timeout, or Host / DNS resolution failure.\n\nSolutions:\n   1. Check the network connection\n      - Make sure the computer can access the internet\n\n   2. Try enabling the system proxy\n      - Location: About App → App Preferences → Use System Proxy\n\n   3. Check that the API address is correct\n      - Location: API Management → Corresponding Feature Page → API Address\n      - Default: https://api.openai.com/v1\n\n",
+      "zh_CN": "错误原因：网络连接或 Host 解析失败\n\n详细说明：\n   无法连接到API服务器，可能是网络异常、超时，或 Host / DNS 解析失败。\n\n解决方案：\n   1. 检查网络连接\n      - 确认电脑可以正常访问互联网\n\n   2. 尝试开启系统代理\n      - 位置：关于应用 → 应用偏好 → 使用系统代理\n\n   3. 检查API地址是否正确\n      - 位置：API 管理 → 对应功能页 → API 地址\n      - 默认值：https://api.openai.com/v1\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_raw_details",
+      "en_US": "Raw error details:\n{error}\n",
+      "zh_CN": "原始错误信息：\n{error}\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_renderer_unsupported",
+      "en_US": "Error: The current model does not support rendering\n\nSolutions:\n   1. Switch Renderer to Default (default, the local default renderer)\n      - Location: Settings → Typesetting → Renderer\n   2. To continue using AI rendering, select a model that supports image output/image editing under API Management → Rendering\n\n",
+      "zh_CN": "错误原因：当前模型不支持渲染\n\n解决方案：\n   1. 将「渲染器」切换为「Default」（default，本地默认渲染器）\n      - 位置：设置 → 排版 → 渲染器\n   2. 继续使用 AI 渲染时，在 API 管理 → 渲染 中换一个支持图片输出/图片编辑的模型\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_request_blocked",
+      "en_US": "Error: Request blocked by the API provider\n\nDetails:\n   The API provider (possibly a third-party relay) blocked your request.\n   This is usually caused by the relay service's anti-abuse system or content moderation.\n\nSolutions:\n   1. Switch API providers (recommended)\n      - If you are using a third-party relay API, try another provider\n      - Alternatively, use an official API (such as api.openai.com)\n\n   2. Switch to a standard translator\n      - Location: Settings → Translation → Translator\n      - Change openai_hq to openai (does not send images)\n      - Some relay services do not support multimodal (image+text) requests\n\n   3. Check the API key status\n      - Make sure the API key has not been suspended or restricted\n      - Contact the API provider to confirm the account status\n\n",
+      "zh_CN": "错误原因：请求被API服务商拦截\n\n详细说明：\n   API服务商（可能是第三方中转）拦截了你的请求。\n   这通常是中转服务的反滥用机制或内容审核导致的。\n\n解决方案：\n   1. 更换API服务商（推荐）\n      - 如果使用第三方中转API，尝试更换其他服务商\n      - 或者使用官方API（如 api.openai.com）\n\n   2. 切换到普通翻译器\n      - 位置：设置 → 翻译 → 翻译器\n      - 将 openai_hq 改为 openai（不发送图片）\n      - 某些中转服务不支持多模态（图片+文本）请求\n\n   3. 检查API密钥状态\n      - 确认API密钥未被封禁或限制\n      - 联系API服务商确认账户状态\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_translation_count",
+      "en_US": "Error: Translation count mismatch\n\nDetails:\n   The number of translations returned by the AI does not match the number of source texts.\n   This usually happens because the AI combines multiple texts into one translation or omits some text.\n\nSolutions (choose one):\n   1. Increase Retry Count (recommended)\n      - Location: Settings → General → Retry Count\n      - Recommendation: Set it to 10 or higher (-1 means unlimited retries)\n      - Description: Multiple retries can usually get the AI to return the correct number of translations\n\n   2. Switch translation models\n      - Some models follow instructions more reliably\n      - Recommendation: Try gpt-5.2, gemini-3-pro, or grok-4.2\n\n   3. Reduce the batch size\n      - Location: Settings → General → Batch Size\n      - Recommendation: Reduce the batch size (for example, from 3 to 1 or 2)\n      - Description: The less text processed in each batch, the less likely the AI is to make mistakes\n\n",
+      "zh_CN": "错误原因：翻译数量不匹配\n\n详细说明：\n   AI返回的翻译条数与原文条数不一致。\n   这通常是因为AI将多条文本合并翻译，或漏掉了某些文本。\n\n解决方案（选择其一）：\n   1. 增加「重试次数」（推荐）\n      - 位置：设置 → 通用 → 重试次数\n      - 建议：设置为 10 或更高（-1 表示无限重试）\n      - 说明：多次重试通常能让AI返回正确数量的翻译\n\n   2. 更换翻译模型\n      - 某些模型对指令的遵循能力更强\n      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n   3. 减小批量大小\n      - 位置：设置 → 通用 → 批量大小\n      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n      - 说明：批量处理的文本越少，AI越不容易出错\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_translation_quality",
+      "en_US": "Error: Translation quality check failed\n\nDetails:\n   The translation returned by the AI has quality issues, such as empty translations, merged translations, or suspicious symbols.\n\nSolutions (choose one):\n   1. Increase Retry Count (recommended)\n      - Location: Settings → General → Retry Count\n      - Recommendation: Set it to 10 or higher (-1 means unlimited retries)\n\n   2. Switch translation models\n      - Some models provide more consistent translation quality\n      - Recommendation: Try gpt-5.2, gemini-3-pro, or grok-4.2\n\n   3. Reduce the batch size\n      - Location: Settings → General → Batch Size\n      - Recommendation: Reduce the batch size (for example, from 3 to 1 or 2)\n      - Description: The less text processed in each batch, the more consistent the AI's translation quality\n\n",
+      "zh_CN": "错误原因：翻译质量检查失败\n\n详细说明：\n   AI返回的翻译存在质量问题，如空翻译、合并翻译或可疑符号。\n\n解决方案（选择其一）：\n   1. 增加「重试次数」（推荐）\n      - 位置：设置 → 通用 → 重试次数\n      - 建议：设置为 10 或更高（-1 表示无限重试）\n\n   2. 更换翻译模型\n      - 某些模型翻译质量更稳定\n      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n   3. 减小批量大小\n      - 位置：设置 → 通用 → 批量大小\n      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n      - 说明：批量处理的文本越少，AI翻译质量越稳定\n\n",
       "status": "exact"
     },
     {

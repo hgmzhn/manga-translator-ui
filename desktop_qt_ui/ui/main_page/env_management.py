@@ -1023,7 +1023,7 @@ def _wrap_error_text(message: str, width: int = 60) -> str:
     return "\n".join(wrapped_lines)
 
 
-def _format_test_connection_error(api_type: str, message: str) -> str:
+def _format_test_connection_error(self, api_type: str, message: str) -> str:
     raw_message = str(message or "").strip()
     analysis_message = raw_message
     for prefix in ("连接失败:", "连接失败：", "api connection failed:", "connection failed:"):
@@ -1089,21 +1089,21 @@ def _format_test_connection_error(api_type: str, message: str) -> str:
     is_service_error = any(keyword in error_lower for keyword in service_keywords)
 
     if is_network_error:
-        friendly_message = (
-            "检测到连接错误、超时或 Host 解析错误。\n"
-            "请先检查模型、API 地址和 API 密钥是否正确；如果配置无误，再检查网络连接，并尝试开启 TUN（虚拟网卡模式）。"
-        )
+        friendly_message = self._t("api_test_error_network")
     elif is_service_error:
-        friendly_message = (
-            "请先检查模型、API 地址和 API 密钥是否正确。\n"
-            "如果配置无误，这也可能是 API 站点、中转渠道或服务端暂时异常，或当前网络链路不稳定；建议稍后重试，或更换 API 站点 / 渠道。"
-        )
+        friendly_message = self._t("api_test_error_service")
     else:
-        friendly_message = "请检查模型、API 地址和 API 密钥是否正确。"
+        friendly_message = self._t("api_test_error_config")
 
-    friendly_message += f"\n\nAPI 地址示例：{_get_api_address_example(api_type)}"
+    friendly_message += "\n\n" + self._t(
+        "api_test_error_address_example",
+        address=_get_api_address_example(api_type),
+    )
     if raw_message:
-        friendly_message += f"\n\n原始错误：\n{_wrap_error_text(raw_message)}"
+        friendly_message += "\n\n" + self._t(
+            "api_test_error_raw",
+            error=_wrap_error_text(raw_message),
+        )
 
     return friendly_message
 
@@ -1621,7 +1621,7 @@ def on_test_api_clicked(self, key: str):
                 success_details,
             )
         else:
-            friendly_message = _format_test_connection_error(test_target, message)
+            friendly_message = _format_test_connection_error(self, test_target, message)
             _show_api_error_dialog(
                 self._dialog_parent(),
                 self._t("Error"),
@@ -1683,7 +1683,7 @@ def on_get_models_clicked(self, key: str):
             else:
                 QMessageBox.warning(self._dialog_parent(), self._t("Warning"), self._t("No models available"))
         else:
-            friendly_message = _format_test_connection_error(model_api_type, message)
+            friendly_message = _format_test_connection_error(self, model_api_type, message)
             _show_api_error_dialog(
                 self._dialog_parent(),
                 self._t("Error"),

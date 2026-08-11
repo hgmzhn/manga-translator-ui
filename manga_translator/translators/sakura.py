@@ -10,6 +10,7 @@ import logging
 from typing import Callable, List, Tuple
 
 from ..runtime_api_resolver import get_runtime_api_override
+from ..utils.system_proxy import openai_http_client_kwargs
 from .common import CommonTranslator, validate_openai_response
 from .keys import SAKURA_API_BASE, SAKURA_DICT_PATH
 
@@ -240,6 +241,7 @@ class SakuraTranslator(CommonTranslator):
         self.client = openai.AsyncOpenAI(
             api_key="sk-114514",
             base_url=self.api_base,
+            **openai_http_client_kwargs(self.api_base),
         )
 
     def parse_args(self, config):

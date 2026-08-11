@@ -2,9 +2,9 @@ import logging
 import os
 import re
 
+from manga_translator.utils.system_proxy import set_system_proxy_enabled
 from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, QUrl, pyqtSlot
 from PyQt6.QtGui import QAction, QDesktopServices
-from PyQt6.QtNetwork import QNetworkProxyFactory
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import FluentWindow, NavigationItemPosition
@@ -99,9 +99,7 @@ class MainWindow(FluentWindow):
         self.config_service = get_config_service()
         self.state_manager = get_state_manager()
         config = self.config_service.get_config()
-        QNetworkProxyFactory.setUseSystemConfiguration(
-            bool(config.app.use_system_proxy)
-        )
+        set_system_proxy_enabled(bool(config.app.use_system_proxy))
 
         initial_theme = config.app.theme
         if initial_theme == "system":
@@ -185,7 +183,7 @@ class MainWindow(FluentWindow):
                 FIF.LIBRARY,
                 self._t("Batch Management"),
             ),
-            ("about", self.main_view.about_page, FIF.INFO, "About Application"),
+            ("about", self.main_view.about_page, FIF.INFO, self._t("About Application")),
         ]
         for key, page, icon, text in pages:
             page.setObjectName(f"main_{key}_page")
@@ -885,7 +883,7 @@ class MainWindow(FluentWindow):
         nav_labels = {
             "translation": self._t("Translation Interface"),
             "settings": self._t("Settings"),
-            "about": "About Application",
+            "about": self._t("About Application"),
             "env": self._t("API Management"),
             "prompts": self._t("Prompt Management"),
             "replacements": self._t("Replacement Rules"),

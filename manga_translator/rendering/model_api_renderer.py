@@ -7,22 +7,23 @@ from typing import List, Optional
 import numpy as np
 from PIL import Image
 
+from ..api_key_rotation import run_with_api_candidates
 from ..api_request_params import (
     normalize_openai_image_request_params,
     split_gemini_request_params,
 )
 from ..config import Renderer
 from ..custom_api_params import resolve_custom_api_params
-from ..api_key_rotation import run_with_api_candidates
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..utils import TextBlock, get_logger
-from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.ai_image_preprocess import (
     normalize_ai_image,
     prepare_square_ai_image,
     restore_square_ai_image,
 )
+from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.openai_image_interface import request_openai_image_with_fallback
+from ..utils.system_proxy import system_proxy_request_kwargs
 from .prompt_loader import (
     DEFAULT_AI_RENDERER_PROMPT,
     ensure_ai_renderer_prompt_file,
@@ -208,7 +209,11 @@ class BaseAPIRenderer:
         return buffer.getvalue()
 
     async def _fetch_image_from_url(self, url: str) -> Image.Image:
-        response = await self.client.session.get(url, timeout=600.0)
+        response = await self.client.session.get(
+            url,
+            timeout=600.0,
+            **system_proxy_request_kwargs(url),
+        )
         if response.status_code != 200:
             raise RuntimeError(f"Failed to download rendered image: HTTP {response.status_code}")
         return normalize_ai_image(Image.open(io.BytesIO(response.content)))

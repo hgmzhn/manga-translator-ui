@@ -31,6 +31,11 @@ from manga_translator.image_formats import (
     SUPPORTED_IMAGE_EXTENSIONS,
 )
 from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
+from manga_translator.utils.system_proxy import (
+    gemini_http_options_proxy_args,
+    openai_http_client_kwargs,
+    system_proxy_request_kwargs,
+)
 from PIL import Image
 from PyQt6.QtCore import (
     QObject,
@@ -571,6 +576,7 @@ class MainAppLogic(QObject):
                 api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 timeout=30.0,
+                **openai_http_client_kwargs(api_base or "https://api.openai.com/v1"),
             )
 
         try:
@@ -606,6 +612,7 @@ class MainAppLogic(QObject):
                 api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 timeout=30.0,
+                **openai_http_client_kwargs(api_base or "https://api.openai.com/v1"),
             )
 
         try:
@@ -648,9 +655,15 @@ class MainAppLogic(QObject):
             )
 
             async def fetch_remote_image(url: str):
-                response = await client.session.get(url, timeout=60.0)
+                response = await client.session.get(
+                    url,
+                    timeout=60.0,
+                    **system_proxy_request_kwargs(url),
+                )
                 if response.status_code != 200:
-                    raise RuntimeError(f"Failed to download generated image: HTTP {response.status_code}")
+                    raise RuntimeError(
+                        self._t("api_test_error_remote_image", status=response.status_code)
+                    )
                 return Image.open(io.BytesIO(response.content)).convert("RGB")
 
             try:
@@ -678,6 +691,7 @@ class MainAppLogic(QObject):
                 api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 timeout=60.0,
+                **openai_http_client_kwargs(api_base or "https://api.openai.com/v1"),
             )
             try:
                 await client.images.generate(
@@ -715,14 +729,13 @@ class MainAppLogic(QObject):
             from google.genai import types
 
             def sync_test():
+                http_options_kwargs = gemini_http_options_proxy_args(base_url)
                 if base_url != "https://generativelanguage.googleapis.com":
-                    client = genai.Client(
-                        api_key=api_key,
-                        http_options=types.HttpOptions(base_url=base_url),
-                    )
-                else:
-                    client = genai.Client(api_key=api_key)
-
+                    http_options_kwargs["base_url"] = base_url
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options=types.HttpOptions(**http_options_kwargs),
+                ) if http_options_kwargs else genai.Client(api_key=api_key)
                 if model and model.strip():
                     client.models.generate_content(model=model.strip(), contents="test")
                     return True, f"连接成功，模型 {model.strip()} 可用"
@@ -765,13 +778,13 @@ class MainAppLogic(QObject):
             from google.genai import types
 
             def sync_test():
+                http_options_kwargs = gemini_http_options_proxy_args(base_url)
                 if base_url != "https://generativelanguage.googleapis.com":
-                    client = genai.Client(
-                        api_key=api_key,
-                        http_options=types.HttpOptions(base_url=base_url),
-                    )
-                else:
-                    client = genai.Client(api_key=api_key)
+                    http_options_kwargs["base_url"] = base_url
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options=types.HttpOptions(**http_options_kwargs),
+                ) if http_options_kwargs else genai.Client(api_key=api_key)
                 client.models.generate_content(model=model_name, contents=contents)
                 return True, f"连接成功，OCR 模型 {model_name} 可用"
 
@@ -814,7 +827,7 @@ class MainAppLogic(QObject):
             try:
                 response = await client.models.generate_content(**request_kwargs)
                 if not self._extract_gemini_image_bytes(response):
-                    raise RuntimeError("Gemini image response did not contain an image.")
+                    raise RuntimeError(self._t("api_test_error_gemini_no_image"))
                 return True, f"连接成功，图像模型 {model_name} 可用"
             finally:
                 await client.close()
@@ -823,13 +836,13 @@ class MainAppLogic(QObject):
             from google.genai import types
 
             def sync_test():
+                http_options_kwargs = gemini_http_options_proxy_args(base_url)
                 if base_url != "https://generativelanguage.googleapis.com":
-                    client = genai.Client(
-                        api_key=api_key,
-                        http_options=types.HttpOptions(base_url=base_url),
-                    )
-                else:
-                    client = genai.Client(api_key=api_key)
+                    http_options_kwargs["base_url"] = base_url
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options=types.HttpOptions(**http_options_kwargs),
+                ) if http_options_kwargs else genai.Client(api_key=api_key)
                 response = client.models.generate_content(
                     model=model_name,
                     contents=request_kwargs["contents"],
@@ -842,7 +855,7 @@ class MainAppLogic(QObject):
                     ),
                 )
                 if not self._extract_gemini_image_bytes(response):
-                    raise RuntimeError("Gemini image response did not contain an image.")
+                    raise RuntimeError(self._t("api_test_error_gemini_no_image"))
                 return True, f"连接成功，图像模型 {model_name} 可用"
 
             return await asyncio.get_running_loop().run_in_executor(None, sync_test)
@@ -868,10 +881,11 @@ class MainAppLogic(QObject):
                 # Sakura使用OpenAI兼容API
                 from openai import AsyncOpenAI
                 if not api_base:
-                    return False, "请先配置SAKURA_API_BASE"
+                    return False, self._t("api_test_error_sakura_base")
                 client = AsyncOpenAI(
                     api_key="sk-114514",  # Sakura使用固定密钥
-                    base_url=api_base
+                    base_url=api_base,
+                    **openai_http_client_kwargs(api_base),
                 )
                 
                 try:
@@ -885,7 +899,11 @@ class MainAppLogic(QObject):
                             )
                             return True, f"连接成功，模型 {model} 可用"
                         except Exception as e:
-                            return False, f"连接成功但模型 {model} 不可用: {str(e)}"
+                            return False, self._t(
+                                "api_test_error_model_unavailable",
+                                model=model,
+                                error=str(e),
+                            )
                     else:
                         await client.models.list()
                         return True, "连接成功"
@@ -893,10 +911,10 @@ class MainAppLogic(QObject):
                     await client.close()
             
             else:
-                return False, "该翻译器不支持API测试"
+                return False, self._t("api_test_error_unsupported")
                 
         except Exception as e:
-            return False, f"连接失败: {str(e)}"
+            return False, self._t("api_test_error_connection_failed", error=str(e))
     
     async def get_available_models_async(self, translator_key: str, api_key: str, api_base: str = None) -> tuple[bool, List[str], str]:
         """异步获取可用模型列表"""
@@ -920,6 +938,7 @@ class MainAppLogic(QObject):
                         api_key=resolved_api_key,
                         base_url=api_base or "https://api.openai.com/v1",
                         timeout=60.0,
+                        **openai_http_client_kwargs(api_base or "https://api.openai.com/v1"),
                     )
                 
                 try:
@@ -968,22 +987,18 @@ class MainAppLogic(QObject):
                         and api_base.strip() not in ["https://generativelanguage.googleapis.com", "https://generativelanguage.googleapis.com/"]
                     )
 
-                    if is_custom_api:
-                        # 自定义 API 使用 http_options
-                        def sync_get_models():
-                            client = genai.Client(
-                                api_key=api_key,
-                                http_options=types.HttpOptions(base_url=api_base.strip())
-                            )
-                            models = list(client.models.list())
-                            model_names = [m.name.replace("models/", "") for m in models]
-                            return True, model_names, "获取成功"
-                    else:
-                        def sync_get_models():
-                            client = genai.Client(api_key=api_key)
-                            models = list(client.models.list())
-                            model_names = [m.name.replace("models/", "") for m in models]
-                            return True, model_names, "获取成功"
+                    def sync_get_models():
+                        base_url = api_base.strip() if is_custom_api else "https://generativelanguage.googleapis.com"
+                        http_options_kwargs = gemini_http_options_proxy_args(base_url)
+                        if is_custom_api:
+                            http_options_kwargs["base_url"] = base_url
+                        client = genai.Client(
+                            api_key=api_key,
+                            http_options=types.HttpOptions(**http_options_kwargs),
+                        ) if http_options_kwargs else genai.Client(api_key=api_key)
+                        models = list(client.models.list())
+                        model_names = [m.name.replace("models/", "") for m in models]
+                        return True, model_names, "获取成功"
 
                     return await loop.run_in_executor(None, sync_get_models)
             
@@ -991,10 +1006,11 @@ class MainAppLogic(QObject):
                 # Sakura使用OpenAI兼容API
                 from openai import AsyncOpenAI
                 if not api_base:
-                    return False, [], "请先配置SAKURA_API_BASE"
+                    return False, [], self._t("api_test_error_sakura_base")
                 client = AsyncOpenAI(
                     api_key="sk-114514",
-                    base_url=api_base
+                    base_url=api_base,
+                    **openai_http_client_kwargs(api_base),
                 )
                 try:
                     models_response = await client.models.list()
@@ -1004,10 +1020,10 @@ class MainAppLogic(QObject):
                     await client.close()
             
             else:
-                return False, [], "该翻译器不支持获取模型列表"
+                return False, [], self._t("api_models_error_unsupported")
                 
         except Exception as e:
-            return False, [], f"获取失败: {str(e)}"
+            return False, [], self._t("api_models_error_failed", error=str(e))
     # endregion
 
     # region 配置管理
@@ -2446,7 +2462,7 @@ class TranslationWorker(QObject):
     @staticmethod
     def _build_friendly_error_message(error_message: str, error_traceback: str) -> str:
         """
-        根据错误信息构建友好的中文错误提示
+        根据错误信息构建跟随当前界面语言的友好错误提示。
         """
         def _wrap_error_text(text: str, width: int = 88) -> str:
             wrapped_lines = []
@@ -2472,6 +2488,11 @@ class TranslationWorker(QObject):
                     if path:
                         return os.path.normpath(os.path.abspath(path))
             return os.path.normpath(os.path.abspath(os.path.join("result", "log_*.txt")))
+
+        i18n = get_i18n_manager()
+
+        def _translate(key: str, **kwargs) -> str:
+            return i18n.translate(key, **kwargs) if i18n else key
 
         friendly_msg = ""
         
@@ -2509,62 +2530,15 @@ class TranslationWorker(QObject):
             "AI断句检查" in error_message or 
             "BRMarkersValidationException" in error_traceback or
             "_validate_br_markers" in error_traceback):
-            friendly_msg += "🔍 错误原因：AI断句检查失败\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   AI翻译时未能正确添加断句标记 [BR]，导致多次重试后仍然失败。\n\n"
-            friendly_msg += "解决方案（选择其一）：\n"
-            friendly_msg += "   1. ⭐ 关闭「AI断句检查」选项（推荐）\n"
-            friendly_msg += "      - 位置：设置 → 排版 → AI断句检查\n"
-            friendly_msg += "      - 说明：允许AI在少数情况下不添加断句标记\n\n"
-            friendly_msg += "   2. 增加「重试次数」\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
-            friendly_msg += "      - 建议：设置为 10 或更高（-1 表示无限重试）\n\n"
-            friendly_msg += "   3. 更换翻译模型\n"
-            friendly_msg += "      - 某些模型对断句标记的理解更好\n"
-            friendly_msg += "      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n"
-            friendly_msg += "   4. 关闭「AI断句自动扩大文字」功能\n"
-            friendly_msg += "      - 位置：设置 → 排版 → AI断句自动扩大文字\n"
-            friendly_msg += "      - 说明：使用传统的自动换行（可能导致排版不够精确）\n\n"
-            friendly_msg += "   5. 减小批量大小\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 批量大小\n"
-            friendly_msg += "      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n"
-            friendly_msg += "      - 说明：批量处理的文本越少，AI越容易正确添加断句标记\n\n"
+            friendly_msg = _translate("friendly_error_br_markers")
         
         # 检查是否是翻译数量不匹配错误
         elif "翻译数量不匹配" in real_error or "Translation count mismatch" in real_error:
-            friendly_msg += "🔍 错误原因：翻译数量不匹配\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   AI返回的翻译条数与原文条数不一致。\n"
-            friendly_msg += "   这通常是因为AI将多条文本合并翻译，或漏掉了某些文本。\n\n"
-            friendly_msg += "解决方案（选择其一）：\n"
-            friendly_msg += "   1. ⭐ 增加「重试次数」（推荐）\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
-            friendly_msg += "      - 建议：设置为 10 或更高（-1 表示无限重试）\n"
-            friendly_msg += "      - 说明：多次重试通常能让AI返回正确数量的翻译\n\n"
-            friendly_msg += "   2. 更换翻译模型\n"
-            friendly_msg += "      - 某些模型对指令的遵循能力更强\n"
-            friendly_msg += "      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n"
-            friendly_msg += "   3. 减小批量大小\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 批量大小\n"
-            friendly_msg += "      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n"
-            friendly_msg += "      - 说明：批量处理的文本越少，AI越不容易出错\n\n"
+            friendly_msg = _translate("friendly_error_translation_count")
         
         # 检查是否是翻译质量检查失败
         elif "翻译质量检查失败" in real_error or "Quality check failed" in real_error:
-            friendly_msg += "🔍 错误原因：翻译质量检查失败\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   AI返回的翻译存在质量问题，如空翻译、合并翻译或可疑符号。\n\n"
-            friendly_msg += "解决方案（选择其一）：\n"
-            friendly_msg += "   1. ⭐ 增加「重试次数」（推荐）\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
-            friendly_msg += "      - 建议：设置为 10 或更高（-1 表示无限重试）\n\n"
-            friendly_msg += "   2. 更换翻译模型\n"
-            friendly_msg += "      - 某些模型翻译质量更稳定\n"
-            friendly_msg += "      - 建议：尝试 gpt-5.2、gemini-3-pro 或 grok-4.2\n\n"
-            friendly_msg += "   3. 减小批量大小\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 批量大小\n"
-            friendly_msg += "      - 建议：将批量大小减小（如从 3 减到 1 或 2）\n"
-            friendly_msg += "      - 说明：批量处理的文本越少，AI翻译质量越稳定\n\n"
+            friendly_msg = _translate("friendly_error_translation_quality")
 
         # 检查是否是 OpenAI/Gemini 空响应错误（统一处理）
         elif (
@@ -2574,38 +2548,14 @@ class TranslationWorker(QObject):
             or ("returned empty text" in real_error.lower())
             or ("响应text为空" in real_error)
         ):
-            friendly_msg += "🔍 错误原因：AI接口返回空文本（空回）\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   当前请求没有返回可解析的文本内容（OpenAI/Gemini 都可能出现）。\n"
-            friendly_msg += "   可能是触发了内容审核，或者服务器繁忙导致临时空回。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. ⭐ 更换模型（推荐）\n"
-            friendly_msg += "      - OpenAI：gpt-5.2、gpt-5.2-mini\n"
-            friendly_msg += "      - Gemini：gemini-3-pro、gemini-3-flash\n\n"
-            friendly_msg += "   2. 更换站点（API地址）\n"
-            friendly_msg += "      - Gemini 官方地址： https://generativelanguage.googleapis.com\n"
-            friendly_msg += "      - OpenAI 官方地址： https://api.openai.com/v1\n"
-            friendly_msg += "      - 若使用第三方中转，尝试更换服务商或改用官方 API\n\n"
-            friendly_msg += "   3. 更换翻译图片的内容后再试\n"
-            friendly_msg += "      - 避免敏感画面或高风险词汇，降低审核拦截概率\n\n"
-            friendly_msg += "   4. 稍后重试（服务器繁忙时常见）\n\n"
+            friendly_msg = _translate("friendly_error_empty_ai_response")
 
         # 检查是否是渲染/上色模型不支持图片输出
         elif _is_image_output_unsupported_error("renderer", "render request", "渲染"):
-            friendly_msg += "🔍 错误原因：当前模型不支持渲染\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. 将「渲染器」切换为「Default」（default，本地默认渲染器）\n"
-            friendly_msg += "      - 位置：设置 → 排版 → 渲染器\n"
-            friendly_msg += "   2. 继续使用 AI 渲染时，在 API 管理 → 渲染 中换一个支持图片输出/图片编辑的模型\n\n"
+            friendly_msg = _translate("friendly_error_renderer_unsupported")
 
         elif _is_image_output_unsupported_error("colorizer", "colorization", "colorize", "上色"):
-            friendly_msg += "🔍 错误原因：当前模型不支持上色\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. 切换上色器：在「上色模型」选择 Manga Colorization v2 或其它可用上色器\n"
-            friendly_msg += "      - 位置：设置 → 模式相关 → 上色 → 上色模型\n"
-            friendly_msg += "   2. 关闭上色：在「上色模型」选择「无」（none，不上色）\n"
-            friendly_msg += "      - 位置：设置 → 模式相关 → 上色 → 上色模型\n"
-            friendly_msg += "   3. 继续使用 OpenAI/Gemini 上色时，在 API 管理 → 上色 中换一个支持图片输出/图片编辑的模型\n\n"
+            friendly_msg = _translate("friendly_error_colorizer_unsupported")
 
         # 检查是否是模型不支持多模态
         elif ("不支持多模态" in real_error or
@@ -2614,21 +2564,7 @@ class TranslationWorker(QObject):
               ("image_url" in real_error.lower() and "renderer" not in real_error.lower()) or
               ("expected `text`" in real_error.lower() and "renderer" not in real_error.lower()) or
               ("unknown variant" in real_error.lower() and "renderer" not in real_error.lower())):
-            friendly_msg += "🔍 错误原因：模型不支持多模态输入\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   当前使用的是「高质量翻译器」（OpenAI高质量翻译 或 Gemini高质量翻译），\n"
-            friendly_msg += "   这些翻译器需要发送图片给AI进行分析，但当前模型不支持图片输入。\n\n"
-            friendly_msg += "解决方案（选择其一）：\n"
-            friendly_msg += "   1. ⭐ 切换到普通翻译器（推荐）\n"
-            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n"
-            friendly_msg += "      - 将「OpenAI高质量翻译」改为「OpenAI」\n"
-            friendly_msg += "      - 将「Gemini高质量翻译」改为「Google Gemini」\n"
-            friendly_msg += "      - 说明：普通翻译器不需要发送图片，只翻译文本\n\n"
-            friendly_msg += "   2. 更换为支持多模态的模型\n"
-            friendly_msg += "      - OpenAI: gpt-5.2、gpt-5.2-mini\n"
-            friendly_msg += "      - Gemini: gemini-3-pro、gemini-3-flash\n"
-            friendly_msg += "      - Grok: grok-4.2\n"
-            friendly_msg += "      - 注意：DeepSeek模型不支持多模态\n\n"
+            friendly_msg = _translate("friendly_error_multimodal_unsupported")
         
         # 检查是否是模型不存在/模型名错误
         elif (
@@ -2645,47 +2581,11 @@ class TranslationWorker(QObject):
             or "模型不存在" in real_error
             or "模型名称不存在" in real_error
         ):
-            friendly_msg += "🔍 错误原因：模型不存在，或当前 API 站点不支持该模型\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   API 已经连通，但服务端找不到你填写的模型名称。\n"
-            friendly_msg += "   这通常是模型名拼写不对、大小写不一致、模型已下线，或当前中转/渠道并不提供这个模型。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. ⭐ 检查模型名称是否与服务商提供的名称完全一致（最常见）\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 模型\n"
-            friendly_msg += "      - 注意：模型名称通常区分大小写，不能省略前缀或版本号\n\n"
-            friendly_msg += "   2. 使用「测试连接」或模型列表功能确认当前站点实际支持哪些模型\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 测试当前页 / 获取模型列表\n"
-            friendly_msg += "      - 先确认该站点真的提供你要用的模型\n\n"
-            friendly_msg += "   3. 如果你用的是第三方 OpenAI 兼容站点（如中转、渠道、硅基流动等）\n"
-            friendly_msg += "      - 不要假设它支持 OpenAI 官方的全部模型名\n"
-            friendly_msg += "      - 需要改成该服务商自己的实际模型 ID\n\n"
-            friendly_msg += "   4. 检查 API 地址和翻译器类型是否匹配\n"
-            friendly_msg += "      - OpenAI 兼容接口应使用「OpenAI」或「OpenAI高质量」翻译器\n"
-            friendly_msg += "      - 若站点和翻译器类型不匹配，也可能导致模型判断异常\n\n"
-            friendly_msg += "   5. 若该模型最近改名、下线或迁移渠道\n"
-            friendly_msg += "      - 访问对应服务商的模型广场或官方文档\n"
-            friendly_msg += "      - 换成当前仍可用的模型名后再试\n\n"
+            friendly_msg = _translate("friendly_error_model_unsupported")
 
         # 检查是否是404错误（API地址或模型配置错误）
         elif "API_404_ERROR" in real_error or "404" in real_error or "HTML错误页面" in real_error:
-            friendly_msg += "🔍 错误原因：API返回404错误\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   API返回了HTML格式的404错误页面，而不是正常的JSON响应。\n"
-            friendly_msg += "   这通常意味着API地址错误或模型名称不存在。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. ⭐ 检查API地址配置（最常见）\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 地址\n"
-            friendly_msg += "      - 正确格式：https://api.openai.com/v1\n"
-            friendly_msg += "      - 注意：地址末尾必须是 /v1，不要多加或少加路径\n\n"
-            friendly_msg += "   2. 检查模型名称是否正确\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 模型\n"
-            friendly_msg += "      - 确认模型名称与API服务提供的模型完全匹配\n"
-            friendly_msg += "      - 注意：模型名称区分大小写\n"
-            friendly_msg += "      - 提示：可以使用「测试连接」功能查看可用模型列表\n\n"
-            friendly_msg += "   3. 如果使用自定义API（如中转API、第三方服务）\n"
-            friendly_msg += "      - 确认中转服务的API地址格式\n"
-            friendly_msg += "      - 确认中转服务支持你使用的模型\n"
-            friendly_msg += "      - 联系中转服务提供商确认配置\n\n"
+            friendly_msg = _translate("friendly_error_api_404_html")
 
         # 检查是否是API密钥错误
         elif (
@@ -2697,20 +2597,7 @@ class TranslationWorker(QObject):
             or "exhausting api candidates" in real_error.lower()
             or "api candidates" in real_error.lower()
         ):
-            friendly_msg += "🔍 错误原因：API密钥或候选不可用\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   API密钥缺失、无效、过期，或当前候选池里没有可用候选。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. 检查API密钥是否正确\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 密钥\n"
-            friendly_msg += "      - 确认密钥没有多余的空格或换行\n\n"
-            friendly_msg += "   2. 验证API密钥是否有效\n"
-            friendly_msg += "      - OpenAI: https://platform.openai.com/api-keys\n"
-            friendly_msg += "      - Gemini: https://aistudio.google.com/app/apikey\n\n"
-            friendly_msg += "   3. 如果通道已被标记为不可用，可在 API 管理里重新启用对应 Key/通道\n"
-            friendly_msg += "      - 也可以使用「测试当前页」重新确认候选是否可用\n\n"
-            friendly_msg += "   4. 检查API额度是否用完\n"
-            friendly_msg += "      - 登录对应平台查看余额和使用情况\n\n"
+            friendly_msg = _translate("friendly_error_api_credentials")
         
         # 检查是否是网络连接错误
         elif (
@@ -2739,103 +2626,24 @@ class TranslationWorker(QObject):
             or "主机" in real_error
             or "解析" in real_error
         ):
-            friendly_msg += "🔍 错误原因：网络连接或 Host 解析失败\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   无法连接到API服务器，可能是网络异常、超时，或 Host / DNS 解析失败。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. 检查网络连接\n"
-            friendly_msg += "      - 确认电脑可以正常访问互联网\n\n"
-            friendly_msg += "   2. 尝试开启 TUN（虚拟网卡模式）\n"
-            friendly_msg += "      - 某些代理环境下，开启 TUN 后域名解析会更稳定\n\n"
-            friendly_msg += "   3. 检查API地址是否正确\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 地址\n"
-            friendly_msg += "      - 默认值：https://api.openai.com/v1\n\n"
+            friendly_msg = _translate("friendly_error_network")
         
         # 检查是否是速率限制错误
         elif "rate limit" in real_error.lower() or "429" in real_error or "too many requests" in real_error.lower():
-            friendly_msg += "🔍 错误原因：API请求被拒绝 (HTTP 429)\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   HTTP 429 错误有多种可能原因：\n"
-            friendly_msg += "   • API密钥错误或无效\n"
-            friendly_msg += "   • 账户余额不足或欠费\n"
-            friendly_msg += "   • 请求速率超过限制（RPM/TPM）\n"
-            friendly_msg += "   • 当前账户级别不支持该模型\n\n"
-            friendly_msg += "解决方案（按顺序检查）：\n"
-            friendly_msg += "   1. ⭐ 检查API密钥是否正确（最常见）\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 密钥\n"
-            friendly_msg += "      - 确认密钥没有多余的空格或换行\n"
-            friendly_msg += "      - 使用「测试连接」功能验证密钥是否有效\n\n"
-            friendly_msg += "   2. 检查账户余额和状态\n"
-            friendly_msg += "      - OpenAI: https://platform.openai.com/usage\n"
-            friendly_msg += "      - Gemini: https://aistudio.google.com/app/apikey\n"
-            friendly_msg += "      - 确认账户余额充足且未欠费\n"
-            friendly_msg += "      - 确认账户状态正常（未被限制）\n\n"
-            friendly_msg += "   3. 检查模型是否支持\n"
-            friendly_msg += "      - 某些模型需要特定的账户级别或付费套餐\n"
-            friendly_msg += "      - 例如：GPT-4 需要付费账户，免费账户只能用 GPT-3.5\n"
-            friendly_msg += "      - 尝试更换为账户支持的模型\n\n"
-            friendly_msg += "   4. 降低请求速率\n"
-            friendly_msg += "      - 位置：设置 → 翻译 → 每分钟最大请求数\n"
-            friendly_msg += "      - 建议：设置为 3-10（取决于API套餐）\n"
-            friendly_msg += "      - 免费账户建议设置为 3\n\n"
-            friendly_msg += "   5. 稍后重试\n"
-            friendly_msg += "      - 等待几分钟后再次尝试翻译\n\n"
-            friendly_msg += "   6. 升级API套餐\n"
-            friendly_msg += "      - 联系API提供商升级到更高级别的套餐\n\n"
+            friendly_msg = _translate("friendly_error_http_429")
         
         # 检查是否是403禁止访问错误
         elif "403" in real_error or "forbidden" in real_error.lower():
-            friendly_msg += "🔍 错误原因：访问被拒绝 (HTTP 403)\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   服务器拒绝访问，可能是权限不足或地区限制。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. 检查API密钥权限\n"
-            friendly_msg += "      - 确认API密钥有访问该服务的权限\n\n"
-            friendly_msg += "   2. 检查账户状态\n"
-            friendly_msg += "      - 确认账户未被封禁或限制\n\n"
+            friendly_msg = _translate("friendly_error_http_403")
 
         
         # 检查是否是404未找到错误
         elif "404" in real_error or "not found" in real_error.lower():
-            friendly_msg += "🔍 错误原因：资源未找到 (HTTP 404)\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   请求的API端点不存在或模型名称错误。\n"
-            friendly_msg += "   也可能是翻译器类型与API地址不匹配。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. ⭐ 检查翻译器类型是否匹配API地址（最常见）\n"
-            friendly_msg += "      - 如果API地址是 xxxx/v1 格式（OpenAI兼容接口）\n"
-            friendly_msg += "        → 应选择「OpenAI」或「OpenAI高质量」翻译器\n"
-            friendly_msg += "      - 如果使用 Gemini 官方 API (generativelanguage.googleapis.com)\n"
-            friendly_msg += "        → 应选择「Gemini」或「Gemini高质量」翻译器\n"
-            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n\n"
-            friendly_msg += "   2. 检查API地址是否正确\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → API 地址\n"
-            friendly_msg += "      - OpenAI默认：https://api.openai.com/v1\n"
-            friendly_msg += "      - Gemini默认：https://generativelanguage.googleapis.com\n"
-            friendly_msg += "      - 注意：地址末尾的 /v1 不要多加或少加\n\n"
-            friendly_msg += "   3. 检查模型名称\n"
-            friendly_msg += "      - 位置：API 管理 → 对应功能页 → 模型\n"
-            friendly_msg += "      - 确认模型名称拼写正确（如 gpt-5.2 不是 gpt52）\n"
-            friendly_msg += "      - 使用「测试连接」功能查看可用模型列表\n\n"
-            friendly_msg += "   4. 验证模型可用性\n"
-            friendly_msg += "      - 某些模型可能已下线或更名\n"
-            friendly_msg += "      - 访问官方文档查看可用模型列表\n\n"
+            friendly_msg = _translate("friendly_error_http_404")
         
         # 检查是否是500服务器错误
         elif "500" in real_error or "internal server error" in real_error.lower():
-            friendly_msg += "🔍 错误原因：服务器内部错误 (HTTP 500)\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   API服务器遇到内部错误，这通常是临时问题。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. ⭐ 增加重试次数（推荐）\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
-            friendly_msg += "      - 建议：设置为 10 或更高\n"
-            friendly_msg += "      - 服务器错误通常是临时的，重试可能成功\n\n"
-            friendly_msg += "   2. 稍后重试\n"
-            friendly_msg += "      - 等待几分钟，让服务器恢复正常\n\n"
-            friendly_msg += "   3. 检查API服务状态\n"
-            friendly_msg += "      - OpenAI: https://status.openai.com/\n"
-            friendly_msg += "      - 查看是否有大规模服务中断\n\n"
+            friendly_msg = _translate("friendly_error_http_500")
         
         # 检查是否是502/503/504网关错误
         elif any(code in real_error for code in ["502", "503", "504"]) or "bad gateway" in real_error.lower() or "service unavailable" in real_error.lower() or "gateway timeout" in real_error.lower():
@@ -2847,79 +2655,32 @@ class TranslationWorker(QObject):
             elif "504" in real_error:
                 error_code = "504"
             
-            friendly_msg += f"🔍 错误原因：网关/服务不可用 (HTTP {error_code})\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   - 502: 网关接收到无效响应\n"
-            friendly_msg += "   - 503: 服务暂时不可用（通常是维护或过载）\n"
-            friendly_msg += "   - 504: 网关超时\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. ⭐ 等待后重试（推荐）\n"
-            friendly_msg += "      - 这些错误通常是临时的\n"
-            friendly_msg += "      - 等待5-10分钟后重新翻译\n\n"
-            friendly_msg += "   2. 增加重试次数\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
-            friendly_msg += "      - 建议：设置为 10 或更高\n\n"
-            friendly_msg += "   3. 检查API服务状态\n"
-            friendly_msg += "      - 访问API提供商的状态页面\n"
-            friendly_msg += "      - OpenAI: https://status.openai.com/\n\n"
-            friendly_msg += "   4. 更换API地址\n"
-            friendly_msg += "      - 如果使用第三方API中转，尝试更换地址\n\n"
+            friendly_msg = _translate("friendly_error_http_gateway", code=error_code)
         
         # 检查是否是内容过滤错误
         elif "content filter" in real_error.lower() or "content_filter" in real_error:
-            friendly_msg += "🔍 错误原因：内容被安全策略拦截\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   AI检测到内容可能违反使用政策。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. 检查图片内容\n"
-            friendly_msg += "      - 某些敏感内容可能被API拒绝处理\n\n"
-            friendly_msg += "   2. 更换翻译器\n"
-            friendly_msg += "      - 尝试使用其他翻译器（如 Gemini、DeepL）\n\n"
-            friendly_msg += "   3. 增加重试次数\n"
-            friendly_msg += "      - 位置：设置 → 通用 → 重试次数\n"
-            friendly_msg += "      - 有时重试可以解决临时的过滤问题\n\n"
+            friendly_msg = _translate("friendly_error_content_filter")
         
         # 检查是否是语言不支持错误
         elif "language not supported" in real_error.lower() or "LanguageUnsupportedException" in error_traceback:
-            friendly_msg += "🔍 错误原因：翻译器不支持当前语言\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. 更换翻译器\n"
-            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n"
-            friendly_msg += "      - 建议：使用支持更多语言的翻译器（如 OpenAI、Gemini）\n\n"
-            friendly_msg += "   2. 检查目标语言设置\n"
-            friendly_msg += "      - 位置：设置 → 翻译 → 目标语言\n"
-            friendly_msg += "      - 确认选择的语言被当前翻译器支持\n\n"
+            friendly_msg = _translate("friendly_error_language_unsupported")
         
         # 检查是否是请求被拦截错误
         elif "blocked" in real_error.lower() or "request was blocked" in real_error.lower():
-            friendly_msg += "🔍 错误原因：请求被API服务商拦截\n\n"
-            friendly_msg += "📝 详细说明：\n"
-            friendly_msg += "   API服务商（可能是第三方中转）拦截了你的请求。\n"
-            friendly_msg += "   这通常是中转服务的反滥用机制或内容审核导致的。\n\n"
-            friendly_msg += "解决方案：\n"
-            friendly_msg += "   1. ⭐ 更换API服务商（推荐）\n"
-            friendly_msg += "      - 如果使用第三方中转API，尝试更换其他服务商\n"
-            friendly_msg += "      - 或者使用官方API（如 api.openai.com）\n\n"
-            friendly_msg += "   2. 切换到普通翻译器\n"
-            friendly_msg += "      - 位置：设置 → 翻译 → 翻译器\n"
-            friendly_msg += "      - 将 openai_hq 改为 openai（不发送图片）\n"
-            friendly_msg += "      - 某些中转服务不支持多模态（图片+文本）请求\n\n"
-            friendly_msg += "   3. 检查API密钥状态\n"
-            friendly_msg += "      - 确认API密钥未被封禁或限制\n"
-            friendly_msg += "      - 联系API服务商确认账户状态\n\n"
+            friendly_msg = _translate("friendly_error_request_blocked")
         
         # 通用错误
         else:
-            friendly_msg += "🔍 错误原因：\n"
-            friendly_msg += f"   {error_message}\n\n"
-            friendly_msg += "提示：\n"
-            friendly_msg += f"   1. 日志文件：{_current_log_file_path()}\n"
-            friendly_msg += "   2. 请保留完整日志文件，并把日志发给 AI 分析具体原因\n"
-            friendly_msg += "   3. 如果仍无法判断，请带上日志文件提交 GitHub issue：\n"
-            friendly_msg += "      https://github.com/hgmzhn/manga-translator-ui/issues\n\n"
+            friendly_msg = _translate(
+                "friendly_error_generic",
+                error=error_message,
+                log_path=_current_log_file_path(),
+            )
         
-        friendly_msg += "📋 原始错误信息：\n"
-        friendly_msg += f"{_wrap_error_text(error_message)}\n"
+        friendly_msg += _translate(
+            "friendly_error_raw_details",
+            error=_wrap_error_text(error_message),
+        )
         if error_traceback and "Traceback" in error_traceback:
             # 只保留API详细错误信息（不保留代码路径）
             lines = error_traceback.split('\n')
@@ -2934,8 +2695,6 @@ class TranslationWorker(QObject):
                 friendly_msg += "\n"
                 friendly_msg += _wrap_error_text('\n'.join(api_error_lines)) + "\n"
 
-        for marker in ("🔍 ", "📝 ", "📋 "):
-            friendly_msg = friendly_msg.replace(marker, "")
 
         return friendly_msg
 
