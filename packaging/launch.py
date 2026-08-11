@@ -73,17 +73,26 @@ PYTORCH_INDEX_FALLBACKS = {
     "https://download.pytorch.org/whl/cu130": [
         "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
     ],
+    "https://download.pytorch.org/whl/cu126": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu126/",
+    ],
 }
 
 # 对部分 PyTorch 源使用自定义尝试顺序。
-# 例如 cu130 优先走国内镜像，失败后再回退官方源。
+# 例如 cu130/cu126 优先走国内镜像，失败后再回退官方源。
 PYTORCH_INDEX_PRIORITY = {
     "https://download.pytorch.org/whl/cu130": [
         "https://mirrors.aliyun.com/pytorch-wheels/cu130/",
         "https://mirror.sjtu.edu.cn/pytorch-wheels/cu130/",
         "https://download.pytorch.org/whl/cu130",
     ],
+    "https://download.pytorch.org/whl/cu126": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu126/",
+        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu126/",
+        "https://download.pytorch.org/whl/cu126",
+    ],
 }
+
 
 PYTORCH_OFFICIAL_INDEX_HOST = "download.pytorch.org"
 
@@ -143,16 +152,16 @@ def get_pytorch_index_candidates(primary_index_url):
 
 # ============================================================
 # pyproject.toml dependency groups 读取
-# 依赖声明在 pyproject.toml 中：公共依赖 + cpu/gpu/amd/metal 四个 dependency group
+# 依赖声明在 pyproject.toml 中：公共依赖 + cpu/cuda13.0/cuda12.6/rocm7.2.1/metal 五个后端组
 # ============================================================
 PYPROJECT_FILE = PATH_ROOT / 'pyproject.toml'
-DEP_VARIANTS = ('cpu', 'gpu', 'amd', 'metal')
+DEP_VARIANTS = ('cpu', 'cuda13.0', 'cuda12.6', 'rocm7.2.1', 'metal')
 
 _pyproject_cache = None
 
 
 def normalize_variant(name):
-    """校验并规范化变体名 (cpu/gpu/amd/metal)，无效返回 None"""
+    """校验并规范化依赖方案。"""
     if not name:
         return None
     name = str(name).strip().lower()
@@ -1265,21 +1274,24 @@ except OSError as e:
         return None, f"检测失败: {e}"
 
 
-def get_requirements_file_from_env():
-    """从当前虚拟环境检测应该使用哪个依赖方案 (cpu/gpu/amd/metal)"""
-    pytorch_type, detail = detect_installed_pytorch_version()
-    
+def dependency_variant_from_pytorch(pytorch_type, detail):
+    """把已安装 PyTorch 类型映射到精确 dependency group。"""
     if pytorch_type == "GPU":
-        return 'gpu', pytorch_type, detail
-    elif pytorch_type == "Metal":
-        return 'metal', pytorch_type, detail
-    elif pytorch_type == "AMD":
-        return 'amd', pytorch_type, detail
-    elif pytorch_type == "CPU":
-        return 'cpu', pytorch_type, detail
-    else:
-        # 未安装或无法加载 PyTorch，返回详情供维护界面诊断。
-        return None, None, detail
+        return 'cuda12.6' if "CUDA 12." in (detail or "") else 'cuda13.0'
+    if pytorch_type == "Metal":
+        return 'metal'
+    if pytorch_type == "AMD":
+        return 'rocm7.2.1'
+    if pytorch_type == "CPU":
+        return 'cpu'
+    return None
+
+
+def get_requirements_file_from_env():
+    """从当前虚拟环境检测应该使用哪个依赖方案。"""
+    pytorch_type, detail = detect_installed_pytorch_version()
+    variant = dependency_variant_from_pytorch(pytorch_type, detail)
+    return variant, pytorch_type if variant else None, detail
 
 
 def repair_broken_pytorch_runtime(pytorch_type, detail, *, allow_reinstall=True):
@@ -1338,6 +1350,14 @@ def repair_broken_pytorch_runtime(pytorch_type, detail, *, allow_reinstall=True)
         "Install or repair the VC++ runtime above first; this operation has been stopped.",
     ))
     return None, detected_detail, False
+
+def select_nvidia_dependency_variant(cuda_major):
+    """根据 NVIDIA 驱动报告的 CUDA 主版本选择 GPU 依赖组。"""
+    if cuda_major is not None and cuda_major >= 13:
+        return 'cuda13.0'
+    if cuda_major == 12:
+        return 'cuda12.6'
+    return None
 
 
 def ensure_pytorch_runtime_ready():
@@ -1455,7 +1475,7 @@ def prepare_environment(args):
             print(f'错误: 无效的依赖方案 "{args.requirements}"，可选: {", ".join(DEP_VARIANTS)}')
             return False, None
         # 如果手动指定了 amd 方案，需要检测 gfx 版本并安装 AMD PyTorch
-        if requirements_file == 'amd':
+        if requirements_file == 'rocm7.2.1':
             use_amd_pytorch = True
             detected_installed_amd = False
             # 尝试从环境中检测已安装的 AMD PyTorch 版本（在子进程中检测）
@@ -1534,7 +1554,7 @@ except:
             
             if not use_amd_pytorch:
                 # 未安装或非 AMD PyTorch
-                if requirements_file == 'amd':
+                if requirements_file == 'rocm7.2.1':
                     if detected_installed_amd:
                         print('\n检测到已安装 AMD ROCm PyTorch，本次不更新。')
                     else:
@@ -1554,20 +1574,19 @@ except:
             print('=' * 50)
             print()
             
-            # 检查 CUDA 版本
+            # CUDA 12.x 使用 CUDA 12.6 依赖组；CUDA 13.0 及以上使用 CUDA 13.0 依赖组。
             if cuda_major is not None:
-                if tuple(map(int, cuda_version.split('.')[:2])) < (13, 0):
-                    print('⚠️  警告: 检测到 CUDA 版本低于 13.0')
+                selected_variant = select_nvidia_dependency_variant(cuda_major)
+                if selected_variant is None:
+                    print('⚠️  警告: 检测到 CUDA 版本低于 12.0')
                     print(f'   当前 CUDA 版本: {cuda_version}')
-                    print('   GPU 版本需要: CUDA 13.0')
-                    print('   驱动需支持 CUDA 13.0')
+                    print('   NVIDIA GPU 版本最低需要: CUDA 12.x')
                     print()
-                    print('您的 CUDA 版本过低，无法使用 GPU 版本。')
                     print('请选择:')
                     print('  [1] 更新 NVIDIA 驱动后重新运行安装')
                     print('  [2] 使用 CPU 版本')
                     print()
-                    
+
                     while True:
                         choice = input('请选择 (1/2, 默认2): ').strip()
                         if choice == '1':
@@ -1582,21 +1601,18 @@ except:
                         else:
                             print('无效输入,请输入 1 或 2')
                 else:
-                    # CUDA 版本符合要求
-                    print('GPU 版本需要:')
-                    print('  - NVIDIA 显卡支持 CUDA 13.0')
-                    print('  - 驱动需支持 CUDA 13.0')
-                    print()
-                    print(f'✓ 您的 CUDA 版本 {cuda_version} 符合要求')
+                    runtime_name = 'CUDA 13.0' if selected_variant == 'cuda13.0' else 'CUDA 12.6'
+                    print(f'✓ 检测到驱动支持 CUDA {cuda_version}')
+                    print(f'✓ 将使用 {runtime_name} 依赖方案: {selected_variant}')
                     print()
                     print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
                     print()
-                    
+
                     while True:
-                        choice = input('使用 GPU 版本? (y/n, 默认y): ').strip().lower()
+                        choice = input(f'使用 {runtime_name} 版本? (y/n, 默认y): ').strip().lower()
                         if choice in ['', 'y', 'yes']:
-                            requirements_file = 'gpu'
-                            print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
+                            requirements_file = selected_variant
+                            print(f'✓ 使用: {requirements_file} (NVIDIA {runtime_name})')
                             break
                         elif choice in ['n', 'no']:
                             requirements_file = 'cpu'
@@ -1618,7 +1634,7 @@ except:
                 while True:
                     choice = input('使用 GPU 版本? (y/n, 默认y): ').strip().lower()
                     if choice in ['', 'y', 'yes']:
-                        requirements_file = 'gpu'
+                        requirements_file = 'cuda13.0'
                         print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
                         break
                     elif choice in ['n', 'no']:
@@ -1666,7 +1682,7 @@ except:
                     print('已取消安装，请确认显卡型号和驱动版本后重试。')
                     sys.exit(0)
                 elif user_action == 'force_amd':
-                    requirements_file = 'amd'
+                    requirements_file = 'rocm7.2.1'
                     use_amd_pytorch = True
                     amd_gfx_version = detected_gfx
                     print('⚠️  已选择强制安装 AMD 版本，兼容性无法保证。')
@@ -1680,7 +1696,7 @@ except:
                     choice = input('请选择 (1/2, 默认2): ').strip()
                     if choice == '1':
                         amd_gfx_version = detected_gfx
-                        requirements_file = 'amd'  # 使用专用的 AMD 依赖方案
+                        requirements_file = 'rocm7.2.1'  # 使用专用的 AMD 依赖方案
                         use_amd_pytorch = True
                         print(f'✓ 自动识别并使用: {amd_gfx_version}')
                         print(f'✓ 将使用 AMD ROCm PyTorch ({amd_gfx_version})')
@@ -1723,7 +1739,7 @@ except:
             while True:
                 choice = input('请选择 (1/2/3, 默认3): ').strip()
                 if choice == '1':
-                    requirements_file = 'gpu'
+                    requirements_file = 'cuda13.0'
                     print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
                     break
                 elif choice == '2':
@@ -1745,7 +1761,7 @@ except:
                     detected_gfx, arch_name, has_torch = detect_amd_gfx_version(gpu_name) if gpu_name else (None, None, False)
                     if detected_gfx and has_torch:
                         amd_gfx_version = detected_gfx
-                        requirements_file = 'amd'
+                        requirements_file = 'rocm7.2.1'
                         use_amd_pytorch = True
                         print(f'✓ 自动识别架构: {arch_name}')
                         print(f'✓ 将使用 AMD ROCm PyTorch ({amd_gfx_version})')
@@ -1757,7 +1773,7 @@ except:
                             print('已取消安装，请确认显卡型号和驱动版本后重试。')
                             sys.exit(0)
                         elif user_action == 'force_amd':
-                            requirements_file = 'amd'
+                            requirements_file = 'rocm7.2.1'
                             use_amd_pytorch = True
                             amd_gfx_version = detected_gfx
                             print('⚠️  已选择强制安装 AMD 版本，兼容性无法保证。')
@@ -1791,7 +1807,7 @@ except:
             while True:
                 choice = input('请选择 (1/2, 默认2): ').strip()
                 if choice == '1':
-                    requirements_file = 'gpu'
+                    requirements_file = 'cuda13.0'
                     print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
                     break
                 elif choice in ['', '2']:
@@ -1811,27 +1827,21 @@ except:
     need_reinstall = False
     
     if not need_reinstall:
-        # 检测当前安装的 PyTorch 类型
+        # 检测当前安装的 PyTorch 精确运行时，CUDA 12.6 与 CUDA 13.0 也必须区分。
         installed_pytorch_type, installed_detail = detect_installed_pytorch_version()
-        requirements_lower = requirements_file.lower()
-        if "amd" in requirements_lower:
-            target_type = "AMD"
-        elif "metal" in requirements_lower:
-            target_type = "Metal"
-        elif "gpu" in requirements_lower:
-            target_type = "GPU"
-        else:
-            target_type = "CPU"
-        
-        if installed_pytorch_type is not None and installed_pytorch_type != target_type:
+        installed_variant = dependency_variant_from_pytorch(
+            installed_pytorch_type, installed_detail
+        )
+
+        if installed_variant is not None and installed_variant != requirements_file:
             print('\n' + '=' * 50)
             print('⚠️  警告: 检测到 PyTorch 版本不匹配')
             print('=' * 50)
-            print(f'当前安装: {installed_pytorch_type} 版本 ({installed_detail})')
-            print(f'目标版本: {target_type} 版本')
+            print(f'当前安装: {installed_variant} ({installed_detail})')
+            print(f'目标版本: {requirements_file}')
             print()
             print('不同版本的 PyTorch 会导致 DLL 冲突和加载失败')
-            print('建议卸载旧版本后重新安装')
+            print('将卸载旧版本后重新安装目标依赖方案')
             print()
             need_reinstall = True
     

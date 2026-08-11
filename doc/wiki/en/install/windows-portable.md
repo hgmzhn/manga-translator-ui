@@ -28,7 +28,7 @@ The portable package is published under the `portable` tag in GitHub Releases:
    - Choose a download route (GitHub official or the Gitee mirror; Gitee is recommended in China).
    - The script force-syncs the latest code; if sync fails it suggests switching routes and retrying.
    - It detects the GPU (NVIDIA / AMD / integrated; lists them when several GPUs exist).
-   - Choose the PyTorch build: the default NVIDIA package uses CUDA 13.0; the `gpu-cuda12.6` package uses CUDA 12.6; AMD uses ROCm (experimental); anything else or integrated graphics selects CPU.
+   - Choose the PyTorch build: CUDA 13.0 or newer defaults to `cuda13.0`; CUDA 12.x selects `cuda12.6`; AMD uses `rocm7.2.1` (experimental); anything else or integrated graphics selects `cpu`. No Git branch switch is involved.
    - uv installs dependencies in bulk (PyPI multi-mirror fallback: Tsinghua → Aliyun → Douban → official); failures can be retried and installed packages are kept.
    - The download cache is cleaned automatically when done.
 3. Afterwards, start the app each time by double-clicking `Win-Start.bat`.
@@ -75,8 +75,8 @@ The install flow in `launch.py` reads dependencies and PyTorch sources from `pyp
 ## Environment and compatibility {#dependencies}
 
 - **Python version**: The current launcher accepts Python 3.12 only; `pyproject.toml` requires `>=3.12,<3.13`. System Python 3.13 or another version cannot substitute for the portable runtime.
-- **Mutually exclusive groups**: `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive in the uv configuration. Do not layer CPU, NVIDIA CUDA, and AMD ROCm groups into one environment; after a hardware change, use the maintenance menu to check and reinstall the matching dependencies.
-- **Windows AMD**: Windows AMD is not a simple copy of the Linux `amd` group. The script handles ROCm/PyTorch ordering separately and reports driver/support-list limits. Compatibility cannot be inferred from the GPU brand alone.
+- **Mutually exclusive groups**: `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` are mutually exclusive in the uv configuration. Do not layer CPU, NVIDIA CUDA, and AMD ROCm groups into one environment; after a hardware change, use the maintenance menu to reinstall the matching dependencies.
+- **Windows ROCm**: the script handles ROCm SDK 7.2.1/PyTorch ordering separately and reports driver/support-list limits. Compatibility cannot be inferred from the AMD brand alone.
 - **Legacy Conda**: It is used only when the portable interpreter is absent. Do not combine packages from `packaging\\python`, `conda_env`, and an external environment; an incorrect PATH can cause DLL, Torch, or ONNX Runtime conflicts.
 - **GPU/CPU resources**: GPU dependencies do not mean models are downloaded or that available VRAM is sufficient; the first start may still download or initialize models. CPU can run the application but is usually slower. If installation fails, do not delete successful packages and repeatedly switch schemes without checking the cause.
 - **Paths**: The script has a special drive-root Miniconda lookup when the installation path contains non-ASCII characters. To reduce DLL, Git, and model-path problems, prefer a short, writable path without special characters.

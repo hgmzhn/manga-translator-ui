@@ -79,8 +79,8 @@ Package installation prefers discoverable uv for bulk installation; when uv is u
 ## Environment and compatibility {#dependencies}
 
 - `pyproject.toml` requires Python `>=3.12,<3.13`; Python 3.13 is not a replacement runtime.
-- `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive uv dependency groups. Do not layer backends in one environment after changing hardware; reinstall the matching variant selected by maintenance.
-- Windows AMD is separately handled by `packaging/launch.py` in Radeon SDK → PyTorch order. Do not apply the Linux `amd` group's ROCm conditions to Windows. Detecting the GPU brand does not prove the driver or ROCm works.
+- `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` are mutually exclusive uv dependency groups. Do not layer backends in one environment after changing hardware; reinstall the matching variant selected by maintenance.
+- Windows ROCm 7.2.1 is handled separately by `packaging/launch.py` in Radeon SDK → PyTorch order. Detecting the GPU brand does not prove that the driver or ROCm works.
 - Legacy Conda is a fallback only when portable Python or Unix `.venv` is unavailable. Mixing `packaging/python`, `.venv`, `conda_env`, and external environments can create DLL, Torch, or ONNX Runtime conflicts.
 - Code updates can overwrite local source edits, and tags create detached HEAD. Back up and review configuration, prompts, models, fonts, and workspace resources before switching.
 - Updates need Git and package-index/mirror access. Translation API networking, credentials, and quota are a separate runtime path. A successful update neither proves the API works nor guarantees models are downloaded or VRAM is sufficient.

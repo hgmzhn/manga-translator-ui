@@ -39,9 +39,10 @@ lastUpdated: true
 
 | 目标环境 | 命令 | 说明 |
 | --- | --- | --- |
-| NVIDIA CUDA（源码开发默认） | `uv sync` | 默认 `gpu`、`packaging` 与 `test` 组，PyTorch 使用 CUDA 13.0；`cuda12.6` 分支构建 CUDA 12.6 包 |
+| NVIDIA CUDA 13.0（源码开发默认） | `uv sync` | 默认 `cuda13.0`、`packaging` 与 `test` 组；PyTorch 使用 cu130 |
+| NVIDIA CUDA 12.6 | `uv sync --no-default-groups --group cuda12.6` | PyTorch 使用 cu126；与 CUDA 13.0 组位于同一源码分支 |
 | CPU | `uv sync --no-default-groups --group cpu` | CPU PyTorch 与 `onnxruntime` |
-| Linux AMD ROCm | `uv sync --no-default-groups --group amd` | ROCm 7.2 索引；Linux x86_64 条件项安装 ROCm PyTorch/Triton |
+| Linux AMD ROCm | `uv sync --no-default-groups --group rocm7.2.1` | 使用 ROCm 7.2 索引；Windows 安装器使用 ROCm 7.2.1 固定运行时 |
 | macOS Apple Silicon | `uv sync --no-default-groups --group metal` | PyPI PyTorch/MPS；ONNX Runtime 仍为 CPU 版 |
 
 源码安装步骤：安装 Git、uv 和 Python 3.12 → `git clone https://github.com/hgmzhn/manga-translator-ui.git` 并进入仓库根目录 → 按上表执行对应的 `uv sync` 命令 → 用 `uv run --no-sync` 启动。`uv.lock` 已锁定版本，必要时用 `uv sync --locked` 校验一致性。
@@ -61,16 +62,16 @@ lastUpdated: true
 
 ## 安装脚本做了什么
 
-公共运行依赖在 `[project].dependencies`，硬件后端、打包和测试工具在 `[dependency-groups]`。`default-groups = ["gpu", "packaging", "test"]` 使源码开发的 `uv sync` 默认采用 NVIDIA 并安装开发工具；安装器显式禁用默认组，只选择一个硬件组，因此不会检查 `test` 组。`conflicts` 声明 `cpu`、`gpu`、`amd`、`metal` 互斥。PyTorch/torchvision 按组绑定显式索引，`xformers` 仅 GPU 组，Metal 不使用 CUDA 索引。
+公共运行依赖在 `[project].dependencies`，硬件后端、打包和测试工具在 `[dependency-groups]`。`default-groups = ["cuda13.0", "packaging", "test"]` 使源码开发的 `uv sync` 默认采用 CUDA 13.0 并安装开发工具；安装器显式禁用默认组，只选择一个硬件组，因此不会检查 `test` 组。`conflicts` 声明 `cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 互斥。PyTorch/torchvision 按组绑定显式索引，两个 CUDA 组包含 `xformers`，Metal 不使用 CUDA 索引。
 
 ```mermaid
 flowchart TD
     A["Python 3.12 + uv"] --> B["读取 pyproject.toml / uv.lock"]
     B --> C{"选择一个后端组"}
-    C -->|gpu| D["CUDA 13.0 + onnxruntime-gpu + xformers"]
+    C -->|cuda13.0| D["CUDA 13.0 + onnxruntime-gpu + xformers"]
     C -->|cuda12.6| E["CUDA 12.6 + onnxruntime-gpu + xformers"]
     C -->|cpu| F["CPU PyTorch + onnxruntime"]
-    C -->|amd| G["Linux ROCm 7.2 条件依赖"]
+    C -->|rocm7.2.1| G["Linux ROCm 7.2 条件依赖 / Windows ROCm 7.2.1"]
     C -->|metal| H["macOS PyTorch MPS + CPU ONNX Runtime"]
     D --> I["公共运行依赖"]
     E --> I

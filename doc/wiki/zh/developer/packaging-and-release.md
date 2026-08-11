@@ -88,7 +88,7 @@ flowchart LR
 
 ### 分卷压缩 {#split-archives}
 
-四个资产命名为 `manga-translator-cpu-<tag>.7z.*`、`manga-translator-gpu-<tag>.7z.*`、`manga-translator-gpu-cuda12.6-<tag>.7z.*` 和 `manga-translator-amd-<tag>.7z.*`。命令使用 `7z a -v1990m -m0=lzma2 -ms=on`；解压第一个分卷即可恢复完整便携目录。
+四个资产命名为 `manga-translator-cpu-<tag>.7z.*`、`manga-translator-cuda13.0-<tag>.7z.*`、`manga-translator-cuda12.6-<tag>.7z.*` 和 `manga-translator-rocm7.2.1-<tag>.7z.*`。命令使用 `7z a -v1990m -m0=lzma2 -ms=on`；解压第一个分卷即可恢复完整便携目录。
 
 ## CI 发布流水线 {#ci-release-pipeline}
 
@@ -127,8 +127,8 @@ flowchart LR
 
 ## 约束与注意事项 {#dependencies-and-conflicts}
 
-- `cpu`、`gpu`、`amd`、`metal` 四个硬件后端依赖组互斥；CI 便携发布构建 Windows `cpu`、`gpu` 和 `amd` 三个包。
-- AMD 包在锁定公共依赖后，按启动器相同顺序安装 Radeon ROCm SDK 7.2.1 与配套 PyTorch wheels；需要 AMD 26.2.2 驱动和受支持显卡。
+- `cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 五个硬件后端依赖组互斥；CI 便携发布构建 Windows `cpu`、`cuda13.0`、`cuda12.6` 和 `rocm7.2.1` 四个包。
+- ROCm 7.2.1 包在锁定公共依赖后，按启动器相同顺序安装 Radeon ROCm SDK 7.2.1 与配套 PyTorch wheels；需要 AMD 26.2.2 驱动和受支持显卡。
 - 发布包已经包含锁定依赖和 `models/`；归档体积会显著增大，必须保留 1990 MiB 分卷。
 - `packaging/VERSION`、`pyproject.toml [project] version` 与 `launch.py` 的硬编码版本可能不同步；发布以 tag 写入的 `VERSION` 为准。
 - 流水线依赖 `portable` 基础包和 `v1.7.9/models.7z` 两个既有 Release 资产；任一资产缺失或下载失败都会阻止发布。

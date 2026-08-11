@@ -29,10 +29,10 @@
 
 - **内存**：16 GB RAM 或更多
 - **GPU**：
-  - **NVIDIA 显卡**：默认使用 CUDA 13.0（另有 `cuda12.6` 分支可构建 CUDA 12.6 版本）
+  - **NVIDIA 显卡**：默认使用 CUDA 13.0；需要兼容版本时可使用 CUDA 12.6，支持 CUDA 13.0 及以上的驱动也能运行 CUDA 12.6 版本
     - 建议显存：6 GB 或更多
     - 支持的 NVIDIA 显卡：GTX 1060 及以上
-    - RTX 50 系列必须使用 NVIDIA GPU 版本，不支持 CPU 版本替代其 CUDA 运行时需求。
+    - RTX 50 系列必须下载 CUDA 13.0 版本。
   - **AMD 显卡**：支持 ROCm（实验性）
     - 支持的显卡：**仅 RX 7000/9000 系列（RDNA 3/4）**
     - ⚠️ RX 5000/6000 系列请使用 CPU 版本
@@ -94,7 +94,7 @@
 
 ### 依赖管理说明
 
-依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 dependency groups），并由 `uv.lock` 锁定版本。便携安装脚本直接把依赖装入自带的 `packaging\python`，**不会创建 `.venv`**；`.venv` 仅用于源码开发。
+依赖声明在 `pyproject.toml`（`cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal` 五个互斥 dependency groups），并由 `uv.lock` 锁定版本。便携安装脚本直接把依赖装入自带的 `packaging\python`，**不会创建 `.venv`**；`.venv` 仅用于源码开发。
 
 ### 启动程序
 
@@ -122,9 +122,10 @@
 
 ### 2. 选择版本
 
-- `manga-translator-cpu-vX.X.X.7z.001`：兼容性最好，不需要独立显卡。
-- `manga-translator-gpu-vX.X.X.7z.001`：NVIDIA CUDA 13.0 版本，需要匹配的显卡驱动。
-- `manga-translator-amd-vX.X.X.7z.001`：实验性 Radeon ROCm 7.2.1 版本，需要受支持显卡和 AMD 26.2.2 驱动。
+- `manga-translator-cpu-vX.Y.Z.7z.001`：兼容性最好，不需要独立显卡。
+- `manga-translator-cuda13.0-vX.Y.Z.7z.001`：NVIDIA CUDA 13.0 版本；RTX 50 系列必须选择此版本。
+- `manga-translator-cuda12.6-vX.Y.Z.7z.001`：NVIDIA CUDA 12.6 版本；适用于 CUDA 12.x，也可运行在支持 CUDA 13.0 及以上的驱动上。
+- `manga-translator-rocm7.2.1-vX.Y.Z.7z.001`：实验性 Radeon ROCm 7.2.1 版本，需要受支持的 AMD 显卡和 AMD 26.2.2 驱动。
 
 ### 3. 分卷解压
 
@@ -164,17 +165,20 @@ cd manga-translator-ui
 
 ### 2. 安装依赖
 
-依赖声明在 `pyproject.toml`（公共依赖 + `cpu` / `gpu` / `amd` / `metal` 四个互斥 dependency groups），使用 [uv](https://docs.astral.sh/uv/) 安装。下面四种后端只选一种：
+依赖声明在 `pyproject.toml`。`cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal` 五个 dependency groups 互斥，只选择一个后端：
 
 ```bash
-# NVIDIA GPU（CUDA 13.0，源码开发默认；CUDA 12.6 使用 cuda12.6 分支）
+# NVIDIA CUDA 13.0（源码开发默认）
 uv sync
 
-# CPU 版本
+# NVIDIA CUDA 12.6
+uv sync --no-default-groups --group cuda12.6
+
+# CPU
 uv sync --no-default-groups --group cpu
 
-# AMD GPU 版本（实验性；Linux 使用 ROCm 7.2 索引）
-uv sync --no-default-groups --group amd
+# Linux AMD ROCm 7.2；Windows 使用安装器提供的 ROCm 7.2.1 流程
+uv sync --no-default-groups --group rocm7.2.1
 
 # Apple Silicon / Metal
 uv sync --no-default-groups --group metal
@@ -461,7 +465,7 @@ chmod +x Unix-Install-or-Update.sh
 - 克隆项目代码
 - 使用 `uv` 安装 Python 3.12
 - 创建项目本地 `.venv`
-- 进入双语 Python 菜单，由 `launch.py` 选择并安装 `cpu`、`gpu`、`amd` 或 `metal`
+- 进入双语 Python 菜单，由 `launch.py` 选择并安装 `cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1` 或 `metal`
 
 启动时仅会询问一次 `Start installation now? [Y/n]`；正常确认后，初始化过程不会再次要求确认，完成即进入双语菜单。
 

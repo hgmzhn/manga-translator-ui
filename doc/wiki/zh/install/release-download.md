@@ -13,15 +13,15 @@ lastUpdated: true
 
 ## 当前发布包如何生成
 
-版本标签触发 `.github/workflows/build-and-release.yml` 后，发布流程会分别构建 CPU、NVIDIA CUDA 13.0 GPU、NVIDIA CUDA 12.6 GPU 和 AMD 四种便携包：
+版本标签触发 `.github/workflows/build-and-release.yml` 后，发布流程会分别构建 CPU、CUDA 13.0、CUDA 12.6 和 ROCm 7.2.1 四种便携包：
 
 1. CI 先从 `portable` 标签下载 `manga-translator-ui-portable.7z`；这个便携基础包已包含 Python 3.12、uv 和 `PortableGit`，随后再覆盖为当前标签的代码。`PortableGit` 会从基础包保留下来，不会在每次版本构建时重复下载。
 2. 从已锁定的 `uv.lock` 导出对应依赖组，把依赖直接安装进包内的 `packaging/python`。
-3. AMD 包单独安装 Windows Radeon ROCm 7.2.1 SDK 和配套 PyTorch；默认 NVIDIA 包使用 CUDA 13.0，`gpu-cuda12.6` 包使用 CUDA 12.6。
+3. ROCm 7.2.1 包单独安装 Windows Radeon ROCm 7.2.1 SDK 和配套 PyTorch；`cuda13.0` 依赖组使用 PyTorch cu130，`cuda12.6` 依赖组使用 PyTorch cu126。
 4. 把模型文件放进包内，执行 PyQt6、PyTorch、ONNX Runtime 冒烟检查。
 5. 使用 7-Zip 按约 1990 MiB 分卷，上传全部分卷到对应版本的 GitHub Release。
 
-> 仓库中的 `packaging/build_packages.py` 和 PyInstaller spec 仍可用于本地构建，但当前 GitHub Release 的 CPU/GPU/AMD 下载附件走的是上述“便携 Python + 已安装依赖”流程，所以发布包里没有 `app.exe` 属于正常现象。
+> 仓库中的 `packaging/build_packages.py` 和 PyInstaller spec 仍可用于本地构建，但当前 GitHub Release 的 CPU、CUDA 13.0、CUDA 12.6、ROCm 7.2.1 下载附件走的是上述“便携 Python + 已安装依赖”流程，所以发布包里没有 `app.exe` 属于正常现象。
 
 ## 下载与选择版本
 
@@ -30,12 +30,11 @@ lastUpdated: true
 | 发布文件前缀 | 适用设备 | 运行时 |
 | --- | --- | --- |
 | `manga-translator-cpu-vX.Y.Z.7z.*` | 所有 Windows x64 电脑；无独显或不确定兼容性时选它 | CPU PyTorch / ONNX Runtime |
-| `manga-translator-gpu-vX.Y.Z.7z.*` | NVIDIA 显卡 | CUDA 13.0；显卡驱动必须支持 CUDA 13.0 |
-| `manga-translator-gpu-cuda12.6-vX.Y.Z.7z.*` | 使用较旧兼容驱动的 NVIDIA 显卡 | CUDA 12.6；显卡驱动必须支持 CUDA 12.6 |
-| 兼容性提示 | RTX 50 系列显卡必须使用 NVIDIA GPU 分卷包 | 默认选择 CUDA 13.0；仅在驱动兼容时选择 CUDA 12.6 |
-| `manga-translator-amd-vX.Y.Z.7z.*` | 受 Windows ROCm 支持的 AMD 显卡 | 实验性 Radeon ROCm 7.2.1；要求 AMD 26.2.2 驱动 |
+| `manga-translator-cuda13.0-vX.Y.Z.7z.*` | 支持 CUDA 13.0 或更高版本的 NVIDIA 显卡；RTX 50 系列必须选此包 | CUDA 13.0 / PyTorch cu130 |
+| `manga-translator-cuda12.6-vX.Y.Z.7z.*` | 需要 CUDA 12.6 兼容版本的 NVIDIA 显卡；支持 CUDA 13.0 及以上的驱动也可运行 | CUDA 12.6 / PyTorch cu126 |
+| `manga-translator-rocm7.2.1-vX.Y.Z.7z.*` | 受 Windows ROCm 支持的 AMD 显卡 | 实验性 Radeon ROCm 7.2.1；要求 AMD 26.2.2 驱动 |
 
-AMD 包只适用于 Radeon ROCm 7.2.1 支持范围内的显卡。无法确认兼容性时先使用 CPU 包；不要把 CPU、NVIDIA 和 AMD 分卷混在一起。
+ROCm 7.2.1 包只适用于其支持范围内的 AMD 显卡。无法确认兼容性时先使用 CPU 包；不要把不同运行时的分卷混在一起。
 
 ## 下载和解压分卷
 

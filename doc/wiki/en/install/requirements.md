@@ -39,9 +39,10 @@ The current source of dependency truth is `pyproject.toml` and `uv.lock`. `requi
 
 | Target | Command | Meaning |
 | --- | --- | --- |
-| NVIDIA CUDA (source-development default) | `uv sync` | Default `gpu`, `packaging`, and `test` groups; PyTorch uses CUDA 13.0. The `cuda12.6` branch builds the CUDA 12.6 package |
+| NVIDIA CUDA 13.0 (source-development default) | `uv sync` | Default `cuda13.0`, `packaging`, and `test` groups; PyTorch uses cu130 |
+| NVIDIA CUDA 12.6 | `uv sync --no-default-groups --group cuda12.6` | PyTorch uses cu126 from the same source branch |
 | CPU | `uv sync --no-default-groups --group cpu` | CPU PyTorch and `onnxruntime` |
-| Linux AMD ROCm | `uv sync --no-default-groups --group amd` | ROCm 7.2 index; conditional ROCm PyTorch/Triton on Linux x86_64 |
+| Linux AMD ROCm | `uv sync --no-default-groups --group rocm7.2.1` | Uses the ROCm 7.2 index; the Windows installer uses the fixed ROCm 7.2.1 runtime |
 | macOS Apple Silicon | `uv sync --no-default-groups --group metal` | PyPI PyTorch/MPS; CPU ONNX Runtime |
 
 Source installation steps: install Git, uv, and Python 3.12 → run `git clone https://github.com/hgmzhn/manga-translator-ui.git` and enter the repository root → run the matching `uv sync` command from the table above → launch with `uv run --no-sync`. `uv.lock` pins the resolution; use `uv sync --locked` when you need to verify consistency.
@@ -61,16 +62,16 @@ After installation, desktop controls change runtime behavior but do not replace 
 
 ## What the installer does
 
-Common runtime dependencies are `[project].dependencies`; hardware backends, packaging, and test tools are in `[dependency-groups]`. `default-groups = ["gpu", "packaging", "test"]` makes source-development `uv sync` use NVIDIA and install developer tooling. The installer disables default groups and selects exactly one hardware group, so it does not check the `test` group. `conflicts` marks `cpu`, `gpu`, `amd`, and `metal` as mutually exclusive. PyTorch and torchvision bind to explicit indexes per group; `xformers` is GPU-only, and Metal does not use a CUDA index.
+Common runtime dependencies are `[project].dependencies`; hardware backends, packaging, and test tools are in `[dependency-groups]`. `default-groups = ["cuda13.0", "packaging", "test"]` makes source-development `uv sync` use CUDA 13.0 and install developer tooling. The installer disables default groups and selects exactly one hardware group, so it does not check the `test` group. `conflicts` marks `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` as mutually exclusive. PyTorch and torchvision bind to explicit indexes per group; both CUDA groups include `xformers`, while Metal does not use a CUDA index.
 
 ```mermaid
 flowchart TD
     A["Python 3.12 + uv"] --> B["Read pyproject.toml / uv.lock"]
     B --> C{"Choose one backend group"}
-    C -->|gpu| D["CUDA 13.0 + onnxruntime-gpu + xformers"]
+    C -->|cuda13.0| D["CUDA 13.0 + onnxruntime-gpu + xformers"]
     C -->|cuda12.6| E["CUDA 12.6 + onnxruntime-gpu + xformers"]
     C -->|cpu| F["CPU PyTorch + onnxruntime"]
-    C -->|amd| G["Conditional Linux ROCm 7.2 dependencies"]
+    C -->|rocm7.2.1| G["Linux ROCm 7.2 conditional dependencies / Windows ROCm 7.2.1"]
     C -->|metal| H["macOS PyTorch MPS + CPU ONNX Runtime"]
     D --> I["Common runtime dependencies"]
     E --> I

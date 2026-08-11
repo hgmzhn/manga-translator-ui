@@ -28,7 +28,7 @@ lastUpdated: true
    - 选择下载线路（GitHub 官方 / Gitee 国内镜像，国内推荐 Gitee）。
    - 脚本强制同步最新代码；同步失败会提示切换线路重试。
    - 自动检测显卡（NVIDIA / AMD / 集显；多显卡时列出选择）。
-   - 选择 PyTorch 版本：默认 NVIDIA 包使用 CUDA 13.0；`gpu-cuda12.6` 包使用 CUDA 12.6；AMD 使用 ROCm（实验性）；其他或集显选 CPU。
+   - 选择 PyTorch 版本：CUDA 13.0 及以上默认选 `cuda13.0`；CUDA 12.x 选 `cuda12.6`；AMD 使用 `rocm7.2.1`（实验性）；其他或集显选 `cpu`。全程不切换 Git 分支。
    - uv 批量安装依赖（PyPI 多镜像回退：清华 → 阿里 → 豆瓣 → 官方），失败可重试，已安装包保留。
    - 完成后自动清理下载缓存。
 3. 安装完成后，以后每次使用双击 `Win-Start.bat` 启动。
@@ -75,8 +75,8 @@ flowchart TD
 ## 环境与兼容性 {#dependencies}
 
 - **Python 版本**：当前启动器只接受 Python 3.12；`pyproject.toml` 约束为 `>=3.12,<3.13`。系统 Python 3.13 或其他版本不能作为便携运行时的替代品。
-- **依赖组互斥**：`cpu`、`gpu`、`amd`、`metal` 在 uv 配置中互斥。不要把 CPU、NVIDIA CUDA、AMD ROCm 组叠加到同一个环境；切换硬件后应使用维护菜单检查并按提示重装匹配依赖。
-- **Windows AMD**：Windows AMD 不是 Linux `amd` 组的简单复制；脚本单独处理 ROCm/PyTorch 顺序，并提示驱动与支持列表限制。兼容性不能仅凭显卡品牌判断。
+- **依赖组互斥**：`cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 在 uv 配置中互斥。不要把 CPU、NVIDIA CUDA、AMD ROCm 组叠加到同一个环境；切换硬件后应使用维护菜单检查并按提示重装匹配依赖。
+- **Windows ROCm**：脚本单独处理 ROCm SDK 7.2.1/PyTorch 顺序，并提示驱动与支持列表限制。兼容性不能仅凭 AMD 显卡品牌判断。
 - **旧 Conda**：只有便携解释器不存在时才回退。不要同时把 `packaging\\python`、`conda_env` 和外部环境的包混作一个环境；错误的 PATH 可能导致 DLL、Torch 或 ONNX Runtime 冲突。
 - **GPU/CPU 资源**：GPU 依赖不等于模型已下载，也不保证显存足够；首次启动仍可能下载或初始化模型。CPU 方案可运行但通常更慢。安装失败时不要删除已成功包后反复切换方案。
 - **目录路径**：脚本对非 ASCII 安装路径有特殊 Miniconda 根目录查找回退（盘符根目录）；为降低 DLL、Git 和模型路径问题，优先使用可写且不含特殊字符的短路径。

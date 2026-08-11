@@ -79,8 +79,8 @@ flowchart TD
 ## 环境与兼容性 {#dependencies}
 
 - `pyproject.toml` 要求 Python `>=3.12,<3.13`；Python 3.13 不可作为替代环境。
-- `cpu`、`gpu`、`amd`、`metal` 是 uv 互斥 dependency groups。切换硬件后不要在同一个环境叠加多个后端；应按维护菜单检测结果重装匹配方案。
-- Windows AMD 由 `packaging/launch.py` 单独按 Radeon SDK → PyTorch 顺序处理，不能把 Linux `amd` 组的 ROCm 条件直接套用到 Windows。显卡品牌被检测到不等于驱动和 ROCm 已可用。
+- `cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 是 uv 互斥 dependency groups。切换硬件后不要在同一个环境叠加多个后端；应按维护菜单检测结果重装匹配方案。
+- Windows ROCm 7.2.1 由 `packaging/launch.py` 单独按 Radeon SDK → PyTorch 顺序处理。显卡品牌被检测到不等于驱动和 ROCm 已可用。
 - 旧 Conda 只在便携 Python/Unix `.venv` 不可用时回退。混用 `packaging/python`、`.venv`、`conda_env` 或外部环境可能造成 DLL、Torch、ONNX Runtime 冲突。
 - 代码更新可能覆盖本地源码修改；tag 会进入 detached HEAD。配置、提示词、模型、字体和工作目录资源应在切换前单独备份并审查。
 - 更新需要 Git 和包索引/镜像网络；翻译 API 的运行时网络、密钥和配额是另一条链路。更新成功不代表 API 可用，也不保证模型已下载或显存足够。

@@ -13,15 +13,15 @@ Current GitHub Releases contain a **complete Windows portable directory**, not t
 
 ## How current release packages are built
 
-When a version tag triggers `.github/workflows/build-and-release.yml`, the release workflow creates CPU, NVIDIA CUDA 13.0 GPU, NVIDIA CUDA 12.6 GPU, and AMD portable packages separately:
+When a version tag triggers `.github/workflows/build-and-release.yml`, the release workflow creates CPU, CUDA 13.0, CUDA 12.6, and ROCm 7.2.1 portable packages separately:
 
 1. CI first downloads `manga-translator-ui-portable.7z` from the `portable` release. This base already contains Python 3.12, uv, and `PortableGit`; the tagged source tree is then overlaid. PortableGit is retained from the base instead of being downloaded again for every version build.
 2. It exports the matching dependency group from the locked `uv.lock` and installs those packages directly into `packaging/python` inside the archive.
-3. The AMD variant separately installs the Windows Radeon ROCm 7.2.1 SDK and matching PyTorch build; the default NVIDIA variant uses CUDA 13.0, and the `gpu-cuda12.6` variant uses CUDA 12.6.
+3. The ROCm 7.2.1 variant separately installs the Windows Radeon ROCm 7.2.1 SDK and matching PyTorch build; the `cuda13.0` dependency group uses PyTorch cu130, while `cuda12.6` uses PyTorch cu126.
 4. It adds the model files and smoke-tests PyQt6, PyTorch, and ONNX Runtime.
 5. It creates approximately 1990 MiB 7-Zip volumes and attaches every volume to the versioned GitHub Release.
 
-> `packaging/build_packages.py` and the PyInstaller specs remain available for local builds, but current CPU/GPU/AMD GitHub Release assets use the portable-Python workflow above. It is therefore normal for the release directory not to contain `app.exe`.
+> `packaging/build_packages.py` and the PyInstaller specs remain available for local builds, but current CPU, CUDA 13.0, CUDA 12.6, and ROCm 7.2.1 GitHub Release assets use the portable-Python workflow above. It is therefore normal for the release directory not to contain `app.exe`.
 
 ## Download and choose a variant
 
@@ -30,12 +30,11 @@ Open the latest version on [GitHub Releases](https://github.com/hgmzhn/manga-tra
 | Release filename prefix | Best for | Runtime |
 | --- | --- | --- |
 | `manga-translator-cpu-vX.Y.Z.7z.*` | Any Windows x64 computer; use it without a discrete GPU or when compatibility is uncertain | CPU PyTorch / ONNX Runtime |
-| `manga-translator-gpu-vX.Y.Z.7z.*` | NVIDIA GPUs | CUDA 13.0; the NVIDIA driver must support CUDA 13.0 |
-| `manga-translator-gpu-cuda12.6-vX.Y.Z.7z.*` | NVIDIA GPUs with older compatible drivers | CUDA 12.6; the NVIDIA driver must support CUDA 12.6 |
-| Compatibility note | RTX 50-series cards must use the NVIDIA GPU archive | Choose CUDA 13.0 by default; use CUDA 12.6 only with a compatible driver |
-| `manga-translator-amd-vX.Y.Z.7z.*` | AMD GPUs supported by Windows ROCm | Experimental Radeon ROCm 7.2.1; AMD driver 26.2.2 is required |
+| `manga-translator-cuda13.0-vX.Y.Z.7z.*` | NVIDIA GPUs supporting CUDA 13.0 or newer; RTX 50-series cards must use this build | CUDA 13.0 / PyTorch cu130 |
+| `manga-translator-cuda12.6-vX.Y.Z.7z.*` | NVIDIA GPUs needing the CUDA 12.6 compatibility build; drivers supporting CUDA 13.0 or newer can also run it | CUDA 12.6 / PyTorch cu126 |
+| `manga-translator-rocm7.2.1-vX.Y.Z.7z.*` | AMD GPUs supported by Windows ROCm | Experimental Radeon ROCm 7.2.1; AMD driver 26.2.2 is required |
 
-The AMD package works only with GPUs supported by Radeon ROCm 7.2.1. Use the CPU package when uncertain, and never mix CPU, NVIDIA, and AMD volumes.
+The ROCm 7.2.1 package works only with supported AMD GPUs. Use the CPU package when uncertain, and never mix volumes from different runtimes.
 
 ## Download and extract the volumes
 

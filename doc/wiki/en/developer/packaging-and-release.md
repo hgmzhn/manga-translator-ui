@@ -88,7 +88,7 @@ Each release archive is a complete Windows portable directory and does not conta
 
 ### Split archives {#split-archives}
 
-The four assets are named `manga-translator-cpu-<tag>.7z.*`, `manga-translator-gpu-<tag>.7z.*`, `manga-translator-gpu-cuda12.6-<tag>.7z.*`, and `manga-translator-amd-<tag>.7z.*`. The command uses `7z a -v1990m -m0=lzma2 -ms=on`; extracting the first volume restores the complete portable directory.
+The four assets are named `manga-translator-cpu-<tag>.7z.*`, `manga-translator-cuda13.0-<tag>.7z.*`, `manga-translator-cuda12.6-<tag>.7z.*`, and `manga-translator-rocm7.2.1-<tag>.7z.*`. The command uses `7z a -v1990m -m0=lzma2 -ms=on`; extracting the first volume restores the complete portable directory.
 
 ## CI release pipeline {#ci-release-pipeline}
 
@@ -127,8 +127,8 @@ The publish job waits for every matrix job. Before uploading, it deletes any exi
 
 ## Constraints and notes {#dependencies-and-conflicts}
 
-- The four hardware backend groups `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive; CI builds Windows `cpu`, `gpu`, and `amd` portable packages.
-- After locked common dependencies, the AMD package installs Radeon ROCm SDK 7.2.1 and matching PyTorch wheels in launcher order; AMD driver 26.2.2 and a supported GPU are required.
+- The five hardware backend groups `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` are mutually exclusive; CI builds Windows `cpu`, `cuda13.0`, `cuda12.6`, and `rocm7.2.1` portable packages.
+- After locked common dependencies, the ROCm 7.2.1 package installs Radeon ROCm SDK 7.2.1 and matching PyTorch wheels in launcher order; AMD driver 26.2.2 and a supported GPU are required.
 - Release packages already contain locked dependencies and `models/`; archive size is therefore large and the 1990 MiB split must remain.
 - `packaging/VERSION`, `[project] version` in `pyproject.toml`, and the hardcoded launcher version may differ; the tag-derived `VERSION` in the package is authoritative for releases.
 - The pipeline depends on the existing `portable` base asset and `v1.7.9/models.7z`; either asset missing or failing to download prevents publication.

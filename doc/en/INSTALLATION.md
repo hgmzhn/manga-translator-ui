@@ -31,10 +31,10 @@ This document provides detailed installation steps, system requirements, first-r
 
 - **Memory**: 16 GB RAM or more
 - **GPU**:
-  - **NVIDIA GPU**: CUDA 13.0 by default; the `cuda12.6` branch builds a CUDA 12.6 alternative
+  - **NVIDIA GPU**: CUDA 13.0 is the default; CUDA 12.6 is available for compatibility and also runs on drivers supporting CUDA 13.0 or newer
     - Recommended VRAM: 6 GB or more
     - Typical supported class: GTX 1060 and above
-    - RTX 50 series cards must use the NVIDIA GPU build; the CPU build is not a substitute for their CUDA runtime requirements.
+    - RTX 50-series cards must download the CUDA 13.0 build.
   - **AMD GPU**: ROCm support is experimental
     - Supported cards: **RX 7000 / 9000 only**
     - ⚠️ RX 5000 / 6000 should use the CPU build
@@ -96,7 +96,7 @@ The menu detects your system language and displays Chinese or English automatica
 
 ### Dependency management
 
-Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal`) and locked with `uv.lock`. The portable installer installs them directly into bundled `packaging\python`; it **does not create `.venv`**. `.venv` is only for source development.
+Dependencies are declared in `pyproject.toml` (five mutually exclusive dependency groups: `cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal`) and locked with `uv.lock`. The portable installer installs them directly into bundled `packaging\python`; it **does not create `.venv`**. `.venv` is only for source development.
 
 ### Start the program
 
@@ -124,9 +124,10 @@ Go to [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases).
 
 ### 2. Choose a build
 
-- `manga-translator-cpu-vX.X.X.7z.001`: best compatibility; no dedicated GPU required.
-- `manga-translator-gpu-vX.Y.Z.7z.001`: NVIDIA CUDA 13.0; requires a matching driver.
-- `manga-translator-amd-vX.X.X.7z.001`: experimental Radeon ROCm 7.2.1; requires a supported GPU and AMD driver 26.2.2.
+- `manga-translator-cpu-vX.Y.Z.7z.001`: best compatibility; no dedicated GPU required.
+- `manga-translator-cuda13.0-vX.Y.Z.7z.001`: NVIDIA CUDA 13.0; RTX 50-series cards must use this build.
+- `manga-translator-cuda12.6-vX.Y.Z.7z.001`: NVIDIA CUDA 12.6; supports CUDA 12.x systems and also runs on drivers supporting CUDA 13.0 or newer.
+- `manga-translator-rocm7.2.1-vX.Y.Z.7z.001`: experimental Radeon ROCm 7.2.1; requires a supported AMD GPU and AMD driver 26.2.2.
 
 ### 3. Extract split volumes
 
@@ -166,17 +167,20 @@ cd manga-translator-ui
 
 ### 2. Install dependencies
 
-Dependencies are declared in `pyproject.toml` (common dependencies plus four mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal`). Install one backend with [uv](https://docs.astral.sh/uv/):
+Dependencies are declared in `pyproject.toml`. The five dependency groups `cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal` are mutually exclusive; select one backend:
 
 ```bash
-# NVIDIA GPU (CUDA 13.0, source-development default; use the cuda12.6 branch for CUDA 12.6)
+# NVIDIA CUDA 13.0 (source-development default)
 uv sync
+
+# NVIDIA CUDA 12.6
+uv sync --no-default-groups --group cuda12.6
 
 # CPU
 uv sync --no-default-groups --group cpu
 
-# AMD GPU (experimental; Linux uses the ROCm 7.2 index)
-uv sync --no-default-groups --group amd
+# Linux AMD ROCm 7.2; Windows uses the installer's ROCm 7.2.1 flow
+uv sync --no-default-groups --group rocm7.2.1
 
 # Apple Silicon / Metal
 uv sync --no-default-groups --group metal
@@ -418,7 +422,7 @@ The script automatically:
 - Clones the project
 - Installs Python 3.12 through `uv`
 - Creates a project-local `.venv`
-- Opens the bilingual Python menu; `launch.py` selects and installs `cpu`, `gpu`, `amd`, or `metal`
+- Opens the bilingual Python menu; `launch.py` selects and installs `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, or `metal`
 
 At startup, the script asks only once: `Start installation now? [Y/n]`. After confirmation, the normal bootstrap flow proceeds directly to the bilingual menu.
 

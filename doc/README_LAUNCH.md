@@ -45,9 +45,9 @@
 依赖不再使用 `requirements_*.txt`，全部声明在 `pyproject.toml` 中：
 
 - `[project].dependencies`：公共依赖；
-- `[dependency-groups]`：`cpu` / `gpu` / `amd` / `metal` 四个互斥后端组，以及独立的 `packaging` 打包组和 `test` 测试组；
-- `[tool.uv].default-groups`：源码开发默认使用 `gpu` + `packaging` + `test`；
-- `[[tool.uv.index]]` + `[tool.uv.sources].torch`：定义各变体对应的 PyTorch 主源；主分支 GPU 使用 `.../cu130`，`cuda12.6` 分支使用 `.../cu126`。
+- `[dependency-groups]`：`cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal` 五个互斥后端组，以及 Docker 内部 `gpu` 兼容别名、独立的 `packaging` 打包组和 `test` 测试组；
+- `[tool.uv].default-groups`：源码开发默认使用 `cuda13.0` + `packaging` + `test`；
+- `[[tool.uv.index]]` + `[tool.uv.sources].torch`：`cuda13.0` 绑定 `.../cu130`，`cuda12.6` 绑定 `.../cu126`，两者位于同一源码分支。
 - `tool.uv.sources` 中 url/git 类型来源（如 pydensecrf）按平台 marker 解析成 `name @ url` 形式交给安装器。
 
 `get_variant_packages(variant)` 返回公共依赖 + 指定 dependency group 的完整包列表；`get_variant_index_url(variant)` 返回该变体的 PyTorch 主源。便携安装流程把这些依赖直接装入 `packaging\python`，不会创建 `.venv`。
@@ -67,7 +67,7 @@
 
 - 缓存目录固定为 `UV_CACHE_DIR = packaging\uv_cache`（与包同盘，避免跨盘硬链接退化成整份复制）；
 - 包列表分两批安装：
-  - **PyTorch 相关包**（torch/torchvision/torchaudio/xformers/nvidia-* 等一大串前缀名单，torchsummary、torchmetrics 除外）：按 `get_pytorch_index_candidates()` 顺序回退。主分支 GPU 使用 cu130；`cuda12.6` 分支使用 cu126；官方源和国内镜像按对应索引回退；
+  - **PyTorch 相关包**（torch/torchvision/torchaudio/xformers/nvidia-* 等一大串前缀名单，torchsummary、torchmetrics 除外）：按 `get_pytorch_index_candidates()` 顺序回退。`cuda13.0` 使用 cu130，`cuda12.6` 使用 cu126；官方源和国内镜像按对应索引回退；
   - **普通包**：走 PyPI 镜像按顺序回退：清华 → 阿里云 → 豆瓣 → PyPI 官方（环境变量 `INDEX_URL` 可插队为首选）；
 - 任一批次所有源都失败时抛异常，由上层回退到 pip 逐包安装。
 
@@ -97,7 +97,7 @@
 ### 4.3 NVIDIA
 
 - 通过 `nvidia-smi` 读取驱动版本和 CUDA 版本，正则**兼容新旧输出格式**：`CUDA Version: 12.8` 与新版的 `CUDA UMD Version: 13.3`；
-- CUDA ≥ 13.0 时默认推荐主分支 GPU 方案（cu130）；需要 CUDA 12.6 时使用 `cuda12.6` 分支构建或下载对应包。
+- CUDA ≥ 13.0 时默认推荐 `cuda13.0`（cu130）；CUDA 12.x 时选择 `cuda12.6`（cu126），不切换 Git 分支。
 
 ### 4.4 AMD（Linux ROCm 7.2 / Windows Radeon ROCm 7.2.1）
 

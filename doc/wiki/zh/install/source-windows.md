@@ -40,20 +40,23 @@ lastUpdated: true
 按硬件只选择一组依赖，命令在仓库根目录执行：
 
 ```powershell
-# NVIDIA GPU（CUDA 13.0，源码开发默认；cuda12.6 分支构建 CUDA 12.6）
+# NVIDIA CUDA 13.0（源码开发默认）
 uv sync
+
+# NVIDIA CUDA 12.6
+uv sync --no-default-groups --group cuda12.6
 
 # CPU 版本
 uv sync --no-default-groups --group cpu
 
 # Linux AMD ROCm（实验性）
-uv sync --no-default-groups --group amd
+uv sync --no-default-groups --group rocm7.2.1
 
 # macOS Apple Silicon / Metal
 uv sync --no-default-groups --group metal
 ```
 
-Windows 用户通常在 NVIDIA 和 CPU 之间选择。若是 AMD Windows，不要将 Linux 的 `amd` 命令照搬到 Windows；见下方“AMD Windows”小节。
+Windows 用户通常选择 CUDA 13.0、CUDA 12.6 或 CPU。Windows AMD 请使用安装器提供的 ROCm 7.2.1 流程；不要把 Linux ROCm 命令当成 Windows 固定 wheel 安装步骤。
 
 ### 启动源码程序
 
@@ -102,11 +105,10 @@ flowchart TD
 ## 环境与兼容性 {#dependencies}
 
 - **Python 版本**：`pyproject.toml` 和启动器都限制 Python 3.12；Python 3.13 会被拒绝。检查 `uv run --no-sync python --version`，不要只检查系统默认 `python`。
-- **后端组互斥**：`cpu`、`gpu`、`amd`、`metal` 在 `[tool.uv].conflicts` 中互斥。不要用 `uv sync --group cpu --group gpu` 混装，也不要把默认 `gpu` 组和另一个后端组一起保留。
-- **默认组**：项目默认组为 `gpu`、`packaging` 和 `test`；`uv sync` 因而会安装 CUDA GPU、打包工具与测试工具。CPU/AMD/Metal 运行环境使用 `--no-default-groups`，不会安装 `test` 组。
-- **NVIDIA**：主分支 GPU 组使用 `pytorch-cu130` 索引；`cuda12.6` 分支使用 `pytorch-cu126`。两者都包含 `onnxruntime-gpu` 和 `xformers`；驱动必须支持所选 CUDA 运行时。
-  - RTX 50 系列显卡必须使用 NVIDIA GPU 包；CPU 包不能替代所需的 CUDA 运行时。
-- **AMD**：Linux AMD 组使用 ROCm 7.2 索引和带平台标记的 torch/torchvision/triton；Windows AMD 由启动器先安装 Radeon ROCm SDK，再安装固定的 AMD PyTorch，兼容性受驱动和 gfx 架构影响。
-- **Metal**：Metal 组面向 macOS Apple Silicon，使用普通 PyPI 的 MPS PyTorch、CPU ONNX Runtime 和 Cocoa；不要在 Windows 选择该组。
+- **后端组互斥**：`cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 在 `[tool.uv].conflicts` 中互斥。不要把多个后端组装进同一环境。
+- **默认组**：项目默认组为 `cuda13.0`、`packaging` 和 `test`；其他运行环境使用 `--no-default-groups`，不会安装 `test` 组。
+- **NVIDIA**：`cuda13.0` 使用 `pytorch-cu130`，`cuda12.6` 使用 `pytorch-cu126`；两者位于同一源码分支，并包含 `onnxruntime-gpu` 和 `xformers`。RTX 50 系列必须使用 CUDA 13.0 版本；其他支持 CUDA 13.0 及以上驱动的显卡也可运行 CUDA 12.6 版本。
+- **ROCm**：Linux `rocm7.2.1` 组使用 ROCm 7.2 索引和平台标记的 torch/torchvision/triton；Windows 由启动器安装 ROCm SDK 7.2.1 与固定 PyTorch wheels，兼容性受驱动和 gfx 架构影响。
+- **Metal**：`metal` 组面向 macOS Apple Silicon，使用普通 PyPI 的 MPS PyTorch、CPU ONNX Runtime 和 Cocoa；不要在 Windows 选择该组。
 - **依赖冲突切换**：启动器检测到已安装 PyTorch 类型与目标不同，可能卸载 `torch`、`torchvision`、`torchaudio` 并清理 pip 缓存。先关闭其他使用 PyTorch 的 Python 进程。
 - **模型和网络**：依赖安装不等于模型下载完成；检测器、OCR、翻译器和修复模型可能在首次运行时下载或读取本地模型。API 凭据和代理设置不要写进公开脚本。

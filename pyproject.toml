@@ -1,10 +1,10 @@
 # uv 依赖配置（替代 requirements_cpu/gpu/amd/metal.txt）
 #
-# 安装方式（四选一，dependency groups 互斥）:
-#   uv sync                                      # 默认：NVIDIA CUDA 13.0 + 打包/测试工具；CUDA 12.6 见 cuda12.6 分支
+# 安装方式（五选一，dependency groups 互斥）:
+#   uv sync                                      # 默认：NVIDIA CUDA 13.0 + 打包/测试工具
+#   uv sync --no-default-groups --group cuda12.6 # NVIDIA CUDA 12.6 版
 #   uv sync --no-default-groups --group cpu      # CPU 版
-#   uv sync --no-default-groups --group amd      # Linux AMD ROCm 7.2
-#   # Windows AMD: use the Windows installer; it installs Radeon SDK before PyTorch.
+#   uv sync --no-default-groups --group rocm7.2.1 # Linux AMD ROCm 7.2.1 版
 #   uv sync --no-default-groups --group metal    # macOS Apple Silicon (MPS) 版
 
 [project]
@@ -104,7 +104,7 @@ cpu = [
     "huggingface-hub==1.26.0",
     "numpy>=2.0,<2.3",
 ]
-gpu = [
+"cuda13.0" = [
     "torch==2.13.0",
     "torchvision==0.28.0",
     "onnxruntime-gpu==1.28.0",
@@ -113,9 +113,22 @@ gpu = [
     "numpy>=2.0,<2.3",
     "xformers==0.0.35",
 ]
-# AMD ROCm: Linux 使用 PyTorch 官方 ROCm 7.2 索引。
-# Windows AMD 依赖由 packaging/launch.py 脚本按 ROCm SDK -> PyTorch 顺序安装。
-amd = [
+# Docker 仍以 BUILD_TYPE=gpu 选择镜像阶段；该内部别名不用于安装器或发行附件命名。
+gpu = [
+    { include-group = "cuda13.0" },
+]
+"cuda12.6" = [
+    "torch==2.13.0",
+    "torchvision==0.28.0",
+    "onnxruntime-gpu==1.28.0",
+    "ctranslate2==4.8.1",
+    "huggingface-hub==1.26.0",
+    "numpy>=2.0,<2.3",
+    "xformers==0.0.35",
+]
+# AMD ROCm：Linux 使用 PyTorch 官方 ROCm 7.2 索引；Windows 安装器使用 Radeon ROCm 7.2.1。
+# Windows ROCm 依赖由 packaging/launch.py 按 ROCm SDK -> PyTorch 顺序安装。
+"rocm7.2.1" = [
     "onnxruntime==1.28.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
@@ -147,14 +160,15 @@ test = [
 [tool.uv]
 # 本项目按应用管理，不构建/安装自身
 package = false
-# 本仓库默认使用 NVIDIA GPU 环境，并保留项目打包和测试工具
-default-groups = ["gpu", "packaging", "test"]
-# 四种后端互斥，不能同时安装
+# 本仓库默认使用 NVIDIA CUDA 13.0 环境，并保留项目打包和测试工具
+default-groups = ["cuda13.0", "packaging", "test"]
+# 五种后端互斥，不能同时安装
 conflicts = [
     [
         { group = "cpu" },
-        { group = "gpu" },
-        { group = "amd" },
+        { group = "cuda13.0" },
+        { group = "cuda12.6" },
+        { group = "rocm7.2.1" },
         { group = "metal" },
     ],
 ]
@@ -168,19 +182,22 @@ pythonpath = [".", "desktop_qt_ui"]
 # torch 索引按 dependency group 绑定；metal 不绑定，回落到默认 PyPI（自动 MPS 版）
 torch = [
     { index = "pytorch-cpu", group = "cpu" },
-    { index = "pytorch-cu130", group = "gpu" },
-    { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { index = "pytorch-cu130", group = "cuda13.0" },
+    { index = "pytorch-cu126", group = "cuda12.6" },
+    { index = "pytorch-rocm72", group = "rocm7.2.1", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 torchvision = [
     { index = "pytorch-cpu", group = "cpu" },
-    { index = "pytorch-cu130", group = "gpu" },
-    { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { index = "pytorch-cu130", group = "cuda13.0" },
+    { index = "pytorch-cu126", group = "cuda12.6" },
+    { index = "pytorch-rocm72", group = "rocm7.2.1", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 triton-rocm = [
-    { index = "pytorch-rocm72", group = "amd", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { index = "pytorch-rocm72", group = "rocm7.2.1", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
 xformers = [
-    { index = "pytorch-cu130", group = "gpu" },
+    { index = "pytorch-cu130", group = "cuda13.0" },
+    { index = "pytorch-cu126", group = "cuda12.6" },
 ]
 # pydensecrf 按平台选择安装来源
 # Windows/macOS/Linux x86_64: 预编译 wheel（避免本地编译失败）
@@ -220,6 +237,11 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [[tool.uv.index]]

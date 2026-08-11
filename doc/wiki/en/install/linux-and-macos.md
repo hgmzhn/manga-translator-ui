@@ -67,11 +67,11 @@ The mapping from stored values to the displayed names is listed in the [UI Optio
 Automatic selection during installation works broadly as follows:
 
 - Apple Silicon macOS selects `metal`, using PyTorch MPS, CPU ONNX Runtime, and Cocoa-framework support.
-- Linux NVIDIA selects `gpu` when a compatible CUDA driver is available; otherwise CPU can be selected.
-- Linux AMD recommends `amd` only for a detected supported ROCm architecture. When the hardware cannot be identified or is incompatible, it defaults to recommending `cpu`. The force-AMD choice explicitly warns that compatibility is not guaranteed.
+- Linux NVIDIA selects `cuda13.0` or `cuda12.6` from the driver-reported CUDA major version; CPU remains available as a fallback.
+- Linux AMD recommends `rocm7.2.1` only for a detected supported ROCm architecture. When hardware cannot be identified or is incompatible, it recommends `cpu`. The force-ROCm choice explicitly warns that compatibility is not guaranteed.
 - If hardware detection fails or an Intel GPU is detected, the script offers manual selection; CPU is the compatibility-first fallback.
 
-The source-development default `uv sync` groups are `gpu`, `packaging`, and `test`, but the Unix maintenance path disables defaults and selects only the detected hardware variant, so it does not install test tools. Do not manually enable `cpu`, `gpu`, `amd`, and `metal` together: `tool.uv.conflicts` declares them mutually exclusive, and mixing them causes PyTorch/ONNX backend conflicts.
+The source-development defaults are `cuda13.0`, `packaging`, and `test`, but Unix maintenance disables defaults and selects only the detected hardware variant. Do not enable `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` together; `tool.uv.conflicts` declares them mutually exclusive.
 
 ## What the installer does
 
@@ -102,8 +102,8 @@ For Update, the maintenance menu checks local and remote versions/commits and th
 ## Dependencies, conflicts, and platform limits
 
 - **Python:** only 3.12 is supported; 3.13 or another version is not a supported environment.
-- **Mutual exclusion:** `cpu`, `gpu`, `amd`, and `metal` cannot coexist. The NVIDIA GPU group includes `onnxruntime-gpu` and `xformers`; CPU uses `onnxruntime`; macOS Metal also uses CPU ONNX Runtime.
-- **AMD:** PyTorch and Triton in the ROCm group are conditional on Linux x86_64. Do not choose `amd` on macOS. An unsupported AMD architecture may still fail when force-installed.
+- **Mutual exclusion:** `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` cannot coexist. Both CUDA groups include `onnxruntime-gpu` and `xformers`; CPU and macOS Metal use CPU ONNX Runtime.
+- **ROCm:** PyTorch and Triton in `rocm7.2.1` are conditional on Linux x86_64. Do not choose this group on macOS. Unsupported AMD architectures may still fail when force-installed.
 - **Architecture:** the installer explicitly supports macOS `arm64`/`x86_64` and Linux `x86_64`/`amd64`; other Linux architectures require confirmation and are not promised to work with bundled wheels.
 - **Compilation and wheels:** `pydensecrf` is resolved from platform-specific prebuilt-wheel sources declared by the project. Installation fails if no matching wheel is available; do not expose or commit private wheels.
 - **Graphical prerequisites:** the desktop UI depends on PyQt6. Linux Qt/system graphics libraries, macOS graphics permissions, and drivers remain operating-system responsibilities; a headless server is not the desktop-UI environment covered here.

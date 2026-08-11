@@ -21,16 +21,16 @@ jobs:
           package-label: cpu
           source-ref: tag
           torch-index: https://download.pytorch.org/whl/cpu
-        - variant: gpu
-          package-label: gpu
+        - variant: cuda13.0
+          package-label: cuda13.0
           source-ref: tag
           torch-index: https://download.pytorch.org/whl/cu130
-        - variant: gpu
-          package-label: gpu-cuda12.6
-          source-ref: cuda12.6
+        - variant: cuda12.6
+          package-label: cuda12.6
+          source-ref: tag
           torch-index: https://download.pytorch.org/whl/cu126
-        - variant: amd
-          package-label: amd
+        - variant: rocm7.2.1
+          package-label: rocm7.2.1
           source-ref: tag
           torch-index: https://pypi.org/simple
     steps:
@@ -81,7 +81,7 @@ jobs:
         Set-Content -LiteralPath (Join-Path $portableDir 'packaging\VERSION') -Value ('${{ github.ref_name }}' -replace '^v', '') -Encoding utf8
         "PORTABLE_DIR=$portableDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
     - name: Install ${{ matrix.variant }} dependencies into bundled Python
-      if: ${{ matrix.variant != 'amd' }}
+      if: ${{ matrix.variant != 'rocm7.2.1' }}
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
@@ -96,24 +96,24 @@ jobs:
         } finally {
           Remove-Item $requirements -Force -ErrorAction SilentlyContinue
         }
-    - name: Install AMD base dependencies into bundled Python
-      if: ${{ matrix.variant == 'amd' }}
+    - name: Install ROCm 7.2.1 base dependencies into bundled Python
+      if: ${{ matrix.variant == 'rocm7.2.1' }}
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
         $uv = Join-Path $env:PORTABLE_DIR 'packaging\uv.exe'
         $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
-        $requirements = Join-Path $env:RUNNER_TEMP 'requirements-portable-amd.txt'
+        $requirements = Join-Path $env:RUNNER_TEMP 'requirements-portable-rocm7.2.1.txt'
         try {
-          & $uv export --locked --no-hashes --no-default-groups --group amd --no-emit-package torch --no-emit-package torchvision --format requirements.txt --output-file $requirements
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked AMD base dependencies.' }
+          & $uv export --locked --no-hashes --no-default-groups --group rocm7.2.1 --no-emit-package torch --no-emit-package torchvision --format requirements.txt --output-file $requirements
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to export locked ROCm 7.2.1 base dependencies.' }
           & $uv pip install --python $python --no-deps --requirement $requirements
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to install AMD base dependencies into bundled Python.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to install ROCm 7.2.1 base dependencies into bundled Python.' }
         } finally {
           Remove-Item $requirements -Force -ErrorAction SilentlyContinue
         }
-    - name: Install Windows AMD ROCm runtime
-      if: ${{ matrix.variant == 'amd' }}
+    - name: Install Windows ROCm 7.2.1 runtime
+      if: ${{ matrix.variant == 'rocm7.2.1' }}
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
@@ -125,12 +125,12 @@ jobs:
           'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl' `
           'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl' `
           'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm-7.2.1.tar.gz'
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to install the AMD ROCm SDK.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to install the ROCm 7.2.1 SDK.' }
         & $python -m pip install --no-cache-dir `
           'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl' `
           'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchaudio-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl' `
           'https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchvision-0.24.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl'
-        if ($LASTEXITCODE -ne 0) { throw 'Failed to install the AMD ROCm PyTorch runtime.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to install the ROCm 7.2.1 PyTorch runtime.' }
     - name: Clean dependency caches
       shell: pwsh
       run: |
@@ -160,7 +160,7 @@ jobs:
           Remove-Item $modelArchive -Force -ErrorAction SilentlyContinue
         }
     - name: Smoke test bundled runtime
-      if: ${{ matrix.variant != 'amd' }}
+      if: ${{ matrix.variant != 'rocm7.2.1' }}
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
@@ -168,15 +168,15 @@ jobs:
         # PyQt6 must load last; its Qt DLL paths can break torch/onnxruntime resolution on Windows.
         & $python -c "import torch, onnxruntime, PyQt6; print(torch.__version__, onnxruntime.__version__)"
         if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime import smoke test failed.' }
-    - name: Smoke test AMD bundled runtime metadata
-      if: ${{ matrix.variant == 'amd' }}
+    - name: Smoke test ROCm 7.2.1 bundled runtime metadata
+      if: ${{ matrix.variant == 'rocm7.2.1' }}
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
         $python = Join-Path $env:PORTABLE_DIR 'packaging\python\python.exe'
         # PyQt6 must load last; its Qt DLL paths can break onnxruntime resolution on Windows.
         & $python -c "from importlib.metadata import version; import onnxruntime, PyQt6; v = version('torch'); assert 'rocm7.2.1' in v, v; print(v, onnxruntime.__version__)"
-        if ($LASTEXITCODE -ne 0) { throw 'AMD bundled runtime metadata smoke test failed.' }
+        if ($LASTEXITCODE -ne 0) { throw 'ROCm 7.2.1 bundled runtime metadata smoke test failed.' }
     - name: Archive ${{ matrix.package-label }} portable package
       shell: pwsh
       run: |

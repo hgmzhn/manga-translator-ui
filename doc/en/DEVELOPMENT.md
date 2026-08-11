@@ -20,9 +20,9 @@ This guide only lists Git-tracked directories and files that are maintained toge
 Dependencies are now declared in `pyproject.toml` at the repository root:
 
 - Common dependencies live in `[project] dependencies`.
-- The four backends are mutually exclusive dependency groups: `cpu` / `gpu` / `amd` / `metal` (`[tool.uv] conflicts` enforces the exclusivity).
-- The default groups are `gpu` + `packaging` + `test`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 13.0. The reproducible CUDA 12.6 environment is maintained on the `cuda12.6` branch. The installer uses `--no-default-groups`, so it neither checks nor installs the `test` group.
-- PyTorch sources are bound via `[tool.uv.sources]` + `[[tool.uv.index]]`: the main branch uses `whl/cu130` for `gpu`, the `cuda12.6` branch uses `whl/cu126`, `cpu` uses `download.pytorch.org/whl/cpu`, Linux `amd` uses `whl/rocm7.2`, and `metal` uses the default PyPI.
+- The five backends are mutually exclusive dependency groups: `cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal` (`[tool.uv] conflicts` enforces exclusivity). Docker retains an internal `gpu` compatibility alias that is not used by the installer or release assets.
+- The default groups are `cuda13.0` + `packaging` + `test`, so plain `uv sync` / `uv run` uses NVIDIA CUDA 13.0. CUDA 12.6 uses the `cuda12.6` group in the same source branch. The installer uses `--no-default-groups`, so it neither checks nor installs the `test` group.
+- PyTorch sources are bound through `[tool.uv.sources]` + `[[tool.uv.index]]`: `cuda13.0` uses `whl/cu130`, `cuda12.6` uses `whl/cu126`, `cpu` uses `whl/cpu`, Linux `rocm7.2.1` uses `whl/rocm7.2`, and `metal` uses normal PyPI.
 - `uv.lock` is the lockfile. It is committed to the repository; do not edit it by hand.
 
 The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` files have been removed.
@@ -32,16 +32,19 @@ The old `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt`
 uv is recommended. Install only one dependency group for the target runtime:
 
 ```bash
-# NVIDIA GPU (CUDA 13.0, default; use the cuda12.6 branch for CUDA 12.6)
+# NVIDIA CUDA 13.0 (default)
 uv sync
+
+# NVIDIA CUDA 12.6
+uv sync --no-default-groups --group cuda12.6
 
 # For other backends, disable the defaults and select one group
 uv sync --no-default-groups --group cpu
 uv sync --no-default-groups --group metal
 
 # AMD (Linux): use the official PyTorch ROCm 7.2 index
-uv sync --no-default-groups --group amd
-# Windows AMD is handled by the Windows installer in Radeon SDK -> PyTorch order
+uv sync --no-default-groups --group rocm7.2.1
+# Windows AMD is handled by the Windows installer in Radeon ROCm 7.2.1 SDK -> PyTorch order
 ```
 
 In a source checkout, `uv sync` creates `.venv` and reproduces dependencies from `uv.lock`. The Windows portable installer uses bundled `packaging\python` and does not create `.venv`. To install source dependencies into an existing environment instead:

@@ -15,9 +15,9 @@
 依赖现在统一声明在仓库根目录的 `pyproject.toml`：
 
 - 公共依赖写在 `[project] dependencies`。
-- 四种后端是互斥的 dependency groups：`cpu` / `gpu` / `amd` / `metal`（`[tool.uv] conflicts` 保证互斥）。
-- 默认组是 `gpu` + `packaging` + `test`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 13.0；CUDA 12.6 的可复现环境位于 `cuda12.6` 分支。安装器使用 `--no-default-groups`，不会检查或安装 `test` 组。
-- PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：主分支 `gpu` 使用 `whl/cu130`，`cuda12.6` 分支使用 `whl/cu126`，`cpu` 用 `download.pytorch.org/whl/cpu`，Linux `amd` 用 `whl/rocm7.2`，`metal` 走默认 PyPI。
+- 五种后端是互斥的 dependency groups：`cpu` / `cuda13.0` / `cuda12.6` / `rocm7.2.1` / `metal`（`[tool.uv] conflicts` 保证互斥）。Docker 内部保留 `gpu` 兼容别名，不用于安装器或发行附件命名。
+- 默认组是 `cuda13.0` + `packaging` + `test`，所以裸 `uv sync` / `uv run` 使用 NVIDIA CUDA 13.0；CUDA 12.6 直接使用同一分支中的 `cuda12.6` 组。安装器使用 `--no-default-groups`，不会检查或安装 `test` 组。
+- PyTorch 源通过 `[tool.uv.sources]` + `[[tool.uv.index]]` 绑定：`cuda13.0` 使用 `whl/cu130`，`cuda12.6` 使用 `whl/cu126`，`cpu` 使用 `whl/cpu`，Linux `rocm7.2.1` 使用 `whl/rocm7.2`，`metal` 走默认 PyPI。
 - `uv.lock` 是锁定文件，已提交在仓库里，请勿手改。
 
 旧的 `requirements_cpu.txt` / `requirements_gpu.txt` / `requirements_amd.txt` / `requirements_metal.txt` 已删除。
@@ -27,16 +27,19 @@
 推荐使用 uv，按你的运行目标只装一套 dependency group：
 
 ```bash
-# NVIDIA GPU（CUDA 13.0，默认；CUDA 12.6 使用 cuda12.6 分支）
+# NVIDIA CUDA 13.0（默认）
 uv sync
+
+# NVIDIA CUDA 12.6
+uv sync --no-default-groups --group cuda12.6
 
 # 其他后端关闭默认组后显式选择
 uv sync --no-default-groups --group cpu
 uv sync --no-default-groups --group metal
 
 # AMD（Linux）：使用 PyTorch 官方 ROCm 7.2 索引
-uv sync --no-default-groups --group amd
-# Windows AMD 由 Windows 安装脚本按 Radeon SDK -> PyTorch 顺序处理
+uv sync --no-default-groups --group rocm7.2.1
+# Windows AMD 由 Windows 安装脚本按 Radeon ROCm 7.2.1 SDK -> PyTorch 顺序处理
 ```
 
 源码仓库中的 `uv sync` 会自动创建 `.venv` 并按 `uv.lock` 复现依赖；Windows 便携安装包使用自带的 `packaging\python`，不会创建 `.venv`。如果想把源码依赖装进已有环境，也可以：

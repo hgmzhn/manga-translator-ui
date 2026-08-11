@@ -42,9 +42,9 @@ def get_dependency_group():
     torch_type, variant = detect_torch_type()
     
     if torch_type == "GPU":
-        return "gpu"
+        return "cuda12.6" if (variant or "").startswith("cu12") else "cuda13.0"
     elif torch_type == "AMD":
-        return "amd"
+        return "rocm7.2.1"
     elif torch_type == "Metal":
         return "metal"
     elif torch_type == "CPU":

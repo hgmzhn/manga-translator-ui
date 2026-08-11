@@ -40,20 +40,23 @@ If the repository already exists, enter it and check the working-tree status bef
 Select exactly one backend group for the hardware; run the commands from the repository root:
 
 ```powershell
-# NVIDIA GPU (CUDA 13.0, source-development default; the cuda12.6 branch builds CUDA 12.6)
+# NVIDIA CUDA 13.0 (source-development default)
 uv sync
+
+# NVIDIA CUDA 12.6
+uv sync --no-default-groups --group cuda12.6
 
 # CPU
 uv sync --no-default-groups --group cpu
 
 # Linux AMD ROCm (experimental)
-uv sync --no-default-groups --group amd
+uv sync --no-default-groups --group rocm7.2.1
 
 # macOS Apple Silicon / Metal
 uv sync --no-default-groups --group metal
 ```
 
-Windows users generally choose NVIDIA or CPU. If you have Windows AMD, do not copy the Linux `amd` command to Windows; see the “Windows AMD” note below.
+Windows users generally choose CUDA 13.0, CUDA 12.6, or CPU. Windows AMD users should use the installer's ROCm 7.2.1 flow rather than treating the Linux ROCm command as the fixed Windows-wheel procedure.
 
 ### Start the source application
 
@@ -102,11 +105,10 @@ The maintenance mode's `prepare_environment` detects the device and checks the i
 ## Environment and compatibility {#dependencies}
 
 - **Python version**: `pyproject.toml` and the launcher both constrain Python to 3.12; Python 3.13 is rejected. Check `uv run --no-sync python --version`, not only the system `python`.
-- **Mutually exclusive groups**: `cpu`, `gpu`, `amd`, and `metal` are mutually exclusive under `[tool.uv].conflicts`. Do not run `uv sync --group cpu --group gpu` or retain the default `gpu` group alongside another backend.
-- **Default groups**: the project defaults to `gpu`, `packaging`, and `test`; `uv sync` therefore installs CUDA GPU, packaging tools, and test tools. CPU/AMD/Metal runtime environments use `--no-default-groups` and do not install the `test` group.
-- **NVIDIA**: the main GPU group uses the `pytorch-cu130` index; the `cuda12.6` branch uses `pytorch-cu126`. Both include `onnxruntime-gpu` and `xformers`; the driver must support the selected CUDA runtime.
-  - RTX 50-series cards must use a NVIDIA GPU package; the CPU package cannot replace the required CUDA runtime.
-- **AMD**: the Linux AMD group uses the ROCm 7.2 index and platform-marked torch/torchvision/triton. Windows AMD first installs the Radeon ROCm SDK and then fixed AMD PyTorch wheels; driver and gfx architecture determine compatibility.
-- **Metal**: the Metal group targets Apple Silicon macOS, using MPS PyTorch, CPU ONNX Runtime, and Cocoa from normal PyPI; do not choose it on Windows.
+- **Mutually exclusive groups**: `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` are mutually exclusive under `[tool.uv].conflicts`. Do not install multiple backend groups into one environment.
+- **Default groups**: the project defaults to `cuda13.0`, `packaging`, and `test`; other runtime environments use `--no-default-groups` and do not install the `test` group.
+- **NVIDIA**: `cuda13.0` uses `pytorch-cu130`, while `cuda12.6` uses `pytorch-cu126`; both are in the same source branch and include `onnxruntime-gpu` and `xformers`. RTX 50-series cards must use CUDA 13.0; other systems with CUDA 13.0-or-newer drivers can also run the CUDA 12.6 build.
+- **ROCm**: the Linux `rocm7.2.1` group uses the ROCm 7.2 index and platform-marked torch/torchvision/triton. On Windows, the launcher installs ROCm SDK 7.2.1 and fixed PyTorch wheels; driver and gfx architecture determine compatibility.
+- **Metal**: `metal` targets Apple Silicon macOS with MPS PyTorch, CPU ONNX Runtime, and Cocoa from normal PyPI; do not select it on Windows.
 - **Switching conflicts**: if the installed PyTorch type differs from the target, the launcher may uninstall `torch`, `torchvision`, and `torchaudio` and purge the pip cache. Close other Python processes using PyTorch first.
 - **Models and network**: dependency installation does not mean model downloads are complete; detector, OCR, translator, and inpainting models may download on first use or read local model files. Do not place credentials or proxy settings in public scripts.

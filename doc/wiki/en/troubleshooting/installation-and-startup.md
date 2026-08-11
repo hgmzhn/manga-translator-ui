@@ -49,7 +49,7 @@ The installer first uses the declared dependency sources and, on failure, falls 
 
 ### Dependency group conflicts {#dependency-groups}
 
-`pyproject.toml` declares four mutually exclusive hardware groups — `cpu`, `gpu`, `amd`, and `metal`. Source-development `uv sync` defaults to `gpu`, `packaging`, and `test`, while the maintenance installer disables defaults and selects one hardware group. Adding another backend to the same environment, or mixing `onnxruntime` with `onnxruntime-gpu` or Torch from different CUDA/ROCm indexes, causes DLL, Torch, or ONNX Runtime conflicts. When the launcher detects that the installed PyTorch type does not match the target, it warns that the PyTorch version is mismatched, uninstalls `torch`/`torchvision`/`torchaudio`, and reinstalls; close other Python processes using PyTorch before the uninstall. When changing backends, create a fresh environment or cleanly resync one group; see the conflict table in [Runtime Requirements](../install/requirements.md).
+`pyproject.toml` declares five mutually exclusive hardware groups: `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal`. Source-development `uv sync` defaults to `cuda13.0`, `packaging`, and `test`, while maintenance disables defaults and selects one hardware group. Layering another backend into the same environment, or mixing ONNX Runtime and Torch from different CUDA/ROCm indexes, causes DLL, Torch, or ONNX Runtime conflicts. When the installed PyTorch type differs from the selected backend, the launcher reports the mismatch and reinstalls the chosen runtime.
 
 ### Runtime environment not found {#missing-environment}
 

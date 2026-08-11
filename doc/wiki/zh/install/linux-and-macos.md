@@ -67,11 +67,11 @@ MANGAT_DRY_RUN=1 ./Unix-Start.sh
 安装阶段的自动选择大致如下：
 
 - Apple Silicon macOS 选择 `metal`，使用 PyTorch MPS 版本、CPU 版 ONNX Runtime，以及 Cocoa 框架支持。
-- Linux NVIDIA 在 CUDA 驱动可用且兼容时选择 `gpu`，否则可以选择 `cpu`。
-- Linux AMD 只在检测到受支持的 ROCm 架构时建议 `amd`；无法识别或不兼容时默认建议 `cpu`。强制 AMD 选项明确提示兼容性不能保证。
-- 无法检测硬件或 Intel GPU 时提供手动选择，CPU 是兼容性优先的回退。
+- Linux NVIDIA 根据驱动报告的 CUDA 主版本选择 `cuda13.0` 或 `cuda12.6`；否则可以选择 `cpu`。
+- Linux AMD 只在检测到受支持的 ROCm 架构时建议 `rocm7.2.1`；无法识别或不兼容时默认建议 `cpu`。强制 ROCm 选项明确提示兼容性不能保证。
+- 无法检测硬件或检测到 Intel GPU 时提供手动选择，CPU 是兼容性优先的回退。
 
-`uv sync` 的源码开发默认组是 `gpu`、`packaging` 和 `test`，但 Unix 维护流程禁用默认组并根据检测结果只选择对应硬件变体，因此不会安装测试工具。不要手动同时启用 `cpu`、`gpu`、`amd`、`metal`；`tool.uv.conflicts` 已将它们声明为互斥，混装会造成 PyTorch/ONNX 后端冲突。
+`uv sync` 的源码开发默认组是 `cuda13.0`、`packaging` 和 `test`，但 Unix 维护流程禁用默认组并根据检测结果只选择对应硬件变体，因此不会安装测试工具。不要手动同时启用 `cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal`；`tool.uv.conflicts` 已将它们声明为互斥。
 
 ## 安装脚本做了什么
 
@@ -102,8 +102,8 @@ flowchart TD
 ## 依赖、冲突与平台限制
 
 - **Python**：只支持 3.12；3.13 或其他版本不能作为受支持环境。
-- **后端互斥**：`cpu`、`gpu`、`amd`、`metal` 不能同时安装。NVIDIA GPU 组包含 `onnxruntime-gpu` 与 `xformers`；CPU 组使用 `onnxruntime`；macOS Metal 组也使用 CPU 版 ONNX Runtime。
-- **AMD**：ROCm 组中的 PyTorch/Triton 条件限定 Linux x86_64；macOS 不应选择 `amd`。不受支持的 AMD 架构即使强制安装也可能无法运行。
+- **后端互斥**：`cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 不能同时安装。两个 CUDA 组包含 `onnxruntime-gpu` 与 `xformers`；CPU 和 macOS Metal 使用 CPU 版 ONNX Runtime。
+- **ROCm**：`rocm7.2.1` 组中的 PyTorch/Triton 条件限定 Linux x86_64；macOS 不应选择该组。不受支持的 AMD 架构即使强制安装也可能无法运行。
 - **架构**：安装脚本明确支持 macOS `arm64`/`x86_64` 和 Linux `x86_64`/`amd64`；其他 Linux 架构需用户确认，项目未承诺 bundled wheels 可用。
 - **编译与 wheel**：`pydensecrf` 按平台从项目声明的预编译 wheel 来源解析；目标平台没有匹配 wheel 时安装会失败，不应自行展示或提交私有 wheel。
 - **图形前置**：桌面 UI 依赖 PyQt6。Linux 的 Qt/系统图形库、macOS 的图形权限与驱动仍由操作系统提供；无头服务器不是本页的桌面 UI 运行环境。

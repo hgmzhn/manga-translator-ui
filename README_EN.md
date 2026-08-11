@@ -136,7 +136,7 @@ No separate Python installation is required. Download the [portable package](htt
 
 #### Download a portable release
 
-Download a CPU, NVIDIA GPU, or experimental AMD build from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract it, and run `Win-Start.bat`. Python dependencies and model files are already installed; the AMD build requires a supported GPU and driver 26.2.2. 📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
+Download a CPU, CUDA 13.0, CUDA 12.6, or experimental ROCm 7.2.1 build from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract it, and run `Win-Start.bat`. RTX 50-series cards must use the build whose filename contains `cuda13.0`; other NVIDIA GPUs may choose `cuda12.6` for compatibility, and drivers supporting CUDA 13.0 or newer can also run the CUDA 12.6 build. Python dependencies and model files are included. The ROCm 7.2.1 build requires a supported AMD GPU and driver 26.2.2. 📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
 
 #### Run from source (developers)
 

@@ -136,7 +136,7 @@
 
 #### 下载发布便携包
 
-从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载 CPU、NVIDIA GPU 或实验性 AMD 版本，解压后双击 `Win-Start.bat`。包内已安装 Python 依赖和模型文件；AMD 版本要求受支持显卡与 26.2.2 驱动。 📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
+从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载 CPU、CUDA 13.0、CUDA 12.6 或实验性 ROCm 7.2.1 版本，解压后双击 `Win-Start.bat`。RTX 50 系列显卡请下载文件名含 `cuda13.0` 的版本；其他 NVIDIA 显卡可按兼容性选择 `cuda12.6`，支持 CUDA 13.0 及以上的驱动也能运行 CUDA 12.6 版本。包内已安装 Python 依赖和模型文件；ROCm 7.2.1 版本要求受支持的 AMD 显卡与 26.2.2 驱动。 📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
 
 #### 从源码运行（开发者）
 
