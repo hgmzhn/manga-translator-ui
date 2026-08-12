@@ -29,10 +29,10 @@
 
 - **内存**：16 GB RAM 或更多
 - **GPU**：
-  - **NVIDIA 显卡**：默认使用 CUDA 13.0；需要兼容版本时可使用 CUDA 12.6，支持 CUDA 13.0 及以上的驱动也能运行 CUDA 12.6 版本
+  - **NVIDIA 显卡**：GeForce 10 系必须使用 CUDA 12.6；CUDA 13.0 仅支持 Turing（计算能力 7.5）及更新架构，支持 CUDA 13.0 及以上的驱动也能运行 CUDA 12.6 版本
     - 建议显存：6 GB 或更多
     - 支持的 NVIDIA 显卡：GTX 1060 及以上
-    - RTX 50 系列必须下载 CUDA 13.0 版本。
+    - RTX 20/30/40/50 系列在驱动支持 CUDA 13.0 时可选择 CUDA 13.0；RTX 50 系列推荐此版本
   - **AMD 显卡**：支持 ROCm（实验性）
     - 支持的显卡：**仅 RX 7000/9000 系列（RDNA 3/4）**
     - ⚠️ RX 5000/6000 系列请使用 CPU 版本
@@ -70,7 +70,7 @@
 2. **强制同步最新代码**：同步失败会提示切换到另一条线路重试
 3. **检测显卡**：自动识别 NVIDIA / AMD / 集显；多显卡时列出让用户选择
 4. **选择 PyTorch 版本**：
-   - **NVIDIA**：默认 CUDA 13.0（`cuda12.6` 分支使用 CUDA 12.6）
+   - **NVIDIA**：按显卡型号、计算能力和驱动自动选择；GeForce 10 系强制 CUDA 12.6，Turing（计算能力 7.5）及更新架构在驱动支持时使用 CUDA 13.0
    - **AMD**：ROCm（实验性，**仅 RX 7000/9000 系列**）
    - **其他/集显**：CPU 版本
 5. **uv 高速批量安装依赖**：
@@ -123,9 +123,11 @@
 ### 2. 选择版本
 
 - `manga-translator-cpu-vX.Y.Z.7z.001`：兼容性最好，不需要独立显卡。
-- `manga-translator-cuda13.0-vX.Y.Z.7z.001`：NVIDIA CUDA 13.0 版本；RTX 50 系列必须选择此版本。
-- `manga-translator-cuda12.6-vX.Y.Z.7z.001`：NVIDIA CUDA 12.6 版本；适用于 CUDA 12.x，也可运行在支持 CUDA 13.0 及以上的驱动上。
+- `manga-translator-cuda13.0-vX.Y.Z.7z.001`：适用于 Turing（计算能力 7.5）及更新的 NVIDIA 显卡，并且驱动支持 CUDA 13.0；RTX 50 系列推荐此版本。
+- `manga-translator-cuda12.6-vX.Y.Z.7z.001`：GeForce 10 系列必须选择此版本；也适用于其他需要兼容版本的 NVIDIA 显卡，支持 CUDA 13.0 及以上的驱动可向下兼容运行。
 - `manga-translator-rocm7.2.1-vX.Y.Z.7z.001`：实验性 Radeon ROCm 7.2.1 版本，需要受支持的 AMD 显卡和 AMD 26.2.2 驱动。
+
+> CUDA 13.0 已不支持 Turing 之前的 NVIDIA 架构。GTX 1060/1070/1080 等 GeForce 10 系列不要下载 CUDA 13.0 包，必须使用 CUDA 12.6 包。
 
 ### 3. 分卷解压
 
@@ -591,7 +593,7 @@ A: 运行 `./Unix-Install-or-Update.sh`，在 Python 菜单中选择 [2] 更新�
 **问题**：GPU 版本运行时崩溃或报错
 
 **解决方法**：
-1. 确认显卡和驱动支持 CUDA 13.0；CUDA 12.6 包则确认支持 CUDA 12.6
+1. 确认版本匹配：GeForce 10 系必须使用 CUDA 12.6；CUDA 13.0 需要 Turing（计算能力 7.5）及更新架构和支持 CUDA 13.0 的驱动
 2. 安装或更新 NVIDIA 显卡驱动
 3. 如需开发工具链，下载并安装 [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-downloads)
 4. 如果仍然失败，使用 CPU 版本

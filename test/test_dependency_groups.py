@@ -40,14 +40,55 @@ def test_cuda_groups_use_matching_pytorch_indexes():
     assert launch.get_variant_index_url("cuda12.6") == "https://download.pytorch.org/whl/cu126"
 
 
-def test_nvidia_cuda_major_selects_matching_dependency_group():
+def test_nvidia_cuda_variant_requires_turing_for_cuda13():
     launch = load_launch("launch_nvidia_variant_test")
 
-    assert launch.select_nvidia_dependency_variant(13) == "cuda13.0"
-    assert launch.select_nvidia_dependency_variant(14) == "cuda13.0"
-    assert launch.select_nvidia_dependency_variant(12) == "cuda12.6"
-    assert launch.select_nvidia_dependency_variant(11) is None
-    assert launch.select_nvidia_dependency_variant(None) is None
+    assert launch.select_nvidia_dependency_variant(13, (12, 0)) == "cuda13.0"
+    assert launch.select_nvidia_dependency_variant(13, (8, 9)) == "cuda13.0"
+    assert launch.select_nvidia_dependency_variant(13, (7, 5)) == "cuda13.0"
+    assert launch.select_nvidia_dependency_variant(13, (7, 0)) == "cuda12.6"
+    assert launch.select_nvidia_dependency_variant(13, (6, 1)) == "cuda12.6"
+    assert launch.select_nvidia_dependency_variant(13, None) == "cuda12.6"
+    assert launch.select_nvidia_dependency_variant(14, (7, 0)) == "cuda12.6"
+    assert launch.select_nvidia_dependency_variant(12, (12, 0)) == "cuda12.6"
+    assert launch.select_nvidia_dependency_variant(11, (7, 5)) is None
+    assert launch.select_nvidia_dependency_variant(None, (7, 5)) is None
+
+def test_geforce_10_series_forces_cuda126_by_model_name():
+    launch = load_launch("launch_nvidia_10_series_test")
+
+    ten_series_names = (
+        "NVIDIA GeForce GTX 1080 Ti",
+        "GeForce GTX 1080",
+        "NVIDIA GeForce GTX 1070 Ti",
+        "GeForce GTX 1060 6GB",
+        "NVIDIA GeForce GTX 1050 Ti",
+        "GeForce GT 1030",
+    )
+    for gpu_name in ten_series_names:
+        assert launch.is_nvidia_10_series_gpu(gpu_name)
+        assert launch.select_nvidia_dependency_variant(13, (9, 0), gpu_name) == "cuda12.6"
+
+
+def test_10_series_match_does_not_capture_newer_geforce_models():
+    launch = load_launch("launch_nvidia_non_10_series_test")
+
+    for gpu_name in ("GeForce RTX 2060", "GeForce RTX 4090", "GeForce RTX 5090"):
+        assert not launch.is_nvidia_10_series_gpu(gpu_name)
+        assert launch.select_nvidia_dependency_variant(13, (7, 5), gpu_name) == "cuda13.0"
+
+
+def test_nvidia_compute_capability_matches_selected_gpu(monkeypatch):
+    launch = load_launch("launch_nvidia_compute_capability_test")
+    monkeypatch.setattr(
+        launch.subprocess,
+        "check_output",
+        lambda *args, **kwargs: "NVIDIA GeForce GTX 1080 Ti, 6.1\nNVIDIA GeForce RTX 5090, 12.0\n",
+    )
+
+    assert launch.detect_nvidia_compute_capability("GeForce GTX 1080 Ti") == (6, 1)
+    assert launch.detect_nvidia_compute_capability("NVIDIA GeForce RTX 5090") == (12, 0)
+    assert launch.detect_nvidia_compute_capability("NVIDIA Unknown GPU") is None
 
 
 def test_installed_cuda_12_runtime_preserves_cuda126_group(monkeypatch):

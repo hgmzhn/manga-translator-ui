@@ -23,8 +23,8 @@ The current source of dependency truth is `pyproject.toml` and `uv.lock`. `requi
 | RAM | 8 GB | 16 GB or more |
 | Disk | 5 GB free space | 10 GB SSD |
 | Python (source) | 3.12 (`>=3.12,<3.13`) | 3.12 |
-| NVIDIA GPU | GTX 1060 or newer with 6 GB VRAM; driver must support CUDA 13.0 by default, or CUDA 12.6 for the alternate build | More VRAM is better |
-> RTX 50-series NVIDIA cards must use the NVIDIA GPU package; select the CUDA 13.0 default package or the CUDA 12.6 package only when its driver supports that runtime.
+| NVIDIA GPU | GTX 1060 or newer with 6 GB VRAM; GeForce 10-series GPUs must use CUDA 12.6, while CUDA 13.0 requires Turing (compute capability 7.5) or newer | More VRAM is better |
+> GeForce 10-series GPUs such as the GTX 1060/1070/1080 must use the CUDA 12.6 package even when a newer driver reports CUDA 13 support. RTX 20/30/40/50-series GPUs may use CUDA 13.0 when the driver supports it; CUDA 13.0 is recommended for RTX 50-series GPUs.
 | AMD GPU | RX 7000/9000 series only (RDNA 3/4); ROCm is experimental. Use the CPU build on RX 5000/6000 | — |
 
 > Windows AMD users can choose the experimental AMD portable release or install through the maintenance script. Both require a supported GPU, Radeon ROCm 7.2.1, and AMD driver 26.2.2; this remains an experimental Windows path.

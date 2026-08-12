@@ -1010,11 +1010,12 @@ def detect_gpu():
                     # 单张显卡：直接使用第一个
                     gpu_type, gpu_name = all_gpus[0]
                 
-                # 如果选择了 NVIDIA，补充 CUDA 信息
+                # 如果选择了 NVIDIA，补充驱动 CUDA 上限与显卡计算能力。
                 if gpu_type == "NVIDIA":
                     cuda_major, cuda_version, driver_version = check_nvidia_cuda_version()
-                    return gpu_type, gpu_name, cuda_major, cuda_version, driver_version
-                return gpu_type, gpu_name, None, None, None
+                    compute_capability = detect_nvidia_compute_capability(gpu_name)
+                    return gpu_type, gpu_name, cuda_major, cuda_version, driver_version, compute_capability
+                return gpu_type, gpu_name, None, None, None, None
                 
         else:
             # macOS: 特殊处理 Apple Silicon
@@ -1079,13 +1080,14 @@ def detect_gpu():
                 
                 if gpu_type == "NVIDIA":
                     cuda_major, cuda_version, driver_version = check_nvidia_cuda_version()
-                    return gpu_type, gpu_name, cuda_major, cuda_version, driver_version
-                return gpu_type, gpu_name, None, None, None
+                    compute_capability = detect_nvidia_compute_capability(gpu_name)
+                    return gpu_type, gpu_name, cuda_major, cuda_version, driver_version, compute_capability
+                return gpu_type, gpu_name, None, None, None, None
                 
     except Exception:
         pass
     
-    return "CPU", "", None, None, None
+    return "CPU", "", None, None, None, None
 
 
 def detect_amd_gfx_version(gpu_name):
@@ -1351,13 +1353,72 @@ def repair_broken_pytorch_runtime(pytorch_type, detail, *, allow_reinstall=True)
     ))
     return None, detected_detail, False
 
-def select_nvidia_dependency_variant(cuda_major):
-    """根据 NVIDIA 驱动报告的 CUDA 主版本选择 GPU 依赖组。"""
-    if cuda_major is not None and cuda_major >= 13:
-        return 'cuda13.0'
-    if cuda_major == 12:
-        return 'cuda12.6'
+def detect_nvidia_compute_capability(gpu_name=None):
+    """用 nvidia-smi 获取指定 NVIDIA 显卡的计算能力。"""
+    try:
+        output = subprocess.check_output(
+            [
+                'nvidia-smi',
+                '--query-gpu=name,compute_cap',
+                '--format=csv,noheader,nounits',
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            encoding='utf-8',
+            errors='ignore',
+        )
+    except Exception:
+        return None
+
+    detected = []
+    for line in output.splitlines():
+        try:
+            name, value = line.rsplit(',', 1)
+            major, minor = value.strip().split('.', 1)
+            detected.append((name.strip(), (int(major), int(minor))))
+        except (ValueError, TypeError):
+            continue
+
+    if not detected:
+        return None
+    if not gpu_name:
+        return detected[0][1] if len(detected) == 1 else None
+
+    def normalize_name(value):
+        normalized = ' '.join((value or '').upper().split())
+        return normalized.removeprefix('NVIDIA ')
+
+    selected_name = normalize_name(gpu_name)
+    for detected_name, capability in detected:
+        candidate = normalize_name(detected_name)
+        if candidate == selected_name or candidate in selected_name or selected_name in candidate:
+            return capability
     return None
+
+
+def is_nvidia_10_series_gpu(gpu_name):
+    """识别常见 GeForce 10 系 Pascal 显卡，避免依赖计算能力查询。"""
+    import re
+
+    normalized = ' '.join((gpu_name or '').upper().split())
+    return re.search(r'\b(?:GTX|GT)\s*10\d{2}\b', normalized) is not None
+
+
+def select_nvidia_dependency_variant(cuda_major, compute_capability=None, gpu_name=None):
+    """根据驱动 CUDA 上限和 GPU 架构选择 NVIDIA 依赖组。
+
+    GeForce 10 系显卡显式强制使用 cuda12.6。其余显卡中，只有计算能力
+    7.5 及以上的 Turing 或更新架构才能使用 cuda13.0；无法确认计算能力时
+    保守回退到 cuda12.6。
+    """
+    if cuda_major is None or cuda_major < 12:
+        return None
+    if cuda_major == 12 or is_nvidia_10_series_gpu(gpu_name):
+        return 'cuda12.6'
+    if compute_capability is not None and compute_capability >= (7, 5):
+        return 'cuda13.0'
+    return 'cuda12.6'
 
 
 def ensure_pytorch_runtime_ready():
@@ -1454,10 +1515,12 @@ def prepare_environment(args):
         check_variant_deps = lambda v: False
 
     # 检测 GPU 并选择对应的依赖方案
-    gpu_type, gpu_name, cuda_major, cuda_version, driver_version = detect_gpu()
+    gpu_type, gpu_name, cuda_major, cuda_version, driver_version, compute_capability = detect_gpu()
     print(f'\n检测到的计算设备: {gpu_type}')
     if gpu_name:
         print(f'显卡型号: {gpu_name}')
+    if compute_capability:
+        print(f'计算能力: {compute_capability[0]}.{compute_capability[1]}')
     if cuda_version:
         print(f'CUDA 版本: {cuda_version}')
         if driver_version:
@@ -1570,79 +1633,110 @@ except:
         # 自动选择
         if gpu_type == "NVIDIA":
             print('=' * 50)
-            print('检测到 NVIDIA GPU')
+            print(L('检测到 NVIDIA GPU', 'NVIDIA GPU detected'))
             print('=' * 50)
             print()
             
-            # CUDA 12.x 使用 CUDA 12.6 依赖组；CUDA 13.0 及以上使用 CUDA 13.0 依赖组。
+            # 驱动支持 CUDA 13 还不代表旧显卡架构支持 CUDA 13；Turing 之前强制使用 12.6。
             if cuda_major is not None:
-                selected_variant = select_nvidia_dependency_variant(cuda_major)
+                selected_variant = select_nvidia_dependency_variant(cuda_major, compute_capability, gpu_name)
                 if selected_variant is None:
-                    print('⚠️  警告: 检测到 CUDA 版本低于 12.0')
-                    print(f'   当前 CUDA 版本: {cuda_version}')
-                    print('   NVIDIA GPU 版本最低需要: CUDA 12.x')
+                    print(L('⚠️  警告: 检测到 CUDA 版本低于 12.0',
+                            '⚠️  Warning: detected CUDA version is below 12.0'))
+                    print(L(f'   当前 CUDA 版本: {cuda_version}',
+                            f'   Current CUDA version: {cuda_version}'))
+                    print(L('   NVIDIA GPU 版本最低需要: CUDA 12.x',
+                            '   NVIDIA GPU support requires CUDA 12.x or newer'))
                     print()
-                    print('请选择:')
-                    print('  [1] 更新 NVIDIA 驱动后重新运行安装')
-                    print('  [2] 使用 CPU 版本')
+                    print(L('请选择:', 'Choose an option:'))
+                    print(L('  [1] 更新 NVIDIA 驱动后重新运行安装',
+                            '  [1] Update the NVIDIA driver, then rerun installation'))
+                    print(L('  [2] 使用 CPU 版本', '  [2] Use the CPU build'))
                     print()
 
                     while True:
-                        choice = input('请选择 (1/2, 默认2): ').strip()
+                        choice = input(L('请选择 (1/2, 默认2): ',
+                                         'Select (1/2, default 2): ')).strip()
                         if choice == '1':
-                            print('\n请访问 NVIDIA 官网下载最新驱动:')
+                            print(L('\n请访问 NVIDIA 官网下载最新驱动:',
+                                    '\nDownload the latest driver from NVIDIA:'))
                             print('https://www.nvidia.com/Download/index.aspx')
-                            print('\n安装驱动后请重新运行此脚本')
+                            print(L('\n安装驱动后请重新运行此脚本',
+                                    '\nRerun this script after installing the driver'))
                             sys.exit(0)
                         elif choice in ['', '2']:
                             requirements_file = 'cpu'
-                            print(f'✓ 使用: {requirements_file} (CPU版本)')
+                            print(L(f'✓ 使用: {requirements_file} (CPU版本)',
+                                    f'✓ Using: {requirements_file} (CPU build)'))
                             break
                         else:
-                            print('无效输入,请输入 1 或 2')
+                            print(L('无效输入,请输入 1 或 2',
+                                    'Invalid input; enter 1 or 2'))
                 else:
                     runtime_name = 'CUDA 13.0' if selected_variant == 'cuda13.0' else 'CUDA 12.6'
-                    print(f'✓ 检测到驱动支持 CUDA {cuda_version}')
-                    print(f'✓ 将使用 {runtime_name} 依赖方案: {selected_variant}')
+                    print(L(f'✓ 检测到驱动支持 CUDA {cuda_version}',
+                            f'✓ Driver supports CUDA {cuda_version}'))
+                    if cuda_major >= 13 and selected_variant == 'cuda12.6':
+                        if is_nvidia_10_series_gpu(gpu_name):
+                            print(L('⚠️  检测到 GeForce 10 系显卡，为兼容性强制使用 CUDA 12.6',
+                                    '⚠️  GeForce 10-series GPU detected; forcing CUDA 12.6 for compatibility'))
+                        elif compute_capability is None:
+                            print(L('⚠️  无法确认显卡计算能力，为兼容性强制使用 CUDA 12.6',
+                                    '⚠️  GPU compute capability is unknown; forcing CUDA 12.6 for compatibility'))
+                        else:
+                            capability = f'{compute_capability[0]}.{compute_capability[1]}'
+                            print(L(f'⚠️  显卡计算能力 {capability} 不受 CUDA 13.0 支持，强制使用 CUDA 12.6',
+                                    f'⚠️  Compute capability {capability} is unsupported by CUDA 13.0; forcing CUDA 12.6'))
+                    print(L(f'✓ 将使用 {runtime_name} 依赖方案: {selected_variant}',
+                            f'✓ Dependency variant: {selected_variant} ({runtime_name})'))
                     print()
-                    print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
+                    print(L('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)',
+                            'If uncertain, choose the slower but more compatible CPU build'))
                     print()
 
                     while True:
-                        choice = input(f'使用 {runtime_name} 版本? (y/n, 默认y): ').strip().lower()
+                        choice = input(L(f'使用 {runtime_name} 版本? (y/n, 默认y): ',
+                                         f'Use the {runtime_name} build? (y/n, default y): ')).strip().lower()
                         if choice in ['', 'y', 'yes']:
                             requirements_file = selected_variant
-                            print(f'✓ 使用: {requirements_file} (NVIDIA {runtime_name})')
+                            print(L(f'✓ 使用: {requirements_file} (NVIDIA {runtime_name})',
+                                    f'✓ Using: {requirements_file} (NVIDIA {runtime_name})'))
                             break
                         elif choice in ['n', 'no']:
                             requirements_file = 'cpu'
-                            print(f'✓ 使用: {requirements_file} (CPU版本)')
+                            print(L(f'✓ 使用: {requirements_file} (CPU版本)',
+                                    f'✓ Using: {requirements_file} (CPU build)'))
                             break
                         else:
-                            print('无效输入,请输入 y 或 n')
+                            print(L('无效输入,请输入 y 或 n',
+                                    'Invalid input; enter y or n'))
             else:
-                # 无法检测 CUDA 版本
-                print('⚠️  无法检测 CUDA 版本 (可能未安装 nvidia-smi)')
+                # 无法确认驱动/架构是否支持 CUDA 13 时，保守使用兼容性更好的 12.6。
+                print(L('⚠️  无法检测 CUDA 版本 (可能未安装 nvidia-smi)',
+                        '⚠️  Could not detect the CUDA version (nvidia-smi may be unavailable)'))
+                print(L('⚠️  无法确认 CUDA 13.0 兼容性，将强制使用 CUDA 12.6',
+                        '⚠️  CUDA 13.0 compatibility is unknown; forcing CUDA 12.6'))
                 print()
-                print('GPU 版本需要:')
-                print('  - NVIDIA 显卡支持 CUDA 13.0')
-                print('  - 驱动需支持 CUDA 13.0')
+                print(L('如果 CUDA 12.6 仍不可用，请更新 NVIDIA 驱动或选择 CPU 版本',
+                        'If CUDA 12.6 is unavailable, update the NVIDIA driver or choose the CPU build'))
                 print()
-                print('如果不确定,可以选择 CPU 版本(速度较慢但兼容性好)')
-                print()
-                
+
                 while True:
-                    choice = input('使用 GPU 版本? (y/n, 默认y): ').strip().lower()
+                    choice = input(L('使用 CUDA 12.6 GPU 版本? (y/n, 默认y): ',
+                                     'Use the CUDA 12.6 GPU build? (y/n, default y): ')).strip().lower()
                     if choice in ['', 'y', 'yes']:
-                        requirements_file = 'cuda13.0'
-                        print(f'✓ 使用: {requirements_file} (NVIDIA CUDA)')
+                        requirements_file = 'cuda12.6'
+                        print(L(f'✓ 使用: {requirements_file} (NVIDIA CUDA 12.6)',
+                                f'✓ Using: {requirements_file} (NVIDIA CUDA 12.6)'))
                         break
                     elif choice in ['n', 'no']:
                         requirements_file = 'cpu'
-                        print(f'✓ 使用: {requirements_file} (CPU版本)')
+                        print(L(f'✓ 使用: {requirements_file} (CPU版本)',
+                                f'✓ Using: {requirements_file} (CPU build)'))
                         break
                     else:
-                        print('无效输入,请输入 y 或 n')
+                        print(L('无效输入,请输入 y 或 n',
+                                'Invalid input; enter y or n'))
                     
         elif gpu_type == "AMD":
             # 检测 AMD GPU 的 gfx 版本

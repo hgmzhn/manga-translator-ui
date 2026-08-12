@@ -31,10 +31,10 @@ This document provides detailed installation steps, system requirements, first-r
 
 - **Memory**: 16 GB RAM or more
 - **GPU**:
-  - **NVIDIA GPU**: CUDA 13.0 is the default; CUDA 12.6 is available for compatibility and also runs on drivers supporting CUDA 13.0 or newer
+  - **NVIDIA GPU**: GeForce 10-series GPUs must use CUDA 12.6; CUDA 13.0 requires Turing (compute capability 7.5) or newer. Drivers supporting CUDA 13.0 or newer can also run the CUDA 12.6 build
     - Recommended VRAM: 6 GB or more
     - Typical supported class: GTX 1060 and above
-    - RTX 50-series cards must download the CUDA 13.0 build.
+    - RTX 20/30/40/50-series GPUs may use CUDA 13.0 when the driver supports it; CUDA 13.0 is recommended for RTX 50-series GPUs
   - **AMD GPU**: ROCm support is experimental
     - Supported cards: **RX 7000 / 9000 only**
     - ⚠️ RX 5000 / 6000 should use the CPU build
@@ -72,7 +72,7 @@ Double-click `Win-Install-or-Update.bat` and choose **[1] Install** in the maint
 2. **Force-sync the latest code**: after a successful sync, the maintenance launcher reloads the updated code before continuing
 3. **GPU detection**: automatically detects NVIDIA / AMD / integrated graphics; with multiple GPUs you get a list to pick from
 4. **Choose a PyTorch build**:
-   - **NVIDIA**: CUDA 13.0 by default (the `cuda12.6` branch uses CUDA 12.6)
+   - **NVIDIA**: selected automatically from the GPU model, compute capability, and driver; GeForce 10-series GPUs are forced to CUDA 12.6, while Turing (compute capability 7.5) or newer uses CUDA 13.0 when supported by the driver
    - **AMD**: ROCm, experimental, **RX 7000 / 9000 series only**
    - **Other / integrated graphics**: CPU build
 5. **Fast batch dependency install with uv**:
@@ -125,9 +125,11 @@ Go to [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases).
 ### 2. Choose a build
 
 - `manga-translator-cpu-vX.Y.Z.7z.001`: best compatibility; no dedicated GPU required.
-- `manga-translator-cuda13.0-vX.Y.Z.7z.001`: NVIDIA CUDA 13.0; RTX 50-series cards must use this build.
-- `manga-translator-cuda12.6-vX.Y.Z.7z.001`: NVIDIA CUDA 12.6; supports CUDA 12.x systems and also runs on drivers supporting CUDA 13.0 or newer.
+- `manga-translator-cuda13.0-vX.Y.Z.7z.001`: for Turing (compute capability 7.5) or newer NVIDIA GPUs whose driver supports CUDA 13.0; recommended for RTX 50-series GPUs.
+- `manga-translator-cuda12.6-vX.Y.Z.7z.001`: required for GeForce 10-series GPUs and suitable for other NVIDIA GPUs needing compatibility; drivers supporting CUDA 13.0 or newer can run it through backward compatibility.
 - `manga-translator-rocm7.2.1-vX.Y.Z.7z.001`: experimental Radeon ROCm 7.2.1; requires a supported AMD GPU and AMD driver 26.2.2.
+
+> CUDA 13.0 no longer supports NVIDIA architectures before Turing. GeForce 10-series GPUs such as the GTX 1060/1070/1080 must use the CUDA 12.6 package and must not download the CUDA 13.0 package.
 
 ### 3. Extract split volumes
 
@@ -565,7 +567,7 @@ If you want to fine-tune the result later, open it in `Editor View`.
 
 **Try this**
 
-1. Confirm the GPU and driver support CUDA 13.0; the CUDA 12.6 build requires CUDA 12.6
+1. Confirm the build matches the GPU: GeForce 10-series GPUs must use CUDA 12.6; CUDA 13.0 requires Turing (compute capability 7.5) or newer plus a driver that supports CUDA 13.0
 2. Update the NVIDIA driver
 3. If the issue is ONNX-specific, open `Settings` -> `General` and enable `Disable ONNX GPU Acceleration`
 4. If the machine is not compatible, switch to the CPU build

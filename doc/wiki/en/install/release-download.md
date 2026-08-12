@@ -30,11 +30,13 @@ Open the latest version on [GitHub Releases](https://github.com/hgmzhn/manga-tra
 | Release filename prefix | Best for | Runtime |
 | --- | --- | --- |
 | `manga-translator-cpu-vX.Y.Z.7z.*` | Any Windows x64 computer; use it without a discrete GPU or when compatibility is uncertain | CPU PyTorch / ONNX Runtime |
-| `manga-translator-cuda13.0-vX.Y.Z.7z.*` | NVIDIA GPUs supporting CUDA 13.0 or newer; RTX 50-series cards must use this build | CUDA 13.0 / PyTorch cu130 |
-| `manga-translator-cuda12.6-vX.Y.Z.7z.*` | NVIDIA GPUs needing the CUDA 12.6 compatibility build; drivers supporting CUDA 13.0 or newer can also run it | CUDA 12.6 / PyTorch cu126 |
+| `manga-translator-cuda13.0-vX.Y.Z.7z.*` | Turing (compute capability 7.5) or newer NVIDIA GPUs whose driver supports CUDA 13.0; recommended for RTX 50-series GPUs | CUDA 13.0 / PyTorch cu130 |
+| `manga-translator-cuda12.6-vX.Y.Z.7z.*` | Required for GeForce 10-series GPUs; also for other NVIDIA GPUs needing the compatibility build. Drivers supporting CUDA 13.0 or newer can run it through backward compatibility | CUDA 12.6 / PyTorch cu126 |
 | `manga-translator-rocm7.2.1-vX.Y.Z.7z.*` | AMD GPUs supported by Windows ROCm | Experimental Radeon ROCm 7.2.1; AMD driver 26.2.2 is required |
 
 The ROCm 7.2.1 package works only with supported AMD GPUs. Use the CPU package when uncertain, and never mix volumes from different runtimes.
+
+> CUDA 13.0 no longer supports NVIDIA architectures before Turing. The installer explicitly recognizes GeForce 10-series model names and forces CUDA 12.6; it also conservatively falls back to CUDA 12.6 when compute capability cannot be detected.
 
 ## Download and extract the volumes
 

@@ -23,8 +23,8 @@ lastUpdated: true
 | 内存 | 8 GB | 16 GB 或更多 |
 | 磁盘 | 5 GB 可用空间 | 10 GB SSD |
 | Python（源码版） | 3.12（`>=3.12,<3.13`） | 3.12 |
-| NVIDIA GPU | GTX 1060 及以上、6 GB 显存；默认驱动需支持 CUDA 13.0，备用版本需支持 CUDA 12.6 | 显存更大更佳 |
-> RTX 50 系列 NVIDIA 显卡必须使用 NVIDIA GPU 包；默认选择 CUDA 13.0 包，只有在驱动支持该运行时时才选择 CUDA 12.6 包。
+| NVIDIA GPU | GTX 1060 及以上、6 GB 显存；GeForce 10 系必须使用 CUDA 12.6，CUDA 13.0 仅支持 Turing（计算能力 7.5）及更新架构 | 显存更大更佳 |
+> GeForce 10 系列（如 GTX 1060/1070/1080）即使新驱动显示支持 CUDA 13，也必须选择 CUDA 12.6 包。RTX 20/30/40/50 系列在驱动支持 CUDA 13.0 时可选择 CUDA 13.0 包；RTX 50 系列推荐 CUDA 13.0。
 | AMD GPU | 仅 RX 7000/9000 系列（RDNA 3/4），ROCm 为实验性支持；RX 5000/6000 请使用 CPU 版 | — |
 
 > Windows AMD 可选择实验性的 AMD 发布便携包或通过维护脚本安装；两者均要求受支持的显卡、Radeon ROCm 7.2.1 和 AMD 26.2.2 驱动。ROCm 在 Windows 上仍属实验性路径。
