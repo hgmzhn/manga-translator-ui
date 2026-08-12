@@ -239,12 +239,31 @@ jobs:
         else
           echo "No existing release for $GITHUB_REF_NAME."
         fi
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+    - name: Create draft GitHub Release and upload assets
+      id: release
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ github.ref_name }}
         name: Release ${{ github.ref_name }}
         body: ${{ steps.changelog.outputs.changelog }}
         files: release_assets/*
-        draft: false
+        draft: true
         prerelease: false
+        preserve_order: true
+        fail_on_unmatched_files: true
+    - name: Verify assets and publish GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -Eeuo pipefail
+        mapfile -t expected < <(find release_assets -maxdepth 1 -type f -printf '%f\n' | sort)
+        mapfile -t uploaded < <(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | sort)
+        if (( ${#expected[@]} == 0 )); then
+          echo "No local release assets were found."
+          exit 1
+        fi
+        if (( ${#expected[@]} != ${#uploaded[@]} )) || ! diff -u <(printf '%s\n' "${expected[@]}") <(printf '%s\n' "${uploaded[@]}"); then
+          echo "Uploaded release assets do not match the downloaded build artifacts."
+          exit 1
+        fi
+        gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
