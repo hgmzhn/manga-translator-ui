@@ -1490,6 +1490,43 @@ def ensure_pytorch_runtime_ready():
     return False
 
 
+def cleanup_stale_torchaudio(requirements_file):
+    """Remove an obsolete torchaudio installation unless the ROCm variant needs it."""
+    if normalize_variant(requirements_file) == 'rocm7.2.1':
+        return True
+
+    show_command = [python, '-m', 'pip', 'show', 'torchaudio']
+    try:
+        installed = subprocess.run(show_command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        print(f'无法检查残留的 torchaudio: {exc}')
+        return False
+    if installed.returncode != 0:
+        return True
+
+    print('检测到残留的 torchaudio，正在卸载...')
+    try:
+        run(
+            f'"{python}" -m pip uninstall torchaudio -y',
+            "卸载残留 torchaudio",
+            "无法卸载 torchaudio",
+            live=True,
+        )
+    except (OSError, RuntimeError) as exc:
+        print(f'卸载残留的 torchaudio 失败: {exc}')
+        return False
+
+    try:
+        remaining = subprocess.run(show_command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        print(f'无法确认 torchaudio 是否已卸载: {exc}')
+        return False
+    if remaining.returncode == 0:
+        print('卸载命令完成后仍检测到 torchaudio，请关闭占用该环境的 Python 进程后重试。')
+        return False
+    return True
+
+
 def prepare_environment(args):
     """准备运行环境
     
@@ -2088,18 +2125,11 @@ except:
     else:
         print('依赖已满足 ✓')
 
-    # 清理残留的 torchaudio（依赖方案中已不包含它；旧版本残留会因 ABI 不匹配
-    # 导致 transformers 导入时加载 libtorchaudio.pyd 失败，OCR 报错）
-    # AMD ROCm 方案的 torchaudio 是配套安装的，不清理
-    if not use_amd_pytorch:
-        try:
-            result = subprocess.run(f'"{python}" -m pip show torchaudio', shell=True,
-                                    capture_output=True, text=True)
-            if result.returncode == 0:
-                print('检测到残留的 torchaudio，正在卸载...')
-                run(f'"{python}" -m pip uninstall torchaudio -y', "卸载残留 torchaudio", "无法卸载 torchaudio")
-        except Exception:
-            pass
+    # 旧版本残留会因 ABI 不匹配导致 transformers 加载 libtorchaudio.pyd 失败。
+    # AMD ROCm 方案需要配套的 torchaudio，其他方案必须清理并确认卸载成功。
+    if not cleanup_stale_torchaudio(requirements_file):
+        raise RuntimeError('无法卸载残留的 torchaudio')
+
 
 
     # 返回 AMD PyTorch 相关信息
@@ -2917,12 +2947,23 @@ def update_runtime_dependencies(args, req_file, missing_packages, *, full_sync=F
                 "[ERROR] Dependency update failed; this update was not completed"))
         return False
 
+    if not cleanup_runtime_dependencies(req_file):
+        return False
+
     cleanup_caches()
     print()
     print("=" * 40)
     print(L("[完成] 更新完成", "[DONE] Update complete"))
     print("=" * 40)
     return True
+
+
+def cleanup_runtime_dependencies(req_file):
+    """Apply removals that a missing-dependency check cannot discover."""
+    if cleanup_stale_torchaudio(req_file):
+        return True
+    print(L("[错误] 依赖清理失败，更新未完成", "[ERROR] Dependency cleanup failed; update incomplete"))
+    return False
 
 
 def resume_updated_code(args, action):
@@ -2989,11 +3030,16 @@ def run_install(args):
 def run_full_update(args, automatic=False):
     """更新代码和依赖；桌面端自动更新时跳过二次确认。"""
     code_needs_update, deps_needs_update, _, _, req_file, missing_packages = check_all_updates()
-
-    print()
     if not code_needs_update and not deps_needs_update:
-        print(L("[信息] 代码和依赖都已是最新，无需更新", "[INFO] Code and dependencies are up to date"))
+        if not cleanup_runtime_dependencies(req_file):
+            return False
+        print()
+        print(L("[信息] 代码和依赖都已是最新，已完成残留依赖清理",
+                "[INFO] Code and dependencies are current; stale dependencies were cleaned"))
         return True
+
+
+
 
     print()
     if not automatic:

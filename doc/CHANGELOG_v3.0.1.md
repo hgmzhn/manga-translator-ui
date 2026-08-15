@@ -4,6 +4,10 @@
 
 ## 🐛 修复与改进
 
+### 残留 torchaudio 自动清理修复
+- 修复代码和声明依赖均已是最新时，更新程序直接退出、未执行残留 `torchaudio` 清理的问题。
+- 非 ROCm 方案现在会在完整更新、增量依赖更新及“无需更新”路径中检查并卸载 `torchaudio`，卸载失败或卸载后仍存在时明确中止并提示关闭占用环境的 Python 进程；Windows AMD ROCm 方案继续保留配套版本。
+
 ### Windows AMD ROCm 依赖检测修复
 - 修复 Windows AMD ROCm PyTorch 已正常安装时，安装/更新程序仍提示“未检测到可用的 PyTorch”并重新进入依赖方案选择的问题。
 - 兼容 PyTorch 检测结果中的 `AMD` 与 `ROCm` 两种类型标识，并统一映射到 `rocm7.2.1` 依赖方案。

@@ -122,7 +122,7 @@ arm64 Mac 自动选择 `metal` 方案（MPS 加速），无需交互。
 | 选项 | 功能 |
 |------|------|
 | [1] 安装 | 选择下载线路（GitHub/Gitee）→ 强制同步代码 → 重启加载新代码 → 检测显卡并交互选择 CPU/GPU/AMD/Metal → 安装依赖 → 清理缓存 |
-| [2] 更新 | `check_all_updates()` 检查代码（版本号 + commit 双比对）与依赖完整性 → 确认后强制同步代码 → 重启加载新代码并重新检查依赖 → 安装/同步依赖 → 清理缓存 |
+| [2] 更新 | `check_all_updates()` 检查代码（版本号 + commit 双比对）与依赖完整性 → 同步代码和依赖；即使代码、声明依赖均已是最新，仍会清理缺失依赖检查无法发现的残留 `torchaudio`（ROCm 方案除外） → 清理缓存 |
 | [3] 切换分支 | 在 `main`（稳定）/ `beta`（测试）间切换，`git checkout -f -B <branch> origin/<branch>` 强制同步，本地修改被覆盖 |
 | [4] 切换版本 | fetch tags 后列出最近 20 个 tag（也可手输 tag 名），`checkout -f <tag>` 进入游离状态；游离状态下更新比对回落到 main |
 | [5] 切换镜像源 | GitHub 官方 / Gitee 镜像（国内推荐）/ 手动输入仓库地址，`git remote set-url origin` |

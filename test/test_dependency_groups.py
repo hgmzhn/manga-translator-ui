@@ -219,6 +219,7 @@ def test_update_runtime_only_selects_driver_cuda_for_torch_upgrade(monkeypatch):
 
     monkeypatch.setattr(launch, "ensure_pytorch_runtime_ready", lambda: True)
     monkeypatch.setattr(launch, "cleanup_caches", lambda: None)
+    monkeypatch.setattr(launch, "cleanup_runtime_dependencies", lambda _variant: True)
     monkeypatch.setattr(launch, "run_deps_with_retry", lambda task, *_: task())
     monkeypatch.setattr(
         launch,
@@ -237,6 +238,57 @@ def test_update_runtime_only_selects_driver_cuda_for_torch_upgrade(monkeypatch):
 
     assert launch.update_runtime_dependencies(args, "cuda12.6", ["torch==2.13.0"])
     assert update_calls == [True]
+
+
+def test_cleanup_stale_torchaudio_uninstalls_and_verifies_removal(monkeypatch):
+    launch = load_launch("launch_stale_torchaudio_cleanup_test")
+    return_codes = iter((0, 1))
+    uninstall_commands = []
+
+    def fake_subprocess_run(*_args, **_kwargs):
+        return type("Result", (), {"returncode": next(return_codes)})()
+
+    monkeypatch.setattr(launch.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        launch,
+        "run",
+        lambda command, *_args, **_kwargs: uninstall_commands.append(command) or "",
+    )
+
+    assert launch.cleanup_stale_torchaudio("cpu")
+    assert len(uninstall_commands) == 1
+    assert "-m pip uninstall torchaudio -y" in uninstall_commands[0]
+
+
+def test_cleanup_stale_torchaudio_preserves_rocm_package(monkeypatch):
+    launch = load_launch("launch_rocm_torchaudio_cleanup_test")
+
+    def unexpected_subprocess(*_args, **_kwargs):
+        raise AssertionError("ROCm torchaudio must not be inspected or removed")
+
+    monkeypatch.setattr(launch.subprocess, "run", unexpected_subprocess)
+
+    assert launch.cleanup_stale_torchaudio("rocm7.2.1")
+
+
+def test_full_update_cleans_stale_dependencies_when_everything_is_current(monkeypatch):
+    launch = load_launch("launch_current_runtime_cleanup_test")
+    args = type("Args", (), {"requirements": "auto"})()
+    cleanup_calls = []
+
+    monkeypatch.setattr(
+        launch,
+        "check_all_updates",
+        lambda: (False, False, "v1", "v1", "cpu", []),
+    )
+    monkeypatch.setattr(
+        launch,
+        "cleanup_runtime_dependencies",
+        lambda variant: cleanup_calls.append(variant) or True,
+    )
+
+    assert launch.run_full_update(args)
+    assert cleanup_calls == ["cpu"]
 
 
 def test_legacy_rocm_runtime_preserves_rocm_group(monkeypatch):
