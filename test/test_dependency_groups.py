@@ -78,6 +78,22 @@ def test_10_series_match_does_not_capture_newer_geforce_models():
         assert launch.select_nvidia_dependency_variant(13, (7, 5), gpu_name) == "cuda13.0"
 
 
+def test_rtx_50_series_requires_cuda13_driver():
+    launch = load_launch("launch_nvidia_50_series_test")
+
+    for gpu_name in (
+        "NVIDIA GeForce RTX 5060 Laptop GPU",
+        "GeForce RTX 5070 Ti",
+        "NVIDIA GeForce RTX 5090",
+    ):
+        assert launch.is_nvidia_50_series_gpu(gpu_name)
+        assert launch.select_nvidia_dependency_variant(12, (12, 0), gpu_name) is None
+        assert launch.select_nvidia_dependency_variant(None, (12, 0), gpu_name) is None
+        assert launch.select_nvidia_dependency_variant(13, None, gpu_name) == "cuda13.0"
+
+    assert not launch.is_nvidia_50_series_gpu("NVIDIA GeForce RTX 4090")
+
+
 def test_nvidia_compute_capability_matches_selected_gpu(monkeypatch):
     launch = load_launch("launch_nvidia_compute_capability_test")
     monkeypatch.setattr(
@@ -130,7 +146,7 @@ def test_rtx_50_update_variant_uses_driver_cuda_instead_of_installed_wheel(monke
     assert detect_calls == [False]
 
 
-def test_rtx_50_update_variant_stays_on_cuda126_when_driver_is_cuda12(monkeypatch):
+def test_rtx_50_update_rejects_cuda126_when_driver_is_cuda12(monkeypatch):
     launch = load_launch("launch_rtx50_cuda12_update_variant_test")
     monkeypatch.setattr(
         launch,
@@ -142,15 +158,36 @@ def test_rtx_50_update_variant_stays_on_cuda126_when_driver_is_cuda12(monkeypatc
         "detect_gpu",
         lambda *, interactive=True: (
             "NVIDIA",
-            "NVIDIA GeForce RTX 5090",
+            "NVIDIA GeForce RTX 5060 Laptop GPU",
             12,
             "12.8",
-            "572.00",
+            "573.24",
             (12, 0),
         ),
     )
 
-    assert launch.get_update_variant_info()[0] == "cuda12.6"
+    assert launch.get_update_variant_info()[0] is None
+
+
+def test_torch_update_reenters_auto_selection_when_rtx50_driver_is_unsupported(monkeypatch):
+    launch = load_launch("launch_rtx50_update_driver_warning_test")
+    args = type("Args", (), {"requirements": "cuda12.6"})()
+    prepared_variants = []
+
+    monkeypatch.setattr(launch, "ensure_pytorch_runtime_ready", lambda: True)
+    monkeypatch.setattr(
+        launch,
+        "get_update_variant_info",
+        lambda: (None, "cuda12.6", "GPU", "CUDA 12.6"),
+    )
+    monkeypatch.setattr(
+        launch,
+        "prepare_environment",
+        lambda current_args: prepared_variants.append(current_args.requirements),
+    )
+
+    assert launch.update_dependencies(args, select_cuda_variant=True)
+    assert prepared_variants == ["auto"]
 
 
 def test_update_dependencies_applies_driver_selected_cuda_variant(monkeypatch):

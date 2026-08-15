@@ -1317,6 +1317,9 @@ def get_update_variant_info():
             )
             if detected_variant is not None:
                 target_variant = detected_variant
+            elif is_nvidia_50_series_gpu(gpu_name):
+                # 50 系不能继续使用已安装的 cu126；交回自动安装流程提示升级驱动。
+                target_variant = None
 
     return target_variant, installed_variant, pytorch_type, detail
 
@@ -1430,13 +1433,23 @@ def is_nvidia_10_series_gpu(gpu_name):
     return re.search(r'\b(?:GTX|GT)\s*10\d{2}\b', normalized) is not None
 
 
+def is_nvidia_50_series_gpu(gpu_name):
+    """识别 GeForce RTX 50 系；该架构不支持项目的 CUDA 12.6 构建。"""
+    import re
+
+    normalized = ' '.join((gpu_name or '').upper().split())
+    return re.search(r'\bRTX\s*50\d{2}\b', normalized) is not None
+
+
 def select_nvidia_dependency_variant(cuda_major, compute_capability=None, gpu_name=None):
     """根据驱动 CUDA 上限和 GPU 架构选择 NVIDIA 依赖组。
 
-    GeForce 10 系显卡显式强制使用 cuda12.6。其余显卡中，只有计算能力
-    7.5 及以上的 Turing 或更新架构才能使用 cuda13.0；无法确认计算能力时
-    保守回退到 cuda12.6。
+    GeForce 10 系显卡显式强制使用 cuda12.6。RTX 50 系必须使用 cuda13.0；
+    驱动尚未支持 CUDA 13 时返回 None，要求用户先升级驱动。其余显卡中，
+    只有计算能力 7.5 及以上的 Turing 或更新架构才能使用 cuda13.0。
     """
+    if is_nvidia_50_series_gpu(gpu_name):
+        return 'cuda13.0' if cuda_major is not None and cuda_major >= 13 else None
     if cuda_major is None or cuda_major < 12:
         return None
     if cuda_major == 12 or is_nvidia_10_series_gpu(gpu_name):
@@ -1662,16 +1675,27 @@ except:
             print('=' * 50)
             print()
             
-            # 驱动支持 CUDA 13 还不代表旧显卡架构支持 CUDA 13；Turing 之前强制使用 12.6。
+            # 50 系不支持项目的 CUDA 12.6 构建；未升级驱动时必须先提示，不能回退 cu126。
+            is_50_series = is_nvidia_50_series_gpu(gpu_name)
+            if is_50_series and cuda_major is None:
+                cuda_major = 0  # 进入“不支持”分支，避免未知版本回退 CUDA 12.6。
             if cuda_major is not None:
                 selected_variant = select_nvidia_dependency_variant(cuda_major, compute_capability, gpu_name)
                 if selected_variant is None:
-                    print(L('⚠️  警告: 检测到 CUDA 版本低于 12.0',
-                            '⚠️  Warning: detected CUDA version is below 12.0'))
-                    print(L(f'   当前 CUDA 版本: {cuda_version}',
-                            f'   Current CUDA version: {cuda_version}'))
-                    print(L('   NVIDIA GPU 版本最低需要: CUDA 12.x',
-                            '   NVIDIA GPU support requires CUDA 12.x or newer'))
+                    if is_50_series:
+                        print(L('⚠️  RTX 50 系列必须使用 CUDA 13.0',
+                                '⚠️  RTX 50-series GPUs require CUDA 13.0'))
+                        print(L(f'   当前驱动支持的 CUDA 版本: {cuda_version or "无法检测"}',
+                                f'   CUDA version supported by the current driver: {cuda_version or "unknown"}'))
+                        print(L('   当前驱动不支持，请先更新 NVIDIA 驱动',
+                                '   The current driver does not support it; update the NVIDIA driver first'))
+                    else:
+                        print(L('⚠️  警告: 检测到 CUDA 版本低于 12.0',
+                                '⚠️  Warning: detected CUDA version is below 12.0'))
+                        print(L(f'   当前 CUDA 版本: {cuda_version}',
+                                f'   Current CUDA version: {cuda_version}'))
+                        print(L('   NVIDIA GPU 版本最低需要: CUDA 12.x',
+                                '   NVIDIA GPU support requires CUDA 12.x or newer'))
                     print()
                     print(L('请选择:', 'Choose an option:'))
                     print(L('  [1] 更新 NVIDIA 驱动后重新运行安装',

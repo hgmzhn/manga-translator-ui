@@ -30,13 +30,14 @@ lastUpdated: true
 | 发布文件前缀 | 适用设备 | 运行时 |
 | --- | --- | --- |
 | `manga-translator-cpu-vX.Y.Z.7z.*` | 所有 Windows x64 电脑；无独显或不确定兼容性时选它 | CPU PyTorch / ONNX Runtime |
-| `manga-translator-cuda13.0-vX.Y.Z.7z.*` | Turing（计算能力 7.5）及更新的 NVIDIA 显卡，并且驱动支持 CUDA 13.0；RTX 50 系列推荐此包 | CUDA 13.0 / PyTorch cu130 |
-| `manga-translator-cuda12.6-vX.Y.Z.7z.*` | GeForce 10 系列必须选此包；也适用于其他需要兼容版本的 NVIDIA 显卡，支持 CUDA 13.0 及以上的驱动可向下兼容运行 | CUDA 12.6 / PyTorch cu126 |
+| `manga-translator-cuda13.0-vX.Y.Z.7z.*` | RTX 50 系必须选择；其他支持 CUDA 13.0 的 NVIDIA 显卡也可使用 | CUDA 13.0 / PyTorch cu130 |
+| `manga-translator-cuda12.6-vX.Y.Z.7z.*` | GeForce 10 系必须选择；RTX 50 系不能使用 | CUDA 12.6 / PyTorch cu126 |
 | `manga-translator-rocm7.2.1-vX.Y.Z.7z.*` | 受 Windows ROCm 支持的 AMD 显卡 | 实验性 Radeon ROCm 7.2.1；要求 AMD 26.2.2 驱动 |
 
 ROCm 7.2.1 包只适用于其支持范围内的 AMD 显卡。无法确认兼容性时先使用 CPU 包；不要把不同运行时的分卷混在一起。
 
-> CUDA 13.0 已不支持 Turing 之前的 NVIDIA 架构。安装器会优先按显卡型号识别 GeForce 10 系列，并强制选择 CUDA 12.6；无法读取计算能力时也会保守回退到 CUDA 12.6。
+> CUDA 13.0 已不支持 Turing 之前的 NVIDIA 架构。GeForce 10 系强制选择 CUDA 12.6；非 RTX 50 系显卡无法读取计算能力时也会保守回退到 CUDA 12.6。
+
 
 ## 下载和解压分卷
 

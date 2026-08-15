@@ -136,7 +136,8 @@
 
 #### 下载发布便携包
 
-从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载 CPU、CUDA 13.0、CUDA 12.6 或实验性 ROCm 7.2.1 版本，解压后双击 `Win-Start.bat`。GeForce 10 系列（如 GTX 1060/1070/1080）必须下载文件名含 `cuda12.6` 的兼容版本；CUDA 13.0 仅支持 Turing（计算能力 7.5）及更新架构，RTX 20/30/40/50 系列在驱动支持 CUDA 13.0 时可选择 `cuda13.0`，RTX 50 系列推荐该版本。支持 CUDA 13.0 及以上的驱动也能运行 CUDA 12.6 包。包内已安装 Python 依赖和模型文件；ROCm 7.2.1 版本要求受支持的 AMD 显卡与 26.2.2 驱动。 📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
+从 [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases) 下载对应版本，解压后双击 `Win-Start.bat`。GeForce 10 系必须使用 CUDA 12.6；RTX 50 系必须使用 CUDA 13.0，如不支持请更新 NVIDIA 驱动。包内已安装 Python 依赖和模型文件。 📖 [发行版下载说明](https://hgmzhn.github.io/manga-translator-ui/zh/install/release-download)
+
 
 #### 从源码运行（开发者）
 

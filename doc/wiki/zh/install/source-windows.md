@@ -107,7 +107,7 @@ flowchart TD
 - **Python 版本**：`pyproject.toml` 和启动器都限制 Python 3.12；Python 3.13 会被拒绝。检查 `uv run --no-sync python --version`，不要只检查系统默认 `python`。
 - **后端组互斥**：`cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 在 `[tool.uv].conflicts` 中互斥。不要把多个后端组装进同一环境。
 - **默认组**：项目默认组为 `cuda13.0`、`packaging` 和 `test`；其他运行环境使用 `--no-default-groups`，不会安装 `test` 组。
-- **NVIDIA**：`cuda13.0` 使用 `pytorch-cu130`，`cuda12.6` 使用 `pytorch-cu126`；两者位于同一源码分支，并包含 `onnxruntime-gpu` 和 `xformers`。RTX 50 系列必须使用 CUDA 13.0 版本；其他支持 CUDA 13.0 及以上驱动的显卡也可运行 CUDA 12.6 版本。
+- **NVIDIA**：`cuda13.0` 使用 `pytorch-cu130`，`cuda12.6` 使用 `pytorch-cu126`。RTX 50 系必须使用 CUDA 13.0；如当前驱动不支持，请先更新 NVIDIA 驱动。GeForce 10 系必须使用 CUDA 12.6。
 - **ROCm**：Linux `rocm7.2.1` 组使用 ROCm 7.2 索引和平台标记的 torch/torchvision/triton；Windows 由启动器安装 ROCm SDK 7.2.1 与固定 PyTorch wheels，兼容性受驱动和 gfx 架构影响。
 - **Metal**：`metal` 组面向 macOS Apple Silicon，使用普通 PyPI 的 MPS PyTorch、CPU ONNX Runtime 和 Cocoa；不要在 Windows 选择该组。
 - **依赖冲突切换**：启动器检测到已安装 PyTorch 类型与目标不同，可能卸载 `torch`、`torchvision`、`torchaudio` 并清理 pip 缓存。先关闭其他使用 PyTorch 的 Python 进程。

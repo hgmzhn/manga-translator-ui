@@ -28,7 +28,7 @@ The portable package is published under the `portable` tag in GitHub Releases:
    - Choose a download route (GitHub official or the Gitee mirror; Gitee is recommended in China).
    - The script force-syncs the latest code; if sync fails it suggests switching routes and retrying.
    - It detects the GPU (NVIDIA / AMD / integrated; lists them when several GPUs exist).
-   - Choose the PyTorch build: CUDA 13.0 or newer defaults to `cuda13.0`; CUDA 12.x selects `cuda12.6`; AMD uses `rocm7.2.1` (experimental); anything else or integrated graphics selects `cpu`. No Git branch switch is involved.
+   - Choose the PyTorch build: GeForce 10-series GPUs require `cuda12.6`; RTX 50-series GPUs require `cuda13.0`, so update the NVIDIA driver if needed; other GPUs follow automatic detection.
    - uv installs dependencies in bulk (PyPI multi-mirror fallback: Tsinghua → Aliyun → Douban → official); failures can be retried and installed packages are kept.
    - The download cache is cleaned automatically when done.
 3. Afterwards, start the app each time by double-clicking `Win-Start.bat`.

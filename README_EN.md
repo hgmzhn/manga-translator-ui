@@ -136,7 +136,8 @@ No separate Python installation is required. Download the [portable package](htt
 
 #### Download a portable release
 
-Download a CPU, CUDA 13.0, CUDA 12.6, or experimental ROCm 7.2.1 build from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract it, and run `Win-Start.bat`. GeForce 10-series GPUs such as the GTX 1060/1070/1080 must use the compatibility build whose filename contains `cuda12.6`. CUDA 13.0 requires Turing (compute capability 7.5) or newer; RTX 20/30/40/50-series GPUs may use `cuda13.0` when the driver supports CUDA 13.0, and it is recommended for RTX 50-series GPUs. Drivers supporting CUDA 13.0 or newer can also run the CUDA 12.6 build. Python dependencies and model files are included. The ROCm 7.2.1 build requires a supported AMD GPU and driver 26.2.2. 📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
+Download the matching build from [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases), extract it, and run `Win-Start.bat`. GeForce 10-series GPUs require CUDA 12.6; RTX 50-series GPUs require CUDA 13.0. Update the NVIDIA driver if needed. Python dependencies and model files are included. 📖 [Release download notes](https://hgmzhn.github.io/manga-translator-ui/en/install/release-download)
+
 
 #### Run from source (developers)
 

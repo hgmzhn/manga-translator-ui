@@ -34,7 +34,7 @@ This document provides detailed installation steps, system requirements, first-r
   - **NVIDIA GPU**: GeForce 10-series GPUs must use CUDA 12.6; CUDA 13.0 requires Turing (compute capability 7.5) or newer. Drivers supporting CUDA 13.0 or newer can also run the CUDA 12.6 build
     - Recommended VRAM: 6 GB or more
     - Typical supported class: GTX 1060 and above
-    - RTX 20/30/40/50-series GPUs may use CUDA 13.0 when the driver supports it; CUDA 13.0 is recommended for RTX 50-series GPUs
+    - GeForce 10-series GPUs require CUDA 12.6; RTX 50-series GPUs require CUDA 13.0. Update the NVIDIA driver if needed
   - **AMD GPU**: ROCm support is experimental
     - Supported cards: **RX 7000 / 9000 only**
     - ⚠️ RX 5000 / 6000 should use the CPU build
@@ -125,11 +125,12 @@ Go to [GitHub Releases](https://github.com/hgmzhn/manga-translator-ui/releases).
 ### 2. Choose a build
 
 - `manga-translator-cpu-vX.Y.Z.7z.001`: best compatibility; no dedicated GPU required.
-- `manga-translator-cuda13.0-vX.Y.Z.7z.001`: for Turing (compute capability 7.5) or newer NVIDIA GPUs whose driver supports CUDA 13.0; recommended for RTX 50-series GPUs.
-- `manga-translator-cuda12.6-vX.Y.Z.7z.001`: required for GeForce 10-series GPUs and suitable for other NVIDIA GPUs needing compatibility; drivers supporting CUDA 13.0 or newer can run it through backward compatibility.
+- `manga-translator-cuda13.0-vX.Y.Z.7z.001`: required for RTX 50-series GPUs; other NVIDIA GPUs with CUDA 13.0 support may also use it.
+- `manga-translator-cuda12.6-vX.Y.Z.7z.001`: required for GeForce 10-series GPUs; RTX 50-series GPUs cannot use it.
 - `manga-translator-rocm7.2.1-vX.Y.Z.7z.001`: experimental Radeon ROCm 7.2.1; requires a supported AMD GPU and AMD driver 26.2.2.
 
 > CUDA 13.0 no longer supports NVIDIA architectures before Turing. GeForce 10-series GPUs such as the GTX 1060/1070/1080 must use the CUDA 12.6 package and must not download the CUDA 13.0 package.
+
 
 ### 3. Extract split volumes
 
