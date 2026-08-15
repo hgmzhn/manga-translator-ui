@@ -1449,6 +1449,7 @@
   "api_models_error_failed": "Error al obtener la lista de modelos: {error}",
   "api_models_error_unsupported": "Este traductor no permite obtener la lista de modelos.",
   "api_test_error_connection_failed": "Error de conexión: {error}",
+  "api_test_error_invalid_key_characters": "La clave de API contiene caracteres no admitidos por los encabezados HTTP (posiciones {start}-{end}). Vuelve a pegar la clave y elimina caracteres chinos, símbolos de ancho completo o caracteres invisibles.",
   "api_test_error_gemini_no_image": "La respuesta de imagen de Gemini no contiene ninguna imagen.",
   "api_test_error_model_unavailable": "La conexión se ha realizado correctamente, pero el modelo {model} no está disponible: {error}",
   "api_test_error_remote_image": "Error al descargar la imagen generada: HTTP {status}",

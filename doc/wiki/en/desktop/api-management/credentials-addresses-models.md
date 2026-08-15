@@ -77,4 +77,5 @@ For OpenAI-compatible local endpoints (`localhost`, private IPs, `.local`, etc.)
 - The Sakura group has only an address and a dictionary path; with no Key/Model there is no “Get Models” button, but “Test” still runs against the address.
 - In the web scenario, `translator.user_api_key`/`user_api_base`/`user_api_model` and server-side `_runtime_api_overrides` take priority over `.env`; desktop mode has none of these overrides by default.
 - The fields on this page are unrelated to custom request parameters (`config/custom_api_params.json`); the model name becomes the `model` field in the request body, and custom parameters match presets by model name.
+- API keys are sent in HTTP request headers. If a key contains Chinese, full-width, or invisible characters, the desktop app stops before making a network request and reports their positions; copy a clean key from the provider instead of guessing by deleting characters.
 - Inactive legacy environment variables (DeepL, Caiyun, Baidu, Youdao, Groq, DeepSeek, Together, etc.) are not shown in the UI, but their read logic remains in the code.

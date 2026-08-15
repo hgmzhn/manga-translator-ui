@@ -14,6 +14,29 @@ GEMINI_CURL_HEADERS = {
 }
 
 
+class InvalidAPIKeyCharactersError(ValueError):
+    """Raised before an API key with unsupported characters reaches HTTP headers."""
+
+    def __init__(self, start: int, end: int):
+        self.start_position = start + 1
+        self.end_position = end
+        super().__init__(
+            "API key contains characters unsupported by HTTP headers "
+            f"at positions {self.start_position}-{self.end_position}. "
+            "Re-paste the key and remove Chinese, full-width, or invisible characters."
+        )
+
+
+def validate_api_key_for_http_header(api_key: str | None) -> str:
+    """Reject API-key characters that curl_cffi cannot encode in a header."""
+    value = str(api_key or "")
+    try:
+        value.encode("latin-1")
+    except UnicodeEncodeError as exc:
+        raise InvalidAPIKeyCharactersError(exc.start, exc.end) from None
+    return value
+
+
 def create_curl_cffi_async_session(
     *,
     base_url: str,

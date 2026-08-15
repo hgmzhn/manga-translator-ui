@@ -39,6 +39,8 @@ from manga_translator.utils.system_proxy import (
 from manga_translator.utils.curl_cffi_transport import (
     GEMINI_CURL_HEADERS,
     OPENAI_CURL_HEADERS,
+    InvalidAPIKeyCharactersError,
+    validate_api_key_for_http_header,
 )
 from PIL import Image
 from PyQt6.QtCore import (
@@ -854,6 +856,8 @@ class MainAppLogic(QObject):
         """异步测试API连接（如果指定了模型，会测试该模型是否可用）"""
         try:
             normalized_key = self._normalize_api_test_target(translator_key)
+            if self._is_openai_compatible_target(normalized_key) or "gemini" in normalized_key:
+                validate_api_key_for_http_header(api_key)
 
             if normalized_key == "openai_ocr":
                 return await self._test_openai_ocr_api(api_key, api_base, model)
@@ -903,6 +907,12 @@ class MainAppLogic(QObject):
             else:
                 return False, self._t("api_test_error_unsupported")
                 
+        except InvalidAPIKeyCharactersError as e:
+            return False, self._t(
+                "api_test_error_invalid_key_characters",
+                start=e.start_position,
+                end=e.end_position,
+            )
         except Exception as e:
             return False, self._t("api_test_error_connection_failed", error=str(e))
     
@@ -910,6 +920,8 @@ class MainAppLogic(QObject):
         """异步获取可用模型列表"""
         try:
             normalized_key = self._normalize_api_test_target(translator_key)
+            if self._is_openai_compatible_target(normalized_key) or "gemini" in normalized_key:
+                validate_api_key_for_http_header(api_key)
 
             if self._is_openai_compatible_target(normalized_key):
                 resolved_api_key = resolve_openai_compatible_api_key(api_key, api_base or "https://api.openai.com/v1")
@@ -1012,6 +1024,12 @@ class MainAppLogic(QObject):
             else:
                 return False, [], self._t("api_models_error_unsupported")
                 
+        except InvalidAPIKeyCharactersError as e:
+            return False, [], self._t(
+                "api_test_error_invalid_key_characters",
+                start=e.start_position,
+                end=e.end_position,
+            )
         except Exception as e:
             return False, [], self._t("api_models_error_failed", error=str(e))
     # endregion

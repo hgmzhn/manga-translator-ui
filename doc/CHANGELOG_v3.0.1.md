@@ -18,3 +18,7 @@
 - OpenAI、Gemini、OCR、AI 渲染、AI 上色与 API 测试统一改用 `impersonate="chrome"`，自动跟随当前 Chrome 指纹，不再固定旧版 Chrome 110 指纹。
 - 移除与 TLS 指纹版本不一致的手写 `User-Agent`、`Sec-CH-UA` 等浏览器身份请求头，避免请求头声明与底层 TLS/HTTP2 指纹冲突。
 - curl-cffi 会话统一关闭环境变量代理自动读取，系统代理仅由应用内“使用系统代理”开关按请求地址解析，避免开关关闭后仍意外使用 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`。
+
+### API 密钥异常字符提示修复
+- 修复 API 密钥混入中文、全角符号或不可见字符时，API 测试和正式请求直接显示 `latin-1 codec can't encode characters` 底层异常的问题。
+- OpenAI 兼容接口与 Gemini 请求现在会在创建网络连接前检查密钥，并提示异常字符在密钥中的位置；“测试”和“获取模型”均返回本地化说明。

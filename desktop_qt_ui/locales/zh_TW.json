@@ -1451,6 +1451,7 @@
   "api_models_error_failed": "取得模型清單失敗：{error}",
   "api_models_error_unsupported": "此翻譯器不支援取得模型清單。",
   "api_test_error_connection_failed": "連線失敗：{error}",
+  "api_test_error_invalid_key_characters": "API 金鑰包含請求標頭不支援的字元（位置 {start}-{end}）。請重新貼上金鑰，並刪除中文、全形符號或不可見字元。",
   "api_test_error_gemini_no_image": "Gemini 圖像回應中沒有圖片。",
   "api_test_error_model_unavailable": "連線成功，但模型 {model} 無法使用：{error}",
   "api_test_error_remote_image": "下載產生的圖片失敗：HTTP {status}",

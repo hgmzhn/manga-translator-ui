@@ -1449,6 +1449,7 @@
   "api_models_error_failed": "모델 목록을 가져오지 못했습니다: {error}",
   "api_models_error_unsupported": "이 번역기는 모델 목록 가져오기를 지원하지 않습니다.",
   "api_test_error_connection_failed": "연결에 실패했습니다: {error}",
+  "api_test_error_invalid_key_characters": "API 키에 HTTP 헤더가 지원하지 않는 문자가 포함되어 있습니다(위치 {start}-{end}). 키를 다시 붙여넣고 중국어 문자, 전각 기호 또는 보이지 않는 문자를 제거하세요.",
   "api_test_error_gemini_no_image": "Gemini 이미지 응답에 이미지가 없습니다.",
   "api_test_error_model_unavailable": "연결에 성공했지만 모델 {model}을(를) 사용할 수 없습니다: {error}",
   "api_test_error_remote_image": "생성된 이미지를 다운로드하지 못했습니다: HTTP {status}",

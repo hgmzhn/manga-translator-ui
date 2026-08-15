@@ -1449,6 +1449,7 @@
   "api_models_error_failed": "モデルリストの取得に失敗しました：{error}",
   "api_models_error_unsupported": "この翻レーターはモデルリストの取得をサポートしていません。",
   "api_test_error_connection_failed": "接続に失敗しました：{error}",
+  "api_test_error_invalid_key_characters": "API キーに HTTP ヘッダーで使用できない文字が含まれています（位置 {start}-{end}）。キーを貼り直し、中国語文字、全角記号、不可視文字を削除してください。",
   "api_test_error_gemini_no_image": "Gemini の画像レスポンスに画像が含まれていません。",
   "api_test_error_model_unavailable": "接続には成功しましたが、モデル {model} は利用できません：{error}",
   "api_test_error_remote_image": "生成された画像のダウンロードに失敗しました：HTTP {status}",

@@ -1,4 +1,5 @@
 import _bootstrap  # noqa: I001
+import asyncio
 import json
 from string import Formatter
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ ERROR_KEYS = {
     "api_test_error_address_example",
     "api_test_error_config",
     "api_test_error_connection_failed",
+    "api_test_error_invalid_key_characters",
     "api_test_error_gemini_no_image",
     "api_test_error_model_unavailable",
     "api_test_error_network",
@@ -71,12 +73,8 @@ def test_error_catalogs_are_complete_and_preserve_placeholders():
 
     for locale, catalog in catalogs.items():
         assert ERROR_KEYS <= catalog.keys(), locale
-        assert {
-            key: _placeholders(catalog[key])
-            for key in ERROR_KEYS
-        } == {
-            key: _placeholders(reference[key])
-            for key in ERROR_KEYS
+        assert {key: _placeholders(catalog[key]) for key in ERROR_KEYS} == {
+            key: _placeholders(reference[key]) for key in ERROR_KEYS
         }, locale
 
 
@@ -100,6 +98,42 @@ def test_api_connection_network_error_uses_current_locale(locale, expected):
 
     assert expected in message
     assert "https://api.openai.com/v1" in message
+
+
+def test_api_actions_localize_unencodable_key_without_network_call():
+    manager = _manager("zh_CN")
+    view = SimpleNamespace(
+        _normalize_api_test_target=app_logic.MainAppLogic._normalize_api_test_target,
+        _is_openai_compatible_target=app_logic.MainAppLogic._is_openai_compatible_target,
+        _t=manager.translate,
+    )
+    api_key = "abcdefghijklm中文测试"
+
+    connection_result = asyncio.run(
+        app_logic.MainAppLogic.test_api_connection_async(
+            view,
+            "openai",
+            api_key,
+            "https://api.example/v1",
+            "model",
+        )
+    )
+    models_result = asyncio.run(
+        app_logic.MainAppLogic.get_available_models_async(
+            view,
+            "openai",
+            api_key,
+            "https://api.example/v1",
+        )
+    )
+
+    assert connection_result == (
+        False,
+        "API 密钥包含请求头不支持的字符（位置 14-17）。"
+        "请重新粘贴密钥，并删除中文、全角符号或不可见字符。",
+    )
+    assert models_result == (False, [], connection_result[1])
+    assert "latin-1" not in connection_result[1]
 
 
 def test_translation_network_error_uses_current_locale(monkeypatch):

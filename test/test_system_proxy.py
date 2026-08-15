@@ -73,7 +73,10 @@ def test_qt_proxy_conversion_preserves_type_credentials_and_bypass():
     assert system_proxy._proxy_url_from_qt_proxies([socks_proxy], proxy_types) == (
         "socks5://[2001:db8::1]:1080"
     )
-    assert system_proxy._proxy_url_from_qt_proxies([no_proxy, http_proxy], proxy_types) is None
+    assert (
+        system_proxy._proxy_url_from_qt_proxies([no_proxy, http_proxy], proxy_types)
+        is None
+    )
 
 
 def test_openai_shared_transport_resolves_proxy_for_each_request(monkeypatch):
@@ -220,3 +223,33 @@ def test_curl_transport_headers_do_not_override_impersonated_browser_identity():
     assert forbidden_headers.isdisjoint(
         header.lower() for header in curl_cffi_transport.GEMINI_CURL_HEADERS
     )
+
+
+@pytest.mark.parametrize(
+    "client_type",
+    [common.AsyncOpenAICurlCffi, common.AsyncGeminiCurlCffi],
+)
+def test_api_clients_reject_unencodable_key_before_creating_transport(
+    monkeypatch,
+    client_type,
+):
+    def fail_if_called(**_kwargs):
+        pytest.fail("transport must not be created for an unencodable API key")
+
+    monkeypatch.setattr(common, "create_curl_cffi_async_session", fail_if_called)
+
+    with pytest.raises(curl_cffi_transport.InvalidAPIKeyCharactersError) as error:
+        client_type(
+            api_key="abcdefghijklm中文测试",
+            base_url="https://api.example/v1",
+        )
+
+    assert error.value.start_position == 14
+    assert error.value.end_position == 17
+    assert "latin-1" not in str(error.value)
+
+
+def test_api_key_header_validation_preserves_supported_key():
+    api_key = "sk-valid_ASCII-key"
+
+    assert curl_cffi_transport.validate_api_key_for_http_header(api_key) == api_key

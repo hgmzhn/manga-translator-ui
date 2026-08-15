@@ -17,6 +17,7 @@ from ..utils import InfererModule, ModelWrapper, is_valuable_text, repeating_seq
 from ..utils.curl_cffi_transport import (
     CURL_CFFI_IMPERSONATE,
     create_curl_cffi_async_session,
+    validate_api_key_for_http_header,
 )
 from ..utils.image_modes import normalize_rgb_image
 from ..utils.openai_compat import resolve_openai_compatible_api_key
@@ -413,7 +414,9 @@ class AsyncOpenAICurlCffi:
             timeout: 非流式请求超时时间（秒）
             stream_timeout: 流式 HTTP 请求超时时间（秒）
         """
-        self.api_key = resolve_openai_compatible_api_key(api_key, base_url)
+        self.api_key = validate_api_key_for_http_header(
+            resolve_openai_compatible_api_key(api_key, base_url)
+        )
         self.base_url = base_url.rstrip('/')
         self.default_headers = default_headers or {}
         self.timeout = timeout
@@ -828,7 +831,7 @@ class AsyncGeminiCurlCffi:
             timeout: 非流式请求超时时间（秒）
             stream_timeout: 流式 HTTP 请求超时时间（秒）
         """
-        self.api_key = api_key
+        self.api_key = validate_api_key_for_http_header(api_key)
         self.base_url = base_url.rstrip('/')
         self.default_headers = default_headers or {}
         self.timeout = timeout

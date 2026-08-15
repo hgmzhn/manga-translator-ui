@@ -1458,6 +1458,7 @@
   "api_models_error_failed": "Failed to retrieve the model list: {error}",
   "api_models_error_unsupported": "This translator does not support retrieving the model list.",
   "api_test_error_connection_failed": "Connection failed: {error}",
+  "api_test_error_invalid_key_characters": "The API key contains characters unsupported by HTTP headers (positions {start}-{end}). Re-paste the key and remove Chinese, full-width, or invisible characters.",
   "api_test_error_gemini_no_image": "The Gemini image response did not contain an image.",
   "api_test_error_model_unavailable": "Connection succeeded, but model {model} is unavailable: {error}",
   "api_test_error_remote_image": "Failed to download the generated image: HTTP {status}",

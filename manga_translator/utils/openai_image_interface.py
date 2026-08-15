@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from PIL import Image
 
+from .curl_cffi_transport import validate_api_key_for_http_header
 from .image_modes import normalize_rgb_image
 from .openai_compat import resolve_openai_compatible_api_key
 from .retry import summarize_exception_message, summarize_response_text
@@ -44,7 +45,9 @@ async def request_openai_image_with_fallback(
     from curl_cffi import CurlMime
 
     base_url = base_url.rstrip("/")
-    resolved_api_key = resolve_openai_compatible_api_key(api_key, base_url)
+    resolved_api_key = validate_api_key_for_http_header(
+        resolve_openai_compatible_api_key(api_key, base_url)
+    )
     headers = {}
     if resolved_api_key:
         headers["Authorization"] = f"Bearer {resolved_api_key}"

@@ -77,4 +77,5 @@ flowchart LR
 - Sakura 分组只有地址与词典路径；没有 Key/Model，也就没有“获取模型”按钮，但“测试”仍按地址执行。
 - Web 服务场景下，`translator.user_api_key`/`user_api_base`/`user_api_model` 以及服务器端 `_runtime_api_overrides` 的优先级高于 `.env`；桌面端默认不存在这些覆盖。
 - 本页字段与自定义请求参数（`config/custom_api_params.json`）无关；模型名会成为请求体中的 `model` 字段，自定义参数按模型名匹配预设。
+- API 密钥会写入 HTTP 请求头。若密钥混入中文、全角符号或不可见字符，桌面端会在发起网络请求前停止，并提示异常字符在密钥中的位置；请重新从服务商复制纯净密钥，不要删除字符后继续猜测原密钥。
 - 未激活的历史环境变量（DeepL、彩云、百度、有道、Groq、DeepSeek、Together 等）不会在界面显示，但代码仍保留其读取逻辑。

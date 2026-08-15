@@ -1461,6 +1461,7 @@
   "api_test_error_model_unavailable": "连接成功，但模型 {model} 不可用：{error}",
   "api_test_error_unsupported": "该翻译器不支持 API 测试。",
   "api_test_error_connection_failed": "连接失败：{error}",
+  "api_test_error_invalid_key_characters": "API 密钥包含请求头不支持的字符（位置 {start}-{end}）。请重新粘贴密钥，并删除中文、全角符号或不可见字符。",
   "api_models_error_unsupported": "该翻译器不支持获取模型列表。",
   "api_models_error_failed": "获取模型列表失败：{error}"
 }
