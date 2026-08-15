@@ -106,6 +106,102 @@ def test_installed_cuda_12_runtime_preserves_cuda126_group(monkeypatch):
     )
 
 
+def test_rtx_50_update_variant_uses_driver_cuda_instead_of_installed_wheel(monkeypatch):
+    launch = load_launch("launch_rtx50_update_variant_test")
+    monkeypatch.setattr(
+        launch,
+        "detect_installed_pytorch_version",
+        lambda: ("GPU", "CUDA 12.6"),
+    )
+    detect_calls = []
+
+    def detect_gpu(*, interactive=True):
+        detect_calls.append(interactive)
+        return "NVIDIA", "NVIDIA GeForce RTX 5090", 13, "13.0", "580.00", (12, 0)
+
+    monkeypatch.setattr(launch, "detect_gpu", detect_gpu)
+
+    assert launch.get_update_variant_info() == (
+        "cuda13.0",
+        "cuda12.6",
+        "GPU",
+        "CUDA 12.6",
+    )
+    assert detect_calls == [False]
+
+
+def test_rtx_50_update_variant_stays_on_cuda126_when_driver_is_cuda12(monkeypatch):
+    launch = load_launch("launch_rtx50_cuda12_update_variant_test")
+    monkeypatch.setattr(
+        launch,
+        "detect_installed_pytorch_version",
+        lambda: ("GPU", "CUDA 12.6"),
+    )
+    monkeypatch.setattr(
+        launch,
+        "detect_gpu",
+        lambda *, interactive=True: (
+            "NVIDIA",
+            "NVIDIA GeForce RTX 5090",
+            12,
+            "12.8",
+            "572.00",
+            (12, 0),
+        ),
+    )
+
+    assert launch.get_update_variant_info()[0] == "cuda12.6"
+
+
+def test_update_dependencies_applies_driver_selected_cuda_variant(monkeypatch):
+    launch = load_launch("launch_apply_driver_cuda_variant_test")
+    args = type("Args", (), {"requirements": "auto"})()
+    applied_variants = []
+
+    monkeypatch.setattr(launch, "ensure_pytorch_runtime_ready", lambda: True)
+    monkeypatch.setattr(
+        launch,
+        "get_update_variant_info",
+        lambda: ("cuda13.0", "cuda12.6", "GPU", "CUDA 12.6"),
+    )
+    monkeypatch.setattr(
+        launch,
+        "prepare_environment",
+        lambda current_args: applied_variants.append(current_args.requirements),
+    )
+
+    assert launch.update_dependencies(args, select_cuda_variant=True)
+    assert applied_variants == ["cuda13.0"]
+
+
+def test_update_runtime_only_selects_driver_cuda_for_torch_upgrade(monkeypatch):
+    launch = load_launch("launch_runtime_cuda_detection_gate_test")
+    args = type("Args", (), {"requirements": "auto"})()
+    update_calls = []
+    selective_calls = []
+
+    monkeypatch.setattr(launch, "ensure_pytorch_runtime_ready", lambda: True)
+    monkeypatch.setattr(launch, "cleanup_caches", lambda: None)
+    monkeypatch.setattr(launch, "run_deps_with_retry", lambda task, *_: task())
+    monkeypatch.setattr(
+        launch,
+        "update_dependencies",
+        lambda current_args, **kwargs: update_calls.append(kwargs["select_cuda_variant"]) or True,
+    )
+    monkeypatch.setattr(
+        launch,
+        "update_dependencies_selective",
+        lambda current_args, missing: selective_calls.append(missing) or True,
+    )
+
+    assert launch.update_runtime_dependencies(args, "cuda12.6", ["numpy==2.0"])
+    assert selective_calls == [["numpy==2.0"]]
+    assert update_calls == []
+
+    assert launch.update_runtime_dependencies(args, "cuda12.6", ["torch==2.13.0"])
+    assert update_calls == [True]
+
+
 def test_legacy_rocm_runtime_preserves_rocm_group(monkeypatch):
     launch = load_launch("launch_installed_rocm_variant_test")
     monkeypatch.setattr(

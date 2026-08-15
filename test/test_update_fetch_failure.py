@@ -85,6 +85,49 @@ def test_check_all_updates_fetch_failure_marks_code_update_needed(tmp_path, monk
     assert "  状态: [已是最新]" not in out
 
 
+
+def test_check_all_updates_does_not_detect_driver_cuda(tmp_path, monkeypatch, capsys):
+    launch = load_module("launch_cuda_detection_gate_test", "packaging/launch.py")
+
+    packaging_dir = tmp_path / "packaging"
+    packaging_dir.mkdir()
+    (packaging_dir / "VERSION").write_text("1.7.6", encoding="utf-8")
+
+    monkeypatch.setattr(launch, "PATH_ROOT", tmp_path)
+    monkeypatch.setattr(launch, "PYPROJECT_FILE", tmp_path / "missing-pyproject.toml")
+    monkeypatch.setattr(launch, "ensure_git_safe_directory", lambda: None)
+    monkeypatch.setattr(launch, "get_update_branch", lambda: "main")
+    monkeypatch.setattr(launch, "get_mirror_display_name", lambda *args, **kwargs: "GitHub")
+    monkeypatch.setattr(
+        launch,
+        "get_requirements_file_from_env",
+        lambda: ("cuda12.6", "GPU", "CUDA 12.6"),
+    )
+
+    def unexpected_cuda_detection():
+        raise AssertionError("ordinary update checks must not detect driver CUDA")
+
+    monkeypatch.setattr(launch, "get_update_variant_info", unexpected_cuda_detection)
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[1:3] == ["fetch", "origin"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if cmd[1:3] == ["show", "origin/main:packaging/VERSION"]:
+            return SimpleNamespace(returncode=0, stdout="1.7.6\n", stderr="")
+        if cmd[1:3] in (["rev-parse", "HEAD"], ["rev-parse", "origin/main"]):
+            return SimpleNamespace(returncode=0, stdout="abc123\n", stderr="")
+        raise AssertionError(f"unexpected subprocess call: {cmd}")
+
+    monkeypatch.setattr(launch.subprocess, "run", fake_run)
+
+    result = launch.check_all_updates()
+    out = capsys.readouterr().out
+
+    assert result[0] is False
+    assert result[1] is True
+    assert result[4:] == ("cuda12.6", [])
+    assert "目标依赖方案" not in out
+
 def test_check_version_brief_fetch_failure_reports_warning(monkeypatch, capsys):
     check_version = load_module("check_version_update_test", "packaging/check_version.py")
 
