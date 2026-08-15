@@ -47,6 +47,46 @@ def test_check_version_info_fetch_failure_reports_warning(tmp_path, monkeypatch,
     assert "当前已是最新版本" not in out
 
 
+def test_maintenance_fetch_disables_git_credential_prompts(monkeypatch):
+    launch = load_module("launch_git_prompt_test", "packaging/launch.py")
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs["env"]
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(launch.subprocess, "run", fake_run)
+
+    assert launch.git_fetch_with_mirror_prompt()
+    assert captured["cmd"][1:3] == ["fetch", "origin"]
+    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert captured["env"]["GCM_INTERACTIVE"] == "Never"
+
+
+def test_maintenance_fetch_failure_keeps_mirror_fallback(monkeypatch):
+    launch = load_module("launch_git_mirror_test", "packaging/launch.py")
+    prompts = []
+
+    monkeypatch.setattr(
+        launch,
+        "_run_git_fetch",
+        lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="network error"),
+    )
+    monkeypatch.setattr(
+        launch,
+        "get_remote_url",
+        lambda: "https://github.com/hgmzhn/manga-translator-ui.git",
+    )
+    monkeypatch.setattr(launch, "get_mirror_display_name", lambda *args, **kwargs: "GitHub 官方")
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "n")
+
+    assert not launch.git_fetch_with_mirror_prompt()
+    assert prompts
+    assert "Gitee 镜像" in prompts[0]
+    assert "并重试" in prompts[0]
+
+
 def test_check_all_updates_fetch_failure_marks_code_update_needed(tmp_path, monkeypatch, capsys):
     launch = load_module("launch_update_all_test", "packaging/launch.py")
 
@@ -128,6 +168,27 @@ def test_check_all_updates_does_not_detect_driver_cuda(tmp_path, monkeypatch, ca
     assert result[4:] == ("cuda12.6", [])
     assert "目标依赖方案" not in out
 
+def test_pydensecrf_clone_disables_git_credential_prompts(tmp_path, monkeypatch):
+    builder = load_module(
+        "pydensecrf_git_prompt_test",
+        "packaging/build_utils/build_pydensecrf_wheel.py",
+    )
+    calls = []
+
+    def fake_run_command(cmd, description, *, env=None):
+        calls.append((cmd, description, env))
+        return len(calls) == 1
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(builder, "run_command", fake_run_command)
+
+    assert not builder.build_wheel()
+    clone_cmd, _, clone_env = calls[1]
+    assert clone_cmd[:2] == ["git", "clone"]
+    assert clone_env["GIT_TERMINAL_PROMPT"] == "0"
+    assert clone_env["GCM_INTERACTIVE"] == "Never"
+
+
 def test_check_version_brief_fetch_failure_reports_warning(monkeypatch, capsys):
     check_version = load_module("check_version_update_test", "packaging/check_version.py")
 
@@ -135,6 +196,8 @@ def test_check_version_brief_fetch_failure_reports_warning(monkeypatch, capsys):
 
     def fake_run(cmd, *args, **kwargs):
         if cmd[1:3] == ["fetch", "origin"]:
+            assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
+            assert kwargs["env"]["GCM_INTERACTIVE"] == "Never"
             return SimpleNamespace(returncode=1, stdout="", stderr="network error")
         raise AssertionError(f"unexpected subprocess call: {cmd}")
 

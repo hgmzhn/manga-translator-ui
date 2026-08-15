@@ -33,6 +33,7 @@ from desktop_qt_ui.core.git_update_helpers import (
 from desktop_qt_ui.core.git_update_helpers import (
     fetch_origin,
     git_output,
+    non_interactive_git_env,
     set_origin_url,
 )
 from desktop_qt_ui.core.git_update_helpers import (
@@ -2290,12 +2291,23 @@ def switch_mirror():
     return False
 
 
+def _run_git_fetch(fetch_args=None, *, capture_output=False, timeout=300):
+    """Fetch origin without opening Git Credential Manager or terminal prompts."""
+    return subprocess.run(
+        [git, 'fetch', 'origin'] + (fetch_args or []),
+        capture_output=capture_output,
+        check=False,
+        timeout=timeout,
+        env=non_interactive_git_env(),
+    )
+
+
 def git_fetch_with_mirror_prompt(fetch_args=None, desc=None):
     """git fetch，失败时推荐切换到另一条线路并重试"""
     while True:
         print((desc or L('获取远程更新', 'Fetching remote updates')) + '...')
         try:
-            result = subprocess.run([git, 'fetch', 'origin'] + (fetch_args or []), check=False, timeout=300)
+            result = _run_git_fetch(fetch_args, timeout=300)
             if result.returncode == 0:
                 return True
         except Exception:
@@ -2716,12 +2728,7 @@ def check_all_updates():
     
     fetch_ok = False
     try:
-        fetch_result = subprocess.run(
-            [git, 'fetch', 'origin'],
-            capture_output=True,
-            check=False,
-            timeout=10
-        )
+        fetch_result = _run_git_fetch(capture_output=True, timeout=10)
         fetch_ok = (fetch_result.returncode == 0)
     except Exception:
         fetch_ok = False

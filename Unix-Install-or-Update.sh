@@ -187,7 +187,7 @@ clone_project() {
 
     info "Cloning project from $REPO_URL..."
     TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/manga-translator.XXXXXX")"
-    git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
+    GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never git clone --depth 1 "$REPO_URL" "$TEMP_DIR"
     (cd "$TEMP_DIR" && tar -cf - .) | (cd "$SCRIPT_DIR" && tar -xf -)
     rm -rf "$TEMP_DIR"
     TEMP_DIR=""

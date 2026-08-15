@@ -33,6 +33,14 @@ def git_executable(root: Path) -> str:
 _GIT_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
+def non_interactive_git_env() -> dict[str, str]:
+    """Return an environment that prevents Git credential UI and terminal prompts."""
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GCM_INTERACTIVE"] = "Never"
+    return env
+
+
 def _run_git(
     root: Path,
     args: list[str],
@@ -52,6 +60,7 @@ def _run_git(
             encoding="utf-8",
             errors="ignore",
             creationflags=_GIT_CREATION_FLAGS,
+            env=non_interactive_git_env(),
         )
     except (OSError, subprocess.SubprocessError):
         return None

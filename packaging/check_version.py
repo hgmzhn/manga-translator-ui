@@ -10,10 +10,15 @@ import os
 import argparse
 from pathlib import Path
 
+PATH_ROOT = Path(__file__).parent.parent
+if str(PATH_ROOT) not in sys.path:
+    sys.path.insert(0, str(PATH_ROOT))
+
+from desktop_qt_ui.core.git_update_helpers import non_interactive_git_env
+
 # Git路径配置
 def get_git_command():
     """获取git命令路径"""
-    PATH_ROOT = Path(__file__).parent.parent
     portable_git = PATH_ROOT / "PortableGit" / "cmd" / "git.exe"
     if portable_git.exists():
         return str(portable_git)
@@ -55,7 +60,8 @@ def fetch_remote_refs(git_cmd):
             [git_cmd, 'fetch', 'origin'],
             capture_output=True,
             text=True,
-            check=False
+            check=False,
+            env=non_interactive_git_env(),
         )
         return result.returncode == 0
     except Exception:

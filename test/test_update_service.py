@@ -27,7 +27,7 @@ def test_compare_versions_handles_v_prefix_and_missing_patch_parts():
     assert compare_versions("2.1.99", "2.2") == -1
 
 
-def test_git_commands_use_no_window_creation_flags(monkeypatch, tmp_path):
+def test_git_commands_use_no_window_creation_flags_and_disable_prompts(monkeypatch, tmp_path):
     captured = {}
 
     def fake_run(args, **kwargs):
@@ -39,6 +39,8 @@ def test_git_commands_use_no_window_creation_flags(monkeypatch, tmp_path):
 
     assert git_update_helpers.git_output(tmp_path, ["status"], executable="git") == "ok"
     assert captured["creationflags"] == 0x08000000
+    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert captured["env"]["GCM_INTERACTIVE"] == "Never"
 
 
 def test_update_info_reports_only_newer_release_as_available():

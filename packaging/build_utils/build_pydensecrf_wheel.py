@@ -15,15 +15,29 @@ import os
 from pathlib import Path
 import shutil
 
+PATH_ROOT = Path(__file__).resolve().parents[2]
+if str(PATH_ROOT) not in sys.path:
+    sys.path.insert(0, str(PATH_ROOT))
 
-def run_command(cmd, description):
+from desktop_qt_ui.core.git_update_helpers import non_interactive_git_env
+
+
+def run_command(cmd, description, *, env=None):
     """执行命令并显示输出"""
     print(f"\n{'='*60}")
     print(f"{description}")
     print(f"{'='*60}")
     print(f"命令: {' '.join(cmd)}")
     
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        check=False,
+        env=env,
+    )
     
     if result.stdout:
         print(result.stdout)
@@ -92,8 +106,10 @@ def build_wheel():
     
     if not run_command(
         ["git", "clone", repo_url, str(repo_dir)],
-        "克隆 pydensecrf 仓库"
+        "克隆 pydensecrf 仓库",
+        env=non_interactive_git_env(),
     ):
+
         return False
     
     # 构建 wheel
