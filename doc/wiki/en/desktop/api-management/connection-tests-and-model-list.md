@@ -75,7 +75,7 @@ Each environment-variable key is split by scope (`OCR_` / `COLOR_` / `RENDER_`) 
 - Gemini colorization/rendering: without a model it uses the default `gemini-2.0-flash-preview-image-generation`, requests the TEXT+IMAGE modality, and disables safety thresholds; timeout is 60 seconds.
 - Sakura: uses an OpenAI-compatible client with a fixed placeholder key to test the model or list models; the test path sets no explicit short timeout and relies on SDK defaults.
 
-OpenAI-family tests prefer the `curl_cffi` client with a browser fingerprint (`impersonate="chrome110"`) and fall back to the standard `openai` client; Gemini-family tests prefer `AsyncGeminiCurlCffi` and fall back to the synchronous `google-genai` client (run in the event-loop executor).
+OpenAI-family tests prefer the `curl_cffi` client with the current Chrome browser fingerprint (`impersonate="chrome"`) and fall back to the standard `openai` client; Gemini-family tests prefer `AsyncGeminiCurlCffi` and fall back to the synchronous `google-genai` client (run in the event-loop executor).
 
 ### Model list fetching
 

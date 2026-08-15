@@ -1263,6 +1263,9 @@ except OSError as e:
             output = result.stdout.strip()
             if '|' in output:
                 pytorch_type, detail = output.split('|', 1)
+                # 兼容旧版/外部检测器使用的 ROCm 标签；内部统一使用 AMD。
+                if pytorch_type == 'ROCm':
+                    pytorch_type = 'AMD'
                 # 子进程输出 "None|未安装" 是字符串，转成真正的 None（未安装不算版本不匹配）
                 if pytorch_type == 'None':
                     return None, detail
@@ -1282,7 +1285,7 @@ def dependency_variant_from_pytorch(pytorch_type, detail):
         return 'cuda12.6' if "CUDA 12." in (detail or "") else 'cuda13.0'
     if pytorch_type == "Metal":
         return 'metal'
-    if pytorch_type == "AMD":
+    if pytorch_type in ("AMD", "ROCm"):
         return 'rocm7.2.1'
     if pytorch_type == "CPU":
         return 'cpu'

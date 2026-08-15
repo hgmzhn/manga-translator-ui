@@ -24,6 +24,7 @@ from ..utils.ai_image_preprocess import (
 from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.openai_image_interface import request_openai_image_with_fallback
 from ..utils.system_proxy import system_proxy_request_kwargs
+from ..utils.curl_cffi_transport import GEMINI_CURL_HEADERS, OPENAI_CURL_HEADERS
 from .prompt_loader import (
     DEFAULT_AI_RENDERER_PROMPT,
     ensure_ai_renderer_prompt_file,
@@ -31,23 +32,8 @@ from .prompt_loader import (
 )
 from .rich_text import plain_text_of
 
-OPENAI_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7",
-    "Connection": "keep-alive",
-    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-}
-
-GEMINI_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7",
-    "Origin": "https://aistudio.google.com",
-    "Referer": "https://aistudio.google.com/",
-}
+OPENAI_BROWSER_HEADERS = OPENAI_CURL_HEADERS
+GEMINI_BROWSER_HEADERS = GEMINI_CURL_HEADERS
 
 _RENDERER_SEMAPHORES: dict[str, tuple[int, asyncio.Semaphore]] = {}
 _LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
@@ -336,7 +322,7 @@ class OpenAIRenderer(BaseAPIRenderer):
             api_key=api_key,
             base_url=base_url,
             default_headers=self.BROWSER_HEADERS,
-            impersonate="chrome110",
+            impersonate="chrome",
             timeout=600.0,
             stream_timeout=300.0,
         )
@@ -397,7 +383,7 @@ class GeminiRenderer(BaseAPIRenderer):
             api_key=api_key,
             base_url=base_url,
             default_headers=self.BROWSER_HEADERS,
-            impersonate="chrome110",
+            impersonate="chrome",
             timeout=600.0,
             stream_timeout=300.0,
         )

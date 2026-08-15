@@ -14,6 +14,7 @@ from ..api_key_rotation import APIRotationExhaustedError, run_with_api_candidate
 from ..runtime_api_resolver import resolve_runtime_api_config
 from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.image_modes import normalize_rgb_image
+from ..utils.curl_cffi_transport import GEMINI_CURL_HEADERS
 from .common import (
     VALID_LANGUAGES,
     AsyncGeminiCurlCffi,
@@ -29,14 +30,8 @@ from .common import (
     validate_gemini_response,
 )
 
-# 浏览器风格的请求头，避免被 CF 拦截
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7",
-    "Origin": "https://aistudio.google.com",
-    "Referer": "https://aistudio.google.com/",
-}
+# 浏览器身份由 curl_cffi 的 impersonate 配置生成；这里只保留业务请求头。
+BROWSER_HEADERS = GEMINI_CURL_HEADERS
 
 
 def encode_image_for_gemini(image, max_size=1024):
@@ -274,7 +269,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     api_key=self.api_key,
                     base_url=self.base_url,
                     default_headers=BROWSER_HEADERS,
-                    impersonate="chrome110",
+                    impersonate="chrome",
                     timeout=600,
                     stream_timeout=300
                 )
@@ -286,7 +281,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 self.client = AsyncGeminiCurlCffi(
                     api_key=self.api_key,
                     default_headers=BROWSER_HEADERS,
-                    impersonate="chrome110",
+                    impersonate="chrome",
                     timeout=600,
                     stream_timeout=300
                 )

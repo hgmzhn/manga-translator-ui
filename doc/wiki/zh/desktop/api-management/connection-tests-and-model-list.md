@@ -75,7 +75,7 @@ lastUpdated: true
 - Gemini 上色/渲染：未填模型时使用默认 `gemini-2.0-flash-preview-image-generation`，请求 TEXT+IMAGE 模态并关闭安全阈值；超时 60 秒。
 - Sakura：使用 OpenAI 兼容客户端和固定占位密钥测试模型或列出模型；测试路径没有显式短超时，依赖 SDK 默认值。
 
-OpenAI 系列优先使用带浏览器指纹的 `curl_cffi` 客户端（`impersonate="chrome110"`），不可用时回退到标准 `openai` 客户端；Gemini 系列优先 `AsyncGeminiCurlCffi`，不可用时回退到 `google-genai` 同步客户端（在事件循环执行器中运行）。
+OpenAI 系列优先使用跟随当前 Chrome 浏览器指纹的 `curl_cffi` 客户端（`impersonate="chrome"`），不可用时回退到标准 `openai` 客户端；Gemini 系列优先 `AsyncGeminiCurlCffi`，不可用时回退到 `google-genai` 同步客户端（在事件循环执行器中运行）。
 
 ### 模型列表拉取
 

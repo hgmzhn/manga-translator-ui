@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
+from manga_translator.runtime_paths import get_config_path
 from PyQt6.QtCore import (
     QDir,
     QModelIndex,
@@ -57,10 +58,12 @@ from qfluentwidgets import PushButton as QPushButton
 from qfluentwidgets import ToolButton as QToolButton
 
 from services import get_i18n_manager
-from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog, normalize_dialog_parent
+from ui.secondary_pages.fluent_dialog import (
+    DialogCode,
+    FluentSecondaryDialog,
+    normalize_dialog_parent,
+)
 from ui.widgets.hover_hint import set_hover_hint
-from manga_translator.runtime_paths import get_config_path
-
 
 _DEFAULT_FOLDER_SORT = "name_ascending"
 _FOLDER_SORT_STATE_TO_SPEC = {
@@ -93,25 +96,32 @@ def _folder_sort_state(column: int, order: Qt.SortOrder) -> Optional[str]:
 
 
 class CaseInsensitiveSortProxyModel(QSortFilterProxyModel):
-    """不区分大小写的排序代理模型"""
-    
+    """按文件系统属性排序，名称比较不区分大小写。"""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.header_overrides = {}
-    
+
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
-        """自定义排序比较"""
-        left_data = self.sourceModel().data(left, Qt.ItemDataRole.DisplayRole)
-        right_data = self.sourceModel().data(right, Qt.ItemDataRole.DisplayRole)
-        
+        """使用原始文件属性比较，避免格式化文本造成日期和大小错序。"""
+        source_model = self.sourceModel()
+        if isinstance(source_model, QFileSystemModel):
+            column = left.column()
+            if column == 3:
+                left_modified = (
+                    source_model.fileInfo(left).lastModified().toMSecsSinceEpoch()
+                )
+                right_modified = (
+                    source_model.fileInfo(right).lastModified().toMSecsSinceEpoch()
+                )
+                return left_modified < right_modified
+
+        left_data = source_model.data(left, Qt.ItemDataRole.DisplayRole)
+        right_data = source_model.data(right, Qt.ItemDataRole.DisplayRole)
         if left_data is None or right_data is None:
             return False
-        
-        # 转换为小写进行比较
-        left_str = str(left_data).lower()
-        right_str = str(right_data).lower()
-        
-        return left_str < right_str
+
+        return str(left_data).casefold() < str(right_data).casefold()
 
     def set_header_override(self, section: int, text: str):
         """设置表头显示文本覆盖"""
@@ -177,7 +187,9 @@ class _FavoriteStarDelegate(TreeItemDelegate):
         else:
             # 空心星星（未收藏）
             outline_color = QColor(
-                self._dialog._border_hover_color if is_selected else self._dialog._border_color
+                self._dialog._border_hover_color
+                if is_selected
+                else self._dialog._border_color
             )
             painter.setPen(QPen(outline_color, 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -216,7 +228,9 @@ class _FavoriteStarDelegate(TreeItemDelegate):
         from PyQt6.QtCore import QEvent
         from PyQt6.QtGui import QMouseEvent
 
-        if event.type() == QEvent.Type.MouseButtonRelease and isinstance(event, QMouseEvent):
+        if event.type() == QEvent.Type.MouseButtonRelease and isinstance(
+            event, QMouseEvent
+        ):
             star_rect = self.get_star_rect(option.rect)
             if star_rect.contains(event.position().toPoint()):
                 folder_path = self._folder_path(index)
@@ -264,7 +278,13 @@ class ShortcutFavoriteDelegate(_FavoriteStarDelegate):
 class FolderDialog(FluentSecondaryDialog):
     """现代化文件夹选择对话框"""
 
-    def __init__(self, parent=None, start_dir: str = "", multi_select: bool = True, config_service=None):
+    def __init__(
+        self,
+        parent=None,
+        start_dir: str = "",
+        multi_select: bool = True,
+        config_service=None,
+    ):
         super().__init__(parent)
         self.multi_select = multi_select
         self.selected_folders: List[str] = []
@@ -276,17 +296,22 @@ class FolderDialog(FluentSecondaryDialog):
         self.i18n = get_i18n_manager()
         self._setup_fluent_colors()
 
-        self.setWindowTitle(self._t("Select Folder") + (self._t(" (Multi-select)") if multi_select else ""))
+        self.setWindowTitle(
+            self._t("Select Folder")
+            + (self._t(" (Multi-select)") if multi_select else "")
+        )
         self.setWindowIcon(FluentIcon.FOLDER.qicon())
         self.setMinimumSize(760, 520)
         self.resize(1000, 650)
-        
+
         # 初始化文件系统模型
         self.fs_model = QFileSystemModel()
         self.fs_model.setRootPath(QDir.rootPath())
         # 显示所有文件夹，包括隐藏文件夹
-        self.fs_model.setFilter(QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot | QDir.Filter.Hidden)
-        
+        self.fs_model.setFilter(
+            QDir.Filter.Dirs | QDir.Filter.NoDotAndDotDot | QDir.Filter.Hidden
+        )
+
         # 使用代理模型实现不区分大小写的排序
         self.proxy_model = CaseInsensitiveSortProxyModel()
         self.proxy_model.setSourceModel(self.fs_model)
@@ -408,14 +433,14 @@ class FolderDialog(FluentSecondaryDialog):
         address_container_layout = QVBoxLayout(self.address_container)
         address_container_layout.setContentsMargins(0, 0, 0, 0)
         address_container_layout.setSpacing(0)
-        
+
         # 面包屑容器
         self.breadcrumb_container = QWidget()
         self._theme_plain_container(self.breadcrumb_container)
         breadcrumb_container_layout = QVBoxLayout(self.breadcrumb_container)
         breadcrumb_container_layout.setContentsMargins(0, 0, 0, 0)
         breadcrumb_container_layout.addWidget(address_widget)
-        
+
         # 输入框容器
         self.path_edit_container = QWidget()
         self._theme_plain_container(self.path_edit_container)
@@ -423,7 +448,7 @@ class FolderDialog(FluentSecondaryDialog):
         path_edit_layout.setContentsMargins(0, 0, 0, 0)
         path_edit_layout.addWidget(self.path_edit)
         self.path_edit_container.hide()
-        
+
         # 将两个容器添加到主地址栏容器
         address_container_layout.addWidget(self.breadcrumb_container)
         address_container_layout.addWidget(self.path_edit_container)
@@ -461,10 +486,16 @@ class FolderDialog(FluentSecondaryDialog):
 
         # 设置多选模式
         if self.multi_select:
-            self.folder_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+            self.folder_tree.setSelectionMode(
+                QAbstractItemView.SelectionMode.ExtendedSelection
+            )
         else:
-            self.folder_tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.folder_tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            self.folder_tree.setSelectionMode(
+                QAbstractItemView.SelectionMode.SingleSelection
+            )
+        self.folder_tree.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
 
         self.folder_tree.setHeaderHidden(False)
         self.folder_tree.setSortingEnabled(True)
@@ -472,7 +503,9 @@ class FolderDialog(FluentSecondaryDialog):
         self.folder_tree.sortByColumn(sort_column, sort_order)
         self.folder_tree.setAlternatingRowColors(False)
         header = self.folder_tree.header()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        header.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        )
         header.setMinimumHeight(34)
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
@@ -481,7 +514,7 @@ class FolderDialog(FluentSecondaryDialog):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(3, 180)
-        
+
         splitter.addWidget(self.folder_tree)
 
         # 设置分割比例：快捷栏占20%，文件夹树占80%
@@ -496,7 +529,11 @@ class FolderDialog(FluentSecondaryDialog):
         info_layout.setContentsMargins(10, 6, 10, 6)
 
         if self.multi_select:
-            tip_label = CaptionLabel(self._t("Tip: Hold Ctrl or Shift to select multiple folders, right-click to favorite"))
+            tip_label = CaptionLabel(
+                self._t(
+                    "Tip: Hold Ctrl or Shift to select multiple folders, right-click to favorite"
+                )
+            )
             info_layout.addWidget(tip_label)
 
         info_layout.addStretch()
@@ -543,7 +580,9 @@ class FolderDialog(FluentSecondaryDialog):
         self.shortcuts_tree.setHeaderHidden(True)
         self.shortcuts_tree.setIndentation(12)
         self.shortcuts_tree.setAnimated(True)
-        self.shortcuts_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.shortcuts_tree.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
         self._theme_tree_view(self.shortcuts_tree)
 
         self.shortcuts_tree_model = QStandardItemModel()
@@ -568,7 +607,13 @@ class FolderDialog(FluentSecondaryDialog):
 
         return widget
 
-    def _make_shortcut_item(self, text: str, path: str = "", icon: Optional[QIcon] = None, selectable: bool = True) -> QStandardItem:
+    def _make_shortcut_item(
+        self,
+        text: str,
+        path: str = "",
+        icon: Optional[QIcon] = None,
+        selectable: bool = True,
+    ) -> QStandardItem:
         """创建快捷栏项（统一图标和数据）"""
         item = QStandardItem(text)
         if icon and not icon.isNull():
@@ -606,7 +651,9 @@ class FolderDialog(FluentSecondaryDialog):
 
         if quick_access_folders:
             # 快速访问分组
-            quick_access_root = self._make_shortcut_item(self._t("Quick Access"), icon=quick_icon, selectable=False)
+            quick_access_root = self._make_shortcut_item(
+                self._t("Quick Access"), icon=quick_icon, selectable=False
+            )
             font = quick_access_root.font()
             font.setBold(True)
             quick_access_root.setFont(font)
@@ -619,7 +666,9 @@ class FolderDialog(FluentSecondaryDialog):
 
         # 收藏文件夹分组 - 放在快速访问和此电脑之间
         if self.favorite_folders:
-            favorite_root = self._make_shortcut_item(self._t("Favorites"), icon=favorite_icon, selectable=False)
+            favorite_root = self._make_shortcut_item(
+                self._t("Favorites"), icon=favorite_icon, selectable=False
+            )
             font = favorite_root.font()
             font.setBold(True)
             favorite_root.setFont(font)
@@ -628,12 +677,18 @@ class FolderDialog(FluentSecondaryDialog):
             for path in self.favorite_folders:
                 if os.path.exists(path):
                     folder_name = os.path.basename(path) or path
-                    item = self._make_shortcut_item(folder_name, path=path, icon=dir_icon)
-                    item.setData("favorite", Qt.ItemDataRole.UserRole + 1)  # 标记为收藏项
+                    item = self._make_shortcut_item(
+                        folder_name, path=path, icon=dir_icon
+                    )
+                    item.setData(
+                        "favorite", Qt.ItemDataRole.UserRole + 1
+                    )  # 标记为收藏项
                     favorite_root.appendRow(item)
 
         # 此电脑分组
-        this_pc_root = self._make_shortcut_item(self._t("This PC"), icon=drive_icon, selectable=False)
+        this_pc_root = self._make_shortcut_item(
+            self._t("This PC"), icon=drive_icon, selectable=False
+        )
         font = this_pc_root.font()
         font.setBold(True)
         this_pc_root.setFont(font)
@@ -663,6 +718,7 @@ class FolderDialog(FluentSecondaryDialog):
                 # 尝试获取驱动器卷标
                 try:
                     import win32api
+
                     volume_name = win32api.GetVolumeInformation(str(drive_path))[0]
                     if volume_name:
                         display_name = f"{volume_name} ({drive_path})"
@@ -688,7 +744,9 @@ class FolderDialog(FluentSecondaryDialog):
 
             # 尝试读取快速访问的固定文件夹（从注册表）
             # HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
-            key_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+            key_path = (
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+            )
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path)
 
             # 常见的快速访问项
@@ -729,19 +787,41 @@ class FolderDialog(FluentSecondaryDialog):
         # 添加用户目录下的其他常见文件夹（排除系统文件夹）
         try:
             home = Path.home()
-            exclude_names = {'Desktop', 'Documents', 'Downloads', 'Pictures', 'Music', 'Videos',
-                           'AppData', 'Application Data', 'Cookies', 'Local Settings',
-                           'NetHood', 'PrintHood', 'Recent', 'SendTo', 'Templates',
-                           'Start Menu', 'ntuser.dat', 'NTUSER.DAT'}
+            exclude_names = {
+                "Desktop",
+                "Documents",
+                "Downloads",
+                "Pictures",
+                "Music",
+                "Videos",
+                "AppData",
+                "Application Data",
+                "Cookies",
+                "Local Settings",
+                "NetHood",
+                "PrintHood",
+                "Recent",
+                "SendTo",
+                "Templates",
+                "Start Menu",
+                "ntuser.dat",
+                "NTUSER.DAT",
+            }
 
             additional_folders = []
             if home.exists():
                 for item in home.iterdir():
-                    if item.is_dir() and not item.name.startswith('.') and not item.name.startswith('$'):
+                    if (
+                        item.is_dir()
+                        and not item.name.startswith(".")
+                        and not item.name.startswith("$")
+                    ):
                         if item.name not in exclude_names:
                             # 跳过 OneDrive（稍后单独处理）
-                            if not item.name.startswith('OneDrive'):
-                                additional_folders.append((f"📂 {item.name}", str(item)))
+                            if not item.name.startswith("OneDrive"):
+                                additional_folders.append(
+                                    (f"📂 {item.name}", str(item))
+                                )
 
             # 排序并添加前5个
             additional_folders.sort(key=lambda x: x[0].lower())
@@ -833,11 +913,19 @@ class FolderDialog(FluentSecondaryDialog):
         self.path_edit.returnPressed.connect(self._on_path_edit_confirmed)
         self.path_edit.installEventFilter(self)
 
-        self.folder_tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self.folder_tree.selectionModel().selectionChanged.connect(
+            self._on_selection_changed
+        )
         self.folder_tree.doubleClicked.connect(self._on_folder_double_clicked)
-        self.folder_tree.customContextMenuRequested.connect(self._show_folder_tree_context_menu)
-        self.folder_tree.header().sortIndicatorChanged.connect(self._on_folder_sort_indicator_changed)
-        self.shortcuts_tree.customContextMenuRequested.connect(self._show_shortcuts_context_menu)
+        self.folder_tree.customContextMenuRequested.connect(
+            self._show_folder_tree_context_menu
+        )
+        self.folder_tree.header().sortIndicatorChanged.connect(
+            self._on_folder_sort_indicator_changed
+        )
+        self.shortcuts_tree.customContextMenuRequested.connect(
+            self._show_shortcuts_context_menu
+        )
 
     def _refresh_header_i18n(self):
         """刷新目录表头文案（覆盖 QFileSystemModel 默认系统列名）"""
@@ -861,7 +949,7 @@ class FolderDialog(FluentSecondaryDialog):
         if add_to_history:
             # 如果当前不在历史末尾，删除当前位置之后的历史
             if self.history_index < len(self.history) - 1:
-                self.history = self.history[:self.history_index + 1]
+                self.history = self.history[: self.history_index + 1]
 
             # 如果新路径与当前路径不同，添加到历史
             if not self.history or self.history[-1] != path:
@@ -880,7 +968,7 @@ class FolderDialog(FluentSecondaryDialog):
 
             # 更新按钮状态
             self._update_navigation_buttons()
-            
+
             # 更新选择状态（如果没有选中任何文件夹，显示当前目录）
             self._on_selection_changed()
 
@@ -890,7 +978,9 @@ class FolderDialog(FluentSecondaryDialog):
         current = Path(path)
 
         while True:
-            parts.insert(0, (str(current), current.name if current.name else str(current)))
+            parts.insert(
+                0, (str(current), current.name if current.name else str(current))
+            )
             parent = current.parent
             if parent == current:  # 到达根目录
                 break
@@ -947,7 +1037,7 @@ class FolderDialog(FluentSecondaryDialog):
         # 0: 名称升序, 1: 名称降序
         # 2: 修改时间升序, 3: 修改时间降序
         # 4: 大小升序, 5: 大小降序
-        
+
         if index == 0:  # 名称 ↑
             self.folder_tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         elif index == 1:  # 名称 ↓
@@ -997,7 +1087,10 @@ class FolderDialog(FluentSecondaryDialog):
                 QMessageBox.warning(
                     self,
                     self._t("Path Error"),
-                    self._t("Path does not exist or is not a valid directory:\n{path}", path=path),
+                    self._t(
+                        "Path does not exist or is not a valid directory:\n{path}",
+                        path=path,
+                    ),
                 )
             finally:
                 self._path_error_dialog_active = False
@@ -1021,7 +1114,7 @@ class FolderDialog(FluentSecondaryDialog):
                 return False
 
         return super().eventFilter(obj, event)
-    
+
     def _cancel_path_edit(self):
         """取消路径编辑，恢复面包屑显示"""
         if self.path_edit_container.isVisible():
@@ -1039,7 +1132,10 @@ class FolderDialog(FluentSecondaryDialog):
         """选择改变时更新状态"""
         # 只获取第一列（名称列）的选中行，避免重复计数
         selected_rows = self.folder_tree.selectionModel().selectedRows(0)
-        self.selected_folders = [self.fs_model.filePath(self.proxy_model.mapToSource(idx)) for idx in selected_rows]
+        self.selected_folders = [
+            self.fs_model.filePath(self.proxy_model.mapToSource(idx))
+            for idx in selected_rows
+        ]
 
         count = len(self.selected_folders)
         if count == 0:
@@ -1047,7 +1143,9 @@ class FolderDialog(FluentSecondaryDialog):
             if self.history and self.history_index >= 0:
                 current_dir = self.history[self.history_index]
                 dir_name = os.path.basename(current_dir) or current_dir
-                self.selection_label.setText(self._t("Will add current directory: {name}", name=dir_name))
+                self.selection_label.setText(
+                    self._t("Will add current directory: {name}", name=dir_name)
+                )
                 self.ok_button.setEnabled(True)
             else:
                 self.selection_label.setText(self._t("Not Selected"))
@@ -1057,7 +1155,9 @@ class FolderDialog(FluentSecondaryDialog):
             self.selection_label.setText(self._t("Selected: {name}", name=folder_name))
             self.ok_button.setEnabled(True)
         else:
-            self.selection_label.setText(self._t("Selected {count} folders", count=count))
+            self.selection_label.setText(
+                self._t("Selected {count} folders", count=count)
+            )
             self.ok_button.setEnabled(True)
 
     def get_selected_folders(self) -> List[str]:
@@ -1070,7 +1170,7 @@ class FolderDialog(FluentSecondaryDialog):
     def _get_config_path(self) -> str:
         """获取配置文件路径，支持打包和开发环境"""
         return get_config_path("config.json")
-    
+
     def _get_favorites_config_path(self) -> str:
         """获取收藏文件夹配置文件路径（用户目录）"""
         # 使用用户目录存储收藏，避免污染模板文件
@@ -1089,9 +1189,11 @@ class FolderDialog(FluentSecondaryDialog):
                 # 降级方案：直接读取文件
                 config_path = self._get_config_path()
                 if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
+                    with open(config_path, "r", encoding="utf-8") as f:
                         config_dict = json.load(f)
-                        self.favorite_folders = config_dict.get('app', {}).get('favorite_folders', [])
+                        self.favorite_folders = config_dict.get("app", {}).get(
+                            "favorite_folders", []
+                        )
                 else:
                     self.favorite_folders = []
         except Exception as e:
@@ -1107,10 +1209,10 @@ class FolderDialog(FluentSecondaryDialog):
                 value = _DEFAULT_FOLDER_SORT
                 config_path = self._get_config_path()
                 if os.path.exists(config_path):
-                    with open(config_path, 'r', encoding='utf-8') as f:
+                    with open(config_path, "r", encoding="utf-8") as f:
                         config_dict = json.load(f)
-                    value = config_dict.get('app', {}).get(
-                        'folder_dialog_sort',
+                    value = config_dict.get("app", {}).get(
+                        "folder_dialog_sort",
                         _DEFAULT_FOLDER_SORT,
                     )
             return _normalize_folder_sort_state(value)
@@ -1132,16 +1234,16 @@ class FolderDialog(FluentSecondaryDialog):
             config_dict = {}
             if os.path.exists(config_path):
                 try:
-                    with open(config_path, 'r', encoding='utf-8') as f:
+                    with open(config_path, "r", encoding="utf-8") as f:
                         config_dict = json.load(f)
                 except Exception:
                     config_dict = {}
 
-            if not isinstance(config_dict.get('app'), dict):
-                config_dict['app'] = {}
-            config_dict['app']['folder_dialog_sort'] = self.folder_sort_state
+            if not isinstance(config_dict.get("app"), dict):
+                config_dict["app"] = {}
+            config_dict["app"]["folder_dialog_sort"] = self.folder_sort_state
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config_dict, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"保存文件夹排序方式失败: {e}")
@@ -1158,32 +1260,32 @@ class FolderDialog(FluentSecondaryDialog):
             else:
                 # 降级方案：直接写入文件
                 config_path = self._get_config_path()
-                
+
                 # 读取现有配置
                 config_dict = {}
                 if os.path.exists(config_path):
                     try:
-                        with open(config_path, 'r', encoding='utf-8') as f:
+                        with open(config_path, "r", encoding="utf-8") as f:
                             config_dict = json.load(f)
                     except Exception:
                         config_dict = {}
-                
+
                 # 确保 app 键存在
-                if 'app' not in config_dict:
-                    config_dict['app'] = {}
-                
+                if "app" not in config_dict:
+                    config_dict["app"] = {}
+
                 # 确保 app 是字典类型
-                if not isinstance(config_dict['app'], dict):
-                    config_dict['app'] = {}
-                
+                if not isinstance(config_dict["app"], dict):
+                    config_dict["app"] = {}
+
                 # 更新收藏文件夹
-                config_dict['app']['favorite_folders'] = self.favorite_folders
-                
+                config_dict["app"]["favorite_folders"] = self.favorite_folders
+
                 # 保存配置
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
-                with open(config_path, 'w', encoding='utf-8') as f:
+                with open(config_path, "w", encoding="utf-8") as f:
                     json.dump(config_dict, f, indent=2, ensure_ascii=False)
-                
+
         except Exception as e:
             print(f"保存收藏文件夹失败: {e}")
             # 不弹窗，避免打扰用户
@@ -1192,33 +1294,33 @@ class FolderDialog(FluentSecondaryDialog):
         """切换当前文件夹的收藏状态"""
         if not self.history or self.history_index < 0:
             return
-        
+
         current_path = self.history[self.history_index]
-        
+
         if current_path in self.favorite_folders:
             self._remove_favorite_by_path(current_path)
         else:
             self._add_favorite(current_path)
-    
+
     def _add_favorite(self, folder_path: str):
         """添加文件夹到收藏"""
         if folder_path not in self.favorite_folders:
             self.favorite_folders.append(folder_path)
             self._save_favorite_folders()
             self._update_favorites_in_tree()
-        
+
     def _remove_favorite(self, item):
         """从收藏中移除指定项（通过树项）"""
         path = item.data(Qt.ItemDataRole.UserRole)
         self._remove_favorite_by_path(path)
-    
+
     def _remove_favorite_by_path(self, folder_path: str):
         """从收藏中移除指定路径"""
         if folder_path in self.favorite_folders:
             self.favorite_folders.remove(folder_path)
             self._save_favorite_folders()
             self._update_favorites_in_tree()
-            
+
     def _refresh_shortcuts_tree(self):
         """刷新快捷栏树"""
         self.shortcuts_tree_model.clear()
@@ -1227,7 +1329,7 @@ class FolderDialog(FluentSecondaryDialog):
         # 刷新视图以更新星星显示
         self.shortcuts_tree.viewport().update()
         self.folder_tree.viewport().update()
-    
+
     def _update_favorites_in_tree(self):
         """只更新收藏夹部分，不重建整个树"""
         # 查找收藏夹根节点
@@ -1239,7 +1341,7 @@ class FolderDialog(FluentSecondaryDialog):
                 favorite_root = item
                 favorite_root_index = i
                 break
-        
+
         # 如果有收藏夹，更新它
         if self.favorite_folders:
             if favorite_root:
@@ -1258,7 +1360,7 @@ class FolderDialog(FluentSecondaryDialog):
                 # 插入到快速访问之后（如果有的话）
                 insert_index = 1 if self.shortcuts_tree_model.rowCount() > 0 else 0
                 self.shortcuts_tree_model.insertRow(insert_index, favorite_root)
-            
+
             # 添加收藏项
             for path in self.favorite_folders:
                 if os.path.exists(path):
@@ -1266,25 +1368,31 @@ class FolderDialog(FluentSecondaryDialog):
                     item = self._make_shortcut_item(
                         folder_name,
                         path=path,
-                        icon=QFileIconProvider().icon(QFileIconProvider.IconType.Folder),
+                        icon=QFileIconProvider().icon(
+                            QFileIconProvider.IconType.Folder
+                        ),
                     )
                     item.setData("favorite", Qt.ItemDataRole.UserRole + 1)
                     favorite_root.appendRow(item)
-            
+
             # 展开收藏夹
             if favorite_root:
-                self.shortcuts_tree.expand(self.shortcuts_tree_model.indexFromItem(favorite_root))
+                self.shortcuts_tree.expand(
+                    self.shortcuts_tree_model.indexFromItem(favorite_root)
+                )
         else:
             # 如果没有收藏了，删除收藏夹节点
             if favorite_root and favorite_root_index >= 0:
                 self.shortcuts_tree_model.removeRow(favorite_root_index)
-        
+
         # 刷新视图
         self.shortcuts_tree.viewport().update()
         self.folder_tree.viewport().update()
 
 
-def select_folders(parent=None, start_dir: str = "", multi_select: bool = True, config_service=None) -> Optional[List[str]]:
+def select_folders(
+    parent=None, start_dir: str = "", multi_select: bool = True, config_service=None
+) -> Optional[List[str]]:
     """
     显示文件夹选择对话框
 
@@ -1299,7 +1407,9 @@ def select_folders(parent=None, start_dir: str = "", multi_select: bool = True, 
     """
     # parent 归一化到顶层窗口；parent=None 时回退当前活动窗口
     # （FluentSecondaryDialog 基类同样兜底，这里显式声明对话框侧契约）
-    dialog = FolderDialog(normalize_dialog_parent(parent), start_dir, multi_select, config_service)
+    dialog = FolderDialog(
+        normalize_dialog_parent(parent), start_dir, multi_select, config_service
+    )
     if dialog.exec() == DialogCode.Accepted:
         return dialog.get_selected_folders()
     return None

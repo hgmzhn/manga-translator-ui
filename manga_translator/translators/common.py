@@ -14,11 +14,12 @@ import cv2
 import numpy as np
 
 from ..utils import InfererModule, ModelWrapper, is_valuable_text, repeating_sequence
-from ..utils.image_modes import normalize_rgb_image
-from ..utils.openai_compat import (
-    is_local_openai_compatible_endpoint,
-    resolve_openai_compatible_api_key,
+from ..utils.curl_cffi_transport import (
+    CURL_CFFI_IMPERSONATE,
+    create_curl_cffi_async_session,
 )
+from ..utils.image_modes import normalize_rgb_image
+from ..utils.openai_compat import resolve_openai_compatible_api_key
 from ..utils.retry import (
     get_retry_attempts_from_config,
     normalize_retry_attempts,
@@ -26,6 +27,7 @@ from ..utils.retry import (
     summarize_response_text,
 )
 from ..utils.system_proxy import system_proxy_request_kwargs
+
 
 try:
     import readline
@@ -216,8 +218,8 @@ class AsyncOpenAICurlCffi:
         client = AsyncOpenAICurlCffi(
             api_key="your-api-key",
             base_url="https://api.openai.com/v1",
-            default_headers={"User-Agent": "..."},
-            impersonate="chrome110"
+            default_headers=OPENAI_CURL_HEADERS,
+            impersonate="chrome",
         )
 
         response = await client.chat.completions.create(
@@ -397,7 +399,7 @@ class AsyncOpenAICurlCffi:
             return _ModelsResponse(result)
 
     def __init__(self, api_key, base_url="https://api.openai.com/v1",
-                 default_headers=None, http_client=None, impersonate="chrome110",
+                 default_headers=None, http_client=None, impersonate=CURL_CFFI_IMPERSONATE,
                  timeout=600, stream_timeout=300):
         """
         初始化异步客户端
@@ -407,7 +409,7 @@ class AsyncOpenAICurlCffi:
             base_url: API 基础 URL
             default_headers: 默认请求头
             http_client: 忽略此参数（为了兼容性）
-            impersonate: 模拟的浏览器类型 (chrome110, chrome120, safari15_5 等)
+            impersonate: 浏览器指纹；默认跟随 curl_cffi 的最新 Chrome 指纹
             timeout: 非流式请求超时时间（秒）
             stream_timeout: 流式 HTTP 请求超时时间（秒）
         """
@@ -418,19 +420,11 @@ class AsyncOpenAICurlCffi:
         self.stream_timeout = stream_timeout
         self.impersonate = impersonate
 
-        # 检测是否是本地地址（本地地址不需要 impersonate，且可能导致超时）
-        is_local = is_local_openai_compatible_endpoint(base_url)
-
-        # 延迟导入 curl_cffi，避免在不需要时导入
         try:
-            from curl_cffi.requests import AsyncSession
-            if is_local:
-                # 本地连接：不使用 impersonate，避免 HTTP/2 兼容性问题
-                self.session = AsyncSession()
-                print(f"[AsyncOpenAICurlCffi] Local address detected, disabled impersonate for: {base_url}")
-            else:
-                # 云端连接：使用 impersonate 绕过 TLS 指纹检测
-                self.session = AsyncSession(impersonate=impersonate)
+            self.session = create_curl_cffi_async_session(
+                base_url=base_url,
+                impersonate=impersonate,
+            )
         except ImportError:
             raise ImportError(
                 "curl_cffi is required for TLS fingerprint bypass. "
@@ -544,7 +538,8 @@ class AsyncGeminiCurlCffi:
         client = AsyncGeminiCurlCffi(
             api_key="your-api-key",
             base_url="https://generativelanguage.googleapis.com",
-            impersonate="chrome110"
+            default_headers=GEMINI_CURL_HEADERS,
+            impersonate="chrome",
         )
 
         response = await client.models.generate_content(
@@ -820,7 +815,8 @@ class AsyncGeminiCurlCffi:
             return _GeminiModelsResponse(result)
 
     def __init__(self, api_key, base_url="https://generativelanguage.googleapis.com",
-                 default_headers=None, impersonate="chrome110", timeout=600, stream_timeout=300):
+                 default_headers=None, impersonate=CURL_CFFI_IMPERSONATE,
+                 timeout=600, stream_timeout=300):
         """
         初始化异步客户端
 
@@ -828,7 +824,7 @@ class AsyncGeminiCurlCffi:
             api_key: Gemini API 密钥
             base_url: API 基础 URL
             default_headers: 默认请求头
-            impersonate: 模拟的浏览器类型 (chrome110, chrome120, safari15_5 等)
+            impersonate: 浏览器指纹；默认跟随 curl_cffi 的最新 Chrome 指纹
             timeout: 非流式请求超时时间（秒）
             stream_timeout: 流式 HTTP 请求超时时间（秒）
         """
@@ -839,20 +835,11 @@ class AsyncGeminiCurlCffi:
         self.stream_timeout = stream_timeout
         self.impersonate = impersonate
 
-        # 检测是否是本地地址（本地地址不需要 impersonate，且可能导致超时）
-        local_indicators = ['localhost', '127.0.0.1', '0.0.0.0', '192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.']
-        is_local = any(indicator in base_url.lower() for indicator in local_indicators)
-
-        # 延迟导入 curl_cffi，避免在不需要时导入
         try:
-            from curl_cffi.requests import AsyncSession
-            if is_local:
-                # 本地连接：不使用 impersonate，避免 HTTP/2 兼容性问题
-                self.session = AsyncSession()
-                print(f"[AsyncGeminiCurlCffi] Local address detected, disabled impersonate for: {base_url}")
-            else:
-                # 云端连接：使用 impersonate 绕过 TLS 指纹检测
-                self.session = AsyncSession(impersonate=impersonate)
+            self.session = create_curl_cffi_async_session(
+                base_url=base_url,
+                impersonate=impersonate,
+            )
         except ImportError:
             raise ImportError(
                 "curl_cffi is required for TLS fingerprint bypass. "

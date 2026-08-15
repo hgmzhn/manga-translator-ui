@@ -36,6 +36,10 @@ from manga_translator.utils.system_proxy import (
     openai_http_client_kwargs,
     system_proxy_request_kwargs,
 )
+from manga_translator.utils.curl_cffi_transport import (
+    GEMINI_CURL_HEADERS,
+    OPENAI_CURL_HEADERS,
+)
 from PIL import Image
 from PyQt6.QtCore import (
     QObject,
@@ -73,22 +77,8 @@ class AppConfig:
 
 ARCHIVE_EXTRACT_IMAGE_DIRNAME = 'original_images'
 ARCHIVE_EXTRACT_META_FILENAME = '.extract_meta.json'
-_OPENAI_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7",
-    "Connection": "keep-alive",
-    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-}
-_GEMINI_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7",
-    "Origin": "https://aistudio.google.com",
-    "Referer": "https://aistudio.google.com/",
-}
+_OPENAI_BROWSER_HEADERS = OPENAI_CURL_HEADERS
+_GEMINI_BROWSER_HEADERS = GEMINI_CURL_HEADERS
 
 
 def _resolve_archive_output_dir_from_extracted_image(image_path: str, output_folder: str) -> Optional[str]:
@@ -566,7 +556,7 @@ class MainAppLogic(QObject):
                 api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 default_headers=_OPENAI_BROWSER_HEADERS,
-                impersonate="chrome110",
+                impersonate="chrome",
                 timeout=30.0,
                 stream_timeout=30.0,
             )
@@ -602,7 +592,7 @@ class MainAppLogic(QObject):
                 api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 default_headers=_OPENAI_BROWSER_HEADERS,
-                impersonate="chrome110",
+                impersonate="chrome",
                 timeout=30.0,
                 stream_timeout=30.0,
             )
@@ -649,7 +639,7 @@ class MainAppLogic(QObject):
                 api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 default_headers=_OPENAI_BROWSER_HEADERS,
-                impersonate="chrome110",
+                impersonate="chrome",
                 timeout=60.0,
                 stream_timeout=60.0,
             )
@@ -712,7 +702,7 @@ class MainAppLogic(QObject):
                 api_key=api_key,
                 base_url=base_url,
                 default_headers=_GEMINI_BROWSER_HEADERS,
-                impersonate="chrome110",
+                impersonate="chrome",
                 timeout=30.0,
                 stream_timeout=30.0,
             )
@@ -764,7 +754,7 @@ class MainAppLogic(QObject):
                 api_key=api_key,
                 base_url=base_url,
                 default_headers=_GEMINI_BROWSER_HEADERS,
-                impersonate="chrome110",
+                impersonate="chrome",
                 timeout=30.0,
                 stream_timeout=30.0,
             )
@@ -820,7 +810,7 @@ class MainAppLogic(QObject):
                 api_key=api_key,
                 base_url=base_url,
                 default_headers=_GEMINI_BROWSER_HEADERS,
-                impersonate="chrome110",
+                impersonate="chrome",
                 timeout=60.0,
                 stream_timeout=60.0,
             )
@@ -929,7 +919,7 @@ class MainAppLogic(QObject):
                     client = AsyncOpenAICurlCffi(
                         api_key=resolved_api_key,
                         base_url=api_base or "https://api.openai.com/v1",
-                        impersonate="chrome110",
+                        impersonate="chrome",
                         timeout=60.0
                     )
                 except ImportError:
@@ -963,7 +953,7 @@ class MainAppLogic(QObject):
                     client = AsyncGeminiCurlCffi(
                         api_key=api_key,
                         base_url=base_url,
-                        impersonate="chrome110",
+                        impersonate="chrome",
                         timeout=60.0
                     )
                     try:

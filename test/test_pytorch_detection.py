@@ -29,6 +29,23 @@ def test_pytorch_detection_allows_slow_portable_import(monkeypatch):
     assert seen["timeout"] == 60
 
 
+def test_pytorch_detection_normalizes_legacy_rocm_label(monkeypatch):
+    launch = load_launch("launch_pytorch_rocm_label_test")
+
+    monkeypatch.setattr(
+        launch.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout="ROCm|ROCm 7.2.53211-158bd99533\n", stderr=""
+        ),
+    )
+
+    assert launch.detect_installed_pytorch_version() == (
+        "AMD",
+        "ROCm 7.2.53211-158bd99533",
+    )
+
+
 def test_pytorch_detection_reports_timeout(monkeypatch):
     launch = load_launch("launch_pytorch_timeout_error_test")
 

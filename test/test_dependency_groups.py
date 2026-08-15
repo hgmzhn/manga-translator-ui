@@ -104,3 +104,18 @@ def test_installed_cuda_12_runtime_preserves_cuda126_group(monkeypatch):
         "GPU",
         "CUDA 12.6",
     )
+
+
+def test_legacy_rocm_runtime_preserves_rocm_group(monkeypatch):
+    launch = load_launch("launch_installed_rocm_variant_test")
+    monkeypatch.setattr(
+        launch,
+        "detect_installed_pytorch_version",
+        lambda: ("ROCm", "ROCm 7.2.53211-158bd99533"),
+    )
+
+    assert launch.get_requirements_file_from_env() == (
+        "rocm7.2.1",
+        "ROCm",
+        "ROCm 7.2.53211-158bd99533",
+    )

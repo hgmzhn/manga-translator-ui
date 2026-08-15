@@ -27,29 +27,15 @@ from ..utils.dotenv_utils import load_app_dotenv
 from ..utils.generic import AvgMeter
 from ..utils.image_modes import normalize_rgb_image
 from .common import OfflineOCR
+from ..utils.curl_cffi_transport import GEMINI_CURL_HEADERS, OPENAI_CURL_HEADERS
 from .prompt_loader import (
     DEFAULT_AI_OCR_PROMPT,
     ensure_ai_ocr_prompt_file,
     load_ai_ocr_prompt_file,
 )
 
-OPENAI_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7",
-    "Connection": "keep-alive",
-    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-}
-
-GEMINI_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7",
-    "Origin": "https://aistudio.google.com",
-    "Referer": "https://aistudio.google.com/",
-}
+OPENAI_BROWSER_HEADERS = OPENAI_CURL_HEADERS
+GEMINI_BROWSER_HEADERS = GEMINI_CURL_HEADERS
 
 class BaseAPIOCR(OfflineOCR):
     _MODEL_MAPPING = {
@@ -482,7 +468,7 @@ class ModelOpenAIOCR(BaseAPIOCR):
             api_key=api_key,
             base_url=base_url,
             default_headers=self.BROWSER_HEADERS,
-            impersonate="chrome110",
+            impersonate="chrome",
             timeout=600.0,
             stream_timeout=300.0,
         )
@@ -575,7 +561,7 @@ class ModelGeminiOCR(BaseAPIOCR):
             api_key=api_key,
             base_url=base_url,
             default_headers=self.BROWSER_HEADERS,
-            impersonate="chrome110",
+            impersonate="chrome",
             timeout=600.0,
             stream_timeout=300.0,
         )

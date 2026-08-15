@@ -12,6 +12,7 @@ from manga_translator.colorization.model_api_colorizer import BaseAPIColorizer
 from manga_translator.rendering.model_api_renderer import BaseAPIRenderer
 from manga_translator.translators import common
 from manga_translator.utils import system_proxy
+from manga_translator.utils import curl_cffi_transport
 
 
 PROXY_URL = "http://proxy.example:8080"
@@ -166,3 +167,56 @@ def test_generated_image_download_resolves_proxy_for_target_url(
         "https://images.example/result.png",
     )
     assert session.calls[0][2]["proxy"] == PROXY_URL
+
+
+def test_curl_transport_uses_current_chrome_without_environment_proxy(monkeypatch):
+    created = []
+
+    class FakeAsyncSession:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+    import curl_cffi.requests
+
+    monkeypatch.setattr(curl_cffi.requests, "AsyncSession", FakeAsyncSession)
+
+    curl_cffi_transport.create_curl_cffi_async_session(
+        base_url="https://api.example/v1"
+    )
+
+    assert created == [{"trust_env": False, "impersonate": "chrome"}]
+
+
+def test_curl_transport_disables_impersonation_for_local_endpoints(monkeypatch):
+    created = []
+
+    class FakeAsyncSession:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+    import curl_cffi.requests
+
+    monkeypatch.setattr(curl_cffi.requests, "AsyncSession", FakeAsyncSession)
+
+    curl_cffi_transport.create_curl_cffi_async_session(
+        base_url="http://127.0.0.1:11434/v1"
+    )
+
+    assert created == [{"trust_env": False}]
+
+
+def test_curl_transport_headers_do_not_override_impersonated_browser_identity():
+    forbidden_headers = {
+        "user-agent",
+        "connection",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+    }
+
+    assert forbidden_headers.isdisjoint(
+        header.lower() for header in curl_cffi_transport.OPENAI_CURL_HEADERS
+    )
+    assert forbidden_headers.isdisjoint(
+        header.lower() for header in curl_cffi_transport.GEMINI_CURL_HEADERS
+    )
