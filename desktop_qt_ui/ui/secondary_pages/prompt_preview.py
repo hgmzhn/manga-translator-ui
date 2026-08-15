@@ -181,11 +181,7 @@ def _set_glossary_entry_row(
     row: int,
     entry: Dict[str, Any],
 ):
-    normalized = (
-        entry
-        if isinstance(entry, dict) and "_has_overwrite" in entry
-        else normalize_glossary_entry(entry)
-    )
+    normalized = normalize_glossary_entry(entry)
     description_preview = normalized["description"].replace("\r\n", "\n").replace("\n", " / ")
     allow_changes = normalized.get("_has_overwrite") and normalized.get("overwrite") is True
     values = [

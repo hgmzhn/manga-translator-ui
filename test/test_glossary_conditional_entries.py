@@ -44,6 +44,36 @@ def test_original_single_translation_format_migrates_to_canonical_alias():
     }
 
 
+def test_polluted_editor_metadata_is_repaired_and_not_persisted():
+    polluted = {
+        "original": "Canoness",
+        "aliases": [
+            {
+                "original": "Canoness",
+                "translations": [{"text": "大修女"}],
+            }
+        ],
+        "_description_key": "description",
+        "_extras": {"custom": "preserved"},
+        "_has_overwrite": False,
+    }
+
+    normalized = normalize_glossary_entry(polluted)
+
+    assert normalized["description"] == ""
+    assert normalized["overwrite"] is None
+    assert serialize_glossary_entry(normalized) == {
+        "custom": "preserved",
+        "original": "Canoness",
+        "aliases": [
+            {
+                "original": "Canoness",
+                "translations": [{"text": "大修女"}],
+            }
+        ],
+    }
+
+
 def test_unreleased_intermediate_glossary_shapes_are_not_migrated():
     entry = {
         "original": "Alice",

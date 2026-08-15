@@ -5,6 +5,17 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 
+_DESCRIPTION_FIELDS = (
+    "description",
+    "note",
+    "notes",
+    "comment",
+    "introduction",
+    "intro",
+)
+_INTERNAL_ENTRY_FIELDS = {"_has_overwrite", "_description_key", "_extras"}
+
+
 _ENTRY_FIELDS = {
     "original",
     "translation",
@@ -76,8 +87,8 @@ def _normalized_alias(value: Any) -> Dict[str, Any]:
 def normalize_glossary_entry(entry: Any) -> Dict[str, Any]:
     """Return one entry in the canonical ``aliases[].translations[]`` shape.
 
-    The only legacy format intentionally supported is the original simple
-    ``original`` + ``translation`` mapping.
+    Supports the original simple ``original`` + ``translation`` mapping and
+    repairs editor metadata accidentally persisted by older UI releases.
     """
     if not isinstance(entry, dict):
         entry = {}
@@ -105,24 +116,43 @@ def normalize_glossary_entry(entry: Any) -> Dict[str, Any]:
             }
         ]
 
-    description_key = next(
-        (
-            key
-            for key in ("description", "note", "notes", "comment", "introduction", "intro")
-            if key in entry
-        ),
-        "description",
+    stored_description_key = entry.get("_description_key")
+    if stored_description_key not in _DESCRIPTION_FIELDS:
+        stored_description_key = None
+    actual_description_key = next(
+        (key for key in _DESCRIPTION_FIELDS if key in entry),
+        None,
     )
+    if stored_description_key and "description" in entry:
+        # Already-normalized entries keep the source field name for lossless saves.
+        description_key = stored_description_key
+        description = entry.get("description", "")
+    else:
+        description_key = actual_description_key or stored_description_key or "description"
+        description = entry.get(actual_description_key, "") if actual_description_key else ""
+
     overwrite = entry.get("overwrite")
+    extras = (
+        dict(entry.get("_extras", {}))
+        if isinstance(entry.get("_extras"), dict)
+        else {}
+    )
+    extras.update(
+        {
+            key: value
+            for key, value in entry.items()
+            if key not in _ENTRY_FIELDS and key not in _INTERNAL_ENTRY_FIELDS
+        }
+    )
 
     return {
         "original": original,
         "aliases": aliases,
-        "description": _text(entry.get(description_key, "")),
+        "description": _text(description),
         "overwrite": overwrite if isinstance(overwrite, bool) else None,
         "_has_overwrite": isinstance(overwrite, bool),
         "_description_key": description_key,
-        "_extras": {key: value for key, value in entry.items() if key not in _ENTRY_FIELDS},
+        "_extras": extras,
     }
 
 
@@ -149,11 +179,7 @@ def _alias_to_data(alias: Dict[str, Any]) -> Dict[str, Any]:
 
 def serialize_glossary_entry(entry: Any) -> Dict[str, Any]:
     """Serialize an entry in the unified glossary shape."""
-    normalized = (
-        entry
-        if isinstance(entry, dict) and "_has_overwrite" in entry
-        else normalize_glossary_entry(entry)
-    )
+    normalized = normalize_glossary_entry(entry)
 
     data = dict(normalized.get("_extras", {}))
     original = _text(normalized.get("original", ""))
@@ -185,11 +211,7 @@ def serialize_glossary_entry(entry: Any) -> Dict[str, Any]:
 
 def alias_rows(entry: Any) -> List[Dict[str, str]]:
     """Flatten aliases for the editor table while retaining translation branches."""
-    normalized = (
-        entry
-        if isinstance(entry, dict) and "_has_overwrite" in entry
-        else normalize_glossary_entry(entry)
-    )
+    normalized = normalize_glossary_entry(entry)
     rows: List[Dict[str, str]] = []
     for raw_alias in normalized.get("aliases", []):
         alias = _normalized_alias(raw_alias)
