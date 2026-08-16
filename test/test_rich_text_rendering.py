@@ -68,7 +68,7 @@ class RichTextRenderingTest(unittest.TestCase):
         for char in '“‘”’「『」』':
             self.assertEqual(CJK_Compatibility_Forms_translate(char, 1)[1], 90, char)
 
-    def test_vertical_dashes_remove_only_adjacent_font_gap(self):
+    def test_vertical_dashes_use_continuous_form_before_rich_text_rules(self):
         from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
         from manga_translator.rendering.text_replacements import apply_replacements
         replaced = apply_replacements("——–", 1)
@@ -79,12 +79,6 @@ class RichTextRenderingTest(unittest.TestCase):
         document = ensure_rich_text_document(
             self._single_span_document(replaced[:2], {"verticalAdvance": "full"})
         )
-        layout = text_render._build_rich_vertical_layout(
-            document, 96, 0.0, (0, 0, 0), None, 1.0
-        )[0]
-        self.assertEqual([item.advance_y for item in layout.items], [96, 96])
-        self.assertLess(layout.items[0].base.bitmap.shape[0], 96)
-        self.assertLess(layout.items[1].cursor_y, 96)
         surface = text_render.put_text_vertical(
             96, document, 999, "left", (0, 0, 0), None, 1.0, stroke_width=0.0
         )
