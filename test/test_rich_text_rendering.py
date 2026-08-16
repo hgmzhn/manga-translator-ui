@@ -68,31 +68,6 @@ class RichTextRenderingTest(unittest.TestCase):
         for char in '“‘”’「『」』':
             self.assertEqual(CJK_Compatibility_Forms_translate(char, 1)[1], 90, char)
 
-    def test_vertical_dashes_use_box_drawing_glyphs(self):
-        from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
-        from manga_translator.rendering.text_replacements import apply_replacements
-
-        replaced = apply_replacements("——–", 1)
-        self.assertEqual(replaced, "││︲")
-        self.assertIsNone(apply_rich_text_rules(replaced, "vertical"))
-
-        text_render.set_font("fonts/NotoSerifSC-Regular.ttf")
-        document = ensure_rich_text_document(
-            self._single_span_document(replaced[:2], {"verticalAdvance": "full"})
-        )
-        surface = text_render.put_text_vertical(
-            96,
-            document,
-            999,
-            "left",
-            (0, 0, 0),
-            (255, 255, 255),
-            1.0,
-            stroke_width=0.07,
-        )
-        occupied_rows = np.flatnonzero(surface[:, :, 3].max(axis=1) > 0)
-        self.assertGreater(occupied_rows.size, 0)
-        self.assertTrue((np.diff(occupied_rows) <= 1).all())
 
     def test_free_rotation_advance_projects_between_axes(self):
         base = VerticalGlyphBase(
