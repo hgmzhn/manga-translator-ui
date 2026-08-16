@@ -76,6 +76,25 @@ class EditorControllerInpaintService:
         self.resource_manager.set_weak_cache(self.controller.WEAK_CACHE_BASE_IMAGE_RGB, image_array)
         return image_array
 
+    def apply_inpaint_result(self, result) -> None:
+        """Apply a worker result on the Qt GUI thread."""
+        if not isinstance(result, tuple) or len(result) != 3:
+            return
+        generation, image, mask = result
+        if not self.is_inpaint_request_current(generation):
+            return
+
+        mask_2d = self.normalize_binary_mask(mask)
+        image_np = image_like_to_rgb_array(image, copy=False)
+        if image_np is None:
+            self.resource_manager.clear_cache(self.controller.CACHE_LAST_INPAINTED)
+        else:
+            self.resource_manager.set_cache(self.controller.CACHE_LAST_INPAINTED, image_np)
+        self.resource_manager.set_cache(self.controller.CACHE_LAST_MASK, mask_2d)
+        self.model.set_inpainted_image(image_np)
+        if image_np is not None and not self.controller._user_adjusted_alpha:
+            self.model.set_original_image_alpha(0.0)
+
     def cancel_active_inpaint_task(self) -> None:
         future = self.controller._active_inpaint_future
         self.controller._active_inpaint_future = None
@@ -281,11 +300,9 @@ class EditorControllerInpaintService:
             if not self.is_inpaint_request_current(generation):
                 return
 
-            self.resource_manager.set_cache(self.controller.CACHE_LAST_INPAINTED, full_result)
-            self.resource_manager.set_cache(self.controller.CACHE_LAST_MASK, current_mask_2d)
-            self.model.set_inpainted_image(full_result)
-            if not self.controller._user_adjusted_alpha:
-                self.model.set_original_image_alpha(0.0)
+            self.controller._inpaint_result_ready.emit(
+                (generation, full_result, current_mask_2d)
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -336,11 +353,9 @@ class EditorControllerInpaintService:
             )
 
             if inpainted_image_np is not None and self.is_inpaint_request_current(generation):
-                self.resource_manager.set_cache(self.controller.CACHE_LAST_INPAINTED, inpainted_image_np)
-                self.resource_manager.set_cache(self.controller.CACHE_LAST_MASK, mask_2d)
-                self.model.set_inpainted_image(inpainted_image_np)
-                if not self.controller._user_adjusted_alpha:
-                    self.model.set_original_image_alpha(0.0)
+                self.controller._inpaint_result_ready.emit(
+                    (generation, inpainted_image_np, mask_2d)
+                )
         except asyncio.CancelledError:
             raise
         except Exception as e:

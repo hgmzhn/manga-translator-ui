@@ -36,6 +36,36 @@ def test_clear_document_cache_removes_previous_page_state():
     assert controller.resource_manager.get_weak_cache(controller.WEAK_CACHE_BASE_IMAGE_RGB) is None
 
 
+def test_inpaint_result_commit_rejects_stale_generation():
+    class Model:
+        image = None
+        alpha = None
+
+        def set_inpainted_image(self, image):
+            self.image = image
+
+        def set_original_image_alpha(self, alpha):
+            self.alpha = alpha
+
+    controller = _InpaintCacheController()
+    controller._inpaint_request_generation = 2
+    controller._user_adjusted_alpha = False
+    controller.model = Model()
+    service = EditorControllerInpaintService(controller)
+    image = np.full((24, 32, 3), 180, dtype=np.uint8)
+    mask = np.full((24, 32), 255, dtype=np.uint8)
+
+    service.apply_inpaint_result((1, image, mask))
+    assert controller.model.image is None
+
+    service.apply_inpaint_result((2, image, mask))
+    assert np.array_equal(controller.model.image, image)
+    assert controller.model.alpha == 0.0
+    assert np.array_equal(
+        controller.resource_manager.get_cache(controller.CACHE_LAST_MASK), mask
+    )
+
+
 class _NoopAsyncService:
     @staticmethod
     def cancel_all_tasks():

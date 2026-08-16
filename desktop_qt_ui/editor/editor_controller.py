@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
 
 from editor.commands import _NO_MASK_CHANGE, MoveRegionCommand, UpdateRegionCommand
 from editor.geometry_commit_pipeline import build_rotate_region_data
@@ -188,6 +188,7 @@ class EditorController(QObject):
     _regions_update_finished = pyqtSignal(object)
     _ocr_finished = pyqtSignal(str, str)
     _translation_finished = pyqtSignal(str, str)
+    _inpaint_result_ready = pyqtSignal(object)
 
     # Export queue worker -> GUI thread signals
     _export_queue_status_signal = pyqtSignal(object)
@@ -236,6 +237,10 @@ class EditorController(QObject):
         self._regions_update_finished.connect(self.on_regions_update_finished)
         self._ocr_finished.connect(self._on_ocr_finished)
         self._translation_finished.connect(self._on_translation_finished)
+        self._inpaint_result_ready.connect(
+            self._apply_inpaint_result,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
         self._load_result_ready.connect(self._apply_load_result)  # 连接加载结果信号
         self._deferred_load_requested.connect(self.document_service.do_load_image)
         self._export_queue_status_signal.connect(self._on_export_queue_status_changed)
@@ -602,6 +607,10 @@ class EditorController(QObject):
 
     def on_refined_mask_changed(self, mask):
         self.inpaint_service.on_refined_mask_changed(mask)
+
+    @pyqtSlot(object)
+    def _apply_inpaint_result(self, result) -> None:
+        self.inpaint_service.apply_inpaint_result(result)
 
     @pyqtSlot(dict)
     def update_multiple_translations(self, translations: dict):
