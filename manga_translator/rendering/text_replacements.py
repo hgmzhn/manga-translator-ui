@@ -152,7 +152,7 @@ vertical:
   - pattern: "═"
     replace: "║"
   - pattern: "—"
-    replace: "︱"
+    replace: "│"
   - pattern: "–"
     replace: "︲"
   - pattern: "―"
