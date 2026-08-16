@@ -1342,6 +1342,14 @@ def _vertical_ellipsis_advance(glyph: GlyphRaster, font_size: int, bitmap_char: 
     return max(1, int(round(3.0 * gap))) if gap and gap > 0 else max(1, raw)
 
 
+def _fill_vertical_dash_slot(bitmap: Optional[np.ndarray], height: int):
+    """Extend the vertical em-dash ink to its advance slot."""
+    if bitmap is None or not bitmap.size or bitmap.shape[0] >= height:
+        return bitmap
+    row = bitmap[np.argmax(bitmap.sum(axis=1))]
+    return np.repeat(row[np.newaxis, :], height, axis=0)
+
+
 def _vertical_force_compact_slot(cdpt: str) -> bool:
     return cdpt in _VERTICAL_PUNCT_UP or _VERTICAL_FORCE_COMPACT_RE.match(cdpt) is not None
 
@@ -1450,6 +1458,13 @@ def _vertical_base(
         else:
             advance_y = ink_h
     advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
+    if translated == '︱':
+        extended = _fill_vertical_dash_slot(bitmap, advance_y)
+        if extended is not bitmap:
+            bitmap = extended
+            rect = _bitmap_ink_rect(bitmap)
+            if rect is not None:
+                ink_x, ink_y, ink_w, ink_h = rect
 
     frame_width = max(font_size, int(round(ink_w)) if ink_w else 0, 1)
     if not rotated:
