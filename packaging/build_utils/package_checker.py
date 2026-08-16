@@ -111,6 +111,11 @@ def _yield_reqs_to_install(req: Requirement, current_extra: str = ''):
     except importlib_metadata.PackageNotFoundError:
         yield req
     else:
+        if not version_str:
+            # 存在损坏或不完整的 dist-info，但没有可比较的版本；重新安装该依赖。
+            yield req
+            return
+
         # 对于 PyTorch 等包，移除本地版本标识符（如 +cu128）进行比较
         # 例如：2.9.1+cu128 -> 2.9.1
         version_base = version_str.split('+')[0]
