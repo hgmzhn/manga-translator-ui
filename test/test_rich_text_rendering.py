@@ -223,6 +223,44 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertEqual(plan.advance_y, 16)
         self.assertEqual(_build_tcy_plan(span, 32, 0.0, None, 1.0).advance_main, 16)
 
+    def test_vertical_forced_em_dashes_paint_without_internal_gap(self):
+        text_render.set_font("fonts/NotoSerifSC-Regular.ttf")
+        document = ensure_rich_text_document(
+            self._single_span_document(
+                "——",
+                {
+                    "verticalAdvance": "full",
+                    "transform": {"rotation": -90},
+                },
+            )
+        )
+
+        layout = text_render._build_rich_vertical_layout(
+            document,
+            96,
+            0.0,
+            (0, 0, 0),
+            None,
+            1.0,
+        )[0]
+        self.assertEqual([item.advance_y for item in layout.items], [96, 96])
+        self.assertEqual([item.cursor_y for item in layout.items], [0, 96])
+
+        surface = text_render.put_text_vertical(
+            96,
+            document,
+            999,
+            "left",
+            (0, 0, 0),
+            (255, 255, 255),
+            1.0,
+            stroke_width=0.07,
+        )
+        black = np.any(surface[:, :, :3] < 32, axis=2) & (surface[:, :, 3] > 0)
+        occupied_rows = np.flatnonzero(black.any(axis=1))
+        self.assertGreater(occupied_rows.size, 0)
+        self.assertTrue(black[occupied_rows[0] : occupied_rows[-1] + 1].any(axis=1).all())
+
     def test_textblock_stores_rich_text_as_canonical_dict(self):
         document = _sample_document()
         region = TextBlock(

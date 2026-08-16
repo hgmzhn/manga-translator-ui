@@ -176,6 +176,51 @@ def _vertical_char_parts(plan: VerticalCharPlan):
     )
 
 
+def _vertical_em_dash_bars(previous, current):
+    """Bridge adjacent rotated ``—`` glyphs without changing their advances."""
+    if previous is None:
+        return None
+    previous_item, previous_parts, previous_x, previous_y = previous
+    current_item, current_parts, current_x, current_y = current
+    if (
+        previous_item.base.translated != '—'
+        or current_item.base.translated != '—'
+        or previous_item.span.style != current_item.span.style
+        or previous_item.pre_advance_y
+        or previous_item.post_advance_y
+        or current_item.pre_advance_y
+        or current_item.post_advance_y
+    ):
+        return None
+    rotation = abs(float(current_item.span.style.transform.rotation or 0.0)) % 180.0
+    if not math.isclose(rotation, 90.0, abs_tol=1e-6):
+        return None
+
+    previous_ink = cv2.findNonZero(previous_parts[2][:, :, 3])
+    current_ink = cv2.findNonZero(current_parts[2][:, :, 3])
+    if previous_ink is None or current_ink is None:
+        return None
+    px, py, pw, ph = map(int, cv2.boundingRect(previous_ink))
+    cx, cy, cw, _ = map(int, cv2.boundingRect(current_ink))
+    top = previous_y + py + ph
+    bottom = current_y + cy
+    left = max(previous_x + px, current_x + cx)
+    right = min(previous_x + px + pw, current_x + cx + cw)
+    if bottom <= top or right <= left:
+        return None
+
+    top -= 1
+    bottom += 1
+    center_x = (left + right) / 2.0
+    width = right - left
+    stroke_bar = None
+    if current_item.stroke is not None and current_item.stroke_ratio > 0:
+        pad = max(1, int(round(current_item.font_size * current_item.stroke_ratio)))
+        stroke_bar = (top - pad, bottom + pad, center_x, width + 2 * pad, current_item.stroke)
+    fill_bar = (top, bottom, center_x, width, current_item.fill)
+    return stroke_bar, fill_bar
+
+
 def _render_rich_text_horizontal(
     font_size: int,
     text: str,
@@ -362,14 +407,17 @@ def _render_rich_text_vertical(
     # 位置插入，绘制顺序与旧三遍路径完全相同。
     glyph_items = []   # (parts, x, y)
     fill_extras = []   # (index_in_glyph_items, 'disc'|'ruby', args)
+    stroke_bars = []
     for idx, layout in enumerate(layouts):
         body_left, body_right, _ = columns[idx]
         thickness = float(layout.thickness)
         line_origin_y = _vertical_line_origin_y(
             float(padding + geometry['top_extra']), alignment, body_height, layout.height,
         )
+        previous_char_entry = None
         for item in layout.items:
             if isinstance(item, TcyPlan):
+                previous_char_entry = None
                 parts = _text_layer_parts(
                     item.text, item.source.style, item.font_size, item.stroke_ratio,
                     False, fg, bg, letter_spacing, profile_stats,
@@ -389,11 +437,14 @@ def _render_rich_text_vertical(
                 glyph_items.append((parts, int(round(x)), int(round(y))))
                 continue
             if isinstance(item, VerticalPlaceholderPlan):
+                previous_char_entry = None
                 continue
             if not isinstance(item, VerticalCharPlan):
+                previous_char_entry = None
                 continue
             parts = _vertical_char_parts(item)
             if parts is None:
+                previous_char_entry = None
                 continue
             char_x = _rich_vertical_char_layer_x(body_left, thickness, item)
             char_y = (
@@ -403,7 +454,17 @@ def _render_rich_text_vertical(
                 + item.span.style.transform.offset_y * item.font_size / 100.0
                 + item.paint_offset_y
             )
-            glyph_items.append((parts, int(round(char_x)), int(round(char_y))))
+            char_x = int(round(char_x))
+            char_y = int(round(char_y))
+            current_char_entry = (item, parts, char_x, char_y)
+            bridge = _vertical_em_dash_bars(previous_char_entry, current_char_entry)
+            if bridge is not None:
+                stroke_bar, fill_bar = bridge
+                if stroke_bar is not None:
+                    stroke_bars.append(stroke_bar)
+                fill_extras.append((len(glyph_items), 'bar', fill_bar))
+            glyph_items.append((parts, char_x, char_y))
+            previous_char_entry = current_char_entry
         for emphasis in layout.emphasis_plans:
             dot_color = _style_fill_color(emphasis.source.style, fg)
             for main_center in emphasis.main_centers:
@@ -451,6 +512,15 @@ def _render_rich_text_vertical(
     for part_index in (0, 1):  # effects, stroke
         for parts, x, y in glyph_items:
             _paste_rgba(canvas, parts[part_index], x, y)
+    for y0, y1, center_x, thickness, color in stroke_bars:
+        _draw_rgba_bar(
+            canvas,
+            center_x - thickness / 2.0,
+            y0,
+            thickness,
+            y1 - y0,
+            color,
+        )
     extra_cursor = 0
     for glyph_index, (parts, x, y) in enumerate(glyph_items):
         while extra_cursor < len(fill_extras) and fill_extras[extra_cursor][0] == glyph_index:
