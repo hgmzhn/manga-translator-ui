@@ -1064,6 +1064,31 @@ def _vertical_item_main_interval(item) -> Optional[Tuple[float, float]]:
     return float(cursor_y), float(cursor_y) + float(item.advance_y)
 
 
+def _vertical_em_dash_join_kerning(previous, current, cursor: int) -> int:
+    """Remove only the font gap between adjacent vertical em-dash glyphs."""
+    if not isinstance(previous, VerticalCharPlan) or not isinstance(current, VerticalCharPlan):
+        return 0
+    if (
+        previous.base.translated != '︱'
+        or current.base.translated != '︱'
+        or previous.span.style != current.span.style
+        or previous.post_advance_y
+        or current.pre_advance_y
+        or current.span.style.transform.rotation
+    ):
+        return 0
+    previous_ink = _bitmap_ink_rect(previous.base.bitmap)
+    current_ink = _bitmap_ink_rect(current.base.bitmap)
+    if previous_ink is None or current_ink is None:
+        return 0
+    _, previous_y, _, previous_height = previous_ink
+    _, current_y, _, _ = current_ink
+    offset = current.span.style.transform.offset_y * current.font_size / 100.0
+    previous_end = previous.cursor_y + previous.base.y + offset + previous_y + previous_height
+    current_start = cursor + current.base.y + offset + current_y
+    return max(0, int(math.ceil(current_start - previous_end)))
+
+
 def _build_rich_vertical_layout(
     document: RichTextDocument,
     base_font_size: int,
@@ -1143,6 +1168,8 @@ def _build_rich_vertical_layout(
                 laid.append(placed)
                 continue
             cursor += item.pre_advance_y
+            if laid:
+                cursor -= _vertical_em_dash_join_kerning(laid[-1], item, cursor)
             item = replace(item, cursor_y=cursor)
             cursor += item.advance_y
             cursor += item.post_advance_y
@@ -1342,12 +1369,6 @@ def _vertical_ellipsis_advance(glyph: GlyphRaster, font_size: int, bitmap_char: 
     return max(1, int(round(3.0 * gap))) if gap and gap > 0 else max(1, raw)
 
 
-def _fill_vertical_dash_slot(bitmap: Optional[np.ndarray], height: int):
-    """Extend the vertical em-dash ink to its advance slot."""
-    if bitmap is None or not bitmap.size or bitmap.shape[0] >= height:
-        return bitmap
-    row = bitmap[np.argmax(bitmap.sum(axis=1))]
-    return np.repeat(row[np.newaxis, :], height, axis=0)
 
 
 def _vertical_force_compact_slot(cdpt: str) -> bool:
@@ -1458,13 +1479,6 @@ def _vertical_base(
         else:
             advance_y = ink_h
     advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
-    if translated == '︱':
-        extended = _fill_vertical_dash_slot(bitmap, advance_y)
-        if extended is not bitmap:
-            bitmap = extended
-            rect = _bitmap_ink_rect(bitmap)
-            if rect is not None:
-                ink_x, ink_y, ink_w, ink_h = rect
 
     frame_width = max(font_size, int(round(ink_w)) if ink_w else 0, 1)
     if not rotated:
