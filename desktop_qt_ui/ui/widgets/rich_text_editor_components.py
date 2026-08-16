@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPalette
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox,
     QApplication,
     QGridLayout,
     QHBoxLayout,
@@ -23,12 +22,12 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     CaptionLabel,
-    CompactDoubleSpinBox,
-    CompactSpinBox,
+    DoubleSpinBox,
     LineEdit,
     PushButton,
     ScrollArea,
     SimpleCardWidget,
+    SpinBox,
     TextEdit,
     TogglePushButton,
     ToolButton,
@@ -175,24 +174,26 @@ class RichTextBodyEdit(TextEdit):
 
 
 def _double_spin_box(
-    value: float, minimum: float, maximum: float, decimals: int = 2
-) -> CompactDoubleSpinBox:
-    control = CompactDoubleSpinBox()
-    control.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+    value: float,
+    minimum: float,
+    maximum: float,
+    decimals: int = 2,
+    step: float | None = None,
+) -> DoubleSpinBox:
+    control = DoubleSpinBox()
     control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     control.setRange(minimum, maximum)
     control.setDecimals(decimals)
-    # 步进跟随精度：两位小数的量（缩放/字距/描边宽度）按 0.05 微调，
-    # 一位小数的量（角度/像素偏移)按 1 步进。
-    control.setSingleStep(0.05 if decimals >= 2 else 1.0)
+    control.setSingleStep(
+        step if step is not None else (0.05 if decimals >= 2 else 1.0)
+    )
     control.setAccelerated(True)
     control.setValue(float(value))
     return control
 
 
-def _spin_box(value: int, minimum: int, maximum: int) -> CompactSpinBox:
-    control = CompactSpinBox()
-    control.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+def _spin_box(value: int, minimum: int, maximum: int) -> SpinBox:
+    control = SpinBox()
     control.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     control.setRange(minimum, maximum)
     control.setAccelerated(True)
@@ -823,7 +824,9 @@ class StyleRunCard(SimpleCardWidget):
                 values.get("color", color_default),
                 f"saved_{source}_colors",
             )
-            number = _double_spin_box(values.get(number_key, number_default), 0.0, 5.0)
+            number = _double_spin_box(
+                values.get(number_key, number_default), 0.0, 5.0, step=0.01
+            )
             color.color_changed.connect(
                 lambda value, field=source: self._emit_patch(
                     key, {field: {"color": value}}

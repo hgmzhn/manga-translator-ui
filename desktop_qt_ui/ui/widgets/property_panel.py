@@ -16,14 +16,14 @@ from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     CheckBox,
-    CompactDoubleSpinBox,
-    CompactSpinBox,
+    DoubleSpinBox,
     PopUpAniStackedWidget,
     PrimaryPushButton,
     PushButton,
     SegmentedWidget,
     SimpleCardWidget,
     Slider,
+    SpinBox,
     StrongBodyLabel,
     TextEdit,
     TogglePushButton,
@@ -132,16 +132,14 @@ class CustomSlider(Slider):
         event.accept()
 
 
-def _compact_double_spin_box() -> CompactDoubleSpinBox:
-    spin_box = CompactDoubleSpinBox()
-    spin_box.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+def _double_spin_box() -> DoubleSpinBox:
+    spin_box = DoubleSpinBox()
     spin_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     return spin_box
 
 
-def _compact_spin_box() -> CompactSpinBox:
-    spin_box = CompactSpinBox()
-    spin_box.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+def _spin_box() -> SpinBox:
+    spin_box = SpinBox()
     spin_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     return spin_box
 
@@ -775,7 +773,7 @@ class PropertyPanel(QWidget):
         style_layout.addRow(self.font_label, self.font_family_combo)
 
         # Font size
-        self.font_size_input = _compact_spin_box()
+        self.font_size_input = _spin_box()
         self.font_size_input.setRange(8, 1000)
         self.font_size_input.setKeyboardTracking(False)
         self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
@@ -807,7 +805,7 @@ class PropertyPanel(QWidget):
         style_layout.addRow(self.stroke_color_label, self.stroke_color_picker)
 
         # Stroke width (描边宽度)
-        self.stroke_width_spinbox = _compact_double_spin_box()
+        self.stroke_width_spinbox = _double_spin_box()
         self.stroke_width_spinbox.setRange(0.0, 1.0)
         self.stroke_width_spinbox.setSingleStep(0.01)
         self.stroke_width_spinbox.setDecimals(2)
@@ -816,7 +814,7 @@ class PropertyPanel(QWidget):
         style_layout.addRow(self.stroke_width_label, self.stroke_width_spinbox)
 
         # Line spacing (行间距倍率)
-        self.line_spacing_spinbox = _compact_double_spin_box()
+        self.line_spacing_spinbox = _double_spin_box()
         self.line_spacing_spinbox.setRange(0.1, 5.0)
         self.line_spacing_spinbox.setSingleStep(0.1)
         self.line_spacing_spinbox.setDecimals(1)
@@ -824,7 +822,7 @@ class PropertyPanel(QWidget):
         self.line_spacing_label = BodyLabel(self._t("Line Spacing:"))
         style_layout.addRow(self.line_spacing_label, self.line_spacing_spinbox)
 
-        self.letter_spacing_spinbox = _compact_double_spin_box()
+        self.letter_spacing_spinbox = _double_spin_box()
         self.letter_spacing_spinbox.setRange(0.1, 5.0)
         self.letter_spacing_spinbox.setSingleStep(0.1)
         self.letter_spacing_spinbox.setDecimals(1)
@@ -832,7 +830,7 @@ class PropertyPanel(QWidget):
         self.letter_spacing_label = BodyLabel(self._t("Letter Spacing:"))
         style_layout.addRow(self.letter_spacing_label, self.letter_spacing_spinbox)
 
-        self.angle_spinbox = _compact_double_spin_box()
+        self.angle_spinbox = _double_spin_box()
         self.angle_spinbox.setRange(-9999.0, 9999.0)
         self.angle_spinbox.setSingleStep(1.0)
         self.angle_spinbox.setDecimals(1)

@@ -9,7 +9,6 @@ from typing import Callable, Dict
 import yaml
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
@@ -25,8 +24,8 @@ from qfluentwidgets import (
     CaptionLabel,
     CardWidget,
     CheckBox,
-    CompactDoubleSpinBox,
-    CompactSpinBox,
+    DoubleSpinBox,
+    SpinBox,
     PlainTextEdit,
     PopUpAniStackedWidget,
     PushButton,
@@ -198,7 +197,6 @@ class RichTextStyleControls(SimpleCardWidget):
 
     @staticmethod
     def _spin_box(spin):
-        spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
         spin.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return spin
 
@@ -208,13 +206,13 @@ class RichTextStyleControls(SimpleCardWidget):
         return field
 
     def _integer(self, key, minimum, maximum, default):
-        editor = self._spin_box(CompactSpinBox())
+        editor = self._spin_box(SpinBox())
         editor.setRange(minimum, maximum)
         editor.setValue(default)
         return self._register(key, editor)
 
     def _number(self, key, minimum, maximum, default, step, decimals):
-        editor = self._spin_box(CompactDoubleSpinBox())
+        editor = self._spin_box(DoubleSpinBox())
         editor.setRange(minimum, maximum)
         editor.setValue(default)
         editor.setSingleStep(step)
@@ -253,10 +251,10 @@ class RichTextStyleControls(SimpleCardWidget):
             config_service=self.config_service,
             i18n_func=self._t,
         )
-        value = self._spin_box(CompactDoubleSpinBox())
+        value = self._spin_box(DoubleSpinBox())
         value.setRange(0, 20)
         value.setDecimals(2)
-        value.setSingleStep(0.05)
+        value.setSingleStep(0.01)
         value.setValue(default)
         color_label = CaptionLabel(self._t("Color"))
         value_label = CaptionLabel(self._t(value_name.title()))

@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (
     CaptionLabel,
     CheckBox,
-    CompactDoubleSpinBox,
-    CompactSpinBox,
+    DoubleSpinBox,
+    SpinBox,
     FluentIcon as FIF,
     LineEdit,
     PushButton,
@@ -118,10 +118,10 @@ class _NumberValueEditor(_ValueEditor):
     def __init__(self, integer: bool, parent=None):
         super().__init__(parent)
         if integer:
-            self._spin = CompactSpinBox(self)
+            self._spin = SpinBox(self)
             self._spin.setRange(-100000, 100000)
         else:
-            self._spin = CompactDoubleSpinBox(self)
+            self._spin = DoubleSpinBox(self)
             self._spin.setRange(-100000.0, 100000.0)
             self._spin.setDecimals(3)
             self._spin.setSingleStep(0.05)
@@ -182,10 +182,10 @@ class _ColorValueEditor(_ValueEditor):
         layout = _row(self)
         layout.addWidget(self._picker, 1)
         self._tolerance_label: Optional[CaptionLabel] = None
-        self._tolerance: Optional[CompactSpinBox] = None
+        self._tolerance: Optional[SpinBox] = None
         if with_tolerance:
             self._tolerance_label = CaptionLabel(self._t("Tolerance"), self)
-            self._tolerance = CompactSpinBox(self)
+            self._tolerance = SpinBox(self)
             self._tolerance.setRange(0, 442)  # 0..sqrt(3)*255，RGB 空间的最大距离
             self._tolerance.setValue(30)
             self._tolerance.valueChanged.connect(self.changed)
