@@ -63,10 +63,17 @@ class RichTextRenderingTest(unittest.TestCase):
     def test_vertical_auto_rotation_character_policy(self):
         # 引擎特殊路径只旋转四个弯引号+四个日文角引号（见 _VERTICAL_ROTATE_CHARS）；
         # 其余字符（含（）【】）不在渲染层旋转，普通自动旋转已移到 rich_text_rules.yaml。
-        for char in 'AaZz019,.:;?!-~()\"\'ー⸺–—～﹏…⋯●•（）【】':
+        for char in 'AaZz019,.:;?!-~()"\'ー⸺–—～﹏…⋯●•（）【】︱︲':
             self.assertEqual(CJK_Compatibility_Forms_translate(char, 1)[1], 0, char)
         for char in '“‘”’「『」』':
             self.assertEqual(CJK_Compatibility_Forms_translate(char, 1)[1], 90, char)
+
+    def test_vertical_dashes_use_presentation_forms_before_rich_text_rules(self):
+        from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
+        from manga_translator.rendering.text_replacements import apply_replacements
+        replaced = apply_replacements("——–", 1)
+        self.assertEqual(replaced, "︱︱︲")
+        self.assertIsNone(apply_rich_text_rules(replaced, "vertical"))
 
     def test_free_rotation_advance_projects_between_axes(self):
         base = VerticalGlyphBase(
@@ -222,44 +229,6 @@ class RichTextRenderingTest(unittest.TestCase):
         plan = _build_vertical_char_plan(span, half, 32, (0, 0, 0), None, 0.0)
         self.assertEqual(plan.advance_y, 16)
         self.assertEqual(_build_tcy_plan(span, 32, 0.0, None, 1.0).advance_main, 16)
-
-    def test_vertical_forced_em_dashes_paint_without_internal_gap(self):
-        text_render.set_font("fonts/NotoSerifSC-Regular.ttf")
-        document = ensure_rich_text_document(
-            self._single_span_document(
-                "——",
-                {
-                    "verticalAdvance": "full",
-                    "transform": {"rotation": -90},
-                },
-            )
-        )
-
-        layout = text_render._build_rich_vertical_layout(
-            document,
-            96,
-            0.0,
-            (0, 0, 0),
-            None,
-            1.0,
-        )[0]
-        self.assertEqual([item.advance_y for item in layout.items], [96, 96])
-        self.assertEqual([item.cursor_y for item in layout.items], [0, 96])
-
-        surface = text_render.put_text_vertical(
-            96,
-            document,
-            999,
-            "left",
-            (0, 0, 0),
-            (255, 255, 255),
-            1.0,
-            stroke_width=0.07,
-        )
-        black = np.any(surface[:, :, :3] < 32, axis=2) & (surface[:, :, 3] > 0)
-        occupied_rows = np.flatnonzero(black.any(axis=1))
-        self.assertGreater(occupied_rows.size, 0)
-        self.assertTrue(black[occupied_rows[0] : occupied_rows[-1] + 1].any(axis=1).all())
 
     def test_textblock_stores_rich_text_as_canonical_dict(self):
         document = _sample_document()

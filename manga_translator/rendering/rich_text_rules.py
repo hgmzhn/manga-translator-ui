@@ -45,7 +45,7 @@ common:
 horizontal: []
 vertical:
   - enabled: true
-    pattern: '["''ー⸺–—～﹏●•〖〗［］]'
+    pattern: '["''ー⸺～﹏●•〖〗［］]'
     regex: true
     style:
       transform:

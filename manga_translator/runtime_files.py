@@ -55,6 +55,18 @@ def _upgrade_runtime_defaults(logger: Any = None) -> None:
                 "5b8fbc89492ff2a1d5c064f5e85a458b",
                 # commit 2b70f6f：经旧表格编辑器保存后的默认模板
                 "94b2787940afdde800db3aba0742ad98",
+                # v3.0.1：恢复竖排破折号专用替换前的内置/表格保存默认模板
+                "5ab345740c972146a561b682753fe07e",
+                "db562775e8a68692862d2cab0d2167bf",
+            },
+        ),
+        (
+            "rich_text_rules",
+            get_config_path("rich_text_rules.yaml"),
+            {
+                # v3.0.1：破折号仍由富文本规则旋转时的内置/表格保存默认模板
+                "3119fa189c04c4077e64853aa4e6beaf",
+                "5e316af98daaa21a1bd82efbc59983f0",
             },
         ),
     )
