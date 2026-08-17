@@ -827,6 +827,7 @@ class StyleRunCard(SimpleCardWidget):
             number = _double_spin_box(
                 values.get(number_key, number_default), 0.0, 5.0, step=0.01
             )
+            number.setSymbolVisible(False)
             color.color_changed.connect(
                 lambda value, field=source: self._emit_patch(
                     key, {field: {"color": value}}
@@ -923,6 +924,10 @@ class StyleRunCard(SimpleCardWidget):
             y_control = _double_spin_box(
                 transform.get("offsetY", 0.0), -500.0, 500.0, 1
             )
+            # Paired fields are intentionally wheel/text driven: Fluent's two
+            # 31 px arrow buttons otherwise leave too little room for values.
+            x_control.setSymbolVisible(False)
+            y_control.setSymbolVisible(False)
             x_control.setSuffix("%")
             y_control.setSuffix("%")
             x_control.valueChanged.connect(
