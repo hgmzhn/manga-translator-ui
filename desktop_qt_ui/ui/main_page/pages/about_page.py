@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -92,6 +93,7 @@ def _on_about_mirror_changed(self, index: int):
     else:
         self._set_about_update_status("Update Source Switch Failed")
 
+
 BRANCH_LABEL_KEYS = ("Main Branch", "Beta Branch")
 BRANCH_VALUES = ("main", "beta")
 
@@ -101,9 +103,7 @@ def _populate_about_branch_combo(self):
     try:
         self.about_update_branch_combo.clear()
         for label_key, branch in zip(BRANCH_LABEL_KEYS, BRANCH_VALUES):
-            self.about_update_branch_combo.addItem(
-                self._t(label_key), userData=branch
-            )
+            self.about_update_branch_combo.addItem(self._t(label_key), userData=branch)
         selected = getattr(self, "_update_branch", "main")
         index = BRANCH_VALUES.index(selected) if selected in BRANCH_VALUES else 0
         self.about_update_branch_combo.setCurrentIndex(index)
@@ -137,9 +137,7 @@ def _populate_about_theme_combo(self):
         self.about_theme_combo.clear()
         selected_index = 0
         for index, (theme_key, theme_label) in enumerate(THEME_OPTIONS):
-            self.about_theme_combo.addItem(
-                self._t(theme_label), userData=theme_key
-            )
+            self.about_theme_combo.addItem(self._t(theme_label), userData=theme_key)
             if config.app.theme == theme_key:
                 selected_index = index
         self.about_theme_combo.setCurrentIndex(selected_index)
@@ -168,7 +166,9 @@ def _populate_about_language_combo(self):
         self.about_language_combo.blockSignals(False)
 
 
-def _create_section_card(title: str, subtitle: str, icon) -> tuple[CardWidget, QVBoxLayout]:
+def _create_section_card(
+    title: str, subtitle: str, icon
+) -> tuple[CardWidget, QVBoxLayout]:
     card = CardWidget()
     card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     layout = QVBoxLayout(card)
@@ -206,8 +206,11 @@ def _add_setting_row(
     labels.addWidget(title_label)
     labels.addWidget(subtitle_label)
     layout.addLayout(labels, row, 0)
-    layout.addWidget(control, row, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    layout.addWidget(
+        control, row, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+    )
     return title_label, subtitle_label
+
 
 def _add_resource_row(self, layout: QGridLayout, row: int, title_key: str, path: str):
     title_label = BodyLabel(self._t(title_key))
@@ -221,7 +224,9 @@ def _add_resource_row(self, layout: QGridLayout, row: int, title_key: str, path:
     open_button = PushButton(self._t("Open Directory"))
     open_button.setIcon(FIF.FOLDER)
     open_button.clicked.connect(
-        lambda checked=False, relative_path=path: self._open_about_directory(relative_path)
+        lambda checked=False, relative_path=path: self._open_about_directory(
+            relative_path
+        )
     )
     layout.addWidget(
         open_button,
@@ -258,6 +263,39 @@ def show_sponsor_dialog(self):
     dialog.textLayout.addWidget(heading)
     dialog.textLayout.addWidget(message)
 
+    international_card = QFrame(dialog)
+    international_card.setObjectName("internationalSponsorCard")
+    international_card.setStyleSheet(
+        """
+        QFrame#internationalSponsorCard {
+            background-color: rgba(41, 171, 224, 24);
+            border: 2px solid #29abe0;
+            border-radius: 12px;
+        }
+        """
+    )
+    international_layout = QHBoxLayout(international_card)
+    international_layout.setContentsMargins(18, 16, 18, 16)
+    international_layout.setSpacing(18)
+
+    international_copy = QVBoxLayout()
+    international_copy.setSpacing(4)
+    international = SubtitleLabel(self._t("International Sponsor"), international_card)
+    international_hint = BodyLabel(
+        self._t("International Sponsor Hint"), international_card
+    )
+    international_hint.setWordWrap(True)
+    international_copy.addWidget(international)
+    international_copy.addWidget(international_hint)
+
+    ko_fi_button = PrimaryPushButton(self._t("Open Ko-fi"), international_card)
+    ko_fi_button.setIcon(FIF.LINK)
+    ko_fi_button.setMinimumSize(170, 44)
+    ko_fi_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(KOFI_URL)))
+    international_layout.addLayout(international_copy, 1)
+    international_layout.addWidget(ko_fi_button, 0, Qt.AlignmentFlag.AlignVCenter)
+    dialog.textLayout.addWidget(international_card)
+
     qr_layout = QHBoxLayout()
     qr_layout.setSpacing(16)
     for title_key, image_path in (
@@ -286,18 +324,6 @@ def show_sponsor_dialog(self):
         qr_layout.addWidget(card, 1)
     dialog.textLayout.addLayout(qr_layout)
 
-    international = BodyLabel(self._t("International Sponsor"), dialog)
-    ko_fi_button = PrimaryPushButton(self._t("Open Ko-fi"), dialog)
-    ko_fi_button.setIcon(FIF.LINK)
-    ko_fi_button.clicked.connect(
-        lambda: QDesktopServices.openUrl(QUrl(KOFI_URL))
-    )
-    ko_fi_row = QHBoxLayout()
-    ko_fi_row.addWidget(international)
-    ko_fi_row.addStretch(1)
-    ko_fi_row.addWidget(ko_fi_button)
-    dialog.textLayout.addLayout(ko_fi_row)
-
     dialog.yesButton.hide()
     dialog.cancelButton.setText(self._t("Close"))
     _apply_flexible_size(dialog, 620, 560)
@@ -313,7 +339,6 @@ def create_about_page(self) -> QWidget:
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(28, 26, 28, 24)
     page_layout.setSpacing(18)
-
 
     hero = CardWidget(page)
     hero.setObjectName("aboutHeroCard")
@@ -370,11 +395,11 @@ def create_about_page(self) -> QWidget:
     self.about_theme_combo = ComboBox()
     self.about_theme_combo.setMinimumWidth(210)
     self.about_theme_combo.activated.connect(
-        lambda index: self.theme_change_requested.emit(
-            self.about_theme_combo.itemData(index)
+        lambda index: (
+            self.theme_change_requested.emit(self.about_theme_combo.itemData(index))
+            if index >= 0 and self.about_theme_combo.itemData(index)
+            else None
         )
-        if index >= 0 and self.about_theme_combo.itemData(index)
-        else None
     )
     title_label, subtitle_label = _add_setting_row(
         preferences_grid,
@@ -390,11 +415,13 @@ def create_about_page(self) -> QWidget:
     self.about_language_combo = ComboBox()
     self.about_language_combo.setMinimumWidth(210)
     self.about_language_combo.activated.connect(
-        lambda index: self.language_change_requested.emit(
-            self.about_language_combo.itemData(index)
+        lambda index: (
+            self.language_change_requested.emit(
+                self.about_language_combo.itemData(index)
+            )
+            if index >= 0 and self.about_language_combo.itemData(index)
+            else None
         )
-        if index >= 0 and self.about_language_combo.itemData(index)
-        else None
     )
     title_label, subtitle_label = _add_setting_row(
         preferences_grid,
@@ -585,7 +612,12 @@ def refresh_about_page_texts(self):
             version=format_version_label(self.app_version) or self._t("Unknown"),
         )
     )
-    for title_label, subtitle_label, title_key, subtitle_key in self.about_preference_rows:
+    for (
+        title_label,
+        subtitle_label,
+        title_key,
+        subtitle_key,
+    ) in self.about_preference_rows:
         title_label.setText(self._t(title_key).rstrip(":："))
         subtitle_label.setText(self._t(subtitle_key))
     for toggle in (
@@ -731,7 +763,9 @@ class UpdateDialog:
         dialog.yesButton.hide()
         dialog.cancelButton.setText(translate("Later"))
         if on_update is not None:
-            update_button = PrimaryPushButton(translate("Update Now"), dialog.buttonGroup)
+            update_button = PrimaryPushButton(
+                translate("Update Now"), dialog.buttonGroup
+            )
             update_button.clicked.connect(
                 lambda: dialog.accept() if on_update() else None
             )

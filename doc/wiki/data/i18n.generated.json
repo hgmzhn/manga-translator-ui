@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1472,
-    "exact": 1472,
+    "keys": 1473,
+    "exact": 1473,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -1996,6 +1996,12 @@
       "key": "International Sponsor",
       "en_US": "International support",
       "zh_CN": "海外赞助",
+      "status": "exact"
+    },
+    {
+      "key": "International Sponsor Hint",
+      "en_US": "Can't use WeChat or Alipay? Support the project directly through Ko-fi.",
+      "zh_CN": "不方便使用微信或支付宝？可直接通过 Ko-fi 赞助。",
       "status": "exact"
     },
     {

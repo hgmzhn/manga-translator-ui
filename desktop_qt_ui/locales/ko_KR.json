@@ -196,6 +196,7 @@
   "WeChat Sponsor": "WeChat",
   "Alipay Sponsor": "Alipay",
   "International Sponsor": "해외 후원",
+  "International Sponsor Hint": "WeChat이나 Alipay를 사용할 수 없다면 Ko-fi에서 후원할 수 있습니다.",
   "Open Ko-fi": "Ko-fi 열기",
   "GitHub Repository": "GitHub 저장소",
   "Wiki": "Wiki 문서",
