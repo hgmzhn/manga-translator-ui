@@ -147,7 +147,7 @@ flowchart LR
 ## 限制与注意事项
 
 - 样式组合保存的是字体、颜色、描边、间距、对齐和方向，不包含字体大小与角度；应用样式组合不会改变这两个字段。
-- “复制区域/粘贴样式”只复制 `font_family`、`font_size`、`font_color`、`alignment`、`direction`、`line_spacing`、`letter_spacing`，不复制描边颜色、描边宽度和角度；右键菜单的“🎨 粘贴样式”是源码中文字面量，不经 i18n，不会随语言切换。
+- “复制区域/粘贴样式”只复制 `font_family`、`font_size`、`font_color`、`alignment`、`direction`、`line_spacing`、`letter_spacing`，不复制描边颜色、描边宽度和角度；右键菜单中的“🎨 粘贴样式”使用 `Paste Style` i18n key，并随语言切换。
 - 多选修改样式会把同一 patch 应用到全部选中区域，且以一次撤销命令记录；多选没有“混合值”显示。
 - 画布 Ctrl+滚轮调字号是独立入口，与面板数值框共用 `font_size` 字段；Shift+滚轮调画笔大小属于“图像编辑”分区。
 - `line_spacing`/`letter_spacing` 在区域缺省时回退到渲染配置（否则 `1.0`），显式设置会覆盖全局值。

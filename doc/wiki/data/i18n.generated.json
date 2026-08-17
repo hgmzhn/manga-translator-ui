@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1463,
-    "exact": 1463,
+    "keys": 1472,
+    "exact": 1472,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -334,6 +334,12 @@
       "key": "Add Section",
       "en_US": "Add Section",
       "zh_CN": "添加字段",
+      "status": "exact"
+    },
+    {
+      "key": "Add Text Box",
+      "en_US": "Add Text Box",
+      "zh_CN": "添加文本框",
       "status": "exact"
     },
     {
@@ -1051,6 +1057,12 @@
       "status": "exact"
     },
     {
+      "key": "Copy Region",
+      "en_US": "Copy Region",
+      "zh_CN": "复制区域",
+      "status": "exact"
+    },
+    {
       "key": "Created",
       "en_US": "Created",
       "zh_CN": "已创建",
@@ -1144,6 +1156,12 @@
       "key": "Delete Row",
       "en_US": "Delete Row",
       "zh_CN": "删除行",
+      "status": "exact"
+    },
+    {
+      "key": "Delete Selected Regions",
+      "en_US": "Delete Selected Regions ({count})",
+      "zh_CN": "删除选中的 {count} 个区域",
       "status": "exact"
     },
     {
@@ -2539,6 +2557,12 @@
       "status": "exact"
     },
     {
+      "key": "OCR Selected Regions",
+      "en_US": "OCR Selected Regions",
+      "zh_CN": "OCR识别选中项",
+      "status": "exact"
+    },
+    {
       "key": "OK",
       "en_US": "OK",
       "zh_CN": "确定",
@@ -2710,6 +2734,18 @@
       "key": "Paste",
       "en_US": "Paste",
       "zh_CN": "粘贴",
+      "status": "exact"
+    },
+    {
+      "key": "Paste Region",
+      "en_US": "Paste Region",
+      "zh_CN": "粘贴区域",
+      "status": "exact"
+    },
+    {
+      "key": "Paste Style",
+      "en_US": "Paste Style",
+      "zh_CN": "粘贴样式",
       "status": "exact"
     },
     {
@@ -3052,6 +3088,12 @@
       "key": "Refresh",
       "en_US": "Refresh",
       "zh_CN": "刷新",
+      "status": "exact"
+    },
+    {
+      "key": "Refresh View",
+      "en_US": "Refresh View",
+      "zh_CN": "刷新视图",
       "status": "exact"
     },
     {
@@ -4171,6 +4213,12 @@
       "status": "exact"
     },
     {
+      "key": "Translate Selected Regions",
+      "en_US": "Translate Selected Regions",
+      "zh_CN": "翻译选中项",
+      "status": "exact"
+    },
+    {
       "key": "Translated",
       "en_US": "Translated",
       "zh_CN": "已翻译",
@@ -4660,6 +4708,12 @@
       "key": "api_test_error_gemini_no_image",
       "en_US": "The Gemini image response did not contain an image.",
       "zh_CN": "Gemini 图像响应中没有图片。",
+      "status": "exact"
+    },
+    {
+      "key": "api_test_error_invalid_key_characters",
+      "en_US": "The API key contains characters unsupported by HTTP headers (positions {start}-{end}). Re-paste the key and remove Chinese, full-width, or invisible characters.",
+      "zh_CN": "API 密钥包含请求头不支持的字符（位置 {start}-{end}）。请重新粘贴密钥，并删除中文、全角符号或不可见字符。",
       "status": "exact"
     },
     {

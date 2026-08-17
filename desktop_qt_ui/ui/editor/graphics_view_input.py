@@ -14,6 +14,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsView
 from qfluentwidgets import Action, RoundMenu
+
 from services import get_config_service
 
 from .graphics_items import RegionTextItem
@@ -74,7 +75,13 @@ class GraphicsViewInputMixin:
             or self._hand_scroll_active
         )
 
-    def _cancel_active_interaction(self, commit: bool, *, ctrl_pressed: bool = False, allow_tool_switch: bool = True):
+    def _cancel_active_interaction(
+        self,
+        commit: bool,
+        *,
+        ctrl_pressed: bool = False,
+        allow_tool_switch: bool = True,
+    ):
         """集中终结所有"进行中"的画布交互。
 
         右键菜单(menu.exec 抓鼠标)、模态框、窗口失活、快捷键切工具都会让
@@ -178,12 +185,17 @@ class GraphicsViewInputMixin:
 
     def mousePressEvent(self, event):
         editor_view = getattr(self, "editor_view", None)
-        if editor_view is not None and hasattr(editor_view, "force_save_property_panel_edits"):
+        if editor_view is not None and hasattr(
+            editor_view, "force_save_property_panel_edits"
+        ):
             editor_view.force_save_property_panel_edits()
 
         self.setFocus()
 
-        if self._active_tool == "draw_textbox" and event.button() == Qt.MouseButton.LeftButton:
+        if (
+            self._active_tool == "draw_textbox"
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
             self._start_drawing_textbox(event.pos())
             event.accept()
             return
@@ -198,7 +210,11 @@ class GraphicsViewInputMixin:
                 event.accept()
                 return
 
-        if self._active_tool in ["pen", "eraser", "brush", "paint", "paint_erase", "stamp_erase"] and event.button() == Qt.MouseButton.LeftButton:
+        if (
+            self._active_tool
+            in ["pen", "eraser", "brush", "paint", "paint_erase", "stamp_erase"]
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
             self._start_drawing(event.pos())
             event.accept()
             return
@@ -208,7 +224,9 @@ class GraphicsViewInputMixin:
         elif event.button() == Qt.MouseButton.RightButton:
             clicked_region_item = self._region_item_at_view_pos(event.pos())
             if clicked_region_item is not None:
-                ctrl_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                ctrl_pressed = bool(
+                    event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                )
                 if not clicked_region_item.isSelected():
                     if not ctrl_pressed:
                         self.scene.clearSelection()
@@ -234,7 +252,9 @@ class GraphicsViewInputMixin:
                 super().mousePressEvent(event)
             else:
                 super().mousePressEvent(event)
-                ctrl_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                ctrl_pressed = bool(
+                    event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                )
                 if not ctrl_pressed:
                     self.scene.clearSelection()
         else:
@@ -244,7 +264,9 @@ class GraphicsViewInputMixin:
         if self._active_tool == "clone":
             image_pos = self._scene_to_image_point(self.mapToScene(event.pos()))
             self._update_clone_marker(image_pos)
-            if self._clone_drawing and bool(event.buttons() & Qt.MouseButton.LeftButton):
+            if self._clone_drawing and bool(
+                event.buttons() & Qt.MouseButton.LeftButton
+            ):
                 self._clone_dab_segment(image_pos)
                 event.accept()
                 return
@@ -374,7 +396,10 @@ class GraphicsViewInputMixin:
                 )
             painter.setPen(preview_pen)
 
-            draw_points = [self._scene_to_image_point(point) for point in self._current_draw_scene_points]
+            draw_points = [
+                self._scene_to_image_point(point)
+                for point in self._current_draw_scene_points
+            ]
             if len(draw_points) == 1:
                 radius = max(1.0, self._brush_size / 2.0)
                 painter.drawEllipse(draw_points[0], radius, radius)
@@ -444,13 +469,20 @@ class GraphicsViewInputMixin:
         if not self._is_drawing or self._current_draw_mask_shape is None:
             return
         self._current_draw_scene_points.append(scene_point)
-        mask_point = self._scene_to_mask_point(scene_point, self._current_draw_mask_shape)
+        mask_point = self._scene_to_mask_point(
+            scene_point, self._current_draw_mask_shape
+        )
         if mask_point is None:
             return
-        if not self._current_draw_mask_points or self._current_draw_mask_points[-1] != mask_point:
+        if (
+            not self._current_draw_mask_points
+            or self._current_draw_mask_points[-1] != mask_point
+        ):
             self._current_draw_mask_points.append(mask_point)
 
-    def _build_stroke_mask(self, points: list[tuple[int, int]], mask_shape: tuple[int, int]) -> np.ndarray:
+    def _build_stroke_mask(
+        self, points: list[tuple[int, int]], mask_shape: tuple[int, int]
+    ) -> np.ndarray:
         mask_h, mask_w = mask_shape
         stroke_mask = np.zeros((mask_h, mask_w), dtype=np.uint8)
         if not points:
@@ -464,7 +496,9 @@ class GraphicsViewInputMixin:
         radius = max(1, stroke_size // 2)
 
         if len(points) == 1:
-            cv2.circle(stroke_mask, points[0], radius, 255, thickness=-1, lineType=cv2.LINE_8)
+            cv2.circle(
+                stroke_mask, points[0], radius, 255, thickness=-1, lineType=cv2.LINE_8
+            )
             return stroke_mask
 
         for idx in range(1, len(points)):
@@ -477,10 +511,14 @@ class GraphicsViewInputMixin:
                 lineType=cv2.LINE_8,
             )
         for point in points:
-            cv2.circle(stroke_mask, point, radius, 255, thickness=-1, lineType=cv2.LINE_8)
+            cv2.circle(
+                stroke_mask, point, radius, 255, thickness=-1, lineType=cv2.LINE_8
+            )
         return stroke_mask
 
-    def _normalize_binary_mask_array(self, mask: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
+    def _normalize_binary_mask_array(
+        self, mask: np.ndarray, target_shape: tuple[int, int]
+    ) -> np.ndarray:
         if mask is None:
             return np.zeros(target_shape, dtype=np.uint8)
         mask_np = np.array(mask)
@@ -488,12 +526,20 @@ class GraphicsViewInputMixin:
             mask_np = mask_np[:, :, 0]
         mask_np = np.where(mask_np > 0, 255, 0).astype(np.uint8)
         if mask_np.shape[:2] != target_shape:
-            mask_np = cv2.resize(mask_np, (target_shape[1], target_shape[0]), interpolation=cv2.INTER_NEAREST)
+            mask_np = cv2.resize(
+                mask_np,
+                (target_shape[1], target_shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
             mask_np = np.where(mask_np > 0, 255, 0).astype(np.uint8)
         return mask_np
 
     def _finish_drawing(self):
-        if not self._is_drawing or not self._current_draw_mask_points or self._current_draw_mask_shape is None:
+        if (
+            not self._is_drawing
+            or not self._current_draw_mask_points
+            or self._current_draw_mask_shape is None
+        ):
             self._reset_drawing_state()
             self._clear_preview()
             return
@@ -512,12 +558,18 @@ class GraphicsViewInputMixin:
 
         current_mask = self.model.get_refined_mask()
         old_mask_np = (
-            self._normalize_binary_mask_array(current_mask, self._current_draw_mask_shape)
+            self._normalize_binary_mask_array(
+                current_mask, self._current_draw_mask_shape
+            )
             if current_mask is not None
             else None
         )
-        base_mask = self._normalize_binary_mask_array(current_mask, self._current_draw_mask_shape)
-        stroke_mask = self._build_stroke_mask(self._current_draw_mask_points, self._current_draw_mask_shape)
+        base_mask = self._normalize_binary_mask_array(
+            current_mask, self._current_draw_mask_shape
+        )
+        stroke_mask = self._build_stroke_mask(
+            self._current_draw_mask_points, self._current_draw_mask_shape
+        )
 
         new_mask_np = base_mask.copy()
         if self._active_tool in ["pen", "brush"]:
@@ -536,8 +588,9 @@ class GraphicsViewInputMixin:
             self._reset_drawing_state()
             return
 
-        mask_changed = (old_mask_np is None and np.any(new_mask_np)) or \
-                       (old_mask_np is not None and not np.array_equal(old_mask_np, new_mask_np))
+        mask_changed = (old_mask_np is None and np.any(new_mask_np)) or (
+            old_mask_np is not None and not np.array_equal(old_mask_np, new_mask_np)
+        )
 
         if mask_changed:
             from editor.commands import MaskEditCommand
@@ -546,15 +599,21 @@ class GraphicsViewInputMixin:
             if mask_changed:
                 controller._suppress_refined_mask_autoinpaint = True
                 try:
-                    command = MaskEditCommand(model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy())
+                    command = MaskEditCommand(
+                        model=self.model,
+                        old_mask=old_mask_np,
+                        new_mask=new_mask_np.copy(),
+                    )
                     controller.execute_command(command)
                 finally:
                     controller._suppress_refined_mask_autoinpaint = False
-            
+
             controller.force_inpaint_stroke(stroke_mask)
         else:
             if mask_changed:
-                command = MaskEditCommand(model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy())
+                command = MaskEditCommand(
+                    model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy()
+                )
                 controller.execute_command(command)
 
         self._reset_drawing_state()
@@ -643,7 +702,9 @@ class GraphicsViewInputMixin:
         """右键取样：记录取样点并清空偏移锁（再次落笔时重新锁定相对位移）。"""
         if self._image_item is None:
             return
-        self._clone_sample_image_point = self._scene_to_image_point(self.mapToScene(view_pos))
+        self._clone_sample_image_point = self._scene_to_image_point(
+            self.mapToScene(view_pos)
+        )
         self._clone_offset = None
         self._update_clone_marker(None)
 
@@ -769,7 +830,9 @@ class GraphicsViewInputMixin:
             if arr.ndim != 3 or arr.shape[2] != 4 or arr.shape[:2] != (h, w):
                 continue
             alpha = arr[..., 3:4].astype(np.float32) / 255.0
-            composite = composite * (1.0 - alpha) + arr[..., :3].astype(np.float32) * alpha
+            composite = (
+                composite * (1.0 - alpha) + arr[..., :3].astype(np.float32) * alpha
+            )
         return np.clip(composite, 0, 255).astype(np.uint8)
 
     def _clone_dab_segment(self, image_pos):
@@ -787,7 +850,9 @@ class GraphicsViewInputMixin:
             steps = max(1, int(dist / spacing))
             for i in range(1, steps + 1):
                 t = i / steps
-                points.append((last[0] + (px - last[0]) * t, last[1] + (py - last[1]) * t))
+                points.append(
+                    (last[0] + (px - last[0]) * t, last[1] + (py - last[1]) * t)
+                )
         self._clone_last_dab = (px, py)
 
         dirty = []
@@ -867,7 +932,9 @@ class GraphicsViewInputMixin:
         h, w = img.height(), img.width()
         ptr = img.constBits()
         ptr.setsize(img.sizeInBytes())
-        buf = np.frombuffer(ptr, dtype=np.uint8).reshape(h, img.bytesPerLine())[:, : w * 4]
+        buf = np.frombuffer(ptr, dtype=np.uint8).reshape(h, img.bytesPerLine())[
+            :, : w * 4
+        ]
         return buf.reshape(h, w, 4).copy()
 
     def _finish_clone_stroke(self):
@@ -961,7 +1028,15 @@ class GraphicsViewInputMixin:
             self._update_cursor()
 
     def _update_cursor(self):
-        if self._active_tool in ["pen", "eraser", "brush", "paint", "paint_erase", "clone", "stamp_erase"]:
+        if self._active_tool in [
+            "pen",
+            "eraser",
+            "brush",
+            "paint",
+            "paint_erase",
+            "clone",
+            "stamp_erase",
+        ]:
             size = max(10, int(self._brush_size * self.transform().m11()))
             cursor_size = size + 6
             pixmap = QPixmap(cursor_size, cursor_size)
@@ -975,7 +1050,9 @@ class GraphicsViewInputMixin:
 
             painter.setPen(QPen(Qt.GlobalColor.black, 2))
             painter.setBrush(Qt.GlobalColor.transparent)
-            painter.drawEllipse(center - radius, center - radius, radius * 2, radius * 2)
+            painter.drawEllipse(
+                center - radius, center - radius, radius * 2, radius * 2
+            )
 
             if self._active_tool == "paint":
                 inner_color = QColor(self._brush_color)
@@ -990,7 +1067,12 @@ class GraphicsViewInputMixin:
             else:
                 inner_color = QColor(Qt.GlobalColor.blue)
             painter.setPen(QPen(inner_color, 1))
-            painter.drawEllipse(center - radius + 1, center - radius + 1, (radius - 1) * 2, (radius - 1) * 2)
+            painter.drawEllipse(
+                center - radius + 1,
+                center - radius + 1,
+                (radius - 1) * 2,
+                (radius - 1) * 2,
+            )
             painter.end()
 
             cursor = QCursor(pixmap, center, center)
@@ -1038,27 +1120,37 @@ class GraphicsViewInputMixin:
         selection_count = len(selected_regions)
         menu = RoundMenu(parent=self)
 
+        translate = getattr(self.editor_view, "_t", lambda key, **kwargs: key)
+
         def add_item(text: str, slot):
             action = Action(text, self)
             action.triggered.connect(slot)
             menu.addAction(action)
 
         if selection_count > 0:
-            add_item("🔍 OCR识别选中项", self._ocr_selected_regions)
-            add_item("🌐 翻译选中项", self._translate_selected_regions)
+            add_item(
+                f"🔍 {translate('OCR Selected Regions')}", self._ocr_selected_regions
+            )
+            add_item(
+                f"🌐 {translate('Translate Selected Regions')}",
+                self._translate_selected_regions,
+            )
             menu.addSeparator()
 
             if selection_count == 1:
-                add_item("📋 复制区域", self._copy_selected_region)
-                add_item("🎨 粘贴样式", self._paste_region_style)
+                add_item(f"📋 {translate('Copy Region')}", self._copy_selected_region)
+                add_item(f"🎨 {translate('Paste Style')}", self._paste_region_style)
                 menu.addSeparator()
 
-            add_item(f"🗑️ 删除选中的 {selection_count} 个区域", self._delete_selected_regions)
+            add_item(
+                f"🗑️ {translate('Delete Selected Regions', count=selection_count)}",
+                self._delete_selected_regions,
+            )
         else:
-            add_item("➕ 添加文本框", self._add_text_box)
-            add_item("📋 粘贴区域", self._paste_region)
+            add_item(f"➕ {translate('Add Text Box')}", self._add_text_box)
+            add_item(f"📋 {translate('Paste Region')}", self._paste_region)
             menu.addSeparator()
-            add_item("🔄 刷新视图", self._refresh_view)
+            add_item(f"🔄 {translate('Refresh View')}", self._refresh_view)
 
         menu.exec(event.globalPos())
 
@@ -1179,7 +1271,9 @@ class GraphicsViewInputMixin:
             if controller:
                 selected_regions = self.model.get_selection()
                 if selected_regions:
-                    template_region = self.model.get_region_by_index(selected_regions[-1])
+                    template_region = self.model.get_region_by_index(
+                        selected_regions[-1]
+                    )
                     if template_region:
                         template_angle = template_region.get("angle", 0)
 
@@ -1209,7 +1303,10 @@ class GraphicsViewInputMixin:
                     rotated_points.append((new_x, new_y))
                 relative_points = rotated_points
 
-            scene_points = [QPointF(rect_center_x + x, rect_center_y + y) for x, y in relative_points]
+            scene_points = [
+                QPointF(rect_center_x + x, rect_center_y + y)
+                for x, y in relative_points
+            ]
             image_points = []
             for point in scene_points:
                 image_point = inverse_transform.map(point)
@@ -1221,7 +1318,12 @@ class GraphicsViewInputMixin:
 
             xs = [p[0] for p in image_points]
             ys = [p[1] for p in image_points]
-            white_frame_rect_local = [min(xs) - cx, min(ys) - cy, max(xs) - cx, max(ys) - cy]
+            white_frame_rect_local = [
+                min(xs) - cx,
+                min(ys) - cy,
+                max(xs) - cx,
+                max(ys) - cy,
+            ]
             box_w = max(xs) - min(xs)
             box_h = max(ys) - min(ys)
             inferred_direction = "vertical" if box_h > box_w else "horizontal"
@@ -1230,19 +1332,24 @@ class GraphicsViewInputMixin:
             if controller:
                 selected_regions = self.model.get_selection()
                 if selected_regions:
-                    template_region = self.model.get_region_by_index(selected_regions[-1])
+                    template_region = self.model.get_region_by_index(
+                        selected_regions[-1]
+                    )
                     if template_region:
                         template_data = {
                             "font_family": template_region.get("font_family", "Arial"),
                             "font_size": template_region.get("font_size", 24),
                             "font_color": template_region.get("font_color", "#000000"),
                             "bg_colors": template_region.get(
-                                "bg_colors", template_region.get("bg_color", [255, 255, 255])
+                                "bg_colors",
+                                template_region.get("bg_color", [255, 255, 255]),
                             ),
                             "alignment": template_region.get("alignment", "center"),
                             "direction": template_region.get("direction", "auto"),
                             "angle": template_region.get("angle", 0),
-                            "letter_spacing": template_region.get("letter_spacing", 1.0),
+                            "letter_spacing": template_region.get(
+                                "letter_spacing", 1.0
+                            ),
                         }
 
             config = get_config_service().get_config()
@@ -1250,11 +1357,21 @@ class GraphicsViewInputMixin:
             # font_family 为空时交给渲染器使用其默认字体。
             default_font_family = getattr(config.render, "font_family", "") or ""
             default_alignment = getattr(config.render, "alignment", "auto") or "auto"
-            default_line_spacing = config.render.line_spacing if hasattr(config.render, "line_spacing") else 1.0
-            default_letter_spacing = (
-                config.render.letter_spacing if hasattr(config.render, "letter_spacing") else 1.0
+            default_line_spacing = (
+                config.render.line_spacing
+                if hasattr(config.render, "line_spacing")
+                else 1.0
             )
-            default_stroke_width = config.render.stroke_width if hasattr(config.render, "stroke_width") else 0.07
+            default_letter_spacing = (
+                config.render.letter_spacing
+                if hasattr(config.render, "letter_spacing")
+                else 1.0
+            )
+            default_stroke_width = (
+                config.render.stroke_width
+                if hasattr(config.render, "stroke_width")
+                else 0.07
+            )
             if default_line_spacing is None:
                 default_line_spacing = 1.0
             if default_letter_spacing is None:
@@ -1280,7 +1397,9 @@ class GraphicsViewInputMixin:
                 "direction": inferred_direction,
                 "angle": template_data.get("angle", 0),
                 "line_spacing": default_line_spacing,
-                "letter_spacing": template_data.get("letter_spacing", default_letter_spacing),
+                "letter_spacing": template_data.get(
+                    "letter_spacing", default_letter_spacing
+                ),
                 "stroke_width": default_stroke_width,
             }
 

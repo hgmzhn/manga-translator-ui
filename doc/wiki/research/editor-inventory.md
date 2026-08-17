@@ -88,22 +88,23 @@
 
 ## 画布菜单、工具与指针操作
 
-### 右键菜单（当前没有 i18n key）
+### 右键菜单（已接入 i18n）
 
-`GraphicsViewInputMixin.contextMenuEvent()` 直接创建 `Action(text, self)`，使用下表的中文字面量；因此这些项目没有 `en_US.json` / `zh_CN.json` 对照，也不会随语言切换。仿制印章工具活动时，右键专门用于取样，右键菜单被完全屏蔽。
+`GraphicsViewInputMixin.contextMenuEvent()` 通过 `EditorView._t()` 翻译菜单文案；语言切换后新打开的菜单使用当前语言。删除项使用 `Delete Selected Regions` key，并插入选区数量。仿制印章工具活动时，右键专门用于取样，右键菜单被完全屏蔽。
 
-| 出现条件 | 实际显示文字（源码字面量） | 调用 |
-| --- | --- | --- |
-| 有选区 | `🔍 OCR识别选中项` | `ocr_regions(selected_regions)` |
-| 有选区 | `🌐 翻译选中项` | `translate_regions(selected_regions)` |
-| 仅单选 | `📋 复制区域` | `copy_region(index)` |
-| 仅单选 | `🎨 粘贴样式` | `paste_region_style(index)` |
-| 有选区 | `🗑️ 删除选中的 {selection_count} 个区域` | `delete_regions(selection)` |
-| 无选区 | `➕ 添加文本框` | `enter_drawing_mode()`，活动工具变为 `draw_textbox` |
-| 无选区 | `📋 粘贴区域` | 按当前鼠标位置 `paste_region(mouse_pos_image)` |
-| 无选区 | `🔄 刷新视图` | `scene.update()`、`view.update()` |
+| 出现条件 | i18n key | 简体中文显示文字 | 调用 |
+| --- | --- | --- | --- |
+| 有选区 | `OCR Selected Regions` | `🔍 OCR识别选中项` | `ocr_regions(selected_regions)` |
+| 有选区 | `Translate Selected Regions` | `🌐 翻译选中项` | `translate_regions(selected_regions)` |
+| 仅单选 | `Copy Region` | `📋 复制区域` | `copy_region(index)` |
+| 仅单选 | `Paste Style` | `🎨 粘贴样式` | `paste_region_style(index)` |
+| 有选区 | `Delete Selected Regions` | `🗑️ 删除选中的 {count} 个区域` | `delete_regions(selection)` |
+| 无选区 | `Add Text Box` | `➕ 添加文本框` | `enter_drawing_mode()`，活动工具变为 `draw_textbox` |
+| 无选区 | `Paste Region` | `📋 粘贴区域` | 按当前鼠标位置 `paste_region(mouse_pos_image)` |
+| 无选区 | `Refresh View` | `🔄 刷新视图` | `scene.update()`、`view.update()` |
 
-来源：`desktop_qt_ui/ui/editor/graphics_view_input.py:1030`、`desktop_qt_ui/ui/editor/graphics_view_input.py:1097`；`draw_textbox` 的 controller 设置点为 `desktop_qt_ui/editor/editor_controller.py:1569`。
+来源：`desktop_qt_ui/ui/editor/graphics_view_input.py:1112`、`desktop_qt_ui/ui/editor/graphics_view_input.py:1123`；`draw_textbox` 的 controller 设置点为 `desktop_qt_ui/editor/editor_controller.py:1569`。
+
 
 ### 属性面板中的工具选择
 
