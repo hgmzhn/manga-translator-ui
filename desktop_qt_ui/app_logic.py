@@ -2565,13 +2565,18 @@ class TranslationWorker(QObject):
         elif _is_image_output_unsupported_error("colorizer", "colorization", "colorize", "上色"):
             friendly_msg = _translate("friendly_error_colorizer_unsupported")
 
-        # 检查是否是模型不支持多模态
-        elif ("不支持多模态" in real_error or
-              ("multimodal" in real_error.lower() and "renderer" not in real_error.lower()) or
-              ("vision" in real_error.lower() and "renderer" not in real_error.lower()) or
-              ("image_url" in real_error.lower() and "renderer" not in real_error.lower()) or
-              ("expected `text`" in real_error.lower() and "renderer" not in real_error.lower()) or
-              ("unknown variant" in real_error.lower() and "renderer" not in real_error.lower())):
+        # 检查是否是模型或 API 端点不支持图片输入
+        elif (
+            "不支持多模态" in real_error
+            or "不支持图片输入" in real_error
+            or "no endpoints found that support image input" in lower_error
+            or ("support image input" in lower_error and "endpoint" in lower_error)
+            or ("multimodal" in lower_error and "renderer" not in lower_error)
+            or ("vision" in lower_error and "renderer" not in lower_error)
+            or ("image_url" in lower_error and "renderer" not in lower_error)
+            or ("expected `text`" in lower_error and "renderer" not in lower_error)
+            or ("unknown variant" in lower_error and "renderer" not in lower_error)
+        ):
             friendly_msg = _translate("friendly_error_multimodal_unsupported")
         
         # 检查是否是模型不存在/模型名错误
