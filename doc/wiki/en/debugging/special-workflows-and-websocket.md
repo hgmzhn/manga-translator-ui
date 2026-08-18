@@ -35,8 +35,8 @@ The 8 non-default modes in the dropdown each skip part of the standard pipeline,
 | Workflow mode (UI) | Skipped/changed stages | Conditional verbose artifacts |
 | --- | --- | --- |
 | Normal Translation | None | Full standard set: `input.png`, `mask_raw.png`, `bboxes*.png`, `ocrs/`, `mask_final.png`, `inpaint_input.png`, `inpainted.png`, rendering debug images, `final.png` |
-| Export Original Text | Skips translation and rendering; forces single-image batches | `input.png`, `mask_raw.png`, `bboxes*.png`, `ocrs/`, `bboxes.png`; no inpainting/rendering/`final.png`; also exports original text |
-| Export Translation | Skips rendering | Detection/OCR artifacts (as above); no inpainting/rendering/`final.png`; also exports translated text |
+| Export Original Text | Reads local JSON and writes the original sidecar by default | No per-image debug images; JSON unchanged; legacy detection/OCR artifacts appear only when local-JSON export is disabled |
+| Export Translation | Reads local JSON and writes the translated sidecar by default | No per-image debug images; JSON unchanged; legacy detection/OCR/translation artifacts appear only when local-JSON export is disabled |
 | Translate JSON Only | Skips detection/OCR/rendering; only reads and writes JSON | No per-image debug images; rewrites JSON on success and deletes `imagename_original.txt` |
 | Import Translation and Render | Skips detection/OCR/translation; renders directly | Usually only rendering/inpainting artifacts (`inpaint_input.png`, `mask_final.png`, `inpainted.png`, `final.png`); detection branch only when a mask is missing or YOLO label import is enabled |
 | Replace Translation | Does not run normal translation; extracts translation → matches → inpaints → renders | `replace_debug_match.jpg`, `inpainted.png`, `debug_extracted_text.png` |
@@ -48,14 +48,14 @@ The 8 non-default modes in the dropdown each skip part of the standard pipeline,
 flowchart TD
     A["Translation page workflow dropdown"] --> B{"Which workflow?"}
     B -->|"Normal Translation"| C["Detection → OCR → Merge → Translation → Mask/Inpaint → Rendering"]
-    B -->|"Export Original Text / Export Translation"| D["Detection → OCR → Merge → (Translation) → export text, no rendering"]
+    B -->|"Export Original Text / Export Translation (default)"| D["Read local JSON → export text; do not write JSON"]
     B -->|"Translate JSON Only"| E["Read original text from JSON → Translate → write back JSON"]
     B -->|"Import Translation and Render"| F["Read JSON regions/mask → Inpaint (if needed) → Render"]
     B -->|"Replace Translation"| G["Extract translation → Match → Inpaint → Render"]
     B -->|"Colorize Only / Upscale Only"| H["Only color / only resize, return early"]
     B -->|"Inpaint Only"| I["Detection → Fill → Merge → Mask refinement → Inpaint"]
     C --> J["All-stage debug images + final.png"]
-    D --> K["Detection/OCR debug images, no rendering artifacts"]
+    D --> K["No per-image debug images; text sidecar only"]
     E --> L["No per-image debug images, JSON only"]
     F --> M["Rendering/inpainting debug images, usually no ocrs/ or bboxes"]
     G --> N["replace_debug_match.jpg and other replace-flow debug images"]
@@ -67,10 +67,10 @@ The diagram describes real branches in the source; no run screenshots are faked.
 
 ### Export workflows
 
-- "Export Original Text": preprocessing runs as usual (so verbose still writes `input.png`, `mask_raw.png`, `bboxes*.png`, `ocrs/`, `bboxes.png`), then original text is exported directly; translation, mask, inpainting, and rendering are skipped, so there is no `final.png`. The JSON records `skip_font_scaling: false`, so the next import render re-runs smart typesetting.
-- "Export Translation": detection/OCR/translation run as usual, but rendering is skipped and translated text is exported. The JSON records `skip_font_scaling: true` to replay the generated result.
-- "Translate JSON Only": reads original text from JSON, translates, writes the result back, and deletes the matching `imagename_original.txt` on success. This branch never enters the per-image debug writes, so verbose produces no per-image debug images.
-- All three export flows write under `manga_translator_work/` into the `json/`, `originals/`, and `translations/` subdirectories; these are business files, not debug artifacts. The template format is decided by `config/translation_template.json`, which is parsed as a text template and must not be assumed to be strict JSON.
+- Export Original Text and Export Translation read local project JSON before image loading by default, so verbose produces no `input.png`, detection/OCR, or rendering debug images. Only the matching text sidecar is generated and JSON stays unchanged.
+- Disabling “Export Text from Local JSON Only” restores the legacy path: Export Original Text runs detection/OCR and Export Translation additionally translates; only that path can generate detection/OCR debug images and write JSON back.
+- Translate JSON Only reads source text from JSON, translates, writes JSON back, and deletes the matching `imagename_original.txt` on success; it has no per-image debug writes.
+- `config/translation_template.json` decides sidecar format; sidecars are business files, not debug artifacts.
 
 ### Import and replace workflows
 

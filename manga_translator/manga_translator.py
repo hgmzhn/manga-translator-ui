@@ -442,6 +442,7 @@ class MangaTranslator:
         self.save_quality = params.get('save_quality', 100)
         self.skip_no_text = params.get('skip_no_text', False)
         self.generate_and_export = params.get('generate_and_export', False)
+        self.export_from_local_json = params.get('export_from_local_json', True)
         self.colorize_only = params.get('colorize_only', False)
         self.upscale_only = params.get('upscale_only', False)
         self.inpaint_only = params.get('inpaint_only', False)
@@ -956,6 +957,78 @@ class MangaTranslator:
             logger.info(f"Deleted original text file after JSON translation: {original_txt_path}")
         except Exception as e:
             logger.warning(f"Failed to delete original text file {original_txt_path}: {e}")
+
+    async def _export_text_from_local_json(
+        self,
+        images_with_configs: List[tuple],
+        global_offset: int = 0,
+        global_total: int = None,
+    ) -> List[Context]:
+        """Export original or translated text without touching the project JSON."""
+        from desktop_qt_ui.services import workflow_service
+
+        generator = (
+            workflow_service.generate_translated_text
+            if self.generate_and_export
+            else workflow_service.generate_original_text
+        )
+        export_label = "translated" if self.generate_and_export else "original"
+        template_path = workflow_service.get_template_path_from_config()
+        display_total = global_total if global_total is not None else len(images_with_configs)
+        results: List[Context] = []
+
+        logger.info(
+            "Local JSON text export enabled: reading existing project JSON only; "
+            "detection, OCR, translation, and JSON write-back are skipped."
+        )
+        for image_or_path, config in images_with_configs:
+            await asyncio.sleep(0)
+            self._check_cancelled()
+            image_name = (
+                os.fspath(image_or_path)
+                if isinstance(image_or_path, (str, os.PathLike))
+                else getattr(image_or_path, 'name', None)
+            )
+            ctx = Context()
+            ctx.text_regions = []
+            if image_name:
+                ctx.image_name = image_name
+            if config is not None:
+                ctx.config = config
+
+            try:
+                if not image_name:
+                    raise ValueError("Input image path is unavailable")
+                json_path = find_json_path(image_name)
+                if not json_path:
+                    raise FileNotFoundError(
+                        f"Local project JSON not found for {os.path.basename(image_name)}"
+                    )
+                export_result = generator(json_path, template_path)
+                if export_result.startswith("Error"):
+                    raise OSError(export_result)
+                ctx.success = True
+                logger.info(
+                    f"Local {export_label} text exported for "
+                    f"{os.path.basename(image_name)}: {export_result}"
+                )
+            except Exception as exc:
+                logger.error(
+                    f"Failed to export local {export_label} text for "
+                    f"{os.path.basename(image_name) if image_name else 'unknown input'}: {exc}"
+                )
+                self._mark_context_failure(ctx, exc, stage='export')
+
+            results.append(ctx)
+            completed = min(global_offset + len(results), display_total)
+            failed_count = sum(
+                1 for result in results if getattr(result, 'translation_error', None)
+            )
+            await self._report_progress(
+                f"batch:{completed}:{completed}:{display_total}:{failed_count}"
+            )
+
+        return results
 
     async def _handle_template_export(
         self,
@@ -3420,6 +3493,14 @@ class MangaTranslator:
             (image, self._apply_runtime_cli_overrides(config))
             for image, config in images_with_configs
         ]
+        is_text_export_mode = self.generate_and_export or (self.template and self.save_text)
+        if self.export_from_local_json and is_text_export_mode:
+            return await self._export_text_from_local_json(
+                images_with_configs,
+                global_offset=global_offset,
+                global_total=global_total,
+            )
+
         
         batch_size = batch_size or self.batch_size
         

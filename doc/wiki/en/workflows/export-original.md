@@ -1,6 +1,6 @@
 ---
 title: Export Original Text
-description: The Export Original Text workflow runs conditional colorization/upscaling, detection, and OCR, then produces an original-text template and project JSON for manual translation before import-and-render
+description: Export original text read-only from local project JSON by default, without detection, OCR, or JSON write-back; an option restores the legacy flow
 pageId: workflows.export-original
 lang: en-US
 outline: [2, 4]
@@ -9,15 +9,15 @@ lastUpdated: true
 
 # Export Original Text
 
-Use this mode when you want to export the text on the original images as text, translate it manually outside the app, and render it back later. This is the export-original workflow among the nine workflows; its UI name is “Export Original Text”. It runs only conditional colorization/upscaling, detection, OCR, and text-line merging on each main input image, then skips translation, inpainting, and rendering and writes the per-image project JSON and `<stem>_original.<template-format>` original-text template. After translating those templates manually, [Import Translation and Render](./import-translation-and-render.md) reads them back and renders.
+Export Original Text now reads `regions[].text` from the existing local project JSON by default and writes only `<stem>_original.<template-format>`. It does not open the image, run detection/OCR, or write the project JSON back. Settings → Mode Specific → Text Export → “Export Text from Local JSON Only” controls this behavior; disable it to restore the legacy image detection/OCR and JSON-write flow.
 
-See [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md) for the nine-mode overview and output-directory settings, and [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md#cli-template) and [CLI Batch and Output](../desktop/settings/cli-batch-and-output.md#cli-save-text) for the `cli.template` and `cli.save_text` parameters.
+See [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md) for the nine-mode overview and [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md#cli-export-from-local-json) for this toggle and `cli.template`.
 
 ## When to use it {#feature-boundary}
 
-- This guide focuses on the “Export Original Text” workflow (combo index `2`) among the nine workflows. Selecting it clears all eight mutually exclusive workflow fields and sets only `cli.template=true`; at runtime the export branch is entered only when `cli.save_text=true` as well.
-- Inputs are the main input images and a readable translation template; outputs are the project JSON and the original-text sidecar, with no main output image. Each image's work directory is keyed by its `<stem>` without the extension.
-- This guide does not repeat the parameter algorithms of detection, OCR, colorization, upscaling, masking, inpainting, or rendering; selecting a workflow is not translator selection or API-candidate rotation (see [Translator selection](../desktop/translator/selection-and-languages.md)).
+- Selecting Export Original Text (combo index `2`) sets `cli.template=true`; by default it also reads the existing project JSON and writes only the original-text sidecar.
+- Default inputs are the matching project JSON and a readable template. The image path only locates JSON and is not decoded. No main image is written and JSON is not modified.
+- Disable `cli.export_from_local_json` to enter the legacy flow, which requires `cli.save_text=true` and runs detection, OCR, mask processing, and JSON write-back.
 
 ## Run this workflow {#ui-operations}
 
@@ -31,56 +31,50 @@ See [Output Directory and Workflow](../desktop/translation/output-directory-and-
 
 ## Processing order {#runtime-behavior}
 
-The “Export Original Text” mode enters the export branch only when `template=true` **and** `save_text=true` (`is_template_save_mode` in source). Core `translate_batch()` forces `batch_size=1` for per-image write-out and lists this mode as incompatible with `batch_concurrent`; the desktop controller also sets the concurrency local variable to `false` for this run. The high-quality translator flow is skipped for import/export modes as well.
+With `cli.export_from_local_json` enabled by default, `translate_batch()` reads local JSON before image materialization. A missing JSON fails that image and never falls back to OCR. Disable the toggle to enter the legacy `template + save_text` branch.
 
 ```mermaid
 flowchart LR
-    Input["Main input image"] --> Pre["Conditional: colorize -> upscale"]
-    Pre --> Detect["Detection"] --> OCR["OCR"] --> Merge["Text-line merge"]
-    Merge --> Export["Export handler: mask refinement as needed -> save project JSON -> generate original-text template"]
-    Export --> Tpl["_original.<format> original-text template"]
-    Export --> Json["_translations.json project JSON"]
-    Tpl -. "after manual translation" .-> Import["Import Translation and Render"]
+    Input["Input image path"] --> Find["Find matching project JSON"]
+    Find -->|found| Read["Read regions.text"] --> Export["Render original sidecar through template"]
+    Export --> Tpl["originals/&lt;stem&gt;_original.&lt;extension&gt;"]
+    Find -->|missing or invalid| Fail["Fail this image; never fall back to OCR"]
+    Read -. "not executed" .-> Skip["Image decode / detection / OCR / JSON write-back"]
 ```
-
-The diagram expresses only the stage order: `_translate_until_translation()` runs conditional colorization/upscaling, detection, OCR, and text-line merging; `_handle_template_and_save_text()` then refines the mask as needed, saves the JSON, and generates the original-text template. When there are no text regions, an empty JSON and an empty template file are still written.
 
 ### Input and discovery rules {#input-and-discovery}
 
-- Main inputs must be images supported by the file service. Adding a folder searches recursively in natural order and skips directories named `manga_translator_work`. Archive and document extensions are recognized by the same service, but archive-sidecar pairing for this workflow may vary by release.
-- Each image's work directory is keyed by the input's original path and its `<stem>` without the extension: the original-text sidecar is written to `manga_translator_work/originals/<stem>_original.<template-format>`.
-- A readable template is required; when `config/translation_template.json` is missing or unreadable, `output_format` falls back to `json`.
-- With `detector.import_yolo_labels=true` and imported labels present, detection uses the imported boxes directly and marks the run as “template mode”.
+- The translation-page file list still supplies image paths; each path determines the work directory and matching project JSON, but the export branch does not open image content.
+- Project JSON must exist at the new `manga_translator_work/json/<stem>_translations.json` location or the compatible legacy sibling path.
+- The original sidecar is written to `manga_translator_work/originals/<stem>_original.<template-format>`; a readable template is required, with invalid/missing formats falling back to `json`.
+- `detector.import_yolo_labels` applies only to the legacy detection flow after local JSON export is disabled.
 
 ### Skipped and kept stages {#skipped-and-kept-stages}
 
-- Skipped: translation, inpainting, rendering, and main-output-image saving; no translation service is called, so no API translation requests are produced.
-- Kept: conditional colorization → conditional upscaling → detection → OCR → text-line merging; mask refinement runs when non-empty regions and an original mask exist.
-- Exception: imported-YOLO-label export modes skip mask refinement and do not save a mask in the JSON.
-- Boundary: the GUI sets only `template`; the configuration defaults set `save_text=true`. If an external configuration sets `save_text=false`, the export branch is not entered and the actual fallback path may vary by release.
+- Default skips: image loading, colorization, upscaling, detection, OCR, translation, mask processing, inpainting, rendering, main-image saving, and JSON write-back.
+- Default kept work: read `regions[].text` from existing JSON and render the original sidecar through the template. `<translated>` may still use the JSON's existing `translation` value.
+- Disabling the local-JSON toggle restores conditional colorization/upscaling, detection, OCR, mask refinement, and JSON writing; it still does not call a translation service.
 
-### Mask and JSON details {#mask-and-json-details}
+### Project JSON details {#mask-and-json-details}
 
-- The project JSON is written by `_save_text_to_file()` to `manga_translator_work/json/<stem>_translations.json` (the new location is preferred; the legacy image-directory location is the fallback).
-- Export Original Text writes `skip_font_scaling=false` into the JSON so a later import-and-render run re-runs smart typesetting instead of inheriting old font sizes; because translation did not run, region `translation` values are still the originals.
-- The refined `ctx.mask` is saved with `mask_is_refined=true`; without a refinement result, `mask_raw` is saved with `mask_is_refined=false`. Imported-YOLO-label export modes do not save a mask.
-- `generate_original_text()` renders each region as an `<original>` line per the template, using the original text as a placeholder when `translation` is empty; with no text regions it logs and creates an empty file.
+- Default local export opens the project JSON read-only. Its bytes remain unchanged, including mask, font size, translations, and editor fields.
+- `generate_original_text()` exports non-empty source text through the template and removes `[BR]`; no regions produce the template's empty output.
 
 ### Output files {#output-files}
 
 | Output | Path | Notes |
 | --- | --- | --- |
-| Project JSON | `manga_translator_work/json/<stem>_translations.json` | Regions, dimensions, mask, and export markers; read by import-and-render |
-| Original-text template | `manga_translator_work/originals/<stem>_original.<template-format>` | Extension comes from the template `output_format`; defaults to `json`; an empty file is created when there are no text regions |
-| Main output image | not written | Rendering is skipped, so no main image is produced |
-| Editor base image | `manga_translator_work/editor_base/<original-filename>` | Written conditionally only when colorization or upscaling is enabled |
+| Project JSON | `manga_translator_work/json/<stem>_translations.json` | Must already exist; read-only and unchanged by default |
+| Original-text template | `manga_translator_work/originals/<stem>_original.<template-format>` | The only file written by default; extension comes from template `output_format` |
+| Main output image | not written | The image is not opened or rendered |
+| Editor base image | not written | Default local JSON export does not colorize or upscale |
 
 ## Inputs, outputs, and limitations {#dependencies-and-conflicts}
 
-- Requires `cli.save_text=true` and a readable template; incompatible with `batch_concurrent` (both the frontend and core process it non-concurrently), and Export Original Text additionally forces `batch_size=1`.
-- With `cli.overwrite=false`, the existing `<stem>_original.<template-format>` is checked before starting; existing files are skipped and recorded as skipped.
-- Shares the template and JSON write path with Export Translation, and pairs with Import Translation and Render as “export original → manual translation → import and render”; see [Import Translation and Render](./import-translation-and-render.md).
-- The display name describes the goal and does not automatically enable or disable colorization/upscaling models; the colorizer and ratio are still governed by `colorizer.colorizer` and `upscale.upscale_ratio`.
+- Defaults require an existing project JSON and readable template. Missing JSON fails explicitly without OCR fallback; `batch_concurrent` remains incompatible.
+- With `cli.overwrite=false`, an existing original sidecar is skipped before processing.
+- `cli.save_text` remains part of the Export Original Text workflow flag combination; default local export never saves or overwrites JSON.
+- Disable `cli.export_from_local_json` to restore the legacy flow and its detection, OCR, colorization/upscaling, and `save_text` write behavior.
 
 ## Read next {#related-pages}
 

@@ -49,6 +49,7 @@ SERVER_HIDDEN_CONFIG_KEYS = {
     "cli.overwrite",
     "cli.skip_no_text",
     "cli.save_text",
+    "cli.export_from_local_json",
     "cli.load_text",
     "cli.translate_json_only",
     "cli.template",

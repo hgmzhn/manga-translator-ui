@@ -1,6 +1,6 @@
 ---
 title: 导出原文
-description: 导出原文工作流：执行条件上色/超分、检测与 OCR，生成原文模板与工程 JSON，供人工翻译后导入渲染
+description: 默认从本地工程 JSON 只读导出原文文本，不执行检测、OCR 或 JSON 回写；可关闭开关恢复旧流程
 pageId: workflows.export-original
 lang: zh-CN
 outline: [2, 4]
@@ -9,15 +9,15 @@ lastUpdated: true
 
 # 导出原文
 
-当你想把原图上的文字先导出为文本、在外部人工翻译后再渲染回来时，使用“导出原文”模式。这是九种工作流中的“导出原图”工作流，界面中的名称是“导出原文”。它只对主输入图片执行条件上色/超分、检测、OCR 和文本行合并，然后跳过翻译、修复和渲染，写出每张图的工程 JSON 和 `<stem>_original.<template-format>` 原文模板；人工翻译这些模板后，再用[导入翻译并渲染](./import-translation-and-render.md)读回并渲染。
+“导出原文”默认从本地已有工程 JSON 读取 `regions[].text`，只生成 `<stem>_original.<template-format>` 原文副文件。它不打开图片、不执行检测或 OCR，也不回写工程 JSON。该行为由“设置 → 模式相关 → 文本导出 → 仅从本地 JSON 导出文本”控制；关闭开关后才恢复原来的图片检测/OCR与 JSON 写入流程。
 
-九个模式的整体对照和输出目录设置见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)；`cli.template` 与 `cli.save_text` 的参数说明见[模式专属工作流与模板对齐](../desktop/settings/mode-specific.md#cli-template)和[CLI 批量与输出](../desktop/settings/cli-batch-and-output.md#cli-save-text)。
+九个模式的整体对照和输出目录设置见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)；开关与 `cli.template` 说明见[模式专属工作流与模板对齐](../desktop/settings/mode-specific.md#cli-export-from-local-json)。
 
 ## 什么时候用 {#feature-boundary}
 
-- 这里仅列出九种工作流中的“导出原文”（下拉框索引 `2`）。选择该模式时，界面先清空八个互斥工作流字段，再只把 `cli.template` 设为 `true` 并保存配置；运行时要同时满足 `cli.save_text=true` 才进入导出分支。
-- 输入是主输入图片与可读取的翻译模板；输出是工程 JSON 与原文副文件，不写主输出图。每张图以输入图片的不含扩展名 `<stem>` 组织工作目录。
-- 这里不重复检测、OCR、上色、超分、蒙版、修复或渲染各自的参数算法；工作流选择不是翻译器选择，也不是 API 候选槽切换（见[翻译器选择](../desktop/translator/selection-and-languages.md)）。
+- 选择“导出原文”（下拉框索引 `2`）会设置 `cli.template=true`；默认同时读取已有工程 JSON，只写原文副文件。
+- 默认输入是同名工程 JSON 与可读取模板；图片路径只用于定位 JSON，不会解码图片。输出不包含主图，也不修改 JSON。
+- 关闭 `cli.export_from_local_json` 后才进入旧流程；旧流程要求 `cli.save_text=true`，并执行检测、OCR、蒙版与 JSON 写入。
 
 ## 运行这个流程 {#ui-operations}
 
@@ -31,56 +31,50 @@ lastUpdated: true
 
 ## 处理顺序 {#runtime-behavior}
 
-“导出原文”只有在 `template=true` **且** `save_text=true` 时才进入导出分支（源码中的 `is_template_save_mode`）。核心 `translate_batch()` 会强制 `batch_size=1` 逐张落盘，并把该模式列为 `batch_concurrent` 不兼容；桌面控制层也会把本次并发局部变量改为 `false`。高质量翻译流程同样会因导入/导出模式被跳过。
+默认开启 `cli.export_from_local_json` 时，`translate_batch()` 在图片物化前直接读取本地 JSON。找不到 JSON 时该图片明确失败，不会回退 OCR。关闭开关后才进入原来的 `template + save_text` 分支。
 
 ```mermaid
 flowchart LR
-    Input["主输入图片"] --> Pre["条件：上色 -> 超分"]
-    Pre --> Detect["检测"] --> OCR["OCR"] --> Merge["文本行合并"]
-    Merge --> Export["导出处理：按需蒙版细化 -> 保存工程 JSON -> 生成原文模板"]
-    Export --> Tpl["_original.<format> 原文模板"]
-    Export --> Json["_translations.json 工程 JSON"]
-    Tpl -. "人工翻译后" .-> Import["导入翻译并渲染模式"]
+    Input["输入图片路径"] --> Find["查找同名工程 JSON"]
+    Find -->|找到| Read["读取 regions.text"] --> Export["按模板生成原文副文件"]
+    Export --> Tpl["originals/&lt;stem&gt;_original.&lt;扩展名&gt;"]
+    Find -->|缺失或无效| Fail["该图片导出失败；不回退 OCR"]
+    Read -. "不执行" .-> Skip["图片解码 / 检测 / OCR / JSON 回写"]
 ```
-
-上图只表达阶段顺序：`_translate_until_translation()` 完成条件上色/超分、检测、OCR 和文本行合并；`_handle_template_and_save_text()` 再按需细化蒙版、保存 JSON 并生成原文模板。没有文本区域时仍会保存空 JSON 并生成空模板文件。
 
 ### 输入与发现规则 {#input-and-discovery}
 
-- 主输入必须是文件服务支持的图片；添加文件夹时递归查找并按自然排序收集，跳过名为 `manga_translator_work` 的目录。压缩包和文档扩展名由同一服务识别，但压缩包内副文件与本工作流的配对尚未在所有环境中确认。
-- 每图工作目录以输入图片的原始路径和不含扩展名的 `<stem>` 为基准：原文副文件写入 `manga_translator_work/originals/<stem>_original.<template-format>`。
-- 需要可读取的模板文件；`config/translation_template.json` 缺失或无法读取时，`output_format` 回退为 `json`。
-- 启用 `detector.import_yolo_labels` 且导入到 YOLO 标注时，检测阶段直接用导入框替代检测器结果，并标记为“template mode”。
+- 默认仍从翻译页文件列表选择图片路径；路径用于确定工作目录和同名工程 JSON，导出分支不会打开图片内容。
+- 工程 JSON 必须位于新位置 `manga_translator_work/json/<stem>_translations.json` 或兼容的图片同级旧位置。
+- 原文副文件写入 `manga_translator_work/originals/<stem>_original.<template-format>`；需要可读取模板，格式缺失或非法时回退 `json`。
+- `detector.import_yolo_labels` 仅在关闭本地 JSON 开关后的旧检测流程中生效。
 
 ### 跳过与保留的阶段 {#skipped-and-kept-stages}
 
-- 跳过：翻译、修复、渲染和主输出图保存；不调用翻译服务，因此不产生 API 翻译请求。
-- 保留：条件上色 → 条件超分 → 检测 → OCR → 文本行合并；有非空区域且有原始蒙版时执行蒙版细化。
-- 例外：导入 YOLO 标签的导出模式跳过蒙版细化且不在 JSON 中保存蒙版。
-- 边界：GUI 只设置 `template`，配置默认 `save_text=true`；若外部配置把 `save_text` 改为 `false`，将不会进入导出分支，实际退化路径需在实际环境中确认。
+- 默认跳过：图片读取、上色、超分、检测、OCR、翻译、蒙版、修复、渲染、主图保存和 JSON 回写。
+- 默认保留：从已有 JSON 读取 `regions[].text`，按模板生成原文副文件；模板中 `<translated>` 仍可使用 JSON 内已有的 `translation`。
+- 关闭本地 JSON 开关后，旧流程恢复条件上色、超分、检测、OCR、蒙版细化及 JSON 写入；仍不调用翻译服务。
 
-### 蒙版与 JSON 细节 {#mask-and-json-details}
+### 工程 JSON 细节 {#mask-and-json-details}
 
-- 工程 JSON 由 `_save_text_to_file()` 写入 `manga_translator_work/json/<stem>_translations.json`（新位置优先，回退图片同级旧位置）。
-- 导出原文会在 JSON 中写入 `skip_font_scaling=false`，让后续导入渲染重新执行智能排版，不继承旧字号；因为翻译未运行，区域 `translation` 仍是原始值。
-- 蒙版保存的是细化后的 `ctx.mask`（`mask_is_refined=true`），没有细化结果时保存原始 `mask_raw`（`mask_is_refined=false`）；导入 YOLO 标签的导出模式不保存蒙版。
-- `generate_original_text()` 按模板把每个区域写成 `<original>` 行，`translation` 为空时用原文作为占位符；没有文本区域时记录日志并生成空文件。
+- 默认本地导出以只读方式打开工程 JSON，字节内容保持不变，不修改蒙版、字号、译文或任何编辑器字段。
+- `generate_original_text()` 按模板导出非空原文，移除 `[BR]`；无区域时生成模板对应的空内容。
 
 ### 输出文件 {#output-files}
 
 | 输出 | 路径 | 说明 |
 | --- | --- | --- |
-| 工程 JSON | `manga_translator_work/json/<stem>_translations.json` | 区域、尺寸、蒙版和导出标记；导入渲染时读取 |
-| 原文模板 | `manga_translator_work/originals/<stem>_original.<template-format>` | 扩展名由模板 `output_format` 决定，默认 `json`；无文本区域时生成空文件 |
-| 主输出图 | 不写 | 渲染被跳过，导出不生成主图 |
-| 编辑器底图 | `manga_translator_work/editor_base/<原图文件名>` | 仅当启用上色或超分时条件写入 |
+| 工程 JSON | `manga_translator_work/json/<stem>_translations.json` | 必须预先存在；默认只读且保持不变 |
+| 原文模板 | `manga_translator_work/originals/<stem>_original.<template-format>` | 唯一默认新写入文件；扩展名来自模板 `output_format` |
+| 主输出图 | 不写 | 不打开或渲染图片 |
+| 编辑器底图 | 不写 | 默认本地 JSON 导出不会执行上色或超分 |
 
 ## 输入、输出与限制 {#dependencies-and-conflicts}
 
-- 依赖 `cli.save_text=true` 与可读取模板；`batch_concurrent` 不兼容，前端与核心都会按非并发处理，导出原文还强制 `batch_size=1`。
-- `cli.overwrite=false` 时，开始前检查 `<stem>_original.<template-format>` 是否存在，存在则跳过该图并记入 skipped。
-- 与导出翻译共享模板和 JSON 写入路径；与导入翻译并渲染构成“导出原文 → 人工翻译 → 导入渲染”的配对，见[导入翻译并渲染](./import-translation-and-render.md)。
-- 显示名称描述“目标”，不自动启用或关闭上色/超分模型；上色器与倍率仍由 `colorizer.colorizer`、`upscale.upscale_ratio` 等常规参数决定。
+- 默认依赖已有工程 JSON 与可读取模板；缺少 JSON 时明确失败，不回退 OCR；`batch_concurrent` 不兼容。
+- `cli.overwrite=false` 时，已有原文副文件会在开始前被跳过。
+- `cli.save_text` 仅是“导出原文”工作流标志组合的一部分；默认本地导出不会保存或覆盖 JSON。
+- 关闭 `cli.export_from_local_json` 后恢复旧流程，此时才受检测、OCR、上色、超分和 `save_text` 写入行为影响。
 
 ## 继续阅读 {#related-pages}
 

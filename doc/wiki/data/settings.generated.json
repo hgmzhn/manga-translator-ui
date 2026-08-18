@@ -10,11 +10,11 @@
     "release_config": "config/config-example.json"
   },
   "baseline_comparison": {
-    "requested_baseline": 109,
-    "layout_parameter_entries": 109,
-    "visible_parameter_fields": 108,
+    "requested_baseline": 110,
+    "layout_parameter_entries": 110,
+    "visible_parameter_fields": 109,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 109 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 108 visible settings rows (one below 109)."
+    "difference_explanation": "The layout has 110 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 109 visible settings rows (one below 110)."
   },
   "records": [
     {
@@ -143,7 +143,7 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "release_json_value": false,
+        "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.overwrite"
       },
       "lifecycle_stages": [
@@ -191,6 +191,29 @@
       "defaults": {
         "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.save_text"
+      },
+      "lifecycle_stages": [
+        "workflow orchestration",
+        "export"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "cli.export_from_local_json",
+      "ui": {
+        "tab": "Mode Specific",
+        "i18n_key": "label_export_from_local_json",
+        "english": "Export Text from Local JSON Only",
+        "simplified_chinese": "仅从本地 JSON 导出文本"
+      },
+      "wiki_page": "desktop/settings/mode-specific.md",
+      "control": "toggle",
+      "defaults": {
+        "release_json_value": true,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.export_from_local_json"
       },
       "lifecycle_stages": [
         "workflow orchestration",
@@ -1094,7 +1117,7 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "release_json_value": "openai",
+        "release_json_value": "original",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
       },
       "lifecycle_stages": [
@@ -2477,7 +2500,7 @@
     }
   ],
   "validation": {
-    "record_count": 108,
+    "record_count": 109,
     "ui_labels": "Every record resolves an actual UI label key in both desktop locales.",
     "consumer_trace": "Not generated from Phase 0; intentionally left pending for Phase 3 evidence."
   }

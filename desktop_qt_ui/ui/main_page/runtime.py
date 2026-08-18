@@ -41,6 +41,15 @@ def update_workflow_mode_description(self, index: int | None = None):
         7: "Tip: Detect text regions and inpaint to output clean images, no translation or rendering",
         8: "Tip: Place translated images in manga_translator_work/translated_images with matching filenames. The app extracts translated text, matches regions on raw images, inpaints originals, and renders translated text.",
     }
+    try:
+        local_json_export = bool(
+            self.config_service.get_config().cli.export_from_local_json
+        )
+    except Exception:
+        local_json_export = True
+    if local_json_export:
+        tip_keys[1] = "Tip: Reads existing local JSON and exports translated text only; no detection, OCR, API translation, or JSON write-back"
+        tip_keys[2] = "Tip: Reads existing local JSON and exports original text only; no detection, OCR, API translation, or JSON write-back"
     mode_key = mode_keys.get(index, mode_keys[0])
     tip_key = tip_keys.get(index, tip_keys[0])
     if hasattr(self, "translation_page_title"):

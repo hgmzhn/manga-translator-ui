@@ -162,6 +162,11 @@
       "items": [
         {
           "kind": "divider",
+          "title": "Text Export"
+        },
+        "cli.export_from_local_json",
+        {
+          "kind": "divider",
           "title": "Replace Translation"
         },
         "render.enable_template_alignment",

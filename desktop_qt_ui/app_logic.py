@@ -243,6 +243,20 @@ class MainAppLogic(QObject):
 
     def _validate_runtime_api_requirements(self, config) -> bool:
         from PyQt6.QtWidgets import QMessageBox
+        cli = getattr(config, "cli", None)
+        if (
+            cli is not None
+            and getattr(cli, "export_from_local_json", True)
+            and (
+                getattr(cli, "generate_and_export", False)
+                or (
+                    getattr(cli, "template", False)
+                    and getattr(cli, "save_text", False)
+                )
+            )
+        ):
+            return True
+
 
         api_candidate_validator = getattr(
             getattr(self, "main_view", None),
@@ -1302,6 +1316,7 @@ class MainAppLogic(QObject):
                     "overwrite": self._t("label_overwrite"),
                     "skip_no_text": self._t("label_skip_no_text"),
                     "save_text": self._t("label_save_text"),
+                    "export_from_local_json": self._t("label_export_from_local_json"),
                     "load_text": self._t("label_load_text"),
                     "translate_json_only": self._t("label_translate_json_only"),
                     "template": self._t("label_template"),
@@ -2990,10 +3005,20 @@ class TranslationWorker(QObject):
                 workflow_tip = self._t("Tip: Only colorize images, no detection, OCR, translation or rendering")
             elif cli_config.get('generate_and_export', False):
                 workflow_mode = self._t("Export Translation")
-                workflow_tip = self._t("Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files")
+                tip_key = (
+                    "Tip: Reads existing local JSON and exports translated text only; no detection, OCR, API translation, or JSON write-back"
+                    if cli_config.get("export_from_local_json", True)
+                    else "Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files"
+                )
+                workflow_tip = self._t(tip_key)
             elif cli_config.get('template', False):
                 workflow_mode = self._t("Export Original Text")
-                workflow_tip = self._t("Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode")
+                tip_key = (
+                    "Tip: Reads existing local JSON and exports original text only; no detection, OCR, API translation, or JSON write-back"
+                    if cli_config.get("export_from_local_json", True)
+                    else "Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode"
+                )
+                workflow_tip = self._t(tip_key)
             elif cli_config.get('load_text', False):
                 workflow_mode = self._t("Import Translation and Render")
                 workflow_tip = self._t("Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt)")

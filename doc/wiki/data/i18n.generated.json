@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1473,
-    "exact": 1473,
+    "keys": 1483,
+    "exact": 1483,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -1894,6 +1894,18 @@
       "key": "Has Rich Text",
       "en_US": "Has Rich Text",
       "zh_CN": "含富文本",
+      "status": "exact"
+    },
+    {
+      "key": "Height",
+      "en_US": "Height",
+      "zh_CN": "高度",
+      "status": "exact"
+    },
+    {
+      "key": "Height Stretch",
+      "en_US": "Height Stretch",
+      "zh_CN": "纵向拉伸",
       "status": "exact"
     },
     {
@@ -3877,6 +3889,12 @@
       "status": "exact"
     },
     {
+      "key": "Stretch",
+      "en_US": "Stretch",
+      "zh_CN": "拉伸",
+      "status": "exact"
+    },
+    {
       "key": "Strikethrough",
       "en_US": "Strikethrough",
       "zh_CN": "删除线",
@@ -4087,6 +4105,12 @@
       "status": "exact"
     },
     {
+      "key": "Text Export",
+      "en_US": "Text Export",
+      "zh_CN": "文本导出",
+      "status": "exact"
+    },
+    {
       "key": "Text or regular expression",
       "en_US": "Text or regular expression",
       "zh_CN": "文字或正则表达式",
@@ -4168,6 +4192,18 @@
       "key": "Tip: Place translated images in manga_translator_work/translated_images with matching filenames. The app extracts translated text, matches regions on raw images, inpaints originals, and renders translated text.",
       "en_US": "Tip: Place translated images in manga_translator_work/translated_images with matching filenames. The app extracts translated text, matches regions on raw images, inpaints originals, and renders translated text.",
       "zh_CN": "提示：请将翻译图放到 manga_translator_work/translated_images 并与生肉图同名。程序会提取翻译图文字、在生肉图上匹配区域、修复原文字区域，再渲染译文。",
+      "status": "exact"
+    },
+    {
+      "key": "Tip: Reads existing local JSON and exports original text only; no detection, OCR, API translation, or JSON write-back",
+      "en_US": "Tip: Reads existing local JSON and exports original text only; no detection, OCR, API translation, or JSON write-back",
+      "zh_CN": "提示：只读取本地已有工程 JSON 并导出原文；不执行检测、OCR、API 翻译，也不回写 JSON",
+      "status": "exact"
+    },
+    {
+      "key": "Tip: Reads existing local JSON and exports translated text only; no detection, OCR, API translation, or JSON write-back",
+      "en_US": "Tip: Reads existing local JSON and exports translated text only; no detection, OCR, API translation, or JSON write-back",
+      "zh_CN": "提示：只读取本地已有工程 JSON 并导出译文；不执行检测、OCR、API 翻译，也不回写 JSON",
       "status": "exact"
     },
     {
@@ -4555,6 +4591,18 @@
       "status": "exact"
     },
     {
+      "key": "Width / Height Stretch",
+      "en_US": "Width / Height Stretch",
+      "zh_CN": "宽度 / 高度拉伸",
+      "status": "exact"
+    },
+    {
+      "key": "Width Stretch",
+      "en_US": "Width Stretch",
+      "zh_CN": "横向拉伸",
+      "status": "exact"
+    },
+    {
       "key": "Wiki",
       "en_US": "Wiki",
       "zh_CN": "Wiki 文档",
@@ -4888,6 +4936,12 @@
       "key": "desc_cli_export_editable_psd",
       "en_US": "Export layered PSD files. Photoshop is required. The export includes the original image, inpainted image, and editable text layers, and is written to manga_translator_work/psd/ next to the source image.",
       "zh_CN": "导出分图层的 PSD 文件。需要安装 Photoshop。导出内容包括原图、修复图和可编辑文本层，输出到原图所在目录下的 manga_translator_work/psd/。",
+      "status": "exact"
+    },
+    {
+      "key": "desc_cli_export_from_local_json",
+      "en_US": "For Export Translation and Export Original Text, read the existing local project JSON and write only the text sidecar. Skip image detection, OCR, API translation, and project JSON write-back to protect edited translations.",
+      "zh_CN": "导出翻译和导出原文时，只读取本地已有工程 JSON 并生成文本副文件；不重新检测图片、不执行 OCR、不调用翻译 API，也不回写工程 JSON，避免覆盖已修改的译文。",
       "status": "exact"
     },
     {
@@ -6310,6 +6364,12 @@
       "key": "label_export_editable_psd",
       "en_US": "Export Editable PSD",
       "zh_CN": "导出可编辑PSD",
+      "status": "exact"
+    },
+    {
+      "key": "label_export_from_local_json",
+      "en_US": "Export Text from Local JSON Only",
+      "zh_CN": "仅从本地 JSON 导出文本",
       "status": "exact"
     },
     {

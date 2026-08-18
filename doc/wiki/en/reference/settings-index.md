@@ -22,7 +22,7 @@ Follow this order:
 3. Use the “Jump to” link to open the parameter section on the settings page; rows without a dedicated explicit anchor link to the page itself.
 4. Defaults, dependencies, consumers, and runtime behavior always come from the settings page you land on; this guide does not expand them.
 
-This guide focuses on the visible parameter rows of the settings page. `settings_tab_layout.json` has 109 entries, of which 108 render as visible parameters; the remaining one (`render.font_color`) is not rendered because its release default is `null` and it has no control branch. Interface language, theme, system proxy, update checks, and the automatic-update preference belong to About Application and are not settings-page parameter rows. The following are out of scope: API-management credentials, addresses, models, slots, and rotation strategies; editor property-panel parameters; prompt lists and batch-management schemes; and the full processing steps of the nine workflows.
+This guide focuses on the visible parameter rows of the settings page. `settings_tab_layout.json` has 110 entries, of which 109 render as visible parameters; the remaining one (`render.font_color`) is not rendered because its release default is `null` and it has no control branch. Interface language, theme, system proxy, update checks, and the automatic-update preference belong to About Application and are not settings-page parameter rows. The following are out of scope: API-management credentials, addresses, models, slots, and rotation strategies; editor property-panel parameters; prompt lists and batch-management schemes; and the full processing steps of the nine workflows.
 
 ## Settings tabs and pages {#settings-tabs}
 
@@ -36,9 +36,9 @@ The settings page groups parameters by the left-side tabs; tab titles come from 
 | `Translation` | Translation | 翻译 | 11 | [Translation settings](../desktop/settings/translation.md) |
 | `Inpainting` | Inpainting | 修复 | 10 | [Mask And Inpainting](../desktop/settings/mask-and-inpainting.md) |
 | `Typesetting` | Typesetting | 排版 | 28 | [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md) |
-| `Mode Specific` | Mode Specific | 模式相关 | 11 | [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md), [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md) |
+| `Mode Specific` | Mode Specific | 模式相关 | 12 | [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md), [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md) |
 
-The seven tabs total 107 visible parameter rows.
+The seven tabs total 108 visible parameter rows.
 
 ## Parameter index {#parameter-index}
 
@@ -185,10 +185,11 @@ The 29 parameters of this tab are explained in [Typesetting and Rendering](../de
 
 ### Mode Specific {#tab-mode-specific}
 
-The 11 parameters of this tab span two pages: direct-paste and template-alignment parameters are in [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md), and upscale/colorization parameters are in [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md).
+The 12 parameters of this tab span two pages: text export, direct-paste, and template-alignment parameters are in [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md), and upscale/colorization parameters are in [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md).
 
 | Stored value | English actual value | Simplified Chinese actual value | Jump to |
 | --- | --- | --- | --- |
+| `cli.export_from_local_json` | Export Text from Local JSON Only | 仅从本地 JSON 导出文本 | [#cli-export-from-local-json](../desktop/settings/mode-specific.md#cli-export-from-local-json) |
 | `render.enable_template_alignment` | Enable Direct Paste Mode | 启用直接粘贴模式 | [#render-enable-template-alignment](../desktop/settings/mode-specific.md#render-enable-template-alignment) |
 | `render.paste_mask_dilation_pixels` | Paste Mode Mask Dilation Pixels | 粘贴模式蒙版膨胀大小 | [#render-paste-mask-dilation-pixels](../desktop/settings/mode-specific.md#render-paste-mask-dilation-pixels) |
 | `upscale.upscaler` | Upscaling Model | 超分模型 | [#upscale-upscaler](../desktop/settings/upscale-and-colorization.md#upscale-upscaler) |

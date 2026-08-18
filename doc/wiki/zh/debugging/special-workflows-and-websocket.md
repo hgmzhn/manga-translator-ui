@@ -35,8 +35,8 @@ lastUpdated: true
 | 流程模式（UI） | 跳过/改变阶段 | verbose 条件产物 |
 | --- | --- | --- |
 | 正常翻译流程 | 无 | 标准流水线全套：`input.png`、`mask_raw.png`、`bboxes*.png`、`ocrs/`、`mask_final.png`、`inpaint_input.png`、`inpainted.png`、渲染类调试图、`final.png` |
-| 导出原文 | 跳过翻译与渲染；强制单图批次 | `input.png`、`mask_raw.png`、`bboxes*.png`、`ocrs/`、`bboxes.png`；无修复/渲染/`final.png`；另导出原文文本 |
-| 导出翻译 | 跳过渲染 | 检测/OCR 类产物（同上）；无修复/渲染/`final.png`；另导出译文文本 |
+| 导出原文 | 默认只读本地 JSON 并写原文副文件 | 无图片级调试图；不修改 JSON；关闭本地 JSON 开关后才产生旧流程检测/OCR调试图 |
+| 导出翻译 | 默认只读本地 JSON 并写译文副文件 | 无图片级调试图；不修改 JSON；关闭本地 JSON 开关后才产生旧流程检测/OCR/翻译调试图 |
 | 仅翻译（JSON） | 跳过检测/OCR/渲染；只读写 JSON | 无图片级调试图；成功后回写 JSON 并删除 `imagename_original.txt` |
 | 导入翻译并渲染 | 跳过检测/OCR/翻译；直接渲染 | 通常只有渲染/修复类产物（`inpaint_input.png`、`mask_final.png`、`inpainted.png`、`final.png`）；缺少蒙版或开启导入 YOLO 框时才触发检测分支 |
 | 替换翻译 | 不走普通翻译；提取译文→匹配→修复→渲染 | `replace_debug_match.jpg`、`inpainted.png`、`debug_extracted_text.png` |
@@ -48,14 +48,14 @@ lastUpdated: true
 flowchart TD
     A["翻译页流程模式下拉框"] --> B{"选择哪种流程?"}
     B -->|"正常翻译流程"| C["检测 → OCR → 合并 → 翻译 → 蒙版/修复 → 渲染"]
-    B -->|"导出原文 / 导出翻译"| D["检测 → OCR → 合并 →（翻译）→ 导出文本，不渲染"]
+    B -->|"导出原文 / 导出翻译（默认）"| D["只读本地 JSON → 导出文本；不写 JSON"]
     B -->|"仅翻译JSON"| E["只读 JSON 原文 → 翻译 → 回写 JSON"]
     B -->|"导入翻译并渲染"| F["读 JSON regions/蒙版 → 修复（按需）→ 渲染"]
     B -->|"替换翻译"| G["提取译文 → 匹配 → 修复 → 渲染"]
     B -->|"仅上色 / 仅超分"| H["只处理颜色 / 分辨率，提前返回"]
     B -->|"仅修复"| I["检测 → 填充 → 合并 → 蒙版精炼 → 修复"]
     C --> J["全阶段调试图 + final.png"]
-    D --> K["检测/OCR 调试图，无渲染产物"]
+    D --> K["无图片级调试图，只有文本副文件"]
     E --> L["无图片级调试图，只有 JSON"]
     F --> M["渲染/修复调试图，通常无 ocrs/ 与 bboxes"]
     G --> N["replace_debug_match.jpg 等替换流程调试图"]
@@ -67,10 +67,10 @@ flowchart TD
 
 ### 导出类流程
 
-- “导出原文”：预处理照常（因此 verbose 时仍有 `input.png`、`mask_raw.png`、`bboxes*.png`、`ocrs/`、`bboxes.png`），随后直接导出原文文本，跳过翻译、蒙版、修复和渲染，所以没有 `final.png`。JSON 中写入 `skip_font_scaling: false`，提示下次导入渲染时重新智能排版。
-- “导出翻译”：照常检测/OCR/翻译，但跳过渲染并导出译文文本。JSON 中写入 `skip_font_scaling: true`，便于按已生成结果回放。
-- “仅翻译（JSON）”：从 JSON 读原文翻译后回写 JSON，成功后删除对应的 `imagename_original.txt`；该分支不进入逐图调试写入，因此 verbose 也不产生图片级调试图。
-- 三类流程都写入 `manga_translator_work/` 下的 `json/`、`originals/`、`translations/` 子目录；这些是业务文件，不是调试产物。模板格式由 `config/translation_template.json` 决定，注意该文件按文本模板解析，不能假定为严格 JSON。
+- “导出原文”和“导出翻译”默认在图片加载前只读本地工程 JSON，因此 verbose 也不产生 `input.png`、检测/OCR或渲染调试图；只生成相应文本副文件，JSON 保持不变。
+- 关闭“仅从本地 JSON 导出文本”后才恢复旧行为：导出原文执行检测/OCR，导出翻译还执行翻译；此时才可能生成检测/OCR调试图并写回 JSON。
+- “仅翻译（JSON）”从 JSON 读原文翻译后回写 JSON，成功后删除对应的 `imagename_original.txt`；该分支不进入逐图调试写入。
+- 模板格式由 `config/translation_template.json` 决定；文本副文件属于业务文件，不是调试产物。
 
 ### 导入与替换流程
 

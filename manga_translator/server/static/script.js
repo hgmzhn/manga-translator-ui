@@ -40,6 +40,7 @@ const hiddenKeys = [
     'cli.translate_json_only',  // 通过工作流模式下拉框控制
     'cli.template',  // 通过工作流模式下拉框控制
     'cli.generate_and_export',  // 通过工作流模式下拉框控制
+    'cli.export_from_local_json',  // Qt 桌面端从本地工程 JSON 导出文本
     'cli.colorize_only',  // 通过工作流模式下拉框控制
     'cli.upscale_only',  // 通过工作流模式下拉框控制
     'cli.inpaint_only',  // 通过工作流模式下拉框控制
