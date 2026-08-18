@@ -9,15 +9,15 @@ lastUpdated: true
 
 # 导出原文
 
-“导出原文”默认从本地已有工程 JSON 读取 `regions[].text`，只生成 `<stem>_original.<template-format>` 原文副文件。它不打开图片、不执行检测或 OCR，也不回写工程 JSON。该行为由“设置 → 模式相关 → 文本导出 → 仅从本地 JSON 导出文本”控制；关闭开关后才恢复原来的图片检测/OCR与 JSON 写入流程。
+“导出原文”默认沿用原来的图片检测/OCR与 JSON 写入流程。开启“设置 → 模式相关 → 文本导出 → 仅从本地 JSON 导出文本”后，改为从本地已有工程 JSON 读取 `regions[].text`，只生成 `<stem>_original.<template-format>` 原文副文件，不打开图片、不执行检测或 OCR，也不回写工程 JSON。
 
 九个模式的整体对照和输出目录设置见[输出目录与工作流](../desktop/translation/output-directory-and-workflow.md)；开关与 `cli.template` 说明见[模式专属工作流与模板对齐](../desktop/settings/mode-specific.md#cli-export-from-local-json)。
 
 ## 什么时候用 {#feature-boundary}
 
-- 选择“导出原文”（下拉框索引 `2`）会设置 `cli.template=true`；默认同时读取已有工程 JSON，只写原文副文件。
-- 默认输入是同名工程 JSON 与可读取模板；图片路径只用于定位 JSON，不会解码图片。输出不包含主图，也不修改 JSON。
-- 关闭 `cli.export_from_local_json` 后才进入旧流程；旧流程要求 `cli.save_text=true`，并执行检测、OCR、蒙版与 JSON 写入。
+- 选择“导出原文”（下拉框索引 `2`）会设置 `cli.template=true`；默认从主图检测/OCR并写原文副文件。
+- 开关开启后，输入改为同名工程 JSON 与可读取模板；图片路径只用于定位 JSON，不会解码图片，输出不包含主图，也不修改 JSON。
+- 开关关闭时沿用旧流程；旧流程要求 `cli.save_text=true`，并执行检测、OCR、蒙版与 JSON 写入。
 
 ## 运行这个流程 {#ui-operations}
 
@@ -31,7 +31,7 @@ lastUpdated: true
 
 ## 处理顺序 {#runtime-behavior}
 
-默认开启 `cli.export_from_local_json` 时，`translate_batch()` 在图片物化前直接读取本地 JSON。找不到 JSON 时该图片明确失败，不会回退 OCR。关闭开关后才进入原来的 `template + save_text` 分支。
+开启 `cli.export_from_local_json` 时，`translate_batch()` 在图片物化前直接读取本地 JSON。找不到 JSON 时该图片明确失败，不会回退 OCR。开关默认关闭，关闭时进入原来的 `template + save_text` 分支。
 
 ```mermaid
 flowchart LR
@@ -51,30 +51,30 @@ flowchart LR
 
 ### 跳过与保留的阶段 {#skipped-and-kept-stages}
 
-- 默认跳过：图片读取、上色、超分、检测、OCR、翻译、蒙版、修复、渲染、主图保存和 JSON 回写。
-- 默认保留：从已有 JSON 读取 `regions[].text`，按模板生成原文副文件；模板中 `<translated>` 仍可使用 JSON 内已有的 `translation`。
-- 关闭本地 JSON 开关后，旧流程恢复条件上色、超分、检测、OCR、蒙版细化及 JSON 写入；仍不调用翻译服务。
+- 开关开启时跳过图片读取、上色、超分、检测、OCR、翻译、蒙版、修复、渲染、主图保存和 JSON 回写。
+- 开关开启时保留从已有 JSON 读取 `regions[].text` 并按模板生成原文副文件；模板中 `<translated>` 仍可使用 JSON 内已有的 `translation`。
+- 开关关闭时，旧流程执行条件上色、超分、检测、OCR、蒙版细化及 JSON 写入；仍不调用翻译服务。
 
 ### 工程 JSON 细节 {#mask-and-json-details}
 
-- 默认本地导出以只读方式打开工程 JSON，字节内容保持不变，不修改蒙版、字号、译文或任何编辑器字段。
+- 开关开启时以只读方式打开工程 JSON，字节内容保持不变，不修改蒙版、字号、译文或任何编辑器字段。
 - `generate_original_text()` 按模板导出非空原文，移除 `[BR]`；无区域时生成模板对应的空内容。
 
 ### 输出文件 {#output-files}
 
 | 输出 | 路径 | 说明 |
 | --- | --- | --- |
-| 工程 JSON | `manga_translator_work/json/<stem>_translations.json` | 必须预先存在；默认只读且保持不变 |
-| 原文模板 | `manga_translator_work/originals/<stem>_original.<template-format>` | 唯一默认新写入文件；扩展名来自模板 `output_format` |
-| 主输出图 | 不写 | 不打开或渲染图片 |
-| 编辑器底图 | 不写 | 默认本地 JSON 导出不会执行上色或超分 |
+| 工程 JSON | `manga_translator_work/json/<stem>_translations.json` | 开关开启时必须预先存在、只读且保持不变 |
+| 原文模板 | `manga_translator_work/originals/<stem>_original.<template-format>` | 两种路径都会写入；扩展名来自模板 `output_format` |
+| 主输出图 | 不写 | 导出模式不渲染主图 |
+| 编辑器底图 | 条件写入 | 仅开关关闭的旧流程可能执行上色或超分 |
 
 ## 输入、输出与限制 {#dependencies-and-conflicts}
 
-- 默认依赖已有工程 JSON 与可读取模板；缺少 JSON 时明确失败，不回退 OCR；`batch_concurrent` 不兼容。
+- 开关开启时依赖已有工程 JSON 与可读取模板；缺少 JSON 时明确失败，不回退 OCR；`batch_concurrent` 不兼容。
 - `cli.overwrite=false` 时，已有原文副文件会在开始前被跳过。
-- `cli.save_text` 仅是“导出原文”工作流标志组合的一部分；默认本地导出不会保存或覆盖 JSON。
-- 关闭 `cli.export_from_local_json` 后恢复旧流程，此时才受检测、OCR、上色、超分和 `save_text` 写入行为影响。
+- `cli.save_text` 是“导出原文”工作流标志组合的一部分；开关开启时不会保存或覆盖 JSON。
+- 开关关闭时沿用旧流程，此时受检测、OCR、上色、超分和 `save_text` 写入行为影响。
 
 ## 继续阅读 {#related-pages}
 

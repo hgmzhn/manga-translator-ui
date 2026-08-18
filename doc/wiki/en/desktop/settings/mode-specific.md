@@ -24,8 +24,8 @@ The usual order is conditional colorization → conditional upscaling → detect
 | UI mode | Input and discovery | Output | Stages, skips, and conflicts |
 | --- | --- | --- | --- |
 | Normal Translation | Main image | Main image; JSON when `save_text=true`, and possibly inpainted/editor-base images | Full main chain; the only mode that can enter `batch_concurrent` |
-| Export Translation | Existing project JSON by default; main image when “Export Text from Local JSON Only” is off | By default, only `<stem>_translated.<format>`; project JSON remains byte-for-byte unchanged | By default skips image loading, detection, OCR, API translation, and JSON write-back; disabling the toggle restores the legacy detect/OCR/translate flow; concurrency disabled |
-| Export Original Text | Existing project JSON by default; main image and template when “Export Text from Local JSON Only” is off | By default, only `<stem>_original.<format>`; project JSON remains byte-for-byte unchanged | By default skips image loading, detection, OCR, API translation, and JSON write-back; disabling the toggle restores the legacy detect/OCR flow; concurrency disabled |
+| Export Translation | Main image by default; existing project JSON when “Export Text from Local JSON Only” is on | Legacy detection/OCR/translation plus JSON and translated-sidecar writes by default; with the toggle on, only `<stem>_translated.<format>` and unchanged JSON | Toggle on skips image loading, detection, OCR, API translation, and JSON write-back; concurrency disabled |
+| Export Original Text | Main image and template by default; existing project JSON when “Export Text from Local JSON Only” is on | Legacy detection/OCR and JSON write by default; with the toggle on, only `<stem>_original.<format>` and unchanged JSON | Toggle on skips image loading, detection, OCR, and JSON write-back; concurrency disabled |
 | Translate JSON Only | Existing project JSON | Writes JSON back and deletes the original-text sidecar after success | Translates JSON only; skips image stages; concurrency disabled |
 | Import Translation and Render | JSON and matching original/translated TXT | Main image, updated JSON, and inpainted image when needed | Import → mask (if needed) → inpaint → render; skips detection/OCR/translation; YOLO import may provide a detection fallback |
 | Colorize Only | Main image | Main image and conditional editor-base image | Colorization only; skips upscaling and text chain; concurrency disabled |
@@ -41,15 +41,15 @@ If `output_format` is missing or invalid, the template falls back to `json`; the
 
 #### Export Text from Local JSON Only {#cli-export-from-local-json}
 
-Under Settings → Mode Specific → Text Export. Enabled by default and shared by Export Translation and Export Original Text. The app reads each image's existing `manga_translator_work/json/<stem>_translations.json` and exports the `translation` or `text` field through the template. It does not open the image, run detection or OCR, call a translation API, or write the project JSON back, so edited translations cannot be overwritten. A missing project JSON fails that image explicitly and never falls back to OCR. Disable the toggle to restore the legacy image detection/OCR flow (and translation for Export Translation). Default: `true`.
+Under Settings → Mode Specific → Text Export. Disabled by default and shared by Export Translation and Export Original Text. When enabled, the app reads each image's existing `manga_translator_work/json/<stem>_translations.json` and exports the `translation` or `text` field through the template. It does not open the image, run detection or OCR, call a translation API, or write the project JSON back, so edited translations cannot be overwritten. A missing project JSON fails that image explicitly and never falls back to OCR. When disabled, the legacy image detection/OCR flow remains active (including translation for Export Translation). Default: `false`.
 
 #### Export Translation {#cli-generate-and-export}
 
-Selecting “Export Translation” now exports `<stem>_translated.<format>` from the existing local project JSON by default, without modifying JSON or calling OCR/translation APIs. “Export Text from Local JSON Only” controls this behavior. Disable it to use the legacy flow that opens the main image, runs detection, OCR, and translation, and writes JSON plus the translated sidecar. Default: `false` (workflow disabled; Normal Translation is the default mode).
+Selecting “Export Translation” uses the legacy flow by default: open the main image, run detection, OCR, and translation, and write JSON plus the translated sidecar. Enabling “Export Text from Local JSON Only” instead exports `<stem>_translated.<format>` read-only from the existing project JSON without OCR or translation APIs. Default: `false` (workflow disabled; Normal Translation is the default mode).
 
 #### Export Original Text {#cli-template}
 
-Selecting “Export Original Text” now exports `<stem>_original.<format>` from the existing local project JSON by default, without modifying JSON or running detection/OCR. The same local-JSON toggle controls this behavior. Disable it to detect and OCR the main image; that legacy branch also requires “Editable Image”. Default: `false` (workflow disabled; Normal Translation is the default mode).
+Selecting “Export Original Text” detects and OCRs the main image by default; that branch also requires “Editable Image”. Enabling the local-JSON toggle instead exports `<stem>_original.<format>` read-only from the existing project JSON without detection/OCR. Default: `false` (workflow disabled; Normal Translation is the default mode).
 
 #### Translate JSON Only {#cli-translate-json-only}
 

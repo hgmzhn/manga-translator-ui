@@ -145,7 +145,7 @@ class CliSettings(BaseModel):
     overwrite: bool = True
     skip_no_text: bool = False
     save_text: bool = True
-    export_from_local_json: bool = True
+    export_from_local_json: bool = False
     load_text: bool = False
     translate_json_only: bool = False
     template: bool = False

@@ -34,8 +34,8 @@ lastUpdated: true
 | 工作流 | 输入与前置 | 跳过阶段 | 输出 | 详细页面 |
 | --- | --- | --- | --- | --- |
 | 正常翻译 | 主输入图片；无工作流副文件前置 | 无强制跳过；检测无文本行或 OCR 无文本时提前返回 | 主输出图；`save_text=true` 时写工程 JSON，修复完成时还写修复图；启用上色或超分时写编辑器底图 | [正常翻译流程](../workflows/normal.md) |
-| 导出翻译 | 默认要求已有工程 JSON 与可读取模板；关闭本地 JSON 开关后用主图 | 默认跳过图片读取、上色、超分、检测、OCR、翻译、蒙版、修复、渲染和 JSON 回写 | 只写 `translations/<stem>_translated.<模板格式>`；工程 JSON 原样保留 | [导出翻译](../workflows/export-translation.md) |
-| 导出原文 | 默认要求已有工程 JSON 与可读取模板；关闭本地 JSON 开关后用主图 | 默认跳过图片读取、上色、超分、检测、OCR、翻译、蒙版、修复、渲染和 JSON 回写 | 只写 `originals/<stem>_original.<模板格式>`；工程 JSON 原样保留 | [导出原文](../workflows/export-original.md) |
+| 导出翻译 | 默认使用主图与可读取模板；开关开启时要求已有工程 JSON | 默认执行检测、OCR和翻译；开关开启时跳过图片读取、上色、超分、检测、OCR、翻译、蒙版、修复、渲染和 JSON 回写 | 默认写工程 JSON 与译文副文件；开关开启时只写 `translations/<stem>_translated.<模板格式>` 且 JSON 原样保留 | [导出翻译](../workflows/export-translation.md) |
+| 导出原文 | 默认使用主图与可读取模板；开关开启时要求已有工程 JSON | 默认执行检测和 OCR；开关开启时跳过图片读取、上色、超分、检测、OCR、翻译、蒙版、修复、渲染和 JSON 回写 | 默认写工程 JSON 与原文副文件；开关开启时只写 `originals/<stem>_original.<模板格式>` 且 JSON 原样保留 | [导出原文](../workflows/export-original.md) |
 | 仅翻译（JSON） | 主输入图片必须能找到工程 JSON | 上色、超分、检测、OCR、合并、蒙版、修复、渲染 | 回写工程 JSON；成功后删除同图原文副文件；不写主输出图 | [仅翻译（JSON）](../workflows/translate-json-only.md) |
 | 导入翻译并渲染 | 主输入图片必须有工程 JSON；开始前优先原文副文件，否则用译文副文件 | 上色、超分、检测、OCR、翻译、文本行合并（JSON 无蒙版且导入 YOLO 标签时检测除外） | 主输出图与更新后的工程 JSON；重新修复时写修复图 | [导入翻译并渲染](../workflows/import-translation-and-render.md) |
 | 仅上色 | 主输入图片；是否上色由 `colorizer.colorizer` 决定 | 超分、检测、OCR、合并、翻译、蒙版、修复、渲染 | 主输出图；上色器有效时写编辑器底图 | [仅上色](../workflows/colorize-only.md) |
@@ -87,7 +87,7 @@ lastUpdated: true
 | 参数 | 生效/被忽略的边界 |
 | --- | --- |
 | `cli.save_text` | GUI/发行默认值为 `true`；是“导出原文”进入导出分支的必要条件，还控制普通工作流的 JSON、修复图和编辑器工程写入；仅翻译 JSON 自己无条件回写 JSON |
-| `cli.export_from_local_json` | 默认 `true`；同时控制两种文本导出只读本地工程 JSON，不进入图片/OCR/API 流程且不回写 JSON；关闭后恢复旧流程 |
+| `cli.export_from_local_json` | 默认 `false`；开启后两种文本导出只读本地工程 JSON，不进入图片/OCR/API 流程且不回写 JSON；关闭时沿用旧流程 |
 | `colorizer.colorizer` | 不是“仅上色”的强制值；正常、仅超分、仅修复和替换翻译也会在其不为 `none` 时先上色 |
 | `upscale.upscale_ratio` | 不是“仅超分”的强制值；为空时仅超分原样通过（或保留前置上色结果）；正常、仅修复和替换翻译也会在其为真时先超分 |
 | `detector.import_yolo_labels` | 只在关闭本地 JSON 开关后的旧导出流程中影响蒙版；导入翻译且 JSON 无蒙版时触发检测补蒙版 |

@@ -46,7 +46,7 @@ def update_workflow_mode_description(self, index: int | None = None):
             self.config_service.get_config().cli.export_from_local_json
         )
     except Exception:
-        local_json_export = True
+        local_json_export = False
     if local_json_export:
         tip_keys[1] = "Tip: Reads existing local JSON and exports translated text only; no detection, OCR, API translation, or JSON write-back"
         tip_keys[2] = "Tip: Reads existing local JSON and exports original text only; no detection, OCR, API translation, or JSON write-back"

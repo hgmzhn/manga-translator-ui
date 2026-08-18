@@ -24,8 +24,8 @@ lastUpdated: true
 | UI 模式 | 输入与发现 | 输出 | 阶段、跳过和冲突 |
 | --- | --- | --- | --- |
 | 正常翻译 | 主图片 | 主图；`save_text=true` 时 JSON，可能有修复图/编辑器底图 | 完整主链；唯一可进入 `batch_concurrent` |
-| 导出翻译 | 默认读取已有工程 JSON；关闭“仅从本地 JSON 导出文本”后读取主图 | 默认仅写 `<stem>_translated.<format>`，工程 JSON 原样保留；关闭开关后沿用旧流程 | 默认跳过图片读取、检测、OCR、API 翻译和 JSON 回写；关闭开关后执行旧检测/OCR/翻译流程；禁用并发 |
-| 导出原文 | 默认读取已有工程 JSON；关闭“仅从本地 JSON 导出文本”后读取主图和模板 | 默认仅写 `<stem>_original.<format>`，工程 JSON 原样保留；关闭开关后沿用旧流程 | 默认跳过图片读取、检测、OCR、API 翻译和 JSON 回写；关闭开关后执行旧检测/OCR流程；禁用并发 |
+| 导出翻译 | 默认读取主图；开启“仅从本地 JSON 导出文本”后读取已有工程 JSON | 默认沿用检测/OCR/翻译并写 JSON 与译文副文件；开启开关后只写 `<stem>_translated.<format>`，工程 JSON 原样保留 | 开关开启时跳过图片读取、检测、OCR、API 翻译和 JSON 回写；禁用并发 |
+| 导出原文 | 默认读取主图和模板；开启“仅从本地 JSON 导出文本”后读取已有工程 JSON | 默认沿用检测/OCR与 JSON 写入；开启开关后只写 `<stem>_original.<format>`，工程 JSON 原样保留 | 开关开启时跳过图片读取、检测、OCR 和 JSON 回写；禁用并发 |
 | 仅翻译（JSON） | 已有工程 JSON | 回写 JSON，成功后删除原文副文件 | 只读 JSON 翻译；跳过图像阶段；禁用并发 |
 | 导入翻译并渲染 | JSON 及同名原文/译文 TXT | 主图、更新 JSON，必要时修复图 | 导入→蒙版（必要时）→修复→渲染；跳过检测/OCR/翻译；禁用并发 |
 | 仅上色 | 主图 | 主图，条件性编辑器底图 | 仅条件上色；跳过超分和文字链；禁用并发 |
@@ -41,15 +41,15 @@ lastUpdated: true
 
 #### 仅从本地 JSON 导出文本 {#cli-export-from-local-json}
 
-位于“设置 → 模式相关 → 文本导出”。开关默认开启，同时控制“导出翻译”和“导出原文”：程序只读取每张图片已有的 `manga_translator_work/json/<stem>_translations.json`，按模板分别导出 `translation` 或 `text` 字段；不打开图片、不执行检测或 OCR、不调用翻译 API，也不回写工程 JSON，因此不会覆盖用户编辑好的译文。找不到工程 JSON 时该图片明确失败，不会自动回退 OCR。关闭后恢复原来的图片检测/OCR（导出翻译还会调用翻译器）流程。默认值：`true`。
+位于“设置 → 模式相关 → 文本导出”。开关默认关闭，同时控制“导出翻译”和“导出原文”。开启后，程序只读取每张图片已有的 `manga_translator_work/json/<stem>_translations.json`，按模板分别导出 `translation` 或 `text` 字段；不打开图片、不执行检测或 OCR、不调用翻译 API，也不回写工程 JSON，因此不会覆盖用户编辑好的译文。找不到工程 JSON 时该图片明确失败，不会自动回退 OCR。关闭时沿用原来的图片检测/OCR（导出翻译还会调用翻译器）流程。默认值：`false`。
 
 #### 导出翻译 {#cli-generate-and-export}
 
-在“翻译流程模式：”下拉框选择“导出翻译”后，默认从本地已有工程 JSON 导出 `<stem>_translated.<format>`，不修改 JSON，也不调用 OCR 或翻译 API；行为由“仅从本地 JSON 导出文本”控制。关闭该开关后才沿用旧流程：读取主图，执行检测、OCR 与翻译，写入 JSON 和译文副文件。默认值：`false`（工作流未启用，默认使用“正常翻译”）。
+在“翻译流程模式：”下拉框选择“导出翻译”后，默认沿用旧流程：读取主图，执行检测、OCR 与翻译，写入 JSON 和译文副文件。开启“仅从本地 JSON 导出文本”后，改为从已有工程 JSON 只读导出 `<stem>_translated.<format>`，不修改 JSON，也不调用 OCR 或翻译 API。默认值：`false`（工作流未启用，默认使用“正常翻译”）。
 
 #### 导出原文 {#cli-template}
 
-选择“导出原文”后，默认从本地已有工程 JSON 导出 `<stem>_original.<format>`，不修改 JSON，也不执行检测或 OCR；行为同样受“仅从本地 JSON 导出文本”控制。关闭该开关后才从主图检测和 OCR，并要求同时开启“图片可编辑”。默认值：`false`（工作流未启用，默认使用“正常翻译”）。
+选择“导出原文”后，默认从主图检测和 OCR，并要求同时开启“图片可编辑”。开启“仅从本地 JSON 导出文本”后，改为从已有工程 JSON 只读导出 `<stem>_original.<format>`，不修改 JSON，也不执行检测或 OCR。默认值：`false`（工作流未启用，默认使用“正常翻译”）。
 
 #### 仅翻译（JSON） {#cli-translate-json-only}
 

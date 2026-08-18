@@ -442,7 +442,7 @@ class MangaTranslator:
         self.save_quality = params.get('save_quality', 100)
         self.skip_no_text = params.get('skip_no_text', False)
         self.generate_and_export = params.get('generate_and_export', False)
-        self.export_from_local_json = params.get('export_from_local_json', True)
+        self.export_from_local_json = params.get('export_from_local_json', False)
         self.colorize_only = params.get('colorize_only', False)
         self.upscale_only = params.get('upscale_only', False)
         self.inpaint_only = params.get('inpaint_only', False)

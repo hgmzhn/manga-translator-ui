@@ -57,8 +57,8 @@ flowchart LR
 | 工作流 | 输入/发现 | 输出 | 运行阶段 | 跳过或特殊边界 |
 | --- | --- | --- | --- | --- |
 | 正常翻译 | 主输入图片 | 主输出图；`save_text=true` 时工程 JSON；修复完成时修复图；启用上色/超分时编辑器底图 | 条件上色 → 超分 → 检测 → OCR → 合并 → 翻译 → 蒙版 → 修复 → 渲染 | 没有检测框或 OCR 文本时可能提前返回；仅此模式使用并发管线 |
-| 导出翻译 | 默认需要已有工程 JSON 与可用模板；关闭本地 JSON 开关后使用主图 | 默认只写 `<stem>_translated.<template-format>`，工程 JSON 原样保留；不写主图 | 默认读取 JSON `translation` 后按模板导出 | `export_from_local_json=true` 时跳过图片读取、检测、OCR、API 翻译和 JSON 回写；关闭后恢复旧流程 |
-| 导出原文 | 默认需要已有工程 JSON 与可用模板；关闭本地 JSON 开关后使用主图 | 默认只写 `<stem>_original.<template-format>`，工程 JSON 原样保留；不写主图 | 默认读取 JSON `text` 后按模板导出 | `export_from_local_json=true` 时跳过图片读取、检测、OCR 和 JSON 回写；关闭后恢复旧流程 |
+| 导出翻译 | 默认使用主图；开关开启时需要已有工程 JSON 与可用模板 | 默认写工程 JSON 与译文副文件；开关开启时只写 `<stem>_translated.<template-format>` 且 JSON 原样保留；不写主图 | 默认检测 → OCR → 翻译 → 模板导出；开关开启时读取 JSON `translation` 后按模板导出 | `export_from_local_json=true` 时跳过图片读取、检测、OCR、API 翻译和 JSON 回写 |
+| 导出原文 | 默认使用主图与模板；开关开启时需要已有工程 JSON 与可用模板 | 默认写工程 JSON 与原文副文件；开关开启时只写 `<stem>_original.<template-format>` 且 JSON 原样保留；不写主图 | 默认检测 → OCR → 模板导出；开关开启时读取 JSON `text` 后按模板导出 | `export_from_local_json=true` 时跳过图片读取、检测、OCR 和 JSON 回写 |
 | 仅翻译（JSON） | 必须找到工程 JSON；兼容旧区域列表和新 `regions` 对象 | 回写工程 JSON；成功后删除同图原文副文件；不写主输出图 | 载入 JSON → 翻译 → 回写 JSON | 跳过上色、超分、检测、OCR、合并、蒙版、修复和渲染；不以 `save_text` 为保存条件 |
 | 导入翻译并渲染 | 必须有工程 JSON；TXT 优先原文副文件，否则译文副文件 | 主输出图和更新后的工程 JSON；必要时修复图 | 读取 JSON/内存载荷 → 复用或细化蒙版 → 修复 → 渲染 | 跳过上色、超分、检测、OCR、合并和翻译；JSON 无蒙版且导入 YOLO 标签时会额外检测；已有修复图可复用，AI renderer 可跳过真正修复 |
 | 仅上色 | 主输入图片 | 主输出图；上色有效时编辑器底图 | 条件上色 | 跳过超分、检测、OCR、合并、翻译、蒙版、修复和渲染；不强制选择上色器，选择 `none` 时可能原样输出 |
@@ -76,7 +76,7 @@ GUI 切换时八个布尔字段互斥；从已有配置同步下拉框时，源�
 
 ## 任务限制
 
-- 两种文本导出默认依赖已有工程 JSON 与可读取模板；JSON 缺失时明确失败，不回退 OCR。关闭 `cli.export_from_local_json` 才恢复从主图重新检测/OCR的旧行为。
+- 两种文本导出默认沿用从主图检测/OCR的旧行为。开启 `cli.export_from_local_json` 后才依赖已有工程 JSON；JSON 缺失时明确失败，不回退 OCR。
 - `cli.overwrite` 在开始前按模式检查既有 TXT、副文件或主输出图。
-- `cli.save_text` 默认由 Qt/发行配置设为 `true`，影响普通模式的 JSON、修复图和工程写入；导出原文的工作流标志仍要求它为 `true`，但默认本地导出不会回写 JSON。
-- 上色、超分、检测、OCR、修复和渲染的模型、显存、网络和 API 成本由所选阶段参数决定；默认本地文本导出不进入这些阶段。
+- `cli.save_text` 默认由 Qt/发行配置设为 `true`，影响普通模式及旧导出流程的 JSON、修复图和工程写入；导出原文的工作流标志仍要求它为 `true`。
+- 上色、超分、检测、OCR、修复和渲染的模型、显存、网络和 API 成本由所选阶段参数决定；开启本地文本导出后不进入这些阶段。

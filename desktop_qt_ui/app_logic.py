@@ -246,7 +246,7 @@ class MainAppLogic(QObject):
         cli = getattr(config, "cli", None)
         if (
             cli is not None
-            and getattr(cli, "export_from_local_json", True)
+            and getattr(cli, "export_from_local_json", False)
             and (
                 getattr(cli, "generate_and_export", False)
                 or (
@@ -3007,7 +3007,7 @@ class TranslationWorker(QObject):
                 workflow_mode = self._t("Export Translation")
                 tip_key = (
                     "Tip: Reads existing local JSON and exports translated text only; no detection, OCR, API translation, or JSON write-back"
-                    if cli_config.get("export_from_local_json", True)
+                    if cli_config.get("export_from_local_json", False)
                     else "Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files"
                 )
                 workflow_tip = self._t(tip_key)
@@ -3015,7 +3015,7 @@ class TranslationWorker(QObject):
                 workflow_mode = self._t("Export Original Text")
                 tip_key = (
                     "Tip: Reads existing local JSON and exports original text only; no detection, OCR, API translation, or JSON write-back"
-                    if cli_config.get("export_from_local_json", True)
+                    if cli_config.get("export_from_local_json", False)
                     else "Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode"
                 )
                 workflow_tip = self._t(tip_key)

@@ -44,9 +44,9 @@ def _forbid_image_processing(*args, **kwargs):
     )
 
 
-def test_local_json_text_export_defaults_enabled():
-    assert Config().cli.export_from_local_json is True
-    assert CliSettings().export_from_local_json is True
+def test_local_json_text_export_defaults_disabled():
+    assert Config().cli.export_from_local_json is False
+    assert CliSettings().export_from_local_json is False
 
 
 @pytest.mark.parametrize(

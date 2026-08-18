@@ -9,16 +9,16 @@ lastUpdated: true
 
 # Export Translation
 
-Export Translation now exports the translated text from the existing local project JSON into a `translations/` sidecar by default. It does not reopen the image for detection/OCR, call a translation API, or write the project JSON back, so exporting cannot overwrite user-edited translations. Settings → Mode Specific → Text Export → “Export Text from Local JSON Only” controls this behavior; disable it to restore the legacy detect/OCR/translate/write-back flow.
+Export Translation uses the legacy image detection, OCR, translation, and JSON-write flow by default. Enabling Settings → Mode Specific → Text Export → “Export Text from Local JSON Only” instead exports translated text from the existing local project JSON into a `translations/` sidecar without reopening the image, calling a translation API, or writing project JSON back, so exporting cannot overwrite user-edited translations.
 
 Export Translation forms the template/JSON family together with [Export Original Text](./export-original.md), [Translate JSON Only](./translate-json-only.md), and [Import Translation and Render](./import-translation-and-render.md). The overall boundaries of the nine workflows are in [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md), with a summary table in [Workflow Matrix](../reference/workflow-matrix.md).
 
 ## When to use it
 
-- Default input: each image's existing `manga_translator_work/json/<stem>_translations.json` plus a readable export template. The image path locates the matching project JSON; the image is not decoded.
-- Default execution: read `regions[].translation`, remove `[BR]`, and render the translated sidecar through the template.
-- Default skips: image loading, colorization, upscaling, detection, OCR, translation, mask processing, inpainting, rendering, main-image saving, and project JSON write-back.
-- Default output: `manga_translator_work/translations/<stem>_translated.<template-extension>`; the project JSON stays unchanged.
+- Default input: the main image and a readable export template; detection, OCR, and translation run.
+- With the toggle on: each image's existing `manga_translator_work/json/<stem>_translations.json` plus a readable template; the image path only locates JSON and is not decoded.
+- With the toggle on: read `regions[].translation`, remove `[BR]`, export through the template, and skip image loading, colorization, upscaling, detection, OCR, translation, mask processing, inpainting, rendering, main-image saving, and JSON write-back.
+- Output with the toggle on: `manga_translator_work/translations/<stem>_translated.<template-extension>`; project JSON stays unchanged.
 - Workflow field: combo index 1 writes `cli.generate_and_export=true` at runtime; GUI switching keeps the eight workflow booleans mutually exclusive.
 
 ## Run this workflow
@@ -37,7 +37,7 @@ Selecting a mode only writes configuration and updates the UI texts; it does not
 
 ### Stages and outputs
 
-With `cli.export_from_local_json` enabled by default, `translate_batch()` enters the local-JSON export branch before image materialization. A missing JSON fails that image and never falls back to OCR. Disable the toggle to use the legacy pipeline instead.
+When `cli.export_from_local_json` is enabled, `translate_batch()` enters the local-JSON export branch before image materialization. Missing JSON fails that image without OCR fallback. The toggle defaults off; when off, the legacy pipeline runs.
 
 ```mermaid
 flowchart LR
@@ -58,23 +58,23 @@ flowchart LR
 
 ### Project JSON boundary
 
-- Default local export reads the project JSON without writing `skip_font_scaling`, masks, model metadata, or any other field.
+- With the toggle on, local export reads project JSON without writing `skip_font_scaling`, masks, model metadata, or any other field.
 - User-edited `translation`, rich text, paint/stamp overlays, and unknown extension fields remain unchanged.
-- Only disabling `cli.export_from_local_json` lets the legacy pipeline regenerate and write runtime fields.
+- With the toggle off, the legacy pipeline can regenerate and write runtime fields.
 
 ### Concurrency and mutual exclusion
 
 - `batch_concurrent` remains incompatible; local JSON export itself processes entries without loading models.
 - GUI workflow flags remain mutually exclusive. `cli.export_from_local_json` is a separate toggle shared by both text-export workflows.
-- Only disabling the local-JSON toggle restores conditional colorization/upscaling, detection, OCR, and translation with their model/API costs.
+- With the toggle off, conditional colorization/upscaling, detection, OCR, and translation run with their model/API costs.
 
 ## Inputs, outputs, and limitations
 
 - Template dependency: an unparsable template prevents the translated sidecar; the project JSON remains unchanged.
-- Project JSON dependency: a missing or unreadable JSON fails that image and never falls back to OCR, avoiding accidental reconstruction and overwrite.
+- Project JSON dependency: only when the toggle is on; missing or unreadable JSON fails that image without OCR fallback, avoiding accidental reconstruction and overwrite.
 - `cli.overwrite=false`: the GUI skips images whose translated sidecar already exists.
-- `cli.save_text`: Export Translation does not depend on it; the default local export reads JSON without writing it.
-- Colorization, upscaling, detection, OCR, translation models, and APIs are used only when `cli.export_from_local_json` is disabled.
+- `cli.save_text`: Export Translation does not depend on it; with the toggle on, JSON is read without being written.
+- With the toggle off, the legacy flow uses colorization, upscaling, detection, OCR, translation models, and APIs.
 - The main output directory, `save_to_source_dir`, and `cli.format` affect only the main output image; this mode writes no main image, so those settings have no direct effect on this workflow's outputs.
 
 ## Read next {#related-pages}

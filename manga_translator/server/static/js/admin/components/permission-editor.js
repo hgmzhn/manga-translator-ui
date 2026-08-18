@@ -476,6 +476,7 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_overwrite', '覆盖已有文件'), this.createCheckbox('cli', 'overwrite'), '', 'cli', 'overwrite')}
                 ${this.createFormRow(this.t('label_skip_no_text', '跳过无文本图片'), this.createCheckbox('cli', 'skip_no_text'), '', 'cli', 'skip_no_text')}
                 ${this.createFormRow(this.t('label_save_text', '保存文本'), this.createCheckbox('cli', 'save_text'), '', 'cli', 'save_text')}
+                ${this.createFormRow(this.t('label_export_from_local_json', '仅从本地 JSON 导出文本'), this.createCheckbox('cli', 'export_from_local_json'), this.t('desc_cli_export_from_local_json', '导出翻译或原文时只读取本地工程 JSON，不执行检测、OCR、API 翻译或 JSON 回写'), 'cli', 'export_from_local_json')}
             </div>
             <div class="form-section">
                 <h3>${this.t('Processing Settings', '处理设置')}</h3>

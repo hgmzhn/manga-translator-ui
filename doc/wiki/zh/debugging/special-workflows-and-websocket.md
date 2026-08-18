@@ -35,8 +35,8 @@ lastUpdated: true
 | 流程模式（UI） | 跳过/改变阶段 | verbose 条件产物 |
 | --- | --- | --- |
 | 正常翻译流程 | 无 | 标准流水线全套：`input.png`、`mask_raw.png`、`bboxes*.png`、`ocrs/`、`mask_final.png`、`inpaint_input.png`、`inpainted.png`、渲染类调试图、`final.png` |
-| 导出原文 | 默认只读本地 JSON 并写原文副文件 | 无图片级调试图；不修改 JSON；关闭本地 JSON 开关后才产生旧流程检测/OCR调试图 |
-| 导出翻译 | 默认只读本地 JSON 并写译文副文件 | 无图片级调试图；不修改 JSON；关闭本地 JSON 开关后才产生旧流程检测/OCR/翻译调试图 |
+| 导出原文 | 默认沿用检测/OCR；开启本地 JSON 开关后只读 JSON | 默认可能产生检测/OCR调试图；开关开启后无图片级调试图且不修改 JSON |
+| 导出翻译 | 默认沿用检测/OCR/翻译；开启本地 JSON 开关后只读 JSON | 默认可能产生检测/OCR/翻译调试图；开关开启后无图片级调试图且不修改 JSON |
 | 仅翻译（JSON） | 跳过检测/OCR/渲染；只读写 JSON | 无图片级调试图；成功后回写 JSON 并删除 `imagename_original.txt` |
 | 导入翻译并渲染 | 跳过检测/OCR/翻译；直接渲染 | 通常只有渲染/修复类产物（`inpaint_input.png`、`mask_final.png`、`inpainted.png`、`final.png`）；缺少蒙版或开启导入 YOLO 框时才触发检测分支 |
 | 替换翻译 | 不走普通翻译；提取译文→匹配→修复→渲染 | `replace_debug_match.jpg`、`inpainted.png`、`debug_extracted_text.png` |
@@ -67,8 +67,8 @@ flowchart TD
 
 ### 导出类流程
 
-- “导出原文”和“导出翻译”默认在图片加载前只读本地工程 JSON，因此 verbose 也不产生 `input.png`、检测/OCR或渲染调试图；只生成相应文本副文件，JSON 保持不变。
-- 关闭“仅从本地 JSON 导出文本”后才恢复旧行为：导出原文执行检测/OCR，导出翻译还执行翻译；此时才可能生成检测/OCR调试图并写回 JSON。
+- “导出原文”和“导出翻译”默认沿用旧流程：前者执行检测/OCR，后者还执行翻译，因此可能生成检测/OCR调试图并写回 JSON。
+- 开启“仅从本地 JSON 导出文本”后，两个模式会在图片加载前只读本地工程 JSON；verbose 不产生 `input.png`、检测/OCR或渲染调试图，只生成相应文本副文件，JSON 保持不变。
 - “仅翻译（JSON）”从 JSON 读原文翻译后回写 JSON，成功后删除对应的 `imagename_original.txt`；该分支不进入逐图调试写入。
 - 模板格式由 `config/translation_template.json` 决定；文本副文件属于业务文件，不是调试产物。
 

@@ -411,7 +411,7 @@ class CliConfig(BaseModel):
     """Skip images with no text"""
     save_text: bool = False
     """Save extracted text"""
-    export_from_local_json: bool = True
+    export_from_local_json: bool = False
     """Export original/translated sidecars from existing local project JSON without processing images."""
     ignore_errors: bool = False
     """Ignore errors and continue processing"""

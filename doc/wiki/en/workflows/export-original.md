@@ -9,15 +9,15 @@ lastUpdated: true
 
 # Export Original Text
 
-Export Original Text now reads `regions[].text` from the existing local project JSON by default and writes only `<stem>_original.<template-format>`. It does not open the image, run detection/OCR, or write the project JSON back. Settings → Mode Specific → Text Export → “Export Text from Local JSON Only” controls this behavior; disable it to restore the legacy image detection/OCR and JSON-write flow.
+Export Original Text uses the legacy image detection/OCR and JSON-write flow by default. Enabling Settings → Mode Specific → Text Export → “Export Text from Local JSON Only” instead reads `regions[].text` from existing local project JSON and writes only `<stem>_original.<template-format>` without opening the image, running detection/OCR, or writing JSON back.
 
 See [Output Directory and Workflow](../desktop/translation/output-directory-and-workflow.md) for the nine-mode overview and [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md#cli-export-from-local-json) for this toggle and `cli.template`.
 
 ## When to use it {#feature-boundary}
 
-- Selecting Export Original Text (combo index `2`) sets `cli.template=true`; by default it also reads the existing project JSON and writes only the original-text sidecar.
-- Default inputs are the matching project JSON and a readable template. The image path only locates JSON and is not decoded. No main image is written and JSON is not modified.
-- Disable `cli.export_from_local_json` to enter the legacy flow, which requires `cli.save_text=true` and runs detection, OCR, mask processing, and JSON write-back.
+- Selecting Export Original Text (combo index `2`) sets `cli.template=true`; by default it detects/OCRs the main image and writes the original-text sidecar.
+- With the toggle on, inputs become the matching project JSON and a readable template. The image path only locates JSON and is not decoded; no main image is written and JSON is unchanged.
+- With the toggle off, the legacy flow remains active; it requires `cli.save_text=true` and runs detection, OCR, mask processing, and JSON write-back.
 
 ## Run this workflow {#ui-operations}
 
@@ -31,7 +31,7 @@ See [Output Directory and Workflow](../desktop/translation/output-directory-and-
 
 ## Processing order {#runtime-behavior}
 
-With `cli.export_from_local_json` enabled by default, `translate_batch()` reads local JSON before image materialization. A missing JSON fails that image and never falls back to OCR. Disable the toggle to enter the legacy `template + save_text` branch.
+When `cli.export_from_local_json` is enabled, `translate_batch()` reads local JSON before image materialization. Missing JSON fails that image without OCR fallback. The toggle defaults off; when off, the legacy `template + save_text` branch runs.
 
 ```mermaid
 flowchart LR
@@ -51,30 +51,30 @@ flowchart LR
 
 ### Skipped and kept stages {#skipped-and-kept-stages}
 
-- Default skips: image loading, colorization, upscaling, detection, OCR, translation, mask processing, inpainting, rendering, main-image saving, and JSON write-back.
-- Default kept work: read `regions[].text` from existing JSON and render the original sidecar through the template. `<translated>` may still use the JSON's existing `translation` value.
-- Disabling the local-JSON toggle restores conditional colorization/upscaling, detection, OCR, mask refinement, and JSON writing; it still does not call a translation service.
+- With the toggle on, image loading, colorization, upscaling, detection, OCR, translation, mask processing, inpainting, rendering, main-image saving, and JSON write-back are skipped.
+- With the toggle on, `regions[].text` is read from existing JSON and rendered through the template. `<translated>` may still use the JSON's existing `translation` value.
+- With the toggle off, the legacy flow runs conditional colorization/upscaling, detection, OCR, mask refinement, and JSON writing; it still does not call a translation service.
 
 ### Project JSON details {#mask-and-json-details}
 
-- Default local export opens the project JSON read-only. Its bytes remain unchanged, including mask, font size, translations, and editor fields.
+- With the toggle on, project JSON is opened read-only and its bytes remain unchanged, including mask, font size, translations, and editor fields.
 - `generate_original_text()` exports non-empty source text through the template and removes `[BR]`; no regions produce the template's empty output.
 
 ### Output files {#output-files}
 
 | Output | Path | Notes |
 | --- | --- | --- |
-| Project JSON | `manga_translator_work/json/<stem>_translations.json` | Must already exist; read-only and unchanged by default |
-| Original-text template | `manga_translator_work/originals/<stem>_original.<template-format>` | The only file written by default; extension comes from template `output_format` |
-| Main output image | not written | The image is not opened or rendered |
-| Editor base image | not written | Default local JSON export does not colorize or upscale |
+| Project JSON | `manga_translator_work/json/<stem>_translations.json` | Required, read-only, and unchanged when the toggle is on |
+| Original-text template | `manga_translator_work/originals/<stem>_original.<template-format>` | Written by both paths; extension comes from template `output_format` |
+| Main output image | not written | Export mode does not render a main image |
+| Editor base image | conditional | Only the legacy path with the toggle off may colorize or upscale |
 
 ## Inputs, outputs, and limitations {#dependencies-and-conflicts}
 
-- Defaults require an existing project JSON and readable template. Missing JSON fails explicitly without OCR fallback; `batch_concurrent` remains incompatible.
+- With the toggle on, an existing project JSON and readable template are required. Missing JSON fails without OCR fallback; `batch_concurrent` remains incompatible.
 - With `cli.overwrite=false`, an existing original sidecar is skipped before processing.
-- `cli.save_text` remains part of the Export Original Text workflow flag combination; default local export never saves or overwrites JSON.
-- Disable `cli.export_from_local_json` to restore the legacy flow and its detection, OCR, colorization/upscaling, and `save_text` write behavior.
+- `cli.save_text` remains part of the Export Original Text workflow flag combination; with the toggle on, JSON is never saved or overwritten.
+- With the toggle off, the legacy flow and its detection, OCR, colorization/upscaling, and `save_text` write behavior remain active.
 
 ## Read next {#related-pages}
 
