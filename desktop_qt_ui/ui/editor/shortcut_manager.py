@@ -224,6 +224,14 @@ class EditorShortcutManager(ShortcutManager):
             "next_image", QKeySequence("D"), self._handle_next_image, context_aware=True
         )
 
+        # 切换选中文本框的排版方向 (V)
+        self.register_shortcut(
+            "toggle_text_direction",
+            QKeySequence("V"),
+            self._handle_toggle_text_direction,
+            context_aware=True,
+        )
+
     def _handle_undo(self, focused_widget):
         """处理撤销快捷键"""
         if self.is_text_widget(focused_widget):
@@ -393,6 +401,40 @@ class EditorShortcutManager(ShortcutManager):
         """处理印章页快捷键 (3)。"""
         self._handle_image_edit_tab(
             focused_widget, 2, Qt.Key.Key_3, "3", "image_edit_tab_stamp"
+        )
+
+    def _handle_toggle_text_direction(self, focused_widget):
+        """按 V 在横排与竖排之间切换选中文本框。"""
+        if self.is_text_widget(focused_widget):
+            self._forward_key_to_widget(
+                focused_widget, Qt.Key.Key_V, "v", "toggle_text_direction"
+            )
+            return
+
+        selected_regions = self.editor_view.model.get_selection()
+        if not selected_regions:
+            return
+
+        regions = self.editor_view.model.get_regions()
+        anchor_index = selected_regions[-1]
+        if not 0 <= anchor_index < len(regions):
+            return
+
+        anchor_region = regions[anchor_index]
+        direction = str(anchor_region.get("direction", "")).strip().lower()
+        if direction in ("v", "vertical"):
+            is_vertical = True
+        elif direction in ("h", "horizontal"):
+            is_vertical = False
+        else:
+            white_frame = self.editor_view.property_panel._calculate_white_frame_info(
+                anchor_region
+            )
+            is_vertical = bool(white_frame and white_frame[3] > white_frame[2])
+
+        next_direction = "horizontal" if is_vertical else "vertical"
+        self.controller.update_region_style_patch(
+            selected_regions, {"direction": next_direction}
         )
 
     def _handle_prev_image(self, focused_widget):
