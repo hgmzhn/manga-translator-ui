@@ -98,6 +98,11 @@ STYLE_SPECS: dict[str, StyleSpec] = {
     "XY": StyleSpec(
         "Offset", "X / Y Offset", {"transform": {"offsetX": 0.0, "offsetY": 0.0}}
     ),
+    "WH": StyleSpec(
+        "Stretch",
+        "Width / Height Stretch",
+        {"transform": {"scaleX": 1.2, "scaleY": 1.2}},
+    ),
     "M": StyleSpec(
         "Mirror Horizontal", "Mirror Horizontal", {"transform": {"mirrorX": True}}
     ),
@@ -491,6 +496,7 @@ def style_keys_for_segment(
         "LK": "lineKerning" in style,
         "NK": "nextKerning" in style,
         "XY": "offsetX" in transform or "offsetY" in transform,
+        "WH": "scaleX" in transform or "scaleY" in transform,
         "M": bool(transform.get("mirrorX")),
         "MV": bool(transform.get("mirrorY")),
     }
@@ -953,6 +959,38 @@ class StyleRunCard(SimpleCardWidget):
                 y_control.setValue,
             )
             return self._pair(x_control, y_control, "X", "Y")
+        if key == "WH":
+            width_control = _double_spin_box(transform.get("scaleX", 1.0), 0.1, 10.0, 2)
+            height_control = _double_spin_box(
+                transform.get("scaleY", 1.0), 0.1, 10.0, 2
+            )
+            width_control.setSymbolVisible(False)
+            height_control.setSymbolVisible(False)
+            width_control.valueChanged.connect(
+                lambda value: self._emit_patch(
+                    key, {"transform": {"scaleX": float(value)}}
+                )
+            )
+            height_control.valueChanged.connect(
+                lambda value: self._emit_patch(
+                    key, {"transform": {"scaleY": float(value)}}
+                )
+            )
+            self._register_applier(
+                key,
+                width_control,
+                lambda s, t, *_: float(t.get("scaleX", 1.0)),
+                width_control.setValue,
+            )
+            self._register_applier(
+                key,
+                height_control,
+                lambda s, t, *_: float(t.get("scaleY", 1.0)),
+                height_control.setValue,
+            )
+            return self._pair(
+                width_control, height_control, _tr("Width"), _tr("Height")
+            )
         return None
 
     def _color_picker(

@@ -37,7 +37,7 @@ Use this page when a rule must do more than change text: it also adjusts font si
 
 ### Style summary and filtering {#style-summary}
 
-- The “Rich Text Style” column button shows an abbreviation summary of the set fields: `B` bold, `I` italic, `U` underline, `ST` strikethrough, `C` color, `%` scale, `S` font size, `F` font family, `O` stroke, `OS` outer stroke, `G` glow, `D` emphasis, `FA` force advance, `K` kerning, `PK` pre kerning, `LK` line kerning, `NK` next kerning, `XY/Rot` transform, `R` ruby, `T` TCY.
+- The “Rich Text Style” column button shows an abbreviation summary of the set fields: `B` bold, `I` italic, `U` underline, `ST` strikethrough, `C` color, `%` scale, `WH` width/height stretch, `S` font size, `F` font family, `O` stroke, `OS` outer stroke, `G` glow, `D` emphasis, `FA` force advance, `K` kerning, `PK` pre kerning, `LK` line kerning, `NK` next kerning, `XY/Rot` other transforms, `R` ruby, `T` TCY.
 - The filter box “Type to filter by pattern / style / comment...” also matches the style JSON, so you can locate rules by typing a color value or a font size.
 
 ## Style fields {#style-fields}
@@ -85,6 +85,10 @@ Set an absolute font size for matched text; matched regions get a second measure
 #### Scale {#field-scale}
 
 Scale matched text relative to the region font size; this is a different dimension from the absolute Font Size.
+
+#### Width and Height Stretch {#field-stretch}
+
+Set independent width and height factors for matched text. `1.00` preserves the original dimension, values above `1.00` stretch it, and values below `1.00` compress it. This changes the glyph appearance without changing the font size or text advance; vector outlines are transformed before rasterization, so no existing bitmap is rescaled.
 
 #### Force Advance {#field-vertical-advance}
 

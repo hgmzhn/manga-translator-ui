@@ -78,7 +78,7 @@
 - `style` 字段只认 camelCase 协议名，例如 `fontSize`、`fontFamily`、`outerStroke`、`noTcy`、`verticalAdvance`、`preKerning`、`lineKerning`、`nextKerning`。
 - `italic` 接受布尔或数字：数字是切变角度（度，正值向右倾）；`true` 是旧值，渲染时按默认 10°（Photoshop 仿斜体实测角度）处理；`0` 归一为无斜体。
 - `verticalAdvance` 只接受 `half` 或 `full`，仅作用于竖排。它把当前实际字号对应的推进强制为半格或全角，覆盖标点、旋转、省略号和字体自带推进规则；字形只按真实墨迹居中，溢出只扩绘制包络，不扩大推进量。
-- `transform` 字段只认 `offsetX`、`offsetY`、`rotation`、`mirrorX`、`mirrorY`；偏移值是当前实际字号的百分比，像素偏移 = `offset / 100 × fontSize`。
+- `transform` 字段只认 `offsetX`、`offsetY`、`rotation`、`mirrorX`、`mirrorY`、`scaleX`、`scaleY`；偏移值是当前实际字号的百分比，像素偏移 = `offset / 100 × fontSize`。`scaleX`/`scaleY` 是有限且大于 0 的宽度/高度倍率，`1.0` 为原尺寸；它们在字形矢量轮廓上执行，再统一光栅化，不对已有位图做二次拉伸。
 - `source`、`document`、`font_size`、`fontFamily`、`outer_stroke` 这类非协议字段会直接报错。
 
 唯一保留的旧输入兼容是普通字符串里的强制换行标记：`[BR]`、`【BR】`、`<br>` 和真实换行。它们不会在翻译赋值或布局前提前转换，而是在替换、断句、去换行标点等字符串处理结束后，由 `sync_translation_raw_from_layout()` 统一收口成多个 `paragraph` block。
@@ -185,7 +185,7 @@ string
 - 斜体：`italic` 布尔（默认 10°）或数字角度，Photoshop 对齐语义——绕字形
   基线剪切、不改 advance（墨迹可溢出到邻位，包络只扩不推挤）；竖排横躺
   字符等价于在字形坐标系先绕基线剪切再旋转（图像系为 y 向剪切）。
-- 局部旋转、镜像、`transform` 偏移，均计入渲染框包络；`offsetX/offsetY` 的 `100` 等于移动一个当前实际字号。
+- 局部旋转、镜像、宽高拉伸、`transform` 偏移，均计入渲染框包络；`offsetX/offsetY` 的 `100` 等于移动一个当前实际字号。`scaleX`/`scaleY` 以墨迹框中心为锚点，只改变外观包络，不改变文字推进距离。
 - 竖排强制推进：`verticalAdvance: half/full` 覆盖字符原有推进规则，真实墨迹在固定槽位内居中，前后字距仍照常叠加。
 - 着重号。
 - 从 `richtext.v1` 直接横排和竖排渲染。

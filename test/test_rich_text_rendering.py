@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -9,10 +10,6 @@ from manga_translator.rendering.rich_text import (
     ensure_rich_text_document,
     legacy_line_breaks_to_document,
 )
-from manga_translator.rendering.text_replacement_layout import (
-    ReplacementLayoutRecord,
-    sync_translation_raw_from_layout,
-)
 from manga_translator.rendering.text_render._layout import (
     CJK_Compatibility_Forms_translate,
     _build_tcy_plan,
@@ -20,6 +17,10 @@ from manga_translator.rendering.text_render._layout import (
     _vertical_free_rotation_advance,
 )
 from manga_translator.rendering.text_render._vertical_types import VerticalGlyphBase
+from manga_translator.rendering.text_replacement_layout import (
+    ReplacementLayoutRecord,
+    sync_translation_raw_from_layout,
+)
 from manga_translator.utils import TextBlock
 
 
@@ -63,15 +64,14 @@ class RichTextRenderingTest(unittest.TestCase):
     def test_vertical_auto_rotation_character_policy(self):
         # 引擎特殊路径只旋转四个弯引号+四个日文角引号（见 _VERTICAL_ROTATE_CHARS）；
         # 其余字符（含（）【】）不在渲染层旋转，普通自动旋转已移到 rich_text_rules.yaml。
-        for char in 'AaZz019,.:;?!-~()"\'ー⸺–—～﹏…⋯●•（）【】︱︲':
+        for char in "AaZz019,.:;?!-~()\"'ー⸺–—～﹏…⋯●•（）【】︱︲":
             self.assertEqual(CJK_Compatibility_Forms_translate(char, 1)[1], 0, char)
-        for char in '“‘”’「『」』':
+        for char in "“‘”’「『」』":
             self.assertEqual(CJK_Compatibility_Forms_translate(char, 1)[1], 90, char)
-
 
     def test_free_rotation_advance_projects_between_axes(self):
         base = VerticalGlyphBase(
-            translated='字',
+            translated="字",
             rot_degree=0,
             bitmap=None,
             advance_y=40,
@@ -95,11 +95,13 @@ class RichTextRenderingTest(unittest.TestCase):
     def setUp(self):
         # Rendering mutates thread-local font state per region.  Reset for every
         # test so font-specific geometry assertions are order independent.
-        text_render.set_font('Arial-Unicode-Regular.ttf')
+        text_render.set_font("Arial-Unicode-Regular.ttf")
         text_render.set_bold(False)
 
     def test_legacy_break_markers_become_paragraph_blocks(self):
-        document = legacy_line_breaks_to_document("红[BR]蓝<br>绿【BR】紫\n黑").to_dict()
+        document = legacy_line_breaks_to_document(
+            "红[BR]蓝<br>绿【BR】紫\n黑"
+        ).to_dict()
 
         self.assertEqual(document["format"], RICH_TEXT_FORMAT)
         self.assertEqual(
@@ -187,9 +189,11 @@ class RichTextRenderingTest(unittest.TestCase):
     def test_vertical_advance_forces_slot_and_ink_center(self):
         import cv2
 
-        document = ensure_rich_text_document(self._single_span_document(
-            "字", {"verticalAdvance": "half", "transform": {"rotation": 45}}
-        ))
+        document = ensure_rich_text_document(
+            self._single_span_document(
+                "字", {"verticalAdvance": "half", "transform": {"rotation": 45}}
+            )
+        )
         span = document.blocks[0].spans[0]
         self.assertEqual(span.style.vertical_advance, "half")
         self.assertEqual(
@@ -203,8 +207,12 @@ class RichTextRenderingTest(unittest.TestCase):
             )
 
         for char in "字。︙“":
-            self.assertEqual(text_render._vertical_base(32, char, 1.0, 0.0, "half").advance_y, 16)
-        self.assertEqual(text_render._vertical_base(32, "字", 1.0, 0.0, "full").advance_y, 32)
+            self.assertEqual(
+                text_render._vertical_base(32, char, 1.0, 0.0, "half").advance_y, 16
+            )
+        self.assertEqual(
+            text_render._vertical_base(32, "字", 1.0, 0.0, "full").advance_y, 32
+        )
 
         half = text_render._vertical_base(32, "字", 1.0, 0.0, "half")
         _x, ink_y, _width, ink_height = cv2.boundingRect(cv2.findNonZero(half.bitmap))
@@ -216,7 +224,9 @@ class RichTextRenderingTest(unittest.TestCase):
 
         punctuation = VerticalGlyphBase("。", 0, None, 32, 2, 8, 0, 20, 1, 32)
         self.assertEqual(
-            text_render._vertical_char_bitmap_x(0.0, 32.0, punctuation, ink_center=True),
+            text_render._vertical_char_bitmap_x(
+                0.0, 32.0, punctuation, ink_center=True
+            ),
             10.0,
         )
 
@@ -278,10 +288,12 @@ class RichTextRenderingTest(unittest.TestCase):
             max_width=9999,
             max_height=9999,
         )
-        vertical_lines, vertical_heights, vertical_widths = text_render.calc_vertical_metrics(
-            32,
-            document,
-            max_height=9999,
+        vertical_lines, vertical_heights, vertical_widths = (
+            text_render.calc_vertical_metrics(
+                32,
+                document,
+                max_height=9999,
+            )
         )
 
         self.assertEqual(len(horizontal_lines), 2)
@@ -324,7 +336,9 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertGreater(int(vertical[:, :, 3].max()), 0)
 
     def test_vertical_column_keeps_thickness_separate_from_annotations(self):
-        from manga_translator.rendering.text_render._vertical_types import VerticalColumnPlan
+        from manga_translator.rendering.text_render._vertical_types import (
+            VerticalColumnPlan,
+        )
 
         document = ensure_rich_text_document(
             {
@@ -336,7 +350,13 @@ class RichTextRenderingTest(unittest.TestCase):
                             {"type": "text", "text": "前", "style": {}},
                             {
                                 "type": "ruby",
-                                "base": [{"type": "text", "text": "中", "style": {"emphasis": True}}],
+                                "base": [
+                                    {
+                                        "type": "text",
+                                        "text": "中",
+                                        "style": {"emphasis": True},
+                                    }
+                                ],
                                 "text": [{"type": "text", "text": "なか", "style": {}}],
                             },
                             {"type": "text", "text": "後", "style": {}},
@@ -395,17 +415,27 @@ class RichTextRenderingTest(unittest.TestCase):
             }
         )
 
-        plain_layout = text_render._build_rich_vertical_layout(plain, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0)[0]
-        bold_layout = text_render._build_rich_vertical_layout(bold, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0)[0]
-        plain_geometry = text_render._rich_vertical_layout_geometry([plain_layout], 32, 1.0)
-        bold_geometry = text_render._rich_vertical_layout_geometry([bold_layout], 32, 1.0)
+        plain_layout = text_render._build_rich_vertical_layout(
+            plain, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0
+        )[0]
+        bold_layout = text_render._build_rich_vertical_layout(
+            bold, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0
+        )[0]
+        plain_geometry = text_render._rich_vertical_layout_geometry(
+            [plain_layout], 32, 1.0
+        )
+        bold_geometry = text_render._rich_vertical_layout_geometry(
+            [bold_layout], 32, 1.0
+        )
 
         self.assertEqual(bold_layout.thickness, plain_layout.thickness)
         self.assertEqual(bold_geometry["layout_width"], plain_geometry["layout_width"])
         self.assertGreater(bold_geometry["paint_width"], plain_geometry["paint_width"])
 
     def test_vertical_upright_character_centers_by_advance_not_ink(self):
-        from manga_translator.rendering.text_render._vertical_types import VerticalGlyphBase
+        from manga_translator.rendering.text_render._vertical_types import (
+            VerticalGlyphBase,
+        )
 
         base = VerticalGlyphBase("字", 0, None, 32, 2, 8, 0, 20, 3, 32)
 
@@ -417,7 +447,9 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertNotEqual(x, 10.0)
 
     def test_vertical_question_mark_centers_by_punctuation_ink(self):
-        from manga_translator.rendering.text_render._vertical_types import VerticalGlyphBase
+        from manga_translator.rendering.text_render._vertical_types import (
+            VerticalGlyphBase,
+        )
 
         base = VerticalGlyphBase("？", 0, None, 32, 2, 8, 0, 20, 1, 32)
 
@@ -470,7 +502,9 @@ class RichTextRenderingTest(unittest.TestCase):
                             {"type": "text", "text": "年", "style": {}},
                             {
                                 "type": "tcy",
-                                "content": [{"type": "text", "text": "2026", "style": {}}],
+                                "content": [
+                                    {"type": "text", "text": "2026", "style": {}}
+                                ],
                             },
                             {"type": "text", "text": "版", "style": {}},
                         ],
@@ -483,11 +517,21 @@ class RichTextRenderingTest(unittest.TestCase):
             }
         )
 
-        plain_layouts = text_render._build_rich_vertical_layout(plain, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0)
-        large_layouts = text_render._build_rich_vertical_layout(large, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0)
-        tcy_layouts = text_render._build_rich_vertical_layout(tcy, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0)
-        plain_geometry = text_render._rich_vertical_layout_geometry(plain_layouts, 32, 1.0)
-        large_geometry = text_render._rich_vertical_layout_geometry(large_layouts, 32, 1.0)
+        plain_layouts = text_render._build_rich_vertical_layout(
+            plain, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0
+        )
+        large_layouts = text_render._build_rich_vertical_layout(
+            large, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0
+        )
+        tcy_layouts = text_render._build_rich_vertical_layout(
+            tcy, 32, 0.07, (255, 255, 255), (0, 0, 0), 1.0
+        )
+        plain_geometry = text_render._rich_vertical_layout_geometry(
+            plain_layouts, 32, 1.0
+        )
+        large_geometry = text_render._rich_vertical_layout_geometry(
+            large_layouts, 32, 1.0
+        )
         tcy_geometry = text_render._rich_vertical_layout_geometry(tcy_layouts, 32, 1.0)
 
         self.assertTrue(all(layout.thickness == 32 for layout in large_layouts))
@@ -498,8 +542,12 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertGreater(large_geometry["paint_width"], plain_geometry["paint_width"])
         self.assertGreater(tcy_geometry["paint_width"], plain_geometry["paint_width"])
 
-        columns = text_render._rich_vertical_column_positions(large_layouts, large_geometry)
-        self.assertAlmostEqual(columns[0][2] - columns[1][2], 32 + large_geometry["spacing_x"])
+        columns = text_render._rich_vertical_column_positions(
+            large_layouts, large_geometry
+        )
+        self.assertAlmostEqual(
+            columns[0][2] - columns[1][2], 32 + large_geometry["spacing_x"]
+        )
 
     def test_rich_text_ruby_expands_measured_box(self):
         plain = {
@@ -527,9 +575,13 @@ class RichTextRenderingTest(unittest.TestCase):
             ],
         }
 
-        plain_v_w, plain_v_h, _, _ = calc_box_from_font(32, plain, False, line_spacing=1.0)
+        plain_v_w, plain_v_h, _, _ = calc_box_from_font(
+            32, plain, False, line_spacing=1.0
+        )
         ruby_v_w, ruby_v_h, _, _ = calc_box_from_font(32, ruby, False, line_spacing=1.0)
-        plain_h_w, plain_h_h, _, _ = calc_box_from_font(32, plain, True, line_spacing=1.0)
+        plain_h_w, plain_h_h, _, _ = calc_box_from_font(
+            32, plain, True, line_spacing=1.0
+        )
         ruby_h_w, ruby_h_h, _, _ = calc_box_from_font(32, ruby, True, line_spacing=1.0)
 
         self.assertGreater(ruby_v_w, plain_v_w)
@@ -599,19 +651,27 @@ class RichTextRenderingTest(unittest.TestCase):
         }
 
         # 纯文本：正文中心 == 渲染框正中心
-        plain_w, plain_h, _, plain_body = calc_box_from_font(32, plain, False, line_spacing=1.0)
+        plain_w, plain_h, _, plain_body = calc_box_from_font(
+            32, plain, False, line_spacing=1.0
+        )
         self.assertAlmostEqual(plain_body[0], plain_w / 2.0, places=3)
         self.assertAlmostEqual(plain_body[1], plain_h / 2.0, places=3)
 
         # 紧凑框：注音只向右侧扩张，正文中心位于渲染框中心左侧
-        ruby_w, ruby_h, _, ruby_body = calc_box_from_font(32, ruby, False, line_spacing=1.0)
+        ruby_w, ruby_h, _, ruby_body = calc_box_from_font(
+            32, ruby, False, line_spacing=1.0
+        )
         self.assertLess(ruby_body[0], ruby_w / 2.0)
         self.assertAlmostEqual(ruby_body[1], ruby_h / 2.0, places=3)
 
         # 调用方按正文锚定平移整框后（正文中心对齐同一锚点 (0,0)）：
         # 正文列左边缘与纯文本重合，注音空间全部扩在右侧。
-        plain_points, plain_body_world = calc_box_from_font(32, plain, False, line_spacing=1.0, center=(0, 0))
-        ruby_points, ruby_body_world = calc_box_from_font(32, ruby, False, line_spacing=1.0, center=(0, 0))
+        plain_points, plain_body_world = calc_box_from_font(
+            32, plain, False, line_spacing=1.0, center=(0, 0)
+        )
+        ruby_points, ruby_body_world = calc_box_from_font(
+            32, ruby, False, line_spacing=1.0, center=(0, 0)
+        )
         self.assertAlmostEqual(plain_body_world[0], 0.0, places=3)
         self.assertAlmostEqual(plain_body_world[1], 0.0, places=3)
 
@@ -643,18 +703,24 @@ class RichTextRenderingTest(unittest.TestCase):
             "blocks": [
                 {
                     "type": "paragraph",
-                    "inlines": [{"type": "text", "text": "着重", "style": {"emphasis": True}}],
+                    "inlines": [
+                        {"type": "text", "text": "着重", "style": {"emphasis": True}}
+                    ],
                 }
             ],
         }
 
         # 首行注音占据框顶部 → 正文中心低于框正中心
-        ruby_w, ruby_h, _, ruby_body = calc_box_from_font(32, ruby, True, line_spacing=1.0)
+        ruby_w, ruby_h, _, ruby_body = calc_box_from_font(
+            32, ruby, True, line_spacing=1.0
+        )
         self.assertAlmostEqual(ruby_body[0], ruby_w / 2.0, places=3)
         self.assertGreater(ruby_body[1], ruby_h / 2.0)
 
         # 末行着重号占据框底部 → 正文中心高于框正中心
-        emp_w, emp_h, _, emp_body = calc_box_from_font(32, emphasis, True, line_spacing=1.0)
+        emp_w, emp_h, _, emp_body = calc_box_from_font(
+            32, emphasis, True, line_spacing=1.0
+        )
         self.assertAlmostEqual(emp_body[0], emp_w / 2.0, places=3)
         self.assertLess(emp_body[1], emp_h / 2.0)
 
@@ -702,7 +768,11 @@ class RichTextRenderingTest(unittest.TestCase):
                             "style": {
                                 "bold": True,
                                 "italic": True,
-                                "transform": {"rotation": 18, "mirrorX": True, "offsetX": 12},
+                                "transform": {
+                                    "rotation": 18,
+                                    "mirrorX": True,
+                                    "offsetX": 12,
+                                },
                             },
                         },
                         {"type": "text", "text": "字", "style": {}},
@@ -733,7 +803,9 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertIsNotNone(plain_render)
         self.assertIsNotNone(styled_render)
         self.assertNotEqual(plain_render.shape, styled_render.shape)
-        self.assertGreater(int(styled_render[:, :, 3].sum()), int(plain_render[:, :, 3].sum()))
+        self.assertGreater(
+            int(styled_render[:, :, 3].sum()), int(plain_render[:, :, 3].sum())
+        )
 
     def test_bold_is_applied_before_stroke_colorization(self):
         normal = text_render._line_surface("太", 48, 3, 0.07, False, 1.0, False)
@@ -744,7 +816,9 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertGreater(int(bold["text"].sum()), int(normal["text"].sum()))
         self.assertTrue(np.all(bold["border"] >= bold["text"]))
 
-        layer = text_render.add_color(bold["text"], (0, 0, 0), bold["border"], (255, 255, 255))
+        layer = text_render.add_color(
+            bold["text"], (0, 0, 0), bold["border"], (255, 255, 255)
+        )
         body_pixels = layer[bold["text"] >= 240]
         self.assertGreater(len(body_pixels), 0)
         self.assertLess(int(body_pixels[:, :3].max()), 16)
@@ -803,27 +877,47 @@ class RichTextRenderingTest(unittest.TestCase):
             return {
                 "format": RICH_TEXT_FORMAT,
                 "blocks": [
-                    {"type": "paragraph", "inlines": [{"type": "text", "text": "あいう", "style": {}}]},
+                    {
+                        "type": "paragraph",
+                        "inlines": [{"type": "text", "text": "あいう", "style": {}}],
+                    },
                     {"type": "paragraph", "inlines": middle_inlines},
-                    {"type": "paragraph", "inlines": [{"type": "text", "text": "さしす", "style": {}}]},
+                    {
+                        "type": "paragraph",
+                        "inlines": [{"type": "text", "text": "さしす", "style": {}}],
+                    },
                 ],
             }
 
         plain = _doc([{"type": "text", "text": "かきく", "style": {}}])
-        italic = _doc([
-            {"type": "text", "text": "か", "style": {}},
-            {"type": "text", "text": "き", "style": {"italic": True}},
-            {"type": "text", "text": "く", "style": {}},
-        ])
-        stroke = _doc([
-            {"type": "text", "text": "か", "style": {}},
-            {"type": "text", "text": "き", "style": {"stroke": {"color": "#ff0000", "width": 0.6}}},
-            {"type": "text", "text": "く", "style": {}},
-        ])
+        italic = _doc(
+            [
+                {"type": "text", "text": "か", "style": {}},
+                {"type": "text", "text": "き", "style": {"italic": True}},
+                {"type": "text", "text": "く", "style": {}},
+            ]
+        )
+        stroke = _doc(
+            [
+                {"type": "text", "text": "か", "style": {}},
+                {
+                    "type": "text",
+                    "text": "き",
+                    "style": {"stroke": {"color": "#ff0000", "width": 0.6}},
+                },
+                {"type": "text", "text": "く", "style": {}},
+            ]
+        )
 
-        plain_m = text_render.measure_rich_text_metrics(48, plain, False, 1.0, stroke_width=0.0)
-        italic_m = text_render.measure_rich_text_metrics(48, italic, False, 1.0, stroke_width=0.0)
-        stroke_m = text_render.measure_rich_text_metrics(48, stroke, False, 1.0, stroke_width=0.0)
+        plain_m = text_render.measure_rich_text_metrics(
+            48, plain, False, 1.0, stroke_width=0.0
+        )
+        italic_m = text_render.measure_rich_text_metrics(
+            48, italic, False, 1.0, stroke_width=0.0
+        )
+        stroke_m = text_render.measure_rich_text_metrics(
+            48, stroke, False, 1.0, stroke_width=0.0
+        )
         self.assertEqual(italic_m["width"], plain_m["width"])
         self.assertEqual(stroke_m["width"], plain_m["width"])
 
@@ -848,16 +942,31 @@ class RichTextRenderingTest(unittest.TestCase):
                         "type": "paragraph",
                         "inlines": [
                             {"type": "text", "text": "第", "style": {}},
-                            {"type": "tcy", "content": [{"type": "text", "text": digits, "style": digit_style or {}}]},
+                            {
+                                "type": "tcy",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": digits,
+                                        "style": digit_style or {},
+                                    }
+                                ],
+                            },
                             {"type": "text", "text": "话", "style": {}},
                         ],
                     }
                 ],
             }
 
-        short_m = text_render.measure_rich_text_metrics(48, _doc("12"), False, 1.0, stroke_width=0.0)
-        four_m = text_render.measure_rich_text_metrics(48, _doc("1234"), False, 1.0, stroke_width=0.0)
-        five_m = text_render.measure_rich_text_metrics(48, _doc("12345"), False, 1.0, stroke_width=0.0)
+        short_m = text_render.measure_rich_text_metrics(
+            48, _doc("12"), False, 1.0, stroke_width=0.0
+        )
+        four_m = text_render.measure_rich_text_metrics(
+            48, _doc("1234"), False, 1.0, stroke_width=0.0
+        )
+        five_m = text_render.measure_rich_text_metrics(
+            48, _doc("12345"), False, 1.0, stroke_width=0.0
+        )
         cap = int(48 * 1.1) + 3  # 压缩上限 + ceil/居中取整余量
         self.assertLessEqual(four_m["width"], cap)
         self.assertEqual(four_m["width"], five_m["width"])  # 超限后一律压到同一上限
@@ -865,7 +974,9 @@ class RichTextRenderingTest(unittest.TestCase):
 
         # 压缩系数进入测量与渲染同一计划：斜体+全局描边下输出面 == 测量框
         styled = _doc("2024", {"italic": True})
-        styled_m = text_render.measure_rich_text_metrics(48, styled, False, 1.0, stroke_width=0.07)
+        styled_m = text_render.measure_rich_text_metrics(
+            48, styled, False, 1.0, stroke_width=0.07
+        )
         surface = text_render.put_text_vertical(
             48, styled, 400, "left", (0, 0, 0), (255, 255, 255), 1.0, stroke_width=0.07
         )
@@ -873,7 +984,6 @@ class RichTextRenderingTest(unittest.TestCase):
             (surface.shape[1], surface.shape[0]),
             (styled_m["width"], styled_m["height"]),
         )
-
 
     def test_add_color_keeps_text_alpha_when_border_layer_is_blank(self):
         # F05 回归：描边色非 None 而描边层全零时，输出 alpha 必须仍含正文
@@ -917,18 +1027,34 @@ class RichTextRenderingTest(unittest.TestCase):
         }
 
         base_render = text_render.put_text_horizontal(
-            32, base_document, 200, 100, "left", False,
-            (255, 255, 255), (0, 0, 0), line_spacing=1.0,
+            32,
+            base_document,
+            200,
+            100,
+            "left",
+            False,
+            (255, 255, 255),
+            (0, 0, 0),
+            line_spacing=1.0,
         )
         ruby_render = text_render.put_text_horizontal(
-            32, ruby_document, 200, 100, "left", False,
-            (255, 255, 255), (0, 0, 0), line_spacing=1.0,
+            32,
+            ruby_document,
+            200,
+            100,
+            "left",
+            False,
+            (255, 255, 255),
+            (0, 0, 0),
+            line_spacing=1.0,
         )
 
         self.assertIsNotNone(base_render)
         self.assertIsNotNone(ruby_render)
         # 注音层有墨：整体墨量大于无注音渲染，且裁剪框因注音行而更高
-        self.assertGreater(int(ruby_render[:, :, 3].sum()), int(base_render[:, :, 3].sum()))
+        self.assertGreater(
+            int(ruby_render[:, :, 3].sum()), int(base_render[:, :, 3].sum())
+        )
         self.assertGreater(ruby_render.shape[0], base_render.shape[0])
 
     def test_vertical_ruby_is_drawn_once_for_the_complete_base_span(self):
@@ -1007,7 +1133,10 @@ class RichTextRenderingTest(unittest.TestCase):
             self.assertAlmostEqual(actual, expected, places=4)
 
     def test_ruby_plan_uses_the_same_slot_contract_for_both_axes(self):
-        from manga_translator.rendering.text_render._plans import FlowAxis, plan_ruby_glyphs
+        from manga_translator.rendering.text_render._plans import (
+            FlowAxis,
+            plan_ruby_glyphs,
+        )
 
         horizontal = plan_ruby_glyphs("123", 0, 90, FlowAxis.HORIZONTAL)
         self.assertEqual(
@@ -1023,7 +1152,9 @@ class RichTextRenderingTest(unittest.TestCase):
             nominal_glyph_extent=20,
         )
         self.assertTrue(all(glyph.main_scale < 1.0 for glyph in vertical))
-        paint_start = min(glyph.main_center - 10 * glyph.main_scale for glyph in vertical)
+        paint_start = min(
+            glyph.main_center - 10 * glyph.main_scale for glyph in vertical
+        )
         paint_end = max(glyph.main_center + 10 * glyph.main_scale for glyph in vertical)
         self.assertAlmostEqual(paint_end - paint_start, 72.0)
 
@@ -1046,8 +1177,15 @@ class RichTextRenderingTest(unittest.TestCase):
         }
 
         rendered = text_render.put_text_horizontal(
-            32, document, 200, 100, "left", False,
-            (255, 255, 255), (0, 0, 0), line_spacing=1.0,
+            32,
+            document,
+            200,
+            100,
+            "left",
+            False,
+            (255, 255, 255),
+            (0, 0, 0),
+            line_spacing=1.0,
         )
 
         self.assertIsNotNone(rendered)
@@ -1101,21 +1239,34 @@ class RichTextRenderingTest(unittest.TestCase):
                             {
                                 "type": "text",
                                 "text": "斜",
-                                "style": {"italic": True, "transform": {"rotation": 18}},
+                                "style": {
+                                    "italic": True,
+                                    "transform": {"rotation": 18},
+                                },
                             },
                             {
                                 "type": "text",
                                 "text": "描",
-                                "style": {"stroke": {"color": "#000000", "width": 0.12}},
+                                "style": {
+                                    "stroke": {"color": "#000000", "width": 0.12}
+                                },
                             },
                             {
                                 "type": "ruby",
-                                "base": [{"type": "text", "text": "漢", "style": {"emphasis": True}}],
+                                "base": [
+                                    {
+                                        "type": "text",
+                                        "text": "漢",
+                                        "style": {"emphasis": True},
+                                    }
+                                ],
                                 "text": [{"type": "text", "text": "かん", "style": {}}],
                             },
                             {
                                 "type": "tcy",
-                                "content": [{"type": "text", "text": "2026", "style": {}}],
+                                "content": [
+                                    {"type": "text", "text": "2026", "style": {}}
+                                ],
                             },
                         ],
                     },
@@ -1138,18 +1289,26 @@ class RichTextRenderingTest(unittest.TestCase):
         for full_layout, measured_layout in zip(full, measured):
             self.assertEqual(measured_layout.thickness, full_layout.thickness)
             self.assertEqual(measured_layout.height, full_layout.height)
-            self.assertEqual(measured_layout.content_paint_bounds, full_layout.content_paint_bounds)
-            self.assertEqual(measured_layout.ruby_cross_extent, full_layout.ruby_cross_extent)
+            self.assertEqual(
+                measured_layout.content_paint_bounds, full_layout.content_paint_bounds
+            )
+            self.assertEqual(
+                measured_layout.ruby_cross_extent, full_layout.ruby_cross_extent
+            )
             self.assertEqual(
                 measured_layout.annotation_cross_extent,
                 full_layout.annotation_cross_extent,
             )
             self.assertEqual(len(measured_layout.items), len(full_layout.items))
-            for full_item, measured_item in zip(full_layout.items, measured_layout.items):
+            for full_item, measured_item in zip(
+                full_layout.items, measured_layout.items
+            ):
                 self.assertEqual(measured_item, full_item)
 
         full_geometry = text_render._rich_vertical_layout_geometry(full, 32, 1.0)
-        measured_geometry = text_render._rich_vertical_layout_geometry(measured, 32, 1.0)
+        measured_geometry = text_render._rich_vertical_layout_geometry(
+            measured, 32, 1.0
+        )
         self.assertEqual(measured_geometry, full_geometry)
 
     def test_paragraph_spans_are_lazily_cached(self):
@@ -1247,8 +1406,12 @@ class RichTextRenderingTest(unittest.TestCase):
                             "inlines": [
                                 {
                                     "type": "ruby",
-                                    "base": [{"type": "text", "text": "漢字", "style": {}}],
-                                    "text": [{"type": "text", "text": "かんじ", "style": {}}],
+                                    "base": [
+                                        {"type": "text", "text": "漢字", "style": {}}
+                                    ],
+                                    "text": [
+                                        {"type": "text", "text": "かんじ", "style": {}}
+                                    ],
                                 }
                             ],
                         }
@@ -1282,7 +1445,9 @@ class RichTextRenderingTest(unittest.TestCase):
         )
         region.set_translation_rich(
             ensure_rich_text_document(
-                legacy_line_breaks_to_document("很长的一段译文需要收缩字号[BR]第二行同样很长").to_dict()
+                legacy_line_breaks_to_document(
+                    "很长的一段译文需要收缩字号[BR]第二行同样很长"
+                ).to_dict()
             ),
             sync_plain=True,
         )
@@ -1290,7 +1455,9 @@ class RichTextRenderingTest(unittest.TestCase):
         image = np.zeros((400, 400, 3), dtype=np.uint8)
         config = Config()
 
-        dst_points_list = resize_regions_to_font_size(image, [region], config, original_img=None)
+        dst_points_list = resize_regions_to_font_size(
+            image, [region], config, original_img=None
+        )
 
         self.assertEqual(len(dst_points_list), 1)
         self.assertIsNotNone(dst_points_list[0])
@@ -1314,7 +1481,9 @@ class RichTextRenderingTest(unittest.TestCase):
             raw_text,
             max_height=99999,
         )
-        expected_height = sum(text_render.get_char_offset_y(32, char) for char in raw_text)
+        expected_height = sum(
+            text_render.get_char_offset_y(32, char) for char in raw_text
+        )
 
         self.assertEqual(lines, [raw_text])
         self.assertEqual(heights, [expected_height])
@@ -1366,7 +1535,10 @@ class RichTextRenderingTest(unittest.TestCase):
         return {
             "format": RICH_TEXT_FORMAT,
             "blocks": [
-                {"type": "paragraph", "inlines": [{"type": "text", "text": text, "style": style}]}
+                {
+                    "type": "paragraph",
+                    "inlines": [{"type": "text", "text": text, "style": style}],
+                }
             ],
         }
 
@@ -1379,51 +1551,167 @@ class RichTextRenderingTest(unittest.TestCase):
 
     def test_italic_angle_parses_and_legacy_bool_maps_to_default(self):
         # 数字 = 切变角度；true = 默认角度（DEFAULT_ITALIC_ANGLE，PS 实测 10°）；0 归一为 False
-        document = ensure_rich_text_document(self._single_span_document("字", {"italic": 24}))
+        document = ensure_rich_text_document(
+            self._single_span_document("字", {"italic": 24})
+        )
         self.assertEqual(document.blocks[0].spans[0].style.italic, 24.0)
-        self.assertEqual(document.to_dict()["blocks"][0]["inlines"][0]["style"]["italic"], 24.0)
+        self.assertEqual(
+            document.to_dict()["blocks"][0]["inlines"][0]["style"]["italic"], 24.0
+        )
 
-        legacy = ensure_rich_text_document(self._single_span_document("字", {"italic": True}))
+        legacy = ensure_rich_text_document(
+            self._single_span_document("字", {"italic": True})
+        )
         self.assertIs(legacy.blocks[0].spans[0].style.italic, True)
 
-        zero = ensure_rich_text_document(self._single_span_document("字", {"italic": 0}))
+        zero = ensure_rich_text_document(
+            self._single_span_document("字", {"italic": 0})
+        )
         self.assertIs(zero.blocks[0].spans[0].style.italic, False)
 
         with self.assertRaises(ValueError):
-            ensure_rich_text_document(self._single_span_document("字", {"italic": "斜"}))
+            ensure_rich_text_document(
+                self._single_span_document("字", {"italic": "斜"})
+            )
 
         plain = text_render.measure_rich_text_metrics(
             32, self._single_span_document("測試文字", {}), True, 1.0, stroke_width=0.0
         )
         angled = text_render.measure_rich_text_metrics(
-            32, self._single_span_document("測試文字", {"italic": text_render.DEFAULT_ITALIC_ANGLE}), True, 1.0, stroke_width=0.0
+            32,
+            self._single_span_document(
+                "測試文字", {"italic": text_render.DEFAULT_ITALIC_ANGLE}
+            ),
+            True,
+            1.0,
+            stroke_width=0.0,
         )
         legacy_m = text_render.measure_rich_text_metrics(
-            32, self._single_span_document("測試文字", {"italic": True}), True, 1.0, stroke_width=0.0
+            32,
+            self._single_span_document("測試文字", {"italic": True}),
+            True,
+            1.0,
+            stroke_width=0.0,
         )
         self.assertGreater(angled["width"], plain["width"])
-        self.assertEqual((angled["width"], angled["height"]), (legacy_m["width"], legacy_m["height"]))
+        self.assertEqual(
+            (angled["width"], angled["height"]), (legacy_m["width"], legacy_m["height"])
+        )
+
+    def test_transform_stretch_round_trips_and_rejects_invalid_factors(self):
+        document = ensure_rich_text_document(
+            self._single_span_document(
+                "拉伸", {"transform": {"scaleX": 1.8, "scaleY": 0.7}}
+            )
+        )
+        transform = document.blocks[0].spans[0].style.transform
+
+        self.assertEqual((transform.scale_x, transform.scale_y), (1.8, 0.7))
+        self.assertEqual(
+            document.to_dict()["blocks"][0]["inlines"][0]["style"]["transform"],
+            {"scaleX": 1.8, "scaleY": 0.7},
+        )
+        for invalid in (0, -1, float("inf"), float("nan")):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                ensure_rich_text_document(
+                    self._single_span_document(
+                        "拉伸", {"transform": {"scaleX": invalid}}
+                    )
+                )
+
+    def test_stretch_changes_each_axis_without_bitmap_resampling(self):
+        plain_doc = self._single_span_document("拉伸", {})
+        wide_doc = self._single_span_document("拉伸", {"transform": {"scaleX": 1.8}})
+        tall_doc = self._single_span_document("拉伸", {"transform": {"scaleY": 1.8}})
+        plain = text_render.measure_rich_text_metrics(
+            40, plain_doc, True, 1.0, stroke_width=0.0
+        )
+        wide = text_render.measure_rich_text_metrics(
+            40, wide_doc, True, 1.0, stroke_width=0.0
+        )
+        tall = text_render.measure_rich_text_metrics(
+            40, tall_doc, True, 1.0, stroke_width=0.0
+        )
+
+        self.assertGreater(wide["width"], plain["width"])
+        self.assertGreater(tall["height"], plain["height"])
+        with patch("cv2.resize", side_effect=AssertionError("bitmap resampling")):
+            wide_surface = text_render.put_text_horizontal(
+                40,
+                ensure_rich_text_document(wide_doc),
+                10,
+                10,
+                "center",
+                False,
+                (0, 0, 0),
+                None,
+                line_spacing=1.0,
+                stroke_width=0.0,
+            )
+            vertical_surface = text_render.put_text_vertical(
+                40,
+                ensure_rich_text_document(tall_doc),
+                10,
+                "center",
+                (0, 0, 0),
+                None,
+                1.0,
+                stroke_width=0.0,
+            )
+        self.assertEqual(
+            (wide_surface.shape[1], wide_surface.shape[0]),
+            (wide["width"], wide["height"]),
+        )
+        self.assertGreater(vertical_surface.shape[0], 0)
 
     def test_horizontal_offset_expands_envelope_and_moves_ink(self):
         # 统一偏移不再被墨迹紧裁抵消：包络向偏移方向扩，墨迹真实移动，
         # 输出面尺寸与测量框逐像素一致（无描边时严格相等）。
         plain_doc = self._single_span_document("測試文字", {})
-        offset_doc = self._single_span_document("測試文字", {"transform": {"offsetX": 50}})
+        offset_doc = self._single_span_document(
+            "測試文字", {"transform": {"offsetX": 50}}
+        )
 
-        plain_m = text_render.measure_rich_text_metrics(32, plain_doc, True, 1.0, stroke_width=0.0)
-        offset_m = text_render.measure_rich_text_metrics(32, offset_doc, True, 1.0, stroke_width=0.0)
+        plain_m = text_render.measure_rich_text_metrics(
+            32, plain_doc, True, 1.0, stroke_width=0.0
+        )
+        offset_m = text_render.measure_rich_text_metrics(
+            32, offset_doc, True, 1.0, stroke_width=0.0
+        )
         self.assertGreater(offset_m["width"], plain_m["width"])
 
         plain_surface = text_render.put_text_horizontal(
-            32, ensure_rich_text_document(plain_doc), 10, 10, "center", False,
-            (0, 0, 0), None, line_spacing=1.0, stroke_width=0.0,
+            32,
+            ensure_rich_text_document(plain_doc),
+            10,
+            10,
+            "center",
+            False,
+            (0, 0, 0),
+            None,
+            line_spacing=1.0,
+            stroke_width=0.0,
         )
         offset_surface = text_render.put_text_horizontal(
-            32, ensure_rich_text_document(offset_doc), 10, 10, "center", False,
-            (0, 0, 0), None, line_spacing=1.0, stroke_width=0.0,
+            32,
+            ensure_rich_text_document(offset_doc),
+            10,
+            10,
+            "center",
+            False,
+            (0, 0, 0),
+            None,
+            line_spacing=1.0,
+            stroke_width=0.0,
         )
-        self.assertEqual((plain_surface.shape[1], plain_surface.shape[0]), (plain_m["width"], plain_m["height"]))
-        self.assertEqual((offset_surface.shape[1], offset_surface.shape[0]), (offset_m["width"], offset_m["height"]))
+        self.assertEqual(
+            (plain_surface.shape[1], plain_surface.shape[0]),
+            (plain_m["width"], plain_m["height"]),
+        )
+        self.assertEqual(
+            (offset_surface.shape[1], offset_surface.shape[0]),
+            (offset_m["width"], offset_m["height"]),
+        )
         shift = self._ink_rect(offset_surface)[0] - self._ink_rect(plain_surface)[0]
         self.assertGreaterEqual(shift, 12)
         self.assertLessEqual(shift, 20)
@@ -1432,18 +1720,42 @@ class RichTextRenderingTest(unittest.TestCase):
         plain_doc = self._single_span_document("縦書", {})
         offset_doc = self._single_span_document("縦書", {"transform": {"offsetY": 75}})
 
-        plain_m = text_render.measure_rich_text_metrics(32, plain_doc, False, 1.0, stroke_width=0.0)
-        offset_m = text_render.measure_rich_text_metrics(32, offset_doc, False, 1.0, stroke_width=0.0)
+        plain_m = text_render.measure_rich_text_metrics(
+            32, plain_doc, False, 1.0, stroke_width=0.0
+        )
+        offset_m = text_render.measure_rich_text_metrics(
+            32, offset_doc, False, 1.0, stroke_width=0.0
+        )
         self.assertGreaterEqual(offset_m["height"], plain_m["height"] + 20)
 
         plain_surface = text_render.put_text_vertical(
-            32, ensure_rich_text_document(plain_doc), 10, "center", (0, 0, 0), None, 1.0, stroke_width=0.0,
+            32,
+            ensure_rich_text_document(plain_doc),
+            10,
+            "center",
+            (0, 0, 0),
+            None,
+            1.0,
+            stroke_width=0.0,
         )
         offset_surface = text_render.put_text_vertical(
-            32, ensure_rich_text_document(offset_doc), 10, "center", (0, 0, 0), None, 1.0, stroke_width=0.0,
+            32,
+            ensure_rich_text_document(offset_doc),
+            10,
+            "center",
+            (0, 0, 0),
+            None,
+            1.0,
+            stroke_width=0.0,
         )
-        self.assertEqual((plain_surface.shape[1], plain_surface.shape[0]), (plain_m["width"], plain_m["height"]))
-        self.assertEqual((offset_surface.shape[1], offset_surface.shape[0]), (offset_m["width"], offset_m["height"]))
+        self.assertEqual(
+            (plain_surface.shape[1], plain_surface.shape[0]),
+            (plain_m["width"], plain_m["height"]),
+        )
+        self.assertEqual(
+            (offset_surface.shape[1], offset_surface.shape[0]),
+            (offset_m["width"], offset_m["height"]),
+        )
         shift = self._ink_rect(offset_surface)[1] - self._ink_rect(plain_surface)[1]
         self.assertGreaterEqual(shift, 20)
         self.assertLessEqual(shift, 28)
@@ -1458,24 +1770,38 @@ class RichTextRenderingTest(unittest.TestCase):
                     "type": "paragraph",
                     "inlines": [
                         {"type": "text", "text": "正文", "style": {}},
-                        {"type": "text", "text": "上浮", "style": {"transform": {"offsetY": -100}}},
+                        {
+                            "type": "text",
+                            "text": "上浮",
+                            "style": {"transform": {"offsetY": -100}},
+                        },
                     ],
                 }
             ],
         }
-        metrics = text_render.measure_rich_text_metrics(32, doc, True, 1.0, stroke_width=0.0)
-        self.assertAlmostEqual(metrics["body_center"][1], metrics["height"] / 2.0, places=3)
+        metrics = text_render.measure_rich_text_metrics(
+            32, doc, True, 1.0, stroke_width=0.0
+        )
+        self.assertAlmostEqual(
+            metrics["body_center"][1], metrics["height"] / 2.0, places=3
+        )
 
     def test_horizontal_ink_layout_uses_content_height_not_font_line_box(self):
         metrics = text_render.measure_rich_text_metrics(
             48, "高度受限字号对比", True, 1.0, stroke_width=0.0
         )
         qt_line = text_render._line_metrics("高度受限字号对比", 48, 1.0)
-        self.assertLess(metrics["height"], int(round(qt_line["ascent"] + qt_line["descent"])))
+        self.assertLess(
+            metrics["height"], round(qt_line["ascent"] + qt_line["descent"])
+        )
 
     def test_horizontal_ink_layout_expands_only_for_actual_vertical_collision(self):
-        cjk = ensure_rich_text_document(legacy_line_breaks_to_document("第一行\n第二行").to_dict())
-        mixed = ensure_rich_text_document(legacy_line_breaks_to_document("gypqj\nÁÉÎÔŨ").to_dict())
+        cjk = ensure_rich_text_document(
+            legacy_line_breaks_to_document("第一行\n第二行").to_dict()
+        )
+        mixed = ensure_rich_text_document(
+            legacy_line_breaks_to_document("gypqj\nÁÉÎÔŨ").to_dict()
+        )
         cjk_layout = text_render._build_rich_horizontal_layout(
             cjk, 64, 0.0, None, False, 1.0
         )
@@ -1483,7 +1809,9 @@ class RichTextRenderingTest(unittest.TestCase):
             mixed, 64, 0.0, None, False, 1.0
         )
         cjk_geometry = text_render._rich_horizontal_layout_geometry(cjk_layout, 64, 1.0)
-        mixed_geometry = text_render._rich_horizontal_layout_geometry(mixed_layout, 64, 1.0)
+        mixed_geometry = text_render._rich_horizontal_layout_geometry(
+            mixed_layout, 64, 1.0
+        )
         cjk_advance = cjk_geometry["baselines"][1] - cjk_geometry["baselines"][0]
         mixed_advance = mixed_geometry["baselines"][1] - mixed_geometry["baselines"][0]
         self.assertGreater(mixed_advance, cjk_advance)
@@ -1493,17 +1821,35 @@ class RichTextRenderingTest(unittest.TestCase):
             48, "描边文字", True, 1.0, stroke_width=0.07
         )
         surface = text_render.put_text_horizontal(
-            48, "描边文字", 10, 10, "center", False,
-            (0, 0, 0), (255, 255, 255), line_spacing=1.0, stroke_width=0.07,
+            48,
+            "描边文字",
+            10,
+            10,
+            "center",
+            False,
+            (0, 0, 0),
+            (255, 255, 255),
+            line_spacing=1.0,
+            stroke_width=0.07,
         )
-        self.assertEqual((surface.shape[1], surface.shape[0]), (metrics["width"], metrics["height"]))
+        self.assertEqual(
+            (surface.shape[1], surface.shape[0]), (metrics["width"], metrics["height"])
+        )
 
         config = Config()
         config.render.disable_font_border = True
         no_stroke_box = calc_box_from_font(48, "描边文字", True, 1.0, config=config)
         no_stroke_surface = text_render.put_text_horizontal(
-            48, "描边文字", 10, 10, "center", False,
-            (0, 0, 0), None, line_spacing=1.0, config=config,
+            48,
+            "描边文字",
+            10,
+            10,
+            "center",
+            False,
+            (0, 0, 0),
+            None,
+            line_spacing=1.0,
+            config=config,
         )
         self.assertEqual(
             (no_stroke_surface.shape[1], no_stroke_surface.shape[0]),
@@ -1512,12 +1858,24 @@ class RichTextRenderingTest(unittest.TestCase):
 
     def test_italic_surface_matches_measured_envelope(self):
         doc = self._single_span_document("斜体測試", {"italic": 15})
-        metrics = text_render.measure_rich_text_metrics(32, doc, True, 1.0, stroke_width=0.0)
-        surface = text_render.put_text_horizontal(
-            32, ensure_rich_text_document(doc), 10, 10, "center", False,
-            (0, 0, 0), None, line_spacing=1.0, stroke_width=0.0,
+        metrics = text_render.measure_rich_text_metrics(
+            32, doc, True, 1.0, stroke_width=0.0
         )
-        self.assertEqual((surface.shape[1], surface.shape[0]), (metrics["width"], metrics["height"]))
+        surface = text_render.put_text_horizontal(
+            32,
+            ensure_rich_text_document(doc),
+            10,
+            10,
+            "center",
+            False,
+            (0, 0, 0),
+            None,
+            line_spacing=1.0,
+            stroke_width=0.0,
+        )
+        self.assertEqual(
+            (surface.shape[1], surface.shape[0]), (metrics["width"], metrics["height"])
+        )
 
     def test_glow_and_outer_stroke_expand_and_match_measured_envelope(self):
         plain = self._single_span_document("效果", {})
@@ -1528,29 +1886,52 @@ class RichTextRenderingTest(unittest.TestCase):
                 "outerStroke": {"color": "#ff0000", "width": 0.1875},
             },
         )
-        plain_metrics = text_render.measure_rich_text_metrics(32, plain, True, 1.0, stroke_width=0.0)
-        styled_metrics = text_render.measure_rich_text_metrics(32, styled, True, 1.0, stroke_width=0.0)
+        plain_metrics = text_render.measure_rich_text_metrics(
+            32, plain, True, 1.0, stroke_width=0.0
+        )
+        styled_metrics = text_render.measure_rich_text_metrics(
+            32, styled, True, 1.0, stroke_width=0.0
+        )
         surface = text_render.put_text_horizontal(
-            32, ensure_rich_text_document(styled), 10, 10, "center", False,
-            (0, 0, 0), None, line_spacing=1.0, stroke_width=0.0,
+            32,
+            ensure_rich_text_document(styled),
+            10,
+            10,
+            "center",
+            False,
+            (0, 0, 0),
+            None,
+            line_spacing=1.0,
+            stroke_width=0.0,
         )
         self.assertGreater(styled_metrics["width"], plain_metrics["width"])
         self.assertGreater(styled_metrics["height"], plain_metrics["height"])
-        self.assertEqual((surface.shape[1], surface.shape[0]), (styled_metrics["width"], styled_metrics["height"]))
+        self.assertEqual(
+            (surface.shape[1], surface.shape[0]),
+            (styled_metrics["width"], styled_metrics["height"]),
+        )
 
     def test_glow_does_not_change_horizontal_line_spacing(self):
         def document(style):
-            return ensure_rich_text_document({
-                "format": RICH_TEXT_FORMAT,
-                "blocks": [
-                    {"type": "paragraph", "inlines": [
-                        {"type": "text", "text": "第一行", "style": style},
-                    ]},
-                    {"type": "paragraph", "inlines": [
-                        {"type": "text", "text": "第二行", "style": style},
-                    ]},
-                ],
-            })
+            return ensure_rich_text_document(
+                {
+                    "format": RICH_TEXT_FORMAT,
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "inlines": [
+                                {"type": "text", "text": "第一行", "style": style},
+                            ],
+                        },
+                        {
+                            "type": "paragraph",
+                            "inlines": [
+                                {"type": "text", "text": "第二行", "style": style},
+                            ],
+                        },
+                    ],
+                }
+            )
 
         plain_layout = text_render._build_rich_horizontal_layout(
             document({}), 164, 0.0, None, False, 1.0
@@ -1563,46 +1944,85 @@ class RichTextRenderingTest(unittest.TestCase):
             False,
             1.0,
         )
-        plain_geometry = text_render._rich_horizontal_layout_geometry(plain_layout, 164, 0.1)
-        glow_geometry = text_render._rich_horizontal_layout_geometry(glow_layout, 164, 0.1)
+        plain_geometry = text_render._rich_horizontal_layout_geometry(
+            plain_layout, 164, 0.1
+        )
+        glow_geometry = text_render._rich_horizontal_layout_geometry(
+            glow_layout, 164, 0.1
+        )
 
         plain_advance = plain_geometry["baselines"][1] - plain_geometry["baselines"][0]
         glow_advance = glow_geometry["baselines"][1] - glow_geometry["baselines"][0]
         self.assertAlmostEqual(glow_advance, plain_advance, places=3)
-        self.assertGreater(glow_geometry["paint_height"], plain_geometry["paint_height"])
+        self.assertGreater(
+            glow_geometry["paint_height"], plain_geometry["paint_height"]
+        )
 
     def test_local_stroke_width_scales_with_font_size(self):
         from manga_translator.rendering.text_render._compose import _style_stroke_ratio
 
-        style = ensure_rich_text_document(
-            self._single_span_document("字", {"stroke": {"color": "#fff", "width": 0.2}})
-        ).paragraphs[0].spans[0].style
+        style = (
+            ensure_rich_text_document(
+                self._single_span_document(
+                    "字", {"stroke": {"color": "#fff", "width": 0.2}}
+                )
+            )
+            .paragraphs[0]
+            .spans[0]
+            .style
+        )
         self.assertAlmostEqual(_style_stroke_ratio(style, 24, 0.0, None) * 24, 4.8)
         self.assertAlmostEqual(_style_stroke_ratio(style, 72, 0.0, None) * 72, 14.4)
 
     def test_local_line_spacing_prefers_current_lk_over_previous_nk(self):
-        document = ensure_rich_text_document({
-            "format": RICH_TEXT_FORMAT,
-            "blocks": [
-                {"type": "paragraph", "inlines": [
-                    {"type": "text", "text": "上", "style": {"nextKerning": 1.25}},
-                ]},
-                {"type": "paragraph", "inlines": [
-                    {"type": "text", "text": "下", "style": {"lineKerning": 0.375}},
-                ]},
-            ],
-        })
-        layouts = text_render._build_rich_horizontal_layout(document, 32, 0.0, None, False, 1.0)
+        document = ensure_rich_text_document(
+            {
+                "format": RICH_TEXT_FORMAT,
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "inlines": [
+                            {
+                                "type": "text",
+                                "text": "上",
+                                "style": {"nextKerning": 1.25},
+                            },
+                        ],
+                    },
+                    {
+                        "type": "paragraph",
+                        "inlines": [
+                            {
+                                "type": "text",
+                                "text": "下",
+                                "style": {"lineKerning": 0.375},
+                            },
+                        ],
+                    },
+                ],
+            }
+        )
+        layouts = text_render._build_rich_horizontal_layout(
+            document, 32, 0.0, None, False, 1.0
+        )
         default_geometry = text_render._rich_horizontal_layout_geometry(
             text_render._build_rich_horizontal_layout(
-                ensure_rich_text_document(legacy_line_breaks_to_document("上\n下").to_dict()),
-                32, 0.0, None, False, 1.0,
+                ensure_rich_text_document(
+                    legacy_line_breaks_to_document("上\n下").to_dict()
+                ),
+                32,
+                0.0,
+                None,
+                False,
+                1.0,
             ),
             32,
             1.0,
         )
         geometry = text_render._rich_horizontal_layout_geometry(layouts, 32, 1.0)
-        default_advance = default_geometry["baselines"][1] - default_geometry["baselines"][0]
+        default_advance = (
+            default_geometry["baselines"][1] - default_geometry["baselines"][0]
+        )
         styled_advance = geometry["baselines"][1] - geometry["baselines"][0]
         self.assertAlmostEqual(styled_advance - default_advance, 12.0, places=3)
 

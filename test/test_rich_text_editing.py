@@ -1,25 +1,27 @@
 import unittest
 
+from desktop_qt_ui.editor.render_text_value import (
+    has_renderable_text,
+    render_text_value_from_text_block,
+)
 from desktop_qt_ui.editor.rich_text_editing import (
+    apply_qt_text_change,
     apply_ruby_to_range,
     apply_style_to_range,
     apply_tcy_to_range,
     apply_text_change,
-    apply_qt_text_change,
     is_rich_text_document,
     python_index_to_utf16_offset,
     remove_ruby_from_range,
     remove_tcy_from_range,
     storage_text_to_editor_text,
+    style_for_range,
+    style_row_coverage,
     styled_segments_for_range,
     styled_text_for_key,
-    style_row_coverage,
-    style_for_range,
+    text_style_from_control_values,
+    text_style_to_control_values,
     utf16_offset_to_python_index,
-)
-from desktop_qt_ui.editor.render_text_value import (
-    has_renderable_text,
-    render_text_value_from_text_block,
 )
 from manga_translator.rendering.rich_text import ensure_rich_text_document
 from manga_translator.utils import TextBlock
@@ -64,7 +66,6 @@ def _node_doc():
             }
         ],
     }
-
 
 
 class RichTextEditingTests(unittest.TestCase):
@@ -120,13 +121,19 @@ class RichTextEditingTests(unittest.TestCase):
             updated["blocks"][0]["inlines"],
             [
                 {"type": "text", "text": "红字", "style": {"color": "#ff0000"}},
-                {"type": "text", "text": "红", "style": {"color": "#0000ff", "stroke": {"width": 0.2}}},
+                {
+                    "type": "text",
+                    "text": "红",
+                    "style": {"color": "#0000ff", "stroke": {"width": 0.2}},
+                },
                 {"type": "text", "text": "字", "style": {"color": "#0000ff"}},
             ],
         )
 
     def test_storage_text_uses_real_newlines_in_editor(self):
-        self.assertEqual(storage_text_to_editor_text("第一行[BR]第二行"), "第一行\n第二行")
+        self.assertEqual(
+            storage_text_to_editor_text("第一行[BR]第二行"), "第一行\n第二行"
+        )
 
     def test_tcy_wraps_selected_range_by_position(self):
         document = _doc("ABAB", {})
@@ -136,7 +143,10 @@ class RichTextEditingTests(unittest.TestCase):
             updated["blocks"][0]["inlines"],
             [
                 {"type": "text", "text": "AB", "style": {}},
-                {"type": "tcy", "content": [{"type": "text", "text": "AB", "style": {}}]},
+                {
+                    "type": "tcy",
+                    "content": [{"type": "text", "text": "AB", "style": {}}],
+                },
             ],
         )
 
@@ -159,14 +169,18 @@ class RichTextEditingTests(unittest.TestCase):
                 {"type": "text", "text": "漢字", "style": {"color": "#ff0000"}},
                 {
                     "type": "ruby",
-                    "base": [{"type": "text", "text": "漢字", "style": {"color": "#ff0000"}}],
+                    "base": [
+                        {"type": "text", "text": "漢字", "style": {"color": "#ff0000"}}
+                    ],
                     "text": [{"type": "text", "text": "かんじ", "style": {}}],
                 },
             ],
         )
 
     def test_remove_ruby_unwraps_selected_range_by_position(self):
-        document = apply_ruby_to_range(_doc("漢字漢字", {"color": "#ff0000"}), 2, 4, "かんじ")
+        document = apply_ruby_to_range(
+            _doc("漢字漢字", {"color": "#ff0000"}), 2, 4, "かんじ"
+        )
         updated = remove_ruby_from_range(document, 2, 4)
 
         self.assertEqual(
@@ -183,7 +197,9 @@ class RichTextEditingTests(unittest.TestCase):
         )
 
     def test_style_for_range_reports_ruby_text(self):
-        document = apply_ruby_to_range(_doc("漢字", {"color": "#ff0000"}), 0, 2, "かんじ")
+        document = apply_ruby_to_range(
+            _doc("漢字", {"color": "#ff0000"}), 0, 2, "かんじ"
+        )
 
         self.assertEqual(
             style_for_range(document, 0, 2),
@@ -193,14 +209,49 @@ class RichTextEditingTests(unittest.TestCase):
     def test_style_row_coverage_distinguishes_partial_from_full(self):
         document = {
             "format": "richtext.v1",
-            "blocks": [{"type": "paragraph", "inlines": [
-                {"type": "text", "text": "甲", "style": {"bold": True}},
-                {"type": "text", "text": "乙", "style": {}},
-            ]}],
+            "blocks": [
+                {
+                    "type": "paragraph",
+                    "inlines": [
+                        {"type": "text", "text": "甲", "style": {"bold": True}},
+                        {"type": "text", "text": "乙", "style": {}},
+                    ],
+                }
+            ],
         }
 
         self.assertEqual(style_row_coverage(document, 0, 0, "B"), (True, False))
         self.assertEqual(style_row_coverage(document, 0, 1, "B"), (True, True))
+
+    def test_stretch_style_targets_selected_text_and_round_trips_controls(self):
+        document = apply_style_to_range(
+            _doc("甲乙丙", {}),
+            1,
+            2,
+            {"transform": {"scaleX": 1.6, "scaleY": 0.8}},
+        )
+
+        self.assertEqual(
+            document["blocks"][0]["inlines"],
+            [
+                {"type": "text", "text": "甲", "style": {}},
+                {
+                    "type": "text",
+                    "text": "乙",
+                    "style": {"transform": {"scaleX": 1.6, "scaleY": 0.8}},
+                },
+                {"type": "text", "text": "丙", "style": {}},
+            ],
+        )
+        self.assertEqual(style_row_coverage(document, 1, 2, "WH"), (True, True))
+        values = text_style_to_control_values(
+            {"transform": {"scaleX": 1.6, "scaleY": 0.8}}
+        )
+        self.assertEqual((values["scaleX"], values["scaleY"]), (1.6, 0.8))
+        self.assertEqual(
+            text_style_from_control_values(values, {"scaleX", "scaleY"}),
+            {"transform": {"scaleX": 1.6, "scaleY": 0.8}},
+        )
 
     def test_styled_text_for_key_reports_matching_run_text(self):
         document = {
@@ -227,27 +278,40 @@ class RichTextEditingTests(unittest.TestCase):
     def test_non_adjacent_equal_styles_remain_separate_segments(self):
         document = {
             "format": "richtext.v1",
-            "blocks": [{"type": "paragraph", "inlines": [
-                {"type": "text", "text": "黑", "style": {"color": "#000000"}},
-                {"type": "text", "text": "红红", "style": {"color": "#ff0000"}},
-                {"type": "text", "text": "黑", "style": {"color": "#000000"}},
-            ]}],
+            "blocks": [
+                {
+                    "type": "paragraph",
+                    "inlines": [
+                        {"type": "text", "text": "黑", "style": {"color": "#000000"}},
+                        {"type": "text", "text": "红红", "style": {"color": "#ff0000"}},
+                        {"type": "text", "text": "黑", "style": {"color": "#000000"}},
+                    ],
+                }
+            ],
         }
 
         segments = styled_segments_for_range(document, 0, 4)
 
         self.assertEqual([segment.text for segment in segments], ["黑", "红红", "黑"])
-        self.assertEqual([(segment.start, segment.end) for segment in segments], [(0, 1), (1, 3), (3, 4)])
+        self.assertEqual(
+            [(segment.start, segment.end) for segment in segments],
+            [(0, 1), (1, 3), (3, 4)],
+        )
 
     def test_unstyled_text_is_not_exposed_as_default_segment(self):
         document = {
             "format": "richtext.v1",
-            "blocks": [{"type": "paragraph", "inlines": [
-                {"type": "text", "text": "连", "style": {"bold": True}},
-                {"type": "text", "text": "游", "style": {}},
-                {"type": "text", "text": "戏", "style": {"bold": True}},
-                {"type": "text", "text": "也不玩了", "style": {}},
-            ]}],
+            "blocks": [
+                {
+                    "type": "paragraph",
+                    "inlines": [
+                        {"type": "text", "text": "连", "style": {"bold": True}},
+                        {"type": "text", "text": "游", "style": {}},
+                        {"type": "text", "text": "戏", "style": {"bold": True}},
+                        {"type": "text", "text": "也不玩了", "style": {}},
+                    ],
+                }
+            ],
         }
 
         self.assertEqual(
@@ -329,7 +393,9 @@ class RichTextEditingTests(unittest.TestCase):
 
     def test_style_other_range_preserves_existing_nodes(self):
         document = _node_doc()
-        updated = apply_style_to_range(document, 8, 9, {"color": "#ff0000"})  # 只染 "後"
+        updated = apply_style_to_range(
+            document, 8, 9, {"color": "#ff0000"}
+        )  # 只染 "後"
 
         self.assertEqual(
             updated["blocks"][0]["inlines"],
@@ -359,7 +425,10 @@ class RichTextEditingTests(unittest.TestCase):
 
         self.assertEqual(
             updated["blocks"][0]["inlines"][2],
-            {"type": "tcy", "content": [{"type": "text", "text": "20X26", "style": {}}]},
+            {
+                "type": "tcy",
+                "content": [{"type": "text", "text": "20X26", "style": {}}],
+            },
         )
 
     def test_typing_at_node_edges_stays_plain(self):
@@ -449,7 +518,6 @@ class RichTextEditingTests(unittest.TestCase):
 
         self.assertEqual(render_text_value_from_text_block(region), "原文プレビュー")
         self.assertFalse(has_renderable_text(""))
-
 
 
 if __name__ == "__main__":

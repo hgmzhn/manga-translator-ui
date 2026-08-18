@@ -46,7 +46,9 @@ def python_index_to_utf16_offset(text: str, index: int) -> int:
     return utf16_length(text[:index])
 
 
-def utf16_offset_to_python_index(text: str, offset: int, *, round_up: bool = False) -> int:
+def utf16_offset_to_python_index(
+    text: str, offset: int, *, round_up: bool = False
+) -> int:
     """把 UTF-16 offset 转换为 Python 字符索引。
 
     Qt 正常只会给出字符边界。若调用方传入代理对中间的位置，范围起点向下
@@ -155,6 +157,8 @@ def text_style_to_control_values(style: Any) -> dict:
         "rotation": transform.get("rotation"),
         "offsetX": transform.get("offsetX"),
         "offsetY": transform.get("offsetY"),
+        "scaleX": transform.get("scaleX"),
+        "scaleY": transform.get("scaleY"),
     }
 
 
@@ -162,16 +166,29 @@ def text_style_from_control_values(values: dict, enabled: set[str]) -> dict:
     """由共享控件值构建严格的 richtext.v1 style。未启用字段不写入。"""
     style: dict[str, Any] = {}
     for key in (
-        "bold", "underline", "strikethrough", "emphasis", "italic", "color",
-        "fontSize", "scale",
-        "fontFamily", "stroke", "outerStroke", "glow", "kerning",
-        "preKerning", "lineKerning", "nextKerning", "verticalAdvance",
+        "bold",
+        "underline",
+        "strikethrough",
+        "emphasis",
+        "italic",
+        "color",
+        "fontSize",
+        "scale",
+        "fontFamily",
+        "stroke",
+        "outerStroke",
+        "glow",
+        "kerning",
+        "preKerning",
+        "lineKerning",
+        "nextKerning",
+        "verticalAdvance",
     ):
         if key in enabled:
             style[key] = copy.deepcopy(values.get(key))
     transform = {
         key: values.get(key)
-        for key in ("rotation", "offsetX", "offsetY")
+        for key in ("rotation", "offsetX", "offsetY", "scaleX", "scaleY")
         if key in enabled
     }
     if transform:
@@ -233,7 +250,9 @@ def _visible_entries(document: Any) -> list[_CharEntry]:
     return entries
 
 
-def _append_run_entries(runs: Any, node: dict | None, entries: list[_CharEntry]) -> None:
+def _append_run_entries(
+    runs: Any, node: dict | None, entries: list[_CharEntry]
+) -> None:
     if not isinstance(runs, list):
         return
     for run in runs:
@@ -258,7 +277,9 @@ def _document_from_entries(text: str, entries: list[_CharEntry]) -> dict:
     """
     text = str(text or "")
     if len(entries) < len(text):
-        entries = entries + [_CharEntry("", {}, None, None) for _ in range(len(text) - len(entries))]
+        entries = entries + [
+            _CharEntry("", {}, None, None) for _ in range(len(text) - len(entries))
+        ]
 
     blocks = []
     cursor = 0
@@ -273,21 +294,25 @@ def _document_from_entries(text: str, entries: list[_CharEntry]) -> dict:
             while index < line_end and entries[index].node is node:
                 index += 1
             runs = _runs_from_group(
-                line[group_start - cursor:index - cursor],
+                line[group_start - cursor : index - cursor],
                 entries[group_start:index],
             )
             if node is None:
                 inlines.extend(runs)
             elif runs:
                 if node.get("type") == "ruby":
-                    inlines.append({
-                        "type": "ruby",
-                        "base": runs,
-                        "text": copy.deepcopy(node.get("text", [])),
-                    })
+                    inlines.append(
+                        {
+                            "type": "ruby",
+                            "base": runs,
+                            "text": copy.deepcopy(node.get("text", [])),
+                        }
+                    )
                 else:
                     inlines.append({"type": "tcy", "content": runs})
-        blocks.append({"type": "paragraph", "inlines": _merge_adjacent_text_runs(inlines)})
+        blocks.append(
+            {"type": "paragraph", "inlines": _merge_adjacent_text_runs(inlines)}
+        )
         cursor = line_end + 1
 
     if not blocks:
@@ -308,14 +333,28 @@ def _runs_from_group(text: str, entries: list[_CharEntry]) -> list[dict]:
         style = entries[index].style if index < len(entries) else {}
         if style is current_style or style == current_style:
             continue
-        runs.append({"type": "text", "text": text[run_start:index], "style": copy.deepcopy(current_style or {})})
+        runs.append(
+            {
+                "type": "text",
+                "text": text[run_start:index],
+                "style": copy.deepcopy(current_style or {}),
+            }
+        )
         run_start = index
         current_style = style
-    runs.append({"type": "text", "text": text[run_start:], "style": copy.deepcopy(current_style or {})})
+    runs.append(
+        {
+            "type": "text",
+            "text": text[run_start:],
+            "style": copy.deepcopy(current_style or {}),
+        }
+    )
     return runs
 
 
-def _normalize_range(entries: list[_CharEntry], start: int, end: int, expand_empty: bool) -> tuple[int, int]:
+def _normalize_range(
+    entries: list[_CharEntry], start: int, end: int, expand_empty: bool
+) -> tuple[int, int]:
     length = len(entries)
     start = int(start)
     end = int(end)
@@ -351,9 +390,12 @@ def apply_text_change(
     chars_removed = max(0, int(chars_removed))
     chars_added = max(0, int(chars_added))
     inherited_style, inherited_node = _insertion_inheritance(entries, position)
-    inserted = [_CharEntry("", inherited_style, None, inherited_node) for _ in range(chars_added)]
-    new_entries = entries[:position] + inserted + entries[position + chars_removed:]
-    return _document_from_entries(new_text, new_entries[:len(new_text)])
+    inserted = [
+        _CharEntry("", inherited_style, None, inherited_node)
+        for _ in range(chars_added)
+    ]
+    new_entries = entries[:position] + inserted + entries[position + chars_removed :]
+    return _document_from_entries(new_text, new_entries[: len(new_text)])
 
 
 def apply_qt_text_change(
@@ -403,7 +445,8 @@ def apply_qt_text_change(
     suffix = 0
     while (
         suffix < limit - prefix
-        and removed_seg[len(removed_seg) - 1 - suffix] == added_seg[len(added_seg) - 1 - suffix]
+        and removed_seg[len(removed_seg) - 1 - suffix]
+        == added_seg[len(added_seg) - 1 - suffix]
     ):
         suffix += 1
     return apply_text_change(
@@ -415,7 +458,9 @@ def apply_qt_text_change(
     )
 
 
-def _insertion_inheritance(entries: list[_CharEntry], position: int) -> tuple[dict, dict | None]:
+def _insertion_inheritance(
+    entries: list[_CharEntry], position: int
+) -> tuple[dict, dict | None]:
     """插入字符的样式与节点归属。
 
     样式：插入点严格位于同一 text run 内部（前后字符同 run）才继承该 run
@@ -453,6 +498,7 @@ def _drop_node_of_type(node_type: str):
     def drop(entry: _CharEntry) -> None:
         if isinstance(entry.node, dict) and entry.node.get("type") == node_type:
             entry.node = None
+
     return drop
 
 
@@ -502,7 +548,9 @@ def clear_styles_from_range(document: dict, start: int, end: int) -> dict:
     return _mutate_range(document, start, end, reset)
 
 
-def _wrap_range_as_node(document: dict, start: int, end: int, node_type: str, ruby_text: str = "") -> dict:
+def _wrap_range_as_node(
+    document: dict, start: int, end: int, node_type: str, ruby_text: str = ""
+) -> dict:
     entries = _visible_entries(document)
     start, end = _normalize_range(entries, start, end, expand_empty=False)
     if start >= end:
@@ -512,14 +560,20 @@ def _wrap_range_as_node(document: dict, start: int, end: int, node_type: str, ru
     # 范围与既有节点部分/全部重叠：拆散被重叠的旧节点 —— 其全部字符降级为
     # 携带原样式的普通文本（协议不允许节点嵌套，部分重叠时保留残半节点会
     # 产生歧义），随后把范围包成新节点。
-    overlapped_ids = {id(entry.node) for entry in entries[start:end] if entry.node is not None}
+    overlapped_ids = {
+        id(entry.node) for entry in entries[start:end] if entry.node is not None
+    }
     if overlapped_ids:
         for entry in entries:
             if entry.node is not None and id(entry.node) in overlapped_ids:
                 entry.node = None
 
     if node_type == "ruby":
-        new_node = {"type": "ruby", "base": [], "text": [{"type": "text", "text": ruby_text, "style": {}}]}
+        new_node = {
+            "type": "ruby",
+            "base": [],
+            "text": [{"type": "text", "text": ruby_text, "style": {}}],
+        }
     else:
         new_node = {"type": "tcy", "content": []}
     for entry in entries[start:end]:
@@ -582,16 +636,18 @@ def styled_segments_for_range(
         nonlocal current
         if current is None:
             return
-        segments.append(StyledTextSegment(
-            start=current["start"],
-            end=current["end"],
-            text="".join(current["chars"]),
-            style=copy.deepcopy(current["style"]),
-            node_type=current["node_type"],
-            ruby_text=current["ruby_text"],
-            node_start=current["node_start"],
-            node_end=current["node_end"],
-        ))
+        segments.append(
+            StyledTextSegment(
+                start=current["start"],
+                end=current["end"],
+                text="".join(current["chars"]),
+                style=copy.deepcopy(current["style"]),
+                node_type=current["node_type"],
+                ruby_text=current["ruby_text"],
+                node_start=current["node_start"],
+                node_end=current["node_end"],
+            )
+        )
         current = None
 
     for index in range(start, end):
@@ -663,15 +719,27 @@ def style_for_range(document: dict, start: int, end: int) -> dict:
     if ruby_texts:
         result["ruby"] = True
         result["rubyText"] = ruby_texts[0]
-    if any(isinstance(entry.node, dict) and entry.node.get("type") == "tcy" for entry in entries[start:end]):
+    if any(
+        isinstance(entry.node, dict) and entry.node.get("type") == "tcy"
+        for entry in entries[start:end]
+    ):
         result["tcy"] = True
     for style in styles:
         if not isinstance(style, dict):
             continue
         for key in (
-            "bold", "italic", "underline", "strikethrough", "scale",
-            "emphasis", "noTcy", "verticalAdvance", "kerning", "preKerning",
-            "lineKerning", "nextKerning",
+            "bold",
+            "italic",
+            "underline",
+            "strikethrough",
+            "scale",
+            "emphasis",
+            "noTcy",
+            "verticalAdvance",
+            "kerning",
+            "preKerning",
+            "lineKerning",
+            "nextKerning",
         ):
             if key in style and key not in result:
                 result[key] = style.get(key)
@@ -713,7 +781,9 @@ def style_for_range(document: dict, start: int, end: int) -> dict:
     return result
 
 
-def style_row_coverage(document: dict, start: int, end: int, row_key: str) -> tuple[bool, bool]:
+def style_row_coverage(
+    document: dict, start: int, end: int, row_key: str
+) -> tuple[bool, bool]:
     """返回样式在范围内的 (任意文字使用, 全部文字使用)。
 
     空选区沿用工具栏的全文查看语义；换行符不参与覆盖率计算。
@@ -757,7 +827,10 @@ def _ruby_texts_in_range(entries: list[_CharEntry], start: int, end: int) -> lis
     seen: set[int] = set()
     for entry in entries[start:end]:
         node = entry.node
-        if not (isinstance(node, dict) and node.get("type") == "ruby") or id(node) in seen:
+        if (
+            not (isinstance(node, dict) and node.get("type") == "ruby")
+            or id(node) in seen
+        ):
             continue
         seen.add(id(node))
         ruby_text = _runs_text(node.get("text", []))
@@ -832,14 +905,23 @@ def _style_row_value(entry: _CharEntry, row_key: str) -> Any:
         return bool(style.get("emphasis"))
     if row_key == "FA":
         return style.get("verticalAdvance")
-    if row_key in {"Rot", "XY", "M", "MV"}:
+    if row_key in {"Rot", "XY", "WH", "M", "MV"}:
         transform = style.get("transform") or {}
         if row_key == "Rot":
             return transform.get("rotation")
         if row_key == "XY":
             return (transform.get("offsetX"), transform.get("offsetY"))
+        if row_key == "WH":
+            return (transform.get("scaleX"), transform.get("scaleY"))
         return bool(transform.get("mirrorX" if row_key == "M" else "mirrorY"))
-    return style.get({"K": "kerning", "PK": "preKerning", "LK": "lineKerning", "NK": "nextKerning"}.get(row_key))
+    return style.get(
+        {
+            "K": "kerning",
+            "PK": "preKerning",
+            "LK": "lineKerning",
+            "NK": "nextKerning",
+        }.get(row_key)
+    )
 
 
 def _style_matches_row_key(style: dict, row_key: str) -> bool:
@@ -864,7 +946,9 @@ def _style_matches_row_key(style: dict, row_key: str) -> bool:
     if row_key == "G":
         return isinstance(style.get("glow"), dict) and bool(style.get("glow"))
     if row_key == "OS":
-        return isinstance(style.get("outerStroke"), dict) and bool(style.get("outerStroke"))
+        return isinstance(style.get("outerStroke"), dict) and bool(
+            style.get("outerStroke")
+        )
     if row_key == "D":
         return bool(style.get("emphasis"))
     if row_key == "FA":
@@ -882,7 +966,14 @@ def _style_matches_row_key(style: dict, row_key: str) -> bool:
         return "nextKerning" in style
     if row_key == "XY":
         transform = style.get("transform")
-        return isinstance(transform, dict) and ("offsetX" in transform or "offsetY" in transform)
+        return isinstance(transform, dict) and (
+            "offsetX" in transform or "offsetY" in transform
+        )
+    if row_key == "WH":
+        transform = style.get("transform")
+        return isinstance(transform, dict) and (
+            "scaleX" in transform or "scaleY" in transform
+        )
     if row_key == "M":
         transform = style.get("transform")
         return isinstance(transform, dict) and bool(transform.get("mirrorX"))
@@ -896,7 +987,7 @@ def _compact_display_text(text: str, limit: int = 12) -> str:
     value = re.sub(r"\s+", " ", str(text or "")).strip()
     if len(value) <= limit:
         return value
-    return value[:limit - 1] + "..."
+    return value[: limit - 1] + "..."
 
 
 def _merge_style(style: dict, patch: dict) -> dict:
@@ -933,7 +1024,9 @@ def _merge_adjacent_text_runs(inlines: list) -> list:
             and merged[-1].get("type", "text") == "text"
             and (merged[-1].get("style") or {}) == (inline.get("style") or {})
         ):
-            merged[-1]["text"] = str(merged[-1].get("text", "")) + str(inline.get("text", ""))
+            merged[-1]["text"] = str(merged[-1].get("text", "")) + str(
+                inline.get("text", "")
+            )
         else:
             merged.append(inline)
     return merged

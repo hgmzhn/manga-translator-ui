@@ -2,14 +2,15 @@
 
 不持有渲染状态，只做 numpy/cv2 图层运算与 TextStyle 样式解析。
 """
+
 import math
-from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 
 from ...utils import parse_color
 from ..rich_text import TextStyle
+
 
 def add_color(bw_char_map, color, stroke_char_map, stroke_color):
     """合成文字和描边为 RGBA 图层。
@@ -49,7 +50,7 @@ def add_color(bw_char_map, color, stroke_char_map, stroke_color):
     return out
 
 
-def _parse_rgb(value, fallback=(0, 0, 0)) -> Tuple[int, int, int]:
+def _parse_rgb(value, fallback=(0, 0, 0)) -> tuple[int, int, int]:
     """F16：薄委托 utils.generic.parse_color（#RGB/#RRGGBB/序列、钳制、回退）。
 
     在公共 helper 之上保证恒返回 RGB 三元组：fallback 本身也允许是
@@ -63,11 +64,11 @@ def _parse_rgb(value, fallback=(0, 0, 0)) -> Tuple[int, int, int]:
 
 def _style_font_size(base_font_size: int, style: TextStyle) -> int:
     if style.font_size is not None:
-        return max(1, int(round(style.font_size)))
-    return max(1, int(round(base_font_size * (style.scale or 1.0))))
+        return max(1, round(style.font_size))
+    return max(1, round(base_font_size * (style.scale or 1.0)))
 
 
-def _style_fill_color(style: TextStyle, fallback) -> Tuple[int, int, int]:
+def _style_fill_color(style: TextStyle, fallback) -> tuple[int, int, int]:
     return _parse_rgb(style.color, fallback)
 
 
@@ -77,15 +78,21 @@ def _style_stroke_color(style: TextStyle, fallback):
     return None if fallback is None else _parse_rgb(fallback, (0, 0, 0))
 
 
-def _style_stroke_ratio(style: TextStyle, font_size: int, global_stroke_ratio: float, global_stroke_color) -> float:
+def _style_stroke_ratio(
+    style: TextStyle, font_size: int, global_stroke_ratio: float, global_stroke_color
+) -> float:
     if style.stroke:
         if style.stroke.width is not None:
             return max(0.0, float(style.stroke.width))
         return max(float(global_stroke_ratio), 0.07)
-    return max(float(global_stroke_ratio), 0.0) if global_stroke_color is not None else 0.0
+    return (
+        max(float(global_stroke_ratio), 0.0) if global_stroke_color is not None else 0.0
+    )
 
 
-def _rgba_from_alpha_pair(text_alpha: np.ndarray, border_alpha: Optional[np.ndarray], fill_color, stroke_color):
+def _rgba_from_alpha_pair(
+    text_alpha: np.ndarray, border_alpha: np.ndarray | None, fill_color, stroke_color
+):
     if text_alpha is None or text_alpha.size == 0:
         return None
     if stroke_color is None or border_alpha is None or border_alpha.size == 0:
@@ -93,10 +100,12 @@ def _rgba_from_alpha_pair(text_alpha: np.ndarray, border_alpha: Optional[np.ndar
     return add_color(text_alpha, fill_color, border_alpha, stroke_color)
 
 
-def _rgba_for_paint_part(text_alpha, border_alpha, fill_color, stroke_color, paint_part: str):
-    if paint_part == 'fill':
+def _rgba_for_paint_part(
+    text_alpha, border_alpha, fill_color, stroke_color, paint_part: str
+):
+    if paint_part == "fill":
         return _colored_alpha_layer(text_alpha, fill_color)
-    if paint_part == 'stroke':
+    if paint_part == "stroke":
         if stroke_color is None or border_alpha is None or not border_alpha.size:
             return None
         return _colored_alpha_layer(border_alpha, stroke_color)
@@ -107,7 +116,9 @@ def _stroke_alpha_from_text_alpha(text_alpha: np.ndarray, stroke_px: int):
     if text_alpha is None or text_alpha.size == 0:
         return np.zeros((0, 0), dtype=np.uint8), 0, 0
     pad = max(1, int(stroke_px)) + 1
-    padded = cv2.copyMakeBorder(text_alpha, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+    padded = cv2.copyMakeBorder(
+        text_alpha, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0
+    )
     fg_mask = (padded >= 128).astype(np.uint8) * 255
     bg_mask = cv2.bitwise_not(fg_mask)
     dist = cv2.distanceTransform(bg_mask, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
@@ -142,7 +153,7 @@ def _stroke_pad_px(font_size: int, stroke_ratio: float) -> int:
     """
     if stroke_ratio <= 0:
         return 0
-    stroke_px = max(int(round(stroke_ratio * font_size)), 1)
+    stroke_px = max(round(stroke_ratio * font_size), 1)
     return max(1, int(stroke_px)) + 1
 
 
@@ -151,11 +162,16 @@ def _paste_rgba(dst: np.ndarray, src: np.ndarray, x: int, y: int):
         return
     rows, width = src.shape[:2]
     x2, y2 = x + width, y + rows
-    sx1, sy1, sx2, sy2 = max(0, x), max(0, y), min(dst.shape[1], x2), min(dst.shape[0], y2)
+    sx1, sy1, sx2, sy2 = (
+        max(0, x),
+        max(0, y),
+        min(dst.shape[1], x2),
+        min(dst.shape[0], y2),
+    )
     if sx1 >= sx2 or sy1 >= sy2:
         return
     bx1, by1 = sx1 - x, sy1 - y
-    src_view = src[by1:by1 + (sy2 - sy1), bx1:bx1 + (sx2 - sx1)]
+    src_view = src[by1 : by1 + (sy2 - sy1), bx1 : bx1 + (sx2 - sx1)]
     dst_view = dst[sy1:sy2, sx1:sx2]
     if not dst_view[:, :, 3].any():
         # F26 快路径：目标区域完全透明（竖排逐字符粘贴的常见情形），
@@ -168,7 +184,9 @@ def _paste_rgba(dst: np.ndarray, src: np.ndarray, x: int, y: int):
     dst_a = dst_crop[:, :, 3:4] / 255.0
     out_a = src_a + dst_a * (1.0 - src_a)
     safe_a = np.where(out_a <= 0, 1.0, out_a)
-    out_rgb = (src_crop[:, :, :3] * src_a + dst_crop[:, :, :3] * dst_a * (1.0 - src_a)) / safe_a
+    out_rgb = (
+        src_crop[:, :, :3] * src_a + dst_crop[:, :, :3] * dst_a * (1.0 - src_a)
+    ) / safe_a
     out = np.zeros_like(dst_crop)
     out[:, :, :3] = np.clip(out_rgb, 0, 255)
     out[:, :, 3:4] = np.clip(out_a * 255.0, 0, 255)
@@ -178,12 +196,14 @@ def _paste_rgba(dst: np.ndarray, src: np.ndarray, x: int, y: int):
 def _warp_geometry(height: int, width: int, matrix: np.ndarray):
     """仿射变换的纯几何计算：输入框 (height, width) 经 matrix 变换后的
     输出框尺寸与偏移。渲染（_warp_rgba_layer）与度量共用，保证几何一致。"""
-    corners = np.float32([[0, 0], [width, 0], [width, height], [0, height]]).reshape(-1, 1, 2)
+    corners = np.float32([[0, 0], [width, 0], [width, height], [0, height]]).reshape(
+        -1, 1, 2
+    )
     transformed = cv2.transform(corners, matrix).reshape(-1, 2)
     min_x, min_y = transformed.min(axis=0)
     max_x, max_y = transformed.max(axis=0)
-    out_w = max(1, int(math.ceil(max_x - min_x)))
-    out_h = max(1, int(math.ceil(max_y - min_y)))
+    out_w = max(1, math.ceil(max_x - min_x))
+    out_h = max(1, math.ceil(max_y - min_y))
     return out_h, out_w, min_x, min_y
 
 
@@ -232,7 +252,7 @@ def _style_italic_shear(style: TextStyle) -> float:
 
 
 def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: int):
-    """镜像/自由旋转的图层几何后处理。斜体在字形路径阶段完成，不经此处。"""
+    """镜像和自由旋转的图层几何后处理。斜体与拉伸已在字形轮廓阶段完成。"""
     if layer is None or layer.size == 0:
         return layer, 0.0, 0.0
 
@@ -246,8 +266,12 @@ def _apply_style_layer_effects(layer: np.ndarray, style: TextStyle, font_size: i
         result = cv2.flip(result, 0)
 
     if style.transform.rotation:
-        h, w = result.shape[:2]
-        matrix = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), float(style.transform.rotation), 1.0)
+        height, width = result.shape[:2]
+        matrix = cv2.getRotationMatrix2D(
+            (width / 2.0, height / 2.0),
+            float(style.transform.rotation),
+            1.0,
+        )
         result, dx, dy = _warp_rgba_layer(result, matrix)
         offset_x += dx
         offset_y += dy
@@ -266,13 +290,15 @@ def _style_layer_effects_geometry(
     """_apply_style_layer_effects 的纯几何版本（度量用，F21）。
 
     mirror 不改变尺寸；rotation 用与渲染路径相同的矩阵经 _warp_geometry 按
-    角点计算输出框与偏移，不做实际 warp。斜体在字形路径阶段完成，不经此处。
+    角点计算输出框与偏移，不做实际 warp。斜体与拉伸已在字形轮廓阶段完成。
     返回 (height, width, offset_x, offset_y)。
     """
     if height <= 0 or width <= 0:
         return height, width, 0.0, 0.0
 
-    paint_pad = _style_paint_effect_pad(style, font_size) if include_paint_effects else 0
+    paint_pad = (
+        _style_paint_effect_pad(style, font_size) if include_paint_effects else 0
+    )
     if paint_pad:
         height += paint_pad * 2
         width += paint_pad * 2
@@ -280,7 +306,9 @@ def _style_layer_effects_geometry(
     offset_y = float(-paint_pad)
 
     if style.transform.rotation:
-        matrix = cv2.getRotationMatrix2D((width / 2.0, height / 2.0), float(style.transform.rotation), 1.0)
+        matrix = cv2.getRotationMatrix2D(
+            (width / 2.0, height / 2.0), float(style.transform.rotation), 1.0
+        )
         height, width, dx, dy = _warp_geometry(height, width, matrix)
         offset_x += float(dx)
         offset_y += float(dy)
@@ -292,11 +320,13 @@ def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
     """局部外描边/发光按字号比例换算后的像素包络。"""
     outer_px = 0.0
     if style.outer_stroke and style.outer_stroke.width is not None:
-        outer_px = max(0.0, float(style.outer_stroke.width)) * max(float(font_size), 1.0)
+        outer_px = max(0.0, float(style.outer_stroke.width)) * max(
+            float(font_size), 1.0
+        )
     glow_px = 0.0
     if style.glow:
         glow_px = max(0.0, float(style.glow.blur)) * max(float(font_size), 1.0)
-    return int(math.ceil(max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0)))
+    return math.ceil(max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0))
 
 
 def _colored_alpha_layer(alpha: np.ndarray, color) -> np.ndarray:
@@ -306,72 +336,110 @@ def _colored_alpha_layer(alpha: np.ndarray, color) -> np.ndarray:
     return layer
 
 
-def _apply_style_paint_effects(layer: np.ndarray, style: TextStyle, font_size: int, paint_part: str = 'all'):
+def _apply_style_paint_effects(
+    layer: np.ndarray, style: TextStyle, font_size: int, paint_part: str = "all"
+):
     """构造同尺寸的特效/正文图层，供渲染器执行全局先特效后正文。"""
     if layer is None or layer.size == 0:
         return layer
     pad = _style_paint_effect_pad(style, font_size)
     if pad <= 0:
-        return None if paint_part == 'effects' else layer
+        return None if paint_part == "effects" else layer
 
-    canvas = np.zeros((layer.shape[0] + pad * 2, layer.shape[1] + pad * 2, 4), dtype=np.uint8)
+    canvas = np.zeros(
+        (layer.shape[0] + pad * 2, layer.shape[1] + pad * 2, 4), dtype=np.uint8
+    )
     alpha = layer[:, :, 3]
 
-    if paint_part != 'body' and style.glow and style.glow.blur > 0:
+    if paint_part != "body" and style.glow and style.glow.blur > 0:
         blur = max(0.0, float(style.glow.blur)) * max(float(font_size), 1.0)
-        padded_alpha = cv2.copyMakeBorder(alpha, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+        padded_alpha = cv2.copyMakeBorder(
+            alpha, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0
+        )
         glow_alpha = cv2.GaussianBlur(padded_alpha, (0, 0), sigmaX=blur, sigmaY=blur)
-        _paste_rgba(canvas, _colored_alpha_layer(glow_alpha, style.glow.color or '#000000'), 0, 0)
+        _paste_rgba(
+            canvas,
+            _colored_alpha_layer(glow_alpha, style.glow.color or "#000000"),
+            0,
+            0,
+        )
 
-    if paint_part != 'body' and style.outer_stroke and style.outer_stroke.width is not None and style.outer_stroke.width > 0:
-        width = max(1, int(round(float(style.outer_stroke.width) * max(float(font_size), 1.0))))
-        padded_alpha = cv2.copyMakeBorder(alpha, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (width * 2 + 1, width * 2 + 1))
+    if (
+        paint_part != "body"
+        and style.outer_stroke
+        and style.outer_stroke.width is not None
+        and style.outer_stroke.width > 0
+    ):
+        width = max(
+            1, round(float(style.outer_stroke.width) * max(float(font_size), 1.0))
+        )
+        padded_alpha = cv2.copyMakeBorder(
+            alpha, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0
+        )
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (width * 2 + 1, width * 2 + 1)
+        )
         outer_alpha = cv2.dilate(padded_alpha, kernel)
-        _paste_rgba(canvas, _colored_alpha_layer(outer_alpha, style.outer_stroke.color or '#000000'), 0, 0)
+        _paste_rgba(
+            canvas,
+            _colored_alpha_layer(outer_alpha, style.outer_stroke.color or "#000000"),
+            0,
+            0,
+        )
 
-    if paint_part != 'effects':
+    if paint_part != "effects":
         _paste_rgba(canvas, layer, pad, pad)
     return canvas
 
 
-def _draw_rgba_disc(dst: np.ndarray, center_x: float, center_y: float, radius: float, color):
-    radius = max(1, int(round(radius)))
+def _draw_rgba_disc(
+    dst: np.ndarray, center_x: float, center_y: float, radius: float, color
+):
+    radius = max(1, round(radius))
     size = radius * 2 + 3
     alpha = np.zeros((size, size), dtype=np.uint8)
     cv2.circle(alpha, (size // 2, size // 2), radius, 255, -1, lineType=cv2.LINE_AA)
     layer = np.zeros((size, size, 4), dtype=np.uint8)
     layer[:, :, :3] = np.asarray(_parse_rgb(color), dtype=np.uint8)
     layer[:, :, 3] = alpha
-    _paste_rgba(dst, layer, int(round(center_x)) - size // 2, int(round(center_y)) - size // 2)
+    _paste_rgba(dst, layer, round(center_x) - size // 2, round(center_y) - size // 2)
 
 
-def _draw_rgba_bar(dst: np.ndarray, left: float, top: float, width: float, height: float, color):
+def _draw_rgba_bar(
+    dst: np.ndarray, left: float, top: float, width: float, height: float, color
+):
     """实心矩形条（竖排下划线用，着重号圆点的矩形对应物）。
 
     与 _draw_rgba_disc 同构：只产出 fill 层的纯色不透明块，不参与描边/发光
     ——装饰与正文字形的图层职责在此保持一致。
     """
-    width = max(1, int(round(width)))
-    height = max(1, int(round(height)))
+    width = max(1, round(width))
+    height = max(1, round(height))
     layer = np.zeros((height, width, 4), dtype=np.uint8)
     layer[:, :, :3] = np.asarray(_parse_rgb(color), dtype=np.uint8)
     layer[:, :, 3] = 255
-    _paste_rgba(dst, layer, int(round(left)), int(round(top)))
+    _paste_rgba(dst, layer, round(left), round(top))
 
 
-def _paste_bitmap(canvas: np.ndarray, bitmap_arr: np.ndarray, x: int, y: int, mode: str = 'max'):
+def _paste_bitmap(
+    canvas: np.ndarray, bitmap_arr: np.ndarray, x: int, y: int, mode: str = "max"
+):
     if bitmap_arr is None or bitmap_arr.size == 0:
         return
     rows, width = bitmap_arr.shape
     x2, y2 = x + width, y + rows
-    sx1, sy1, sx2, sy2 = max(0, x), max(0, y), min(canvas.shape[1], x2), min(canvas.shape[0], y2)
+    sx1, sy1, sx2, sy2 = (
+        max(0, x),
+        max(0, y),
+        min(canvas.shape[1], x2),
+        min(canvas.shape[0], y2),
+    )
     if sx1 >= sx2 or sy1 >= sy2:
         return
     bx1, by1 = sx1 - x, sy1 - y
-    bitmap = bitmap_arr[by1:by1 + (sy2 - sy1), bx1:bx1 + (sx2 - sx1)]
+    bitmap = bitmap_arr[by1 : by1 + (sy2 - sy1), bx1 : bx1 + (sx2 - sx1)]
     target = canvas[sy1:sy2, sx1:sx2]
-    if mode == 'add':
+    if mode == "add":
         # 使用 cv2.add 避免 numpy uint8 加法溢出导致的脏斑点
         cv2.add(target, bitmap, dst=target)
     else:
@@ -383,14 +451,33 @@ def _crop_pair(text_canvas: np.ndarray, border_canvas: np.ndarray):
     if not np.any(combined):
         return None
     x, y, w, h = cv2.boundingRect(combined)
-    return None if w == 0 or h == 0 else (text_canvas[y:y+h, x:x+w], border_canvas[y:y+h, x:x+w], x, y, w, h)
+    return (
+        None
+        if w == 0 or h == 0
+        else (
+            text_canvas[y : y + h, x : x + w],
+            border_canvas[y : y + h, x : x + w],
+            x,
+            y,
+            w,
+            h,
+        )
+    )
 
 
-def _glyph_pair_rgba(char_bitmap: np.ndarray, border_bitmap: Optional[np.ndarray], fill, stroke, paint_part: str = 'all'):
+def _glyph_pair_rgba(
+    char_bitmap: np.ndarray,
+    border_bitmap: np.ndarray | None,
+    fill,
+    stroke,
+    paint_part: str = "all",
+):
     if char_bitmap is None or char_bitmap.size == 0:
         return None
     if border_bitmap is None or border_bitmap.size == 0 or stroke is None:
-        layer = None if paint_part == 'stroke' else _colored_alpha_layer(char_bitmap, fill)
+        layer = (
+            None if paint_part == "stroke" else _colored_alpha_layer(char_bitmap, fill)
+        )
         return layer, 0, 0
     border_x = -round((border_bitmap.shape[1] - char_bitmap.shape[1]) / 2.0)
     border_y = -round((border_bitmap.shape[0] - char_bitmap.shape[0]) / 2.0)
@@ -401,18 +488,28 @@ def _glyph_pair_rgba(char_bitmap: np.ndarray, border_bitmap: Optional[np.ndarray
     text_alpha = np.zeros((bottom - top, right - left), dtype=np.uint8)
     border_alpha = np.zeros_like(text_alpha)
     _paste_bitmap(text_alpha, char_bitmap, -left, -top)
-    _paste_bitmap(border_alpha, border_bitmap, border_x - left, border_y - top, mode='add')
-    return _rgba_for_paint_part(text_alpha, border_alpha, fill, stroke, paint_part), left, top
+    _paste_bitmap(
+        border_alpha, border_bitmap, border_x - left, border_y - top, mode="add"
+    )
+    return (
+        _rgba_for_paint_part(text_alpha, border_alpha, fill, stroke, paint_part),
+        left,
+        top,
+    )
 
 
-def _bitmap_ink_rect(bitmap: Optional[np.ndarray]) -> Optional[Tuple[int, int, int, int]]:
+def _bitmap_ink_rect(
+    bitmap: np.ndarray | None,
+) -> tuple[int, int, int, int] | None:
     if bitmap is None or bitmap.size == 0:
         return None
     nz = cv2.findNonZero(bitmap)
     return None if nz is None else tuple(map(int, cv2.boundingRect(nz)))
 
 
-def _stroke_bitmap_from_alpha(text_alpha: np.ndarray, font_size: int, stroke_ratio: float):
-    stroke_px = max(int(round(stroke_ratio * font_size)), 1)
+def _stroke_bitmap_from_alpha(
+    text_alpha: np.ndarray, font_size: int, stroke_ratio: float
+):
+    stroke_px = max(round(stroke_ratio * font_size), 1)
     bitmap, _, _ = _stroke_alpha_from_text_alpha(text_alpha, stroke_px)
     return None if bitmap.size == 0 else bitmap

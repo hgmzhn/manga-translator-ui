@@ -25,13 +25,13 @@ from qfluentwidgets import (
     CardWidget,
     CheckBox,
     DoubleSpinBox,
-    SpinBox,
     PlainTextEdit,
     PopUpAniStackedWidget,
     PushButton,
     SegmentedWidget,
     SimpleCardWidget,
     SingleDirectionScrollArea,
+    SpinBox,
     SubtitleLabel,
     TableWidget,
 )
@@ -87,7 +87,25 @@ def _style_summary(style: dict, empty_text: str) -> str:
         "ruby": "R",
         "tcy": "T",
     }
-    return " ".join(labels.get(key, key) for key in style)
+    summary = []
+    for key, value in style.items():
+        if key != "transform" or not isinstance(value, dict):
+            summary.append(labels.get(key, key))
+            continue
+        if "scaleX" in value or "scaleY" in value:
+            summary.append("WH")
+        if any(
+            transform_key in value
+            for transform_key in (
+                "offsetX",
+                "offsetY",
+                "rotation",
+                "mirrorX",
+                "mirrorY",
+            )
+        ):
+            summary.append(labels["transform"])
+    return " ".join(summary)
 
 
 class _OptionalStyleField(QWidget):
@@ -131,7 +149,9 @@ class RichTextStyleControls(SimpleCardWidget):
                 self._form_label_keys[label] = label_key
 
         self.saved_style_combo = ComboBox(self)
-        self.saved_style_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.saved_style_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.saved_style_combo.activated.connect(self._on_saved_style_activated)
         self._refresh_saved_style_combo()
         add_form_row("Saved rich text style:", self.saved_style_combo)
@@ -160,9 +180,13 @@ class RichTextStyleControls(SimpleCardWidget):
         add_form_row("Ruby Text", self.ruby)
 
         self.italic = self._number("italic", -85, 85, 15, 1, 1)
-        self.color = self._color("color", "#E53935", "saved_colors", "Select rich text color")
+        self.color = self._color(
+            "color", "#E53935", "saved_colors", "Select rich text color"
+        )
         self.font_size = self._integer("fontSize", 1, 1000, 24)
         self.scale = self._number("scale", 0.1, 10, 1.2, 0.05, 2)
+        self.scale_x = self._number("scaleX", 0.1, 10, 1.2, 0.05, 2)
+        self.scale_y = self._number("scaleY", 0.1, 10, 1.2, 0.05, 2)
         advance_choices = (("Half Advance", "half"), ("Full Advance", "full"))
         advance_editor = ComboBox(self)
         for label, value in advance_choices:
@@ -170,8 +194,12 @@ class RichTextStyleControls(SimpleCardWidget):
         self.vertical_advance = self._register("verticalAdvance", advance_editor)
         self.vertical_advance.choice_labels = advance_choices
         self.font_family = self._font("fontFamily")
-        self.stroke = self._effect("stroke", "#FFFFFF", "saved_stroke_colors", "width", 0.07)
-        self.outer_stroke = self._effect("outerStroke", "#000000", "saved_outer_stroke_colors", "width", 0.20)
+        self.stroke = self._effect(
+            "stroke", "#FFFFFF", "saved_stroke_colors", "width", 0.07
+        )
+        self.outer_stroke = self._effect(
+            "outerStroke", "#000000", "saved_outer_stroke_colors", "width", 0.20
+        )
         self.glow = self._effect("glow", "#00FFFF", "saved_glow_colors", "blur", 0.10)
         self.kerning = self._number("kerning", -5, 5, 0, 0.05, 2)
         self.pre_kerning = self._number("preKerning", -5, 5, 0, 0.05, 2)
@@ -184,14 +212,24 @@ class RichTextStyleControls(SimpleCardWidget):
         self.offset_y.editor.setSuffix("%")
 
         for label, field in (
-            ("Italic Angle", self.italic), ("Text Color", self.color),
-            ("Font Size", self.font_size), ("Scale", self.scale),
+            ("Italic Angle", self.italic),
+            ("Text Color", self.color),
+            ("Font Size", self.font_size),
+            ("Scale", self.scale),
+            ("Width Stretch", self.scale_x),
+            ("Height Stretch", self.scale_y),
             ("Force Advance", self.vertical_advance),
-            ("Font Family", self.font_family), ("Stroke", self.stroke),
-            ("Outer Stroke", self.outer_stroke), ("Glow", self.glow),
-            ("Kerning", self.kerning), ("Pre Kerning", self.pre_kerning),
-            ("Line Kerning", self.line_kerning), ("Next Kerning", self.next_kerning),
-            ("Rotation", self.rotation), ("Offset X", self.offset_x), ("Offset Y", self.offset_y),
+            ("Font Family", self.font_family),
+            ("Stroke", self.stroke),
+            ("Outer Stroke", self.outer_stroke),
+            ("Glow", self.glow),
+            ("Kerning", self.kerning),
+            ("Pre Kerning", self.pre_kerning),
+            ("Line Kerning", self.line_kerning),
+            ("Next Kerning", self.next_kerning),
+            ("Rotation", self.rotation),
+            ("Offset X", self.offset_x),
+            ("Offset Y", self.offset_y),
         ):
             add_form_row(label, field)
 
@@ -303,18 +341,26 @@ class RichTextStyleControls(SimpleCardWidget):
 
     def _refresh_saved_style_combo(self) -> None:
         styles = self._saved_rule_styles()
-        current_name = self.saved_style_combo.currentData() if self.saved_style_combo.count() else None
+        current_name = (
+            self.saved_style_combo.currentData()
+            if self.saved_style_combo.count()
+            else None
+        )
         self.saved_style_combo.blockSignals(True)
         try:
             self.saved_style_combo.clear()
-            self.saved_style_combo.addItem(self._t("Select saved rich text style"), userData=None)
+            self.saved_style_combo.addItem(
+                self._t("Select saved rich text style"), userData=None
+            )
             for name in styles:
                 self.saved_style_combo.addItem(name, userData=name)
             index = self.saved_style_combo.findData(current_name)
             self.saved_style_combo.setCurrentIndex(index if index >= 0 else 0)
         finally:
             self.saved_style_combo.blockSignals(False)
-        self.saved_style_combo.setToolTip(self._t("Choose a saved rich text style to load"))
+        self.saved_style_combo.setToolTip(
+            self._t("Choose a saved rich text style to load")
+        )
 
     def _on_saved_style_activated(self, index: int) -> None:
         name = self.saved_style_combo.itemData(index)
@@ -387,10 +433,14 @@ class RichTextStyleControls(SimpleCardWidget):
             "emphasis": True,
         }
         enabled = set()
-        if self.bold.isChecked(): enabled.add("bold")
-        if self.underline.isChecked(): enabled.add("underline")
-        if self.strikethrough.isChecked(): enabled.add("strikethrough")
-        if self.emphasis.isChecked(): enabled.add("emphasis")
+        if self.bold.isChecked():
+            enabled.add("bold")
+        if self.underline.isChecked():
+            enabled.add("underline")
+        if self.strikethrough.isChecked():
+            enabled.add("strikethrough")
+        if self.emphasis.isChecked():
+            enabled.add("emphasis")
         for key, field in self._fields.items():
             if not field.enabled.isChecked():
                 continue
@@ -433,11 +483,15 @@ class RichTextStyleDialog(FluentSecondaryDialog):
         root.setSpacing(12)
         self.title_label = SubtitleLabel(self._t("Edit Rich Text Style"))
         root.addWidget(self.title_label)
-        self.hint_label = BodyLabel(self._t("Enable only the style properties this rule should apply."))
+        self.hint_label = BodyLabel(
+            self._t("Enable only the style properties this rule should apply.")
+        )
         self.hint_label.setWordWrap(True)
         root.addWidget(self.hint_label)
         # 19 行表单包进纵向滚动区，小屏时内容可滚动而不是把窗口撑出屏
-        self.controls_scroll = SingleDirectionScrollArea(self, orient=Qt.Orientation.Vertical)
+        self.controls_scroll = SingleDirectionScrollArea(
+            self, orient=Qt.Orientation.Vertical
+        )
         self.controls_scroll.setWidgetResizable(True)
         self.controls_scroll.setFrameShape(SingleDirectionScrollArea.Shape.NoFrame)
         self.controls = RichTextStyleControls(self._t, self)
@@ -462,7 +516,9 @@ class RichTextStyleDialog(FluentSecondaryDialog):
     def refresh_ui_texts(self) -> None:
         self.setWindowTitle(self._t("Edit Rich Text Style"))
         self.title_label.setText(self._t("Edit Rich Text Style"))
-        self.hint_label.setText(self._t("Enable only the style properties this rule should apply."))
+        self.hint_label.setText(
+            self._t("Enable only the style properties this rule should apply.")
+        )
         self.controls.refresh_ui_texts()
         self.reset_button.setText(self._t("Reset"))
         self.cancel_button.setText(self._t("Cancel"))
@@ -513,8 +569,14 @@ class RichTextRulesEditorPanel(CardWidget):
         self.toggle_enabled_button = PushButton(self._t("Enable"), icon=FIF.ACCEPT)
         self.toggle_regex_button = PushButton(self._t("Regex"), icon=FIF.CODE)
         self.restore_button = PushButton(self._t("Restore Default"), icon=FIF.SYNC)
-        for button in (self.add_button, self.delete_button, self.up_button, self.down_button,
-                       self.toggle_enabled_button, self.toggle_regex_button):
+        for button in (
+            self.add_button,
+            self.delete_button,
+            self.up_button,
+            self.down_button,
+            self.toggle_enabled_button,
+            self.toggle_regex_button,
+        ):
             bar.addWidget(button)
         bar.addStretch()
         bar.addWidget(self.restore_button)
@@ -526,7 +588,9 @@ class RichTextRulesEditorPanel(CardWidget):
         self.filter_label = CaptionLabel(self._t("Filter:"))
         filter_layout.addWidget(self.filter_label)
         self.search = FluentLineEdit()
-        self.search.setPlaceholderText(self._t("Type to filter by pattern / style / comment..."))
+        self.search.setPlaceholderText(
+            self._t("Type to filter by pattern / style / comment...")
+        )
         self.search.setClearButtonEnabled(True)
         filter_layout.addWidget(self.search, 1)
         root.addWidget(filter_card)
@@ -541,11 +605,19 @@ class RichTextRulesEditorPanel(CardWidget):
         self.group_segment = SegmentedWidget(table_page)
         self.group_stack = PopUpAniStackedWidget(table_page)
         self.tables: Dict[str, TableWidget] = {}
-        for key, label in (("common", "Common (Always)"), ("horizontal", "Horizontal"), ("vertical", "Vertical")):
+        for key, label in (
+            ("common", "Common (Always)"),
+            ("horizontal", "Horizontal"),
+            ("vertical", "Vertical"),
+        ):
             table = self._create_table()
             self.tables[key] = table
             self.group_stack.addWidget(table)
-            self.group_segment.addItem(key, self._t(label), onClick=lambda checked=False, value=key: self._set_group(value))
+            self.group_segment.addItem(
+                key,
+                self._t(label),
+                onClick=lambda checked=False, value=key: self._set_group(value),
+            )
         table_layout.addWidget(self.group_segment)
         table_layout.addWidget(self.group_stack, 1)
         self.mode_stack.addWidget(table_page)
@@ -554,7 +626,9 @@ class RichTextRulesEditorPanel(CardWidget):
         raw_page = SimpleCardWidget(self.mode_stack)
         raw_layout = QVBoxLayout(raw_page)
         raw_layout.setContentsMargins(10, 10, 10, 10)
-        self.raw_hint = CaptionLabel(self._t("Edit raw YAML content directly. Changes are saved automatically."))
+        self.raw_hint = CaptionLabel(
+            self._t("Edit raw YAML content directly. Changes are saved automatically.")
+        )
         self.raw_editor = PlainTextEdit()
         self.raw_editor.setFont(_fixed_width_font(10))
         self.raw_editor.setLineWrapMode(PlainTextEdit.LineWrapMode.NoWrap)
@@ -563,8 +637,16 @@ class RichTextRulesEditorPanel(CardWidget):
         raw_layout.addWidget(self.raw_editor, 1)
         self.mode_stack.addWidget(raw_page)
         self.mode_pages["raw"] = raw_page
-        self.mode_segment.addItem("table", self._t("Table View"), onClick=lambda checked=False: self._set_mode(False))
-        self.mode_segment.addItem("raw", self._t("Raw Edit"), onClick=lambda checked=False: self._set_mode(True))
+        self.mode_segment.addItem(
+            "table",
+            self._t("Table View"),
+            onClick=lambda checked=False: self._set_mode(False),
+        )
+        self.mode_segment.addItem(
+            "raw",
+            self._t("Raw Edit"),
+            onClick=lambda checked=False: self._set_mode(True),
+        )
         root.addWidget(self.mode_segment)
         root.addWidget(self.mode_stack, 1)
         self.status = CaptionLabel("")
@@ -574,8 +656,12 @@ class RichTextRulesEditorPanel(CardWidget):
         self.delete_button.clicked.connect(self._delete_rule)
         self.up_button.clicked.connect(lambda: self._move_rule(-1))
         self.down_button.clicked.connect(lambda: self._move_rule(1))
-        self.toggle_enabled_button.clicked.connect(lambda: self._toggle_column(self.COL_ENABLED))
-        self.toggle_regex_button.clicked.connect(lambda: self._toggle_column(self.COL_REGEX))
+        self.toggle_enabled_button.clicked.connect(
+            lambda: self._toggle_column(self.COL_ENABLED)
+        )
+        self.toggle_regex_button.clicked.connect(
+            lambda: self._toggle_column(self.COL_REGEX)
+        )
         self.restore_button.clicked.connect(self._restore)
         self.search.textChanged.connect(self._filter)
         self.raw_editor.textChanged.connect(self._changed)
@@ -585,13 +671,23 @@ class RichTextRulesEditorPanel(CardWidget):
     def _create_table(self) -> TableWidget:
         table = TableWidget()
         table.setColumnCount(5)
-        table.setHorizontalHeaderLabels([self._t("Enabled"), self._t("Pattern"), self._t("Rich Text Style"), self._t("Regex"), self._t("Comment")])
+        table.setHorizontalHeaderLabels(
+            [
+                self._t("Enabled"),
+                self._t("Pattern"),
+                self._t("Rich Text Style"),
+                self._t("Regex"),
+                self._t("Comment"),
+            ]
+        )
         table.setSelectionBehavior(TableWidget.SelectionBehavior.SelectRows)
         table.setSelectionMode(TableWidget.SelectionMode.ExtendedSelection)
         header = table.horizontalHeader()
         header.setSectionResizeMode(self.COL_ENABLED, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_PATTERN, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(self.COL_STYLE, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(
+            self.COL_STYLE, QHeaderView.ResizeMode.ResizeToContents
+        )
         header.setSectionResizeMode(self.COL_REGEX, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_COMMENT, QHeaderView.ResizeMode.Stretch)
         table.setColumnWidth(self.COL_ENABLED, 55)
@@ -620,7 +716,9 @@ class RichTextRulesEditorPanel(CardWidget):
     def _style_button(self, table: TableWidget, row: int, style: dict) -> PushButton:
         button = PushButton(_style_summary(style, self._t("Edit Style")))
         self._set_button_style(button, style)
-        button.clicked.connect(lambda checked=False, target=button: self._edit_style(target))
+        button.clicked.connect(
+            lambda checked=False, target=button: self._edit_style(target)
+        )
         table.setCellWidget(row, self.COL_STYLE, button)
         return button
 
@@ -628,15 +726,19 @@ class RichTextRulesEditorPanel(CardWidget):
     def _set_button_style(button: PushButton, style: dict) -> None:
         """样式与它的搜索文本一起缓存，过滤时不再逐行序列化 JSON。"""
         button.setProperty("richStyle", copy.deepcopy(style))
-        button.setProperty("styleHaystack", json.dumps(style, ensure_ascii=False).lower())
+        button.setProperty(
+            "styleHaystack", json.dumps(style, ensure_ascii=False).lower()
+        )
 
     def _insert(self, table: TableWidget, rule: dict, row: int | None = None):
         row = table.rowCount() if row is None else row
         table.insertRow(row)
-        for column, value in ((self.COL_ENABLED, self._YES if rule.get("enabled", True) else self._NO),
-                              (self.COL_PATTERN, str(rule.get("pattern", ""))),
-                              (self.COL_REGEX, self._YES if rule.get("regex", False) else self._NO),
-                              (self.COL_COMMENT, str(rule.get("comment", "")))):
+        for column, value in (
+            (self.COL_ENABLED, self._YES if rule.get("enabled", True) else self._NO),
+            (self.COL_PATTERN, str(rule.get("pattern", ""))),
+            (self.COL_REGEX, self._YES if rule.get("regex", False) else self._NO),
+            (self.COL_COMMENT, str(rule.get("comment", ""))),
+        ):
             item = QTableWidgetItem(value)
             if column in (self.COL_ENABLED, self.COL_REGEX):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -666,7 +768,10 @@ class RichTextRulesEditorPanel(CardWidget):
         }
 
     def _table_data(self) -> dict:
-        return {key: [self._row_data(table, row) for row in range(table.rowCount())] for key, table in self.tables.items()}
+        return {
+            key: [self._row_data(table, row) for row in range(table.rowCount())]
+            for key, table in self.tables.items()
+        }
 
     def _load(self):
         try:
@@ -687,24 +792,35 @@ class RichTextRulesEditorPanel(CardWidget):
         for key, table in self.tables.items():
             table.blockSignals(True)
             table.setRowCount(0)
-            for rule in data.get(key, []) if isinstance(data.get(key, []), list) else []:
-                if isinstance(rule, dict): self._insert(table, rule)
+            for rule in (
+                data.get(key, []) if isinstance(data.get(key, []), list) else []
+            ):
+                if isinstance(rule, dict):
+                    self._insert(table, rule)
             table.blockSignals(False)
 
     def _sync_raw_from_tables(self):
         self.raw_editor.blockSignals(True)
-        self.raw_editor.setPlainText(yaml.safe_dump(self._table_data(), allow_unicode=True, sort_keys=False, width=120))
+        self.raw_editor.setPlainText(
+            yaml.safe_dump(
+                self._table_data(), allow_unicode=True, sort_keys=False, width=120
+            )
+        )
         self.raw_editor.blockSignals(False)
 
     def _sync_tables_from_raw(self, show_error=False) -> bool:
         try:
             data = yaml.safe_load(self.raw_editor.toPlainText()) or {}
-            if not isinstance(data, dict): raise ValueError(self._t("YAML root must be a mapping"))
+            if not isinstance(data, dict):
+                raise ValueError(self._t("YAML root must be a mapping"))
             for group in ("common", "horizontal", "vertical"):
                 if group in data and not isinstance(data[group], list):
-                    raise ValueError(self._t("Rule group '{group}' must be a list", group=group))
+                    raise ValueError(
+                        self._t("Rule group '{group}' must be a list", group=group)
+                    )
         except Exception as exc:
-            if show_error: themed_warning(self, self._t("YAML Error"), str(exc))
+            if show_error:
+                themed_warning(self, self._t("YAML Error"), str(exc))
             return False
         self._populate(data)
         return True
@@ -715,10 +831,17 @@ class RichTextRulesEditorPanel(CardWidget):
         self._timer.start(self._AUTOSAVE_DELAY_MS)
 
     def _save(self):
-        raw = self.raw_editor.toPlainText() if self._raw_mode else yaml.safe_dump(self._table_data(), allow_unicode=True, sort_keys=False, width=120)
+        raw = (
+            self.raw_editor.toPlainText()
+            if self._raw_mode
+            else yaml.safe_dump(
+                self._table_data(), allow_unicode=True, sort_keys=False, width=120
+            )
+        )
         try:
             data = yaml.safe_load(raw) or {}
-            if not isinstance(data, dict): raise ValueError(self._t("YAML root must be a mapping"))
+            if not isinstance(data, dict):
+                raise ValueError(self._t("YAML root must be a mapping"))
             with open(self._file_path, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(raw.rstrip() + "\n")
             from manga_translator.rendering.rich_text_rules import (
@@ -738,10 +861,20 @@ class RichTextRulesEditorPanel(CardWidget):
         self.data_changed.emit()
 
     def _add_rule(self):
-        if self._raw_mode: return
+        if self._raw_mode:
+            return
         table = self.tables[self._current_group]
         table.blockSignals(True)
-        self._insert(table, {"enabled": True, "pattern": "", "regex": False, "style": {}, "comment": ""})
+        self._insert(
+            table,
+            {
+                "enabled": True,
+                "pattern": "",
+                "regex": False,
+                "style": {},
+                "comment": "",
+            },
+        )
         table.blockSignals(False)
         row = table.rowCount() - 1
         table.selectRow(row)
@@ -749,18 +882,23 @@ class RichTextRulesEditorPanel(CardWidget):
         self._changed()
 
     def _delete_rule(self):
-        if self._raw_mode: return
+        if self._raw_mode:
+            return
         table = self.tables[self._current_group]
         rows = sorted({index.row() for index in table.selectedIndexes()}, reverse=True)
-        for row in rows: table.removeRow(row)
-        if rows: self._changed()
+        for row in rows:
+            table.removeRow(row)
+        if rows:
+            self._changed()
 
     def _move_rule(self, delta: int):
-        if self._raw_mode: return
+        if self._raw_mode:
+            return
         table = self.tables[self._current_group]
         row = table.currentRow()
         target = row + delta
-        if row < 0 or target < 0 or target >= table.rowCount(): return
+        if row < 0 or target < 0 or target >= table.rowCount():
+            return
         first, second = self._row_data(table, row), self._row_data(table, target)
         table.blockSignals(True)
         table.removeRow(max(row, target))
@@ -776,11 +914,14 @@ class RichTextRulesEditorPanel(CardWidget):
     def _toggle_column(self, column: int):
         table = self.tables[self._current_group]
         rows = sorted({index.row() for index in table.selectedIndexes()})
-        if not rows and table.currentRow() >= 0: rows = [table.currentRow()]
-        if not rows: return
+        if not rows and table.currentRow() >= 0:
+            rows = [table.currentRow()]
+        if not rows:
+            return
         enable = any(table.item(row, column).text() != self._YES for row in rows)
         table.blockSignals(True)
-        for row in rows: table.item(row, column).setText(self._YES if enable else self._NO)
+        for row in rows:
+            table.item(row, column).setText(self._YES if enable else self._NO)
         table.blockSignals(False)
         self._changed()
 
@@ -807,18 +948,27 @@ class RichTextRulesEditorPanel(CardWidget):
         query = text.strip().lower()
         for table in self.tables.values():
             for row in range(table.rowCount()):
-                haystack = " ".join((
-                    table.item(row, self.COL_PATTERN).text(),
-                    table.item(row, self.COL_COMMENT).text(),
-                    str(table.cellWidget(row, self.COL_STYLE).property("styleHaystack") or ""),
-                )).lower()
+                haystack = " ".join(
+                    (
+                        table.item(row, self.COL_PATTERN).text(),
+                        table.item(row, self.COL_COMMENT).text(),
+                        str(
+                            table.cellWidget(row, self.COL_STYLE).property(
+                                "styleHaystack"
+                            )
+                            or ""
+                        ),
+                    )
+                ).lower()
                 table.setRowHidden(row, bool(query and query not in haystack))
 
     def _restore(self):
         reply = themed_question(
             self,
             self._t("Restore Default"),
-            self._t("Restore rich text rules to the built-in defaults? Current custom rules will be overwritten."),
+            self._t(
+                "Restore rich text rules to the built-in defaults? Current custom rules will be overwritten."
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -832,7 +982,8 @@ class RichTextRulesEditorPanel(CardWidget):
         self._load()
 
     def refresh(self):
-        if not self._modified: self._load()
+        if not self._modified:
+            self._load()
 
     def refresh_ui_texts(self):
         self.add_button.setText(self._t("Add Rule"))
@@ -841,8 +992,12 @@ class RichTextRulesEditorPanel(CardWidget):
         self.toggle_regex_button.setText(self._t("Regex"))
         self.restore_button.setText(self._t("Restore Default"))
         self.filter_label.setText(self._t("Filter:"))
-        self.search.setPlaceholderText(self._t("Type to filter by pattern / style / comment..."))
-        self.raw_hint.setText(self._t("Edit raw YAML content directly. Changes are saved automatically."))
+        self.search.setPlaceholderText(
+            self._t("Type to filter by pattern / style / comment...")
+        )
+        self.raw_hint.setText(
+            self._t("Edit raw YAML content directly. Changes are saved automatically.")
+        )
         self.mode_segment.setItemText("table", self._t("Table View"))
         self.mode_segment.setItemText("raw", self._t("Raw Edit"))
         for key, label in (
@@ -852,20 +1007,24 @@ class RichTextRulesEditorPanel(CardWidget):
         ):
             self.group_segment.setItemText(key, self._t(label))
         for table in self.tables.values():
-            table.setHorizontalHeaderLabels([
-                self._t("Enabled"),
-                self._t("Pattern"),
-                self._t("Rich Text Style"),
-                self._t("Regex"),
-                self._t("Comment"),
-            ])
+            table.setHorizontalHeaderLabels(
+                [
+                    self._t("Enabled"),
+                    self._t("Pattern"),
+                    self._t("Rich Text Style"),
+                    self._t("Regex"),
+                    self._t("Comment"),
+                ]
+            )
             for row in range(table.rowCount()):
                 button = table.cellWidget(row, self.COL_STYLE)
                 if button is not None:
-                    button.setText(_style_summary(
-                        button.property("richStyle") or {},
-                        self._t("Edit Style"),
-                    ))
+                    button.setText(
+                        _style_summary(
+                            button.property("richStyle") or {},
+                            self._t("Edit Style"),
+                        )
+                    )
         if not self._modified:
             self.status.setText(self._t("All changes saved"))
 

@@ -45,6 +45,7 @@ Use the floating rich-text editor when a line of translation needs inline stylin
 4. Each card lists property rows (key label + style name + control + remove button) for the styles the run actually carries; numeric, color, and combo controls edit in place and commit immediately. When only style values change, cards refresh in place instead of being rebuilt, so a control being typed into or clicked is not interrupted.
 5. Ruby: click toolbar `R` (or the ruby row inside a card) for the selected text, type the ruby text in the “Ruby text” input, and commit with “Apply” or Enter; switching selection, losing body focus, or hiding the window also commits an unapplied ruby draft first.
 6. TCY: click `T` to wrap the selected text as a `tcy` node; click it again to unwrap.
+7. Width/height stretch: select text and click `WH`, then adjust the width (W) and height (H) factors independently in its style card. `1.00` keeps the original dimension, values above `1.00` stretch it, and values below `1.00` compress it. The glyph vector outlines are transformed before one rasterization pass, so the feature does not enlarge an existing bitmap and blur it.
 
 ### Manage rich-text style presets {#manage-style-presets}
 

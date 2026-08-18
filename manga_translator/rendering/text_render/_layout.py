@@ -4,11 +4,12 @@
 "测量框 == 绘制输出面"契约的实现处。竖排字符槽位规则（旋转/贴边/
 半宽/紧凑）也在本模块。
 """
+
+import itertools
 import math
 import re
 from dataclasses import replace
 from time import perf_counter
-from typing import Optional, Tuple
 
 import cv2
 import numpy as np
@@ -28,16 +29,27 @@ from ._compose import (
     _style_stroke_color,
     _style_stroke_ratio,
 )
-from ._fonts import _bold_scope, _create_text_layout, _layout_font, _state, _style_font_scope
-from ._glyphs import GlyphRaster, _glyph_raster, _rasterize_path
+from ._fonts import (
+    _bold_scope,
+    _create_text_layout,
+    _layout_font,
+    _state,
+    _style_font_scope,
+)
+from ._glyphs import (
+    GlyphRaster,
+    _glyph_raster,
+    _rasterize_path,
+    _scale_path_about_center,
+)
 from ._plans import (
-    FlowAxis,
     Bounds,
+    FlowAxis,
     HorizontalLinePlan,
     HorizontalRunPlan,
+    Rect,
     RubyGlyph,
     RubyPlan,
-    Rect,
     TcyPlan,
     plan_emphasis,
     plan_ruby_glyphs,
@@ -52,29 +64,74 @@ from ._vertical_types import (
     VerticalPlaceholderPlan,
 )
 
-_HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({'！': '!', '？': '?'})
+_HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({"！": "!", "？": "?"})
 # 普通自动旋转字符已移到 rich_text_rules.yaml。四个弯引号与四个日文
 # 角引号保留渲染引擎特殊路径：自动旋转 90°，再做顶右/底左定位。
-_VERTICAL_ROTATE_OPEN_SPECIALS = {'“', '‘', '「', '『'}
-_VERTICAL_ROTATE_CLOSE_SPECIALS = {'”', '’', '」', '』'}
-_VERTICAL_OPEN_BRACKETS = _VERTICAL_ROTATE_OPEN_SPECIALS | {'﹁', '﹃', '︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
-_VERTICAL_CLOSE_BRACKETS = _VERTICAL_ROTATE_CLOSE_SPECIALS | {'﹂', '﹄', '︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
-_VERTICAL_PUNCT_UP = {'。', '．', '，', '、', '·', '：', '；', '！', '？', '!', '?', '︒', '︐', '︑', '︓', '︔', '︕', '︖', '﹅', '﹆'}
-_VERTICAL_ROTATE_CHARS = _VERTICAL_ROTATE_OPEN_SPECIALS | _VERTICAL_ROTATE_CLOSE_SPECIALS
-_VERTICAL_COMPACT_SLOT = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS | _VERTICAL_PUNCT_UP
+_VERTICAL_ROTATE_OPEN_SPECIALS = {"“", "‘", "「", "『"}
+_VERTICAL_ROTATE_CLOSE_SPECIALS = {"”", "’", "」", "』"}
+_VERTICAL_OPEN_BRACKETS = _VERTICAL_ROTATE_OPEN_SPECIALS | {
+    "﹁",
+    "﹃",
+    "︵",
+    "︷",
+    "︹",
+    "︻",
+    "︽",
+    "︿",
+    "﹇",
+}
+_VERTICAL_CLOSE_BRACKETS = _VERTICAL_ROTATE_CLOSE_SPECIALS | {
+    "﹂",
+    "﹄",
+    "︶",
+    "︸",
+    "︺",
+    "︼",
+    "︾",
+    "﹀",
+    "﹈",
+}
+_VERTICAL_PUNCT_UP = {
+    "。",
+    "．",
+    "，",
+    "、",
+    "·",
+    "：",
+    "；",
+    "！",
+    "？",
+    "!",
+    "?",
+    "︒",
+    "︐",
+    "︑",
+    "︓",
+    "︔",
+    "︕",
+    "︖",
+    "﹅",
+    "﹆",
+}
+_VERTICAL_ROTATE_CHARS = (
+    _VERTICAL_ROTATE_OPEN_SPECIALS | _VERTICAL_ROTATE_CLOSE_SPECIALS
+)
+_VERTICAL_COMPACT_SLOT = (
+    _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS | _VERTICAL_PUNCT_UP
+)
 _VERTICAL_HALF_ADVANCE = _VERTICAL_OPEN_BRACKETS | _VERTICAL_CLOSE_BRACKETS
 
-_VERTICAL_ALIGN_TOP_RIGHT = {'﹁', '﹃'} | _VERTICAL_ROTATE_OPEN_SPECIALS
-_VERTICAL_ALIGN_BOTTOM_LEFT = {'﹂', '﹄'} | _VERTICAL_ROTATE_CLOSE_SPECIALS
-_VERTICAL_ALIGN_TOP_CENTER = {'︵', '︷', '︹', '︻', '︽', '︿', '﹇'}
-_VERTICAL_ALIGN_BOTTOM_CENTER = {'︶', '︸', '︺', '︼', '︾', '﹀', '﹈'}
-_VERTICAL_PUNCT_CENTER = {'。', '．', '，', '、', '·', '︒', '︐', '︑', '﹅'}
+_VERTICAL_ALIGN_TOP_RIGHT = {"﹁", "﹃"} | _VERTICAL_ROTATE_OPEN_SPECIALS
+_VERTICAL_ALIGN_BOTTOM_LEFT = {"﹂", "﹄"} | _VERTICAL_ROTATE_CLOSE_SPECIALS
+_VERTICAL_ALIGN_TOP_CENTER = {"︵", "︷", "︹", "︻", "︽", "︿", "﹇"}
+_VERTICAL_ALIGN_BOTTOM_CENTER = {"︶", "︸", "︺", "︼", "︾", "﹀", "﹈"}
+_VERTICAL_PUNCT_CENTER = {"。", "．", "，", "、", "·", "︒", "︐", "︑", "﹅"}
 _VERTICAL_FORCE_COMPACT_RE = re.compile(
-    '['
-    + r'\u2700-\u275A\u2761-\u2767\u2776-\u27BF'
-    + r'\u2600-\u26FF'
-    + r'⁁⁂⁇⁈⁉⁊⁋⁎※⁑⁒⁕⁖⁘⁙⁛⁜‼‽'
-    + ']'
+    "["
+    + r"\u2700-\u275A\u2761-\u2767\u2776-\u27BF"
+    + r"\u2600-\u26FF"
+    + r"⁁⁂⁇⁈⁉⁊⁋⁎※⁑⁒⁕⁖⁘⁙⁛⁜‼‽"
+    + "]"
 )
 
 
@@ -88,12 +145,16 @@ def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
 def _normalize_horizontal_block_content(content: str) -> str:
     # F14：BR 编解码统一走 rich_text.normalize_rich_linebreaks（BR→\n 后去换行，
     # 与旧的 _BR_RE.sub('') 输出一致）
-    content = normalize_rich_linebreaks(content).replace('\r', '').replace('\n', '')
-    return content.translate(_HORIZONTAL_SYMBOL_HALFWIDTH_MAP) if re.fullmatch(r'[!?！？]+', content) else content
+    content = normalize_rich_linebreaks(content).replace("\r", "").replace("\n", "")
+    return (
+        content.translate(_HORIZONTAL_SYMBOL_HALFWIDTH_MAP)
+        if re.fullmatch(r"[!?！？]+", content)
+        else content
+    )
 
 
 def _rich_vertical_ruby_space(font_size: int) -> int:
-    return int(round(font_size * RICH_TEXT_POLICY.vertical_ruby_side_space))
+    return round(font_size * RICH_TEXT_POLICY.vertical_ruby_side_space)
 
 
 def _adjacent_line_adjustment(previous, current, font_size: int) -> float:
@@ -105,9 +166,16 @@ def _adjacent_line_adjustment(previous, current, font_size: int) -> float:
     return 0.0
 
 
-def _rich_vertical_line_gap(spacing_x: int, previous: VerticalColumnPlan, current: VerticalColumnPlan) -> int:
+def _rich_vertical_line_gap(
+    spacing_x: int, previous: VerticalColumnPlan, current: VerticalColumnPlan
+) -> int:
     base = max(int(spacing_x), current.annotation_cross_extent)
-    return int(round(base + _adjacent_line_adjustment(previous, current, max(previous.thickness, current.thickness))))
+    return round(
+        base
+        + _adjacent_line_adjustment(
+            previous, current, max(previous.thickness, current.thickness)
+        )
+    )
 
 
 def _vertical_column_walk(widths: list, gaps: list, origin_right: float) -> list:
@@ -127,15 +195,17 @@ def _vertical_column_walk(widths: list, gaps: list, origin_right: float) -> list
     return columns
 
 
-def _vertical_line_origin_y(origin_y, alignment: str, max_height: int, line_height: int):
+def _vertical_line_origin_y(
+    origin_y, alignment: str, max_height: int, line_height: int
+):
     """竖排列的纵向对齐偏移（F13 共享 helper）。
 
     left=顶对齐（不偏移）、center=居中、right=底对齐；
     公式与旧纯文本路径逐字相同，origin_y 的 int/float 类型原样保留。
     """
-    if alignment == 'center':
+    if alignment == "center":
         return origin_y + round((max_height - line_height) / 2.0)
-    if alignment == 'right':
+    if alignment == "right":
         return origin_y + max_height - line_height
     return origin_y
 
@@ -150,7 +220,7 @@ def _rich_vertical_layout_geometry(
     body_width += spacing_x * max(0, len(layouts) - 1)
     gaps = [
         _rich_vertical_line_gap(spacing_x, previous, current)
-        for previous, current in zip(layouts, layouts[1:])
+        for previous, current in itertools.pairwise(layouts)
     ]
     layout_width = sum(column.thickness for column in layouts) + sum(gaps)
     # 紧凑框：各列 content_paint_bounds 先经列位游走换算成正文带内的绝对
@@ -161,43 +231,52 @@ def _rich_vertical_layout_geometry(
     column_edges = _vertical_column_walk(
         [float(column.thickness) for column in layouts], gaps, float(layout_width)
     )
-    paint_left = min((
-        column_left + column.content_paint_bounds.left
-        for (column_left, _), column in zip(column_edges, layouts)
-    ), default=0.0)
-    paint_right = max((
-        column_left + column.content_paint_bounds.right
-        for (column_left, _), column in zip(column_edges, layouts)
-    ), default=float(layout_width))
-    left_extra = int(math.ceil(max(0.0, -paint_left)))
+    paint_left = min(
+        (
+            column_left + column.content_paint_bounds.left
+            for (column_left, _), column in zip(column_edges, layouts)
+        ),
+        default=0.0,
+    )
+    paint_right = max(
+        (
+            column_left + column.content_paint_bounds.right
+            for (column_left, _), column in zip(column_edges, layouts)
+        ),
+        default=float(layout_width),
+    )
+    left_extra = math.ceil(max(0.0, -paint_left))
     right_extra = max(
         layouts[0].annotation_cross_extent if layouts else 0,
-        int(math.ceil(max(0.0, paint_right - layout_width))),
+        math.ceil(max(0.0, paint_right - layout_width)),
     )
     # 纵向包络：正文高 = 最高列的游走高度；上下 extras 由各列图层实际
     # 纵向溢出（偏移/切变/描边外扩）取最大值，测量与绘制共用。
     body_height = max((column.height for column in layouts), default=0)
-    top_extra = max((
-        int(max(0.0, -column.content_paint_bounds.top))
-        for column in layouts
-    ), default=0)
-    bottom_extra = max((
-        int(max(0.0, column.content_paint_bounds.bottom - column.height))
-        for column in layouts
-    ), default=0)
+    top_extra = max(
+        (int(max(0.0, -column.content_paint_bounds.top)) for column in layouts),
+        default=0,
+    )
+    bottom_extra = max(
+        (
+            int(max(0.0, column.content_paint_bounds.bottom - column.height))
+            for column in layouts
+        ),
+        default=0,
+    )
     return {
-        'spacing_x': int(spacing_x),
-        'body_width': int(body_width),
-        'layout_width': int(layout_width),
-        'paint_width': int(layout_width + left_extra + right_extra),
-        'left_extra': int(left_extra),
-        'right_extra': int(right_extra),
-        'body_center_x': float(left_extra) + float(layout_width) / 2.0,
-        'body_height': int(body_height),
-        'top_extra': int(top_extra),
-        'bottom_extra': int(bottom_extra),
-        'paint_height': int(body_height + top_extra + bottom_extra),
-        'body_center_y': float(top_extra) + float(body_height) / 2.0,
+        "spacing_x": int(spacing_x),
+        "body_width": int(body_width),
+        "layout_width": int(layout_width),
+        "paint_width": int(layout_width + left_extra + right_extra),
+        "left_extra": int(left_extra),
+        "right_extra": int(right_extra),
+        "body_center_x": float(left_extra) + float(layout_width) / 2.0,
+        "body_height": int(body_height),
+        "top_extra": int(top_extra),
+        "bottom_extra": int(bottom_extra),
+        "paint_height": int(body_height + top_extra + bottom_extra),
+        "body_center_y": float(top_extra) + float(body_height) / 2.0,
     }
 
 
@@ -206,10 +285,10 @@ def _rich_vertical_column_positions(
     geometry: dict,
     origin_x: float = 0.0,
 ) -> list:
-    origin_right = float(origin_x) + geometry['left_extra'] + geometry['layout_width']
+    origin_right = float(origin_x) + geometry["left_extra"] + geometry["layout_width"]
     widths = [float(column.thickness) for column in layouts]
     gaps = [
-        _rich_vertical_line_gap(geometry['spacing_x'], layouts[idx], layouts[idx + 1])
+        _rich_vertical_line_gap(geometry["spacing_x"], layouts[idx], layouts[idx + 1])
         for idx in range(max(0, len(layouts) - 1))
     ]
     return [
@@ -243,7 +322,7 @@ def calc_horizontal_line_spacing_px(font_size: int, line_spacing: float) -> int:
     content-derived, so this is the only vertical whitespace added by layout.
     """
     value = _normalize_line_spacing(line_spacing)
-    return max(0, int(round(font_size * 0.10 * value)))
+    return max(0, round(font_size * 0.10 * value))
 
 
 def calc_vertical_line_spacing_px(font_size: int, line_spacing: float) -> int:
@@ -261,19 +340,19 @@ def calc_vertical_line_spacing_px(font_size: int, line_spacing: float) -> int:
 def _scale_advance(advance: int, letter_spacing: float) -> int:
     if advance <= 0:
         return int(advance)
-    return max(1, int(round(advance * _normalize_letter_spacing(letter_spacing))))
+    return max(1, round(advance * _normalize_letter_spacing(letter_spacing)))
 
 
-def _forced_vertical_advance(font_size: int, mode: Optional[str]) -> Optional[int]:
-    if mode == 'half':
-        return max(1, int(round(font_size * 0.5)))
-    if mode == 'full':
+def _forced_vertical_advance(font_size: int, mode: str | None) -> int | None:
+    if mode == "half":
+        return max(1, round(font_size * 0.5))
+    if mode == "full":
         return max(1, int(font_size))
     return None
 
 
 def _horizontal_line(text: str, font_size: int, letter_spacing: float = 1.0):
-    return _create_text_layout(text or '', font_size, letter_spacing)
+    return _create_text_layout(text or "", font_size, letter_spacing)
 
 
 def _line_logical_width(line) -> float:
@@ -284,8 +363,20 @@ def _line_metrics(text: str, font_size: int, letter_spacing: float = 1.0) -> dic
     normalized, qfont, _, line = _horizontal_line(text, font_size, letter_spacing)
     metrics = QFontMetricsF(qfont)
     if line is None:
-        return {'text': normalized, 'logical_width': 0.0, 'ascent': float(metrics.ascent()), 'height': float(metrics.height()), 'descent': float(metrics.descent())}
-    return {'text': normalized, 'logical_width': _line_logical_width(line), 'ascent': float(line.ascent()), 'height': float(line.height()), 'descent': float(line.descent())}
+        return {
+            "text": normalized,
+            "logical_width": 0.0,
+            "ascent": float(metrics.ascent()),
+            "height": float(metrics.height()),
+            "descent": float(metrics.descent()),
+        }
+    return {
+        "text": normalized,
+        "logical_width": _line_logical_width(line),
+        "ascent": float(line.ascent()),
+        "height": float(line.height()),
+        "descent": float(line.descent()),
+    }
 
 
 def _horizontal_glyph_path(
@@ -293,17 +384,20 @@ def _horizontal_glyph_path(
     font_size: int,
     reversed_direction: bool,
     letter_spacing: float,
-    profile_stats: Optional[dict] = None,
+    profile_stats: dict | None = None,
     shear: float = 0.0,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
 ):
     """Shape one horizontal span and return its exact vector ink path.
 
     QTextLayout remains responsible for glyph selection and baseline positions,
-    but line fitting never consumes its ascent/descent box.  The returned path
+    but line fitting never consumes its ascent/descent box. The returned path
     is the actual union of the shaped glyph outlines in QTextLine coordinates.
 
-    ``shear`` 为斜体切变系数：pathForGlyph 轮廓以基线为原点，剪切在平移到
-    笔位之前施加，因此天然绕各字形基线、不改变 advance（PS 仿斜体语义）。
+    ``shear`` is applied to each outline around its baseline before placement.
+    Width/height stretch is applied once to the assembled vector ink around its
+    center, so rasterization stays sharp and the run advance remains unchanged.
     """
     stage_t0 = perf_counter() if profile_stats is not None else None
     normalized, _, layout, line = _horizontal_line(line_text, font_size, letter_spacing)
@@ -311,7 +405,9 @@ def _horizontal_glyph_path(
     if not line_text or line is None:
         return normalized, layout, line, QPainterPath()
 
-    shear_transform = QTransform(1.0, 0.0, float(shear), 1.0, 0.0, 0.0) if shear else None
+    shear_transform = (
+        QTransform(1.0, 0.0, float(shear), 1.0, 0.0, 0.0) if shear else None
+    )
     path = QPainterPath()
     path.setFillRule(Qt.FillRule.WindingFill)
     stage_t0 = perf_counter() if profile_stats is not None else None
@@ -325,6 +421,7 @@ def _horizontal_glyph_path(
                 glyph_path = shear_transform.map(glyph_path)
             glyph_path.translate(pos.x(), pos.y())
             path.addPath(glyph_path)
+    path = _scale_path_about_center(path, scale_x, scale_y)
     _profile_add(profile_stats, "tr_path_ms", stage_t0)
     return normalized, layout, line, path
 
@@ -335,37 +432,49 @@ def _line_ink_geometry(
     stroke_ratio: float = 0.0,
     reversed_direction: bool = False,
     letter_spacing: float = 1.0,
-    profile_stats: Optional[dict] = None,
+    profile_stats: dict | None = None,
     shear: float = 0.0,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
 ) -> dict:
     """Return the fixed pixel frame of the shaped glyph ink.
 
-    The floor/ceil policy is identical to ``_rasterize_path``.  Stroke padding
+    The floor/ceil policy is identical to ``_rasterize_path``. Stroke padding
     is part of the frame, so measurement and rendering use one geometry without
     the former outer ``calc_box_from_font`` padding estimate.
     """
-    normalized, layout, line, path = _horizontal_glyph_path(
+    _normalized, layout, line, path = _horizontal_glyph_path(
         line_text,
         font_size,
         reversed_direction,
         letter_spacing,
         profile_stats,
         shear,
+        scale_x,
+        scale_y,
     )
     logical_width = 0.0 if line is None else _line_logical_width(line)
-    ascent = float(_line_metrics('', font_size, letter_spacing)['ascent']) if line is None else float(line.ascent())
-    descent = float(_line_metrics('', font_size, letter_spacing)['descent']) if line is None else float(line.descent())
+    ascent = (
+        float(_line_metrics("", font_size, letter_spacing)["ascent"])
+        if line is None
+        else float(line.ascent())
+    )
+    descent = (
+        float(_line_metrics("", font_size, letter_spacing)["descent"])
+        if line is None
+        else float(line.descent())
+    )
     if path.isEmpty():
         return {
-            'path': path,
-            'logical_width': float(logical_width),
-            'ascent': ascent,
-            'descent': descent,
-            'left_rel': 0.0,
-            'top_rel': 0.0,
-            'width': 0,
-            'height': 0,
-            'has_ink': False,
+            "path": path,
+            "logical_width": float(logical_width),
+            "ascent": ascent,
+            "descent": descent,
+            "left_rel": 0.0,
+            "top_rel": 0.0,
+            "width": 0,
+            "height": 0,
+            "has_ink": False,
         }
 
     rect = path.boundingRect()
@@ -380,21 +489,21 @@ def _line_ink_geometry(
     bottom += pad
     origin_x = -logical_width if reversed_direction else 0.0
     return {
-        'path': path,
-        'layout': layout,
-        'logical_width': float(logical_width),
-        'ascent': ascent,
-        'descent': descent,
-        'left_rel': float(left) - origin_x,
-        'top_rel': float(top) - ascent,
-        'width': max(0, int(right - left)),
-        'height': max(0, int(bottom - top)),
-        'has_ink': right > left and bottom > top,
-        'frame_left': int(left),
-        'frame_top': int(top),
-        'fill_left': int(left + pad),
-        'fill_top': int(top + pad),
-        'pad': int(pad),
+        "path": path,
+        "layout": layout,
+        "logical_width": float(logical_width),
+        "ascent": ascent,
+        "descent": descent,
+        "left_rel": float(left) - origin_x,
+        "top_rel": float(top) - ascent,
+        "width": max(0, int(right - left)),
+        "height": max(0, int(bottom - top)),
+        "has_ink": right > left and bottom > top,
+        "frame_left": int(left),
+        "frame_top": int(top),
+        "fill_left": int(left + pad),
+        "fill_top": int(top + pad),
+        "pad": int(pad),
     }
 
 
@@ -406,9 +515,11 @@ def _line_surface(
     reversed_direction: bool = False,
     letter_spacing: float = 1.0,
     bold: bool = False,
-    profile_stats: Optional[dict] = None,
-    geometry: Optional[dict] = None,
+    profile_stats: dict | None = None,
+    geometry: dict | None = None,
     shear: float = 0.0,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
 ):
     # ``geometry`` 只允许来自当前一次布局调用；它不是跨字号/字体的缓存。
     # 省略时保留原有的独立测量路径，竖排和外部调用无需携带任何状态。
@@ -424,42 +535,53 @@ def _line_surface(
                 letter_spacing,
                 profile_stats,
                 shear,
+                scale_x,
+                scale_y,
             )
-        path = geometry['path']
-        if not geometry['has_ink']:
+        path = geometry["path"]
+        if not geometry["has_ink"]:
             return None
         stage_t0 = perf_counter() if profile_stats is not None else None
         fill_alpha, fill_left, fill_top = _rasterize_path(path)
         _profile_add(profile_stats, "tr_raster_ms", stage_t0)
         if fill_alpha.size == 0:
             return None
-        frame_left = int(geometry['frame_left'])
-        frame_top = int(geometry['frame_top'])
-        frame_width = int(geometry['width'])
-        frame_height = int(geometry['height'])
+        frame_left = int(geometry["frame_left"])
+        frame_top = int(geometry["frame_top"])
+        frame_width = int(geometry["width"])
+        frame_height = int(geometry["height"])
         text_canvas = np.zeros((frame_height, frame_width), dtype=np.uint8)
         border_canvas = np.zeros_like(text_canvas)
-        _paste_bitmap(text_canvas, fill_alpha, fill_left - frame_left, fill_top - frame_top)
+        _paste_bitmap(
+            text_canvas, fill_alpha, fill_left - frame_left, fill_top - frame_top
+        )
         if border_size > 0:
             stage_t0 = perf_counter() if profile_stats is not None else None
-            stroke_px = max(int(round(stroke_ratio * font_size)), 1)
-            border_alpha, border_dx, border_dy = _stroke_alpha_from_text_alpha(fill_alpha, stroke_px)
+            stroke_px = max(round(stroke_ratio * font_size), 1)
+            border_alpha, border_dx, border_dy = _stroke_alpha_from_text_alpha(
+                fill_alpha, stroke_px
+            )
             border_left, border_top = fill_left + border_dx, fill_top + border_dy
-            _paste_bitmap(border_canvas, border_alpha, border_left - frame_left, border_top - frame_top)
+            _paste_bitmap(
+                border_canvas,
+                border_alpha,
+                border_left - frame_left,
+                border_top - frame_top,
+            )
             _profile_add(profile_stats, "tr_stroke_ms", stage_t0)
     return {
-        'text': text_canvas,
-        'border': border_canvas,
-        'left_rel': geometry['left_rel'],
-        'right_rel': geometry['left_rel'] + frame_width,
-        'top_rel': geometry['top_rel'],
-        'width': frame_width,
-        'height': frame_height,
-        'logical_width': geometry['logical_width'],
-        'line_ascent': geometry['ascent'],
-        'line_descent': geometry['descent'],
-        'ink_top': geometry['top_rel'],
-        'ink_bottom': geometry['top_rel'] + frame_height,
+        "text": text_canvas,
+        "border": border_canvas,
+        "left_rel": geometry["left_rel"],
+        "right_rel": geometry["left_rel"] + frame_width,
+        "top_rel": geometry["top_rel"],
+        "width": frame_width,
+        "height": frame_height,
+        "logical_width": geometry["logical_width"],
+        "line_ascent": geometry["ascent"],
+        "line_descent": geometry["descent"],
+        "ink_top": geometry["top_rel"],
+        "ink_bottom": geometry["top_rel"] + frame_height,
     }
 
 
@@ -470,12 +592,14 @@ def _build_horizontal_run_plan(
     global_stroke_color,
     reversed_direction: bool,
     letter_spacing: float,
-    profile_stats: Optional[dict] = None,
-    geometry_sink: Optional[dict] = None,
+    profile_stats: dict | None = None,
+    geometry_sink: dict | None = None,
 ) -> HorizontalRunPlan:
     text = span.text
     font_size = _style_font_size(base_font_size, span.style)
-    stroke_ratio = _style_stroke_ratio(span.style, font_size, global_stroke_ratio, global_stroke_color)
+    stroke_ratio = _style_stroke_ratio(
+        span.style, font_size, global_stroke_ratio, global_stroke_color
+    )
     effective_bold = bool(span.style.bold) or _state().bold
     with _style_font_scope(span.style), _bold_scope(effective_bold):
         geometry = _line_ink_geometry(
@@ -486,22 +610,24 @@ def _build_horizontal_run_plan(
             letter_spacing,
             profile_stats,
             _style_italic_shear(span.style),
+            span.style.transform.scale_x,
+            span.style.transform.scale_y,
         )
-    left_rel = float(geometry['left_rel'])
+    left_rel = float(geometry["left_rel"])
     if reversed_direction:
-        left_rel -= float(geometry['logical_width'])
+        left_rel -= float(geometry["logical_width"])
     run = HorizontalRunPlan(
         span=span,
         font_size=font_size,
         stroke_ratio=stroke_ratio,
-        logical_width=float(geometry['logical_width']),
-        ascent=float(geometry['ascent']),
-        descent=float(geometry['descent']),
-        has_ink=bool(geometry['has_ink']),
+        logical_width=float(geometry["logical_width"]),
+        ascent=float(geometry["ascent"]),
+        descent=float(geometry["descent"]),
+        has_ink=bool(geometry["has_ink"]),
         left_rel=left_rel,
-        top_rel=float(geometry['top_rel']),
-        ink_width=int(geometry['width']),
-        ink_height=int(geometry['height']),
+        top_rel=float(geometry["top_rel"]),
+        ink_width=int(geometry["width"]),
+        ink_height=int(geometry["height"]),
     )
     if geometry_sink is not None:
         geometry_sink[id(run)] = geometry
@@ -512,9 +638,9 @@ def _build_horizontal_ruby_plan(
     run: HorizontalRunPlan,
     stroke_enabled,
     letter_spacing: float,
-    profile_stats: Optional[dict] = None,
-    geometry_sink: Optional[dict] = None,
-) -> Optional[RubyPlan]:
+    profile_stats: dict | None = None,
+    geometry_sink: dict | None = None,
+) -> RubyPlan | None:
     """Lay ruby characters out in equal slots across the complete base run.
 
     The reference editor does not render the annotation as one compact string:
@@ -522,7 +648,7 @@ def _build_horizontal_ruby_plan(
     and drawing both use this plan so their paint envelopes stay identical.
     """
     span = run.span
-    ruby_text = ''.join(item.text for item in (span.ruby or []))
+    ruby_text = "".join(item.text for item in (span.ruby or []))
     if not ruby_text:
         return None
     ruby_style = span.style.copy()
@@ -530,7 +656,7 @@ def _build_horizontal_ruby_plan(
     # 注音不继承正文装饰（装饰只作用于正文行）
     ruby_style.underline = False
     ruby_style.strikethrough = False
-    ruby_font = max(1, int(round(run.font_size * RICH_TEXT_POLICY.horizontal_ruby_size)))
+    ruby_font = max(1, round(run.font_size * RICH_TEXT_POLICY.horizontal_ruby_size))
     ruby_stroke_ratio = _style_stroke_ratio(ruby_style, ruby_font, 0.0, stroke_enabled)
     raw_glyphs = []
     glyph_geometries = []
@@ -545,13 +671,15 @@ def _build_horizontal_ruby_plan(
                 letter_spacing,
                 profile_stats,
                 ruby_shear,
+                ruby_style.transform.scale_x,
+                ruby_style.transform.scale_y,
             )
             glyph_geometries.append(geometry)
-            if not geometry['has_ink']:
+            if not geometry["has_ink"]:
                 raw_glyphs.append((0, 0))
                 continue
             out_h, out_w, _, _ = _style_layer_effects_geometry(
-                int(geometry['height']), int(geometry['width']), ruby_style, ruby_font
+                int(geometry["height"]), int(geometry["width"]), ruby_style, ruby_font
             )
             raw_glyphs.append((int(out_w), int(out_h)))
 
@@ -583,12 +711,30 @@ def _build_horizontal_ruby_plan(
         font_size=ruby_font,
         stroke_ratio=ruby_stroke_ratio,
         glyphs=glyphs,
-        paint_start=float(math.floor(min(
-            [0.0] + [glyph.main_center - glyph.paint_width / 2.0 for glyph in glyphs if glyph.paint_width]
-        ))),
-        paint_end=float(math.ceil(max(
-            [base_width] + [glyph.main_center + glyph.paint_width / 2.0 for glyph in glyphs if glyph.paint_width]
-        ))),
+        paint_start=float(
+            math.floor(
+                min(
+                    [0.0]
+                    + [
+                        glyph.main_center - glyph.paint_width / 2.0
+                        for glyph in glyphs
+                        if glyph.paint_width
+                    ]
+                )
+            )
+        ),
+        paint_end=float(
+            math.ceil(
+                max(
+                    [base_width]
+                    + [
+                        glyph.main_center + glyph.paint_width / 2.0
+                        for glyph in glyphs
+                        if glyph.paint_width
+                    ]
+                )
+            )
+        ),
     )
 
 
@@ -621,8 +767,22 @@ def _rich_horizontal_main_rect(
 
 
 def _paragraph_line_spacing_values(paragraph) -> tuple[float | None, float | None]:
-    line_value = next((span.style.line_kerning for span in paragraph.spans if span.style.line_kerning is not None), None)
-    next_value = next((span.style.next_kerning for span in paragraph.spans if span.style.next_kerning is not None), None)
+    line_value = next(
+        (
+            span.style.line_kerning
+            for span in paragraph.spans
+            if span.style.line_kerning is not None
+        ),
+        None,
+    )
+    next_value = next(
+        (
+            span.style.next_kerning
+            for span in paragraph.spans
+            if span.style.next_kerning is not None
+        ),
+        None,
+    )
     return line_value, next_value
 
 
@@ -642,41 +802,56 @@ def _finalize_rich_horizontal_line(
         spacing_rect = _rich_horizontal_main_rect(run, include_paint_effects=False)
         run.main_rect = main_rect
         if main_rect.width > 0 and main_rect.height > 0:
-            rect = (cursor + main_rect.x, main_rect.y, main_rect.width, main_rect.height)
+            rect = (
+                cursor + main_rect.x,
+                main_rect.y,
+                main_rect.width,
+                main_rect.height,
+            )
             body_rects.append(rect)
             paint_rects.append(rect)
-            spacing_rects.append((
-                cursor + spacing_rect.x,
-                spacing_rect.y,
-                spacing_rect.width,
-                spacing_rect.height,
-            ))
+            spacing_rects.append(
+                (
+                    cursor + spacing_rect.x,
+                    spacing_rect.y,
+                    spacing_rect.width,
+                    spacing_rect.height,
+                )
+            )
 
             ruby = run.ruby
             if ruby is not None:
-                gap = max(1, int(round(run.font_size * RICH_TEXT_POLICY.decoration_gap)))
+                gap = max(1, round(run.font_size * RICH_TEXT_POLICY.decoration_gap))
                 ruby_height = max(glyph.paint_height for glyph in ruby.glyphs)
                 ruby.cross_center = main_rect.y - gap - ruby_height / 2.0
-                paint_rects.append((
-                    cursor + ruby.paint_start,
-                    ruby.cross_center - ruby_height / 2.0,
-                    ruby.paint_end - ruby.paint_start,
-                    float(ruby_height),
-                ))
-                spacing_rects.append((
-                    cursor + ruby.paint_start,
-                    ruby.cross_center - ruby_height / 2.0,
-                    ruby.paint_end - ruby.paint_start,
-                    float(ruby_height),
-                ))
+                paint_rects.append(
+                    (
+                        cursor + ruby.paint_start,
+                        ruby.cross_center - ruby_height / 2.0,
+                        ruby.paint_end - ruby.paint_start,
+                        float(ruby_height),
+                    )
+                )
+                spacing_rects.append(
+                    (
+                        cursor + ruby.paint_start,
+                        ruby.cross_center - ruby_height / 2.0,
+                        ruby.paint_end - ruby.paint_start,
+                        float(ruby_height),
+                    )
+                )
 
             if run.span.style.emphasis:
-                gap = max(1, int(round(run.font_size * RICH_TEXT_POLICY.decoration_gap)))
+                gap = max(1, round(run.font_size * RICH_TEXT_POLICY.decoration_gap))
                 char_cursor = cursor
                 intervals = []
                 for char in run.span.text:
-                    advance = _measure_horizontal_text_width(char, run.font_size, letter_spacing)
-                    intervals.append((char_cursor - cursor, char_cursor - cursor + advance))
+                    advance = _measure_horizontal_text_width(
+                        char, run.font_size, letter_spacing
+                    )
+                    intervals.append(
+                        (char_cursor - cursor, char_cursor - cursor + advance)
+                    )
                     char_cursor += advance
                 emphasis = plan_emphasis(
                     run.span,
@@ -687,18 +862,22 @@ def _finalize_rich_horizontal_line(
                 emphasis.cross_center = top + emphasis.frame_size / 2.0
                 run.emphasis = emphasis
                 for main_center in emphasis.main_centers:
-                    paint_rects.append((
-                        cursor + main_center - emphasis.frame_size / 2.0,
-                        top,
-                        float(emphasis.frame_size),
-                        float(emphasis.frame_size),
-                    ))
-                    spacing_rects.append((
-                        cursor + main_center - emphasis.frame_size / 2.0,
-                        top,
-                        float(emphasis.frame_size),
-                        float(emphasis.frame_size),
-                    ))
+                    paint_rects.append(
+                        (
+                            cursor + main_center - emphasis.frame_size / 2.0,
+                            top,
+                            float(emphasis.frame_size),
+                            float(emphasis.frame_size),
+                        )
+                    )
+                    spacing_rects.append(
+                        (
+                            cursor + main_center - emphasis.frame_size / 2.0,
+                            top,
+                            float(emphasis.frame_size),
+                            float(emphasis.frame_size),
+                        )
+                    )
 
         if run.span.style.underline and run.logical_width > 0:
             # 下划线沿行方向铺满 run 的 advance 宽，纵向位置只由基线和字号
@@ -710,18 +889,22 @@ def _finalize_rich_horizontal_line(
                 + underline.thickness / 2.0
             )
             run.underline = underline
-            paint_rects.append((
-                cursor,
-                underline.cross_center - underline.thickness / 2.0,
-                float(run.logical_width),
-                float(underline.thickness),
-            ))
-            spacing_rects.append((
-                cursor,
-                underline.cross_center - underline.thickness / 2.0,
-                float(run.logical_width),
-                float(underline.thickness),
-            ))
+            paint_rects.append(
+                (
+                    cursor,
+                    underline.cross_center - underline.thickness / 2.0,
+                    float(run.logical_width),
+                    float(underline.thickness),
+                )
+            )
+            spacing_rects.append(
+                (
+                    cursor,
+                    underline.cross_center - underline.thickness / 2.0,
+                    float(run.logical_width),
+                    float(underline.thickness),
+                )
+            )
         if run.span.style.strikethrough and run.logical_width > 0:
             strikethrough = plan_underline(
                 run.span, 0.0, run.logical_width, run.font_size
@@ -744,7 +927,13 @@ def _finalize_rich_horizontal_line(
         half = max(float(base_font_size), 1.0) / 2.0
         bounds = Bounds(0.0, -half, logical_width, half)
         return HorizontalLinePlan(
-            tuple(runs), logical_width, bounds, bounds, line_kerning, next_kerning, bounds
+            tuple(runs),
+            logical_width,
+            bounds,
+            bounds,
+            line_kerning,
+            next_kerning,
+            bounds,
         )
 
     def bounds(rects):
@@ -779,8 +968,8 @@ def _build_rich_horizontal_layout(
     bg,
     reversed_direction: bool,
     letter_spacing: float,
-    profile_stats: Optional[dict] = None,
-    geometry_sink: Optional[dict] = None,
+    profile_stats: dict | None = None,
+    geometry_sink: dict | None = None,
 ):
     """Build one content-derived ink plan for horizontal text.
 
@@ -817,41 +1006,83 @@ def _build_rich_horizontal_layout(
                     run.ruby = ruby_paint
             runs.append(run)
         line_kerning, next_kerning = _paragraph_line_spacing_values(paragraph)
-        layouts.append(_finalize_rich_horizontal_line(
-            runs, base_font_size, letter_spacing, line_kerning, next_kerning
-        ))
+        layouts.append(
+            _finalize_rich_horizontal_line(
+                runs, base_font_size, letter_spacing, line_kerning, next_kerning
+            )
+        )
     return layouts
 
 
-def _rich_horizontal_layout_geometry(layouts: list[HorizontalLinePlan], font_size: int, line_spacing: float) -> dict:
+def _rich_horizontal_layout_geometry(
+    layouts: list[HorizontalLinePlan], font_size: int, line_spacing: float
+) -> dict:
     """Place real line ink boxes and return their normalized render frame."""
     gap = calc_horizontal_line_spacing_px(font_size, line_spacing)
     body_width = max((layout.logical_width for layout in layouts), default=0.0)
-    left_extra = max((max(0.0, -layout.paint_bounds.left) for layout in layouts), default=0.0)
-    right_extra = max((max(0.0, layout.paint_bounds.right - layout.logical_width) for layout in layouts), default=0.0)
+    left_extra = max(
+        (max(0.0, -layout.paint_bounds.left) for layout in layouts), default=0.0
+    )
+    right_extra = max(
+        (
+            max(0.0, layout.paint_bounds.right - layout.logical_width)
+            for layout in layouts
+        ),
+        default=0.0,
+    )
 
     baselines = []
     if layouts:
         baselines.append(-layouts[0].paint_bounds.top)
-        for previous, current in zip(layouts, layouts[1:]):
+        for previous, current in itertools.pairwise(layouts):
             local_gap = gap + _adjacent_line_adjustment(previous, current, font_size)
             previous_spacing = previous.spacing_bounds or previous.body_bounds
             current_spacing = current.spacing_bounds or current.body_bounds
             advance = previous_spacing.bottom - current_spacing.top + local_gap
             baselines.append(baselines[-1] + max(1.0, advance))
 
-    paint_top = min((baseline + layout.paint_bounds.top for baseline, layout in zip(baselines, layouts)), default=0.0)
-    paint_bottom = max((baseline + layout.paint_bounds.bottom for baseline, layout in zip(baselines, layouts)), default=0.0)
-    body_top = min((baseline + layout.body_bounds.top for baseline, layout in zip(baselines, layouts)), default=0.0)
-    body_bottom = max((baseline + layout.body_bounds.bottom for baseline, layout in zip(baselines, layouts)), default=0.0)
-    centered_body_left = min((
-        (body_width - layout.logical_width) / 2.0 + layout.body_bounds.left
-        for layout in layouts
-    ), default=0.0)
-    centered_body_right = max((
-        (body_width - layout.logical_width) / 2.0 + layout.body_bounds.right
-        for layout in layouts
-    ), default=body_width)
+    paint_top = min(
+        (
+            baseline + layout.paint_bounds.top
+            for baseline, layout in zip(baselines, layouts)
+        ),
+        default=0.0,
+    )
+    paint_bottom = max(
+        (
+            baseline + layout.paint_bounds.bottom
+            for baseline, layout in zip(baselines, layouts)
+        ),
+        default=0.0,
+    )
+    body_top = min(
+        (
+            baseline + layout.body_bounds.top
+            for baseline, layout in zip(baselines, layouts)
+        ),
+        default=0.0,
+    )
+    body_bottom = max(
+        (
+            baseline + layout.body_bounds.bottom
+            for baseline, layout in zip(baselines, layouts)
+        ),
+        default=0.0,
+    )
+    centered_body_left = min(
+        (
+            (body_width - layout.logical_width) / 2.0 + layout.body_bounds.left
+            for layout in layouts
+        ),
+        default=0.0,
+    )
+    centered_body_right = max(
+        (
+            (body_width - layout.logical_width) / 2.0 + layout.body_bounds.right
+            for layout in layouts
+        ),
+        default=body_width,
+    )
 
     frame_left = math.floor(-left_extra)
     frame_right = math.ceil(body_width + right_extra)
@@ -860,17 +1091,17 @@ def _rich_horizontal_layout_geometry(layouts: list[HorizontalLinePlan], font_siz
     body_left = -frame_left
     normalized_baselines = [baseline - frame_top for baseline in baselines]
     return {
-        'spacing_y': int(gap),
-        'body_width': float(body_width),
-        'body_height': float(max(0.0, body_bottom - body_top)),
-        'left_extra': int(body_left),
-        'right_extra': int(frame_right - math.ceil(body_width)),
-        'top_extra': int(-frame_top),
-        'bottom_extra': int(frame_bottom - math.ceil(body_bottom)),
-        'paint_width': int(max(0, frame_right - frame_left)),
-        'paint_height': int(max(0, frame_bottom - frame_top)),
-        'baselines': normalized_baselines,
-        'body_center': (
+        "spacing_y": int(gap),
+        "body_width": float(body_width),
+        "body_height": float(max(0.0, body_bottom - body_top)),
+        "left_extra": int(body_left),
+        "right_extra": int(frame_right - math.ceil(body_width)),
+        "top_extra": int(-frame_top),
+        "bottom_extra": int(frame_bottom - math.ceil(body_bottom)),
+        "paint_width": int(max(0, frame_right - frame_left)),
+        "paint_height": int(max(0, frame_bottom - frame_top)),
+        "baselines": normalized_baselines,
+        "body_center": (
             float((centered_body_left + centered_body_right) / 2.0 - frame_left),
             float((body_top + body_bottom) / 2.0 - frame_top),
         ),
@@ -883,8 +1114,8 @@ def _build_tcy_plan(
     global_stroke_ratio: float,
     bg,
     letter_spacing: float,
-    profile_stats: Optional[dict] = None,
-) -> Optional[TcyPlan]:
+    profile_stats: dict | None = None,
+) -> TcyPlan | None:
     font_size = _style_font_size(base_font_size, span.style)
     stroke_ratio = _style_stroke_ratio(span.style, font_size, global_stroke_ratio, bg)
     text = _normalize_horizontal_block_content(span.text)
@@ -897,20 +1128,22 @@ def _build_tcy_plan(
             letter_spacing,
             profile_stats,
             _style_italic_shear(span.style),
+            span.style.transform.scale_x,
+            span.style.transform.scale_y,
         )
-    if not geometry['has_ink']:
+    if not geometry["has_ink"]:
         return None
     # 纵中横压缩（对齐参考实现）：正文墨迹宽超过 1.1 倍基准字号时整组水平
     # 压缩到上限。压缩作用于最终图层（描边/特效随之变窄），判定只看纯墨迹
     # 宽（去掉描边 pad），与参考实现按字形墨迹累计的口径一致。
-    ink_width = float(geometry['width']) - 2.0 * float(geometry['pad'])
+    ink_width = float(geometry["width"]) - 2.0 * float(geometry["pad"])
     max_width = float(base_font_size) * RICH_TEXT_POLICY.tcy_max_width
     scale_x = max_width / ink_width if ink_width > max_width else 1.0
     height, width, layer_dx, layer_dy = _style_layer_effects_geometry(
-        int(geometry['height']), int(geometry['width']), span.style, font_size
+        int(geometry["height"]), int(geometry["width"]), span.style, font_size
     )
     if scale_x < 1.0:
-        width = max(1, int(math.ceil(width * scale_x)))
+        width = max(1, math.ceil(width * scale_x))
         layer_dx = float(layer_dx) * scale_x
     forced_advance = _forced_vertical_advance(font_size, span.style.vertical_advance)
     advance_main = int(height)
@@ -927,8 +1160,8 @@ def _build_tcy_plan(
         paint_offset_x=float(layer_dx),
         paint_offset_y=float(layer_dy),
         advance_main=advance_main,
-        pre_advance=int(round(span.style.pre_kerning * font_size)),
-        post_advance=int(round(span.style.kerning * font_size)),
+        pre_advance=round(span.style.pre_kerning * font_size),
+        post_advance=round(span.style.kerning * font_size),
         scale_x=float(scale_x),
     )
 
@@ -947,7 +1180,7 @@ def _build_vertical_char_plan(
     if bitmap is not None and bitmap.size:
         height, width = int(bitmap.shape[0]), int(bitmap.shape[1])
         if stroke_ratio > 0 and stroke is not None:
-            stroke_px = max(int(round(stroke_ratio * font_size)), 1)
+            stroke_px = max(round(stroke_ratio * font_size), 1)
             pad = max(1, stroke_px) + 1
             height += pad * 2
             width += pad * 2
@@ -958,7 +1191,11 @@ def _build_vertical_char_plan(
         off_x += layer_dx
         off_y += layer_dy
     advance_y = int(base.advance_y)
-    if span.style.transform.rotation and height > 0 and span.style.vertical_advance is None:
+    if (
+        span.style.transform.rotation
+        and height > 0
+        and span.style.vertical_advance is None
+    ):
         advance_y = _vertical_free_rotation_advance(
             base,
             span.style.transform.rotation,
@@ -973,8 +1210,8 @@ def _build_vertical_char_plan(
         stroke=stroke,
         stroke_ratio=stroke_ratio,
         advance_y=advance_y,
-        pre_advance_y=int(round(span.style.pre_kerning * font_size)),
-        post_advance_y=int(round(span.style.kerning * font_size)),
+        pre_advance_y=round(span.style.pre_kerning * font_size),
+        post_advance_y=round(span.style.kerning * font_size),
         paint_width=int(width),
         paint_height=int(height),
         paint_offset_x=float(off_x),
@@ -982,7 +1219,9 @@ def _build_vertical_char_plan(
     )
 
 
-def _rich_vertical_tcy_layer_x(body_left: float, thickness: float, item: TcyPlan) -> float:
+def _rich_vertical_tcy_layer_x(
+    body_left: float, thickness: float, item: TcyPlan
+) -> float:
     body_center = body_left + thickness / 2.0
     return (
         body_center
@@ -992,7 +1231,9 @@ def _rich_vertical_tcy_layer_x(body_left: float, thickness: float, item: TcyPlan
     )
 
 
-def _rich_vertical_char_layer_x(body_left: float, thickness: float, item: VerticalCharPlan) -> float:
+def _rich_vertical_char_layer_x(
+    body_left: float, thickness: float, item: VerticalCharPlan
+) -> float:
     # 自由旋转字符按墨迹居中（对齐 BallonsTranslator）：旋转绕图层中心，
     # advance box 居中会把标点的 side bearing 偏心带进横向，墨迹居中不会。
     char_x = _vertical_char_bitmap_x(
@@ -1005,16 +1246,20 @@ def _rich_vertical_char_layer_x(body_left: float, thickness: float, item: Vertic
             or bool(item.span.style.transform.rotation)
         ),
     )
-    return char_x + item.span.style.transform.offset_x * item.font_size / 100.0 + item.paint_offset_x
+    return (
+        char_x
+        + item.span.style.transform.offset_x * item.font_size / 100.0
+        + item.paint_offset_x
+    )
 
 
-def _vertical_item_span(item) -> Optional[RenderSpan]:
+def _vertical_item_span(item) -> RenderSpan | None:
     if isinstance(item, TcyPlan):
         return item.source
     return item.span
 
 
-def _rich_vertical_item_paint_extra(item, thickness: int) -> Tuple[int, int]:
+def _rich_vertical_item_paint_extra(item, thickness: int) -> tuple[int, int]:
     if isinstance(item, TcyPlan):
         x = _rich_vertical_tcy_layer_x(0.0, float(thickness), item)
         width = float(item.width)
@@ -1025,10 +1270,10 @@ def _rich_vertical_item_paint_extra(item, thickness: int) -> Tuple[int, int]:
         return 0, 0
     left_extra = max(0.0, -x)
     right_extra = max(0.0, x + width - float(thickness))
-    return int(math.ceil(left_extra)), int(math.ceil(right_extra))
+    return math.ceil(left_extra), math.ceil(right_extra)
 
 
-def _rich_vertical_item_paint_extent_y(item) -> Optional[Tuple[float, float]]:
+def _rich_vertical_item_paint_extent_y(item) -> tuple[float, float] | None:
     """item 图层的纵向包络区间 [y0, y1)，相对列顶（cursor 原点）。
 
     与绘制路径的 y 公式同源：块 = cursor_y + transform 偏移 + 特效偏移；
@@ -1036,7 +1281,11 @@ def _rich_vertical_item_paint_extent_y(item) -> Optional[Tuple[float, float]]:
     无图层的占位/空白项返回 None。
     """
     if isinstance(item, TcyPlan):
-        y0 = item.main_start + item.source.style.transform.offset_y * item.font_size / 100.0 + item.paint_offset_y
+        y0 = (
+            item.main_start
+            + item.source.style.transform.offset_y * item.font_size / 100.0
+            + item.paint_offset_y
+        )
         return y0, y0 + float(item.height)
     if isinstance(item, VerticalCharPlan) and item.paint_height > 0:
         y0 = (
@@ -1049,7 +1298,7 @@ def _rich_vertical_item_paint_extent_y(item) -> Optional[Tuple[float, float]]:
     return None
 
 
-def _vertical_item_main_interval(item) -> Optional[Tuple[float, float]]:
+def _vertical_item_main_interval(item) -> tuple[float, float] | None:
     """item 在列（主轴）上占用的槽位区间 [start, end)，相对列顶。
 
     与 _rich_vertical_item_paint_extent_y 的区别：那个是图层墨迹的纵向包络
@@ -1058,7 +1307,7 @@ def _vertical_item_main_interval(item) -> Optional[Tuple[float, float]]:
     """
     if isinstance(item, TcyPlan):
         return float(item.main_start), float(item.main_start) + float(item.advance_main)
-    cursor_y = getattr(item, 'cursor_y', None)
+    cursor_y = getattr(item, "cursor_y", None)
     if cursor_y is None:
         return None
     return float(cursor_y), float(cursor_y) + float(item.advance_y)
@@ -1071,7 +1320,7 @@ def _build_rich_vertical_layout(
     fg,
     bg,
     letter_spacing: float,
-    profile_stats: Optional[dict] = None,
+    profile_stats: dict | None = None,
 ):
     layouts = []
     thickness = max(1, int(base_font_size))
@@ -1098,7 +1347,9 @@ def _build_rich_vertical_layout(
                 continue
             fill = _style_fill_color(span.style, fg)
             stroke = _style_stroke_color(span.style, bg)
-            stroke_ratio = _style_stroke_ratio(span.style, font_size, global_stroke_ratio, bg)
+            stroke_ratio = _style_stroke_ratio(
+                span.style, font_size, global_stroke_ratio, bg
+            )
             span_ruby_extra = _rich_vertical_ruby_space(font_size) if span.ruby else 0
             ruby_extra = max(ruby_extra, span_ruby_extra)
             # 字体作用域提升到 span 层，避免带 fontFamily 的 span 逐字符
@@ -1106,14 +1357,16 @@ def _build_rich_vertical_layout(
             span_shear = _style_italic_shear(span.style)
             with _style_font_scope(span.style):
                 for char in span.text:
-                    if char == '＿':
-                        items.append(VerticalPlaceholderPlan(
-                            span=span,
-                            font_size=font_size,
-                            advance_y=_scale_advance(font_size, letter_spacing),
-                            pre_advance_y=int(round(span.style.pre_kerning * font_size)),
-                            post_advance_y=int(round(span.style.kerning * font_size)),
-                        ))
+                    if char == "＿":
+                        items.append(
+                            VerticalPlaceholderPlan(
+                                span=span,
+                                font_size=font_size,
+                                advance_y=_scale_advance(font_size, letter_spacing),
+                                pre_advance_y=round(span.style.pre_kerning * font_size),
+                                post_advance_y=round(span.style.kerning * font_size),
+                            )
+                        )
                         continue
                     base = _vertical_base(
                         font_size,
@@ -1121,11 +1374,15 @@ def _build_rich_vertical_layout(
                         letter_spacing,
                         span_shear,
                         span.style.vertical_advance,
+                        span.style.transform.scale_x,
+                        span.style.transform.scale_y,
                     )
                     item = _build_vertical_char_plan(
                         span, base, font_size, fill, stroke, stroke_ratio
                     )
-                    left_extra, right_extra = _rich_vertical_item_paint_extra(item, thickness)
+                    left_extra, right_extra = _rich_vertical_item_paint_extra(
+                        item, thickness
+                    )
                     paint_left_extra = max(paint_left_extra, left_extra)
                     paint_right_extra = max(paint_right_extra, right_extra)
                     items.append(item)
@@ -1137,7 +1394,9 @@ def _build_rich_vertical_layout(
                 placed = replace(item, main_start=float(cursor))
                 cursor += item.advance_main
                 cursor += item.post_advance
-                left_extra, right_extra = _rich_vertical_item_paint_extra(placed, thickness)
+                left_extra, right_extra = _rich_vertical_item_paint_extra(
+                    placed, thickness
+                )
                 paint_left_extra = max(paint_left_extra, left_extra)
                 paint_right_extra = max(paint_right_extra, right_extra)
                 laid.append(placed)
@@ -1160,7 +1419,9 @@ def _build_rich_vertical_layout(
                 item_index += 1
                 continue
             group_end = item_index + 1
-            while group_end < len(laid) and _vertical_item_span(laid[group_end]) is span:
+            while (
+                group_end < len(laid) and _vertical_item_span(laid[group_end]) is span
+            ):
                 group_end += 1
             group_items = laid[item_index:group_end]
             if span.style.underline:
@@ -1169,8 +1430,11 @@ def _build_rich_vertical_layout(
                 # 它是列级装饰：单字的 transform.rotation 不作用在它上面，
                 # 竖排里被旋转 90° 的括号旁边线仍然是上下方向的一条。
                 intervals = [
-                    interval for interval in
-                    (_vertical_item_main_interval(candidate) for candidate in group_items)
+                    interval
+                    for interval in (
+                        _vertical_item_main_interval(candidate)
+                        for candidate in group_items
+                    )
                     if interval is not None
                 ]
                 if intervals:
@@ -1188,15 +1452,18 @@ def _build_rich_vertical_layout(
                     underline_plans.append(underline)
                     underline_cross_extent = max(
                         underline_cross_extent,
-                        int(math.ceil(
+                        math.ceil(
                             group_font_size * RICH_TEXT_POLICY.vertical_underline_offset
                             + underline.thickness / 2.0
-                        )),
+                        ),
                     )
             if span.style.strikethrough:
                 intervals = [
-                    interval for interval in
-                    (_vertical_item_main_interval(candidate) for candidate in group_items)
+                    interval
+                    for interval in (
+                        _vertical_item_main_interval(candidate)
+                        for candidate in group_items
+                    )
                     if interval is not None
                 ]
                 if intervals:
@@ -1215,7 +1482,8 @@ def _build_rich_vertical_layout(
                 item_index = group_end
                 continue
             ruby_items = [
-                candidate for candidate in group_items
+                candidate
+                for candidate in group_items
                 if isinstance(candidate, (VerticalCharPlan, VerticalPlaceholderPlan))
             ]
             if span.ruby and ruby_items:
@@ -1225,10 +1493,10 @@ def _build_rich_vertical_layout(
                     for candidate in ruby_items
                 )
                 group_font_size = ruby_items[0].font_size
-                ruby_text = ''.join(run.text for run in span.ruby)
-                ruby_size = max(1, int(round(
-                    group_font_size * RICH_TEXT_POLICY.vertical_ruby_size
-                )))
+                ruby_text = "".join(run.text for run in span.ruby)
+                ruby_size = max(
+                    1, round(group_font_size * RICH_TEXT_POLICY.vertical_ruby_size)
+                )
                 glyphs = plan_ruby_glyphs(
                     ruby_text,
                     start_y,
@@ -1237,25 +1505,27 @@ def _build_rich_vertical_layout(
                     nominal_glyph_extent=ruby_size,
                 )
                 if glyphs:
-                    ruby_plans.append(RubyPlan(
-                        source=span,
-                        font_size=group_font_size,
-                        stroke_ratio=0.0,
-                        glyphs=glyphs,
-                        paint_start=min(
-                            glyph.main_center - ruby_size * glyph.main_scale / 2.0
-                            for glyph in glyphs
-                        ),
-                        paint_end=max(
-                            glyph.main_center + ruby_size * glyph.main_scale / 2.0
-                            for glyph in glyphs
-                        ),
-                        cross_center=max(1.0, ruby_extra / 2.0),
-                    ))
+                    ruby_plans.append(
+                        RubyPlan(
+                            source=span,
+                            font_size=group_font_size,
+                            stroke_ratio=0.0,
+                            glyphs=glyphs,
+                            paint_start=min(
+                                glyph.main_center - ruby_size * glyph.main_scale / 2.0
+                                for glyph in glyphs
+                            ),
+                            paint_end=max(
+                                glyph.main_center + ruby_size * glyph.main_scale / 2.0
+                                for glyph in glyphs
+                            ),
+                            cross_center=max(1.0, ruby_extra / 2.0),
+                        )
+                    )
             drawable_items = [
-                candidate for candidate in group_items
-                if isinstance(candidate, VerticalCharPlan)
-                and candidate.paint_width > 0
+                candidate
+                for candidate in group_items
+                if isinstance(candidate, VerticalCharPlan) and candidate.paint_width > 0
             ]
             if span.style.emphasis and drawable_items:
                 group_font_size = drawable_items[0].font_size
@@ -1278,7 +1548,7 @@ def _build_rich_vertical_layout(
                 emphasis_plans.append(emphasis)
                 emphasis_cross_extent = max(
                     emphasis_cross_extent,
-                    int(round(group_font_size * RICH_TEXT_POLICY.emphasis_side_space)),
+                    round(group_font_size * RICH_TEXT_POLICY.emphasis_side_space),
                 )
             item_index = group_end
 
@@ -1296,57 +1566,73 @@ def _build_rich_vertical_layout(
                 paint_bottom_extra,
                 ruby_plan.paint_end - column_height,
             )
-        top_extra = int(math.ceil(max(0.0, paint_top_extra)))
-        bottom_extra = int(math.ceil(max(0.0, paint_bottom_extra)))
+        top_extra = math.ceil(max(0.0, paint_top_extra))
+        bottom_extra = math.ceil(max(0.0, paint_bottom_extra))
         line_kerning, next_kerning = _paragraph_line_spacing_values(paragraph)
-        layouts.append(VerticalColumnPlan(
-            thickness=int(thickness),
-            height=column_height,
-            content_paint_bounds=Bounds(
-                left=-int(paint_left_extra),
-                top=-top_extra,
-                right=int(thickness + paint_right_extra),
-                bottom=int(column_height + bottom_extra),
-            ),
-            ruby_cross_extent=int(ruby_extra),
-            annotation_cross_extent=int(
-                ruby_extra + max(emphasis_cross_extent, underline_cross_extent)
-            ),
-            items=tuple(laid),
-            ruby_plans=tuple(ruby_plans),
-            emphasis_plans=tuple(emphasis_plans),
-            underline_plans=tuple(underline_plans),
-            strikethrough_plans=tuple(strikethrough_plans),
-            line_kerning=line_kerning,
-            next_kerning=next_kerning,
-        ))
+        layouts.append(
+            VerticalColumnPlan(
+                thickness=int(thickness),
+                height=column_height,
+                content_paint_bounds=Bounds(
+                    left=-int(paint_left_extra),
+                    top=-top_extra,
+                    right=int(thickness + paint_right_extra),
+                    bottom=int(column_height + bottom_extra),
+                ),
+                ruby_cross_extent=int(ruby_extra),
+                annotation_cross_extent=int(
+                    ruby_extra + max(emphasis_cross_extent, underline_cross_extent)
+                ),
+                items=tuple(laid),
+                ruby_plans=tuple(ruby_plans),
+                emphasis_plans=tuple(emphasis_plans),
+                underline_plans=tuple(underline_plans),
+                strikethrough_plans=tuple(strikethrough_plans),
+                line_kerning=line_kerning,
+                next_kerning=next_kerning,
+            )
+        )
     return layouts
 
 
 def _is_vertical_ellipsis_char(cdpt: str) -> bool:
-    return cdpt in ('︙', '⋮', '⋯', '…')
+    return cdpt in ("︙", "⋮", "⋯", "…")
 
 
-def _estimate_ellipsis_gap(bitmap_char: np.ndarray) -> Optional[float]:
+def _estimate_ellipsis_gap(bitmap_char: np.ndarray) -> float | None:
     if bitmap_char is None or bitmap_char.size == 0:
         return None
-    labels, _, stats, centers = cv2.connectedComponentsWithStats((bitmap_char > 0).astype(np.uint8), connectivity=8)
-    ys = sorted(float(centers[i][1]) for i in range(1, labels) if stats[i, cv2.CC_STAT_AREA] > 0)
+    labels, _, stats, centers = cv2.connectedComponentsWithStats(
+        (bitmap_char > 0).astype(np.uint8), connectivity=8
+    )
+    ys = sorted(
+        float(centers[i][1]) for i in range(1, labels) if stats[i, cv2.CC_STAT_AREA] > 0
+    )
     return None if len(ys) < 3 else (ys[1] - ys[0] + ys[2] - ys[1]) / 2.0
 
 
-def _vertical_ellipsis_advance(glyph: GlyphRaster, font_size: int, bitmap_char: Optional[np.ndarray] = None) -> int:
-    raw = bitmap_char.shape[0] + glyph.vert_bearing_y if bitmap_char is not None and bitmap_char.size else glyph.advance_y
+def _vertical_ellipsis_advance(
+    glyph: GlyphRaster, font_size: int, bitmap_char: np.ndarray | None = None
+) -> int:
+    raw = (
+        bitmap_char.shape[0] + glyph.vert_bearing_y
+        if bitmap_char is not None and bitmap_char.size
+        else glyph.advance_y
+    )
     raw = raw if raw > 0 else font_size
     gap = _estimate_ellipsis_gap(bitmap_char)
-    return max(1, int(round(3.0 * gap))) if gap and gap > 0 else max(1, raw)
+    return max(1, round(3.0 * gap)) if gap and gap > 0 else max(1, raw)
 
 
 def _vertical_force_compact_slot(cdpt: str) -> bool:
-    return cdpt in _VERTICAL_PUNCT_UP or _VERTICAL_FORCE_COMPACT_RE.match(cdpt) is not None
+    return (
+        cdpt in _VERTICAL_PUNCT_UP or _VERTICAL_FORCE_COMPACT_RE.match(cdpt) is not None
+    )
 
 
-def _vertical_rotated_advance(glyph: GlyphRaster, font_size: int, bitmap_char: Optional[np.ndarray] = None) -> int:
+def _vertical_rotated_advance(
+    glyph: GlyphRaster, font_size: int, bitmap_char: np.ndarray | None = None
+) -> int:
     if glyph.advance_x > 0:
         return int(glyph.advance_x)
     if bitmap_char is not None and bitmap_char.size:
@@ -1360,17 +1646,16 @@ def _vertical_free_rotation_advance(
 ) -> int:
     """按旋转角度投影竖排槽位：0° 取竖排推进，±90° 取横排推进（对齐 BallonsTranslator）。"""
     angle = math.radians(float(rotation or 0.0))
-    projected_height = (
-        abs(max(float(base.advance_x), 1.0) * math.sin(angle))
-        + abs(max(float(base.advance_y), 1.0) * math.cos(angle))
+    projected_height = abs(max(float(base.advance_x), 1.0) * math.sin(angle)) + abs(
+        max(float(base.advance_y), 1.0) * math.cos(angle)
     )
-    return max(int(math.ceil(round(projected_height, 6))), 1)
+    return max(math.ceil(round(projected_height, 6)), 1)
 
 
 def _vertical_space_advance(font_size: int, letter_spacing: float = 1.0) -> int:
-    width = _measure_horizontal_text_width(' ', font_size, 1.0)
+    width = _measure_horizontal_text_width(" ", font_size, 1.0)
     if width <= 0:
-        width = max(1, int(round(font_size * 0.25)))
+        width = max(1, round(font_size * 0.25))
     return _scale_advance(width, letter_spacing)
 
 
@@ -1379,7 +1664,9 @@ def _vertical_base(
     cdpt: str,
     letter_spacing: float = 1.0,
     shear: float = 0.0,
-    advance_mode: Optional[str] = None,
+    advance_mode: str | None = None,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
 ) -> VerticalGlyphBase:
     state = _state()
     key = (
@@ -1391,6 +1678,8 @@ def _vertical_base(
         round(_normalize_letter_spacing(letter_spacing), 4),
         round(float(shear), 4),
         advance_mode,
+        round(float(scale_x), 4),
+        round(float(scale_y), 4),
     )
     cached = _cache_get(state.vertical, key)
     if cached is not None:
@@ -1398,7 +1687,7 @@ def _vertical_base(
     forced_advance = _forced_vertical_advance(font_size, advance_mode)
     forced = forced_advance is not None
     translated, rot = CJK_Compatibility_Forms_translate(cdpt, 1)
-    if translated == ' ':
+    if translated == " ":
         base = VerticalGlyphBase(
             translated=translated,
             rot_degree=0,
@@ -1418,11 +1707,16 @@ def _vertical_base(
         return _cache_put(state.vertical, key, base, _VERTICAL_CACHE_MAX)
 
     rotated = rot == 90
-    # 斜体在字形路径阶段绕基线剪切；横躺字先剪切后旋转（R·S，PS 语义）
-    glyph = _glyph_raster(translated, font_size, shear)
+    # 斜体、竖排自动旋转和拉伸都在轮廓阶段完成，仅光栅化一次。
+    glyph = _glyph_raster(
+        translated,
+        font_size,
+        shear,
+        rotation=float(rot),
+        scale_x=scale_x,
+        scale_y=scale_y,
+    )
     bitmap = glyph.alpha if glyph.alpha.size else None
-    if bitmap is not None and rotated:
-        bitmap = cv2.rotate(bitmap, cv2.ROTATE_90_CLOCKWISE)
     ink_x, ink_y = 0.0, 0.0
     ink_w = float(bitmap.shape[1]) if bitmap is not None else 0.0
     ink_h = float(bitmap.shape[0]) if bitmap is not None else 0.0
@@ -1449,9 +1743,9 @@ def _vertical_base(
             advance_y = ink_h + max(0.0, float(metrics.descent()))
         else:
             advance_y = ink_h
-    advance_y = _scale_advance(int(round(advance_y)), letter_spacing)
+    advance_y = _scale_advance(round(advance_y), letter_spacing)
 
-    frame_width = max(font_size, int(round(ink_w)) if ink_w else 0, 1)
+    frame_width = max(font_size, round(ink_w) if ink_w else 0, 1)
     if not rotated:
         frame_width = max(frame_width, int(glyph.advance_x))
 
@@ -1460,10 +1754,16 @@ def _vertical_base(
     y = (center_gap if forced else max(0.0, center_gap)) - ink_y
 
     if not forced:
-        padding = max(1, int(round(font_size * 0.05)))
-        if translated in _VERTICAL_ALIGN_TOP_RIGHT or translated in _VERTICAL_ALIGN_TOP_CENTER:
+        padding = max(1, round(font_size * 0.05))
+        if (
+            translated in _VERTICAL_ALIGN_TOP_RIGHT
+            or translated in _VERTICAL_ALIGN_TOP_CENTER
+        ):
             y = padding - ink_y
-        elif translated in _VERTICAL_ALIGN_BOTTOM_LEFT or translated in _VERTICAL_ALIGN_BOTTOM_CENTER:
+        elif (
+            translated in _VERTICAL_ALIGN_BOTTOM_LEFT
+            or translated in _VERTICAL_ALIGN_BOTTOM_CENTER
+        ):
             y = advance_y - ink_h - padding - ink_y
         elif force_compact:
             y = -ink_y
@@ -1477,7 +1777,7 @@ def _vertical_base(
         advance_y=int(advance_y),
         ink_x=float(ink_x),
         ink_w=float(ink_w),
-        y=int(round(y)),
+        y=round(y),
         advance_x=int(max(glyph.advance_x, 1)),
         glyph_left=float(glyph.left),
         frame_width=int(frame_width),
@@ -1485,7 +1785,9 @@ def _vertical_base(
     return _cache_put(state.vertical, key, base, _VERTICAL_CACHE_MAX)
 
 
-def get_vertical_char_bitmap_width(font_size: int, cdpt: str, letter_spacing: float = 1.0) -> int:
+def get_vertical_char_bitmap_width(
+    font_size: int, cdpt: str, letter_spacing: float = 1.0
+) -> int:
     return _vertical_base(font_size, cdpt, letter_spacing).frame_width
 
 
@@ -1493,7 +1795,7 @@ def _vertical_char_bitmap_x(
     frame_left: float,
     frame_width: float,
     base: VerticalGlyphBase,
-    padding_size: Optional[float] = None,
+    padding_size: float | None = None,
     ink_center: bool = False,
 ) -> float:
     """返回竖排字符位图左边缘，普通直立字按 advance 居中。
@@ -1519,7 +1821,12 @@ def _vertical_char_bitmap_x(
         x = frame_left + (frame_width - ink_w) / 2.0 - ink_x
 
     if not ink_center:
-        padding = max(1, int(round(float(padding_size if padding_size is not None else frame_width) * 0.05)))
+        padding = max(
+            1,
+            round(
+                float(padding_size if padding_size is not None else frame_width) * 0.05
+            ),
+        )
         if translated in _VERTICAL_ALIGN_TOP_RIGHT:
             x = frame_left + frame_width - ink_w - ink_x - padding
         elif translated in _VERTICAL_ALIGN_BOTTOM_LEFT:
@@ -1527,26 +1834,44 @@ def _vertical_char_bitmap_x(
     return x
 
 
-def _measure_horizontal_text_width(text: str, font_size: int, letter_spacing: float = 1.0) -> int:
-    normalized = text or ''
+def _measure_horizontal_text_width(
+    text: str, font_size: int, letter_spacing: float = 1.0
+) -> int:
+    normalized = text or ""
     if not normalized:
         return 0
-    if '\n' in normalized or '\r' in normalized:
-        return max((_measure_horizontal_text_width(part, font_size, letter_spacing) for part in normalized.splitlines()), default=0)
+    if "\n" in normalized or "\r" in normalized:
+        return max(
+            (
+                _measure_horizontal_text_width(part, font_size, letter_spacing)
+                for part in normalized.splitlines()
+            ),
+            default=0,
+        )
     state = _state()
-    key = ('logical-width', state.font_family, state.font_style, bool(state.bold), int(font_size), round(_normalize_letter_spacing(letter_spacing), 4), normalized)
+    key = (
+        "logical-width",
+        state.font_family,
+        state.font_style,
+        bool(state.bold),
+        int(font_size),
+        round(_normalize_letter_spacing(letter_spacing), 4),
+        normalized,
+    )
     cached = state.measures.get(key)
     if cached is not None:
         return cached
     _, _, _, line = _horizontal_line(normalized, font_size, letter_spacing)
-    width = 0 if line is None else int(round(_line_logical_width(line)))
+    width = 0 if line is None else round(_line_logical_width(line))
     if len(state.measures) >= 4096:
         state.measures.clear()
     state.measures[key] = width
     return width
 
 
-def calc_horizontal_block_height(font_size: int, content: str, letter_spacing: float = 1.0) -> int:
+def calc_horizontal_block_height(
+    font_size: int, content: str, letter_spacing: float = 1.0
+) -> int:
     content = _normalize_horizontal_block_content(content)
     geometry = _line_ink_geometry(content, font_size, 0.0, False, letter_spacing)
-    return font_size if not geometry['has_ink'] else int(geometry['height'])
+    return font_size if not geometry["has_ink"] else int(geometry["height"])
