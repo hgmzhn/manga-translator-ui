@@ -103,7 +103,6 @@ class EditorControllerDocumentService:
         self.history_service.mark_clean()
         self.controller._update_undo_redo_buttons()
 
-        self.controller._user_adjusted_alpha = False
         self.controller._log_memory_snapshot("after-clear-editor-state")
 
         if not keep_document:
@@ -401,10 +400,6 @@ class EditorControllerDocumentService:
             render_parameter_service = get_render_parameter_service()
             for index, region_data in enumerate(snapshot.regions):
                 render_parameter_service.import_parameters_from_json(index, region_data)
-
-        if not self.controller._user_adjusted_alpha:
-            default_alpha = 0.0 if snapshot.inpainted_image is not None else 1.0
-            self.model.set_original_image_alpha(default_alpha)
 
         self.model.apply_document_snapshot(snapshot)
 

@@ -49,6 +49,9 @@ class EditorModel(QObject):
     def apply_document_snapshot(self, snapshot: DocumentSnapshot) -> None:
         previous_selection = self.get_selection()
         self.session.load_document(snapshot)
+        # 文档载入是一次完整状态切换。即使有效值与上一张图相同，也广播一次，
+        # 让画布与工具栏只订阅透明度状态，不再各自监听切图并猜测刷新时机。
+        self.original_image_alpha_changed.emit(self.get_original_image_alpha())
         self.image_changed.emit(self.get_image())
         self.compare_image_changed.emit(self.get_compare_image())
         self.regions_changed.emit(RegionChange.reset())
@@ -63,6 +66,7 @@ class EditorModel(QObject):
 
     def clear_document(self) -> None:
         self.session.clear_document()
+        self.original_image_alpha_changed.emit(self.get_original_image_alpha())
         self.image_changed.emit(self.get_image())
         self.compare_image_changed.emit(self.get_compare_image())
         self.regions_changed.emit(RegionChange.reset())
@@ -227,8 +231,12 @@ class EditorModel(QObject):
         return self.session.get_region_by_index(index)
 
     def set_inpainted_image(self, image: Any):
+        previous_alpha = self.get_original_image_alpha()
         self.session.set_inpainted_image(image)
         self.inpainted_image_changed.emit(image)
+        current_alpha = self.get_original_image_alpha()
+        if current_alpha != previous_alpha:
+            self.original_image_alpha_changed.emit(current_alpha)
 
     def get_inpainted_image(self) -> Optional[Any]:
         return self.session.get_inpainted_image()
@@ -247,9 +255,11 @@ class EditorModel(QObject):
     def get_region_display_mode(self) -> str:
         return self.session.get_region_display_mode()
 
-    def set_original_image_alpha(self, alpha: float):
-        if self.session.set_original_image_alpha(alpha):
-            self.original_image_alpha_changed.emit(alpha)
+    def set_original_image_alpha_override(self, alpha: float):
+        """设置用户透明度覆盖值；它在编辑器会话内跨文档保持。"""
+        changed = self.session.set_original_image_alpha_override(alpha)
+        if changed:
+            self.original_image_alpha_changed.emit(self.get_original_image_alpha())
 
     def get_original_image_alpha(self) -> float:
         return self.session.get_original_image_alpha()

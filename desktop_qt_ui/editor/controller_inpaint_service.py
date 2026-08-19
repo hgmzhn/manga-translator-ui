@@ -92,8 +92,6 @@ class EditorControllerInpaintService:
             self.resource_manager.set_cache(self.controller.CACHE_LAST_INPAINTED, image_np)
         self.resource_manager.set_cache(self.controller.CACHE_LAST_MASK, mask_2d)
         self.model.set_inpainted_image(image_np)
-        if image_np is not None and not self.controller._user_adjusted_alpha:
-            self.model.set_original_image_alpha(0.0)
 
     def cancel_active_inpaint_task(self) -> None:
         future = self.controller._active_inpaint_future
@@ -157,8 +155,6 @@ class EditorControllerInpaintService:
                     return
                 self.resource_manager.set_cache(self.controller.CACHE_LAST_INPAINTED, inpainted_image_np)
                 self.resource_manager.set_cache(self.controller.CACHE_LAST_MASK, refined_mask.copy())
-                if not self.controller._user_adjusted_alpha:
-                    self.model.set_original_image_alpha(0.0)
             else:
                 self.resource_manager.clear_cache(self.controller.CACHE_LAST_INPAINTED)
                 self.resource_manager.clear_cache(self.controller.CACHE_LAST_MASK)

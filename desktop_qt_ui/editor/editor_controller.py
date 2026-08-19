@@ -217,10 +217,6 @@ class EditorController(QObject):
         self.CACHE_LAST_INPAINTED = "last_inpainted_image"
         self.CACHE_LAST_MASK = "last_processed_mask"
         self.WEAK_CACHE_BASE_IMAGE_RGB = "weak_base_image_rgb"
-
-        # 用户透明度调整标志
-        self._user_adjusted_alpha = False
-
         # 只允许最新一笔/最新一次蒙版变更写回修复结果。
         self._active_inpaint_future = None
         self._inpaint_request_generation = 0
@@ -1882,13 +1878,8 @@ class EditorController(QObject):
 
     @pyqtSlot(int)
     def set_original_image_alpha(self, alpha: int):
-        """设置原图的不透明度 (0-100)，值越大越不透明（越显示原图）"""
-        # slider = 0 -> alpha = 0.0（完全透明，显示inpainted）
-        # slider = 100 -> alpha = 1.0（完全不透明，显示原图）
-        alpha_float = alpha / 100.0
-        self.model.set_original_image_alpha(alpha_float)
-        # 标记用户已手动调整透明度
-        self._user_adjusted_alpha = True
+        """将工具栏百分比记录为会话级用户透明度。"""
+        self.model.set_original_image_alpha_override(alpha / 100.0)
 
     def handle_global_render_setting_change(self):
         """Forces a re-render of all regions when a global render setting has changed."""

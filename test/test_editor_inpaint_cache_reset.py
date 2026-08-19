@@ -1,12 +1,11 @@
 import _bootstrap  # noqa: F401
-
 import numpy as np
-from PIL import Image
-
 from editor.controller_document_service import EditorControllerDocumentService
 from editor.controller_inpaint_service import EditorControllerInpaintService
 from editor.core.resource_manager import ResourceManager
+from editor.editor_model import EditorModel
 from editor.session import DocumentSnapshot
+from PIL import Image
 
 
 class _InpaintCacheController:
@@ -39,17 +38,13 @@ def test_clear_document_cache_removes_previous_page_state():
 def test_inpaint_result_commit_rejects_stale_generation():
     class Model:
         image = None
-        alpha = None
 
         def set_inpainted_image(self, image):
             self.image = image
 
-        def set_original_image_alpha(self, alpha):
-            self.alpha = alpha
 
     controller = _InpaintCacheController()
     controller._inpaint_request_generation = 2
-    controller._user_adjusted_alpha = False
     controller.model = Model()
     service = EditorControllerInpaintService(controller)
     image = np.full((24, 32, 3), 180, dtype=np.uint8)
@@ -60,7 +55,6 @@ def test_inpaint_result_commit_rejects_stale_generation():
 
     service.apply_inpaint_result((2, image, mask))
     assert np.array_equal(controller.model.image, image)
-    assert controller.model.alpha == 0.0
     assert np.array_equal(
         controller.resource_manager.get_cache(controller.CACHE_LAST_MASK), mask
     )
@@ -86,10 +80,6 @@ class _SnapshotModel:
     def __init__(self, inpaint_service):
         self.inpaint_service = inpaint_service
         self.snapshot = None
-        self.original_image_alpha = None
-
-    def set_original_image_alpha(self, alpha):
-        self.original_image_alpha = alpha
 
     def apply_document_snapshot(self, snapshot):
         assert self.inpaint_service.cache_was_cleared
@@ -110,7 +100,6 @@ class _RecordingInpaintService:
 class _DocumentLoadController:
     def __init__(self):
         self._loading_toast = None
-        self._user_adjusted_alpha = False
         self._pending_editor_prefetch_paths = []
         self.async_service = _NoopAsyncService()
         self.history_service = _NoopHistoryService()
@@ -150,7 +139,106 @@ def test_loading_snapshot_resets_inpaint_cache_before_applying_document():
         service.shutdown()
 
     assert controller.model.snapshot is snapshot
-    assert controller.model.original_image_alpha == 1.0
+
+
+def _make_editor_model(monkeypatch):
+    import services
+
+    resource_manager = ResourceManager()
+    monkeypatch.setattr(services, "get_resource_manager", lambda: resource_manager)
+    return EditorModel()
+
+
+def test_document_defaults_alpha_from_inpainted_image(monkeypatch):
+    model = _make_editor_model(monkeypatch)
+    alpha_events = []
+    image_alpha_snapshots = []
+    model.original_image_alpha_changed.connect(alpha_events.append)
+    model.image_changed.connect(
+        lambda _image: image_alpha_snapshots.append(
+            model.get_original_image_alpha()
+        )
+    )
+
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="raw.png",
+            image=Image.new("RGB", (8, 8)),
+            inpainted_image=None,
+        )
+    )
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="inpainted.png",
+            image=Image.new("RGB", (8, 8)),
+            inpainted_image=np.zeros((8, 8, 3), dtype=np.uint8),
+        )
+    )
+
+    assert alpha_events == [1.0, 0.0]
+    assert image_alpha_snapshots == [1.0, 0.0]
+
+
+def test_user_alpha_override_persists_across_document_switches(monkeypatch):
+    model = _make_editor_model(monkeypatch)
+    alpha_events = []
+    image_alpha_snapshots = []
+    model.original_image_alpha_changed.connect(alpha_events.append)
+    model.image_changed.connect(
+        lambda _image: image_alpha_snapshots.append(
+            model.get_original_image_alpha()
+        )
+    )
+
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="first.png",
+            image=Image.new("RGB", (8, 8)),
+            inpainted_image=None,
+        )
+    )
+    model.set_original_image_alpha_override(0.37)
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="second.png",
+            image=Image.new("RGB", (8, 8)),
+            inpainted_image=np.zeros((8, 8, 3), dtype=np.uint8),
+        )
+    )
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="third.png",
+            image=Image.new("RGB", (8, 8)),
+            inpainted_image=None,
+        )
+    )
+
+    assert model.get_original_image_alpha() == 0.37
+    assert alpha_events == [1.0, 0.37, 0.37, 0.37]
+    assert image_alpha_snapshots == [1.0, 0.37, 0.37]
+
+
+def test_late_inpaint_uses_automatic_alpha_until_user_override(monkeypatch):
+    model = _make_editor_model(monkeypatch)
+    alpha_events = []
+    model.original_image_alpha_changed.connect(alpha_events.append)
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=Image.new("RGB", (8, 8)),
+            inpainted_image=None,
+        )
+    )
+
+    model.set_inpainted_image(np.zeros((8, 8, 3), dtype=np.uint8))
+    assert model.get_original_image_alpha() == 0.0
+
+    model.set_original_image_alpha_override(0.42)
+    model.set_inpainted_image(None)
+    model.set_inpainted_image(np.zeros((8, 8, 3), dtype=np.uint8))
+
+    assert model.get_original_image_alpha() == 0.42
+    assert alpha_events == [1.0, 0.0, 0.42]
 
 
 def main() -> int:

@@ -46,7 +46,9 @@ class EditorSession:
         self._display_mask_type: str = "none"
         self._selected_indices: list[int] = []
         self._region_display_mode: str = "full"
-        self._original_image_alpha: float = 0.0
+        # None 表示按当前文档内容自动选择：有修复图时显示修复图，否则显示原图。
+        # 一旦用户调整，覆盖值在整个编辑器会话中保持，切图不会重置。
+        self._original_image_alpha_override: Optional[float] = None
         self._compare_image = None
         self._active_tool: str = "select"
         self._brush_size: int = 30
@@ -205,14 +207,17 @@ class EditorSession:
     def get_region_display_mode(self) -> str:
         return self._region_display_mode
 
-    def set_original_image_alpha(self, alpha: float) -> bool:
-        if self._original_image_alpha == alpha:
-            return False
-        self._original_image_alpha = alpha
-        return True
+    def set_original_image_alpha_override(self, alpha: float) -> bool:
+        """记录用户选择的原图透明度；返回当前有效值是否变化。"""
+        previous = self.get_original_image_alpha()
+        self._original_image_alpha_override = max(0.0, min(1.0, float(alpha)))
+        return self.get_original_image_alpha() != previous
 
     def get_original_image_alpha(self) -> float:
-        return self._original_image_alpha
+        """返回画布有效透明度；用户值优先，否则由当前文档派生。"""
+        if self._original_image_alpha_override is not None:
+            return self._original_image_alpha_override
+        return 0.0 if self.get_inpainted_image() is not None else 1.0
 
     def set_active_tool(self, tool: str) -> bool:
         if self._active_tool == tool:
