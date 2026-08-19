@@ -7,6 +7,7 @@
 （如 "[工具箱]xxx-简繁"）会被 Qt 的 "Family [Foundry]" 语法解析成空家族名，
 QFont 匹配固定落到同一字体；注册层会自动改写为去掉方括号的内存副本。
 """
+
 import logging
 import os
 import unicodedata
@@ -15,39 +16,55 @@ from collections import Counter
 from collections.abc import Callable
 from functools import lru_cache
 
-from PyQt6.QtCore import (
-    QAbstractListModel,
-    QEvent,
-    QLocale,
-    QModelIndex,
-    QPoint,
-    QSignalBlocker,
-    QSize,
-    QSortFilterProxyModel,
-    Qt,
-    QTimer,
-    pyqtSignal,
-)
-from PyQt6.QtGui import QFont, QFontDatabase, QFontInfo, QGuiApplication, QRawFont, QWheelEvent
-from PyQt6.QtWidgets import QListView, QVBoxLayout, QWidget
-from qfluentwidgets import LineEdit, MenuAnimationType
-from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
-from qfluentwidgets.components.widgets.menu import IndicatorMenuItemDelegate, MenuAnimationManager
-from qfluentwidgets.components.widgets.scroll_bar import SmoothScrollDelegate
-
 from manga_translator.rendering.text_render import (
     qt_family_is_ambiguous,
     register_font_file,
     strip_qt_foundry_brackets,
 )
+from PyQt6.QtCore import (
+    QAbstractListModel,
+    QEasingCurve,
+    QEvent,
+    QLocale,
+    QModelIndex,
+    QObject,
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    QSignalBlocker,
+    QSize,
+    QSortFilterProxyModel,
+    Qt,
+    QTimer,
+    pyqtProperty,
+    pyqtSignal,
+)
+from PyQt6.QtGui import (
+    QFont,
+    QFontDatabase,
+    QFontInfo,
+    QGuiApplication,
+    QRawFont,
+    QRegion,
+    QWheelEvent,
+)
+from PyQt6.QtWidgets import QListView, QVBoxLayout, QWidget
+from qfluentwidgets import LineEdit, MenuAnimationType
+from qfluentwidgets.components.widgets.combo_box import ComboBoxMenu
+from qfluentwidgets.components.widgets.menu import (
+    IndicatorMenuItemDelegate,
+    MenuAnimationManager,
+)
+from qfluentwidgets.components.widgets.scroll_bar import SmoothScrollDelegate
+
 from ui.widgets.wheel_filter import TopLevelComboBox, _stop_popup_animation
 
 from .resource_helper import resource_path
 
-logger = logging.getLogger('manga_translator')
+logger = logging.getLogger("manga_translator")
 
-FONT_FILE_EXTENSIONS = ('.ttf', '.otf', '.ttc')
-FONT_STYLE_SEPARATOR = '::'
+FONT_FILE_EXTENSIONS = (".ttf", ".otf", ".ttc")
+FONT_STYLE_SEPARATOR = "::"
 _REGISTERED_FONT_FAMILIES: dict[str, list[str]] = {}
 _ORIGINAL_FONT_DISPLAY_NAMES: dict[str, str] = {}
 _FONT_SEARCH_PLACEHOLDERS = {
@@ -64,6 +81,7 @@ _FONT_DIRECTORY_SIGNATURE: tuple | None = None
 _FONT_FILE_LIST_CACHE: tuple[tuple[str, str], ...] = ()
 _FONT_FAMILY_CACHE: dict[bool, tuple[str, ...]] = {}
 
+
 def _clear_font_catalog_caches() -> None:
     _FONT_FAMILY_CACHE.clear()
     localized_font_family.cache_clear()
@@ -75,7 +93,7 @@ def _clear_font_catalog_caches() -> None:
 
 def fonts_directory() -> str:
     """字体目录绝对路径（打包后位于 app.exe 同级）。"""
-    return resource_path('fonts')
+    return resource_path("fonts")
 
 
 def list_font_files() -> list[tuple[str, str]]:
@@ -92,7 +110,9 @@ def list_font_files() -> list[tuple[str, str]]:
             font_files: list[tuple[str, str]] = []
             if signature is not None:
                 for entry in os.scandir(fonts_dir):
-                    if entry.is_file() and entry.name.lower().endswith(FONT_FILE_EXTENSIONS):
+                    if entry.is_file() and entry.name.lower().endswith(
+                        FONT_FILE_EXTENSIONS
+                    ):
                         font_files.append((os.path.splitext(entry.name)[0], entry.name))
             font_files.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
             _FONT_FILE_LIST_CACHE = tuple(font_files)
@@ -130,7 +150,8 @@ def list_font_families(include_system: bool | None = None) -> list[str]:
     if cached is not None:
         return list(cached)
     families = {
-        name for name in QFontDatabase.families()
+        name
+        for name in QFontDatabase.families()
         if name and not qt_family_is_ambiguous(name) and QFontDatabase.isScalable(name)
     }
     if not include_system:
@@ -148,11 +169,11 @@ def list_font_families(include_system: bool | None = None) -> list[str]:
 def font_family_for_file(filename: str) -> str:
     """Return the first Qt family registered from a project font file."""
     if not filename or QGuiApplication.instance() is None:
-        return ''
+        return ""
     list_font_files()
     path = os.path.normcase(os.path.abspath(os.path.join(fonts_directory(), filename)))
     families = _REGISTERED_FONT_FAMILIES.get(path) or []
-    return families[0] if families else ''
+    return families[0] if families else ""
 
 
 def _search_key(text: str) -> str:
@@ -177,7 +198,9 @@ def _remember_original_font_names(path: str) -> None:
                     continue
                 sanitized = strip_qt_foundry_brackets(original)
                 if original and sanitized != original:
-                    _ORIGINAL_FONT_DISPLAY_NAMES.setdefault(_search_key(sanitized), original)
+                    _ORIGINAL_FONT_DISPLAY_NAMES.setdefault(
+                        _search_key(sanitized), original
+                    )
         finally:
             font.close()
     except Exception as exc:
@@ -216,7 +239,9 @@ def _font_family_name_records(family: str) -> tuple[tuple[int, str, str], ...]:
                 elif record.platformID == 0 and record.langID >= 0x8000:
                     tags = getattr(table, "langTagRecord", ())
                     tag_index = record.langID - 0x8000
-                    language = tags[tag_index].toUnicode() if tag_index < len(tags) else ""
+                    language = (
+                        tags[tag_index].toUnicode() if tag_index < len(tags) else ""
+                    )
                 else:
                     language = ""
                 records.append((record.nameID, language, value))
@@ -226,7 +251,7 @@ def _font_family_name_records(family: str) -> tuple[tuple[int, str, str], ...]:
 
 
 @lru_cache(maxsize=None)
-def _resolved_font_identity(family: str, style: str = '') -> tuple:
+def _resolved_font_identity(family: str, style: str = "") -> tuple:
     """Return KDE-style attributes for the font Qt actually resolves.
 
     Candidate grouping already establishes that names may refer to the same
@@ -236,8 +261,10 @@ def _resolved_font_identity(family: str, style: str = '') -> tuple:
     try:
         resolved_style = style
         if not resolved_style:
-            styles = [str(value) for value in QFontDatabase.styles(family) if str(value)]
-            resolved_style = styles[0] if styles else ''
+            styles = [
+                str(value) for value in QFontDatabase.styles(family) if str(value)
+            ]
+            resolved_style = styles[0] if styles else ""
         font = (
             QFontDatabase.font(family, resolved_style, 12)
             if resolved_style
@@ -247,7 +274,7 @@ def _resolved_font_identity(family: str, style: str = '') -> tuple:
         qt_style = info.style()
         return (
             int(info.weight()),
-            int(getattr(qt_style, 'value', qt_style)),
+            int(getattr(qt_style, "value", qt_style)),
             int(font.stretch()),
             _search_key(info.styleName() or resolved_style),
         )
@@ -272,9 +299,19 @@ def _language_score(language: str, locale_code: str) -> int:
     locale_language = locale_code.split("-", 1)[0]
     if language == locale_code:
         return 5
-    if locale_code.startswith("zh-cn") and language in {"zh", "zh-cn", "zh-hans", "zh-sg"}:
+    if locale_code.startswith("zh-cn") and language in {
+        "zh",
+        "zh-cn",
+        "zh-hans",
+        "zh-sg",
+    }:
         return 5
-    if locale_code.startswith("zh-tw") and language in {"zh-tw", "zh-hant", "zh-hk", "zh-mo"}:
+    if locale_code.startswith("zh-tw") and language in {
+        "zh-tw",
+        "zh-hant",
+        "zh-hk",
+        "zh-mo",
+    }:
         return 5
     if language.split("-", 1)[0] == locale_language:
         return 4
@@ -292,11 +329,13 @@ def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str
 
     family_key = _search_key(family)
     matching_name_ids = {
-        name_id for name_id, _language, value in records
+        name_id
+        for name_id, _language, value in records
         if _search_key(value) == family_key
     }
     candidates = [
-        record for record in records
+        record
+        for record in records
         if not matching_name_ids or record[0] in matching_name_ids
     ]
     name_id_score = {16: 3, 21: 2, 1: 1}
@@ -308,11 +347,15 @@ def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str
         ),
     )
     candidate_names = [record[2] for record in candidates]
-    aliases = tuple(dict.fromkeys([
-        family,
-        *candidate_names,
-        *(_original_font_display_name(name) for name in candidate_names),
-    ]))
+    aliases = tuple(
+        dict.fromkeys(
+            [
+                family,
+                *candidate_names,
+                *(_original_font_display_name(name) for name in candidate_names),
+            ]
+        )
+    )
     return _original_font_display_name(best[2]), aliases
 
 
@@ -357,10 +400,19 @@ def _list_font_family_entries_cached(
 
     first_by_name: dict[str, int] = {}
     for index, (family, _display, _aliases) in enumerate(entries):
-        complete_names = tuple(dict.fromkeys((
-            family,
-            *(value for _name_id, _language, value in _font_family_name_records(family)),
-        )))
+        complete_names = tuple(
+            dict.fromkeys(
+                (
+                    family,
+                    *(
+                        value
+                        for _name_id, _language, value in _font_family_name_records(
+                            family
+                        )
+                    ),
+                )
+            )
+        )
         for name in complete_names:
             key = _search_key(name)
             previous = first_by_name.setdefault(key, index)
@@ -397,23 +449,31 @@ def _list_font_family_entries_cached(
             ),
         )[0]
         display, _aliases = localized_font_family(canonical, locale_code)
-        aliases = tuple(dict.fromkeys(
-            alias
-            for family, _display, family_aliases in group
-            for alias in (family, *family_aliases)
-        ))
+        aliases = tuple(
+            dict.fromkeys(
+                alias
+                for family, _display, family_aliases in group
+                for alias in (family, *family_aliases)
+            )
+        )
         merged.append((display, canonical, aliases))
 
-    display_counts = Counter(_search_key(display) for display, _family, _aliases in merged)
+    display_counts = Counter(
+        _search_key(display) for display, _family, _aliases in merged
+    )
     result = [
         (
-            f"{display} ({family})" if display_counts[_search_key(display)] > 1 and display != family else display,
+            f"{display} ({family})"
+            if display_counts[_search_key(display)] > 1 and display != family
+            else display,
             family,
             aliases,
         )
         for display, family, aliases in merged
     ]
-    return tuple(sorted(result, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1]))))
+    return tuple(
+        sorted(result, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1])))
+    )
 
 
 def list_font_family_entries(
@@ -433,11 +493,17 @@ def _font_styles(family: str) -> list[str]:
     except Exception:
         styles = []
     if not styles:
-        return ['']
-    return sorted(styles, key=lambda style: (style.casefold() not in {'regular', 'normal'}, style.casefold()))
+        return [""]
+    return sorted(
+        styles,
+        key=lambda style: (
+            style.casefold() not in {"regular", "normal"},
+            style.casefold(),
+        ),
+    )
 
 
-def font_value(family: str, style: str = '', default_style: str = '') -> str:
+def font_value(family: str, style: str = "", default_style: str = "") -> str:
     """Serialize a selectable Qt family/style pair for persisted font fields.
 
     Existing settings store only a family, so the default style intentionally keeps
@@ -446,15 +512,15 @@ def font_value(family: str, style: str = '', default_style: str = '') -> str:
     """
     if not style or style == default_style:
         return family
-    return f'{family}{FONT_STYLE_SEPARATOR}{style}'
+    return f"{family}{FONT_STYLE_SEPARATOR}{style}"
 
 
 def split_font_value(value: str) -> tuple[str, str]:
     """Return the family and optional style represented by ``font_value``."""
-    family, separator, style = str(value or '').rpartition(FONT_STYLE_SEPARATOR)
+    family, separator, style = str(value or "").rpartition(FONT_STYLE_SEPARATOR)
     if separator and family and style:
         return family, style
-    return str(value or ''), ''
+    return str(value or ""), ""
 
 
 @lru_cache(maxsize=None)
@@ -469,18 +535,28 @@ def _list_font_style_entries_cached(
     while legacy family-only values still select the default style.
     """
     entries = []
-    for display, family, aliases in list_font_family_entries(locale_code, include_system):
+    for display, family, aliases in list_font_family_entries(
+        locale_code, include_system
+    ):
         styles = _font_styles(family)
         default_style = styles[0]
         for style in styles:
             value = font_value(family, style, default_style)
-            style_display = f'{display} - {style}' if len(styles) > 1 else display
-            style_aliases = tuple(dict.fromkeys((
-                value,
-                *(f'{alias}{FONT_STYLE_SEPARATOR}{style}' for alias in aliases if style),
-                *(f'{alias} {style}' for alias in aliases if style),
-                *(aliases if style == default_style else ()),
-            )))
+            style_display = f"{display} - {style}" if len(styles) > 1 else display
+            style_aliases = tuple(
+                dict.fromkeys(
+                    (
+                        value,
+                        *(
+                            f"{alias}{FONT_STYLE_SEPARATOR}{style}"
+                            for alias in aliases
+                            if style
+                        ),
+                        *(f"{alias} {style}" for alias in aliases if style),
+                        *(aliases if style == default_style else ()),
+                    )
+                )
+            )
             entries.append((style_display, value, style_aliases, family, style))
 
     # Qt can expose a style both as ``Family - Light`` and as a compatibility
@@ -490,16 +566,16 @@ def _list_font_style_entries_cached(
         _search_key(style)
         for _display, _value, _aliases, _family, style in entries
         if style
-    } | {'regular', 'normal'}
+    } | {"regular", "normal"}
 
     def style_hint(family: str, style: str) -> tuple[str, str]:
         family_key = _search_key(family)
-        style_key = _search_key(style or 'regular')
+        style_key = _search_key(style or "regular")
         for suffix in sorted(known_styles, key=len, reverse=True):
-            marker = f' {suffix}'
+            marker = f" {suffix}"
             if family_key.endswith(marker):
-                family_key = family_key[:-len(marker)]
-                if style_key in {'regular', 'normal'}:
+                family_key = family_key[: -len(marker)]
+                if style_key in {"regular", "normal"}:
                     style_key = suffix
                 break
         return family_key, style_key
@@ -508,16 +584,20 @@ def _list_font_style_entries_cached(
     for index, entry in enumerate(entries):
         candidates.setdefault(style_hint(entry[3], entry[4]), []).append(index)
 
-    grouped: dict[tuple[str, tuple | int], list[tuple[str, str, tuple[str, ...], str, str]]] = {}
+    grouped: dict[
+        tuple[str, tuple | int], list[tuple[str, str, tuple[str, ...], str, str]]
+    ] = {}
     for indexes in candidates.values():
         if len(indexes) == 1:
             entry = entries[indexes[0]]
-            grouped[('entry', indexes[0])] = [entry]
+            grouped[("entry", indexes[0])] = [entry]
             continue
         for index in indexes:
             entry = entries[index]
             identity = _font_style_signature(entry[3], entry[4])
-            key: tuple[str, tuple | int] = ('face', identity) if identity else ('entry', index)
+            key: tuple[str, tuple | int] = (
+                ("face", identity) if identity else ("entry", index)
+            )
             grouped.setdefault(key, []).append(entry)
 
     merged = []
@@ -530,13 +610,17 @@ def _list_font_style_entries_cached(
                 _search_key(entry[4]),
             ),
         )
-        aliases = tuple(dict.fromkeys(
-            alias
-            for _display, _value, entry_aliases, _family, _style in group
-            for alias in entry_aliases
-        ))
+        aliases = tuple(
+            dict.fromkeys(
+                alias
+                for _display, _value, entry_aliases, _family, _style in group
+                for alias in entry_aliases
+            )
+        )
         merged.append((canonical[0], canonical[1], aliases))
-    return tuple(sorted(merged, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1]))))
+    return tuple(
+        sorted(merged, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1])))
+    )
 
 
 def list_font_style_entries(
@@ -559,7 +643,9 @@ def qfont_for_value(value: str) -> QFont:
     return QFont(_cached_qfont_for_value(str(value or "")))
 
 
-def populate_font_combo(combo, current: str | None = None, locale_code: str = "en_US") -> None:
+def populate_font_combo(
+    combo, current: str | None = None, locale_code: str = "en_US"
+) -> None:
     """清空并填充字体下拉框：显示本地化名称，userData 保留 family/style。
 
     ``current`` 传当前 font value 时选中对应条目；
@@ -587,7 +673,7 @@ def populate_font_combo(combo, current: str | None = None, locale_code: str = "e
     family, style = split_font_value(current)
     display, aliases = localized_font_family(family, locale_code)
     if style:
-        display = f'{display} - {style}'
+        display = f"{display} - {style}"
     combo.addItem(display, userData=current)
     combo._font_search_terms[current] = _search_key(" ".join((display, *aliases)))
     combo.setCurrentIndex(combo.count() - 1)
@@ -616,7 +702,11 @@ class _FontMenuModel(QAbstractListModel):
         if role == self.SearchRole:
             return search_terms
         if role == Qt.ItemDataRole.SizeHintRole:
-            width = self.parent().fontMetrics().horizontalAdvance(display) if self.parent() else len(display) * 8
+            width = (
+                self.parent().fontMetrics().horizontalAdvance(display)
+                if self.parent()
+                else len(display) * 8
+            )
             return QSize(40 + width, 33)
         return None
 
@@ -654,6 +744,28 @@ class _FontMenuDelegate(IndicatorMenuItemDelegate):
         return QSize(max(hint.width(), 1), 33)
 
 
+class _FontMenuScrollDelegate(SmoothScrollDelegate):
+    """Preserve Fluent mouse-wheel scrolling and add native touchpad deltas."""
+
+    def eventFilter(self, obj, event):
+        if event.type() != QEvent.Type.Wheel:
+            return super().eventFilter(obj, event)
+
+        pixel_y = event.pixelDelta().y()
+        if pixel_y:
+            bar = self.parent().verticalScrollBar()
+            target = max(bar.minimum(), min(bar.maximum(), bar.value() - pixel_y))
+            if target == bar.value():
+                return False
+            bar.setValue(target)
+            event.accept()
+            return True
+
+        if event.angleDelta().isNull():
+            return False
+        return super().eventFilter(obj, event)
+
+
 class _FontMenuListView(QListView):
     """QListView replacement retaining MenuActionListWidget sizing semantics."""
 
@@ -668,18 +780,22 @@ class _FontMenuListView(QListView):
         self.setObjectName("comboListWidget")
         self.setViewportMargins(0, 2, 0, 6)
         self.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.setDragEnabled(False)
         self.setMouseTracking(True)
         self.setVerticalScrollMode(self.ScrollMode.ScrollPerPixel)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setUniformItemSizes(True)
         self.setItemDelegate(_FontMenuDelegate(self))
-        self.scrollDelegate = SmoothScrollDelegate(self)
+        self.scrollDelegate = _FontMenuScrollDelegate(self)
         self._natural_width = 1
 
     def recalculateNaturalWidth(self):
         self._natural_width = max(
-            (40 + self.fontMetrics().boundingRect(entry[0]).width() for entry in self._font_model._entries),
+            (
+                40 + self.fontMetrics().horizontalAdvance(entry[0])
+                for entry in self._font_model._entries
+            ),
             default=1,
         )
 
@@ -711,12 +827,23 @@ class _FontMenuListView(QListView):
         available_width, available_height = manager.availableViewSize(pos)
         margins = self.viewportMargins()
         width = max(
-            min(available_width, self._natural_width + margins.left() + margins.right() + 2),
+            min(
+                available_width,
+                self._natural_width + margins.left() + margins.right() + 2,
+            ),
             self.minimumWidth(),
         )
-        height = min(available_height, self.itemsHeight() + 2)
+        # MenuActionListWidget adds three pixels after its viewport margins;
+        # retaining that allowance avoids a one-pixel-short final row.
+        height = min(available_height, self.itemsHeight() + 3)
         if self._maxVisibleItems > 0:
-            height = min(height, self._maxVisibleItems * self._itemHeight + margins.top() + margins.bottom() + 2)
+            height = min(
+                height,
+                self._maxVisibleItems * self._itemHeight
+                + margins.top()
+                + margins.bottom()
+                + 3,
+            )
         self.setFixedSize(max(width, 1), max(height, 1))
 
     def setCurrentRow(self, source_row: int):
@@ -727,7 +854,9 @@ class _FontMenuListView(QListView):
             self.setCurrentIndex(QModelIndex())
             return
         self.setCurrentIndex(index)
-        self.selectionModel().select(index, self.selectionModel().SelectionFlag.ClearAndSelect)
+        self.selectionModel().select(
+            index, self.selectionModel().SelectionFlag.ClearAndSelect
+        )
 
     def set_filter(self, text: str):
         self._filter_model.set_filter(text)
@@ -738,6 +867,14 @@ class _FontMenuListView(QListView):
         return self._filter_model.mapToSource(index).row()
 
 
+class _FontMenuRevealAnimation(QObject):
+    """Fluent-duration reveal that keeps the search field anchored."""
+
+    def __init__(self, menu):
+        super().__init__(menu)
+        self.ani = QPropertyAnimation(menu, b"revealProgress", menu)
+        self.ani.setDuration(250)
+        self.ani.setEasingCurve(QEasingCurve.Type.OutQuad)
 
 
 class _FontComboBoxMenu(ComboBoxMenu):
@@ -755,13 +892,22 @@ class _FontComboBoxMenu(ComboBoxMenu):
     def __init__(self, font_entries, placeholder, parent=None):
         self._font_entries = tuple(font_entries)
         self._was_activated = False
+        self._anchor = None
+        self._anchor_watchers = ()
+        self._opens_upward: bool | None = None
+        self._content_opens_upward: bool | None = None
+        self._application_filter_installed = False
+        self._reveal_progress = 1.0
         super().__init__(parent)
-        self.setWindowFlags(self._WINDOW_FLAGS)
         old_view = self.view
         self.hBoxLayout.removeWidget(old_view)
         old_view.hide()
         old_view.deleteLater()
         self.view = _FontMenuListView(self._font_entries, self)
+        # ComboBoxMenu changes the base list from AlwaysOff to AsNeeded after
+        # construction. Reapply that step because this virtualized view replaces
+        # the one initialized by ComboBoxMenu.
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setShadowEffect()
         self._container = QWidget(self)
         self._content_layout = QVBoxLayout(self._container)
@@ -785,6 +931,114 @@ class _FontComboBoxMenu(ComboBoxMenu):
         self.view.recalculateNaturalWidth()
         self.view.adjustSize()
 
+    def bind_to_anchor(self, anchor) -> None:
+        """Keep this independent tool window attached to its combo box."""
+        self._anchor = anchor
+        watchers = []
+        widget = anchor
+        while widget is not None:
+            if widget not in watchers:
+                watchers.append(widget)
+                widget.installEventFilter(self)
+            widget = widget.parentWidget()
+        self._anchor_watchers = tuple(watchers)
+        application = QGuiApplication.instance()
+        if application is not None:
+            application.installEventFilter(self)
+            self._application_filter_installed = True
+        self._layout_for_anchor()
+
+    def _layout_for_anchor(self) -> None:
+        """Size and place the list around the input instead of below the menu."""
+        anchor = self._anchor
+        if anchor is None:
+            return
+        try:
+            anchor_top_left = anchor.mapToGlobal(QPoint())
+            anchor_center = anchor.mapToGlobal(anchor.rect().center())
+            anchor_width = anchor.width()
+            anchor_height = anchor.height()
+        except RuntimeError:
+            return
+
+        screen = (
+            QGuiApplication.screenAt(anchor_center) or QGuiApplication.primaryScreen()
+        )
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        margins = self.layout().contentsMargins()
+        spacing = self._content_layout.spacing()
+        desired_view_height = self.view.itemsHeight() + 3
+        available_below = max(
+            1,
+            available.bottom()
+            + 1
+            - anchor_top_left.y()
+            - anchor_height
+            - spacing
+            - margins.bottom(),
+        )
+        available_above = max(
+            1,
+            anchor_top_left.y() - available.top() - spacing - margins.top(),
+        )
+        if self._opens_upward is None:
+            below_height = min(desired_view_height, available_below)
+            above_height = min(desired_view_height, available_above)
+            self._opens_upward = above_height > below_height
+        maximum_view_height = available_above if self._opens_upward else available_below
+        view_height = max(1, min(desired_view_height, maximum_view_height))
+
+        if self._content_opens_upward != self._opens_upward:
+            self._content_layout.removeWidget(self.search_edit)
+            self._content_layout.removeWidget(self.view)
+            if self._opens_upward:
+                self._content_layout.addWidget(self.view)
+                self._content_layout.addWidget(self.search_edit)
+            else:
+                self._content_layout.addWidget(self.search_edit)
+                self._content_layout.addWidget(self.view)
+            self._content_opens_upward = self._opens_upward
+
+        # The original combo menu makes its inner content inherit the combo
+        # width. Do not let long font names or platform size hints widen it.
+        self.search_edit.setFixedSize(anchor_width, anchor_height)
+        self.view.setFixedSize(anchor_width, view_height)
+        self._content_layout.activate()
+        self.layout().activate()
+        self.adjustSize()
+
+        x = anchor_top_left.x() - margins.left()
+        if self._opens_upward:
+            y = anchor_top_left.y() - margins.top() - self.view.height() - spacing
+        else:
+            y = anchor_top_left.y() - margins.top()
+        x = max(available.left(), min(x, available.right() - self.width() + 1))
+        self.move(x, y)
+
+    def _follow_anchor(self) -> None:
+        if self._anchor is None or not self.isVisible():
+            return
+        _stop_popup_animation(self)
+        self.clearMask()
+        self._layout_for_anchor()
+
+    def _detach_anchor(self) -> None:
+        if self._application_filter_installed:
+            application = QGuiApplication.instance()
+            if application is not None:
+                application.removeEventFilter(self)
+            self._application_filter_installed = False
+        for widget in self._anchor_watchers:
+            try:
+                widget.removeEventFilter(self)
+            except RuntimeError:
+                pass
+        self._anchor_watchers = ()
+        self._anchor = None
+        self._opens_upward = None
+        self._content_opens_upward = None
 
     def _on_index_entered(self, index):
         row = self.view.source_row(index)
@@ -818,11 +1072,73 @@ class _FontComboBoxMenu(ComboBoxMenu):
             hint.height() + margins.top() + margins.bottom(),
         )
 
-    def exec(self, pos, ani=True, aniType=MenuAnimationType.DROP_DOWN):
-        result = super().exec(pos, ani, aniType)
+    def _set_reveal_progress(self, progress: float) -> None:
+        self._reveal_progress = max(0.0, min(1.0, float(progress)))
+        if self._reveal_progress >= 1.0:
+            self.clearMask()
+            return
+        search_top = self.search_edit.mapTo(self, QPoint()).y()
+        search_bottom = search_top + self.search_edit.height()
+        if self._opens_upward:
+            start_top = max(0, search_top - self.layout().contentsMargins().top())
+            top = round(start_top * (1.0 - self._reveal_progress))
+            visible = QRect(0, top, self.width(), self.height() - top)
+        else:
+            margins = self.layout().contentsMargins()
+            start_bottom = min(
+                self.height(),
+                search_bottom + self._content_layout.spacing() + margins.top(),
+            )
+            bottom = round(
+                start_bottom + (self.height() - start_bottom) * self._reveal_progress
+            )
+            visible = QRect(0, 0, self.width(), bottom)
+        self.setMask(QRegion(visible))
+
+    def _get_reveal_progress(self) -> float:
+        return self._reveal_progress
+
+    revealProgress = pyqtProperty(
+        float, fget=_get_reveal_progress, fset=_set_reveal_progress
+    )
+
+    def show_for_anchor(self) -> None:
+        self.aniManager = _FontMenuRevealAnimation(self)
+        animation = self.aniManager.ani
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.finished.connect(self.clearMask)
+        self._set_reveal_progress(0.0)
+        self.show()
+        self.raise_()
         self.activateWindow()
+        animation.start()
         QTimer.singleShot(0, self.search_edit.setFocus)
-        return result
+
+    @staticmethod
+    def _belongs_to(obj, root) -> bool:
+        while obj is not None:
+            if obj is root:
+                return True
+            try:
+                obj = obj.parent()
+            except RuntimeError:
+                return False
+        return False
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress and self.isVisible():
+            if not self._belongs_to(watched, self) and not self._belongs_to(
+                watched, self._anchor
+            ):
+                self._hideMenu(True)
+        if watched in self._anchor_watchers and event.type() in {
+            QEvent.Type.Move,
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+        }:
+            self._follow_anchor()
+        return super().eventFilter(watched, event)
 
     def event(self, e):
         result = super().event(e)
@@ -842,6 +1158,7 @@ class _FontComboBoxMenu(ComboBoxMenu):
         super().keyPressEvent(e)
 
     def closeEvent(self, event):
+        self._detach_anchor()
         _stop_popup_animation(self)
         super().closeEvent(event)
 
@@ -875,7 +1192,9 @@ class FontComboBox(TopLevelComboBox):
         ]
         menu = _FontComboBoxMenu(
             entries,
-            _FONT_SEARCH_PLACEHOLDERS.get(locale_code, _FONT_SEARCH_PLACEHOLDERS["en_US"]),
+            _FONT_SEARCH_PLACEHOLDERS.get(
+                locale_code, _FONT_SEARCH_PLACEHOLDERS["en_US"]
+            ),
             self._popup_parent(),
         )
         menu.fontHovered.connect(self.fontPreviewChanged)
@@ -889,34 +1208,24 @@ class FontComboBox(TopLevelComboBox):
         if not self.items:
             return
         menu = self._createComboMenu()
-        if menu.view.width() < self.width():
-            menu.view.setMinimumWidth(self.width())
-            menu.view.adjustSize()
-            menu.adjustSize()
         menu.setMaxVisibleItems(self.maxVisibleItems())
         menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         menu.closedSignal.connect(self._onDropMenuClosed)
         self.dropMenu = menu
         menu.view.setCurrentRow(self.currentIndex())
-
-        x = -menu.width() // 2 + menu.layout().contentsMargins().left() + self.width() // 2
-        pd = self.mapToGlobal(QPoint(x, self.height()))
-        hd = menu.view.heightForAnimation(pd, MenuAnimationType.DROP_DOWN)
-        pu = self.mapToGlobal(QPoint(x, 0))
-        hu = menu.view.heightForAnimation(pu, MenuAnimationType.PULL_UP)
-        if hd >= hu:
-            menu.view.adjustSize(pd, MenuAnimationType.DROP_DOWN)
-            menu.exec(pd, aniType=MenuAnimationType.DROP_DOWN)
-        else:
-            menu.view.adjustSize(pu, MenuAnimationType.PULL_UP)
-            menu.exec(pu, aniType=MenuAnimationType.PULL_UP)
+        menu.bind_to_anchor(self)
+        menu.show_for_anchor()
 
     def _on_menu_font_selected(self, row: int):
         if 0 <= row < self.count():
             self._onItemClicked(row)
 
     def refresh(self, current_family: str | None = None) -> None:
-        family = self.currentFamily() if current_family is None else str(current_family or "")
+        family = (
+            self.currentFamily()
+            if current_family is None
+            else str(current_family or "")
+        )
         blocker = QSignalBlocker(self)
         try:
             populate_font_combo(self, family or None, self._locale_code())
@@ -969,7 +1278,9 @@ class FontComboBox(TopLevelComboBox):
             if style:
                 display = f"{display} - {style}"
             self.addItem(display, userData=value)
-            self._font_search_terms[value] = _search_key(" ".join((display, *aliases, style)))
+            self._font_search_terms[value] = _search_key(
+                " ".join((display, *aliases, style))
+            )
             index = self.count() - 1
         self.setCurrentIndex(index)
 
