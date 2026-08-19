@@ -25,6 +25,7 @@ lastUpdated: true
 | --- | --- | --- |
 | `Win-Start.bat` 输出 `[ERROR] Application exited with code ...` | 运行环境或依赖损坏 | 查看 `result/log_*.txt`，再运行 `Win-Install-or-Update.bat` 选 `[1] Install` 重装；详见[Windows 便携版](../install/windows-portable.md) |
 | `Win-Start.bat` 提示找不到便携 Python 与 Conda | 发行目录不完整 | 重新解压发行包，确认 `packaging/python/python.exe` 或 Conda 环境存在 |
+| HTTPS 请求报 `curl: (77) error adding trust anchors` | 程序或 `.venv` 位于中文/非 ASCII 路径，导致 `curl_cffi` 无法读取 CA 证书 | 将整个程序目录移到纯英文短路径；源码环境需删除并重建 `.venv` |
 | `Unix-Start.sh` 提示 `Run ./Unix-Install-or-Update.sh first` | 缺少项目文件或 `.venv` | 先运行 `Unix-Install-or-Update.sh` 完成安装；详见[Linux 与 macOS](../install/linux-and-macos.md) |
 | `uv sync` 因网络失败 | 包源不可达 | 重试或切换镜像源，使用 `uv sync --locked`；详见[安装要求](../install/requirements.md) |
 | 启动器提示 Python 版本错误 | 当前 Python 不是 3.12 | 安装 Python 3.12（`>=3.12,<3.13`），不要使用 3.13+ |
@@ -38,6 +39,12 @@ lastUpdated: true
 `packaging/launch.py` 只接受 Python 3.12：低于 3.12 输出 `错误: 需要 Python 3.12+`，高于 3.12 输出 `错误: 仅支持 Python 3.12,不支持更高版本` 并提示“请使用 Python 3.12 版本”。`pyproject.toml` 的约束为 `>=3.12,<3.13`。
 
 修复：安装 Python 3.12 后重新执行 `uv sync`；不要用 Python 3.13+ 解释器复用旧的 `.venv`。
+
+### 中文安装目录导致证书读取失败 {#non-ascii-install-path}
+
+Windows 下，如果程序目录、仓库目录或 `.venv` 的完整路径包含中文或其他非 ASCII 字符，`curl_cffi` 可能无法读取 `certifi` 提供的 CA 证书。典型错误为 `curl: (77) error adding trust anchors`，错误详情中的 `CAfile` 会指向中文路径下的 `cacert.pem`。这不是 API Key、API 地址或远端证书失效。
+
+修复：把整个程序或仓库移动到纯英文短路径，例如 `D:\manga-translator-ui\` 或 `D:\Apps\manga-translator-ui\`。便携版移动后重新解压或执行安装；源码版移动后删除旧 `.venv`，再按硬件重新执行对应的 `uv sync`。不要用 `verify=False` 绕过错误，因为这会关闭 TLS 证书校验。
 
 ### 依赖安装失败与镜像回退 {#dependency-install}
 

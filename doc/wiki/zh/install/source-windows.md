@@ -22,11 +22,13 @@ lastUpdated: true
 ### 准备仓库和工具
 
 > Windows 用户请先确保已安装 Microsoft Visual C++ 运行库（[vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)）；缺少它可能导致程序启动报错（如缺少 VCRUNTIME140.dll）。
+> **目录要求：** 必须把仓库和仓库内的 `.venv` 放在不含中文、空格或其他非 ASCII 字符的短路径，例如 `D:\Apps\manga-translator-ui\`。Windows 下 `curl_cffi` 可能无法读取中文虚拟环境路径中的 CA 证书，并报 `curl: (77) error adding trust anchors`。如果仓库已在中文目录，请先移动仓库并删除、重建 `.venv`。
+
 
 源码环境需要 Git、uv 和 Python 3.12（`>=3.12,<3.13`）。安装步骤：
 
 1. 安装 [Git](https://git-scm.com/)、[uv](https://docs.astral.sh/uv/) 和 Python 3.12（可从 [python.org](https://www.python.org/downloads/) 下载 3.12 安装包，安装时勾选 “Add python.exe to PATH”）。
-2. 克隆仓库并进入：
+2. 先进入纯英文父目录，再克隆仓库并进入项目；不要在中文用户目录或中文文件夹中创建仓库：
    ```powershell
    git clone https://github.com/hgmzhn/manga-translator-ui.git
    cd manga-translator-ui
@@ -105,6 +107,7 @@ flowchart TD
 ## 环境与兼容性 {#dependencies}
 
 - **Python 版本**：`pyproject.toml` 和启动器都限制 Python 3.12；Python 3.13 会被拒绝。检查 `uv run --no-sync python --version`，不要只检查系统默认 `python`。
+- **目录路径**：仓库及 `.venv` 的完整路径必须只含 ASCII 字符，推荐使用 `D:\Apps\manga-translator-ui\`。中文或其他非 ASCII 路径可能导致 `curl_cffi` 找不到 `certifi` CA 证书并报 `curl: (77) error adding trust anchors`；移动仓库后删除 `.venv` 并重新执行对应的 `uv sync`。
 - **后端组互斥**：`cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 在 `[tool.uv].conflicts` 中互斥。不要把多个后端组装进同一环境。
 - **默认组**：项目默认组为 `cuda13.0`、`packaging` 和 `test`；其他运行环境使用 `--no-default-groups`，不会安装 `test` 组。
 - **NVIDIA**：`cuda13.0` 使用 `pytorch-cu130`，`cuda12.6` 使用 `pytorch-cu126`。RTX 50 系必须使用 CUDA 13.0；如当前驱动不支持，请先更新 NVIDIA 驱动。GeForce 10 系必须使用 CUDA 12.6。

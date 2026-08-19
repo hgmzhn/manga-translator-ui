@@ -20,10 +20,12 @@ lastUpdated: true
 ### 首次安装或维护
 
 > 安装前请先确保已安装 Microsoft Visual C++ 运行库（[vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)）；缺少它可能导致程序启动报错（如缺少 VCRUNTIME140.dll）。
+> **目录要求：** 必须将整合包解压到不含中文、空格或其他非 ASCII 字符的短路径，例如 `D:\manga-translator-ui\`。Windows 下 `curl_cffi` 可能无法读取中文安装路径中的 CA 证书，并报 `curl: (77) error adding trust anchors`。如果已经解压到中文目录，请先把整个文件夹移到纯英文路径，再安装或启动。
+
 
 便携安装包来自 GitHub Releases 的 `portable` 标签：
 
-1. 前往 [便携整合包发布页](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable) 下载最新版本，解压到任意目录（如 `D:\manga-translator-ui\`）。包内自带打包版 Python 3.12 和 uv，无需预装 Python。
+1. 前往 [便携整合包发布页](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable) 下载最新版本，解压到纯英文短路径（如 `D:\manga-translator-ui\`），不要使用中文目录。包内自带打包版 Python 3.12 和 uv，无需预装 Python。
 2. 双击 `Win-Install-or-Update.bat` 打开维护菜单，选择 `[1] 安装`：
    - 选择下载线路（GitHub 官方 / Gitee 国内镜像，国内推荐 Gitee）。
    - 脚本强制同步最新代码；同步失败会提示切换线路重试。
@@ -79,5 +81,5 @@ flowchart TD
 - **Windows ROCm**：脚本单独处理 ROCm SDK 7.2.1/PyTorch 顺序，并提示驱动与支持列表限制。兼容性不能仅凭 AMD 显卡品牌判断。
 - **旧 Conda**：只有便携解释器不存在时才回退。不要同时把 `packaging\\python`、`conda_env` 和外部环境的包混作一个环境；错误的 PATH 可能导致 DLL、Torch 或 ONNX Runtime 冲突。
 - **GPU/CPU 资源**：GPU 依赖不等于模型已下载，也不保证显存足够；首次启动仍可能下载或初始化模型。CPU 方案可运行但通常更慢。安装失败时不要删除已成功包后反复切换方案。
-- **目录路径**：脚本对非 ASCII 安装路径有特殊 Miniconda 根目录查找回退（盘符根目录）；为降低 DLL、Git 和模型路径问题，优先使用可写且不含特殊字符的短路径。
+- **目录路径**：安装目录必须使用纯英文短路径，例如 `D:\manga-translator-ui\`，不要包含中文、空格或其他非 ASCII 字符。否则 `curl_cffi` 可能无法读取 `certifi` 的 CA 证书并报 `curl: (77) error adding trust anchors`；移动目录后应重新安装依赖或重新解压整合包。
 - **网络**：安装/更新需要 Git、包索引或镜像网络；API 网络是应用运行时的另一条链路，不能用“安装成功”证明翻译 API 可用。
