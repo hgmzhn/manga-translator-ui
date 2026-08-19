@@ -1051,8 +1051,10 @@ class _FontComboBoxMenu(ComboBoxMenu):
         row = self.view.source_row(index)
         if not 0 <= row < len(self._font_entries):
             return
-        self._hideMenu(False)
+        # Commit before closing: WA_DeleteOnClose may destroy this menu while
+        # closeEvent is running, so no signal may safely follow _hideMenu().
         self.fontSelected.emit(row)
+        self._hideMenu(False)
 
     def leaveEvent(self, event):
         self.fontHovered.emit("")
@@ -1128,8 +1130,22 @@ class _FontComboBoxMenu(ComboBoxMenu):
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.MouseButtonPress and self.isVisible():
-            if not self._belongs_to(watched, self) and not self._belongs_to(
-                watched, self._anchor
+            global_position = getattr(event, "globalPosition", lambda: None)()
+            point = global_position.toPoint() if global_position is not None else None
+            inside_menu = point is not None and self.frameGeometry().contains(point)
+            inside_anchor = False
+            if point is not None and self._anchor is not None:
+                try:
+                    anchor_rect = self._anchor.rect()
+                    anchor_rect.moveTopLeft(self._anchor.mapToGlobal(QPoint()))
+                    inside_anchor = anchor_rect.contains(point)
+                except RuntimeError:
+                    pass
+            if (
+                not inside_menu
+                and not inside_anchor
+                and not self._belongs_to(watched, self)
+                and not self._belongs_to(watched, self._anchor)
             ):
                 self._hideMenu(True)
         if watched in self._anchor_watchers and event.type() in {
