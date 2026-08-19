@@ -94,6 +94,9 @@ class GraphicsViewRenderingMixin:
         for index in sorted(indices):
             if 0 <= index < len(self._region_items):
                 self._perform_single_item_update(index)
+        self.on_region_display_mode_changed(
+            self.model.get_region_display_mode(), render_missing=False
+        )
         self.scene.update()
 
     def _handle_regions_removed(self, indices) -> None:
@@ -451,6 +454,9 @@ class GraphicsViewRenderingMixin:
                         continue
                     item.update_from_data(region_data)
             self.recalculate_render_data()
+            self.on_region_display_mode_changed(
+                self.model.get_region_display_mode(), render_missing=False
+            )
         except Exception as e:
             self.logger.error("Render update failed: %s", e, exc_info=True)
         finally:

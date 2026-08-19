@@ -818,12 +818,13 @@ class EditorToolbar(CardWidget):
         self.redo_action.setEnabled(self._can_redo)
 
     def set_original_image_alpha_slider(self, alpha: float):
-        """同步滑块值（alpha: 0.0-1.0）"""
+        """同步滑块值（alpha: 0.0-1.0）并刷新当前图像对应的外观。"""
         # 转换：alpha 0.0 = slider 0（完全透明），alpha 1.0 = slider 100（完全不透明）
         slider_value = int(alpha * 100)
         self.original_image_alpha_slider.blockSignals(True)
         self.original_image_alpha_slider.setValue(slider_value)
         self.original_image_alpha_slider.blockSignals(False)
+        self.original_image_alpha_slider.update()
 
     def set_export_enabled(self, enabled: bool):
         """设置保存和导出按钮的启用状态。"""

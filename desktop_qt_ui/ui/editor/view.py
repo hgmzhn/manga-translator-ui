@@ -1019,8 +1019,15 @@ class EditorView(QWidget):
             self.rich_text_editor.show()
             self.rich_text_editor.raise_()
 
+    def _sync_original_image_alpha_slider(self, _image=None):
+        """切图时按会话值刷新透明度滑块，不回发用户修改信号。"""
+        self.toolbar.set_original_image_alpha_slider(
+            self.model.get_original_image_alpha()
+        )
+
     def _connect_signals(self):
         # --- Model to View ---
+        self.model.image_changed.connect(self._sync_original_image_alpha_slider)
         self.model.regions_changed.connect(self.region_list_view.on_regions_changed)
         self.model.selection_changed.connect(self.region_list_view.update_selection)
         # Connect model selection changes to the property panel

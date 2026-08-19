@@ -162,7 +162,13 @@ class GraphicsViewLayersMixin:
         if self._image_item:
             self._image_item.setOpacity(alpha)
 
-    def on_region_display_mode_changed(self, mode: str):
+    def on_region_display_mode_changed(self, mode: str, *, render_missing: bool = True):
+        if render_missing and mode in {"full", "text_only"}:
+            for index, item in enumerate(self._region_items):
+                text_item = getattr(item, "text_item", None)
+                if text_item is not None and text_item.pixmap().isNull():
+                    self._render_region_text_visual(index)
+
         for item in self.scene.items():
             if isinstance(item, RegionTextItem):
                 if mode == "full":
@@ -183,3 +189,4 @@ class GraphicsViewLayersMixin:
                 elif mode == "none":
                     item.setVisible(False)
                     item.set_white_box_visible(False)
+        self.scene.update()

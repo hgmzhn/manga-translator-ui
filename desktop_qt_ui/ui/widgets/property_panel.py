@@ -1677,6 +1677,8 @@ class PropertyPanel(QWidget):
             self.original_text_box.clear()
             self.translated_text_box.clear()
             self.font_size_input.setValue(12)
+            self.font_size_slider.setValue(12)
+            self.font_size_slider.update()
             self.stroke_width_spinbox.setValue(0.07)  # 重置为默认值
             self.line_spacing_spinbox.setValue(1.0)  # 重置为默认值
             self.letter_spacing_spinbox.setValue(1.0)  # 重置为默认值
@@ -1763,6 +1765,7 @@ class PropertyPanel(QWidget):
             font_size = int(region_data.get("font_size", 12) or 12)
             self.font_size_input.setValue(font_size)
             self.font_size_slider.setValue(font_size)
+            self.font_size_slider.update()
 
             default_color = (
                 self.config_service.get_config().render.font_color or "#000000"
@@ -2122,12 +2125,14 @@ class PropertyPanel(QWidget):
             checked = self.mask_tool_group.checkedButton()
             if checked not in buttons:
                 buttons[0].setChecked(True)
+                if self.model.get_active_tool() == "select":
+                    self.sync_brush_size_from_model(self.model.get_brush_size())
                 self.mask_tool_changed.emit("select")
         except Exception:
             pass
 
     def sync_brush_size_from_model(self, size: int):
-        """从模型同步画笔大小到UI（不触发信号）"""
+        """从模型同步画笔大小到 UI，并刷新当前工具对应的滑块外观。"""
         for slider, label in (
             (self.brush_size_slider, self.brush_size_value_label),
             (
@@ -2144,6 +2149,7 @@ class PropertyPanel(QWidget):
             slider.blockSignals(True)
             slider.setValue(size)
             slider.blockSignals(False)
+            slider.update()
             if label is not None:
                 label.setText(str(size))
 
@@ -2194,6 +2200,7 @@ class PropertyPanel(QWidget):
             if self.paint_segmented_widget is not None:
                 self.paint_segmented_widget.blockSignals(False)
         self.sync_sidebar_layout()
+        self.sync_brush_size_from_model(self.model.get_brush_size())
 
     def _on_alignment_changed(self, text: str):
         if self.block_updates:
