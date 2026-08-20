@@ -42,6 +42,7 @@ from utils.font_list import FontComboBox
 
 from .color_picker import ColorPickerWidget
 from .hover_hint import set_hover_hint
+from .quick_symbol_button import QuickSymbolButton
 from .sidebar import FluentScrollArea
 from .wheel_filter import TopLevelComboBox as ComboBox
 from .wheel_filter import install_wheel_filter
@@ -727,8 +728,12 @@ class PropertyPanel(QWidget):
         self.translated_text_label = BodyLabel(self._t("Translated Text:"))
         text_layout.addWidget(self.translated_text_label)
         text_layout.addWidget(self.translated_text_box)
-        self.text_stats_label = CaptionLabel(self._t("Character count: 0"))
-        text_layout.addWidget(self.text_stats_label)
+        self.quick_symbols_button = QuickSymbolButton(
+            self.translated_text_box,
+            self._t,
+            text_card,
+        )
+        text_layout.addWidget(self.quick_symbols_button)
         self._finish_group(self.text_edit_frame, text_card)
         layout.addWidget(self.text_edit_frame)
 
@@ -1080,8 +1085,8 @@ class PropertyPanel(QWidget):
             self.translation_raw_checkbox.setText(self._t("Show Translation (Raw)"))
         if hasattr(self, "translated_text_label"):
             self.translated_text_label.setText(self._t("Translated Text:"))
-        if hasattr(self, "text_stats_label"):
-            self.text_stats_label.setText(self._t("Character count: 0"))
+        if hasattr(self, "quick_symbols_button"):
+            self.quick_symbols_button.refresh_ui_texts()
 
         # 刷新按钮
         if hasattr(self, "ocr_button"):
@@ -1099,10 +1104,6 @@ class PropertyPanel(QWidget):
             set_hover_hint(self.select_button, self._t("Selection Tool") + " (Q)")
         if hasattr(self, "paint_select_button"):
             self.paint_select_button.setText(self._t("No Selection"))
-            set_hover_hint(self.paint_select_button, self._t("Selection Tool") + " (Q)")
-        if hasattr(self, "paint_brush_button"):
-            self.paint_brush_button.setText(self._t("Brush"))
-            set_hover_hint(self.paint_brush_button, self._t("Brush Tool") + " (W)")
         if hasattr(self, "paint_eraser_button"):
             self.paint_eraser_button.setText(self._t("Eraser"))
             set_hover_hint(self.paint_eraser_button, self._t("Eraser Tool") + " (E)")
