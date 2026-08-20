@@ -152,6 +152,8 @@ class PropertyPanel(QWidget):
     MASK_ROUTE = "property_mask_page"
     PAINT_ROUTE = "property_paint_page"
     STAMP_ROUTE = "property_stamp_page"
+    FONT_SIZE_MIN = 8
+    FONT_SIZE_MAX = 1000
 
     # --- Define all required signals ---
     # 第三个参数是编辑操作记录 {'ops': [[pos, removed, inserted], ...],
@@ -774,10 +776,10 @@ class PropertyPanel(QWidget):
 
         # Font size
         self.font_size_input = _spin_box()
-        self.font_size_input.setRange(8, 1000)
+        self.font_size_input.setRange(self.FONT_SIZE_MIN, self.FONT_SIZE_MAX)
         self.font_size_input.setKeyboardTracking(False)
         self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
-        self.font_size_slider.setRange(8, 150)
+        self.font_size_slider.setRange(self.FONT_SIZE_MIN, 150)
         self.font_size_label = BodyLabel(self._t("Font Size:"))
         style_layout.addRow(self.font_size_label, self.font_size_input)
         style_layout.addRow(CaptionLabel(""), self.font_size_slider)
@@ -1676,9 +1678,7 @@ class PropertyPanel(QWidget):
         try:
             self.original_text_box.clear()
             self.translated_text_box.clear()
-            self.font_size_input.setValue(12)
-            self.font_size_slider.setValue(12)
-            self.font_size_slider.update()
+            self._set_font_size_controls(12)
             self.stroke_width_spinbox.setValue(0.07)  # 重置为默认值
             self.line_spacing_spinbox.setValue(1.0)  # 重置为默认值
             self.letter_spacing_spinbox.setValue(1.0)  # 重置为默认值
@@ -1762,10 +1762,8 @@ class PropertyPanel(QWidget):
                 self.translated_text_box.toPlainText()
             )
 
-            font_size = int(region_data.get("font_size", 12) or 12)
-            self.font_size_input.setValue(font_size)
-            self.font_size_slider.setValue(font_size)
-            self.font_size_slider.update()
+            font_size = region_data.get("font_size", 12) or 12
+            self._set_font_size_controls(font_size)
 
             default_color = (
                 self.config_service.get_config().render.font_color or "#000000"
@@ -1982,6 +1980,35 @@ class PropertyPanel(QWidget):
             return self.lang_name_to_code.get(display_name, display_name)
         return display_name
 
+    def _set_font_size_controls(self, value: int) -> int:
+        """同步字号控件；滑块只显示自身范围内的值。"""
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            value = self.FONT_SIZE_MIN
+        value = max(self.FONT_SIZE_MIN, min(self.FONT_SIZE_MAX, value))
+
+        slider_value = max(
+            self.font_size_slider.minimum(),
+            min(self.font_size_slider.maximum(), value),
+        )
+        if (
+            self.font_size_input.value() == value
+            and self.font_size_slider.value() == slider_value
+        ):
+            return value
+
+        input_blocked = self.font_size_input.blockSignals(True)
+        slider_blocked = self.font_size_slider.blockSignals(True)
+        try:
+            self.font_size_input.setValue(value)
+            self.font_size_slider.setValue(slider_value)
+            self.font_size_slider.update()
+        finally:
+            self.font_size_input.blockSignals(input_blocked)
+            self.font_size_slider.blockSignals(slider_blocked)
+        return value
+
     def _emit_style_patch(self, patch: dict) -> None:
         if self.block_updates or not patch:
             return
@@ -1992,26 +2019,14 @@ class PropertyPanel(QWidget):
     def _on_font_size_input_changed(self, value: int):
         if self.block_updates:
             return
-        value = max(8, min(1000, int(value)))
-        if self.font_size_slider.minimum() <= value <= self.font_size_slider.maximum():
-            if self.font_size_slider.value() != value:
-                self.font_size_slider.blockSignals(True)
-                try:
-                    self.font_size_slider.setValue(value)
-                finally:
-                    self.font_size_slider.blockSignals(False)
+        value = self._set_font_size_controls(value)
         self._emit_style_patch({"font_size": value})
 
-    def _on_font_size_slider_changed(self, value):
+    def _on_font_size_slider_changed(self, value: int):
         if self.block_updates:
             return
-        if self.font_size_input.value() != value:
-            self.font_size_input.blockSignals(True)
-            try:
-                self.font_size_input.setValue(value)
-            finally:
-                self.font_size_input.blockSignals(False)
-        self._emit_style_patch({"font_size": int(value)})
+        value = self._set_font_size_controls(value)
+        self._emit_style_patch({"font_size": value})
 
     def _on_font_family_changed(self, index):
         if self.block_updates:
