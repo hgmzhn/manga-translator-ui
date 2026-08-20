@@ -23,6 +23,7 @@ import numpy as np
 from manga_translator.config import Config
 from manga_translator.rendering import (
     _resolve_region_stroke_width,
+    _solve_unified_no_br_layout,
     calc_font_from_box,
     resize_regions_to_font_size,
 )
@@ -32,6 +33,7 @@ IMG = np.zeros((400, 400, 3), dtype=np.uint8)
 
 LONG_NO_BR_TEXT = '这是一段相当长的测试文本需要自动断句才能放进气泡里'
 BR_TEXT = '第一行文字[BR]第二行更长的文字[BR]第三行'
+VERTICAL_GEOMETRY_TEXT = '順便一提︐那之後小盜逃回了鄉下︐小獸則被冒險者公會除名了'
 
 
 def make_region(translation, box=(100, 100, 220, 160), font_size=48, n_lines=2):
@@ -92,6 +94,46 @@ def test_strict_no_br_caps_font_to_box():
     expected = expected_strict_font(region, config)
     assert region.font_size == expected, f'font={region.font_size}, expected fit={expected}'
     assert dst is not None
+
+
+def test_no_br_line_spacing_reduces_initial_segment_budget():
+    config = make_config('strict')
+    normal_spacing = _solve_unified_no_br_layout(
+        LONG_NO_BR_TEXT, True, 48, 160, 160, 1, 1.0, 1.0,
+        config, 'CHS', 160,
+    )
+    wide_spacing = _solve_unified_no_br_layout(
+        LONG_NO_BR_TEXT, True, 48, 160, 160, 1, 5.0, 1.0,
+        config, 'CHS', 160,
+    )
+
+    normal_segments = normal_spacing.count('[BR]') + 1
+    wide_segments = wide_spacing.count('[BR]') + 1
+    assert normal_spacing.replace('[BR]', '') == LONG_NO_BR_TEXT
+    assert wide_spacing.replace('[BR]', '') == LONG_NO_BR_TEXT
+    assert wide_segments < normal_segments, (
+        f'增大行距后目标行数应减少: normal={normal_segments}, wide={wide_segments}'
+    )
+
+
+def test_vertical_no_br_geometry_penalizes_overlong_two_column_candidate():
+    config = make_config('balloon_fill')
+    result = _solve_unified_no_br_layout(
+        VERTICAL_GEOMETRY_TEXT,
+        False,
+        23,
+        97,
+        233,
+        1,
+        1.0,
+        1.0,
+        config,
+        'CHT',
+        233,
+    )
+
+    assert result.replace('[BR]', '') == VERTICAL_GEOMETRY_TEXT
+    assert result.count('[BR]') + 1 == 3, result
 
 
 def test_strict_br_follows_same_rule():

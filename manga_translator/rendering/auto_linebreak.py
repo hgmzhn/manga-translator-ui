@@ -134,11 +134,68 @@ def _minimum_quality_line_count(target_segments: int) -> int:
     return target - 1
 
 
+_LINE_GEOMETRY_OVERFLOW_TOLERANCE = 0.05
+
+
+def _line_break_geometry_overflow_score(
+    lines: List[str],
+    metrics: List[int],
+    horizontal: bool,
+    font_size: int,
+    line_spacing_multiplier: float,
+    box_width: Optional[float],
+    box_height: Optional[float],
+) -> Tuple[float, float]:
+    if (
+        not lines
+        or not metrics
+        or not isinstance(box_width, (int, float))
+        or not isinstance(box_height, (int, float))
+        or not math.isfinite(box_width)
+        or not math.isfinite(box_height)
+        or box_width <= 0
+        or box_height <= 0
+    ):
+        return 0.0, 0.0
+
+    line_count = len(lines)
+    safe_font_size = max(1, int(font_size))
+    if horizontal:
+        required_width = float(max(metrics))
+        spacing = text_render.calc_horizontal_line_spacing_px(
+            safe_font_size,
+            line_spacing_multiplier,
+        )
+        required_height = float(
+            safe_font_size * line_count + spacing * max(0, line_count - 1)
+        )
+    else:
+        required_height = float(max(metrics))
+        spacing = text_render.calc_vertical_line_spacing_px(
+            safe_font_size,
+            line_spacing_multiplier,
+        )
+        required_width = float(
+            safe_font_size * line_count + spacing * max(0, line_count - 1)
+        )
+
+    width_overflow = max(
+        0.0,
+        required_width / float(box_width) - 1.0 - _LINE_GEOMETRY_OVERFLOW_TOLERANCE,
+    )
+    height_overflow = max(
+        0.0,
+        required_height / float(box_height) - 1.0 - _LINE_GEOMETRY_OVERFLOW_TOLERANCE,
+    )
+    return max(width_overflow, height_overflow), width_overflow + height_overflow
+
+
 def _line_break_quality_score(
     lines: List[str],
     metrics: List[int],
     target_segments: int,
-) -> Tuple[int, int, int, int, int, float]:
+    geometry_overflow: Tuple[float, float] = (0.0, 0.0),
+) -> Tuple[int, float, float, int, int, int, int, float]:
     line_count = len(lines)
     target = max(1, int(target_segments))
     target_penalty = _target_line_count_penalty(line_count, target)
@@ -147,8 +204,11 @@ def _line_break_quality_score(
     weak_single_count = sum(1 for idx, line in enumerate(lines) if _is_weak_single_char_quality_line(line, idx))
     preferred_breaks = sum(1 for line in lines[:-1] if _line_ends_at_preferred_break(line))
     uniformity = _calculate_uniformity(metrics if metrics else [len(line) for line in lines])
+    max_geometry_overflow, total_geometry_overflow = geometry_overflow
     return (
         target_penalty,
+        max_geometry_overflow,
+        total_geometry_overflow,
         too_few_penalty + too_many_penalty,
         weak_single_count,
         -preferred_breaks,
@@ -1028,8 +1088,11 @@ def _find_best_lines_for_target_segments(
     target_segments: int,
     target_lang: str,
     config: Any,
+    line_spacing_multiplier: float = 1.0,
     letter_spacing_multiplier: float = 1.0,
     max_line_budget: Optional[float] = None,
+    box_width: Optional[float] = None,
+    box_height: Optional[float] = None,
 ) -> List[str]:
     if not clean_text:
         return []
@@ -1147,7 +1210,21 @@ def _find_best_lines_for_target_segments(
             return None
 
         line_count = len(lines)
-        score = _line_break_quality_score(lines, metrics, target_segments)
+        geometry_overflow = _line_break_geometry_overflow_score(
+            lines,
+            metrics,
+            horizontal,
+            font_size,
+            line_spacing_multiplier,
+            box_width,
+            box_height,
+        )
+        score = _line_break_quality_score(
+            lines,
+            metrics,
+            target_segments,
+            geometry_overflow=geometry_overflow,
+        )
         evaluated[budget] = (score, lines, line_count)
         return evaluated[budget]
 
@@ -1413,8 +1490,11 @@ def solve_no_br_layout(
             current_segments,
             target_lang,
             config,
+            line_spacing_multiplier=line_spacing_multiplier,
             letter_spacing_multiplier=letter_spacing_multiplier,
             max_line_budget=max_line_budget,
+            box_width=bw,
+            box_height=bh,
         )
         if force_no_wrap_single_region:
             text_with_br = clean_text
@@ -1463,8 +1543,11 @@ def solve_no_br_layout(
         current_segments,
         target_lang,
         config,
+        line_spacing_multiplier=line_spacing_multiplier,
         letter_spacing_multiplier=letter_spacing_multiplier,
         max_line_budget=max_line_budget,
+        box_width=bw,
+        box_height=bh,
     )
     if force_no_wrap_single_region:
         final_text = clean_text

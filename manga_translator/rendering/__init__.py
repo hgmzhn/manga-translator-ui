@@ -383,7 +383,10 @@ def _solve_unified_no_br_layout(
             text,
             letter_spacing=letter_spacing_multiplier,
         )
-        spacing_y = int(safe_target_font_size * 0.01 * line_spacing_multiplier)
+        spacing_y = text_render.calc_horizontal_line_spacing_px(
+            safe_target_font_size,
+            line_spacing_multiplier,
+        )
         ratio = safe_bubble_width / safe_bubble_height if safe_bubble_height > 0 else 1.0
 
         a = safe_target_font_size + spacing_y
@@ -399,7 +402,11 @@ def _solve_unified_no_br_layout(
             n_floor = n_ceil = 1
 
         def calc_max_font_horizontal(n: int, total_w: float, bw: float, bh: float, lsm: float, target_fs: int) -> int:
-            height_factor = n + (n - 1) * 0.01 * lsm
+            spacing_ratio = (
+                text_render.calc_horizontal_line_spacing_px(target_fs, lsm)
+                / max(target_fs, 1)
+            )
+            height_factor = n + (n - 1) * spacing_ratio
             max_by_height = int(bh / height_factor) if height_factor > 0 else target_fs
             max_by_width = int(bw * n * target_fs / total_w) if total_w > 0 else target_fs
             return min(max_by_height, max_by_width)
@@ -905,7 +912,10 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
                     letter_spacing=letter_spacing_multiplier
                 )
                 if widths:
-                    spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
+                    spacing_y = text_render.calc_horizontal_line_spacing_px(
+                        target_font_size,
+                        line_spacing_multiplier,
+                    )
                     required_width = max(widths)
                     required_height = target_font_size * len(lines) + spacing_y * max(0, len(lines) - 1)
                 else:
@@ -2193,7 +2203,10 @@ def resize_regions_to_font_size(
                                 region.translation,
                                 letter_spacing=letter_spacing_multiplier,
                             )
-                            final_spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
+                            final_spacing_y = text_render.calc_horizontal_line_spacing_px(
+                                target_font_size,
+                                line_spacing_multiplier,
+                            )
                             required_width = final_total_width / n if n > 0 else final_total_width
                             required_height = n * target_font_size + max(0, n - 1) * final_spacing_y
                         else:
