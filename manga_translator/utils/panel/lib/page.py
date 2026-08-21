@@ -159,10 +159,9 @@ class Page:
 				break
 
 			for dline in dlines[0]:
-				x0 = int(round(dline[0][0]))
-				y0 = int(round(dline[0][1]))
-				x1 = int(round(dline[0][2]))
-				y1 = int(round(dline[0][3]))
+				# OpenCV 4.x returned (1, 4) per line; OpenCV 5 returns (4,).
+				x0, y0, x1, y1 = np.asarray(dline).reshape(-1)[:4]
+				x0, y0, x1, y1 = (round(float(value)) for value in (x0, y0, x1, y1))
 
 				a = x0 - x1
 				b = y0 - y1
