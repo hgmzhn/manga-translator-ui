@@ -4,6 +4,10 @@
 
 ## 🐛 修复与改进
 
+### ONNX Runtime CUDA 提供者警告修复
+- 修复 Windows 下使用 ONNX Runtime 1.28 加载 PaddleOCR ONNX 模型时，显式传入 `device_id=0` 触发 `No registered plugin EP device found` 警告的问题。
+- CUDAExecutionProvider 现在默认使用设备 0，仅在调用方明确提供时传递额外 CUDA 参数；保留 CUDA 会话失败时自动回退 CPU 的行为。
+
 ### 自动断句几何匹配修复
 - 修复无显式换行文本的候选评分只关注行列数、标点和长度均匀度，可能选中虽然均匀但明显超出 OCR 文本框的横排或竖排方案的问题。
 - 自动断句现在会将候选文本块相对 OCR 整体框的宽度和高度超出比例纳入软评分，并保留 5% 容差；候选不会被硬淘汰，但超出过多时会优先选择更接近原区域形状的布局。

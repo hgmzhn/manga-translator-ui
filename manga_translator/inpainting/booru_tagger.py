@@ -51,7 +51,6 @@ class Tagger :
             filename,
             device="cuda",
             sess_options=sess_options,
-            cuda_options={"device_id": 0},
             fallback_to_cpu=True,
         )
         [root, _] = os.path.split(filename)

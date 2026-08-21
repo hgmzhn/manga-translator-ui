@@ -111,9 +111,11 @@ def build_execution_providers(
                 logger.warning(f"Failed to query ONNX Runtime providers: {exc}")
 
         if "CUDAExecutionProvider" in available_providers:
-            options = {"device_id": 0}
-            if cuda_options:
-                options.update(dict(cuda_options))
+            # ORT 1.28 on Windows can emit a misleading
+            # "No registered plugin EP device" warning when device_id=0 is
+            # passed explicitly.  CUDA selects device 0 by default; keep
+            # provider options empty unless a caller explicitly overrides it.
+            options = dict(cuda_options) if cuda_options else {}
             providers.append(("CUDAExecutionProvider", options))
         elif logger is not None:
             logger.warning(f"CUDAExecutionProvider not available, fallback to CPU: {available_providers}")

@@ -195,7 +195,6 @@ class ModelPaddleOCR(OfflineOCR):
             model_path,
             device=device,
             sess_options=sess_options,
-            cuda_options={"device_id": 0},
             logger=self.logger,
         )
         output_shape = self.session.get_outputs()[0].shape
