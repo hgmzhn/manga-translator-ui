@@ -1,0 +1,98 @@
+name: Upload FLUX2 Klein to ModelScope
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_message:
+        description: ModelScope commit message
+        required: false
+        default: Upload FLUX.2 Klein inpainting model
+        type: string
+
+concurrency:
+  group: upload-flux2-klein-modelscope
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    name: Upload FLUX2 Klein model files
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+
+    steps:
+      - name: Validate ModelScope token
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          if [ -z "$MODELSCOPE_TOKEN" ]; then
+            echo "Missing required secret: MODELSCOPE_TOKEN"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ModelScope CLI
+        run: python -m pip install --disable-pip-version-check --no-input modelscope
+
+      - name: Download and verify FLUX2 Klein files
+        shell: bash
+        env:
+          MODEL_DIR: ${{ runner.temp }}/flux2-klein
+        run: |
+          set -euo pipefail
+          mkdir -p "$MODEL_DIR/scheduler" "$MODEL_DIR/transformer" "$MODEL_DIR/vae"
+
+          download() {
+            local url="$1"
+            local destination="$2"
+            curl --fail --location --retry 5 --retry-delay 10 --retry-all-errors \
+              --user-agent "manga-translator-ui-model-uploader" \
+              --output "$destination.part" "$url"
+            mv "$destination.part" "$destination"
+          }
+
+          download "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/model_index.json" \
+            "$MODEL_DIR/model_index.json"
+          download "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/scheduler/scheduler_config.json" \
+            "$MODEL_DIR/scheduler/scheduler_config.json"
+          download "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/transformer/config.json" \
+            "$MODEL_DIR/transformer/config.json"
+          download "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q4_K_M.gguf" \
+            "$MODEL_DIR/transformer/flux-2-klein-4b-Q4_K_M.gguf"
+          download "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/config.json" \
+            "$MODEL_DIR/vae/config.json"
+          download "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffusion_pytorch_model.safetensors" \
+            "$MODEL_DIR/vae/diffusion_pytorch_model.safetensors"
+          download "https://huggingface.co/dreMaz/flux2-klein-inpaint/resolve/main/flux2_inpaint_prompt.safetensors" \
+            "$MODEL_DIR/flux2_inpaint_prompt.safetensors"
+
+          printf '%s  %s\n' \
+            '0b25d143c8469b342bc5af3bce92b783bf6b0636d285f7b2f75e38af63af9a15' \
+            "$MODEL_DIR/transformer/flux-2-klein-4b-Q4_K_M.gguf" \
+            'ca70d2202afe6415bdbcb8793ba8cd99fd159cfe6192381504d6c4d3036e0f04' \
+            "$MODEL_DIR/vae/diffusion_pytorch_model.safetensors" \
+            '7d7b19ec266581cb1faa51ad92f49a302932b0c589feae633f97da2d925cb6a4' \
+            "$MODEL_DIR/flux2_inpaint_prompt.safetensors" \
+            | sha256sum --check --status
+
+      - name: Upload FLUX2 Klein to ModelScope
+        shell: bash
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODEL_DIR: ${{ runner.temp }}/flux2-klein
+          COMMIT_MESSAGE: ${{ inputs.commit_message }}
+        run: |
+          set -euo pipefail
+          modelscope upload \
+            hgmzhn/manga-translator-ui \
+            "$MODEL_DIR" \
+            flux2-klein \
+            --repo-type model \
+            --commit-message "$COMMIT_MESSAGE" \
+            --token "$MODELSCOPE_TOKEN" \
+            --max-workers 4
