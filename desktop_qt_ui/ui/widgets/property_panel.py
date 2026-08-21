@@ -1650,20 +1650,40 @@ class PropertyPanel(QWidget):
                     regions[region_index], region_index, update_focused_text=True
                 )
         else:
-            # 多选，启用样式编辑，但禁用文本编辑
+            # 多选，启用样式编辑，但禁用文本编辑。样式值沿用第一个选中区域，
+            # 与通过 Ctrl+点击形成多选时的显示口径一致。
             self.text_edit_frame.setEnabled(False)
-            self.style_edit_frame.setEnabled(True)  # 启用样式编辑
+            self.style_edit_frame.setEnabled(True)
             self.action_frame.setEnabled(True)
             self.current_region_index = -1
 
-            # 清空显示但不禁用样式控件
+            regions = self.model.get_regions()
+            representative_index = selected_indices[0]
+            if 0 <= representative_index < len(regions):
+                self._update_display(
+                    regions[representative_index],
+                    representative_index,
+                    update_focused_text=False,
+                    update_text_fields=False,
+                )
+
+            # 多选不显示任何一个区域的文本，只保留其样式控件值。
             self.block_updates = True
+            self._set_selection_controls_blocked(True)
             try:
                 self.original_text_box.clear()
                 self.translated_text_box.clear()
-                self._refresh_style_preset_combo(selected_name="")
             finally:
+                self._set_selection_controls_blocked(False)
                 self.block_updates = False
+            self._refresh_style_preset_combo(
+                selected_name=(
+                    self._find_matching_style_preset_name(regions[representative_index])
+                    if 0 <= representative_index < len(regions)
+                    else ""
+                )
+                or ""
+            )
 
     def clear_and_disable_selection_dependent(self):
         """Clears selection-dependent fields and disables their sections."""
@@ -1700,68 +1720,74 @@ class PropertyPanel(QWidget):
         region_index,
         *,
         update_focused_text: bool = True,
+        update_text_fields: bool = True,
         force_text_fields: set[str] | None = None,
     ):
-        """Populate all widgets with data from the selected region.
+        """Populate widgets with data from the selected region.
+
+        ``update_text_fields=False`` is used when a multi-selection needs a
+        representative style without exposing one region's text.
 
         Args:
             region_data: 区域数据字典
             region_index: 区域索引
             update_focused_text: 是否覆盖正在编辑的文本框
+            update_text_fields: 是否刷新原文和译文文本框
         """
         force_text_fields = force_text_fields or set()
         self.block_updates = True
         self._set_selection_controls_blocked(True)
         try:
             # --- Update Text & Styles ---
-            # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
-            original_text = region_data.get("text", "")
-            update_original_text = update_focused_text or "text" in force_text_fields
-            if (
-                update_original_text or not self.original_text_box.hasFocus()
-            ) and self.original_text_box.toPlainText() != original_text:
-                self.original_text_box.setText(original_text)
+            if update_text_fields:
+                # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
+                original_text = region_data.get("text", "")
+                update_original_text = update_focused_text or "text" in force_text_fields
+                if (
+                    update_original_text or not self.original_text_box.hasFocus()
+                ) and self.original_text_box.toPlainText() != original_text:
+                    self.original_text_box.setText(original_text)
 
-            import re
+                import re
 
-            # 复选框选中 → 显示"替换前译文"(translation_raw),否则显示"译文"(translation)
-            show_raw = bool(
-                getattr(self, "translation_raw_checkbox", None)
-                and self.translation_raw_checkbox.isChecked()
-            )
-            field_key = "translation_raw" if show_raw else "translation"
-            translation_text = region_data.get(field_key, "") or region_data.get(
-                "translation", ""
-            )
-            update_translation_text = (
-                update_focused_text
-                or field_key in force_text_fields
-                or (
-                    field_key == "translation_raw"
-                    and "translation" in force_text_fields
-                    and not region_data.get("translation_raw")
+                # 复选框选中 → 显示"替换前译文"(translation_raw)，否则显示"译文"(translation)
+                show_raw = bool(
+                    getattr(self, "translation_raw_checkbox", None)
+                    and self.translation_raw_checkbox.isChecked()
                 )
-            )
+                field_key = "translation_raw" if show_raw else "translation"
+                translation_text = region_data.get(field_key, "") or region_data.get(
+                    "translation", ""
+                )
+                update_translation_text = (
+                    update_focused_text
+                    or field_key in force_text_fields
+                    or (
+                        field_key == "translation_raw"
+                        and "translation" in force_text_fields
+                        and not region_data.get("translation_raw")
+                    )
+                )
 
-            # 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为真实换行
-            translation_text = re.sub(
-                r"\s*(\[BR\]|<br>|【BR】)\s*",
-                "\n",
-                translation_text,
-                flags=re.IGNORECASE,
-            )
+                # 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为真实换行
+                translation_text = re.sub(
+                    r"\s*(\[BR\]|<br>|【BR】)\s*",
+                    "\n",
+                    translation_text,
+                    flags=re.IGNORECASE,
+                )
 
-            # 剥除存量的旧 <H> 局部横排标记（协议已废除，保留内文显示）
-            display_text = strip_legacy_horizontal_tags(translation_text)
+                # 剥除存量的旧 <H> 局部横排标记（协议已废除，保留内文显示）
+                display_text = strip_legacy_horizontal_tags(translation_text)
 
-            if (
-                update_translation_text or not self.translated_text_box.hasFocus()
-            ) and self.translated_text_box.toPlainText() != display_text:
-                self.translated_text_box.setText(display_text)
-            # 重置编辑操作基线:无论是否覆盖了文本,都以框内当前内容为准
-            self._translation_edit_recorder.reset(
-                self.translated_text_box.toPlainText()
-            )
+                if (
+                    update_translation_text or not self.translated_text_box.hasFocus()
+                ) and self.translated_text_box.toPlainText() != display_text:
+                    self.translated_text_box.setText(display_text)
+                # 重置编辑操作基线:无论是否覆盖了文本,都以框内当前内容为准
+                self._translation_edit_recorder.reset(
+                    self.translated_text_box.toPlainText()
+                )
 
             font_size = region_data.get("font_size", 12) or 12
             self._set_font_size_controls(font_size)
