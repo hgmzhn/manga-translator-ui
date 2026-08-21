@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1483,
-    "exact": 1483,
+    "keys": 1511,
+    "exact": 1511,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -3037,6 +3037,12 @@
       "status": "exact"
     },
     {
+      "key": "Quick Symbols",
+      "en_US": "Quick Symbols",
+      "zh_CN": "快捷符号",
+      "status": "exact"
+    },
+    {
       "key": "RGB: -",
       "en_US": "RGB: -",
       "zh_CN": "RGB：-",
@@ -4006,6 +4012,168 @@
       "key": "Switches",
       "en_US": "Switches",
       "zh_CN": "开关",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Beamed eighth notes",
+      "en_US": "Beamed eighth notes",
+      "zh_CN": "连杠八分音符",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Beamed sixteenth notes",
+      "en_US": "Beamed sixteenth notes",
+      "zh_CN": "连杠十六分音符",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Black circle",
+      "en_US": "Black circle",
+      "zh_CN": "实心圆",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Black heart",
+      "en_US": "Black heart",
+      "zh_CN": "实心心号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Black square",
+      "en_US": "Black square",
+      "zh_CN": "实心方形",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Eighth note",
+      "en_US": "Eighth note",
+      "zh_CN": "八分音符",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Ellipsis",
+      "en_US": "Ellipsis",
+      "zh_CN": "省略号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Full-width exclamation mark",
+      "en_US": "Full-width exclamation mark",
+      "zh_CN": "全角感叹号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Full-width question mark",
+      "en_US": "Full-width question mark",
+      "zh_CN": "全角问号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Full-width space",
+      "en_US": "Full-width space",
+      "zh_CN": "全角空格",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Full-width tilde",
+      "en_US": "Full-width tilde",
+      "zh_CN": "全角波浪号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Half-width exclamation mark",
+      "en_US": "Half-width exclamation mark",
+      "zh_CN": "半角感叹号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Half-width question mark",
+      "en_US": "Half-width question mark",
+      "zh_CN": "半角问号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Half-width tilde",
+      "en_US": "Half-width tilde",
+      "zh_CN": "半角波浪号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Left corner bracket",
+      "en_US": "Left corner bracket",
+      "zh_CN": "左单角引号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Left white corner bracket",
+      "en_US": "Left white corner bracket",
+      "zh_CN": "左双角引号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Long dash",
+      "en_US": "Long dash",
+      "zh_CN": "长破折号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Quarter note",
+      "en_US": "Quarter note",
+      "zh_CN": "四分音符",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Reference mark",
+      "en_US": "Reference mark",
+      "zh_CN": "参考标记",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Right corner bracket",
+      "en_US": "Right corner bracket",
+      "zh_CN": "右单角引号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Right white corner bracket",
+      "en_US": "Right white corner bracket",
+      "zh_CN": "右双角引号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Vertical closing quotation mark",
+      "en_US": "Vertical closing quotation mark",
+      "zh_CN": "后竖引号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Vertical opening quotation mark",
+      "en_US": "Vertical opening quotation mark",
+      "zh_CN": "前竖引号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Wave dash",
+      "en_US": "Wave dash",
+      "zh_CN": "老式全角波浪号",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: Wavy dash",
+      "en_US": "Wavy dash",
+      "zh_CN": "波浪线",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: White circle",
+      "en_US": "White circle",
+      "zh_CN": "空心圆",
+      "status": "exact"
+    },
+    {
+      "key": "Symbol: White heart",
+      "en_US": "White heart",
+      "zh_CN": "空心心号",
       "status": "exact"
     },
     {
@@ -5144,8 +5312,8 @@
     },
     {
       "key": "desc_inpainter_inpainter",
-      "en_US": "Image inpainting algorithm. lama_large has best quality (recommended); lama_mpe is fast; default uses AOT.",
-      "zh_CN": "图像修复算法。lama_large 效果最好（推荐）；lama_mpe 速度快；default 使用 AOT。",
+      "en_US": "Image inpainting algorithm. lama_large has best quality (recommended); lama_mpe is fast; flux2-klein uses FLUX.2 Klein 4B with higher quality but significantly higher VRAM and speed requirements; default uses AOT.",
+      "zh_CN": "图像修复算法。lama_large 效果最好（推荐）；lama_mpe 速度快；flux2-klein 使用 FLUX.2 Klein 4B，质量高但显存和速度要求更高；default 使用 AOT。",
       "status": "exact"
     },
     {

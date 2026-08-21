@@ -143,7 +143,7 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "release_json_value": false,
+        "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.overwrite"
       },
       "lifecycle_stages": [
@@ -212,7 +212,7 @@
       "wiki_page": "desktop/settings/mode-specific.md",
       "control": "toggle",
       "defaults": {
-        "release_json_value": false,
+        "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.export_from_local_json"
       },
       "lifecycle_stages": [
@@ -440,7 +440,7 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "combo",
       "defaults": {
-        "release_json_value": "48px",
+        "release_json_value": "paddleocr",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr"
       },
       "lifecycle_stages": [
@@ -1117,7 +1117,7 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "release_json_value": "openai",
+        "release_json_value": "openai_hq",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
       },
       "lifecycle_stages": [

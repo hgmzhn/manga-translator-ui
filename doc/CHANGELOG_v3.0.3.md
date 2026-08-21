@@ -2,7 +2,14 @@
 
 发布日期：2026-08-21
 
+## ✨ 新功能
+
+### FLUX.2 Klein 修复模型
+- 新增 FLUX.2 Klein 4B 修复模型，可在修复模型设置中选择 `flux2-klein`。
+- NVIDIA CUDA 环境仅在可用时尝试启用 xformers；ROCm 不进入 CUDA 专用的 xformers 路径。
+
 ## 🐛 修复与改进
+
 ### 自动更新版本来源修复
 - UI 自动检查、维护工具和发布 Action 统一使用 `packaging/VERSION` 作为唯一应用版本来源。
 - 不再读取或写入打包目录根部的 `VERSION` 文件，避免代码已更新到新版本但 UI 仍显示旧版本、反复提示更新的问题。

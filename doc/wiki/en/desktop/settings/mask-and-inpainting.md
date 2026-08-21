@@ -28,6 +28,7 @@ The “Inpainting Model” combo box is on the Settings → Inpainting tab and d
 - `default`: default inpainting approach.
 - `lama_large`: best quality and recommended.
 - `lama_mpe`: faster.
+- `flux2-klein`: uses the FLUX.2 Klein 4B image inpainting model; quality is higher but it needs substantially more VRAM and is slower. The first use downloads several gigabytes of model files.
 - `sd`: optional inpainting approach.
 - `none`: runs no model and fills the masked area white.
 - `original`: returns the original image and keeps the source text.

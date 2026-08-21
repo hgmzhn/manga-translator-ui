@@ -1153,7 +1153,7 @@
   "desc_translator_convert_to_simplified": "번역 후 번체 중국어를 간체 중국어로 변환합니다 (OpenCC t2s 사용).",
   "desc_translator_use_custom_api_params": "현재 모델명으로 매개변수 프리셋을 찾고 없으면 General로 돌아갑니다. 각 API 모듈은 common과 자신의 섹션만 읽습니다. 번역, AI OCR, AI 렌더링, AI 채색에 적용됩니다.",
   "desc_use_custom_api_params": "현재 모델명으로 매개변수 프리셋을 찾고 없으면 General로 돌아갑니다. 각 API 모듈은 common과 자신의 섹션만 읽습니다. 번역, AI OCR, AI 렌더링, AI 채색에 적용됩니다.",
-  "desc_inpainter_inpainter": "이미지 복원 알고리즘. lama_large가 최고 품질 (권장); lama_mpe는 빠름; default는 AOT 사용.",
+  "desc_inpainter_inpainter": "이미지 복원 알고리즘. lama_large가 최고 품질 (권장); lama_mpe는 빠름; flux2-klein은 FLUX.2 Klein 4B를 사용해 품질이 높지만 VRAM과 속도 요구 사항이 큼; default는 AOT 사용.",
   "desc_mask_dilation_offset": "마스크 팽창 오프셋 (기본값 70). 텍스트 지우기 영역의 확장을 제어하며, 값이 클수록 더 넓은 영역을 지웁니다.",
   "desc_ocr_limit_mask_dilation_to_bubble_mask": "마스크 팽창을 말풍선 영역 내로 제한하여 말풍선 테두리가 실수로 지워지는 것을 방지합니다.",
   "desc_ocr_use_model_bubble_repair_intersection": "모델 말풍선 영역과 복원 마스크의 교차를 취하여 복원 범위를 정밀하게 제어합니다.",

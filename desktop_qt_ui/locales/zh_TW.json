@@ -1155,7 +1155,7 @@
   "desc_translator_convert_to_simplified": "翻譯後將繁體中文轉換為簡體中文（使用 OpenCC t2s）。",
   "desc_translator_use_custom_api_params": "依目前模型匹配參數預設，找不到時回退「通用」；每個 API 模組只讀取 common 與自身分組。適用於翻譯、AI 識別、AI 渲染、AI 上色。",
   "desc_use_custom_api_params": "依目前模型匹配參數預設，找不到時回退「通用」；每個 API 模組只讀取 common 與自身分組。適用於翻譯、AI 識別、AI 渲染、AI 上色。",
-  "desc_inpainter_inpainter": "影像修復演算法。lama_large 效果最好（推薦）；lama_mpe 速度快；default 使用 AOT。",
+  "desc_inpainter_inpainter": "影像修復演算法。lama_large 效果最好（推薦）；lama_mpe 速度快；flux2-klein 使用 FLUX.2 Klein 4B，品質較高但對 VRAM 與速度的要求也更高；default 使用 AOT。",
   "desc_mask_dilation_offset": "遮罩膨脹偏移量 (預設 70)。控制文字擦除區域的擴展程度，值越大擦除範圍越廣。",
   "desc_ocr_limit_mask_dilation_to_bubble_mask": "限制遮罩膨脹範圍不超出氣泡區域，防止氣泡邊框被誤擦除。",
   "desc_ocr_use_model_bubble_repair_intersection": "使用模型氣泡區域與修復遮罩取交集，精確控制修復範圍。",

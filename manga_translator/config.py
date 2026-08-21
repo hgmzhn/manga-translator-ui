@@ -99,6 +99,7 @@ class Inpainter(str, Enum):
     default = "default"
     lama_large = "lama_large"
     lama_mpe = "lama_mpe"
+    flux2_klein = "flux2-klein"
     sd = "sd"
     none = "none"
     original = "original"

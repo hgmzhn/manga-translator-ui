@@ -1153,7 +1153,7 @@
   "desc_translator_convert_to_simplified": "翻訳後に繁体字中国語を簡体字中国語に変換します（OpenCC t2s を使用）。",
   "desc_translator_use_custom_api_params": "現在のモデル名でパラメータプリセットを照合し、見つからない場合は General にフォールバックします。各 API モジュールは common と自身のセクションだけを読み取ります。翻訳、AI OCR、AI レンダリング、AI 着色に適用されます。",
   "desc_use_custom_api_params": "現在のモデル名でパラメータプリセットを照合し、見つからない場合は General にフォールバックします。各 API モジュールは common と自身のセクションだけを読み取ります。翻訳、AI OCR、AI レンダリング、AI 着色に適用されます。",
-  "desc_inpainter_inpainter": "画像修復アルゴリズム。lama_largeが最高品質（推奨）；lama_mpeは高速；defaultはAOTを使用。",
+  "desc_inpainter_inpainter": "画像修復アルゴリズム。lama_largeが最高品質（推奨）；lama_mpeは高速；flux2-kleinはFLUX.2 Klein 4Bを使用し高品質ですが、VRAMと速度の要求が高くなります；defaultはAOTを使用。",
   "desc_mask_dilation_offset": "マスク膨張オフセット（デフォルト70）。テキスト消去領域の拡張を制御し、値が大きいほど広い範囲を消去します。",
   "desc_ocr_limit_mask_dilation_to_bubble_mask": "マスク膨張を吹き出し領域内に制限し、吹き出しの枠線が誤って消去されるのを防ぎます。",
   "desc_ocr_use_model_bubble_repair_intersection": "モデルの吹き出し領域と修復マスクの交差を取り、修復範囲を精密に制御します。",

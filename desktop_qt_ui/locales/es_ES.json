@@ -1153,7 +1153,7 @@
   "desc_translator_convert_to_simplified": "Convierte chino tradicional a chino simplificado después de la traducción (usando OpenCC t2s).",
   "desc_translator_use_custom_api_params": "Busca un preajuste por el modelo actual y vuelve a General si no existe; cada módulo API solo lee common y su propia sección. Se aplica a traducción, OCR IA, renderizado IA y coloreado IA.",
   "desc_use_custom_api_params": "Busca un preajuste por el modelo actual y vuelve a General si no existe; cada módulo API solo lee common y su propia sección. Se aplica a traducción, OCR IA, renderizado IA y coloreado IA.",
-  "desc_inpainter_inpainter": "Algoritmo de restauración de imagen. lama_large tiene la mejor calidad (recomendado); lama_mpe es rápido; default usa AOT.",
+  "desc_inpainter_inpainter": "Algoritmo de restauración de imagen. lama_large tiene la mejor calidad (recomendado); lama_mpe es rápido; flux2-klein usa FLUX.2 Klein 4B con mayor calidad pero mayores requisitos de VRAM y velocidad; default usa AOT.",
   "desc_mask_dilation_offset": "Desplazamiento de dilatación de máscara (predeterminado 70). Controla la expansión del área de borrado de texto, valores más grandes borran áreas más amplias.",
   "desc_ocr_limit_mask_dilation_to_bubble_mask": "Limitar la dilatación de máscara dentro del área del globo, evitando que los bordes del globo se borren accidentalmente.",
   "desc_ocr_use_model_bubble_repair_intersection": "Intersectar área de globo del modelo con máscara de reparación para control preciso del rango de reparación.",

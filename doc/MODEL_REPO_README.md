@@ -67,6 +67,26 @@ license: CC-BY-NC-4.0
 - `lama_mpe_inpainting.onnx` - LAMA MPE ONNX 版本
 - `lama_large_512px_inpainting.onnx` - LAMA Large ONNX 版本
 
+#### FLUX.2 Klein 修复器
+
+`flux2-klein/` 是 FLUX.2 Klein 4B 修复器的完整模型目录，必须保留以下 7 个文件：
+
+```text
+flux2-klein/
+├─ model_index.json
+├─ scheduler/scheduler_config.json
+├─ transformer/config.json
+├─ transformer/flux-2-klein-4b-Q4_K_M.gguf
+├─ vae/config.json
+├─ vae/diffusion_pytorch_model.safetensors
+└─ flux2_inpaint_prompt.safetensors
+```
+
+整套文件约 **2.8 GB（约 2.6 GiB）**。其中 GGUF Transformer 约 2.60 GB，VAE 约 168 MB，提示词嵌入约 15 MB，其余为配置文件。程序首次选择 `flux2-klein` 时会下载到 `models/inpainting/flux2-klein/`。
+
+模型来源：[FLUX.2 Klein 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)、[FLUX.2 Klein GGUF](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF)、[FLUX2 修复提示词嵌入](https://huggingface.co/dreMaz/flux2-klein-inpaint)。使用和再分发时遵守各上游模型的许可证与条款。
+
+
 ### 图像超分辨率模型 (Upscaling)
 
 #### Real-ESRGAN
@@ -97,15 +117,16 @@ license: CC-BY-NC-4.0
 
 ## 📊 统计信息
 
-- **模型总数**：66 个文件
-- **总大小**：约 5-8 GB（取决于选择的模型）
-- **来源**：GitHub Release + HuggingFace + HanLP
+- **模型总数**：73 个文件（包含 FLUX.2 Klein 修复器的 7 个文件）
+- **总大小**：约 5-8 GB（取决于选择的模型；FLUX.2 Klein 单套约 2.8 GB）
+- **来源**：GitHub Release + HuggingFace + HanLP + ModelScope
 
 ## 🔗 相关链接
 
 - **主项目地址**：https://github.com/hgmzhn/manga-translator-ui
 - **原始项目**：https://github.com/zyddnys/manga-image-translator
 - **问题反馈**：https://github.com/hgmzhn/manga-translator-ui/issues
+- **ModelScope 模型仓库**：https://www.modelscope.cn/models/hgmzhn/manga-translator-ui
 - **PaddleOCR-VL-1.5 官方模型页**：https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5
 - **PaddleOCR-VL 官方文档**：https://www.paddleocr.ai/latest/en/version3.x/pipeline_usage/PaddleOCR-VL.html
 
@@ -156,4 +177,4 @@ license: CC-BY-NC-4.0
 
 ---
 
-**最后更新时间**：2026-07-06
+**最后更新时间**：2026-08-22

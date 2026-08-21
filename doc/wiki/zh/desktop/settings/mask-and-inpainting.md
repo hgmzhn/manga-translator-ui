@@ -28,6 +28,7 @@ lastUpdated: true
 - `default`：默认修复方式。
 - `lama_large`：质量最佳并推荐。
 - `lama_mpe`：速度较快。
+- `flux2-klein`：使用 FLUX.2 Klein 4B 图像修复模型，质量较高，但需要较多显存并且速度较慢；首次使用会下载约数 GB 的模型文件。
 - `sd`：可选修复方式。
 - `none`：不运行模型，将蒙版区域填为白色。
 - `original`：返回原图，保留原文。

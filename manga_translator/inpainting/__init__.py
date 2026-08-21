@@ -6,6 +6,7 @@ import numpy as np
 from ..config import Inpainter, InpainterConfig
 from .common import CommonInpainter, OfflineInpainter
 from .inpainting_aot import AotInpainter
+from .inpainting_flux import Flux2KleinInpainter
 from .inpainting_lama_mpe import LamaLargeInpainter, LamaMPEInpainter
 from .none import NoneInpainter
 from .original import OriginalInpainter
@@ -33,6 +34,7 @@ INPAINTERS = {
     Inpainter.default: AotInpainter,
     Inpainter.lama_large: LamaLargeInpainter,
     Inpainter.lama_mpe: LamaMPEInpainter,
+    Inpainter.flux2_klein: Flux2KleinInpainter,
     Inpainter.sd: StableDiffusionInpainter,
     Inpainter.none: NoneInpainter,
     Inpainter.original: OriginalInpainter,
