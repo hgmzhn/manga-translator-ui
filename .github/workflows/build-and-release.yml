@@ -77,7 +77,6 @@ jobs:
         Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE '.git') -Destination (Join-Path $portableDir '.git') -Recurse -Force
         if (-not (Test-Path (Join-Path $portableDir 'packaging\python\python.exe'))) { throw 'Portable Python was not found in the reference package.' }
         if (-not (Test-Path (Join-Path $portableDir 'packaging\uv.exe'))) { throw 'Portable uv was not found in the reference package.' }
-        Set-Content -LiteralPath (Join-Path $portableDir 'VERSION') -Value ('${{ github.ref_name }}' -replace '^v', '') -Encoding utf8
         Set-Content -LiteralPath (Join-Path $portableDir 'packaging\VERSION') -Value ('${{ github.ref_name }}' -replace '^v', '') -Encoding utf8
         "PORTABLE_DIR=$portableDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
     - name: Install ${{ matrix.variant }} dependencies into bundled Python

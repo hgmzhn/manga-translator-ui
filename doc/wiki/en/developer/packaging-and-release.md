@@ -33,7 +33,7 @@ Only two kinds of visible copy relate to packaging and release: the desktop wind
 | `pyproject.toml [project] version` | `1.7.6` | Project metadata marker; unused by CI releases |
 | `packaging/launch.py` constant `VERSION` | `1.7.6` | Development banner marker; unused by CI releases |
 
-CI strips the leading `v` from the tag and writes both root `VERSION` and `packaging/VERSION`. The package keeps `Win-Start.bat`, `Win-Install-or-Update.bat`, bundled Python, uv, and PortableGit.
+CI strips the leading `v` from the tag and writes the release version to `packaging/VERSION`. The package keeps `Win-Start.bat`, `Win-Install-or-Update.bat`, bundled Python, uv, and PortableGit.
 
 ### Version check {#version-check}
 
@@ -61,7 +61,7 @@ Each CPU/GPU/AMD matrix job runs these steps in order:
 ```mermaid
 flowchart LR
     T["v* tag"] --> B["download portable base"]
-    B --> S["overlay source and write VERSION"]
+    B --> S["overlay source and write packaging/VERSION"]
     S --> D["uv export --locked + uv pip install"]
     D --> M["extract models.7z"]
     M --> Q["PyQt6/torch/onnxruntime smoke test"]
@@ -84,7 +84,7 @@ Each release archive is a complete Windows portable directory and does not conta
 | `packaging/uv.exe`, `PortableGit/` | Portable tools | No system Python or Git required |
 | `config/`, `fonts/`, `dict/`, `doc/` | Application resources | Released with source |
 | `models/` | AI model weights | Extracted from `models.7z` during the build |
-| `VERSION` | Release version | Leading `v` removed |
+| `packaging/VERSION` | Release version | Leading `v` removed |
 
 ### Split archives {#split-archives}
 
@@ -130,7 +130,7 @@ The publish job waits for every matrix job. Before uploading, it deletes any exi
 - The five hardware backend groups `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` are mutually exclusive; CI builds Windows `cpu`, `cuda13.0`, `cuda12.6`, and `rocm7.2.1` portable packages.
 - After locked common dependencies, the ROCm 7.2.1 package installs Radeon ROCm SDK 7.2.1 and matching PyTorch wheels in launcher order; AMD driver 26.2.2 and a supported GPU are required.
 - Release packages already contain locked dependencies and `models/`; archive size is therefore large and the 1990 MiB split must remain.
-- `packaging/VERSION`, `[project] version` in `pyproject.toml`, and the hardcoded launcher version may differ; the tag-derived `VERSION` in the package is authoritative for releases.
+- `packaging/VERSION`, `[project] version` in `pyproject.toml`, and the hardcoded launcher version may differ; the tag-derived `packaging/VERSION` in the package is authoritative for releases.
 - The pipeline depends on the existing `portable` base asset and `v1.7.9/models.7z`; either asset missing or failing to download prevents publication.
 - Docker builds exclude `doc/`, `*.md`, tests, and build artifacts via `packaging/.dockerignore`, so the image contains only runtime resources.
 - This page never writes real API keys, tokens, usernames, or private absolute paths; admin-password and environment-variable values in compose are release-template values and are not copied into the documentation.
@@ -141,7 +141,7 @@ The publish job waits for every matrix job. Before uploading, it deletes any exi
 
 #### Window title and version display {#window-title-and-version-display}
 
-On startup the packaged app reads the `VERSION` file from runtime resources through `desktop_qt_ui/utils/app_version.py#get_app_version()` (search order `VERSION` then `packaging/VERSION`, strips the `v` prefix, and falls back to `unknown`), then appends it to the window title and the Qt application version:
+On startup the packaged app reads only `packaging/VERSION` through `desktop_qt_ui/utils/app_version.py#get_app_version()` (strips the `v` prefix and falls back to `unknown`), then appends it to the window title and the Qt application version:
 
 | UI call key | English actual value | Simplified Chinese actual value |
 | --- | --- | --- |
@@ -169,7 +169,7 @@ On startup the packaged app reads the `VERSION` file from runtime resources thro
 | File/directory | Role on this page | Note |
 | --- | --- | --- |
 | `packaging/VERSION` | Authoritative version file | Carries the `v` prefix; read by build and check scripts |
-| `packaging/build_packages.py` | Desktop packaging entry | Version required; writes back VERSION and `build_info.json` |
+| `packaging/build_packages.py` | Desktop packaging entry | Version required; writes `packaging/VERSION` and `build_info.json` |
 | `packaging/manga-translator-{cpu,gpu}.spec` | PyInstaller specs | Entry `desktop_qt_ui/main.py`, collects runtime data |
 | `packaging/Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh` | Docker image and deployment | Multi-stage build, empty-volume restore, health check |
 | `packaging/check_version.py` | Version-check script | Compares `origin/main:packaging/VERSION` |

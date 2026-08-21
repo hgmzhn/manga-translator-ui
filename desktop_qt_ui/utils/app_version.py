@@ -8,8 +8,8 @@ from utils.resource_helper import iter_existing_resource_paths
 
 
 def get_app_version(default: str = "unknown") -> str:
-    """从运行时资源中读取版本号。"""
-    for version_path in iter_existing_resource_paths(("VERSION", "packaging/VERSION")):
+    """从唯一版本文件 packaging/VERSION 读取应用版本号。"""
+    for version_path in iter_existing_resource_paths(("packaging/VERSION",)):
         try:
             with open(version_path, "r", encoding="utf-8") as version_file:
                 version = version_file.read().strip()

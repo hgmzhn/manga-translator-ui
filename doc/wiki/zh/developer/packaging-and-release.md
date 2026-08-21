@@ -33,7 +33,7 @@ lastUpdated: true
 | `pyproject.toml [project] version` | `1.7.6` | 项目元数据标记；不参与 CI 发布 |
 | `packaging/launch.py` 常量 `VERSION` | `1.7.6` | 开发环境横幅标记；不参与 CI 发布 |
 
-CI 从 tag 去掉 `v` 后同时写入包根目录 `VERSION` 和 `packaging/VERSION`。便携包自身保留 `Win-Start.bat`、`Win-Install-or-Update.bat`、内置 Python、uv 和 PortableGit。
+CI 从 tag 去掉 `v` 后将发布版本写入 `packaging/VERSION`。便携包自身保留 `Win-Start.bat`、`Win-Install-or-Update.bat`、内置 Python、uv 和 PortableGit。
 
 ### 版本检查 {#version-check}
 
@@ -61,7 +61,7 @@ CI 不再把 PyInstaller `dist/` 作为发布包。`.github/workflows/build-and-
 ```mermaid
 flowchart LR
     T["v* tag"] --> B["下载 portable 基础包"]
-    B --> S["覆盖当前源码并写 VERSION"]
+    B --> S["覆盖当前源码并写入 packaging/VERSION"]
     S --> D["uv export --locked + uv pip install"]
     D --> M["解压 models.7z"]
     M --> Q["PyQt6/torch/onnxruntime smoke test"]
@@ -84,7 +84,7 @@ flowchart LR
 | `packaging/uv.exe`、`PortableGit/` | 便携工具 | 不依赖系统 Python/Git |
 | `config/`、`fonts/`、`dict/`、`doc/` | 应用资源 | 与源码一起发布 |
 | `models/` | AI 模型权重 | 构建阶段从 `models.7z` 解压 |
-| `VERSION` | 发布版本号 | 去掉 `v` 前缀 |
+| `packaging/VERSION` | 发布版本号 | 去掉 `v` 前缀 |
 
 ### 分卷压缩 {#split-archives}
 
@@ -130,7 +130,7 @@ flowchart LR
 - `cpu`、`cuda13.0`、`cuda12.6`、`rocm7.2.1`、`metal` 五个硬件后端依赖组互斥；CI 便携发布构建 Windows `cpu`、`cuda13.0`、`cuda12.6` 和 `rocm7.2.1` 四个包。
 - ROCm 7.2.1 包在锁定公共依赖后，按启动器相同顺序安装 Radeon ROCm SDK 7.2.1 与配套 PyTorch wheels；需要 AMD 26.2.2 驱动和受支持显卡。
 - 发布包已经包含锁定依赖和 `models/`；归档体积会显著增大，必须保留 1990 MiB 分卷。
-- `packaging/VERSION`、`pyproject.toml [project] version` 与 `launch.py` 的硬编码版本可能不同步；发布以 tag 写入的 `VERSION` 为准。
+- `packaging/VERSION`、`pyproject.toml` 的 `[project] version` 与 `launch.py` 的硬编码版本可能不同步；发布包中的 tag 派生 `packaging/VERSION` 是权威版本。
 - 流水线依赖 `portable` 基础包和 `v1.7.9/models.7z` 两个既有 Release 资产；任一资产缺失或下载失败都会阻止发布。
 - Docker 构建通过 `.dockerignore` 排除 `doc/`、`*.md`、测试与构建产物，镜像内只含运行所需资源。
 - 这里不写真实 API 密钥、令牌、用户名或私有绝对路径；compose 中的管理员密码与环境变量值属于发行模板，不在文档中复制。
@@ -141,7 +141,7 @@ flowchart LR
 
 #### 窗口标题与版本显示 {#window-title-and-version-display}
 
-打包版启动时通过 `desktop_qt_ui/utils/app_version.py#get_app_version()` 从运行时资源读取 `VERSION` 文件（读取顺序 `VERSION` → `packaging/VERSION`，去掉 `v` 前缀；失败回退为 `unknown`），再拼进窗口标题与 Qt 应用版本：
+打包版启动时只通过 `desktop_qt_ui/utils/app_version.py#get_app_version()` 读取 `packaging/VERSION`（去掉 `v` 前缀；失败回退为 `unknown`），再拼进窗口标题与 Qt 应用版本：
 
 | UI 调用 key | English 实际值 | 简体中文实际值 |
 | --- | --- | --- |
@@ -169,7 +169,7 @@ flowchart LR
 | 文件/目录 | 本页作用 | 注意 |
 | --- | --- | --- |
 | `packaging/VERSION` | 版本权威文件 | 带 `v` 前缀；构建与检查脚本读取 |
-| `packaging/build_packages.py` | 桌面端打包入口 | 版本必填；回写 VERSION、写 `build_info.json` |
+| `packaging/build_packages.py` | 桌面端打包入口 | 版本必填；写入 `packaging/VERSION` 和 `build_info.json` |
 | `packaging/manga-translator-{cpu,gpu}.spec` | PyInstaller spec | 入口 `desktop_qt_ui/main.py`，收集运行时数据 |
 | `packaging/Dockerfile`、`docker-compose.yml`、`docker-entrypoint.sh` | Docker 镜像与部署 | 多阶段构建、空卷恢复、健康检查 |
 | `packaging/check_version.py` | 版本检查脚本 | 对比 `origin/main:packaging/VERSION` |

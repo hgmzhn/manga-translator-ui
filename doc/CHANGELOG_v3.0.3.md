@@ -3,6 +3,9 @@
 发布日期：2026-08-21
 
 ## 🐛 修复与改进
+### 自动更新版本来源修复
+- UI 自动检查、维护工具和发布 Action 统一使用 `packaging/VERSION` 作为唯一应用版本来源。
+- 不再读取或写入打包目录根部的 `VERSION` 文件，避免代码已更新到新版本但 UI 仍显示旧版本、反复提示更新的问题。
 
 ### ONNX Runtime CUDA 提供者警告修复
 - 修复 Windows 下使用 ONNX Runtime 1.28 加载 PaddleOCR ONNX 模型时，显式传入 `device_id=0` 触发 `No registered plugin EP device found` 警告的问题。
