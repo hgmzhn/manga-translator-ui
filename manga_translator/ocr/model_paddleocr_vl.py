@@ -185,7 +185,11 @@ class ModelPaddleOCRVL(OfflineOCR):
             self.device = 'cpu'
             self.use_gpu = False
             model_dtype = torch.float32
+        from .paddleocr_vl_patcher import patch_transformers_paddleocr_vl_docs
 
+        # Transformers 5.15.0 omits min/max_pixels from the generated docs,
+        # which logs errors during PaddleOCR-VL image processor import.
+        patch_transformers_paddleocr_vl_docs()
         from transformers import (
             AutoImageProcessor,
             AutoTokenizer,

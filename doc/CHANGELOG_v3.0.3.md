@@ -8,6 +8,10 @@
 - 修复 Windows 下使用 ONNX Runtime 1.28 加载 PaddleOCR ONNX 模型时，显式传入 `device_id=0` 触发 `No registered plugin EP device found` 警告的问题。
 - CUDAExecutionProvider 现在默认使用设备 0，仅在调用方明确提供时传递额外 CUDA 参数；保留 CUDA 会话失败时自动回退 CPU 的行为。
 
+### PaddleOCR-VL 参数文档警告修复
+- 修复 Transformers 5.15.0 加载 PaddleOCR-VL 图像处理器时，因 `min_pixels` 和 `max_pixels` 未出现在自动生成文档中而输出 `[ERROR]` 日志的问题。
+- 通过应用内运行时兼容补丁补齐缺失文档，不直接修改 `.venv` 或系统 `site-packages` 文件；不改变图像缩放和推理参数行为。
+
 ### 自动断句几何匹配修复
 - 修复无显式换行文本的候选评分只关注行列数、标点和长度均匀度，可能选中虽然均匀但明显超出 OCR 文本框的横排或竖排方案的问题。
 - 自动断句现在会将候选文本块相对 OCR 整体框的宽度和高度超出比例纳入软评分，并保留 5% 容差；候选不会被硬淘汰，但超出过多时会优先选择更接近原区域形状的布局。

@@ -6,7 +6,45 @@ PaddleOCR-VL 模型文件自动修补工具
 
 import os
 import sys
+from pathlib import Path
 
+
+_PADDLEOCR_VL_KWARGS_DOCS = """    min_pixels (`int`, *optional*, defaults to 147456):
+        Minimum number of pixels for the resized image.
+    max_pixels (`int`, *optional*, defaults to 2359296):
+        Maximum number of pixels for the resized image.
+"""
+
+
+def patch_transformers_paddleocr_vl_docs(module_file: str | None = None) -> bool:
+    """Patch missing PaddleOCR-VL kwargs docs before Transformers imports the module."""
+    if module_file is None:
+        try:
+            import transformers
+        except Exception:
+            return False
+        module_file = str(
+            Path(transformers.__file__).resolve().parent
+            / "models"
+            / "paddleocr_vl"
+            / "image_processing_paddleocr_vl.py"
+        )
+
+    path = Path(module_file)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+
+    if "    min_pixels (`int`, *optional*, defaults to 147456):" in content:
+        return False
+
+    anchor = "    merge_size (`int`, *optional*, defaults to 2):\n        The merge size of the vision encoder to llm encoder.\n"
+    if anchor not in content:
+        return False
+
+    path.write_text(content.replace(anchor, anchor + _PADDLEOCR_VL_KWARGS_DOCS, 1), encoding="utf-8")
+    return True
 
 def patch_paddleocr_vl_files(model_path: str):
     """
