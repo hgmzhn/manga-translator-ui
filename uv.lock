@@ -697,7 +697,7 @@ wheels = [
 
 [[package]]
 name = "diffusers"
-version = "0.37.1"
+version = "0.38.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
@@ -710,9 +710,9 @@ dependencies = [
     { name = "requests" },
     { name = "safetensors" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/5c/f4c2eb8d481fe8784a7e2331fbaab820079c06676185fa6d2177b386d590/diffusers-0.37.1.tar.gz", hash = "sha256:2346c21f77f835f273b7aacbaada1c34a596a3a2cc6ddc99d149efcd0ec298fa", size = 4135139, upload-time = "2026-03-25T08:04:04.515Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/ed/255d3dfd4a2271dffc8f1895f9d2720b3bf1beaecf02148bb5604439e594/diffusers-0.38.0.tar.gz", hash = "sha256:1e094ec5c16f18c42fb89d37f07a94cf9aab3ebbe527ab059c609597b8857626", size = 4328401, upload-time = "2026-05-01T05:42:15.276Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/dd/51c38785ce5e1c287b5ad17ba550edaaaffce0deb0da4857019c6700fbaf/diffusers-0.37.1-py3-none-any.whl", hash = "sha256:0537c0b28cb53cf39d6195489bcf8f833986df556c10f5e28ab7427b86fc8b90", size = 5001536, upload-time = "2026-03-25T08:04:02.385Z" },
+    { url = "https://files.pythonhosted.org/packages/42/c0/3237566ea6e3a542f3c0669a253d62fe75f27b84b3d7bd4fb3b5ee89d73c/diffusers-0.38.0-py3-none-any.whl", hash = "sha256:18e53f9e539096320470f62c6360a6fd5727ff28cffda566265316e13fcdb612", size = 5245919, upload-time = "2026-05-01T05:42:12.779Z" },
 ]
 
 [[package]]
@@ -1463,7 +1463,7 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.0" },
     { name = "curl-cffi", specifier = "==0.16.0" },
     { name = "customtkinter", specifier = "==5.2.2" },
-    { name = "diffusers", specifier = "==0.37.1" },
+    { name = "diffusers", specifier = "==0.38.0" },
     { name = "einops", specifier = "==0.8.1" },
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "fire", specifier = "==0.7.1" },
