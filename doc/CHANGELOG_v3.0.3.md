@@ -10,6 +10,13 @@
 
 ## 🐛 修复与改进
 
+### OpenCV 5 面板检测兼容
+- 修复 OpenCV 5 将 LSD 线段返回形状从 `(N, 1, 4)` 改为 `(N, 4)` 后，面板检测触发 `IndexError: invalid index to scalar variable` 并回退简单文本排序的问题。
+- 面板线段解析现在同时兼容 OpenCV 4 和 OpenCV 5 的返回布局，多分格漫画可继续按面板阅读顺序排列文本。
+
+### 超分临时目录清理
+- 修复 ESRGAN 和 Waifu2x 超分进程失败或图片读写异常时未清理输入、输出临时目录的问题，避免 `%TEMP%` 持续积累临时文件。
+
 ### curl_cffi Windows 证书路径修复
 - 修复 Windows 下应用目录或虚拟环境路径包含非 ASCII 字符时，`curl_cffi` 读取 CA 证书路径失败并报 cURL error 77 的问题。
 - 创建 curl_cffi 会话时，证书相关文件路径按 Windows 系统代码页传递给 libcurl；继续保留 HTTPS 证书校验。

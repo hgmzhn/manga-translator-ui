@@ -76,31 +76,36 @@ class ESRGANUpscaler(OfflineUpscaler):
 
     async def _infer(self, image_batch: List[Image.Image], upscale_ratio: float) -> List[Image.Image]:
         # Has to cache images because chosen upscaler doesn't support piping
-        in_dir = tempfile.mkdtemp()
-        out_dir = tempfile.mkdtemp()
-        for i, image in enumerate(image_batch):
-            image.save(os.path.join(in_dir, f'{i}.png'))
-
+        in_dir = None
+        out_dir = None
         try:
-            self._run_esrgan_executable(in_dir, out_dir, upscale_ratio, 0)
-        except Exception:
-            # Maybe throw exception instead
-            self.logger.warning('Process returned non-zero exit status. Skipping upscaling.')
-            return image_batch
+            in_dir = tempfile.mkdtemp()
+            out_dir = tempfile.mkdtemp()
+            for i, image in enumerate(image_batch):
+                image.save(os.path.join(in_dir, f'{i}.png'))
 
-        output_batch = []
-        for i, image in enumerate(image_batch):
-            img_path = os.path.join(out_dir, f'{i}.png')
-            if os.path.exists(img_path):
-                img = Image.open(img_path)
-                img.load()
-                output_batch.append(img)
-            else:
-                output_batch.append(image)
+            try:
+                self._run_esrgan_executable(in_dir, out_dir, upscale_ratio, 0)
+            except Exception:
+                # Maybe throw exception instead
+                self.logger.warning('Process returned non-zero exit status. Skipping upscaling.')
+                return image_batch
 
-        shutil.rmtree(in_dir)
-        shutil.rmtree(out_dir)
-        return output_batch
+            output_batch = []
+            for i, image in enumerate(image_batch):
+                img_path = os.path.join(out_dir, f'{i}.png')
+                if os.path.exists(img_path):
+                    img = Image.open(img_path)
+                    img.load()
+                    output_batch.append(img)
+                else:
+                    output_batch.append(image)
+
+            return output_batch
+        finally:
+            for temp_dir in (in_dir, out_dir):
+                if temp_dir:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _run_esrgan_executable(self, image_directory: str, output_directory: str, upscale_ratio: float, denoise_level: int):
         cmds = [
