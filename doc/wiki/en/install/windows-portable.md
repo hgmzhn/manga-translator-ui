@@ -20,12 +20,11 @@ This guide documents the Windows startup chain, runtime selection, and maintenan
 ### First installation or maintenance
 
 > Before installing, first make sure the Microsoft Visual C++ Redistributable ([vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)) is installed; otherwise the app may fail to start with errors such as missing VCRUNTIME140.dll.
-> **Path requirement:** Extract the complete package to a short ASCII-only path without spaces, such as `D:\manga-translator-ui\`. On Windows, `curl_cffi` may fail to read the CA certificate from a non-ASCII installation path and report `curl: (77) error adding trust anchors`. If the package is already under such a path, move the entire folder to an ASCII-only location before installing or starting it.
 
 
 The portable package is published under the `portable` tag in GitHub Releases:
 
-1. Download the latest version from the [portable package release page](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable) and extract it to a short ASCII-only path (for example `D:\manga-translator-ui\`); do not use a path containing Chinese or other non-ASCII characters. The package bundles Python 3.12 and uv, so no Python installation is required.
+1. Download the latest version from the [portable package release page](https://github.com/hgmzhn/manga-translator-ui/releases/tag/portable) and extract it; the package bundles Python 3.12 and uv, so no Python installation is required.
 2. Double-click `Win-Install-or-Update.bat` to open the maintenance menu and select `[1] Install`:
    - Choose a download route (GitHub official or the Gitee mirror; Gitee is recommended in China).
    - The script force-syncs the latest code; if sync fails it suggests switching routes and retrying.
@@ -81,5 +80,4 @@ The install flow in `launch.py` reads dependencies and PyTorch sources from `pyp
 - **Windows ROCm**: the script handles ROCm SDK 7.2.1/PyTorch ordering separately and reports driver/support-list limits. Compatibility cannot be inferred from the AMD brand alone.
 - **Legacy Conda**: It is used only when the portable interpreter is absent. Do not combine packages from `packaging\\python`, `conda_env`, and an external environment; an incorrect PATH can cause DLL, Torch, or ONNX Runtime conflicts.
 - **GPU/CPU resources**: GPU dependencies do not mean models are downloaded or that available VRAM is sufficient; the first start may still download or initialize models. CPU can run the application but is usually slower. If installation fails, do not delete successful packages and repeatedly switch schemes without checking the cause.
-- **Paths**: Use a short ASCII-only installation path such as `D:\manga-translator-ui\`; do not include Chinese characters, spaces, or other non-ASCII characters. Otherwise, `curl_cffi` may fail to read the `certifi` CA bundle and report `curl: (77) error adding trust anchors`. After moving the directory, reinstall the dependencies or re-extract the portable package.
 - **Network**: Installation/update needs Git and package-index or mirror access. API networking is a separate runtime path; successful installation does not prove a translation API is usable.

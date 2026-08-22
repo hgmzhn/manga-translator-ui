@@ -22,13 +22,12 @@ Choose the portable package if you only want to extract and run it; choose Docke
 ### Prepare the repository and tools
 
 > Windows users: first make sure the Microsoft Visual C++ Redistributable ([vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe)) is installed; otherwise the app may fail to start with errors such as missing VCRUNTIME140.dll.
-> **Path requirement:** Keep both the repository and its `.venv` under a short ASCII-only path without spaces, such as `D:\Apps\manga-translator-ui\`. On Windows, `curl_cffi` may fail to read the CA certificate from a non-ASCII virtual-environment path and report `curl: (77) error adding trust anchors`. If the repository is already under such a path, move it, delete `.venv`, and recreate the environment.
 
 
 A source environment needs Git, uv, and Python 3.12 (`>=3.12,<3.13`). To install:
 
 1. Install [Git](https://git-scm.com/), [uv](https://docs.astral.sh/uv/), and Python 3.12 (download the 3.12 installer from [python.org](https://www.python.org/downloads/) and check “Add python.exe to PATH”).
-2. Enter an ASCII-only parent directory, then clone and enter the repository; do not create the checkout under a path containing Chinese or other non-ASCII characters:
+2. Enter a suitable parent directory, then clone and enter the repository:
    ```powershell
    git clone https://github.com/hgmzhn/manga-translator-ui.git
    cd manga-translator-ui
@@ -107,7 +106,6 @@ The maintenance mode's `prepare_environment` detects the device and checks the i
 ## Environment and compatibility {#dependencies}
 
 - **Python version**: `pyproject.toml` and the launcher both constrain Python to 3.12; Python 3.13 is rejected. Check `uv run --no-sync python --version`, not only the system `python`.
-- **Paths**: The complete repository and `.venv` paths must contain ASCII characters only; `D:\Apps\manga-translator-ui\` is recommended. Chinese or other non-ASCII paths may prevent `curl_cffi` from finding the `certifi` CA bundle and cause `curl: (77) error adding trust anchors`. After moving the repository, delete `.venv` and rerun the applicable `uv sync` command.
 - **Mutually exclusive groups**: `cpu`, `cuda13.0`, `cuda12.6`, `rocm7.2.1`, and `metal` are mutually exclusive under `[tool.uv].conflicts`. Do not install multiple backend groups into one environment.
 - **Default groups**: the project defaults to `cuda13.0`, `packaging`, and `test`; other runtime environments use `--no-default-groups` and do not install the `test` group.
 - **NVIDIA**: `cuda13.0` uses `pytorch-cu130`, while `cuda12.6` uses `pytorch-cu126`. RTX 50-series GPUs require CUDA 13.0; if the current driver does not support it, update the NVIDIA driver first. GeForce 10-series GPUs must use CUDA 12.6.

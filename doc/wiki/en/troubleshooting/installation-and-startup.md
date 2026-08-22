@@ -25,7 +25,6 @@ Model loading, GPU VRAM, and memory issues are covered by [Model, GPU, and Memor
 | --- | --- | --- |
 | `Win-Start.bat` prints `[ERROR] Application exited with code ...` | Broken runtime environment or dependencies | Read `result/log_*.txt`, then run `Win-Install-or-Update.bat` and choose `[1] Install`; see [Windows Portable](../install/windows-portable.md) |
 | `Win-Start.bat` cannot find bundled Python or Conda | Incomplete distribution directory | Re-extract the package and confirm `packaging/python/python.exe` or a Conda environment exists |
-| HTTPS requests report `curl: (77) error adding trust anchors` | The application or `.venv` is under a non-ASCII path, preventing `curl_cffi` from reading the CA bundle | Move the complete application directory to a short ASCII-only path; delete and recreate `.venv` for a source install |
 | `Unix-Start.sh` prints `Run ./Unix-Install-or-Update.sh first` | Missing project files or `.venv` | Run `Unix-Install-or-Update.sh` first; see [Linux and macOS Installation](../install/linux-and-macos.md) |
 | `uv sync` fails due to network | Package source unreachable | Retry or switch mirrors and use `uv sync --locked`; see [Runtime Requirements](../install/requirements.md) |
 | Launcher reports a Python version error | Current Python is not 3.12 | Install Python 3.12 (`>=3.12,<3.13`); do not use 3.13+ |
@@ -40,11 +39,6 @@ Model loading, GPU VRAM, and memory issues are covered by [Model, GPU, and Memor
 
 Fix: install Python 3.12 and run `uv sync` again; do not reuse an old `.venv` with a Python 3.13+ interpreter.
 
-### CA bundle failure under a non-ASCII installation path {#non-ascii-install-path}
-
-On Windows, `curl_cffi` may fail to read the CA bundle supplied by `certifi` when the complete application, repository, or `.venv` path contains Chinese or other non-ASCII characters. The typical error is `curl: (77) error adding trust anchors`, with `CAfile` pointing to `cacert.pem` under the non-ASCII path. This is not an invalid API key, API base URL, or remote certificate.
-
-Fix: move the complete application or repository to a short ASCII-only path such as `D:\manga-translator-ui\` or `D:\Apps\manga-translator-ui\`. Re-extract or reinstall a portable build after moving it. For a source checkout, delete the old `.venv` and rerun the applicable `uv sync` command. Do not use `verify=False` as a workaround because it disables TLS certificate verification.
 
 ### Dependency installation failures and mirror fallback {#dependency-install}
 
