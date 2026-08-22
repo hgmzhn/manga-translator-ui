@@ -187,7 +187,15 @@ def test_curl_transport_uses_current_chrome_without_environment_proxy(monkeypatc
         base_url="https://api.example/v1"
     )
 
-    assert created == [{"trust_env": False, "impersonate": "chrome"}]
+    from curl_cffi.curl import DEFAULT_CACERT
+
+    assert created == [
+        {
+            "trust_env": False,
+            "verify": curl_cffi_transport._encode_curl_file_path(DEFAULT_CACERT),
+            "impersonate": "chrome",
+        }
+    ]
 
 
 def test_curl_transport_disables_impersonation_for_local_endpoints(monkeypatch):
@@ -205,7 +213,14 @@ def test_curl_transport_disables_impersonation_for_local_endpoints(monkeypatch):
         base_url="http://127.0.0.1:11434/v1"
     )
 
-    assert created == [{"trust_env": False}]
+    from curl_cffi.curl import DEFAULT_CACERT
+
+    assert created == [
+        {
+            "trust_env": False,
+            "verify": curl_cffi_transport._encode_curl_file_path(DEFAULT_CACERT),
+        }
+    ]
 
 
 def test_curl_transport_headers_do_not_override_impersonated_browser_identity():
