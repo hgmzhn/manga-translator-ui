@@ -1374,7 +1374,6 @@ dependencies = [
     { name = "torchsummary" },
     { name = "tqdm" },
     { name = "transformers" },
-    { name = "triton-windows", marker = "sys_platform == 'win32' or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-cuda12-6') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-cuda13-0') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-cuda13-0') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-metal' and extra == 'group-19-manga-translator-ui-rocm7-2-1')" },
     { name = "ultralytics" },
     { name = "unidic-lite" },
     { name = "uvicorn" },
@@ -1523,7 +1522,6 @@ requires-dist = [
     { name = "torchsummary" },
     { name = "tqdm", specifier = "==4.67.1" },
     { name = "transformers", specifier = "==5.15.0" },
-    { name = "triton-windows", marker = "sys_platform == 'win32'", specifier = ">=3.5.0" },
     { name = "ultralytics", specifier = "==8.4.14" },
     { name = "unidic-lite", specifier = "==1.0.8" },
     { name = "uvicorn", specifier = "==0.35.0" },
@@ -6005,14 +6003,6 @@ version = "3.7.1"
 source = { registry = "https://download.pytorch.org/whl/rocm7.2" }
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/triton_rocm-3.7.1-cp312-cp312-linux_x86_64.whl", hash = "sha256:b200ade2418b8450e4e3e69c33c804e2cc07d1e36dc9678ac8ac1dd65f9e10e1", upload-time = "2026-06-17T17:05:14Z" },
-]
-
-[[package]]
-name = "triton-windows"
-version = "3.7.1.post27"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/30/325b420efd0047e119679c646a9a410db216069800ec009fae3da26c69a3/triton_windows-3.7.1.post27-cp312-cp312-win_amd64.whl", hash = "sha256:f5406230d7dbf6965bc4051fcad27b81c39ba4a4bfde06f494dd7ff4eb325a9e", size = 49683004, upload-time = "2026-06-21T16:48:14.02Z" },
 ]
 
 [[package]]

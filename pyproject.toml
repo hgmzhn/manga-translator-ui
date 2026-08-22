@@ -57,7 +57,6 @@ dependencies = [
     "PyQt6-Fluent-Widgets==1.11.2",
     "python-dotenv==1.2.2",
     "rich==14.1.0",
-    "triton-windows>=3.5.0; sys_platform == 'win32'",
     "safetensors==0.8.0",
     "spandrel==0.4.1",
     "scipy==1.16.1",
