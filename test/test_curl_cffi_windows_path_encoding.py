@@ -21,5 +21,6 @@ def test_curl_file_path_uses_windows_acp_under_utf8_mode():
 
     encoded = _encode_curl_file_path(path)
 
-    assert isinstance(encoded, bytes)
-    assert encoded == expected
+    assert isinstance(encoded, str)
+    assert encoded == path
+    assert encoded.encode("utf-8") == expected
