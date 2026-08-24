@@ -40,23 +40,29 @@ def validate_api_key_for_http_header(api_key: str | None) -> str:
     return value
 
 
-def _encode_curl_file_path(path: str) -> str | bytes:
-    """Encode a libcurl file path for Windows' ANSI ``char*`` API.
+class _CurlACPPath(str):
+    """A path string whose C-boundary encoding is fixed to Windows ACP."""
 
-    curl_cffi's upstream fix uses ``locale.getpreferredencoding(False)``.
-    This application intentionally runs with ``PYTHONUTF8=1``, which makes
-    that function return UTF-8 instead of the Windows system ANSI code page.
-    libcurl on Windows then cannot open non-ASCII CA paths and reports error
-    77.  Passing ACP-encoded bytes preserves the application's UTF-8 mode
-    while matching the native file API.
-    """
+    def __new__(cls, path: str, encoding: str):
+        value = super().__new__(cls, path)
+        value._curl_encoding = encoding
+        return value
+
+    def encode(self, encoding="utf-8", errors="strict"):
+        # curl_cffi calls str.encode() before passing char* options to libcurl.
+        # Ignore Python UTF-8 mode for this one native file-path boundary.
+        return super().encode(self._curl_encoding, errors)
+
+
+def _encode_curl_file_path(path: str) -> str:
+    """Encode a libcurl file path for Windows' ANSI ``char*`` API."""
     if os.name != "nt":
         return path
 
     acp = ctypes.windll.kernel32.GetACP()
     if not acp:
         raise OSError("Windows GetACP() returned no active code page")
-    return path.encode(f"cp{acp}", errors="strict")
+    return _CurlACPPath(path, f"cp{acp}")
 
 
 def create_curl_cffi_async_session(
@@ -68,11 +74,13 @@ def create_curl_cffi_async_session(
     from curl_cffi.curl import DEFAULT_CACERT
     from curl_cffi.requests import AsyncSession
 
+    # Keep this as a path-like string so AsyncSession can create its async
+    # connection pool lazily, while controlling the later C-boundary encoding.
     verify = _encode_curl_file_path(DEFAULT_CACERT)
-    if is_local_openai_compatible_endpoint(base_url):
-        return AsyncSession(trust_env=False, verify=verify)
-    return AsyncSession(
-        trust_env=False,
-        verify=verify,
-        impersonate=impersonate,
-    )
+    session_kwargs = {
+        "trust_env": False,
+        "verify": verify,
+    }
+    if not is_local_openai_compatible_endpoint(base_url):
+        session_kwargs["impersonate"] = impersonate
+    return AsyncSession(**session_kwargs)

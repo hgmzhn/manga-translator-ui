@@ -223,6 +223,8 @@ def test_curl_transport_disables_impersonation_for_local_endpoints(monkeypatch):
     ]
 
 
+
+
 def test_curl_transport_headers_do_not_override_impersonated_browser_identity():
     forbidden_headers = {
         "user-agent",
