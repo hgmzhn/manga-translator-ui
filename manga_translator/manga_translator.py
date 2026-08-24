@@ -378,7 +378,6 @@ class MangaTranslator:
         self.context_size = params.get('context_size', 0)
         self.all_page_translations = []
         self._original_page_texts = []  # 存储原文页面数据，用于并发模式下的上下文
-        self.resume_context_from_skipped = False
         self._resume_context_pages = []
         self._resume_context_cursor = 0
         self._resume_context_order = {}
