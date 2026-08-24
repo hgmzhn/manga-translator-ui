@@ -5677,7 +5677,8 @@ class MangaTranslator:
             global_offset: 全局偏移量，用于显示正确的图片编号
             global_total: 全局总图片数，用于显示正确的总批次数
         """
-        batch_size = self.batch_size if self.batch_size > 1 else 3  # 统一使用batch_size参数
+        # batch_size=1 is a valid request to translate HQ pages one at a time.
+        batch_size = max(1, self.batch_size)
         logger.info(f"Starting high quality translation in rolling batch mode with batch size: {batch_size}")
         results = []
         
