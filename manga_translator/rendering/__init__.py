@@ -480,6 +480,47 @@ def _solve_unified_no_br_layout(
     return no_br_result.text_with_br
 
 
+def _reflow_chinese_balloon_text(
+    text: str,
+    target_lang: str,
+    target_font_size: int,
+    render_horizontally: bool,
+    bubble_width: float,
+    bubble_height: float,
+    line_spacing_multiplier: float,
+    letter_spacing_multiplier: float,
+    config: Config,
+) -> str:
+    """Rebuild Chinese line breaks against the detected bubble, not the OCR box."""
+    if not _is_chinese_lang(target_lang or ''):
+        return text
+    if not re.search(r'(\[BR\]|【BR】|<br>|\n)', text, flags=re.IGNORECASE):
+        return text
+
+    unbroken_text = re.sub(r'\s*(\[BR\]|【BR】|<br>|\n)\s*', '', text, flags=re.IGNORECASE)
+    if not unbroken_text.strip():
+        return text
+
+    max_font_size = max(
+        int(max(target_font_size, 1)),
+        int(max(bubble_width, 1)),
+        int(max(bubble_height, 1)),
+    )
+    return _solve_unified_no_br_layout(
+        text=unbroken_text,
+        render_horizontally=render_horizontally,
+        target_font_size=max(int(target_font_size), 1),
+        bubble_width=bubble_width,
+        bubble_height=bubble_height,
+        layout_min_font_size=1,
+        line_spacing_multiplier=line_spacing_multiplier,
+        letter_spacing_multiplier=letter_spacing_multiplier,
+        config=config,
+        target_lang=target_lang,
+        max_font_size=max_font_size,
+    )
+
+
 def calc_text_block_metrics(text, is_horizontal: bool, line_spacing: float,
                             config: Config = None, target_lang: str = None,
                             font_size: int = None, letter_spacing: float = 1.0,
@@ -1084,6 +1125,26 @@ def _resolve_initial_layout_font_size(region: TextBlock, img: np.ndarray, config
     if img is not None and hasattr(img, 'shape') and len(img.shape) >= 2:
         return max(round((img.shape[0] + img.shape[1]) / 200), 1)
     return 24
+
+
+def _resolve_balloon_fill_search_font_size(
+    preferred_font_size: int,
+    target_font_size: int,
+    line_box_width: float,
+    line_box_height: float,
+) -> int:
+    """Return an upper bound that lets balloon fitting grow beyond the OCR box."""
+    candidates = (
+        preferred_font_size,
+        target_font_size,
+        line_box_width,
+        line_box_height,
+    )
+    valid_candidates = []
+    for value in candidates:
+        if isinstance(value, (int, float)) and math.isfinite(float(value)) and value > 0:
+            valid_candidates.append(int(value))
+    return max(1, min(max(valid_candidates, default=1), 8192))
 
 
 def _apply_final_font_constraints(layout_font_size: int, config: Config) -> int:
@@ -1769,13 +1830,38 @@ def resize_regions_to_font_size(
                             logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to strict")
                     else:
                         if (
-                            not has_br
-                            and bool(getattr(config.render, 'semantic_linebreak', False))
+                            bool(getattr(config.render, 'semantic_linebreak', False))
                             and _is_chinese_lang(getattr(region, 'target_lang', '') or '')
                             and np.count_nonzero(region_bubble_mask) > 0
                         ):
                             _bubble_x, _bubble_y, bubble_w, bubble_h = find_largest_inscribed_rect(region_bubble_mask)
                             line_budget = float(bubble_w if render_horizontally else bubble_h)
+
+                        if (
+                            has_br
+                            and _is_chinese_lang(getattr(region, 'target_lang', '') or '')
+                            and not bool(getattr(config.render, 'disable_auto_wrap', False))
+                            # Only reflow visibly undersized OCR layouts; normal-sized
+                            # regions retain their authored line breaks.
+                            and target_font_size <= 20
+                            and np.count_nonzero(region_bubble_mask) > 0
+                        ):
+                            _bubble_x, _bubble_y, bubble_w, bubble_h = cv2.boundingRect(region_bubble_mask)
+                            if bubble_w > 0 and bubble_h > 0:
+                                region.translation = _reflow_chinese_balloon_text(
+                                    text=region.translation,
+                                    target_lang=region.target_lang,
+                                    target_font_size=target_font_size,
+                                    render_horizontally=render_horizontally,
+                                    bubble_width=float(bubble_w),
+                                    bubble_height=float(bubble_h),
+                                    line_spacing_multiplier=line_spacing_multiplier,
+                                    letter_spacing_multiplier=letter_spacing_multiplier,
+                                    config=config,
+                                )
+                                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
+                                # Small OCR-fit Chinese layouts can be vertically trapped by the bubble's narrow top edge.
+                                normal_anchor_mode = 'center'
 
                         if has_br:
                             if not semantic_linebreak_debug:
@@ -2001,7 +2087,12 @@ def resize_regions_to_font_size(
 
                         best_font_size, best_dst_points = _binary_search_font_for_bubble_mask(
                             region=region,
-                            start_font_size=preferred_font_size,
+                            start_font_size=_resolve_balloon_fill_search_font_size(
+                                preferred_font_size=preferred_font_size,
+                                target_font_size=target_font_size,
+                                line_box_width=line_box_width,
+                                line_box_height=line_box_height,
+                            ),
                             min_font_size=min_font_size,
                             render_horizontally=render_horizontally,
                             line_spacing_multiplier=line_spacing_multiplier,
