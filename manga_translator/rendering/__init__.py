@@ -480,6 +480,34 @@ def _solve_unified_no_br_layout(
     return no_br_result.text_with_br
 
 
+_CHINESE_BALLOON_REFLOW_MAX_OCR_FONT_SIZE = 32
+
+
+def _should_reflow_chinese_balloon_text(
+    text: str,
+    target_lang: str,
+    target_font_size: int,
+    auto_wrap_enabled: bool,
+) -> bool:
+    """Return whether a small Chinese OCR layout may be rebuilt for a bubble."""
+    return (
+        auto_wrap_enabled
+        and _is_chinese_lang(target_lang or '')
+        and 0 < int(target_font_size) <= _CHINESE_BALLOON_REFLOW_MAX_OCR_FONT_SIZE
+        and bool(re.search(r'(\[BR\]|【BR】|<br>|\n)', text, flags=re.IGNORECASE))
+    )
+
+
+def _prefer_reflowed_chinese_balloon_layout(
+    original_font_size: Optional[int],
+    reflowed_font_size: Optional[int],
+) -> bool:
+    """Keep a reflow only when it increases the mask-safe font size."""
+    return reflowed_font_size is not None and (
+        original_font_size is None or reflowed_font_size > original_font_size
+    )
+
+
 def _reflow_chinese_balloon_text(
     text: str,
     target_lang: str,
@@ -1816,6 +1844,8 @@ def resize_regions_to_font_size(
                     bubble_w = 0
                     bubble_h = 0
                     line_budget = 0.0
+                    reflow_original_translation = None
+                    reflow_original_anchor_mode = None
 
                     if not lines_fully_enclosed:
                         # 气泡蒙版无效或区域未被气泡完整包裹：降级 strict 布局。
@@ -1838,17 +1868,17 @@ def resize_regions_to_font_size(
                             line_budget = float(bubble_w if render_horizontally else bubble_h)
 
                         if (
-                            has_br
-                            and _is_chinese_lang(getattr(region, 'target_lang', '') or '')
-                            and not bool(getattr(config.render, 'disable_auto_wrap', False))
-                            # Only reflow visibly undersized OCR layouts; normal-sized
-                            # regions retain their authored line breaks.
-                            and target_font_size <= 20
+                            _should_reflow_chinese_balloon_text(
+                                text=region.translation,
+                                target_lang=getattr(region, 'target_lang', '') or '',
+                                target_font_size=target_font_size,
+                                auto_wrap_enabled=not bool(getattr(config.render, 'disable_auto_wrap', False)),
+                            )
                             and np.count_nonzero(region_bubble_mask) > 0
                         ):
                             _bubble_x, _bubble_y, bubble_w, bubble_h = cv2.boundingRect(region_bubble_mask)
                             if bubble_w > 0 and bubble_h > 0:
-                                region.translation = _reflow_chinese_balloon_text(
+                                reflowed_translation = _reflow_chinese_balloon_text(
                                     text=region.translation,
                                     target_lang=region.target_lang,
                                     target_font_size=target_font_size,
@@ -1859,9 +1889,13 @@ def resize_regions_to_font_size(
                                     letter_spacing_multiplier=letter_spacing_multiplier,
                                     config=config,
                                 )
-                                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
-                                # Small OCR-fit Chinese layouts can be vertically trapped by the bubble's narrow top edge.
-                                normal_anchor_mode = 'center'
+                                if reflowed_translation != region.translation:
+                                    reflow_original_translation = region.translation
+                                    reflow_original_anchor_mode = normal_anchor_mode
+                                    region.translation = reflowed_translation
+                                    has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
+                                    # OCR-fit Chinese layouts can be vertically trapped by the bubble's narrow top edge.
+                                    normal_anchor_mode = 'center'
 
                         if has_br:
                             if not semantic_linebreak_debug:
@@ -2101,6 +2135,38 @@ def resize_regions_to_font_size(
                             bubble_mask=region_bubble_mask,
                             anchor_mode=normal_anchor_mode,
                         )
+                        if reflow_original_translation is not None:
+                            reflowed_font_size = best_font_size
+                            reflowed_dst_points = best_dst_points
+                            reflowed_translation = region.translation
+                            region.translation = reflow_original_translation
+                            original_font_size, original_dst_points = _binary_search_font_for_bubble_mask(
+                                region=region,
+                                start_font_size=_resolve_balloon_fill_search_font_size(
+                                    preferred_font_size=preferred_font_size,
+                                    target_font_size=target_font_size,
+                                    line_box_width=line_box_width,
+                                    line_box_height=line_box_height,
+                                ),
+                                min_font_size=min_font_size,
+                                render_horizontally=render_horizontally,
+                                line_spacing_multiplier=line_spacing_multiplier,
+                                letter_spacing_multiplier=letter_spacing_multiplier,
+                                config=config,
+                                bubble_mask=region_bubble_mask,
+                                anchor_mode=reflow_original_anchor_mode,
+                            )
+                            if _prefer_reflowed_chinese_balloon_layout(
+                                original_font_size=original_font_size,
+                                reflowed_font_size=reflowed_font_size,
+                            ):
+                                region.translation = reflowed_translation
+                                best_font_size = reflowed_font_size
+                                best_dst_points = reflowed_dst_points
+                            else:
+                                normal_anchor_mode = reflow_original_anchor_mode
+                                best_font_size = original_font_size
+                                best_dst_points = original_dst_points
                         if best_font_size is not None and best_dst_points is not None:
                             chosen_font_size = int(best_font_size)
                             chosen_dst_points = best_dst_points
