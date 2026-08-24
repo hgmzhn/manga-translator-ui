@@ -1314,6 +1314,7 @@ class MainAppLogic(QObject):
                     "context_size": self._t("label_context_size"),
                     "format": self._t("label_format"),
                     "overwrite": self._t("label_overwrite"),
+                    "resume_context_from_skipped": self._t("label_resume_context_from_skipped"),
                     "skip_no_text": self._t("label_skip_no_text"),
                     "save_text": self._t("label_save_text"),
                     "export_from_local_json": self._t("label_export_from_local_json"),
@@ -2976,6 +2977,17 @@ class TranslationWorker(QObject):
             # Update total count for progress bar logic
             total_original_count = len(original_files)
             skipped_count = len(skipped_files)
+            resume_context_from_skipped = bool(
+                self.config_dict.get('cli', {}).get('resume_context_from_skipped', False)
+                and skipped_files
+                and not save_info['overwrite']
+            )
+            if resume_context_from_skipped:
+                save_info['resume_context_files'] = list(skipped_files)
+                save_info['resume_context_source_files'] = list(original_files)
+                self._log_info(
+                    "--- ↻ 已启用从跳过页恢复上下文（仅使用可读取的 _translations.json）"
+                )
             if total_original_count > 0 and skipped_count == total_original_count and not self.files:
                 self._log_warning(
                     f"⚠️ 检测到全部 {skipped_count} 个文件都因输出已存在被跳过，未开始翻译。"
@@ -3051,7 +3063,8 @@ class TranslationWorker(QObject):
                 colorize_only or 
                 upscale_only or 
                 inpaint_only or
-                replace_translation
+                replace_translation or
+                resume_context_from_skipped
             )
             
             # 如果有不兼容模式，强制禁用并行
@@ -3073,6 +3086,8 @@ class TranslationWorker(QObject):
                     incompatible_modes.append("仅修复")
                 if replace_translation:
                     incompatible_modes.append("替换翻译")
+                if resume_context_from_skipped:
+                    incompatible_modes.append("恢复跳过页上下文")
                 
                 self._log_warning(f"⚠️  并发流水线已禁用：当前模式 [{', '.join(incompatible_modes)}] 不支持并发处理")
                 batch_concurrent = False

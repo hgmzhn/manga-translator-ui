@@ -378,6 +378,11 @@ class MangaTranslator:
         self.context_size = params.get('context_size', 0)
         self.all_page_translations = []
         self._original_page_texts = []  # 存储原文页面数据，用于并发模式下的上下文
+        self.resume_context_from_skipped = False
+        self._resume_context_pages = []
+        self._resume_context_cursor = 0
+        self._resume_context_order = {}
+        self._resume_context_force_sequential = False
         self._colorizer_history_images = []  # 存储最近已上色页面，用于 AI 上色历史参考
 
         # 调试图片管理相关属性
@@ -441,6 +446,7 @@ class MangaTranslator:
         self._attempts_override_provided = 'attempts' in params
         self.save_quality = params.get('save_quality', 100)
         self.skip_no_text = params.get('skip_no_text', False)
+        self.resume_context_from_skipped = bool(params.get('resume_context_from_skipped', False))
         self.generate_and_export = params.get('generate_and_export', False)
         self.export_from_local_json = params.get('export_from_local_json', False)
         self.colorize_only = params.get('colorize_only', False)
@@ -537,6 +543,11 @@ class MangaTranslator:
         ):
             config.cli.attempts = self.attempts
         return config
+
+    @staticmethod
+    def _batch_input_path(item) -> str:
+        image = item[0] if isinstance(item, tuple) else item
+        return str(getattr(image, 'name', None) or image or '')
 
     def _calculate_output_path(self, image_path: str, save_info: dict) -> str:
         """
@@ -3493,6 +3504,7 @@ class MangaTranslator:
             (image, self._apply_runtime_cli_overrides(config))
             for image, config in images_with_configs
         ]
+        self._prepare_resume_context(save_info)
         is_text_export_mode = self.generate_and_export or (self.template and self.save_text)
         if self.export_from_local_json and is_text_export_mode:
             return await self._export_text_from_local_json(
@@ -3503,6 +3515,8 @@ class MangaTranslator:
 
         
         batch_size = batch_size or self.batch_size
+        if self._resume_context_force_sequential:
+            batch_size = 1
         
         # 如果提供了全局总数，使用它来计算总批次数；否则使用当前批次的图片数
         display_total = global_total if global_total is not None else len(images_with_configs)
@@ -3565,7 +3579,8 @@ class MangaTranslator:
             self.colorize_only or 
             self.upscale_only or 
             self.inpaint_only or
-            self.replace_translation  # 替换翻译模式也不支持并发
+            self.replace_translation or  # 替换翻译模式也不支持并发
+            bool(self._resume_context_pages)
         )
         
         # 如果启用了并发但有不兼容模式，给出提示
@@ -3587,6 +3602,8 @@ class MangaTranslator:
                 incompatible_modes.append("仅修复")
             if self.replace_translation:
                 incompatible_modes.append("替换翻译")
+            if self._resume_context_pages:
+                incompatible_modes.append("恢复跳过页上下文")
             
             logger.info(f'⚠️  并发流水线已禁用：当前模式 [{", ".join(incompatible_modes)}] 不支持并发处理')
         
@@ -3662,6 +3679,10 @@ class MangaTranslator:
 
                 batch_end = min(batch_start + batch_size, total_images)
                 current_batch_items = images_with_configs[batch_start:batch_end]
+                if current_batch_items:
+                    self._append_resume_context_before(
+                        self._batch_input_path(current_batch_items[0])
+                    )
 
                 # 计算全局图片编号（考虑前端分批加载的偏移量）
                 global_batch_start = global_offset + batch_start + 1
@@ -5678,7 +5699,7 @@ class MangaTranslator:
             global_total: 全局总图片数，用于显示正确的总批次数
         """
         # batch_size=1 is a valid request to translate HQ pages one at a time.
-        batch_size = max(1, self.batch_size)
+        batch_size = 1 if self._resume_context_force_sequential else max(1, self.batch_size)
         logger.info(f"Starting high quality translation in rolling batch mode with batch size: {batch_size}")
         results = []
         
@@ -5701,6 +5722,10 @@ class MangaTranslator:
 
             batch_end = min(batch_start + batch_size, total_images)
             current_batch_items = images_with_configs[batch_start:batch_end]
+            if current_batch_items:
+                self._append_resume_context_before(
+                    self._batch_input_path(current_batch_items[0])
+                )
 
             # 计算全局图片编号（考虑前端分批加载的偏移量）
             global_batch_start = global_offset + batch_start + 1
@@ -5943,3 +5968,94 @@ class MangaTranslator:
 
         logger.info(f"High quality translation completed: processed {len(results)} images")
         return results
+
+    def _prepare_resume_context(self, save_info: Optional[dict]) -> None:
+        """Load skipped-page JSON entries for ordered context restoration."""
+        self._resume_context_pages = []
+        self._resume_context_cursor = 0
+        self._resume_context_order = {}
+        self._resume_context_force_sequential = False
+
+        if not self.resume_context_from_skipped or not save_info:
+            return
+
+        skipped_files = {
+            os.path.abspath(os.path.normpath(str(path)))
+            for path in (save_info.get('resume_context_files') or [])
+        }
+        source_files = [
+            os.path.abspath(os.path.normpath(str(path)))
+            for path in (save_info.get('resume_context_source_files') or [])
+        ]
+        if not skipped_files or not source_files:
+            return
+
+        self._resume_context_order = {
+            image_path: order for order, image_path in enumerate(source_files)
+        }
+
+        for order, image_path in enumerate(source_files):
+            if image_path not in skipped_files:
+                continue
+            json_path = find_json_path(image_path)
+            if not json_path:
+                logger.warning(f"Resume context skipped: JSON not found for {image_path}")
+                continue
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                image_data = next(iter(data.values())) if isinstance(data, dict) and data else None
+                regions = image_data if isinstance(image_data, list) else (
+                    image_data.get('regions', []) if isinstance(image_data, dict) else []
+                )
+                entries = []
+                for region in regions:
+                    if not isinstance(region, dict):
+                        continue
+                    original_text = region.get('text')
+                    translated_text = region.get('translation')
+                    if original_text and translated_text:
+                        lines = region.get('lines')
+                        original_region_count = len(lines) if isinstance(lines, list) else 1
+                        entries.append({
+                            'text': original_text,
+                            'translation': translated_text,
+                            'original_region_count': max(original_region_count, 1),
+                        })
+                if entries:
+                    self._resume_context_pages.append((order, image_path, entries))
+                    logger.info(
+                        f"[Resume Context] Loaded {len(entries)} entries from skipped page "
+                        f"{os.path.basename(image_path)}"
+                    )
+            except Exception as exc:
+                logger.warning(f"Resume context failed for {image_path}: {exc}")
+
+        if self._resume_context_pages:
+            self._resume_context_pages.sort(key=lambda item: item[0])
+            self._resume_context_force_sequential = True
+            self.batch_concurrent = False
+
+    def _append_resume_context_before(self, image_path: str) -> None:
+        """Append skipped pages that occur before the current source page."""
+        if not self._resume_context_pages or not image_path:
+            return
+        current_path = os.path.abspath(os.path.normpath(str(image_path)))
+        current_order = None
+        for order, source_path, _entries in self._resume_context_pages:
+            if source_path == current_path:
+                current_order = order
+                break
+        if current_order is None:
+            source_files = self._resume_context_order
+            current_order = source_files.get(current_path)
+        if current_order is None:
+            return
+
+        while self._resume_context_cursor < len(self._resume_context_pages):
+            order, _source_path, entries = self._resume_context_pages[self._resume_context_cursor]
+            if order >= current_order:
+                break
+            self.all_page_translations.append(entries)
+            self._resume_context_cursor += 1
+        self._prune_context_history()

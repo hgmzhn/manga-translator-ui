@@ -408,6 +408,8 @@ class CliConfig(BaseModel):
     """Save quality for output images"""
     overwrite: bool = False
     """Overwrite existing files"""
+    resume_context_from_skipped: bool = False
+    """Restore text context from skipped translated pages when resuming a run."""
     skip_no_text: bool = False
     """Skip images with no text"""
     save_text: bool = False
