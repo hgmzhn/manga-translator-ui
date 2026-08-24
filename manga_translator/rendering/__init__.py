@@ -1145,6 +1145,64 @@ def _resolve_configured_fixed_font_size(config: Config) -> int:
     return 0
 
 
+def _balloon_fill_font_layout_safety_enabled(config: Config) -> bool:
+    render_config = getattr(config, 'render', None) if config is not None else None
+    return bool(getattr(render_config, 'balloon_fill_font_layout_safety', False))
+
+
+def _polygons_overlap(left_points: np.ndarray, right_points: np.ndarray, min_area: float = 0.5) -> bool:
+    """Return whether two convex render boxes share positive area."""
+    left = np.asarray(left_points, dtype=np.float32).reshape(-1, 2)
+    right = np.asarray(right_points, dtype=np.float32).reshape(-1, 2)
+    if left.shape[0] < 3 or right.shape[0] < 3:
+        return False
+    try:
+        intersection_area, _ = cv2.intersectConvexConvex(left, right)
+    except cv2.error:
+        return False
+    return float(intersection_area) > float(min_area)
+
+
+def _layout_regions_conflict(
+    points: np.ndarray,
+    bubble_mask: Optional[np.ndarray],
+    placed_regions: list[tuple[np.ndarray, Optional[np.ndarray]]],
+) -> bool:
+    """Check render-box collisions; this is opt-in because masks may merge bubbles."""
+    for placed_points, placed_mask in placed_regions:
+        if _polygons_overlap(points, placed_points):
+            return True
+    return False
+
+
+def _shrink_font_for_layout_collisions(
+    region: TextBlock,
+    start_font_size: int,
+    min_font_size: int,
+    render_horizontally: bool,
+    line_spacing_multiplier: float,
+    letter_spacing_multiplier: float,
+    config: Config,
+    anchor_mode: str,
+    bubble_mask: Optional[np.ndarray],
+    placed_regions: list[tuple[np.ndarray, Optional[np.ndarray]]],
+) -> Tuple[Optional[int], Optional[np.ndarray]]:
+    """Find the largest smaller font whose render box avoids prior bubbles."""
+    for font_size in range(max(int(start_font_size), 1), max(int(min_font_size), 1) - 1, -1):
+        points = _calc_region_dst_points_for_font(
+            region=region,
+            font_size=font_size,
+            render_horizontally=render_horizontally,
+            line_spacing_multiplier=line_spacing_multiplier,
+            letter_spacing_multiplier=letter_spacing_multiplier,
+            config=config,
+            anchor_mode=anchor_mode,
+        )
+        if points is not None and not _layout_regions_conflict(points, bubble_mask, placed_regions):
+            return font_size, points
+    return None, None
+
+
 def _resolve_initial_layout_font_size(region: TextBlock, img: np.ndarray, config: Config) -> int:
     region_font_size = getattr(region, 'font_size', 0)
     if isinstance(region_font_size, (int, float)) and region_font_size > 0:
@@ -1228,6 +1286,40 @@ def _resolve_strict_layout_font_size(
     if isinstance(box_fit_font_size, (int, float)) and box_fit_font_size > 0:
         return max(min(int(layout_candidate_font_size), int(box_fit_font_size)), min_shrink_font_size)
     return max(int(layout_candidate_font_size), min_shrink_font_size)
+
+
+def _resolve_balloon_fill_fallback_font_size(
+    config: Config,
+    layout_candidate_font_size: int,
+    box_fit_font_size: int,
+    original_region_font_size: int,
+    lines_fully_enclosed: bool,
+    region: Optional[TextBlock] = None,
+) -> int:
+    """Choose the partial-mask fallback while keeping legacy behavior opt-in."""
+    if _balloon_fill_font_layout_safety_enabled(config) and not lines_fully_enclosed:
+        return max(int(layout_candidate_font_size), int(original_region_font_size), 1)
+    if region is not None:
+        return _resolve_strict_layout_font_size(
+            region=region,
+            config=config,
+            layout_candidate_font_size=layout_candidate_font_size,
+            box_fit_font_size=box_fit_font_size,
+        )
+    min_shrink_font_size = 8
+    if isinstance(box_fit_font_size, (int, float)) and box_fit_font_size > 0:
+        return max(min(int(layout_candidate_font_size), int(box_fit_font_size)), min_shrink_font_size)
+    return max(int(layout_candidate_font_size), min_shrink_font_size)
+
+
+def _resolve_balloon_fill_safety_font_size(
+    config: Config,
+    layout_font_size: int,
+    original_region_font_size: int,
+) -> int:
+    if not _balloon_fill_font_layout_safety_enabled(config):
+        return max(int(layout_font_size), 1)
+    return max(int(layout_font_size), int(original_region_font_size), 1)
 
 
 def _compute_top_aligned_center(region: 'TextBlock', text_height: float) -> tuple:
@@ -1506,6 +1598,7 @@ def resize_regions_to_font_size(
             pass
 
     dst_points_list = []
+    placed_regions: list[tuple[np.ndarray, Optional[np.ndarray]]] = []
     for region_idx, region in enumerate(text_regions):
         if region is None:
             logger.info(f"[RESIZE] 区域 {region_idx}: None，跳过")
@@ -1513,6 +1606,7 @@ def resize_regions_to_font_size(
             continue
         region_font_family = getattr(region, 'font_family', '') or ''
         try:
+            region_bubble_mask = None
             if config:
                 config._current_region = region
                 config._semantic_linebreak_current_region_idx = region_idx
@@ -1850,11 +1944,13 @@ def resize_regions_to_font_size(
                     if not lines_fully_enclosed:
                         # 气泡蒙版无效或区域未被气泡完整包裹：降级 strict 布局。
                         used_strict_fallback = True
-                        chosen_font_size = _resolve_strict_layout_font_size(
+                        chosen_font_size = _resolve_balloon_fill_fallback_font_size(
                             region=region,
                             config=config,
                             layout_candidate_font_size=layout_candidate_font_size,
                             box_fit_font_size=box_fit_font_size,
+                            original_region_font_size=original_region_font_size,
+                            lines_fully_enclosed=lines_fully_enclosed,
                         )
                         if not semantic_linebreak_debug:
                             logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to strict")
@@ -1874,6 +1970,7 @@ def resize_regions_to_font_size(
                                 target_font_size=target_font_size,
                                 auto_wrap_enabled=not bool(getattr(config.render, 'disable_auto_wrap', False)),
                             )
+                            and _balloon_fill_font_layout_safety_enabled(config)
                             and np.count_nonzero(region_bubble_mask) > 0
                         ):
                             _bubble_x, _bubble_y, bubble_w, bubble_h = cv2.boundingRect(region_bubble_mask)
@@ -2121,11 +2218,15 @@ def resize_regions_to_font_size(
 
                         best_font_size, best_dst_points = _binary_search_font_for_bubble_mask(
                             region=region,
-                            start_font_size=_resolve_balloon_fill_search_font_size(
-                                preferred_font_size=preferred_font_size,
-                                target_font_size=target_font_size,
-                                line_box_width=line_box_width,
-                                line_box_height=line_box_height,
+                            start_font_size=(
+                                _resolve_balloon_fill_search_font_size(
+                                    preferred_font_size=preferred_font_size,
+                                    target_font_size=target_font_size,
+                                    line_box_width=line_box_width,
+                                    line_box_height=line_box_height,
+                                )
+                                if _balloon_fill_font_layout_safety_enabled(config)
+                                else preferred_font_size
                             ),
                             min_font_size=min_font_size,
                             render_horizontally=render_horizontally,
@@ -2147,7 +2248,7 @@ def resize_regions_to_font_size(
                                     target_font_size=target_font_size,
                                     line_box_width=line_box_width,
                                     line_box_height=line_box_height,
-                                ),
+                                ) if _balloon_fill_font_layout_safety_enabled(config) else preferred_font_size,
                                 min_font_size=min_font_size,
                                 render_horizontally=render_horizontally,
                                 line_spacing_multiplier=line_spacing_multiplier,
@@ -2197,6 +2298,12 @@ def resize_regions_to_font_size(
                         chosen_dst_points = region.min_rect
 
                     final_font_size = _apply_final_font_constraints(chosen_font_size, config)
+                    if _resolve_configured_fixed_font_size(config) <= 0:
+                        final_font_size = _resolve_balloon_fill_safety_font_size(
+                            config=config,
+                            layout_font_size=final_font_size,
+                            original_region_font_size=original_region_font_size,
+                        )
                     final_dst_points = _calc_region_dst_points_for_font(
                         region=region,
                         font_size=final_font_size,
@@ -2209,9 +2316,33 @@ def resize_regions_to_font_size(
                     if final_dst_points is None:
                         final_dst_points = chosen_dst_points
 
+                    if _balloon_fill_font_layout_safety_enabled(config) and placed_regions:
+                        collision_font_size, collision_dst_points = _shrink_font_for_layout_collisions(
+                            region=region,
+                            start_font_size=final_font_size,
+                            min_font_size=max(_resolve_configured_min_font_size(config), 1),
+                            render_horizontally=render_horizontally,
+                            line_spacing_multiplier=line_spacing_multiplier,
+                            letter_spacing_multiplier=letter_spacing_multiplier,
+                            config=config,
+                            anchor_mode=normal_anchor_mode,
+                            bubble_mask=region_bubble_mask,
+                            placed_regions=placed_regions,
+                        )
+                        if collision_font_size is not None and collision_dst_points is not None:
+                            if collision_font_size < final_font_size:
+                                logger.debug(
+                                    f"balloon_fill region {region_idx}: collision guard "
+                                    f"shrinks font {final_font_size}->{collision_font_size}"
+                                )
+                            final_font_size = collision_font_size
+                            final_dst_points = collision_dst_points
+
                     region.font_size = final_font_size
                     chosen_dst_points = final_dst_points
                     dst_points_list.append(chosen_dst_points)
+                    if _balloon_fill_font_layout_safety_enabled(config):
+                        placed_regions.append((chosen_dst_points, region_bubble_mask))
 
                     if debug_img is not None:
                         ocr_x1, ocr_y1, ocr_w, ocr_h = map(int, region.xywh)

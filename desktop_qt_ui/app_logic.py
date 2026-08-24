@@ -1285,6 +1285,7 @@ class MainAppLogic(QObject):
                     "remove_linebreak_punctuation": self._t("label_remove_linebreak_punctuation"),
                     "check_br_and_retry": self._t("label_check_br_and_retry"),
                     "strict_smart_scaling": self._t("label_strict_smart_scaling"),
+                    "balloon_fill_font_layout_safety": self._t("label_balloon_fill_font_layout_safety"),
                     "enable_template_alignment": self._t("label_enable_template_alignment"),
                     "paste_mask_dilation_pixels": self._t("label_paste_mask_dilation_pixels"),
                     "ai_renderer_concurrency": self._t("label_ai_renderer_concurrency"),
