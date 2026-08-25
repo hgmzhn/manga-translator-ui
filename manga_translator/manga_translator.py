@@ -3568,45 +3568,8 @@ class MangaTranslator:
             logger.info("Replace translation mode detected: Will extract translations from translated images")
             return await self._translate_batch_replace_translation(images_with_configs, save_info, global_offset, global_total)
         
-        # === 步骤2: 检查是否需要使用高质量翻译模式 ===
-        is_hq_translator = False
-        if images_with_configs:
-            first_config = images_with_configs[0][1]
-            if first_config and hasattr(first_config.translator, 'translator'):
-                from manga_translator.config import Translator
-                translator_type = first_config.translator.translator
-                is_hq_translator = translator_type in [Translator.openai_hq, Translator.gemini_hq]
-                is_import_export_mode = self.load_text or self.template or self.translate_json_only
-
-                # 如果是高质量翻译且未启用并发模式，使用专用的高质量翻译流程
-                if is_hq_translator and not is_import_export_mode and not self.batch_concurrent:
-                    logger.info(f"检测到高质量翻译器 {translator_type}，自动启用高质量翻译模式")
-                    return await self._translate_batch_high_quality(images_with_configs, save_info, global_offset, global_total)
-                
-                if is_hq_translator and is_import_export_mode:
-                    logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
-        
-        # === 步骤3: 规范单项批次 ===
-        # 始终留在 translate_batch() 内；导出原文需要逐张落盘，因此使用 batch_size=1。
+        # === 步骤2: 检查是否有不兼容的特殊模式及计算有效并发 ===
         is_template_save_mode = self.template and self.save_text
-        if is_template_save_mode:
-            logger.info("Template+SaveText mode detected. Using one-item backend batches.")
-            batch_size = 1  # 强制使用 batch_size=1
-        elif batch_size <= 1 and not self.batch_concurrent:
-            logger.debug('Batch size <= 1, using one-item backend batches')
-            batch_size = 1
-        
-        # === 步骤3: 检查是否使用并发流水线模式 ===
-        # 并发流水线支持：普通翻译、高质量翻译、单文件翻译
-        # 不支持的特殊模式：
-        # - load_text: 从JSON加载翻译
-        # - template + save_text: 导出原文
-        # - generate_and_export: 导出翻译
-        # - colorize_only: 仅上色
-        # - upscale_only: 仅超分
-        # - inpaint_only: 仅修复
-        
-        # 检查是否有不兼容的特殊模式
         has_incompatible_mode = (
             self.load_text or 
             self.translate_json_only or
@@ -3618,6 +3581,44 @@ class MangaTranslator:
             self.replace_translation or  # 替换翻译模式也不支持并发
             (self.resume_context_from_skipped and bool(self._resume_context_pages))
         )
+        effective_batch_concurrent = self.batch_concurrent and not has_incompatible_mode
+
+        # === 步骤3: 检查是否需要使用高质量翻译模式 ===
+        is_hq_translator = False
+        if images_with_configs:
+            first_config = images_with_configs[0][1]
+            if first_config and hasattr(first_config.translator, 'translator'):
+                from manga_translator.config import Translator
+                translator_type = first_config.translator.translator
+                is_hq_translator = translator_type in [Translator.openai_hq, Translator.gemini_hq]
+                is_import_export_mode = self.load_text or self.template or self.translate_json_only
+
+                # 如果是高质量翻译且未启用有效并发模式，使用专用的高质量翻译流程
+                if is_hq_translator and not is_import_export_mode and not effective_batch_concurrent:
+                    logger.info(f"检测到高质量翻译器 {translator_type}，自动启用高质量翻译模式")
+                    return await self._translate_batch_high_quality(images_with_configs, save_info, global_offset, global_total)
+                
+                if is_hq_translator and is_import_export_mode:
+                    logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
+        
+        # === 步骤4: 规范单项批次 ===
+        # 始终留在 translate_batch() 内；导出原文需要逐张落盘，因此使用 batch_size=1。
+        if is_template_save_mode:
+            logger.info("Template+SaveText mode detected. Using one-item backend batches.")
+            batch_size = 1  # 强制使用 batch_size=1
+        elif batch_size <= 1 and not effective_batch_concurrent:
+            logger.debug('Batch size <= 1, using one-item backend batches')
+            batch_size = 1
+        
+        # === 步骤5: 检查是否使用并发流水线模式 ===
+        # 并发流水线支持：普通翻译、高质量翻译、单文件翻译
+        # 不支持的特殊模式：
+        # - load_text: 从JSON加载翻译
+        # - template + save_text: 导出原文
+        # - generate_and_export: 导出翻译
+        # - colorize_only: 仅上色
+        # - upscale_only: 仅超分
+        # - inpaint_only: 仅修复
         
         # 如果启用了并发但有不兼容模式，给出提示
         if self.batch_concurrent and has_incompatible_mode:
@@ -3643,7 +3644,7 @@ class MangaTranslator:
             
             logger.info(f'⚠️  并发流水线已禁用：当前模式 [{", ".join(incompatible_modes)}] 不支持并发处理')
         
-        if self.batch_concurrent and not has_incompatible_mode:
+        if effective_batch_concurrent:
             mode_desc = "高质量翻译" if is_hq_translator else "标准翻译"
             logger.info(f'🚀 启用并发流水线模式 ({mode_desc}): {len(images_with_configs)} 张图片, 翻译批量大小: {batch_size}')
             from .utils.concurrent_pipeline import ConcurrentPipeline
