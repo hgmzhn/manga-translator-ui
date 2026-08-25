@@ -337,6 +337,11 @@ def download_url_with_progressbar(url: str, path: str, min_speed_kbps: float = 1
     total = int(r.headers.get('content-length', 0))
     chunk_size = 1024
 
+    progress_stream = next(
+        (stream for stream in (sys.stderr, sys.stdout) if callable(getattr(stream, 'write', None))),
+        None,
+    )
+
     if r.ok:
         with tqdm.tqdm(
             desc=os.path.basename(path),
@@ -345,10 +350,10 @@ def download_url_with_progressbar(url: str, path: str, min_speed_kbps: float = 1
             unit='iB',
             unit_scale=True,
             unit_divisor=chunk_size,
+            file=progress_stream,
+            disable=progress_stream is None,
         ) as bar:
             with open(path, 'ab' if downloaded_size else 'wb') as f:
-                is_tty = sys.stdout.isatty()
-                downloaded_chunks = 0
                 
                 # 速度监控变量
                 import time
@@ -360,10 +365,6 @@ def download_url_with_progressbar(url: str, path: str, min_speed_kbps: float = 1
                     bar.update(size)
                     downloaded_size += size
 
-                    # Fallback for non TTYs so output still shown
-                    downloaded_chunks += 1
-                    if not is_tty and downloaded_chunks % 1000 == 0:
-                        print(bar)
                     
                     # 速度检查：每隔一定时间检查一次下载速度
                     current_time = time.time()
