@@ -381,6 +381,7 @@ class MangaTranslator:
         self._resume_context_pages = []
         self._resume_context_cursor = 0
         self._resume_context_order = {}
+        self._resume_context_source_sequence = None
         self._colorizer_history_images = []  # 存储最近已上色页面，用于 AI 上色历史参考
 
         # 调试图片管理相关属性
@@ -3596,7 +3597,13 @@ class MangaTranslator:
                 # 如果是高质量翻译且未启用有效并发模式，使用专用的高质量翻译流程
                 if is_hq_translator and not is_import_export_mode and not effective_batch_concurrent:
                     logger.info(f"检测到高质量翻译器 {translator_type}，自动启用高质量翻译模式")
-                    return await self._translate_batch_high_quality(images_with_configs, save_info, global_offset, global_total)
+                    return await self._translate_batch_high_quality(
+                        images_with_configs, 
+                        save_info, 
+                        global_offset=global_offset, 
+                        global_total=global_total,
+                        batch_size=batch_size
+                    )
                 
                 if is_hq_translator and is_import_export_mode:
                     logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
@@ -5724,7 +5731,14 @@ class MangaTranslator:
         from .utils.replace_translation import translate_batch_replace_translation
         return await translate_batch_replace_translation(self, images_with_configs, save_info, global_offset, global_total)
 
-    async def _translate_batch_high_quality(self, images_with_configs: List[tuple], save_info: dict = None, global_offset: int = 0, global_total: int = None) -> List[Context]:
+    async def _translate_batch_high_quality(
+        self, 
+        images_with_configs: List[tuple], 
+        save_info: dict = None, 
+        global_offset: int = 0, 
+        global_total: int = None,
+        batch_size: int = None
+    ) -> List[Context]:
         """
         高质量翻译模式：按批次滚动处理，每批独立完成预处理、翻译、渲染全流程。
         如果提供了save_info，则在每批处理后直接保存。
@@ -5734,10 +5748,11 @@ class MangaTranslator:
             save_info: 保存配置
             global_offset: 全局偏移量，用于显示正确的图片编号
             global_total: 全局总图片数，用于显示正确的总批次数
+            batch_size: 批量大小
         """
         # batch_size=1 is a valid request to translate HQ pages one at a time.
-        batch_size = max(1, self.batch_size)
-        logger.info(f"Starting high quality translation in rolling batch mode with batch size: {batch_size}")
+        resolved_batch_size = max(1, batch_size if batch_size is not None else self.batch_size)
+        logger.info(f"Starting high quality translation in rolling batch mode with batch size: {resolved_batch_size}")
         results = []
         
         # 如果提供了全局总数，使用它来计算总批次数；否则使用当前批次的图片数
@@ -5752,7 +5767,7 @@ class MangaTranslator:
             failed_count = sum(1 for ctx in results if getattr(ctx, 'translation_error', None))
             await self._report_progress(f"batch:{completed}:{completed}:{display_total}:{failed_count}")
 
-        batch_slices = self._slice_batch_indices(images_with_configs, batch_size)
+        batch_slices = self._slice_batch_indices(images_with_configs, resolved_batch_size)
         total_batches = len(batch_slices)
 
         for batch_num, (batch_start, batch_end) in enumerate(batch_slices, start=1):
@@ -6008,11 +6023,11 @@ class MangaTranslator:
 
     def _prepare_resume_context(self, save_info: Optional[dict]) -> None:
         """Load skipped-page JSON entries for ordered context restoration."""
-        self._resume_context_pages = []
-        self._resume_context_cursor = 0
-        self._resume_context_order = {}
-
         if not self.resume_context_from_skipped or not save_info:
+            self._resume_context_pages = []
+            self._resume_context_cursor = 0
+            self._resume_context_order = {}
+            self._resume_context_source_sequence = None
             return
 
         skipped_files = {
@@ -6024,8 +6039,19 @@ class MangaTranslator:
             for path in (save_info.get('resume_context_source_files') or [])
         ]
         if not skipped_files or not source_files:
+            self._resume_context_pages = []
+            self._resume_context_cursor = 0
+            self._resume_context_order = {}
+            self._resume_context_source_sequence = None
             return
 
+        current_sequence = tuple(source_files)
+        if self._resume_context_source_sequence == current_sequence:
+            return
+
+        self._resume_context_source_sequence = current_sequence
+        self._resume_context_pages = []
+        self._resume_context_cursor = 0
         self._resume_context_order = {
             image_path: order for order, image_path in enumerate(source_files)
         }
