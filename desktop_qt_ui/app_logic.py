@@ -2978,8 +2978,7 @@ class TranslationWorker(QObject):
             total_original_count = len(original_files)
             skipped_count = len(skipped_files)
             resume_context_from_skipped = bool(
-                self.config_dict.get('cli', {}).get('resume_context_from_skipped', False)
-                and skipped_files
+                skipped_files
                 and not save_info['overwrite']
             )
             if resume_context_from_skipped:
@@ -3063,8 +3062,7 @@ class TranslationWorker(QObject):
                 colorize_only or 
                 upscale_only or 
                 inpaint_only or
-                replace_translation or
-                resume_context_from_skipped
+                replace_translation
             )
             
             # 如果有不兼容模式，强制禁用并行
@@ -3086,8 +3084,6 @@ class TranslationWorker(QObject):
                     incompatible_modes.append("仅修复")
                 if replace_translation:
                     incompatible_modes.append("替换翻译")
-                if resume_context_from_skipped:
-                    incompatible_modes.append("恢复跳过页上下文")
                 
                 self._log_warning(f"⚠️  并发流水线已禁用：当前模式 [{', '.join(incompatible_modes)}] 不支持并发处理")
                 batch_concurrent = False

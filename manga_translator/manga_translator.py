@@ -381,7 +381,6 @@ class MangaTranslator:
         self._resume_context_pages = []
         self._resume_context_cursor = 0
         self._resume_context_order = {}
-        self._resume_context_force_sequential = False
         self._colorizer_history_images = []  # 存储最近已上色页面，用于 AI 上色历史参考
 
         # 调试图片管理相关属性
@@ -3514,8 +3513,6 @@ class MangaTranslator:
 
         
         batch_size = batch_size or self.batch_size
-        if self._resume_context_force_sequential:
-            batch_size = 1
         
         # 如果提供了全局总数，使用它来计算总批次数；否则使用当前批次的图片数
         display_total = global_total if global_total is not None else len(images_with_configs)
@@ -3578,8 +3575,7 @@ class MangaTranslator:
             self.colorize_only or 
             self.upscale_only or 
             self.inpaint_only or
-            self.replace_translation or  # 替换翻译模式也不支持并发
-            bool(self._resume_context_pages)
+            self.replace_translation  # 替换翻译模式也不支持并发
         )
         
         # 如果启用了并发但有不兼容模式，给出提示
@@ -3601,8 +3597,6 @@ class MangaTranslator:
                 incompatible_modes.append("仅修复")
             if self.replace_translation:
                 incompatible_modes.append("替换翻译")
-            if self._resume_context_pages:
-                incompatible_modes.append("恢复跳过页上下文")
             
             logger.info(f'⚠️  并发流水线已禁用：当前模式 [{", ".join(incompatible_modes)}] 不支持并发处理')
         
@@ -5698,7 +5692,7 @@ class MangaTranslator:
             global_total: 全局总图片数，用于显示正确的总批次数
         """
         # batch_size=1 is a valid request to translate HQ pages one at a time.
-        batch_size = 1 if self._resume_context_force_sequential else max(1, self.batch_size)
+        batch_size = max(1, self.batch_size)
         logger.info(f"Starting high quality translation in rolling batch mode with batch size: {batch_size}")
         results = []
         
@@ -5973,7 +5967,6 @@ class MangaTranslator:
         self._resume_context_pages = []
         self._resume_context_cursor = 0
         self._resume_context_order = {}
-        self._resume_context_force_sequential = False
 
         if not self.resume_context_from_skipped or not save_info:
             return
@@ -6032,8 +6025,6 @@ class MangaTranslator:
 
         if self._resume_context_pages:
             self._resume_context_pages.sort(key=lambda item: item[0])
-            self._resume_context_force_sequential = True
-            self.batch_concurrent = False
 
     def _append_resume_context_before(self, image_path: str) -> None:
         """Append skipped pages that occur before the current source page."""

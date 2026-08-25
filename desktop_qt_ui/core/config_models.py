@@ -143,7 +143,6 @@ class CliSettings(BaseModel):
     context_size: int = 3
     format: str = "不指定"
     overwrite: bool = True
-    resume_context_from_skipped: bool = False
     skip_no_text: bool = False
     save_text: bool = True
     export_from_local_json: bool = False
