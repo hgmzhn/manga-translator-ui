@@ -547,6 +547,46 @@ class MangaTranslator:
         image = item[0] if isinstance(item, tuple) else item
         return str(getattr(image, 'name', None) or image or '')
 
+    def _has_skipped_pages_between(self, path1: str, path2: str) -> bool:
+        """Check if there are skipped context pages between path1 and path2 in the source order."""
+        if not self._resume_context_pages or not path1 or not path2:
+            return False
+        p1 = os.path.abspath(os.path.normpath(str(path1)))
+        p2 = os.path.abspath(os.path.normpath(str(path2)))
+        order1 = self._resume_context_order.get(p1)
+        order2 = self._resume_context_order.get(p2)
+        if order1 is None or order2 is None or order2 <= order1 + 1:
+            return False
+        for order, _path, _entries in self._resume_context_pages:
+            if order1 < order < order2:
+                return True
+        return False
+
+    def _slice_batch_indices(self, items: List[tuple], max_batch_size: int) -> List[tuple]:
+        """
+        Split items into batches of up to max_batch_size, but break the batch early
+        if a resume context boundary (skipped page) exists between consecutive items.
+        Returns list of (start_idx, end_idx) tuples.
+        """
+        total = len(items)
+        if total == 0:
+            return []
+        max_batch_size = max(1, int(max_batch_size or 1))
+        
+        batches = []
+        batch_start = 0
+        while batch_start < total:
+            batch_end = batch_start + 1
+            while batch_end < min(batch_start + max_batch_size, total):
+                prev_path = self._batch_input_path(items[batch_end - 1])
+                curr_path = self._batch_input_path(items[batch_end])
+                if self._has_skipped_pages_between(prev_path, curr_path):
+                    break
+                batch_end += 1
+            batches.append((batch_start, batch_end))
+            batch_start = batch_end
+        return batches
+
     def _calculate_output_path(self, image_path: str, save_info: dict) -> str:
         """
         计算输出文件的完整路径
@@ -3575,7 +3615,8 @@ class MangaTranslator:
             self.colorize_only or 
             self.upscale_only or 
             self.inpaint_only or
-            self.replace_translation  # 替换翻译模式也不支持并发
+            self.replace_translation or  # 替换翻译模式也不支持并发
+            (self.resume_context_from_skipped and bool(self._resume_context_pages))
         )
         
         # 如果启用了并发但有不兼容模式，给出提示
@@ -3597,6 +3638,8 @@ class MangaTranslator:
                 incompatible_modes.append("仅修复")
             if self.replace_translation:
                 incompatible_modes.append("替换翻译")
+            if self.resume_context_from_skipped and self._resume_context_pages:
+                incompatible_modes.append("恢复跳过页上下文")
             
             logger.info(f'⚠️  并发流水线已禁用：当前模式 [{", ".join(incompatible_modes)}] 不支持并发处理')
         
@@ -3660,8 +3703,11 @@ class MangaTranslator:
             failed_count = sum(1 for ctx in results if getattr(ctx, 'translation_error', None))
             await self._report_progress(f"batch:{completed}:{completed}:{display_total}:{failed_count}")
 
+        batch_slices = self._slice_batch_indices(images_with_configs, batch_size)
+        total_batches = len(batch_slices)
+
         # 分批处理所有图片
-        for batch_start in range(0, total_images, batch_size):
+        for batch_num, (batch_start, batch_end) in enumerate(batch_slices, start=1):
             current_batch_images = []
             preprocessed_contexts = []
             translated_contexts = []
@@ -3670,7 +3716,6 @@ class MangaTranslator:
                 await asyncio.sleep(0)  # 检查是否被取消
                 self._check_cancelled()  # 检查取消标志
 
-                batch_end = min(batch_start + batch_size, total_images)
                 current_batch_items = images_with_configs[batch_start:batch_end]
                 if current_batch_items:
                     self._append_resume_context_before(
@@ -3680,12 +3725,10 @@ class MangaTranslator:
                 # 计算全局图片编号（考虑前端分批加载的偏移量）
                 global_batch_start = global_offset + batch_start + 1
                 global_batch_end = global_offset + batch_end
-                global_batch_num = (global_offset + batch_start) // batch_size + 1
-                global_total_batches = (display_total + batch_size - 1) // batch_size
                 progress_state = f"batch:{global_batch_start}:{global_batch_end}:{display_total}"
                 
-                logger.info(f"Processing rolling batch {global_batch_num}/{global_total_batches} (images {global_batch_start}-{global_batch_end})")
-                logger.info(f'[阶段] 开始处理批次 {global_batch_num}/{global_total_batches}')
+                logger.info(f"Processing rolling batch {batch_num}/{total_batches} (images {global_batch_start}-{global_batch_end})")
+                logger.info(f'[阶段] 开始处理批次 {batch_num}/{total_batches}')
 
                 current_batch_images, load_error_contexts = self._materialize_batch_inputs(current_batch_items)
                 if load_error_contexts:
@@ -5708,12 +5751,14 @@ class MangaTranslator:
             failed_count = sum(1 for ctx in results if getattr(ctx, 'translation_error', None))
             await self._report_progress(f"batch:{completed}:{completed}:{display_total}:{failed_count}")
 
-        for batch_start in range(0, total_images, batch_size):
+        batch_slices = self._slice_batch_indices(images_with_configs, batch_size)
+        total_batches = len(batch_slices)
+
+        for batch_num, (batch_start, batch_end) in enumerate(batch_slices, start=1):
             # 检查是否被取消
             await asyncio.sleep(0)
             self._check_cancelled()  # 检查取消标志
 
-            batch_end = min(batch_start + batch_size, total_images)
             current_batch_items = images_with_configs[batch_start:batch_end]
             if current_batch_items:
                 self._append_resume_context_before(
@@ -5723,11 +5768,9 @@ class MangaTranslator:
             # 计算全局图片编号（考虑前端分批加载的偏移量）
             global_batch_start = global_offset + batch_start + 1
             global_batch_end = global_offset + batch_end
-            global_batch_num = (global_offset + batch_start) // batch_size + 1
-            global_total_batches = (display_total + batch_size - 1) // batch_size
             progress_state = f"batch:{global_batch_start}:{global_batch_end}:{display_total}"
             
-            logger.info(f"Processing rolling batch {global_batch_num}/{global_total_batches} (images {global_batch_start}-{global_batch_end})")
+            logger.info(f"Processing rolling batch {batch_num}/{total_batches} (images {global_batch_start}-{global_batch_end})")
 
             current_batch_images, load_error_contexts = self._materialize_batch_inputs(current_batch_items)
             if load_error_contexts:
