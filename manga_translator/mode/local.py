@@ -85,41 +85,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def _should_skip_existing_cli_file(file_path, cli_config, translator=None, save_info=None):
-    """Reuse CLI overwrite checks across normal and subprocess local modes."""
-    if cli_config.get('translate_json_only', False):
-        from manga_translator.utils.path_manager import (
-            get_original_txt_path,
-        )
-        txt_path = get_original_txt_path(file_path, create_dir=False)
-        if not os.path.exists(txt_path):
-            return True, f"原文文件不存在: {os.path.basename(txt_path)}"
-        return False, ""
-
-    if cli_config.get('template', False) and cli_config.get('save_text', False):
-        from manga_translator.utils.path_manager import (
-            get_original_txt_path,
-        )
-        txt_path = get_original_txt_path(file_path, create_dir=False)
-        if os.path.exists(txt_path):
-            return True, f"原文文件已存在: {os.path.basename(txt_path)}"
-        return False, ""
-
-    if cli_config.get('generate_and_export', False):
-        from manga_translator.utils.path_manager import (
-            get_translated_txt_path,
-        )
-        txt_path = get_translated_txt_path(file_path, create_dir=False)
-        if os.path.exists(txt_path):
-            return True, f"翻译文件已存在: {os.path.basename(txt_path)}"
-        return False, ""
-
-    if translator is not None and save_info is not None:
-        output_path = translator._calculate_output_path(file_path, save_info)
-        if os.path.exists(output_path):
-            return True, f"输出文件已存在: {os.path.basename(file_path)}"
-
-    return False, ""
 
 
 async def translate_files(input_paths, output_dir, config_service, verbose=False, overwrite=False, args=None):
@@ -233,48 +198,6 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
     
     config_dict['cli'] = cli_config
     
-    # 检查是否有不兼容并行的特殊模式
-    load_text = cli_config.get('load_text', False)
-    template = cli_config.get('template', False)
-    save_text = cli_config.get('save_text', False)
-    generate_and_export = cli_config.get('generate_and_export', False)
-    colorize_only = cli_config.get('colorize_only', False)
-    upscale_only = cli_config.get('upscale_only', False)
-    inpaint_only = cli_config.get('inpaint_only', False)
-    replace_translation = cli_config.get('replace_translation', False)
-    
-    is_template_save_mode = template and save_text
-    has_incompatible_mode = (
-        load_text or 
-        is_template_save_mode or 
-        generate_and_export or 
-        colorize_only or 
-        upscale_only or 
-        inpaint_only or
-        replace_translation
-    )
-    
-    # 如果有不兼容模式，强制禁用并行
-    if cli_config.get('batch_concurrent', False) and has_incompatible_mode:
-        incompatible_modes = []
-        if load_text:
-            incompatible_modes.append("导入翻译")
-        if is_template_save_mode:
-            incompatible_modes.append("导出原文")
-        if generate_and_export:
-            incompatible_modes.append("导出翻译")
-        if colorize_only:
-            incompatible_modes.append("仅上色")
-        if upscale_only:
-            incompatible_modes.append("仅超分")
-        if inpaint_only:
-            incompatible_modes.append("仅修复")
-        if replace_translation:
-            incompatible_modes.append("替换翻译")
-        
-        print(f"⚠️  并发流水线已禁用：当前模式 [{', '.join(incompatible_modes)}] 不支持并发处理")
-        cli_config['batch_concurrent'] = False
-        config_dict['cli'] = cli_config
     
     print(f"\n{'='*60}")
     print(f"翻译器: {config_dict['translator']['translator']}")
@@ -409,47 +332,6 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         os.makedirs(final_output_dir, exist_ok=True)
         print(f"✅ 创建输出目录: {final_output_dir}")
     
-    # 过滤掉已存在的文件（如果 overwrite=False）
-    skipped_count = 0
-    if not overwrite:
-        print("\n🔍 检查已存在的文件（覆盖检测已禁用）...")
-        filtered_file_paths = []
-        for file_path, config in file_paths_with_configs:
-            try:
-                should_skip, skip_reason = _should_skip_existing_cli_file(
-                    file_path,
-                    cli_config,
-                    translator=translator,
-                    save_info=save_info,
-                )
-                
-                if should_skip:
-                    skipped_count += 1
-                    if verbose:
-                        print(f"⏭️  跳过 - {skip_reason}")
-                else:
-                    filtered_file_paths.append((file_path, config))
-            except Exception as e:
-                # 如果检查失败，默认保留
-                if verbose:
-                    logger.debug(f"检查文件时出错 {file_path}: {e}")
-                filtered_file_paths.append((file_path, config))
-        
-        if skipped_count > 0:
-            print(f"⏭️  已跳过 {skipped_count} 个已存在的文件（覆盖检测已禁用）")
-            print("ℹ️  提示：如需重新翻译这些文件，请使用 --overwrite 参数")
-            file_paths_with_configs = filtered_file_paths
-        else:
-            print("✅ 未发现已存在的文件，将处理所有文件")
-            
-    if not file_paths_with_configs:
-        print("✅ 所有文件都已跳过，无需处理")
-        print(f"\n{'='*60}")
-        print(f"✅ 成功（跳过）: {skipped_count}")
-        print("❌ 失败: 0")
-        print(f"📊 总计: {len(all_files)}")
-        print(f"{'='*60}")
-        return
 
     batch_size = cli_config.get('batch_size', 3)
     total_images = len(file_paths_with_configs)
@@ -468,135 +350,61 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
             print(f"      - {folder}")
     print()
     
-    # 根据是否启用并发模式选择不同的处理方式
-    use_concurrent = cli_config.get('batch_concurrent', False)
-    
     try:
         print("🚀 开始翻译...")
-        print("📋 传递给翻译器的 save_info:")
-        print(f"   output_folder: {save_info['output_folder']}")
-        print(f"   format: {save_info['format']}")
-        print(f"   overwrite: {save_info['overwrite']}")
-        print(f"   input_folders: {save_info['input_folders']}")
-        print()
-        
-        import sys
-        sys.stdout.flush()  # 强制刷新输出
-        
-        all_contexts = []
-        
-        if use_concurrent:
-            # ✅ 并发模式：一次性传递所有文件路径，让 ConcurrentPipeline 内部管理加载
-            print(f"⏳ 并发流水线模式：一次性处理 {total_images} 张图片...")
-            logger.info(f"开始并发批量翻译，save_info={save_info}")
-            
-            # 创建带文件路径的 Image 对象（不加载数据，只设置 name 属性）
-            images_with_configs = []
-            for file_path, config in file_paths_with_configs:
-                # 创建一个轻量级的 Image 占位符，只包含路径信息
-                # ConcurrentPipeline 会根据 image.name 自己加载图片
-                try:
-                    image = open_pil_image(file_path, eager=False)
-                    # 不调用 load()，让 ConcurrentPipeline 按需加载
-                    image.name = file_path
-                    images_with_configs.append((image, config))
-                except Exception as e:
-                    logger.error(f"Failed to open image {file_path}: {e}")
-                    print(f"❌ 无法打开: {os.path.basename(file_path)} - {e}")
-                    from manga_translator.utils import Context
-                    error_ctx = Context()
-                    error_ctx.image_name = file_path
-                    error_ctx.translation_error = str(e)
-                    all_contexts.append(error_ctx)
-            
-            if images_with_configs:
-                batch_contexts = await translator.translate_batch(
-                    images_with_configs,
-                    save_info=save_info,
-                    global_offset=0,
-                    global_total=total_images
-                )
-                all_contexts.extend(batch_contexts)
-                
-                # 清理 Image 对象
-                for image, _ in images_with_configs:
-                    if hasattr(image, 'close'):
-                        try:
-                            image.close()
-                        except Exception:
-                            pass
-                images_with_configs.clear()
-                
-                pass
-        else:
-            # ✅ 非并发模式：直接把路径交给后端，由后端按 batch_size 控制加载
-            print("⏳ 开始批量翻译（由后端按批次加载图片）...")
-            logger.info(f"开始批量翻译，save_info={save_info}")
-            if total_images > 0:
-                all_contexts = await translator.translate_batch(
-                    file_paths_with_configs,
-                    save_info=save_info,
-                    global_offset=0,
-                    global_total=total_images
-                )
-        contexts = all_contexts
-        
-        # 统计结果（像 UI 一样）
+        contexts = await translator.translate_batch(
+            file_paths_with_configs,
+            save_info=save_info,
+        )
+
         success_count = 0
+        skipped_count = 0
         failed_count = 0
-        
         print("\n📊 翻译完成，检查结果...\n")
         logger.info(f"收到 {len(contexts)} 个翻译结果")
-        
-        for i, ctx in enumerate(contexts, 1):
-            if ctx:
-                has_result = hasattr(ctx, 'result') and ctx.result is not None
-                has_success = hasattr(ctx, 'success') and ctx.success
-                has_error = hasattr(ctx, 'translation_error') and ctx.translation_error
-                logger.info(f"Context {i}: result={has_result}, success={has_success}, error={has_error}")
-        
+
         for ctx in contexts:
-            if ctx:
-                # 检查是否有翻译错误
-                if hasattr(ctx, 'translation_error') and ctx.translation_error:
-                    failed_count += 1
-                    print(f"❌ 翻译失败: {os.path.basename(ctx.image_name)}")
-                    if verbose:
-                        print(f"   错误: {ctx.translation_error}")
-                elif hasattr(ctx, 'success') and ctx.success:
-                    # 优先检查 success 标志（因为 result 可能被清理了）
-                    success_count += 1
-                    print(f"✅ 完成: {os.path.basename(ctx.image_name)}")
-                elif ctx.result:
-                    success_count += 1
-                    print(f"✅ 完成: {os.path.basename(ctx.image_name)}")
-                else:
-                    failed_count += 1
-                    print(f"❌ 翻译失败: {os.path.basename(ctx.image_name)} - 翻译结果为空")
-            else:
+            if not ctx:
                 failed_count += 1
                 print("❌ 翻译失败: 未知图片")
-        
-        if failed_count > 0:
-            print(f"\n⚠️ 批量翻译完成：成功 {success_count}/{total_images} 张，失败 {failed_count}/{total_images} 张")
-        else:
-            print(f"\n✅ 批量翻译完成：成功 {success_count}/{total_images} 张")
+                continue
+
+            image_name = getattr(ctx, 'image_name', '') or ''
+            file_name = os.path.basename(image_name) or '未知图片'
+            if getattr(ctx, 'skipped', False):
+                skipped_count += 1
+                reason = getattr(ctx, 'skip_message', None) or '后端已跳过该文件'
+                print(f"⏭️  跳过: {file_name} - {reason}")
+            elif getattr(ctx, 'translation_error', None):
+                failed_count += 1
+                print(f"❌ 翻译失败: {file_name}")
+                if verbose:
+                    print(f"   错误: {ctx.translation_error}")
+            elif getattr(ctx, 'success', False) or getattr(ctx, 'result', None):
+                success_count += 1
+                output_path = getattr(ctx, 'output_path', None)
+                print(f"✅ 完成: {file_name}" + (f" -> {output_path}" if output_path else ""))
+            else:
+                failed_count += 1
+                print(f"❌ 翻译失败: {file_name} - 翻译结果为空")
+
+        print(
+            f"\n📊 批量处理完成：成功 {success_count}，"
+            f"跳过 {skipped_count}，失败 {failed_count}。"
+        )
         print(f"💾 文件已保存到：{final_output_dir}")
-                
     except Exception as e:
         print(f"\n❌ 批量翻译错误: {e}")
         if verbose:
             import traceback
             traceback.print_exc()
         success_count = 0
-        failed_count = len(images_with_configs)
-    
-    # 总结
+        skipped_count = 0
+        failed_count = total_images
+
     print(f"\n{'='*60}")
-    if skipped_count > 0:
-        print(f"✅ 成功: {success_count} (另有 {skipped_count} 个已跳过)")
-    else:
-        print(f"✅ 成功: {success_count}")
+    print(f"✅ 成功: {success_count}")
+    print(f"⏭️  跳过: {skipped_count}")
     print(f"❌ 失败: {failed_count}")
     print(f"📊 总计: {len(all_files)}")
     print(f"{'='*60}")
@@ -689,62 +497,6 @@ async def run_local_mode(args):
         os.makedirs(output_dir, exist_ok=True)
         print(f"📤 输出目录: {output_dir}")
         
-        # 预过滤已存在的文件
-        skipped_count = 0
-        if not overwrite:
-            print("\n🔍 预检查已存在的文件（覆盖检测已禁用）...")
-            try:
-                from manga_translator import MangaTranslator
-                config_dict = config_service.get_config().model_dump()
-                cli_config = config_dict.get('cli', {})
-                output_format = cli_config.get('format')
-                if not output_format or output_format == "不指定":
-                    output_format = None
-
-                save_info = {
-                    'output_folder': output_dir,
-                    'format': output_format,
-                    'overwrite': overwrite,
-                    'input_folders': set()
-                }
-                
-                temp_translator = MangaTranslator(params=cli_config)
-                
-                filtered_files = []
-                for file_path in all_files:
-                    try:
-                        should_skip, _ = _should_skip_existing_cli_file(
-                            file_path,
-                            cli_config,
-                            translator=temp_translator,
-                            save_info=save_info,
-                        )
-                        if should_skip:
-                            skipped_count += 1
-                            if verbose:
-                                print(f"⏭️  跳过已存在: {os.path.basename(file_path)}")
-                        else:
-                            filtered_files.append(file_path)
-                    except Exception:
-                        filtered_files.append(file_path)
-                
-                if skipped_count > 0:
-                    print(f"⏭️  已跳过 {skipped_count} 个已存在的文件（覆盖检测已禁用）")
-                    print("ℹ️  提示：如需重新翻译这些文件，请使用 --overwrite 参数")
-                    all_files = filtered_files
-                else:
-                    print("✅ 未发现已存在的文件，将处理所有文件")
-            except Exception as e:
-                print(f"⚠️ 预检查失败，将全部处理: {e}")
-        
-        if not all_files:
-            print("✅ 所有文件都已跳过，无需处理")
-            print(f"\n{'='*60}")
-            print(f"✅ 成功（跳过）: {skipped_count}")
-            print("❌ 失败: 0")
-            print(f"📊 总计: {skipped_count}")
-            print(f"{'='*60}")
-            sys.exit(0)
 
         # 导入子进程管理器
         from .subprocess_manager import translate_with_subprocess
@@ -758,11 +510,10 @@ async def run_local_mode(args):
                 cli_config['disable_onnx_gpu'] = args.disable_onnx_gpu
             config_dict['cli'] = cli_config
             
-            success_count, failed_count = await translate_with_subprocess(
+            success_count, skipped_count, failed_count = await translate_with_subprocess(
                 all_files=all_files,
                 output_dir=output_dir,
                 config_dict=config_dict,
-                config_path=config_path,
                 verbose=verbose,
                 overwrite=overwrite,
                 memory_limit_mb=getattr(args, 'memory_limit', DEFAULT_MEMORY_THRESHOLD_MB),
@@ -771,14 +522,10 @@ async def run_local_mode(args):
             )
             
             print(f"\n{'='*60}")
-            if skipped_count > 0:
-                print(f"✅ 成功: {success_count} (另有 {skipped_count} 个已跳过)")
-                print(f"❌ 失败: {failed_count}")
-                print(f"📊 总计: {len(all_files) + skipped_count}")
-            else:
-                print(f"✅ 成功: {success_count}")
-                print(f"❌ 失败: {failed_count}")
-                print(f"📊 总计: {len(all_files)}")
+            print(f"✅ 成功: {success_count}")
+            print(f"⏭️  跳过: {skipped_count}")
+            print(f"❌ 失败: {failed_count}")
+            print(f"📊 总计: {len(all_files)}")
             print(f"💾 输出目录: {output_dir}")
             print(f"{'='*60}")
             

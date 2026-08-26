@@ -1095,7 +1095,7 @@
   "desc_cli_use_gpu": "GPU 가속을 활성화합니다. CUDA 지원이 필요하며, 처리 속도가 크게 향상됩니다.",
   "desc_cli_disable_onnx_gpu": "ONNX Runtime GPU 가속을 비활성화합니다. GPU 모드에서 호환성 문제가 있을 때 시도해 보세요.",
   "desc_cli_format": "출력 이미지 형식. PNG, JPG/JPEG/JFIF, WebP, AVIF, BMP, TIFF/TIF, HEIC/HEIF 중 선택하거나 빈 칸으로 두면 원본 형식을 유지합니다.",
-  "desc_cli_overwrite": "기존 번역 파일을 덮어씁니다. 비활성화 시 이미 번역된 이미지를 건너뜁니다.",
+  "desc_cli_overwrite": "기존 번역 파일을 덮어씁니다. 비활성화 시 이미 번역된 이미지를 건너뛰고, 건너뛴 페이지의 기록에서 자동으로 컨텍스트를 복원합니다.",
   "desc_cli_skip_no_text": "텍스트가 감지되지 않은 이미지를 건너뛰어 불필요한 처리를 줄입니다.",
   "desc_cli_save_text": "번역 결과를 JSON 파일로 저장하여 나중에 에디터에서 편집할 수 있습니다.",
   "desc_cli_export_from_local_json": "번역 또는 원문 내보내기 시 기존 로컬 프로젝트 JSON을 읽어 텍스트 보조 파일만 생성합니다. 이미지 감지, OCR, API 번역 및 프로젝트 JSON 다시 쓰기를 건너뛰어 편집한 번역을 보호합니다.",

@@ -1096,7 +1096,7 @@
   "desc_cli_use_gpu": "啟用 GPU 加速。需要 CUDA 支援，可大幅提升處理速度。",
   "desc_cli_disable_onnx_gpu": "停用 ONNX Runtime GPU 加速。如果 GPU 模式出現相容問題，可嘗試啟用此選項。",
   "desc_cli_format": "輸出圖片格式。可選 PNG、JPG/JPEG/JFIF、WebP、AVIF、BMP、TIFF/TIF、HEIC/HEIF，或留空保持原格式。",
-  "desc_cli_overwrite": "覆蓋已存在的翻譯檔案。關閉時會跳過已翻譯的圖片。",
+  "desc_cli_overwrite": "覆蓋已存在的翻譯檔案。關閉時會跳過已翻譯的圖片，並自動從跳過頁的歷史記錄中恢復上下文。",
   "desc_cli_skip_no_text": "跳過沒有偵測到文字的圖片，減少不必要的處理。",
   "desc_cli_save_text": "儲存翻譯結果到 JSON 檔案，用於後續在編輯器中修改。",
   "desc_cli_export_from_local_json": "匯出翻譯和匯出原文時，只讀取本機既有工程 JSON 並產生文字副檔案；不重新偵測圖片、不執行 OCR、不呼叫翻譯 API，也不回寫工程 JSON，避免覆蓋已修改的譯文。",
