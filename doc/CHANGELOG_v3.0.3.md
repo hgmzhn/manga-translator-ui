@@ -21,6 +21,10 @@
 - 修复 Windows 下应用目录或虚拟环境路径包含非 ASCII 字符时，`curl_cffi` 读取 CA 证书路径失败并报 cURL error 77 的问题。
 - 创建 curl_cffi 会话时，证书相关文件路径按 Windows 系统代码页传递给 libcurl；继续保留 HTTPS 证书校验。
 
+### Windows 中文路径模型下载修复
+- 修复应用或模型目录包含中文等非 ASCII 字符，并以无控制台方式启动时，预处理阶段自动下载缺失模型会因 `sys.stdout` 为 `None` 而触发 `'NoneType' object has no attribute 'isatty'` 的问题。
+- 下载进度现在仅使用可写的标准流；桌面进程没有控制台时自动禁用进度条，不影响模型写入和后续预处理。
+
 ### 自动更新版本来源修复
 - UI 自动检查、维护工具和发布 Action 统一使用 `packaging/VERSION` 作为唯一应用版本来源。
 - 不再读取或写入打包目录根部的 `VERSION` 文件，避免代码已更新到新版本但 UI 仍显示旧版本、反复提示更新的问题。
