@@ -49,7 +49,9 @@ class DocumentLoadWorker:
             return DocumentLoadFailure(str(e))
 
     def _load_snapshot(self) -> DocumentSnapshot:
-        source_path, display_image_path = self.service.resolve_editor_image_paths(self.image_path)
+        source_path, display_image_path = self.service.resolve_editor_image_paths(
+            self.image_path
+        )
 
         load_resource = (
             self.service.resource_manager.prefetch_image
@@ -92,12 +94,16 @@ class DocumentLoadWorker:
                     future.cancel()
 
         # JSON 内的 base64 图层优先；旧版单文件 PNG 仅作画笔层兜底
-        paint_overlay_image = self._align_overlay_array(json_overlays.get("paint"), image_size)
+        paint_overlay_image = self._align_overlay_array(
+            json_overlays.get("paint"), image_size
+        )
         if paint_overlay_image is None:
             paint_overlay_image = legacy_paint_overlay
         else:
             paint_overlay_path = None
-        stamp_overlay_image = self._align_overlay_array(json_overlays.get("stamp"), image_size)
+        stamp_overlay_image = self._align_overlay_array(
+            json_overlays.get("stamp"), image_size
+        )
 
         return DocumentSnapshot(
             source_path=source_path,
@@ -123,9 +129,19 @@ class DocumentLoadWorker:
         aux_paths: dict[str, str | None],
     ) -> dict[str, concurrent.futures.Future]:
         return {
-            "compare": executor.submit(self._load_compare_image, source_path, display_image_path, image, image_size),
-            "json": executor.submit(self._load_regions_and_mask, source_path, aux_paths["json"]),
-            "paint_overlay": executor.submit(self._load_paint_overlay_image, aux_paths["paint_overlay"], image_size),
+            "compare": executor.submit(
+                self._load_compare_image,
+                source_path,
+                display_image_path,
+                image,
+                image_size,
+            ),
+            "json": executor.submit(
+                self._load_regions_and_mask, source_path, aux_paths["json"]
+            ),
+            "paint_overlay": executor.submit(
+                self._load_paint_overlay_image, aux_paths["paint_overlay"], image_size
+            ),
         }
 
     def _ensure_qimage(self, image_resource, image) -> None:
@@ -143,7 +159,9 @@ class DocumentLoadWorker:
                     image_resource.qimage = qimage
                     return
             except Exception as reader_err:
-                self.logger.debug("QImageReader fallback for %s: %s", image_path, reader_err)
+                self.logger.debug(
+                    "QImageReader fallback for %s: %s", image_path, reader_err
+                )
         try:
             from .image_utils import image_like_to_qimage
 
@@ -151,7 +169,9 @@ class DocumentLoadWorker:
         except Exception as conv_err:
             self.logger.warning(f"Failed to pre-convert QImage: {conv_err}")
 
-    def _load_compare_image(self, source_path: str, display_image_path: str, image, image_size):
+    def _load_compare_image(
+        self, source_path: str, display_image_path: str, image, image_size
+    ):
         if os.path.normpath(source_path) == os.path.normpath(display_image_path):
             return image
         try:
@@ -163,7 +183,9 @@ class DocumentLoadWorker:
     def _load_regions_and_mask(self, source_path: str, json_path: str | None):
         if not json_path:
             return [], None, {}
-        regions, raw_mask, _, overlays = self.service.file_service.load_translation_json(source_path)
+        regions, raw_mask, _, overlays = (
+            self.service.file_service.load_translation_json(source_path)
+        )
         return regions, raw_mask, overlays or {}
 
     def _load_inpaint_sidecar(
@@ -183,16 +205,19 @@ class DocumentLoadWorker:
         except Exception as error:
             self.logger.error("Error loading inpaint image: %s", error)
             return None
+        image_array = np.asarray(image)
         mask_array = np.asarray(mask)
         if mask_array.ndim == 3:
             mask_array = mask_array[..., 0]
-        if mask_array.ndim != 2 or np.asarray(image).shape[:2] != mask_array.shape:
+        if mask_array.ndim != 2 or image_array.shape[:2] != mask_array.shape:
             self.logger.warning(
                 "Ignoring inpaint sidecar with incompatible dimensions: %s",
                 inpainted_path,
             )
             return None
-        return LoadedInpaintSidecar(image)
+        if image_array.flags.owndata:
+            image_array.setflags(write=False)
+        return LoadedInpaintSidecar(image_array)
 
     def _load_paint_overlay_image(self, paint_overlay_path: str | None, image_size):
         if not paint_overlay_path:
@@ -215,7 +240,9 @@ class DocumentLoadWorker:
                 if arr.shape[:2] != (target_h, target_w):
                     import cv2
 
-                    arr = cv2.resize(arr, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+                    arr = cv2.resize(
+                        arr, (target_w, target_h), interpolation=cv2.INTER_NEAREST
+                    )
             return arr.astype(np.uint8, copy=False)
         except Exception as e:
             self.logger.error(f"Failed to align overlay layer: {e}")
@@ -231,7 +258,9 @@ class DocumentLoadWorker:
                     overlay_image.close()
                     overlay_image = converted
                 if target_size is not None and overlay_image.size != target_size:
-                    resized = overlay_image.resize(target_size, Image.Resampling.NEAREST)
+                    resized = overlay_image.resize(
+                        target_size, Image.Resampling.NEAREST
+                    )
                     overlay_image.close()
                     overlay_image = resized
                 array = np.array(overlay_image, dtype=np.uint8, copy=True)

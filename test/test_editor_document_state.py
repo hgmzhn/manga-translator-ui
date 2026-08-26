@@ -22,19 +22,21 @@ def _session() -> EditorSession:
     return EditorSession()
 
 
-def test_missing_artifact_uses_an_owned_source_copy_for_the_inpaint_display_layer():
+def test_document_owns_one_immutable_source_rgb_projection():
     session = _session()
     source = _source(41)
     session.load_document(DocumentSnapshot(source_path="page-a.png", image=source))
 
     layers = session.get_display_layers()
+    source_rgb = session.get_source_rgb()
 
     assert layers is not None
     assert layers.source_path == "page-a.png"
     assert layers.source_image is source
-    assert np.array_equal(layers.inpaint_display_image, source)
-    assert layers.inpaint_display_image is not source
-    assert not np.shares_memory(layers.inpaint_display_image, source)
+    assert layers.inpaint_display_image is source
+    assert source_rgb is session.get_source_rgb()
+    assert not source_rgb.flags.writeable
+    assert not np.shares_memory(source_rgb, source)
     assert session.get_committed_inpaint_artifact() is None
 
 

@@ -27,29 +27,21 @@ class RenderCoordinator:
         self.render_snapshots = []
 
     def ensure_region_capacity(self, index: int) -> None:
-        while len(self.text_blocks) <= index:
-            self.text_blocks.append(None)
-        while len(self.dst_points) <= index:
-            self.dst_points.append(None)
-        while len(self.render_snapshots) <= index:
-            self.render_snapshots.append(None)
+        missing = int(index) + 1
+        for cache in (self.text_blocks, self.dst_points, self.render_snapshots):
+            cache.extend([None] * (missing - len(cache)))
 
     def insert_region(self, index: int) -> None:
         index = max(0, min(int(index), len(self.text_blocks)))
-        self.text_blocks.insert(index, None)
-        self.dst_points.insert(index, None)
-        self.render_snapshots.insert(index, None)
+        for cache in (self.text_blocks, self.dst_points, self.render_snapshots):
+            cache.insert(index, None)
 
     def remove_region(self, index: int) -> None:
         index = int(index)
-        if 0 <= index < len(self.text_blocks):
-            self.text_blocks.pop(index)
-        if 0 <= index < len(self.dst_points):
-            self.dst_points.pop(index)
-        if 0 <= index < len(self.render_snapshots):
-            self.render_snapshots.pop(index)
+        for cache in (self.text_blocks, self.dst_points, self.render_snapshots):
+            if 0 <= index < len(cache):
+                cache.pop(index)
 
     def trim_regions(self, count: int) -> None:
-        del self.text_blocks[count:]
-        del self.dst_points[count:]
-        del self.render_snapshots[count:]
+        for cache in (self.text_blocks, self.dst_points, self.render_snapshots):
+            del cache[count:]

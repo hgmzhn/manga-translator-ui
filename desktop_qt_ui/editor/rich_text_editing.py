@@ -98,22 +98,16 @@ def document_from_region(region_data: dict) -> dict:
             return ensure_rich_text_document(rich).to_dict()
         except (ValueError, TypeError):
             pass
-    return document_from_text(region_data.get("translation", ""))
-
-
-def document_from_text(text: Any) -> dict:
-    # 薄委托：换行/BR 标记 → 段落 的唯一实现在 rich_text.py（F11）。
-    return legacy_line_breaks_to_document(str(text or "")).to_dict()
+    # 换行/BR 标记 → 段落 的唯一实现在 rich_text.py（F11）。
+    return legacy_line_breaks_to_document(
+        str(region_data.get("translation", "") or "")
+    ).to_dict()
 
 
 def visible_text_from_document(document: Any) -> str:
     # 薄委托（F11）：plain_text_of 同时兼容 RichTextDocument 实例与 dict，
     # 纯字符串原样返回 —— 不再有 str(document) 垃圾输出分支。
     return plain_text_of(document)
-
-
-def document_to_storage_text(document: Any) -> str:
-    return plain_text_to_storage_text(visible_text_from_document(document))
 
 
 def normalize_text_style(style: Any) -> dict:
@@ -201,28 +195,14 @@ def text_style_from_control_values(values: dict, enabled: set[str]) -> dict:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(slots=True)
 class _CharEntry:
-    """一个可见字符的归属：style/run 为原 text run 的共享引用，node 为其所属
-    ruby/tcy 节点（顶层 text run 字符为 None）。段落分隔符条目 char 为 \\n、
-    run/node 为 None。"""
+    """一个可见字符及其原 text run、ruby/tcy 节点归属。"""
 
-    __slots__ = ("char", "style", "run", "node")
-
-    def __init__(self, char: str, style: dict, run: dict | None, node: dict | None):
-        self.char = char
-        self.style = style
-        self.run = run
-        self.node = node
-
-
-def _blocks_of(document: Any) -> list:
-    if not is_rich_text_document(document):
-        return []
-    if not isinstance(document, dict):
-        # RichTextDocument 实例 → 编辑器统一以 dict 形态操作
-        document = ensure_rich_text_document(document).to_dict()
-    blocks = document.get("blocks", [])
-    return blocks if isinstance(blocks, list) else []
+    char: str
+    style: dict
+    run: dict | None
+    node: dict | None
 
 
 def _visible_entries(document: Any) -> list[_CharEntry]:
@@ -232,7 +212,14 @@ def _visible_entries(document: Any) -> list[_CharEntry]:
     text run，非法嵌套节点在此被忽略（严格解析在渲染侧本就会拒绝它们）。
     """
     entries: list[_CharEntry] = []
-    blocks = _blocks_of(document)
+    if not is_rich_text_document(document):
+        return entries
+    if not isinstance(document, dict):
+        # RichTextDocument 实例 → 编辑器统一以 dict 形态操作
+        document = ensure_rich_text_document(document).to_dict()
+    blocks = document.get("blocks", [])
+    if not isinstance(blocks, list):
+        return entries
     for block_index, block in enumerate(blocks):
         inlines = block.get("inlines", []) if isinstance(block, dict) else []
         for inline in inlines:
@@ -263,40 +250,24 @@ def _append_run_entries(
             entries.append(_CharEntry(char, style, run, node))
 
 
-def _entries_text(entries: list[_CharEntry]) -> str:
-    return "".join(entry.char for entry in entries)
+def _document_from_entries(entries: list[_CharEntry]) -> dict:
+    """Rebuild paragraphs and inline nodes from the canonical visible entries."""
+    blocks: list[dict] = []
+    line_start = 0
+    while True:
+        line_end = line_start
+        while line_end < len(entries) and entries[line_end].char != "\n":
+            line_end += 1
 
-
-def _document_from_entries(text: str, entries: list[_CharEntry]) -> dict:
-    """节点归属重建（F01 的重建侧）。
-
-    text 提供权威字符序列（含 \\n 段落分隔），entries 提供每个字符的
-    style/node 归属；连续同 node（对象身份）的字符重组回原类型节点：
-    ruby 用新 base 文本 + 原注音（深拷贝一次），tcy 用新 content 文本，
-    base/content 被删空的节点自然消失。样式只在 run 边界深拷贝一次（F25）。
-    """
-    text = str(text or "")
-    if len(entries) < len(text):
-        entries = entries + [
-            _CharEntry("", {}, None, None) for _ in range(len(text) - len(entries))
-        ]
-
-    blocks = []
-    cursor = 0
-    for line in text.split("\n"):
         inlines: list[dict] = []
-        line_end = cursor + len(line)
-        index = cursor
+        index = line_start
         while index < line_end:
             node = entries[index].node
             group_start = index
             index += 1
             while index < line_end and entries[index].node is node:
                 index += 1
-            runs = _runs_from_group(
-                line[group_start - cursor : index - cursor],
-                entries[group_start:index],
-            )
+            runs = _runs_from_group(entries, group_start, index)
             if node is None:
                 inlines.extend(runs)
             elif runs:
@@ -310,33 +281,31 @@ def _document_from_entries(text: str, entries: list[_CharEntry]) -> dict:
                     )
                 else:
                     inlines.append({"type": "tcy", "content": runs})
-        blocks.append(
-            {"type": "paragraph", "inlines": _merge_adjacent_text_runs(inlines)}
-        )
-        cursor = line_end + 1
+        blocks.append({"type": "paragraph", "inlines": inlines})
+        if line_end == len(entries):
+            break
+        line_start = line_end + 1
 
-    if not blocks:
-        blocks = [{"type": "paragraph", "inlines": []}]
     return {"format": RICH_TEXT_FORMAT, "blocks": blocks}
 
 
-def _runs_from_group(text: str, entries: list[_CharEntry]) -> list[dict]:
-    """把一段连续同 node 的字符按样式分组为 text runs（原 _text_runs_from_segment
-    与 _document_from_text_and_styles 逐字分组的合并实现）。样式引用相同或
-    值相等的相邻字符共享一个 run，深拷贝只发生在 run 边界。"""
+def _runs_from_group(entries: list[_CharEntry], start: int, end: int) -> list[dict]:
+    """Group adjacent entries with equal styles into the canonical text runs."""
+    if start >= end:
+        return []
     runs: list[dict] = []
-    if not text:
-        return runs
-    run_start = 0
-    current_style = entries[0].style if entries else {}
-    for index in range(1, len(text)):
-        style = entries[index].style if index < len(entries) else {}
+    run_start = start
+    current_style = entries[start].style
+    for index in range(start + 1, end):
+        style = entries[index].style
         if style is current_style or style == current_style:
             continue
         runs.append(
             {
                 "type": "text",
-                "text": text[run_start:index],
+                "text": "".join(
+                    entries[offset].char for offset in range(run_start, index)
+                ),
                 "style": copy.deepcopy(current_style or {}),
             }
         )
@@ -345,7 +314,7 @@ def _runs_from_group(text: str, entries: list[_CharEntry]) -> list[dict]:
     runs.append(
         {
             "type": "text",
-            "text": text[run_start:],
+            "text": "".join(entries[offset].char for offset in range(run_start, end)),
             "style": copy.deepcopy(current_style or {}),
         }
     )
@@ -384,18 +353,39 @@ def apply_text_change(
     chars_added: int,
 ) -> dict:
     """按 QTextDocument.contentsChange 语义更新文档，保留 ruby/tcy 节点（F01）。"""
-    new_text = editor_text_to_plain_text(editor_text)
+    return _apply_plain_text_change(
+        document,
+        editor_text_to_plain_text(editor_text),
+        position,
+        chars_removed,
+        chars_added,
+    )
+
+
+def _apply_plain_text_change(
+    document: dict,
+    new_text: str,
+    position: int,
+    chars_removed: int,
+    chars_added: int,
+) -> dict:
     entries = _visible_entries(document)
     position = max(0, min(int(position), len(entries)))
     chars_removed = max(0, int(chars_removed))
     chars_added = max(0, int(chars_added))
     inherited_style, inherited_node = _insertion_inheritance(entries, position)
     inserted = [
-        _CharEntry("", inherited_style, None, inherited_node)
-        for _ in range(chars_added)
+        _CharEntry(char, inherited_style, None, inherited_node)
+        for char in new_text[position : position + chars_added]
     ]
     new_entries = entries[:position] + inserted + entries[position + chars_removed :]
-    return _document_from_entries(new_text, new_entries[: len(new_text)])
+    for index, char in enumerate(new_text):
+        if index < len(new_entries):
+            new_entries[index].char = char
+        else:
+            new_entries.append(_CharEntry(char, {}, None, None))
+    del new_entries[len(new_text) :]
+    return _document_from_entries(new_entries)
 
 
 def apply_qt_text_change(
@@ -449,7 +439,7 @@ def apply_qt_text_change(
         == added_seg[len(added_seg) - 1 - suffix]
     ):
         suffix += 1
-    return apply_text_change(
+    return _apply_plain_text_change(
         document,
         new_text,
         change_start + prefix,
@@ -491,7 +481,7 @@ def _mutate_range(document: dict, start: int, end: int, mutate) -> dict:
     for entry in entries[start:end]:
         if entry.char != "\n":
             mutate(entry)
-    return _document_from_entries(_entries_text(entries), entries)
+    return _document_from_entries(entries)
 
 
 def _drop_node_of_type(node_type: str):
@@ -580,7 +570,7 @@ def _wrap_range_as_node(
         entry.node = new_node
     # 注：范围跨段落时按段落各自重组为一个节点（ruby 注音随之复制到每段），
     # 与旧实现的逐行包装行为一致。
-    return _document_from_entries(_entries_text(entries), entries)
+    return _document_from_entries(entries)
 
 
 # ---------------------------------------------------------------------------
@@ -794,15 +784,9 @@ def style_row_coverage(
     if not visible_entries:
         return False, False
 
-    def matches(entry: _CharEntry) -> bool:
-        node = entry.node
-        if row_key == "R":
-            return isinstance(node, dict) and node.get("type") == "ruby"
-        if row_key == "T":
-            return isinstance(node, dict) and node.get("type") == "tcy"
-        return _style_matches_row_key(entry.style or {}, row_key)
-
-    matched = [matches(entry) for entry in visible_entries]
+    matched = [
+        _style_row_value(entry, row_key) is not _UNSET for entry in visible_entries
+    ]
     return any(matched), all(matched)
 
 
@@ -820,6 +804,25 @@ def _styles_in_range(entries: list[_CharEntry], start: int, end: int) -> list[di
 
 
 _UNSET = object()
+_BOOLEAN_STYLE_ROWS = {
+    "B": "bold",
+    "U": "underline",
+    "ST": "strikethrough",
+    "D": "emphasis",
+}
+_DIRECT_STYLE_ROWS = {
+    "C": "color",
+    "I": "italic",
+    "S": "fontSize",
+    "%": "scale",
+    "F": "fontFamily",
+    "FA": "verticalAdvance",
+    "K": "kerning",
+    "PK": "preKerning",
+    "LK": "lineKerning",
+    "NK": "nextKerning",
+}
+_NESTED_STYLE_ROWS = {"O": "stroke", "G": "glow", "OS": "outerStroke"}
 
 
 def _ruby_texts_in_range(entries: list[_CharEntry], start: int, end: int) -> list[str]:
@@ -871,6 +874,7 @@ def styled_text_for_key(document: dict, start: int, end: int, row_key: str) -> s
 
 
 def _style_row_value(entry: _CharEntry, row_key: str) -> Any:
+    """Return a row's canonical value, or ``_UNSET`` when it is not active."""
     node = entry.node if isinstance(entry.node, dict) else None
     if row_key == "R":
         if node is not None and node.get("type") == "ruby":
@@ -880,107 +884,36 @@ def _style_row_value(entry: _CharEntry, row_key: str) -> Any:
         return True if node is not None and node.get("type") == "tcy" else _UNSET
 
     style = entry.style or {}
-    if not _style_matches_row_key(style, row_key):
+    boolean_key = _BOOLEAN_STYLE_ROWS.get(row_key)
+    if boolean_key is not None:
+        return True if style.get(boolean_key) else _UNSET
+
+    direct_key = _DIRECT_STYLE_ROWS.get(row_key)
+    if direct_key is not None:
+        return style[direct_key] if direct_key in style else _UNSET
+
+    nested_key = _NESTED_STYLE_ROWS.get(row_key)
+    if nested_key is not None:
+        value = style.get(nested_key)
+        return copy.deepcopy(value) if isinstance(value, dict) and value else _UNSET
+
+    transform = style.get("transform")
+    if not isinstance(transform, dict):
         return _UNSET
-    if row_key == "B":
-        return bool(style.get("bold"))
-    if row_key == "U":
-        return bool(style.get("underline"))
-    if row_key == "ST":
-        return bool(style.get("strikethrough"))
-    if row_key == "C":
-        return style.get("color")
-    if row_key == "I":
-        return style.get("italic")
-    if row_key == "S":
-        return style.get("fontSize")
-    if row_key == "%":
-        return style.get("scale")
-    if row_key == "F":
-        return style.get("fontFamily")
-    if row_key in {"O", "G", "OS"}:
-        source = {"O": "stroke", "G": "glow", "OS": "outerStroke"}[row_key]
-        return copy.deepcopy(style.get(source))
-    if row_key == "D":
-        return bool(style.get("emphasis"))
-    if row_key == "FA":
-        return style.get("verticalAdvance")
-    if row_key in {"Rot", "XY", "WH", "M", "MV"}:
-        transform = style.get("transform") or {}
-        if row_key == "Rot":
-            return transform.get("rotation")
-        if row_key == "XY":
-            return (transform.get("offsetX"), transform.get("offsetY"))
-        if row_key == "WH":
-            return (transform.get("scaleX"), transform.get("scaleY"))
-        return bool(transform.get("mirrorX" if row_key == "M" else "mirrorY"))
-    return style.get(
-        {
-            "K": "kerning",
-            "PK": "preKerning",
-            "LK": "lineKerning",
-            "NK": "nextKerning",
-        }.get(row_key)
-    )
-
-
-def _style_matches_row_key(style: dict, row_key: str) -> bool:
-    if row_key == "B":
-        return bool(style.get("bold"))
-    if row_key == "U":
-        return bool(style.get("underline"))
-    if row_key == "ST":
-        return bool(style.get("strikethrough"))
-    if row_key == "C":
-        return "color" in style
-    if row_key == "I":
-        return "italic" in style
-    if row_key == "S":
-        return "fontSize" in style
-    if row_key == "%":
-        return "scale" in style
-    if row_key == "F":
-        return "fontFamily" in style
-    if row_key == "O":
-        return isinstance(style.get("stroke"), dict) and bool(style.get("stroke"))
-    if row_key == "G":
-        return isinstance(style.get("glow"), dict) and bool(style.get("glow"))
-    if row_key == "OS":
-        return isinstance(style.get("outerStroke"), dict) and bool(
-            style.get("outerStroke")
-        )
-    if row_key == "D":
-        return bool(style.get("emphasis"))
-    if row_key == "FA":
-        return "verticalAdvance" in style
     if row_key == "Rot":
-        transform = style.get("transform")
-        return isinstance(transform, dict) and "rotation" in transform
-    if row_key == "K":
-        return "kerning" in style
-    if row_key == "PK":
-        return "preKerning" in style
-    if row_key == "LK":
-        return "lineKerning" in style
-    if row_key == "NK":
-        return "nextKerning" in style
+        return transform["rotation"] if "rotation" in transform else _UNSET
     if row_key == "XY":
-        transform = style.get("transform")
-        return isinstance(transform, dict) and (
-            "offsetX" in transform or "offsetY" in transform
-        )
+        if "offsetX" in transform or "offsetY" in transform:
+            return (transform.get("offsetX"), transform.get("offsetY"))
+        return _UNSET
     if row_key == "WH":
-        transform = style.get("transform")
-        return isinstance(transform, dict) and (
-            "scaleX" in transform or "scaleY" in transform
-        )
-    if row_key == "M":
-        transform = style.get("transform")
-        return isinstance(transform, dict) and bool(transform.get("mirrorX"))
-    if row_key == "MV":
-        transform = style.get("transform")
-        return isinstance(transform, dict) and bool(transform.get("mirrorY"))
-    return False
+        if "scaleX" in transform or "scaleY" in transform:
+            return (transform.get("scaleX"), transform.get("scaleY"))
+        return _UNSET
+    if row_key in {"M", "MV"}:
+        key = "mirrorX" if row_key == "M" else "mirrorY"
+        return True if transform.get(key) else _UNSET
+    return _UNSET
 
 
 def _compact_display_text(text: str, limit: int = 12) -> str:
@@ -1010,23 +943,4 @@ def _merge_style(style: dict, patch: dict) -> dict:
             merged.pop(key, None)
         else:
             merged[key] = value
-    return merged
-
-
-def _merge_adjacent_text_runs(inlines: list) -> list:
-    merged = []
-    for inline in inlines:
-        if (
-            merged
-            and isinstance(inline, dict)
-            and inline.get("type", "text") == "text"
-            and isinstance(merged[-1], dict)
-            and merged[-1].get("type", "text") == "text"
-            and (merged[-1].get("style") or {}) == (inline.get("style") or {})
-        ):
-            merged[-1]["text"] = str(merged[-1].get("text", "")) + str(
-                inline.get("text", "")
-            )
-        else:
-            merged.append(inline)
     return merged

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtGui import QPixmap
+
 from editor.image_utils import build_mask_display_frame
 
 from .graphics_items import TransparentPixmapItem
@@ -19,7 +20,10 @@ class MaskLayer:
 
     def __init__(self, view: "GraphicsView"):
         self.view = view
-        self.items: dict[str, TransparentPixmapItem | None] = {"raw": None, "refined": None}
+        self.items: dict[str, TransparentPixmapItem | None] = {
+            "raw": None,
+            "refined": None,
+        }
         self.dirty = {"raw": False, "refined": False}
 
     def clear(self) -> None:
@@ -45,7 +49,9 @@ class MaskLayer:
             self._hide_item(item)
             return
 
-        display_frame = build_mask_display_frame(mask_array, max_pixels=self.view.MASK_PREVIEW_MAX_PIXELS)
+        display_frame = build_mask_display_frame(
+            mask_array, max_pixels=self.view.MASK_PREVIEW_MAX_PIXELS
+        )
         if display_frame is None:
             return
 

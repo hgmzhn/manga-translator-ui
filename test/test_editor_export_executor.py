@@ -124,7 +124,11 @@ def test_different_images_run_fifo_with_single_concurrency():
             for index in range(3)
         ]
         assert all(future is not None for future in futures)
-        assert [future.result(timeout=2).output_path for future in futures] == ["0", "1", "2"]
+        assert [future.result(timeout=2).output_path for future in futures] == [
+            "0",
+            "1",
+            "2",
+        ]
     finally:
         service.shutdown()
 
@@ -152,7 +156,9 @@ def test_failed_job_does_not_block_the_next_export():
     finally:
         service.shutdown()
 
-    assert [outcome.success for outcome in controller._export_job_finished_signal.values] == [
+    assert [
+        outcome.success for outcome in controller._export_job_finished_signal.values
+    ] == [
         False,
         True,
     ]
@@ -169,8 +175,7 @@ def test_shutdown_drains_all_accepted_exports():
 
     service.execute_export_job = run
     futures = [
-        service._submit_job(_job(str(index), automatic=False))
-        for index in range(3)
+        service._submit_job(_job(str(index), automatic=False)) for index in range(3)
     ]
     assert all(future is not None for future in futures)
 
@@ -190,7 +195,18 @@ def _backend_inpaint_base() -> ExportBase:
         source,
         source,
         mask,
-        InpaintKey(3, 5, 7, 11),
+        InpaintKey(3, 7),
+    )
+
+
+def _backend_job(tmp_path, config=None, output_name="rendered.png") -> ExportJob:
+    return ExportJob(
+        automatic=False,
+        source_path=str(tmp_path / "page.png"),
+        output_path=str(tmp_path / output_name),
+        export_base=_backend_inpaint_base(),
+        regions=[],
+        config=config or {},
     )
 
 
@@ -211,15 +227,11 @@ def test_backend_inpaint_failure_does_not_write_output(monkeypatch, tmp_path):
         lambda *_args, **_kwargs: saved.append(True),
     )
 
-    outcome = service._perform_backend_render_export(
-        _backend_inpaint_base(),
-        [],
-        {},
-        str(output_path),
-        source_image_path=str(tmp_path / "page.png"),
-    )
+    job = _backend_job(tmp_path, output_name="failed.png")
+    outcome = service.execute_export_job(job)
+    job.release_resources()
 
-    assert outcome is None
+    assert outcome.error is not None
     assert saved == []
     assert not output_path.exists()
 
@@ -241,15 +253,15 @@ def test_ai_renderer_cannot_bypass_required_backend_inpaint(monkeypatch, tmp_pat
         lambda *_args, **_kwargs: saved.append(True),
     )
 
-    outcome = service._perform_backend_render_export(
-        _backend_inpaint_base(),
-        [],
+    job = _backend_job(
+        tmp_path,
         {"render": {"renderer": "openai_renderer"}},
-        str(output_path),
-        source_image_path=str(tmp_path / "page.png"),
+        "ai-rendered.png",
     )
+    outcome = service.execute_export_job(job)
+    job.release_resources()
 
-    assert outcome is None
+    assert outcome.error is not None
     assert saved == []
     assert not output_path.exists()
 
@@ -261,7 +273,6 @@ def test_backend_inpaint_success_persists_and_returns_generated_artifact(
     from services.export_service import BackendRenderResult, ExportService
 
     service = ExportService()
-    export_base = _backend_inpaint_base()
     generated = np.full((6, 8, 3), 149, dtype=np.uint8)
     persisted = []
     saved = []
@@ -276,7 +287,7 @@ def test_backend_inpaint_success_persists_and_returns_generated_artifact(
     )
     monkeypatch.setattr(
         service,
-        "_persist_backend_inpainted_image",
+        "save_inpainted_image",
         lambda *args, **kwargs: persisted.append((args, kwargs)) or "paired.png",
     )
     monkeypatch.setattr(
@@ -285,21 +296,17 @@ def test_backend_inpaint_success_persists_and_returns_generated_artifact(
         lambda *args, **kwargs: saved.append((args, kwargs)),
     )
 
-    outcome = service._perform_backend_render_export(
-        export_base,
-        [],
-        {},
-        str(tmp_path / "rendered.png"),
-        source_image_path=str(tmp_path / "page.png"),
-    )
+    job = _backend_job(tmp_path)
+    outcome = service.execute_export_job(job)
+    job.release_resources()
 
-    assert outcome is not None
+    assert outcome.error is None
     assert np.array_equal(outcome.generated_inpainted_image, generated)
     assert len(persisted) == 1
     persist_args, _ = persisted[0]
     assert persist_args[0] == str(tmp_path / "page.png")
     assert np.array_equal(persist_args[1], generated)
-    assert persist_args[2] == {}
+    assert persist_args[2]["upscale"]["upscale_ratio"] is None
     assert len(saved) == 1
 
 
@@ -312,7 +319,7 @@ def test_export_job_wraps_generated_image_with_snapshot_identity(
     generated = np.full((6, 8, 3), 203, dtype=np.uint8)
     monkeypatch.setattr(
         ExportService,
-        "_perform_backend_render_export",
+        "execute_export_job",
         lambda *_args, **_kwargs: BackendExportResult(generated),
     )
     export_base = _backend_inpaint_base()
@@ -327,6 +334,7 @@ def test_export_job_wraps_generated_image_with_snapshot_identity(
     service = EditorControllerExportService(_Controller())
     try:
         outcome = service.execute_export_job(job)
+        job.release_resources()
     finally:
         service.shutdown()
 

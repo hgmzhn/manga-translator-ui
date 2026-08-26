@@ -33,10 +33,17 @@ def test_loaded_sidecar_installs_a_real_paired_artifact():
     assert artifact is not None
     assert np.array_equal(artifact.mask, _mask())
     assert np.array_equal(artifact.image, inpainted)
+    assert artifact.key == session.get_inpaint_key()
     assert np.array_equal(
         session.get_display_layers().inpaint_display_image,
         inpainted,
     )
+
+    session.load_document(
+        DocumentSnapshot(source_path="page-next.png", image=source, raw_mask=_mask())
+    )
+    assert not session.install_inpaint_artifact(artifact)
+    assert session.get_committed_inpaint_artifact() is None
 
 
 def test_absent_sidecar_keeps_domain_artifact_empty():

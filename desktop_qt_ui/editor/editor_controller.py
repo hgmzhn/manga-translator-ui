@@ -27,9 +27,8 @@ from services import (
 from .controller_document_service import EditorControllerDocumentService
 from .controller_export_service import EditorControllerExportService, ExportOutcome
 from .controller_inpaint_service import EditorControllerInpaintService
-from .document_state import DocumentSnapshot
 from .editor_model import EditorModel
-from .image_utils import copy_image_like, image_like_to_display_array
+from .image_utils import image_like_to_display_array
 from .render_text_value import has_renderable_text, render_text_value_from_region
 
 _UNSET = object()
@@ -188,7 +187,6 @@ class EditorController(QObject):
     _regions_update_finished = pyqtSignal(object)
     _ocr_finished = pyqtSignal(str, str)
     _translation_finished = pyqtSignal(str, str)
-    _refined_mask_ready = pyqtSignal(object)
     _inpaint_result_ready = pyqtSignal(object)
 
     # Export queue worker -> GUI thread signals
@@ -214,9 +212,6 @@ class EditorController(QObject):
         self.config_service = get_config_service()
         self.resource_manager = get_resource_manager()  # 新的资源管理器
 
-        # 底图 RGB 是按文档加载周期清理的可重建弱缓存；请求状态由 Session 独占。
-        self.WEAK_CACHE_BASE_IMAGE_RGB = "weak_base_image_rgb"
-
         self.document_service = EditorControllerDocumentService(self)
         self.inpaint_service = EditorControllerInpaintService(self)
         self.export_service = EditorControllerExportService(self)
@@ -228,10 +223,6 @@ class EditorController(QObject):
         self._regions_update_finished.connect(self.on_regions_update_finished)
         self._ocr_finished.connect(self._on_ocr_finished)
         self._translation_finished.connect(self._on_translation_finished)
-        self._refined_mask_ready.connect(
-            self._apply_refined_mask_result,
-            type=Qt.ConnectionType.QueuedConnection,
-        )
         self._inpaint_result_ready.connect(
             self._apply_inpaint_result,
             type=Qt.ConnectionType.QueuedConnection,
@@ -241,7 +232,9 @@ class EditorController(QObject):
         self._export_queue_status_signal.connect(self._on_export_queue_status_changed)
         self._export_job_finished_signal.connect(self._on_export_job_finished)
 
-        self._connect_model_signals()
+        self.model.effective_mask_delta_changed.connect(
+            self.inpaint_service.on_effective_mask_delta_changed
+        )
         self.history_service.undo_redo_state_changed.connect(
             self._on_history_undo_redo_state_changed
         )
@@ -261,11 +254,6 @@ class EditorController(QObject):
 
     # ========== Resource Access Helpers (新的资源访问辅助方法) ==========
 
-    def _get_current_image(self) -> Optional[Image.Image]:
-        """Return the source image owned by the active editor document."""
-        return self.model.get_image()
-
-
     @staticmethod
     def _normalize_image_path(path: Optional[str]) -> Optional[str]:
         if not path:
@@ -276,18 +264,6 @@ class EditorController(QObject):
         left_path = self._normalize_image_path(left)
         right_path = self._normalize_image_path(right)
         return bool(left_path and right_path and left_path == right_path)
-
-    def _snapshot_image_for_export(self, image_obj, label: str):
-        """为导出创建独立快照，避免切图时原图/数组被后续编辑覆盖。"""
-        if image_obj is None:
-            return None
-        try:
-            return copy_image_like(image_obj)
-        except Exception as e:
-            self.logger.error(
-                f"Failed to snapshot {label} for export: {e}", exc_info=True
-            )
-            raise
 
     def _load_detached_image_array(
         self,
@@ -321,28 +297,6 @@ class EditorController(QObject):
             self.resource_manager.log_memory_snapshot(stage, logger=self.logger)
         except Exception as e:
             self.logger.debug(f"Failed to log memory snapshot at {stage}: {e}")
-
-    def _get_regions(self):
-        """获取所有区域
-
-        Returns:
-            List[Dict]: 区域列表
-        """
-        return self.model.get_regions()
-
-    def _get_region_by_index(self, index: int):
-        """根据索引获取区域
-
-        Args:
-            index: 区域索引
-
-        Returns:
-            Dict: 区域数据，如果不存在返回None
-        """
-        regions = self._get_regions()
-        if 0 <= index < len(regions):
-            return regions[index]
-        return None
 
     def _merge_live_geometry_state(self, region_index: int, region_data: dict) -> dict:
         """为样式类更新保留当前 item 的合法持久化几何状态。"""
@@ -568,16 +522,6 @@ class EditorController(QObject):
                 7000,
             )
 
-    def _connect_model_signals(self):
-        """Trigger inpainting once per effective-mask mutation."""
-        self.model.effective_mask_delta_changed.connect(
-            self.inpaint_service.on_effective_mask_delta_changed
-        )
-
-    @pyqtSlot(object)
-    def _apply_refined_mask_result(self, result) -> None:
-        self.inpaint_service.apply_refined_mask_result(result)
-
     @pyqtSlot(object)
     def _apply_inpaint_result(self, result) -> None:
         self.inpaint_service.apply_inpaint_result(result)
@@ -710,49 +654,9 @@ class EditorController(QObject):
             self.logger.warning(f"auto rich text rules failed: {e}")
             return None
 
-    def _clear_editor_state(self, release_image_cache: bool = False):
-        self.document_service.clear_editor_state(
-            release_image_cache=release_image_cache
-        )
-
-    def _find_source_from_translation_map(self, image_path: str) -> Optional[str]:
-        return self.document_service.find_source_from_translation_map(image_path)
-
-    def _resolve_editor_image_paths(self, image_path: str) -> tuple[str, str]:
-        return self.document_service.resolve_editor_image_paths(image_path)
-
-    def load_image_and_regions(self, image_path: str):
-        self.document_service.load_image_and_regions(image_path)
-
-    def _do_load_image(self, image_path: str):
-        self.document_service.do_load_image(image_path)
-
     @pyqtSlot(object)
     def _apply_load_result(self, result: object):
         self.document_service.apply_load_result(result)
-
-    def _apply_loaded_data_to_model(self, snapshot: DocumentSnapshot):
-        self.document_service.apply_loaded_data_to_model(snapshot)
-
-    def _handle_load_error(self, error_msg: str):
-        self.document_service.handle_load_error(error_msg)
-
-
-    @pyqtSlot(str, bool)
-    def set_display_mask_type(self, mask_type: str, visible: bool):
-        self.inpaint_service.set_display_mask_type(mask_type, visible)
-
-    @pyqtSlot(str)
-    def set_active_tool(self, tool: str):
-        self.inpaint_service.set_active_tool(tool)
-
-    @pyqtSlot(int)
-    def set_brush_size(self, size: int):
-        self.inpaint_service.set_brush_size(size)
-
-    @pyqtSlot(str)
-    def set_brush_color(self, color: str):
-        self.inpaint_service.set_brush_color(color)
 
     @pyqtSlot()
     def clear_all_masks(self):
@@ -802,7 +706,7 @@ class EditorController(QObject):
         merge_live_geometry: bool = True,
         current_value=_UNSET,
     ) -> bool:
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return False
 
@@ -895,7 +799,7 @@ class EditorController(QObject):
     @pyqtSlot(int, str, object)
     def update_translated_text(self, region_index: int, text: str, edit_info=None):
         # 译文编辑:同步覆盖 translation_raw(规则不可逆,只能粗暴同步)
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
         new_rich = self._sync_rich_for_plain_edit(
@@ -926,7 +830,7 @@ class EditorController(QObject):
     @pyqtSlot(int, str, object)
     def update_translation_raw(self, region_index: int, raw_text: str, edit_info=None):
         """编辑替换前译文:实时跑 apply_replacements 同步到 translation 字段。"""
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
 
@@ -950,7 +854,7 @@ class EditorController(QObject):
     def update_translation_rich(
         self, region_index: int, rich_document, plain_text: str
     ):
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
 
@@ -996,7 +900,7 @@ class EditorController(QObject):
         translation_rich: Optional[dict] = None,
     ) -> bool:
         """同时更新 translation 和 translation_raw,共用一个 Undo Command(撤销时一起回滚)。"""
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return False
 
@@ -1084,7 +988,7 @@ class EditorController(QObject):
 
     @pyqtSlot(int, float)
     def update_line_spacing(self, region_index: int, value: float):
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
         current_value = old_region_data.get("line_spacing")
@@ -1100,7 +1004,7 @@ class EditorController(QObject):
 
     @pyqtSlot(int, float)
     def update_letter_spacing(self, region_index: int, value: float):
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
         current_value = old_region_data.get("letter_spacing")
@@ -1163,7 +1067,7 @@ class EditorController(QObject):
 
     @pyqtSlot(int, float)
     def update_angle(self, region_index: int, value: float):
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
 
@@ -1204,7 +1108,7 @@ class EditorController(QObject):
         """处理来自视图的区域几何变化。"""
         # 现在RegionTextItem在调用callback之前不会修改self.region_data
         # 所以我们可以从模型中获取正确的旧数据
-        old_region_data = self._get_region_by_index(region_index)
+        old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
 
@@ -1857,7 +1761,7 @@ class EditorController(QObject):
         selected_indices = self.model.get_selection()
         if not selected_indices:
             return
-        image = self._get_current_image()
+        image = self.model.get_image()
         if not image:
             return
 
@@ -2040,7 +1944,7 @@ class EditorController(QObject):
         selected_indices = self.model.get_selection()
         if not selected_indices:
             return
-        image = self._get_current_image()
+        image = self.model.get_image()
         if not image:
             return
 

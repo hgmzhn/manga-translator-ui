@@ -160,20 +160,6 @@ class OverlayLayerManager:
         self.paint_overlay.clear()
         self.stamp_overlay.clear()
 
-    def on_inpaint_display_changed(self, document_identity, image) -> None:
-        self.inpainted.set_image(
-            image,
-            document_identity=document_identity,
-        )
-
-    def on_paint_overlay_changed(self, overlay) -> None:
-        """彩色画笔图层数据变化时刷新对应 pixmap。"""
-        self.paint_overlay.set_image(overlay)
-
-    def on_stamp_overlay_changed(self, overlay) -> None:
-        """印章图层数据变化时刷新对应 pixmap。"""
-        self.stamp_overlay.set_image(overlay)
-
     def set_paint_overlay_visible(self, visible: bool) -> None:
         self.paint_overlay.set_layer_visible(visible)
 

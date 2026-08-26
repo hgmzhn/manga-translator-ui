@@ -7,11 +7,11 @@ from typing import Any, Literal, Optional
 import numpy as np
 
 from .core.types import MaskType
+from .image_utils import image_like_to_rgb_array
 from .inpaint_state import InpaintArtifact, InpaintKey, InpaintState, MaskDelta
 from .region_geometry_state import normalize_region_geometry_data
 
 _UNSET = object()
-
 
 
 def normalize_binary_mask(mask: Any) -> Optional[np.ndarray]:
@@ -22,7 +22,12 @@ def normalize_binary_mask(mask: Any) -> Optional[np.ndarray]:
         array = array[..., 0]
     if array.ndim != 2:
         raise ValueError(f"mask must be 2D, got shape {array.shape}")
-    normalized = np.where(array > 0, 255, 0).astype(np.uint8)
+    if array.dtype == np.uint8 and np.all((array == 0) | (array == 255)):
+        normalized = array
+        if normalized.flags.writeable or not normalized.flags.owndata:
+            normalized = np.array(normalized, copy=True)
+    else:
+        normalized = np.where(array > 0, 255, 0).astype(np.uint8)
     normalized.setflags(write=False)
     return normalized
 
@@ -32,18 +37,6 @@ def _arrays_equal(left: Optional[np.ndarray], right: Optional[np.ndarray]) -> bo
     if left is None or right is None:
         return left is right
     return left.shape == right.shape and np.array_equal(left, right)
-
-def _copy_image(image: Any) -> Any:
-    if image is None:
-        raise ValueError("active document source image is required")
-    if isinstance(image, np.ndarray):
-        owned = np.array(image, copy=True)
-        owned.setflags(write=False)
-        return owned
-    copy_method = getattr(image, "copy", None)
-    if callable(copy_method):
-        return copy_method()
-    return copy.deepcopy(image)
 
 
 def _normalize_opacity(value: float) -> float:
@@ -64,12 +57,8 @@ def _mask_delta(
         added = current
         removed = np.zeros_like(current)
     else:
-        added = np.where((current > 0) & (previous == 0), 255, 0).astype(
-            np.uint8
-        )
-        removed = np.where((previous > 0) & (current == 0), 255, 0).astype(
-            np.uint8
-        )
+        added = np.where((current > 0) & (previous == 0), 255, 0).astype(np.uint8)
+        removed = np.where((previous > 0) & (current == 0), 255, 0).astype(np.uint8)
     return MaskDelta(added, removed, mask_revision)
 
 
@@ -83,7 +72,9 @@ class LoadedInpaintSidecar:
         image = np.asarray(self.image)
         if image.ndim != 3 or image.shape[2] < 3:
             raise ValueError(f"invalid inpainted image shape: {image.shape}")
-        owned = np.array(image[..., :3], copy=True)
+        owned = image[..., :3]
+        if owned.flags.writeable or not owned.flags.owndata:
+            owned = np.array(owned, copy=True)
         owned.setflags(write=False)
         object.__setattr__(self, "image", owned)
 
@@ -111,13 +102,6 @@ class DocumentLoadFailure:
 
 
 @dataclass(slots=True)
-class DocumentRevisions:
-    content: int
-    base: int = 1
-    mask: int = 0
-
-
-@dataclass(slots=True)
 class RegionRecord:
     region_id: int
     data: dict
@@ -142,7 +126,6 @@ class RegionCollection:
         )
         self._next_id += 1
         return record
-
 
     def snapshot(self) -> list[dict]:
         return [copy.deepcopy(record.data) for record in self._records]
@@ -198,8 +181,7 @@ class MaskState:
     @classmethod
     def from_raw(cls, raw_mask: Any) -> "MaskState":
         raw = normalize_binary_mask(raw_mask)
-        refined = None if raw is None else normalize_binary_mask(raw)
-        return cls(raw=raw, refined=refined)
+        return cls(raw=raw, refined=raw)
 
     def get(self, mask_type: MaskType) -> Optional[np.ndarray]:
         return self.raw if mask_type == MaskType.RAW else self.refined
@@ -246,11 +228,13 @@ class DisplayLayers:
     inpaint_display_image: Any
     source_opacity: float
 
-
     def __post_init__(self) -> None:
         if self.source_image is None or self.inpaint_display_image is None:
             raise ValueError("both editor display layers are required")
-        object.__setattr__(self, "source_opacity", _normalize_opacity(self.source_opacity))
+        object.__setattr__(
+            self, "source_opacity", _normalize_opacity(self.source_opacity)
+        )
+
     @property
     def identity(self) -> tuple[int, str]:
         return self.document_id, self.source_path
@@ -278,9 +262,13 @@ class ExportBase:
             raise ValueError(f"unsupported export base kind: {self.kind}")
         if not has_mask or self.inpaint_key is None:
             raise ValueError(f"{self.kind} export requires a non-empty mask and key")
-        object.__setattr__(self, "mask", np.array(self.mask, copy=True))
-        if self.kind == "backend_inpaint" and self.render_image is not self.source_image:
+        object.__setattr__(self, "mask", normalize_binary_mask(self.mask))
+        if (
+            self.kind == "backend_inpaint"
+            and self.render_image is not self.source_image
+        ):
             raise ValueError("backend inpaint must start from the current source image")
+
 
 @dataclass(slots=True)
 class EditorWorkspaceState:
@@ -299,6 +287,7 @@ class EditorWorkspaceState:
         self.source_opacity = normalized
         return True
 
+
 @dataclass(slots=True)
 class EditorDocument:
     document_id: int
@@ -309,9 +298,10 @@ class EditorDocument:
     regions: RegionCollection
     masks: MaskState
     overlays: OverlayState
-    revisions: DocumentRevisions
+    mask_revision: int
     inpaint_display_image: Any
     inpaint: InpaintState = field(default_factory=InpaintState)
+    _source_rgb: Optional[np.ndarray] = None
 
     @classmethod
     def from_snapshot(
@@ -320,7 +310,6 @@ class EditorDocument:
         snapshot: DocumentSnapshot,
     ) -> "EditorDocument":
         masks = MaskState.from_raw(snapshot.raw_mask)
-        mask_revision = 1 if masks.effective() is not None else 0
         document = cls(
             document_id=document_id,
             source_path=snapshot.source_path,
@@ -338,12 +327,8 @@ class EditorDocument:
                 paint=OverlayState.normalize(snapshot.paint_overlay_image),
                 stamp=OverlayState.normalize(snapshot.stamp_overlay_image),
             ),
-            revisions=DocumentRevisions(
-                content=(int(document_id) << 32) + 1,
-                base=1,
-                mask=mask_revision,
-            ),
-            inpaint_display_image=_copy_image(snapshot.image),
+            mask_revision=0,
+            inpaint_display_image=snapshot.image,
         )
         stored = snapshot.inpaint_sidecar
         current_mask = masks.effective()
@@ -362,22 +347,25 @@ class EditorDocument:
             document.inpaint_display_image = artifact.image
         return document
 
-    def _touch(self) -> None:
-        self.revisions.content += 1
-
     def inpaint_key(self) -> InpaintKey:
-        return InpaintKey(
-            self.document_id,
-            self.revisions.base,
-            self.revisions.mask,
-            self.inpaint.generation,
-        )
+        return InpaintKey(self.document_id, self.mask_revision)
 
-
+    def source_rgb(self) -> Optional[np.ndarray]:
+        if self._source_rgb is None:
+            source_rgb = image_like_to_rgb_array(self.source_image, copy=False)
+            if source_rgb is None:
+                return None
+            if not source_rgb.flags.owndata or (
+                isinstance(self.source_image, np.ndarray)
+                and np.shares_memory(source_rgb, self.source_image)
+            ):
+                source_rgb = np.array(source_rgb, copy=True)
+            source_rgb.setflags(write=False)
+            self._source_rgb = source_rgb
+        return self._source_rgb
 
     def replace_regions(self, regions: list[dict]) -> None:
         self.regions.replace(regions)
-        self._touch()
 
     def replace_masks(
         self,
@@ -390,9 +378,12 @@ class EditorDocument:
         previous_effective = self.masks.effective()
 
         next_raw = previous_raw if raw is _UNSET else normalize_binary_mask(raw)
-        next_refined = (
-            previous_refined if refined is _UNSET else normalize_binary_mask(refined)
-        )
+        if refined is _UNSET:
+            next_refined = previous_refined
+        elif refined is raw and raw is not _UNSET:
+            next_refined = next_raw
+        else:
+            next_refined = normalize_binary_mask(refined)
         raw_changed = not _arrays_equal(previous_raw, next_raw)
         refined_changed = not _arrays_equal(previous_refined, next_refined)
         if not raw_changed and not refined_changed:
@@ -410,20 +401,19 @@ class EditorDocument:
         current_effective = self.masks.effective()
         delta = None
         if not _arrays_equal(previous_effective, current_effective):
-            self.revisions.mask += 1
+            self.mask_revision += 1
             clear_committed = current_effective is None or not np.any(current_effective)
             committed = self.inpaint.committed
             self.inpaint.invalidate(clear_committed=clear_committed)
             if clear_committed or committed is None:
-                self.inpaint_display_image = _copy_image(self.source_image)
+                self.inpaint_display_image = self.source_image
             else:
                 self.inpaint_display_image = committed.image
             delta = _mask_delta(
                 previous_effective,
                 current_effective,
-                self.revisions.mask,
+                self.mask_revision,
             )
-        self._touch()
         return MaskMutation(
             self.masks.raw,
             self.masks.refined,
@@ -456,7 +446,6 @@ class EditorDocument:
             return False
         self.inpaint.install_ready(artifact)
         self.inpaint_display_image = artifact.image
-        self._touch()
         return True
 
     def display_layers(self, source_opacity: float) -> DisplayLayers:

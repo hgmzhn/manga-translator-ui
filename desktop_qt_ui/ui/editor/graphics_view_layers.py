@@ -29,7 +29,8 @@ class GraphicsViewLayersMixin:
         """清空所有状态,包括items、缓存、计时器"""
         self.selection_manager.suppress_forward_sync(True)
         try:
-            self._reset_drawing_state()
+            self._end_stroke(commit=False)
+            self._abort_textbox_drawing()
             if self.render_debounce_timer.isActive():
                 self.render_debounce_timer.stop()
 
@@ -58,20 +59,14 @@ class GraphicsViewLayersMixin:
                 self.scene.removeItem(self._textbox_preview_item)
                 self._textbox_preview_item = None
 
-            self._clear_preview()
-
             # 仿制印章：取样圈是场景顶层 item，取样点/偏移属于当前图片，
             # 切图时必须一并清掉，否则旧取样点会带到新图
-            self._reset_clone_stroke_state()
             self._clone_sample_image_point = None
             self._clone_offset = None
             self._clear_clone_marker()
 
             self.selection_manager.clear_state()
             self.render_coordinator.reset()
-            self._is_drawing = False
-            self._is_drawing_textbox = False
-            self._textbox_start_pos = None
             self._clear_pending_geometry_edits()
         except (RuntimeError, AttributeError) as e:
             self.logger.warning("Error during clear_all_state: %s", e)
@@ -137,9 +132,9 @@ class GraphicsViewLayersMixin:
             if self.model.get_document_identity() != incoming_identity:
                 return
 
-            self.overlay_layers.on_inpaint_display_changed(
-                incoming_identity,
+            self.overlay_layers.inpainted.set_image(
                 layers.inpaint_display_image,
+                document_identity=incoming_identity,
             )
             if self._image_item is not None:
                 self._image_item.setOpacity(layers.source_opacity)

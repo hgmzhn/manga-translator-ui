@@ -2,6 +2,7 @@ from PyQt6.QtCore import QObject, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPen
 from PyQt6.QtWidgets import QGraphicsRectItem
 from qfluentwidgets import themeColor
+
 from services import get_logger
 
 
@@ -58,11 +59,26 @@ class SelectionManager(QObject):
         except (RuntimeError, AttributeError):
             pass
 
-    def _clear_box_select_rect(self) -> None:
-        if self._box_select_rect_item is None:
-            return
-        self._box_select_rect_item.setVisible(False)
-        self._box_select_rect_item.setRect(0, 0, 0, 0)
+    def _end_box_select(self, *, remove_item: bool = False) -> QRectF | None:
+        """Release box-selection state and return its last rectangle."""
+        self._is_box_selecting = False
+        self._box_select_start_pos = None
+        item = self._box_select_rect_item
+        if item is None:
+            return None
+        try:
+            rect = QRectF(item.rect())
+            if remove_item:
+                if item.scene():
+                    self._scene.removeItem(item)
+                self._box_select_rect_item = None
+            else:
+                item.setVisible(False)
+                item.setRect(0, 0, 0, 0)
+            return rect
+        except RuntimeError:
+            self._box_select_rect_item = None
+            return None
 
     def _selected_region_indices_from_scene(self) -> list[int]:
         from .graphics_items import RegionTextItem
@@ -70,7 +86,9 @@ class SelectionManager(QObject):
         return sorted(
             item.region_index
             for item in self._region_items()
-            if isinstance(item, RegionTextItem) and self._is_live_item(item) and item.isSelected()
+            if isinstance(item, RegionTextItem)
+            and self._is_live_item(item)
+            and item.isSelected()
         )
 
     # ------------------------------------------------------------------ #
@@ -118,44 +136,33 @@ class SelectionManager(QObject):
         """更新框选矩形"""
         if not self._is_box_selecting or self._box_select_start_pos is None:
             return False
-
-        if self._box_select_rect_item is None:
-            self._is_box_selecting = False
-            self._box_select_start_pos = None
-            return False
-
         try:
             rect = QRectF(self._box_select_start_pos, scene_pos).normalized()
             self._box_select_rect_item.setRect(rect)
             return True
-        except RuntimeError:
-            self._box_select_rect_item = None
-            self._is_box_selecting = False
-            self._box_select_start_pos = None
+        except (AttributeError, RuntimeError):
+            self._end_box_select()
             return False
 
     def finish_box_select(self, ctrl_pressed):
         """完成框选，计算相交区域并更新选择"""
-        self._is_box_selecting = False
-        self._box_select_start_pos = None
-
-        if not self._box_select_rect_item:
+        select_rect = self._end_box_select()
+        if select_rect is None:
             return
 
         try:
-            select_rect = self._box_select_rect_item.rect()
-            self._clear_box_select_rect()
-
             # 使用 item shape 做精确命中，避免仅按 boundingRect 误选旋转/细长区域
             from .graphics_items import RegionTextItem
+
             region_items = self._region_items()
-            hit_items = self._scene.items(select_rect, Qt.ItemSelectionMode.IntersectsItemShape)
+            hit_items = self._scene.items(
+                select_rect, Qt.ItemSelectionMode.IntersectsItemShape
+            )
             selected_indices = sorted(
                 {
                     int(item.region_index)
                     for item in hit_items
-                    if isinstance(item, RegionTextItem)
-                    and self._is_live_item(item)
+                    if isinstance(item, RegionTextItem) and self._is_live_item(item)
                 }
             )
 
@@ -165,7 +172,6 @@ class SelectionManager(QObject):
                 if not ctrl_pressed:
                     for item in region_items:
                         self._set_item_selected(item, False)
-
                 for idx in selected_indices:
                     if 0 <= idx < len(region_items):
                         self._set_item_selected(region_items[idx], True)
@@ -174,19 +180,12 @@ class SelectionManager(QObject):
 
             # 手动触发一次同步
             self._on_scene_selection_changed()
-
         except RuntimeError:
-            self._box_select_rect_item = None
+            pass
 
     def cancel_box_select(self):
-        """中断框选（右键菜单/失焦/Escape 等 release 会丢失的场合）：
-        不改变选择，只清理进行中状态与预览矩形。"""
-        self._is_box_selecting = False
-        self._box_select_start_pos = None
-        try:
-            self._clear_box_select_rect()
-        except RuntimeError:
-            self._box_select_rect_item = None
+        """Discard an in-progress box selection without changing selection."""
+        self._end_box_select()
 
     @property
     def is_box_selecting(self):
@@ -239,16 +238,8 @@ class SelectionManager(QObject):
 
     def clear_state(self):
         """清理所有框选状态（切换图片等场景）"""
-        if self._box_select_rect_item:
-            try:
-                if self._box_select_rect_item.scene():
-                    self._scene.removeItem(self._box_select_rect_item)
-            except RuntimeError:
-                pass
-        self._box_select_rect_item = None
-        self._is_box_selecting = False
-        self._box_select_start_pos = None
+        self._end_box_select(remove_item=True)
 
     def on_scene_cleared(self):
-        """当 scene.clear() 被调用后，重置框选矩形引用（已被场景删除）"""
-        self._box_select_rect_item = None
+        """当 scene.clear() 被调用后，重置框选状态。"""
+        self._end_box_select()

@@ -1,4 +1,4 @@
-"""Rebuildable editor resource records."""
+"""Editor image resource records."""
 
 import time
 from dataclasses import dataclass, field
@@ -27,21 +27,3 @@ class ImageResource:
         # this cache reference must therefore never close the image.
         self.image = None
         self.qimage = None
-
-
-@dataclass(frozen=True, slots=True)
-class RebuildableCacheKey:
-    """Identity-scoped key for weak, reproducible derived image data."""
-
-    document_id: int
-    source_path: str
-    name: str
-
-    @classmethod
-    def from_identity(
-        cls,
-        identity: tuple[int, str],
-        name: str,
-    ) -> "RebuildableCacheKey":
-        document_id, source_path = identity
-        return cls(int(document_id), str(source_path), str(name))

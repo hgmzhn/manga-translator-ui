@@ -11,28 +11,30 @@ if TYPE_CHECKING:
     from ui.editor.graphics_items import RegionTextItem
 
 
-def _get_white_frame_world_ref(item: "RegionTextItem", ref_key: str) -> float | None:
-    """获取 item 白框在场景坐标中指定参考点的 x 或 y 值。"""
-    pts = item._get_white_frame_world_points()
-    if not pts:
+_MODE_REFERENCE = {
+    "top": "top",
+    "vertical_center": "center",
+    "bottom": "bottom",
+    "left": "left",
+    "horizontal_center": "center",
+    "right": "right",
+}
+_VERTICAL_MODES = frozenset({"top", "vertical_center", "bottom"})
+
+
+def _white_frame_coordinate(
+    item: "RegionTextItem", ref_key: str, *, vertical: bool
+) -> float | None:
+    """Return one white-frame reference coordinate in scene space."""
+    point = (item._get_white_frame_world_points() or {}).get(ref_key)
+    if point is None:
         return None
-    pt = pts.get(ref_key)
-    if pt is None:
-        return None
-    return pt
+    return float(point.y() if vertical else point.x())
 
 
-def _wf_ref_x(item: "RegionTextItem", ref_key: str) -> float | None:
-    result = _get_white_frame_world_ref(item, ref_key)
-    return result.x() if result is not None else None
-
-
-def _wf_ref_y(item: "RegionTextItem", ref_key: str) -> float | None:
-    result = _get_white_frame_world_ref(item, ref_key)
-    return result.y() if result is not None else None
-
-
-def compute_selection_bounds(items: list["RegionTextItem"]) -> tuple[float, float, float, float] | None:
+def compute_selection_bounds(
+    items: list["RegionTextItem"],
+) -> tuple[float, float, float, float] | None:
     """计算所有选中项白框在世界坐标中的包围盒 (min_x, min_y, max_x, max_y)。"""
     min_x = float("inf")
     min_y = float("inf")
@@ -119,23 +121,12 @@ def align_items(
     if target is None:
         return []
 
-    is_vertical = mode in ("top", "vertical_center", "bottom")
-    ref_key_from_mode = {
-        "top": "top",
-        "vertical_center": "center",
-        "bottom": "bottom",
-        "left": "left",
-        "horizontal_center": "center",
-        "right": "right",
-    }
-    ref_key = ref_key_from_mode.get(mode, "center")
+    is_vertical = mode in _VERTICAL_MODES
+    ref_key = _MODE_REFERENCE.get(mode, "center")
 
     results = []
     for item in items:
-        if is_vertical:
-            current = _wf_ref_y(item, ref_key)
-        else:
-            current = _wf_ref_x(item, ref_key)
+        current = _white_frame_coordinate(item, ref_key, vertical=is_vertical)
 
         if current is None:
             continue
@@ -161,26 +152,15 @@ def distribute_items(
     if len(items) < 3:
         return []
 
-    is_vertical = mode in ("top", "vertical_center", "bottom")
-    ref_key_from_mode = {
-        "top": "top",
-        "vertical_center": "center",
-        "bottom": "bottom",
-        "left": "left",
-        "horizontal_center": "center",
-        "right": "right",
-    }
-    ref_key = ref_key_from_mode.get(mode, "center")
+    is_vertical = mode in _VERTICAL_MODES
+    ref_key = _MODE_REFERENCE.get(mode, "center")
 
     # 收集每个 item 的参考位置，过滤无数据的
     positioned: list[tuple["RegionTextItem", float, float, float]] = []
     for item in items:
         cx = float(item.pos().x())
         cy = float(item.pos().y())
-        if is_vertical:
-            ref = _wf_ref_y(item, ref_key)
-        else:
-            ref = _wf_ref_x(item, ref_key)
+        ref = _white_frame_coordinate(item, ref_key, vertical=is_vertical)
         if ref is None:
             continue
         positioned.append((item, ref, cx, cy))
@@ -225,45 +205,35 @@ def distribute_spacing_items(
     is_vert = orientation == "vertical"
     positioned: list[tuple["RegionTextItem", float, float, float, float]] = []
     for item in items:
-        pts = item._get_white_frame_world_points()
-        if not pts:
+        points = item._get_white_frame_world_points()
+        if not points:
+            continue
+        near_point = points.get("top" if is_vert else "left")
+        far_point = points.get("bottom" if is_vert else "right")
+        if near_point is None or far_point is None:
             continue
         cx = float(item.pos().x())
         cy = float(item.pos().y())
-        if is_vert:
-            top_pt = pts.get("top")
-            bottom_pt = pts.get("bottom")
-            if top_pt is None or bottom_pt is None:
-                continue
-            near = top_pt.y()
-            far = bottom_pt.y()
-            pos = near
-        else:
-            left_pt = pts.get("left")
-            right_pt = pts.get("right")
-            if left_pt is None or right_pt is None:
-                continue
-            near = left_pt.x()
-            far = right_pt.x()
-            pos = near
-        positioned.append((item, near, far, cx, cy, pos))
+        near = near_point.y() if is_vert else near_point.x()
+        far = far_point.y() if is_vert else far_point.x()
+        positioned.append((item, near, far, cx, cy))
 
     if len(positioned) < 3:
         return []
 
-    positioned.sort(key=lambda p: p[5])
+    positioned.sort(key=lambda entry: entry[1])
     n = len(positioned)
     first_near = positioned[0][1]
     last_far = positioned[-1][2]
     total_span = last_far - first_near
-    total_size = sum(far - near for _, near, far, _, _, _ in positioned)
+    total_size = sum(far - near for _, near, far, _, _ in positioned)
     total_gap = max(0.0, total_span - total_size)
     gap_per_space = total_gap / (n - 1)
 
     results = []
     prev_delta = 0.0
     for i in range(1, n - 1):
-        item, near, far, cx, cy, _pos = positioned[i]
+        item, near, far, cx, cy = positioned[i]
         # Use the shifted far of the previous item so later gaps
         # accumulate corrections from earlier redistributions.
         prev_far = positioned[i - 1][2] + prev_delta

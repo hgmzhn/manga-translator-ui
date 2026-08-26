@@ -50,6 +50,7 @@ class EditorControllerDocumentService:
         self._prefetched_documents: dict[str, DocumentSnapshot] = {}
         self._desired_prefetch_keys: set[str] = set()
         self._is_shutdown = False
+        self._pending_prefetch_paths: list[str] = []
 
     @property
     def model(self):
@@ -97,9 +98,7 @@ class EditorControllerDocumentService:
         # dedicated queue and intentionally survive document switches.
         self.async_service.cancel_all_tasks()
 
-        self.resource_manager.unload_image(
-            release_from_cache=release_image_cache
-        )
+        self.resource_manager.unload_image(release_from_cache=release_image_cache)
         toolbar = self.controller.get_toolbar()
         if toolbar is not None:
             toolbar.set_export_enabled(False)
@@ -254,9 +253,15 @@ class EditorControllerDocumentService:
                 f"Failed to remove stale editor_base image {work_image_path}: {e}"
             )
 
-    def load_image_and_regions(self, image_path: str) -> None:
+    def load_image_and_regions(
+        self,
+        image_path: str,
+        *,
+        prefetch_paths: list[str] | None = None,
+    ) -> None:
         if self._is_shutdown:
             return
+        self._pending_prefetch_paths = list(prefetch_paths or [])
         self.controller.commit_pending_edits()
         if self.controller.export_service.has_unsaved_changes():
             auto_export = self._auto_export_on_switch_enabled()
@@ -424,7 +429,6 @@ class EditorControllerDocumentService:
             loading_toast.close()
             self.controller._loading_toast = None
 
-
         toolbar = self.controller.get_toolbar()
         if toolbar is not None:
             toolbar.set_export_enabled(True)
@@ -439,17 +443,10 @@ class EditorControllerDocumentService:
 
         self.resource_manager.release_image_cache_except_current()
 
-        self.prefetch_images(
-            getattr(self.controller, "_pending_editor_prefetch_paths", [])
-        )
+        prefetch_paths = self._pending_prefetch_paths
+        self._pending_prefetch_paths = []
+        self.prefetch_images(prefetch_paths)
         self.controller._log_memory_snapshot("after-apply-loaded-document")
-
-        if snapshot.raw_mask is not None:
-            request = self.controller.inpaint_service.build_mask_refine_request(
-                self.model.get_raw_mask()
-            )
-            if request is not None:
-                self.controller.inpaint_service.submit_mask_refine_request(request)
 
     def prefetch_images(self, image_paths: list[str]) -> None:
         """后台加载邻页完整文档快照，切图时直接安装。"""

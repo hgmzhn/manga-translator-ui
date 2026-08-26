@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any
 
 from PyQt6.QtCore import QPointF, QRect, QSize, Qt, QTimer, pyqtSlot
@@ -114,6 +115,17 @@ class EditorView(QWidget):
 
     LEFT_TRANSLATION_ROUTE = "editor_left_translation"
     LEFT_PROPERTY_ROUTE = "editor_left_property"
+    EDITOR_SETTING_DEFAULTS = {
+        "editor_snap_enabled": False,
+        "editor_center_scale_enabled": False,
+        "editor_rich_text_popup_enabled": True,
+        "editor_rich_text_popup_pinned": False,
+        "editor_auto_save_on_switch": True,
+        "editor_auto_export_on_switch": True,
+        "editor_suppress_unsaved_warning": False,
+        "editor_auto_rich_text_rules": True,
+        "editor_delete_and_recover": False,
+    }
 
     def __init__(
         self,
@@ -132,18 +144,18 @@ class EditorView(QWidget):
         self.config_service = (
             getattr(controller, "config_service", None) or get_config_service()
         )
-        self._snap_enabled = self._read_editor_snap_enabled()
-        self._center_scale_enabled = self._read_editor_center_scale_enabled()
-        self._rich_text_popup_enabled = self._read_editor_rich_text_popup_enabled()
-        self._rich_text_popup_pinned = self._read_editor_rich_text_popup_pinned()
-        self._compare_mode_enabled = False
+        editor_settings = self._read_editor_settings()
+        self._snap_enabled = editor_settings["editor_snap_enabled"]
+        self._center_scale_enabled = editor_settings["editor_center_scale_enabled"]
+        self._rich_text_popup_enabled = editor_settings[
+            "editor_rich_text_popup_enabled"
+        ]
+        self._rich_text_popup_pinned = editor_settings["editor_rich_text_popup_pinned"]
         self.toolbar: EditorToolbar | None = None
         self.main_splitter: QSplitter | None = None
         self.left_panel_widget: QWidget | None = None
         self.left_segmented_widget: SegmentedWidget | None = None
         self.left_stack: PopUpAniStackedWidget | None = None
-        self._left_route_indexes: dict[str, int] = {}
-        self._updating_left_route = False
         self.find_input: LineEdit | None = None
         self.replace_input: LineEdit | None = None
         self.replace_all_button: PushButton | None = None
@@ -179,11 +191,11 @@ class EditorView(QWidget):
             center_scale_enabled=self._center_scale_enabled,
             rich_text_popup_enabled=self._rich_text_popup_enabled,
             rich_text_popup_pinned=self._rich_text_popup_pinned,
-            auto_save_on_switch=self._read_editor_auto_save_on_switch(),
-            auto_export_on_switch=self._read_editor_auto_export_on_switch(),
-            suppress_unsaved_warning=self._read_editor_suppress_unsaved_warning(),
-            auto_rich_text_rules=self._read_editor_auto_rich_text_rules(),
-            delete_and_recover=self._read_editor_delete_and_recover(),
+            auto_save_on_switch=editor_settings["editor_auto_save_on_switch"],
+            auto_export_on_switch=editor_settings["editor_auto_export_on_switch"],
+            suppress_unsaved_warning=editor_settings["editor_suppress_unsaved_warning"],
+            auto_rich_text_rules=editor_settings["editor_auto_rich_text_rules"],
+            delete_and_recover=editor_settings["editor_delete_and_recover"],
         )
         self.toolbar.setFixedHeight(56)
         self.layout.addWidget(self.toolbar)
@@ -227,258 +239,106 @@ class EditorView(QWidget):
             return self.i18n.translate(key, **kwargs)
         return key
 
-    def _read_app_flag(self, key: str, default: bool, config=None) -> bool:
-        """读取 app 段布尔开关；兼容配置模型和 config_changed 字典载荷，缺字段用默认值。"""
+    def _read_editor_settings(self, config=None) -> dict[str, bool]:
+        """Read every editor flag from one config snapshot."""
         if config is None and self.config_service is not None:
             config = self.config_service.get_config()
+        app = (
+            config.get("app", {})
+            if isinstance(config, dict)
+            else getattr(config, "app", None)
+        )
+        if isinstance(app, dict):
+            return {
+                key: bool(app.get(key, default))
+                for key, default in self.EDITOR_SETTING_DEFAULTS.items()
+            }
+        return {
+            key: bool(getattr(app, key, default))
+            for key, default in self.EDITOR_SETTING_DEFAULTS.items()
+        }
 
-        if isinstance(config, dict):
-            return bool(config.get("app", {}).get(key, default))
-        return bool(getattr(getattr(config, "app", None), key, default))
-
-    def _read_editor_snap_enabled(self, config=None) -> bool:
-        return self._read_app_flag("editor_snap_enabled", False, config)
-
-    def _read_editor_center_scale_enabled(self, config=None) -> bool:
-        return self._read_app_flag("editor_center_scale_enabled", False, config)
-
-    def _read_editor_rich_text_popup_enabled(self, config=None) -> bool:
-        return self._read_app_flag("editor_rich_text_popup_enabled", True, config)
-
-    def _read_editor_rich_text_popup_pinned(self, config=None) -> bool:
-        return self._read_app_flag("editor_rich_text_popup_pinned", False, config)
-
-    def _read_editor_auto_save_on_switch(self, config=None) -> bool:
-        return self._read_app_flag("editor_auto_save_on_switch", True, config)
-
-    def _read_editor_auto_export_on_switch(self, config=None) -> bool:
-        return self._read_app_flag("editor_auto_export_on_switch", True, config)
-
-    def _read_editor_suppress_unsaved_warning(self, config=None) -> bool:
-        return self._read_app_flag("editor_suppress_unsaved_warning", False, config)
-
-    def _read_editor_auto_rich_text_rules(self, config=None) -> bool:
-        return self._read_app_flag("editor_auto_rich_text_rules", True, config)
-
-    def _read_editor_delete_and_recover(self, config=None) -> bool:
-        return self._read_app_flag("editor_delete_and_recover", False, config)
-
-    def _apply_editor_snap_enabled(self, enabled: bool):
+    def _apply_editor_setting(self, key: str, enabled: bool) -> None:
+        """Apply one editor flag to every surface that consumes it."""
         enabled = bool(enabled)
-        self._snap_enabled = enabled
-        if self.toolbar is not None:
-            self.toolbar.set_snap_enabled(enabled)
-        if self.graphics_view is not None:
-            self.graphics_view.set_snap_enabled(enabled)
-
-    def _apply_editor_center_scale_enabled(self, enabled: bool):
-        enabled = bool(enabled)
-        self._center_scale_enabled = enabled
-        if self.toolbar is not None:
-            self.toolbar.set_center_scale_enabled(enabled)
-        if self.graphics_view is not None:
-            self.graphics_view.set_center_scale_enabled(enabled)
-
-    def _apply_editor_rich_text_popup_enabled(self, enabled: bool):
-        enabled = bool(enabled)
-        changed = enabled != self._rich_text_popup_enabled
-        self._rich_text_popup_enabled = enabled
-        if self.toolbar is not None:
-            self.toolbar.set_rich_text_popup_enabled(enabled)
-
-        editor = self.rich_text_editor
-        if editor is None:
-            return
-        if not enabled:
-            if self._rich_text_popup_pinned:
-                self._apply_editor_rich_text_popup_pinned(False)
-            self._rich_editor_restore_on_show = False
-            self._rich_editor_anchor_region = -1
-            self._rich_editor_anchor_placement = None
-            if changed or editor.isVisible():
-                # clear_region 会先刷新去抖期内的编辑内容，再解除绑定并隐藏。
+        if key == "editor_snap_enabled":
+            self._snap_enabled = enabled
+            if self.toolbar is not None:
+                self.toolbar.set_snap_enabled(enabled)
+            if self.graphics_view is not None:
+                self.graphics_view.set_snap_enabled(enabled)
+        elif key == "editor_center_scale_enabled":
+            self._center_scale_enabled = enabled
+            if self.toolbar is not None:
+                self.toolbar.set_center_scale_enabled(enabled)
+            if self.graphics_view is not None:
+                self.graphics_view.set_center_scale_enabled(enabled)
+        elif key == "editor_rich_text_popup_enabled":
+            changed = enabled != self._rich_text_popup_enabled
+            self._rich_text_popup_enabled = enabled
+            if self.toolbar is not None:
+                self.toolbar.set_rich_text_popup_enabled(enabled)
+            editor = self.rich_text_editor
+            if editor is None:
+                return
+            if not enabled:
+                if self._rich_text_popup_pinned:
+                    self._apply_editor_setting("editor_rich_text_popup_pinned", False)
+                self._rich_editor_restore_on_show = False
+                self._reset_rich_editor_anchor()
+                if changed or editor.isVisible():
+                    # clear_region 会先刷新去抖期内的编辑内容，再解除绑定并隐藏。
+                    editor.clear_region()
+            elif changed:
+                self._on_selection_changed_for_rich_editor(self.model.get_selection())
+        elif key == "editor_rich_text_popup_pinned":
+            self._rich_text_popup_pinned = enabled
+            if self.toolbar is not None:
+                self.toolbar.set_rich_text_popup_pinned(enabled)
+            editor = self.rich_text_editor
+            if (
+                editor is None
+                or not self._rich_text_popup_enabled
+                or not self.isVisible()
+            ):
+                return
+            selected = self.model.get_selection()
+            has_single_selection = bool(selected) and len(selected) == 1
+            if enabled:
+                if editor.isVisible() or has_single_selection:
+                    self._on_selection_changed_for_rich_editor(selected)
+            elif self._translation_list_is_active() or not has_single_selection:
                 editor.clear_region()
-            return
-        if changed:
-            self._on_selection_changed_for_rich_editor(self.model.get_selection())
+            else:
+                editor.reset_manual_position()
+                self._position_rich_text_editor(int(selected[0]))
+        elif self.toolbar is not None:
+            if key == "editor_auto_save_on_switch":
+                self.toolbar.set_auto_save_on_switch(enabled)
+            elif key == "editor_auto_export_on_switch":
+                self.toolbar.set_auto_export_on_switch(enabled)
+            elif key == "editor_suppress_unsaved_warning":
+                self.toolbar.set_suppress_unsaved_warning(enabled)
+            elif key == "editor_auto_rich_text_rules":
+                self.toolbar.set_auto_rich_text_rules(enabled)
+            elif key == "editor_delete_and_recover":
+                self.toolbar.set_delete_and_recover(enabled)
 
-    def _apply_editor_rich_text_popup_pinned(self, pinned: bool):
-        pinned = bool(pinned)
-        self._rich_text_popup_pinned = pinned
-        if self.toolbar is not None:
-            self.toolbar.set_rich_text_popup_pinned(pinned)
-
-        editor = self.rich_text_editor
-        if editor is None or not self._rich_text_popup_enabled or not self.isVisible():
-            return
-        selected = self.model.get_selection()
-        has_single_selection = bool(selected) and len(selected) == 1
-        if pinned:
-            if editor.isVisible() or has_single_selection:
-                self._on_selection_changed_for_rich_editor(selected)
-            return
-        if self._translation_list_is_active() or not has_single_selection:
-            editor.clear_region()
-            return
-        editor.reset_manual_position()
-        self._position_rich_text_editor(int(selected[0]))
-
-    @pyqtSlot(bool)
-    def _on_editor_snap_enabled_changed(self, enabled: bool):
-        """应用并持久化顶部通用菜单中的编辑器吸附开关。"""
+    def _persist_editor_setting(self, key: str, enabled: bool) -> None:
+        """Apply and persist a toolbar editor flag through one path."""
         enabled = bool(enabled)
-        self._apply_editor_snap_enabled(enabled)
+        self._apply_editor_setting(key, enabled)
         if self.config_service is None:
             return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_snap_enabled(current_config) != enabled:
-            self.config_service.update_config({"app": {"editor_snap_enabled": enabled}})
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_center_scale_enabled_changed(self, enabled: bool):
-        """应用并持久化文本框中心点缩放开关。"""
-        enabled = bool(enabled)
-        self._apply_editor_center_scale_enabled(enabled)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_center_scale_enabled(current_config) != enabled:
-            self.config_service.update_config(
-                {"app": {"editor_center_scale_enabled": enabled}}
-            )
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_rich_text_popup_enabled_changed(self, enabled: bool):
-        """应用并持久化富文本浮动编辑器的显示开关。"""
-        enabled = bool(enabled)
-        self._apply_editor_rich_text_popup_enabled(enabled)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_rich_text_popup_enabled(current_config) != enabled:
-            self.config_service.update_config(
-                {"app": {"editor_rich_text_popup_enabled": enabled}}
-            )
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_rich_text_popup_pinned_changed(self, pinned: bool):
-        """应用并持久化富文本浮窗固定开关。"""
-        pinned = bool(pinned)
-        self._apply_editor_rich_text_popup_pinned(pinned)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_rich_text_popup_pinned(current_config) != pinned:
-            self.config_service.update_config(
-                {"app": {"editor_rich_text_popup_pinned": pinned}}
-            )
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_auto_save_on_switch_changed(self, enabled: bool):
-        """持久化切图自动保存开关。"""
-        enabled = bool(enabled)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_auto_save_on_switch(current_config) != enabled:
-            self.config_service.update_config(
-                {"app": {"editor_auto_save_on_switch": enabled}}
-            )
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_auto_export_on_switch_changed(self, enabled: bool):
-        """持久化切图自动导出开关。"""
-        enabled = bool(enabled)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_auto_export_on_switch(current_config) != enabled:
-            self.config_service.update_config(
-                {"app": {"editor_auto_export_on_switch": enabled}}
-            )
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_suppress_unsaved_warning_changed(self, enabled: bool):
-        """持久化切图时不再提醒未保存编辑的开关。"""
-        enabled = bool(enabled)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_suppress_unsaved_warning(current_config) != enabled:
-            self.config_service.update_config(
-                {"app": {"editor_suppress_unsaved_warning": enabled}}
-            )
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_auto_rich_text_rules_changed(self, enabled: bool):
-        """持久化编辑时自动应用富文本规则开关；消费方在编辑提交时直接读配置。"""
-        enabled = bool(enabled)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_auto_rich_text_rules(current_config) != enabled:
-            self.config_service.update_config(
-                {"app": {"editor_auto_rich_text_rules": enabled}}
-            )
-        self.config_service.save_config_file()
-
-    @pyqtSlot(bool)
-    def _on_editor_delete_and_recover_changed(self, enabled: bool):
-        """持久化删除文本框时恢复原图的开关。"""
-        enabled = bool(enabled)
-        if self.config_service is None:
-            return
-
-        current_config = self.config_service.get_config()
-        if self._read_editor_delete_and_recover(current_config) != enabled:
-            self.config_service.update_config(
-                {"app": {"editor_delete_and_recover": enabled}}
-            )
+        current = self._read_editor_settings(self.config_service.get_config())
+        if current[key] != enabled:
+            self.config_service.update_config({"app": {key: enabled}})
         self.config_service.save_config_file()
 
     @pyqtSlot(dict)
-    def _on_config_changed(self, config: dict):
-        self._apply_editor_snap_enabled(self._read_editor_snap_enabled(config))
-        self._apply_editor_center_scale_enabled(
-            self._read_editor_center_scale_enabled(config)
-        )
-        self._apply_editor_rich_text_popup_enabled(
-            self._read_editor_rich_text_popup_enabled(config)
-        )
-        self._apply_editor_rich_text_popup_pinned(
-            self._read_editor_rich_text_popup_pinned(config)
-        )
-        if self.toolbar is not None:
-            self.toolbar.set_auto_save_on_switch(
-                self._read_editor_auto_save_on_switch(config)
-            )
-            self.toolbar.set_auto_export_on_switch(
-                self._read_editor_auto_export_on_switch(config)
-            )
-            self.toolbar.set_suppress_unsaved_warning(
-                self._read_editor_suppress_unsaved_warning(config)
-            )
-            self.toolbar.set_auto_rich_text_rules(
-                self._read_editor_auto_rich_text_rules(config)
-            )
-            self.toolbar.set_delete_and_recover(
-                self._read_editor_delete_and_recover(config)
-            )
+    def _on_config_changed(self, config: dict) -> None:
+        for key, enabled in self._read_editor_settings(config).items():
+            self._apply_editor_setting(key, enabled)
 
     def force_save_property_panel_edits(self):
         """强制保存property panel中的文本编辑"""
@@ -567,60 +427,34 @@ class EditorView(QWidget):
 
         self.property_panel = PropertyPanel(self.model, self.app_logic, self)
 
-        self._add_left_page(
-            self.LEFT_TRANSLATION_ROUTE, translation_widget, self._t("Translation List")
+        self.left_stack.addWidget(translation_widget)
+        self.left_stack.addWidget(self.property_panel)
+        self.left_segmented_widget.addItem(
+            self.LEFT_TRANSLATION_ROUTE, self._t("Translation List")
         )
-        self._add_left_page(
-            self.LEFT_PROPERTY_ROUTE, self.property_panel, self._t("Property Editor")
+        self.left_segmented_widget.addItem(
+            self.LEFT_PROPERTY_ROUTE, self._t("Property Editor")
         )
-        self.left_segmented_widget.currentItemChanged.connect(
-            self._on_left_route_changed
-        )
+        self.left_segmented_widget.currentItemChanged.connect(self._set_left_route)
 
         # 设置默认显示"属性编辑"标签页
         self._set_left_route(self.LEFT_PROPERTY_ROUTE, emit_changed=False)
 
         return left_panel
 
-    def _add_left_page(self, route_key: str, widget: QWidget, text: str):
-        if self.left_stack is None or self.left_segmented_widget is None:
-            return
-
-        index = self.left_stack.count()
-        self.left_stack.addWidget(widget)
-        self._left_route_indexes[route_key] = index
-        self.left_segmented_widget.addItem(route_key, text)
-
     def _set_left_route(self, route_key: str, emit_changed: bool = True):
         if self.left_stack is None or self.left_segmented_widget is None:
             return
-
-        index = self._left_route_indexes.get(route_key)
-        if index is None:
+        if route_key == self.LEFT_TRANSLATION_ROUTE:
+            index = 0
+        elif route_key == self.LEFT_PROPERTY_ROUTE:
+            index = 1
+        else:
             return
-
-        previous = self.left_stack.currentIndex()
-        self._updating_left_route = True
-        try:
-            self.left_stack.setCurrentIndex(index)
-            self.left_segmented_widget.setCurrentItem(route_key)
-        finally:
-            self._updating_left_route = False
-
-        if emit_changed and previous != index:
-            self._on_left_route_index_changed(index)
-
-    def _on_left_route_changed(self, route_key: str):
-        if self._updating_left_route or self.left_stack is None:
-            return
-
-        index = self._left_route_indexes.get(route_key)
-        if index is None:
-            return
-
-        previous = self.left_stack.currentIndex()
+        changed = self.left_stack.currentIndex() != index
         self.left_stack.setCurrentIndex(index)
-        if previous != index:
+        self.left_segmented_widget.setCurrentItem(route_key)
+        if emit_changed and changed:
             self._on_left_route_index_changed(index)
 
     def _on_left_route_index_changed(self, index: int):
@@ -629,13 +463,7 @@ class EditorView(QWidget):
             self._hide_rich_text_editor_for_list_action()
 
     def _translation_list_is_active(self) -> bool:
-        if self.left_stack is None:
-            return False
-        translation_index = self._left_route_indexes.get(self.LEFT_TRANSLATION_ROUTE)
-        return (
-            translation_index is not None
-            and self.left_stack.currentIndex() == translation_index
-        )
+        return self.left_stack is not None and self.left_stack.currentIndex() == 0
 
     def refresh_tab_titles(self):
         """刷新标签页标题（用于语言切换）"""
@@ -749,6 +577,62 @@ class EditorView(QWidget):
         count = len(selected_indices) if selected_indices else 0
         self.toolbar.update_align_distribute_buttons(count)
 
+    def _reset_rich_editor_anchor(self) -> None:
+        self._rich_editor_anchor_region = -1
+        self._rich_editor_anchor_placement = None
+
+    def _clear_rich_text_editor(self, *, raise_visible: bool = True) -> None:
+        editor = self.rich_text_editor
+        if editor is None:
+            return
+        keep_visible = self._rich_text_popup_pinned and editor.isVisible()
+        editor.clear_region(hide=not keep_visible)
+        if keep_visible and raise_visible:
+            editor.raise_()
+
+    def _sync_rich_text_editor_region(
+        self,
+        region_index: int,
+        *,
+        refresh_only: bool = False,
+        reset_position: bool = False,
+        position_only: bool = False,
+    ) -> None:
+        """Flush, bind, and display the selected region through one transition."""
+        editor = self.rich_text_editor
+        if editor is None:
+            return
+        anchor_changed = region_index != self._rich_editor_anchor_region
+        if not refresh_only and (anchor_changed or reset_position):
+            self._rich_editor_anchor_region = region_index
+            self._rich_editor_anchor_placement = None
+            if reset_position or not self._rich_text_popup_pinned:
+                editor.reset_manual_position()
+        if position_only:
+            self._position_rich_text_editor(region_index)
+            editor.show()
+            editor.raise_()
+            return
+
+        # F22：换绑前先把上一区域去抖期内的待发内容写回，再取新区域数据。
+        editor.flush_pending_changes()
+        region_data = self.model.get_region_by_index(region_index)
+        if not region_data:
+            self._clear_rich_text_editor(raise_visible=False)
+            return
+        if refresh_only:
+            editor.refresh_region_if_changed(region_index, region_data)
+            return
+
+        was_visible = editor.isVisible()
+        editor.set_region(region_index, region_data)
+        if reset_position or not self._rich_text_popup_pinned or not was_visible:
+            self._position_rich_text_editor(region_index)
+        editor.show()
+        editor.raise_()
+        # F09：选中不再调用 focus_text() 抢焦点——焦点留在画布，
+        # Delete/A/D/Q/W/E 等画布快捷键保持生效；点击文本框自然获焦进入编辑。
+
     def _on_selection_changed_for_rich_editor(self, selected_indices: list):
         editor = self.rich_text_editor
         if editor is None:
@@ -765,8 +649,7 @@ class EditorView(QWidget):
         has_single_selection = bool(selected_indices) and len(selected_indices) == 1
         if not self.isVisible():
             # A top-level tool window is not hidden automatically with the
-            # stacked editor page. Remember whether it should appear when the
-            # page becomes visible, but never show it over another page.
+            # stacked editor page. Never show it over another page.
             self._rich_editor_restore_on_show = (
                 has_single_selection or self._rich_text_popup_pinned
             )
@@ -774,36 +657,10 @@ class EditorView(QWidget):
             return
         self._rich_editor_restore_on_show = False
         if not has_single_selection:
-            self._rich_editor_anchor_region = -1
-            self._rich_editor_anchor_placement = None
-            keep_visible = self._rich_text_popup_pinned and editor.isVisible()
-            editor.clear_region(hide=not keep_visible)
-            if keep_visible:
-                editor.raise_()
+            self._reset_rich_editor_anchor()
+            self._clear_rich_text_editor()
             return
-
-        region_index = int(selected_indices[0])
-        if region_index != self._rich_editor_anchor_region:
-            self._rich_editor_anchor_region = region_index
-            self._rich_editor_anchor_placement = None
-            if not self._rich_text_popup_pinned:
-                editor.reset_manual_position()
-        # F22：换绑前先把上一区域去抖期内的待发内容写回，再取新区域数据
-        editor.flush_pending_changes()
-        region_data = self.model.get_region_by_index(region_index)
-        if not region_data:
-            keep_visible = self._rich_text_popup_pinned and editor.isVisible()
-            editor.clear_region(hide=not keep_visible)
-            return
-
-        was_visible = editor.isVisible()
-        editor.set_region(region_index, region_data)
-        if not self._rich_text_popup_pinned or not was_visible:
-            self._position_rich_text_editor(region_index)
-        editor.show()
-        editor.raise_()
-        # F09：选中不再调用 focus_text() 抢焦点——焦点留在画布，
-        # Delete/A/D/Q/W/E 等画布快捷键保持生效；点击文本框自然获焦进入编辑。
+        self._sync_rich_text_editor_region(int(selected_indices[0]))
 
     def _hide_rich_text_editor_for_list_action(self) -> None:
         if self._rich_text_popup_pinned:
@@ -834,34 +691,20 @@ class EditorView(QWidget):
             self._selection_from_translation_list = False
 
     def _on_regions_changed_for_rich_editor(self, change=None):
-        """模型区域数据变化时同步浮动编辑器（F08）。
-
-        浮动编辑器可见且当前选中 region 的数据变化时重新同步文档，
-        防止陈旧文档在下次样式操作/输入时覆盖模型（属性面板改译文被
-        改回、撤销内容复活）；编辑器自己的写回广播（is_applying_own_change）
-        跳过，避免自回环导致光标跳动。
-        """
+        """Refresh a visible bound document without feeding its own write-back around."""
         editor = self.rich_text_editor
-        if editor is None or not editor.isVisible():
-            return
-        if editor.is_applying_own_change():
+        if editor is None or not editor.isVisible() or editor.is_applying_own_change():
             return
         selected = self.model.get_selection()
         if not selected or len(selected) != 1:
             return
         region_index = int(selected[0])
-        kind = getattr(change, "kind", "")
-        if kind == "updated" and region_index not in getattr(change, "indices", ()):
-            return  # 只关心当前选中区域的内容变化
-        # 先把去抖期内属于当前文档的待发内容写回（正在输入时以编辑器为准），
-        # 再以模型数据刷新；内容未变时 refresh_region_if_changed 不动光标。
-        editor.flush_pending_changes()
-        region_data = self.model.get_region_by_index(region_index)
-        if not region_data:
-            keep_visible = self._rich_text_popup_pinned and editor.isVisible()
-            editor.clear_region(hide=not keep_visible)
+        if getattr(change, "kind", "") == "updated" and region_index not in getattr(
+            change, "indices", ()
+        ):
             return
-        editor.refresh_region_if_changed(region_index, region_data)
+        # Pending input wins before model data refreshes the bound document.
+        self._sync_rich_text_editor_region(region_index, refresh_only=True)
 
     def _position_rich_text_editor_for_selection(self, *args):
         preserve_top = len(args) == 1 and isinstance(args[0], bool) and args[0]
@@ -903,18 +746,12 @@ class EditorView(QWidget):
             or self._translation_list_is_active()
         ):
             return
-        editor = self.rich_text_editor
         selected = self.model.get_selection()
-        if editor is None or not selected or len(selected) != 1:
-            return
-        region_index = int(selected[0])
-        # 拖动后文本框位置已经改变，按新位置重新选择一次停靠侧。
-        self._rich_editor_anchor_region = region_index
-        self._rich_editor_anchor_placement = None
-        editor.reset_manual_position()
-        self._position_rich_text_editor(region_index)
-        editor.show()
-        editor.raise_()
+        if selected and len(selected) == 1:
+            # 拖动后文本框位置已经改变，按新位置重新选择一次停靠侧。
+            self._sync_rich_text_editor_region(
+                int(selected[0]), reset_position=True, position_only=True
+            )
 
     def _position_rich_text_editor(
         self, region_index: int, *, preserve_top: bool = False
@@ -1020,193 +857,219 @@ class EditorView(QWidget):
             self.rich_text_editor.raise_()
 
     def _connect_signals(self):
-        # --- Model to View ---
-        self.model.regions_changed.connect(self.region_list_view.on_regions_changed)
-        self.model.selection_changed.connect(self.region_list_view.update_selection)
-        # Connect model selection changes to the property panel
-        self.model.selection_changed.connect(self.property_panel.on_selection_changed)
-        # Connect model selection changes to toolbar align/distribute button states
-        self.model.selection_changed.connect(self._on_selection_changed_for_toolbar)
-        self.model.selection_changed.connect(self._on_selection_changed_for_rich_editor)
-        # F08：region 数据变化时同步浮动编辑器，防止陈旧文档覆盖模型
-        self.model.regions_changed.connect(self._on_regions_changed_for_rich_editor)
-        # Connect model brush size changes to the property panel
-        self.model.brush_size_changed.connect(
-            self.property_panel.sync_brush_size_from_model
-        )
-        # Connect model brush color changes to the property panel
-        self.model.brush_color_changed.connect(
-            self.property_panel.sync_brush_color_from_model
-        )
-        # Keep tool buttons in sync with model
-        self.model.active_tool_changed.connect(
-            self.property_panel.sync_active_tool_from_model
-        )
-        self.model.compare_image_changed.connect(self._on_compare_image_changed)
+        # Model changes fan out to each view that owns the corresponding UI state.
+        for slot in (
+            self.region_list_view.update_selection,
+            self.property_panel.on_selection_changed,
+            self._on_selection_changed_for_toolbar,
+            self._on_selection_changed_for_rich_editor,
+        ):
+            self.model.selection_changed.connect(slot)
+        for signal, slot in (
+            (self.model.regions_changed, self.region_list_view.on_regions_changed),
+            (self.model.regions_changed, self._on_regions_changed_for_rich_editor),
+            (
+                self.model.brush_size_changed,
+                self.property_panel.sync_brush_size_from_model,
+            ),
+            (
+                self.model.brush_color_changed,
+                self.property_panel.sync_brush_color_from_model,
+            ),
+            (
+                self.model.active_tool_changed,
+                self.property_panel.sync_active_tool_from_model,
+            ),
+            (self.model.compare_image_changed, self.original_compare_view.update_image),
+            (
+                self.model.original_image_alpha_changed,
+                self.toolbar.set_original_image_alpha_slider,
+            ),
+        ):
+            signal.connect(slot)
 
-        # --- View to Controller ---
-        self.region_list_view.region_selected.connect(
-            self._on_region_selected_from_list
-        )
-        self.region_list_view.region_move_requested.connect(
-            self._on_region_move_requested_from_list
-        )
-        self.apply_translations_button.clicked.connect(self._on_apply_changes_clicked)
-        self.replace_all_button.clicked.connect(self._on_replace_all_clicked)
+        for signal, slot in (
+            (self.region_list_view.region_selected, self._on_region_selected_from_list),
+            (
+                self.region_list_view.region_move_requested,
+                self._on_region_move_requested_from_list,
+            ),
+            (self.apply_translations_button.clicked, self._on_apply_changes_clicked),
+            (self.replace_all_button.clicked, self._on_replace_all_clicked),
+            (self.add_files_button.clicked, self.logic.open_and_add_files),
+            (self.add_folder_button.clicked, self.logic.open_and_add_folder),
+            (self.clear_list_button.clicked, self.logic.clear_list),
+            (self.file_list.file_remove_requested, self._on_file_remove_requested),
+            (self.file_list.file_selected, self.logic.load_image_into_editor),
+            (self.file_list.files_dropped, self.logic.add_files_from_paths),
+            (self.logic.file_list_loading, self.file_list.set_loading),
+            (self.logic.file_snapshot_changed, self.file_list.set_snapshot),
+            (self.logic.file_list_error, self.file_list.set_error),
+        ):
+            signal.connect(slot)
 
-        # --- File List (Right Panel) to Logic ---
-        self.add_files_button.clicked.connect(self.logic.open_and_add_files)
-        self.add_folder_button.clicked.connect(self.logic.open_and_add_folder)
-        self.clear_list_button.clicked.connect(self.logic.clear_list)
-        self.file_list.file_remove_requested.connect(self._on_file_remove_requested)
-        self.file_list.file_selected.connect(self.logic.load_image_into_editor)
-        self.file_list.files_dropped.connect(
-            self.logic.add_files_from_paths
-        )  # 拖放文件支持
-        self.logic.file_list_loading.connect(self.file_list.set_loading)
-        self.logic.file_snapshot_changed.connect(self.file_list.set_snapshot)
-        self.logic.file_list_error.connect(self.file_list.set_error)
-
-        self.toolbar.save_requested.connect(self.save_editor_state)
-        self.toolbar.export_requested.connect(self.export_image)
-        self.toolbar.undo_requested.connect(self.controller.undo)
-        self.toolbar.redo_requested.connect(self.controller.redo)
-        self.toolbar.zoom_in_requested.connect(self.graphics_view.zoom_in)
-        self.toolbar.zoom_out_requested.connect(self.graphics_view.zoom_out)
-        self.toolbar.fit_window_requested.connect(self.graphics_view.fit_to_window)
-        self.toolbar.display_mode_changed.connect(self.controller.set_display_mode)
-        self.toolbar.original_image_alpha_changed.connect(
-            self.controller.set_original_image_alpha
-        )
-        self.toolbar.align_requested.connect(self._on_align_requested)
-        self.toolbar.distribute_requested.connect(self._on_distribute_requested)
-        self.toolbar.snap_enabled_changed.connect(self._on_editor_snap_enabled_changed)
-        self.toolbar.center_scale_enabled_changed.connect(
-            self._on_editor_center_scale_enabled_changed
-        )
-        self.toolbar.auto_save_on_switch_changed.connect(
-            self._on_editor_auto_save_on_switch_changed
-        )
-        self.toolbar.auto_export_on_switch_changed.connect(
-            self._on_editor_auto_export_on_switch_changed
-        )
-        self.toolbar.suppress_unsaved_warning_changed.connect(
-            self._on_editor_suppress_unsaved_warning_changed
-        )
-        self.toolbar.rich_text_popup_enabled_changed.connect(
-            self._on_editor_rich_text_popup_enabled_changed
-        )
-        self.toolbar.rich_text_popup_pinned_changed.connect(
-            self._on_editor_rich_text_popup_pinned_changed
-        )
-
-        self.toolbar.auto_rich_text_rules_changed.connect(
-            self._on_editor_auto_rich_text_rules_changed
-        )
-        self.toolbar.delete_and_recover_changed.connect(
-            self._on_editor_delete_and_recover_changed
-        )
-
+        for signal, slot in (
+            (self.toolbar.save_requested, self.save_editor_state),
+            (self.toolbar.export_requested, self.export_image),
+            (self.toolbar.undo_requested, self.controller.undo),
+            (self.toolbar.redo_requested, self.controller.redo),
+            (self.toolbar.zoom_in_requested, self.graphics_view.zoom_in),
+            (self.toolbar.zoom_out_requested, self.graphics_view.zoom_out),
+            (self.toolbar.fit_window_requested, self.graphics_view.fit_to_window),
+            (self.toolbar.display_mode_changed, self.controller.set_display_mode),
+            (
+                self.toolbar.original_image_alpha_changed,
+                self.controller.set_original_image_alpha,
+            ),
+            (self.toolbar.align_requested, self._on_align_requested),
+            (self.toolbar.distribute_requested, self._on_distribute_requested),
+        ):
+            signal.connect(slot)
+        for signal, key in (
+            (self.toolbar.snap_enabled_changed, "editor_snap_enabled"),
+            (self.toolbar.center_scale_enabled_changed, "editor_center_scale_enabled"),
+            (self.toolbar.auto_save_on_switch_changed, "editor_auto_save_on_switch"),
+            (
+                self.toolbar.auto_export_on_switch_changed,
+                "editor_auto_export_on_switch",
+            ),
+            (
+                self.toolbar.suppress_unsaved_warning_changed,
+                "editor_suppress_unsaved_warning",
+            ),
+            (
+                self.toolbar.rich_text_popup_enabled_changed,
+                "editor_rich_text_popup_enabled",
+            ),
+            (
+                self.toolbar.rich_text_popup_pinned_changed,
+                "editor_rich_text_popup_pinned",
+            ),
+            (self.toolbar.auto_rich_text_rules_changed, "editor_auto_rich_text_rules"),
+            (self.toolbar.delete_and_recover_changed, "editor_delete_and_recover"),
+        ):
+            signal.connect(partial(self._persist_editor_setting, key))
         if self.config_service is not None:
             self.config_service.config_changed.connect(self._on_config_changed)
 
-        # --- Model to Toolbar (同步滑块) ---
-        self.model.original_image_alpha_changed.connect(
-            self.toolbar.set_original_image_alpha_slider
-        )
+        for signal, slot in (
+            (
+                self.graphics_view.region_geometry_changed,
+                self.controller.update_region_geometry,
+            ),
+            (
+                self.graphics_view.view_state_changed,
+                self.original_compare_view.sync_view_state,
+            ),
+            (
+                self.graphics_view.view_state_changed,
+                self._position_rich_text_editor_for_selection,
+            ),
+            (
+                self.graphics_view.region_drag_started,
+                self._hide_rich_text_editor_for_region_drag,
+            ),
+            (
+                self.graphics_view.region_drag_finished,
+                self._restore_rich_text_editor_after_region_drag,
+            ),
+            (
+                self.graphics_view.blank_canvas_pressed,
+                self._hide_rich_text_editor_for_region_drag,
+            ),
+        ):
+            signal.connect(slot)
 
-        # --- Graphics View to Controller ---
-        self.graphics_view.region_geometry_changed.connect(
-            self.controller.update_region_geometry
-        )
-        self.graphics_view.view_state_changed.connect(
-            self.original_compare_view.sync_view_state
-        )
-        self.graphics_view.view_state_changed.connect(
-            self._position_rich_text_editor_for_selection
-        )
-        self.graphics_view.region_drag_started.connect(
-            self._hide_rich_text_editor_for_region_drag
-        )
-        self.graphics_view.region_drag_finished.connect(
-            self._restore_rich_text_editor_after_region_drag
-        )
-        self.graphics_view.blank_canvas_pressed.connect(
-            self._hide_rich_text_editor_for_region_drag
-        )
+        # Property edits that create undoable document changes remain commands.
+        for signal, slot in (
+            (
+                self.property_panel.translated_text_modified,
+                self.controller.update_translated_text,
+            ),
+            (
+                self.property_panel.translation_raw_modified,
+                self.controller.update_translation_raw,
+            ),
+            (
+                self.property_panel.original_text_modified,
+                self.controller.update_original_text,
+            ),
+            (self.property_panel.ocr_requested, self.controller.run_ocr_for_selection),
+            (
+                self.property_panel.translation_requested,
+                self.controller.run_translation_for_selection,
+            ),
+            (self.property_panel.font_size_changed, self.controller.update_font_size),
+            (self.property_panel.font_color_changed, self.controller.update_font_color),
+            (
+                self.property_panel.stroke_color_changed,
+                self.controller.update_stroke_color,
+            ),
+            (
+                self.property_panel.stroke_width_changed,
+                self.controller.update_stroke_width,
+            ),
+            (
+                self.property_panel.line_spacing_changed,
+                self.controller.update_line_spacing,
+            ),
+            (
+                self.property_panel.letter_spacing_changed,
+                self.controller.update_letter_spacing,
+            ),
+            (self.property_panel.angle_changed, self.controller.update_angle),
+            (
+                self.property_panel.font_family_changed,
+                self.controller.update_font_family,
+            ),
+            (
+                self.property_panel.font_family_preview_requested,
+                self._on_font_family_preview_requested,
+            ),
+            (self.property_panel.alignment_changed, self.controller.update_alignment),
+            (self.property_panel.direction_changed, self.controller.update_direction),
+            (
+                self.property_panel.style_patch_requested,
+                self.controller.update_region_style_patch,
+            ),
+            (self.property_panel.copy_region_requested, self._handle_copy_from_panel),
+            (self.property_panel.paste_region_requested, self._handle_paste_from_panel),
+            (
+                self.property_panel.delete_region_requested,
+                self._handle_delete_from_panel,
+            ),
+            (
+                self.property_panel.clear_all_masks_requested,
+                self.controller.clear_all_masks,
+            ),
+            (
+                self.property_panel.clear_paint_overlay_requested,
+                self.controller.clear_paint_overlay,
+            ),
+            (
+                self.property_panel.clear_stamp_overlay_requested,
+                self.controller.clear_stamp_overlay,
+            ),
+            (
+                self.property_panel.paint_overlay_visibility_changed,
+                self.graphics_view.overlay_layers.set_paint_overlay_visible,
+            ),
+            (
+                self.property_panel.stamp_overlay_visibility_changed,
+                self.graphics_view.overlay_layers.set_stamp_overlay_visible,
+            ),
+        ):
+            signal.connect(slot)
 
-        # --- Property Panel (Left Panel) to Controller ---
-        self.property_panel.translated_text_modified.connect(
-            self.controller.update_translated_text
-        )
-        self.property_panel.translation_raw_modified.connect(
-            self.controller.update_translation_raw
-        )
-        self.property_panel.original_text_modified.connect(
-            self.controller.update_original_text
-        )
-        self.property_panel.ocr_requested.connect(self.controller.run_ocr_for_selection)
-        self.property_panel.translation_requested.connect(
-            self.controller.run_translation_for_selection
-        )
-        self.property_panel.font_size_changed.connect(self.controller.update_font_size)
-        self.property_panel.font_color_changed.connect(
-            self.controller.update_font_color
-        )
-        self.property_panel.stroke_color_changed.connect(
-            self.controller.update_stroke_color
-        )
-        self.property_panel.stroke_width_changed.connect(
-            self.controller.update_stroke_width
-        )
-        self.property_panel.line_spacing_changed.connect(
-            self.controller.update_line_spacing
-        )
-        self.property_panel.letter_spacing_changed.connect(
-            self.controller.update_letter_spacing
-        )
-        self.property_panel.angle_changed.connect(self.controller.update_angle)
-        self.property_panel.font_family_changed.connect(
-            self.controller.update_font_family
-        )
-        self.property_panel.font_family_preview_requested.connect(
-            self._on_font_family_preview_requested
-        )
-        self.property_panel.alignment_changed.connect(self.controller.update_alignment)
-        self.property_panel.direction_changed.connect(self.controller.update_direction)
-        self.property_panel.style_patch_requested.connect(
-            self.controller.update_region_style_patch
-        )
+        # Simple tool state belongs directly to the editor model.
         self.property_panel.toggle_mask_visibility.connect(
-            lambda state: self.controller.set_display_mask_type("refined", state)
+            lambda visible: self.model.set_display_mask_type(
+                "refined" if visible else "none"
+            )
         )
-        self.property_panel.copy_region_requested.connect(self._handle_copy_from_panel)
-        self.property_panel.paste_region_requested.connect(
-            self._handle_paste_from_panel
-        )
-        self.property_panel.delete_region_requested.connect(
-            self._handle_delete_from_panel
-        )
-        self.property_panel.clear_all_masks_requested.connect(
-            self.controller.clear_all_masks
-        )
-        # --- Connect Mask Editing Tools ---
-        self.property_panel.mask_tool_changed.connect(self.controller.set_active_tool)
-        self.property_panel.brush_size_changed.connect(self.controller.set_brush_size)
-        # --- Connect Paint Overlay Tools ---
-        self.property_panel.brush_color_changed.connect(self.controller.set_brush_color)
-        self.property_panel.clear_paint_overlay_requested.connect(
-            self.controller.clear_paint_overlay
-        )
-        self.property_panel.clear_stamp_overlay_requested.connect(
-            self.controller.clear_stamp_overlay
-        )
-        self.property_panel.paint_overlay_visibility_changed.connect(
-            self.graphics_view.overlay_layers.set_paint_overlay_visible
-        )
-        self.property_panel.stamp_overlay_visibility_changed.connect(
-            self.graphics_view.overlay_layers.set_stamp_overlay_visible
-        )
+        self.property_panel.mask_tool_changed.connect(self.model.set_active_tool)
+        self.property_panel.brush_size_changed.connect(self.model.set_brush_size)
+        self.property_panel.brush_color_changed.connect(self.model.set_brush_color)
 
         if self.rich_text_editor is not None:
             self.rich_text_editor.rich_text_changed.connect(
@@ -1215,11 +1078,6 @@ class EditorView(QWidget):
             self.rich_text_editor.layout_size_changed.connect(
                 self._position_rich_text_editor_for_selection
             )
-
-        # Note: Some signals from PropertyPanel might not have corresponding slots in the controller yet.
-        # e.g., copy/paste/delete, mask tool changes.
-
-        # --- Global App Logic to Controller ---
         self.app_logic.render_setting_changed.connect(
             self.controller.handle_global_render_setting_change
         )
@@ -1338,21 +1196,9 @@ class EditorView(QWidget):
         self.file_list.remove_file(file_path)
 
         # 调用 editor_logic 移除文件（会检查是否需要清空画布）
-        self.logic.remove_file(file_path, emit_signal=False)
+        self.logic.remove_file(file_path)
 
         # 编辑器有自己独立的文件列表，不需要同步到主页的 app_logic
-
-    @pyqtSlot(list)
-    def update_file_list(self, files: list):
-        """Clears and repopulates the file list view based on a signal from the logic."""
-        self.file_list.clear()
-        self.file_list.add_files(files)
-
-    @pyqtSlot(list, dict)
-    def update_file_list_with_tree(self, files: list, folder_tree: dict):
-        """使用树形结构更新文件列表"""
-        self.file_list.clear()
-        self.file_list.add_files_from_tree(folder_tree)
 
     def _apply_editor_style(self, theme: str | None = None):
         """刷新画布和自定义颜色控件的主题。"""
@@ -1371,32 +1217,11 @@ class EditorView(QWidget):
         for picker in self.findChildren(ColorPickerWidget):
             picker.refresh_theme()
 
-    @pyqtSlot(object)
-    def _on_compare_image_changed(self, image):
-        if self.original_compare_view is None:
-            return
-
-        self.original_compare_view.set_image_when_visible(
-            image, self._compare_mode_enabled
-        )
-        if self._compare_mode_enabled:
-            self._sync_compare_view_from_main()
-
-    def _sync_compare_view_from_main(self):
-        if self.graphics_view is None or self.original_compare_view is None:
-            return
-        transform, center_scene = self.graphics_view.get_view_state()
-        if transform is None or center_scene is None:
-            return
-        self.original_compare_view.sync_view_state(transform, center_scene)
-
     def set_compare_mode(self, enabled: bool):
-        self._compare_mode_enabled = bool(enabled)
+        enabled = bool(enabled)
         if self.compare_preview_container is not None:
-            self.compare_preview_container.setVisible(self._compare_mode_enabled)
-        if self._compare_mode_enabled:
-            if self.original_compare_view is not None:
-                self.original_compare_view.flush_pending_image(
-                    self.model.get_compare_image()
-                )
-            self._sync_compare_view_from_main()
+            self.compare_preview_container.setVisible(enabled)
+        if self.original_compare_view is not None:
+            self.original_compare_view.set_compare_mode(
+                enabled, self.model.get_compare_image()
+            )

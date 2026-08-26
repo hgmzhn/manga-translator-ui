@@ -45,13 +45,14 @@ def _make_config_dict():
         "inpainter": {},
     }
 
+
 def _paired_export_base(base, mask, inpainted):
     return ExportBase(
         "paired",
         base,
         inpainted,
         mask,
-        InpaintKey(1, 1, 1, 1),
+        InpaintKey(1, 1),
     )
 
 
@@ -73,14 +74,18 @@ def test_payload_parsing_matches_file_parsing():
         image_path = os.path.join(temp_dir, "page.png")
         json_path = os.path.join(temp_dir, "page_translations.json")
         Image.new("RGB", (320, 240), "white").save(image_path)
-        service._save_regions_data([dict(r) for r in regions], json_path, mask, _make_config_dict())
+        service._save_regions_data(
+            [dict(r) for r in regions], json_path, mask, _make_config_dict()
+        )
         file_parsed = translator._load_text_and_regions_from_file(image_path, cfg)
 
         # 新路径：内存载荷
         base = Image.open(image_path)
         payload = service._build_load_text_payload(
             [dict(r) for r in regions],
-            _paired_export_base(base, mask, np.full((240, 320, 3), 200, dtype=np.uint8)),
+            _paired_export_base(
+                base, mask, np.full((240, 320, 3), 200, dtype=np.uint8)
+            ),
             _make_config_dict(),
             base_size=base.size,
         )
@@ -99,37 +104,41 @@ def test_payload_parsing_matches_file_parsing():
     assert fr.translation == pr.translation == "TEST"
     assert fr.font_size == pr.font_size
     assert tuple(fr.fg_colors) == tuple(pr.fg_colors)
-    assert (f_refined, f_skip_scale, f_skip_repl) == (p_refined, p_skip_scale, p_skip_repl)
+    assert (f_refined, f_skip_scale, f_skip_repl) == (
+        p_refined,
+        p_skip_scale,
+        p_skip_repl,
+    )
     assert f_mask is not None and p_mask is not None
     assert np.array_equal(f_mask, p_mask)
     print("PASS: payload parsing matches file parsing")
 
 
 def _run_export(regions, mask, inpainted, tmp, output_name):
+    from editor.controller_export_service import ExportJob
     from services.export_service import ExportService
 
     service = ExportService()
     source_path = os.path.join(tmp, "source.png")
     base = Image.new("RGB", (320, 240), "white")
     base.save(source_path)
-
     output_path = os.path.join(tmp, "out", output_name)
-    outcome = {"success": None, "error": None}
     export_base = (
         ExportBase("source", base, base, None, None)
         if mask is None
         else _paired_export_base(base, mask, inpainted)
     )
-    service._perform_backend_render_export(
-        export_base,
-        regions,
-        _make_config_dict(),
-        output_path,
-        success_callback=lambda m: outcome.__setitem__("success", m),
-        error_callback=lambda m: outcome.__setitem__("error", m),
-        source_image_path=source_path,
+    job = ExportJob(
+        automatic=False,
+        source_path=source_path,
+        output_path=output_path,
+        export_base=export_base,
+        regions=regions,
+        config=_make_config_dict(),
     )
     base.close()
+    outcome = service.execute_export_job(job)
+    job.release_resources()
     return source_path, output_path, outcome
 
 
@@ -140,8 +149,7 @@ def test_export_end_to_end_inmemory():
         _source_path, output_path, outcome = _run_export(
             _make_regions(), _make_mask(), inpainted, tmp, "out.png"
         )
-        assert outcome["error"] is None, f"export failed: {outcome['error']}"
-        assert outcome["success"], "success callback not fired"
+        assert outcome.error is None, f"export failed: {outcome.error}"
         assert os.path.exists(output_path)
         with Image.open(output_path) as out_img:
             assert out_img.size == (320, 240)
@@ -158,7 +166,7 @@ def test_export_no_regions_no_mask_returns_original():
     """无区域无蒙版：导出原图，不触发 closed-image 崩溃（2026-05 回归）。"""
     with tempfile.TemporaryDirectory() as tmp:
         source_path, output_path, outcome = _run_export([], None, None, tmp, "out.png")
-        assert outcome["error"] is None, f"export failed: {outcome['error']}"
+        assert outcome.error is None, f"export failed: {outcome.error}"
         assert os.path.exists(output_path)
         with Image.open(output_path) as out_img, Image.open(source_path) as src_img:
             out_rgb = np.asarray(out_img.convert("RGB"))
@@ -177,15 +185,17 @@ def test_project_json_marks_replacements_done():
     with tempfile.TemporaryDirectory() as tmp:
         img_path = os.path.join(tmp, "src.png")
         Image.new("RGB", (320, 240), "white").save(img_path)
-        json_path = os.path.join(tmp, "src_translations.json")
-        service._save_regions_data_with_path(
-            [dict(r) for r in _make_regions()], json_path, img_path, _make_mask(), _make_config_dict()
+        json_path = service.save_editor_project(
+            img_path,
+            [dict(r) for r in _make_regions()],
+            _make_mask(),
+            _make_config_dict(),
         )
         with open(json_path, "r", encoding="utf-8") as f:
             data = jsonlib.load(f)
         image_data = data[os.path.abspath(img_path)]
         assert image_data.get("skip_text_replacements") is True
-        assert not list(Path(tmp).glob(".*translations.json.*.tmp"))
+        assert not list(Path(json_path).parent.glob(".*translations.json.*.tmp"))
     print("PASS: project json marks replacements done")
 
 
@@ -199,17 +209,28 @@ def test_project_json_omits_redundant_plain_rich_document():
     plain_region["translation_rich"] = {
         "format": "richtext.v1",
         "blocks": [
-            {"type": "paragraph", "inlines": [{"type": "text", "text": "A", "style": {}}]},
-            {"type": "paragraph", "inlines": [{"type": "text", "text": "B", "style": {}}]},
+            {
+                "type": "paragraph",
+                "inlines": [{"type": "text", "text": "A", "style": {}}],
+            },
+            {
+                "type": "paragraph",
+                "inlines": [{"type": "text", "text": "B", "style": {}}],
+            },
         ],
     }
     styled_region = dict(plain_region)
     styled_region["translation_rich"] = {
         "format": "richtext.v1",
-        "blocks": [{"type": "paragraph", "inlines": [
-            {"type": "text", "text": "A", "style": {"bold": True}},
-            {"type": "text", "text": "B", "style": {}},
-        ]}],
+        "blocks": [
+            {
+                "type": "paragraph",
+                "inlines": [
+                    {"type": "text", "text": "A", "style": {"bold": True}},
+                    {"type": "text", "text": "B", "style": {}},
+                ],
+            }
+        ],
     }
 
     plain_saved = service._normalize_regions_for_backend([plain_region])[0]
@@ -237,10 +258,9 @@ def test_project_json_write_is_atomic(monkeypatch):
 
         monkeypatch.setattr(export_service_module.json, "dump", fail_dump)
         with pytest.raises(RuntimeError, match="serialization failed"):
-            service._save_regions_data_with_path(
-                [dict(r) for r in _make_regions()],
-                json_path,
+            service.save_editor_project(
                 img_path,
+                [dict(r) for r in _make_regions()],
                 _make_mask(),
                 _make_config_dict(),
             )
@@ -297,10 +317,14 @@ def test_backend_writeback_marks_replacements_only_after_render():
 
     with tempfile.TemporaryDirectory() as tmp:
         rendered_data = _writeback(tmp, "rendered.png", rendered=True)
-        assert rendered_data.get("skip_text_replacements") is True, "rendered writeback should mark done"
+        assert rendered_data.get("skip_text_replacements") is True, (
+            "rendered writeback should mark done"
+        )
     with tempfile.TemporaryDirectory() as tmp:
         raw_data = _writeback(tmp, "raw.png", rendered=False)
-        assert "skip_text_replacements" not in raw_data, "non-rendered writeback must stay raw"
+        assert "skip_text_replacements" not in raw_data, (
+            "non-rendered writeback must stay raw"
+        )
     print("PASS: backend writeback marks replacements only after render")
 
 

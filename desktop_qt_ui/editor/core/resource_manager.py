@@ -1,21 +1,21 @@
-"""Shared image LRU, prefetching, and identity-scoped rebuildable caches."""
+"""Shared editor image LRU and prefetching."""
 
 import logging
 import os
 import threading
-import weakref
 from typing import Any, Dict, List, Optional
 
 from manga_translator.utils import open_pil_image
 from PIL import Image
 
-from .resources import ImageResource, RebuildableCacheKey
+from .resources import ImageResource
 
 
 def _release_gpu_memory():
     """释放GPU显存"""
     try:
         import torch
+
         if torch.cuda.is_available():
             pass
             pass
@@ -77,11 +77,9 @@ def _estimate_image_bytes(image: Image.Image | None) -> int:
         return 0
 
 
-
-
 class ResourceManager:
-    """Shared image LRU/prefetch store and identity-scoped weak cache."""
-    
+    """Shared editor image LRU and prefetch store."""
+
     def __init__(self):
         """初始化资源管理器"""
         self.logger = logging.getLogger(__name__)
@@ -92,12 +90,11 @@ class ResourceManager:
 
         # 当前加载的资源
         self._current_image: Optional[ImageResource] = None
-        
+
         # 资源缓存（用于快速切换）
         self._image_cache: Dict[str, ImageResource] = {}
         self._cache_limit = 5  # 最多缓存5张图片
-        
-        self._weak_cache: Dict[RebuildableCacheKey, weakref.ReferenceType[Any]] = {}
+
         self._export_cleanup_threshold_bytes = 2 * 1024 * 1024 * 1024
 
     # ==================== 图片管理 ====================
@@ -150,7 +147,9 @@ class ResourceManager:
             )
             self._add_to_cache(image_path, resource)
             self._current_image = resource
-            self.logger.debug(f"Image loaded successfully: {image_path} ({image.width}x{image.height})")
+            self.logger.debug(
+                f"Image loaded successfully: {image_path} ({image.width}x{image.height})"
+            )
             return resource
 
     def prefetch_image(self, image_path: str) -> ImageResource:
@@ -231,13 +230,17 @@ class ResourceManager:
                 oldest_path = min(candidates, key=lambda item: item[1].last_access)[0]
                 old_resource = self._image_cache.pop(oldest_path)
                 old_resource.release()
-                self.logger.debug(f"Removed least recently used image from cache: {oldest_path}")
+                self.logger.debug(
+                    f"Removed least recently used image from cache: {oldest_path}"
+                )
             else:
                 # 极端情况：缓存里只剩当前页，宁可超限也不淘汰它
-                self.logger.debug("Cache eviction skipped: only the current image is cached")
+                self.logger.debug(
+                    "Cache eviction skipped: only the current image is cached"
+                )
 
         self._image_cache[path] = resource
-    
+
     def release_image_from_cache(self, path: str) -> bool:
         """从缓存中释放指定图片
 
@@ -269,7 +272,10 @@ class ResourceManager:
 
     def release_image_cache_except_current(self, force: bool = False) -> int:
         """只保留当前图，释放 image_cache 中的其他图片。"""
-        if not force and _current_process_memory_bytes() < self._export_cleanup_threshold_bytes:
+        if (
+            not force
+            and _current_process_memory_bytes() < self._export_cleanup_threshold_bytes
+        ):
             return 0
 
         removed = 0
@@ -307,7 +313,6 @@ class ResourceManager:
         if release_from_cache:
             self.clear_image_cache()
 
-
         _release_gpu_memory()
 
         self.logger.debug("Image unloaded and memory released")
@@ -325,7 +330,10 @@ class ResourceManager:
         """返回当前资源管理器仍在持有的图像对象。"""
         images: List[Image.Image] = []
         with self._lock:
-            if self._current_image is not None and getattr(self._current_image, "image", None) is not None:
+            if (
+                self._current_image is not None
+                and getattr(self._current_image, "image", None) is not None
+            ):
                 images.append(self._current_image.image)
             cached_resources = list(self._image_cache.values())
         for resource in cached_resources:
@@ -335,24 +343,16 @@ class ResourceManager:
         return images
 
     def get_memory_snapshot(self) -> Dict[str, Any]:
-        """Return image-LRU and live identity-cache ownership metrics."""
+        """Return image-LRU ownership metrics."""
         managed_images = self.get_managed_images()
         managed_image_bytes = sum(
             _estimate_image_bytes(image) for image in managed_images
         )
-        weak_cache_live_entries = 0
-        for key, value_ref in list(self._weak_cache.items()):
-            if value_ref() is None:
-                self._weak_cache.pop(key, None)
-            else:
-                weak_cache_live_entries += 1
         return {
             "process_bytes": _current_process_memory_bytes(),
             "managed_image_count": len(managed_images),
             "managed_image_bytes": managed_image_bytes,
             "image_cache_entries": len(self._image_cache),
-            "weak_cache_entries": len(self._weak_cache),
-            "weak_cache_live_entries": weak_cache_live_entries,
             "current_image_path": (
                 self._current_image.path if self._current_image is not None else None
             ),
@@ -364,73 +364,18 @@ class ResourceManager:
             return {}
         snapshot = self.get_memory_snapshot()
         target_logger.debug(
-            "Memory snapshot [%s]: process=%.2fMB managed_images=%s "
-            "managed=%.2fMB weak_cache=%s/%s",
+            "Memory snapshot [%s]: process=%.2fMB managed_images=%s managed=%.2fMB",
             stage,
             snapshot["process_bytes"] / (1024 * 1024),
             snapshot["managed_image_count"],
             snapshot["managed_image_bytes"] / (1024 * 1024),
-            snapshot["weak_cache_live_entries"],
-            snapshot["weak_cache_entries"],
         )
         return snapshot
-    
-    def set_weak_cache(
-        self,
-        identity: tuple[int, str],
-        name: str,
-        value: Any,
-    ) -> None:
-        """Cache reproducible derived data without extending its lifetime."""
-        key = RebuildableCacheKey.from_identity(identity, name)
-        if value is None:
-            self._weak_cache.pop(key, None)
-            return
-        try:
-            self._weak_cache[key] = weakref.ref(value)
-        except TypeError:
-            self._weak_cache.pop(key, None)
 
-    def get_weak_cache(
-        self,
-        identity: tuple[int, str],
-        name: str,
-        default=None,
-    ) -> Any:
-        key = RebuildableCacheKey.from_identity(identity, name)
-        value_ref = self._weak_cache.get(key)
-        if value_ref is None:
-            return default
-        value = value_ref()
-        if value is None:
-            self._weak_cache.pop(key, None)
-            return default
-        return value
-
-    def clear_weak_cache(
-        self,
-        identity: Optional[tuple[int, str]] = None,
-        name: Optional[str] = None,
-    ) -> None:
-        if identity is None:
-            self._weak_cache.clear()
-            return
-        document_id, source_path = identity
-        keys = [
-            key
-            for key in self._weak_cache
-            if key.document_id == int(document_id)
-            and key.source_path == str(source_path)
-            and (name is None or key.name == name)
-        ]
-        for key in keys:
-            self._weak_cache.pop(key, None)
-    
     # ==================== 资源清理 ====================
 
     def cleanup_all(self) -> None:
-        """Release the image LRU and all reconstructible weak entries."""
-        self.clear_weak_cache()
+        """Release the image LRU."""
         with self._lock:
             self._current_image = None
             for resource in self._image_cache.values():
@@ -438,20 +383,16 @@ class ResourceManager:
             self._image_cache.clear()
         _release_gpu_memory()
 
-
     def release_memory_after_export(self) -> None:
-        """Trim optional caches under memory pressure while retaining the LRU."""
+        """Trim process memory under pressure while retaining the image LRU."""
         if _current_process_memory_bytes() < self._export_cleanup_threshold_bytes:
             return
-        self.clear_weak_cache()
         import gc
 
         gc.collect()
         _release_gpu_memory()
         _trim_working_set()
-    
+
     def __del__(self):
         """析构函数"""
         self.cleanup_all()
-
-

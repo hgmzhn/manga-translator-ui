@@ -40,31 +40,23 @@ class EditorModel(QObject):
         super().__init__(parent)
         self.session = EditorSession()
 
-    def get_document_revision(self) -> int:
-        return self.session.get_document_revision()
-
     def get_document_id(self) -> int:
         return self.session.get_document_id()
 
     def get_document_identity(self) -> Optional[tuple[int, str]]:
         return self.session.get_document_identity()
 
-    def get_base_revision(self) -> int:
-        return self.session.get_base_revision()
-
     def get_mask_revision(self) -> int:
         return self.session.get_mask_revision()
-
-
 
     def get_ready_inpaint_artifact(self) -> Optional[InpaintArtifact]:
         return self.session.get_ready_inpaint_artifact()
 
     def get_committed_inpaint_artifact(self) -> Optional[InpaintArtifact]:
         return self.session.get_committed_inpaint_artifact()
+
     def get_inpaint_key(self) -> InpaintKey:
         return self.session.get_inpaint_key()
-
 
     def _emit_document_projection(self) -> None:
         self.original_image_alpha_changed.emit(self.get_original_image_alpha())
@@ -90,6 +82,9 @@ class EditorModel(QObject):
 
     def get_image(self) -> Optional[Any]:
         return self.session.get_image()
+
+    def get_source_rgb(self) -> Optional[Any]:
+        return self.session.get_source_rgb()
 
     def get_source_qimage(self) -> Any:
         return self.session.get_source_qimage()
@@ -232,7 +227,6 @@ class EditorModel(QObject):
     def get_selection(self) -> List[int]:
         return self.session.get_selection()
 
-
     def begin_inpaint(self, key: InpaintKey, future: Any) -> bool:
         return self.session.begin_inpaint(key, future)
 
@@ -244,7 +238,6 @@ class EditorModel(QObject):
             return False
         self.display_layers_changed.emit(self.get_display_layers())
         return True
-
 
     def set_compare_image(self, image: Any):
         if self.session.set_compare_image(image):

@@ -20,8 +20,6 @@ class EditorLogic(QObject):
     """File catalog coordination and editor document navigation."""
 
     PREFETCH_RADIUS = 2
-    file_list_changed = pyqtSignal(list)
-    file_list_with_tree_changed = pyqtSignal(list, dict)  # (files, folder_map)
     file_snapshot_changed = pyqtSignal(object)
     file_list_loading = pyqtSignal(str)
     file_list_error = pyqtSignal(str)
@@ -31,12 +29,10 @@ class EditorLogic(QObject):
         self.controller = controller
         self.config_service = get_config_service()
         self.logger = get_logger(__name__)
-        
+
         # 使用新的文件列表模型
         self.file_model = FileListModel()
-        
-        # 保留树形结构支持
-        self.folder_tree: dict = {}  # 保存文件夹树结构
+
         self._snapshot = FileCatalogSnapshot.empty()
         self._source_by_key: dict[str, str] = {}
         self._source_paths: list[str] = []
@@ -47,7 +43,9 @@ class EditorLogic(QObject):
         self._pending_load_path: str | None = None
         self._load_first_after_snapshot = False
         self._owns_file_data_service = file_data_service is None
-        self.file_data_service = file_data_service or FileListDataService(self, max_workers=1)
+        self.file_data_service = file_data_service or FileListDataService(
+            self, max_workers=1
+        )
         self._file_channel = f"editor-files-{id(self)}"
         self.file_data_service.loading.connect(
             self._on_snapshot_loading,
@@ -71,7 +69,9 @@ class EditorLogic(QObject):
         except ValueError:
             return False
 
-    def _set_sources(self, paths: List[str], folder_keys: set[str] | None = None) -> None:
+    def _set_sources(
+        self, paths: List[str], folder_keys: set[str] | None = None
+    ) -> None:
         self._source_paths = []
         self._source_keys = set()
         self._source_folders = {}
@@ -88,9 +88,7 @@ class EditorLogic(QObject):
                 self._source_folders[key] = normalized
 
     def _add_sources(self, paths: List[str], *, load_first: bool = False) -> None:
-        source_by_key = {
-            canonical_path_key(path): path for path in self._source_paths
-        }
+        source_by_key = {canonical_path_key(path): path for path in self._source_paths}
         folder_by_key = dict(self._source_folders)
         changed = False
         for path in paths:
@@ -108,7 +106,8 @@ class EditorLogic(QObject):
             file_matches = {
                 excluded
                 for excluded in self._excluded_files
-                if excluded == key or (is_dir and self._path_is_within(excluded, normalized))
+                if excluded == key
+                or (is_dir and self._path_is_within(excluded, normalized))
             }
             if folder_matches:
                 self._excluded_folders.difference_update(folder_matches)
@@ -158,7 +157,9 @@ class EditorLogic(QObject):
             self.file_list_loading.emit("正在加载文件列表...")
 
     @pyqtSlot(str, int, object)
-    def _on_snapshot_ready(self, channel: str, _generation: int, snapshot: object) -> None:
+    def _on_snapshot_ready(
+        self, channel: str, _generation: int, snapshot: object
+    ) -> None:
         if channel != self._file_channel:
             return
         self.apply_file_snapshot(snapshot.images_only())
@@ -204,10 +205,8 @@ class EditorLogic(QObject):
                 else excluded_files
             )
         }
-        items = self.file_model.replace_from_snapshot(editor_snapshot)
-        self.folder_tree.clear()
+        self.file_model.replace_from_snapshot(editor_snapshot)
         self.file_snapshot_changed.emit(editor_snapshot)
-        self.file_list_changed.emit([item.path for item in items])
 
         pending_path = self._pending_load_path
         self._pending_load_path = None
@@ -218,48 +217,47 @@ class EditorLogic(QObject):
             )
             if self.file_model.get_file_item(resolved):
                 self._load_resolved_image(resolved)
-        elif self._load_first_after_snapshot and items:
-            self._load_resolved_image(items[0].path)
+        elif self._load_first_after_snapshot and self.file_model.files:
+            self._load_resolved_image(self.file_model.files[0].path)
         self._load_first_after_snapshot = False
 
     # --- File Management Methods ---
 
-    def _set_last_open_dir(self, path: str) -> None:
-        """Persist the directory used by the editor's file dialogs."""
-        if not path:
-            return
-        self.config_service.update_config({"app": {"last_open_dir": path}})
-        self.config_service.save_config_file()
+    def _last_open_dir(self, selected_path: str | None = None) -> str:
+        """Read or persist the editor's file-dialog directory."""
+        if selected_path is None:
+            return self.config_service.get_config().app.last_open_dir
+        if selected_path:
+            self.config_service.update_config({"app": {"last_open_dir": selected_path}})
+            self.config_service.save_config_file()
+        return selected_path
 
     @pyqtSlot()
     def open_and_add_files(self):
         """Opens a file dialog to add files to the editor's list."""
-        last_dir = self.config_service.get_config().app.last_open_dir
+        last_dir = self._last_open_dir()
         file_paths, _ = QFileDialog.getOpenFileNames(
-            None, 
-            "添加文件到编辑器", 
-            last_dir, 
-            IMAGE_FILE_DIALOG_FILTER
+            None, "添加文件到编辑器", last_dir, IMAGE_FILE_DIALOG_FILTER
         )
         if file_paths:
             self.add_files(file_paths)
-            self._set_last_open_dir(os.path.dirname(file_paths[0]))
+            self._last_open_dir(os.path.dirname(file_paths[0]))
 
     @pyqtSlot()
     def open_and_add_folder(self):
         """Opens a dialog to select folders (supports multiple selection) and adds all containing images to the list."""
-        last_dir = self.config_service.get_config().app.last_open_dir
+        last_dir = self._last_open_dir()
 
         # 使用自定义的现代化文件夹选择器
         folders = select_folders(
             parent=None,
             start_dir=last_dir,
             multi_select=True,
-            config_service=self.config_service
+            config_service=self.config_service,
         )
 
         if folders:
-            self._set_last_open_dir(folders[0])
+            self._last_open_dir(folders[0])
             self.add_folders(folders)
 
     def add_files(self, files: List[str]):
@@ -267,10 +265,6 @@ class EditorLogic(QObject):
         if not files:
             return
         self._add_sources(files, load_first=not self.file_model.files)
-
-    def add_folder(self, folder_path: str):
-        """添加文件夹到列表"""
-        self.add_folders([folder_path])
 
     def add_folders(self, folder_paths: List[str]):
         """添加目录源；完整目录树由常驻后台线程池构建。"""
@@ -280,14 +274,14 @@ class EditorLogic(QObject):
     def add_files_from_paths(self, paths: List[str]):
         """
         从拖放的路径列表中添加文件和文件夹
-        
+
         Args:
             paths: 拖放的文件或文件夹路径列表
         """
         self._add_sources(paths, load_first=not self.file_model.files)
 
     @pyqtSlot(str)
-    def remove_file(self, file_path: str, emit_signal: bool = False):
+    def remove_file(self, file_path: str):
         """从内存模型移除；后续后台重建通过 exclusion 保持删除结果。"""
         target_key = canonical_path_key(file_path)
         target_node = None
@@ -304,7 +298,9 @@ class EditorLogic(QObject):
             self._source_keys.remove(target_key)
             self._source_folders.pop(target_key, None)
             self._source_paths = [
-                path for path in self._source_paths if canonical_path_key(path) != target_key
+                path
+                for path in self._source_paths
+                if canonical_path_key(path) != target_key
             ]
             covered_by_folder = any(
                 target_key != folder_key and self._path_is_within(file_path, folder)
@@ -317,10 +313,14 @@ class EditorLogic(QObject):
                     self._excluded_files.add(target_key)
             elif is_folder:
                 self._excluded_folders = {
-                    key for key in self._excluded_folders if not key.startswith(target_key + os.sep)
+                    key
+                    for key in self._excluded_folders
+                    if not key.startswith(target_key + os.sep)
                 }
                 self._excluded_files = {
-                    key for key in self._excluded_files if not key.startswith(target_key + os.sep)
+                    key
+                    for key in self._excluded_files
+                    if not key.startswith(target_key + os.sep)
                 }
         elif is_folder:
             self._excluded_folders.add(target_key)
@@ -339,7 +339,9 @@ class EditorLogic(QObject):
             displayed_paths.append(file_path)
 
         source_paths = {
-            self._source_by_key.get(canonical_path_key(path), os.path.abspath(os.path.normpath(path)))
+            self._source_by_key.get(
+                canonical_path_key(path), os.path.abspath(os.path.normpath(path))
+            )
             for path in displayed_paths
         }
         for source_path in source_paths:
@@ -351,17 +353,16 @@ class EditorLogic(QObject):
         if current_image_path and canonical_path_key(current_image_path) in {
             canonical_path_key(path) for path in source_paths
         }:
-            self.controller._clear_editor_state(release_image_cache=True)
+            self.controller.document_service.clear_editor_state(
+                release_image_cache=True
+            )
             cleared_current = True
-        
+
         # 检查是否还有文件，如果没有了就清空画布
         if len(self.file_model.files) == 0 and not cleared_current:
-            self.controller._clear_editor_state(release_image_cache=True)
-        
-        # 如果需要发射信号，更新UI
-        if emit_signal:
-            file_paths = [item.path for item in self.file_model.files]
-            self.file_list_changed.emit(file_paths)
+            self.controller.document_service.clear_editor_state(
+                release_image_cache=True
+            )
 
     @pyqtSlot()
     def clear_list(self):
@@ -375,14 +376,11 @@ class EditorLogic(QObject):
         self._source_by_key.clear()
         self._snapshot = FileCatalogSnapshot.empty(self._snapshot.generation + 1)
         self.file_model.clear()
-        self.folder_tree.clear()
         self.file_snapshot_changed.emit(self._snapshot)
-        self.file_list_changed.emit([])
-        
+
         # 先清空画布图片，这样后台任务会检测到图片为None而提前返回
         # 然后清空编辑器状态（包括取消后台任务）
-        self.controller._clear_editor_state(release_image_cache=True)
-        
+        self.controller.document_service.clear_editor_state(release_image_cache=True)
 
     # --- Image Loading Methods ---
 
@@ -400,32 +398,6 @@ class EditorLogic(QObject):
                 if 0 <= next_index < len(file_paths):
                     adjacent.append(file_paths[next_index])
         return adjacent
-
-    def load_file_lists(self, source_files: List[str], folder_tree: dict = None):
-        """旧调用兼容入口：只提交源路径，扫描与 JSON 解析全部在后台。"""
-        roots: list[str] = []
-        if folder_tree:
-            folders = [os.path.abspath(os.path.normpath(path)) for path in folder_tree]
-            for folder in folders:
-                if not any(
-                    canonical_path_key(folder) != canonical_path_key(candidate)
-                    and self._path_is_within(folder, candidate)
-                    for candidate in folders
-                ):
-                    roots.append(folder)
-
-        standalone = [
-            path
-            for path in source_files
-            if not any(self._path_is_within(path, folder) for folder in roots)
-        ]
-        self._set_sources(
-            roots + standalone,
-            {canonical_path_key(path) for path in roots},
-        )
-        self._excluded_folders.clear()
-        self._excluded_files.clear()
-        self._request_snapshot()
 
     @pyqtSlot(str)
     def load_image_into_editor(self, file_path: str):
@@ -462,8 +434,10 @@ class EditorLogic(QObject):
         if file_item.file_type == FileType.UNTRANSLATED:
             self.logger.warning(f"未翻译的图片: {resolved_path}")
 
-        self.controller._pending_editor_prefetch_paths = self._adjacent_image_paths(resolved_path)
-        self.controller.load_image_and_regions(resolved_path)
+        self.controller.document_service.load_image_and_regions(
+            resolved_path,
+            prefetch_paths=self._adjacent_image_paths(resolved_path),
+        )
 
     def shutdown(self) -> None:
         self.file_data_service.cancel(self._file_channel)
