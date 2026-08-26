@@ -135,6 +135,15 @@ class RichTextEditingTests(unittest.TestCase):
             storage_text_to_editor_text("第一行[BR]第二行"), "第一行\n第二行"
         )
 
+    def test_storage_text_preserves_spaces_around_line_breaks(self):
+        self.assertEqual(
+            storage_text_to_editor_text(
+                "第一行  [BR]  第二行\t<br />\t第三行 【BR】 第四行"
+            ),
+            "第一行  \n  第二行\t\n\t第三行 \n 第四行",
+        )
+
+
     def test_tcy_wraps_selected_range_by_position(self):
         document = _doc("ABAB", {})
         updated = apply_tcy_to_range(document, 2, 4)

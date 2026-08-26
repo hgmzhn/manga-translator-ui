@@ -15,7 +15,7 @@ from services import get_render_parameter_service
 from .document_state import ExportBase
 from .image_utils import image_like_to_pil, image_like_to_rgb_array
 from .inpaint_state import InpaintArtifact
-from .region_geometry_state import normalize_region_geometry_data
+from .region_geometry_state import RegionGeometryState, normalize_region_geometry_data
 
 if TYPE_CHECKING:
     from .editor_controller import EditorController
@@ -357,14 +357,19 @@ class EditorControllerExportService:
     def apply_white_frame_center(cls, region: dict) -> None:
         """将 center 重算为白框世界中心，并同步平移 local 坐标以免漂移。"""
         wf_local = cls.resolve_effective_box_local(region)
+        if not (isinstance(wf_local, (list, tuple)) and len(wf_local) == 4):
+            return
+
         base_center = region.get("center")
         if not (
-            isinstance(wf_local, (list, tuple))
-            and len(wf_local) == 4
-            and isinstance(base_center, (list, tuple))
-            and len(base_center) >= 2
+            isinstance(base_center, (list, tuple, np.ndarray)) and len(base_center) >= 2
         ):
-            return
+            # 旧工程通常不保存 center；必须与编辑器快照使用同一套 lines
+            # 回退中心，否则白框局部偏移不会进入导出，文字会沿旋转轴漂移。
+            try:
+                base_center = RegionGeometryState.from_region_data(region).center
+            except (TypeError, ValueError, IndexError):
+                return
         try:
             left, top, right, bottom = (float(v) for v in wf_local)
             lx = (left + right) / 2.0

@@ -112,6 +112,20 @@ class RichTextRenderingTest(unittest.TestCase):
             ["红", "蓝", "绿", "紫", "黑"],
         )
 
+    def test_legacy_break_markers_preserve_surrounding_spaces(self):
+        document = legacy_line_breaks_to_document(
+            "第一行  [BR]  第二行\t<br />\t第三行 【BR】 第四行"
+        ).to_dict()
+
+        self.assertEqual(
+            [
+                block["inlines"][0]["text"] if block["inlines"] else ""
+                for block in document["blocks"]
+            ],
+            ["第一行  ", "  第二行\t", "\t第三行 ", " 第四行"],
+        )
+
+
     def test_rich_text_schema_rejects_noncanonical_fields(self):
         with self.assertRaises(ValueError):
             ensure_rich_text_document(

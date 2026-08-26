@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 RICH_TEXT_FORMAT = "richtext.v1"
-_BR_RE = re.compile(r"\s*(?:\[BR\]|<br\s*/?>|【BR】|\r\n|\r|\n)\s*", re.IGNORECASE)
+_BR_RE = re.compile(r"(?:\[BR\]|<br\s*/?>|【BR】|\r\n|\r|\n)", re.IGNORECASE)
 
 
 @dataclass

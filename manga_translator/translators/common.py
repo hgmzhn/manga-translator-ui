@@ -114,6 +114,12 @@ ISO_639_1_TO_KEEP_LANGUAGES = {
     'ca': 'CAT',
 }
 
+_BR_EDGE_WHITESPACE_RE = re.compile(
+    r"[^\S\r\n]*(\[BR\]|【BR】|<br\s*/?>)[^\S\r\n]*",
+    re.IGNORECASE,
+)
+
+
 class InvalidServerResponse(Exception):
     pass
 
@@ -2791,7 +2797,9 @@ class CommonTranslator(InfererModule):
         # Remove internal markers: 【Original regions: X】 or [Original regions: X]
         trans = re.sub(r'【Original regions:\s*\d+】\s*', '', trans, flags=re.IGNORECASE)
         trans = re.sub(r'\[Original regions:\s*\d+\]\s*', '', trans, flags=re.IGNORECASE)
-        
+        # 只清理翻译器返回文本中的 BR 邻接空白；编辑器手输文本不经过此处。
+        trans = _BR_EDGE_WHITESPACE_RE.sub(r"\1", trans)
+
         # 替换全角句点连续出现（．．．或．．）为省略号
         trans = trans.replace('．．．', '…')
         trans = trans.replace('．．', '…')

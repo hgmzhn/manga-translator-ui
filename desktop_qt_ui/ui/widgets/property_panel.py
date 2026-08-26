@@ -33,6 +33,10 @@ from qfluentwidgets import (
     FluentIcon as FIF,
 )
 
+from editor.rich_text_editing import (
+    plain_text_to_storage_text,
+    storage_text_to_editor_text,
+)
 from editor.region_geometry_state import normalize_region_geometry_data
 from services import get_config_service, get_i18n_manager
 
@@ -1743,7 +1747,6 @@ class PropertyPanel(QWidget):
                 ) and self.original_text_box.toPlainText() != original_text:
                     self.original_text_box.setText(original_text)
 
-                import re
 
                 # 复选框选中 → 显示"替换前译文"(translation_raw)，否则显示"译文"(translation)
                 show_raw = bool(
@@ -1764,13 +1767,8 @@ class PropertyPanel(QWidget):
                     )
                 )
 
-                # 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为真实换行
-                translation_text = re.sub(
-                    r"\s*(\[BR\]|<br>|【BR】)\s*",
-                    "\n",
-                    translation_text,
-                    flags=re.IGNORECASE,
-                )
+                # 将所有 AI 换行符转换为真实换行，保留换行两侧的用户空格
+                translation_text = storage_text_to_editor_text(translation_text)
 
                 # 剥除存量的旧 <H> 局部横排标记（协议已废除，保留内文显示）
                 display_text = strip_legacy_horizontal_tags(translation_text)
@@ -1877,10 +1875,8 @@ class PropertyPanel(QWidget):
         存量/手输的字面 <H></H> 在此剥除（保留内文），避免被当普通字符
         画上成品图。
         """
-        import re
-
         text_without_tags = strip_legacy_horizontal_tags(raw_text)
-        return re.sub(r"\n+", "[BR]", text_without_tags)
+        return plain_text_to_storage_text(text_without_tags)
 
     def force_save_text_edits(self):
         """强制保存当前文本框的编辑内容（在失去焦点前）"""
