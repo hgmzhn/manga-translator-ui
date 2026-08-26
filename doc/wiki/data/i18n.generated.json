@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1511,
-    "exact": 1511,
+    "keys": 1513,
+    "exact": 1513,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -4885,6 +4885,18 @@
       "status": "exact"
     },
     {
+      "key": "all_existing_outputs_skipped_dialog",
+      "en_US": "All {count} files were skipped because files with the same names already exist in the output directory. Translation did not start.\n\nSolutions:\n1. Delete the same-named files from the output directory\n2. Or enable ‘Overwrite Existing Files’ under Settings → General",
+      "zh_CN": "所有 {count} 个文件都因为输出目录中已有同名文件被跳过，未开始翻译。\n\n解决方法：\n1. 删除输出目录中的同名文件\n2. 或在 设置 → 通用 → 覆盖已存在文件 开启覆盖",
+      "status": "exact"
+    },
+    {
+      "key": "all_existing_outputs_skipped_status",
+      "en_US": "All {count} files were skipped. Delete the same-named files or enable overwrite.",
+      "zh_CN": "全部 {count} 个文件已跳过：删除同名文件或开启覆盖。",
+      "status": "exact"
+    },
+    {
       "key": "api_models_error_failed",
       "en_US": "Failed to retrieve the model list: {error}",
       "zh_CN": "获取模型列表失败：{error}",
@@ -5126,8 +5138,8 @@
     },
     {
       "key": "desc_cli_overwrite",
-      "en_US": "Overwrite existing translated files. When disabled, already translated images are skipped.",
-      "zh_CN": "覆盖已存在的翻译文件。关闭时会跳过已翻译的图片。",
+      "en_US": "Overwrite existing translated files. When disabled, already translated images are skipped and context is automatically restored from their history.",
+      "zh_CN": "覆盖已存在的翻译文件。关闭时会跳过已翻译的图片，并自动从跳过页的历史记录中恢复上下文。",
       "status": "exact"
     },
     {

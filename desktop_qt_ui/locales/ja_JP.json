@@ -221,6 +221,8 @@
   "Translator:": "翻訳エンジン：",
   "Task Completed": "タスク完了",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "翻訳が完了しました。{count}個のファイルを保存しました。\n\nエディターで結果を開きますか？",
+  "all_existing_outputs_skipped_dialog": "出力フォルダーに同名ファイルが既に存在するため、{count} 個のファイルをすべてスキップしました。翻訳は開始されませんでした。\n\n解決方法：\n1. 出力フォルダーの同名ファイルを削除する\n2. または「設定 → 一般 → 既存ファイルを上書き」を有効にする",
+  "all_existing_outputs_skipped_status": "{count} 個のファイルをすべてスキップしました。同名ファイルを削除するか、上書きを有効にしてください。",
   "File List Empty": "ファイルリストが空です",
   "Please add image files to translate!": "翻訳する画像ファイルを追加してください！",
   "Please add image files to translate!\n\nYou can add files by:\n• Click 'Add Files' button\n• Click 'Add Folder' button\n• Drag and drop files to the list": "翻訳する画像ファイルを追加してください！\n\n追加方法：\n•「ファイルを追加」ボタンをクリック\n•「フォルダを追加」ボタンをクリック\n• ファイルをリストにドラッグ＆ドロップ",

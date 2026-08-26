@@ -221,6 +221,8 @@
   "Translator:": "Translator:",
   "Task Completed": "Task Completed",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "Translation completed, {count} files saved.\n\nOpen results in editor?",
+  "all_existing_outputs_skipped_dialog": "All {count} files were skipped because files with the same names already exist in the output directory. Translation did not start.\n\nSolutions:\n1. Delete the same-named files from the output directory\n2. Or enable ‘Overwrite Existing Files’ under Settings → General",
+  "all_existing_outputs_skipped_status": "All {count} files were skipped. Delete the same-named files or enable overwrite.",
   "File List Empty": "File List Empty",
   "Please add image files to translate!": "Please add image files to translate!",
   "Please add image files to translate!\n\nYou can add files by:\n• Click 'Add Files' button\n• Click 'Add Folder' button\n• Drag and drop files to the list": "Please add image files to translate!\n\nYou can add files by:\n• Click 'Add Files' button\n• Click 'Add Folder' button\n• Drag and drop files to the list",

@@ -143,7 +143,7 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "release_json_value": true,
+        "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.overwrite"
       },
       "lifecycle_stages": [
@@ -1117,7 +1117,7 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "release_json_value": "openai_hq",
+        "release_json_value": "original",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
       },
       "lifecycle_stages": [

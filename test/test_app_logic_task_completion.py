@@ -1,13 +1,17 @@
-import _bootstrap  # noqa: F401, I001
+import _bootstrap  # noqa: I001
 
 from types import SimpleNamespace
+
+import pytest
 
 import desktop_qt_ui.app_logic as app_logic_module
 from PyQt6.QtWidgets import QApplication
 
 from desktop_qt_ui.app_logic import MainAppLogic
+from services.i18n_service import I18nManager
 
 _QT_APP = QApplication.instance() or QApplication([])
+LOCALE_DIR = _bootstrap.ROOT / "desktop_qt_ui" / "locales"
 
 
 class _Signal:
@@ -30,10 +34,30 @@ class _StateManager:
         self.status_message = message
 
 
-def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(monkeypatch):
+@pytest.mark.parametrize(
+    ("locale", "expected_fragment"),
+    [
+        ("zh_CN", "所有 2 个文件"),
+        ("zh_TW", "所有 2 個檔案"),
+        ("en_US", "All 2 files"),
+        ("ja_JP", "2 個のファイル"),
+        ("ko_KR", "2개 파일"),
+        ("es_ES", "los 2 archivos"),
+    ],
+)
+def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(
+    monkeypatch,
+    locale,
+    expected_fragment,
+):
     warning_signal = _Signal()
     completed_signal = _Signal()
     state_manager = _StateManager()
+    i18n = I18nManager(
+        locale_dir=str(LOCALE_DIR),
+        fallback_locale="zh_CN",
+        config_language=locale,
+    )
 
     logic = SimpleNamespace(
         current_task_id=7,
@@ -45,6 +69,7 @@ def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(monkeypat
         _record_task_failure_from_result=lambda _result: None,
         _record_task_failure=lambda *_args: None,
         _ui_log=lambda *_args: None,
+        _t=i18n.translate,
         state_manager=state_manager,
         warning_dialog_requested=warning_signal,
         error_dialog_requested=_Signal(),
@@ -63,20 +88,17 @@ def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(monkeypat
 
     MainAppLogic.on_task_finished(logic, results, 7)
 
-    expected_message = (
-        "所有 2 个文件都因为输出目录中已有同名文件被跳过，未开始翻译。\n\n"
-        "解决方法：\n"
-        "1. 删除输出目录中的同名文件\n"
-        "2. 或在 设置 → 通用 → 覆盖已存在文件 开启覆盖"
-    )
-    assert warning_signal.values == [(expected_message,)]
-    assert state_manager.status_message == "全部 2 个文件已跳过：删除同名文件或开启覆盖。"
-    assert "01.png" not in warning_signal.values[0][0]
+    message = warning_signal.values[0][0]
+    assert expected_fragment in message
+    assert "{count}" not in message
+    assert "all_existing_outputs_skipped_dialog" not in message
+    assert "2" in state_manager.status_message
+    assert "all_existing_outputs_skipped_status" not in state_manager.status_message
+    assert "01.png" not in message
     assert not state_manager.translating
     assert completed_signal.values == [([],)]
 
 
 if __name__ == "__main__":
-    import pytest
-
     raise SystemExit(pytest.main([__file__, "-q"]))
+

@@ -221,6 +221,8 @@
   "Translator:": "Traductor:",
   "Task Completed": "Tarea completada",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "Traducción completada, {count} archivos guardados.\n\n¿Abrir resultados en el editor?",
+  "all_existing_outputs_skipped_dialog": "Se omitieron los {count} archivos porque ya existen archivos con el mismo nombre en el directorio de salida. La traducción no se inició.\n\nSoluciones:\n1. Elimina los archivos con el mismo nombre del directorio de salida\n2. O activa «Sobrescribir archivos existentes» en Configuración → General",
+  "all_existing_outputs_skipped_status": "Se omitieron los {count} archivos. Elimina los archivos con el mismo nombre o activa la sobrescritura.",
   "File List Empty": "Lista de archivos vacía",
   "Please add image files to translate!": "¡Por favor agregue archivos de imagen para traducir!",
   "Please add image files to translate!\n\nYou can add files by:\n• Click 'Add Files' button\n• Click 'Add Folder' button\n• Drag and drop files to the list": "¡Por favor agregue archivos de imagen para traducir!\n\nPuede agregar archivos mediante:\n• Clic en el botón 'Agregar archivos'\n• Clic en el botón 'Agregar carpeta'\n• Arrastrar y soltar archivos en la lista",

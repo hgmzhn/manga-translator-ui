@@ -221,6 +221,8 @@
   "Translator:": "翻译器：",
   "Task Completed": "任务完成",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "翻译完成，成功保存 {count} 个文件。\n\n是否在编辑器中打开结果？",
+  "all_existing_outputs_skipped_dialog": "所有 {count} 个文件都因为输出目录中已有同名文件被跳过，未开始翻译。\n\n解决方法：\n1. 删除输出目录中的同名文件\n2. 或在 设置 → 通用 → 覆盖已存在文件 开启覆盖",
+  "all_existing_outputs_skipped_status": "全部 {count} 个文件已跳过：删除同名文件或开启覆盖。",
   "File List Empty": "文件列表为空",
   "Please add image files to translate!": "请先添加要翻译的图片文件！",
   "Please add image files to translate!\n\nYou can add files by:\n• Click 'Add Files' button\n• Click 'Add Folder' button\n• Drag and drop files to the list": "请先添加要翻译的图片文件！\n\n可以通过以下方式添加：\n• 点击「添加文件」按钮\n• 点击「添加文件夹」按钮\n• 直接拖拽文件到文件列表",

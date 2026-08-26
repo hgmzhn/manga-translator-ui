@@ -221,6 +221,8 @@
   "Translator:": "翻譯器：",
   "Task Completed": "任務完成",
   "Translation completed, {count} files saved.\n\nOpen results in editor?": "翻譯完成，成功儲存 {count} 個檔案。\n\n是否在編輯器中開啟結果？",
+  "all_existing_outputs_skipped_dialog": "所有 {count} 個檔案都因輸出目錄中已有同名檔案而被跳過，未開始翻譯。\n\n解決方法：\n1. 刪除輸出目錄中的同名檔案\n2. 或在「設定 → 一般 → 覆寫已存在檔案」中啟用覆寫",
+  "all_existing_outputs_skipped_status": "全部 {count} 個檔案已跳過：請刪除同名檔案或啟用覆寫。",
   "File List Empty": "檔案清單為空",
   "Please add image files to translate!": "請先新增要翻譯的圖片檔案！",
   "Please add image files to translate!\n\nYou can add files by:\n• Click 'Add Files' button\n• Click 'Add Folder' button\n• Drag and drop files to the list": "請先新增要翻譯的圖片檔案！\n\n可以透過以下方式新增：\n• 點擊「新增檔案」按鈕\n• 點擊「新增資料夾」按鈕\n• 直接拖曳檔案到檔案清單",
