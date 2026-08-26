@@ -37,6 +37,7 @@ from .utils import (
     sort_regions,
     visualize_textblocks,
 )
+from .utils.batch_skip import BatchInputPlan, input_path, plan_batch_inputs, slice_batch_indices
 from .utils.onnx_runtime import set_onnx_gpu_disabled
 from .utils.text_filter import match_filter
 
@@ -381,7 +382,6 @@ class MangaTranslator:
         self._resume_context_pages = []
         self._resume_context_cursor = 0
         self._resume_context_order = {}
-        self._resume_context_source_sequence = None
         self._colorizer_history_images = []  # 存储最近已上色页面，用于 AI 上色历史参考
 
         # 调试图片管理相关属性
@@ -445,7 +445,6 @@ class MangaTranslator:
         self._attempts_override_provided = 'attempts' in params
         self.save_quality = params.get('save_quality', 100)
         self.skip_no_text = params.get('skip_no_text', False)
-        self.resume_context_from_skipped = bool(params.get('resume_context_from_skipped', False))
         self.generate_and_export = params.get('generate_and_export', False)
         self.export_from_local_json = params.get('export_from_local_json', False)
         self.colorize_only = params.get('colorize_only', False)
@@ -543,50 +542,6 @@ class MangaTranslator:
             config.cli.attempts = self.attempts
         return config
 
-    @staticmethod
-    def _batch_input_path(item) -> str:
-        image = item[0] if isinstance(item, tuple) else item
-        return str(getattr(image, 'name', None) or image or '')
-
-    def _has_skipped_pages_between(self, path1: str, path2: str) -> bool:
-        """Check if there are skipped context pages between path1 and path2 in the source order."""
-        if not self._resume_context_pages or not path1 or not path2:
-            return False
-        p1 = os.path.abspath(os.path.normpath(str(path1)))
-        p2 = os.path.abspath(os.path.normpath(str(path2)))
-        order1 = self._resume_context_order.get(p1)
-        order2 = self._resume_context_order.get(p2)
-        if order1 is None or order2 is None or order2 <= order1 + 1:
-            return False
-        for order, _path, _entries in self._resume_context_pages:
-            if order1 < order < order2:
-                return True
-        return False
-
-    def _slice_batch_indices(self, items: List[tuple], max_batch_size: int) -> List[tuple]:
-        """
-        Split items into batches of up to max_batch_size, but break the batch early
-        if a resume context boundary (skipped page) exists between consecutive items.
-        Returns list of (start_idx, end_idx) tuples.
-        """
-        total = len(items)
-        if total == 0:
-            return []
-        max_batch_size = max(1, int(max_batch_size or 1))
-        
-        batches = []
-        batch_start = 0
-        while batch_start < total:
-            batch_end = batch_start + 1
-            while batch_end < min(batch_start + max_batch_size, total):
-                prev_path = self._batch_input_path(items[batch_end - 1])
-                curr_path = self._batch_input_path(items[batch_end])
-                if self._has_skipped_pages_between(prev_path, curr_path):
-                    break
-                batch_end += 1
-            batches.append((batch_start, batch_end))
-            batch_start = batch_end
-        return batches
 
     def _calculate_output_path(self, image_path: str, save_info: dict) -> str:
         """
@@ -657,7 +612,7 @@ class MangaTranslator:
         overwrite: bool = True,
         mode_label: str = "BATCH",
         source_image: Optional[Image.Image] = None,
-    ) -> bool:
+    ) -> Optional[bool]:
         """
         保存翻译后的图片到指定路径
         
@@ -669,11 +624,11 @@ class MangaTranslator:
             mode_label: 模式标签（用于日志）
             
         Returns:
-            bool: 是否成功保存
+            True when saved, None when a post-plan race created the output, otherwise False.
         """
         if not overwrite and os.path.exists(output_path):
             logger.info(f"  -> ⚠️ [{mode_label}] Skipping existing file: {os.path.basename(output_path)}")
-            return False
+            return None
         
         try:
             save_pil_image(
@@ -723,11 +678,16 @@ class MangaTranslator:
                 mode_label,
                 source_image=ctx.input,
             )
+            ctx.output_path = final_output_path
             
-            # 标记成功
-            if success or not overwrite:  # 跳过已存在的文件也算成功
+            if success is None:
                 ctx.success = True
-            elif overwrite:
+                ctx.skipped = True
+                ctx.skip_reason = 'existing_output_race'
+                ctx.skip_message = f"输出文件在处理期间已出现: {os.path.basename(final_output_path)}"
+            elif success:
+                ctx.success = True
+            else:
                 self._mark_context_failure(
                     ctx,
                     RuntimeError(f"保存输出文件失败: {os.path.basename(final_output_path)}"),
@@ -735,7 +695,7 @@ class MangaTranslator:
                 )
             
             # 导出可编辑PSD（如果启用）
-            if config and hasattr(config, 'cli') and hasattr(config.cli, 'export_editable_psd') and config.cli.export_editable_psd:
+            if success and config and hasattr(config, 'cli') and hasattr(config.cli, 'export_editable_psd') and config.cli.export_editable_psd:
                 try:
                     from .utils.photoshop_export import (
                         get_psd_output_path,
@@ -755,7 +715,7 @@ class MangaTranslator:
             # ✅ 保存后立即清理result以释放内存
             ctx.result = None
             
-            return success
+            return bool(ctx.success)
         except Exception as e:
             logger.error(f"Error in _save_and_cleanup_context: {e}")
             self._mark_context_failure(ctx, e, stage='saving')
@@ -1013,6 +973,7 @@ class MangaTranslator:
         images_with_configs: List[tuple],
         global_offset: int = 0,
         global_total: int = None,
+        skipped_count: int = 0,
     ) -> List[Context]:
         """Export original or translated text without touching the project JSON."""
         from desktop_qt_ui.services import workflow_service
@@ -1058,6 +1019,7 @@ class MangaTranslator:
                 if export_result.startswith("Error"):
                     raise OSError(export_result)
                 ctx.success = True
+                ctx.output_path = export_result
                 logger.info(
                     f"Local {export_label} text exported for "
                     f"{os.path.basename(image_name)}: {export_result}"
@@ -1075,7 +1037,7 @@ class MangaTranslator:
                 1 for result in results if getattr(result, 'translation_error', None)
             )
             await self._report_progress(
-                f"batch:{completed}:{completed}:{display_total}:{failed_count}"
+                f"batch:{completed}:{completed}:{display_total}:{failed_count}:{skipped_count}"
             )
 
         return results
@@ -1133,6 +1095,7 @@ class MangaTranslator:
                 template_path = workflow_service.get_template_path_from_config()
                 if template_path and os.path.exists(template_path):
                     export_result = getattr(workflow_service, generator_name)(json_path, template_path)
+                    ctx.output_path = export_result
                     logger.info(f"{export_log_label} for {os.path.basename(image_name)}: {export_result}")
                 else:
                     logger.warning(f"Template file not found for {os.path.basename(image_name)}: {template_path}")
@@ -3520,114 +3483,97 @@ class MangaTranslator:
         self.add_progress_hook(ph)
 
     async def translate_batch(self, images_with_configs: List[tuple], batch_size: int = None, image_names: List[str] = None, save_info: dict = None, global_offset: int = 0, global_total: int = None) -> List[Context]:
-        """
-        批量翻译多张图片，在翻译阶段进行批量处理以提高效率
-        
-        Args:
-            images_with_configs: List of (image, config) tuples
-            batch_size: 批量大小，如果为None则使用实例的batch_size
-            image_names: 已弃用的参数，保留用于兼容性
-            save_info: 保存配置，包含output_folder、input_folders、format等
-            global_offset: 全局偏移量，用于显示正确的图片编号（前端分批加载时使用）
-            global_total: 全局总图片数，用于显示正确的总批次数（前端分批加载时使用）
-            
-        Returns:
-            List of Context objects with translation results
-        """
-        # 每次翻译任务开始时重新加载过滤列表（仅在启用时）
+        """Translate a complete ordered input list and return processed and skipped results."""
         if self.filter_text_enabled:
             from .utils.text_filter import load_filter_list
             load_filter_list(force_reload=True)
 
-        images_with_configs = [
+        source_items = [
             (image, self._apply_runtime_cli_overrides(config))
             for image, config in images_with_configs
         ]
-        self._prepare_resume_context(save_info)
+        plan = plan_batch_inputs(self, source_items, save_info)
+        images_with_configs = plan.pending_items
+        skipped_count = plan.skipped_count
+        self.all_page_translations.clear()
+        self._original_page_texts.clear()
+        display_total = global_total if global_total is not None else global_offset + len(source_items)
+        processing_offset = global_offset + skipped_count
+        self._prepare_resume_context(plan)
+
+        if skipped_count:
+            completed = min(processing_offset, display_total)
+            await self._report_progress(
+                f"batch:{completed}:{completed}:{display_total}:0:{skipped_count}"
+            )
+        if not images_with_configs:
+            return plan.merge_results([])
+
+        batch_size = batch_size or self.batch_size
         is_text_export_mode = self.generate_and_export or (self.template and self.save_text)
         if self.export_from_local_json and is_text_export_mode:
-            return await self._export_text_from_local_json(
+            contexts = await self._export_text_from_local_json(
                 images_with_configs,
-                global_offset=global_offset,
-                global_total=global_total,
+                global_offset=processing_offset,
+                global_total=display_total,
+                skipped_count=skipped_count,
             )
+            return plan.merge_results(contexts)
 
-        
-        batch_size = batch_size or self.batch_size
-        
-        # 如果提供了全局总数，使用它来计算总批次数；否则使用当前批次的图片数
-        display_total = global_total if global_total is not None else len(images_with_configs)
-        
-        # === 步骤0: load_text模式预处理 - 自动从TXT导入到JSON ===
-        if self.load_text and images_with_configs:
+        if self.load_text:
             logger.info("Load text mode detected: Auto-importing translations from TXT to JSON...")
             self._preprocess_load_text_mode(images_with_configs)
-        
-        # === 步骤1: 替换翻译模式优先检查 ===
-        # 替换翻译模式应该优先于高质量翻译模式，因为它是一个独立的工作流程
-        if self.replace_translation and images_with_configs:
+
+        if self.replace_translation:
             logger.info("Replace translation mode detected: Will extract translations from translated images")
-            return await self._translate_batch_replace_translation(images_with_configs, save_info, global_offset, global_total)
-        
-        # === 步骤2: 检查是否有不兼容的特殊模式及计算有效并发 ===
+            contexts = await self._translate_batch_replace_translation(
+                images_with_configs,
+                save_info,
+                processing_offset,
+                display_total,
+            )
+            return plan.merge_results(contexts)
+
         is_template_save_mode = self.template and self.save_text
         has_incompatible_mode = (
-            self.load_text or 
-            self.translate_json_only or
-            is_template_save_mode or 
-            self.generate_and_export or 
-            self.colorize_only or 
-            self.upscale_only or 
-            self.inpaint_only or
-            self.replace_translation or  # 替换翻译模式也不支持并发
-            (self.resume_context_from_skipped and bool(self._resume_context_pages))
+            self.load_text
+            or self.translate_json_only
+            or is_template_save_mode
+            or self.generate_and_export
+            or self.colorize_only
+            or self.upscale_only
+            or self.inpaint_only
+            or self.replace_translation
         )
         effective_batch_concurrent = self.batch_concurrent and not has_incompatible_mode
 
-        # === 步骤3: 检查是否需要使用高质量翻译模式 ===
         is_hq_translator = False
-        if images_with_configs:
-            first_config = images_with_configs[0][1]
-            if first_config and hasattr(first_config.translator, 'translator'):
-                from manga_translator.config import Translator
-                translator_type = first_config.translator.translator
-                is_hq_translator = translator_type in [Translator.openai_hq, Translator.gemini_hq]
-                is_import_export_mode = self.load_text or self.template or self.translate_json_only
+        first_config = images_with_configs[0][1]
+        if first_config and hasattr(first_config.translator, 'translator'):
+            translator_type = first_config.translator.translator
+            is_hq_translator = translator_type in [Translator.openai_hq, Translator.gemini_hq]
+            is_import_export_mode = self.load_text or self.template or self.translate_json_only
+            if is_hq_translator and not is_import_export_mode and not effective_batch_concurrent:
+                logger.info(f"检测到高质量翻译器 {translator_type}，自动启用高质量翻译模式")
+                contexts = await self._translate_batch_high_quality(
+                    images_with_configs,
+                    save_info,
+                    global_offset=processing_offset,
+                    global_total=display_total,
+                    batch_size=batch_size,
+                    skipped_count=skipped_count,
+                )
+                return plan.merge_results(contexts)
+            if is_hq_translator and is_import_export_mode:
+                logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
 
-                # 如果是高质量翻译且未启用有效并发模式，使用专用的高质量翻译流程
-                if is_hq_translator and not is_import_export_mode and not effective_batch_concurrent:
-                    logger.info(f"检测到高质量翻译器 {translator_type}，自动启用高质量翻译模式")
-                    return await self._translate_batch_high_quality(
-                        images_with_configs, 
-                        save_info, 
-                        global_offset=global_offset, 
-                        global_total=global_total,
-                        batch_size=batch_size
-                    )
-                
-                if is_hq_translator and is_import_export_mode:
-                    logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
-        
-        # === 步骤4: 规范单项批次 ===
-        # 始终留在 translate_batch() 内；导出原文需要逐张落盘，因此使用 batch_size=1。
         if is_template_save_mode:
             logger.info("Template+SaveText mode detected. Using one-item backend batches.")
-            batch_size = 1  # 强制使用 batch_size=1
+            batch_size = 1
         elif batch_size <= 1 and not effective_batch_concurrent:
             logger.debug('Batch size <= 1, using one-item backend batches')
             batch_size = 1
-        
-        # === 步骤5: 检查是否使用并发流水线模式 ===
-        # 并发流水线支持：普通翻译、高质量翻译、单文件翻译
-        # 不支持的特殊模式：
-        # - load_text: 从JSON加载翻译
-        # - template + save_text: 导出原文
-        # - generate_and_export: 导出翻译
-        # - colorize_only: 仅上色
-        # - upscale_only: 仅超分
-        # - inpaint_only: 仅修复
-        
-        # 如果启用了并发但有不兼容模式，给出提示
+
         if self.batch_concurrent and has_incompatible_mode:
             incompatible_modes = []
             if self.load_text:
@@ -3646,72 +3592,53 @@ class MangaTranslator:
                 incompatible_modes.append("仅修复")
             if self.replace_translation:
                 incompatible_modes.append("替换翻译")
-            if self.resume_context_from_skipped and self._resume_context_pages:
-                incompatible_modes.append("恢复跳过页上下文")
-            
             logger.info(f'⚠️  并发流水线已禁用：当前模式 [{", ".join(incompatible_modes)}] 不支持并发处理')
-        
+
         if effective_batch_concurrent:
             mode_desc = "高质量翻译" if is_hq_translator else "标准翻译"
-            logger.info(f'🚀 启用并发流水线模式 ({mode_desc}): {len(images_with_configs)} 张图片, 翻译批量大小: {batch_size}')
+            logger.info(
+                f'🚀 启用并发流水线模式 ({mode_desc}): '
+                f'{len(images_with_configs)} 张图片, 翻译批量大小: {batch_size}'
+            )
             from .utils.concurrent_pipeline import ConcurrentPipeline
-            
-            # 保存save_info供并发流水线使用
+
             self._current_save_info = save_info
-            
             pipeline = ConcurrentPipeline(self, batch_size)
-            
-            # 提取文件路径和配置
-            file_paths = []
-            configs = []
-            for item in images_with_configs:
-                # item 可能是 (image, config) 或 image
-                if isinstance(item, tuple):
-                    image, config = item
-                    # 如果 image 是 PIL.Image 对象且有 name 属性（文件路径）
-                    if hasattr(image, 'name'):
-                        file_paths.append(image.name)
-                    else:
-                        # 如果是字符串，直接作为路径
-                        file_paths.append(str(image))
-                    configs.append(config)
-                else:
-                    # 单个图片对象
-                    if hasattr(item, 'name'):
-                        file_paths.append(item.name)
-                    else:
-                        file_paths.append(str(item))
-                    # 使用默认配置
-                    configs.append(images_with_configs[0][1] if isinstance(images_with_configs[0], tuple) else None)
-            
-            # 使用并发流水线处理（分批加载图片）
-            contexts = await pipeline.process_batch(file_paths, configs)
-
-            # 清理翻译历史，防止内存泄漏
+            file_paths = [input_path(item) for item in images_with_configs]
+            configs = [item[1] for item in images_with_configs]
+            contexts = await pipeline.process_batch(
+                file_paths,
+                configs,
+                progress_offset=processing_offset,
+                progress_total=display_total,
+                skipped_count=skipped_count,
+            )
             self._prune_context_history()
+            return plan.merge_results(contexts)
 
-            return contexts
-        
-        # === 步骤4: 标准非并发批量处理 ===
         logger.info(f'Starting batch translation: {len(images_with_configs)} images, batch size: {batch_size}')
         logger.info('[阶段] 批量翻译任务启动')
-        
-        # Start the background cleanup job once if not already started.
         if self._detector_cleanup_task is None:
             self._detector_cleanup_task = asyncio.create_task(self._detector_cleanup_job())
-        
+
         results = []
-        total_images = len(images_with_configs)
 
         async def report_completed_image_progress():
-            """非并发批处理按单张图片完成推进整体进度，避免整批处理期间长时间停滞。"""
             if display_total <= 0:
                 return
-            completed = min(global_offset + len(results), display_total)
+            completed = min(processing_offset + len(results), display_total)
             failed_count = sum(1 for ctx in results if getattr(ctx, 'translation_error', None))
-            await self._report_progress(f"batch:{completed}:{completed}:{display_total}:{failed_count}")
+            current_skipped = skipped_count + sum(1 for ctx in results if getattr(ctx, 'skipped', False))
+            await self._report_progress(
+                f"batch:{completed}:{completed}:{display_total}:{failed_count}:{current_skipped}"
+            )
 
-        batch_slices = self._slice_batch_indices(images_with_configs, batch_size)
+        batch_slices = slice_batch_indices(
+            images_with_configs,
+            batch_size,
+            self._resume_context_pages,
+            self._resume_context_order,
+        )
         total_batches = len(batch_slices)
 
         # 分批处理所有图片
@@ -3726,14 +3653,12 @@ class MangaTranslator:
 
                 current_batch_items = images_with_configs[batch_start:batch_end]
                 if current_batch_items:
-                    self._append_resume_context_before(
-                        self._batch_input_path(current_batch_items[0])
-                    )
+                    self._append_resume_context_before(input_path(current_batch_items[0]))
 
                 # 计算全局图片编号（考虑前端分批加载的偏移量）
-                global_batch_start = global_offset + batch_start + 1
-                global_batch_end = global_offset + batch_end
-                progress_state = f"batch:{global_batch_start}:{global_batch_end}:{display_total}"
+                global_batch_start = processing_offset + batch_start + 1
+                global_batch_end = processing_offset + batch_end
+                progress_state = f"batch:{global_batch_start}:{global_batch_end}:{display_total}:0:{skipped_count}"
                 
                 logger.info(f"Processing rolling batch {batch_num}/{total_batches} (images {global_batch_start}-{global_batch_end})")
                 logger.info(f'[阶段] 开始处理批次 {batch_num}/{total_batches}')
@@ -4206,6 +4131,7 @@ class MangaTranslator:
                                 raise IOError(f"Failed to save JSON for {os.path.basename(ctx.image_name)}")
                             self._delete_original_txt_after_json_translation(ctx.image_name)
                             ctx.success = True
+                            ctx.output_path = get_json_path(ctx.image_name, create_dir=False)
                         except Exception as save_err:
                             logger.error(f"Error saving translated JSON for {os.path.basename(ctx.image_name)}: {save_err}")
                             ctx = self._mark_context_failure(ctx, save_err, stage='saving')
@@ -4348,7 +4274,7 @@ class MangaTranslator:
                                 logger.error(f"Error saving standard batch result for {os.path.basename(ctx.image_name)}: {save_err}")
 
                         # 只在save_text或text_output_file启用时保存JSON（包括空的text_regions）
-                        if (self.save_text or self.text_output_file) and hasattr(ctx, 'text_regions') and ctx.text_regions is not None and hasattr(ctx, 'image_name') and ctx.image_name:
+                        if not getattr(ctx, 'skipped', False) and (self.save_text or self.text_output_file) and hasattr(ctx, 'text_regions') and ctx.text_regions is not None and hasattr(ctx, 'image_name') and ctx.image_name:
                             # 使用循环变量中的config，而不是从ctx中获取
                             self._save_text_to_file(ctx.image_name, ctx, config)
 
@@ -4377,7 +4303,7 @@ class MangaTranslator:
                 logger.debug(f'[MEMORY] Batch {batch_start//batch_size + 1} cleanup completed')
 
         logger.info(f"Batch translation completed: processed {len(results)} images")
-        return results
+        return plan.merge_results(results)
 
     async def _translate_until_translation(self, image: Image.Image, config: Config) -> Context:
         """
@@ -4826,10 +4752,8 @@ class MangaTranslator:
                     # 支持批量翻译 - 传递合并后的上下文（仅用于AI断句）
                     batch_contexts = [ctx for ctx, config in batch]
                     
-                    # 计算当前批次在所有页面中的索引（用于上下文）
-                    # i 是当前批次的起始索引（相对于本次translate_batch调用的所有图片）
-                    # self.all_page_translations 包含之前所有已翻译的页面
-                    page_index = len(self.all_page_translations) + i
+                    # History already contains every completed non-empty page before this batch.
+                    page_index = len(self.all_page_translations)
                     
                     # 准备batch_original_texts（用于并发模式的上下文）
                     batch_original_texts = []
@@ -5732,12 +5656,13 @@ class MangaTranslator:
         return await translate_batch_replace_translation(self, images_with_configs, save_info, global_offset, global_total)
 
     async def _translate_batch_high_quality(
-        self, 
-        images_with_configs: List[tuple], 
-        save_info: dict = None, 
-        global_offset: int = 0, 
+        self,
+        images_with_configs: List[tuple],
+        save_info: dict = None,
+        global_offset: int = 0,
         global_total: int = None,
-        batch_size: int = None
+        batch_size: int = None,
+        skipped_count: int = 0,
     ) -> List[Context]:
         """
         高质量翻译模式：按批次滚动处理，每批独立完成预处理、翻译、渲染全流程。
@@ -5758,16 +5683,23 @@ class MangaTranslator:
         # 如果提供了全局总数，使用它来计算总批次数；否则使用当前批次的图片数
         display_total = global_total if global_total is not None else len(images_with_configs)
         
-        total_images = len(images_with_configs)
 
         async def report_completed_image_progress():
             if display_total <= 0:
                 return
             completed = min(global_offset + len(results), display_total)
             failed_count = sum(1 for ctx in results if getattr(ctx, 'translation_error', None))
-            await self._report_progress(f"batch:{completed}:{completed}:{display_total}:{failed_count}")
+            current_skipped = skipped_count + sum(1 for ctx in results if getattr(ctx, 'skipped', False))
+            await self._report_progress(
+                f"batch:{completed}:{completed}:{display_total}:{failed_count}:{current_skipped}"
+            )
 
-        batch_slices = self._slice_batch_indices(images_with_configs, resolved_batch_size)
+        batch_slices = slice_batch_indices(
+            images_with_configs,
+            resolved_batch_size,
+            self._resume_context_pages,
+            self._resume_context_order,
+        )
         total_batches = len(batch_slices)
 
         for batch_num, (batch_start, batch_end) in enumerate(batch_slices, start=1):
@@ -5777,14 +5709,12 @@ class MangaTranslator:
 
             current_batch_items = images_with_configs[batch_start:batch_end]
             if current_batch_items:
-                self._append_resume_context_before(
-                    self._batch_input_path(current_batch_items[0])
-                )
+                self._append_resume_context_before(input_path(current_batch_items[0]))
 
             # 计算全局图片编号（考虑前端分批加载的偏移量）
             global_batch_start = global_offset + batch_start + 1
             global_batch_end = global_offset + batch_end
-            progress_state = f"batch:{global_batch_start}:{global_batch_end}:{display_total}"
+            progress_state = f"batch:{global_batch_start}:{global_batch_end}:{display_total}:0:{skipped_count}"
             
             logger.info(f"Processing rolling batch {batch_num}/{total_batches} (images {global_batch_start}-{global_batch_end})")
 
@@ -5872,10 +5802,8 @@ class MangaTranslator:
                         
                         logger.info(f"Sending batch data with {len(preprocessed_contexts)} images, {len(all_texts)} text regions to high quality translator")
                         
-                        # 计算当前批次在所有页面中的索引（用于上下文）
-                        # batch_start 是当前批次的起始索引（相对于本次translate_batch调用的所有图片）
-                        # self.all_page_translations 包含之前所有已翻译的页面
-                        page_index = len(self.all_page_translations) + batch_start
+                        # History already contains every completed non-empty page before this batch.
+                        page_index = len(self.all_page_translations)
                         
                         # 高质量翻译模式：批量翻译
                         translated_texts = await self._batch_translate_texts(
@@ -5981,13 +5909,13 @@ class MangaTranslator:
                     # --- END SAVE LOGIC ---
 
                     # 只在save_text或text_output_file启用时保存JSON（包括空的text_regions）
-                    if (self.save_text or self.text_output_file) and hasattr(ctx, 'text_regions') and ctx.text_regions is not None and hasattr(ctx, 'image_name') and ctx.image_name:
+                    if not getattr(ctx, 'skipped', False) and (self.save_text or self.text_output_file) and hasattr(ctx, 'text_regions') and ctx.text_regions is not None and hasattr(ctx, 'image_name') and ctx.image_name:
                         # 使用循环变量中的config，而不是从ctx中获取
                         self._save_text_to_file(ctx.image_name, ctx, config)
 
                     # ✅ 标记成功
-                    ctx.success = True
-
+                    if not save_info:
+                        ctx.success = True
                     # ✅ 清理中间处理图像（保留text_regions等元数据）
                     self._cleanup_context_memory(ctx, keep_result=True)
 
@@ -6015,100 +5943,24 @@ class MangaTranslator:
                 keep_results=True
             )
             
-            logger.debug(f'[MEMORY] Batch {batch_start//batch_size + 1} cleanup completed (kept translation history for context)')
+            logger.debug(f'[MEMORY] Batch {batch_num} cleanup completed (kept translation history for context)')
             await self._report_progress(progress_state)
 
         logger.info(f"High quality translation completed: processed {len(results)} images")
         return results
 
-    def _prepare_resume_context(self, save_info: Optional[dict]) -> None:
-        """Load skipped-page JSON entries for ordered context restoration."""
-        if not self.resume_context_from_skipped or not save_info:
-            self._resume_context_pages = []
-            self._resume_context_cursor = 0
-            self._resume_context_order = {}
-            self._resume_context_source_sequence = None
-            return
-
-        skipped_files = {
-            os.path.abspath(os.path.normpath(str(path)))
-            for path in (save_info.get('resume_context_files') or [])
-        }
-        source_files = [
-            os.path.abspath(os.path.normpath(str(path)))
-            for path in (save_info.get('resume_context_source_files') or [])
-        ]
-        if not skipped_files or not source_files:
-            self._resume_context_pages = []
-            self._resume_context_cursor = 0
-            self._resume_context_order = {}
-            self._resume_context_source_sequence = None
-            return
-
-        current_sequence = tuple(source_files)
-        if self._resume_context_source_sequence == current_sequence:
-            return
-
-        self._resume_context_source_sequence = current_sequence
-        self._resume_context_pages = []
+    def _prepare_resume_context(self, plan: BatchInputPlan) -> None:
+        """Install one complete backend batch plan's ordered resume history."""
+        self._resume_context_pages = list(plan.resume_pages)
         self._resume_context_cursor = 0
-        self._resume_context_order = {
-            image_path: order for order, image_path in enumerate(source_files)
-        }
-
-        for order, image_path in enumerate(source_files):
-            if image_path not in skipped_files:
-                continue
-            json_path = find_json_path(image_path)
-            if not json_path:
-                logger.warning(f"Resume context skipped: JSON not found for {image_path}")
-                continue
-            try:
-                with open(json_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                image_data = next(iter(data.values())) if isinstance(data, dict) and data else None
-                regions = image_data if isinstance(image_data, list) else (
-                    image_data.get('regions', []) if isinstance(image_data, dict) else []
-                )
-                entries = []
-                for region in regions:
-                    if not isinstance(region, dict):
-                        continue
-                    original_text = region.get('text')
-                    translated_text = region.get('translation')
-                    if original_text and translated_text:
-                        lines = region.get('lines')
-                        original_region_count = len(lines) if isinstance(lines, list) else 1
-                        entries.append({
-                            'text': original_text,
-                            'translation': translated_text,
-                            'original_region_count': max(original_region_count, 1),
-                        })
-                if entries:
-                    self._resume_context_pages.append((order, image_path, entries))
-                    logger.info(
-                        f"[Resume Context] Loaded {len(entries)} entries from skipped page "
-                        f"{os.path.basename(image_path)}"
-                    )
-            except Exception as exc:
-                logger.warning(f"Resume context failed for {image_path}: {exc}")
-
-        if self._resume_context_pages:
-            self._resume_context_pages.sort(key=lambda item: item[0])
+        self._resume_context_order = dict(plan.resume_order)
 
     def _append_resume_context_before(self, image_path: str) -> None:
         """Append skipped pages that occur before the current source page."""
         if not self._resume_context_pages or not image_path:
             return
         current_path = os.path.abspath(os.path.normpath(str(image_path)))
-        current_order = None
-        for order, source_path, _entries in self._resume_context_pages:
-            if source_path == current_path:
-                current_order = order
-                break
-        if current_order is None:
-            source_files = self._resume_context_order
-            current_order = source_files.get(current_path)
+        current_order = self._resume_context_order.get(current_path)
         if current_order is None:
             return
 
