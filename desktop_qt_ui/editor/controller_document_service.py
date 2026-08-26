@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import threading
 from typing import TYPE_CHECKING, Optional
 
 from manga_translator.utils.path_manager import (
@@ -15,7 +16,7 @@ from qfluentwidgets import Dialog, PushButton
 from services import get_render_parameter_service
 
 from .document_load_worker import DocumentLoadWorker
-from .session import DocumentLoadFailure, DocumentSnapshot
+from .document_state import DocumentLoadFailure, DocumentSnapshot
 
 if TYPE_CHECKING:
     from .editor_controller import EditorController
@@ -44,6 +45,10 @@ class EditorControllerDocumentService:
         self._load_generation = 0
         self._active_load_future: Optional[concurrent.futures.Future] = None
         self._active_prefetch_future: Optional[concurrent.futures.Future] = None
+        self._prefetch_generation = 0
+        self._prefetch_lock = threading.RLock()
+        self._prefetched_documents: dict[str, DocumentSnapshot] = {}
+        self._desired_prefetch_keys: set[str] = set()
         self._is_shutdown = False
 
     @property
@@ -74,9 +79,7 @@ class EditorControllerDocumentService:
     def file_service(self):
         return self.controller.file_service
 
-    def clear_editor_state(
-        self, release_image_cache: bool = False, keep_document: bool = False
-    ) -> None:
+    def clear_editor_state(self, release_image_cache: bool = False) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)
         if loading_toast is not None:
             try:
@@ -85,16 +88,18 @@ class EditorControllerDocumentService:
                 pass
             self.controller._loading_toast = None
 
+        # Invalidate the load identity before touching presentation state so a
+        # completion racing with this switch can never be installed.
+        self._cancel_pending_load()
+        self.model.clear_document()
+
         # Only cancellable editor work lives in AsyncService. Export jobs use a
         # dedicated queue and intentionally survive document switches.
         self.async_service.cancel_all_tasks()
-        self.controller.inpaint_service.invalidate_inpaint_requests()
 
-        if not keep_document:
-            # keep_document=True: 切图场景,跳过 image_changed(None) 让旧画面留到新数据覆盖时
-            self.resource_manager.unload_image(release_from_cache=release_image_cache)
-            self.model.clear_document()
-
+        self.resource_manager.unload_image(
+            release_from_cache=release_image_cache
+        )
         toolbar = self.controller.get_toolbar()
         if toolbar is not None:
             toolbar.set_export_enabled(False)
@@ -105,22 +110,14 @@ class EditorControllerDocumentService:
 
         self.controller._log_memory_snapshot("after-clear-editor-state")
 
-        if not keep_document:
-            # 切图时不清缓存:LRU 还要保留 QImage 让来回切换瞬时
-            self.resource_manager.clear_cache()
+        # Normal page switches retain the rebuildable image LRU. Explicit
+        # release paths already evict the current resource via unload_image.
         render_parameter_service = get_render_parameter_service()
         render_parameter_service.clear_cache()
 
-        graphics_view = self.controller.get_graphics_view()
-        if graphics_view is not None:
-            graphics_view.render_coordinator.reset()
-
-        # 作废在途加载：代号 +1 让晚到的结果被丢弃，未开跑的排队任务直接 cancel。
-        # 线程池本身常驻复用，不在这里销毁。
-        self._cancel_pending_load()
-
         if release_image_cache:
             self._cancel_pending_prefetch()
+            self._clear_prefetched_documents()
 
         self.logger.debug("Editor state cleared and memory released")
 
@@ -135,11 +132,30 @@ class EditorControllerDocumentService:
             self._active_load_future = None
         return self._load_generation
 
-    def _cancel_pending_prefetch(self) -> None:
+    def _cancel_pending_prefetch(self) -> int:
+        self._prefetch_generation += 1
         future = self._active_prefetch_future
         if future is not None:
             future.cancel()
             self._active_prefetch_future = None
+        return self._prefetch_generation
+
+    @staticmethod
+    def _prefetch_key(image_path: str) -> str:
+        return os.path.normcase(os.path.abspath(os.path.normpath(image_path)))
+
+    def _take_prefetched_document(
+        self,
+        image_path: str,
+    ) -> Optional[DocumentSnapshot]:
+        key = self._prefetch_key(image_path)
+        with self._prefetch_lock:
+            return self._prefetched_documents.pop(key, None)
+
+    def _clear_prefetched_documents(self) -> None:
+        with self._prefetch_lock:
+            self._prefetched_documents.clear()
+            self._desired_prefetch_keys.clear()
 
     def shutdown(self) -> None:
         """退出清理：取消挂起任务并关闭常驻线程池。
@@ -151,6 +167,7 @@ class EditorControllerDocumentService:
         self._is_shutdown = True
         self._cancel_pending_load()
         self._cancel_pending_prefetch()
+        self._clear_prefetched_documents()
         for executor in (
             self._load_executor,
             self._prefetch_executor,
@@ -325,9 +342,9 @@ class EditorControllerDocumentService:
         if self._is_shutdown:
             return
 
-        # 切图:保留旧画面 + 旧 LRU 缓存,等新数据信号到达再覆盖,避免黑闪
-        # （内部会作废上一张图的在途加载：_load_generation +1）
-        self.clear_editor_state(keep_document=True)
+        # A document switch is a hard presentation boundary: invalidate the
+        # old identity and remove both source/inpaint layers before loading.
+        self.clear_editor_state()
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:
@@ -336,6 +353,23 @@ class EditorControllerDocumentService:
             )
 
         generation = self._load_generation
+        prefetched = self._take_prefetched_document(image_path)
+        if prefetched is not None and prefetched.display_image_path:
+            try:
+                self.resource_manager.activate_prefetched_image(
+                    prefetched.display_image_path,
+                    prefetched.image,
+                    qimage=prefetched.source_qimage,
+                )
+            except Exception as error:
+                self.logger.debug(
+                    "Discarding unusable prefetched document %s: %s",
+                    image_path,
+                    error,
+                )
+            else:
+                self.controller._load_result_ready.emit((generation, prefetched))
+                return
 
         def on_load_complete(future):
             if future.cancelled():
@@ -360,10 +394,10 @@ class EditorControllerDocumentService:
     def apply_load_result(self, payload: object) -> None:
         # 载荷为 (generation, result)：主线程权威校验"仍是当前代"，
         # 过期结果（快速翻页时旧图晚到）直接丢弃，防止画面与选中文件错位
-        if isinstance(payload, tuple) and len(payload) == 2:
-            generation, result = payload
-        else:
-            generation, result = self._load_generation, payload
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            self.logger.warning("Ignoring untagged editor load result")
+            return
+        generation, result = payload
 
         if generation != self._load_generation:
             self.logger.debug(
@@ -390,7 +424,6 @@ class EditorControllerDocumentService:
             loading_toast.close()
             self.controller._loading_toast = None
 
-        self.controller.inpaint_service.clear_document_cache()
 
         toolbar = self.controller.get_toolbar()
         if toolbar is not None:
@@ -402,6 +435,7 @@ class EditorControllerDocumentService:
                 render_parameter_service.import_parameters_from_json(index, region_data)
 
         self.model.apply_document_snapshot(snapshot)
+        self.controller.inpaint_service.ensure_current_mask_inpaint()
 
         self.resource_manager.release_image_cache_except_current()
 
@@ -410,44 +444,75 @@ class EditorControllerDocumentService:
         )
         self.controller._log_memory_snapshot("after-apply-loaded-document")
 
-        if snapshot.regions and snapshot.raw_mask is not None:
-            self.async_service.submit_task(
-                self.controller.inpaint_service.async_refine_and_inpaint()
+        if snapshot.raw_mask is not None:
+            request = self.controller.inpaint_service.build_mask_refine_request(
+                self.model.get_raw_mask()
             )
+            if request is not None:
+                self.controller.inpaint_service.submit_mask_refine_request(request)
 
     def prefetch_images(self, image_paths: list[str]) -> None:
-        """后台预读相邻图片和 QImage，降低下一次切图等待。"""
+        """后台加载邻页完整文档快照，切图时直接安装。"""
         if self._is_shutdown:
             return
-        paths = [path for path in image_paths if path]
-        if not paths:
+
+        ordered: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for path in image_paths:
+            if not path:
+                continue
+            key = self._prefetch_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append((key, path))
+
+        generation = self._cancel_pending_prefetch()
+        with self._prefetch_lock:
+            self._desired_prefetch_keys = {key for key, _ in ordered}
+            self._prefetched_documents = {
+                key: snapshot
+                for key, snapshot in self._prefetched_documents.items()
+                if key in self._desired_prefetch_keys
+            }
+        if not ordered:
             return
 
-        # 只保留最新一批相邻图预读：还没开跑的旧批次直接取消
-        self._cancel_pending_prefetch()
         self._active_prefetch_future = self._prefetch_executor.submit(
-            self._prefetch_images_worker, paths
+            self._prefetch_documents_worker,
+            ordered,
+            generation,
         )
 
-    def _prefetch_images_worker(self, image_paths: list[str]) -> None:
-        for image_path in image_paths:
-            try:
-                _, display_image_path = self.resolve_editor_image_paths(image_path)
-                resource = self.resource_manager.prefetch_image(display_image_path)
-                if getattr(resource, "qimage", None) is not None:
+    def _prefetch_documents_worker(
+        self,
+        documents: list[tuple[str, str]],
+        generation: int,
+    ) -> None:
+        for key, image_path in documents:
+            if self._is_shutdown or generation != self._prefetch_generation:
+                return
+            with self._prefetch_lock:
+                if key in self._prefetched_documents:
                     continue
-
-                from PyQt6.QtGui import QImageReader
-
-                reader = QImageReader(resource.path)
-                reader.setAutoTransform(True)
-                qimage = reader.read()
-                if not qimage.isNull():
-                    resource.qimage = qimage
-            except Exception as e:
+            result = DocumentLoadWorker(
+                self,
+                image_path,
+                self._aux_load_executor,
+                prefetch=True,
+            ).load()
+            if not isinstance(result, DocumentSnapshot):
                 self.logger.debug(
-                    "Editor image prefetch skipped for %s: %s", image_path, e
+                    "Editor document prefetch skipped for %s: %s",
+                    image_path,
+                    getattr(result, "error", "unsupported result"),
                 )
+                continue
+            if self._is_shutdown or generation != self._prefetch_generation:
+                return
+            with self._prefetch_lock:
+                if key in self._desired_prefetch_keys:
+                    self._prefetched_documents[key] = result
 
     def handle_load_error(self, error_msg: str) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)
@@ -459,5 +524,4 @@ class EditorControllerDocumentService:
         if toast_manager is not None:
             toast_manager.show_error(f"加载失败: {error_msg}")
 
-        self.model.clear_document()
         self.controller._log_memory_snapshot("after-load-error")

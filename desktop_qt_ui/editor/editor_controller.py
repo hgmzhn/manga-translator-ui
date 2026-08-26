@@ -27,10 +27,10 @@ from services import (
 from .controller_document_service import EditorControllerDocumentService
 from .controller_export_service import EditorControllerExportService, ExportOutcome
 from .controller_inpaint_service import EditorControllerInpaintService
+from .document_state import DocumentSnapshot
 from .editor_model import EditorModel
 from .image_utils import copy_image_like, image_like_to_display_array
 from .render_text_value import has_renderable_text, render_text_value_from_region
-from .session import DocumentSnapshot
 
 _UNSET = object()
 
@@ -188,6 +188,7 @@ class EditorController(QObject):
     _regions_update_finished = pyqtSignal(object)
     _ocr_finished = pyqtSignal(str, str)
     _translation_finished = pyqtSignal(str, str)
+    _refined_mask_ready = pyqtSignal(object)
     _inpaint_result_ready = pyqtSignal(object)
 
     # Export queue worker -> GUI thread signals
@@ -213,14 +214,8 @@ class EditorController(QObject):
         self.config_service = get_config_service()
         self.resource_manager = get_resource_manager()  # 新的资源管理器
 
-        # 缓存键常量
-        self.CACHE_LAST_INPAINTED = "last_inpainted_image"
-        self.CACHE_LAST_MASK = "last_processed_mask"
+        # 底图 RGB 是按文档加载周期清理的可重建弱缓存；请求状态由 Session 独占。
         self.WEAK_CACHE_BASE_IMAGE_RGB = "weak_base_image_rgb"
-        # 只允许最新一笔/最新一次蒙版变更写回修复结果。
-        self._active_inpaint_future = None
-        self._inpaint_request_generation = 0
-        self._suppress_refined_mask_autoinpaint = False
 
         self.document_service = EditorControllerDocumentService(self)
         self.inpaint_service = EditorControllerInpaintService(self)
@@ -233,6 +228,10 @@ class EditorController(QObject):
         self._regions_update_finished.connect(self.on_regions_update_finished)
         self._ocr_finished.connect(self._on_ocr_finished)
         self._translation_finished.connect(self._on_translation_finished)
+        self._refined_mask_ready.connect(
+            self._apply_refined_mask_result,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
         self._inpaint_result_ready.connect(
             self._apply_inpaint_result,
             type=Qt.ConnectionType.QueuedConnection,
@@ -263,42 +262,9 @@ class EditorController(QObject):
     # ========== Resource Access Helpers (新的资源访问辅助方法) ==========
 
     def _get_current_image(self) -> Optional[Image.Image]:
-        """获取当前图片（PIL Image）
+        """Return the source image owned by the active editor document."""
+        return self.model.get_image()
 
-        优先从 Session/Model 获取，如果失败再回退到 ResourceManager。
-        """
-        image = self.model.get_image()
-        if image is not None:
-            return image
-        resource = self.resource_manager.get_current_image()
-        if resource:
-            return resource.image
-        return None
-
-    @staticmethod
-    def _normalize_binary_mask(mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
-        return EditorControllerInpaintService.normalize_binary_mask(mask)
-
-    def _get_cached_mask_snapshot(self) -> Optional[np.ndarray]:
-        return self.inpaint_service.get_cached_mask_snapshot()
-
-    def _get_cached_inpainted_snapshot(self) -> Optional[np.ndarray]:
-        return self.inpaint_service.get_cached_inpainted_snapshot()
-
-    def _get_base_image_rgb_array(self) -> Optional[np.ndarray]:
-        return self.inpaint_service.get_base_image_rgb_array()
-
-    def _cancel_active_inpaint_task(self) -> None:
-        self.inpaint_service.cancel_active_inpaint_task()
-
-    def _invalidate_inpaint_requests(self) -> None:
-        self.inpaint_service.invalidate_inpaint_requests()
-
-    def _begin_inpaint_request(self) -> int:
-        return self.inpaint_service.begin_inpaint_request()
-
-    def _is_inpaint_request_current(self, generation: int) -> bool:
-        return self.inpaint_service.is_inpaint_request_current(generation)
 
     @staticmethod
     def _normalize_image_path(path: Optional[str]) -> Optional[str]:
@@ -324,13 +290,17 @@ class EditorController(QObject):
             raise
 
     def _load_detached_image_array(
-        self, image_path: str, target_size: tuple[int, int]
+        self,
+        image_path: str,
+        target_size: tuple[int, int],
+        *,
+        resize: bool = True,
     ) -> np.ndarray:
         """加载辅助图并直接归一化为 numpy，避免 PIL/ndarray 双持有。"""
         detached_image = self.resource_manager.load_detached_image(image_path)
         resized_image = detached_image
         try:
-            if detached_image.size != target_size:
+            if resize and detached_image.size != target_size:
                 resized_image = detached_image.resize(
                     target_size, Image.Resampling.LANCZOS
                 )
@@ -575,6 +545,8 @@ class EditorController(QObject):
         toast_manager = self.get_toast_manager()
         file_name = os.path.basename(outcome.source_path)
         if outcome.success:
+            if outcome.generated_artifact is not None:
+                self.model.install_inpaint_artifact(outcome.generated_artifact)
             if not outcome.automatic and toast_manager is not None:
                 toast_manager.show_success(
                     f"导出成功\n{outcome.output_path}",
@@ -597,12 +569,14 @@ class EditorController(QObject):
             )
 
     def _connect_model_signals(self):
-        """监听模型的变化，可能需要触发一些后续逻辑"""
-        # 监听蒙版编辑后触发 inpainting
-        self.model.refined_mask_changed.connect(self.on_refined_mask_changed)
+        """Trigger inpainting once per effective-mask mutation."""
+        self.model.effective_mask_delta_changed.connect(
+            self.inpaint_service.on_effective_mask_delta_changed
+        )
 
-    def on_refined_mask_changed(self, mask):
-        self.inpaint_service.on_refined_mask_changed(mask)
+    @pyqtSlot(object)
+    def _apply_refined_mask_result(self, result) -> None:
+        self.inpaint_service.apply_refined_mask_result(result)
 
     @pyqtSlot(object)
     def _apply_inpaint_result(self, result) -> None:
@@ -763,21 +737,6 @@ class EditorController(QObject):
     def _handle_load_error(self, error_msg: str):
         self.document_service.handle_load_error(error_msg)
 
-    async def _async_refine_and_inpaint(self):
-        return await self.inpaint_service.async_refine_and_inpaint()
-
-    async def _async_incremental_inpaint(self, current_mask, generation: int):
-        return await self.inpaint_service.async_incremental_inpaint(
-            current_mask, generation
-        )
-
-    async def _async_full_inpaint_with_cache(self, mask, generation: int):
-        return await self.inpaint_service.async_full_inpaint_with_cache(
-            mask, generation
-        )
-
-    def force_inpaint_stroke(self, stroke_mask: np.ndarray):
-        self.inpaint_service.force_inpaint_stroke(stroke_mask)
 
     @pyqtSlot(str, bool)
     def set_display_mask_type(self, mask_type: str, visible: bool):

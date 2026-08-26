@@ -13,6 +13,7 @@ import os
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -22,6 +23,7 @@ from manga_translator.utils import open_pil_image, save_pil_image
 from manga_translator.utils.path_manager import get_inpainted_path
 from PIL import Image
 
+from editor.document_state import ExportBase
 from editor.image_utils import image_like_to_pil, image_like_to_rgb_array
 from utils.asyncio_cleanup import shutdown_event_loop
 from utils.json_encoder import CustomJSONEncoder
@@ -39,6 +41,17 @@ def get_global_output_directory() -> Optional[str]:
     return _global_output_directory
 
 
+@dataclass(frozen=True, slots=True)
+class BackendRenderResult:
+    image: Image.Image
+    generated_inpainted_image: Optional[np.ndarray]
+
+
+@dataclass(frozen=True, slots=True)
+class BackendExportResult:
+    generated_inpainted_image: Optional[np.ndarray]
+
+
 class ExportService:
     """导出服务类"""
     
@@ -54,62 +67,70 @@ class ExportService:
         colorizer_config['colorizer'] = 'none'
         return export_config
 
-    def _prepare_inpainted_payload(self, editor_inpainted_image: Optional[Any], base_size=None) -> Optional[np.ndarray]:
-        """编辑器修复图 → RGB ndarray（必要时缩放到底图尺寸），全程内存不落盘。"""
-        if editor_inpainted_image is None:
-            return None
-        try:
-            inpainted_rgb = image_like_to_rgb_array(editor_inpainted_image, copy=True)
-        except Exception as convert_err:
-            self.logger.warning(f"修复图转换失败，后端将回退到磁盘修复图或重新修复: {convert_err}")
-            return None
+    def _prepare_paired_inpainted_payload(self, image: Any, base_size) -> np.ndarray:
+        """Convert the already-paired render image without a fallback path."""
+        inpainted_rgb = image_like_to_rgb_array(image, copy=True)
         if inpainted_rgb is None:
-            return None
-        if base_size and (inpainted_rgb.shape[1], inpainted_rgb.shape[0]) != tuple(base_size):
-            import cv2
-            inpainted_rgb = cv2.resize(inpainted_rgb, tuple(base_size), interpolation=cv2.INTER_LANCZOS4)
+            raise ValueError("paired export render image is empty")
+        actual_size = (inpainted_rgb.shape[1], inpainted_rgb.shape[0])
+        if actual_size != tuple(base_size):
+            raise ValueError(
+                f"paired export image size {actual_size} does not match source {tuple(base_size)}"
+            )
         return inpainted_rgb
 
     def _persist_backend_inpainted_image(
         self,
-        source_image_path: Optional[str],
+        source_image_path: str,
         inpainted_image: Any,
         config: Optional[Dict[str, Any]] = None,
-    ) -> Optional[str]:
-        """将后端实际生成的修复图回写到工作目录，避免下次编辑回退到原图底图。"""
+    ) -> str:
+        """Persist a generated inpaint image atomically."""
         if not source_image_path or inpainted_image is None:
-            return None
+            raise ValueError("generated inpaint image and source path are required")
 
         save_image = None
         source_image = None
+        temporary = None
         try:
             if isinstance(inpainted_image, Image.Image):
                 save_image = inpainted_image
             else:
                 save_image = image_like_to_pil(inpainted_image)
                 if save_image is None:
-                    return None
+                    raise ValueError("generated inpaint image conversion returned no image")
 
             inpainted_path = get_inpainted_path(source_image_path, create_dir=True)
             save_quality = (config or {}).get('cli', {}).get('save_quality', 95)
             try:
-                # 仅读取 ICC/DPI 元数据，惰性打开避免整页解码
                 source_image = open_pil_image(source_image_path, eager=False, apply_exif=False)
             except Exception as metadata_error:
-                self.logger.warning(f"读取原图元数据失败，将继续保存但不继承ICC: {source_image_path}, error={metadata_error}")
-                source_image = None
+                self.logger.warning(
+                    f"读取原图元数据失败，将继续保存但不继承ICC: {source_image_path}, error={metadata_error}"
+                )
+            fd, temporary = tempfile.mkstemp(
+                prefix=f".{os.path.basename(inpainted_path)}.",
+                suffix=".tmp",
+                dir=os.path.dirname(inpainted_path),
+            )
+            os.close(fd)
             save_pil_image(
                 save_image,
-                inpainted_path,
+                temporary,
                 source_image=source_image,
                 quality=save_quality,
+                format=resolve_pil_image_format(inpainted_path),
             )
+            os.replace(temporary, inpainted_path)
+            temporary = None
             self.logger.info(f"已回写导出后的修复图: {inpainted_path}")
             return inpainted_path
-        except Exception as e:
-            self.logger.warning(f"回写导出后的修复图失败: {e}")
-            return None
         finally:
+            if temporary:
+                try:
+                    os.remove(temporary)
+                except FileNotFoundError:
+                    pass
             if source_image is not None:
                 try:
                     source_image.close()
@@ -194,160 +215,140 @@ class ExportService:
         
         return output_name + extension
     
-    def export_rendered_image(self, image: Image.Image, regions_data: List[Dict[str, Any]], 
-                            config: Dict[str, Any], output_path: str, 
-                            mask: Optional[np.ndarray] = None,
-                            progress_callback: Optional[callable] = None,
-                            success_callback: Optional[callable] = None,
-                            error_callback: Optional[callable] = None,
-                            source_image_path: Optional[str] = None,
-                            save_inpainted_only: bool = False,
-                            editor_inpainted_image: Optional[Any] = None):
-        """
-        导出后端渲染的图片
-        
-        Args:
-            image: 当前图片（作为渲染底图直接传给后端，内存直通不落盘）
-            regions_data: 区域数据
-            config: 配置字典
-            output_path: 输出路径
-            mask: (新增) 预计算的蒙版
-            progress_callback: 进度回调
-            success_callback: 成功回调
-            error_callback: 错误回调
-            source_image_path: 原图路径（用于PSD导出）
-            save_inpainted_only: 是否只保存修复后的图片（不渲染翻译文字）
-            editor_inpainted_image: 编辑器当前修复图，导出时优先直接复用
-        """
-        if not image:
-            if error_callback:
-                error_callback("没有图片可导出")
-            return
-        
-        # regions_data 可以为空列表，此时导出原图（可能经过上色/超分处理）
+    def export_rendered_image(
+        self,
+        export_base: ExportBase,
+        regions_data: List[Dict[str, Any]],
+        config: Dict[str, Any],
+        output_path: str,
+        progress_callback: Optional[callable] = None,
+        success_callback: Optional[callable] = None,
+        error_callback: Optional[callable] = None,
+        source_image_path: Optional[str] = None,
+    ):
+        """Start an export from a fully validated, immutable base plan."""
         if regions_data is None:
             regions_data = []
-        
         if progress_callback:
             progress_callback("开始导出渲染图片...")
-        
-        # 在后台线程中执行导出
         export_thread = threading.Thread(
             target=self._perform_backend_render_export,
-            args=(image, regions_data, config, output_path, mask, progress_callback, success_callback, error_callback, source_image_path, save_inpainted_only, editor_inpainted_image),
-            daemon=True
+            args=(
+                export_base,
+                regions_data,
+                config,
+                output_path,
+                progress_callback,
+                success_callback,
+                error_callback,
+                source_image_path,
+            ),
+            daemon=True,
         )
         export_thread.start()
-    
-    def _perform_backend_render_export(self, image: Image.Image, regions_data: List[Dict[str, Any]],
-                                     config: Dict[str, Any], output_path: str,
-                                     mask: Optional[np.ndarray] = None,
-                                     progress_callback: Optional[callable] = None,
-                                     success_callback: Optional[callable] = None,
-                                     error_callback: Optional[callable] = None,
-                                     source_image_path: Optional[str] = None,
-                                     save_inpainted_only: bool = False,
-                                     editor_inpainted_image: Optional[Any] = None,
-                                     paint_overlay: Optional[np.ndarray] = None,
-                                     stamp_overlay: Optional[np.ndarray] = None):
-        """在后台线程中执行后端渲染导出"""
-        import os
 
+    def _perform_backend_render_export(
+        self,
+        export_base: ExportBase,
+        regions_data: List[Dict[str, Any]],
+        config: Dict[str, Any],
+        output_path: str,
+        progress_callback: Optional[callable] = None,
+        success_callback: Optional[callable] = None,
+        error_callback: Optional[callable] = None,
+        source_image_path: Optional[str] = None,
+        paint_overlay: Optional[np.ndarray] = None,
+        stamp_overlay: Optional[np.ndarray] = None,
+    ) -> Optional[BackendExportResult]:
+        """Render one validated export plan; never writes output on failure."""
         rendered_image = None
-        render_image = None
+        source_image = None
         export_started = time.perf_counter()
 
         try:
             self.logger.info(f"开始导出图片到: {output_path}")
-
             if progress_callback:
                 progress_callback("准备导出环境...")
-
-            # 验证输出路径
             output_dir = os.path.dirname(output_path)
             if output_dir and not os.path.exists(output_dir):
                 os.makedirs(output_dir, exist_ok=True)
 
             backend_config = self._build_backend_export_config(config)
-
-            # 内存直通：当前图/修复图/区域数据直接传给后端，不再经临时目录 PNG/JSON 往返
-            render_image = image if isinstance(image, Image.Image) else image_like_to_pil(image)
-            if render_image is None:
-                raise Exception("无法获取可导出的图像")
+            source_image = image_like_to_pil(export_base.source_image)
+            if source_image is None:
+                raise ValueError("export source image is empty")
             image_key = os.path.abspath(source_image_path) if source_image_path else "editor_export.png"
             payload = self._build_load_text_payload(
                 regions_data,
-                mask,
+                export_base,
                 backend_config,
-                editor_inpainted_image=editor_inpainted_image,
-                base_size=render_image.size,
+                base_size=source_image.size,
                 paint_overlay=paint_overlay,
                 stamp_overlay=stamp_overlay,
             )
 
             if progress_callback:
                 progress_callback("初始化翻译引擎...")
-
-            # 准备翻译器参数
             translator_params = self._prepare_translator_params(backend_config)
-
-            # 执行后端渲染
             render_started = time.perf_counter()
-            rendered_image = self._execute_backend_render(
-                render_image, image_key, payload, translator_params, backend_config, progress_callback, output_path, source_image_path, save_inpainted_only
+            backend_result = self._execute_backend_render(
+                source_image,
+                image_key,
+                payload,
+                translator_params,
+                backend_config,
+                progress_callback,
+                output_path,
+                source_image_path,
             )
             render_elapsed = time.perf_counter() - render_started
+            if backend_result is None:
+                raise RuntimeError("后端渲染没有生成结果")
+            rendered_image = backend_result.image
+            generated = backend_result.generated_inpainted_image
+            if export_base.kind == "backend_inpaint":
+                if generated is None:
+                    raise RuntimeError("后端修复未生成最终修复图")
+                if not source_image_path:
+                    raise ValueError("backend inpaint persistence requires source path")
+                self._persist_backend_inpainted_image(
+                    source_image_path,
+                    generated,
+                    config,
+                )
+            elif generated is not None:
+                raise RuntimeError(
+                    f"{export_base.kind} export unexpectedly generated an inpaint image"
+                )
 
-            if not rendered_image:
-                raise Exception("后端渲染没有生成结果")
-
-            # 保存渲染结果
             save_started = time.perf_counter()
-            self._save_rendered_image(rendered_image, output_path, config, source_image=render_image)
+            self._save_rendered_image(rendered_image, output_path, config, source_image=source_image)
             save_elapsed = time.perf_counter() - save_started
-
             total_elapsed = time.perf_counter() - export_started
             self.logger.info(
                 f"图片已成功导出到: {output_path} "
                 f"(总耗时 {total_elapsed:.2f}s, 后端渲染 {render_elapsed:.2f}s, 保存 {save_elapsed:.2f}s)"
             )
-
             if success_callback:
                 success_callback(f"图片已导出到: {output_path}")
-
+            return BackendExportResult(generated)
         except Exception as e:
             error_msg = f"后端渲染导出失败: {e}"
-            self.logger.error(error_msg)
-            import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error(error_msg, exc_info=True)
             if error_callback:
                 error_callback(error_msg)
-
+            return None
         finally:
-            # 清理资源
-            try:
-                if rendered_image:
+            if rendered_image is not None:
+                try:
                     rendered_image.close()
-            except Exception:
-                pass
-
-            try:
-                if render_image is not None and render_image is not image:
-                    render_image.close()
-            except Exception:
-                pass
-
-            try:
-                if image:
-                    image.close()
-            except Exception:
-                pass
-
-            try:
-                if editor_inpainted_image is not None:
-                    editor_inpainted_image.close()
-            except Exception:
-                pass
+                except Exception:
+                    pass
+            if source_image is not None:
+                try:
+                    source_image.close()
+                except Exception:
+                    pass
     
     def _save_regions_data_with_path(
         self,
@@ -597,35 +598,33 @@ class ExportService:
     def _build_load_text_payload(
         self,
         regions_data: List[Dict[str, Any]],
-        mask: Optional[np.ndarray],
+        export_base: ExportBase,
         config: Optional[Dict[str, Any]],
-        editor_inpainted_image: Optional[Any] = None,
-        base_size=None,
+        base_size,
         paint_overlay: Optional[np.ndarray] = None,
         stamp_overlay: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
-        """构造后端 load_text 的内存直通载荷（等价于临时 _translations.json 的单图数据）。
-
-        载荷本身就是"编辑器导出"标识：后端视为已授权的最终稿，只做纯渲染
-        （跳过文本替换、JSON 回写，蒙版视为已精炼，修复图直接复用）。
-        regions 经 CustomJSONEncoder 往返，保证与"写盘再读回"的解析结果一致；
-        蒙版与修复图直接携带 ndarray，跳过 PNG/base64 编解码。
-        """
+        """Build an in-memory payload whose base state is explicit and valid."""
         save_data = self._normalize_regions_for_backend(regions_data, config)
-        payload = json.loads(json.dumps({'regions': save_data}, ensure_ascii=False, cls=CustomJSONEncoder))
-        if mask is not None:
-            # 编辑器蒙版视为已精炼，后端跳过蒙版优化（与旧临时 JSON 行为一致）
-            payload['mask_raw'] = np.asarray(mask)
+        payload = json.loads(
+            json.dumps({'regions': save_data}, ensure_ascii=False, cls=CustomJSONEncoder)
+        )
+        payload['editor_export_base_kind'] = export_base.kind
+        if export_base.mask is not None:
+            payload['mask_raw'] = np.asarray(export_base.mask)
             payload['mask_is_refined'] = True
-        inpainted_rgb = self._prepare_inpainted_payload(editor_inpainted_image, base_size)
-        if inpainted_rgb is not None:
-            payload['inpainted_rgb'] = inpainted_rgb
-        # 画笔/印章层直接携带 ndarray（RGBA），后端渲染前合成到 inpainted 上
+        if export_base.kind == 'paired':
+            payload['inpainted_rgb'] = self._prepare_paired_inpainted_payload(
+                export_base.render_image,
+                base_size,
+            )
         if paint_overlay is not None:
             payload['paint_overlay'] = np.asarray(paint_overlay)
         if stamp_overlay is not None:
             payload['stamp_overlay'] = np.asarray(stamp_overlay)
-        self.logger.info(f"已构建内存导出载荷: 区域数={len(payload['regions'])}, 蒙版={'有' if mask is not None else '无'}, 修复图={'有' if inpainted_rgb is not None else '无'}")
+        self.logger.info(
+            f"已构建内存导出载荷: 区域数={len(payload['regions'])}, 底图状态={export_base.kind}"
+        )
         return payload
 
     def _save_regions_data_internal(
@@ -835,13 +834,18 @@ class ExportService:
         ctx.result = None
         return result
 
-    def _execute_backend_render(self, image: Image.Image, image_name: str, payload: Optional[Dict[str, Any]],
-                              translator_params: Dict[str, Any], config: Dict[str, Any],
-                              progress_callback: Optional[callable] = None,
-                              output_path: str = None,
-                              source_image_path: str = None,
-                              save_inpainted_only: bool = False) -> Optional[Image.Image]:
-        """执行后端渲染（输入图与 load_text 载荷内存直通，不读写临时文件）"""
+    def _execute_backend_render(
+        self,
+        image: Image.Image,
+        image_name: str,
+        payload: Dict[str, Any],
+        translator_params: Dict[str, Any],
+        config: Dict[str, Any],
+        progress_callback: Optional[callable] = None,
+        output_path: str = None,
+        source_image_path: str = None,
+    ) -> BackendRenderResult:
+        """Execute strict editor rendering and return any newly generated artifact."""
         try:
             from manga_translator.config import Config, RenderConfig
             from manga_translator.manga_translator import MangaTranslator
@@ -924,36 +928,38 @@ class ExportService:
                 translation_error = getattr(ctx, 'translation_error', None) or getattr(ctx, 'error', None)
                 if translation_error:
                     raise RuntimeError(f"translator.translate returned translation_error: {translation_error}")
-                # 仅当后端确实重新生成了修复图才回写工作目录；
-                # 复用编辑器/磁盘修复图时跳过，避免每次导出多一次整页 PNG 编码
-                if getattr(ctx, 'inpainted_regenerated', None) is not False:
-                    self._persist_backend_inpainted_image(
-                        source_image_path=source_image_path,
-                        inpainted_image=getattr(ctx, 'img_inpainted', None),
-                        config=config,
+                generated_inpainted = getattr(
+                    ctx,
+                    'editor_export_generated_inpainted',
+                    None,
+                )
+                if generated_inpainted is not None:
+                    generated_inpainted = np.array(
+                        generated_inpainted,
+                        dtype=np.uint8,
+                        copy=True,
                     )
-
-                # 根据参数决定返回inpainted还是result
-                if save_inpainted_only:
-                    # 只保存修复后的图片（不渲染翻译文字）
-                    if hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None:
-                        # 复制为独立数组，避免与随后被清理的 ctx 共享内存
-                        inpainted_copy = np.array(ctx.img_inpainted, dtype=np.uint8, copy=True)
-                        result_image = Image.fromarray(inpainted_copy)
-                        self.logger.info("返回修复后的图片（inpainted）")
+                export_kind = payload['editor_export_base_kind']
+                if export_kind == 'backend_inpaint' and generated_inpainted is None:
+                    raise RuntimeError("backend inpaint completed without a final inpainted image")
+                if export_kind != 'backend_inpaint' and generated_inpainted is not None:
+                    raise RuntimeError(
+                        f"{export_kind} export unexpectedly generated an inpainted image"
+                    )
+                result_image = self._take_context_result(ctx)
+                if result_image is None:
+                    raise RuntimeError("translator returned no rendered image")
+                if cfg.cli.export_editable_psd:
+                    if export_kind == 'backend_inpaint':
+                        ctx.img_inpainted = generated_inpainted
+                    elif export_kind == 'paired':
+                        ctx.img_inpainted = np.array(
+                            payload['inpainted_rgb'], dtype=np.uint8, copy=True
+                        )
                     else:
-                        self.logger.warning("ctx.img_inpainted不存在，回退到result")
-                        result_image = self._take_context_result(ctx)
-                        if result_image is None:
-                            return None
-                else:
-                    # 返回翻译后的图片（带翻译文字）
-                    result_image = self._take_context_result(ctx)
-                    if result_image is None:
-                        return None
-                
+                        ctx.img_inpainted = image_like_to_rgb_array(image, copy=True)
                 # 导出可编辑PSD（如果启用）
-                if cfg.cli.export_editable_psd and not save_inpainted_only:
+                if cfg.cli.export_editable_psd:
                         try:
                             from manga_translator.utils.photoshop_export import (
                                 get_psd_output_path,
@@ -984,8 +990,7 @@ class ExportService:
                             import traceback
                             self.logger.error(traceback.format_exc())
                 
-                # 输入图与结果的生命周期由调用方及 translate 内部清理负责
-                return result_image
+                return BackendRenderResult(result_image, generated_inpainted)
 
             except Exception as translate_error:
                 self.logger.error(f"translator.translate执行失败: {translate_error}")

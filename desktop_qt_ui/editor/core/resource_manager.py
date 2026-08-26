@@ -1,23 +1,15 @@
-"""资源管理器
+"""Shared image LRU, prefetching, and identity-scoped rebuildable caches."""
 
-统一管理编辑器的所有资源，包括图片、蒙版、区域等。
-"""
-
-import copy
 import logging
 import os
 import threading
-import time
 import weakref
 from typing import Any, Dict, List, Optional
 
-import numpy as np
+from manga_translator.utils import open_pil_image
 from PIL import Image
 
-from manga_translator.utils import open_pil_image
-
-from .resources import ImageResource, MaskResource, RegionResource
-from .types import MaskType
+from .resources import ImageResource, RebuildableCacheKey
 
 
 def _release_gpu_memory():
@@ -85,24 +77,10 @@ def _estimate_image_bytes(image: Image.Image | None) -> int:
         return 0
 
 
-def _estimate_cache_value_bytes(value: Any) -> int:
-    if value is None:
-        return 0
-    if isinstance(value, np.ndarray):
-        return int(value.nbytes)
-    if isinstance(value, Image.Image):
-        return _estimate_image_bytes(value)
-    nbytes = getattr(value, "nbytes", None)
-    if isinstance(nbytes, int):
-        return int(nbytes)
-    return 0
 
 
 class ResourceManager:
-    """资源管理器
-    
-    统一管理所有编辑器资源的生命周期。
-    """
+    """Shared image LRU/prefetch store and identity-scoped weak cache."""
     
     def __init__(self):
         """初始化资源管理器"""
@@ -114,19 +92,12 @@ class ResourceManager:
 
         # 当前加载的资源
         self._current_image: Optional[ImageResource] = None
-        self._masks: Dict[MaskType, MaskResource] = {}
-        self._regions: Dict[int, RegionResource] = {}
-        self._next_region_id = 0
-        # 区域的显示顺序，元素为 region_id
-        self._region_order: List[int] = []
         
         # 资源缓存（用于快速切换）
         self._image_cache: Dict[str, ImageResource] = {}
         self._cache_limit = 5  # 最多缓存5张图片
         
-        # 通用缓存（用于存储临时数据）
-        self._temp_cache: Dict[str, Any] = {}
-        self._weak_cache: Dict[str, weakref.ReferenceType[Any]] = {}
+        self._weak_cache: Dict[RebuildableCacheKey, weakref.ReferenceType[Any]] = {}
         self._export_cleanup_threshold_bytes = 2 * 1024 * 1024 * 1024
 
     # ==================== 图片管理 ====================
@@ -205,6 +176,32 @@ class ResourceManager:
                 height=image.height,
             )
             self._add_to_cache(image_path, resource)
+            return resource
+
+    def activate_prefetched_image(
+        self,
+        image_path: str,
+        image: Image.Image,
+        *,
+        qimage: Any = None,
+    ) -> ImageResource:
+        """Pin a prefetched document image without decoding it again."""
+        image_path = self._resolve_image_path(image_path)
+        with self._lock:
+            resource = self._image_cache.get(image_path)
+            if resource is None or resource.image is None:
+                resource = ImageResource(
+                    path=image_path,
+                    image=image,
+                    width=image.width,
+                    height=image.height,
+                    qimage=qimage,
+                )
+                self._add_to_cache(image_path, resource)
+            elif resource.qimage is None and qimage is not None:
+                resource.qimage = qimage
+            resource.touch()
+            self._current_image = resource
             return resource
 
     def load_detached_image(self, image_path: str) -> Image.Image:
@@ -310,11 +307,6 @@ class ResourceManager:
         if release_from_cache:
             self.clear_image_cache()
 
-        # 清空所有关联资源
-        self.clear_masks()
-        self.clear_regions()
-        self.clear_cache()
-        self.clear_weak_cache()
 
         _release_gpu_memory()
 
@@ -343,244 +335,69 @@ class ResourceManager:
         return images
 
     def get_memory_snapshot(self) -> Dict[str, Any]:
-        """返回当前资源持有情况，便于切图/导出后观测内存。"""
+        """Return image-LRU and live identity-cache ownership metrics."""
         managed_images = self.get_managed_images()
-        managed_image_bytes = sum(_estimate_image_bytes(image) for image in managed_images)
-        mask_bytes = sum(int(mask.data.nbytes) for mask in self._masks.values() if getattr(mask, "data", None) is not None)
-        temp_cache_bytes = sum(_estimate_cache_value_bytes(value) for value in self._temp_cache.values())
+        managed_image_bytes = sum(
+            _estimate_image_bytes(image) for image in managed_images
+        )
         weak_cache_live_entries = 0
         for key, value_ref in list(self._weak_cache.items()):
             if value_ref() is None:
                 self._weak_cache.pop(key, None)
-                continue
-            weak_cache_live_entries += 1
-
+            else:
+                weak_cache_live_entries += 1
         return {
             "process_bytes": _current_process_memory_bytes(),
             "managed_image_count": len(managed_images),
             "managed_image_bytes": managed_image_bytes,
             "image_cache_entries": len(self._image_cache),
-            "mask_count": len(self._masks),
-            "mask_bytes": mask_bytes,
-            "region_count": len(self._regions),
-            "temp_cache_entries": len(self._temp_cache),
-            "temp_cache_bytes": temp_cache_bytes,
-            "temp_cache_keys": sorted(self._temp_cache.keys()),
             "weak_cache_entries": len(self._weak_cache),
             "weak_cache_live_entries": weak_cache_live_entries,
-            "current_image_path": self._current_image.path if self._current_image is not None else None,
+            "current_image_path": (
+                self._current_image.path if self._current_image is not None else None
+            ),
         }
 
     def log_memory_snapshot(self, stage: str, logger=None) -> Dict[str, Any]:
         target_logger = logger or self.logger
         if not target_logger.isEnabledFor(logging.DEBUG):
             return {}
-
         snapshot = self.get_memory_snapshot()
         target_logger.debug(
-            "Memory snapshot [%s]: process=%.2fMB managed_images=%s managed=%.2fMB masks=%.2fMB temp_cache=%.2fMB weak_cache=%s/%s keys=%s",
+            "Memory snapshot [%s]: process=%.2fMB managed_images=%s "
+            "managed=%.2fMB weak_cache=%s/%s",
             stage,
             snapshot["process_bytes"] / (1024 * 1024),
             snapshot["managed_image_count"],
             snapshot["managed_image_bytes"] / (1024 * 1024),
-            snapshot["mask_bytes"] / (1024 * 1024),
-            snapshot["temp_cache_bytes"] / (1024 * 1024),
             snapshot["weak_cache_live_entries"],
             snapshot["weak_cache_entries"],
-            ",".join(snapshot["temp_cache_keys"]) or "-",
         )
         return snapshot
     
-    # ==================== 蒙版管理 ====================
-    
-    def set_mask(self, mask_type: MaskType, mask_data: np.ndarray) -> MaskResource:
-        """设置蒙版
-        
-        Args:
-            mask_type: 蒙版类型
-            mask_data: 蒙版数据
-        
-        Returns:
-            MaskResource: 蒙版资源
-        """
-        if not self._current_image:
-            raise RuntimeError("No image loaded")
-        
-        # 创建蒙版资源
-        resource = MaskResource(
-            mask_type=mask_type,
-            data=mask_data.copy(),
-            width=mask_data.shape[1],
-            height=mask_data.shape[0],
-        )
-        
-        # 释放旧蒙版
-        if mask_type in self._masks:
-            self._masks[mask_type].release()
-        
-        self._masks[mask_type] = resource
-        self.logger.debug(f"Set mask: {mask_type}")
-        return resource
-    
-    def get_mask(self, mask_type: MaskType) -> Optional[MaskResource]:
-        """获取蒙版
-        
-        Args:
-            mask_type: 蒙版类型
-        
-        Returns:
-            Optional[MaskResource]: 蒙版资源，如果不存在返回None
-        """
-        return self._masks.get(mask_type)
-    
-    def clear_masks(self) -> None:
-        """清空所有蒙版"""
-        for mask in self._masks.values():
-            mask.release()
-        self._masks.clear()
-        self.logger.debug("Cleared all masks")
-
-    def clear_mask(self, mask_type: MaskType) -> None:
-        """清空指定类型的蒙版。"""
-        resource = self._masks.pop(mask_type, None)
-        if resource is not None:
-            resource.release()
-            self.logger.debug(f"Cleared mask: {mask_type}")
-    
-    # ==================== 区域管理 ====================
-    
-    def add_region(self, region_data: Dict) -> RegionResource:
-        """添加文本区域
-
-        Args:
-            region_data: 区域数据
-
-        Returns:
-            RegionResource: 区域资源
-        """
-        region_id = self._next_region_id
-        self._next_region_id += 1
-
-        resource = RegionResource(
-            region_id=region_id,
-            data=copy.deepcopy(region_data),
-        )
-
-        self._regions[region_id] = resource
-        self._region_order.append(region_id)
-        self.logger.debug(f"Added region: {region_id}")
-        return resource
-
-    def update_region(self, index: int, region_data: Dict) -> bool:
-        """按显示顺序更新指定位置的区域数据，保持 region_id 不变。"""
-        if not (0 <= index < len(self._region_order)):
-            return False
-        resource = self._regions[self._region_order[index]]
-        resource.data = copy.deepcopy(region_data)
-        resource.update_time = time.time()
-        return True
-
-    def insert_region(self, index: int, region_data: Dict) -> int:
-        """在指定显示位置插入新区域，返回实际插入位置。"""
-        insert_at = max(0, min(int(index), len(self._region_order)))
-        region_id = self._next_region_id
-        self._next_region_id += 1
-        self._regions[region_id] = RegionResource(
-            region_id=region_id,
-            data=copy.deepcopy(region_data),
-        )
-        self._region_order.insert(insert_at, region_id)
-        return insert_at
-
-    def remove_region(self, index: int) -> Optional[Dict]:
-        """移除指定显示位置的区域，返回其数据；越界返回 None。"""
-        if not (0 <= index < len(self._region_order)):
-            return None
-        region_id = self._region_order.pop(index)
-        resource = self._regions.pop(region_id)
-        return resource.data
-
-    def move_region(self, source_index: int, target_index: int) -> Optional[int]:
-        """移动区域的显示顺序，保留区域资源和稳定 ``region_id``。"""
-        if not (0 <= source_index < len(self._region_order)):
-            return None
-        target_index = max(0, min(int(target_index), len(self._region_order) - 1))
-        if source_index == target_index:
-            return target_index
-
-        region_id = self._region_order.pop(source_index)
-        self._region_order.insert(target_index, region_id)
-        return target_index
-
-    def get_region_id(self, index: int) -> Optional[int]:
-        if 0 <= index < len(self._region_order):
-            return self._region_order[index]
-        return None
-
-    def find_region_index(self, region_id: int) -> Optional[int]:
-        try:
-            return self._region_order.index(region_id)
-        except ValueError:
-            return None
-
-    def get_all_regions(self) -> List[RegionResource]:
-        """获取所有区域（按显示顺序）
-
-        Returns:
-            List[RegionResource]: 区域列表，按 _region_order 中的显示顺序排列
-        """
-        return [self._regions[rid] for rid in self._region_order]
-
-    def clear_regions(self) -> None:
-        """清空所有区域
-
-        注意：不重置 _next_region_id——region_id 在 ResourceManager 生命周期内
-        单调递增，保证异步任务持有的 id 不会被后续文档复用。
-        """
-        self._regions.clear()
-        self._region_order.clear()
-        self.logger.debug("Cleared all regions")
-    
-    # ==================== 缓存管理 ====================
-    
-    def set_cache(self, key: str, value: Any) -> None:
-        """设置缓存数据
-
-        缓存里放的都是普通数据（ndarray 等），不持有 OS 资源，覆盖旧值时
-        直接丢引用即可，由引用计数回收。
-
-        Args:
-            key: 缓存键
-            value: 缓存值
-        """
-        self._temp_cache[key] = value
-        self.logger.debug(f"Set cache: {key}")
-    
-    def get_cache(self, key: str, default=None) -> Any:
-        """获取缓存数据
-        
-        Args:
-            key: 缓存键
-            default: 默认值
-        
-        Returns:
-            缓存值，如果不存在返回default
-        """
-        return self._temp_cache.get(key, default)
-
-    def set_weak_cache(self, key: str, value: Any) -> None:
-        """设置弱引用缓存，不让缓存本身阻止回收。"""
+    def set_weak_cache(
+        self,
+        identity: tuple[int, str],
+        name: str,
+        value: Any,
+    ) -> None:
+        """Cache reproducible derived data without extending its lifetime."""
+        key = RebuildableCacheKey.from_identity(identity, name)
         if value is None:
             self._weak_cache.pop(key, None)
             return
         try:
             self._weak_cache[key] = weakref.ref(value)
-            self.logger.debug(f"Set weak cache: {key}")
         except TypeError:
             self._weak_cache.pop(key, None)
-            self.logger.debug(f"Skip weak cache for non-weakrefable value: {key}")
 
-    def get_weak_cache(self, key: str, default=None) -> Any:
+    def get_weak_cache(
+        self,
+        identity: tuple[int, str],
+        name: str,
+        default=None,
+    ) -> Any:
+        key = RebuildableCacheKey.from_identity(identity, name)
         value_ref = self._weak_cache.get(key)
         if value_ref is None:
             return default
@@ -590,70 +407,47 @@ class ResourceManager:
             return default
         return value
 
-    def clear_weak_cache(self, key: Optional[str] = None) -> None:
-        if key:
-            self._weak_cache.pop(key, None)
-            self.logger.debug(f"Cleared weak cache: {key}")
+    def clear_weak_cache(
+        self,
+        identity: Optional[tuple[int, str]] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        if identity is None:
+            self._weak_cache.clear()
             return
-        self._weak_cache.clear()
-        self.logger.debug("Cleared all weak cache")
+        document_id, source_path = identity
+        keys = [
+            key
+            for key in self._weak_cache
+            if key.document_id == int(document_id)
+            and key.source_path == str(source_path)
+            and (name is None or key.name == name)
+        ]
+        for key in keys:
+            self._weak_cache.pop(key, None)
     
-    def clear_cache(self, key: Optional[str] = None) -> None:
-        """清空缓存
-
-        Args:
-            key: 如果指定，只清空该键；否则清空所有缓存
-        """
-        if key:
-            if self._temp_cache.pop(key, None) is not None:
-                self.logger.debug(f"Cleared cache: {key}")
-        else:
-            self._temp_cache.clear()
-            self.logger.debug("Cleared all cache")
-
     # ==================== 资源清理 ====================
 
     def cleanup_all(self) -> None:
-        """清理所有资源"""
-
-        # 清空蒙版
-        self.clear_masks()
-
-        # 清空区域
-        self.clear_regions()
-
-        # 清空临时缓存
-        self.clear_cache()
+        """Release the image LRU and all reconstructible weak entries."""
         self.clear_weak_cache()
-
-        # 卸载当前图片并清理图片缓存
         with self._lock:
             self._current_image = None
             for resource in self._image_cache.values():
                 resource.release()
             self._image_cache.clear()
-
         _release_gpu_memory()
 
 
     def release_memory_after_export(self) -> None:
-        """导出后释放内存
-        
-        清理临时缓存和GPU显存，但保留图片缓存以便快速切换
-        """
+        """Trim optional caches under memory pressure while retaining the LRU."""
         if _current_process_memory_bytes() < self._export_cleanup_threshold_bytes:
             return
-
-        # 清空临时缓存（inpainted图片等）
-        self.clear_cache()
         self.clear_weak_cache()
-        
-        # 强制垃圾回收
         import gc
-        gc.collect()
-        # 释放GPU显存
-        _release_gpu_memory()
 
+        gc.collect()
+        _release_gpu_memory()
         _trim_working_set()
     
     def __del__(self):

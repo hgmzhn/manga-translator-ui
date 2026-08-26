@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from typing import List
 
+import numpy as np
+
 from . import Context, load_image, open_pil_image
 from .batch_skip import slice_batch_indices
 
@@ -878,12 +880,16 @@ class ConcurrentPipeline:
                                 del self.base_contexts[ctx.image_name]
                         continue
                     
-                    # 备份修复后图片
-                    img_inpainted_copy = None
-                    if (self.translator.save_text or self.translator.text_output_file) and hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None:
-                        import numpy as np
-                        img_inpainted_copy = np.copy(ctx.img_inpainted)
-                        logger.debug("[渲染] 已备份修复后图片用于保存")
+                    # Rendering may release context arrays; retain the generated sidecar image.
+                    inpainted_snapshot = None
+                    if (
+                        (self.translator.save_text or self.translator.text_output_file)
+                        and getattr(ctx, 'img_inpainted', None) is not None
+                        and getattr(ctx, 'mask', None) is not None
+                        and np.any(ctx.mask)
+                    ):
+                        inpainted_snapshot = np.copy(ctx.img_inpainted)
+                        logger.debug("[渲染] 已备份修复图用于保存")
                     
                     if not ctx.text_regions:
                         from .generic import dump_image
@@ -915,22 +921,34 @@ class ConcurrentPipeline:
                             if hasattr(self.translator, '_current_save_info') and self.translator._current_save_info:
                                 save_info = self.translator._current_save_info
                                 
-                                # ✅ 先保存修复图（在PSD导出之前），这样PSD导出时可以找到修复图文件
-                                if img_inpainted_copy is not None:
+                                if inpainted_snapshot is not None:
                                     try:
                                         import cv2
 
                                         from .generic import imwrite_unicode
                                         from .path_manager import get_inpainted_path
-                                        
-                                        inpainted_path = get_inpainted_path(ctx.image_name, create_dir=True)
-                                        imwrite_unicode(inpainted_path, cv2.cvtColor(img_inpainted_copy, cv2.COLOR_RGB2BGR), logger)
-                                        logger.info(f"[渲染] 修复后图片已保存: {inpainted_path}")
-                                    except Exception as e:
-                                        logger.error(f"[渲染] 保存修复后图片失败: {e}")
+
+                                        inpainted_path = get_inpainted_path(
+                                            ctx.image_name,
+                                            create_dir=True,
+                                        )
+                                        written = imwrite_unicode(
+                                            inpainted_path,
+                                            cv2.cvtColor(
+                                                inpainted_snapshot,
+                                                cv2.COLOR_RGB2BGR,
+                                            ),
+                                            logger,
+                                        )
+                                        if not written:
+                                            raise OSError(
+                                                f"Failed to write inpainted image: {inpainted_path}"
+                                            )
+                                        logger.info(
+                                            f"[渲染] 修复后图片已保存: {inpainted_path}"
+                                        )
                                     finally:
-                                        del img_inpainted_copy
-                                        img_inpainted_copy = None
+                                        inpainted_snapshot = None
                                 
                                 # 保存翻译结果和导出PSD
                                 self.translator._save_and_cleanup_context(ctx, save_info, config, "CONCURRENT")

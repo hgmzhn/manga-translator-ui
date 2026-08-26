@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSlot
+from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QPixmap, QTransform
 from PyQt6.QtWidgets import QGraphicsPixmapItem
+
 from editor.image_utils import image_like_to_qimage
 
 from .graphics_items import RegionTextItem
@@ -40,12 +41,16 @@ class GraphicsViewLayersMixin:
                     pass
             self._region_items.clear()
 
-            if self._image_item and self._image_item.scene():
-                self.scene.removeItem(self._image_item)
+            if self._image_item is not None:
+                if self._image_item.scene() is not None:
+                    self.scene.removeItem(self._image_item)
+                self._image_item.setPixmap(QPixmap())
                 self._image_item = None
 
             self.overlay_layers.clear()
             self._q_image_ref = None
+            self._document_identity = None
+            self._display_source_image_ref = None
 
             self.mask_layer.clear()
 
@@ -86,81 +91,105 @@ class GraphicsViewLayersMixin:
         margin_y = max(rect.height() * 0.25, 64.0)
         self.scene.setSceneRect(rect.adjusted(-margin_x, -margin_y, margin_x, margin_y))
 
-    def on_image_changed(self, image):
-        """切图: 复用 _image_item + 用 LRU 里的预转 QImage,主线程零阻塞、无中间帧。
+    def on_display_layers_changed(self, layers):
+        """Atomically install the current document's two base display layers."""
+        current_identity = self.model.get_document_identity()
+        if layers is None:
+            # A queued clear from an older document must not erase a document
+            # that has already been installed.
+            if current_identity is not None:
+                return
+            self.setUpdatesEnabled(False)
+            try:
+                self.clear_all_state()
+                self._apply_image_scene_rect()
+            finally:
+                self.setUpdatesEnabled(True)
+            return
 
-        关键技巧:
-        - 切前先 scene.removeItem(_image_item) 把它卸离 scene; clear_all_state 里
-          `if X and X.scene()` 守卫会让它既不被 removeItem 也不被置 None,引用保留
-        - QImage 优先从 ResourceManager._current_image.qimage 取(走 LRU,A/D 来回切换瞬时);
-          缺失则同步 fallback 转换
-        - setUpdatesEnabled(False/True) 包裹整个切换,viewport 不出中间帧
-        """
+        incoming_identity = layers.identity
+        if current_identity != incoming_identity:
+            return
+
+        is_new_document = self._document_identity != incoming_identity
+        source_changed = (
+            is_new_document
+            or self._image_item is None
+            or self._display_source_image_ref is not layers.source_image
+        )
+
         self.setUpdatesEnabled(False)
         try:
-            # 1) 把 _image_item 暂时从 scene 卸下(clear_all_state 不会动它)
-            keep = self._image_item
-            if keep is not None and keep.scene() is self.scene:
-                self.scene.removeItem(keep)
+            if is_new_document:
+                self.clear_all_state()
+                self._document_identity = incoming_identity
 
-            # 2) 复用原版全清逻辑(它有 `if X and X.scene()` 守卫,detached 的 keep 不受影响)
-            self.clear_all_state()
-            self._image_item = keep   # 显式恢复(clear_all_state 因条件不满足未清掉)
-
-            self.render_coordinator.invalidate_document(self.model.get_document_revision())
-
-            if image is None:
-                if self._image_item is not None and self._image_item.scene() is self.scene:
-                    self.scene.removeItem(self._image_item)
-                self._image_item = None
-                self._q_image_ref = None
+            if source_changed and not self._set_source_display_image(
+                layers.source_image,
+                incoming_identity,
+            ):
+                # Conversion failure is a hard clear: retaining either old
+                # pixmap would misrepresent the active document.
+                self.clear_all_state()
                 self._apply_image_scene_rect()
                 return
 
-            # 3) 优先用 LRU 缓存的预转 QImage(主线程零阻塞)
-            qimage = None
-            try:
-                resource_mgr = getattr(self.controller, "resource_manager", None) if hasattr(self, "controller") else None
-                current_resource = getattr(resource_mgr, "_current_image", None) if resource_mgr else None
-                if current_resource is not None:
-                    qimage = getattr(current_resource, "qimage", None)
-            except Exception:
-                qimage = None
-            if qimage is None:
-                try:
-                    qimage = image_like_to_qimage(image)
-                except Exception as convert_error:
-                    self.logger.warning("Failed to convert image to QImage: %s", convert_error)
-            if qimage is None:
-                if self._image_item is not None and self._image_item.scene() is self.scene:
-                    self.scene.removeItem(self._image_item)
-                self._image_item = None
-                self._q_image_ref = None
-                self._apply_image_scene_rect()
+            if self.model.get_document_identity() != incoming_identity:
                 return
 
-            self._q_image_ref = qimage
-            pixmap = QPixmap.fromImage(qimage)
-
-            # 4) 原地复用旧 item;若已无 item 才新建
+            self.overlay_layers.on_inpaint_display_changed(
+                incoming_identity,
+                layers.inpaint_display_image,
+            )
             if self._image_item is not None:
-                self._image_item.setPixmap(pixmap)
-                self.scene.addItem(self._image_item)   # 重新加回 scene
-            else:
-                self._image_item = self.scene.addPixmap(pixmap)
-                self._image_item.setZValue(2)
+                self._image_item.setOpacity(layers.source_opacity)
 
-            self._image_item.setOpacity(self.model.get_original_image_alpha())
-            self._apply_image_scene_rect()
-            self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
-            self._emit_view_state_changed()
+            if source_changed:
+                self._apply_image_scene_rect()
+                if is_new_document and self._image_item is not None:
+                    self.fitInView(
+                        self._image_item,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                    )
+                    self._emit_view_state_changed()
         finally:
             self.setUpdatesEnabled(True)
+            self.viewport().update()
 
-    @pyqtSlot(float)
-    def on_original_image_alpha_changed(self, alpha: float):
-        if self._image_item:
-            self._image_item.setOpacity(alpha)
+    def _set_source_display_image(self, image, identity) -> bool:
+        if image is None or self.model.get_document_identity() != identity:
+            return False
+
+        qimage = self.model.get_source_qimage()
+        if qimage is None:
+            try:
+                qimage = image_like_to_qimage(image)
+            except Exception as convert_error:
+                self.logger.warning(
+                    "Failed to convert source image to QImage: %s",
+                    convert_error,
+                )
+                return False
+        if qimage is None or qimage.isNull():
+            return False
+
+        pixmap = QPixmap.fromImage(qimage)
+        if pixmap.isNull():
+            return False
+        if self.model.get_document_identity() != identity:
+            return False
+
+        self._q_image_ref = qimage
+        self._display_source_image_ref = image
+        if self._image_item is None:
+            self._image_item = self.scene.addPixmap(pixmap)
+            self._image_item.setZValue(2)
+        else:
+            self._image_item.setPixmap(pixmap)
+            if self._image_item.scene() is None:
+                self.scene.addItem(self._image_item)
+            self._image_item.setZValue(2)
+        return True
 
     def on_region_display_mode_changed(self, mode: str, *, render_missing: bool = True):
         if render_missing and mode in {"full", "text_only"}:

@@ -5,14 +5,14 @@ import os
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PIL import Image
-
 from manga_translator.utils.path_manager import (
     find_inpainted_path,
     find_json_path,
     find_paint_overlay_path,
 )
-from .session import DocumentLoadFailure, DocumentSnapshot
+from PIL import Image
+
+from .document_state import DocumentLoadFailure, DocumentSnapshot, LoadedInpaintSidecar
 
 if TYPE_CHECKING:
     from .controller_document_service import EditorControllerDocumentService
@@ -28,11 +28,14 @@ class DocumentLoadWorker:
         service: "EditorControllerDocumentService",
         image_path: str,
         aux_executor: concurrent.futures.ThreadPoolExecutor,
+        *,
+        prefetch: bool = False,
     ):
         self.service = service
         self.controller = service.controller
         self.image_path = image_path
         self.aux_executor = aux_executor
+        self.prefetch = bool(prefetch)
 
     @property
     def logger(self):
@@ -48,7 +51,12 @@ class DocumentLoadWorker:
     def _load_snapshot(self) -> DocumentSnapshot:
         source_path, display_image_path = self.service.resolve_editor_image_paths(self.image_path)
 
-        image_resource = self.service.resource_manager.load_image(display_image_path)
+        load_resource = (
+            self.service.resource_manager.prefetch_image
+            if self.prefetch
+            else self.service.resource_manager.load_image
+        )
+        image_resource = load_resource(display_image_path)
         image = image_resource.image
         image_size = image.size
 
@@ -73,8 +81,9 @@ class DocumentLoadWorker:
             compare_image = futures["compare"].result()
 
             regions, raw_mask, json_overlays = futures["json"].result()
-
-            inpainted_path, inpainted_image = futures["inpainted"].result()
+            inpaint_sidecar = self._load_inpaint_sidecar(
+                aux_paths["inpainted"], raw_mask, image_size
+            )
 
             paint_overlay_path, legacy_paint_overlay = futures["paint_overlay"].result()
         finally:
@@ -93,11 +102,12 @@ class DocumentLoadWorker:
         return DocumentSnapshot(
             source_path=source_path,
             image=image,
+            display_image_path=display_image_path,
+            source_qimage=image_resource.qimage,
             compare_image=compare_image,
             regions=regions,
             raw_mask=raw_mask,
-            inpainted_path=inpainted_path,
-            inpainted_image=inpainted_image,
+            inpaint_sidecar=inpaint_sidecar,
             paint_overlay_path=paint_overlay_path,
             paint_overlay_image=paint_overlay_image,
             stamp_overlay_image=stamp_overlay_image,
@@ -115,7 +125,6 @@ class DocumentLoadWorker:
         return {
             "compare": executor.submit(self._load_compare_image, source_path, display_image_path, image, image_size),
             "json": executor.submit(self._load_regions_and_mask, source_path, aux_paths["json"]),
-            "inpainted": executor.submit(self._load_inpainted_image, aux_paths["inpainted"], image_size),
             "paint_overlay": executor.submit(self._load_paint_overlay_image, aux_paths["paint_overlay"], image_size),
         }
 
@@ -157,20 +166,33 @@ class DocumentLoadWorker:
         regions, raw_mask, _, overlays = self.service.file_service.load_translation_json(source_path)
         return regions, raw_mask, overlays or {}
 
-    def _load_inpainted_image(self, inpainted_path: str | None, image_size):
-        """没有修复图时返回 None，不拿底图冒充。
-
-        画布上修复图是 z=1 底层、原图是 z=2 覆盖层，"有没有修复图"决定
-        original_image_alpha 取 0（看修复图）还是 1（看原图）；用底图冒充会让
-        这个判断恒真。需要"修复图否则底图"的地方各自显式兜底。
-        """
-        if not inpainted_path:
-            return None, None
+    def _load_inpaint_sidecar(
+        self,
+        inpainted_path: str | None,
+        mask,
+        image_size,
+    ) -> LoadedInpaintSidecar | None:
+        if not inpainted_path or mask is None or not np.any(mask):
+            return None
         try:
-            return inpainted_path, self.controller._load_detached_image_array(inpainted_path, image_size)
-        except Exception as e:
-            self.logger.error(f"Error loading inpainted image: {e}")
-            return None, None
+            image = self.controller._load_detached_image_array(
+                inpainted_path,
+                image_size,
+                resize=False,
+            )
+        except Exception as error:
+            self.logger.error("Error loading inpaint image: %s", error)
+            return None
+        mask_array = np.asarray(mask)
+        if mask_array.ndim == 3:
+            mask_array = mask_array[..., 0]
+        if mask_array.ndim != 2 or np.asarray(image).shape[:2] != mask_array.shape:
+            self.logger.warning(
+                "Ignoring inpaint sidecar with incompatible dimensions: %s",
+                inpainted_path,
+            )
+            return None
+        return LoadedInpaintSidecar(image)
 
     def _load_paint_overlay_image(self, paint_overlay_path: str | None, image_size):
         if not paint_overlay_path:

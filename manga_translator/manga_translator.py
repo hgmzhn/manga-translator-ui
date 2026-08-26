@@ -3,7 +3,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import time
 import traceback
 import unicodedata
@@ -47,12 +46,12 @@ from .colorization import dispatch as dispatch_colorization
 from .colorization import prepare as prepare_colorization
 from .colorization import unload as unload_colorization
 from .detection import dispatch as dispatch_detection
+from .detection import prepare as prepare_detection
+from .detection import unload as unload_detection
 from .detection.imported_yolo import (
     build_mask_from_textlines,
     load_imported_yolo_textlines,
 )
-from .detection import prepare as prepare_detection
-from .detection import unload as unload_detection
 from .inpainting import dispatch as dispatch_inpainting
 from .inpainting import prepare as prepare_inpainting
 from .inpainting import unload as unload_inpainting
@@ -77,10 +76,15 @@ from .translators import (
 from .translators import (
     unload as unload_translation,
 )
-from .translators.common import ISO_639_1_TO_KEEP_LANGUAGES, ISO_639_1_TO_VALID_LANGUAGES, KEEP_LANGUAGES
+from .translators.common import (
+    ISO_639_1_TO_KEEP_LANGUAGES,
+    ISO_639_1_TO_VALID_LANGUAGES,
+    KEEP_LANGUAGES,
+)
 from .upscaling import dispatch as dispatch_upscaling
 from .upscaling import prepare as prepare_upscaling
 from .upscaling import unload as unload_upscaling
+from .utils.ai_image_preprocess import normalize_ai_image
 from .utils.path_manager import (
     find_inpainted_path,
     find_json_path,
@@ -89,7 +93,6 @@ from .utils.path_manager import (
     get_original_txt_path,
     get_work_image_path,
 )
-from .utils.ai_image_preprocess import normalize_ai_image
 from .utils.translation_text import remove_trailing_period_if_needed
 
 # Will be overwritten by __main__.py if module is being run directly (with python -m)
@@ -1152,10 +1155,20 @@ class MangaTranslator:
             export_error_label="Failed to export original text",
         )
 
-    def _save_inpainted_image(self, image_path: str, inpainted_img: np.ndarray):
-        """保存修复后的图片到 inpainted 目录。"""
+    def _save_inpainted_image(
+        self,
+        image_path: str,
+        inpainted_img: np.ndarray,
+    ) -> Optional[str]:
+        if inpainted_img is None:
+            return None
         inpainted_path = get_inpainted_path(image_path, create_dir=True)
-        self._save_image_to_path(inpainted_path, inpainted_img, "Inpainted image", source_image_path=image_path)
+        return self._save_image_to_path(
+            inpainted_path,
+            inpainted_img,
+            "Inpainted image",
+            source_image_path=image_path,
+        )
 
     def _save_work_image(self, image_path: str, image_data, label: str = "Work image") -> Optional[str]:
         """保存编辑器专用的上色/超分底图到 editor_base 目录。"""
@@ -1345,12 +1358,12 @@ class MangaTranslator:
         """注册内存直通的 load_text 载荷（编辑器导出通道）。
 
         注册了载荷即视为编辑器导出（ctx.editor_export=True）：内容与布局是
-        编辑器授权的最终稿，后端只做纯渲染——跳过文本替换、跳过工程 JSON
-        回写；skip_font_scaling 默认 True（center_box 锚点，气泡蒙版不参与摆放）。
+        编辑器授权的最终稿，后端跳过文本替换和工程 JSON 回写。
 
-        payload 结构与 _translations.json 中单图数据一致（regions 等），
-        额外约定：mask_raw 可直接传 np.ndarray（跳过 base64+PNG 编解码）；
-        inpainted_rgb 传编辑器当前修复图（RGB ndarray，跳过修复图落盘/重读）。
+        ``editor_export_base_kind`` 明确区分 source、paired 和
+        backend_inpaint。只有 paired 携带 ``inpainted_rgb`` 并纯渲染；
+        backend_inpaint 必须执行修复且绝不读取磁盘 sidecar 或采用 AI renderer
+        的原图回退。mask_raw 与修复图均可直接携带 ndarray。
         载荷会被解析过程原地消费，每次 translate 前需重新注册。
         """
         if not image_name:
@@ -3234,7 +3247,17 @@ class MangaTranslator:
                 if not getattr(region, 'font_family', ''):
                     region.font_family = fallback_font_family
 
-        render_base_img = ctx.img_rgb if self._should_skip_inpainting_for_ai_renderer(config) else ctx.img_inpainted
+        render_base_img = (
+            ctx.img_inpainted
+            if getattr(ctx, 'editor_export', False)
+            else (
+                ctx.img_rgb
+                if self._should_skip_inpainting_for_ai_renderer(config)
+                else ctx.img_inpainted
+            )
+        )
+        if render_base_img is None:
+            raise RuntimeError("Rendering requires a final inpainted image")
 
         ctx.img_render_alpha = None
         if config.render.renderer == Renderer.none:
@@ -3697,6 +3720,17 @@ class MangaTranslator:
                             # 蒙版已精炼、修复图直接复用）。
                             preloaded_payload = self._preloaded_load_text_payloads.get(image_name) if image_name else None
                             ctx.editor_export = preloaded_payload is not None
+                            editor_export_kind = (
+                                preloaded_payload.get('editor_export_base_kind')
+                                if preloaded_payload is not None
+                                else None
+                            )
+                            if ctx.editor_export and editor_export_kind not in {
+                                'source', 'paired', 'backend_inpaint'
+                            }:
+                                raise ValueError(
+                                    f"Invalid editor export base kind: {editor_export_kind!r}"
+                                )
                             
                             # 加载翻译数据
                             loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling, skip_text_replacements, region_parse_failures = self._load_text_and_regions_from_file(image_name, config)
@@ -3717,9 +3751,9 @@ class MangaTranslator:
                             ctx.load_text_parse_failures = region_parse_failures
                             
                             preloaded_inpainted_raw = preloaded_payload.get('inpainted_rgb') if preloaded_payload else None
-                            # 内存里已有编辑器修复图时，无需再扫描磁盘上的历史修复图
+                            # Strict editor export never consults an unverified historical sidecar.
                             existing_inpainted_path = None
-                            if preloaded_inpainted_raw is None and image_name:
+                            if preloaded_payload is None and image_name:
                                 existing_inpainted_path = find_inpainted_path(image_name)
 
                             # load_text 始终基于原图处理，不走上色/超分，也不把已有修复图塞进 img_colorized/upscaled
@@ -3760,7 +3794,9 @@ class MangaTranslator:
                                     self._prime_bubble_detection_cache(config, ctx.img_rgb)
 
                             # 处理 mask
-                            if loaded_mask is not None:
+                            if editor_export_kind == 'source':
+                                ctx.mask = np.zeros_like(ctx.img_rgb[:, :, 0])
+                            elif loaded_mask is not None:
                                 if mask_is_refined:
                                     ctx.mask = loaded_mask
                                 else:
@@ -3858,7 +3894,9 @@ class MangaTranslator:
                                     generated_inpainted_in_load_text = False
                                     if preloaded_inpainted is not None:
                                         ctx.img_inpainted = preloaded_inpainted
-                                        logger.info("Load text mode: using editor-provided inpainted image for mask-only import.")
+                                        logger.info("Load text mode: using editor-provided paired inpainted image for mask-only import.")
+                                    elif editor_export_kind == 'paired':
+                                        raise RuntimeError("Paired export is missing its in-memory inpainted image")
                                     elif existing_inpainted_path and loaded_mask is not None:
                                         try:
                                             existing_inpainted_image = open_pil_image(existing_inpainted_path, eager=False)
@@ -3878,6 +3916,14 @@ class MangaTranslator:
                                         ctx.img_inpainted = await self._run_inpainting(config, ctx)
                                         generated_inpainted_in_load_text = True
 
+                                    if ctx.img_inpainted is None:
+                                        raise RuntimeError("Inpainting completed without an image")
+                                    if editor_export_kind == 'backend_inpaint':
+                                        if not generated_inpainted_in_load_text:
+                                            raise RuntimeError("Backend inpaint export did not run inpainting")
+                                        ctx.editor_export_generated_inpainted = np.array(
+                                            ctx.img_inpainted, dtype=np.uint8, copy=True
+                                        )
                                     ctx.inpainted_regenerated = generated_inpainted_in_load_text
                                     if (
                                         generated_inpainted_in_load_text
@@ -3885,7 +3931,10 @@ class MangaTranslator:
                                         and ctx.img_inpainted is not None
                                         and self.save_text
                                     ):
-                                        self._save_inpainted_image(image_name, ctx.img_inpainted)
+                                        self._save_inpainted_image(
+                                            image_name,
+                                            ctx.img_inpainted,
+                                        )
 
                                     # 画笔/印章层合成（放在保存 inpainted 之后，避免涂层被烤进修复图文件）
                                     self._compose_render_overlays_on_inpainted(ctx)
@@ -3911,12 +3960,20 @@ class MangaTranslator:
                                 
                                 # Inpainting
                                 generated_inpainted_in_load_text = False
-                                if self._should_skip_inpainting_for_ai_renderer(config):
-                                    logger.info("AI renderer selected: skipping inpainting and using original work image as render base.")
+                                if editor_export_kind == 'source':
                                     ctx.img_inpainted = ctx.img_rgb
                                 elif preloaded_inpainted is not None:
                                     ctx.img_inpainted = preloaded_inpainted
-                                    logger.info("Load text mode: using editor-provided inpainted image, skipping inpainting.")
+                                    logger.info("Load text mode: using editor-provided paired inpainted image, skipping inpainting.")
+                                elif editor_export_kind == 'paired':
+                                    raise RuntimeError("Paired export is missing its in-memory inpainted image")
+                                elif editor_export_kind == 'backend_inpaint':
+                                    await self._report_progress('inpainting')
+                                    ctx.img_inpainted = await self._run_inpainting(config, ctx)
+                                    generated_inpainted_in_load_text = True
+                                elif self._should_skip_inpainting_for_ai_renderer(config):
+                                    logger.info("AI renderer selected: skipping inpainting outside strict editor export.")
+                                    ctx.img_inpainted = ctx.img_rgb
                                 elif existing_inpainted_path and loaded_mask is not None:
                                     try:
                                         existing_inpainted_image = open_pil_image(existing_inpainted_path, eager=False)
@@ -3935,6 +3992,15 @@ class MangaTranslator:
                                     ctx.img_inpainted = await self._run_inpainting(config, ctx)
                                     generated_inpainted_in_load_text = True
 
+                                if ctx.img_inpainted is None:
+                                    raise RuntimeError("Inpainting completed without an image")
+                                if editor_export_kind == 'backend_inpaint':
+                                    if not generated_inpainted_in_load_text:
+                                        raise RuntimeError("Backend inpaint export did not run inpainting")
+                                    ctx.editor_export_generated_inpainted = np.array(
+                                        ctx.img_inpainted, dtype=np.uint8, copy=True
+                                    )
+
                                 ctx.inpainted_regenerated = generated_inpainted_in_load_text
                                 if (
                                     generated_inpainted_in_load_text
@@ -3942,7 +4008,10 @@ class MangaTranslator:
                                     and ctx.img_inpainted is not None
                                     and self.save_text
                                 ):
-                                    self._save_inpainted_image(image_name, ctx.img_inpainted)
+                                    self._save_inpainted_image(
+                                        image_name,
+                                        ctx.img_inpainted,
+                                    )
 
                                 # 画笔/印章层合成（放在保存 inpainted 之后，避免涂层被烤进修复图文件）
                                 self._compose_render_overlays_on_inpainted(ctx)
@@ -5325,6 +5394,7 @@ class MangaTranslator:
                 logger.debug(f"Exception details: {traceback.format_exc()}")
 
         # -- Inpainting
+        generated_inpainted_for_save = False
         if self._should_skip_inpainting_for_ai_renderer(config):
             logger.info("AI renderer selected: skipping inpainting and using original work image as render base.")
             ctx.img_inpainted = ctx.img_rgb
@@ -5332,6 +5402,7 @@ class MangaTranslator:
             await self._report_progress('inpainting')
             try:
                 ctx.img_inpainted = await self._run_inpainting(config, ctx)
+                generated_inpainted_for_save = True
                 
                 # ✅ Inpainting完成后强制GC和GPU清理
                 self._cleanup_gpu_memory()
@@ -5349,11 +5420,19 @@ class MangaTranslator:
             except Exception as e:
                 logger.error(f"Error saving inpainted.png debug image: {e}")
                 logger.debug(f"Exception details: {traceback.format_exc()}")
-
         # 保存inpainted图片到新目录结构（用于可编辑图片功能）
         # 仅在开启“图片可编辑”时保存
-        if self.save_text and hasattr(ctx, 'image_name') and ctx.image_name and ctx.img_inpainted is not None:
-            self._save_inpainted_image(ctx.image_name, ctx.img_inpainted)
+        if (
+            generated_inpainted_for_save
+            and self.save_text
+            and hasattr(ctx, 'image_name')
+            and ctx.image_name
+            and ctx.img_inpainted is not None
+        ):
+            self._save_inpainted_image(
+                ctx.image_name,
+                ctx.img_inpainted,
+            )
 
         # -- Rendering
         await self._report_progress('rendering')

@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsView
 from qfluentwidgets import Action, RoundMenu
 
+from editor.image_utils import image_like_to_rgb_array
 from services import get_config_service
 
 from .graphics_items import RegionTextItem
@@ -595,26 +596,10 @@ class GraphicsViewInputMixin:
         if mask_changed:
             from editor.commands import MaskEditCommand
 
-        if self._active_tool in ["pen", "brush"] and np.any(stroke_mask):
-            if mask_changed:
-                controller._suppress_refined_mask_autoinpaint = True
-                try:
-                    command = MaskEditCommand(
-                        model=self.model,
-                        old_mask=old_mask_np,
-                        new_mask=new_mask_np.copy(),
-                    )
-                    controller.execute_command(command)
-                finally:
-                    controller._suppress_refined_mask_autoinpaint = False
-
-            controller.force_inpaint_stroke(stroke_mask)
-        else:
-            if mask_changed:
-                command = MaskEditCommand(
-                    model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy()
-                )
-                controller.execute_command(command)
+            command = MaskEditCommand(
+                model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy()
+            )
+            controller.execute_command(command)
 
         self._reset_drawing_state()
 
@@ -798,40 +783,52 @@ class GraphicsViewInputMixin:
         self._clone_dab_segment(pos)
 
     def _build_clone_composite_rgb(self, shape: tuple[int, int], working_overlay):
-        """活体取样源 = 画布可见内容：修复图(有则盖住底图) + 画笔层 + 印章层工作副本。
-
-        盖印时同步更新，保证同一笔里刚盖的内容可继续被取样传递。
-        """
+        """按当前双底图层和用户透明度构造仿制印章的可见取样源。"""
         if self._image_item is None:
             return None
+        layers = self.model.get_display_layers()
+        if (
+            layers is None
+            or layers.identity != self.model.get_document_identity()
+        ):
+            return None
+
         h, w = shape
 
-        # 底：修复图优先（画布上它盖在底图之上），没有才用底图
-        base_rgb = None
-        inpainted = self.model.get_inpainted_image()
-        if inpainted is not None:
-            arr = np.asarray(inpainted)
-            if arr.ndim == 3 and arr.shape[2] >= 3 and arr.size > 0:
-                arr = arr[..., :3].astype(np.uint8, copy=False)
-                if arr.shape[:2] != (h, w):
-                    arr = cv2.resize(arr, (w, h), interpolation=cv2.INTER_LINEAR)
-                base_rgb = arr
-        if base_rgb is None:
-            base = self._qimage_to_rgba_array(self._image_item.pixmap().toImage())
-            if base.shape[:2] != (h, w):
+        def _rgb(image):
+            array = image_like_to_rgb_array(image, copy=False)
+            if array is None:
                 return None
-            base_rgb = base[..., :3]
+            if array.shape[:2] != (h, w):
+                array = cv2.resize(array, (w, h), interpolation=cv2.INTER_LINEAR)
+            return array
 
-        composite = base_rgb.astype(np.float32)
+        inpaint_rgb = _rgb(layers.inpaint_display_image)
+        source_rgb = _rgb(layers.source_image)
+        if inpaint_rgb is None or source_rgb is None:
+            return None
+
+        source_opacity = max(0.0, min(1.0, float(layers.source_opacity)))
+        if source_opacity <= 0.0 or layers.source_image is layers.inpaint_display_image:
+            composite = inpaint_rgb.astype(np.float32)
+        elif source_opacity >= 1.0:
+            composite = source_rgb.astype(np.float32)
+        else:
+            composite = (
+                inpaint_rgb.astype(np.float32) * (1.0 - source_opacity)
+                + source_rgb.astype(np.float32) * source_opacity
+            )
+
         for overlay in (self.model.get_paint_overlay_image(), working_overlay):
             if overlay is None:
                 continue
-            arr = np.asarray(overlay)
-            if arr.ndim != 3 or arr.shape[2] != 4 or arr.shape[:2] != (h, w):
+            array = np.asarray(overlay)
+            if array.ndim != 3 or array.shape[2] != 4 or array.shape[:2] != (h, w):
                 continue
-            alpha = arr[..., 3:4].astype(np.float32) / 255.0
+            alpha = array[..., 3:4].astype(np.float32) / 255.0
             composite = (
-                composite * (1.0 - alpha) + arr[..., :3].astype(np.float32) * alpha
+                composite * (1.0 - alpha)
+                + array[..., :3].astype(np.float32) * alpha
             )
         return np.clip(composite, 0, 255).astype(np.uint8)
 

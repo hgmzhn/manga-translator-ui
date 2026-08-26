@@ -963,7 +963,6 @@ class PropertyPanel(QWidget):
 
     def _connect_model_signals(self):
         self.model.display_mask_type_changed.connect(self._on_display_mask_type_changed)
-        self.model.refined_mask_changed.connect(self._on_refined_mask_changed)
         self.model.regions_changed.connect(self.on_regions_changed)
 
     def _on_display_mask_type_changed(self, mask_type: str):
@@ -973,10 +972,6 @@ class PropertyPanel(QWidget):
         self.show_refined_mask_checkbox.setChecked(mask_type == "refined")
         self.show_refined_mask_checkbox.blockSignals(False)
 
-    def _on_refined_mask_changed(self, mask):
-        """响应refined mask数据变化"""
-        # 不自动勾选checkbox，让用户自己决定是否显示
-        pass
 
     def repopulate_options(self):
         """Public method to populate combo boxes from config. Should be called after config is loaded."""

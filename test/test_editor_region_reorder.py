@@ -1,17 +1,20 @@
-import _bootstrap  # noqa: F401
+import _bootstrap  # noqa: F401, I001
 
-from PyQt6.QtCore import QObject
+import numpy as np
 
 from editor.commands import MoveRegionCommand
-from editor.core.resource_manager import ResourceManager
+from editor.document_state import DocumentSnapshot
 from editor.editor_model import EditorModel
-from editor.session import EditorSession
 
 
 def _isolated_model() -> EditorModel:
-    model = EditorModel.__new__(EditorModel)
-    QObject.__init__(model)
-    model.session = EditorSession(ResourceManager())
+    model = EditorModel()
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=np.zeros((8, 8, 3), dtype=np.uint8),
+        )
+    )
     return model
 
 

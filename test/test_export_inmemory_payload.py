@@ -1,25 +1,16 @@
-# -*- coding: utf-8 -*-
-"""导出内存直通载荷回归测试。
+import _bootstrap  # noqa: F401
 
-覆盖点：
-1. 载荷解析与"写临时 JSON 再读回"的解析结果等价（regions/mask）。
-2. 端到端导出：内存载荷 + 编辑器修复图复用，不再产生临时文件/重复回写。
-3. 无区域无蒙版导出原图不崩（回归 2026-05 "Operation on closed image"）。
+"""导出内存直通载荷回归测试。"""
 
-运行：python test/test_export_inmemory_payload.py
-"""
 import os
-import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-from PIL import Image  # noqa: E402
+import numpy as np
+import pytest
+from editor.document_state import ExportBase
+from editor.inpaint_state import InpaintKey
+from PIL import Image
 
 
 def _make_regions():
@@ -54,12 +45,22 @@ def _make_config_dict():
         "inpainter": {},
     }
 
+def _paired_export_base(base, mask, inpainted):
+    return ExportBase(
+        "paired",
+        base,
+        inpainted,
+        mask,
+        InpaintKey(1, 1, 1, 1),
+    )
+
 
 def test_payload_parsing_matches_file_parsing():
     """载荷直通解析与临时 JSON 落盘再读回，得到等价的 regions 与 mask。"""
     from services.export_service import ExportService
-    from manga_translator.manga_translator import MangaTranslator
+
     from manga_translator.config import Config, TranslatorConfig
+    from manga_translator.manga_translator import MangaTranslator
 
     service = ExportService()
     regions = _make_regions()
@@ -76,9 +77,14 @@ def test_payload_parsing_matches_file_parsing():
         file_parsed = translator._load_text_and_regions_from_file(image_path, cfg)
 
         # 新路径：内存载荷
+        base = Image.open(image_path)
         payload = service._build_load_text_payload(
-            [dict(r) for r in regions], mask, _make_config_dict()
+            [dict(r) for r in regions],
+            _paired_export_base(base, mask, np.full((240, 320, 3), 200, dtype=np.uint8)),
+            _make_config_dict(),
+            base_size=base.size,
         )
+        base.close()
         translator.set_preloaded_load_text_payload(image_path, payload)
         payload_parsed = translator._load_text_and_regions_from_file(image_path, cfg)
         translator.set_preloaded_load_text_payload(image_path, None)
@@ -109,19 +115,21 @@ def _run_export(regions, mask, inpainted, tmp, output_name):
 
     output_path = os.path.join(tmp, "out", output_name)
     outcome = {"success": None, "error": None}
+    export_base = (
+        ExportBase("source", base, base, None, None)
+        if mask is None
+        else _paired_export_base(base, mask, inpainted)
+    )
     service._perform_backend_render_export(
-        base.copy(),
+        export_base,
         regions,
         _make_config_dict(),
         output_path,
-        mask,
-        None,
-        lambda m: outcome.__setitem__("success", m),
-        lambda m: outcome.__setitem__("error", m),
-        source_path,
-        False,
-        inpainted,
+        success_callback=lambda m: outcome.__setitem__("success", m),
+        error_callback=lambda m: outcome.__setitem__("error", m),
+        source_image_path=source_path,
     )
+    base.close()
     return source_path, output_path, outcome
 
 
@@ -129,7 +137,7 @@ def test_export_end_to_end_inmemory():
     """带区域+蒙版+编辑器修复图：导出成功、复用修复图、无工作目录副作用。"""
     with tempfile.TemporaryDirectory() as tmp:
         inpainted = np.full((240, 320, 3), 200, dtype=np.uint8)
-        source_path, output_path, outcome = _run_export(
+        _source_path, output_path, outcome = _run_export(
             _make_regions(), _make_mask(), inpainted, tmp, "out.png"
         )
         assert outcome["error"] is None, f"export failed: {outcome['error']}"
@@ -246,8 +254,9 @@ def test_backend_writeback_marks_replacements_only_after_render():
     import json as jsonlib
 
     from services.export_service import ExportService
-    from manga_translator.manga_translator import MangaTranslator
+
     from manga_translator.config import Config, TranslatorConfig
+    from manga_translator.manga_translator import MangaTranslator
     from manga_translator.utils import Context
     from manga_translator.utils.path_manager import find_json_path
 
@@ -258,9 +267,19 @@ def test_backend_writeback_marks_replacements_only_after_render():
     def _writeback(tmp, name, rendered):
         img_path = os.path.join(tmp, name)
         Image.new("RGB", (320, 240), "white").save(img_path)
+        base = Image.open(img_path)
+        mask = _make_mask()
         payload = service._build_load_text_payload(
-            [dict(r) for r in _make_regions()], _make_mask(), _make_config_dict()
+            [dict(r) for r in _make_regions()],
+            _paired_export_base(
+                base,
+                mask,
+                np.full((240, 320, 3), 200, dtype=np.uint8),
+            ),
+            _make_config_dict(),
+            base_size=base.size,
         )
+        base.close()
         translator.set_preloaded_load_text_payload(img_path, payload)
         regions, *_ = translator._load_text_and_regions_from_file(img_path, cfg)
         translator.set_preloaded_load_text_payload(img_path, None)

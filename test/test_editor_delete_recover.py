@@ -1,6 +1,6 @@
-"""Regression tests for deleting a text region together with its mask."""
-
 import _bootstrap  # noqa: F401
+
+"""Regression tests for deleting a text region together with its mask."""
 
 import numpy as np
 
@@ -36,11 +36,15 @@ def test_delete_region_command_restores_region_and_masks_on_undo():
             self.regions.insert(index, region)
             return index
 
-        def set_raw_mask(self, mask):
-            self.raw_mask = None if mask is None else np.array(mask, copy=True)
-
-        def set_refined_mask(self, mask):
-            self.refined_mask = None if mask is None else np.array(mask, copy=True)
+        def set_masks(self, **masks):
+            if "raw" in masks:
+                value = masks["raw"]
+                self.raw_mask = None if value is None else np.array(value, copy=True)
+            if "refined" in masks:
+                value = masks["refined"]
+                self.refined_mask = (
+                    None if value is None else np.array(value, copy=True)
+                )
 
         def set_selection(self, selection):
             self.selection = list(selection)

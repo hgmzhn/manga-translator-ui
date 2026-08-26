@@ -5,7 +5,7 @@ from manga_translator.image_formats import IMAGE_FILE_DIALOG_FILTER
 from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QFileDialog
 
-from editor.file_list_model import SUPPORTED_IMAGE_EXTENSIONS, FileListModel, FileType
+from editor.file_list_model import FileListModel, FileType
 from services import get_config_service, get_logger
 from services.file_list_data_service import (
     KIND_FOLDER,
@@ -17,9 +17,9 @@ from ui.secondary_pages.folder_dialog import select_folders
 
 
 class EditorLogic(QObject):
-    """
-    Handles the business logic for the editor view, including file list management.
-    """
+    """File catalog coordination and editor document navigation."""
+
+    PREFETCH_RADIUS = 2
     file_list_changed = pyqtSignal(list)
     file_list_with_tree_changed = pyqtSignal(list, dict)  # (files, folder_map)
     file_snapshot_changed = pyqtSignal(object)
@@ -344,22 +344,19 @@ class EditorLogic(QObject):
         }
         for source_path in source_paths:
             self.file_model.remove_file(source_path)
-            if hasattr(self.controller, 'resource_manager'):
-                self.controller.resource_manager.release_image_from_cache(source_path)
+            self.controller.resource_manager.release_image_from_cache(source_path)
 
+        cleared_current = False
         current_image_path = self.controller.model.get_source_image_path()
         if current_image_path and canonical_path_key(current_image_path) in {
             canonical_path_key(path) for path in source_paths
         }:
             self.controller._clear_editor_state(release_image_cache=True)
+            cleared_current = True
         
         # 检查是否还有文件，如果没有了就清空画布
-        if len(self.file_model.files) == 0:
+        if len(self.file_model.files) == 0 and not cleared_current:
             self.controller._clear_editor_state(release_image_cache=True)
-            
-            # 清空所有图片缓存
-            if hasattr(self.controller, 'resource_manager'):
-                self.controller.resource_manager.clear_image_cache()
         
         # 如果需要发射信号，更新UI
         if emit_signal:
@@ -386,9 +383,6 @@ class EditorLogic(QObject):
         # 然后清空编辑器状态（包括取消后台任务）
         self.controller._clear_editor_state(release_image_cache=True)
         
-        # 清空所有图片缓存
-        if hasattr(self.controller, 'resource_manager'):
-            self.controller.resource_manager.clear_image_cache()
 
     # --- Image Loading Methods ---
 
@@ -401,9 +395,10 @@ class EditorLogic(QObject):
 
         index = norm_paths.index(norm_current)
         adjacent = []
-        for next_index in (index + 1, index - 1):
-            if 0 <= next_index < len(file_paths):
-                adjacent.append(file_paths[next_index])
+        for distance in range(1, self.PREFETCH_RADIUS + 1):
+            for next_index in (index + distance, index - distance):
+                if 0 <= next_index < len(file_paths):
+                    adjacent.append(file_paths[next_index])
         return adjacent
 
     def load_file_lists(self, source_files: List[str], folder_tree: dict = None):

@@ -157,10 +157,13 @@ class DeleteRegionCommand(QUndoCommand):
         return None if value is None else np.array(value, copy=True)
 
     def _apply_masks(self, raw_mask, refined_mask) -> None:
-        if raw_mask is not _NO_MASK_CHANGE and hasattr(self._model, "set_raw_mask"):
-            self._model.set_raw_mask(self._copy_mask_value(raw_mask))
-        if refined_mask is not _NO_MASK_CHANGE and hasattr(self._model, "set_refined_mask"):
-            self._model.set_refined_mask(self._copy_mask_value(refined_mask))
+        masks: Dict[str, Any] = {}
+        if raw_mask is not _NO_MASK_CHANGE:
+            masks["raw"] = self._copy_mask_value(raw_mask)
+        if refined_mask is not _NO_MASK_CHANGE:
+            masks["refined"] = self._copy_mask_value(refined_mask)
+        if masks:
+            self._model.set_masks(**masks)
 
     def redo(self):
         """执行删除操作。"""

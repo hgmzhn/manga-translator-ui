@@ -21,7 +21,9 @@ from manga_translator.utils.path_manager import (
 
 from services import get_render_parameter_service
 
+from .document_state import ExportBase
 from .image_utils import image_like_to_pil
+from .inpaint_state import InpaintArtifact
 from .region_geometry_state import normalize_region_geometry_data
 
 if TYPE_CHECKING:
@@ -29,7 +31,12 @@ if TYPE_CHECKING:
 
 
 def _close_images(*images: object) -> None:
+    closed: set[int] = set()
     for image in images:
+        identity = id(image)
+        if identity in closed:
+            continue
+        closed.add(identity)
         close = getattr(image, "close", None)
         if callable(close):
             try:
@@ -38,25 +45,55 @@ def _close_images(*images: object) -> None:
                 pass
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ExportJob:
     automatic: bool
     source_path: str
     output_path: str
-    image: object
+    export_base: ExportBase
     regions: list[dict]
-    mask: Optional[np.ndarray]
     config: dict
-    inpainted_image: object = None
     paint_overlay: Optional[np.ndarray] = None
     stamp_overlay: Optional[np.ndarray] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.automatic, bool):
+            raise TypeError("automatic export flag must be bool")
+        if not self.source_path or not self.output_path:
+            raise ValueError("export source and output paths are required")
+        if not isinstance(self.export_base, ExportBase):
+            raise TypeError("export_base must be an ExportBase")
+        if (
+            self.export_base.kind in {"source", "backend_inpaint"}
+            and self.export_base.render_image is not self.export_base.source_image
+        ):
+            raise ValueError(f"{self.export_base.kind} export must render from source")
+        if not isinstance(self.regions, list) or not all(
+            isinstance(region, dict) for region in self.regions
+        ):
+            raise TypeError("export regions must be a list of dictionaries")
+        if not isinstance(self.config, dict):
+            raise TypeError("export config must be a dictionary")
+        object.__setattr__(self, "regions", copy.deepcopy(self.regions))
+        object.__setattr__(self, "config", copy.deepcopy(self.config))
+        for field_name in ("paint_overlay", "stamp_overlay"):
+            overlay = getattr(self, field_name)
+            if overlay is None:
+                continue
+            array = np.asarray(overlay)
+            if array.ndim != 3 or array.shape[2] != 4:
+                raise ValueError(f"{field_name} must be an RGBA image")
+            object.__setattr__(self, field_name, np.array(array, copy=True))
 
     @property
     def source_key(self) -> str:
         return os.path.normcase(os.path.abspath(self.source_path))
 
     def release_resources(self) -> None:
-        _close_images(self.image, self.inpainted_image)
+        _close_images(
+            self.export_base.source_image,
+            self.export_base.render_image,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +103,7 @@ class ExportOutcome:
     output_path: str
     success: bool
     error: Optional[str] = None
+    generated_artifact: Optional[InpaintArtifact] = None
 
 
 class EditorControllerExportService:
@@ -105,16 +143,33 @@ class EditorControllerExportService:
         if not source_path:
             self._reject_export("保存失败：当前图片没有来源路径")
             return False
+
+        inpainted_snapshot = None
+        delete_inpainted_sidecar = False
         try:
             image = self.controller._get_current_image()
             if image is None:
                 self._reject_export("保存失败：缺少图像数据")
                 return False
             regions = copy.deepcopy(self.controller._get_regions() or [])
-            mask = self.model.get_refined_mask()
-            if mask is None:
-                mask = self.model.get_raw_mask()
-            mask_snapshot = None if mask is None else np.array(mask, copy=True)
+            current_mask = self.model.get_refined_mask()
+            if current_mask is None:
+                current_mask = self.model.get_raw_mask()
+
+            if current_mask is not None and np.any(current_mask):
+                artifact = self.model.get_ready_inpaint_artifact()
+                if artifact is None:
+                    self._reject_export("保存失败：蒙版修复处理中，请稍后重试")
+                    return False
+                mask_snapshot = artifact.mask
+                inpainted_snapshot = artifact.image
+            else:
+                mask_snapshot = (
+                    None
+                    if current_mask is None
+                    else np.array(current_mask, copy=True)
+                )
+                delete_inpainted_sidecar = True
             config = self.config_service.get_config()
             config_dict = self._build_config_dict(config)
             paint_snapshot = self._snapshot_overlay(
@@ -136,17 +191,14 @@ class EditorControllerExportService:
                 paint_overlay=paint_snapshot,
                 stamp_overlay=stamp_snapshot,
             )
-            inpainted = self.model.get_inpainted_image()
-            if inpainted is not None:
-                inpainted_snapshot = self.controller._snapshot_image_for_export(
-                    inpainted, "inpainted image"
+            if delete_inpainted_sidecar:
+                self._delete_inpainted_sidecar(os.path.abspath(source_path))
+            if inpainted_snapshot is not None:
+                self.save_inpainted_image(
+                    os.path.abspath(source_path),
+                    config_dict,
+                    inpainted_snapshot,
                 )
-                try:
-                    self.save_inpainted_image(
-                        os.path.abspath(source_path), config_dict, inpainted_snapshot
-                    )
-                finally:
-                    _close_images(inpainted_snapshot)
             self.controller.history_service.mark_clean()
             toast_manager = self.controller.get_toast_manager()
             if toast_manager is not None:
@@ -156,6 +208,8 @@ class EditorControllerExportService:
             self.logger.error("Failed to save editor state", exc_info=True)
             self._reject_export(f"保存失败：{e}")
             return False
+        finally:
+            _close_images(inpainted_snapshot)
 
     def export_image(
         self,
@@ -165,27 +219,31 @@ class EditorControllerExportService:
         if not source_path:
             return self._reject_export("导出失败：当前图片没有来源路径")
 
-        image_snapshot = None
-        inpainted_snapshot = None
+        source_snapshot = None
+        render_snapshot = None
         try:
-            image = self.controller._get_current_image()
-            regions = self.controller._get_regions()
-            if image is None:
-                self.logger.warning("Cannot export: missing image data")
-                return self._reject_export("导出失败：缺少图像数据")
+            export_base = self.model.get_export_base()
+            if export_base is None:
+                return self._reject_export("导出失败：缺少活动文档")
+            regions = self.controller._get_regions() or []
 
-            if regions is None:
-                regions = []
-
-            mask = self.model.get_refined_mask()
-            if mask is None:
-                mask = self.model.get_raw_mask()
-            if mask is None and regions:
-                self.logger.warning("Cannot export: no mask data available for regions")
-                return self._reject_export("导出失败：没有可用的蒙版数据")
-
-            image_snapshot = self.controller._snapshot_image_for_export(
-                image, "base image"
+            source_snapshot = self.controller._snapshot_image_for_export(
+                export_base.source_image,
+                "export source image",
+            )
+            if export_base.kind == "paired":
+                render_snapshot = self.controller._snapshot_image_for_export(
+                    export_base.render_image,
+                    "paired render image",
+                )
+            else:
+                render_snapshot = source_snapshot
+            base_snapshot = ExportBase(
+                export_base.kind,
+                source_snapshot,
+                render_snapshot,
+                export_base.mask,
+                export_base.inpaint_key,
             )
             paint_snapshot = self._snapshot_overlay(
                 self.model.get_paint_overlay_image()
@@ -193,16 +251,6 @@ class EditorControllerExportService:
             stamp_snapshot = self._snapshot_overlay(
                 self.model.get_stamp_overlay_image()
             )
-            inpainted_base = self.model.get_inpainted_image()
-            if inpainted_base is None:
-                # 没有修复图时导出仍以底图作为渲染底图。
-                inpainted_base = image
-            inpainted_snapshot = self.controller._snapshot_image_for_export(
-                inpainted_base,
-                "inpainted image",
-            )
-            regions_snapshot = copy.deepcopy(regions)
-            mask_snapshot = None if mask is None else np.array(mask, copy=True)
             config = self.config_service.get_config()
             config_dict = self._build_config_dict(config)
             self._prepare_render_config(config_dict)
@@ -212,11 +260,9 @@ class EditorControllerExportService:
                 automatic=bool(automatic),
                 source_path=os.path.abspath(source_path),
                 output_path=output_path,
-                image=image_snapshot,
-                regions=regions_snapshot,
-                mask=mask_snapshot,
+                export_base=base_snapshot,
+                regions=regions,
                 config=config_dict,
-                inpainted_image=inpainted_snapshot,
                 paint_overlay=paint_snapshot,
                 stamp_overlay=stamp_snapshot,
             )
@@ -224,11 +270,10 @@ class EditorControllerExportService:
             if future is None:
                 job.release_resources()
                 return self._reject_export("导出队列已经关闭")
-
             return future
         except Exception as e:
             self.logger.error(f"Error during export request: {e}", exc_info=True)
-            _close_images(image_snapshot, inpainted_snapshot)
+            _close_images(source_snapshot, render_snapshot)
             return self._reject_export(f"导出快照创建失败：{e}")
 
     def _reject_export(self, message: str):
@@ -374,6 +419,14 @@ class EditorControllerExportService:
                     ]
         except (TypeError, ValueError):
             return
+
+    def _delete_inpainted_sidecar(self, source_path: str) -> None:
+        inpainted_path = get_inpainted_path(source_path, create_dir=False)
+        try:
+            os.remove(inpainted_path)
+        except FileNotFoundError:
+            return
+        self.logger.info(f"已删除过期修复图片: {inpainted_path}")
 
     def resolve_editor_json_path(self, source_path: str) -> str:
         json_path = find_json_path(source_path)
@@ -569,56 +622,31 @@ class EditorControllerExportService:
         return enhanced_regions
 
     def execute_export_job(self, job: ExportJob) -> ExportOutcome:
-        """在队列线程中渲染不可变快照，不写编辑器工程数据。"""
+        """Render one immutable three-state snapshot without editor mutation."""
         from services.export_service import ExportService
 
-        export_service = ExportService()
-        render_success = False
         render_error: Optional[str] = None
-        render_image = None
-        render_inpainted = None
+        backend_outcome = None
         try:
-            render_image = image_like_to_pil(job.image)
-            if render_image is None:
-                raise ValueError("base image snapshot is empty")
-            if job.inpainted_image is not None:
-                render_inpainted = image_like_to_pil(job.inpainted_image)
-
-            def success_callback(_message):
-                nonlocal render_success
-                render_success = True
-
             def error_callback(message):
                 nonlocal render_error
                 render_error = str(message)
 
-            export_service._perform_backend_render_export(
-                render_image,
+            backend_outcome = ExportService()._perform_backend_render_export(
+                job.export_base,
                 self._build_enhanced_regions(job.regions),
                 job.config,
                 job.output_path,
-                job.mask,
-                None,
-                success_callback,
-                error_callback,
-                job.source_path,
-                False,
-                render_inpainted,
-                job.paint_overlay,
-                job.stamp_overlay,
+                error_callback=error_callback,
+                source_image_path=job.source_path,
+                paint_overlay=job.paint_overlay,
+                stamp_overlay=job.stamp_overlay,
             )
         except Exception as e:
             render_error = str(e)
             self.logger.error("Failed to render editor export job", exc_info=True)
-        finally:
-            for image in (render_image, render_inpainted):
-                if image is not None:
-                    try:
-                        image.close()
-                    except Exception:
-                        pass
 
-        if not render_success:
+        if backend_outcome is None:
             return ExportOutcome(
                 automatic=job.automatic,
                 source_path=job.source_path,
@@ -627,9 +655,35 @@ class EditorControllerExportService:
                 error=render_error or "导出未返回成功状态",
             )
 
+        generated_artifact = None
+        generated_image = backend_outcome.generated_inpainted_image
+        if job.export_base.kind == "backend_inpaint":
+            if generated_image is None:
+                return ExportOutcome(
+                    automatic=job.automatic,
+                    source_path=job.source_path,
+                    output_path=job.output_path,
+                    success=False,
+                    error="后端修复未返回修复图",
+                )
+            generated_artifact = InpaintArtifact(
+                job.export_base.inpaint_key,
+                job.export_base.mask,
+                generated_image,
+            )
+        elif generated_image is not None:
+            return ExportOutcome(
+                automatic=job.automatic,
+                source_path=job.source_path,
+                output_path=job.output_path,
+                success=False,
+                error=f"{job.export_base.kind} 导出意外返回后端修复图",
+            )
+
         return ExportOutcome(
             automatic=job.automatic,
             source_path=job.source_path,
             output_path=job.output_path,
             success=True,
+            generated_artifact=generated_artifact,
         )
