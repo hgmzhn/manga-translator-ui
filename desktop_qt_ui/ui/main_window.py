@@ -183,7 +183,12 @@ class MainWindow(FluentWindow):
                 FIF.LIBRARY,
                 self._t("Batch Management"),
             ),
-            ("about", self.main_view.about_page, FIF.INFO, self._t("About Application")),
+            (
+                "about",
+                self.main_view.about_page,
+                FIF.INFO,
+                self._t("About Application"),
+            ),
         ]
         for key, page, icon, text in pages:
             page.setObjectName(f"main_{key}_page")
@@ -274,7 +279,7 @@ class MainWindow(FluentWindow):
             # 加载，否则切图时的自动保存会用旧数据覆盖掉刚写进去的修改。
             self.main_view.batch_edit_panel.set_editor_context(
                 self.editor_model.get_source_image_path,
-                self.editor_controller.load_image_and_regions,
+                self.editor_controller.document_service.load_image_and_regions,
             )
 
     def _create_ui_actions(self):
@@ -460,7 +465,9 @@ class MainWindow(FluentWindow):
         if deferred_write_error:
             QTimer.singleShot(
                 0,
-                lambda error=deferred_write_error: self._show_config_write_failed(error),
+                lambda error=deferred_write_error: self._show_config_write_failed(
+                    error
+                ),
             )
         self.file_list_data_service.loading.connect(
             self._on_main_catalog_loading,
@@ -594,7 +601,7 @@ class MainWindow(FluentWindow):
 
                 # 如果移除的是当前图片
                 if norm_current == norm_removed:
-                    self.editor_controller._clear_editor_state()
+                    self.editor_controller.document_service.clear_editor_state()
                 # 如果移除的是文件夹，检查当前图片是否在该文件夹内
                 elif os.path.isdir(file_path):
                     try:
@@ -603,7 +610,7 @@ class MainWindow(FluentWindow):
                             os.path.commonpath([norm_current, norm_removed])
                             == norm_removed
                         ):
-                            self.editor_controller._clear_editor_state()
+                            self.editor_controller.document_service.clear_editor_state()
                     except ValueError:
                         # 不同驱动器，跳过
                         pass
@@ -834,10 +841,7 @@ class MainWindow(FluentWindow):
             message = f"{guidance}\n\n{detail}" if detail else guidance
             show_error_dialog(self, self._t("Error"), "", message)
         except Exception as exc:
-            self.logger.error(
-                f"_show_config_write_failed error: {exc}", exc_info=True
-            )
-
+            self.logger.error(f"_show_config_write_failed error: {exc}", exc_info=True)
 
     def switch_to_editor_view(self):
         """
@@ -923,6 +927,7 @@ class MainWindow(FluentWindow):
                 item.setText(text)
                 # 收起状态下条目靠悬停提示识别，语言切换时一并刷新
                 item.setToolTip(text)
+
     def closeEvent(self, event):
         """处理窗口关闭事件"""
         if hasattr(self, "main_view") and hasattr(self.main_view, "update_checker"):

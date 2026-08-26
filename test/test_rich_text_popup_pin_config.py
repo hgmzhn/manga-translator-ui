@@ -36,14 +36,16 @@ def test_rich_text_popup_pin_menu_change_is_saved():
     applied = []
     view = SimpleNamespace(
         config_service=service,
-        _apply_editor_rich_text_popup_pinned=applied.append,
-        _read_editor_rich_text_popup_pinned=lambda config=None: bool(
-            config.app.editor_rich_text_popup_pinned
-        ),
+        _apply_editor_setting=lambda key, value: applied.append((key, value)),
+        _read_editor_settings=lambda config=None: {
+            "editor_rich_text_popup_pinned": bool(
+                config.app.editor_rich_text_popup_pinned
+            )
+        },
     )
 
-    EditorView._on_editor_rich_text_popup_pinned_changed(view, True)
+    EditorView._persist_editor_setting(view, "editor_rich_text_popup_pinned", True)
 
-    assert applied == [True]
+    assert applied == [("editor_rich_text_popup_pinned", True)]
     assert service.updates == [{"app": {"editor_rich_text_popup_pinned": True}}]
     assert service.save_count == 1

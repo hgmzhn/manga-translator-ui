@@ -1,28 +1,28 @@
-"""底图生命周期回归。
+import _bootstrap  # noqa: F401
 
-背景：底图 PIL 对象同时被 ResourceManager 缓存、EditorSession、导出快照持有。
-历史上有三套各自为政的 close 策略，其中 LRU 淘汰分支没有排除当前页，导致
-来回翻页时当前页的图被后台预读线程关闭，之后自动导出崩在
-`ValueError: Operation on closed image`，用户切不了图只能重启。
-
-现在的约定：图以 eager 方式打开（不持有文件句柄），任何一方都只丢引用、
-不 close，由引用计数回收。下面的用例锁定这个约定。
-
-直接运行：uv run python test/test_editor_image_lifetime.py
-"""
+"""Decoded editor image lifetime and prefetch-cache regressions."""
 
 import os
-import sys
 from pathlib import Path
 
+from editor.core.resource_manager import ResourceManager
+from editor.document_state import DocumentSnapshot
+from editor.session import EditorSession
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
 
-from editor.core.resource_manager import ResourceManager  # noqa: E402
-from editor.session import EditorSession  # noqa: E402
+def test_prefetched_snapshot_can_be_activated_without_redecode(tmp_path):
+    manager = ResourceManager()
+    path = _write_image(tmp_path, "prefetched.png", 90)
+    resource = manager.prefetch_image(path)
+    decoded = resource.image
+
+    manager.clear_image_cache()
+    activated = manager.activate_prefetched_image(path, decoded)
+
+    assert activated.image is decoded
+    assert manager.get_current_image() is activated
+    _assert_usable(activated.image, "activated prefetched image")
 
 
 def _write_image(directory: Path, name: str, shade: int) -> str:
@@ -74,29 +74,19 @@ def test_current_image_survives_revisit_then_prefetch(tmp_path):
     _assert_usable(revisited.image, "current image after revisit + prefetch")
 
 
-def test_clear_cache_does_not_kill_base_image(tmp_path):
-    """底图可能被塞进 temp_cache（如充当修复图），清缓存不得波及它。"""
-    manager = ResourceManager()
-    base = manager.load_image(_write_image(tmp_path, "base.png", 90)).image
-
-    manager.set_cache("inpainted_image", base)
-    manager.clear_cache()
-
-    _assert_usable(base, "base image after clear_cache")
 
 
-def test_session_set_image_does_not_close_previous(tmp_path):
+def test_session_document_switch_does_not_close_previous(tmp_path):
     """换图时 session 只丢引用，旧图对其它持有者仍然可用。"""
     manager = ResourceManager()
-    session = EditorSession(manager)
-
+    session = EditorSession()
     first = manager.load_image(_write_image(tmp_path, "first.png", 30)).image
-    session.set_image(first)
+    session.load_document(DocumentSnapshot(source_path="first.png", image=first))
     second = manager.load_image(_write_image(tmp_path, "second.png", 60)).image
-    session.set_image(second)
+    session.load_document(DocumentSnapshot(source_path="second.png", image=second))
 
-    _assert_usable(first, "previous image after set_image")
-    _assert_usable(second, "current image after set_image")
+    _assert_usable(first, "previous image after document switch")
+    _assert_usable(second, "current image after document switch")
 
 
 def test_unload_image_keeps_external_reference_usable(tmp_path):
@@ -129,10 +119,10 @@ def main() -> int:
     tests = [
         test_evicted_images_stay_usable_for_other_holders,
         test_current_image_survives_revisit_then_prefetch,
-        test_clear_cache_does_not_kill_base_image,
-        test_session_set_image_does_not_close_previous,
+        test_session_document_switch_does_not_close_previous,
         test_unload_image_keeps_external_reference_usable,
         test_loaded_image_holds_no_file_handle,
+        test_prefetched_snapshot_can_be_activated_without_redecode,
     ]
     for test in tests:
         with tempfile.TemporaryDirectory() as directory:

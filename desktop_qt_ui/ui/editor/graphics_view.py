@@ -37,31 +37,9 @@ class GraphicsView(
     MASK_PREVIEW_MAX_PIXELS = 2_000_000
     INPAINT_PREVIEW_MAX_PIXELS = 6_000_000
 
-    @property
-    def _text_blocks_cache(self):
-        return self.render_coordinator.text_blocks
-
-    @_text_blocks_cache.setter
-    def _text_blocks_cache(self, value):
-        self.render_coordinator.text_blocks = value
-
-    @property
-    def _dst_points_cache(self):
-        return self.render_coordinator.dst_points
-
-    @_dst_points_cache.setter
-    def _dst_points_cache(self, value):
-        self.render_coordinator.dst_points = value
-
-    @property
-    def _render_snapshot_cache(self):
-        return self.render_coordinator.render_snapshots
-
-    @_render_snapshot_cache.setter
-    def _render_snapshot_cache(self, value):
-        self.render_coordinator.render_snapshots = value
-
-    def __init__(self, model: EditorModel, controller=None, parent=None, editor_view=None):
+    def __init__(
+        self, model: EditorModel, controller=None, parent=None, editor_view=None
+    ):
         super().__init__(parent)
         self.model = model
         self.controller = controller
@@ -78,6 +56,8 @@ class GraphicsView(
 
         self._image_item: QGraphicsPixmapItem = None
         self._q_image_ref = None
+        self._document_identity: tuple[int, str] | None = None
+        self._display_source_image_ref = None
         self._preview_item: QGraphicsPixmapItem = None
         self.mask_layer = MaskLayer(self)
         self.overlay_layers = OverlayLayerManager(self)
@@ -193,7 +173,9 @@ class GraphicsView(
         self.setFrameShape(QFrame.Shape.NoFrame)
 
         self.apply_theme()
-        self.selection_manager = SelectionManager(self.model, self.scene, lambda: self._region_items)
+        self.selection_manager = SelectionManager(
+            self.model, self.scene, lambda: self._region_items
+        )
 
     def apply_theme(self, theme: str | None = None):
         canvas_color = canvas_background_color(theme)
@@ -209,16 +191,26 @@ class GraphicsView(
         self.viewport().update()
 
     def _connect_model_signals(self):
-        self.model.image_changed.connect(self.on_image_changed)
+        self.model.display_layers_changed.connect(self.on_display_layers_changed)
         self.model.regions_changed.connect(self.on_regions_changed)
-        self.model.raw_mask_changed.connect(lambda mask: self.mask_layer.on_mask_data_changed("raw", mask))
-        self.model.refined_mask_changed.connect(lambda mask: self.mask_layer.on_mask_data_changed("refined", mask))
-        self.model.display_mask_type_changed.connect(self.mask_layer.on_display_mask_type_changed)
-        self.model.inpainted_image_changed.connect(self.overlay_layers.on_inpainted_image_changed)
-        self.model.paint_overlay_changed.connect(self.overlay_layers.on_paint_overlay_changed)
-        self.model.stamp_overlay_changed.connect(self.overlay_layers.on_stamp_overlay_changed)
-        self.model.region_display_mode_changed.connect(self.on_region_display_mode_changed)
-        self.model.original_image_alpha_changed.connect(self.on_original_image_alpha_changed)
+        self.model.raw_mask_changed.connect(
+            lambda mask: self.mask_layer.on_mask_data_changed("raw", mask)
+        )
+        self.model.refined_mask_changed.connect(
+            lambda mask: self.mask_layer.on_mask_data_changed("refined", mask)
+        )
+        self.model.display_mask_type_changed.connect(
+            self.mask_layer.on_display_mask_type_changed
+        )
+        self.model.paint_overlay_changed.connect(
+            self.overlay_layers.paint_overlay.set_image
+        )
+        self.model.stamp_overlay_changed.connect(
+            self.overlay_layers.stamp_overlay.set_image
+        )
+        self.model.region_display_mode_changed.connect(
+            self.on_region_display_mode_changed
+        )
         self.model.active_tool_changed.connect(self._on_active_tool_changed)
         self.model.brush_size_changed.connect(self._on_brush_size_changed)
         self.model.brush_color_changed.connect(self._on_brush_color_changed)

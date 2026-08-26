@@ -9,24 +9,17 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 
+from manga_translator.rendering.rich_text import plain_text_of
+
 from .rich_text_editing import (
     apply_qt_text_change,
     apply_ruby_to_range,
     document_from_region,
-    document_to_storage_text,
     editor_text_to_plain_text,
+    plain_text_to_storage_text,
     python_index_to_utf16_offset,
-    storage_text_to_editor_text,
     utf16_range_to_python_range,
-    visible_text_from_document,
 )
-
-
-def _empty_document() -> dict:
-    return {
-        "format": "richtext.v1",
-        "blocks": [{"type": "paragraph", "inlines": []}],
-    }
 
 
 @dataclass
@@ -58,7 +51,7 @@ class RichTextEditorState:
     def __init__(self) -> None:
         self.region_index = -1
         self.region_data: dict = {}
-        self.document: dict = _empty_document()
+        self.document: dict = document_from_region({})
         self.editor_text = ""
         self.selection_start = 0
         self.selection_end = 0
@@ -83,7 +76,7 @@ class RichTextEditorState:
         self.region_index = int(region_index)
         self.region_data = copy.deepcopy(dict(region_data or {}))
         self.document = document_from_region(self.region_data)
-        self.editor_text = storage_text_to_editor_text(self.document)
+        self.editor_text = plain_text_of(self.document)
         self.selection_start = 0
         self.selection_end = 0
         self.pending_document_change = False
@@ -94,7 +87,7 @@ class RichTextEditorState:
     def clear_region(self) -> None:
         self.region_index = -1
         self.region_data = {}
-        self.document = _empty_document()
+        self.document = document_from_region({})
         self.editor_text = ""
         self.selection_start = 0
         self.selection_end = 0
@@ -179,7 +172,7 @@ class RichTextEditorState:
         if ruled is None:
             return document
         ruled_dict = ruled.to_dict()
-        if visible_text_from_document(ruled_dict) != visible_text_from_document(document):
+        if plain_text_of(ruled_dict) != plain_text_of(document):
             return document
         return ruled_dict
 
@@ -187,7 +180,7 @@ class RichTextEditorState:
         if document == self.document:
             return False
         self.document = document
-        self.editor_text = visible_text_from_document(document)
+        self.editor_text = plain_text_of(document)
         self.set_selection(self.selection_start, self.selection_end)
         self.pending_document_change = True
         return True
@@ -241,7 +234,10 @@ class RichTextEditorState:
         if start == end:
             return False
         target = (start, end)
-        if self.pending_style_edit is None or self.pending_style_edit.target_range != target:
+        if (
+            self.pending_style_edit is None
+            or self.pending_style_edit.target_range != target
+        ):
             self.pending_style_edit = PendingStyleEdit(start, end)
         if key in self.pending_style_edit.keys:
             return False
@@ -250,7 +246,11 @@ class RichTextEditorState:
 
     def discard_pending_style(self, key: str, start: int, end: int) -> bool:
         draft = self.pending_style_edit
-        if draft is None or draft.target_range != (int(start), int(end)) or key not in draft.keys:
+        if (
+            draft is None
+            or draft.target_range != (int(start), int(end))
+            or key not in draft.keys
+        ):
             return False
         draft.keys.remove(key)
         if not draft.keys:
@@ -275,7 +275,7 @@ class RichTextEditorState:
         if not self.has_region or not self.pending_document_change:
             return None
         self.pending_document_change = False
-        storage_text = document_to_storage_text(self.document)
+        storage_text = plain_text_to_storage_text(plain_text_of(self.document))
         text_changed = storage_text != self.region_data.get("translation", "")
         self.region_data["translation"] = storage_text
         if text_changed or "translation_raw" not in self.region_data:
@@ -288,9 +288,10 @@ class RichTextEditorState:
         if int(region_index) != self.region_index or not self.region_data:
             return False
         region_data = dict(region_data or {})
-        return (
-            self.region_data.get("translation") == region_data.get("translation")
-            and self.region_data.get("translation_rich") == region_data.get("translation_rich")
+        return self.region_data.get("translation") == region_data.get(
+            "translation"
+        ) and self.region_data.get("translation_rich") == region_data.get(
+            "translation_rich"
         )
 
     def refresh_cached_region_data(self, region_data: dict) -> None:

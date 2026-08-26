@@ -15,6 +15,8 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsView
 from qfluentwidgets import Action, RoundMenu
 
+from editor.image_utils import image_like_to_rgb_array
+from editor.mask_region import normalize_mask_for_shape
 from services import get_config_service
 
 from .graphics_items import RegionTextItem
@@ -82,16 +84,7 @@ class GraphicsViewInputMixin:
         ctrl_pressed: bool = False,
         allow_tool_switch: bool = True,
     ):
-        """集中终结所有"进行中"的画布交互。
-
-        右键菜单(menu.exec 抓鼠标)、模态框、窗口失活、快捷键切工具都会让
-        mouseRelease 丢失，进行中状态若不在这里统一清理，框选矩形/绘制预览
-        会永久留在场景里挡住输入。
-
-        commit=True: 按当前(调用时的旧)工具语义提交——正常 release 和切工具前走这里；
-        commit=False: 直接丢弃——右键菜单、Escape、焦点丢失等场合。
-        allow_tool_switch=False: 提交文本框时不再回切 select 工具（切工具入口用，防重入）。
-        """
+        """Finish or discard every in-progress canvas interaction."""
         if self.selection_manager.is_box_selecting:
             if commit:
                 self.selection_manager.finish_box_select(ctrl_pressed)
@@ -104,19 +97,8 @@ class GraphicsViewInputMixin:
             else:
                 self._abort_textbox_drawing()
 
-        if self._clone_drawing:
-            if commit:
-                self._finish_clone_stroke()
-            else:
-                self._reset_clone_stroke_state()
-                self._clear_preview()
-
-        if self._is_drawing:
-            if commit:
-                self._finish_drawing()
-            else:
-                self._reset_drawing_state()
-                self._clear_preview()
+        if self._clone_drawing or self._is_drawing:
+            self._end_stroke(commit)
 
         if self._region_drag_active:
             self.region_drag_finished.emit()
@@ -184,11 +166,8 @@ class GraphicsViewInputMixin:
         super().focusOutEvent(event)
 
     def mousePressEvent(self, event):
-        editor_view = getattr(self, "editor_view", None)
-        if editor_view is not None and hasattr(
-            editor_view, "force_save_property_panel_edits"
-        ):
-            editor_view.force_save_property_panel_edits()
+        if self.editor_view is not None:
+            self.editor_view.force_save_property_panel_edits()
 
         self.setFocus()
 
@@ -317,6 +296,19 @@ class GraphicsViewInputMixin:
                 return
         super().mouseReleaseEvent(event)
 
+    def _show_stroke_preview(self) -> QPixmap:
+        pixmap = QPixmap(self._image_item.pixmap().size())
+        pixmap.fill(Qt.GlobalColor.transparent)
+        if self._preview_item is None:
+            self._preview_item = self.scene.addPixmap(pixmap)
+            # 预览应该在蒙版之上、文字之下，避免盖住文本渲染
+            self._preview_item.setZValue(12)
+            self._scale_mask_item(self._preview_item)
+        else:
+            self._preview_item.setPixmap(pixmap)
+        self._preview_item.setVisible(True)
+        return pixmap
+
     def _start_drawing(self, pos):
         if self._image_item is None:
             return
@@ -331,14 +323,7 @@ class GraphicsViewInputMixin:
         scene_point = self.mapToScene(pos)
         self._append_draw_point(scene_point)
 
-        if self._preview_item is None:
-            pixmap = QPixmap(self._image_item.pixmap().size())
-            pixmap.fill(Qt.GlobalColor.transparent)
-            self._preview_item = self.scene.addPixmap(pixmap)
-            # 预览应该在蒙版之上、文字之下，避免盖住文本渲染
-            self._preview_item.setZValue(12)
-            self._scale_mask_item(self._preview_item)
-        self._preview_item.setVisible(True)
+        self._show_stroke_preview()
         self._redraw_preview_drawing()
 
     def _update_preview_drawing(self, pos):
@@ -516,55 +501,21 @@ class GraphicsViewInputMixin:
             )
         return stroke_mask
 
-    def _normalize_binary_mask_array(
-        self, mask: np.ndarray, target_shape: tuple[int, int]
-    ) -> np.ndarray:
-        if mask is None:
-            return np.zeros(target_shape, dtype=np.uint8)
-        mask_np = np.array(mask)
-        if mask_np.ndim == 3:
-            mask_np = mask_np[:, :, 0]
-        mask_np = np.where(mask_np > 0, 255, 0).astype(np.uint8)
-        if mask_np.shape[:2] != target_shape:
-            mask_np = cv2.resize(
-                mask_np,
-                (target_shape[1], target_shape[0]),
-                interpolation=cv2.INTER_NEAREST,
-            )
-            mask_np = np.where(mask_np > 0, 255, 0).astype(np.uint8)
-        return mask_np
-
-    def _finish_drawing(self):
-        if (
-            not self._is_drawing
-            or not self._current_draw_mask_points
-            or self._current_draw_mask_shape is None
-        ):
-            self._reset_drawing_state()
-            self._clear_preview()
+    def _commit_drawing(self):
+        if not self._current_draw_mask_points or self._current_draw_mask_shape is None:
             return
 
-        # 仿制印章：把取样像素写入 paint overlay
-        if self._active_tool == "clone":
-            self._finish_clone_stroke()
-            self._reset_drawing_state()
-            return
-
-        # Paint / Stamp overlay 画笔与擦除路径
         if self._active_tool in ("paint", "paint_erase", "stamp_erase"):
-            self._finish_paint_overlay_drawing()
-            self._reset_drawing_state()
+            self._commit_paint_overlay_stroke()
             return
 
         current_mask = self.model.get_refined_mask()
         old_mask_np = (
-            self._normalize_binary_mask_array(
-                current_mask, self._current_draw_mask_shape
-            )
+            normalize_mask_for_shape(current_mask, self._current_draw_mask_shape)
             if current_mask is not None
             else None
         )
-        base_mask = self._normalize_binary_mask_array(
+        base_mask = normalize_mask_for_shape(
             current_mask, self._current_draw_mask_shape
         )
         stroke_mask = self._build_stroke_mask(
@@ -572,102 +523,52 @@ class GraphicsViewInputMixin:
         )
 
         new_mask_np = base_mask.copy()
-        if self._active_tool in ["pen", "brush"]:
+        if self._active_tool in ("pen", "brush"):
             new_mask_np[stroke_mask > 0] = 255
         elif self._active_tool == "eraser":
             new_mask_np[stroke_mask > 0] = 0
         else:
-            self._reset_drawing_state()
-            self._clear_preview()
-            return
-
-        self._clear_preview()
-
-        controller = self._get_controller()
-        if not controller:
-            self._reset_drawing_state()
             return
 
         mask_changed = (old_mask_np is None and np.any(new_mask_np)) or (
             old_mask_np is not None and not np.array_equal(old_mask_np, new_mask_np)
         )
+        if not self.controller or not mask_changed:
+            return
 
-        if mask_changed:
-            from editor.commands import MaskEditCommand
+        from editor.commands import MaskEditCommand
 
-        if self._active_tool in ["pen", "brush"] and np.any(stroke_mask):
-            if mask_changed:
-                controller._suppress_refined_mask_autoinpaint = True
-                try:
-                    command = MaskEditCommand(
-                        model=self.model,
-                        old_mask=old_mask_np,
-                        new_mask=new_mask_np.copy(),
-                    )
-                    controller.execute_command(command)
-                finally:
-                    controller._suppress_refined_mask_autoinpaint = False
+        self.controller.execute_command(
+            MaskEditCommand(
+                model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy()
+            )
+        )
 
-            controller.force_inpaint_stroke(stroke_mask)
-        else:
-            if mask_changed:
-                command = MaskEditCommand(
-                    model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy()
-                )
-                controller.execute_command(command)
-
-        self._reset_drawing_state()
-
-    def _finish_paint_overlay_drawing(self):
-        """把当前笔画应用到 paint / stamp overlay 图层。"""
+    def _commit_paint_overlay_stroke(self):
+        """Apply the current paint or eraser stroke to its overlay."""
         layer = "stamp" if self._active_tool == "stamp_erase" else "paint"
         try:
             shape = self._current_draw_mask_shape
             stroke_mask = self._build_stroke_mask(self._current_draw_mask_points, shape)
             if not np.any(stroke_mask):
-                self._clear_preview()
                 return
 
             old_overlay, new_overlay = self._prepare_overlay_pair(shape, layer)
-
             pixel_mask = stroke_mask > 0
-
             if self._active_tool == "paint":
                 color = QColor(self._brush_color)
                 if not color.isValid():
                     color = QColor(255, 0, 0)
-                new_overlay[pixel_mask, 0] = color.red()
-                new_overlay[pixel_mask, 1] = color.green()
-                new_overlay[pixel_mask, 2] = color.blue()
+                new_overlay[pixel_mask, :3] = color.red(), color.green(), color.blue()
                 new_overlay[pixel_mask, 3] = 255
             else:  # paint_erase / stamp_erase
                 new_overlay[pixel_mask] = 0
-
-            controller = self._get_controller()
-            if not controller:
-                self._clear_preview()
-                return
-
-            if old_overlay is not None and np.array_equal(old_overlay, new_overlay):
-                self._clear_preview()
-                return
-
-            from editor.commands import PaintOverlayEditCommand
-
-            command = PaintOverlayEditCommand(
-                model=self.model,
-                old_overlay=old_overlay,
-                new_overlay=new_overlay,
-                layer=layer,
-            )
-            controller.execute_command(command)
+            self._execute_overlay_edit(old_overlay, new_overlay, layer)
         except Exception as e:
             self.logger.error("Paint overlay stroke failed: %s", e, exc_info=True)
-        finally:
-            self._clear_preview()
 
-    def _prepare_overlay_pair(self, shape: tuple[int, int], layer: str = "paint"):
-        """取当前 paint/stamp overlay，规范成 (h,w,4) uint8，返回 (old_overlay, new_overlay 副本)。"""
+    def _prepare_overlay_pair(self, shape: tuple[int, int], layer: str):
+        """Return the model's immutable RGBA overlay and a writable copy."""
         h, w = shape
         overlay = (
             self.model.get_stamp_overlay_image()
@@ -676,25 +577,40 @@ class GraphicsViewInputMixin:
         )
         if overlay is None:
             return None, np.zeros((h, w, 4), dtype=np.uint8)
-
-        old_arr = np.asarray(overlay)
-        if old_arr.ndim == 2:
-            tmp = np.zeros((old_arr.shape[0], old_arr.shape[1], 4), dtype=np.uint8)
-            tmp[..., 3] = old_arr.astype(np.uint8)
-            old_arr = tmp
-        elif old_arr.ndim == 3 and old_arr.shape[2] == 3:
-            tmp = np.zeros((old_arr.shape[0], old_arr.shape[1], 4), dtype=np.uint8)
-            tmp[..., :3] = old_arr
-            tmp[..., 3] = 255
-            old_arr = tmp
-        elif old_arr.ndim != 3 or old_arr.shape[2] != 4:
-            old_arr = None
-
-        if old_arr is None or old_arr.shape[:2] != (h, w):
-            # 尺寸不匹配：重置图层
+        old_overlay = np.asarray(overlay)
+        if old_overlay.shape != (h, w, 4):
             return None, np.zeros((h, w, 4), dtype=np.uint8)
-        old_overlay = old_arr.astype(np.uint8, copy=False)
         return old_overlay, old_overlay.copy()
+
+    def _execute_overlay_edit(
+        self,
+        old_overlay,
+        new_overlay,
+        layer: str,
+        *,
+        skip_empty_initial: bool = False,
+    ) -> None:
+        if old_overlay is not None and np.array_equal(old_overlay, new_overlay):
+            return
+        if (
+            skip_empty_initial
+            and old_overlay is None
+            and not np.any(new_overlay[..., 3])
+        ):
+            return
+        if not self.controller:
+            return
+
+        from editor.commands import PaintOverlayEditCommand
+
+        self.controller.execute_command(
+            PaintOverlayEditCommand(
+                model=self.model,
+                old_overlay=old_overlay,
+                new_overlay=new_overlay,
+                layer=layer,
+            )
+        )
 
     # ------------------------- 仿制印章 -------------------------
 
@@ -784,54 +700,53 @@ class GraphicsViewInputMixin:
         self._clone_last_dab = None
         self._clone_drawing = True
 
-        # 预览层：与其它绘制工具共用 preview item，自维护一张持久 pixmap 做增量盖印
-        if self._preview_item is None:
-            preview = QPixmap(pixmap.size())
-            preview.fill(Qt.GlobalColor.transparent)
-            self._preview_item = self.scene.addPixmap(preview)
-            self._preview_item.setZValue(12)
-            self._scale_mask_item(self._preview_item)
-        self._clone_preview_pixmap = QPixmap(pixmap.size())
-        self._clone_preview_pixmap.fill(Qt.GlobalColor.transparent)
-        self._preview_item.setVisible(True)
-
+        # 与其它绘制工具共用预览 item，自维护一张持久 pixmap 做增量盖印
+        self._clone_preview_pixmap = self._show_stroke_preview()
         self._clone_dab_segment(pos)
 
     def _build_clone_composite_rgb(self, shape: tuple[int, int], working_overlay):
-        """活体取样源 = 画布可见内容：修复图(有则盖住底图) + 画笔层 + 印章层工作副本。
-
-        盖印时同步更新，保证同一笔里刚盖的内容可继续被取样传递。
-        """
+        """按当前双底图层和用户透明度构造仿制印章的可见取样源。"""
         if self._image_item is None:
             return None
+        layers = self.model.get_display_layers()
+        if layers is None or layers.identity != self.model.get_document_identity():
+            return None
+
         h, w = shape
 
-        # 底：修复图优先（画布上它盖在底图之上），没有才用底图
-        base_rgb = None
-        inpainted = self.model.get_inpainted_image()
-        if inpainted is not None:
-            arr = np.asarray(inpainted)
-            if arr.ndim == 3 and arr.shape[2] >= 3 and arr.size > 0:
-                arr = arr[..., :3].astype(np.uint8, copy=False)
-                if arr.shape[:2] != (h, w):
-                    arr = cv2.resize(arr, (w, h), interpolation=cv2.INTER_LINEAR)
-                base_rgb = arr
-        if base_rgb is None:
-            base = self._qimage_to_rgba_array(self._image_item.pixmap().toImage())
-            if base.shape[:2] != (h, w):
+        def _rgb(image):
+            array = image_like_to_rgb_array(image, copy=False)
+            if array is None:
                 return None
-            base_rgb = base[..., :3]
+            if array.shape[:2] != (h, w):
+                array = cv2.resize(array, (w, h), interpolation=cv2.INTER_LINEAR)
+            return array
 
-        composite = base_rgb.astype(np.float32)
+        inpaint_rgb = _rgb(layers.inpaint_display_image)
+        source_rgb = _rgb(layers.source_image)
+        if inpaint_rgb is None or source_rgb is None:
+            return None
+
+        source_opacity = max(0.0, min(1.0, float(layers.source_opacity)))
+        if source_opacity <= 0.0 or layers.source_image is layers.inpaint_display_image:
+            composite = inpaint_rgb.astype(np.float32)
+        elif source_opacity >= 1.0:
+            composite = source_rgb.astype(np.float32)
+        else:
+            composite = (
+                inpaint_rgb.astype(np.float32) * (1.0 - source_opacity)
+                + source_rgb.astype(np.float32) * source_opacity
+            )
+
         for overlay in (self.model.get_paint_overlay_image(), working_overlay):
             if overlay is None:
                 continue
-            arr = np.asarray(overlay)
-            if arr.ndim != 3 or arr.shape[2] != 4 or arr.shape[:2] != (h, w):
+            array = np.asarray(overlay)
+            if array.ndim != 3 or array.shape[2] != 4 or array.shape[:2] != (h, w):
                 continue
-            alpha = arr[..., 3:4].astype(np.float32) / 255.0
+            alpha = array[..., 3:4].astype(np.float32) / 255.0
             composite = (
-                composite * (1.0 - alpha) + arr[..., :3].astype(np.float32) * alpha
+                composite * (1.0 - alpha) + array[..., :3].astype(np.float32) * alpha
             )
         return np.clip(composite, 0, 255).astype(np.uint8)
 
@@ -926,62 +841,41 @@ class GraphicsViewInputMixin:
         self.scene.update()
         self.viewport().update()
 
-    @staticmethod
-    def _qimage_to_rgba_array(image: QImage) -> np.ndarray:
-        img = image.convertToFormat(QImage.Format.Format_RGBA8888)
-        h, w = img.height(), img.width()
-        ptr = img.constBits()
-        ptr.setsize(img.sizeInBytes())
-        buf = np.frombuffer(ptr, dtype=np.uint8).reshape(h, img.bytesPerLine())[
-            :, : w * 4
-        ]
-        return buf.reshape(h, w, 4).copy()
-
-    def _finish_clone_stroke(self):
-        """笔画结束：以整笔为单位提交撤销命令（偏移保持锁定，供下一笔传递仿制）。"""
+    def _commit_clone_stroke(self):
+        """Commit one clone stroke while preserving its sample offset."""
         try:
-            if not self._clone_drawing:
-                return
-            old_overlay = self._clone_old_overlay
             new_overlay = self._clone_working_overlay
             if new_overlay is None:
                 return
-            controller = self._get_controller()
-            if not controller:
-                return
-            if old_overlay is not None and np.array_equal(old_overlay, new_overlay):
-                return
-            if old_overlay is None and not np.any(new_overlay[..., 3]):
-                return
-
-            from editor.commands import PaintOverlayEditCommand
-
-            command = PaintOverlayEditCommand(
-                model=self.model,
-                old_overlay=old_overlay,
-                new_overlay=new_overlay,
-                layer="stamp",
+            self._execute_overlay_edit(
+                self._clone_old_overlay,
+                new_overlay,
+                "stamp",
+                skip_empty_initial=True,
             )
-            controller.execute_command(command)
         except Exception as e:
             self.logger.error("Clone stamp stroke failed: %s", e, exc_info=True)
+
+    def _end_stroke(self, commit: bool) -> None:
+        """Commit or discard a stroke, then release all shared preview state."""
+        try:
+            if commit:
+                if self._clone_drawing:
+                    self._commit_clone_stroke()
+                if self._is_drawing:
+                    self._commit_drawing()
         finally:
-            self._reset_clone_stroke_state()
+            self._is_drawing = False
+            self._current_draw_scene_points = []
+            self._current_draw_mask_points = []
+            self._current_draw_mask_shape = None
+            self._clone_drawing = False
+            self._clone_old_overlay = None
+            self._clone_working_overlay = None
+            self._clone_composite = None
+            self._clone_last_dab = None
+            self._clone_preview_pixmap = None
             self._clear_preview()
-
-    def _reset_clone_stroke_state(self):
-        self._clone_drawing = False
-        self._clone_old_overlay = None
-        self._clone_working_overlay = None
-        self._clone_composite = None
-        self._clone_last_dab = None
-        self._clone_preview_pixmap = None
-
-    def _reset_drawing_state(self):
-        self._is_drawing = False
-        self._current_draw_scene_points = []
-        self._current_draw_mask_points = []
-        self._current_draw_mask_shape = None
 
     def _clear_preview(self):
         """移除预览 item 并置 None，与两个创建路径（懒创建）保持对称。
@@ -1154,49 +1048,39 @@ class GraphicsViewInputMixin:
 
         menu.exec(event.globalPos())
 
-    def _get_controller(self):
-        return getattr(self, "controller", None)
-
     def _ocr_selected_regions(self):
         selected_regions = self.model.get_selection()
-        controller = self._get_controller()
-        if controller and selected_regions:
-            controller.ocr_regions(selected_regions)
+        if self.controller and selected_regions:
+            self.controller.ocr_regions(selected_regions)
 
     def _translate_selected_regions(self):
         selected_regions = self.model.get_selection()
-        controller = self._get_controller()
-        if controller and selected_regions:
-            controller.translate_regions(selected_regions)
+        if self.controller and selected_regions:
+            self.controller.translate_regions(selected_regions)
 
     def _copy_selected_region(self):
         selected_regions = self.model.get_selection()
-        controller = self._get_controller()
-        if len(selected_regions) == 1 and controller:
-            controller.copy_region(selected_regions[0])
+        if len(selected_regions) == 1 and self.controller:
+            self.controller.copy_region(selected_regions[0])
 
     def _paste_region_style(self):
         selected_regions = self.model.get_selection()
-        controller = self._get_controller()
-        if len(selected_regions) == 1 and controller:
-            controller.paste_region_style(selected_regions[0])
+        if len(selected_regions) == 1 and self.controller:
+            self.controller.paste_region_style(selected_regions[0])
 
     def _delete_selected_regions(self):
-        controller = self._get_controller()
-        if controller:
-            controller.delete_regions(self.model.get_selection())
+        if self.controller:
+            self.controller.delete_regions(self.model.get_selection())
 
     def _add_text_box(self):
-        controller = self._get_controller()
-        if controller:
-            controller.enter_drawing_mode()
+        if self.controller:
+            self.controller.enter_drawing_mode()
 
     def _paste_region(self):
-        controller = self._get_controller()
-        if controller and self._image_item:
+        if self.controller and self._image_item:
             mouse_pos_scene = self.mapToScene(self.mapFromGlobal(QCursor.pos()))
             mouse_pos_image = self._image_item.mapFromScene(mouse_pos_scene)
-            controller.paste_region(mouse_pos_image)
+            self.controller.paste_region(mouse_pos_image)
 
     def _refresh_view(self):
         self.scene.update()
@@ -1267,8 +1151,7 @@ class GraphicsViewInputMixin:
             inverse_transform = image_transform.inverted()[0]
 
             template_angle = 0
-            controller = self._get_controller()
-            if controller:
+            if self.controller:
                 selected_regions = self.model.get_selection()
                 if selected_regions:
                     template_region = self.model.get_region_by_index(
@@ -1329,7 +1212,7 @@ class GraphicsViewInputMixin:
             inferred_direction = "vertical" if box_h > box_w else "horizontal"
 
             template_data = {}
-            if controller:
+            if self.controller:
                 selected_regions = self.model.get_selection()
                 if selected_regions:
                     template_region = self.model.get_region_by_index(
@@ -1403,8 +1286,7 @@ class GraphicsViewInputMixin:
                 "stroke_width": default_stroke_width,
             }
 
-            controller = self._get_controller()
-            if controller:
+            if self.controller:
                 from editor.commands import AddRegionCommand
 
                 self._clear_pending_geometry_edits()
@@ -1413,7 +1295,7 @@ class GraphicsViewInputMixin:
                     region_data=new_region_data,
                     description="Add New Text Box",
                 )
-                controller.execute_command(command)
+                self.controller.execute_command(command)
                 new_index = len(self.model.get_regions()) - 1
                 self.model.set_selection([new_index])
                 self.viewport().update()

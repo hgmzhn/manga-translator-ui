@@ -23,6 +23,28 @@ from typing import List
 
 import numpy as np
 from PyQt6 import sip
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QCursor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+)
+from PyQt6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsItemGroup,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsSceneMouseEvent,
+    QGraphicsSimpleTextItem,
+    QStyle,
+)
+from qfluentwidgets import isDarkTheme, themeColor
+
 from editor.desktop_ui_geometry import (
     calculate_center_scaled_rect,
     calculate_new_edge_on_drag,
@@ -34,18 +56,6 @@ from editor.geometry_commit_pipeline import (
     build_white_frame_region_data,
 )
 from editor.region_geometry_state import RegionGeometryState
-from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QCursor, QFont, QPainter, QPainterPath, QPen, QPolygonF
-from PyQt6.QtWidgets import (
-    QGraphicsItem,
-    QGraphicsItemGroup,
-    QGraphicsPixmapItem,
-    QGraphicsScene,
-    QGraphicsSceneMouseEvent,
-    QGraphicsSimpleTextItem,
-    QStyle,
-)
-from qfluentwidgets import isDarkTheme, themeColor
 
 logger = logging.getLogger("manga_translator")
 
@@ -93,6 +103,7 @@ def _editor_pen(color: QColor, width: float, style=Qt.PenStyle.SolidLine) -> QPe
 # 辅助类
 # ======================================================================
 
+
 class TransparentPixmapItem(QGraphicsPixmapItem):
     """对鼠标事件完全透明的 Pixmap item，不阻挡父 item 的选择。"""
 
@@ -110,8 +121,8 @@ class TransparentPixmapItem(QGraphicsPixmapItem):
 # 主图形项
 # ======================================================================
 
-class RegionTextItem(QGraphicsItemGroup):
 
+class RegionTextItem(QGraphicsItemGroup):
     # ------------------------------------------------------------------
     # 初始化
     # ------------------------------------------------------------------
@@ -122,8 +133,8 @@ class RegionTextItem(QGraphicsItemGroup):
         self.region_index = region_index
         self.geometry_callback = geometry_callback
 
-        self._image_item = None          # 图像项引用，用于坐标转换
-        self._in_callback = False        # 防止回调重入
+        self._image_item = None  # 图像项引用，用于坐标转换
+        self._in_callback = False  # 防止回调重入
 
         # 单一几何状态源：geo
         self.geo = RegionGeometryState.from_region_data(self.region_data)
@@ -156,7 +167,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_handle_indices = None
         self._drag_start_pos = QPointF()
         self._drag_start_polygons: List[QPolygonF] = []
-        self._batch_drag_peers: list = []   # 批量移动时其他选中项的快照
+        self._batch_drag_peers: list = []  # 批量移动时其他选中项的快照
         self._drag_start_rotation = 0.0
         self._drag_raw_rotation = 0.0
         self._drag_start_visual_center = QPointF()
@@ -262,13 +273,17 @@ class RegionTextItem(QGraphicsItemGroup):
         except (RuntimeError, AttributeError) as e:
             logger.debug(f"[RegionTextItem] update_from_data: {e}")
         except Exception as e:
-            logger.error(f"[RegionTextItem] update_from_data: {e}\n{traceback.format_exc()}")
+            logger.error(
+                f"[RegionTextItem] update_from_data: {e}\n{traceback.format_exc()}"
+            )
 
     # ------------------------------------------------------------------
     # 核心修复: 文字 pixmap 定位
     # ------------------------------------------------------------------
 
-    def update_text_pixmap(self, pixmap, pos, rotation=0.0, pivot_point=None, render_center=None):
+    def update_text_pixmap(
+        self, pixmap, pos, rotation=0.0, pivot_point=None, render_center=None
+    ):
         """更新文字 pixmap 位置。
 
         当 render_center 可用时（白框中心世界坐标），以此为锚点居中放置 pixmap，
@@ -291,7 +306,7 @@ class RegionTextItem(QGraphicsItemGroup):
 
         self.text_item.setPos(local_pos)
         self.text_item.setTransformOriginPoint(self.text_item.boundingRect().center())
-        self.text_item.setRotation(0)   # 父 item 已旋转
+        self.text_item.setRotation(0)  # 父 item 已旋转
 
     def set_dst_points(self, dst_points):
         """设置渲染 dst_points，自动模式下同步到白框。"""
@@ -358,7 +373,9 @@ class RegionTextItem(QGraphicsItemGroup):
             # 余量随 1/lod 增长：选中态描边/手柄阴影的笔宽按 1/lod 缩放，
             # 极小缩放下固定余量会小于笔宽外扩，拖动时留下残影
             margin = 10.0 + 6.0 / self._lod()
-            return self.shape().boundingRect().adjusted(-margin, -margin, margin, margin)
+            return (
+                self.shape().boundingRect().adjusted(-margin, -margin, margin, margin)
+            )
         except Exception:
             return QRectF(0, 0, 100, 100)
 
@@ -368,10 +385,19 @@ class RegionTextItem(QGraphicsItemGroup):
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             is_sel = bool(option.state & QStyle.StateFlag.State_Selected)
 
-            if self._show_white_box and self._polygons_visible and self.geo.white_frame_local is not None:
+            if (
+                self._show_white_box
+                and self._polygons_visible
+                and self.geo.white_frame_local is not None
+            ):
                 self._draw_white_box(painter, is_sel)
 
-            if is_sel and self._show_white_box and self.geo.white_frame_local is not None and self._polygons_visible:
+            if (
+                is_sel
+                and self._show_white_box
+                and self.geo.white_frame_local is not None
+                and self._polygons_visible
+            ):
                 ri = self._rotate_handle_info()
                 hs = ri["handle_size"]
                 pw = ri["pen_width"]
@@ -391,7 +417,9 @@ class RegionTextItem(QGraphicsItemGroup):
                 painter.setPen(_editor_pen(_shadow_color(110), pw * 2.8))
                 painter.drawEllipse(rot_rect)
                 painter.setPen(_editor_pen(_fluent_accent(235), pw * 1.2))
-                painter.drawEllipse(rot_rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45))
+                painter.drawEllipse(
+                    rot_rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45)
+                )
                 dot = hs * 0.32
                 dot_rect = QRectF(
                     ri["rot_pos"].x() - dot / 2.0,
@@ -434,7 +462,12 @@ class RegionTextItem(QGraphicsItemGroup):
         if wf is None:
             return []
         left, top, right, bottom = wf
-        return [QPointF(left, top), QPointF(right, top), QPointF(right, bottom), QPointF(left, bottom)]
+        return [
+            QPointF(left, top),
+            QPointF(right, top),
+            QPointF(right, bottom),
+            QPointF(left, bottom),
+        ]
 
     def _white_edge_points(self) -> list:
         wf = self.geo.white_frame_local
@@ -442,8 +475,10 @@ class RegionTextItem(QGraphicsItemGroup):
             return []
         left, top, right, bottom = wf
         return [
-            QPointF((left + right) / 2, top), QPointF(right, (top + bottom) / 2),
-            QPointF((left + right) / 2, bottom), QPointF(left, (top + bottom) / 2),
+            QPointF((left + right) / 2, top),
+            QPointF(right, (top + bottom) / 2),
+            QPointF((left + right) / 2, bottom),
+            QPointF(left, (top + bottom) / 2),
         ]
 
     def _draw_white_box(self, painter, is_selected: bool):
@@ -451,7 +486,14 @@ class RegionTextItem(QGraphicsItemGroup):
         if wf is None:
             return
         left, top, right, bottom = wf
-        poly = QPolygonF([QPointF(left, top), QPointF(right, top), QPointF(right, bottom), QPointF(left, bottom)])
+        poly = QPolygonF(
+            [
+                QPointF(left, top),
+                QPointF(right, top),
+                QPointF(right, bottom),
+                QPointF(left, bottom),
+            ]
+        )
 
         if is_selected:
             lod = self._lod()
@@ -463,10 +505,14 @@ class RegionTextItem(QGraphicsItemGroup):
             painter.drawPolygon(poly)
         else:
             lod = self._lod()
-            painter.setPen(_editor_pen(_shadow_color(105), 3.0 / lod, Qt.PenStyle.DashLine))
+            painter.setPen(
+                _editor_pen(_shadow_color(105), 3.0 / lod, Qt.PenStyle.DashLine)
+            )
             painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             painter.drawPolygon(poly)
-            painter.setPen(_editor_pen(_fluent_neutral(180), 1.25 / lod, Qt.PenStyle.DashLine))
+            painter.setPen(
+                _editor_pen(_fluent_neutral(180), 1.25 / lod, Qt.PenStyle.DashLine)
+            )
             painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             painter.drawPolygon(poly)
 
@@ -486,7 +532,11 @@ class RegionTextItem(QGraphicsItemGroup):
             painter.setPen(_editor_pen(handle_shadow, pw * 2.3))
             painter.drawRoundedRect(rect, radius, radius)
             painter.setPen(_editor_pen(accent, pw * 1.15))
-            painter.drawRoundedRect(rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45), radius, radius)
+            painter.drawRoundedRect(
+                rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45),
+                radius,
+                radius,
+            )
 
         for p in self._white_edge_points():
             rect = QRectF(p.x() - half, p.y() - half, hs, hs)
@@ -495,7 +545,9 @@ class RegionTextItem(QGraphicsItemGroup):
             painter.drawEllipse(rect)
             painter.setBrush(QBrush(_fluent_accent(36)))
             painter.setPen(_editor_pen(accent, pw * 1.15))
-            painter.drawEllipse(rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45))
+            painter.drawEllipse(
+                rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45)
+            )
 
     # ------------------------------------------------------------------
     # 几何 / 手柄参数
@@ -519,17 +571,20 @@ class RegionTextItem(QGraphicsItemGroup):
             center = QPointF(0, 0)
             rot_pos = QPointF(0, -40.0 / lod)
         return {
-            "lod": lod, "handle_size": hs,
+            "lod": lod,
+            "handle_size": hs,
             "hit_radius": (hs / 2.0) + (6.0 / lod),
             "pen_width": 1.15 / lod,
-            "center": center, "rot_pos": rot_pos,
+            "center": center,
+            "rot_pos": rot_pos,
         }
 
     def _white_handle_metrics(self) -> dict:
         lod = self._lod()
         vs = 13.0 / lod
         return {
-            "lod": lod, "visual_size": vs,
+            "lod": lod,
+            "visual_size": vs,
             "hit_radius": (vs / 2.0) + (6.0 / lod),
             "pen_width": 1.15 / lod,
         }
@@ -569,13 +624,21 @@ class RegionTextItem(QGraphicsItemGroup):
 
     def _is_center_scale_enabled(self) -> bool:
         view = self._primary_view()
-        return bool(getattr(view, "_center_scale_enabled", False)) if view is not None else False
+        return (
+            bool(getattr(view, "_center_scale_enabled", False))
+            if view is not None
+            else False
+        )
 
-    def _rotated_world_point(self, point: tuple[float, float], cx: float, cy: float, angle: float):
+    def _rotated_world_point(
+        self, point: tuple[float, float], cx: float, cy: float, angle: float
+    ):
         x, y = point
         return rotate_point(x, y, angle, cx, cy) if angle != 0 else (x, y)
 
-    def _white_edge_world_points(self, left: float, top: float, right: float, bottom: float, cx: float, cy: float) -> list[tuple[float, float]]:
+    def _white_edge_world_points(
+        self, left: float, top: float, right: float, bottom: float, cx: float, cy: float
+    ) -> list[tuple[float, float]]:
         return [
             ((left + right) / 2.0 + cx, top + cy),
             (right + cx, (top + bottom) / 2.0 + cy),
@@ -622,13 +685,15 @@ class RegionTextItem(QGraphicsItemGroup):
             wf = item.geo.white_frame_local
             if wf is None:
                 continue
-            self._batch_drag_peers.append({
-                "item": item,
-                "start_wf_local": list(wf),
-                "start_text_pos": QPointF(item.text_item.pos()),
-                "start_center": list(item.geo.center),
-                "old_rect": item.sceneBoundingRect(),
-            })
+            self._batch_drag_peers.append(
+                {
+                    "item": item,
+                    "start_wf_local": list(wf),
+                    "start_text_pos": QPointF(item.text_item.pos()),
+                    "start_center": list(item.geo.center),
+                    "old_rect": item.sceneBoundingRect(),
+                }
+            )
 
     def _move_batch_peers(self, scene_dx: float, scene_dy: float):
         """对批量 peers 应用相同的场景位移。"""
@@ -660,7 +725,9 @@ class RegionTextItem(QGraphicsItemGroup):
             patch = item.geo.to_region_data_patch()
             new_data = build_white_frame_region_data(
                 item.region_index,
-                item.region_data, patch, item.geo.white_frame_local,
+                item.region_data,
+                patch,
+                item.geo.white_frame_local,
                 old_white_frame_local=peer["start_wf_local"],
                 edit_mode="white_move",
             )
@@ -819,7 +886,14 @@ class RegionTextItem(QGraphicsItemGroup):
             visible_rect = scene.sceneRect()
         return visible_rect
 
-    def _build_guide_line(self, scene: QGraphicsScene, visible_rect: QRectF, extent: float, pen: QPen, guide_spec):
+    def _build_guide_line(
+        self,
+        scene: QGraphicsScene,
+        visible_rect: QRectF,
+        extent: float,
+        pen: QPen,
+        guide_spec,
+    ):
         """根据辅助线描述创建场景线条，兼容显式方向和端点线段两种格式。"""
         if isinstance(guide_spec, dict):
             kind = guide_spec.get("kind")
@@ -827,12 +901,16 @@ class RegionTextItem(QGraphicsItemGroup):
                 x = guide_spec.get("x")
                 if x is None:
                     return None
-                return scene.addLine(x, visible_rect.top(), x, visible_rect.bottom(), pen)
+                return scene.addLine(
+                    x, visible_rect.top(), x, visible_rect.bottom(), pen
+                )
             if kind == "horizontal":
                 y = guide_spec.get("y")
                 if y is None:
                     return None
-                return scene.addLine(visible_rect.left(), y, visible_rect.right(), y, pen)
+                return scene.addLine(
+                    visible_rect.left(), y, visible_rect.right(), y, pen
+                )
             if kind == "segment":
                 start = guide_spec.get("start")
                 end = guide_spec.get("end")
@@ -860,9 +938,7 @@ class RegionTextItem(QGraphicsItemGroup):
         ux, uy = dx / length, dy / length
         cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
         return scene.addLine(
-            cx - extent * ux, cy - extent * uy,
-            cx + extent * ux, cy + extent * uy,
-            pen
+            cx - extent * ux, cy - extent * uy, cx + extent * ux, cy + extent * uy, pen
         )
 
     def _detect_spacing_snap(self, my_points: dict) -> tuple:
@@ -890,13 +966,13 @@ class RegionTextItem(QGraphicsItemGroup):
             return 0.0, 0.0, []
 
         threshold = self._spacing_snap_threshold
-        snap = [0.0, 0.0]   # [dx, dy]
+        snap = [0.0, 0.0]  # [dx, dy]
         guides: list = []
 
         # 每个轴的元数据: (axis_index, ori, near_key, far_key, perp_key, abcd_keys)
         axes = [
             (0, "h", "left", "right", "y", ("x1", "x2", "x3", "x4")),
-            (1, "v", "top",  "bottom", "x", ("y1", "y2", "y3", "y4")),
+            (1, "v", "top", "bottom", "x", ("y1", "y2", "y3", "y4")),
         ]
 
         for axis_idx, ori, near_k, far_k, perp_k, abcd_keys in axes:
@@ -908,7 +984,7 @@ class RegionTextItem(QGraphicsItemGroup):
             perp = (lambda p: p.y()) if axis_idx == 0 else (lambda p: p.x())
 
             for i, pa in enumerate(others):
-                for pb in others[i + 1:]:
+                for pb in others[i + 1 :]:
                     an, af = comp(pa[near_k]), comp(pa[far_k])
                     bn, bf = comp(pb[near_k]), comp(pb[far_k])
                     # 规范化:far 较小的为"左/上"框
@@ -923,12 +999,20 @@ class RegionTextItem(QGraphicsItemGroup):
                         continue
                     candidates = [
                         (rf_ + gap, my_near, (lf_, rn_, rf_, rf_ + gap)),
-                        (ln_ - gap, my_far,  (ln_ - gap, ln_, lf_, rn_)),
+                        (ln_ - gap, my_far, (ln_ - gap, ln_, lf_, rn_)),
                     ]
                     for tgt, my_edge, abcd in candidates:
-                        if abs(comp(my_edge) - tgt) < threshold and abs(snap[axis_idx]) < 0.01:
+                        if (
+                            abs(comp(my_edge) - tgt) < threshold
+                            and abs(snap[axis_idx]) < 0.01
+                        ):
                             snap[axis_idx] = tgt - comp(my_edge)
-                            spec = {"kind": "spacing", "ori": ori, "label": f"{gap:.0f}", perp_k: perp(my_edge)}
+                            spec = {
+                                "kind": "spacing",
+                                "ori": ori,
+                                "label": f"{gap:.0f}",
+                                perp_k: perp(my_edge),
+                            }
                             for key, value in zip(abcd_keys, abcd):
                                 spec[key] = value
                             guides.append(spec)
@@ -964,40 +1048,64 @@ class RegionTextItem(QGraphicsItemGroup):
 
                 if ori == "h":
                     # 参考间距 (x1,x2) 和目标间距 (x3,x4) 各画一对竖线
-                    for xa, xb in [(guide_spec.get("x1"), guide_spec.get("x2")),
-                                   (guide_spec.get("x3"), guide_spec.get("x4"))]:
+                    for xa, xb in [
+                        (guide_spec.get("x1"), guide_spec.get("x2")),
+                        (guide_spec.get("x3"), guide_spec.get("x4")),
+                    ]:
                         if xa is not None and xb is not None:
                             y = guide_spec.get("y", 0)
-                            ln = scene.addLine(xa, y - tick_half, xa, y + tick_half, sp_pen)
-                            ln.setZValue(9999); self._guide_lines.append(ln)
-                            ln = scene.addLine(xb, y - tick_half, xb, y + tick_half, sp_pen)
-                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            ln = scene.addLine(
+                                xa, y - tick_half, xa, y + tick_half, sp_pen
+                            )
+                            ln.setZValue(9999)
+                            self._guide_lines.append(ln)
+                            ln = scene.addLine(
+                                xb, y - tick_half, xb, y + tick_half, sp_pen
+                            )
+                            ln.setZValue(9999)
+                            self._guide_lines.append(ln)
                             # 标签放在两根刻度线中间上方
                             lbl = QGraphicsSimpleTextItem(label)
                             lbl.setPos((xa + xb) / 2.0 - 10, y - tick_half - 22)
                             lbl.setZValue(9999)
                             lbl.setBrush(QBrush(QColor(255, 180, 60)))
-                            f = lbl.font(); f.setPixelSize(16); f.setBold(True)
+                            f = lbl.font()
+                            f.setPixelSize(16)
+                            f.setBold(True)
                             lbl.setFont(f)
-                            scene.addItem(lbl); self._spacing_labels.append(lbl)
+                            scene.addItem(lbl)
+                            self._spacing_labels.append(lbl)
                 else:
-                    for ya, yb in [(guide_spec.get("y1"), guide_spec.get("y2")),
-                                   (guide_spec.get("y3"), guide_spec.get("y4"))]:
+                    for ya, yb in [
+                        (guide_spec.get("y1"), guide_spec.get("y2")),
+                        (guide_spec.get("y3"), guide_spec.get("y4")),
+                    ]:
                         if ya is not None and yb is not None:
                             x = guide_spec.get("x", 0)
-                            ln = scene.addLine(x - tick_half, ya, x + tick_half, ya, sp_pen)
-                            ln.setZValue(9999); self._guide_lines.append(ln)
-                            ln = scene.addLine(x - tick_half, yb, x + tick_half, yb, sp_pen)
-                            ln.setZValue(9999); self._guide_lines.append(ln)
+                            ln = scene.addLine(
+                                x - tick_half, ya, x + tick_half, ya, sp_pen
+                            )
+                            ln.setZValue(9999)
+                            self._guide_lines.append(ln)
+                            ln = scene.addLine(
+                                x - tick_half, yb, x + tick_half, yb, sp_pen
+                            )
+                            ln.setZValue(9999)
+                            self._guide_lines.append(ln)
                             lbl = QGraphicsSimpleTextItem(label)
                             lbl.setPos(x - tick_half - 34, (ya + yb) / 2.0 - 10)
                             lbl.setZValue(9999)
                             lbl.setBrush(QBrush(QColor(255, 180, 60)))
-                            f = lbl.font(); f.setPixelSize(16); f.setBold(True)
+                            f = lbl.font()
+                            f.setPixelSize(16)
+                            f.setBold(True)
                             lbl.setFont(f)
-                            scene.addItem(lbl); self._spacing_labels.append(lbl)
+                            scene.addItem(lbl)
+                            self._spacing_labels.append(lbl)
             else:
-                line = self._build_guide_line(scene, visible_rect, extent, pen, guide_spec)
+                line = self._build_guide_line(
+                    scene, visible_rect, extent, pen, guide_spec
+                )
                 if line is None:
                     continue
                 line.setZValue(9999)
@@ -1066,13 +1174,10 @@ class RegionTextItem(QGraphicsItemGroup):
     # 提交入口
     # ------------------------------------------------------------------
 
-    def _commit_region_data(self, new_data: dict):
-        self.region_data = copy.deepcopy(new_data)
-
     def _emit_region_update(self, event, new_data: dict):
         cb = self.geometry_callback
         idx = self.region_index
-        self._commit_region_data(new_data)
+        self.region_data = copy.deepcopy(new_data)
         super().mouseReleaseEvent(event)
         self._in_callback = True
         try:
@@ -1102,12 +1207,14 @@ class RegionTextItem(QGraphicsItemGroup):
                 }
                 if handle == "white_corner":
                     cursor_map["white_corner"] = (
-                        Qt.CursorShape.SizeFDiagCursor if idx in (0, 2)
+                        Qt.CursorShape.SizeFDiagCursor
+                        if idx in (0, 2)
                         else Qt.CursorShape.SizeBDiagCursor
                     )
                 elif handle == "white_edge":
                     cursor_map["white_edge"] = (
-                        Qt.CursorShape.SizeVerCursor if idx in (0, 2)
+                        Qt.CursorShape.SizeVerCursor
+                        if idx in (0, 2)
                         else Qt.CursorShape.SizeHorCursor
                     )
                 cursor = cursor_map.get(handle)
@@ -1165,7 +1272,9 @@ class RegionTextItem(QGraphicsItemGroup):
                 return
             super().mousePressEvent(event)
         except Exception as e:
-            logger.error(f"[RegionTextItem] mousePressEvent: {e}\n{traceback.format_exc()}")
+            logger.error(
+                f"[RegionTextItem] mousePressEvent: {e}\n{traceback.format_exc()}"
+            )
 
     def _save_drag_start_state(self, event, local_pos, handle, indices):
         """保存拖动开始时的所有状态。"""
@@ -1186,7 +1295,9 @@ class RegionTextItem(QGraphicsItemGroup):
 
             if handle in ("white_corner", "white_edge"):
                 self._capture_white_frame_drag_context()
-                self._drag_start_white_handle_world = self._white_handle_world_at_start()
+                self._drag_start_white_handle_world = (
+                    self._white_handle_world_at_start()
+                )
             elif handle == "white_move":
                 self._capture_white_frame_drag_context(capture_text_pos=True)
                 self._capture_batch_drag_peers()
@@ -1218,7 +1329,9 @@ class RegionTextItem(QGraphicsItemGroup):
                 super().mouseMoveEvent(event)
             event.accept()
         except Exception as e:
-            logger.error(f"[RegionTextItem] mouseMoveEvent: {e}\n{traceback.format_exc()}")
+            logger.error(
+                f"[RegionTextItem] mouseMoveEvent: {e}\n{traceback.format_exc()}"
+            )
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         if event.button() != Qt.MouseButton.LeftButton:
@@ -1243,7 +1356,9 @@ class RegionTextItem(QGraphicsItemGroup):
             # item 已在回调里被销毁，任何后续访问都会从虚函数抛异常导致 abort
             return
         except Exception as e:
-            logger.error(f"[RegionTextItem] mouseReleaseEvent: {e}\n{traceback.format_exc()}")
+            logger.error(
+                f"[RegionTextItem] mouseReleaseEvent: {e}\n{traceback.format_exc()}"
+            )
 
         if sip.isdeleted(self):
             return
@@ -1263,7 +1378,7 @@ class RegionTextItem(QGraphicsItemGroup):
         new_angle_rad = np.arctan2(vec.y(), vec.x())
         delta_rad = np.arctan2(
             np.sin(new_angle_rad - self._drag_last_angle_rad),
-            np.cos(new_angle_rad - self._drag_last_angle_rad)
+            np.cos(new_angle_rad - self._drag_last_angle_rad),
         )
         delta_deg = np.degrees(delta_rad)
         self._drag_last_angle_rad = new_angle_rad
@@ -1272,7 +1387,17 @@ class RegionTextItem(QGraphicsItemGroup):
 
         if self._snap_enabled:
             # --- 角度吸附逻辑 ---
-            snap_targets = [0.0, 90.0, 180.0, 270.0, 360.0, -90.0, -180.0, -270.0, -360.0]
+            snap_targets = [
+                0.0,
+                90.0,
+                180.0,
+                270.0,
+                360.0,
+                -90.0,
+                -180.0,
+                -270.0,
+                -360.0,
+            ]
             # 获取其他文本框的角度
             scene = self.scene()
             if scene is not None:
@@ -1281,12 +1406,15 @@ class RegionTextItem(QGraphicsItemGroup):
                         snap_targets.append(item.rotation() % 360)
                         snap_targets.append((item.rotation() % 360) - 360)
 
-            best_diff = 3.0 # 角度吸附阈值 3 度
+            best_diff = 3.0  # 角度吸附阈值 3 度
             snapped_rot = new_rot
             normalized_rot = new_rot % 360
             for target in snap_targets:
                 normalized_target = target % 360
-                diff = min(abs(normalized_rot - normalized_target), 360 - abs(normalized_rot - normalized_target))
+                diff = min(
+                    abs(normalized_rot - normalized_target),
+                    360 - abs(normalized_rot - normalized_target),
+                )
                 if diff <= best_diff:
                     best_diff = diff
                     # 需要算出一个实际的旋转度数
@@ -1301,10 +1429,12 @@ class RegionTextItem(QGraphicsItemGroup):
         theta = np.radians(new_rot)
         cos_t, sin_t = np.cos(theta), np.sin(theta)
         px, py = self._drag_start_center.x(), self._drag_start_center.y()
-        self.setPos(QPointF(
-            center_scene.x() - (px * cos_t - py * sin_t),
-            center_scene.y() - (px * sin_t + py * cos_t),
-        ))
+        self.setPos(
+            QPointF(
+                center_scene.x() - (px * cos_t - py * sin_t),
+                center_scene.y() - (px * sin_t + py * cos_t),
+            )
+        )
         self.visual_center = QPointF(self.pos())
 
         # 显示旋转角度
@@ -1357,11 +1487,10 @@ class RegionTextItem(QGraphicsItemGroup):
         if new_lines:
             self.geo.lines = new_lines
         self.geo._rebuild_polygons_local()
-        if not self.geo.has_custom_white_frame:
-            self.geo._auto_update_white_frame()
 
         new_data = build_rotate_region_data(
-            self.region_data, new_angle,
+            self.region_data,
+            new_angle,
             new_center=[new_cx, new_cy],
             new_lines=new_lines or None,
         )
@@ -1373,14 +1502,19 @@ class RegionTextItem(QGraphicsItemGroup):
 
     def _handle_white_frame_edit(self, event: QGraphicsSceneMouseEvent):
         try:
-            if self._drag_handle_indices is None or self._drag_start_white_frame_local is None:
+            if (
+                self._drag_handle_indices is None
+                or self._drag_start_white_frame_local is None
+            ):
                 return
 
             left0, top0, right0, bottom0 = self._drag_start_white_frame_local
             cx, cy = self.geo.center
             start_verts = [
-                [left0 + cx, top0 + cy], [right0 + cx, top0 + cy],
-                [right0 + cx, bottom0 + cy], [left0 + cx, bottom0 + cy],
+                [left0 + cx, top0 + cy],
+                [right0 + cx, top0 + cy],
+                [right0 + cx, bottom0 + cy],
+                [left0 + cx, bottom0 + cy],
             ]
 
             delta = event.scenePos() - self._drag_start_scene_pos
@@ -1392,9 +1526,9 @@ class RegionTextItem(QGraphicsItemGroup):
 
             if self._is_center_scale_enabled():
                 angle = self.rotation()
-                local_mouse = rotate_point(
-                    mouse[0], mouse[1], -angle, cx, cy
-                ) if angle else mouse
+                local_mouse = (
+                    rotate_point(mouse[0], mouse[1], -angle, cx, cy) if angle else mouse
+                )
                 nl, nt, nr, nb = calculate_center_scaled_rect(
                     self._drag_start_white_frame_local,
                     "corner" if self._interaction_mode == "white_corner" else "edge",
@@ -1404,13 +1538,19 @@ class RegionTextItem(QGraphicsItemGroup):
             else:
                 if self._interaction_mode == "white_corner":
                     new_verts = calculate_new_vertices_on_drag(
-                        start_verts, self._drag_handle_indices,
-                        mouse, self.rotation_angle, (cx, cy),
+                        start_verts,
+                        self._drag_handle_indices,
+                        mouse,
+                        self.rotation_angle,
+                        (cx, cy),
                     )
                 elif self._interaction_mode == "white_edge":
                     new_verts = calculate_new_edge_on_drag(
-                        start_verts, self._drag_handle_indices,
-                        mouse, self.rotation_angle, (cx, cy),
+                        start_verts,
+                        self._drag_handle_indices,
+                        mouse,
+                        self.rotation_angle,
+                        (cx, cy),
                     )
                 else:
                     return
@@ -1440,7 +1580,9 @@ class RegionTextItem(QGraphicsItemGroup):
             self._invalidate_scene_rect(old_rect)
 
         except Exception as e:
-            logger.error(f"[RegionTextItem] _handle_white_frame_edit: {e}\n{traceback.format_exc()}")
+            logger.error(
+                f"[RegionTextItem] _handle_white_frame_edit: {e}\n{traceback.format_exc()}"
+            )
 
     def _handle_white_frame_move(self, event: QGraphicsSceneMouseEvent):
         """执行白框平移逻辑，包含位置对齐吸附与辅助线显示。"""
@@ -1467,20 +1609,36 @@ class RegionTextItem(QGraphicsItemGroup):
                 guide_specs = []
                 edge_dx = edge_dy = 0.0
                 if my_points and targets:
-                    edge_dx, edge_dy, edge_guides = self._calculate_snap_offset(my_points, targets)
+                    edge_dx, edge_dy, edge_guides = self._calculate_snap_offset(
+                        my_points, targets
+                    )
                     guide_specs.extend(edge_guides)
-                spacing_dx, spacing_dy, spacing_guides = self._detect_spacing_snap(my_points)
+                spacing_dx, spacing_dy, spacing_guides = self._detect_spacing_snap(
+                    my_points
+                )
                 guide_specs.extend(spacing_guides)
                 if spacing_dx != 0.0 or spacing_dy != 0.0:
                     sldx = spacing_dx * cos_a + spacing_dy * sin_a
                     sldy = -spacing_dx * sin_a + spacing_dy * cos_a
-                    moved = [moved[0]+sldx, moved[1]+sldy, moved[2]+sldx, moved[3]+sldy]
-                    dx += sldx; dy += sldy
+                    moved = [
+                        moved[0] + sldx,
+                        moved[1] + sldy,
+                        moved[2] + sldx,
+                        moved[3] + sldy,
+                    ]
+                    dx += sldx
+                    dy += sldy
                 elif edge_dx != 0.0 or edge_dy != 0.0:
                     eldx = edge_dx * cos_a + edge_dy * sin_a
                     eldy = -edge_dx * sin_a + edge_dy * cos_a
-                    moved = [moved[0]+eldx, moved[1]+eldy, moved[2]+eldx, moved[3]+eldy]
-                    dx += eldx; dy += eldy
+                    moved = [
+                        moved[0] + eldx,
+                        moved[1] + eldy,
+                        moved[2] + eldx,
+                        moved[3] + eldy,
+                    ]
+                    dx += eldx
+                    dy += eldy
                 if guide_specs:
                     self._show_guide_lines(guide_specs)
                 else:
@@ -1501,11 +1659,17 @@ class RegionTextItem(QGraphicsItemGroup):
             self._move_batch_peers(scene_delta.x(), scene_delta.y())
 
         except Exception as e:
-            logger.error(f"[RegionTextItem] _handle_white_frame_move: {e}\n{traceback.format_exc()}")
+            logger.error(
+                f"[RegionTextItem] _handle_white_frame_move: {e}\n{traceback.format_exc()}"
+            )
 
     def _commit_white_frame(self, event, edit_mode=None):
         scene = self.scene()
-        if scene and hasattr(self, "_drag_start_scene_rect") and self._drag_start_scene_rect is not None:
+        if (
+            scene
+            and hasattr(self, "_drag_start_scene_rect")
+            and self._drag_start_scene_rect is not None
+        ):
             update_rect = self._drag_start_scene_rect.united(self.sceneBoundingRect())
             scene.invalidate(update_rect, QGraphicsScene.SceneLayer.ItemLayer)
             scene.update(update_rect)
@@ -1513,7 +1677,9 @@ class RegionTextItem(QGraphicsItemGroup):
         patch = self.geo.to_region_data_patch()
         new_data = build_white_frame_region_data(
             self.region_index,
-            self.region_data, patch, self.geo.white_frame_local,
+            self.region_data,
+            patch,
+            self.geo.white_frame_local,
             old_white_frame_local=self._drag_start_white_frame_local,
             edit_mode=edit_mode,
         )
@@ -1533,14 +1699,21 @@ class RegionTextItem(QGraphicsItemGroup):
 
         if self._interaction_mode == "white_corner":
             idx = self._drag_handle_indices
-            corners = [(left + cx, top + cy), (right + cx, top + cy), (right + cx, bottom + cy), (left + cx, bottom + cy)]
+            corners = [
+                (left + cx, top + cy),
+                (right + cx, top + cy),
+                (right + cx, bottom + cy),
+                (left + cx, bottom + cy),
+            ]
             if not (0 <= idx < 4):
                 return None
             return self._rotated_world_point(corners[idx], cx, cy, angle)
 
         if self._interaction_mode == "white_edge":
             idx = self._drag_handle_indices
-            edge_points = self._white_edge_world_points(left, top, right, bottom, cx, cy)
+            edge_points = self._white_edge_world_points(
+                left, top, right, bottom, cx, cy
+            )
             if not (0 <= idx < 4):
                 return None
             return self._rotated_world_point(edge_points[idx], cx, cy, angle)

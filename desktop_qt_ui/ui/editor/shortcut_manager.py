@@ -3,6 +3,7 @@
 负责统一管理Qt UI的所有快捷键设置和处理
 """
 
+from functools import partial
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QEvent, QObject, Qt
@@ -115,121 +116,143 @@ class EditorShortcutManager(ShortcutManager):
         self._setup_wheel_shortcuts()
 
     def _setup_editor_shortcuts(self):
-        """设置编辑器的所有快捷键"""
-        # 撤销快捷键
-        self.register_shortcut(
-            "undo", QKeySequence.StandardKey.Undo, self._handle_undo, context_aware=True
+        """Register editor shortcuts from one explicit policy table."""
+        panel = self.editor_view.property_panel
+        shortcuts = (
+            ("undo", QKeySequence.StandardKey.Undo, self._handle_undo, True),
+            ("redo", QKeySequence.StandardKey.Redo, self._handle_redo, True),
+            ("copy", QKeySequence.StandardKey.Copy, self._handle_copy, True),
+            ("paste", QKeySequence.StandardKey.Paste, self._handle_paste, True),
+            (
+                "select_all",
+                QKeySequence.StandardKey.SelectAll,
+                self._handle_select_all,
+                True,
+            ),
+            ("delete", QKeySequence.StandardKey.Delete, self._handle_delete, True),
+            ("save", QKeySequence.StandardKey.Save, self._handle_save, True),
+            ("export", QKeySequence("Ctrl+Q"), self._handle_export, True),
+            (
+                "toggle_rich_text_popup",
+                QKeySequence("Ctrl+Shift+R"),
+                self._handle_toggle_rich_text_popup,
+                False,
+            ),
+            (
+                "tool_select",
+                QKeySequence("Q"),
+                partial(
+                    self._handle_panel_shortcut,
+                    0,
+                    Qt.Key.Key_Q,
+                    "q",
+                    "tool_select",
+                    panel.activate_image_edit_tool,
+                ),
+                True,
+            ),
+            (
+                "tool_brush",
+                QKeySequence("W"),
+                partial(
+                    self._handle_panel_shortcut,
+                    1,
+                    Qt.Key.Key_W,
+                    "w",
+                    "tool_brush",
+                    panel.activate_image_edit_tool,
+                ),
+                True,
+            ),
+            (
+                "tool_eraser",
+                QKeySequence("E"),
+                partial(
+                    self._handle_panel_shortcut,
+                    2,
+                    Qt.Key.Key_E,
+                    "e",
+                    "tool_eraser",
+                    panel.activate_image_edit_tool,
+                ),
+                True,
+            ),
+            (
+                "image_edit_tab_mask",
+                QKeySequence("1"),
+                partial(
+                    self._handle_panel_shortcut,
+                    0,
+                    Qt.Key.Key_1,
+                    "1",
+                    "image_edit_tab_mask",
+                    panel.activate_image_edit_tab,
+                ),
+                True,
+            ),
+            (
+                "image_edit_tab_paint",
+                QKeySequence("2"),
+                partial(
+                    self._handle_panel_shortcut,
+                    1,
+                    Qt.Key.Key_2,
+                    "2",
+                    "image_edit_tab_paint",
+                    panel.activate_image_edit_tab,
+                ),
+                True,
+            ),
+            (
+                "image_edit_tab_stamp",
+                QKeySequence("3"),
+                partial(
+                    self._handle_panel_shortcut,
+                    2,
+                    Qt.Key.Key_3,
+                    "3",
+                    "image_edit_tab_stamp",
+                    panel.activate_image_edit_tab,
+                ),
+                True,
+            ),
+            (
+                "prev_image",
+                QKeySequence("A"),
+                partial(
+                    self._handle_navigation,
+                    Qt.Key.Key_A,
+                    "a",
+                    "prev_image",
+                    self.editor_view.file_list.select_prev_image,
+                ),
+                True,
+            ),
+            (
+                "next_image",
+                QKeySequence("D"),
+                partial(
+                    self._handle_navigation,
+                    Qt.Key.Key_D,
+                    "d",
+                    "next_image",
+                    self.editor_view.file_list.select_next_image,
+                ),
+                True,
+            ),
+            (
+                "toggle_text_direction",
+                QKeySequence("V"),
+                self._handle_toggle_text_direction,
+                True,
+            ),
         )
+        for name, key, callback, context_aware in shortcuts:
+            self.register_shortcut(name, key, callback, context_aware)
 
-        # 重做快捷键
-        self.register_shortcut(
-            "redo", QKeySequence.StandardKey.Redo, self._handle_redo, context_aware=True
-        )
-
-        # 复制快捷键
-        self.register_shortcut(
-            "copy", QKeySequence.StandardKey.Copy, self._handle_copy, context_aware=True
-        )
-
-        # 粘贴快捷键
-        self.register_shortcut(
-            "paste",
-            QKeySequence.StandardKey.Paste,
-            self._handle_paste,
-            context_aware=True,
-        )
-
-        # 全选快捷键
-        self.register_shortcut(
-            "select_all",
-            QKeySequence.StandardKey.SelectAll,
-            self._handle_select_all,
-            context_aware=True,
-        )
-
-        # 删除快捷键
-        self.register_shortcut(
-            "delete",
-            QKeySequence.StandardKey.Delete,
-            self._handle_delete,
-            context_aware=True,
-        )
-
-        # 保存快捷键 (Ctrl+S)
-        self.register_shortcut(
-            "save", QKeySequence.StandardKey.Save, self._handle_save, context_aware=True
-        )
-
-        # 导出快捷键 (Ctrl+Q)
-        self.register_shortcut(
-            "export", QKeySequence("Ctrl+Q"), self._handle_export, context_aware=True
-        )
-
-        # 显示/关闭富文本编辑器 (Ctrl+Shift+R)。使用应用级上下文，
-        # 让焦点位于 Qt.Tool 浮动编辑器中时也能关闭它。
-        rich_text_shortcut = self.register_shortcut(
-            "toggle_rich_text_popup",
-            QKeySequence("Ctrl+Shift+R"),
-            self._handle_toggle_rich_text_popup,
-        )
-        rich_text_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
-
-        # 工具快捷键 Q (选择)
-        self.register_shortcut(
-            "tool_select",
-            QKeySequence("Q"),
-            self._handle_tool_select,
-            context_aware=True,
-        )
-
-        # 工具快捷键 W (画笔)
-        self.register_shortcut(
-            "tool_brush", QKeySequence("W"), self._handle_tool_brush, context_aware=True
-        )
-
-        # 工具快捷键 E (橡皮擦)
-        self.register_shortcut(
-            "tool_eraser",
-            QKeySequence("E"),
-            self._handle_tool_eraser,
-            context_aware=True,
-        )
-        # 图像编辑页快捷键 1/2/3（蒙版/画笔/印章）
-        self.register_shortcut(
-            "image_edit_tab_mask",
-            QKeySequence("1"),
-            self._handle_image_edit_tab_mask,
-            context_aware=True,
-        )
-        self.register_shortcut(
-            "image_edit_tab_paint",
-            QKeySequence("2"),
-            self._handle_image_edit_tab_paint,
-            context_aware=True,
-        )
-        self.register_shortcut(
-            "image_edit_tab_stamp",
-            QKeySequence("3"),
-            self._handle_image_edit_tab_stamp,
-            context_aware=True,
-        )
-
-        # 上一张图片 (A)
-        self.register_shortcut(
-            "prev_image", QKeySequence("A"), self._handle_prev_image, context_aware=True
-        )
-
-        # 下一张图片 (D)
-        self.register_shortcut(
-            "next_image", QKeySequence("D"), self._handle_next_image, context_aware=True
-        )
-
-        # 切换选中文本框的排版方向 (V)
-        self.register_shortcut(
-            "toggle_text_direction",
-            QKeySequence("V"),
-            self._handle_toggle_text_direction,
-            context_aware=True,
+        # This one must also close the Qt.Tool popup when that window has focus.
+        self.get_shortcut("toggle_rich_text_popup").setContext(
+            Qt.ShortcutContext.ApplicationShortcut
         )
 
     def _handle_undo(self, focused_widget):
@@ -330,78 +353,32 @@ class EditorShortcutManager(ShortcutManager):
         )
 
     def _forward_key_to_widget(self, widget, key_code, text, shortcut_name):
-        """
-        将按键事件转发给控件，同时临时禁用对应的快捷键以防止递归
-        """
+        """Forward a text key while preventing its editor shortcut from recurring."""
         shortcut = self.get_shortcut(shortcut_name)
-        if shortcut:
-            shortcut.setEnabled(False)
-
-            # 发送KeyPress
-            event_press = QKeyEvent(
-                QEvent.Type.KeyPress, key_code, Qt.KeyboardModifier.NoModifier, text
-            )
-            QApplication.sendEvent(widget, event_press)
-
-            # 发送KeyRelease (部分输入法或控件可能依赖它)
-            event_release = QKeyEvent(
-                QEvent.Type.KeyRelease, key_code, Qt.KeyboardModifier.NoModifier, text
-            )
-            QApplication.sendEvent(widget, event_release)
-
+        if shortcut is None:
+            return
+        shortcut.setEnabled(False)
+        try:
+            for event_type in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+                QApplication.sendEvent(
+                    widget,
+                    QKeyEvent(
+                        event_type,
+                        key_code,
+                        Qt.KeyboardModifier.NoModifier,
+                        text,
+                    ),
+                )
+        finally:
             shortcut.setEnabled(True)
 
-    def _activate_image_edit_tool(self, position: int):
-        self.editor_view.property_panel.activate_image_edit_tool(position)
-
-    def _handle_tool_select(self, focused_widget):
-        """处理当前图像编辑页第一个工具快捷键 (Q)。"""
-        if self.is_text_widget(focused_widget):
-            self._forward_key_to_widget(
-                focused_widget, Qt.Key.Key_Q, "q", "tool_select"
-            )
-        else:
-            self._activate_image_edit_tool(0)
-
-    def _handle_tool_brush(self, focused_widget):
-        """处理当前图像编辑页第二个工具快捷键 (W)。"""
-        if self.is_text_widget(focused_widget):
-            self._forward_key_to_widget(focused_widget, Qt.Key.Key_W, "w", "tool_brush")
-        else:
-            self._activate_image_edit_tool(1)
-
-    def _handle_tool_eraser(self, focused_widget):
-        """处理当前图像编辑页第三个工具快捷键 (E)。"""
-        if self.is_text_widget(focused_widget):
-            self._forward_key_to_widget(
-                focused_widget, Qt.Key.Key_E, "e", "tool_eraser"
-            )
-        else:
-            self._activate_image_edit_tool(2)
-
-    def _handle_image_edit_tab(self, focused_widget, index, key_code, text, name):
+    def _handle_panel_shortcut(
+        self, index, key_code, text, name, activate, focused_widget
+    ):
         if self.is_text_widget(focused_widget):
             self._forward_key_to_widget(focused_widget, key_code, text, name)
         else:
-            self.editor_view.property_panel.activate_image_edit_tab(index)
-
-    def _handle_image_edit_tab_mask(self, focused_widget):
-        """处理蒙版页快捷键 (1)。"""
-        self._handle_image_edit_tab(
-            focused_widget, 0, Qt.Key.Key_1, "1", "image_edit_tab_mask"
-        )
-
-    def _handle_image_edit_tab_paint(self, focused_widget):
-        """处理画笔页快捷键 (2)。"""
-        self._handle_image_edit_tab(
-            focused_widget, 1, Qt.Key.Key_2, "2", "image_edit_tab_paint"
-        )
-
-    def _handle_image_edit_tab_stamp(self, focused_widget):
-        """处理印章页快捷键 (3)。"""
-        self._handle_image_edit_tab(
-            focused_widget, 2, Qt.Key.Key_3, "3", "image_edit_tab_stamp"
-        )
+            activate(index)
 
     def _handle_toggle_text_direction(self, focused_widget):
         """按 V 在横排与竖排之间切换选中文本框。"""
@@ -437,21 +414,11 @@ class EditorShortcutManager(ShortcutManager):
             selected_regions, {"direction": next_direction}
         )
 
-    def _handle_prev_image(self, focused_widget):
-        """处理上一张图片快捷键 (A)"""
+    def _handle_navigation(self, key_code, text, name, navigate, focused_widget):
         if self.is_text_widget(focused_widget):
-            self._forward_key_to_widget(focused_widget, Qt.Key.Key_A, "a", "prev_image")
+            self._forward_key_to_widget(focused_widget, key_code, text, name)
         else:
-            if hasattr(self.editor_view, "file_list"):
-                self.editor_view.file_list.select_prev_image()
-
-    def _handle_next_image(self, focused_widget):
-        """处理下一张图片快捷键 (D)"""
-        if self.is_text_widget(focused_widget):
-            self._forward_key_to_widget(focused_widget, Qt.Key.Key_D, "d", "next_image")
-        else:
-            if hasattr(self.editor_view, "file_list"):
-                self.editor_view.file_list.select_next_image()
+            navigate()
 
     def _setup_wheel_shortcuts(self):
         """设置鼠标滚轮快捷键（通过事件过滤器实现）"""
@@ -483,7 +450,7 @@ class EditorShortcutManager(ShortcutManager):
 
                     delta = 1 if angle_delta > 0 else -1
                     new_size = max(5, min(200, current_size + delta))
-                    self.controller.set_brush_size(new_size)
+                    self.editor_view.model.set_brush_size(new_size)
                     return True  # 阻止事件继续传递
 
                 # Ctrl + 滚轮（含 Ctrl+Shift 等组合）：调整选中文本框的字体大小。
@@ -496,7 +463,7 @@ class EditorShortcutManager(ShortcutManager):
                         if angle_delta == 0:
                             angle_delta = event.pixelDelta().y()
                         for region_index in selected_regions:
-                            region_data = self.controller._get_region_by_index(
+                            region_data = self.editor_view.model.get_region_by_index(
                                 region_index
                             )
                             if region_data:

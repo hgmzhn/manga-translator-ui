@@ -9,6 +9,7 @@ from .graphics_view import canvas_background_color
 
 class OriginalCompareView(QGraphicsView):
     """只读原图预览视图，用于和当前编辑画布做左右对比。"""
+
     COMPARE_PREVIEW_MAX_PIXELS = 3_000_000
 
     def __init__(self, source_view=None, parent=None):
@@ -20,10 +21,10 @@ class OriginalCompareView(QGraphicsView):
         self._image_item: QGraphicsPixmapItem | None = None
         self._q_image_ref = None
         self._last_center_scene: QPointF | None = None
-        self._last_scene_rect: QRectF | None = None
         self._last_transform = QTransform()
         self._has_pending_image = False
         self._pending_image = None
+        self._enabled = False
 
         self._setup_view()
 
@@ -54,14 +55,8 @@ class OriginalCompareView(QGraphicsView):
 
     def set_source_view(self, source_view) -> None:
         self._source_view = source_view
-        if self._last_center_scene is None:
-            return
-
-        scene_rect = self._resolve_source_scene_rect()
-        if scene_rect is not None:
-            self._last_scene_rect = scene_rect
-            self.scene.setSceneRect(scene_rect)
-            self.viewport().update()
+        if self._last_center_scene is not None:
+            self._apply_source_scene_rect()
 
     def set_image(self, image):
         self.scene.clear()
@@ -72,7 +67,9 @@ class OriginalCompareView(QGraphicsView):
             return
 
         try:
-            display_frame = build_display_image_frame(image, max_pixels=self.COMPARE_PREVIEW_MAX_PIXELS)
+            display_frame = build_display_image_frame(
+                image, max_pixels=self.COMPARE_PREVIEW_MAX_PIXELS
+            )
             if display_frame is None:
                 raise ValueError("display frame is empty")
             self._q_image_ref = display_frame.qimage
@@ -92,16 +89,35 @@ class OriginalCompareView(QGraphicsView):
         else:
             self.fitInView(self._image_item, Qt.AspectRatioMode.KeepAspectRatio)
 
-    def set_image_when_visible(self, image, visible: bool):
+    def update_image(self, image) -> None:
+        """Remember the newest image and render it only while compare mode is active."""
         self._has_pending_image = True
         self._pending_image = image
-        if not visible:
-            return
-        self.flush_pending_image()
+        if self._enabled:
+            self._apply_pending_image()
 
-    def flush_pending_image(self, fallback_image=None):
-        image = self._pending_image if self._has_pending_image else fallback_image
-        self.set_image(image)
+    def set_compare_mode(self, enabled: bool, fallback_image=None) -> None:
+        self._enabled = bool(enabled)
+        if not self._enabled:
+            return
+        if not self._has_pending_image:
+            self._pending_image = fallback_image
+            self._has_pending_image = True
+        self._apply_pending_image()
+
+    def _apply_pending_image(self) -> None:
+        needs_initial_sync = self._last_center_scene is None
+        self.set_image(self._pending_image)
+        self._has_pending_image = False
+        self._pending_image = None
+        if needs_initial_sync:
+            self._sync_from_source()
+
+    def _sync_from_source(self) -> None:
+        if self._source_view is None:
+            return
+        transform, center_scene = self._source_view.get_view_state()
+        self.sync_view_state(transform, center_scene)
 
     def sync_view_state(self, transform, center_scene):
         if transform is None or center_scene is None:
@@ -109,29 +125,31 @@ class OriginalCompareView(QGraphicsView):
 
         self._last_transform = QTransform(transform)
         self._last_center_scene = QPointF(center_scene)
-        self._last_scene_rect = self._resolve_source_scene_rect()
+        source_scene_rect = self._resolve_source_scene_rect()
         self._sync_source_viewport_geometry()
 
         if self._image_item is None:
             return
 
-        scene_rect = self._last_scene_rect or self._image_item.sceneBoundingRect()
+        scene_rect = source_scene_rect or self._image_item.sceneBoundingRect()
         if scene_rect.isValid() and not scene_rect.isNull():
             self.scene.setSceneRect(scene_rect)
         self.setTransform(QTransform(transform))
         self.centerOn(center_scene)
         self.viewport().update()
 
+    def _apply_source_scene_rect(self) -> None:
+        scene_rect = self._resolve_source_scene_rect()
+        if scene_rect is not None:
+            self.scene.setSceneRect(scene_rect)
+            self.viewport().update()
+
     def _resolve_source_scene_rect(self) -> QRectF | None:
-        # 主画布显式维护了不受临时 item 影响的 sceneRect，并在图片四周留出
-        # 平移余量。双栏必须复用同一范围，否则靠近边缘时 centerOn 会在左栏
-        # 提前被图片边界钳制，造成两栏错位。
+        # Reuse the main canvas's explicit padded range so both panes have the
+        # same center constraints near image edges.
         if self._source_view is None:
             return None
-        getter = getattr(self._source_view, "get_view_scene_rect", None)
-        if getter is None:
-            return None
-        return getter()
+        return self._source_view.get_view_scene_rect()
 
     def _sync_source_viewport_geometry(self) -> None:
         """让只读栏的有效视口与可能显示滚动条的主画布完全等大。"""

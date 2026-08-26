@@ -4,6 +4,7 @@ import copy
 
 import numpy as np
 from PyQt6.QtCore import QTimer
+
 from editor import text_renderer_backend
 from editor.region_geometry_state import RegionGeometryState
 from editor.region_render_snapshot import RegionRenderSnapshot
@@ -149,27 +150,34 @@ class GraphicsViewRenderingMixin:
         except Exception:
             return False
 
-    def _infer_geometry_edit_kind(self, region_index: int, new_region_data: dict) -> str:
+    def _infer_geometry_edit_kind(
+        self, region_index: int, new_region_data: dict
+    ) -> str:
         old_region_data = self.model.get_region_by_index(region_index)
-        if not isinstance(old_region_data, dict) or not isinstance(new_region_data, dict):
+        if not isinstance(old_region_data, dict) or not isinstance(
+            new_region_data, dict
+        ):
             return "unknown"
 
-        if not self._values_equal(old_region_data.get("angle"), new_region_data.get("angle")):
+        if not self._values_equal(
+            old_region_data.get("angle"), new_region_data.get("angle")
+        ):
             return "rotate"
-        if not self._values_equal(old_region_data.get("center"), new_region_data.get("center")):
+        if not self._values_equal(
+            old_region_data.get("center"), new_region_data.get("center")
+        ):
             return "move"
-        if not self._values_equal(old_region_data.get("lines"), new_region_data.get("lines")):
+        if not self._values_equal(
+            old_region_data.get("lines"), new_region_data.get("lines")
+        ):
             return "shape"
 
-        white_changed = (
-            not self._values_equal(
-                old_region_data.get("white_frame_rect_local"),
-                new_region_data.get("white_frame_rect_local"),
-            )
-            or not self._values_equal(
-                old_region_data.get("has_custom_white_frame", False),
-                new_region_data.get("has_custom_white_frame", False),
-            )
+        white_changed = not self._values_equal(
+            old_region_data.get("white_frame_rect_local"),
+            new_region_data.get("white_frame_rect_local"),
+        ) or not self._values_equal(
+            old_region_data.get("has_custom_white_frame", False),
+            new_region_data.get("has_custom_white_frame", False),
         )
         if white_changed:
             return "white_frame"
@@ -223,7 +231,9 @@ class GraphicsViewRenderingMixin:
     def _clear_pending_geometry_edits(self):
         self._pending_geometry_edit_kinds.clear()
 
-    def _region_geometry_matches_item(self, region_data: dict, item: RegionTextItem) -> bool:
+    def _region_geometry_matches_item(
+        self, region_data: dict, item: RegionTextItem
+    ) -> bool:
         try:
             if not hasattr(item, "geo") or item.geo is None:
                 return False
@@ -291,7 +301,9 @@ class GraphicsViewRenderingMixin:
         if updates:
             self.model.store_derived_regions(updates)
 
-    def _build_render_snapshot(self, index: int, region_data: dict, item: RegionTextItem | None) -> RegionRenderSnapshot:
+    def _build_render_snapshot(
+        self, index: int, region_data: dict, item: RegionTextItem | None
+    ) -> RegionRenderSnapshot:
         preview_patch = getattr(self, "_font_preview_overrides", {}).get(index)
         if preview_patch:
             region_data = copy.deepcopy(region_data)
@@ -317,26 +329,31 @@ class GraphicsViewRenderingMixin:
             return
         item.text_item.setVisible(True)
 
-        if index >= len(self._text_blocks_cache) or index >= len(self._dst_points_cache):
+        if index >= len(self.render_coordinator.text_blocks) or index >= len(
+            self.render_coordinator.dst_points
+        ):
             return
-        text_block = self._text_blocks_cache[index]
-        dst_points = self._dst_points_cache[index]
+        text_block = self.render_coordinator.text_blocks[index]
+        dst_points = self.render_coordinator.dst_points[index]
         if text_block is None or dst_points is None:
             clear_region_text(item)
             return
 
-        snapshot = self._render_snapshot_cache[index] if index < len(self._render_snapshot_cache) else None
+        snapshot = (
+            self.render_coordinator.render_snapshots[index]
+            if index < len(self.render_coordinator.render_snapshots)
+            else None
+        )
         if snapshot is None:
             region_data = self.model.get_region_by_index(index)
             if not region_data:
                 return
             snapshot = self._build_render_snapshot(index, region_data, item)
             self._ensure_render_cache_size(index)
-            self._render_snapshot_cache[index] = snapshot
+            self.render_coordinator.render_snapshots[index] = snapshot
 
-        region_data_for_render = snapshot.text_block_input()
         unrotated_text_block = pipeline_build_text_block_from_region(
-            region_data_for_render,
+            snapshot.region_data,
             font_size_override=getattr(text_block, "font_size", None),
             log_tag=f" for region {index}",
         )
@@ -349,7 +366,7 @@ class GraphicsViewRenderingMixin:
             render_parameter_service,
             text_renderer_backend,
             index,
-            snapshot.style_input(),
+            snapshot.region_data,
             unrotated_text_block,
         )
 
@@ -358,7 +375,7 @@ class GraphicsViewRenderingMixin:
             unrotated_text_block,
             dst_points,
             render_params,
-            len(self._text_blocks_cache),
+            len(self.render_coordinator.text_blocks),
         )
 
         if render_result:
@@ -468,11 +485,22 @@ class GraphicsViewRenderingMixin:
         try:
             if self.model.get_region_display_mode() in ["box_only", "none"]:
                 for item in self._region_items:
-                    if item and hasattr(item, "text_item") and item.text_item and item.scene():
+                    if (
+                        item
+                        and hasattr(item, "text_item")
+                        and item.text_item
+                        and item.scene()
+                    ):
                         item.text_item.setVisible(False)
                 return
 
-            for i in range(min(len(self._region_items), len(self._text_blocks_cache), len(self._dst_points_cache))):
+            for i in range(
+                min(
+                    len(self._region_items),
+                    len(self.render_coordinator.text_blocks),
+                    len(self.render_coordinator.dst_points),
+                )
+            ):
                 self._render_region_text_visual(i)
 
         except (RuntimeError, AttributeError) as e:
@@ -485,15 +513,19 @@ class GraphicsViewRenderingMixin:
 
         self._ensure_render_cache_size(index)
 
-        item = self._region_items[index] if 0 <= index < len(self._region_items) else None
+        item = (
+            self._region_items[index] if 0 <= index < len(self._region_items) else None
+        )
         snapshot = self._build_render_snapshot(index, regions[index], item)
-        self._render_snapshot_cache[index] = snapshot
+        self.render_coordinator.render_snapshots[index] = snapshot
 
-        region_dict = snapshot.text_block_input()
-        text_block = pipeline_build_text_block_from_region(region_dict, log_tag=f" for region {index}")
-        self._text_blocks_cache[index] = text_block
+        region_dict = snapshot.region_data
+        text_block = pipeline_build_text_block_from_region(
+            region_dict, log_tag=f" for region {index}"
+        )
+        self.render_coordinator.text_blocks[index] = text_block
         if text_block is None:
-            self._dst_points_cache[index] = None
+            self.render_coordinator.dst_points[index] = None
             return
 
         render_parameter_service = get_render_parameter_service()
@@ -502,10 +534,10 @@ class GraphicsViewRenderingMixin:
             layout_params = resolve_region_layout_parameters(
                 render_parameter_service,
                 index,
-                snapshot.style_input(),
+                snapshot.region_data,
                 text_block,
             )
-            self._dst_points_cache[index] = calculate_region_dst_points(
+            self.render_coordinator.dst_points[index] = calculate_region_dst_points(
                 text_block,
                 layout_params,
                 override_dst_points=override_dst_points,
@@ -519,7 +551,7 @@ class GraphicsViewRenderingMixin:
                 region_dict.get("angle"),
                 e,
             )
-            self._dst_points_cache[index] = None
+            self.render_coordinator.dst_points[index] = None
 
     def _update_single_region_text_visual(self, index):
         try:
@@ -527,7 +559,9 @@ class GraphicsViewRenderingMixin:
         except (RuntimeError, AttributeError) as e:
             self.logger.warning("Text visual update failed for region %s: %s", index, e)
         except Exception as e:
-            self.logger.error("Text visual update failed for region %s: %s", index, e, exc_info=True)
+            self.logger.error(
+                "Text visual update failed for region %s: %s", index, e, exc_info=True
+            )
 
     def recalculate_render_data(self):
         regions = self.model.get_regions()
@@ -539,17 +573,19 @@ class GraphicsViewRenderingMixin:
         for i, region_dict in enumerate(regions):
             item = self._region_items[i] if i < len(self._region_items) else None
             snapshots.append(self._build_render_snapshot(i, region_dict, item))
-        self._render_snapshot_cache = snapshots
+        self.render_coordinator.render_snapshots = snapshots
 
-        self._text_blocks_cache = [
-            pipeline_build_text_block_from_region(snapshot.text_block_input(), log_tag=f" for region {i}")
+        self.render_coordinator.text_blocks = [
+            pipeline_build_text_block_from_region(
+                snapshot.region_data, log_tag=f" for region {i}"
+            )
             for i, snapshot in enumerate(snapshots)
         ]
 
         render_parameter_service = get_render_parameter_service()
 
         dst_points_list = []
-        for i, text_block in enumerate(self._text_blocks_cache):
+        for i, text_block in enumerate(self.render_coordinator.text_blocks):
             if text_block is None:
                 dst_points_list.append(None)
                 continue
@@ -581,7 +617,7 @@ class GraphicsViewRenderingMixin:
                 )
                 dst_points_list.append(None)
 
-        self._dst_points_cache = dst_points_list
+        self.render_coordinator.dst_points = dst_points_list
         self._update_text_visuals()
         self.scene.update()
 

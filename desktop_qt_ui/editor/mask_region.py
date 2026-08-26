@@ -7,8 +7,27 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .document_state import normalize_binary_mask
 
-def build_region_mask(region_data: dict[str, Any], shape: tuple[int, int], expand_px: int = 0) -> np.ndarray:
+
+def normalize_mask_for_shape(mask: Any, shape: tuple[int, int]) -> np.ndarray:
+    """Return a binary mask at ``shape``, reusing canonical model data when possible."""
+    normalized = normalize_binary_mask(mask)
+    if normalized is None:
+        return np.zeros(shape, dtype=np.uint8)
+    if normalized.shape == shape:
+        return normalized
+    resized = cv2.resize(
+        normalized,
+        (shape[1], shape[0]),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    return np.where(resized > 0, 255, 0).astype(np.uint8)
+
+
+def build_region_mask(
+    region_data: dict[str, Any], shape: tuple[int, int], expand_px: int = 0
+) -> np.ndarray:
     """Build a binary image mask for the source polygons in one text region."""
     height, width = (int(shape[0]), int(shape[1]))
     result = np.zeros((max(0, height), max(0, width)), dtype=np.uint8)
@@ -51,15 +70,15 @@ def build_region_mask(region_data: dict[str, Any], shape: tuple[int, int], expan
     return result
 
 
-def remove_region_from_mask(mask: Any, region_data: dict[str, Any], expand_px: int = 0) -> np.ndarray | None:
+def remove_region_from_mask(
+    mask: Any, region_data: dict[str, Any], expand_px: int = 0
+) -> np.ndarray | None:
     """Return ``mask`` with pixels belonging to ``region_data`` cleared."""
     if mask is None:
         return None
-    mask_array = np.asarray(mask)
-    if mask_array.ndim == 3:
-        mask_array = mask_array[:, :, 0]
-    if mask_array.ndim != 2:
+    try:
+        normalized = normalize_binary_mask(mask)
+    except ValueError:
         return None
-    normalized = np.where(mask_array > 0, 255, 0).astype(np.uint8)
     region_mask = build_region_mask(region_data, normalized.shape, expand_px)
     return cv2.bitwise_and(normalized, cv2.bitwise_not(region_mask))

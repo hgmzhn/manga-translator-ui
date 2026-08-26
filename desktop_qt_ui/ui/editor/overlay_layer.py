@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtGui import QPixmap
+
 from editor.image_utils import build_display_image_frame
 
 from .graphics_items import TransparentPixmapItem
@@ -18,22 +19,19 @@ class PixmapOverlayLayer:
         self,
         view: "GraphicsView",
         *,
-        debug_name: str,
         z_value: int,
         convert_warning: str,
         empty_when_zero_size: bool = False,
-        clear_pixmap_on_empty: bool = False,
         update_scene: bool = False,
     ):
         self.view = view
-        self.debug_name = debug_name
         self.z_value = z_value
         self.convert_warning = convert_warning
         self.empty_when_zero_size = empty_when_zero_size
-        self.clear_pixmap_on_empty = clear_pixmap_on_empty
         self.update_scene = update_scene
         self.item: TransparentPixmapItem | None = None
         self.qimage_ref = None
+        self.image_ref = None
         self.layer_visible = True
 
     def clear(self) -> None:
@@ -41,25 +39,46 @@ class PixmapOverlayLayer:
             self.view.scene.removeItem(self.item)
         self.item = None
         self.qimage_ref = None
+        self.image_ref = None
 
-    def set_image(self, image) -> None:
+    def set_image(self, image, *, document_identity=None) -> None:
+        if document_identity is not None and (
+            document_identity != self.view._document_identity
+            or document_identity != self.view.model.get_document_identity()
+        ):
+            return
         if self.view._image_item is None:
+            self.clear()
+            return
+
+        if (
+            image is self.image_ref
+            and self.item is not None
+            and not self.item.pixmap().isNull()
+        ):
+            self.item.setVisible(self.layer_visible)
             return
 
         if self._is_empty(image):
-            self._hide(clear_pixmap=self.clear_pixmap_on_empty)
+            self._hide(clear_pixmap=True)
             self.qimage_ref = None
+            self.image_ref = None
             return
 
         try:
-            display_frame = build_display_image_frame(image, max_pixels=self.view.INPAINT_PREVIEW_MAX_PIXELS)
+            display_frame = build_display_image_frame(
+                image,
+                max_pixels=self.view.INPAINT_PREVIEW_MAX_PIXELS,
+            )
             if display_frame is None:
                 raise ValueError("display frame is empty")
             self.qimage_ref = display_frame.qimage
+            self.image_ref = image
         except Exception as convert_error:
             self.view.logger.warning(self.convert_warning, convert_error)
             self.qimage_ref = None
-            self._hide()
+            self.image_ref = None
+            self._hide(clear_pixmap=True)
             return
 
         self._show_pixmap(QPixmap.fromImage(self.qimage_ref))
@@ -70,6 +89,10 @@ class PixmapOverlayLayer:
         return self.empty_when_zero_size and getattr(image, "size", 0) == 0
 
     def _show_pixmap(self, pixmap: QPixmap) -> None:
+        if pixmap.isNull():
+            self.qimage_ref = None
+            self._hide(clear_pixmap=True)
+            return
         item = self._ensure_item()
         item.setPixmap(pixmap)
         item.setOpacity(1.0)
@@ -112,28 +135,23 @@ class OverlayLayerManager:
         self.view = view
         self.inpainted = PixmapOverlayLayer(
             view,
-            debug_name="inpainted",
             z_value=1,
             convert_warning="Failed to convert inpainted image to QImage: %s",
         )
         # 位于修复图之上、文字区域之下
         self.paint_overlay = PixmapOverlayLayer(
             view,
-            debug_name="paint_overlay",
             z_value=5,
             convert_warning="Failed to convert paint overlay to QImage: %s",
             empty_when_zero_size=True,
-            clear_pixmap_on_empty=True,
             update_scene=True,
         )
         # 印章层位于画笔层之上
         self.stamp_overlay = PixmapOverlayLayer(
             view,
-            debug_name="stamp_overlay",
             z_value=6,
             convert_warning="Failed to convert stamp overlay to QImage: %s",
             empty_when_zero_size=True,
-            clear_pixmap_on_empty=True,
             update_scene=True,
         )
 
@@ -141,17 +159,6 @@ class OverlayLayerManager:
         self.inpainted.clear()
         self.paint_overlay.clear()
         self.stamp_overlay.clear()
-
-    def on_inpainted_image_changed(self, image) -> None:
-        self.inpainted.set_image(image)
-
-    def on_paint_overlay_changed(self, overlay) -> None:
-        """彩色画笔图层数据变化时刷新对应 pixmap。"""
-        self.paint_overlay.set_image(overlay)
-
-    def on_stamp_overlay_changed(self, overlay) -> None:
-        """印章图层数据变化时刷新对应 pixmap。"""
-        self.stamp_overlay.set_image(overlay)
 
     def set_paint_overlay_visible(self, visible: bool) -> None:
         self.paint_overlay.set_layer_visible(visible)

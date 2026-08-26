@@ -1,257 +1,308 @@
-import _bootstrap  # noqa: F401
+import _bootstrap  # noqa: F401, I001
+
+import asyncio
+import concurrent.futures
+from dataclasses import replace
+from types import SimpleNamespace
+
 import numpy as np
-from editor.controller_document_service import EditorControllerDocumentService
-from editor.controller_inpaint_service import EditorControllerInpaintService
-from editor.core.resource_manager import ResourceManager
-from editor.editor_model import EditorModel
-from editor.session import DocumentSnapshot
 from PIL import Image
 
-
-class _InpaintCacheController:
-    CACHE_LAST_INPAINTED = "last_inpainted_image"
-    CACHE_LAST_MASK = "last_processed_mask"
-    WEAK_CACHE_BASE_IMAGE_RGB = "weak_base_image_rgb"
-
-    def __init__(self):
-        self.resource_manager = ResourceManager()
-
-
-def test_clear_document_cache_removes_previous_page_state():
-    controller = _InpaintCacheController()
-    service = EditorControllerInpaintService(controller)
-    inpainted = np.full((24, 32, 3), 200, dtype=np.uint8)
-    mask = np.full((24, 32), 255, dtype=np.uint8)
-    base_image = np.full((24, 32, 3), 20, dtype=np.uint8)
-
-    controller.resource_manager.set_cache(controller.CACHE_LAST_INPAINTED, inpainted)
-    controller.resource_manager.set_cache(controller.CACHE_LAST_MASK, mask)
-    controller.resource_manager.set_weak_cache(controller.WEAK_CACHE_BASE_IMAGE_RGB, base_image)
-
-    service.clear_document_cache()
-
-    assert controller.resource_manager.get_cache(controller.CACHE_LAST_INPAINTED) is None
-    assert controller.resource_manager.get_cache(controller.CACHE_LAST_MASK) is None
-    assert controller.resource_manager.get_weak_cache(controller.WEAK_CACHE_BASE_IMAGE_RGB) is None
+from editor.controller_inpaint_service import EditorControllerInpaintService
+from editor.document_state import DocumentSnapshot
+from editor.editor_model import EditorModel
+from editor.inpaint_state import (
+    InpaintArtifact,
+    InpaintConfigSnapshot,
+    InpaintKey,
+    InpaintRequest,
+    InpaintState,
+    MaskDelta,
+)
+from editor.session import EditorSession
 
 
-def test_inpaint_result_commit_rejects_stale_generation():
-    class Model:
-        image = None
+class _KeyedModel:
+    def __init__(self, key, mask):
+        self.key = key
+        self.mask = np.array(mask, copy=True)
+        self.image = None
+        self.state = InpaintState()
+        self.source_rgb = np.zeros((*self.mask.shape, 3), dtype=np.uint8)
 
-        def set_inpainted_image(self, image):
-            self.image = image
+    def get_document_identity(self):
+        return self.key.document_id, "page.png"
 
+    def get_document_id(self):
+        return self.key.document_id
 
-    controller = _InpaintCacheController()
-    controller._inpaint_request_generation = 2
-    controller.model = Model()
-    service = EditorControllerInpaintService(controller)
-    image = np.full((24, 32, 3), 180, dtype=np.uint8)
-    mask = np.full((24, 32), 255, dtype=np.uint8)
+    def get_mask_revision(self):
+        return self.key.mask_revision
 
-    service.apply_inpaint_result((1, image, mask))
-    assert controller.model.image is None
+    def get_inpaint_key(self):
+        return self.key
 
-    service.apply_inpaint_result((2, image, mask))
-    assert np.array_equal(controller.model.image, image)
-    assert np.array_equal(
-        controller.resource_manager.get_cache(controller.CACHE_LAST_MASK), mask
-    )
+    def get_source_rgb(self):
+        return self.source_rgb
 
+    def get_effective_mask(self):
+        return self.mask
 
-class _NoopAsyncService:
-    @staticmethod
-    def cancel_all_tasks():
-        pass
+    def get_committed_inpaint_artifact(self):
+        return self.state.committed
 
+    def get_ready_inpaint_artifact(self):
+        return self.state.ready_artifact(self.key, self.mask)
 
-class _NoopHistoryService:
-    @staticmethod
-    def clear():
-        pass
+    def install_inpaint_artifact(self, artifact):
+        if artifact.key != self.key or not np.array_equal(artifact.mask, self.mask):
+            return False
+        self.state.install_ready(artifact)
+        self.image = artifact.image
+        return True
 
-    @staticmethod
-    def mark_clean():
-        pass
+    def fail_inpaint(self, key):
+        return self.state.fail(key, self.key)
 
-
-class _SnapshotModel:
-    def __init__(self, inpaint_service):
-        self.inpaint_service = inpaint_service
-        self.snapshot = None
-
-    def apply_document_snapshot(self, snapshot):
-        assert self.inpaint_service.cache_was_cleared
-        self.snapshot = snapshot
+    def begin_inpaint(self, key, future):
+        if key != self.key:
+            future.cancel()
+            return False
+        return self.state.begin(key, future)
 
 
-class _RecordingInpaintService:
-    def __init__(self):
-        self.cache_was_cleared = False
-
-    def invalidate_inpaint_requests(self):
-        pass
-
-    def clear_document_cache(self):
-        self.cache_was_cleared = True
-
-
-class _DocumentLoadController:
-    def __init__(self):
-        self._loading_toast = None
-        self._pending_editor_prefetch_paths = []
-        self.async_service = _NoopAsyncService()
-        self.history_service = _NoopHistoryService()
-        self.resource_manager = ResourceManager()
-        self.inpaint_service = _RecordingInpaintService()
-        self.model = _SnapshotModel(self.inpaint_service)
-
-    @staticmethod
-    def get_toolbar():
-        return None
-
-    @staticmethod
-    def get_graphics_view():
-        return None
-
-    @staticmethod
-    def _update_undo_redo_buttons():
-        pass
-
-    @staticmethod
-    def _log_memory_snapshot(_stage):
-        pass
-
-
-def test_loading_snapshot_resets_inpaint_cache_before_applying_document():
-    controller = _DocumentLoadController()
-    service = EditorControllerDocumentService(controller)
-    snapshot = DocumentSnapshot(
-        source_path="next-page.png",
-        image=Image.new("RGB", (32, 24)),
-        inpainted_image=None,
-    )
-
-    try:
-        service.apply_loaded_data_to_model(snapshot)
-    finally:
-        service.shutdown()
-
-    assert controller.model.snapshot is snapshot
-
-
-def _make_editor_model(monkeypatch):
-    import services
-
-    resource_manager = ResourceManager()
-    monkeypatch.setattr(services, "get_resource_manager", lambda: resource_manager)
-    return EditorModel()
-
-
-def test_document_defaults_alpha_from_inpainted_image(monkeypatch):
-    model = _make_editor_model(monkeypatch)
-    alpha_events = []
-    image_alpha_snapshots = []
-    model.original_image_alpha_changed.connect(alpha_events.append)
-    model.image_changed.connect(
-        lambda _image: image_alpha_snapshots.append(
-            model.get_original_image_alpha()
+class _InpaintController:
+    def __init__(self, model):
+        self.model = model
+        self.logger = SimpleNamespace(
+            debug=lambda *args, **kwargs: None,
+            error=lambda *args, **kwargs: None,
         )
-    )
 
-    model.apply_document_snapshot(
-        DocumentSnapshot(
-            source_path="raw.png",
-            image=Image.new("RGB", (8, 8)),
-            inpainted_image=None,
+
+def _make_keyed_service():
+    key = InpaintKey(document_id=2, mask_revision=5)
+    mask = np.full((4, 5), 255, dtype=np.uint8)
+    model = _KeyedModel(key, mask)
+    assert model.begin_inpaint(key, concurrent.futures.Future())
+    return EditorControllerInpaintService(_InpaintController(model)), model, key, mask
+
+
+def test_inpaint_key_rejects_stale_document_and_mask_results():
+    image = np.full((4, 5, 3), 181, dtype=np.uint8)
+
+    for field in ("document_id", "mask_revision"):
+        service, model, request_key, mask = _make_keyed_service()
+        model.key = replace(
+            request_key,
+            **{field: getattr(request_key, field) + 1},
         )
-    )
-    model.apply_document_snapshot(
-        DocumentSnapshot(
-            source_path="inpainted.png",
-            image=Image.new("RGB", (8, 8)),
-            inpainted_image=np.zeros((8, 8, 3), dtype=np.uint8),
-        )
-    )
 
-    assert alpha_events == [1.0, 0.0]
-    assert image_alpha_snapshots == [1.0, 0.0]
+        service.apply_inpaint_result(InpaintArtifact(request_key, mask, image))
+
+        assert model.image is None, field
+        assert model.get_committed_inpaint_artifact() is None, field
+        assert model.get_ready_inpaint_artifact() is None, field
 
 
-def test_user_alpha_override_persists_across_document_switches(monkeypatch):
-    model = _make_editor_model(monkeypatch)
-    alpha_events = []
-    image_alpha_snapshots = []
-    model.original_image_alpha_changed.connect(alpha_events.append)
-    model.image_changed.connect(
-        lambda _image: image_alpha_snapshots.append(
-            model.get_original_image_alpha()
-        )
-    )
-
-    model.apply_document_snapshot(
-        DocumentSnapshot(
-            source_path="first.png",
-            image=Image.new("RGB", (8, 8)),
-            inpainted_image=None,
-        )
-    )
-    model.set_original_image_alpha_override(0.37)
-    model.apply_document_snapshot(
-        DocumentSnapshot(
-            source_path="second.png",
-            image=Image.new("RGB", (8, 8)),
-            inpainted_image=np.zeros((8, 8, 3), dtype=np.uint8),
-        )
-    )
-    model.apply_document_snapshot(
-        DocumentSnapshot(
-            source_path="third.png",
-            image=Image.new("RGB", (8, 8)),
-            inpainted_image=None,
-        )
-    )
-
-    assert model.get_original_image_alpha() == 0.37
-    assert alpha_events == [1.0, 0.37, 0.37, 0.37]
-    assert image_alpha_snapshots == [1.0, 0.37, 0.37]
-
-
-def test_late_inpaint_uses_automatic_alpha_until_user_override(monkeypatch):
-    model = _make_editor_model(monkeypatch)
-    alpha_events = []
-    model.original_image_alpha_changed.connect(alpha_events.append)
+def test_region_change_does_not_reject_same_inpaint_key():
+    model = _make_editor_model()
+    mask = np.full((4, 5), 255, dtype=np.uint8)
     model.apply_document_snapshot(
         DocumentSnapshot(
             source_path="page.png",
-            image=Image.new("RGB", (8, 8)),
-            inpainted_image=None,
+            image=Image.new("RGB", (5, 4)),
+            regions=[{"translation": "before", "font_size": 18}],
+            raw_mask=mask,
         )
     )
+    service = EditorControllerInpaintService(_InpaintController(model))
+    key = model.get_inpaint_key()
+    assert model.begin_inpaint(key, concurrent.futures.Future())
 
-    model.set_inpainted_image(np.zeros((8, 8, 3), dtype=np.uint8))
-    assert model.get_original_image_alpha() == 0.0
+    model.replace_regions([{"translation": "after", "font_size": 24}])
+    assert model.get_inpaint_key() == key
 
-    model.set_original_image_alpha_override(0.42)
-    model.set_inpainted_image(None)
-    model.set_inpainted_image(np.zeros((8, 8, 3), dtype=np.uint8))
+    image = np.full((4, 5, 3), 137, dtype=np.uint8)
+    service.apply_inpaint_result(InpaintArtifact(key, mask, image))
+    artifact = model.get_ready_inpaint_artifact()
 
-    assert model.get_original_image_alpha() == 0.42
-    assert alpha_events == [1.0, 0.0, 0.42]
-
-
-def main() -> int:
-    tests = [
-        test_clear_document_cache_removes_previous_page_state,
-        test_loading_snapshot_resets_inpaint_cache_before_applying_document,
-    ]
-    for test in tests:
-        test()
-        print(f"ok   {test.__name__}")
-    print(f"\n{len(tests)}/{len(tests)} passed")
-    return 0
+    assert artifact is not None
+    assert artifact.key == key
+    assert np.array_equal(artifact.mask, mask)
+    assert np.array_equal(artifact.image, image)
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def test_session_identity_changes_only_for_document_or_effective_mask():
+    session = EditorSession()
+    initial_mask = np.zeros((4, 5), dtype=np.uint8)
+    session.load_document(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=Image.new("RGB", (5, 4)),
+            regions=[{"translation": "before"}],
+            raw_mask=initial_mask,
+        )
+    )
+    initial_identity = session.get_document_identity()
+    initial_mask_revision = session.get_mask_revision()
+
+    session.set_regions([{"translation": "after", "font_size": 24}])
+    assert session.get_document_identity() == initial_identity
+    assert session.get_mask_revision() == initial_mask_revision
+
+    changed_mask = initial_mask.copy()
+    changed_mask[0, 0] = 255
+    session.replace_masks(refined=changed_mask)
+    assert session.get_document_identity() == initial_identity
+    assert session.get_mask_revision() == initial_mask_revision + 1
+
+    session.clear_document()
+    assert session.get_document_identity() is None
+
+
+def test_ready_artifact_is_rejected_after_document_or_mask_change():
+    image = np.full((4, 5, 3), 113, dtype=np.uint8)
+
+    for field in ("document_id", "mask_revision"):
+        service, model, key, mask = _make_keyed_service()
+        service.apply_inpaint_result(InpaintArtifact(key, mask, image))
+        assert model.get_ready_inpaint_artifact() is not None
+
+        model.key = replace(key, **{field: getattr(key, field) + 1})
+
+        assert model.get_ready_inpaint_artifact() is None, field
+
+
+def test_undo_to_committed_mask_rekeys_and_reuses_its_artifact():
+    mask = np.full((4, 5), 255, dtype=np.uint8)
+    current_key = InpaintKey(2, 6)
+    committed = InpaintArtifact(
+        InpaintKey(2, 5),
+        mask,
+        np.full((4, 5, 3), 113, dtype=np.uint8),
+    )
+    model = _KeyedModel(current_key, mask)
+    model.state.install_ready(committed)
+    service = EditorControllerInpaintService(_InpaintController(model))
+    delta = MaskDelta(mask, np.zeros_like(mask), current_key.mask_revision)
+
+    service.on_effective_mask_delta_changed(mask, delta)
+
+    ready = model.get_ready_inpaint_artifact()
+    assert ready is not None
+    assert ready.key == current_key
+    assert ready.image is committed.image
+
+
+def test_mask_delta_repeated_coverage_partial_addition_and_erasure():
+    session = EditorSession()
+    session.load_document(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=np.zeros((2, 3, 3), dtype=np.uint8),
+        )
+    )
+    initial = np.array(
+        [
+            [255, 0, 0],
+            [0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    initial_delta = session.replace_masks(refined=initial).delta
+    assert initial_delta is not None
+    initial_revision = session.get_mask_revision()
+
+    repeated_delta = session.replace_masks(refined=initial.copy()).delta
+    assert repeated_delta is None
+    assert session.get_mask_revision() == initial_revision
+
+    extended = initial.copy()
+    extended[0, 1] = 255
+    added_delta = session.replace_masks(refined=extended).delta
+    assert added_delta is not None
+    assert added_delta.mask_revision == initial_revision + 1
+    assert np.array_equal(
+        added_delta.added,
+        np.array([[0, 255, 0], [0, 0, 0]], dtype=np.uint8),
+    )
+    assert not np.any(added_delta.removed)
+
+    erased = extended.copy()
+    erased[0, 0] = 0
+    erased_delta = session.replace_masks(refined=erased).delta
+    assert erased_delta is not None
+    assert not np.any(erased_delta.added)
+    assert np.array_equal(
+        erased_delta.removed,
+        np.array([[255, 0, 0], [0, 0, 0]], dtype=np.uint8),
+    )
+
+
+def test_erasure_restores_base_pixels_from_immutable_request_snapshot():
+    previous_key = InpaintKey(1, 1)
+    request_key = InpaintKey(1, 2)
+    base = np.full((2, 3, 3), 19, dtype=np.uint8)
+    previous_mask = np.array(
+        [
+            [255, 255, 0],
+            [0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    current_mask = np.array(
+        [
+            [0, 255, 0],
+            [0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    previous_image = np.full((2, 3, 3), 211, dtype=np.uint8)
+    removed = np.array(
+        [
+            [255, 0, 0],
+            [0, 0, 0],
+        ],
+        dtype=np.uint8,
+    )
+    delta = MaskDelta(
+        added=np.zeros_like(removed),
+        removed=removed,
+        mask_revision=request_key.mask_revision,
+    )
+    removed[:] = 0
+    previous_artifact = InpaintArtifact(
+        previous_key,
+        previous_mask,
+        previous_image,
+    )
+    request = InpaintRequest(
+        key=request_key,
+        image=base,
+        mask=current_mask,
+        delta=delta,
+        previous_artifact=previous_artifact,
+        config=InpaintConfigSnapshot("none", "fp32", False, 64, "cpu"),
+    )
+
+    base[:] = 0
+    current_mask[:] = 0
+    previous_image[:] = 0
+    assert request.delta is delta
+    assert request.previous_artifact is previous_artifact
+    assert not np.shares_memory(request.image, base)
+    assert not np.shares_memory(request.mask, current_mask)
+
+    result = asyncio.run(EditorControllerInpaintService.async_inpaint(request))
+
+    assert result is not None
+    assert result.key == request_key
+    assert np.array_equal(result.mask, request.mask)
+    unmasked = request.mask == 0
+    assert np.array_equal(result.image[unmasked], request.image[unmasked])
+    assert np.all(result.image[0, 1] == 211)
+
+
+def _make_editor_model():
+    return EditorModel()

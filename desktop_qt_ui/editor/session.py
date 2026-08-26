@@ -1,302 +1,337 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Optional
 
-import numpy as np
-
-from .core.resource_manager import ResourceManager
 from .core.types import MaskType
-from .region_geometry_state import normalize_region_geometry_data
-
-
-INPAINTED_IMAGE_CACHE_KEY = "inpainted_image"
-PAINT_OVERLAY_IMAGE_CACHE_KEY = "paint_overlay_image"
-STAMP_OVERLAY_IMAGE_CACHE_KEY = "stamp_overlay_image"
-
-
-@dataclass(slots=True)
-class DocumentSnapshot:
-    source_path: str
-    image: Any
-    compare_image: Any = None
-    regions: list[dict] = field(default_factory=list)
-    raw_mask: Any = None
-    inpainted_path: Optional[str] = None
-    inpainted_image: Any = None
-    paint_overlay_path: Optional[str] = None
-    paint_overlay_image: Any = None
-    stamp_overlay_image: Any = None
-
-
-@dataclass(slots=True)
-class DocumentLoadFailure:
-    error: str
+from .document_state import (
+    _UNSET,
+    DisplayLayers,
+    DocumentLoadFailure,
+    DocumentSnapshot,
+    EditorDocument,
+    EditorWorkspaceState,
+    ExportBase,
+    LoadedInpaintSidecar,
+    MaskMutation,
+    _arrays_equal,
+)
+from .inpaint_state import InpaintArtifact, InpaintKey
 
 
 class EditorSession:
-    """文档级编辑状态中枢。"""
+    """Single owner of the active document and persistent editor workspace state."""
 
-    def __init__(self, resource_manager: ResourceManager):
-        self.resource_manager = resource_manager
-        self._source_image_path: Optional[str] = None
-        self._image = None
-        self._inpainted_image_path: Optional[str] = None
-        self._paint_overlay_path: Optional[str] = None
-        self._display_mask_type: str = "none"
-        self._selected_indices: list[int] = []
-        self._region_display_mode: str = "full"
-        # None 表示按当前文档内容自动选择：有修复图时显示修复图，否则显示原图。
-        # 一旦用户调整，覆盖值在整个编辑器会话中保持，切图不会重置。
-        self._original_image_alpha_override: Optional[float] = None
-        self._compare_image = None
-        self._active_tool: str = "select"
-        self._brush_size: int = 30
-        self._brush_color: str = "#ffffff"
-        self._document_revision: int = 0
+    def __init__(self):
+        self._workspace = EditorWorkspaceState()
+        self._document: Optional[EditorDocument] = None
+        self._next_document_id = 0
 
-    @staticmethod
-    def _normalize_binary_mask(mask: Any) -> Optional[np.ndarray]:
-        if mask is None:
+    def _allocate_document_id(self) -> int:
+        self._next_document_id += 1
+        return self._next_document_id
+
+    def _discard_document(self) -> None:
+        document = self._document
+        self._document = None
+        self._workspace.selected_region_ids.clear()
+        if document is not None:
+            document.inpaint.invalidate(clear_committed=True)
+
+    def load_document(self, snapshot: DocumentSnapshot) -> None:
+        """Replace the active document as one identity-scoped state transition."""
+        self._discard_document()
+        document_id = self._allocate_document_id()
+        self._document = EditorDocument.from_snapshot(document_id, snapshot)
+
+    def clear_document(self) -> None:
+        self._discard_document()
+        self._allocate_document_id()
+
+    def get_document_identity(self) -> Optional[tuple[int, str]]:
+        document = self._document
+        if document is None:
             return None
-        mask_np = np.asarray(mask)
-        if mask_np.ndim == 3:
-            mask_np = mask_np[:, :, 0]
-        return np.where(mask_np > 0, 255, 0).astype(np.uint8)
+        return document.document_id, document.source_path
 
-    def _bump_document_revision(self) -> None:
-        self._document_revision += 1
+    def get_document_id(self) -> int:
+        document = self._document
+        return self._next_document_id if document is None else document.document_id
 
-    def get_document_revision(self) -> int:
-        return self._document_revision
-
-    def set_source_image_path(self, path: Optional[str]) -> None:
-        self._source_image_path = path
+    def get_mask_revision(self) -> int:
+        document = self._document
+        return 0 if document is None else document.mask_revision
 
     def get_source_image_path(self) -> Optional[str]:
-        return self._source_image_path
-
-    def set_image(self, image: Any) -> None:
-        # 图以 eager 方式打开，不持有文件句柄，也可能同时被 ResourceManager
-        # 缓存和导出快照持有，因此换图时只丢引用，不做任何关闭判断。
-        self._image = image
-        self._bump_document_revision()
+        document = self._document
+        return None if document is None else document.source_path
 
     def get_image(self) -> Any:
-        return self._image
+        document = self._document
+        return None if document is None else document.source_image
+
+    def get_source_rgb(self) -> Any:
+        document = self._document
+        return None if document is None else document.source_rgb()
+
+    def get_source_qimage(self) -> Any:
+        document = self._document
+        return None if document is None else document.source_qimage
+
+    def get_compare_image(self) -> Any:
+        document = self._document
+        return None if document is None else document.compare_image
+
+    def set_compare_image(self, image: Any) -> bool:
+        document = self._document
+        if document is None or image is document.compare_image:
+            return False
+        document.compare_image = image
+        return True
 
     def set_regions(self, regions: list[dict]) -> None:
-        """整体重建 region 列表（文档级操作），region_id 重新分配。"""
-        self.resource_manager.clear_regions()
-        for region_data in regions:
-            self.resource_manager.add_region(normalize_region_geometry_data(region_data))
-        self._bump_document_revision()
+        document = self._document
+        if document is None:
+            return
+        document.replace_regions(regions)
+        self._workspace.selected_region_ids.clear()
 
     def update_region(self, index: int, region: dict) -> bool:
-        if not self.resource_manager.update_region(index, normalize_region_geometry_data(region)):
+        document = self._document
+        if document is None or not document.regions.update(index, region):
             return False
-        self._bump_document_revision()
         return True
 
     def insert_region(self, index: int, region: dict) -> int:
-        insert_at = self.resource_manager.insert_region(index, normalize_region_geometry_data(region))
-        self._bump_document_revision()
+        document = self._document
+        if document is None:
+            raise RuntimeError("cannot insert a region without an active document")
+        insert_at = document.regions.insert(index, region)
         return insert_at
 
     def remove_region(self, index: int) -> Optional[dict]:
-        removed = self.resource_manager.remove_region(index)
-        if removed is not None:
-            self._bump_document_revision()
+        document = self._document
+        if document is None:
+            return None
+        region_id = document.regions.region_id(index)
+        removed = document.regions.remove(index)
+        if removed is None:
+            return None
+        if region_id in self._workspace.selected_region_ids:
+            self._workspace.selected_region_ids.remove(region_id)
         return removed
 
     def move_region(self, source_index: int, target_index: int) -> Optional[int]:
-        moved_to = self.resource_manager.move_region(source_index, target_index)
-        if moved_to is not None and moved_to != source_index:
-            self._bump_document_revision()
+        document = self._document
+        if document is None:
+            return None
+        moved_to = document.regions.move(source_index, target_index)
         return moved_to
 
     def store_derived_regions(self, updates: dict[int, dict]) -> None:
-        """按索引覆盖指定 region 数据（region_id 不变），用于渲染派生字段写回。"""
-        applied = False
+        document = self._document
+        if document is None:
+            return
         for index, region in updates.items():
-            if self.resource_manager.update_region(index, normalize_region_geometry_data(region)):
-                applied = True
-        if applied:
-            self._bump_document_revision()
+            document.regions.update(index, region)
 
     def get_region_id(self, index: int) -> Optional[int]:
-        return self.resource_manager.get_region_id(index)
+        document = self._document
+        return None if document is None else document.regions.region_id(index)
 
     def find_region_index(self, region_id: int) -> Optional[int]:
-        return self.resource_manager.find_region_index(region_id)
+        document = self._document
+        return None if document is None else document.regions.index_of(region_id)
 
     def get_regions(self) -> list[dict]:
-        resources = self.resource_manager.get_all_regions()
-        return [resource.data for resource in resources]
+        document = self._document
+        return [] if document is None else document.regions.snapshot()
 
-    def set_mask(self, mask_type: MaskType, mask: Any) -> Optional[np.ndarray]:
-        normalized = self._normalize_binary_mask(mask)
-        if normalized is None:
-            self.resource_manager.clear_mask(mask_type)
-        else:
-            self.resource_manager.set_mask(mask_type, normalized)
-        self._bump_document_revision()
-        return normalized
+    def get_region_by_index(self, index: int) -> Optional[dict]:
+        document = self._document
+        return None if document is None else document.regions.get(index)
+
+    def set_selection(self, indices: list[int]) -> bool:
+        document = self._document
+        region_ids: list[int] = []
+        if document is not None:
+            for index in sorted(set(int(value) for value in indices)):
+                region_id = document.regions.region_id(index)
+                if region_id is not None:
+                    region_ids.append(region_id)
+        if region_ids == self._workspace.selected_region_ids:
+            return False
+        self._workspace.selected_region_ids = region_ids
+        return True
+
+    def get_selection(self) -> list[int]:
+        document = self._document
+        if document is None:
+            return []
+        indices = (
+            document.regions.index_of(region_id)
+            for region_id in self._workspace.selected_region_ids
+        )
+        return sorted(index for index in indices if index is not None)
+
+    def replace_masks(
+        self,
+        *,
+        raw: Any = _UNSET,
+        refined: Any = _UNSET,
+    ) -> MaskMutation:
+        document = self._document
+        if document is None:
+            return MaskMutation(None, None, False, False, None, None)
+        return document.replace_masks(raw=raw, refined=refined)
 
     def get_mask(self, mask_type: MaskType) -> Any:
-        resource = self.resource_manager.get_mask(mask_type)
-        return resource.data if resource else None
+        document = self._document
+        return None if document is None else document.masks.get(mask_type)
+
+    def get_effective_mask(self) -> Any:
+        document = self._document
+        return None if document is None else document.masks.effective()
+
+    def get_inpaint_key(self) -> InpaintKey:
+        document = self._document
+        if document is None:
+            return InpaintKey(self._next_document_id, 0)
+        return document.inpaint_key()
+
+    def get_ready_inpaint_artifact(self) -> Optional[InpaintArtifact]:
+        document = self._document
+        return None if document is None else document.ready_inpaint_artifact()
+
+    def get_committed_inpaint_artifact(self) -> Optional[InpaintArtifact]:
+        document = self._document
+        return None if document is None else document.inpaint.committed
+
+    def begin_inpaint(self, key: InpaintKey, future: Any) -> bool:
+        document = self._document
+        if document is None or key != document.inpaint_key():
+            if future is not None and not future.done():
+                future.cancel()
+            return False
+        return document.inpaint.begin(key, future)
+
+    def fail_inpaint(self, key: InpaintKey) -> bool:
+        document = self._document
+        if document is None:
+            return False
+        return document.inpaint.fail(key, document.inpaint_key())
+
+    def install_inpaint_artifact(self, artifact: InpaintArtifact) -> bool:
+        document = self._document
+        return bool(
+            document is not None and document.install_inpaint_artifact(artifact)
+        )
+
+    def get_display_layers(self) -> Optional[DisplayLayers]:
+        document = self._document
+        if document is None:
+            return None
+        return document.display_layers(self._workspace.source_opacity)
+
+    def get_export_base(self) -> Optional[ExportBase]:
+        document = self._document
+        return None if document is None else document.export_base()
 
     def set_display_mask_type(self, mask_type: str) -> bool:
         if mask_type not in {"raw", "refined", "none"}:
             return False
-        if self._display_mask_type == mask_type:
+        if self._workspace.display_mask_type == mask_type:
             return False
-        self._display_mask_type = mask_type
+        self._workspace.display_mask_type = mask_type
         return True
 
     def get_display_mask_type(self) -> str:
-        return self._display_mask_type
-
-    def set_inpainted_image_path(self, path: Optional[str]) -> None:
-        self._inpainted_image_path = path
-
-    def get_inpainted_image_path(self) -> Optional[str]:
-        return self._inpainted_image_path
-
-    def set_selection(self, indices: list[int]) -> bool:
-        normalized = sorted(indices)
-        if self._selected_indices == normalized:
-            return False
-        self._selected_indices = normalized
-        return True
-
-    def get_selection(self) -> list[int]:
-        return list(self._selected_indices)
-
-    def get_region_by_index(self, index: int) -> Optional[dict]:
-        regions = self.get_regions()
-        if 0 <= index < len(regions):
-            return regions[index]
-        return None
-
-    def set_inpainted_image(self, image: Any) -> None:
-        if image is None:
-            self.resource_manager.clear_cache(INPAINTED_IMAGE_CACHE_KEY)
-        else:
-            self.resource_manager.set_cache(INPAINTED_IMAGE_CACHE_KEY, image)
-        self._bump_document_revision()
-
-    def get_inpainted_image(self) -> Any:
-        return self.resource_manager.get_cache(INPAINTED_IMAGE_CACHE_KEY)
-
-    def set_compare_image(self, image: Any) -> None:
-        # 对照图可能就是底图本身（无独立原图时），同样只丢引用，不做关闭判断。
-        self._compare_image = image
-        self._bump_document_revision()
-
-    def get_compare_image(self) -> Any:
-        return self._compare_image
+        return self._workspace.display_mask_type
 
     def set_region_display_mode(self, mode: str) -> bool:
-        if self._region_display_mode == mode:
+        if self._workspace.region_display_mode == mode:
             return False
-        self._region_display_mode = mode
+        self._workspace.region_display_mode = mode
         return True
 
     def get_region_display_mode(self) -> str:
-        return self._region_display_mode
+        return self._workspace.region_display_mode
 
     def set_original_image_alpha_override(self, alpha: float) -> bool:
-        """记录用户选择的原图透明度；返回当前有效值是否变化。"""
-        previous = self.get_original_image_alpha()
-        self._original_image_alpha_override = max(0.0, min(1.0, float(alpha)))
-        return self.get_original_image_alpha() != previous
+        return self._workspace.set_source_opacity(alpha)
 
     def get_original_image_alpha(self) -> float:
-        """返回画布有效透明度；用户值优先，否则由当前文档派生。"""
-        if self._original_image_alpha_override is not None:
-            return self._original_image_alpha_override
-        return 0.0 if self.get_inpainted_image() is not None else 1.0
+        return self._workspace.source_opacity
 
     def set_active_tool(self, tool: str) -> bool:
-        if self._active_tool == tool:
+        if self._workspace.active_tool == tool:
             return False
-        self._active_tool = tool
+        self._workspace.active_tool = tool
         return True
 
     def get_active_tool(self) -> str:
-        return self._active_tool
+        return self._workspace.active_tool
 
     def set_brush_size(self, size: int) -> bool:
-        if self._brush_size == size:
+        size = int(size)
+        if self._workspace.brush_size == size:
             return False
-        self._brush_size = size
+        self._workspace.brush_size = size
         return True
 
     def get_brush_size(self) -> int:
-        return self._brush_size
+        return self._workspace.brush_size
 
     def set_brush_color(self, color: str) -> bool:
-        color_value = str(color or "").strip() or "#ff0000"
-        if self._brush_color == color_value:
+        value = str(color or "").strip() or "#ff0000"
+        if self._workspace.brush_color == value:
             return False
-        self._brush_color = color_value
+        self._workspace.brush_color = value
         return True
 
     def get_brush_color(self) -> str:
-        return self._brush_color
+        return self._workspace.brush_color
 
     def set_paint_overlay_path(self, path: Optional[str]) -> None:
-        self._paint_overlay_path = path
+        document = self._document
+        if document is not None:
+            document.overlays.paint_path = path
 
     def get_paint_overlay_path(self) -> Optional[str]:
-        return self._paint_overlay_path
+        document = self._document
+        return None if document is None else document.overlays.paint_path
 
-    def set_paint_overlay_image(self, image: Any) -> None:
-        if image is None:
-            self.resource_manager.clear_cache(PAINT_OVERLAY_IMAGE_CACHE_KEY)
-        else:
-            self.resource_manager.set_cache(PAINT_OVERLAY_IMAGE_CACHE_KEY, image)
-        self._bump_document_revision()
+    def set_paint_overlay_image(self, image: Any) -> bool:
+        document = self._document
+        if document is None:
+            return False
+        normalized = document.overlays.normalize(image)
+        if _arrays_equal(document.overlays.paint, normalized):
+            return False
+        document.overlays.paint = normalized
+        return True
 
     def get_paint_overlay_image(self) -> Any:
-        return self.resource_manager.get_cache(PAINT_OVERLAY_IMAGE_CACHE_KEY)
+        document = self._document
+        return None if document is None else document.overlays.paint
 
-    def set_stamp_overlay_image(self, image: Any) -> None:
-        if image is None:
-            self.resource_manager.clear_cache(STAMP_OVERLAY_IMAGE_CACHE_KEY)
-        else:
-            self.resource_manager.set_cache(STAMP_OVERLAY_IMAGE_CACHE_KEY, image)
-        self._bump_document_revision()
+    def set_stamp_overlay_image(self, image: Any) -> bool:
+        document = self._document
+        if document is None:
+            return False
+        normalized = document.overlays.normalize(image)
+        if _arrays_equal(document.overlays.stamp, normalized):
+            return False
+        document.overlays.stamp = normalized
+        return True
 
     def get_stamp_overlay_image(self) -> Any:
-        return self.resource_manager.get_cache(STAMP_OVERLAY_IMAGE_CACHE_KEY)
+        document = self._document
+        return None if document is None else document.overlays.stamp
 
-    def load_document(self, snapshot: DocumentSnapshot) -> None:
-        self.set_source_image_path(snapshot.source_path)
-        self.set_image(snapshot.image)
-        self.set_compare_image(snapshot.compare_image if snapshot.compare_image is not None else snapshot.image)
-        self.set_regions(snapshot.regions)
-        self.set_mask(MaskType.RAW, snapshot.raw_mask)
-        self.set_mask(MaskType.REFINED, None)
-        self.set_inpainted_image_path(snapshot.inpainted_path)
-        self.set_inpainted_image(snapshot.inpainted_image)
-        self.set_paint_overlay_path(snapshot.paint_overlay_path)
-        self.set_paint_overlay_image(snapshot.paint_overlay_image)
-        self.set_stamp_overlay_image(snapshot.stamp_overlay_image)
-        self.set_selection([])
 
-    def clear_document(self) -> None:
-        self.set_source_image_path(None)
-        self.set_image(None)
-        self.set_compare_image(None)
-        self.set_regions([])
-        self.set_mask(MaskType.RAW, None)
-        self.set_mask(MaskType.REFINED, None)
-        self.set_inpainted_image_path(None)
-        self.set_inpainted_image(None)
-        self.set_paint_overlay_path(None)
-        self.set_paint_overlay_image(None)
-        self.set_stamp_overlay_image(None)
-        self.set_selection([])
+__all__ = [
+    "DocumentLoadFailure",
+    "DocumentSnapshot",
+    "EditorSession",
+    "LoadedInpaintSidecar",
+]

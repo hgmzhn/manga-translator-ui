@@ -1,4 +1,5 @@
 """几何编辑提交管线 — 构建旋转 / 白框编辑的 region_data。"""
+
 import copy
 from typing import Optional
 
@@ -57,23 +58,18 @@ def _white_frame_size_changed(
     new_wf_local: Optional[list],
 ) -> bool:
     """仅当白框宽高发生变化时，才触发字号重算。"""
-    old_size = _extract_white_frame_pixel_size(old_wf_local)
-    new_size = _extract_white_frame_pixel_size(new_wf_local)
+    old_size = _extract_white_frame_size(old_wf_local)
+    new_size = _extract_white_frame_size(new_wf_local)
     if old_size is None or new_size is None:
         return True
-
-    return new_size != old_size
-
-
-def _extract_white_frame_pixel_size(wf_local: Optional[list]) -> Optional[tuple[int, int]]:
-    size = _extract_white_frame_size(wf_local)
-    if size is None:
-        return None
-    width, height = size
-    return int(round(width)), int(round(height))
+    return tuple(round(value) for value in new_size) != tuple(
+        round(value) for value in old_size
+    )
 
 
-def _extract_white_frame_size(wf_local: Optional[list]) -> Optional[tuple[float, float]]:
+def _extract_white_frame_size(
+    wf_local: Optional[list],
+) -> Optional[tuple[float, float]]:
     if wf_local is None or len(wf_local) != 4:
         return None
     left, top, right, bottom = wf_local
@@ -84,7 +80,9 @@ def _extract_white_frame_size(wf_local: Optional[list]) -> Optional[tuple[float,
     return width, height
 
 
-def _calc_font_size(region_data: dict, wf_local: Optional[list], params) -> Optional[int]:
+def _calc_font_size(
+    region_data: dict, wf_local: Optional[list], params
+) -> Optional[int]:
     size = _extract_white_frame_size(wf_local)
     if size is None:
         return None

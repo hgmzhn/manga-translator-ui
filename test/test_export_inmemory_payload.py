@@ -1,25 +1,16 @@
-# -*- coding: utf-8 -*-
-"""导出内存直通载荷回归测试。
+import _bootstrap  # noqa: F401
 
-覆盖点：
-1. 载荷解析与"写临时 JSON 再读回"的解析结果等价（regions/mask）。
-2. 端到端导出：内存载荷 + 编辑器修复图复用，不再产生临时文件/重复回写。
-3. 无区域无蒙版导出原图不崩（回归 2026-05 "Operation on closed image"）。
+"""导出内存直通载荷回归测试。"""
 
-运行：python test/test_export_inmemory_payload.py
-"""
 import os
-import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "desktop_qt_ui"))
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-from PIL import Image  # noqa: E402
+import numpy as np
+import pytest
+from editor.document_state import ExportBase
+from editor.inpaint_state import InpaintKey
+from PIL import Image
 
 
 def _make_regions():
@@ -55,11 +46,22 @@ def _make_config_dict():
     }
 
 
+def _paired_export_base(base, mask, inpainted):
+    return ExportBase(
+        "paired",
+        base,
+        inpainted,
+        mask,
+        InpaintKey(1, 1),
+    )
+
+
 def test_payload_parsing_matches_file_parsing():
     """载荷直通解析与临时 JSON 落盘再读回，得到等价的 regions 与 mask。"""
     from services.export_service import ExportService
-    from manga_translator.manga_translator import MangaTranslator
+
     from manga_translator.config import Config, TranslatorConfig
+    from manga_translator.manga_translator import MangaTranslator
 
     service = ExportService()
     regions = _make_regions()
@@ -72,13 +74,22 @@ def test_payload_parsing_matches_file_parsing():
         image_path = os.path.join(temp_dir, "page.png")
         json_path = os.path.join(temp_dir, "page_translations.json")
         Image.new("RGB", (320, 240), "white").save(image_path)
-        service._save_regions_data([dict(r) for r in regions], json_path, mask, _make_config_dict())
+        service._save_regions_data(
+            [dict(r) for r in regions], json_path, mask, _make_config_dict()
+        )
         file_parsed = translator._load_text_and_regions_from_file(image_path, cfg)
 
         # 新路径：内存载荷
+        base = Image.open(image_path)
         payload = service._build_load_text_payload(
-            [dict(r) for r in regions], mask, _make_config_dict()
+            [dict(r) for r in regions],
+            _paired_export_base(
+                base, mask, np.full((240, 320, 3), 200, dtype=np.uint8)
+            ),
+            _make_config_dict(),
+            base_size=base.size,
         )
+        base.close()
         translator.set_preloaded_load_text_payload(image_path, payload)
         payload_parsed = translator._load_text_and_regions_from_file(image_path, cfg)
         translator.set_preloaded_load_text_payload(image_path, None)
@@ -93,35 +104,41 @@ def test_payload_parsing_matches_file_parsing():
     assert fr.translation == pr.translation == "TEST"
     assert fr.font_size == pr.font_size
     assert tuple(fr.fg_colors) == tuple(pr.fg_colors)
-    assert (f_refined, f_skip_scale, f_skip_repl) == (p_refined, p_skip_scale, p_skip_repl)
+    assert (f_refined, f_skip_scale, f_skip_repl) == (
+        p_refined,
+        p_skip_scale,
+        p_skip_repl,
+    )
     assert f_mask is not None and p_mask is not None
     assert np.array_equal(f_mask, p_mask)
     print("PASS: payload parsing matches file parsing")
 
 
 def _run_export(regions, mask, inpainted, tmp, output_name):
+    from editor.controller_export_service import ExportJob
     from services.export_service import ExportService
 
     service = ExportService()
     source_path = os.path.join(tmp, "source.png")
     base = Image.new("RGB", (320, 240), "white")
     base.save(source_path)
-
     output_path = os.path.join(tmp, "out", output_name)
-    outcome = {"success": None, "error": None}
-    service._perform_backend_render_export(
-        base.copy(),
-        regions,
-        _make_config_dict(),
-        output_path,
-        mask,
-        None,
-        lambda m: outcome.__setitem__("success", m),
-        lambda m: outcome.__setitem__("error", m),
-        source_path,
-        False,
-        inpainted,
+    export_base = (
+        ExportBase("source", base, base, None, None)
+        if mask is None
+        else _paired_export_base(base, mask, inpainted)
     )
+    job = ExportJob(
+        automatic=False,
+        source_path=source_path,
+        output_path=output_path,
+        export_base=export_base,
+        regions=regions,
+        config=_make_config_dict(),
+    )
+    base.close()
+    outcome = service.execute_export_job(job)
+    job.release_resources()
     return source_path, output_path, outcome
 
 
@@ -129,11 +146,10 @@ def test_export_end_to_end_inmemory():
     """带区域+蒙版+编辑器修复图：导出成功、复用修复图、无工作目录副作用。"""
     with tempfile.TemporaryDirectory() as tmp:
         inpainted = np.full((240, 320, 3), 200, dtype=np.uint8)
-        source_path, output_path, outcome = _run_export(
+        _source_path, output_path, outcome = _run_export(
             _make_regions(), _make_mask(), inpainted, tmp, "out.png"
         )
-        assert outcome["error"] is None, f"export failed: {outcome['error']}"
-        assert outcome["success"], "success callback not fired"
+        assert outcome.error is None, f"export failed: {outcome.error}"
         assert os.path.exists(output_path)
         with Image.open(output_path) as out_img:
             assert out_img.size == (320, 240)
@@ -150,7 +166,7 @@ def test_export_no_regions_no_mask_returns_original():
     """无区域无蒙版：导出原图，不触发 closed-image 崩溃（2026-05 回归）。"""
     with tempfile.TemporaryDirectory() as tmp:
         source_path, output_path, outcome = _run_export([], None, None, tmp, "out.png")
-        assert outcome["error"] is None, f"export failed: {outcome['error']}"
+        assert outcome.error is None, f"export failed: {outcome.error}"
         assert os.path.exists(output_path)
         with Image.open(output_path) as out_img, Image.open(source_path) as src_img:
             out_rgb = np.asarray(out_img.convert("RGB"))
@@ -169,15 +185,17 @@ def test_project_json_marks_replacements_done():
     with tempfile.TemporaryDirectory() as tmp:
         img_path = os.path.join(tmp, "src.png")
         Image.new("RGB", (320, 240), "white").save(img_path)
-        json_path = os.path.join(tmp, "src_translations.json")
-        service._save_regions_data_with_path(
-            [dict(r) for r in _make_regions()], json_path, img_path, _make_mask(), _make_config_dict()
+        json_path = service.save_editor_project(
+            img_path,
+            [dict(r) for r in _make_regions()],
+            _make_mask(),
+            _make_config_dict(),
         )
         with open(json_path, "r", encoding="utf-8") as f:
             data = jsonlib.load(f)
         image_data = data[os.path.abspath(img_path)]
         assert image_data.get("skip_text_replacements") is True
-        assert not list(Path(tmp).glob(".*translations.json.*.tmp"))
+        assert not list(Path(json_path).parent.glob(".*translations.json.*.tmp"))
     print("PASS: project json marks replacements done")
 
 
@@ -191,17 +209,28 @@ def test_project_json_omits_redundant_plain_rich_document():
     plain_region["translation_rich"] = {
         "format": "richtext.v1",
         "blocks": [
-            {"type": "paragraph", "inlines": [{"type": "text", "text": "A", "style": {}}]},
-            {"type": "paragraph", "inlines": [{"type": "text", "text": "B", "style": {}}]},
+            {
+                "type": "paragraph",
+                "inlines": [{"type": "text", "text": "A", "style": {}}],
+            },
+            {
+                "type": "paragraph",
+                "inlines": [{"type": "text", "text": "B", "style": {}}],
+            },
         ],
     }
     styled_region = dict(plain_region)
     styled_region["translation_rich"] = {
         "format": "richtext.v1",
-        "blocks": [{"type": "paragraph", "inlines": [
-            {"type": "text", "text": "A", "style": {"bold": True}},
-            {"type": "text", "text": "B", "style": {}},
-        ]}],
+        "blocks": [
+            {
+                "type": "paragraph",
+                "inlines": [
+                    {"type": "text", "text": "A", "style": {"bold": True}},
+                    {"type": "text", "text": "B", "style": {}},
+                ],
+            }
+        ],
     }
 
     plain_saved = service._normalize_regions_for_backend([plain_region])[0]
@@ -229,10 +258,9 @@ def test_project_json_write_is_atomic(monkeypatch):
 
         monkeypatch.setattr(export_service_module.json, "dump", fail_dump)
         with pytest.raises(RuntimeError, match="serialization failed"):
-            service._save_regions_data_with_path(
-                [dict(r) for r in _make_regions()],
-                json_path,
+            service.save_editor_project(
                 img_path,
+                [dict(r) for r in _make_regions()],
                 _make_mask(),
                 _make_config_dict(),
             )
@@ -246,8 +274,9 @@ def test_backend_writeback_marks_replacements_only_after_render():
     import json as jsonlib
 
     from services.export_service import ExportService
-    from manga_translator.manga_translator import MangaTranslator
+
     from manga_translator.config import Config, TranslatorConfig
+    from manga_translator.manga_translator import MangaTranslator
     from manga_translator.utils import Context
     from manga_translator.utils.path_manager import find_json_path
 
@@ -258,9 +287,19 @@ def test_backend_writeback_marks_replacements_only_after_render():
     def _writeback(tmp, name, rendered):
         img_path = os.path.join(tmp, name)
         Image.new("RGB", (320, 240), "white").save(img_path)
+        base = Image.open(img_path)
+        mask = _make_mask()
         payload = service._build_load_text_payload(
-            [dict(r) for r in _make_regions()], _make_mask(), _make_config_dict()
+            [dict(r) for r in _make_regions()],
+            _paired_export_base(
+                base,
+                mask,
+                np.full((240, 320, 3), 200, dtype=np.uint8),
+            ),
+            _make_config_dict(),
+            base_size=base.size,
         )
+        base.close()
         translator.set_preloaded_load_text_payload(img_path, payload)
         regions, *_ = translator._load_text_and_regions_from_file(img_path, cfg)
         translator.set_preloaded_load_text_payload(img_path, None)
@@ -278,10 +317,14 @@ def test_backend_writeback_marks_replacements_only_after_render():
 
     with tempfile.TemporaryDirectory() as tmp:
         rendered_data = _writeback(tmp, "rendered.png", rendered=True)
-        assert rendered_data.get("skip_text_replacements") is True, "rendered writeback should mark done"
+        assert rendered_data.get("skip_text_replacements") is True, (
+            "rendered writeback should mark done"
+        )
     with tempfile.TemporaryDirectory() as tmp:
         raw_data = _writeback(tmp, "raw.png", rendered=False)
-        assert "skip_text_replacements" not in raw_data, "non-rendered writeback must stay raw"
+        assert "skip_text_replacements" not in raw_data, (
+            "non-rendered writeback must stay raw"
+        )
     print("PASS: backend writeback marks replacements only after render")
 
 

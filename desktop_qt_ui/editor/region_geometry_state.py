@@ -12,6 +12,7 @@
   world_to_local:  dx, dy = world - center;  lx = dx*cos + dy*sin;  ly = -dx*sin + dy*cos
   local_to_world:  wx = cx + lx*cos - ly*sin;  wy = cy + lx*sin + ly*cos
 """
+
 import math
 from typing import List, Optional, Tuple
 
@@ -31,7 +32,11 @@ def normalize_region_geometry_data(region_data: dict) -> dict:
     custom_wf_local = normalized.get("white_frame_rect_local")
     render_box_local = normalized.get("render_box_rect_local")
     has_custom = bool(normalized.get("has_custom_white_frame", False))
-    if not has_custom and _is_rect_like(custom_wf_local) and not _is_rect_like(render_box_local):
+    if (
+        not has_custom
+        and is_rect_like(custom_wf_local)
+        and not is_rect_like(render_box_local)
+    ):
         normalized["render_box_rect_local"] = list(custom_wf_local)
         normalized.pop("white_frame_rect_local", None)
     return normalized
@@ -53,9 +58,9 @@ class RegionGeometryState:
         render_box_local: Optional[List[float]] = None,
         has_custom_white_frame: bool = False,
     ):
-        self.lines = lines                   # List[List[[x, y]]]（世界坐标）
-        self.center = list(center)           # [cx, cy]
-        self.angle = float(angle)            # degrees
+        self.lines = lines  # List[List[[x, y]]]（世界坐标）
+        self.center = list(center)  # [cx, cy]
+        self.angle = float(angle)  # degrees
 
         # 派生：源区域各多边形在局部坐标系中的顶点
         self.polygons_local: List[List[List[float]]] = []
@@ -64,7 +69,9 @@ class RegionGeometryState:
 
         # 自定义白框 / 渲染框（局部坐标 [left, top, right, bottom]）
         self._custom_white_frame_local: Optional[List[float]] = (
-            list(custom_white_frame_local) if custom_white_frame_local is not None else None
+            list(custom_white_frame_local)
+            if custom_white_frame_local is not None
+            else None
         )
         self._render_box_local: Optional[List[float]] = (
             list(render_box_local) if render_box_local is not None else None
@@ -107,13 +114,14 @@ class RegionGeometryState:
         cos_a, sin_a = self._angle_trig()
         dx = wx - self.center[0]
         dy = wy - self.center[1]
-        return (dx * cos_a + dy * sin_a,
-                -dx * sin_a + dy * cos_a)
+        return (dx * cos_a + dy * sin_a, -dx * sin_a + dy * cos_a)
 
     def local_to_world(self, lx: float, ly: float) -> Tuple[float, float]:
         cos_a, sin_a = self._angle_trig()
-        return (self.center[0] + lx * cos_a - ly * sin_a,
-                self.center[1] + lx * sin_a + ly * cos_a)
+        return (
+            self.center[0] + lx * cos_a - ly * sin_a,
+            self.center[1] + lx * sin_a + ly * cos_a,
+        )
 
     # ------------------------------------------------------------------
     # 工厂
@@ -156,7 +164,8 @@ class RegionGeometryState:
         ):
             custom_wf_local = (
                 list(prev_state._custom_white_frame_local)
-                if prev_state._custom_white_frame_local is not None else None
+                if prev_state._custom_white_frame_local is not None
+                else None
             )
             has_custom = True
 
@@ -191,7 +200,9 @@ class RegionGeometryState:
             return
 
         # 展平为 (4, 2)
-        pts_world = dst_points.reshape(-1, 2) if len(dst_points.shape) == 3 else dst_points
+        pts_world = (
+            dst_points.reshape(-1, 2) if len(dst_points.shape) == 3 else dst_points
+        )
         if pts_world is None or len(pts_world) < 4:
             self._render_box_local = None
             return
@@ -205,10 +216,16 @@ class RegionGeometryState:
         # 用中心 + 邻边宽高重建局部 AABB
         cpx = float(np.mean(pts_local[:, 0]))
         cpy = float(np.mean(pts_local[:, 1]))
-        width = float(np.hypot(pts_local[1][0] - pts_local[0][0],
-                               pts_local[1][1] - pts_local[0][1]))
-        height = float(np.hypot(pts_local[3][0] - pts_local[0][0],
-                                pts_local[3][1] - pts_local[0][1]))
+        width = float(
+            np.hypot(
+                pts_local[1][0] - pts_local[0][0], pts_local[1][1] - pts_local[0][1]
+            )
+        )
+        height = float(
+            np.hypot(
+                pts_local[3][0] - pts_local[0][0], pts_local[3][1] - pts_local[0][1]
+            )
+        )
         if width <= 0.0 or height <= 0.0:
             self._render_box_local = None
             return
@@ -227,11 +244,13 @@ class RegionGeometryState:
         """序列化自定义白框状态为可合并到 region_data 的补丁字典。"""
         patch = {
             "has_custom_white_frame": bool(
-                self.has_custom_white_frame and self._custom_white_frame_local is not None
+                self.has_custom_white_frame
+                and self._custom_white_frame_local is not None
             ),
             "white_frame_rect_local": (
                 list(self._custom_white_frame_local)
-                if self.has_custom_white_frame and self._custom_white_frame_local is not None
+                if self.has_custom_white_frame
+                and self._custom_white_frame_local is not None
                 else None
             ),
         }
@@ -240,7 +259,9 @@ class RegionGeometryState:
     def to_render_box_patch(self) -> dict:
         patch = {
             "render_box_rect_local": (
-                list(self._render_box_local) if self._render_box_local is not None else None
+                list(self._render_box_local)
+                if self._render_box_local is not None
+                else None
             )
         }
         return patch
@@ -257,8 +278,7 @@ class RegionGeometryState:
     def _rebuild_polygons_local(self):
         cx, cy = self.center
         self.polygons_local = [
-            [[x - cx, y - cy] for x, y in line]
-            for line in self.lines
+            [[x - cx, y - cy] for x, y in line] for line in self.lines
         ]
         self._auto_update_white_frame()
 
@@ -272,5 +292,5 @@ class RegionGeometryState:
         self._source_box_local = [min(xs), min(ys), max(xs), max(ys)]
 
 
-def _is_rect_like(value) -> bool:
+def is_rect_like(value) -> bool:
     return isinstance(value, (list, tuple)) and len(value) == 4

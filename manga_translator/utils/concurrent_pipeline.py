@@ -14,7 +14,10 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from typing import List
 
+import numpy as np
+
 from . import Context, load_image, open_pil_image
+from .batch_skip import slice_batch_indices
 
 # 使用 manga_translator 的主 logger，确保日志能被UI捕获
 logger = logging.getLogger('manga_translator')
@@ -22,6 +25,7 @@ logger = logging.getLogger('manga_translator')
 
 class PipelineAbortError(asyncio.CancelledError):
     """内部停止信号：用于中止其他工作线程，但不应被当作用户取消。"""
+
 
 
 class ConcurrentPipeline:
@@ -497,6 +501,19 @@ class ConcurrentPipeline:
         """处理一个翻译批次"""
         if not batch:
             return
+        batch_items = [(ctx.image_name, config) for ctx, config in batch]
+        batch_slices = slice_batch_indices(
+            batch_items,
+            len(batch),
+            self.translator._resume_context_pages,
+            self.translator._resume_context_order,
+        )
+        if len(batch_slices) > 1:
+            for batch_start, batch_end in batch_slices:
+                await self._process_translation_batch(batch[batch_start:batch_end])
+            return
+
+        self.translator._append_resume_context_before(batch[0][0].image_name)
         
         logger.info(f"[翻译] 批量翻译 {len(batch)} 张图片")
         
@@ -863,12 +880,16 @@ class ConcurrentPipeline:
                                 del self.base_contexts[ctx.image_name]
                         continue
                     
-                    # 备份修复后图片
-                    img_inpainted_copy = None
-                    if (self.translator.save_text or self.translator.text_output_file) and hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None:
-                        import numpy as np
-                        img_inpainted_copy = np.copy(ctx.img_inpainted)
-                        logger.debug("[渲染] 已备份修复后图片用于保存")
+                    # Rendering may release context arrays; retain the generated sidecar image.
+                    inpainted_snapshot = None
+                    if (
+                        (self.translator.save_text or self.translator.text_output_file)
+                        and getattr(ctx, 'img_inpainted', None) is not None
+                        and getattr(ctx, 'mask', None) is not None
+                        and np.any(ctx.mask)
+                    ):
+                        inpainted_snapshot = np.copy(ctx.img_inpainted)
+                        logger.debug("[渲染] 已备份修复图用于保存")
                     
                     if not ctx.text_regions:
                         from .generic import dump_image
@@ -900,22 +921,34 @@ class ConcurrentPipeline:
                             if hasattr(self.translator, '_current_save_info') and self.translator._current_save_info:
                                 save_info = self.translator._current_save_info
                                 
-                                # ✅ 先保存修复图（在PSD导出之前），这样PSD导出时可以找到修复图文件
-                                if img_inpainted_copy is not None:
+                                if inpainted_snapshot is not None:
                                     try:
                                         import cv2
 
                                         from .generic import imwrite_unicode
                                         from .path_manager import get_inpainted_path
-                                        
-                                        inpainted_path = get_inpainted_path(ctx.image_name, create_dir=True)
-                                        imwrite_unicode(inpainted_path, cv2.cvtColor(img_inpainted_copy, cv2.COLOR_RGB2BGR), logger)
-                                        logger.info(f"[渲染] 修复后图片已保存: {inpainted_path}")
-                                    except Exception as e:
-                                        logger.error(f"[渲染] 保存修复后图片失败: {e}")
+
+                                        inpainted_path = get_inpainted_path(
+                                            ctx.image_name,
+                                            create_dir=True,
+                                        )
+                                        written = imwrite_unicode(
+                                            inpainted_path,
+                                            cv2.cvtColor(
+                                                inpainted_snapshot,
+                                                cv2.COLOR_RGB2BGR,
+                                            ),
+                                            logger,
+                                        )
+                                        if not written:
+                                            raise OSError(
+                                                f"Failed to write inpainted image: {inpainted_path}"
+                                            )
+                                        logger.info(
+                                            f"[渲染] 修复后图片已保存: {inpainted_path}"
+                                        )
                                     finally:
-                                        del img_inpainted_copy
-                                        img_inpainted_copy = None
+                                        inpainted_snapshot = None
                                 
                                 # 保存翻译结果和导出PSD
                                 self.translator._save_and_cleanup_context(ctx, save_info, config, "CONCURRENT")
@@ -994,17 +1027,16 @@ class ConcurrentPipeline:
         finally:
             logger.info("[渲染线程] 停止")
     
-    async def process_batch(self, file_paths: List[str], configs: List) -> List[Context]:
-        """
-        并发处理一批图片（流水线模式，分批加载）
-        
-        Args:
-            file_paths: 图片文件路径列表
-            configs: 配置列表
-            
-        Returns:
-            处理完成的Context列表
-        """
+    async def process_batch(
+        self,
+        file_paths: List[str],
+        configs: List,
+        *,
+        progress_offset: int = 0,
+        progress_total: int | None = None,
+        skipped_count: int = 0,
+    ) -> List[Context]:
+        """Run the concurrent pipeline for the backend-planned pending inputs."""
         self.total_images = len(file_paths)
         self.start_time = datetime.now(timezone.utc)
         
@@ -1067,8 +1099,13 @@ class ConcurrentPipeline:
                 if current_rendered > last_rendered:
                     try:
                         current_failed = self._get_failed_count()
+                        runtime_skipped = skipped_count + sum(
+                            1 for ctx in self.results if getattr(ctx, "skipped", False)
+                        )
+                        completed = progress_offset + current_rendered
+                        total = progress_total if progress_total is not None else progress_offset + self.total_images
                         await self.translator._report_progress(
-                            f"batch:1:{current_rendered}:{self.total_images}:{current_failed}"
+                            f"batch:1:{completed}:{total}:{current_failed}:{runtime_skipped}"
                         )
                     except Exception:
                         pass

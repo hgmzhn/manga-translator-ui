@@ -28,7 +28,10 @@ class DisplayImageFrame:
 
     @property
     def is_downsampled(self) -> bool:
-        return self.source_width != self.preview_width or self.source_height != self.preview_height
+        return (
+            self.source_width != self.preview_width
+            or self.source_height != self.preview_height
+        )
 
 
 def _ensure_uint8(array: np.ndarray, *, copy: bool) -> np.ndarray:
@@ -41,7 +44,9 @@ def _ensure_uint8(array: np.ndarray, *, copy: bool) -> np.ndarray:
     return array
 
 
-def _resolve_preview_size(width: int, height: int, max_pixels: Optional[int]) -> tuple[int, int]:
+def _resolve_preview_size(
+    width: int, height: int, max_pixels: Optional[int]
+) -> tuple[int, int]:
     if not max_pixels or width <= 0 or height <= 0:
         return width, height
     source_pixels = int(width) * int(height)
@@ -86,7 +91,9 @@ def _qimage_from_array(array: np.ndarray, *, premultiplied: bool = False) -> QIm
     ).copy()
 
 
-def _resize_rgba_premultiplied(array: np.ndarray, target_w: int, target_h: int, interpolation) -> np.ndarray:
+def _resize_rgba_premultiplied(
+    array: np.ndarray, target_w: int, target_h: int, interpolation
+) -> np.ndarray:
     """RGBA 缩放前先预乘 alpha，避免边缘 RGB 与透明像素 (RGB=0) 混色产生黑边。
 
     返回的数组是「预乘 alpha」格式，调用方需要用 Format_RGBA8888_Premultiplied 渲染。
@@ -122,7 +129,9 @@ def build_mask_display_frame(
         raise ValueError(f"Unsupported mask array shape: {mask_array.shape}")
 
     source_height, source_width = mask_array.shape
-    preview_width, preview_height = _resolve_preview_size(source_width, source_height, max_pixels)
+    preview_width, preview_height = _resolve_preview_size(
+        source_width, source_height, max_pixels
+    )
 
     alpha_value = max(0, min(255, int(alpha)))
     alpha_plane = np.zeros((source_height, source_width), dtype=np.uint8)
@@ -134,12 +143,16 @@ def build_mask_display_frame(
             if preview_width < source_width or preview_height < source_height
             else cv2.INTER_LINEAR
         )
-        alpha_plane = cv2.resize(alpha_plane, (preview_width, preview_height), interpolation=interpolation)
+        alpha_plane = cv2.resize(
+            alpha_plane, (preview_width, preview_height), interpolation=interpolation
+        )
 
     alpha_plane = _ensure_uint8(alpha_plane, copy=False)
     rgba = np.zeros((preview_height, preview_width, 4), dtype=np.uint8)
     alpha_u16 = alpha_plane.astype(np.uint16, copy=False)[..., None]
-    rgb = np.array([max(0, min(255, int(value))) for value in color[:3]], dtype=np.uint16)
+    rgb = np.array(
+        [max(0, min(255, int(value))) for value in color[:3]], dtype=np.uint16
+    )
     rgba[..., :3] = (alpha_u16 * rgb // 255).astype(np.uint8, copy=False)
     rgba[..., 3] = alpha_plane
 
@@ -152,7 +165,9 @@ def build_mask_display_frame(
     )
 
 
-def image_like_to_display_array(image: Any, *, copy: bool = False) -> Optional[np.ndarray]:
+def image_like_to_display_array(
+    image: Any, *, copy: bool = False
+) -> Optional[np.ndarray]:
     if image is None:
         return None
 
@@ -192,18 +207,24 @@ def image_like_to_display_array(image: Any, *, copy: bool = False) -> Optional[n
     return _ensure_uint8(array[:, :, :3], copy=copy)
 
 
-def build_display_image_frame(image: Any, *, max_pixels: Optional[int] = None) -> Optional[DisplayImageFrame]:
+def build_display_image_frame(
+    image: Any, *, max_pixels: Optional[int] = None
+) -> Optional[DisplayImageFrame]:
     if image is None:
         return None
 
     if isinstance(image, Image.Image):
         source_width, source_height = image.size
-        preview_width, preview_height = _resolve_preview_size(source_width, source_height, max_pixels)
+        preview_width, preview_height = _resolve_preview_size(
+            source_width, source_height, max_pixels
+        )
         resized_image = image
         normalized_image = None
         try:
             if (preview_width, preview_height) != (source_width, source_height):
-                resized_image = image.resize((preview_width, preview_height), Image.Resampling.LANCZOS)
+                resized_image = image.resize(
+                    (preview_width, preview_height), Image.Resampling.LANCZOS
+                )
 
             if resized_image.mode == "LA" or "A" in resized_image.mode:
                 normalized_image = resized_image.convert("RGBA")
@@ -223,7 +244,10 @@ def build_display_image_frame(image: Any, *, max_pixels: Optional[int] = None) -
                 preview_height=preview_height,
             )
         finally:
-            if normalized_image is not None and normalized_image not in (image, resized_image):
+            if normalized_image is not None and normalized_image not in (
+                image,
+                resized_image,
+            ):
                 try:
                     normalized_image.close()
                 except Exception:
@@ -242,17 +266,27 @@ def build_display_image_frame(image: Any, *, max_pixels: Optional[int] = None) -
         source_height, source_width = array.shape
     else:
         source_height, source_width = array.shape[:2]
-    preview_width, preview_height = _resolve_preview_size(source_width, source_height, max_pixels)
+    preview_width, preview_height = _resolve_preview_size(
+        source_width, source_height, max_pixels
+    )
     is_rgba = array.ndim == 3 and array.shape[2] == 4
     premultiplied = False
     if (preview_width, preview_height) != (source_width, source_height):
-        interpolation = cv2.INTER_AREA if preview_width < source_width or preview_height < source_height else cv2.INTER_LINEAR
+        interpolation = (
+            cv2.INTER_AREA
+            if preview_width < source_width or preview_height < source_height
+            else cv2.INTER_LINEAR
+        )
         if is_rgba:
             # 预乘 alpha 再缩放，避免透明像素 (RGB=0) 拉低边缘像素 → 黑边。
-            array = _resize_rgba_premultiplied(array, preview_width, preview_height, interpolation)
+            array = _resize_rgba_premultiplied(
+                array, preview_width, preview_height, interpolation
+            )
             premultiplied = True
         else:
-            array = cv2.resize(array, (preview_width, preview_height), interpolation=interpolation)
+            array = cv2.resize(
+                array, (preview_width, preview_height), interpolation=interpolation
+            )
 
     array = _ensure_uint8(array, copy=False)
     return DisplayImageFrame(
@@ -295,17 +329,11 @@ def image_like_to_rgb_array(image: Any, *, copy: bool = False) -> Optional[np.nd
     raise ValueError(f"Unsupported image channel count: {channels}")
 
 
-def image_like_to_qimage(image: Any, *, max_pixels: Optional[int] = None) -> Optional[QImage]:
+def image_like_to_qimage(
+    image: Any, *, max_pixels: Optional[int] = None
+) -> Optional[QImage]:
     frame = build_display_image_frame(image, max_pixels=max_pixels)
     return None if frame is None else frame.qimage
-
-
-def copy_image_like(image: Any) -> Any:
-    if image is None:
-        return None
-    if isinstance(image, Image.Image):
-        return image.copy()
-    return np.array(image, copy=True)
 
 
 def image_like_to_pil(image: Any) -> Optional[Image.Image]:
