@@ -567,6 +567,7 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_optimize_line_breaks', 'AI断句自动扩大文字'), this.createCheckbox('render', 'optimize_line_breaks'), '自动优化换行以找到最佳字体大小', 'render', 'optimize_line_breaks')}
                 ${this.createFormRow(this.t('label_check_br_and_retry', 'AI断句检查'), this.createCheckbox('render', 'check_br_and_retry'), '检查翻译是否包含换行标记并重试', 'render', 'check_br_and_retry')}
                 ${this.createFormRow(this.t('label_strict_smart_scaling', 'AI断句自动扩大文字下不扩大文本框'), this.createCheckbox('render', 'strict_smart_scaling'), '智能缩放模式下防止文本框扩展', 'render', 'strict_smart_scaling')}
+                ${this.createFormRow(this.t('label_balloon_fill_mask_layout', '气泡蒙版排版'), this.createCheckbox('render', 'balloon_fill_mask_layout'), this.t('desc_render_balloon_fill_mask_layout', '无显式断行时按气泡蒙版最大内接范围自动断句；有显式断行时保留断点，以文本框中心为锚点并扩大字号搜索范围；后续文字框与已有文字框重叠时，缩小到最大不重叠字号。默认关闭。'), 'render', 'balloon_fill_mask_layout')}
             </div>
         `;
     }

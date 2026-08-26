@@ -147,8 +147,8 @@ def main() -> int:
 
     entries = layout_entries(layout)
     layout_keys = [key for key, _page in entries]
-    if len(layout_keys) != 110 or len(set(layout_keys)) != 110:
-        fail(f"expected 110 unique layout entries, got {len(layout_keys)} / {len(set(layout_keys))}")
+    if len(layout_keys) != 111 or len(set(layout_keys)) != 111:
+        fail(f"expected 111 unique layout entries, got {len(layout_keys)} / {len(set(layout_keys))}")
 
     fixed_actions = assigned_string_set(dynamic_tree, "_FIXED_PROMPT_KEYS")
     if fixed_actions != FIXED_ACTIONS:
@@ -204,15 +204,15 @@ def main() -> int:
     if len(excluded) != 1 or excluded[0]["key"] != "render.font_color":
         fail("catalog must retain only render.font_color as the release-default excluded entry")
     if catalog["baseline_comparison"] != {
-        "requested_baseline": 110,
-        "layout_parameter_entries": 110,
-        "visible_parameter_fields": 109,
+        "requested_baseline": 111,
+        "layout_parameter_entries": 111,
+        "visible_parameter_fields": 110,
         "difference_from_requested_baseline": -1,
-        "difference_explanation": "The layout has 110 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 109 visible settings rows (one below 110).",
+        "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111).",
     }:
         fail("baseline comparison changed; update the catalog and its validation")
 
-    print("PASS: layout=110, fixed-actions=3, visible=109, baseline-delta=-1, excluded=render.font_color")
+    print("PASS: layout=111, fixed-actions=3, visible=110, baseline-delta=-1, excluded=render.font_color")
     return 0
 
 

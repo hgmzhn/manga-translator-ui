@@ -24,14 +24,14 @@ Adding or changing a feature usually follows the path below. Not every step requ
 
 ```mermaid
 flowchart TD
-    A["Define the boundary\n(setting / new option / new page / new copy)"] --> B["Config model\ncore/config_models.py or manga_translator/config.py"]
-    B --> C["Release template\nconfig/config-example.json"]
-    C --> D["Settings mount\nsettings_tab_layout.json"]
-    D --> E["Display mapping\napp_logic.py get_display_mapping / get_options_for_key"]
-    E --> F["i18n copy\nlocales/en_US.json and zh_CN.json"]
-    F --> G["Persistence\nconfig_service.py deep merge + user-config sync"]
-    G --> H["Backend consumption\nMangaTranslator or module implementation"]
-    H --> I["Tests and verification\ntest/ scripts + language switch + import/export"]
+    A["Define the config boundary and dotted key"] --> B["Desktop/core models and defaults"]
+    B --> C["Release template and persistence/parameter export"]
+    C --> D["Settings mount and display mapping"]
+    D --> E["Labels/descriptions in all six locales"]
+    E --> F["Web defaults and administration permissions"]
+    F --> G["Runtime consumer"]
+    G --> H["Both Wikis, Phase 0, and generated catalogs"]
+    H --> I["Focused tests and surface verification"]
 ```
 
 1. **Define the boundary**: decide which module the change belongs to — `desktop_qt_ui/` (UI and business logic), `manga_translator/` (pipeline and algorithms), `config/` (release templates), `locales/` (copy).
@@ -39,14 +39,18 @@ flowchart TD
 3. **Update the release template**: write the new field and its default into `config/config-example.json`. The desktop startup priority is user `config/config.json` > `config/config-example.json` > Qt model defaults (see `config_service.py`).
 4. **Mount the settings page**: append the config key to the `items` list of the matching tab in `desktop_qt_ui/ui/main_page/settings_tab_layout.json`; tab titles are themselves i18n keys.
 5. **Add display mapping**: add a `key -> label_*` mapping to `labels` in `desktop_qt_ui/app_logic.py#get_display_mapping`; for dropdowns, also provide options and display names in `get_options_for_key` / `get_display_mapping`.
-6. **Add i18n copy**: add the `label_*` label and the `desc_*` description to `locales/en_US.json` and `locales/zh_CN.json` (next section). `en_US` usually uses the English copy itself as the value.
-7. **Confirm persistence**: `config_service.py` deep-merges and validates each key against `AppSettings`; `_sync_user_config` adds fields that are new in the release template to the user config, removes fields that no longer exist, and preserves user-modified values.
-8. **Wire the backend consumer**: after `manga_translator/config.py` reads the new field, `manga_translator/manga_translator.py` or the relevant module (detection/OCR/translation/inpainting/typesetting/upscaling/colorization) actually consumes it.
-9. **Test and verify**: write a pytest-style regression script under `test/` (first import `_bootstrap`) and run it with `uv run pytest`; then manually verify language switching and config import/export.
+6. **Add all six locale entries**: add each `label_*` and `desc_*` key to `zh_CN`, `zh_TW`, `en_US`, `ja_JP`, `ko_KR`, and `es_ES`. A missing non-Chinese locale key falls back to Simplified Chinese, so updating only English and Chinese is incomplete.
+7. **Confirm persistence and parameter export**: besides the `config_service.py` deep merge, inspect save-time default payloads, region-parameter dataclasses, import filtering, and backend export fields. Updating only a Pydantic model does not guarantee that the editor pipeline passes the value.
+8. **Wire the backend consumer**: after `manga_translator/config.py` reads the field, `manga_translator/manga_translator.py` or the relevant detection/OCR/translation/inpainting/typesetting/upscaling/colorization module must consume it.
+9. **Wire Web exposure and administration permissions**: confirm that `manga_translator/server/routes/config.py` supplies defaults/options. When administrators must allow or hide the parameter, add it to `manga_translator/server/static/js/admin/components/permission-editor.js` with `createFormRow(..., section, key)` so the disable toggle, group/user inheritance, and `collectFormData()` share the exact dotted key.
+10. **Update both Wiki trees**: update the matching settings page and `reference/settings-index.md` under `doc/wiki/zh/` and `doc/wiki/en/`, including the default, activation conditions, precedence, fallback behavior, and runtime consumption stage.
+11. **Update Phase 0 evidence**: add a visible setting to `doc/wiki/phase0-ui-parameter-fields.json`; when the count changes, update the baselines in `verify_phase0_ui_parameter_fields.py` and `doc/wiki/scripts/build-settings-catalog.py`.
+12. **Regenerate catalogs**: run the settings and i18n generators for `doc/wiki/data/settings.generated.json` and `i18n.generated.json`; never edit generated JSON by hand.
+13. **Test and verify the surface**: add a pytest-style regression under `test/` (first import `_bootstrap`) and run it with `uv run --no-sync pytest`. For Web administration controls, render the component and confirm that both the field and its `data-fullkey="section.key"` disable control exist; syntax validation does not replace surface verification.
 
 ## Adding i18n copy {#adding-i18n}
 
-UI copy goes through the JSON language packs under `desktop_qt_ui/locales/`. `I18nManager.translate(key)` returns the key itself when the current pack has no entry (see `i18n_service.py`), so a new key shows the key string instead of raising an error until it is translated.
+UI copy goes through the JSON language packs under `desktop_qt_ui/locales/`. `I18nManager.translate(key)` first checks the current locale; a missing key in a non-fallback locale uses `zh_CN`, and only a key also missing from `zh_CN` is returned literally. Missing Japanese, Korean, Spanish, or Traditional Chinese copy therefore displays Simplified Chinese in that UI.
 
 Keys come in three common shapes:
 
@@ -61,11 +65,11 @@ On the wiki side, the i18n evidence catalog `doc/wiki/data/i18n.generated.json` 
 ## Constraints and notes {#dependencies-and-conflicts}
 
 - When adding a user-configurable parameter, the field names/types in `config_models.py` and `manga_translator/config.py` must match, or the value saved by the desktop app may not line up with what the backend reads.
-- Setting labels come from `get_display_mapping('labels')`; if the mapping is missing, `dynamic_settings.py` falls back to showing the raw field name (for example `min_box_area_ratio`) without an error, but the copy is missing.
-- A missing `desc_*` key does not raise an error; the description panel shows "No description available." (`Settings Desc No Description`), so both languages should be filled in.
-- A missing i18n key makes `translate()` return the key itself: this is invisible in `en_US` (key equals value) but `zh_CN` will show the raw English key, so check after switching languages.
-- Editing `settings_tab_layout.json` changes the visible parameter set and grouping of the settings page; the baseline in `doc/wiki/data/settings.generated.json` is 109 visible fields, so regenerate and recheck after such a change.
-- Do not modify generated files outside `doc/wiki/data/` and `doc/wiki/scripts/`, and never read or commit real `.env`, user `config.json`, keys, tokens, or private absolute paths.
+- Setting labels come from `get_display_mapping('labels')`; if the mapping is missing, `dynamic_settings.py` falls back to the raw field name without raising an error.
+- A missing `desc_*` key does not raise an error; the description panel shows “No description available.” All six locale files must contain the key, because a missing non-Chinese locale falls back to Simplified Chinese.
+- Editing `settings_tab_layout.json` changes the visible parameter set and grouping. The current generated-catalog baseline is 110 visible fields; regenerate and verify the Phase 0 evidence after a change.
+- A `permission-editor.js` field must use `createFormRow(..., section, key)` or administrators cannot disable it and group/user inheritance will not collect the dotted key.
+- Never hand-edit generated catalogs under `doc/wiki/data/`, and never read or commit real `.env`, user `config.json`, keys, tokens, or private absolute paths.
 
 ## Developer Guide {#developer-guide}
 
@@ -112,5 +116,7 @@ The following copy is directly relevant to this workflow (key → actual `en_US`
 | i18n | `desktop_qt_ui/services/i18n_service.py`, `locales/en_US.json`, `zh_CN.json` | Six-locale loading, missing-key fallback, key/actual-value triples |
 | Persistence | `desktop_qt_ui/services/config_service.py` | Priority loading, per-key validation, user-config sync |
 | Backend consumption | `manga_translator/manga_translator.py`, `manga_translator/translators/__init__.py` | Parameters entering the pipeline, translator registration |
+| Web config and permissions | `manga_translator/server/routes/config.py`, `manga_translator/server/static/js/admin/components/permission-editor.js` | Defaults/options exposure, field control, disable toggle, and inherited dotted key |
+| Wiki field evidence | `doc/wiki/phase0-ui-parameter-fields.json`, `verify_phase0_ui_parameter_fields.py` | Visible field, control type, default source, and field-count baseline |
 | Test conventions | `test/README.md`, `pyproject.toml` | `import _bootstrap`, pytest `testpaths` / `pythonpath` |
 | Wiki tooling | `doc/wiki/scripts/build-i18n-catalog.mjs`, `build-settings-catalog.py` | i18n and settings catalog generation/checks |

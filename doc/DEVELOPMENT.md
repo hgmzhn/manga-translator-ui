@@ -243,6 +243,18 @@ python -m manga_translator web --host 127.0.0.1 --port 8000 -v
    如果设置变化后要立刻触发副作用，比如切换翻译器、刷新渲染、联动其他字段，就补 `update_single_config()` 里的即时处理。
 9. 实际消费该设置的模块
    例如 `desktop_qt_ui/services/`、`manga_translator/ocr/`、`manga_translator/rendering/`、`manga_translator/translators/` 等，否则设置只会“存起来但不起作用”。
+10. `desktop_qt_ui/services/config_service.py` 与区域参数服务
+    如果保存配置时会补默认值，或编辑器会把全局/区域参数导出给后端，需要同步默认 payload、参数数据类、导入过滤和后端导出字段。仅改 Pydantic 模型不能保证编辑器链路会传值。
+11. Web 配置暴露与权限
+    检查 `manga_translator/server/routes/config.py` 的默认值/选项接口；普通布尔或标量通常不需要专门路由代码，但必须确认 Web 能取得默认值。管理员需要允许或隐藏该参数时，在 `manga_translator/server/static/js/admin/components/permission-editor.js` 使用 `createFormRow(..., section, key)` 添加控件，确保禁用开关、用户组继承和 `collectFormData()` 使用完全一致的 dotted key。
+12. 六种桌面语言
+    `desktop_qt_ui/locales/` 下的 `zh_CN`、`zh_TW`、`en_US`、`ja_JP`、`ko_KR`、`es_ES` 必须同时加入 label/description；缺失语言会回退到简体中文，不能只补中英文。
+13. 中英文 Wiki
+    同步 `doc/wiki/zh/` 与 `doc/wiki/en/` 的对应设置页面和 `reference/settings-index.md`。说明生效条件、默认值、与相邻开关的优先级、无效/回退路径及实际消费阶段。
+14. Phase 0 字段清单与生成目录
+    设置页可见字段还要加入 `doc/wiki/phase0-ui-parameter-fields.json`，并同步 `verify_phase0_ui_parameter_fields.py` 与 `doc/wiki/scripts/build-settings-catalog.py` 的字段基线。`doc/wiki/data/settings.generated.json` 和 `i18n.generated.json` 必须由脚本生成，禁止手工编辑。
+15. 聚焦回归测试
+    在 `test/` 增加覆盖默认值、布局可见性、六语言无回退、权限/参数传递和实际消费行为的测试。会导入本仓或 Qt 的脚本第一行写 `import _bootstrap`，并用 `uv run` 执行。
 
 按设置类型，再额外检查这些位置：
 
@@ -256,6 +268,20 @@ python -m manga_translator web --host 127.0.0.1 --port 8000 -v
   检查 `desktop_qt_ui/app_logic.py` 的 `export_config()` / `import_config()`。
 - 如果设置会影响编辑器侧展示或编辑行为：
   继续检查 `desktop_qt_ui/ui/editor/`、`desktop_qt_ui/ui/widgets/property_panel.py` 和相关 `desktop_qt_ui/editor/` 逻辑。
+
+提交前至少运行与改动匹配的检查：
+
+```powershell
+uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py
+node doc/wiki/scripts/build-i18n-catalog.mjs
+uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check
+node doc/wiki/scripts/build-i18n-catalog.mjs --check
+uv run --no-sync python doc/wiki/verify_phase0_ui_parameter_fields.py
+uv run --no-sync pytest test/<focused-setting-test>.py -q
+node --check manga_translator/server/static/js/admin/components/permission-editor.js
+```
+
+Web 管理端控件改动还要实际渲染权限编辑器，确认字段控件和 `data-fullkey="section.key"` 禁用控件同时存在；语法检查不能替代界面验证。
 
 #### 新增或接入一个翻译器 / OCR / 渲染器
 

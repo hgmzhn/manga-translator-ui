@@ -45,6 +45,19 @@ Choose the layout direction in the “Text Direction” combo box: Auto (judged 
 
 Choose the text-box fitting algorithm in the “Layout Mode” combo box: Smart Scaling (balances readability and region fit), Strict Boundary (stays inside the region), or Smart Bubble (fills the bubble shape). Default: `balloon_fill`.
 
+#### Bubble Mask Layout
+
+This switch applies only when Layout Mode is Smart Bubble (`balloon_fill`). Default: off (`false`).
+
+| Input/state | Behavior when enabled |
+| --- | --- |
+| No explicit `[BR]`, `【BR】`, or `<br>` | Run the existing automatic line breaker once using the largest rectangle fully inscribed in the selected bubble mask. Font sizing remains in the later common `balloon_fill` path. |
+| Explicit line breaks exist | Preserve every supplied break, use the text-box center as the anchor, and expand the font-search upper bound to the selected bubble component’s bounds. |
+| Bubble mask is missing or does not fully enclose the OCR lines | Use the conservative fallback path instead of rebuilding line breaks from unreliable geometry. |
+| A later bubble text box overlaps an earlier one | Shrink the later box to the largest non-overlapping font size available. |
+
+The font-size search still checks its final render box against the complete bubble mask; the inscribed rectangle is only the no-break line-layout budget. Keep the switch off when bubble masks are unreliable.
+
 #### Font Color
 
 Enter a color in the “Font Color” field: leave it empty for automatic (uses the detected region color), use `RRGGBB` for a foreground color, or `RRGGBB:RRGGBB` for foreground and background. Default: empty (automatic).

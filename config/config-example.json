@@ -104,7 +104,7 @@
     "font_size": null,
     "rtl": true,
     "layout_mode": "balloon_fill",
-    "balloon_fill_font_layout_safety": false,
+    "balloon_fill_mask_layout": false,
     "max_font_size": 0,
     "font_scale_ratio": 1.0,
     "center_text_in_bubble": false,

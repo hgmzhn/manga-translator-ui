@@ -24,14 +24,14 @@ lastUpdated: true
 
 ```mermaid
 flowchart TD
-    A["确定功能边界\n（设置项 / 新选项 / 新页面 / 新文案）"] --> B["配置模型\ncore/config_models.py 或 manga_translator/config.py"]
-    B --> C["发行模板\nconfig/config-example.json 同步默认值"]
-    C --> D["设置页挂载\nsettings_tab_layout.json 加入页签列表"]
-    D --> E["显示映射\napp_logic.py get_display_mapping / get_options_for_key"]
-    E --> F["i18n 文案\nlocales/en_US.json 与 zh_CN.json"]
-    F --> G["持久化\nconfig_service.py 深合并与用户配置同步"]
-    G --> H["后端消费\nMangaTranslator 或对应模块实现"]
-    H --> I["测试与验证\ntest/ 脚本 + 语言切换 + 导入导出"]
+    A["确定配置边界与 dotted key"] --> B["桌面/核心配置模型与默认值"]
+    B --> C["发行模板与持久化/参数导出"]
+    C --> D["设置页挂载与显示映射"]
+    D --> E["六种语言 label/description"]
+    E --> F["Web 默认值与管理员权限控件"]
+    F --> G["后端实际消费"]
+    G --> H["中英文 Wiki、Phase 0 与生成目录"]
+    H --> I["聚焦测试与实际界面验证"]
 ```
 
 1. **确定边界**：先判断改动属于哪个模块——`desktop_qt_ui/`（界面与业务逻辑）、`manga_translator/`（流水线与算法）、`config/`（发行模板）、`locales/`（文案）。
@@ -39,14 +39,18 @@ flowchart TD
 3. **同步发行模板**：把新字段和默认值写进 `config/config-example.json`。桌面端启动优先级是用户 `config/config.json` > `config/config-example.json` > Qt 模型默认值（见 `config_service.py`）。
 4. **挂载设置页**：在 `desktop_qt_ui/ui/main_page/settings_tab_layout.json` 对应页签的 `items` 中追加配置键；页签标题本身也是 i18n key。
 5. **补显示映射**：在 `desktop_qt_ui/app_logic.py#get_display_mapping` 的 `labels` 中添加 `key -> label_*` 映射；有下拉选项时还要在 `get_options_for_key` / `get_display_mapping` 中提供选项与显示名。
-6. **加 i18n 文案**：`label_*` 标签和 `desc_*` 说明分别写入 `locales/en_US.json` 与 `zh_CN.json`（见下节）。`en_US` 通常直接用英文文案本身作为值。
-7. **确认持久化**：`config_service.py` 的深合并会按 `AppSettings` 逐键校验；`_sync_user_config` 会把发行模板新增的字段补进用户配置、删除模板中已不存在的字段，并保留用户修改过的值。
+6. **加六语言 i18n 文案**：`label_*` 标签和 `desc_*` 说明必须同时写入 `zh_CN`、`zh_TW`、`en_US`、`ja_JP`、`ko_KR`、`es_ES`。非简体中文语言缺 key 时会回退显示简体中文，不能只补中英文。
+7. **确认持久化与参数导出**：除 `config_service.py` 的深合并外，还要检查保存默认 payload、区域参数数据类、导入过滤和后端导出字段；仅改 Pydantic 模型不保证编辑器链路会传值。
 8. **接后端消费**：`manga_translator/config.py` 的 `Config` 读到新字段后，由 `manga_translator/manga_translator.py` 或对应模块（检测/OCR/翻译/修复/排版/超分/上色）真正消费。
-9. **测试与验证**：在 `test/` 下写 pytest 风格回归脚本（首行 `import _bootstrap`），用 `uv run pytest` 运行；再做一次语言切换和配置导入导出的人工验证。
+9. **接 Web 与管理员权限**：确认 `manga_translator/server/routes/config.py` 能提供默认值/选项；需要允许或隐藏参数时，在 `manga_translator/server/static/js/admin/components/permission-editor.js` 用 `createFormRow(..., section, key)` 添加控件，使禁用开关、用户组继承和 `collectFormData()` 共用完全一致的 dotted key。
+10. **同步中英文 Wiki**：更新 `doc/wiki/zh/` 与 `doc/wiki/en/` 的对应设置页面和 `reference/settings-index.md`，记录默认值、生效条件、优先级、回退路径与实际消费阶段。
+11. **更新 Phase 0 字段证据**：可见设置加入 `doc/wiki/phase0-ui-parameter-fields.json`；字段总数变化时同步 `verify_phase0_ui_parameter_fields.py` 与 `doc/wiki/scripts/build-settings-catalog.py` 的基线。
+12. **重新生成目录**：运行设置与 i18n 生成脚本，生成 `doc/wiki/data/settings.generated.json` 和 `i18n.generated.json`，禁止手工编辑生成 JSON。
+13. **测试与界面验证**：在 `test/` 下写 pytest 风格回归脚本（首行 `import _bootstrap`），用 `uv run --no-sync pytest` 运行。Web 管理控件需要实际渲染，确认字段控件与 `data-fullkey="section.key"` 禁用控件同时存在；语法检查不能替代界面验证。
 
 ## 添加 i18n 文案 {#adding-i18n}
 
-界面文案统一走 `desktop_qt_ui/locales/` 下的 JSON 语言包。`I18nManager.translate(key)` 在当前语言包里找不到 key 时直接返回 key 本身（见 `i18n_service.py`），所以新 key 未翻译前界面会显示 key 字符串，而不是报错。
+界面文案统一走 `desktop_qt_ui/locales/` 下的 JSON 语言包。`I18nManager.translate(key)` 先查当前语言；非回退语言缺 key 时会读取 `zh_CN`，`zh_CN` 也缺失时才返回 key 本身。因此遗漏日文、韩文、西班牙文或繁体中文翻译会在对应界面直接显示简体中文。
 
 键有三种常见形态：
 
@@ -62,10 +66,10 @@ Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个�
 
 - 新增用户可配置参数时，`config_models.py` 与 `manga_translator/config.py` 的字段名/类型必须一致，否则桌面端保存的值到后端可能对不上。
 - 设置项标签走 `get_display_mapping('labels')`；漏加映射时，`dynamic_settings.py` 会退回显示字段名（如 `min_box_area_ratio`），不报错，但界面文案缺失。
-- `desc_*` 说明缺失不会报错，说明面板显示“暂无说明”（`Settings Desc No Description`）；两种语言都要如实补齐。
-- i18n 缺 key 时 `translate()` 返回 key 本身：`en_US` 里 key 与值相同一般看不出来，但 `zh_CN` 缺 key 会直接显示英文 key，应在语言切换后检查。
-- 修改 `settings_tab_layout.json` 会改变设置页的可见参数集合与分组；`doc/wiki/data/settings.generated.json` 的基线是 109 个可见字段，改动后应重新生成并核对。
-- 不要修改 `doc/wiki/data/`、`doc/wiki/scripts/` 之外的生成物，也不要读取或提交真实 `.env`、用户 `config.json`、密钥、令牌或私有绝对路径。
+- `desc_*` 说明缺失不会报错，说明面板显示“暂无说明”（`Settings Desc No Description`）。六种语言都要补齐；非简体中文语言缺 key 时会回退成简体中文。
+- 修改 `settings_tab_layout.json` 会改变设置页的可见参数集合与分组；当前生成目录基线是 110 个可见字段，改动后应重新生成并核对 Phase 0 清单。
+- `permission-editor.js` 的字段控件必须通过 `createFormRow(..., section, key)` 接入，否则管理员无法禁用该参数，用户组/用户继承也不会收集该 dotted key。
+- 不要手工修改 `doc/wiki/data/` 生成目录，也不要读取或提交真实 `.env`、用户 `config.json`、密钥、令牌或私有绝对路径。
 
 ## 开发指南 {#developer-guide}
 
@@ -112,5 +116,7 @@ Wiki 侧的 i18n 证据由 `doc/wiki/scripts/build-i18n-catalog.mjs` 从两个�
 | i18n | `desktop_qt_ui/services/i18n_service.py`、`locales/en_US.json`、`zh_CN.json` | 六语言加载、缺 key 回退、key/实际值三列 |
 | 持久化 | `desktop_qt_ui/services/config_service.py` | 优先级加载、逐键校验、用户配置同步 |
 | 后端消费 | `manga_translator/manga_translator.py`、`manga_translator/translators/__init__.py` | 参数进入流水线、翻译器注册 |
+| Web 配置与权限 | `manga_translator/server/routes/config.py`、`manga_translator/server/static/js/admin/components/permission-editor.js` | 默认值/选项暴露、字段控件、禁用开关与继承 dotted key |
+| Wiki 字段证据 | `doc/wiki/phase0-ui-parameter-fields.json`、`verify_phase0_ui_parameter_fields.py` | 可见字段、控件类型、默认来源与字段基线 |
 | 测试约定 | `test/README.md`、`pyproject.toml` | `import _bootstrap`、pytest 的 `testpaths` / `pythonpath` |
 | Wiki 工具 | `doc/wiki/scripts/build-i18n-catalog.mjs`、`build-settings-catalog.py` | i18n 与设置目录的生成与检查 |

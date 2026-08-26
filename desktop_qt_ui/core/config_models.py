@@ -92,7 +92,7 @@ class RenderSettings(BaseModel):
     font_size: Optional[int] = None
     rtl: bool = True
     layout_mode: str = "smart_scaling"
-    balloon_fill_font_layout_safety: bool = False
+    balloon_fill_mask_layout: bool = False
     max_font_size: int = 0
     font_scale_ratio: float = 1.0
     center_text_in_bubble: bool = False

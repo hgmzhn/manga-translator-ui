@@ -44,7 +44,7 @@ class RenderParameters:
     line_spacing: float = 1.0  # 行间距倍数
     letter_spacing: float = 1.0  # 字间距倍数
     layout_mode: str = "smart_scaling"  # 布局模式
-    balloon_fill_font_layout_safety: bool = False  # 气泡字号与跨气泡碰撞保护
+    balloon_fill_mask_layout: bool = False  # 按气泡蒙版断句、扩大字号并避免跨气泡碰撞
     disable_auto_wrap: bool = False  # 禁用自动换行（AI断句）
     font_size_offset: int = 0  # 字体大小偏移
     font_size_minimum: int = 0  # 最小字体大小
@@ -370,7 +370,7 @@ class RenderParameterService:
             'disable_font_border': params.disable_font_border,
             'disable_auto_wrap': params.disable_auto_wrap,
             'layout_mode': params.layout_mode,
-            'balloon_fill_font_layout_safety': params.balloon_fill_font_layout_safety,
+            'balloon_fill_mask_layout': params.balloon_fill_mask_layout,
             'font_size_offset': params.font_size_offset,
             'font_size_minimum': params.font_size_minimum,
             'max_font_size': params.max_font_size,

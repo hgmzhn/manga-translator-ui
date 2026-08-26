@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1513,
-    "exact": 1513,
+    "keys": 1515,
+    "exact": 1515,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -5497,6 +5497,12 @@
       "status": "exact"
     },
     {
+      "key": "desc_render_balloon_fill_mask_layout",
+      "en_US": "Without explicit breaks, line-break against the bubble mask's largest inscribed range. With explicit breaks, preserve them, use the text-box center anchor, and expand the font-size search to the bubble bounds. Later text boxes that overlap earlier ones shrink to the largest non-overlapping font size. Off by default.",
+      "zh_CN": "无显式断行时按气泡蒙版最大内接范围自动断句；有显式断行时保留断点，以文本框中心为锚点并扩大字号搜索范围；后续文字框与已有文字框重叠时，缩小到最大不重叠字号。默认关闭。",
+      "status": "exact"
+    },
+    {
       "key": "desc_render_bubble_layout_english",
       "en_US": "When enabled, applies bubble-shape layout to all languages and forces horizontal rendering. English uses this layout by default; this switch mainly affects Korean, Chinese, and other languages.",
       "zh_CN": "开启后对所有语言使用气泡形状排版并强制横排。英文默认已启用此排版方式，此开关主要影响韩文、中文等其他语言。",
@@ -6400,6 +6406,12 @@
       "key": "label_attempts",
       "en_US": "Retry Attempts",
       "zh_CN": "重试次数",
+      "status": "exact"
+    },
+    {
+      "key": "label_balloon_fill_mask_layout",
+      "en_US": "Bubble Mask Layout",
+      "zh_CN": "气泡蒙版排版",
       "status": "exact"
     },
     {

@@ -14,11 +14,11 @@
     ]
   },
   "baseline_comparison": {
-    "requested_baseline": 110,
-    "layout_parameter_entries": 110,
-    "visible_parameter_fields": 109,
+    "requested_baseline": 111,
+    "layout_parameter_entries": 111,
+    "visible_parameter_fields": 110,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 110 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 109 visible settings rows (one below 110)."
+    "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111)."
   },
   "visible_fields": [
     {
@@ -500,6 +500,12 @@
       "page": "Typesetting",
       "control": "toggle",
       "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.strict_smart_scaling"
+    },
+    {
+      "key": "render.balloon_fill_mask_layout",
+      "page": "Typesetting",
+      "control": "toggle",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#RenderSettings.balloon_fill_mask_layout"
     },
     {
       "key": "render.check_br_and_retry",

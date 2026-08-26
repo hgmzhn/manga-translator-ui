@@ -164,6 +164,7 @@ lastUpdated: true
 | `render.disable_auto_wrap` | AI Line Breaking | AI断句 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.optimize_line_breaks` | AI Line Break Auto Enlarge | AI断句自动扩大文字 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.strict_smart_scaling` | Don't Expand Box on Auto Enlarge | AI断句自动扩大文字下不扩大文本框 | [页面](../desktop/settings/typesetting-and-rendering.md) |
+| `render.balloon_fill_mask_layout` | Bubble Mask Layout | 气泡蒙版排版 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.check_br_and_retry` | AI Line Break Check | AI断句检查 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.stroke_width` | Stroke Width Ratio | 描边宽度比例 | [页面](../desktop/settings/typesetting-and-rendering.md) |
 | `render.disable_font_border` | Disable Font Border | 禁用字体边框 | [页面](../desktop/settings/typesetting-and-rendering.md) |

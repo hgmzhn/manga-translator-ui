@@ -283,6 +283,18 @@ At minimum, check the chain below. Many settings require more than changing only
    - `manga_translator/translators/`
 
    Otherwise the setting will only be stored but will not actually do anything.
+10. `desktop_qt_ui/services/config_service.py` and region-parameter services
+    If config saving injects defaults, or the editor exports global/region parameters to the backend, update the default payload, parameter dataclass, import filtering, and backend export field. Updating only the Pydantic model does not guarantee that the editor pipeline passes the value.
+11. Web exposure and administration permissions
+    Check the defaults/options behavior in `manga_translator/server/routes/config.py`. Ordinary booleans and scalars usually need no special route code, but the Web client must still receive the default. When administrators must allow or hide the parameter, add its control to `manga_translator/server/static/js/admin/components/permission-editor.js` with `createFormRow(..., section, key)` so the disable toggle, group/user inheritance, and `collectFormData()` all use the exact dotted key.
+12. All six desktop locales
+    Add the label and description to `zh_CN`, `zh_TW`, `en_US`, `ja_JP`, `ko_KR`, and `es_ES` under `desktop_qt_ui/locales/`. A missing locale falls back to Simplified Chinese; updating only English and Chinese is incomplete.
+13. Both Wiki trees
+    Update the matching settings page and `reference/settings-index.md` under both `doc/wiki/zh/` and `doc/wiki/en/`. Document activation conditions, the default, precedence with neighboring switches, invalid/fallback paths, and the actual consumption stage.
+14. Phase 0 field evidence and generated catalogs
+    A visible settings-page field must be added to `doc/wiki/phase0-ui-parameter-fields.json`; update the field baselines in `verify_phase0_ui_parameter_fields.py` and `doc/wiki/scripts/build-settings-catalog.py`. Generate `doc/wiki/data/settings.generated.json` and `i18n.generated.json` with their scripts; never edit generated catalogs by hand.
+15. Focused regression coverage
+    Add a test under `test/` for the default, settings-page visibility, six-locale non-fallback behavior, permission/parameter propagation, and the observable consumption behavior. Tests importing this repository or Qt must start with `import _bootstrap` and run through `uv run`.
 
 Depending on the setting type, also check these extra locations:
 
@@ -296,6 +308,20 @@ Depending on the setting type, also check these extra locations:
   check `export_config()` and `import_config()` in `desktop_qt_ui/app_logic.py`.
 - If the setting affects editor-side display or editing behavior:
   continue into `desktop_qt_ui/ui/editor/`, `desktop_qt_ui/ui/widgets/property_panel.py`, and the related `desktop_qt_ui/editor/` logic.
+
+Before submitting, run at least the checks matching the changed surfaces:
+
+```powershell
+uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py
+node doc/wiki/scripts/build-i18n-catalog.mjs
+uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check
+node doc/wiki/scripts/build-i18n-catalog.mjs --check
+uv run --no-sync python doc/wiki/verify_phase0_ui_parameter_fields.py
+uv run --no-sync pytest test/<focused-setting-test>.py -q
+node --check manga_translator/server/static/js/admin/components/permission-editor.js
+```
+
+For a Web administration control, render the permission editor and confirm that both the field control and the `data-fullkey="section.key"` disable control exist. Syntax validation does not replace surface verification.
 
 Current UI note:
 

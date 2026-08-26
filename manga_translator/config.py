@@ -204,8 +204,8 @@ class RenderConfig(BaseModel):
     """Right-to-left reading order for panel and text_region sorting,"""  
     layout_mode: str = 'smart_scaling'
     """The layout mode to use for rendering. Options: 'smart_scaling', 'strict', 'balloon_fill'"""
-    balloon_fill_font_layout_safety: bool = False
-    """Enable optional Chinese balloon reflow, conservative fallback, and cross-bubble collision checks."""
+    balloon_fill_mask_layout: bool = False
+    """Lay out balloon-fill text against the bubble mask while preserving explicit line breaks."""
     stroke_width: float = 0.07
     """Stroke/border width ratio relative to font size. Default is 0.07 (7%). Set to 0 to disable stroke."""
     enable_template_alignment: bool = False
