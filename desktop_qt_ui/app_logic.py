@@ -28,19 +28,18 @@ from manga_translator.config import (
 )
 from manga_translator.image_formats import (
     OUTPUT_IMAGE_FORMATS,
-    SUPPORTED_IMAGE_EXTENSIONS,
-)
-from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
-from manga_translator.utils.system_proxy import (
-    gemini_http_options_proxy_args,
-    openai_http_client_kwargs,
-    system_proxy_request_kwargs,
 )
 from manga_translator.utils.curl_cffi_transport import (
     GEMINI_CURL_HEADERS,
     OPENAI_CURL_HEADERS,
     InvalidAPIKeyCharactersError,
     validate_api_key_for_http_header,
+)
+from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
+from manga_translator.utils.system_proxy import (
+    gemini_http_options_proxy_args,
+    openai_http_client_kwargs,
+    system_proxy_request_kwargs,
 )
 from PIL import Image
 from PyQt6.QtCore import (
@@ -1990,12 +1989,10 @@ class MainAppLogic(QObject):
 
         failed_count = len(self._task_failures)
         all_skipped = skipped_count > 0 and self.saved_files_count == 0 and failed_count == 0
-        skip_details = "\n".join(
-            f"- {os.path.basename(item.get('original_path') or '')}: "
-            f"{item.get('skip_message') or '后端已跳过该文件'}"
-            for item in skipped_results
+        all_skipped_message = self._t(
+            "⏭️ Skipped {count} existing files.",
+            count=skipped_count,
         )
-        all_skipped_message = f"所有 {skipped_count} 个文件均被后端跳过：\n\n{skip_details}"
         if all_skipped:
             self._ui_log(
                 f"任务未处理新文件：{skipped_count} 个文件被后端跳过。",
@@ -2011,7 +2008,7 @@ class MainAppLogic(QObject):
         try:
             self.state_manager.set_translating(False)
             if all_skipped:
-                self.state_manager.set_status_message(f"全部 {skipped_count} 个文件已跳过。")
+                self.state_manager.set_status_message(all_skipped_message)
                 self.warning_dialog_requested.emit(all_skipped_message)
             elif failed_count > 0:
                 self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件，失败 {failed_count} 个文件。")
@@ -3061,8 +3058,6 @@ class TranslationWorker(QObject):
                     del translator
                 if 'results' in locals():
                     del results
-                if 'all_contexts' in locals():
-                    del all_contexts
                 if 'images_with_configs' in locals():
                     del images_with_configs
                 
