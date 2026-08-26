@@ -31,14 +31,9 @@ class _StateManager:
 
 
 def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(monkeypatch):
-    translations = []
     warning_signal = _Signal()
     completed_signal = _Signal()
     state_manager = _StateManager()
-
-    def translate(key, **kwargs):
-        translations.append((key, kwargs))
-        return f"overwrite-disabled:{kwargs['count']}"
 
     logic = SimpleNamespace(
         current_task_id=7,
@@ -50,7 +45,6 @@ def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(monkeypat
         _record_task_failure_from_result=lambda _result: None,
         _record_task_failure=lambda *_args: None,
         _ui_log=lambda *_args: None,
-        _t=translate,
         state_manager=state_manager,
         warning_dialog_requested=warning_signal,
         error_dialog_requested=_Signal(),
@@ -69,14 +63,17 @@ def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(monkeypat
 
     MainAppLogic.on_task_finished(logic, results, 7)
 
-    assert translations == [
-        ("⏭️ Skipped {count} existing files.", {"count": 2})
-    ]
-    assert warning_signal.values == [("overwrite-disabled:2",)]
-    assert state_manager.status_message == "overwrite-disabled:2"
+    expected_message = (
+        "所有 2 个文件都因为输出目录中已有同名文件被跳过，未开始翻译。\n\n"
+        "解决方法：\n"
+        "1. 删除输出目录中的同名文件\n"
+        "2. 或在 设置 → 通用 → 覆盖已存在文件 开启覆盖"
+    )
+    assert warning_signal.values == [(expected_message,)]
+    assert state_manager.status_message == "全部 2 个文件已跳过：删除同名文件或开启覆盖。"
+    assert "01.png" not in warning_signal.values[0][0]
     assert not state_manager.translating
     assert completed_signal.values == [([],)]
-    assert "01.png" not in warning_signal.values[0][0]
 
 
 if __name__ == "__main__":

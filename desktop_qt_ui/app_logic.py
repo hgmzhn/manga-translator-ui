@@ -1989,9 +1989,11 @@ class MainAppLogic(QObject):
 
         failed_count = len(self._task_failures)
         all_skipped = skipped_count > 0 and self.saved_files_count == 0 and failed_count == 0
-        all_skipped_message = self._t(
-            "⏭️ Skipped {count} existing files.",
-            count=skipped_count,
+        all_skipped_message = (
+            f"所有 {skipped_count} 个文件都因为输出目录中已有同名文件被跳过，未开始翻译。\n\n"
+            "解决方法：\n"
+            "1. 删除输出目录中的同名文件\n"
+            "2. 或在 设置 → 通用 → 覆盖已存在文件 开启覆盖"
         )
         if all_skipped:
             self._ui_log(
@@ -2008,7 +2010,9 @@ class MainAppLogic(QObject):
         try:
             self.state_manager.set_translating(False)
             if all_skipped:
-                self.state_manager.set_status_message(all_skipped_message)
+                self.state_manager.set_status_message(
+                    f"全部 {skipped_count} 个文件已跳过：删除同名文件或开启覆盖。"
+                )
                 self.warning_dialog_requested.emit(all_skipped_message)
             elif failed_count > 0:
                 self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件，失败 {failed_count} 个文件。")
