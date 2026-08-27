@@ -443,7 +443,13 @@ class RichTextFloatingEditor(SimpleCardWidget):
             )
             self._commit_document(document)
             return
-        patch = default_style_patch(key) if checked else clear_style_patch(key)
+        patch = (
+            default_style_patch(
+                key, region_font_size=self._state.region_data.get("font_size")
+            )
+            if checked
+            else clear_style_patch(key)
+        )
         if not patch:
             return
         if not checked and self._state.discard_pending_style(key, start, end):

@@ -1,4 +1,8 @@
+import _bootstrap  # noqa: F401, I001
+
 import unittest
+from types import SimpleNamespace
+
 
 from desktop_qt_ui.editor.render_text_value import (
     has_renderable_text,
@@ -25,6 +29,10 @@ from desktop_qt_ui.editor.rich_text_editing import (
 )
 from manga_translator.rendering.rich_text import ensure_rich_text_document
 from manga_translator.utils import TextBlock
+from desktop_qt_ui.editor.rich_text_editor_state import RichTextEditorState
+from desktop_qt_ui.ui.widgets.rich_text_editor_components import default_style_patch
+from desktop_qt_ui.ui.widgets.rich_text_floating_editor import RichTextFloatingEditor
+
 
 
 def _doc(text, style):
@@ -345,6 +353,37 @@ class RichTextEditingTests(unittest.TestCase):
                 {"type": "text", "text": "😀", "style": {"bold": True}},
                 {"type": "text", "text": "XB", "style": {}},
             ],
+        )
+
+    def test_font_size_patch_starts_from_selected_region_font_size(self):
+        self.assertEqual(
+            default_style_patch("S", region_font_size=37), {"fontSize": 37}
+        )
+
+    def test_font_size_patch_falls_back_when_region_size_is_invalid(self):
+        self.assertEqual(
+            default_style_patch("S", region_font_size=None), {"fontSize": 24}
+        )
+        self.assertEqual(
+            default_style_patch("S", region_font_size="invalid"), {"fontSize": 24}
+        )
+
+    def test_font_size_toolbar_uses_selected_region_font_size(self):
+        state = RichTextEditorState()
+        state.bind_region(5, {"translation": "字", "font_size": 37})
+        state.set_selection(0, 1)
+        committed = []
+        editor = SimpleNamespace(
+            _updating=False,
+            _state=state,
+            _commit_document=committed.append,
+        )
+
+        RichTextFloatingEditor._on_toolbar_toggled(editor, "S", True)
+
+        self.assertEqual(
+            committed[0]["blocks"][0]["inlines"][0]["style"],
+            {"fontSize": 37.0},
         )
 
     def test_render_text_value_prefers_rich_text_document(self):

@@ -121,11 +121,19 @@ _EFFECT_SPECS = {
 }
 
 
-def default_style_patch(key: str) -> dict:
+def default_style_patch(key: str, *, region_font_size: object = None) -> dict:
     if key == "F":
         return {"fontFamily": QFont().family()}
     spec = STYLE_SPECS.get(key)
-    return copy.deepcopy(spec.default_patch) if spec else {}
+    patch = copy.deepcopy(spec.default_patch) if spec else {}
+    if key == "S" and region_font_size is not None:
+        try:
+            font_size = int(region_font_size)
+        except (TypeError, ValueError):
+            font_size = 0
+        if font_size > 0:
+            patch["fontSize"] = font_size
+    return patch
 
 
 def clear_style_patch(key: str) -> dict:
