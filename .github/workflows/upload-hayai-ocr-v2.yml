@@ -113,7 +113,7 @@ jobs:
           modelscope upload \
             "$MODELSCOPE_REPO" \
             "$MODEL_DIR" \
-            "$MODELSCOPE_PATH"
+            "$MODELSCOPE_PATH" \
             --repo-type model \
             --commit-message "$COMMIT_MESSAGE" \
             --token "$MODELSCOPE_TOKEN" \
