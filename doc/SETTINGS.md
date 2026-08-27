@@ -514,7 +514,8 @@
   - **paddleocr_korean**：韩文 / 韩漫推荐
   - **paddleocr_latin**：拉丁字母文本推荐，英文建议优先使用
   - **paddleocr_thai**：泰文推荐
-  - **paddleocr_vl**：PaddleOCR-VL-1.5 通用模型（效果最好，最吃配置），建议配合下方语言提示或自定义提示词使用
+  - **`paddleocr_vl`**：PaddleOCR-VL-1.5 通用模型（效果最好，最吃配置），建议配合下方 VLM OCR 语言提示或自定义提示词使用
+  - **`hayai_ocr_v2`**：Hayai OCR v2 crop-level 视觉语言 OCR，适合文本框识别，不使用 VLM OCR 提示词设置
   - **openai_ocr**：调用 OpenAI 兼容多模态接口逐框 OCR，文字颜色仍由本地 `48px` 模型提取
   - **gemini_ocr**：调用 Gemini 多模态接口逐框 OCR，文字颜色仍由本地 `48px` 模型提取
   - **AI OCR 提醒**：通常效果最好，但与本地 OCR 的差距往往不大；由于是按文本框逐次请求，十分消耗请求次数，如果是按次收费的站点不建议使用

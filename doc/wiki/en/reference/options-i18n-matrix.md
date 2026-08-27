@@ -84,7 +84,7 @@ Theme, UI language, and app-level toggles live in the “General” group of the
 | `craft` | craft | craft | Same as above |
 | `none` | none | none | Same as above |
 
-### OCR engines and PaddleOCR-VL language hints {#ocr-options}
+### OCR engines and VLM OCR language hints {#ocr-options}
 
 `ocr.ocr`, `ocr.secondary_ocr`, and `ocr.ocr_vl_language_hint` are combos; the editor property panel reuses the OCR mapping. See [OCR filter and merge](../desktop/settings/ocr-filter-and-merge.md) and [Region list and text editing](../desktop/editor/region-list-and-text-editing.md) for details.
 
@@ -99,6 +99,7 @@ Theme, UI language, and app-level toggles live in the “General” group of the
 | `paddleocr_latin` | paddleocr_latin | paddleocr_latin | Same as above |
 | `paddleocr_thai` | paddleocr_thai | paddleocr_thai | Same as above |
 | `paddleocr_vl` | paddleocr_vl | paddleocr_vl | Same as above |
+| `hayai_ocr_v2` | hayai_ocr_v2 | hayai_ocr_v2 | Same as above |
 | `openai_ocr` | openai_ocr | openai_ocr | Same as above |
 | `gemini_ocr` | gemini_ocr | gemini_ocr | Same as above |
 | `auto` | Auto | 自动 | `ocr.ocr_vl_language_hint`, Settings OCR |

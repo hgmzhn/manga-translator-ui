@@ -120,6 +120,7 @@ class Ocr(str, Enum):
     paddleocr_latin = "paddleocr_latin"
     paddleocr_thai = "paddleocr_thai"
     paddleocr_vl = "paddleocr_vl"  # PaddleOCR-VL for Manga (VLM-based OCR)
+    hayai_ocr_v2 = "hayai_ocr_v2"  # Hayai OCR v2 crop-level VLM
     openai_ocr = "openai_ocr"
     gemini_ocr = "gemini_ocr"
 
@@ -457,11 +458,10 @@ class OcrConfig(BaseModel):
     merge_edge_ratio_threshold: float = 0.0
     """If a box has two neighbors with edge distance ratio > this value, disconnect the larger distance edge. 0 means disabled."""
     merge_special_require_full_wrap: bool = True
-    """Require unlabeled boxes to be fully wrapped by target-labeled boxes in special pre-merge groups."""
     ocr_vl_language_hint: str = 'auto'
-    """PaddleOCR-VL language hint. Options: auto, multilingual, ja, ko, zh, en, fr, de, es, ru, ar."""
+    """Language hint for vision-language OCR models that support it."""
     ocr_vl_custom_prompt: Optional[str] = None
-    """Custom PaddleOCR-VL prompt. If set, it overrides built-in prompt mode/language hint."""
+    """Custom prompt for vision-language OCR models that support it."""
     ai_ocr_concurrency: int = 1
     """Maximum concurrent API requests for OpenAI OCR and Gemini OCR."""
     ai_ocr_custom_prompt: Optional[str] = None

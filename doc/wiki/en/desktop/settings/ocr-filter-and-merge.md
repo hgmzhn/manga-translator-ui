@@ -20,7 +20,7 @@ The detector creates `ctx.textlines` and `mask_raw`; OCR writes text and probabi
 1. Open Settings and select “OCR”. Toggles, numeric fields, and combo boxes edit configuration directly; fields after the “Advanced” divider remain on this page but are advanced controls.
 2. “OCR Model” selects the primary engine. After “Enable Hybrid OCR” is enabled, empty or low-confidence lines are sent to “Secondary OCR”. Changing an OCR engine, hybrid switch, or secondary engine also refreshes the desktop API groups required by that implementation.
 3. “AI OCR Prompt” is a file-edit action, not an ordinary `OcrConfig` field. It opens the fixed AI OCR prompt editor. Do not put prompt contents or credentials in this page.
-4. “PaddleOCR-VL Language Hint” matters only when `paddleocr_vl` is selected. A non-empty “PaddleOCR-VL Custom Prompt (Override)” replaces the built-in language/prompt mode.
+4. “VLM OCR Language Hint” is used by prompt-capable vision-language OCR models such as PaddleOCR-VL; a non-empty “VLM OCR Custom Prompt (Override)” replaces the built-in language/prompt mode. Hayai OCR does not use either setting.
 5. “Edit Filter List” opens the filter-list editor. Its structured page has “Contains Filter” (one contains rule per line) and “Exact Filter” (one exact rule per line); “Raw Edit” edits JSON directly. Use “Refresh” to reload, “Cancel” to discard, and “Save” to validate and save.
 6. Blank rules are discarded. The raw JSON root must be an object. Structured saves preserve unknown top-level fields; invalid JSON shows “JSON format error” and is not saved.
 
@@ -41,6 +41,7 @@ The “OCR Model” combo box is on Settings → OCR and selects the primary OCR
 - `PaddleOCR Latin`: Latin-script OCR.
 - `PaddleOCR Thai`: Thai OCR.
 - `PaddleOCR-VL`: VLM OCR engine.
+- `Hayai OCR v2`: Hayai crop-level vision-language OCR model.
 - `OpenAI OCR`: requires the corresponding API configuration.
 - `Gemini OCR`: requires the corresponding API configuration.
 
@@ -106,8 +107,8 @@ flowchart LR
 
 #### VL and AI OCR parameters {#ocr-vl-and-ai}
 
-- “PaddleOCR-VL Language Hint”: matters only when `paddleocr_vl` is selected and provides the language hint for VL OCR. Default: `Japanese`.
-- “PaddleOCR-VL Custom Prompt (Override)”: a non-empty value overrides the built-in language/prompt mode.
+- “VLM OCR Language Hint”: used by prompt-capable vision-language OCR models such as PaddleOCR-VL. Default: `Japanese`. Hayai OCR ignores this setting.
+- “VLM OCR Custom Prompt (Override)”: a non-empty value overrides the built-in language/prompt mode for prompt-capable models; Hayai OCR ignores this setting.
 - “AI OCR Prompt”: a fixed-prompt file action that opens the AI OCR prompt editor.
 - “AI OCR Concurrency”: limits simultaneous AI OCR API requests; higher concurrency may trigger rate limits. Default: `10`.
 - AI OCR custom prompt: empty by default.

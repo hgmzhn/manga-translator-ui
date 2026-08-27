@@ -5438,14 +5438,14 @@
     },
     {
       "key": "desc_ocr_ocr_vl_custom_prompt",
-      "en_US": "Custom prompt for PaddleOCR-VL (overrides default). Example: OCR: Extract all Arabic text.",
-      "zh_CN": "PaddleOCR-VL 自定义提示词（优先级高于默认提示词）。例如：OCR: Extract all Arabic text.",
+      "en_US": "Custom prompt for vision-language OCR models such as PaddleOCR-VL. Models without prompt support ignore this setting.",
+      "zh_CN": "供 PaddleOCR-VL 等视觉语言 OCR 模型使用的自定义提示词。不支持提示词的模型会忽略此设置。",
       "status": "exact"
     },
     {
       "key": "desc_ocr_ocr_vl_language_hint",
-      "en_US": "Language hint for PaddleOCR-VL to help recognize text in the specified language more accurately.",
-      "zh_CN": "PaddleOCR-VL 的语言提示，帮助模型更准确地识别指定语言的文本。",
+      "en_US": "Language hint for vision-language OCR models such as PaddleOCR-VL. Models without prompt support ignore this setting.",
+      "zh_CN": "供 PaddleOCR-VL 等视觉语言 OCR 模型使用的语言提示。不支持提示词的模型会忽略此设置。",
       "status": "exact"
     },
     {
@@ -6812,14 +6812,14 @@
     },
     {
       "key": "label_ocr_vl_custom_prompt",
-      "en_US": "PaddleOCR-VL Custom Prompt (Override)",
-      "zh_CN": "PaddleOCR-VL 自定义提示词（优先）",
+      "en_US": "VLM OCR Custom Prompt (Override)",
+      "zh_CN": "VLM OCR 自定义提示词（优先）",
       "status": "exact"
     },
     {
       "key": "label_ocr_vl_language_hint",
-      "en_US": "PaddleOCR-VL Language Hint",
-      "zh_CN": "PaddleOCR-VL 语言提示",
+      "en_US": "VLM OCR Language Hint",
+      "zh_CN": "VLM OCR 语言提示",
       "status": "exact"
     },
     {

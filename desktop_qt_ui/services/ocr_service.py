@@ -376,8 +376,8 @@ class OcrService:
                 return None
 
             unsegmented_ocr_models = {
-                Ocr.mocr, Ocr.paddleocr_vl, Ocr.openai_ocr, Ocr.gemini_ocr,
-                "mocr", "paddleocr_vl", "openai_ocr", "gemini_ocr"
+                Ocr.mocr, Ocr.paddleocr_vl, Ocr.hayai_ocr_v2, Ocr.openai_ocr, Ocr.gemini_ocr,
+                "mocr", "paddleocr_vl", "hayai_ocr_v2", "openai_ocr", "gemini_ocr"
             }
             should_try_split = len(all_polygons) == 1 and ocr_key not in unsegmented_ocr_models
 

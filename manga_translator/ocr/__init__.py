@@ -29,6 +29,11 @@ def _get_paddleocr_vl_class():
     from .model_paddleocr_vl import ModelPaddleOCRVL
     return ModelPaddleOCRVL
 
+def _get_hayai_ocr_class():
+    """延迟导入 ModelHayaiOCR，只有在真正使用 hayai_ocr_v2 时才导入"""
+    from .model_hayai import ModelHayaiOCR
+    return ModelHayaiOCR
+
 
 def _get_openai_ocr_class():
     """延迟导入 ModelOpenAIOCR，只有在真正使用 openai_ocr 时才导入"""
@@ -51,6 +56,7 @@ OCRS = {
     Ocr.paddleocr_latin: ModelPaddleOCRLatin,
     Ocr.paddleocr_thai: ModelPaddleOCRThai,
     Ocr.paddleocr_vl: _get_paddleocr_vl_class,  # 延迟导入 PaddleOCR-VL
+    Ocr.hayai_ocr_v2: _get_hayai_ocr_class,  # 延迟导入 Hayai OCR
     Ocr.openai_ocr: _get_openai_ocr_class,
     Ocr.gemini_ocr: _get_gemini_ocr_class,
 }

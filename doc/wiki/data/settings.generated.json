@@ -143,7 +143,7 @@
       "wiki_page": "desktop/settings/cli-batch-and-output.md",
       "control": "toggle",
       "defaults": {
-        "release_json_value": false,
+        "release_json_value": true,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#CliSettings.overwrite"
       },
       "lifecycle_stages": [
@@ -440,7 +440,7 @@
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "combo",
       "defaults": {
-        "release_json_value": "paddleocr",
+        "release_json_value": "hayai_ocr_v2",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#OcrSettings.ocr"
       },
       "lifecycle_stages": [
@@ -549,8 +549,8 @@
       "ui": {
         "tab": "OCR",
         "i18n_key": "label_ocr_vl_language_hint",
-        "english": "PaddleOCR-VL Language Hint",
-        "simplified_chinese": "PaddleOCR-VL 语言提示"
+        "english": "VLM OCR Language Hint",
+        "simplified_chinese": "VLM OCR 语言提示"
       },
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "combo",
@@ -572,8 +572,8 @@
       "ui": {
         "tab": "OCR",
         "i18n_key": "label_ocr_vl_custom_prompt",
-        "english": "PaddleOCR-VL Custom Prompt (Override)",
-        "simplified_chinese": "PaddleOCR-VL 自定义提示词（优先）"
+        "english": "VLM OCR Custom Prompt (Override)",
+        "simplified_chinese": "VLM OCR 自定义提示词（优先）"
       },
       "wiki_page": "desktop/settings/ocr-filter-and-merge.md",
       "control": "optional-input",
@@ -1117,7 +1117,7 @@
       "wiki_page": "desktop/settings/translation.md",
       "control": "combo",
       "defaults": {
-        "release_json_value": "original",
+        "release_json_value": "openai",
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#TranslatorSettings.translator"
       },
       "lifecycle_stages": [

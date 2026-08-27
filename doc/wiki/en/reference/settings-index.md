@@ -79,8 +79,8 @@ The 17 parameters of this tab are explained in [OCR, Filtering, and Text-Line Me
 | `ocr.secondary_ocr` | Secondary OCR | 备用OCR | [#hybrid-ocr](../desktop/settings/ocr-filter-and-merge.md#hybrid-ocr) |
 | `ocr.ai_ocr_prompt_path` | AI OCR Prompt | AI OCR 提示词 | [#ocr-vl-and-ai](../desktop/settings/ocr-filter-and-merge.md#ocr-vl-and-ai) |
 | `ocr.ai_ocr_concurrency` | AI OCR Concurrency | AI OCR 并发数 | [#ocr-vl-and-ai](../desktop/settings/ocr-filter-and-merge.md#ocr-vl-and-ai) |
-| `ocr.ocr_vl_language_hint` | PaddleOCR-VL Language Hint | PaddleOCR-VL 语言提示 | [#ocr-vl-and-ai](../desktop/settings/ocr-filter-and-merge.md#ocr-vl-and-ai) |
-| `ocr.ocr_vl_custom_prompt` | PaddleOCR-VL Custom Prompt (Override) | PaddleOCR-VL 自定义提示词（优先） | [#ocr-vl-and-ai](../desktop/settings/ocr-filter-and-merge.md#ocr-vl-and-ai) |
+| `ocr.ocr_vl_language_hint` | VLM OCR Language Hint | VLM OCR 语言提示 | [#ocr-vl-and-ai](../desktop/settings/ocr-filter-and-merge.md#ocr-vl-and-ai) |
+| `ocr.ocr_vl_custom_prompt` | VLM OCR Custom Prompt (Override) | VLM OCR 自定义提示词（优先） | [#ocr-vl-and-ai](../desktop/settings/ocr-filter-and-merge.md#ocr-vl-and-ai) |
 | `ocr.use_model_bubble_filter` | Enable Model Bubble Filter | 启用模型气泡过滤 | [#model-bubble-filter](../desktop/settings/ocr-filter-and-merge.md#model-bubble-filter) |
 | `ocr.min_text_length` | Minimum Text Length | 最小文本长度 | [#ocr-min-text-length](../desktop/settings/ocr-filter-and-merge.md#ocr-min-text-length) |
 | `ocr.ignore_bubble` | Ignore Non-Bubble Text | 忽略非气泡文本 | [#ocr-ignore-bubble](../desktop/settings/ocr-filter-and-merge.md#ocr-ignore-bubble) |

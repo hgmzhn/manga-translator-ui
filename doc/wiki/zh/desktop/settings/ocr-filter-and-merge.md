@@ -20,7 +20,7 @@ lastUpdated: true
 1. 打开设置并选择 “OCR”。普通开关、数值框和下拉框直接编辑配置；“Advanced” 分隔线后的字段仍属于同一页，只是面向高级调参。
 2. “OCR Model” 选择主 OCR；打开 “Enable Hybrid OCR” 后，低置信或空文本行会交给 “Secondary OCR”。选择 OCR 模型、混合开关或备用 OCR 时，桌面 API 管理区域会按实现刷新所需的 API 组。
 3. “AI OCR Prompt” 是文件编辑动作，不是普通 `OcrConfig` 字段；它打开固定的 AI OCR 提示词文件编辑器。不要把提示词正文或凭据写入本文。
-4. “PaddleOCR-VL Language Hint” 只在选择 `paddleocr_vl` 时有意义；“PaddleOCR-VL Custom Prompt (Override)” 非空时覆盖内置语言/提示模式。
+4. “VLM OCR 语言提示”供 PaddleOCR-VL 等支持提示词的视觉语言 OCR 模型使用；“VLM OCR 自定义提示词（优先）”非空时覆盖内置语言/提示模式。Hayai OCR 不使用这两个设置。
 5. “Edit Filter List” 打开过滤列表编辑器。结构化页有 “Contains Filter”（每行一条包含规则）和 “Exact Filter”（每行一条精确规则）；“Raw Edit” 可直接编辑 JSON。用 “Refresh” 重读、“Cancel” 放弃、“Save” 校验并保存。
 6. 空白规则会被丢弃；Raw JSON 根必须是对象。结构化保存保留未知顶层字段；JSON 语法错误显示 “JSON format error” 且不会保存坏配置。
 
@@ -41,6 +41,7 @@ lastUpdated: true
 - `PaddleOCR Latin`：拉丁文字 OCR。
 - `PaddleOCR Thai`：泰文 OCR。
 - `PaddleOCR-VL`：VLM OCR 引擎。
+- `Hayai OCR v2`：Hayai crop-level 视觉语言 OCR 模型。
 - `OpenAI OCR`：需要对应 API 配置。
 - `Gemini OCR`：需要对应 API 配置。
 
@@ -106,8 +107,8 @@ flowchart LR
 
 #### VL 与 AI OCR 参数 {#ocr-vl-and-ai}
 
-- “PaddleOCR-VL 语言提示”：仅在选择 `paddleocr_vl` 时有意义，为 VL OCR 提供语言提示。默认值：`Japanese`。
-- “PaddleOCR-VL 自定义提示词（优先）”：非空时覆盖内置语言/提示模式。
+- “VLM OCR 语言提示”：供 PaddleOCR-VL 等支持提示词的视觉语言 OCR 模型使用。默认值：`Japanese`。Hayai OCR 不使用此设置。
+- “VLM OCR 自定义提示词（优先）”：非空时覆盖支持提示词模型的内置语言/提示模式；Hayai OCR 忽略此设置。
 - “AI OCR 提示词”：固定提示词文件编辑动作，打开 AI OCR 提示词编辑器。
 - “AI OCR 并发数”：限制 AI OCR 同时发出的 API 请求数；较高并发可能触发限流。默认值：`10`。
 - AI OCR 自定义提示词：默认空。

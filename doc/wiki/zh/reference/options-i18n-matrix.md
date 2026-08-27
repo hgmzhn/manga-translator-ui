@@ -84,7 +84,7 @@ lastUpdated: true
 | `craft` | craft | craft | 同上 |
 | `none` | none | none | 同上 |
 
-### OCR 引擎与 PaddleOCR-VL 语言提示 {#ocr-options}
+### OCR 引擎与 VLM OCR 语言提示 {#ocr-options}
 
 `ocr.ocr`、`ocr.secondary_ocr` 与 `ocr.ocr_vl_language_hint` 是下拉；编辑器属性面板复用 OCR 映射。完整说明见[OCR 过滤与合并](../desktop/settings/ocr-filter-and-merge.md)与[区域列表与文本编辑](../desktop/editor/region-list-and-text-editing.md)。
 
@@ -99,6 +99,7 @@ lastUpdated: true
 | `paddleocr_latin` | paddleocr_latin | paddleocr_latin | 同上 |
 | `paddleocr_thai` | paddleocr_thai | paddleocr_thai | 同上 |
 | `paddleocr_vl` | paddleocr_vl | paddleocr_vl | 同上 |
+| `hayai_ocr_v2` | hayai_ocr_v2 | hayai_ocr_v2 | 同上 |
 | `openai_ocr` | openai_ocr | openai_ocr | 同上 |
 | `gemini_ocr` | gemini_ocr | gemini_ocr | 同上 |
 | `auto` | Auto | 自动 | `ocr.ocr_vl_language_hint`，设置 OCR |

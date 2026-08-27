@@ -139,7 +139,7 @@
 
 `keep_lang` 同时包含上表全部 `target_lang` 值；其数据源是 `KEEP_LANGUAGES`，而不是 UI 显示文本的反向推导。
 
-## PaddleOCR-VL 语言提示
+## VLM OCR 语言提示
 
 | 控件 / 使用页面 | value | English | 简体中文 | i18n key |
 | --- | --- | --- | --- | --- |

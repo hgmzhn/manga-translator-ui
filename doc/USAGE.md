@@ -251,7 +251,8 @@
 - **paddleocr_korean**：韩漫推荐
 - **paddleocr_latin**：拉丁字母文本推荐，英文建议优先使用
 - **paddleocr_thai**：泰文推荐
-- **paddleocr_vl**：PaddleOCR-VL-1.5 通用模型，效果最好但最吃配置，建议配合语言提示或自定义提示词
+- **`paddleocr_vl`**：PaddleOCR-VL-1.5 通用模型，效果最好但最吃配置，建议配合 VLM OCR 语言提示或自定义提示词
+- **`hayai_ocr_v2`**：Hayai OCR v2 crop-level 视觉语言 OCR，适合文本框识别
 - **openai_ocr**：调用 OpenAI 兼容多模态接口做 OCR
 - **gemini_ocr**：调用 Gemini 多模态接口做 OCR
 - **日漫混合 OCR 推荐**：`48px + mocr`
