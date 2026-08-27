@@ -58,6 +58,9 @@ class EditorModel(QObject):
     def get_inpaint_key(self) -> InpaintKey:
         return self.session.get_inpaint_key()
 
+    def bump_inpaint_revision(self) -> Optional[InpaintKey]:
+        return self.session.bump_inpaint_revision()
+
     def _emit_document_projection(self) -> None:
         self.original_image_alpha_changed.emit(self.get_original_image_alpha())
         self.display_layers_changed.emit(self.get_display_layers())

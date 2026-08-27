@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import numpy as np
 from PyQt6.QtGui import QUndoCommand
 
+from .inpaint_state import INPAINT_BBOX_PADDING, InpaintArtifact
+
 if TYPE_CHECKING:
     from desktop_qt_ui.editor.editor_model import EditorModel
 
@@ -285,6 +287,113 @@ class MaskEditCommand(QUndoCommand):
 
     def undo(self):
         self._apply_mask(self._full_old_mask, self._old_patch)
+
+
+class BrushStrokeCommand(QUndoCommand):
+    """蒙版画笔笔画：蒙版补丁 + 修复图补丁合成一个撤销条目。
+
+    蒙版画笔不同于橡皮擦——它要求“已修复处再涂一次能继续修”，因此修复图不再是
+    f(底图, 蒙版) 的纯函数，撤销无法靠重算得到，只能像 PaintOverlayEditCommand
+    那样存像素。这里只存笔画包围盒（按 INPAINT_BBOX_PADDING 外扩）内的补丁。
+    """
+
+    def __init__(
+        self,
+        model: "EditorModel",
+        service: Any,
+        old_mask: Optional[np.ndarray],
+        new_mask: np.ndarray,
+        stroke_mask: np.ndarray,
+    ):
+        super().__init__("Brush Stroke")
+        self._model = model
+        self._service = service
+        self._mask_command = MaskEditCommand(
+            model=model, old_mask=old_mask, new_mask=new_mask
+        )
+        self._stroke = np.asarray(stroke_mask).copy()
+        self._img_shape: Optional[tuple[int, int]] = None
+        self._img_bounds: Optional[tuple[int, int, int, int]] = None
+        self._before_patch: Optional[np.ndarray] = None
+        self._after_patch: Optional[np.ndarray] = None
+
+        committed = model.get_committed_inpaint_artifact()
+        if committed is None or committed.image.ndim != 3:
+            return
+        image = committed.image
+        self._img_shape = image.shape[:2]
+        bounds = self._padded_stroke_bounds(self._stroke, self._img_shape)
+        if bounds is None:
+            return
+        self._img_bounds = bounds
+        y_min, y_max, x_min, x_max = bounds
+        self._before_patch = np.array(image[y_min:y_max, x_min:x_max], copy=True)
+
+    @staticmethod
+    def _padded_stroke_bounds(
+        stroke: np.ndarray, shape: tuple[int, int]
+    ) -> Optional[tuple[int, int, int, int]]:
+        """笔画包围盒外扩 padding；用笔画而非 stroke∩mask，保证覆盖实际改写范围。"""
+        if stroke.ndim != 2 or stroke.shape != shape or not np.any(stroke):
+            return None
+        ys, xs = np.where(stroke > 0)
+        height, width = shape
+        padding = INPAINT_BBOX_PADDING
+        return (
+            max(0, int(np.min(ys)) - padding),
+            min(height, int(np.max(ys)) + padding + 1),
+            max(0, int(np.min(xs)) - padding),
+            min(width, int(np.max(xs)) + padding + 1),
+        )
+
+    def _capture_after(self, image: Optional[np.ndarray]) -> None:
+        """强制重修结果落地后抓 after 补丁，让 redo 无需再跑一次修复器。"""
+        if image is None or self._img_bounds is None:
+            return
+        if np.asarray(image).shape[:2] != self._img_shape:
+            return
+        y_min, y_max, x_min, x_max = self._img_bounds
+        self._after_patch = np.array(image[y_min:y_max, x_min:x_max], copy=True)
+
+    def _restore_image_patch(self, patch: Optional[np.ndarray]) -> bool:
+        if patch is None or self._img_bounds is None:
+            return False
+        committed = self._model.get_committed_inpaint_artifact()
+        if committed is None or committed.image.shape[:2] != self._img_shape:
+            return False
+        y_min, y_max, x_min, x_max = self._img_bounds
+        image = np.array(committed.image, copy=True)
+        if patch.shape != image[y_min:y_max, x_min:x_max].shape:
+            return False
+        image[y_min:y_max, x_min:x_max] = patch
+        # 蒙版此时已经写回，推进代数号既作废在途修复，也给新 artifact 拿到合法 key。
+        key = self._model.bump_inpaint_revision()
+        if key is None:
+            return False
+        mask = self._service.normalize_binary_mask(self._model.get_effective_mask())
+        if mask is None or mask.shape != image.shape[:2] or not np.any(mask):
+            return False
+        return bool(
+            self._model.install_inpaint_artifact(InpaintArtifact(key, mask, image))
+        )
+
+    def redo(self):
+        # 压掉常规 delta 修复：随后的强制重修覆盖的区域是它的超集，否则白跑一次修复器。
+        with self._service.suspend_auto_inpaint():
+            self._mask_command.redo()
+        if self._restore_image_patch(self._after_patch):
+            return
+        self._service.force_inpaint_stroke(
+            self._stroke, on_installed=self._capture_after
+        )
+
+    def undo(self):
+        with self._service.suspend_auto_inpaint():
+            self._mask_command.undo()
+        if self._restore_image_patch(self._before_patch):
+            return
+        # 构造时还没有修复图可存（或补丁已失配），退回常规路径按当前蒙版重算。
+        self._service.ensure_current_mask_inpaint()
 
 
 class PaintOverlayEditCommand(QUndoCommand):

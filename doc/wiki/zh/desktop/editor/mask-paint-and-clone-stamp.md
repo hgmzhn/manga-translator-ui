@@ -13,7 +13,7 @@ lastUpdated: true
 
 ## 可以做什么
 
-- 蒙版画笔（`brush`）和橡皮擦（`eraser`）编辑的是**优化蒙版**（`refined_mask`，二值数组 0/255），不是检测输出的原始蒙版；每次有效笔画提交一个 `MaskEditCommand`，并触发一次自动修复。
+- 蒙版画笔（`brush`）和橡皮擦（`eraser`）编辑的是**优化蒙版**（`refined_mask`，二值数组 0/255），不是检测输出的原始蒙版；画笔提交 `BrushStrokeCommand` 并触发强制修复，橡皮擦提交 `MaskEditCommand` 并在蒙版变化时触发增量自动修复。
 - 彩色画笔（`paint`、`paint_erase`）写入**画笔图层**（`paint_overlay`，RGBA）；仿制印章（`clone`、`stamp_erase`）写入**印章图层**（`stamp_overlay`，RGBA）。这两层是覆盖在修复图之上的独立透明层，不参与蒙版二值化。
 - “清除所有蒙版”清空的是优化蒙版（没有优化蒙版时以原始蒙版为起点清零）；“清除画笔图层”“清除印章图层”分别清空对应 RGBA 层，三者都走可撤销命令。
 - 这里不负责工具按钮切换、选区、缩放平移、右键菜单和快捷键注册（见[画布工具与选区](./canvas-tools-and-selection.md)与[快捷键](./shortcuts.md)），也不负责修复器模型、修复尺寸、精度和逐块修复等全局参数（见[设置 → 蒙版与修复](../settings/mask-and-inpainting.md)）。
@@ -29,7 +29,7 @@ lastUpdated: true
 1. 打开“蒙版”页签。
 2. 点击“画笔”或“橡皮擦”；也可以直接按 `W` / `E` 切换，无需打开面板。
 3. 拖动“笔刷大小：”滑条调整笔画粗细，范围 5–200，初始 30；在画布上按住 `Shift+滚轮` 每格 ±1 调整同一个字段。
-4. 在画布上按住左键拖动：画笔把笔画位置写为 255，橡皮擦把笔画位置清为 0。松开后整笔作为一个可撤销命令提交，并触发一次自动修复。
+4. 在画布上按住左键拖动：画笔把笔画位置写为 255，松开后提交 `BrushStrokeCommand` 并强制重修；橡皮擦把笔画位置清为 0，松开后提交 `MaskEditCommand` 并增量修复。两者均作为可撤销命令进入撤销栈。
 5. 勾选“显示优化蒙版”在画布上以半透明红色显示优化蒙版；点击“清除所有蒙版”把优化蒙版整体清空。
 
 ### 画笔页签：彩色画笔
@@ -74,9 +74,10 @@ flowchart LR
 ### 蒙版笔画与自动修复
 
 - `_build_stroke_mask` 把落笔点连成带圆头的折线，再按“笔刷大小 × 蒙版/图像尺寸比”换算成蒙版分辨率下的二值笔画；蒙版分辨率以 `refined_mask` 为准，没有优化蒙版时以底图像素尺寸为准。
-- 提交时比较新旧蒙版，只有实际变化才构造 `MaskEditCommand`（记录变化包围盒内的旧/新像素补丁），通过 `QUndoStack` 执行。
-- 画笔提交后调用 `force_inpaint_stroke(stroke_mask)`，只用本次笔画包围盒（外扩 50px）做增量修复，而不是整图重跑；橡皮擦提交后走 `refined_mask_changed` 信号，由缓存蒙版快照计算“新增/移除”区域后增量修复，移除区域直接恢复为底图像素。
-- 修复请求带代数号 `_inpaint_request_generation`：新笔画会取消并取代未完成的旧请求，所以连续快速涂抹时，画面最终以最后一次请求的结果为准。
+- 画笔提交 `BrushStrokeCommand`：先写回蒙版（有变化才记录变化包围盒内的旧/新像素补丁），再调用 `force_inpaint_stroke(stroke_mask)` 强制重修。**优化蒙版是二值累积的，涂在已修复区域不会产生蒙版差异**，因此画笔不能以“蒙版无变化”为由跳过——否则同一处永远无法再次手动修复。强制路径把笔画本身（与当前蒙版求交后）当作新增区域下发，绕开常规 delta 路径里“减去已修复 footprint”和“同蒙版复用 artifact”两道判定，只重跑笔画包围盒（外扩 `INPAINT_BBOX_PADDING`，50px），并以**当前修复图**为输入，因此重复涂抹是逐次精修而不是从底图重来。
+- 橡皮擦提交 `MaskEditCommand`，走 `effective_mask_delta_changed` 信号，由蒙版快照计算“新增/移除”区域后增量修复，移除区域直接恢复为底图像素。
+- 强制重修让修复图不再是 `f(底图, 蒙版)` 的纯函数，撤销无法靠重算得到，因此 `BrushStrokeCommand` 像画笔图层那样存像素：只记录笔画包围盒内的修复图补丁，撤销贴回 before 补丁，重做贴回首次结果的 after 补丁（不重跑修复器）。写回蒙版期间用 `suspend_auto_inpaint()` 压掉常规 delta 修复，避免和随后的强制重修抢同一份工作。
+- 修复请求带代数号 `mask_revision`（`InpaintKey` 的一半）：每次强制重修都会 `bump_inpaint_revision()` 推进它，让笔画之前在途的旧结果因 key 不匹配而失效——蒙版未变时新旧请求的蒙版完全相同，不推进代数号的话晚到的旧结果会盖掉本次结果。推进时会给已提交 artifact 重贴新 key（蒙版没变，它依然成立），否则异步窗口内 `ready_inpaint_artifact()` 返回 None，导出会退化成 `backend_inpaint` 并丢掉编辑器已有的修复结果。
 - 修复器本身使用设置中的 `inpainter`、`inpainting_size`、`inpainting_precision`、`force_use_torch_inpainting`，设备为 `cuda`（开启 GPU 且可用时）或 `cpu`，详见[设置 → 蒙版与修复](../settings/mask-and-inpainting.md)。
 - 笔画预览颜色：蒙版画笔为半透明红色、橡皮擦为半透明蓝色、彩色画笔为所选颜色、画笔/印章擦除为半透明青色；仿制印章直接显示真实盖印像素。
 
@@ -111,7 +112,8 @@ flowchart LR
 
 蒙版笔画、清除所有蒙版、画笔/印章笔画和图层清除都进入同一个 `QUndoStack`：
 
-- `MaskEditCommand`：undo/redo 通过补丁或全量数组写回 `refined_mask`；写回同样触发 `refined_mask_changed`，因此撤销/重做蒙版编辑也会重新触发自动修复。
+- `MaskEditCommand`（橡皮擦）：undo/redo 通过补丁或全量数组写回 `refined_mask`；写回同样触发蒙版增量信号，因此撤销/重做也会重新触发自动修复。
+- `BrushStrokeCommand`（画笔）：一条撤销条目同时含蒙版补丁和修复图补丁。两者都在 `suspend_auto_inpaint()` 内写回蒙版；撤销优先贴回 before 补丁，重做优先贴回首次结果的 after 补丁，补丁恢复成功时不会额外跑修复器。若补丁缺失或失配，撤销回退到 `ensure_current_mask_inpaint()` 按当前蒙版重算，重做回退到 `force_inpaint_stroke()` 重新强制修复。
 - `PaintOverlayEditCommand`：`layer='paint'` 作用于画笔层，`layer='stamp'` 作用于印章层；undo/redo 只改对应层像素，不触发修复。
 - 撤销粒度是“整笔”，不是单个取样点；`Ctrl+Z`/`Ctrl+Y` 的焦点规则见[快捷键](./shortcuts.md)。
 

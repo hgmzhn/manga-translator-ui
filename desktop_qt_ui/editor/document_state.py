@@ -423,6 +423,26 @@ class EditorDocument:
             delta,
         )
 
+    def bump_inpaint_revision(self) -> InpaintKey:
+        """推进代数号以作废在途修复，但不改动蒙版（强制重修用）。
+
+        committed 必须保留：强制重修是在“当前修复图”上继续修，而不是从底图重跑。
+        旧 artifact 的蒙版没有变化，因此对新代数号依然成立，重新贴 key 即可，
+        否则 ready_inpaint_artifact() 会在异步窗口内返回 None，导出退化成
+        backend_inpaint 并丢掉编辑器已有的修复结果。
+        """
+        self.mask_revision += 1
+        committed = self.inpaint.committed
+        self.inpaint.invalidate(clear_committed=False)
+        key = self.inpaint_key()
+        if committed is not None:
+            # 只换 key，保留原始 mask，让 ready_artifact 仍按“蒙版是否相符”真实判定。
+            self.inpaint.install_ready(
+                InpaintArtifact(key, committed.mask, committed.image)
+            )
+            self.inpaint_display_image = committed.image
+        return key
+
     def ready_inpaint_artifact(self) -> Optional[InpaintArtifact]:
         return self.inpaint.ready_artifact(
             self.inpaint_key(),

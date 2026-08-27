@@ -198,6 +198,10 @@ class EditorSession:
             return InpaintKey(self._next_document_id, 0)
         return document.inpaint_key()
 
+    def bump_inpaint_revision(self) -> Optional[InpaintKey]:
+        document = self._document
+        return None if document is None else document.bump_inpaint_revision()
+
     def get_ready_inpaint_artifact(self) -> Optional[InpaintArtifact]:
         document = self._document
         return None if document is None else document.ready_inpaint_artifact()

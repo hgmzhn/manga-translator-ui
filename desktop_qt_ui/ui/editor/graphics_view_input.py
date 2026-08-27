@@ -523,7 +523,8 @@ class GraphicsViewInputMixin:
         )
 
         new_mask_np = base_mask.copy()
-        if self._active_tool in ("pen", "brush"):
+        is_brush = self._active_tool in ("pen", "brush")
+        if is_brush:
             new_mask_np[stroke_mask > 0] = 255
         elif self._active_tool == "eraser":
             new_mask_np[stroke_mask > 0] = 0
@@ -533,7 +534,26 @@ class GraphicsViewInputMixin:
         mask_changed = (old_mask_np is None and np.any(new_mask_np)) or (
             old_mask_np is not None and not np.array_equal(old_mask_np, new_mask_np)
         )
-        if not self.controller or not mask_changed:
+        if not self.controller or not np.any(stroke_mask):
+            return
+
+        if is_brush:
+            # 画笔一律强制重修：涂在已有蒙版内不会改变蒙版（二值累积），但用户要的正是
+            # “在已修复处再修一次”，因此不能像橡皮擦那样以蒙版无变化为由丢弃这一笔。
+            from editor.commands import BrushStrokeCommand
+
+            self.controller.execute_command(
+                BrushStrokeCommand(
+                    model=self.model,
+                    service=self.controller.inpaint_service,
+                    old_mask=old_mask_np,
+                    new_mask=new_mask_np.copy(),
+                    stroke_mask=stroke_mask,
+                )
+            )
+            return
+
+        if not mask_changed:
             return
 
         from editor.commands import MaskEditCommand

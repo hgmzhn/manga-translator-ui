@@ -13,7 +13,7 @@ When the auto-generated repair mask misses text ghosts, covers too much backgrou
 
 ## What you can do
 
-- The mask brush (`brush`) and eraser (`eraser`) edit the **refined mask** (`refined_mask`, a binary 0/255 array), not the raw mask produced by detection. Each effective stroke commits one `MaskEditCommand` and triggers one auto-inpaint pass.
+- The mask brush (`brush`) and eraser (`eraser`) edit the **refined mask** (`refined_mask`, a binary 0/255 array), not the raw mask produced by detection. Brush strokes commit a `BrushStrokeCommand` and trigger forced repair; eraser strokes commit a `MaskEditCommand` and trigger incremental auto-inpainting on mask changes.
 - The color brush (`paint`, `paint_erase`) writes the **paint layer** (`paint_overlay`, RGBA); the clone stamp (`clone`, `stamp_erase`) writes the **stamp layer** (`stamp_overlay`, RGBA). These two layers are independent transparent layers above the inpainted image and never enter mask binarization.
 - “Clear All Masks” clears the refined mask (falling back to the raw mask when no refined mask exists); “Clear Paint Layer” and “Clear Stamp Layer” clear the corresponding RGBA layers. All three go through undoable commands.
 - This guide does not cover tool-button switching, selection, zoom/pan, context menus, or shortcut registration (see [Canvas Tools and Selection](./canvas-tools-and-selection.md) and [Shortcuts](./shortcuts.md)), nor the global inpainter model, size, precision, and per-block settings (see [Settings → Mask and Inpainting](../settings/mask-and-inpainting.md)).
@@ -29,7 +29,7 @@ After opening the editor, the left panel defaults to “Property Editor”. The 
 1. Open the “Mask” tab.
 2. Click “Brush” or “Eraser”; alternatively press `W` / `E` to switch without opening the panel.
 3. Drag the “Brush Size:” slider to adjust stroke thickness; the range is 5–200 with an initial value of 30. On the canvas, `Shift+wheel` adjusts the same field by ±1 per notch.
-4. Press and drag the left button on the canvas: the brush writes 255 at the stroke position, and the eraser clears the stroke position to 0. On release, the whole stroke is committed as one undoable command and triggers one auto-inpaint pass.
+4. Press and drag the left button on the canvas: the brush writes 255 at the stroke position, committing a `BrushStrokeCommand` for forced repair on release; the eraser clears the stroke position to 0, committing a `MaskEditCommand` for incremental repair on release. Both enter the undo stack as undoable commands.
 5. Check “Show Refined Mask” to display the refined mask as a semi-transparent red overlay on the canvas; click “Clear All Masks” to clear the refined mask entirely.
 
 ### Paint tab: color brush
@@ -74,9 +74,10 @@ The inpainted image, paint layer, and stamp layer are all stacked above the base
 ### Mask strokes and auto-inpainting
 
 - `_build_stroke_mask` connects the press points into a round-cap polyline and converts the stroke to mask resolution using “brush size × mask/image size ratio”; the mask resolution follows `refined_mask`, falling back to base-image pixel size when no refined mask exists.
-- On commit, the old and new masks are compared; only real changes construct a `MaskEditCommand` (storing the old/new pixel patch inside the change bounding box), executed through the `QUndoStack`.
-- After a brush stroke, `force_inpaint_stroke(stroke_mask)` runs an incremental inpaint limited to the stroke bounding box (padded by 50 px) instead of re-running the whole image. After an eraser stroke, the `refined_mask_changed` signal computes “added/removed” areas from the cached mask snapshot and inpaints incrementally; removed areas are restored directly from the base image.
-- Inpaint requests carry a generation number `_inpaint_request_generation`: a new stroke cancels and supersedes the unfinished old request, so with rapid successive strokes the canvas settles on the result of the latest request.
+- A brush stroke commits a `BrushStrokeCommand`: it first writes the mask back (recording the old/new pixel patch inside the change bounding box, when there is a change), then calls `force_inpaint_stroke(stroke_mask)` to force a repair. **The refined mask is binary and cumulative, so painting over an already-repaired area produces no mask difference**; the brush therefore must not skip on “mask unchanged” — otherwise the same spot could never be repaired manually a second time. The forced path submits the stroke itself (intersected with the current mask) as the added region, bypassing both the “subtract the already-repaired footprint” and “reuse the artifact for an identical mask” gates of the normal delta path. It re-runs only the stroke bounding box (padded by `INPAINT_BBOX_PADDING`, 50 px) and feeds the **current repaired image** as input, so repeated strokes refine iteratively instead of restarting from the base image.
+- An eraser stroke commits a `MaskEditCommand` and goes through the `effective_mask_delta_changed` signal, which computes “added/removed” areas from the mask snapshot and inpaints incrementally; removed areas are restored directly from the base image.
+- Forced repair makes the repaired image no longer a pure function of `f(base, mask)`, so undo cannot recompute it. `BrushStrokeCommand` therefore stores pixels the way the paint layer does: it records only the repaired-image patch inside the stroke bounding box, restoring the before patch on undo and the first result's after patch on redo (without re-running the inpainter). While the mask is written back, `suspend_auto_inpaint()` blocks the normal delta repair so it does not compete with the forced repair that follows.
+- Inpaint requests carry the generation number `mask_revision` (one half of `InpaintKey`): every forced repair calls `bump_inpaint_revision()` to advance it so any request still in flight from before the stroke is invalidated by key mismatch — when the mask is unchanged both requests carry an identical mask, and without the bump a late-arriving old result would overwrite the new one. The bump also re-keys the committed artifact (the mask did not change, so it still holds); otherwise `ready_inpaint_artifact()` would return None during the async window and export would degrade to `backend_inpaint`, discarding the repair the editor already has.
 - The inpainter itself uses `inpainter`, `inpainting_size`, `inpainting_precision`, and `force_use_torch_inpainting` from settings, on `cuda` (when GPU is enabled and available) or `cpu`; see [Settings → Mask and Inpainting](../settings/mask-and-inpainting.md).
 - Stroke preview colors: mask brush is semi-transparent red, eraser is semi-transparent blue, color brush uses the chosen color, paint/stamp erasers are semi-transparent cyan, and the clone stamp shows the real stamped pixels.
 
@@ -111,7 +112,8 @@ flowchart LR
 
 Mask strokes, clearing all masks, paint/stamp strokes, and layer clearing all enter the same `QUndoStack`:
 
-- `MaskEditCommand`: undo/redo writes `refined_mask` back through the patch or the full array. The write-back also emits `refined_mask_changed`, so undoing/redoing a mask edit re-triggers auto-inpainting.
+- `MaskEditCommand` (eraser): undo/redo writes `refined_mask` back through the patch or the full array. The write-back also emits the mask delta signal, so undoing/redoing re-triggers auto-inpainting.
+- `BrushStrokeCommand` (brush): a single undo entry carrying both the mask patch and the repaired-image patch. Both write the mask inside `suspend_auto_inpaint()`; undo restores the before patch and redo applies the cached after patch without re-running the inpainter when patch restoration succeeds. If the patch is missing or mismatched, undo falls back to `ensure_current_mask_inpaint()` to recompute from the current mask, while redo falls back to `force_inpaint_stroke()` to re-run forced repair.
 - `PaintOverlayEditCommand`: `layer='paint'` acts on the paint layer and `layer='stamp'` on the stamp layer; undo/redo only changes pixels of the corresponding layer and never triggers inpainting.
 - The undo granularity is the whole stroke, not an individual dab; the focus rules for `Ctrl+Z`/`Ctrl+Y` are covered in [Shortcuts](./shortcuts.md).
 

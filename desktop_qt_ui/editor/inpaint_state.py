@@ -5,6 +5,10 @@ from typing import Any, Optional
 
 import numpy as np
 
+# 增量修复时在 added 区域包围盒外扩的像素数；撤销命令按同一常量截取修复图补丁，
+# 保证补丁覆盖 async_inpaint 实际可能改写的全部范围。
+INPAINT_BBOX_PADDING = 50
+
 
 def _owned_array(value: np.ndarray) -> np.ndarray:
     array = np.asarray(value)

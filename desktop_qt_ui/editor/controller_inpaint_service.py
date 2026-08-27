@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import torch
@@ -13,6 +14,7 @@ from services import get_config_service
 from .document_state import normalize_binary_mask
 from .image_utils import image_like_to_rgb_array
 from .inpaint_state import (
+    INPAINT_BBOX_PADDING,
     InpaintArtifact,
     InpaintConfigSnapshot,
     InpaintKey,
@@ -34,6 +36,18 @@ class EditorControllerInpaintService:
 
     def __init__(self, controller: "EditorController"):
         self.controller = controller
+        # 画笔命令在写回蒙版时借此压掉常规 delta 修复，避免和随后的强制重修抢同一份工作。
+        self._suspend_auto_inpaint = 0
+        self._forced_callback: Optional[tuple[InpaintKey, Any]] = None
+
+    @contextlib.contextmanager
+    def suspend_auto_inpaint(self):
+        """临时压掉 effective_mask_delta_changed 触发的自动修复。"""
+        self._suspend_auto_inpaint += 1
+        try:
+            yield
+        finally:
+            self._suspend_auto_inpaint -= 1
 
     @property
     def logger(self):
@@ -130,16 +144,86 @@ class EditorControllerInpaintService:
 
     def apply_inpaint_result(self, result: object) -> None:
         if isinstance(result, _InpaintFailure):
+            self._take_forced_callback(result.key)
             self.model.fail_inpaint(result.key)
             return
         if not isinstance(result, InpaintArtifact):
             return
         if not self.model.install_inpaint_artifact(result):
+            self._take_forced_callback(result.key)
             self.logger.debug(
                 "Ignoring stale inpaint result (key %s, current %s)",
                 result.key,
                 self.model.get_inpaint_key(),
             )
+            return
+        callback = self._take_forced_callback(result.key)
+        if callback is not None:
+            callback(result.image)
+
+    def _take_forced_callback(self, key: InpaintKey):
+        """取出并清除该代数号登记的强制重修回调。"""
+        pending = self._forced_callback
+        if pending is None or pending[0] != key:
+            return None
+        self._forced_callback = None
+        return pending[1]
+
+    def force_inpaint_stroke(self, stroke_mask, *, on_installed=None) -> None:
+        """按笔画强制重修，无视该区域此前是否已经修复过。
+
+        优化蒙版是二值累积的：某个像素涂成 255 之后再涂一次不产生任何差异，常规
+        delta 路径因此把重复涂抹整条丢弃（见 build_inpaint_request 里减去已修复
+        footprint 的那段，以及同蒙版直接复用 artifact 的那段）。这里把笔画本身当作
+        added 区域直接下发，绕开这两道判定，让用户能在已修复处继续手动修。
+        """
+        current_mask = self._current_mask()
+        stroke = self.normalize_binary_mask(stroke_mask)
+        if (
+            current_mask is None
+            or stroke is None
+            or stroke.shape != current_mask.shape
+            or not np.any(current_mask)
+        ):
+            return
+        # 必须与当前蒙版求交：async_inpaint 把 added 直接当修复器蒙版，而 removed 为空时
+        # 不会执行“未蒙版像素还原为底图”，否则笔画溢出蒙版的部分会改写本该保持原样的像素。
+        forced = np.where((stroke > 0) & (current_mask > 0), 255, 0).astype(np.uint8)
+        if not np.any(forced):
+            return
+
+        # 推进代数号：蒙版未变时新旧请求的 key 与 mask 完全相同，不推进的话晚到的旧结果
+        # 会盖掉本次强制重修的结果。
+        key = self.model.bump_inpaint_revision()
+        if key is None:
+            return
+        image = self._get_base_image_array(key)
+        if image is None:
+            return
+        previous = self.model.get_committed_inpaint_artifact()
+        if previous is not None and previous.key.document_id != key.document_id:
+            previous = None
+        request = InpaintRequest(
+            key=key,
+            image=image,
+            mask=current_mask,
+            delta=MaskDelta(
+                added=forced,
+                removed=np.zeros_like(forced),
+                mask_revision=key.mask_revision,
+            ),
+            previous_artifact=previous,
+            config=self._snapshot_inpaint_config(),
+        )
+        future = self.async_service.submit_task(self.async_inpaint(request))
+        if not self.model.begin_inpaint(request.key, future):
+            return
+        self._forced_callback = (
+            (request.key, on_installed) if on_installed is not None else None
+        )
+        future.add_done_callback(
+            lambda completed, key=request.key: self._emit_inpaint_result(completed, key)
+        )
 
     def _start_inpaint_request(self, mask, delta: MaskDelta) -> None:
         request = self.build_inpaint_request(mask, delta)
@@ -182,6 +266,8 @@ class EditorControllerInpaintService:
         self.on_effective_mask_delta_changed(current_mask, delta)
 
     def on_effective_mask_delta_changed(self, mask, delta: MaskDelta) -> None:
+        if self._suspend_auto_inpaint:
+            return
         supplied_mask = self.normalize_binary_mask(mask)
         current_mask = self._current_mask()
         key = self.model.get_inpaint_key()
@@ -282,7 +368,7 @@ class EditorControllerInpaintService:
 
         if np.any(added_areas):
             ys, xs = np.where(added_areas > 0)
-            padding = 50
+            padding = INPAINT_BBOX_PADDING
             height, width = current_mask.shape
             y_min = max(0, int(np.min(ys)) - padding)
             y_max = min(height, int(np.max(ys)) + padding + 1)
