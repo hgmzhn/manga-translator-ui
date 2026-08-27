@@ -178,11 +178,12 @@ class EditorSession:
         *,
         raw: Any = _UNSET,
         refined: Any = _UNSET,
+        repair: Any = _UNSET,
     ) -> MaskMutation:
         document = self._document
         if document is None:
             return MaskMutation(None, None, False, False, None, None)
-        return document.replace_masks(raw=raw, refined=refined)
+        return document.replace_masks(raw=raw, refined=refined, repair=repair)
 
     def get_mask(self, mask_type: MaskType) -> Any:
         document = self._document

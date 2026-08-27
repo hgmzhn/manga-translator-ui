@@ -185,8 +185,9 @@ class EditorModel(QObject):
         *,
         raw: Any = _UNSET,
         refined: Any = _UNSET,
+        repair: Any = _UNSET,
     ) -> MaskMutation:
-        mutation = self.session.replace_masks(raw=raw, refined=refined)
+        mutation = self.session.replace_masks(raw=raw, refined=refined, repair=repair)
         if mutation.raw_changed:
             self.raw_mask_changed.emit(mutation.raw)
         if mutation.refined_changed:
@@ -204,8 +205,8 @@ class EditorModel(QObject):
     def get_raw_mask(self) -> Optional[Any]:
         return self.session.get_mask(MaskType.RAW)
 
-    def set_refined_mask(self, mask: Any) -> MaskMutation:
-        return self.set_masks(refined=mask)
+    def set_refined_mask(self, mask: Any, *, repair: Any = _UNSET) -> MaskMutation:
+        return self.set_masks(refined=mask, repair=repair)
 
     def get_refined_mask(self) -> Optional[Any]:
         return self.session.get_mask(MaskType.REFINED)

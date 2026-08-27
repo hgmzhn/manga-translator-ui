@@ -533,16 +533,18 @@ class GraphicsViewInputMixin:
         mask_changed = (old_mask_np is None and np.any(new_mask_np)) or (
             old_mask_np is not None and not np.array_equal(old_mask_np, new_mask_np)
         )
-        if not self.controller or not mask_changed:
+        if not self.controller:
+            return
+        repair_mask = stroke_mask if self._active_tool in ("pen", "brush") and np.any(stroke_mask) else None
+        if not mask_changed:
+            if repair_mask is not None:
+                self.model.set_refined_mask(new_mask_np, repair=repair_mask)
             return
 
         from editor.commands import MaskEditCommand
 
-        self.controller.execute_command(
-            MaskEditCommand(
-                model=self.model, old_mask=old_mask_np, new_mask=new_mask_np.copy()
-            )
-        )
+        command = MaskEditCommand(self.model, old_mask_np, new_mask_np, repair_mask)
+        self.controller.execute_command(command)
 
     def _commit_paint_overlay_stroke(self):
         """Apply the current paint or eraser stroke to its overlay."""

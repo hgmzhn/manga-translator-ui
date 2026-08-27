@@ -4,6 +4,7 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
+import cv2
 import numpy as np
 
 from .core.types import MaskType
@@ -60,6 +61,13 @@ def _mask_delta(
         added = np.where((current > 0) & (previous == 0), 255, 0).astype(np.uint8)
         removed = np.where((previous > 0) & (current == 0), 255, 0).astype(np.uint8)
     return MaskDelta(added, removed, mask_revision)
+
+
+def _expand_repair_components(mask: np.ndarray, repair: np.ndarray) -> np.ndarray:
+    _, labels = cv2.connectedComponents((mask > 0).astype(np.uint8), connectivity=8)
+    touched = np.unique(labels[repair > 0])
+    touched = touched[touched != 0]
+    return np.where(np.isin(labels, touched), 255, 0).astype(np.uint8)
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +380,7 @@ class EditorDocument:
         *,
         raw: Any = _UNSET,
         refined: Any = _UNSET,
+        repair: Any = _UNSET,
     ) -> MaskMutation:
         previous_raw = self.masks.raw
         previous_refined = self.masks.refined
@@ -386,7 +395,20 @@ class EditorDocument:
             next_refined = normalize_binary_mask(refined)
         raw_changed = not _arrays_equal(previous_raw, next_raw)
         refined_changed = not _arrays_equal(previous_refined, next_refined)
-        if not raw_changed and not refined_changed:
+
+        current_effective = next_refined if next_refined is not None else next_raw
+        repair_mask = None if repair is _UNSET else normalize_binary_mask(repair)
+        if repair_mask is not None:
+            if (
+                current_effective is None
+                or repair_mask.shape != current_effective.shape
+            ):
+                raise ValueError("repair mask must match the effective mask")
+            repair_mask = _expand_repair_components(current_effective, repair_mask)
+            if not np.any(repair_mask):
+                repair_mask = None
+
+        if not raw_changed and not refined_changed and repair_mask is None:
             return MaskMutation(
                 previous_raw,
                 previous_refined,
@@ -398,22 +420,27 @@ class EditorDocument:
 
         self.masks.raw = next_raw
         self.masks.refined = next_refined
-        current_effective = self.masks.effective()
+        effective_changed = not _arrays_equal(previous_effective, current_effective)
         delta = None
-        if not _arrays_equal(previous_effective, current_effective):
+        if effective_changed or repair_mask is not None:
             self.mask_revision += 1
             clear_committed = current_effective is None or not np.any(current_effective)
             committed = self.inpaint.committed
             self.inpaint.invalidate(clear_committed=clear_committed)
-            if clear_committed or committed is None:
-                self.inpaint_display_image = self.source_image
-            else:
-                self.inpaint_display_image = committed.image
-            delta = _mask_delta(
-                previous_effective,
-                current_effective,
-                self.mask_revision,
+            self.inpaint_display_image = (
+                self.source_image
+                if clear_committed or committed is None
+                else committed.image
             )
+            delta = _mask_delta(
+                previous_effective, current_effective, self.mask_revision
+            )
+            if repair_mask is not None:
+                delta = MaskDelta(
+                    np.maximum(delta.added, repair_mask),
+                    delta.removed,
+                    self.mask_revision,
+                )
         return MaskMutation(
             self.masks.raw,
             self.masks.refined,

@@ -106,10 +106,11 @@ class EditorControllerInpaintService:
             previous = None
         effective_delta = delta
         if previous is not None and previous.mask.shape == current_mask.shape:
+            added = np.where(
+                (current_mask > 0) & (previous.mask == 0), 255, 0
+            ).astype(np.uint8)
             effective_delta = MaskDelta(
-                added=np.where(
-                    (current_mask > 0) & (previous.mask == 0), 255, 0
-                ).astype(np.uint8),
+                added=np.maximum(added, delta.added),
                 removed=np.where(
                     (previous.mask > 0) & (current_mask == 0), 255, 0
                 ).astype(np.uint8),
@@ -209,6 +210,7 @@ class EditorControllerInpaintService:
             and committed.key.document_id == key.document_id
             and committed.mask.shape == current_mask.shape
             and np.array_equal(committed.mask, current_mask)
+            and not np.any(delta.added)
         ):
             if self.model.install_inpaint_artifact(
                 InpaintArtifact(key, current_mask, committed.image)

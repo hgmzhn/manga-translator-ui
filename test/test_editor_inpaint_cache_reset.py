@@ -20,6 +20,7 @@ from editor.inpaint_state import (
     MaskDelta,
 )
 from editor.session import EditorSession
+from ui.editor.graphics_view_input import GraphicsViewInputMixin
 
 
 class _KeyedModel:
@@ -185,7 +186,7 @@ def test_undo_to_committed_mask_rekeys_and_reuses_its_artifact():
     model = _KeyedModel(current_key, mask)
     model.state.install_ready(committed)
     service = EditorControllerInpaintService(_InpaintController(model))
-    delta = MaskDelta(mask, np.zeros_like(mask), current_key.mask_revision)
+    delta = MaskDelta(np.zeros_like(mask), mask, current_key.mask_revision)
 
     service.on_effective_mask_delta_changed(mask, delta)
 
@@ -193,6 +194,65 @@ def test_undo_to_committed_mask_rekeys_and_reuses_its_artifact():
     assert ready is not None
     assert ready.key == current_key
     assert ready.image is committed.image
+
+
+def test_repair_request_reprocesses_pixels_already_in_committed_mask():
+    mask = np.full((4, 5), 255, dtype=np.uint8)
+    current_key = InpaintKey(2, 6)
+    previous = InpaintArtifact(
+        InpaintKey(2, 5),
+        mask,
+        np.full((4, 5, 3), 113, dtype=np.uint8),
+    )
+    model = _KeyedModel(current_key, mask)
+    model.state.install_ready(previous)
+    service = EditorControllerInpaintService(_InpaintController(model))
+    service._snapshot_inpaint_config = lambda: InpaintConfigSnapshot(
+        "none", "fp32", False, 64, "cpu"
+    )
+    stroke = np.zeros_like(mask)
+    stroke[1, 2:4] = 255
+    delta = MaskDelta(
+        added=stroke,
+        removed=np.zeros_like(mask),
+        mask_revision=current_key.mask_revision,
+    )
+
+    request = service.build_inpaint_request(mask, delta)
+
+    assert request is not None
+    assert request.key == current_key
+    assert request.previous_artifact is previous
+    assert np.array_equal(request.delta.added, stroke)
+    assert not np.any(request.delta.removed)
+
+
+def test_mask_brush_submits_repair_when_binary_mask_is_unchanged():
+    current_mask = np.full((2, 3), 255, dtype=np.uint8)
+    stroke = np.zeros_like(current_mask)
+    stroke[0, 1] = 255
+    calls = []
+    model = SimpleNamespace(
+        get_refined_mask=lambda: current_mask,
+        set_refined_mask=lambda mask, **kwargs: calls.append((mask, kwargs)),
+    )
+    view = SimpleNamespace(
+        _current_draw_mask_points=[(1, 0)],
+        _current_draw_mask_shape=current_mask.shape,
+        _active_tool="brush",
+        model=model,
+        controller=SimpleNamespace(
+            execute_command=lambda command: calls.append(command)
+        ),
+        _build_stroke_mask=lambda points, shape: stroke,
+    )
+
+    GraphicsViewInputMixin._commit_drawing(view)
+
+    assert len(calls) == 1
+    submitted_mask, kwargs = calls[0]
+    assert np.array_equal(submitted_mask, current_mask)
+    assert np.array_equal(kwargs["repair"], stroke)
 
 
 def test_mask_delta_repeated_coverage_partial_addition_and_erasure():

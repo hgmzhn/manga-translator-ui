@@ -75,8 +75,8 @@ flowchart LR
 
 - `_build_stroke_mask` 把落笔点连成带圆头的折线，再按“笔刷大小 × 蒙版/图像尺寸比”换算成蒙版分辨率下的二值笔画；蒙版分辨率以 `refined_mask` 为准，没有优化蒙版时以底图像素尺寸为准。
 - 提交时比较新旧蒙版，只有实际变化才构造 `MaskEditCommand`（记录变化包围盒内的旧/新像素补丁），通过 `QUndoStack` 执行。
-- 画笔提交后调用 `force_inpaint_stroke(stroke_mask)`，只用本次笔画包围盒（外扩 50px）做增量修复，而不是整图重跑；橡皮擦提交后走 `refined_mask_changed` 信号，由缓存蒙版快照计算“新增/移除”区域后增量修复，移除区域直接恢复为底图像素。
-- 修复请求带代数号 `_inpaint_request_generation`：新笔画会取消并取代未完成的旧请求，所以连续快速涂抹时，画面最终以最后一次请求的结果为准。
+- 画笔触及的每个 8 邻域蒙版连通块会并入 `MaskDelta.added` 的待修复区域；即使二值蒙版没有变化，整个被触及连通块仍会进入修复流水线，并按其包围盒外扩 50px 做增量修复，其他不相连的蒙版保持不变。橡皮擦只提交真实移除区域，移除像素直接从底图恢复。
+- 每次蒙版修复操作都会推进 `mask_revision` 并生成新的 `InpaintKey`；新笔画会取消并自然淘汰旧 key 的未完成结果，连续快速涂抹最终只接受最新结果。
 - 修复器本身使用设置中的 `inpainter`、`inpainting_size`、`inpainting_precision`、`force_use_torch_inpainting`，设备为 `cuda`（开启 GPU 且可用时）或 `cpu`，详见[设置 → 蒙版与修复](../settings/mask-and-inpainting.md)。
 - 笔画预览颜色：蒙版画笔为半透明红色、橡皮擦为半透明蓝色、彩色画笔为所选颜色、画笔/印章擦除为半透明青色；仿制印章直接显示真实盖印像素。
 

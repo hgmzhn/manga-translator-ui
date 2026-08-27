@@ -168,6 +168,93 @@ def test_raw_and_refined_ui_changes_emit_one_effective_mask_delta():
     assert not np.any(delta.removed)
 
 
+def test_repair_delta_reprocesses_an_unchanged_mask():
+    model = EditorModel()
+    mask = _mask()
+    model.apply_document_snapshot(
+        DocumentSnapshot(source_path="page.png", image=_source(29), raw_mask=mask)
+    )
+    original_key = model.get_inpaint_key()
+    artifact = InpaintArtifact(original_key, mask, _source(173))
+    assert model.install_inpaint_artifact(artifact)
+
+    refined_events = []
+    effective_events = []
+    model.refined_mask_changed.connect(refined_events.append)
+    model.effective_mask_delta_changed.connect(
+        lambda effective, delta: effective_events.append((effective, delta))
+    )
+    stroke = np.zeros_like(mask)
+    stroke[2, 3:5] = 255
+
+    mutation = model.set_refined_mask(mask.copy(), repair=stroke)
+
+    assert not mutation.refined_changed
+    assert refined_events == []
+    assert len(effective_events) == 1
+    effective, delta = effective_events[0]
+    assert np.array_equal(effective, mask)
+    assert np.array_equal(delta.added, mask)
+    assert not np.any(delta.removed)
+    assert model.get_inpaint_key().mask_revision == original_key.mask_revision + 1
+    assert model.get_ready_inpaint_artifact() is None
+    assert np.array_equal(
+        model.get_display_layers().inpaint_display_image,
+        artifact.image,
+    )
+
+
+def test_repair_delta_expands_only_to_touched_connected_components():
+    model = EditorModel()
+    mask = np.zeros((5, 9), dtype=np.uint8)
+    mask[1:4, 1:4] = 255
+    mask[1:4, 6:8] = 255
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=np.zeros((5, 9, 3), dtype=np.uint8),
+            raw_mask=mask,
+        )
+    )
+    stroke = np.zeros_like(mask)
+    stroke[2, 2] = 255
+    events = []
+    model.effective_mask_delta_changed.connect(lambda _, delta: events.append(delta))
+
+    model.set_refined_mask(mask.copy(), repair=stroke)
+
+    expected = np.zeros_like(mask)
+    expected[1:4, 1:4] = 255
+    assert len(events) == 1
+    assert np.array_equal(events[0].added, expected)
+    assert not np.any(events[0].removed)
+
+
+def test_new_bridge_repairs_joined_component_but_undo_removes_only_bridge():
+    model = EditorModel()
+    mask = np.zeros((3, 7), dtype=np.uint8)
+    mask[:, 1:3] = 255
+    mask[:, 4:6] = 255
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=np.zeros((3, 7, 3), dtype=np.uint8),
+            raw_mask=mask,
+        )
+    )
+    bridge = np.zeros_like(mask)
+    bridge[1, 3] = 255
+    joined = np.maximum(mask, bridge)
+
+    added = model.set_refined_mask(joined, repair=bridge).delta
+    removed = model.set_refined_mask(mask).delta
+
+    assert np.array_equal(added.added, joined)
+    assert not np.any(added.removed)
+    assert not np.any(removed.added)
+    assert np.array_equal(removed.removed, bridge)
+
+
 def test_empty_mask_export_uses_the_current_source_image():
     session = _session()
     source = _source(53)
