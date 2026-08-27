@@ -27,6 +27,7 @@ from ..utils import (
 from . import text_render
 from .auto_linebreak import (
     _is_chinese_lang,
+    _solve_unified_no_br_layout,
     solve_no_br_layout,
     should_force_no_wrap_single_region,
     strip_linebreak_edge_punctuation,
@@ -352,132 +353,6 @@ def _select_preserved_line_layout_font(
     return max(base_font, line_font), line_font
 
 
-def _solve_unified_no_br_layout(
-    text: str,
-    render_horizontally: bool,
-    target_font_size: int,
-    bubble_width: float,
-    bubble_height: float,
-    layout_min_font_size: int,
-    line_spacing_multiplier: float,
-    letter_spacing_multiplier: float,
-    config: Config = None,
-    target_lang: str = None,
-    max_font_size: Optional[int] = None,
-) -> str:
-    """Shared no-BR auto-linebreak step: returns the final text (with [BR]) only.
-
-    按框适配字号与候选尺寸在断句完成后由调用方统一计算，不在此重复。
-    """
-    safe_target_font_size = max(int(target_font_size), int(layout_min_font_size), 1)
-    safe_max_font_size = max(
-        safe_target_font_size,
-        int(max_font_size) if isinstance(max_font_size, (int, float)) else safe_target_font_size,
-    )
-    safe_bubble_width = float(bubble_width) if isinstance(bubble_width, (int, float)) and bubble_width > 0 else 1.0
-    safe_bubble_height = float(bubble_height) if isinstance(bubble_height, (int, float)) and bubble_height > 0 else 1.0
-
-    if render_horizontally:
-        total_width = text_render.get_string_width(
-            safe_target_font_size,
-            text,
-            letter_spacing=letter_spacing_multiplier,
-        )
-        spacing_y = text_render.calc_horizontal_line_spacing_px(
-            safe_target_font_size,
-            line_spacing_multiplier,
-        )
-        ratio = safe_bubble_width / safe_bubble_height if safe_bubble_height > 0 else 1.0
-
-        a = safe_target_font_size + spacing_y
-        b = -spacing_y
-        c = -total_width / ratio if ratio > 0 else -total_width
-
-        discriminant = b * b - 4 * a * c
-        if discriminant >= 0 and a > 0:
-            n_float = (-b + np.sqrt(discriminant)) / (2 * a)
-            n_floor = max(1, int(np.floor(n_float)))
-            n_ceil = max(1, int(np.ceil(n_float)))
-        else:
-            n_floor = n_ceil = 1
-
-        def calc_max_font_horizontal(n: int, total_w: float, bw: float, bh: float, lsm: float, target_fs: int) -> int:
-            spacing_ratio = (
-                text_render.calc_horizontal_line_spacing_px(target_fs, lsm)
-                / max(target_fs, 1)
-            )
-            height_factor = n + (n - 1) * spacing_ratio
-            max_by_height = int(bh / height_factor) if height_factor > 0 else target_fs
-            max_by_width = int(bw * n * target_fs / total_w) if total_w > 0 else target_fs
-            return min(max_by_height, max_by_width)
-
-        font_floor = calc_max_font_horizontal(
-            n_floor, total_width, safe_bubble_width, safe_bubble_height, line_spacing_multiplier, safe_target_font_size
-        )
-        font_ceil = calc_max_font_horizontal(
-            n_ceil, total_width, safe_bubble_width, safe_bubble_height, line_spacing_multiplier, safe_target_font_size
-        )
-    else:
-        total_height = text_render.get_string_height(
-            safe_target_font_size,
-            text,
-            letter_spacing=letter_spacing_multiplier,
-        )
-        spacing_x = int(safe_target_font_size * 0.2 * line_spacing_multiplier)
-        ratio = safe_bubble_width / safe_bubble_height if safe_bubble_height > 0 else 1.0
-
-        a = safe_target_font_size + spacing_x
-        b = -spacing_x
-        c = -total_height * ratio
-
-        discriminant = b * b - 4 * a * c
-        if discriminant >= 0 and a > 0:
-            n_float = (-b + np.sqrt(discriminant)) / (2 * a)
-            n_floor = max(1, int(np.floor(n_float)))
-            n_ceil = max(1, int(np.ceil(n_float)))
-        else:
-            n_floor = n_ceil = 1
-
-        def calc_max_font_vertical(n: int, total_h: float, bw: float, bh: float, lsm: float, target_fs: int) -> int:
-            width_factor = n + (n - 1) * 0.2 * lsm
-            max_by_width = int(bw / width_factor) if width_factor > 0 else target_fs
-            max_by_height = int(bh * n * target_fs / total_h) if total_h > 0 else target_fs
-            return min(max_by_width, max_by_height)
-
-        font_floor = calc_max_font_vertical(
-            n_floor, total_height, safe_bubble_width, safe_bubble_height, line_spacing_multiplier, safe_target_font_size
-        )
-        font_ceil = calc_max_font_vertical(
-            n_ceil, total_height, safe_bubble_width, safe_bubble_height, line_spacing_multiplier, safe_target_font_size
-        )
-
-    if font_floor >= font_ceil:
-        seed_segments = n_floor
-        seed_font_size = font_floor
-    else:
-        seed_segments = n_ceil
-        seed_font_size = font_ceil
-
-    seed_font_size = min(seed_font_size, safe_target_font_size)
-    seed_font_size = max(seed_font_size, int(layout_min_font_size), 1)
-
-    no_br_result = solve_no_br_layout(
-        text=text,
-        horizontal=render_horizontally,
-        seed_segments=seed_segments,
-        seed_font_size=seed_font_size,
-        bubble_width=safe_bubble_width,
-        bubble_height=safe_bubble_height,
-        min_font_size=layout_min_font_size,
-        max_font_size=safe_max_font_size,
-        line_spacing_multiplier=line_spacing_multiplier,
-        letter_spacing_multiplier=letter_spacing_multiplier,
-        target_lang=target_lang,
-        config=config,
-        adjust_font_size=False,
-        debug_context="ocr_box",
-    )
-    return no_br_result.text_with_br
 
 
 
@@ -600,72 +475,47 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
     return dst_points, body_world
 
 def find_largest_inscribed_rect(mask: np.ndarray) -> tuple:
+    """Return the largest axis-aligned rectangle fully covered by ``mask``.
+
+    The previous implementation started from the largest inscribed circle and
+    greedily expanded four sides.  That finds a locally convenient rectangle,
+    not the maximum-area rectangle; narrow or irregular bubbles could therefore
+    produce a small near-square budget.  This uses the standard histogram/stack
+    maximal-rectangle algorithm and evaluates every foreground rectangle.
     """
-    Find the largest axis-aligned rectangle that fits inside the mask.
-    Uses distance transform to find a good inscribed rectangle.
-    
-    Returns:
-        (x, y, width, height) of the largest inscribed rectangle
-    """
-    if mask.sum() == 0:
+    binary = np.asarray(mask) > 0
+    if binary.ndim != 2 or not np.any(binary):
         return 0, 0, 0, 0
-    
-    # Distance transform to find distances from edges
-    dist_transform = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
-    
-    # Find the maximum distance (center of largest inscribed circle)
-    _, max_dist, _, max_loc = cv2.minMaxLoc(dist_transform)
-    center_x, center_y = max_loc
-    
-    h, w = mask.shape
-    
-    # Start with a rectangle based on distance transform
-    # Use 85% of max distance as initial radius for conservative estimate
-    radius = int(max_dist * 0.85)
-    
-    x1 = max(0, center_x - radius)
-    y1 = max(0, center_y - radius)
-    x2 = min(w, center_x + radius)
-    y2 = min(h, center_y + radius)
-    
-    # Expand rectangle while it stays inside the mask
-    # Try to expand in all four directions
-    max_iterations = 100
-    improved = True
-    iteration = 0
-    
-    while improved and iteration < max_iterations:
-        improved = False
-        iteration += 1
-        
-        # Try expanding left
-        if x1 > 0 and np.all(mask[y1:y2, x1-1] > 0):
-            x1 -= 1
-            improved = True
-        
-        # Try expanding right
-        if x2 < w and np.all(mask[y1:y2, x2] > 0):
-            x2 += 1
-            improved = True
-        
-        # Try expanding up
-        if y1 > 0 and np.all(mask[y1-1, x1:x2] > 0):
-            y1 -= 1
-            improved = True
-        
-        # Try expanding down
-        if y2 < h and np.all(mask[y2, x1:x2] > 0):
-            y2 += 1
-            improved = True
-    
-    rect_width = x2 - x1
-    rect_height = y2 - y1
-    
-    if rect_width <= 0 or rect_height <= 0:
-        # Fallback to a small rectangle at center
-        return max(0, center_x - 5), max(0, center_y - 5), 10, 10
-    
-    return x1, y1, rect_width, rect_height
+
+    height, width = binary.shape
+    heights = np.zeros(width, dtype=np.int32)
+    best_area = 0
+    best_rect = (0, 0, 0, 0)
+
+    for y in range(height):
+        heights = np.where(binary[y], heights + 1, 0)
+        stack: list[int] = []
+        for x in range(width + 1):
+            current_height = int(heights[x]) if x < width else 0
+            while stack and current_height < int(heights[stack[-1]]):
+                bar_x = stack.pop()
+                rect_height = int(heights[bar_x])
+                left = stack[-1] + 1 if stack else 0
+                rect_width = x - left
+                area = rect_width * rect_height
+                if area <= best_area:
+                    continue
+                best_area = area
+                best_rect = (
+                    left,
+                    y - rect_height + 1,
+                    rect_width,
+                    rect_height,
+                )
+            stack.append(x)
+
+    return best_rect
+
 
 def parse_font_paths(path: str, default: List[str] = None) -> List[str]:
     if path:
@@ -1664,6 +1514,28 @@ def resize_regions_to_font_size(
                 line_box_width = float(max(region.xywh[2], 1))
             if not (isinstance(line_box_height, (int, float)) and np.isfinite(line_box_height) and line_box_height > 0):
                 line_box_height = float(max(region.xywh[3], 1))
+            layout_box_width = float(line_box_width)
+            layout_box_height = float(line_box_height)
+
+            region_bubble_mask = None
+            bubble_layout_rect = None
+
+            lines_fully_enclosed = False
+            if mode == 'balloon_fill' and original_img is not None:
+                try:
+                    if balloon_fill_mask is not None and np.count_nonzero(balloon_fill_mask) > 0:
+                        region_bubble_mask = _build_region_reference_mask(
+                            region, balloon_fill_mask, balloon_fill_label_map
+                        )
+                    lines_fully_enclosed = (
+                        np.count_nonzero(region_bubble_mask) > 0
+                        and _region_lines_fully_inside_mask(region, region_bubble_mask)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"balloon_fill bubble mask preparation failed for region {region_idx}: {exc}"
+                    )
+
 
             layout_candidate_font_size = int(max(target_font_size, layout_min_font_size))
             configured_fixed_font_size = _resolve_configured_fixed_font_size(config)
@@ -1744,7 +1616,9 @@ def resize_regions_to_font_size(
                 dst_points_list.append(dst_points)
                 continue
 
-            # 入口唯一一次 BR 分支：有 BR 保留显式断句，无 BR 统一自动断句。
+            # 入口 BR 分支：显式 BR 保留；无 BR 统一在此处自动断句。
+            # balloon_fill + balloon_fill_mask_layout 使用气泡内接矩形，
+            # 不再先按 OCR 框断句、再在后面的 balloon_fill 分支重复断句。
             if has_br:
                 if remove_linebreak_punctuation:
                     region.translation = strip_linebreak_edge_punctuation(region.translation)
@@ -1760,26 +1634,66 @@ def resize_regions_to_font_size(
                     if remove_linebreak_punctuation:
                         region.translation = strip_linebreak_edge_punctuation(region.translation)
             else:
-                line_layout_max_font_size = int(
-                    max(layout_candidate_font_size, line_box_width, line_box_height, layout_min_font_size)
+                mask_layout_active = (
+                    mode == 'balloon_fill'
+                    and _balloon_fill_mask_layout_enabled(config)
                 )
-                if configured_fixed_font_size > 0:
-                    line_layout_max_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
-                    layout_candidate_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
+                if mask_layout_active and lines_fully_enclosed:
+                    _mask_x, _mask_y, layout_width, layout_height = find_largest_inscribed_rect(
+                        region_bubble_mask
+                    )
+                    bubble_layout_rect = (
+                        int(_mask_x), int(_mask_y), int(layout_width), int(layout_height)
+                    )
 
-                region.translation = _solve_unified_no_br_layout(
-                    text=region.translation,
-                    render_horizontally=render_horizontally,
-                    target_font_size=layout_candidate_font_size,
-                    bubble_width=float(line_box_width),
-                    bubble_height=float(line_box_height),
-                    layout_min_font_size=layout_min_font_size,
-                    line_spacing_multiplier=line_spacing_multiplier,
-                    letter_spacing_multiplier=letter_spacing_multiplier,
-                    config=config,
-                    target_lang=region.target_lang,
-                    max_font_size=line_layout_max_font_size,
-                )
+                    if layout_width > 0 and layout_height > 0:
+                        layout_box_width = float(layout_width)
+                        layout_box_height = float(layout_height)
+                        line_layout_max_font_size = int(
+                            max(layout_candidate_font_size, layout_box_width, layout_box_height, layout_min_font_size)
+                        )
+                        if configured_fixed_font_size > 0:
+                            line_layout_max_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
+                            layout_candidate_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
+                        region.translation = _solve_unified_no_br_layout(
+                            text=no_br_source_text,
+                            render_horizontally=render_horizontally,
+                            target_font_size=layout_candidate_font_size,
+                            bubble_width=layout_box_width,
+                            bubble_height=layout_box_height,
+                            layout_min_font_size=layout_min_font_size,
+                            line_spacing_multiplier=line_spacing_multiplier,
+                            letter_spacing_multiplier=letter_spacing_multiplier,
+                            config=config,
+                            target_lang=region.target_lang,
+                            max_font_size=line_layout_max_font_size,
+                        )
+
+                elif not mask_layout_active:
+                    layout_box_width = float(line_box_width)
+                    layout_box_height = float(line_box_height)
+                    line_layout_max_font_size = int(
+                        max(layout_candidate_font_size, layout_box_width, layout_box_height, layout_min_font_size)
+                    )
+                    if configured_fixed_font_size > 0:
+                        line_layout_max_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
+                        layout_candidate_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
+
+                    region.translation = _solve_unified_no_br_layout(
+                        text=region.translation,
+                        render_horizontally=render_horizontally,
+                        target_font_size=layout_candidate_font_size,
+                        bubble_width=layout_box_width,
+                        bubble_height=layout_box_height,
+                        layout_min_font_size=layout_min_font_size,
+                        line_spacing_multiplier=line_spacing_multiplier,
+                        letter_spacing_multiplier=letter_spacing_multiplier,
+                        config=config,
+                        target_lang=region.target_lang,
+                        max_font_size=line_layout_max_font_size,
+                    )
+
+
 
             # 断句完成后不再按 BR 二次分支：统一用最终文本计算按框适配字号
             # （strict 的布局上限）与候选字号/候选尺寸（smart_scaling、
@@ -1788,8 +1702,8 @@ def resize_regions_to_font_size(
             if configured_fixed_font_size <= 0:
                 layout_candidate_font_size, box_fit_font_size = _select_preserved_line_layout_font(
                     base_font_size=layout_candidate_font_size,
-                    width=float(line_box_width),
-                    height=float(line_box_height),
+                    width=layout_box_width,
+                    height=layout_box_height,
                     text=region.translation,
                     is_horizontal=render_horizontally,
                     line_spacing=line_spacing_multiplier,
@@ -1851,14 +1765,6 @@ def resize_regions_to_font_size(
                     continue
 
                 try:
-                    region_bubble_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
-                    if balloon_fill_mask is not None and np.count_nonzero(balloon_fill_mask) > 0:
-                        region_bubble_mask = _build_region_reference_mask(region, balloon_fill_mask, balloon_fill_label_map)
-
-                    lines_fully_enclosed = (
-                        np.count_nonzero(region_bubble_mask) > 0
-                        and _region_lines_fully_inside_mask(region, region_bubble_mask)
-                    )
                     used_strict_fallback = False
                     chosen_dst_points = None
                     chosen_font_size = int(max(target_font_size, layout_min_font_size))
@@ -1884,40 +1790,6 @@ def resize_regions_to_font_size(
                         if not semantic_linebreak_debug:
                             logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to strict")
                     else:
-                        if _balloon_fill_mask_layout_enabled(config) and not has_br:
-                            _mask_x, _mask_y, mask_layout_width, mask_layout_height = find_largest_inscribed_rect(
-                                region_bubble_mask
-                            )
-                            if mask_layout_width > 0 and mask_layout_height > 0:
-                                region.translation = _solve_unified_no_br_layout(
-                                    text=no_br_source_text,
-                                    render_horizontally=render_horizontally,
-                                    target_font_size=layout_candidate_font_size,
-                                    bubble_width=float(mask_layout_width),
-                                    bubble_height=float(mask_layout_height),
-                                    layout_min_font_size=layout_min_font_size,
-                                    line_spacing_multiplier=line_spacing_multiplier,
-                                    letter_spacing_multiplier=letter_spacing_multiplier,
-                                    config=config,
-                                    target_lang=region.target_lang,
-                                    max_font_size=max(
-                                        int(layout_candidate_font_size),
-                                        int(mask_layout_width),
-                                        int(mask_layout_height),
-                                    ),
-                                )
-                                candidate_required_width, candidate_required_height, candidate_n, _ = calc_box_from_font(
-                                    layout_candidate_font_size,
-                                    region.translation,
-                                    render_horizontally,
-                                    line_spacing_multiplier,
-                                    config,
-                                    region.target_lang,
-                                    center=None,
-                                    angle=0,
-                                    letter_spacing=letter_spacing_multiplier,
-                                    stroke_width=_resolve_region_stroke_width(region, config),
-                                )
                         if (
                             bool(getattr(config.render, 'semantic_linebreak', False))
                             and _is_chinese_lang(getattr(region, 'target_lang', '') or '')
@@ -2255,6 +2127,24 @@ def resize_regions_to_font_size(
                     if debug_img is not None:
                         ocr_x1, ocr_y1, ocr_w, ocr_h = map(int, region.xywh)
                         cv2.rectangle(debug_img, (ocr_x1, ocr_y1), (ocr_x1 + ocr_w, ocr_y1 + ocr_h), (0, 0, 255), 2)
+                        if bubble_layout_rect is not None:
+                            bx, by, bw, bh = bubble_layout_rect
+                            cv2.rectangle(
+                                debug_img,
+                                (bx, by),
+                                (bx + bw - 1, by + bh - 1),
+                                (255, 0, 255),
+                                2,
+                            )
+                            cv2.putText(
+                                debug_img,
+                                f"B{region_idx}:MASK {bw}x{bh}",
+                                (bx, max(12, by - 4)),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.45,
+                                (255, 0, 255),
+                                1,
+                            )
 
                         if np.count_nonzero(region_bubble_mask) > 0:
                             component_contours, _ = cv2.findContours(region_bubble_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

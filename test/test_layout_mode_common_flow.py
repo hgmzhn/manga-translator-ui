@@ -135,6 +135,46 @@ def test_vertical_no_br_geometry_penalizes_overlong_two_column_candidate():
     assert result.replace('[BR]', '') == VERTICAL_GEOMETRY_TEXT
     assert result.count('[BR]') + 1 == 3, result
 
+def test_no_br_shape_search_ignores_multiline_ocr_count():
+    text = '这是一段需要根据矩形形状自动安排断句的中文测试文本'
+    outputs = []
+    for n_lines in (2, 5):
+        config = make_config('strict')
+        region = make_region(text, box=(100, 100, 120, 240), font_size=24, n_lines=n_lines)
+        config._current_region = region
+        result = _solve_unified_no_br_layout(
+            text, False, 24, 120, 240, 1, 1.0, 1.0, config, 'CHS', 300,
+        )
+        outputs.append(result)
+
+    assert outputs[0] == outputs[1]
+
+
+def test_no_br_shape_search_follows_rectangle_aspect():
+    text = '这是一段需要根据矩形形状自动安排断句的中文测试文本'
+    narrow = _solve_unified_no_br_layout(
+        text, False, 24, 80, 240, 1, 1.0, 1.0, make_config('strict'), 'CHS', 300,
+    )
+    wide = _solve_unified_no_br_layout(
+        text, False, 24, 120, 240, 1, 1.0, 1.0, make_config('strict'), 'CHS', 300,
+    )
+
+    assert narrow.replace('[BR]', '') == text
+    assert wide.replace('[BR]', '') == text
+    assert wide.count('[BR]') > narrow.count('[BR]')
+
+
+def test_no_br_shape_search_keeps_single_ocr_line_special_case():
+    text = '这是一段单条 OCR line 不应自动拆分的测试文本'
+    config = make_config('strict')
+    config._current_region = make_region(text, box=(100, 100, 240, 120), font_size=24, n_lines=1)
+
+    result = _solve_unified_no_br_layout(
+        text, True, 24, 240, 120, 1, 1.0, 1.0, config, 'CHS', 300,
+    )
+
+    assert '[BR]' not in result
+
 
 def test_strict_br_follows_same_rule():
     region, dst, config = run_layout('strict', BR_TEXT)

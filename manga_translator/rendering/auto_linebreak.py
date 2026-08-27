@@ -23,6 +23,7 @@ from .text_render import (
 )
 from .chinese_linebreak import append_chinese_linebreak_debug_record, layout_chinese_cjk
 from ..utils.log import get_logger
+from ..config import Config
 
 logger = get_logger('render')
 
@@ -1255,6 +1256,117 @@ def _find_best_lines_for_target_segments(
     _, best_lines, _ = min(candidates, key=lambda item: item[0])
     # 返回候选断行文本；旧横排块标签不再作为渲染协议。
     return best_lines
+def _find_best_lines_for_rect_shape(
+    clean_text: str,
+    font_size: int,
+    horizontal: bool,
+    bubble_width: float,
+    bubble_height: float,
+    target_lang: str,
+    config: Any,
+    line_spacing_multiplier: float,
+    letter_spacing_multiplier: float,
+    max_line_budget: Optional[float] = None,
+) -> NoBrLayoutResult:
+    """Choose the line count whose measured footprint best fits a rectangle."""
+    text_len = len(clean_text)
+    safe_font_size = max(1, int(font_size))
+    box_width = max(1.0, float(bubble_width))
+    box_height = max(1.0, float(bubble_height))
+    if text_len <= 0:
+        return NoBrLayoutResult("", safe_font_size, 1, 0.0, 0.0)
+
+    max_segments = min(
+        text_len,
+        max(1, min(64, max(8, int(max(box_width, box_height) // safe_font_size) + 8))),
+    )
+    target_ratio = box_width / box_height
+    best: Optional[tuple[tuple[float, ...], NoBrLayoutResult]] = None
+    seen_text: set[str] = set()
+
+    for target_segments in range(1, max_segments + 1):
+        lines = _find_best_lines_for_target_segments(
+            clean_text,
+            safe_font_size,
+            horizontal,
+            target_segments,
+            target_lang,
+            config,
+            line_spacing_multiplier=line_spacing_multiplier,
+            letter_spacing_multiplier=letter_spacing_multiplier,
+            max_line_budget=max_line_budget,
+            box_width=box_width,
+            box_height=box_height,
+        )
+        if (
+            len(lines) != target_segments
+            and not (_semantic_linebreak_enabled(config) and _is_chinese_lang(target_lang or ""))
+        ):
+            forced_text = _insert_br_by_pixel_budget(
+                clean_text,
+                target_segments,
+                safe_font_size,
+                horizontal,
+                letter_spacing=letter_spacing_multiplier,
+                target_lang=target_lang,
+            )
+            if forced_text:
+                forced_lines = forced_text.split("[BR]")
+                if len(forced_lines) == target_segments:
+                    lines = forced_lines
+        if not lines:
+            continue
+
+        text_with_br = "[BR]".join(lines) if len(lines) > 1 else clean_text
+        if text_with_br in seen_text:
+            continue
+        seen_text.add(text_with_br)
+        n_segments, required_width, required_height = _measure_required_size(
+            text_with_br,
+            safe_font_size,
+            horizontal,
+            line_spacing_multiplier,
+            target_lang,
+            config,
+            letter_spacing_multiplier=letter_spacing_multiplier,
+        )
+        if required_width <= 0 or required_height <= 0:
+            continue
+
+        width_scale = required_width / box_width
+        height_scale = required_height / box_height
+        overflow = max(0.0, width_scale - 1.0, height_scale - 1.0)
+        measured_ratio = required_width / required_height
+        ratio_error = abs(math.log(max(measured_ratio, 1e-9) / max(target_ratio, 1e-9)))
+        dimension_error = max(abs(width_scale - 1.0), abs(height_scale - 1.0))
+        score = (
+            1.0 if overflow > 0.0 else 0.0,
+            overflow,
+            ratio_error,
+            dimension_error,
+        )
+        result = NoBrLayoutResult(
+            text_with_br,
+            safe_font_size,
+            max(1, int(n_segments)),
+            float(required_width),
+            float(required_height),
+        )
+        if best is None or score < best[0]:
+            best = (score, result)
+
+    if best is not None:
+        return best[1]
+
+    _, required_width, required_height = _measure_unwrapped_required_size(
+        clean_text,
+        safe_font_size,
+        horizontal,
+        config=config,
+        letter_spacing_multiplier=letter_spacing_multiplier,
+    )
+    return NoBrLayoutResult(clean_text, safe_font_size, 1, required_width, required_height)
+
 
 
 # ---------------------------------------------------------------------------
@@ -1481,6 +1593,52 @@ def solve_no_br_layout(
             letter_spacing_multiplier=letter_spacing_multiplier,
         )
         return finish(NoBrLayoutResult(clean_text, current_font, 1, required_width, required_height), "force_no_wrap/final")
+    try:
+        explicit_seed_segments = int(seed_segments)
+    except (TypeError, ValueError):
+        explicit_seed_segments = 0
+
+    if explicit_seed_segments <= 0:
+        for _ in range(max(1, int(iterations))):
+            shape_result = _find_best_lines_for_rect_shape(
+                clean_text,
+                current_font,
+                horizontal,
+                bw,
+                bh,
+                target_lang,
+                config,
+                line_spacing_multiplier,
+                letter_spacing_multiplier,
+                max_line_budget=max_line_budget,
+            )
+            if not adjust_font_size:
+                return finish(shape_result, "shape/no_adjust")
+
+            fit_scale = min(
+                bw / max(shape_result.required_width, 1.0),
+                bh / max(shape_result.required_height, 1.0),
+            )
+            if not math.isfinite(fit_scale) or fit_scale <= 0:
+                fit_scale = 1.0
+            next_font = max(safe_min_font, min(int(current_font * fit_scale), safe_max_font))
+            if next_font == current_font:
+                return finish(shape_result, "shape/fit_stable")
+            current_font = next_font
+
+        shape_result = _find_best_lines_for_rect_shape(
+            clean_text,
+            current_font,
+            horizontal,
+            bw,
+            bh,
+            target_lang,
+            config,
+            line_spacing_multiplier,
+            letter_spacing_multiplier,
+            max_line_budget=max_line_budget,
+        )
+        return finish(shape_result, "shape/final")
 
     for _ in range(max(1, int(iterations))):
         lines = _find_best_lines_for_target_segments(
@@ -1568,3 +1726,43 @@ def solve_no_br_layout(
         letter_spacing_multiplier=letter_spacing_multiplier,
     )
     return finish(NoBrLayoutResult(final_text, current_font, n_final, required_width, required_height), "final")
+def _solve_unified_no_br_layout(
+    text: str,
+    render_horizontally: bool,
+    target_font_size: int,
+    bubble_width: float,
+    bubble_height: float,
+    layout_min_font_size: int,
+    line_spacing_multiplier: float,
+    letter_spacing_multiplier: float,
+    config: Config = None,
+    target_lang: str = None,
+    max_font_size: Optional[int] = None,
+) -> str:
+    """Run rectangle-shape selection while preserving the line-one special case."""
+    seed_segments = 0
+
+    safe_target_font_size = max(int(target_font_size), int(layout_min_font_size), 1)
+    safe_max_font_size = max(
+        safe_target_font_size,
+        int(max_font_size) if isinstance(max_font_size, (int, float)) else safe_target_font_size,
+    )
+    safe_bubble_width = float(bubble_width) if isinstance(bubble_width, (int, float)) and bubble_width > 0 else 1.0
+    safe_bubble_height = float(bubble_height) if isinstance(bubble_height, (int, float)) and bubble_height > 0 else 1.0
+
+    return solve_no_br_layout(
+        text=text,
+        horizontal=render_horizontally,
+        seed_segments=seed_segments,
+        seed_font_size=safe_target_font_size,
+        bubble_width=safe_bubble_width,
+        bubble_height=safe_bubble_height,
+        min_font_size=layout_min_font_size,
+        max_font_size=safe_max_font_size,
+        line_spacing_multiplier=line_spacing_multiplier,
+        letter_spacing_multiplier=letter_spacing_multiplier,
+        target_lang=target_lang,
+        config=config,
+        adjust_font_size=False,
+        debug_context="rect_shape",
+    ).text_with_br

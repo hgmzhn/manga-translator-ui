@@ -157,3 +157,54 @@ def test_balloon_fill_mask_layout_uses_mask_range_for_text_without_breaks(monkey
 
     assert mask_layout_text.replace("[BR]", "") == source_text
     assert mask_layout_text.count("[BR]") < legacy_text.count("[BR]")
+
+def test_balloon_fill_mask_layout_runs_mask_sized_no_br_pass_once(monkeypatch):
+    image = np.zeros((400, 400, 3), dtype=np.uint8)
+    bubble_mask = np.zeros((400, 400), dtype=np.uint8)
+    bubble_mask[90:271, 90:331] = 1
+    monkeypatch.setattr(
+        rendering,
+        "get_cached_bubbles_with_mangalens",
+        lambda *args, **kwargs: SimpleNamespace(detections=[]),
+    )
+    monkeypatch.setattr(
+        rendering,
+        "build_bubble_mask_from_mangalens_result",
+        lambda *args, **kwargs: bubble_mask.copy(),
+    )
+
+    calls = []
+    real_solver = rendering._solve_unified_no_br_layout
+
+    def tracking_solver(*args, **kwargs):
+        calls.append(kwargs.copy())
+        return real_solver(*args, **kwargs)
+
+    monkeypatch.setattr(rendering, "_solve_unified_no_br_layout", tracking_solver)
+
+    region = TextBlock(
+        lines=[
+            [[190, 100], [210, 100], [210, 180], [190, 180]],
+            [[190, 180], [210, 180], [210, 260], [190, 260]],
+        ],
+        texts=["原文", "原文"],
+        font_size=24,
+        translation="这是一段没有显式断行的测试文字",
+        direction="h",
+        target_lang="CHS",
+    )
+    config = Config()
+    config.render.layout_mode = "balloon_fill"
+    config.render.balloon_fill_mask_layout = True
+
+    rendering.resize_regions_to_font_size(
+        image,
+        [region],
+        config,
+        original_img=image.copy(),
+        skip_text_replacements=True,
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["bubble_width"] == 241.0
+    assert calls[0]["bubble_height"] == 181.0
