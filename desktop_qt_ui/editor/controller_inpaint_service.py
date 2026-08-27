@@ -106,9 +106,9 @@ class EditorControllerInpaintService:
             previous = None
         effective_delta = delta
         if previous is not None and previous.mask.shape == current_mask.shape:
-            added = np.where(
-                (current_mask > 0) & (previous.mask == 0), 255, 0
-            ).astype(np.uint8)
+            added = np.where((current_mask > 0) & (previous.mask == 0), 255, 0).astype(
+                np.uint8
+            )
             effective_delta = MaskDelta(
                 added=np.maximum(added, delta.added),
                 removed=np.where(
@@ -126,6 +126,35 @@ class EditorControllerInpaintService:
             mask=current_mask,
             delta=effective_delta,
             previous_artifact=previous,
+            config=self._snapshot_inpaint_config(),
+        )
+
+    def build_full_inpaint_request(self, mask) -> Optional[InpaintRequest]:
+        """Snapshot a full repair that can outlive the active document."""
+        key = self.model.get_inpaint_key()
+        supplied_mask = self.normalize_binary_mask(mask)
+        current_mask = self._current_mask()
+        if (
+            supplied_mask is None
+            or current_mask is None
+            or supplied_mask.shape != current_mask.shape
+            or not np.array_equal(supplied_mask, current_mask)
+            or not np.any(current_mask)
+        ):
+            return None
+        image = self._get_base_image_array(key)
+        if image is None or key != self.model.get_inpaint_key():
+            return None
+        return InpaintRequest(
+            key=key,
+            image=image,
+            mask=current_mask,
+            delta=MaskDelta(
+                added=current_mask,
+                removed=np.zeros_like(current_mask),
+                mask_revision=key.mask_revision,
+            ),
+            previous_artifact=None,
             config=self._snapshot_inpaint_config(),
         )
 

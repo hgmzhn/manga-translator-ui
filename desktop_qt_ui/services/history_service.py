@@ -2,6 +2,7 @@
 编辑器历史管理器
 基于 Qt 原生 QUndoStack，统一封装命令执行、宏操作和剪贴板能力。
 """
+
 import copy
 import logging
 from contextlib import contextmanager
@@ -55,6 +56,7 @@ class EditorStateManager(QObject):
         self.undo_stack.setUndoLimit(max(1, int(undo_limit)))
         self.clipboard = ClipboardManager()
         self._macro_depth = 0
+        self._revision = 0
 
         self.undo_stack.canUndoChanged.connect(self._on_undo_redo_changed)
         self.undo_stack.canRedoChanged.connect(self._on_undo_redo_changed)
@@ -144,6 +146,9 @@ class EditorStateManager(QObject):
         """是否处于已保存状态。"""
         return self.undo_stack.isClean()
 
+    def current_revision(self) -> int:
+        return self._revision
+
     def create_undo_action(self, parent, text: str = "撤销"):
         """创建撤销动作（用于菜单/工具栏）。"""
         return self.undo_stack.createUndoAction(parent, text)
@@ -153,9 +158,12 @@ class EditorStateManager(QObject):
         return self.undo_stack.createRedoAction(parent, text)
 
     def _on_undo_redo_changed(self, _):
-        self.undo_redo_state_changed.emit(self.undo_stack.canUndo(), self.undo_stack.canRedo())
+        self.undo_redo_state_changed.emit(
+            self.undo_stack.canUndo(), self.undo_stack.canRedo()
+        )
 
     def _on_index_changed(self, index: int):
+        self._revision += 1
         self.stack_index_changed.emit(index)
 
 

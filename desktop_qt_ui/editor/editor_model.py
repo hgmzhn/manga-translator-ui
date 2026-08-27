@@ -55,6 +55,9 @@ class EditorModel(QObject):
     def get_committed_inpaint_artifact(self) -> Optional[InpaintArtifact]:
         return self.session.get_committed_inpaint_artifact()
 
+    def get_active_inpaint_future(self) -> Any:
+        return self.session.get_active_inpaint_future()
+
     def get_inpaint_key(self) -> InpaintKey:
         return self.session.get_inpaint_key()
 

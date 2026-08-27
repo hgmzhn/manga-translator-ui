@@ -77,6 +77,11 @@ class InpaintState:
     def committed(self) -> Optional[InpaintArtifact]:
         return self._committed
 
+    def active_future(self, current_key: InpaintKey) -> Any:
+        if self._active_key != current_key:
+            return None
+        return self._active_future
+
     def _cancel_active(self) -> None:
         future = self._active_future
         self._active_future = None

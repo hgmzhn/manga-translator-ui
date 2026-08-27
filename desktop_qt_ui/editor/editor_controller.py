@@ -25,7 +25,10 @@ from services import (
 )
 
 from .controller_document_service import EditorControllerDocumentService
-from .controller_export_service import EditorControllerExportService, ExportOutcome
+from .controller_export_service import (
+    EditorControllerExportService,
+    ExportOutcome,
+)
 from .controller_inpaint_service import EditorControllerInpaintService
 from .editor_model import EditorModel
 from .image_utils import image_like_to_display_array
@@ -193,7 +196,6 @@ class EditorController(QObject):
     _export_queue_status_signal = pyqtSignal(object)
     _export_job_finished_signal = pyqtSignal(object)
 
-    # Signal for thread-safe image loading
     _load_result_ready = pyqtSignal(object)  # 加载结果信号
     _deferred_load_requested = pyqtSignal(str)
 
@@ -479,9 +481,9 @@ class EditorController(QObject):
             return
 
         message = (
-            "正在导出..."
+            "正在处理后台任务..."
             if unfinished_count == 1
-            else f"正在导出（{unfinished_count} 个任务）"
+            else f"正在处理后台任务（{unfinished_count} 个）"
         )
         if message == self._export_status_text:
             return
@@ -521,6 +523,7 @@ class EditorController(QObject):
                 f"{file_name} 导出失败：{outcome.error or '未知错误'}",
                 7000,
             )
+
 
     @pyqtSlot(object)
     def _apply_inpaint_result(self, result) -> None:

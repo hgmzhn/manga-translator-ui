@@ -942,9 +942,9 @@ class MainWindow(FluentWindow):
 
             reply = show_error_dialog(
                 self,
-                "导出任务尚未完成",
+                "后台任务尚未完成",
                 "",
-                f"还有 {unfinished_exports} 个导出任务正在处理。\n\n等待全部导出完成后退出？",
+                f"还有 {unfinished_exports} 个保存或导出任务正在处理。\n\n等待全部任务完成后退出？",
                 icon=QMessageBox.Icon.Question,
                 buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 default_button=QMessageBox.StandardButton.Yes,

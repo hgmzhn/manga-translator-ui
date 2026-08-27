@@ -207,6 +207,12 @@ class EditorSession:
         document = self._document
         return None if document is None else document.inpaint.committed
 
+    def get_active_inpaint_future(self) -> Any:
+        document = self._document
+        if document is None:
+            return None
+        return document.inpaint.active_future(document.inpaint_key())
+
     def begin_inpaint(self, key: InpaintKey, future: Any) -> bool:
         document = self._document
         if document is None or key != document.inpaint_key():

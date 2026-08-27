@@ -167,7 +167,7 @@ class EditorControllerExportService:
         return not self.controller.history_service.is_clean()
 
     def save_editor_state(self) -> bool:
-        """同步保存 JSON 与当前修复图，不执行图片渲染导出。"""
+        """同步保存 JSON 与当前内存快照中的修复图，不等待后台修复。"""
         self.controller.commit_pending_edits()
         source_path = self.model.get_source_image_path()
         if not source_path:
@@ -180,26 +180,19 @@ class EditorControllerExportService:
                 self._reject_export("保存失败：缺少图像数据")
                 return False
             regions = self.model.get_regions() or []
-            current_mask = self.model.get_refined_mask()
-            if current_mask is None:
-                current_mask = self.model.get_raw_mask()
+            mask = self.model.get_refined_mask()
+            if mask is None:
+                mask = self.model.get_raw_mask()
 
             inpainted_image = None
-            if current_mask is not None and np.any(current_mask):
-                artifact = self.model.get_ready_inpaint_artifact()
-                if artifact is None:
-                    self._reject_export("保存失败：蒙版修复处理中，请稍后重试")
-                    return False
-                mask = artifact.mask
-                inpainted_image = artifact.image
-            else:
-                mask = current_mask
+            if mask is not None and np.any(mask):
+                display_layers = self.model.get_display_layers()
+                if display_layers is not None:
+                    inpainted_image = display_layers.inpaint_display_image
 
             source_path = os.path.abspath(source_path)
             config = self._build_config_dict(self.config_service.get_config())
-
-            persistence = self._export_service
-            persistence.save_editor_project(
+            self._export_service.save_editor_project(
                 source_path,
                 regions,
                 mask,
@@ -208,9 +201,11 @@ class EditorControllerExportService:
                 stamp_overlay=self.model.get_stamp_overlay_image(),
             )
             if inpainted_image is not None:
-                persistence.save_inpainted_image(source_path, inpainted_image, config)
+                self._export_service.save_inpainted_image(
+                    source_path, inpainted_image, config
+                )
             else:
-                persistence.delete_inpainted_image(source_path)
+                self._export_service.delete_inpainted_image(source_path)
             self.controller.history_service.mark_clean()
             toast_manager = self.controller.get_toast_manager()
             if toast_manager is not None:

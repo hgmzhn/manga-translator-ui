@@ -119,6 +119,8 @@ On explicit “Save”, `EditorControllerExportService.save_editor_state()` writ
 - The top-level key is the absolute source path; regions, masks, paint/clone overlays, and existing preprocess markers are preserved through the atomic JSON write.
 - Writes use a temp file in the same directory plus `os.replace`, so the editor never leaves a half-written JSON file.
 
+When a mask is present, Save immediately writes the current in-memory editor snapshot: the JSON stores the current mask, and the inpainted sidecar stores the repair image currently displayed by the canvas. If inpainting is still running, Save neither waits nor rejects the operation and never starts an extra repair; this means the saved repair image may temporarily lag behind the latest mask, and saving again after inpainting completes writes the latest result.
+
 “Export Image” does not call this writeback path. It creates an immutable in-memory render snapshot and queues final-image rendering only.
 
 ### Inpainted writeback {#inpainted-writeback}
@@ -143,6 +145,6 @@ flowchart LR
 ## Limitations and notes {#dependencies-and-conflicts}
 
 - Editor export forces `disable_auto_wrap=True`, so the result is not affected by auto-wrap settings such as AI line breaking; text-box size and position are taken from the editor.
-- Auto-export on switch depends on the export queue: a rejected automatic export aborts the switch, while automatic save is a separate synchronous writeback action.
+- Auto-export and auto-save on switch use the same durable worker queue. A rejected enqueue aborts the switch; an accepted save snapshot survives the document switch and finishes in FIFO order.
 - `editor_base` is valid only when the JSON has upscale/colorize markers; without them the editor deletes the stale base and falls back to the original.
 - If no JSON exists, the explicit Save action creates it; Export Image alone does not create project JSON.

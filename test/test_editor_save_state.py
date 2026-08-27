@@ -21,11 +21,14 @@ class _History:
 
 
 class _Model:
-    def __init__(self, source_path, source_image, *, mask=None, artifact=None):
+    def __init__(
+        self, source_path, source_image, *, mask=None, artifact=None, display_image=None
+    ):
         self.source_path = str(source_path)
         self.source_image = source_image
         self.mask = mask
         self.artifact = artifact
+        self.display_image = display_image
         self.ready_calls = 0
 
     def get_source_image_path(self):
@@ -53,6 +56,12 @@ class _Model:
     def get_stamp_overlay_image(self):
         return None
 
+    def get_display_layers(self):
+        image = self.display_image
+        if image is None:
+            image = self.artifact.image if self.artifact is not None else self.source_image
+        return SimpleNamespace(inpaint_display_image=image)
+
     def get_export_base(self):
         if self.mask is None or not np.any(self.mask):
             return ExportBase(
@@ -76,13 +85,14 @@ class _Model:
 
 
 class _Controller:
-    def __init__(self, source_path, *, mask=None, artifact=None):
+    def __init__(self, source_path, *, mask=None, artifact=None, display_image=None):
         self.base_image = np.full((8, 8, 3), 23, dtype=np.uint8)
         self.model = _Model(
             source_path,
             self.base_image,
             mask=mask,
             artifact=artifact,
+            display_image=display_image,
         )
         self.history_service = _History()
         self.logger = SimpleNamespace(
@@ -202,7 +212,7 @@ def test_save_editor_state_with_empty_mask_deletes_sidecar_without_exporting(
     service.shutdown()
 
 
-def test_save_uses_one_ready_artifact_for_mask_and_sidecar(monkeypatch, tmp_path):
+def test_save_uses_current_in_memory_inpaint_image(monkeypatch, tmp_path):
     from services import export_service
 
     _PersistenceService.calls.clear()
@@ -211,15 +221,18 @@ def test_save_uses_one_ready_artifact_for_mask_and_sidecar(monkeypatch, tmp_path
     source_path = tmp_path / "page.png"
     source_path.touch()
     artifact = _ready_artifact()
-    model_mask = artifact.mask.copy()
-    controller = _Controller(source_path, mask=model_mask, artifact=artifact)
+    controller = _Controller(
+        source_path,
+        mask=artifact.mask.copy(),
+        display_image=artifact.image,
+    )
     service = EditorControllerExportService(controller)
-    assert service.save_editor_state() is True
 
-    assert controller.model.ready_calls == 1
+    assert service.save_editor_state() is True
+    assert controller.model.ready_calls == 0
     assert np.array_equal(_PersistenceService.calls[0][3], artifact.mask)
-    assert np.array_equal(_PersistenceService.calls[0][3], model_mask)
     assert np.array_equal(_PersistenceService.saved_images[0], artifact.image)
+    assert service.unfinished_count() == 0
 
     service.shutdown()
 
@@ -262,7 +275,7 @@ def test_export_uses_mask_and_image_from_one_ready_artifact(monkeypatch, tmp_pat
     service.shutdown()
 
 
-def test_save_rejects_but_export_queues_backend_for_nonempty_mask_without_artifact(
+def test_save_does_not_wait_for_inpaint_and_export_still_queues_backend(
     monkeypatch, tmp_path
 ):
     from editor import controller_export_service as export_module
@@ -279,12 +292,12 @@ def test_save_rejects_but_export_queues_backend_for_nonempty_mask_without_artifa
     monkeypatch.setattr(export_service, "ExportService", _PersistenceService)
     source_path = tmp_path / "page.png"
     source_path.touch()
-    stale_sidecar = tmp_path / "stale_inpainted.png"
-    stale_sidecar.write_bytes(b"stale")
-    _PersistenceService.sidecar_path = stale_sidecar
+    mask = np.full((8, 8), 255, dtype=np.uint8)
+    display_image = np.full((8, 8, 3), 77, dtype=np.uint8)
     controller = _Controller(
         source_path,
-        mask=np.full((8, 8), 255, dtype=np.uint8),
+        mask=mask,
+        display_image=display_image,
     )
     service = EditorControllerExportService(controller)
     submitted = []
@@ -294,18 +307,17 @@ def test_save_rejects_but_export_queues_backend_for_nonempty_mask_without_artifa
         lambda job: submitted.append(job) or _completed_future(),
     )
 
-    assert service.save_editor_state() is False
+    assert service.save_editor_state() is True
+    assert controller.model.ready_calls == 0
+    assert np.array_equal(_PersistenceService.calls[0][3], mask)
+    assert np.array_equal(_PersistenceService.saved_images[0], display_image)
+    assert controller.history_service.clean is True
+
     assert service.export_image() is not None
-    assert controller.model.ready_calls == 1
-    assert controller.history_service.clean is False
-    assert _PersistenceService.calls == []
+    assert controller.model.ready_calls == 0
     assert len(submitted) == 1
     assert submitted[0].export_base.kind == "backend_inpaint"
-    assert np.array_equal(
-        submitted[0].export_base.mask,
-        controller.model.mask,
-    )
-    assert stale_sidecar.exists()
+    assert np.array_equal(submitted[0].export_base.mask, mask)
 
     submitted[0].release_resources()
     service.shutdown()

@@ -115,7 +115,7 @@ flowchart LR
 
 ### JSON 写回 {#json-writeback}
 
-导出时 `EditorControllerExportService.save_editor_json()` 把当前快照写到 `find_json_path()` 找到的 `*_translations.json`：
+点击“保存”时，`EditorControllerExportService.save_editor_state()` 把当前快照写到 `find_json_path()` 找到的 `*_translations.json`：
 
 - 以原图绝对路径作为顶层键；`regions` 经 `_normalize_regions_for_backend` 规范化：补齐 `translation`、`texts`、`font_size`、`angle`、`target_lang`、`language`、`direction` 等字段，把 `fg_colors`/`fg_color` 元组转成 `font_color` 十六进制，把 `v`/`h` 转成 `vertical`/`horizontal`。
 - 恒写 `skip_text_replacements: true`：编辑器 `translation` 字段就是替换后终稿（`translation_raw` 才是替换前），后端重渲染不能再次替换。
@@ -124,15 +124,17 @@ flowchart LR
 - 保留已有 JSON 的超分/上色信息与 `last_export_dir`（`preserve_existing_preprocess_flags`），避免下次导出丢失底图来源标志。
 - 写入采用“同目录临时文件 + `os.replace`”的原子替换，避免半截 JSON 被后端读到。
 
+蒙版存在时，保存直接写入当前编辑器内存中的工程快照：JSON 保存当前蒙版，修复图保存当前画布正在显示的修复图。若蒙版修复仍在后台进行，不等待、不拒绝，也不会额外补做修复；因此该次保存可能暂时不是最新蒙版对应的修复结果，修复完成后再次保存即可写入最新结果。
+
 ### 修复图写回 {#inpainted-writeback}
 
-`save_inpainted_image()` 把当前修复图（没有则用底图充当）写到 `manga_translator_work/inpainted/<图片名>_inpainted.<扩展名>`，质量取 `cli.save_quality`，同样走临时文件 + `os.replace`。后端渲染后若重新生成了修复图，也会回写同一路径（`_persist_backend_inpainted_image`），保证下次编辑看到的是最新修复结果。
+`save_inpainted_image()` 把与蒙版严格匹配的当前修复图写到 `manga_translator_work/inpainted/<图片名>_inpainted.<扩展名>`，质量取 `cli.save_quality`，同样走临时文件 + `os.replace`；蒙版为空时删除过期修复图。后端导出重新生成修复图后也会回写同一路径，保证下次编辑看到最新结果。
 
 ### 写回流程 {#writeback-flow}
 
 ```mermaid
 flowchart LR
-    A["编辑操作（QUndoCommand）"] --> B["导出时提交快照"]
+    A["编辑操作（QUndoCommand）"] --> B["Ctrl+S / 保存按钮提交快照"]
     B --> C["_save_regions_data_internal"]
     C --> C1["regions 规范化 + skip_text_replacements"]
     C --> C2["mask_raw base64 PNG + mask_is_refined"]
@@ -152,6 +154,6 @@ flowchart LR
 - 编辑器导出强制 `disable_auto_wrap=True`，因此导出结果不受“启用 AI 断句”等自动换行设置影响；文本框大小和位置以编辑器为准。
 - `translation` 恒为替换后终稿：导入旧 JSON 缺 `translation_raw` 时用 `translation` 回填；写回时 `skip_text_replacements` 防止二次替换。
 - 批量管理等外部写回会修改 JSON，但编辑器把区域常驻内存且不监听文件变化；批量面板写回后会调用 `load_image_and_regions` 让编辑器重新加载，否则切图自动导出会用旧内存覆盖新写入。相关流程见[批量管理：预览、应用与恢复](../batch-management/preview-apply-restore.md)。
-- 切页自动导出依赖导出队列：自动导出被拒绝会中止切图；手动导出时切图等待导出完成。
+- 切页自动保存与自动导出共用持久队列：任务无法入队时中止切图；成功入队的不可变快照会在切图后继续按 FIFO 顺序完成。
 - `editor_base` 只在 JSON 有超分/上色标记时有效；没有标记时编辑器删除过期底图并回退到原图，避免显示与当前 JSON 不匹配的旧底图。
 - JSON 不存在时导出会新建（`find_json_path` 无结果则 `get_json_path(create_dir=True)`）；写入后位于新位置，旧版同目录 JSON 仍可读但不再作为写入目标。
