@@ -124,10 +124,15 @@ class ConcurrentPipeline:
             return
         with self._lock:
             self.failed_images.add(normalized_name)
-
     def _get_failed_count(self) -> int:
         with self._lock:
             return len(self.failed_images)
+
+    def _get_runtime_skipped_count(self) -> int:
+        """读取已完成结果中的运行时跳过数量。"""
+        with self._results_lock:
+            return sum(1 for ctx in self._results if getattr(ctx, "skipped", False))
+
 
     def _pop_translation_task(self, timeout: float):
         """从翻译队列取一个任务。"""
@@ -1099,9 +1104,7 @@ class ConcurrentPipeline:
                 if current_rendered > last_rendered:
                     try:
                         current_failed = self._get_failed_count()
-                        runtime_skipped = skipped_count + sum(
-                            1 for ctx in self.results if getattr(ctx, "skipped", False)
-                        )
+                        runtime_skipped = skipped_count + self._get_runtime_skipped_count()
                         completed = progress_offset + current_rendered
                         total = progress_total if progress_total is not None else progress_offset + self.total_images
                         await self.translator._report_progress(
