@@ -85,7 +85,7 @@ flowchart TD
 ## 环境与兼容性
 
 - **CPU**：不需要 CUDA/ROCm，兼容性高但速度受 CPU/内存限制。
-- **NVIDIA GPU**：当前组含 `torch==2.13.0`、`torchvision==0.28.0`、`onnxruntime-gpu==1.28.0`、`xformers==0.0.35`；驱动需支持对应 CUDA。
+- **NVIDIA GPU**：CUDA 13.0 组使用 `onnxruntime-gpu==1.28.0`；CUDA 12.6 组使用 `onnxruntime-gpu==1.26.0`，因为 PyPI 从 ONNX Runtime 1.27 起默认发布 CUDA 13 构建。两组分别匹配对应 CUDA 的 PyTorch 与 xformers；驱动需支持对应 CUDA。
 - **AMD ROCm**：Linux x86_64 由 `pytorch-rocm72` 提供；Windows AMD 由安装器先装 Radeon ROCm SDK、再装配套 PyTorch wheels，属实验性路径。
 - **Metal**：Apple Silicon 使用 PyPI PyTorch/MPS，不装 CUDA、`onnxruntime-gpu` 或 `xformers`。
 

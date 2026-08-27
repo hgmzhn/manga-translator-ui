@@ -1395,7 +1395,7 @@ cuda12-6 = [
     { name = "ctranslate2" },
     { name = "huggingface-hub" },
     { name = "numpy" },
-    { name = "onnxruntime-gpu" },
+    { name = "onnxruntime-gpu", version = "1.26.0", source = { registry = "https://pypi.org/simple" } },
     { name = "torch", version = "2.13.0+cu126", source = { registry = "https://download.pytorch.org/whl/cu126" } },
     { name = "torchvision", version = "0.28.0+cu126", source = { registry = "https://download.pytorch.org/whl/cu126" } },
     { name = "xformers", version = "0.0.35", source = { registry = "https://download.pytorch.org/whl/cu126" } },
@@ -1404,7 +1404,7 @@ cuda13-0 = [
     { name = "ctranslate2" },
     { name = "huggingface-hub" },
     { name = "numpy" },
-    { name = "onnxruntime-gpu" },
+    { name = "onnxruntime-gpu", version = "1.28.0", source = { registry = "https://pypi.org/simple" } },
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "xformers", version = "0.0.35", source = { registry = "https://download.pytorch.org/whl/cu130" } },
@@ -1413,7 +1413,7 @@ gpu = [
     { name = "ctranslate2" },
     { name = "huggingface-hub" },
     { name = "numpy" },
-    { name = "onnxruntime-gpu" },
+    { name = "onnxruntime-gpu", version = "1.28.0", source = { registry = "https://pypi.org/simple" } },
     { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-cuda12-6') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-cuda13-0') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-cuda13-0') or (extra == 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra != 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-cuda12-6' and extra != 'group-19-manga-translator-ui-cuda13-0' and extra != 'group-19-manga-translator-ui-metal' and extra != 'group-19-manga-translator-ui-rocm7-2-1')" },
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'group-19-manga-translator-ui-cuda13-0' or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-cuda12-6') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-metal' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-rocm7-2-1')" },
     { name = "torchvision", version = "0.28.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-cuda12-6') or (extra == 'group-19-manga-translator-ui-cpu' and extra == 'group-19-manga-translator-ui-cuda13-0') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra == 'group-19-manga-translator-ui-cuda13-0') or (extra == 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra != 'group-19-manga-translator-ui-cuda13-0' and extra == 'group-19-manga-translator-ui-gpu') or (extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal') or (extra == 'group-19-manga-translator-ui-cuda12-6' and extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra != 'group-19-manga-translator-ui-gpu' and extra == 'group-19-manga-translator-ui-metal' and extra == 'group-19-manga-translator-ui-rocm7-2-1') or (extra != 'group-19-manga-translator-ui-cpu' and extra != 'group-19-manga-translator-ui-cuda12-6' and extra != 'group-19-manga-translator-ui-cuda13-0' and extra != 'group-19-manga-translator-ui-metal' and extra != 'group-19-manga-translator-ui-rocm7-2-1')" },
@@ -1541,7 +1541,7 @@ cuda12-6 = [
     { name = "ctranslate2", specifier = "==4.8.1" },
     { name = "huggingface-hub", specifier = "==1.26.0" },
     { name = "numpy", specifier = ">=2.0,<2.3" },
-    { name = "onnxruntime-gpu", specifier = "==1.28.0" },
+    { name = "onnxruntime-gpu", specifier = "==1.26.0" },
     { name = "torch", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cu126", conflict = { package = "manga-translator-ui", group = "cuda12-6" } },
     { name = "torchvision", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu126", conflict = { package = "manga-translator-ui", group = "cuda12-6" } },
     { name = "xformers", specifier = "==0.0.35", index = "https://download.pytorch.org/whl/cu126", conflict = { package = "manga-translator-ui", group = "cuda12-6" } },
@@ -2142,8 +2142,35 @@ wheels = [
 
 [[package]]
 name = "onnxruntime-gpu"
+version = "1.26.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'win32'",
+    "sys_platform == 'darwin'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(platform_machine != 'x86_64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')",
+]
+dependencies = [
+    { name = "flatbuffers" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "protobuf" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/fd/59bee7cffaa435da44fefdeb63e29c61de4dbfa4b279852f59cd02c042ae/onnxruntime_gpu-1.26.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:3c01119ed4d9449d60367fa8ccffcd02bd3fe736754284e4b198d131f54edad6", size = 276971796, upload-time = "2026-05-08T19:15:46.192Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/e4/9b378a5466ea0bed65e5beb8e09254973c580a6522810a38afbcc45e5105/onnxruntime_gpu-1.26.0-cp312-cp312-win_amd64.whl", hash = "sha256:5f49c44689894650990e4c8a857d2edafc276fbd79bba57ceb224bd18d25d491", size = 226548963, upload-time = "2026-05-08T19:09:34.925Z" },
+]
+
+[[package]]
+name = "onnxruntime-gpu"
 version = "1.28.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'win32'",
+    "sys_platform == 'darwin'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(platform_machine != 'x86_64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32')",
+]
 dependencies = [
     { name = "flatbuffers" },
     { name = "numpy" },

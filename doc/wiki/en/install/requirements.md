@@ -85,7 +85,7 @@ Installation and models are separate stages. `manga_translator/utils/inference.p
 ## Environment and compatibility
 
 - **CPU**: no CUDA/ROCm; broadly compatible, but speed is limited by CPU and memory.
-- **NVIDIA GPU**: the current group contains `torch==2.13.0`, `torchvision==0.28.0`, `onnxruntime-gpu==1.28.0`, and `xformers==0.0.35`; the driver must support the CUDA runtime.
+- **NVIDIA GPU**: the CUDA 13.0 group uses `onnxruntime-gpu==1.28.0`; the CUDA 12.6 group uses `onnxruntime-gpu==1.26.0` because PyPI switched the default GPU package to CUDA 13 starting with ONNX Runtime 1.27. Each group matches its CUDA-specific PyTorch and xformers packages; the driver must support that CUDA version.
 - **AMD ROCm**: Linux x86_64 uses `pytorch-rocm72`; Windows AMD uses the installer to install the Radeon ROCm SDK and matching PyTorch wheels in two stages. This path is experimental.
 - **Metal**: Apple Silicon uses PyTorch/MPS from PyPI and does not install CUDA, `onnxruntime-gpu`, or `xformers`.
 

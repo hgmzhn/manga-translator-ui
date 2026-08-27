@@ -118,10 +118,12 @@ cpu = [
 gpu = [
     { include-group = "cuda13.0" },
 ]
+# PyPI switched onnxruntime-gpu to CUDA 13 starting with 1.27; 1.26.0 is the
+# latest CUDA 12.x build and is required for the CUDA 12.6 PyTorch environment.
 "cuda12.6" = [
     "torch==2.13.0",
     "torchvision==0.28.0",
-    "onnxruntime-gpu==1.28.0",
+    "onnxruntime-gpu==1.26.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
     "numpy>=2.0,<2.3",
