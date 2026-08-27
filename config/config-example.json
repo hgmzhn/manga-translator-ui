@@ -94,7 +94,7 @@
     "direction": "auto",
     "uppercase": false,
     "lowercase": false,
-    "font_family": "fonts/Arial-Unicode-Regular.ttf",
+    "font_family": "Arial Unicode MS",
     "disable_system_fonts": false,
     "no_hyphenation": false,
     "bubble_layout_english": false,
