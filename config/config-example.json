@@ -10,6 +10,8 @@
     "auto_check_updates": true,
     "use_system_proxy": true,
     "current_preset": "默认",
+    "editor_ocr": "mocr",
+    "editor_translator": "openai",
     "editor_snap_enabled": false,
     "editor_center_scale_enabled": false,
     "editor_rich_text_popup_enabled": true,

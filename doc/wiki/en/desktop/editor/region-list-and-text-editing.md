@@ -43,7 +43,7 @@ With a single selection, the “Text Content” section is enabled; with a multi
 3. The translation box shows line breaks as `↵`; when saved, `↵` becomes the model-stored `[BR]`. When displayed, `[BR]`, `<br>`, `【BR】`, and real newlines are all converted to `↵`.
 4. Click “Placeholder” to insert the full-width underscore `＿` at the cursor, or “Newline↵” to insert `↵`.
 5. The “Character count: 0” label is a static string in the source; there is no dynamic character-counting logic.
-6. Pick an entry in “OCR Model:” and click “Recognize” to re-run OCR on the current selection; pick “Translator:” and “Target Language:” and click “Translate” to translate the current selection. The three dropdown options come from config display mappings, not fixed i18n enums.
+6. Pick an entry in “OCR Model:” and click “Recognize” to re-run OCR on the current selection; pick “Translator:” and “Target Language:” and click “Translate” to translate the current selection. The OCR and translator dropdowns reuse the homepage option lists, but their current selections are stored separately as `app.editor_ocr` and `app.editor_translator`; they do not overwrite homepage `ocr.ocr` or `translator.translator`. The editor defaults are OCR `mocr` and translator `openai`; target language still uses homepage `translator.target_lang`.
 
 ### Copy, paste, and delete regions {#copy-paste-delete}
 

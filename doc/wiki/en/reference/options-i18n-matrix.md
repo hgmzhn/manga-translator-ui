@@ -86,7 +86,7 @@ Theme, UI language, and app-level toggles live in the “General” group of the
 
 ### OCR engines and VLM OCR language hints {#ocr-options}
 
-`ocr.ocr`, `ocr.secondary_ocr`, and `ocr.ocr_vl_language_hint` are combos; the editor property panel reuses the OCR mapping. See [OCR filter and merge](../desktop/settings/ocr-filter-and-merge.md) and [Region list and text editing](../desktop/editor/region-list-and-text-editing.md) for details.
+`ocr.ocr`, `ocr.secondary_ocr`, and `ocr.ocr_vl_language_hint` are Settings-page combos. The editor property panel reuses the OCR option list, but its current choice is stored separately as `app.editor_ocr`, defaulting to `mocr`, and does not overwrite homepage `ocr.ocr`. See [OCR filter and merge](../desktop/settings/ocr-filter-and-merge.md) and [Region list and text editing](../desktop/editor/region-list-and-text-editing.md) for details.
 
 | 存储值 | English | 简体中文 | Control / owning page |
 | --- | --- | --- | --- |
@@ -125,7 +125,7 @@ Theme, UI language, and app-level toggles live in the “General” group of the
 
 ## Translators and languages {#translator-and-languages}
 
-The translator, target-language, and keep-language combos are reused across the “Translation” settings group, the API-management translation tab, and the editor property panel; see [Translator selection](../desktop/translator/selection-and-languages.md), [Translation settings](../desktop/settings/translation.md), and [API feature selectors](../desktop/api-management/feature-selectors.md) for details.
+The Settings page, API-management translation tab, and editor property panel reuse the translator option list. Settings and API management use `translator.translator`; the editor uses the separate `app.editor_translator`, defaulting to `openai`. Target and keep languages remain shared with the homepage translation settings. See [Translator selection](../desktop/translator/selection-and-languages.md), [Translation settings](../desktop/settings/translation.md), and [API feature selectors](../desktop/api-management/feature-selectors.md) for details.
 
 ### Translator {#translator-options}
 

@@ -196,8 +196,9 @@ class AppSection(BaseModel):
     auto_check_updates: bool = True  # 启动时是否自动检查新版本
     use_system_proxy: bool = False  # 网络请求是否使用操作系统代理配置
     current_preset: str = "默认"  # 当前使用的预设名称
+    editor_ocr: str = "mocr"  # 编辑器属性面板使用的 OCR 模型，与主页 OCR 设置分离
+    editor_translator: str = "openai"  # 编辑器属性面板使用的翻译器，与主页翻译设置分离
     editor_snap_enabled: bool = False  # 编辑器文本框移动/旋转时是否启用吸附
-    editor_center_scale_enabled: bool = False  # 拖动文本框边/角时是否围绕中心对称缩放
     editor_rich_text_popup_enabled: bool = True  # 是否显示编辑器富文本浮动弹窗
     editor_rich_text_popup_pinned: bool = False  # 是否固定富文本浮窗位置并阻止自动隐藏
     editor_auto_save_on_switch: bool = True  # 切图时自动保存工程数据

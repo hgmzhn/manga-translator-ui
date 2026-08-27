@@ -983,25 +983,27 @@ class PropertyPanel(QWidget):
             return
 
         config = self.app_logic.config_service.get_config()
-        ocr_config = config.ocr
+        app_config = config.app
         translator_config = config.translator
+        editor_ocr = getattr(app_config, "editor_ocr", "mocr")
+        editor_translator = getattr(app_config, "editor_translator", "openai")
 
-        # OCR
+        # OCR and translator selections are editor-specific, not homepage settings.
         ocr_options = self.app_logic.get_options_for_key("ocr")
         if ocr_options:
             self._repopulate_combo(
-                self.ocr_model_combo, ocr_options, current_text=ocr_config.ocr
+                self.ocr_model_combo, ocr_options, current_text=editor_ocr
             )
 
-        # Translator
         translator_map = self.app_logic.get_display_mapping("translator")
         if translator_map:
             self.translator_display_to_key = {v: k for k, v in translator_map.items()}
             self._repopulate_combo(
                 self.translator_combo,
                 list(translator_map.values()),
-                current_text=translator_map.get(translator_config.translator),
+                current_text=translator_map.get(editor_translator),
             )
+
 
         # Target Language
         lang_map = self.app_logic.get_display_mapping("target_lang")
@@ -2288,15 +2290,14 @@ class PropertyPanel(QWidget):
 
     # _mark_horizontal 已删除：局部横排改用富文本 tcy（浮动编辑器 T 按钮），
     # 旧 <H> 协议已废除，渲染管线不再有任何 <H> 消费方。
-
     def _on_ocr_model_change(self, text):
-        """OCR模型变化时保存配置"""
-        self.app_logic.update_single_config("ocr.ocr", text)
+        """OCR模型变化时保存编辑器专用配置"""
+        self.app_logic.update_single_config("app.editor_ocr", text)
 
     def _on_translator_change(self, display_name):
-        """翻译器变化时保存配置"""
+        """翻译器变化时保存编辑器专用配置"""
         translator_key = self.translator_display_to_key.get(display_name, display_name)
-        self.app_logic.update_single_config("translator.translator", translator_key)
+        self.app_logic.update_single_config("app.editor_translator", translator_key)
 
     def _on_target_language_change(self, display_name):
         """目标语言变化时保存配置"""
