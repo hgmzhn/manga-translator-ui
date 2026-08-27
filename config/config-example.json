@@ -107,7 +107,7 @@
     "balloon_fill_mask_layout": false,
     "max_font_size": 0,
     "font_scale_ratio": 1.0,
-    "center_text_in_bubble": false,
+    "center_text_in_bubble": true,
     "optimize_line_breaks": false,
     "semantic_linebreak": false,
     "remove_linebreak_punctuation": false,
