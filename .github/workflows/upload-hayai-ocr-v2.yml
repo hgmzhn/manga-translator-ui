@@ -46,6 +46,21 @@ jobs:
       - name: Install ModelScope CLI
         run: python -m pip install --disable-pip-version-check --no-input modelscope
 
+      - name: Log in to ModelScope
+        shell: bash
+        env:
+          MODELSCOPE_SDK_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from modelscope.hub.api import HubApi
+
+          api = HubApi()
+          api.login(os.environ["MODELSCOPE_SDK_TOKEN"])
+          print("ModelScope login succeeded")
+          PY
+
       - name: Download and verify Hayai OCR v2 files
         shell: bash
         env:
@@ -90,6 +105,7 @@ jobs:
         shell: bash
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELSCOPE_API_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           MODEL_DIR: ${{ runner.temp }}/hayai-ocr-v2
           COMMIT_MESSAGE: ${{ inputs.commit_message }}
         run: |
