@@ -2549,6 +2549,42 @@ class TranslationWorker(QObject):
                     "not image generation/editing output",
                 )
             )
+        def _is_candidate_exhausted_error(*feature_markers: str) -> bool:
+            candidate_exhausted = (
+                "no available api candidates" in lower_error
+                or (
+                    "exhausting " in lower_error
+                    and " api candidate" in lower_error
+                )
+            )
+            return candidate_exhausted and any(
+                marker in lower_error for marker in feature_markers
+            )
+
+        def _is_model_unsupported_error() -> bool:
+            return (
+                "code=20012" in lower_error
+                or "model does not exist" in lower_error
+                or ("does not exist" in lower_error and "model" in lower_error)
+                or "model not found" in lower_error
+                or "invalid model" in lower_error
+                or "no such model" in lower_error
+                or "supported api model names" in lower_error
+                or "supported model names" in lower_error
+                or ("you passed" in lower_error and "model" in lower_error)
+                or ("unsupported" in lower_error and "model" in lower_error)
+                or "模型不存在" in real_error
+                or "模型名称不存在" in real_error
+            )
+
+        def _is_feature_model_unsupported_error(*feature_markers: str) -> bool:
+            return _is_model_unsupported_error() and any(
+                marker in lower_error for marker in feature_markers
+            )
+
+        renderer_markers = ("renderer", "render request", "渲染")
+        colorizer_markers = ("colorizer", "colorization", "colorize", "上色")
+        ocr_markers = ("ocr", "optical character recognition", "文字识别", "文字辨識")
         
         # 检查是否是AI断句检查失败
         if ("BR markers missing" in real_error or 
@@ -2575,12 +2611,26 @@ class TranslationWorker(QObject):
         ):
             friendly_msg = _translate("friendly_error_empty_ai_response")
 
-        # 检查是否是渲染/上色模型不支持图片输出
-        elif _is_image_output_unsupported_error("renderer", "render request", "渲染"):
+        # 检查是否是渲染/上色模型或候选不可用
+        elif (
+            _is_candidate_exhausted_error(*renderer_markers)
+            or _is_feature_model_unsupported_error(*renderer_markers)
+            or _is_image_output_unsupported_error(*renderer_markers)
+        ):
             friendly_msg = _translate("friendly_error_renderer_unsupported")
 
-        elif _is_image_output_unsupported_error("colorizer", "colorization", "colorize", "上色"):
+        elif (
+            _is_candidate_exhausted_error(*colorizer_markers)
+            or _is_feature_model_unsupported_error(*colorizer_markers)
+            or _is_image_output_unsupported_error(*colorizer_markers)
+        ):
             friendly_msg = _translate("friendly_error_colorizer_unsupported")
+
+        elif (
+            _is_candidate_exhausted_error(*ocr_markers)
+            or _is_feature_model_unsupported_error(*ocr_markers)
+        ):
+            friendly_msg = _translate("friendly_error_ocr_unavailable")
 
         # 检查是否是模型或 API 端点不支持图片输入
         elif (
@@ -2597,20 +2647,7 @@ class TranslationWorker(QObject):
             friendly_msg = _translate("friendly_error_multimodal_unsupported")
         
         # 检查是否是模型不存在/模型名错误
-        elif (
-            "code=20012" in real_error.lower()
-            or "model does not exist" in real_error.lower()
-            or ("does not exist" in real_error.lower() and "model" in real_error.lower())
-            or "model not found" in real_error.lower()
-            or "invalid model" in real_error.lower()
-            or "no such model" in real_error.lower()
-            or "supported api model names" in lower_error
-            or "supported model names" in lower_error
-            or ("you passed" in lower_error and "model" in lower_error)
-            or ("unsupported" in lower_error and "model" in lower_error)
-            or "模型不存在" in real_error
-            or "模型名称不存在" in real_error
-        ):
+        elif _is_model_unsupported_error():
             friendly_msg = _translate("friendly_error_model_unsupported")
 
         # 检查是否是404错误（API地址或模型配置错误）
