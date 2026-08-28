@@ -1043,12 +1043,12 @@ def detect_gpu(interactive=True):
                                               'M3' in chip_name or 'M4' in chip_name or
                                               'Apple' in chip_name):
                                 # Apple Silicon，支持 Metal
-                                return "AppleSilicon", chip_name, None, None, None
+                                return "AppleSilicon", chip_name, None, None, None, None
                         except Exception:
                             pass
                         
                         # 如果无法获取具体芯片名称，但确定是 arm64，仍然返回 Apple Silicon
-                        return "AppleSilicon", "Apple Silicon", None, None, None
+                        return "AppleSilicon", "Apple Silicon", None, None, None, None
                     
                     # Intel Mac，继续使用下面的通用检测逻辑
                 except Exception:
