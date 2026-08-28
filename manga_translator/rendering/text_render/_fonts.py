@@ -36,7 +36,6 @@ _thread_state = threading.local()
 _qt_runtime_lock = threading.Lock()
 _qt_runtime_app = None
 _font_descriptor_cache = {}
-_font_registration_cache = {}
 _font_families_cache = {}
 _font_family_aliases = {}
 _hyphenator_cache = {}
@@ -226,7 +225,6 @@ def register_font_file(path: str) -> list:
         logger.exception('Failed to register font: %s', path)
 
     families = [name for name in families if name and not qt_family_is_ambiguous(name)]
-    _font_registration_cache[key] = font_id
     _font_families_cache[key] = families
     return families
 
@@ -340,11 +338,6 @@ def _font_descriptor(path: str) -> LayoutFontDescriptor:
     if (not family or qt_family_is_ambiguous(family)) and registered_families:
         family = registered_families[0]
 
-    if not family:
-        raw = QRawFont(path, _QT_FONT_PROBE_SIZE)
-        if raw.isValid():
-            family = raw.familyName() or ''
-            style = style or raw.styleName() or ''
 
     if not family:
         raise RuntimeError(f'Could not resolve Qt font family: {path}')
