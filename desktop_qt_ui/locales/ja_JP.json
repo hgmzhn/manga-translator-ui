@@ -1164,7 +1164,7 @@
   "desc_inpainter_inpainting_precision": "修復精度。fp32が最も正確ですが最も遅い；fp16はバランス型；bf16推奨。",
   "desc_kernel_size": "テキスト消去カーネルサイズ（デフォルト3）。テキスト消去の精度を制御します。",
   "desc_inpainter_force_use_torch_inpainting": "PyTorchエンジンで強制修復（デフォルトCPUはONNXを使用）。ONNXに問題がある場合に使用。",
-  "desc_inpainter_solid_fill_pure_bubbles": "各テキスト領域をモデル検出されたフキダシに対応付け、モデルマスクを比率で内側に縮小してから、膨張済みの生テキストマスクを差し引きます。残りの背景がほぼ単色なら直接塗りつぶして修復モデルを省略し、モデルが検出できなかった領域は修復モデルに渡します。",
+  "desc_inpainter_solid_fill_pure_bubbles": "モデルでテキスト領域に対応するフキダシとほぼ単色の背景を判定します。直接塗りつぶす範囲は最適化済み修復マスクとフキダシマスクの交差部分に限定され、塗りつぶした領域は修復モデルを省略します。モデル未検出または交差部分が空の場合は修復モデルに渡します。",
   "desc_inpainter_per_block_inpainting": "最適化済みマスクを孤立した連結成分に分け、それぞれを2倍の範囲で切り出して修復し、反射パディングで正方形にするため、長画像の分割処理には入りません。利用できる周辺情報が減るため、複雑な背景では修復品質が低下する場合がありますが、CPU推論では小さい切り抜きにより高速化する場合があります。",
   "desc_render_renderer": "レンダリングエンジン。defaultは標準レンダラー；openai_renderer / gemini_renderer を使う場合は、API Keys (.env) に対応する API Key の設定が必要です。Google Cloud / Vertex 関連の API Key も Gemini 側にそのまま入力できます。Base URL は既定の公式アドレスのままで変更不要です。",
   "desc_render_font_family": "写植と編集可能な PSD テキストレイヤーで使用するフォントです。一覧には OS にインストールされたシステムフォントと、プロジェクトの fonts ディレクトリ内のフォントファイルが表示されます。.ttf、.otf、.ttc を追加した後、ドロップダウンを開き直すと更新されます。",

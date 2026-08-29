@@ -203,11 +203,12 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
     np.testing.assert_array_equal(captured["inpaint_mask"], expected_refined)
 
 
-def test_solid_fill_handles_connected_bubbles_and_excludes_all_raw_text():
+def test_solid_fill_limits_fill_to_refined_mask_and_excludes_raw_text():
     image = np.full((24, 64, 3), 80, dtype=np.uint8)
     image[2:22, 2:42] = 200
     image[2:22, 2] = (0, 0, 255)
     image[9:13, 9:13] = 0
+    image[4, 10] = (123, 123, 123)
     image[9:13, 29:33] = 0
 
     raw_mask = np.zeros((24, 64), dtype=np.uint8)
@@ -247,6 +248,8 @@ def test_solid_fill_handles_connected_bubbles_and_excludes_all_raw_text():
     np.testing.assert_array_equal(result[10, 30], (200, 200, 200))
     np.testing.assert_array_equal(result[10, 2], (0, 0, 255))
     np.testing.assert_array_equal(result[10, 50], (80, 80, 80))
+    # 气泡蒙版覆盖范围大于修复蒙版时，修复蒙版之外的气泡像素不能被纯色填充覆盖。
+    np.testing.assert_array_equal(result[4, 10], (123, 123, 123))
     assert not remaining_mask.any()
 
 

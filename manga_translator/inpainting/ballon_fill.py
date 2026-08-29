@@ -20,14 +20,14 @@ def solid_fill_pure_bubbles(
     overlap_threshold: float,
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """
-    对纯色气泡跳过修复模型，直接用气泡内背景中位色填充。
+    对匹配的纯色气泡，只在修复蒙版与气泡蒙版的交集内直接用背景中位色填充，避免覆盖修复蒙版之外的气泡内容。
 
     Args:
         img: RGB 或 RGBA 工作图
-        mask: 精修（膨胀）后的修复掩码，与 img 同宽高；已填色区域会从中清零
+        mask: 精修（膨胀）后的修复掩码，与 img 同高宽；填色区域会从中清零
         text_regions: 文本区域列表，用现有模型气泡重叠逻辑选择对应气泡
-        mask_tight: 膨胀后的原始文字蒙版，用于从气泡中扣除文字像素
-        bubble_mask: 已按比例内缩的气泡模型输出蒙版
+        mask_tight: 膨胀后的原始文字蒙版，仅用于从气泡中扣除文字像素、采样背景色
+        bubble_mask: 已按比例内缩的气泡模型输出蒙版，用于识别匹配的气泡连通块
         overlap_threshold: 文本框位于模型气泡内的最小重叠率
 
     Returns:
@@ -76,7 +76,10 @@ def solid_fill_pure_bubbles(
         if np.max(std_rgb) >= inpaint_thresh:
             continue
 
-        fill_region = region_bubble > 0
+        # 气泡蒙版只负责识别候选气泡；实际填色严格限制在修复蒙版内。
+        fill_region = (region_bubble > 0) & (mask > 0)
+        if not np.any(fill_region):
+            continue
         rgb[fill_region] = np.clip(np.round(average_bg_color), 0, 255).astype(np.uint8)
         remaining_mask[fill_region] = 0
         filled_regions.update(matched_regions)

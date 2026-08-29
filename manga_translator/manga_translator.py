@@ -3153,7 +3153,7 @@ class MangaTranslator:
                 filled_img = ctx.img_rgb
                 remaining_mask = ctx.mask
                 if solid_fill and text_regions:
-                    # 膨胀后的 raw 蒙版从模型气泡中扣除文字；逐块模型仍使用优化后的 ctx.mask。
+                    # 修复蒙版决定实际可填区域；膨胀后的 raw 蒙版仅用于从气泡中扣除文字、采样背景色。
                     mask_tight = getattr(ctx, 'mask_raw', None)
                     if mask_tight is not None:
                         if mask_tight.shape[:2] != ctx.mask.shape[:2]:

@@ -1164,7 +1164,7 @@
   "desc_inpainter_inpainting_precision": "복원 정밀도. fp32가 가장 정확하지만 가장 느림; fp16은 균형; bf16 권장.",
   "desc_kernel_size": "텍스트 지우기 커널 크기 (기본값 3). 텍스트 지우기 정밀도를 제어합니다.",
   "desc_inpainter_force_use_torch_inpainting": "PyTorch 엔진으로 강제 복원 (기본 CPU는 ONNX 사용). ONNX에 문제가 있을 때 사용.",
-  "desc_inpainter_solid_fill_pure_bubbles": "각 텍스트 영역을 모델이 감지한 말풍선과 연결하고 모델 마스크를 비율에 따라 안쪽으로 줄인 뒤 팽창된 원본 텍스트 마스크를 뺍니다. 남은 배경이 거의 단색이면 직접 채우고 복원 모델을 건너뛰며, 모델이 찾지 못한 영역은 복원 모델이 처리합니다.",
+  "desc_inpainter_solid_fill_pure_bubbles": "모델로 텍스트 영역에 대응하는 말풍선과 거의 단색인 배경을 판단합니다. 직접 채우는 범위는 정제된 복원 마스크와 말풍선 마스크의 교집합으로 제한되며, 채운 영역은 복원 모델을 건너뜁니다. 모델이 찾지 못했거나 교집합이 비어 있으면 복원 모델이 처리합니다.",
   "desc_inpainter_per_block_inpainting": "최적화된 마스크를 분리된 연결 요소로 나누고 각 요소를 2배 영역으로 잘라 복원한 뒤 반사 패딩으로 정사각형을 만들기 때문에 긴 이미지 분할 경로를 사용하지 않습니다. 사용할 수 있는 주변 정보가 줄어 복잡한 배경에서는 복원 품질이 떨어질 수 있지만, CPU 추론에서는 작은 잘라내기로 속도가 향상될 수 있습니다.",
   "desc_render_renderer": "렌더링 엔진. default는 기본 렌더러; openai_renderer / gemini_renderer 를 사용하려면 API Keys (.env)에 해당 API Key를 입력해야 합니다. Google Cloud / Vertex 관련 API Key도 Gemini 항목에 직접 입력하면 됩니다. Base URL은 기본 공식 주소 그대로 두면 되고 수정할 필요가 없습니다.",
   "desc_render_font_family": "식자와 편집 가능한 PSD 텍스트 레이어에 사용할 글꼴입니다. 목록에는 운영 체제에 설치된 시스템 글꼴과 프로젝트 fonts 디렉터리의 글꼴 파일이 함께 표시됩니다. .ttf, .otf 또는 .ttc 파일을 추가한 뒤 드롭다운을 다시 열면 목록이 갱신됩니다.",
