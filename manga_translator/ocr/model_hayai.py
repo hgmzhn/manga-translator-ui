@@ -87,6 +87,9 @@ class ModelHayaiOCR(ModelPaddleOCRVL):
             "6fb6c69afaedf1275872d3e62e276fd4467bd00da7a84cbbb5566a2cd28f58f6",
         ),
         "processor": _hayai_processor_mapping(),
+        # Reuse the established 48px color model used by PaddleOCR-VL.
+        "color_model": dict(ModelPaddleOCRVL._MODEL_MAPPING["color_model"]),
+        "color_dict": dict(ModelPaddleOCRVL._MODEL_MAPPING["color_dict"]),
     }
 
     def __init__(self, *args, **kwargs):
@@ -135,6 +138,7 @@ class ModelHayaiOCR(ModelPaddleOCRVL):
         if self.device == "cpu":
             self.model = self.model.to(self.device)
         self.model.eval()
+        await self._load_color_model(device)
 
     async def _unload(self):
         await super()._unload()

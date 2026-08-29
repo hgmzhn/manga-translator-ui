@@ -19,6 +19,14 @@ def test_hayai_model_is_registered_and_uses_local_model_tree():
     assert ModelHayaiOCR._MODEL_MAPPING["processor"]["file"] == str(
         Path("hayai-ocr-v2") / "processor" / "preprocessor_config.json"
     )
+    assert "color_model" in ModelHayaiOCR._MODEL_MAPPING
+    assert "color_dict" in ModelHayaiOCR._MODEL_MAPPING
+    assert ModelHayaiOCR._MODEL_MAPPING["color_model"]["url"][0].endswith(
+        "ocr_ar_48px.ckpt"
+    )
+    assert ModelHayaiOCR._MODEL_MAPPING["color_dict"]["url"][0].endswith(
+        "alphabet-all-v7.txt"
+    )
 
 
 def test_hayai_loader_uses_local_model_and_processor(monkeypatch, tmp_path):
@@ -66,6 +74,9 @@ def test_hayai_loader_uses_local_model_and_processor(monkeypatch, tmp_path):
     )
 
     ocr = ModelHayaiOCR.__new__(ModelHayaiOCR)
+    async def load_color_model(device):
+        calls["color_device"] = device
+    ocr._load_color_model = load_color_model
     asyncio.run(ocr._load("cpu"))
 
     model_path = tmp_path / "ocr" / "hayai-ocr-v2"
@@ -83,6 +94,7 @@ def test_hayai_loader_uses_local_model_and_processor(monkeypatch, tmp_path):
     )
     assert calls["to"] == "cpu"
     assert calls["eval"] is True
+    assert calls["color_device"] == "cpu"
 
 
 def test_hayai_recognition_passes_native_crop_inputs():
