@@ -2689,7 +2689,11 @@ def render(
         )
     
     if temp_box is None:
-        logger.warning(f"[RENDER SKIPPED] Text rendering returned None. Text: '{_translation_preview(region.translation, 100)}...'")
+        # The effects and stroke passes may intentionally have no pixels when
+        # the region has no rich-text effect or the stroke is disabled.  The
+        # fill pass is the one that determines whether text rendering failed.
+        if paint_part in (None, "fill"):
+            logger.warning(f"[RENDER SKIPPED] Text rendering returned None. Text: '{_translation_preview(region.translation, 100)}...'")
         return img
     
     h, w, _ = temp_box.shape

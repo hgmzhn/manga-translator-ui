@@ -1376,6 +1376,54 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertEqual(region.translation_rich["format"], RICH_TEXT_FORMAT)
         self.assertEqual(len(region.translation_rich["blocks"]), 2)
 
+    def test_high_level_render_only_warns_when_fill_layer_is_empty(self):
+        image = np.zeros((220, 220, 3), dtype=np.uint8)
+        region = TextBlock(
+            lines=[[[40, 40], [180, 40], [180, 180], [40, 180]]],
+            texts=["原文"],
+            translation="文字",
+            fg_color=(0, 0, 0),
+            bg_color=(255, 255, 255),
+            direction="v",
+            target_lang="CHS",
+        )
+        region.font_size = 32
+        region.font_family = "Arial Unicode MS"
+        dst_points = np.asarray(
+            [[[40, 40], [180, 40], [180, 180], [40, 180]]],
+            dtype=np.float32,
+        )
+
+        with patch.object(
+            rendering_module.text_render,
+            "put_text_vertical",
+            return_value=None,
+        ):
+            with self.assertNoLogs("manga-translator.render", level="WARNING"):
+                render(
+                    image.copy(),
+                    region,
+                    dst_points,
+                    hyphenate=True,
+                    line_spacing=1.0,
+                    disable_font_border=False,
+                    config=Config(),
+                    paint_part="effects",
+                )
+            with self.assertLogs("manga-translator.render", level="WARNING") as logs:
+                render(
+                    image.copy(),
+                    region,
+                    dst_points,
+                    hyphenate=True,
+                    line_spacing=1.0,
+                    disable_font_border=False,
+                    config=Config(),
+                    paint_part="fill",
+                )
+
+        self.assertTrue(any("[RENDER SKIPPED]" in message for message in logs.output))
+
     def test_text_render_paint_parts_keep_stroke_outside_fill(self):
         stroke = text_render.put_text_horizontal(
             32,
