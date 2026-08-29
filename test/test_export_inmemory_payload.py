@@ -328,6 +328,35 @@ def test_backend_writeback_marks_replacements_only_after_render():
     print("PASS: backend writeback marks replacements only after render")
 
 
+def test_empty_text_regions_do_not_persist_detector_mask():
+    """无文字区域时，检测器残留的 raw mask 不应写入工程 JSON。"""
+    import json as jsonlib
+
+    from manga_translator.config import Config, TranslatorConfig
+    from manga_translator.manga_translator import MangaTranslator
+    from manga_translator.utils import Context
+    from manga_translator.utils.path_manager import find_json_path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        image_path = os.path.join(tmp, "no-text.png")
+        Image.new("RGB", (32, 24), "white").save(image_path)
+        translator = MangaTranslator(params={"save_text": True})
+        cfg = Config(translator=TranslatorConfig(translator="none"))
+        ctx = Context()
+        ctx.image_name = image_path
+        ctx.input = None
+        ctx.text_regions = []
+        ctx.original_size = (32, 24)
+        ctx.mask = None
+        ctx.mask_raw = np.full((24, 32), 255, dtype=np.uint8)
+        translator._save_text_to_file(image_path, ctx, cfg)
+
+        with open(find_json_path(image_path), "r", encoding="utf-8") as handle:
+            image_data = next(iter(jsonlib.load(handle).values()))
+        assert image_data["regions"] == []
+        assert "mask_raw" not in image_data
+        assert "mask_is_refined" not in image_data
+
 def main():
     test_payload_parsing_matches_file_parsing()
     test_export_end_to_end_inmemory()
@@ -335,6 +364,7 @@ def main():
     test_project_json_marks_replacements_done()
     test_project_json_omits_redundant_plain_rich_document()
     test_backend_writeback_marks_replacements_only_after_render()
+    test_empty_text_regions_do_not_persist_detector_mask()
     print("ALL TESTS PASSED")
     return 0
 

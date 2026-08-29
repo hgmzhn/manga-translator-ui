@@ -850,8 +850,6 @@ class MangaTranslator:
         if ctx.mask is not None:
             mask_to_save = ctx.mask
             mask_is_refined = True
-        elif ctx.mask_raw is not None:
-            mask_to_save = ctx.mask_raw
 
         if skip_mask_export:
             logger.info("Import YOLO labels enabled in export mode: skipping mask save in JSON")
