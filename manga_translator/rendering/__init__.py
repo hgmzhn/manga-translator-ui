@@ -2474,35 +2474,42 @@ async def dispatch(
             except Exception:
                 pass
 
-    for region_idx, (region, dst_points) in enumerate(tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions))):
-        # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
-        # 注意：这是缩放后的真实文本区域，不是 render 函数中扩展后的区域
-        region.dst_points = dst_points
-
-        try:
-            # 检查是否有文本需要渲染
-            render_value = _region_render_value(region)
-            if not render_value or (isinstance(render_value, str) and not render_value.strip()):
-                logger.info(
-                    f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', "
-                    f"translation='{_translation_preview(render_value, 20)}'"
-                )
-                continue
-
-            # render() / put_text_*() 统一接收“倍率”，基础值在文本渲染器内部处理。
-            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-            img = render(
-                img,
-                region,
-                dst_points,
-                not config.render.no_hyphenation,
-                line_spacing_multiplier,
-                config.render.disable_font_border,
-                config,
-                render_alpha=render_alpha,
+    # 先完成所有区域的特效/描边，再绘制所有正文；否则后绘制区域的
+    # 描边会覆盖先前区域的文字，尤其是相邻或重叠文本框。
+    for paint_part in ("effects", "stroke", "fill"):
+        for region_idx, (region, dst_points) in enumerate(
+            tqdm(
+                zip(text_regions, dst_points_list),
+                f'[render:{paint_part}]',
+                total=len(text_regions),
             )
-        except Exception:
-            raise
+        ):
+            region.dst_points = dst_points
+            try:
+                render_value = _region_render_value(region)
+                if not render_value or (
+                    isinstance(render_value, str) and not render_value.strip()
+                ):
+                    logger.info(
+                        f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', "
+                        f"translation='{_translation_preview(render_value, 20)}'"
+                    )
+                    continue
+
+                line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+                img = render(
+                    img,
+                    region,
+                    dst_points,
+                    not config.render.no_hyphenation,
+                    line_spacing_multiplier,
+                    config.render.disable_font_border,
+                    config,
+                    render_alpha=render_alpha,
+                    paint_part=paint_part,
+                )
+            except Exception:
+                raise
     
     if return_debug_img and debug_img is not None:
         return img, debug_img
@@ -2573,6 +2580,7 @@ def render(
     disable_font_border,
     config: Config,
     render_alpha: Optional[np.ndarray] = None,
+    paint_part: str | None = None,
 ):
     # 区域只保存 family；字体文件在启动/导入阶段注册。
     region_font_family = getattr(region, 'font_family', '') or ''
@@ -2645,7 +2653,6 @@ def render(
         plain_equivalent = plain_equivalent_text(text_to_render)
         if plain_equivalent is not None:
             text_to_render = plain_equivalent
-
     if render_horizontally:
         temp_box = text_render.put_text_horizontal(
             region.font_size,
@@ -2660,9 +2667,10 @@ def render(
             hyphenate,
             line_spacing,
             config,
-            len(region.lines),  # Pass region count
-            stroke_width=region.stroke_width,  # 传递区域的描边宽度
+            len(region.lines),
+            stroke_width=region.stroke_width,
             letter_spacing=letter_spacing,
+            paint_part=paint_part,
         )
     else:
         temp_box = text_render.put_text_vertical(
@@ -2674,9 +2682,10 @@ def render(
             bg,
             line_spacing,
             config,
-            len(region.lines),  # Pass region count
-            stroke_width=region.stroke_width,  # 传递区域的描边宽度
+            len(region.lines),
+            stroke_width=region.stroke_width,
             letter_spacing=letter_spacing,
+            paint_part=paint_part,
         )
     
     if temp_box is None:

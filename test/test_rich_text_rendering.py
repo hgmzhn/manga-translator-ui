@@ -1,9 +1,11 @@
 import _bootstrap  # noqa: F401
+import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 
+import manga_translator.rendering as rendering_module
 from manga_translator.config import Config
 from manga_translator.rendering import calc_box_from_font, render, text_render
 from manga_translator.rendering.rich_text import (
@@ -1373,6 +1375,83 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertIsInstance(region.translation_rich, dict)
         self.assertEqual(region.translation_rich["format"], RICH_TEXT_FORMAT)
         self.assertEqual(len(region.translation_rich["blocks"]), 2)
+
+    def test_text_render_paint_parts_keep_stroke_outside_fill(self):
+        stroke = text_render.put_text_horizontal(
+            32,
+            "文字",
+            200,
+            100,
+            "left",
+            False,
+            (0, 0, 0),
+            (255, 255, 255),
+            stroke_width=0.2,
+            paint_part="stroke",
+        )
+        fill = text_render.put_text_horizontal(
+            32,
+            "文字",
+            200,
+            100,
+            "left",
+            False,
+            (0, 0, 0),
+            (255, 255, 255),
+            stroke_width=0.2,
+            paint_part="fill",
+        )
+
+        self.assertEqual(stroke.shape, fill.shape)
+        self.assertGreater(int(stroke[:, :, 3].sum()), int(fill[:, :, 3].sum()))
+        self.assertTrue(np.any((stroke[:, :, 3] > 0) & (fill[:, :, 3] == 0)))
+
+    def test_dispatch_paints_all_regions_by_layer_before_fill(self):
+        points = np.asarray(
+            [[[40, 40], [180, 40], [180, 180], [40, 180]]], dtype=np.float32
+        )
+        regions = [
+            TextBlock(
+                lines=[points[0].tolist()],
+                texts=["原文"],
+                translation=text,
+                fg_color=(255, 255, 255),
+                bg_color=(0, 0, 0),
+                direction="h",
+                target_lang="CHS",
+            )
+            for text in ("先行文字", "后行文字")
+        ]
+        calls = []
+
+        def fake_render(image, *args, **kwargs):
+            calls.append(kwargs["paint_part"])
+            return image
+
+        with (
+            patch.object(
+                rendering_module,
+                "download_chinese_linebreak_models_if_enabled",
+                new=AsyncMock(),
+            ),
+            patch.object(
+                rendering_module,
+                "resize_regions_to_font_size",
+                return_value=[points, points],
+            ),
+            patch.object(rendering_module, "render", side_effect=fake_render),
+        ):
+            result = asyncio.run(
+                rendering_module.dispatch(
+                    np.zeros((220, 220, 3), dtype=np.uint8),
+                    regions,
+                    Config(),
+                    skip_font_scaling=True,
+                )
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(calls, ["effects"] * 2 + ["stroke"] * 2 + ["fill"] * 2)
 
     def test_multiline_plain_and_ruby_documents_render_without_supersampling(self):
         # BR 产生的多行纯文本与带注音文档都应由普通 Qt 路径直接渲染。

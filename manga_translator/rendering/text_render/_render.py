@@ -238,6 +238,7 @@ def _render_rich_text_horizontal(
     stroke_width: float | None = None,
     letter_spacing: float = 1.0,
     profile_stats: dict | None = None,
+    paint_part: str | None = None,
 ):
     document = ensure_rich_text_document(text)
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
@@ -395,7 +396,6 @@ def _render_rich_text_horizontal(
                     )
                 )
             cursor_x += run.logical_width
-
     def _run_fill_extra(kind, args):
         if kind == "disc":
             cx, cy, radius, color = args
@@ -407,21 +407,25 @@ def _render_rich_text_horizontal(
                 canvas, x0, center_y - thickness / 2.0, x1 - x0, thickness, color
             )
 
-    for part_index in (0, 1):  # effects, stroke
+    if paint_part in (None, "effects"):
         for parts, x, y in glyph_items:
-            _paste_rgba(canvas, parts[part_index], x, y)
-    extra_cursor = 0
-    for glyph_index, (parts, x, y) in enumerate(glyph_items):
-        while (
-            extra_cursor < len(fill_extras)
-            and fill_extras[extra_cursor][0] == glyph_index
-        ):
+            _paste_rgba(canvas, parts[0], x, y)
+    if paint_part in (None, "stroke"):
+        for parts, x, y in glyph_items:
+            _paste_rgba(canvas, parts[1], x, y)
+    if paint_part in (None, "fill"):
+        extra_cursor = 0
+        for glyph_index, (parts, x, y) in enumerate(glyph_items):
+            while (
+                extra_cursor < len(fill_extras)
+                and fill_extras[extra_cursor][0] == glyph_index
+            ):
+                _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+                extra_cursor += 1
+            _paste_rgba(canvas, parts[2], x, y)
+        while extra_cursor < len(fill_extras):
             _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
             extra_cursor += 1
-        _paste_rgba(canvas, parts[2], x, y)
-    while extra_cursor < len(fill_extras):
-        _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
-        extra_cursor += 1
 
     return _crop_rgba_fixed(
         canvas,
@@ -444,6 +448,7 @@ def _render_rich_text_vertical(
     stroke_width: float | None = None,
     letter_spacing: float = 1.0,
     profile_stats: dict | None = None,
+    paint_part: str | None = None,
 ):
     document = ensure_rich_text_document(text)
     stroke_ratio = _resolve_stroke_ratio(config, stroke_width)
@@ -576,7 +581,6 @@ def _render_rich_text_vertical(
                     ),
                 )
             )
-
     def _run_fill_extra(kind, args):
         if kind == "disc":
             cx, cy, radius, color = args
@@ -591,21 +595,25 @@ def _render_rich_text_vertical(
             ruby_plan, right, origin_y = args
             _paint_vertical_ruby(canvas, ruby_plan, right, origin_y, fg, letter_spacing)
 
-    for part_index in (0, 1):  # effects, stroke
+    if paint_part in (None, "effects"):
         for parts, x, y in glyph_items:
-            _paste_rgba(canvas, parts[part_index], x, y)
-    extra_cursor = 0
-    for glyph_index, (parts, x, y) in enumerate(glyph_items):
-        while (
-            extra_cursor < len(fill_extras)
-            and fill_extras[extra_cursor][0] == glyph_index
-        ):
+            _paste_rgba(canvas, parts[0], x, y)
+    if paint_part in (None, "stroke"):
+        for parts, x, y in glyph_items:
+            _paste_rgba(canvas, parts[1], x, y)
+    if paint_part in (None, "fill"):
+        extra_cursor = 0
+        for glyph_index, (parts, x, y) in enumerate(glyph_items):
+            while (
+                extra_cursor < len(fill_extras)
+                and fill_extras[extra_cursor][0] == glyph_index
+            ):
+                _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+                extra_cursor += 1
+            _paste_rgba(canvas, parts[2], x, y)
+        while extra_cursor < len(fill_extras):
             _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
             extra_cursor += 1
-        _paste_rgba(canvas, parts[2], x, y)
-    while extra_cursor < len(fill_extras):
-        _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
-        extra_cursor += 1
 
     return _crop_rgba_fixed(
         canvas, content_left, content_right, content_top, content_bottom
@@ -836,6 +844,7 @@ def put_text_horizontal(
     stroke_width: float | None = None,
     letter_spacing: float = 1.0,
     profile_stats: dict | None = None,
+    paint_part: str | None = None,
 ):
     _ = (width, height, lang, hyphenate, region_count)
     document = _coerce_render_document(text)
@@ -855,6 +864,7 @@ def put_text_horizontal(
         stroke_width,
         letter_spacing,
         profile_stats,
+        paint_part,
     )
 
 
@@ -871,6 +881,7 @@ def put_text_vertical(
     stroke_width: float | None = None,
     letter_spacing: float = 1.0,
     profile_stats: dict | None = None,
+    paint_part: str | None = None,
 ):
     _ = (h, region_count)
     document = _coerce_render_document(text)
@@ -888,6 +899,7 @@ def put_text_vertical(
         stroke_width,
         letter_spacing,
         profile_stats,
+        paint_part,
     )
 
 
