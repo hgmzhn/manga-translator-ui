@@ -25,6 +25,7 @@ def test_restart_maintenance_uses_absolute_script_and_resume_action(action, tmp_
     exec_calls = []
 
     monkeypatch.setattr(launch, '__file__', str(script_path))
+    monkeypatch.setattr(launch.sys, 'platform', 'linux')
     monkeypatch.setattr(launch.os, 'execv', lambda executable, args: exec_calls.append((executable, args)))
 
     launch.restart_maintenance(action)
@@ -32,6 +33,37 @@ def test_restart_maintenance_uses_absolute_script_and_resume_action(action, tmp_
     assert exec_calls == [(
         launch.sys.executable,
         [launch.sys.executable, str(script_path.resolve()), '--maintenance', f'--resume-{action}'],
+    )]
+
+
+@pytest.mark.parametrize('action', ['install', 'update'])
+def test_restart_maintenance_uses_argv_sequence_on_windows(action, tmp_path, monkeypatch):
+    launch = load_launch(f'launch_maintenance_windows_restart_{action}_test')
+    script_path = tmp_path / 'Program Files' / 'portable' / 'packaging' / 'launch.py'
+    script_path.parent.mkdir(parents=True)
+    script_path.touch()
+    popen_calls = []
+
+    monkeypatch.setattr(launch, '__file__', str(script_path))
+    monkeypatch.setattr(launch.sys, 'platform', 'win32')
+    monkeypatch.setattr(
+        launch.subprocess,
+        'Popen',
+        lambda args, **kwargs: popen_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        launch.restart_maintenance(action)
+
+    assert exc_info.value.code == 0
+    assert popen_calls == [(
+        [
+            launch.sys.executable,
+            str(script_path.resolve()),
+            '--maintenance',
+            f'--resume-{action}',
+        ],
+        {'cwd': launch.PATH_ROOT},
     )]
 
 

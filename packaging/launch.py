@@ -690,6 +690,18 @@ def restart_maintenance(action):
         command.extend(["--branch", UPDATE_BRANCH_OVERRIDE])
     sys.stdout.flush()
     sys.stderr.flush()
+    if sys.platform == "win32":
+        # os.execv may hand Windows an unquoted executable path. Popen receives
+        # an argv sequence and therefore preserves bundled Python paths with spaces.
+        try:
+            subprocess.Popen(command, cwd=PATH_ROOT)
+        except OSError as e:
+            print(L(f'[错误] 无法重新加载维护程序: {e}',
+                    f'[ERROR] Could not reload the maintenance program: {e}'))
+            print(L('请重新运行安装/更新脚本，更新后的代码不会在当前进程中继续执行。',
+                    'Run the install/update script again; the updated code will not continue in this process.'))
+            raise SystemExit(1) from e
+        raise SystemExit(0)
     try:
         os.execv(sys.executable, command)
     except OSError as e:
