@@ -200,6 +200,7 @@ class ExportService:
                 base_size=source_image.size,
                 paint_overlay=job.paint_overlay,
                 stamp_overlay=job.stamp_overlay,
+                paste_overlay=job.paste_overlay,
             )
             translator_params = self._prepare_translator_params(job.config)
             render_started = time.perf_counter()
@@ -543,6 +544,7 @@ class ExportService:
         base_size,
         paint_overlay: Optional[np.ndarray] = None,
         stamp_overlay: Optional[np.ndarray] = None,
+        paste_overlay: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Build an in-memory payload whose base state is explicit and valid."""
         save_data = self._normalize_regions_for_backend(regions_data, config)
@@ -564,6 +566,8 @@ class ExportService:
             payload["paint_overlay"] = np.asarray(paint_overlay)
         if stamp_overlay is not None:
             payload["stamp_overlay"] = np.asarray(stamp_overlay)
+        if paste_overlay is not None:
+            payload["paste_overlay"] = np.asarray(paste_overlay)
         self.logger.info(
             f"已构建内存导出载荷: 区域数={len(payload['regions'])}, 底图状态={export_base.kind}"
         )

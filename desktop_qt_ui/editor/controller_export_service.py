@@ -15,6 +15,7 @@ from services import get_render_parameter_service
 from .document_state import ExportBase
 from .image_utils import image_like_to_pil, image_like_to_rgb_array
 from .inpaint_state import InpaintArtifact
+from .paste_overlay_state import compose_paste_overlays
 from .region_geometry_state import RegionGeometryState, normalize_region_geometry_data
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ class ExportJob:
     config: dict
     paint_overlay: Optional[np.ndarray] = None
     stamp_overlay: Optional[np.ndarray] = None
+    paste_overlay: Optional[np.ndarray] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.automatic, bool):
@@ -67,7 +69,7 @@ class ExportJob:
         config.setdefault("upscale", {})["upscale_ratio"] = None
         config.setdefault("colorizer", {})["colorizer"] = "none"
         overlays = {}
-        for field_name in ("paint_overlay", "stamp_overlay"):
+        for field_name in ("paint_overlay", "stamp_overlay", "paste_overlay"):
             overlay = getattr(self, field_name)
             if overlay is None:
                 overlays[field_name] = None
@@ -232,6 +234,19 @@ class EditorControllerExportService:
                 return self._reject_export("导出失败：缺少活动文档")
             config = self._build_config_dict(self.config_service.get_config())
 
+            paste_overlays = self.model.get_paste_overlays()
+            paste_overlay = None
+            if paste_overlays:
+                source_image = export_base.source_image
+                canvas_size = getattr(source_image, "size", None)
+                if canvas_size is None and hasattr(source_image, "shape"):
+                    canvas_size = (source_image.shape[1], source_image.shape[0])
+                if canvas_size:
+                    paste_overlay = compose_paste_overlays(
+                        paste_overlays,
+                        (int(canvas_size[0]), int(canvas_size[1])),
+                    )
+
             job = ExportJob(
                 automatic=bool(automatic),
                 source_path=source_path,
@@ -241,6 +256,7 @@ class EditorControllerExportService:
                 config=config,
                 paint_overlay=self.model.get_paint_overlay_image(),
                 stamp_overlay=self.model.get_stamp_overlay_image(),
+                paste_overlay=paste_overlay,
             )
             future = self._submit_job(job)
             if future is None:

@@ -6,6 +6,7 @@ import numpy as np
 
 from editor.paste_overlay_state import (
     PAGE_KEY,
+    compose_paste_overlays,
     new_overlay_id,
     normalize_paste_overlay,
     parse_page_paste_overlays,
@@ -140,3 +141,56 @@ def test_ids_survive_round_trip_without_duplicates():
     overlays = serialize_paste_overlays([_valid_overlay(id=first)])
     parsed = parse_page_paste_overlays({"paste_overlays": overlays})
     assert parsed[0]["id"] == first
+
+
+def _solid_rgba(width, height, color):
+    rgba = np.zeros((height, width, 4), dtype=np.uint8)
+    rgba[..., 0], rgba[..., 1], rgba[..., 2] = color
+    rgba[..., 3] = 255
+    return rgba
+
+
+def _overlay_with_image(center_x, center_y, width=10, height=10, **overrides):
+    image = rgba_overlay_to_png_base64(_solid_rgba(width, height, (255, 0, 0)))
+    data = {
+        "image": image,
+        "center_x": center_x,
+        "center_y": center_y,
+        "width": width,
+        "height": height,
+        "rotation": 0.0,
+        "flip_h": False,
+        "flip_v": False,
+        "opacity": 1.0,
+    }
+    data.update(overrides)
+    return _valid_overlay(**data)
+
+
+def test_compose_paste_overlays_places_image_at_center():
+    composite = compose_paste_overlays([_overlay_with_image(20, 30)], (80, 60))
+    assert composite is not None
+    assert composite.shape == (60, 80, 4)
+    # 中心应是不透明红色
+    assert composite[30, 20, 0] > 200
+    assert composite[30, 20, 1] < 50
+    assert composite[30, 20, 3] > 200
+    # 远离贴片的位置保持透明
+    assert composite[5, 5, 3] == 0
+
+
+def test_compose_paste_overlays_honors_visibility_and_opacity():
+    invisible = _overlay_with_image(20, 30, visible=False)
+    assert compose_paste_overlays([invisible], (80, 60)) is None
+
+    faded = _overlay_with_image(20, 30, opacity=0.5)
+    composite = compose_paste_overlays([faded], (80, 60))
+    assert composite is not None
+    assert 60 < composite[30, 20, 3] < 200
+
+
+def test_compose_paste_overlays_rotation_smoke():
+    rotated = _overlay_with_image(40, 30, width=20, height=10, rotation=45)
+    composite = compose_paste_overlays([rotated], (80, 60))
+    assert composite is not None
+    assert np.any(composite[..., 3] > 0)

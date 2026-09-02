@@ -189,3 +189,94 @@ def png_base64_to_rgba_overlay(image_b64: str) -> np.ndarray | None:
     array = cv2.cvtColor(bgra, cv2.COLOR_BGRA2RGBA)
     array.setflags(write=False)
     return array
+
+
+def compose_paste_overlays(
+    overlays: Iterable[Mapping[str, Any]],
+    canvas_size: tuple[int, int],
+) -> np.ndarray | None:
+    """把贴片列表按各自几何 alpha 预合成到一张整页 RGBA 画布上（导出烘焙用）。
+
+    ``canvas_size`` 为 (宽, 高) 源图像素尺寸；返回的数组与 paint/stamp 叠加层同构，
+    由后端在渲染文字前与底图做 alpha 合成。无可见贴片时返回 None。
+    注意：旋转/翻转的屏幕方向一致性以画布预览为准，后续若发现方向相反，
+    只需调整本函数旋转角度的符号。
+    """
+    width, height = (int(canvas_size[0]), int(canvas_size[1]))
+    if width <= 0 or height <= 0:
+        return None
+
+    canvas = np.zeros((height, width, 4), dtype=np.uint8)
+    drawn = False
+    for item in overlays:
+        if not isinstance(item, Mapping):
+            continue
+        if not item.get("visible", True):
+            continue
+        source = png_base64_to_rgba_overlay(item.get("image", ""))
+        if source is None or not np.any(source[..., 3]):
+            continue
+        target_width = max(1, int(round(float(item.get("width", 0)))))
+        target_height = max(1, int(round(float(item.get("height", 0)))))
+        center_x = float(item.get("center_x", 0.0))
+        center_y = float(item.get("center_y", 0.0))
+        rotation = float(item.get("rotation", 0.0))
+        flip_h = bool(item.get("flip_h", False))
+        flip_v = bool(item.get("flip_v", False))
+        try:
+            opacity = float(item.get("opacity", 1.0))
+        except (TypeError, ValueError):
+            opacity = 1.0
+        opacity = max(0.0, min(1.0, opacity))
+        if opacity <= 0.0:
+            continue
+
+        if source.shape[1] != target_width or source.shape[0] != target_height:
+            source = cv2.resize(
+                source,
+                (target_width, target_height),
+                interpolation=cv2.INTER_AREA,
+            )
+        if flip_h and flip_v:
+            source = cv2.flip(source, -1)
+        elif flip_h:
+            source = cv2.flip(source, 1)
+        elif flip_v:
+            source = cv2.flip(source, 0)
+
+        if opacity < 1.0:
+            source = source.copy()
+            source[..., 3] = (source[..., 3].astype(np.float32) * opacity).astype(np.uint8)
+
+        matrix = np.zeros((2, 3), dtype=np.float64)
+        if rotation:
+            theta = math.radians(rotation)
+            cos_t, sin_t = math.cos(theta), math.sin(theta)
+            # 标准图像坐标(原点左上、y 向下)的旋转：dst = center + R(p - center)
+            half_w, half_h = target_width / 2.0, target_height / 2.0
+            rotated_center_x = cos_t * half_w - sin_t * half_h
+            rotated_center_y = sin_t * half_w + cos_t * half_h
+            matrix[0, 0], matrix[0, 1] = cos_t, -sin_t
+            matrix[1, 0], matrix[1, 1] = sin_t, cos_t
+            matrix[0, 2] = center_x - rotated_center_x
+            matrix[1, 2] = center_y - rotated_center_y
+        else:
+            matrix[0, 0] = matrix[1, 1] = 1.0
+            matrix[0, 2] = center_x - target_width / 2.0
+            matrix[1, 2] = center_y - target_height / 2.0
+
+        patch = cv2.warpAffine(
+            source,
+            matrix,
+            (width, height),
+            dst=canvas,
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_TRANSPARENT,
+        )
+        canvas = patch
+        drawn = True
+
+    if not drawn or not np.any(canvas[..., 3]):
+        return None
+    canvas.setflags(write=False)
+    return canvas

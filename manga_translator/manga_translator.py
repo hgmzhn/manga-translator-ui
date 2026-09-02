@@ -873,7 +873,7 @@ class MangaTranslator:
                 if existing_data and len(existing_data.values()) > 0:
                     existing_image_data = next(iter(existing_data.values()))
                     if isinstance(existing_image_data, dict):
-                        for overlay_key in ('paint_overlay', 'stamp_overlay'):
+                        for overlay_key in ('paint_overlay', 'stamp_overlay', 'paste_overlay'):
                             overlay_value = existing_image_data.get(overlay_key)
                             if isinstance(overlay_value, str) and overlay_value:
                                 data_to_save[overlay_key] = overlay_value
@@ -1379,7 +1379,7 @@ class MangaTranslator:
         import base64
 
         overlays = []
-        for key in ('paint_overlay', 'stamp_overlay'):
+        for key in ('paint_overlay', 'stamp_overlay', 'paste_overlay'):
             value = image_data.get(key)
             arr = None
             if isinstance(value, np.ndarray):
