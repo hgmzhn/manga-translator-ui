@@ -9,7 +9,7 @@ import mimetypes
 import os
 import shutil
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
