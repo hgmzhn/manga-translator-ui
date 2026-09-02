@@ -18,6 +18,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (
     QBrush,
     QColor,
+    QCursor,
     QImage,
     QPainter,
     QPainterPath,
@@ -193,6 +194,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         self._drag_start_rotation = 0.0
         self._drag_start_dist = 1.0
         self._drag_start_angle = 0.0
+        self.setAcceptHoverEvents(True)
         self._rebuild()
 
     # ------------------------------------------------------------------
@@ -212,8 +214,10 @@ class PasteOverlayItem(QGraphicsPixmapItem):
     def set_selected(self, selected: bool) -> None:
         if selected:
             if self._selection_item is None:
+                self.prepareGeometryChange()
                 self._selection_item = _PasteOverlaySelectionItem(self)
         elif self._selection_item is not None:
+            self.prepareGeometryChange()
             try:
                 scene = self._selection_item.scene()
                 if scene:
@@ -224,6 +228,17 @@ class PasteOverlayItem(QGraphicsPixmapItem):
 
     def _view_lod(self) -> float:
         return _view_lod_of(self)
+
+    def boundingRect(self) -> QRectF:
+        pixmap = self.pixmap()
+        width = float(pixmap.width())
+        height = float(pixmap.height())
+        if self._selection_item is not None:
+            lod = self._view_lod()
+            pad = 10.0 / lod
+            top_pad = _ROTATE_OFFSET_PX / lod + 12.0 / lod + pad
+            return QRectF(-pad, -top_pad, width + pad * 2.0, height + top_pad + pad)
+        return QRectF(0.0, 0.0, width, height)
 
     def _rebuild(self) -> None:
         overlay = self.overlay
@@ -237,6 +252,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
                     raw = QPixmap.fromImage(qimage)
                     if not raw.isNull():
                         pixmap = raw
+        self.prepareGeometryChange()
         self.setPixmap(pixmap)
         self._apply_geometry()
 
@@ -258,6 +274,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
+            self.prepareGeometryChange()
             self.setPixmap(pixmap)
             width, height = target_width, target_height
 
@@ -306,6 +323,79 @@ class PasteOverlayItem(QGraphicsPixmapItem):
     # ------------------------------------------------------------------
     # 鼠标交互：移动 / 角缩放 / 旋转（提交走 undo 栈）
     # ------------------------------------------------------------------
+
+    def _hover_cursor_for(self, local_pos: QPointF):
+        """命中判定对应的 Qt 光标（对齐文本框：角=对角拉伸, 旋转=移动四向）。"""
+        if self._selection_item is None:
+            return None
+        pixmap = self.pixmap()
+        width = float(pixmap.width())
+        height = float(pixmap.height())
+        if width <= 0 or height <= 0:
+            return None
+        lod = self._view_lod()
+        hit = 10.0 / lod
+        rotate_center = QPointF(width / 2.0, -_ROTATE_OFFSET_PX / lod)
+        if (
+            math.hypot(
+                local_pos.x() - rotate_center.x(), local_pos.y() - rotate_center.y()
+            )
+            <= hit + 7.0 / lod
+        ):
+            return Qt.CursorShape.SizeAllCursor
+        corners = (
+            QPointF(0.0, 0.0),
+            QPointF(width, 0.0),
+            QPointF(0.0, height),
+            QPointF(width, height),
+        )
+        for corner in corners:
+            if math.hypot(local_pos.x() - corner.x(), local_pos.y() - corner.y()) <= hit:
+                top_left = local_pos.x() <= width / 2.0 and local_pos.y() <= height / 2.0
+                bottom_right = local_pos.x() > width / 2.0 and local_pos.y() > height / 2.0
+                return (
+                    Qt.CursorShape.SizeFDiagCursor
+                    if top_left or bottom_right
+                    else Qt.CursorShape.SizeBDiagCursor
+                )
+        return None
+
+    def _apply_hover_cursor(self, shape) -> None:
+        self.setCursor(QCursor(shape))
+        view = self._paste_view
+        if view is not None and view.model.get_active_tool() == "select":
+            view.viewport().setCursor(QCursor(shape))
+
+    def _clear_hover_cursor(self) -> None:
+        self.unsetCursor()
+        view = self._paste_view
+        if view is not None and view.model.get_active_tool() == "select":
+            view.viewport().unsetCursor()
+
+    def hoverMoveEvent(self, event) -> None:  # noqa: N802 - Qt API naming
+        try:
+            view = self._paste_view
+            if (
+                self._selection_item is None
+                or not self.isVisible()
+                or view is None
+                or view.model.get_active_tool() != "select"
+            ):
+                self._clear_hover_cursor()
+                super().hoverMoveEvent(event)
+                return
+            shape = self._hover_cursor_for(QPointF(event.pos()))
+            if shape is None:
+                self._clear_hover_cursor()
+            else:
+                self._apply_hover_cursor(shape)
+            super().hoverMoveEvent(event)
+        except Exception:
+            pass
+
+    def hoverLeaveEvent(self, event) -> None:  # noqa: N802 - Qt API naming
+        self._clear_hover_cursor()
+        super().hoverLeaveEvent(event)
 
     def _drag_enabled(self) -> bool:
         view = self._paste_view
