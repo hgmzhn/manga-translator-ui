@@ -289,11 +289,12 @@ def compose_paste_overlays(
             [[a00, a01, offset_x], [a10, a11, offset_y]], dtype=np.float64
         )
 
+        patch = np.zeros((height, width, 4), dtype=np.uint8)
         patch = cv2.warpAffine(
             source,
             matrix,
             (width, height),
-            dst=None,
+            dst=patch,
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_TRANSPARENT,
         )
