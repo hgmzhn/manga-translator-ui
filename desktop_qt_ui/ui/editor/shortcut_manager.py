@@ -461,15 +461,16 @@ class EditorShortcutManager(ShortcutManager):
                     self.editor_view.model.set_brush_size(new_size)
                     return True  # 阻止事件继续传递
 
-                # Ctrl + 滚轮（含 Ctrl+Shift 等组合）：调整选中文本框的字体大小。
-                # 无论有无选中都吞掉事件——这是"调字号"语义，
+                # Ctrl + 滚轮（含 Ctrl+Shift 等组合）：调整选中文本框的字体大小；
+                # 无文本框选中但有选中贴片时，等比缩放贴片。
+                # 无论有无选中都吞掉事件——这是"调字号/缩放贴片"语义，
                 # 决不能穿透成画布缩放，让用户以为在调字号实际在缩放。
                 elif modifiers & Qt.KeyboardModifier.ControlModifier:
                     selected_regions = self.editor_view.model.get_selection()
+                    angle_delta = event.angleDelta().y()
+                    if angle_delta == 0:
+                        angle_delta = event.pixelDelta().y()
                     if selected_regions:
-                        angle_delta = event.angleDelta().y()
-                        if angle_delta == 0:
-                            angle_delta = event.pixelDelta().y()
                         for region_index in selected_regions:
                             region_data = self.editor_view.model.get_region_by_index(
                                 region_index
@@ -478,9 +479,34 @@ class EditorShortcutManager(ShortcutManager):
                                 old_size = region_data.get("font_size", 20)
                                 delta = max(1, int(old_size * 0.05))
                                 new_size = max(
-                                    1, old_size + (delta if angle_delta > 0 else -delta)
+                                    1,
+                                    old_size
+                                    + (delta if angle_delta > 0 else -delta),
                                 )
-                                self.controller.update_font_size(region_index, new_size)
+                                self.controller.update_font_size(
+                                    region_index, new_size
+                                )
+                    else:
+                        graphics_view = getattr(
+                            self.editor_view, "graphics_view", None
+                        )
+                        overlay_id = getattr(
+                            graphics_view, "_selected_paste_overlay_id", None
+                        )
+                        if overlay_id:
+                            step = 1.05 if angle_delta > 0 else 1.0 / 1.05
+                            for overlay in self.editor_view.model.get_paste_overlays():
+                                if overlay.get("id") == overlay_id:
+                                    width = float(overlay.get("width", 1.0))
+                                    height = float(overlay.get("height", 1.0))
+                                    self.controller.update_paste_overlay(
+                                        overlay_id,
+                                        {
+                                            "width": round(width * step, 1),
+                                            "height": round(height * step, 1),
+                                        },
+                                    )
+                                    break
                     return True  # 阻止事件继续传递
 
         # 其他事件继续传递

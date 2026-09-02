@@ -26,12 +26,16 @@ from editor.paste_overlay_state import (
     png_base64_to_rgba_overlay,
     rgba_overlay_to_png_base64,
 )
+from .graphics_items import (
+    _editor_pen,
+    _fluent_accent,
+    _fluent_surface,
+    _shadow_color,
+)
 
 _PASTE_BASE_Z = 50
 _PASTE_MAX_DIMENSION = 2048
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-_HANDLE_SIZE = 10.0
-_ROTATE_HANDLE_OFFSET = 16.0
 _ACCENT = QColor(31, 155, 240)
 
 
@@ -48,25 +52,101 @@ def _rgba_to_qimage(rgba):
 
 
 class _PasteOverlayHandle(QGraphicsRectItem):
-    """选中贴片的角缩放手柄 / 顶部旋转手柄（child item，随贴片变换）。"""
+    """选中贴片的角缩放手柄 / 顶部旋转手柄（child item，随贴片变换）。
 
-    def __init__(self, overlay_item: "PasteOverlayItem", kind: str, rect):
-        super().__init__(rect, overlay_item)
+    视觉样式对齐文本框（RegionTextItem）的白框手柄/旋转手柄：
+    表面色圆角/圆环 + 强调色描边 + 旋转连接线。
+    """
+
+    def __init__(
+        self,
+        overlay_item: "PasteOverlayItem",
+        kind: str,
+        parent_local_center: QPointF,
+        lod: float,
+    ):
+        size = (14.0 if kind == "rotate" else 13.0) / max(lod, 0.01)
+        pad = 6.0 / max(lod, 0.01)
+        half = size / 2.0 + pad
+        super().__init__(
+            QRectF(
+                parent_local_center.x() - half,
+                parent_local_center.y() - half,
+                half * 2.0,
+                half * 2.0,
+            ),
+            overlay_item,
+        )
         self._overlay_item = overlay_item
         self.kind = kind
+        self._lod = max(lod, 0.01)
+        self._size = size
         self._drag_start_scene = None
         self._start_width = 0.0
         self._start_height = 0.0
         self._start_rotation = 0.0
         self._start_dist = 1.0
         self._start_angle = 0.0
-
-        color = _ACCENT if kind == "rotate" else QColor("#ffffff")
-        self.setBrush(QBrush(color))
-        pen = QPen(_ACCENT if kind != "rotate" else QColor("#1f9bf0"), 1)
-        self.setPen(pen)
         self.setZValue(20)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+
+    def paint(self, painter, option, widget=None):  # noqa: N802 - Qt API naming
+        lod = self._lod
+        pw = 1.15 / lod
+        center = QPointF(self.rect().center())
+        accent = _fluent_accent(238)
+        surface = _fluent_surface(246)
+        shadow = _shadow_color(120)
+
+        if self.kind == "rotate":
+            hs = self._size
+            # 从图像上沿向下画一小段连接杆，视觉上指向贴片本体
+            rod_bottom = min(self.rect().bottom() - pw * 0.5, center.y() + hs * 1.5)
+            painter.setPen(_editor_pen(_shadow_color(125), pw * 3.0))
+            painter.drawLine(QPointF(center.x(), center.y()), QPointF(center.x(), rod_bottom))
+            painter.setPen(_editor_pen(_fluent_accent(205), pw * 1.45))
+            painter.drawLine(QPointF(center.x(), center.y()), QPointF(center.x(), rod_bottom))
+            rot_rect = QRectF(
+                center.x() - hs / 2.0,
+                center.y() - hs / 2.0,
+                hs,
+                hs,
+            )
+            painter.setBrush(QBrush(_fluent_surface(245)))
+            painter.setPen(_editor_pen(_shadow_color(110), pw * 2.8))
+            painter.drawEllipse(rot_rect)
+            painter.setPen(_editor_pen(_fluent_accent(235), pw * 1.2))
+            painter.drawEllipse(
+                rot_rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45)
+            )
+            dot = hs * 0.32
+            dot_rect = QRectF(
+                center.x() - dot / 2.0,
+                center.y() - dot / 2.0,
+                dot,
+                dot,
+            )
+            painter.setBrush(QBrush(_fluent_accent(225)))
+            painter.setPen(QPen(Qt.PenStyle.NoPen))
+            painter.drawEllipse(dot_rect)
+        else:
+            hs = self._size
+            radius = min(3.5 / lod, hs / 2.0)
+            handle_rect = QRectF(
+                center.x() - hs / 2.0,
+                center.y() - hs / 2.0,
+                hs,
+                hs,
+            )
+            painter.setBrush(QBrush(surface))
+            painter.setPen(_editor_pen(shadow, pw * 2.3))
+            painter.drawRoundedRect(handle_rect, radius, radius)
+            painter.setPen(_editor_pen(accent, pw * 1.15))
+            painter.drawRoundedRect(
+                handle_rect.adjusted(pw * 0.45, pw * 0.45, -pw * 0.45, -pw * 0.45),
+                radius,
+                radius,
+            )
 
     def _can_drag(self) -> bool:
         view = getattr(self._overlay_item, "_paste_view", None)
@@ -169,6 +249,15 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         else:
             self._remove_selection_affordances()
 
+    def _view_lod(self) -> float:
+        """视图缩放（屏幕像素 / 场景单位），用于手柄视觉恒屏尺寸。"""
+        try:
+            if self.scene() and self.scene().views():
+                return max(abs(self.scene().views()[0].transform().m11()), 0.01)
+        except (RuntimeError, AttributeError):
+            pass
+        return 1.0
+
     def _ensure_selection_affordances(self) -> None:
         if self._selection_rect is not None:
             return
@@ -184,30 +273,27 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         rect.setZValue(1)
         self._selection_rect = rect
 
-        half = _HANDLE_SIZE / 2.0
+        lod = self._view_lod()
         corners = (
             (0.0, 0.0),
             (width, 0.0),
             (0.0, height),
             (width, height),
         )
-        for index, (corner_x, corner_y) in enumerate(corners):
+        for corner_x, corner_y in corners:
             handle = _PasteOverlayHandle(
                 self,
                 "resize",
-                QRectF(corner_x - half, corner_y - half, _HANDLE_SIZE, _HANDLE_SIZE),
+                QPointF(corner_x, corner_y),
+                lod,
             )
             self._handle_items.append(handle)
 
         rotate_handle = _PasteOverlayHandle(
             self,
             "rotate",
-            QRectF(
-                width / 2.0 - _HANDLE_SIZE / 2.0,
-                -_ROTATE_HANDLE_OFFSET - _HANDLE_SIZE / 2.0,
-                _HANDLE_SIZE,
-                _HANDLE_SIZE,
-            ),
+            QPointF(width / 2.0, -40.0 / lod),
+            lod,
         )
         self._handle_items.append(rotate_handle)
 
