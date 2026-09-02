@@ -877,6 +877,10 @@ class MangaTranslator:
                             overlay_value = existing_image_data.get(overlay_key)
                             if isinstance(overlay_value, str) and overlay_value:
                                 data_to_save[overlay_key] = overlay_value
+                        # 复数贴片列表（可编辑贴片）原样保留，避免后端回写时丢数据
+                        paste_overlays_value = existing_image_data.get('paste_overlays')
+                        if isinstance(paste_overlays_value, list):
+                            data_to_save['paste_overlays'] = list(paste_overlays_value)
             except Exception as e:
                 logger.debug(f"Failed to preserve overlay layers from existing JSON {text_output_file}: {e}")
 

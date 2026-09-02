@@ -309,8 +309,9 @@ class EditorShortcutManager(ShortcutManager):
                 self._paste_new_region_at_cursor()
             elif self.controller.paste_overlay_clipboard_available():
                 # 无选中区域且有贴片剪贴板：粘贴贴片到鼠标位置
-                mouse_image_pos = self._cursor_image_position()
-                if self.controller.paste_paste_overlay(mouse_image_pos):
+                # 贴片几何是场景坐标（源图像素），不能走 _cursor_image_position 的图像局部坐标
+                mouse_scene_pos = self._cursor_scene_position()
+                if self.controller.paste_paste_overlay(mouse_scene_pos):
                     graphics_view = getattr(self.editor_view, "graphics_view", None)
                     if graphics_view is not None:
                         overlays = self.editor_view.model.get_paste_overlays()
@@ -331,6 +332,15 @@ class EditorShortcutManager(ShortcutManager):
             graphics_view.mapFromGlobal(QCursor.pos())
         )
         return graphics_view._image_item.mapFromScene(mouse_pos_scene)
+
+    def _cursor_scene_position(self):
+        """把当前鼠标位置换算成场景坐标（贴片坐标系）；无画布时返回 None。"""
+        from PyQt6.QtGui import QCursor
+
+        graphics_view = getattr(self.editor_view, "graphics_view", None)
+        if not graphics_view or not graphics_view._image_item:
+            return None
+        return graphics_view.mapToScene(graphics_view.mapFromGlobal(QCursor.pos()))
 
     def _paste_new_region_at_cursor(self):
         """无选中区域时粘贴新区域到鼠标位置（贴片分支外的原行为）。"""

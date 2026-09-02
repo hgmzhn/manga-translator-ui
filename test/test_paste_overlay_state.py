@@ -194,3 +194,44 @@ def test_compose_paste_overlays_rotation_smoke():
     composite = compose_paste_overlays([rotated], (80, 60))
     assert composite is not None
     assert np.any(composite[..., 3] > 0)
+
+
+def _solid_overlay(color, center, size=10, z=0, **overrides):
+    image = rgba_overlay_to_png_base64(_solid_rgba(size, size, color))
+    data = {
+        "visible": True,
+        "image": image,
+        "center_x": center[0],
+        "center_y": center[1],
+        "width": size,
+        "height": size,
+        "rotation": 0.0,
+        "flip_h": False,
+        "flip_v": False,
+        "opacity": 1.0,
+        "z": z,
+    }
+    data.update(overrides)
+    return _valid_overlay(**data)
+
+
+def test_compose_respects_persisted_z_order():
+    # 列表顺序故意与 z 相反：z=1 的红色应压住 z=0 的绿色
+    green_low = _solid_overlay((0, 255, 0), (30, 30), z=0)
+    red_high = _solid_overlay((255, 0, 0), (30, 30), z=1)
+    composite = compose_paste_overlays([red_high, green_low], (80, 60))
+    assert composite is not None
+    assert composite[30, 30, 0] > 200  # 顶层为红色
+    assert composite[30, 30, 1] < 60
+
+
+def test_compose_source_over_blends_semi_transparent_overlay():
+    red_bottom = _solid_overlay((255, 0, 0), (30, 30), z=0)
+    blue_half = _solid_overlay((0, 0, 255), (30, 30), z=1, opacity=0.5)
+    composite = compose_paste_overlays([red_bottom, blue_half], (80, 60))
+    assert composite is not None
+    # source-over：50% 蓝叠不透明红 → 品红，且整体不透明
+    assert composite[30, 30, 3] > 250
+    assert 100 < composite[30, 30, 0] < 160
+    assert composite[30, 30, 1] < 40
+    assert 100 < composite[30, 30, 2] < 160

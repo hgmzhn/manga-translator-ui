@@ -250,8 +250,16 @@ class EditorControllerExportService:
             if paste_overlays:
                 source_image = export_base.source_image
                 canvas_size = getattr(source_image, "size", None)
-                if canvas_size is None and hasattr(source_image, "shape"):
-                    canvas_size = (source_image.shape[1], source_image.shape[0])
+                # numpy 的 .size 是元素总数整数，不是 (w, h)，必须走 .shape 回退
+                if not (
+                    isinstance(canvas_size, (tuple, list)) and len(canvas_size) >= 2
+                ):
+                    shape = getattr(source_image, "shape", None)
+                    canvas_size = (
+                        (shape[1], shape[0])
+                        if shape is not None and len(shape) >= 2
+                        else None
+                    )
                 if canvas_size:
                     paste_overlay = compose_paste_overlays(
                         paste_overlays,

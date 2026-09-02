@@ -199,6 +199,8 @@ def compose_paste_overlays(
 
     ``canvas_size`` 为 (宽, 高) 源图像素尺寸；返回的数组与 paint/stamp 叠加层同构，
     由后端在渲染文字前与底图做 alpha 合成。无可见贴片时返回 None。
+    合成顺序按各贴片 ``z`` 升序（z 大的在上）；采用 source-over alpha 合成，
+    半透明贴片不会覆盖下层；缩放由仿射矩阵完成，不产生中间大图。
     注意：旋转/翻转的屏幕方向一致性以画布预览为准，后续若发现方向相反，
     只需调整本函数旋转角度的符号。
     """
@@ -206,23 +208,60 @@ def compose_paste_overlays(
     if width <= 0 or height <= 0:
         return None
 
-    canvas = np.zeros((height, width, 4), dtype=np.uint8)
+    canvas = np.zeros((height, width, 4), dtype=np.float32)
+
+    def _blend_source_over(base: np.ndarray, patch: np.ndarray) -> np.ndarray:
+        """source-over：把贴片 patch 合成到底画布 base（均为 RGBA uint8）。"""
+        base = base.astype(np.float32, copy=False)
+        patch = patch.astype(np.float32, copy=False)
+        patch_alpha = patch[..., 3:4] / 255.0
+        base_alpha = base[..., 3:4] / 255.0
+        out_alpha = patch_alpha + base_alpha * (1.0 - patch_alpha)
+        safe = np.maximum(out_alpha, 1e-6)
+        rgb = (patch[..., :3] * patch_alpha + base[..., :3] * base_alpha * (1.0 - patch_alpha)) / safe
+        merged = np.empty_like(base)
+        merged[..., :3] = np.clip(rgb, 0, 255)
+        merged[..., 3:4] = np.clip(out_alpha * 255.0, 0, 255)
+        return merged
+
+    # 单张贴片图片体积极限：防御手工构造的超大 base64（见 CodeRabbit CWE-400）
+    max_image_chars = 24_000_000
+    # 解码后像素最大边长：超过即视为异常工程，跳过该贴片
+    max_source_side = 8192
+
+    items = [
+        item
+        for item in overlays
+        if isinstance(item, Mapping) and item.get("visible", True)
+    ]
+    # z 升序合成：低 z 先画（在下层），同 z 保持列表顺序
+    items.sort(key=lambda item: float(item.get("z", 0)) or 0.0)
+
     drawn = False
-    for item in overlays:
-        if not isinstance(item, Mapping):
+    for item in items:
+        image_b64 = item.get("image", "")
+        if not isinstance(image_b64, str) or not image_b64:
             continue
-        if not item.get("visible", True):
+        if len(image_b64) > max_image_chars:
+            logger.warning("跳过超大贴片图片数据（>%s 字符 base64）", max_image_chars)
             continue
-        source = png_base64_to_rgba_overlay(item.get("image", ""))
+        source = png_base64_to_rgba_overlay(image_b64)
         if source is None or not np.any(source[..., 3]):
             continue
-        target_width = max(1, int(round(float(item.get("width", 0)))))
-        target_height = max(1, int(round(float(item.get("height", 0)))))
+        source_h, source_w = source.shape[:2]
+        if source_w <= 0 or source_h <= 0 or max(source_w, source_h) > max_source_side:
+            logger.warning("跳过异常尺寸贴片 (%dx%d)", source_w, source_h)
+            continue
+
+        target_width = float(item.get("width", source_w))
+        target_height = float(item.get("height", source_h))
+        if target_width <= 0 or target_height <= 0:
+            continue
         center_x = float(item.get("center_x", 0.0))
         center_y = float(item.get("center_y", 0.0))
         rotation = float(item.get("rotation", 0.0))
-        flip_h = bool(item.get("flip_h", False))
-        flip_v = bool(item.get("flip_v", False))
+        flip_h = -1.0 if item.get("flip_h") else 1.0
+        flip_v = -1.0 if item.get("flip_v") else 1.0
         try:
             opacity = float(item.get("opacity", 1.0))
         except (TypeError, ValueError):
@@ -230,53 +269,41 @@ def compose_paste_overlays(
         opacity = max(0.0, min(1.0, opacity))
         if opacity <= 0.0:
             continue
-
-        if source.shape[1] != target_width or source.shape[0] != target_height:
-            source = cv2.resize(
-                source,
-                (target_width, target_height),
-                interpolation=cv2.INTER_AREA,
-            )
-        if flip_h and flip_v:
-            source = cv2.flip(source, -1)
-        elif flip_h:
-            source = cv2.flip(source, 1)
-        elif flip_v:
-            source = cv2.flip(source, 0)
-
         if opacity < 1.0:
             source = source.copy()
             source[..., 3] = (source[..., 3].astype(np.float32) * opacity).astype(np.uint8)
 
-        matrix = np.zeros((2, 3), dtype=np.float64)
-        if rotation:
-            theta = math.radians(rotation)
-            cos_t, sin_t = math.cos(theta), math.sin(theta)
-            # 标准图像坐标(原点左上、y 向下)的旋转：dst = center + R(p - center)
-            half_w, half_h = target_width / 2.0, target_height / 2.0
-            rotated_center_x = cos_t * half_w - sin_t * half_h
-            rotated_center_y = sin_t * half_w + cos_t * half_h
-            matrix[0, 0], matrix[0, 1] = cos_t, -sin_t
-            matrix[1, 0], matrix[1, 1] = sin_t, cos_t
-            matrix[0, 2] = center_x - rotated_center_x
-            matrix[1, 2] = center_y - rotated_center_y
-        else:
-            matrix[0, 0] = matrix[1, 1] = 1.0
-            matrix[0, 2] = center_x - target_width / 2.0
-            matrix[1, 2] = center_y - target_height / 2.0
+        # 仿射矩阵：p_scene = center + R * S * (p_source - source_center)
+        # S 内置非等比缩放与水平/垂直翻转，无需先放大中间图
+        scale_x = flip_h * (target_width / source_w)
+        scale_y = flip_v * (target_height / source_h)
+        theta = math.radians(rotation)
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
+        a00 = cos_t * scale_x
+        a01 = -sin_t * scale_y
+        a10 = sin_t * scale_x
+        a11 = cos_t * scale_y
+        offset_x = center_x - (a00 * (source_w / 2.0) + a01 * (source_h / 2.0))
+        offset_y = center_y - (a10 * (source_w / 2.0) + a11 * (source_h / 2.0))
+        matrix = np.array(
+            [[a00, a01, offset_x], [a10, a11, offset_y]], dtype=np.float64
+        )
 
         patch = cv2.warpAffine(
             source,
             matrix,
             (width, height),
-            dst=canvas,
+            dst=None,
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_TRANSPARENT,
         )
-        canvas = patch
+        canvas = _blend_source_over(canvas, patch)
         drawn = True
 
-    if not drawn or not np.any(canvas[..., 3]):
+    if not drawn:
+        return None
+    canvas = np.clip(canvas, 0, 255).astype(np.uint8)
+    if not np.any(canvas[..., 3]):
         return None
     canvas.setflags(write=False)
     return canvas

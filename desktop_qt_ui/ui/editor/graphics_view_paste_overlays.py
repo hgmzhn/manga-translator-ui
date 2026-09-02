@@ -193,6 +193,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         self._drag_start_rotation = 0.0
         self._drag_start_dist = 1.0
         self._drag_start_angle = 0.0
+        self._source_pixmap: QPixmap = QPixmap()
         self.setAcceptHoverEvents(True)
         self._rebuild()
 
@@ -251,13 +252,20 @@ class PasteOverlayItem(QGraphicsPixmapItem):
                     raw = QPixmap.fromImage(qimage)
                     if not raw.isNull():
                         pixmap = raw
+        # 缓存解码原图：缩放永远从原图重采样，避免拖动时逐帧叠加重采样丢失细节
+        self._source_pixmap = pixmap
         self.prepareGeometryChange()
         self.setPixmap(pixmap)
         self._apply_geometry()
 
     def _apply_geometry(self) -> None:
         overlay = self.overlay
-        pixmap = self.pixmap()
+        # 始终从解码原图缩放；原图为空时退回当前 pixmap
+        pixmap = (
+            self._source_pixmap
+            if not self._source_pixmap.isNull()
+            else self.pixmap()
+        )
         width = pixmap.width()
         height = pixmap.height()
         if width <= 0 or height <= 0 or pixmap.isNull():
@@ -266,7 +274,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
 
         target_width = max(1, int(round(float(overlay.get("width", width)))))
         target_height = max(1, int(round(float(overlay.get("height", height)))))
-        if width != target_width or height != target_height:
+        if self.pixmap().width() != target_width or self.pixmap().height() != target_height:
             pixmap = pixmap.scaled(
                 target_width,
                 target_height,
@@ -476,6 +484,11 @@ class PasteOverlayItem(QGraphicsPixmapItem):
             delta = event.scenePos() - center
             distance = math.hypot(delta.x(), delta.y())
             factor = distance / self._drag_start_dist
+            # 防失控放大：限制到源贴片解码上限的 4 倍，避免单次拖拽申请超大 pixmap
+            max_side = float(_PASTE_MAX_DIMENSION * 4)
+            longest = max(self._drag_start_size) * factor
+            if longest > max_side:
+                factor *= max_side / longest
             overlay["width"] = max(2.0, self._drag_start_size[0] * factor)
             overlay["height"] = max(2.0, self._drag_start_size[1] * factor)
         self._apply_geometry()
