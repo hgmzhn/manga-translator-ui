@@ -11,9 +11,10 @@ z 序：贴片基值 50（在基图 2 / 修复预览之上、region 文本框 10
 
 from __future__ import annotations
 
+import math
 import os
 
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QGraphicsPixmapItem,
@@ -29,6 +30,9 @@ from editor.paste_overlay_state import (
 _PASTE_BASE_Z = 50
 _PASTE_MAX_DIMENSION = 2048
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+_HANDLE_SIZE = 10.0
+_ROTATE_HANDLE_OFFSET = 16.0
+_ACCENT = QColor(31, 155, 240)
 
 
 def _rgba_to_qimage(rgba):
@@ -43,6 +47,98 @@ def _rgba_to_qimage(rgba):
     return image.copy()
 
 
+class _PasteOverlayHandle(QGraphicsRectItem):
+    """选中贴片的角缩放手柄 / 顶部旋转手柄（child item，随贴片变换）。"""
+
+    def __init__(self, overlay_item: "PasteOverlayItem", kind: str, rect):
+        super().__init__(rect, overlay_item)
+        self._overlay_item = overlay_item
+        self.kind = kind
+        self._drag_start_scene = None
+        self._start_width = 0.0
+        self._start_height = 0.0
+        self._start_rotation = 0.0
+        self._start_dist = 1.0
+        self._start_angle = 0.0
+
+        color = _ACCENT if kind == "rotate" else QColor("#ffffff")
+        self.setBrush(QBrush(color))
+        pen = QPen(_ACCENT if kind != "rotate" else QColor("#1f9bf0"), 1)
+        self.setPen(pen)
+        self.setZValue(20)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+
+    def _can_drag(self) -> bool:
+        view = getattr(self._overlay_item, "_paste_view", None)
+        if view is None:
+            return False
+        model = getattr(view, "model", None)
+        return model is None or model.get_active_tool() == "select"
+
+    def _scene_center(self) -> QPointF:
+        overlay = self._overlay_item.overlay
+        return QPointF(
+            float(overlay.get("center_x", 0.0)),
+            float(overlay.get("center_y", 0.0)),
+        )
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton or not self._can_drag():
+            event.ignore()
+            return
+        overlay = self._overlay_item.overlay
+        self._drag_start_scene = event.scenePos()
+        self._start_width = float(overlay.get("width", 0.0))
+        self._start_height = float(overlay.get("height", 0.0))
+        self._start_rotation = float(overlay.get("rotation", 0.0))
+        delta = self._drag_start_scene - self._scene_center()
+        self._start_dist = max(1.0, math.hypot(delta.x(), delta.y()))
+        self._start_angle = math.degrees(math.atan2(delta.y(), delta.x()))
+        event.accept()
+
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._drag_start_scene is None or not self._can_drag():
+            event.ignore()
+            return
+        overlay = self._overlay_item.overlay
+        center = self._scene_center()
+        delta = event.scenePos() - center
+        if self.kind == "rotate":
+            current_angle = math.degrees(math.atan2(delta.y(), delta.x()))
+            overlay["rotation"] = self._start_rotation + (
+                current_angle - self._start_angle
+            )
+        else:
+            distance = math.hypot(delta.x(), delta.y())
+            factor = distance / self._start_dist
+            overlay["width"] = max(2.0, self._start_width * factor)
+            overlay["height"] = max(2.0, self._start_height * factor)
+        self._overlay_item._apply_geometry()
+        event.accept()
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._drag_start_scene is None:
+            event.ignore()
+            return
+        self._drag_start_scene = None
+        overlay_item = self._overlay_item
+        overlay_id = overlay_item.overlay_id()
+        view = getattr(overlay_item, "_paste_view", None)
+        overlay = overlay_item.overlay
+        patch = (
+            {"rotation": float(overlay.get("rotation", 0.0))}
+            if self.kind == "rotate"
+            else {
+                "width": float(overlay.get("width", 0.0)),
+                "height": float(overlay.get("height", 0.0)),
+            }
+        )
+        if view is not None and getattr(view, "controller", None) is not None:
+            view.controller.update_paste_overlay(overlay_id, patch)
+            view.select_paste_overlay(overlay_id)
+        event.accept()
+
+
 class PasteOverlayItem(QGraphicsPixmapItem):
     """单个贴片的可视项：由 overlay 字典驱动 pixmap/几何/透明度，支持选择与拖动。"""
 
@@ -54,6 +150,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         self._drag_start_center = (0.0, 0.0)
         self._drag_scene_start = QPointF()
         self._selection_rect: QGraphicsRectItem | None = None
+        self._handle_items: list[QGraphicsRectItem] = []
         self._rebuild()
 
     def overlay_id(self) -> str:
@@ -68,26 +165,65 @@ class PasteOverlayItem(QGraphicsPixmapItem):
 
     def set_selected(self, selected: bool) -> None:
         if selected:
-            if self._selection_rect is None:
-                width = self.pixmap().width()
-                height = self.pixmap().height()
-                if width > 0 and height > 0:
-                    rect = QGraphicsRectItem(0.0, 0.0, width, height, self)
-                    pen = QPen(QColor(31, 155, 240), 0)
-                    pen.setStyle(Qt.PenStyle.DashLine)
-                    rect.setPen(pen)
-                    rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                    rect.setZValue(1)
-                    self._selection_rect = rect
+            self._ensure_selection_affordances()
         else:
-            if self._selection_rect is not None:
-                try:
-                    scene = self._selection_rect.scene()
-                    if scene:
-                        scene.removeItem(self._selection_rect)
-                except (RuntimeError, AttributeError):
-                    pass
-                self._selection_rect = None
+            self._remove_selection_affordances()
+
+    def _ensure_selection_affordances(self) -> None:
+        if self._selection_rect is not None:
+            return
+        width = self.pixmap().width()
+        height = self.pixmap().height()
+        if width <= 0 or height <= 0:
+            return
+        rect = QGraphicsRectItem(0.0, 0.0, width, height, self)
+        pen = QPen(_ACCENT, 0)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        rect.setPen(pen)
+        rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        rect.setZValue(1)
+        self._selection_rect = rect
+
+        half = _HANDLE_SIZE / 2.0
+        corners = (
+            (0.0, 0.0),
+            (width, 0.0),
+            (0.0, height),
+            (width, height),
+        )
+        for index, (corner_x, corner_y) in enumerate(corners):
+            handle = _PasteOverlayHandle(
+                self,
+                "resize",
+                QRectF(corner_x - half, corner_y - half, _HANDLE_SIZE, _HANDLE_SIZE),
+            )
+            self._handle_items.append(handle)
+
+        rotate_handle = _PasteOverlayHandle(
+            self,
+            "rotate",
+            QRectF(
+                width / 2.0 - _HANDLE_SIZE / 2.0,
+                -_ROTATE_HANDLE_OFFSET - _HANDLE_SIZE / 2.0,
+                _HANDLE_SIZE,
+                _HANDLE_SIZE,
+            ),
+        )
+        self._handle_items.append(rotate_handle)
+
+    def _remove_selection_affordances(self) -> None:
+        children = [self._selection_rect] + list(self._handle_items)
+        self._selection_rect = None
+        self._handle_items = []
+        for child in children:
+            if child is None:
+                continue
+            try:
+                scene = child.scene()
+                if scene:
+                    scene.removeItem(child)
+            except (RuntimeError, AttributeError):
+                pass
 
     def _rebuild(self) -> None:
         overlay = self.overlay
