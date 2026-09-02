@@ -77,7 +77,7 @@ Adjust the line-spacing multiplier in Property panel → Style Settings with the
 
 #### Letter Spacing {#letter-spacing}
 
-Adjust the letter-spacing multiplier in Property panel → Style Settings with the number input (0.1–5, step 0.1); `1.0` means the default letter spacing. The white frame is recomputed after a change.
+Adjust the letter-spacing multiplier in Property panel → Style Settings with the number input (0.1–5, step 0.01); `1.0` means the default letter spacing. The white frame is recomputed after a change.
 
 #### Angle {#angle}
 

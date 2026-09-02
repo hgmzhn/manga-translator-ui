@@ -835,8 +835,8 @@ class PropertyPanel(QWidget):
 
         self.letter_spacing_spinbox = _double_spin_box()
         self.letter_spacing_spinbox.setRange(0.1, 5.0)
-        self.letter_spacing_spinbox.setSingleStep(0.1)
-        self.letter_spacing_spinbox.setDecimals(1)
+        self.letter_spacing_spinbox.setSingleStep(0.01)
+        self.letter_spacing_spinbox.setDecimals(2)
         self.letter_spacing_spinbox.setValue(1.0)
         self.letter_spacing_label = BodyLabel(self._t("Letter Spacing:"))
         style_layout.addRow(self.letter_spacing_label, self.letter_spacing_spinbox)

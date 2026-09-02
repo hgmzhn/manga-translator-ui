@@ -180,7 +180,7 @@
 | `Stroke Color:` | Stroke Color: | 描边颜色： | 颜色选择器，组件默认 `#ffffff` | `stroke_color` |
 | `Stroke Width:` | Stroke Width: | 描边宽度： | 0–1，步长 0.01，初始 `0.07` | `stroke_width` |
 | `Line Spacing:` | Line Spacing: | 行间距： | 0.1–5，步长 0.1，初始 `1.0` | `line_spacing` |
-| `Letter Spacing:` | Letter Spacing: | 字间距： | 0.1–5，步长 0.1，初始 `1.0` | `letter_spacing` |
+| `Letter Spacing:` | Letter Spacing: | 字间距： | 0.1–5，步长 0.01，初始 `1.0` | `letter_spacing` |
 | `Angle:` | Angle: | 角度： | -9999–9999°，步长 1，初始 `0.0` | `angle` |
 | `Alignment:` | Alignment: | 对齐： | 下拉；显示值来自 `alignment` mapping | `alignment` |
 | `Direction:` | Direction: | 方向： | 下拉；排除 `auto`，显示 `direction_horizontal` 或 `direction_vertical` | `direction` |
