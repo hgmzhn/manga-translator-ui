@@ -80,6 +80,10 @@ class _PasteOverlaySelectionItem(QGraphicsItem):
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.setZValue(15)
 
+    def shape(self) -> QPainterPath:
+        # 纯装饰：不参与命中，鼠标事件全部落到贴片本体（本体 shape 已覆盖扩展区）
+        return QPainterPath()
+
     def _geometry(self) -> tuple[float, float, float]:
         lod = _view_lod_of(self)
         pixmap = self._overlay_item.pixmap()
