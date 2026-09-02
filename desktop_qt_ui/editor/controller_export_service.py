@@ -199,6 +199,7 @@ class EditorControllerExportService:
                 config,
                 paint_overlay=self.model.get_paint_overlay_image(),
                 stamp_overlay=self.model.get_stamp_overlay_image(),
+                paste_overlays=self.model.get_paste_overlays(),
             )
             if inpainted_image is not None:
                 self._export_service.save_inpainted_image(

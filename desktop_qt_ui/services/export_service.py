@@ -258,6 +258,7 @@ class ExportService:
         *,
         paint_overlay: Optional[np.ndarray] = None,
         stamp_overlay: Optional[np.ndarray] = None,
+        paste_overlays: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Atomically persist the editor snapshot without render-only geometry changes."""
         json_path = find_json_path(image_path) or get_json_path(
@@ -276,6 +277,7 @@ class ExportService:
             preserve_existing_preprocess_flags=True,
             paint_overlay=paint_overlay,
             stamp_overlay=stamp_overlay,
+            paste_overlays=paste_overlays,
         )
         return json_path
 
@@ -285,6 +287,7 @@ class ExportService:
         json_path: str,
         mask: Optional[np.ndarray] = None,
         config: Optional[Dict[str, Any]] = None,
+        paste_overlays: Optional[List[Dict[str, Any]]] = None,
     ):
         """保存区域数据到JSON文件，确保格式与TextBlock兼容（用于导出）"""
         # 使用文件名作为键（向后兼容）
@@ -298,6 +301,7 @@ class ExportService:
             mask,
             config,
             skip_text_replacements=True,
+            paste_overlays=paste_overlays,
         )
 
     def _read_existing_image_data(
@@ -577,6 +581,7 @@ class ExportService:
         last_export_dir: Optional[str] = None,
         paint_overlay: Optional[np.ndarray] = None,
         stamp_overlay: Optional[np.ndarray] = None,
+        paste_overlays: Optional[List[Dict[str, Any]]] = None,
     ):
         """保存区域数据到JSON文件的内部实现"""
         save_data = self._normalize_regions_for_backend(regions_data, config)
@@ -664,6 +669,18 @@ class ExportService:
                 "utf-8"
             )
             self.logger.info(f"{overlay_key} 已保存（base64 PNG）")
+
+        # 贴片（图块叠加）列表：纯 JSON 字典，图片内容为 base64 PNG（RGBA）
+        if paste_overlays:
+            try:
+                from editor.paste_overlay_state import serialize_paste_overlays
+
+                formatted_data[image_key]["paste_overlays"] = serialize_paste_overlays(
+                    paste_overlays
+                )
+                self.logger.info(f"已写入贴片: {len(paste_overlays)} 个")
+            except Exception as serialize_error:
+                self.logger.error(f"序列化贴片失败，跳过写入: {serialize_error}")
 
         # 添加调试信息
         self.logger.info(f"保存区域数据到: {json_path}")

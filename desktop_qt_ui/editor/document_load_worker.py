@@ -117,6 +117,7 @@ class DocumentLoadWorker:
             paint_overlay_path=paint_overlay_path,
             paint_overlay_image=paint_overlay_image,
             stamp_overlay_image=stamp_overlay_image,
+            paste_overlays=json_overlays.get("paste_overlays") or [],
         )
 
     def _submit_aux_loads(

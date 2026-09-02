@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any, Optional
 
 from .core.types import MaskType
@@ -334,6 +335,26 @@ class EditorSession:
     def get_stamp_overlay_image(self) -> Any:
         document = self._document
         return None if document is None else document.overlays.stamp
+
+    def get_paste_overlays(self) -> list[dict]:
+        """返回贴片列表的深拷贝（避免外部直接改动文档内状态）。"""
+        document = self._document
+        if document is None:
+            return []
+        return copy.deepcopy(document.paste_overlays)
+
+    def set_paste_overlays(self, overlays: list[dict]) -> bool:
+        """规范化并整表替换贴片列表；内容无变化时返回 False。"""
+        from .paste_overlay_state import serialize_paste_overlays
+
+        document = self._document
+        if document is None:
+            return False
+        normalized = serialize_paste_overlays(overlays or [])
+        if document.paste_overlays == normalized:
+            return False
+        document.paste_overlays = normalized
+        return True
 
 
 __all__ = [
