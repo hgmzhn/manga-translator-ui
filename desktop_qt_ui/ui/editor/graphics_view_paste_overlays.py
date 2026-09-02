@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QColor, QImage, QPen, QPixmap, QTransform
+from PyQt6.QtGui import QBrush, QColor, QImage, QPen, QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsRectItem,
@@ -76,7 +76,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
                     pen = QPen(QColor(31, 155, 240), 0)
                     pen.setStyle(Qt.PenStyle.DashLine)
                     rect.setPen(pen)
-                    rect.setBrush(Qt.BrushStyle.NoBrush)
+                    rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                     rect.setZValue(1)
                     self._selection_rect = rect
         else:
