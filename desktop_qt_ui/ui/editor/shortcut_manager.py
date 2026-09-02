@@ -284,6 +284,14 @@ class EditorShortcutManager(ShortcutManager):
             if selected_regions:
                 # 复制最后选中的区域
                 self.controller.copy_region(selected_regions[-1])
+            else:
+                # 无选中区域时，复制选中的贴片
+                graphics_view = getattr(self.editor_view, "graphics_view", None)
+                overlay_id = getattr(
+                    graphics_view, "_selected_paste_overlay_id", None
+                )
+                if overlay_id:
+                    self.controller.copy_paste_overlay(overlay_id)
 
     def _handle_paste(self, focused_widget):
         """处理粘贴快捷键"""
@@ -296,25 +304,41 @@ class EditorShortcutManager(ShortcutManager):
             if selected_regions and len(selected_regions) == 1:
                 # 有单个选中区域时，粘贴样式
                 self.controller.paste_region_style(selected_regions[0])
+            elif selected_regions:
+                # 多选区域：沿用既有逻辑（粘贴新区域到鼠标位置）
+                self._paste_new_region_at_cursor()
+            elif self.controller.paste_overlay_clipboard_available():
+                # 无选中区域且有贴片剪贴板：粘贴贴片到鼠标位置
+                mouse_image_pos = self._cursor_image_position()
+                if self.controller.paste_paste_overlay(mouse_image_pos):
+                    graphics_view = getattr(self.editor_view, "graphics_view", None)
+                    if graphics_view is not None:
+                        overlays = self.editor_view.model.get_paste_overlays()
+                        if overlays:
+                            graphics_view.select_paste_overlay(overlays[-1]["id"])
             else:
-                # 无选中区域时，粘贴新区域到鼠标位置
-                from PyQt6.QtGui import QCursor
+                # 无贴片剪贴板：沿用既有逻辑（粘贴新区域到鼠标位置）
+                self._paste_new_region_at_cursor()
 
-                if (
-                    self.editor_view.graphics_view
-                    and self.editor_view.graphics_view._image_item
-                ):
-                    mouse_pos_scene = self.editor_view.graphics_view.mapToScene(
-                        self.editor_view.graphics_view.mapFromGlobal(QCursor.pos())
-                    )
-                    mouse_pos_image = (
-                        self.editor_view.graphics_view._image_item.mapFromScene(
-                            mouse_pos_scene
-                        )
-                    )
-                    self.controller.paste_region(mouse_pos_image)
-                else:
-                    self.controller.paste_region()
+    def _cursor_image_position(self):
+        """把当前鼠标位置换算成图像（场景）坐标；无画布时返回 None。"""
+        from PyQt6.QtGui import QCursor
+
+        graphics_view = getattr(self.editor_view, "graphics_view", None)
+        if not graphics_view or not graphics_view._image_item:
+            return None
+        mouse_pos_scene = graphics_view.mapToScene(
+            graphics_view.mapFromGlobal(QCursor.pos())
+        )
+        return graphics_view._image_item.mapFromScene(mouse_pos_scene)
+
+    def _paste_new_region_at_cursor(self):
+        """无选中区域时粘贴新区域到鼠标位置（贴片分支外的原行为）。"""
+        mouse_pos_image = self._cursor_image_position()
+        if mouse_pos_image is not None:
+            self.controller.paste_region(mouse_pos_image)
+        else:
+            self.controller.paste_region()
 
     def _handle_select_all(self, focused_widget):
         """处理全选快捷键"""

@@ -1517,6 +1517,41 @@ class EditorController(QObject):
         )
         return True
 
+    def copy_paste_overlay(self, overlay_id: str) -> bool:
+        """复制贴片到贴片剪贴板（与 region 剪贴板相互独立）。"""
+        if self.model.get_source_image_path() is None:
+            return False
+        for overlay in self.model.get_paste_overlays():
+            if overlay.get("id") == overlay_id:
+                self._paste_overlay_clipboard = copy.deepcopy(overlay)
+                return True
+        return False
+
+    def paste_overlay_clipboard_available(self) -> bool:
+        return bool(getattr(self, "_paste_overlay_clipboard", None))
+
+    def paste_paste_overlay(self, center: tuple[float, float] | None = None) -> bool:
+        """粘贴贴片：无 center 时相对原位置偏移 (+20,+20)，有则落在 center。"""
+        clipboard = getattr(self, "_paste_overlay_clipboard", None)
+        if clipboard is None or self.model.get_source_image_path() is None:
+            return False
+        clone = copy.deepcopy(clipboard)
+        clone.pop("id", None)  # 重新生成 id，避免与源重复
+        if center is not None:
+            center_x = center.x() if hasattr(center, "x") else center[0]
+            center_y = center.y() if hasattr(center, "y") else center[1]
+            clone["center_x"], clone["center_y"] = float(center_x), float(center_y)
+        else:
+            clone["center_x"] = float(clone.get("center_x", 0.0)) + 20.0
+            clone["center_y"] = float(clone.get("center_y", 0.0)) + 20.0
+        return self.add_paste_overlay(clone)
+
+    def duplicate_paste_overlay(self, overlay_id: str) -> bool:
+        """原地复制一份贴片（偏移 +20, +20），便于快捷键/右键复制副本。"""
+        if not self.copy_paste_overlay(overlay_id):
+            return False
+        return self.paste_paste_overlay()
+
     # --- 右键菜单相关方法 ---
     def ocr_regions(self, region_indices: list):
         """对指定区域进行OCR识别，使用与UI按钮相同的逻辑"""
