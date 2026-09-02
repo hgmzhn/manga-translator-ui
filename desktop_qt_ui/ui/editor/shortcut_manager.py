@@ -331,6 +331,14 @@ class EditorShortcutManager(ShortcutManager):
             selected_regions = self.editor_view.model.get_selection()
             if selected_regions:
                 self.controller.delete_regions(selected_regions)
+                return
+            # 无选中区域时，若画布上有选中的贴片则删除贴片
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            if (
+                graphics_view is not None
+                and getattr(graphics_view, "_selected_paste_overlay_id", None)
+            ):
+                graphics_view.delete_selected_paste_overlay()
 
     def _handle_save(self, focused_widget):
         """处理保存快捷键 (Ctrl+S)。"""
