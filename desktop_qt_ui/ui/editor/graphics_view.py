@@ -66,6 +66,7 @@ class GraphicsView(
 
         self._region_items = []
         self._paste_overlay_items = []
+        self._selected_paste_overlay_id = None
         self.setAcceptDrops(True)
         self._font_preview_overrides: dict[int, dict] = {}
         self._snap_enabled = False
