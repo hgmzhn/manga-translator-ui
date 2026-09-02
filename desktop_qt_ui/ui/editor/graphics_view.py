@@ -9,6 +9,7 @@ from ui.theme import is_dark_theme
 
 from .graphics_view_input import GraphicsViewInputMixin
 from .graphics_view_layers import GraphicsViewLayersMixin
+from .graphics_view_paste_overlays import GraphicsViewPasteOverlayMixin
 from .graphics_view_rendering import GraphicsViewRenderingMixin
 from .mask_layer import MaskLayer
 from .overlay_layer import OverlayLayerManager
@@ -24,6 +25,7 @@ class GraphicsView(
     GraphicsViewLayersMixin,
     GraphicsViewRenderingMixin,
     GraphicsViewInputMixin,
+    GraphicsViewPasteOverlayMixin,
     QGraphicsView,
 ):
     """编辑画布：主文件只保留初始化、信号接线和共享状态。"""
@@ -63,6 +65,8 @@ class GraphicsView(
         self.overlay_layers = OverlayLayerManager(self)
 
         self._region_items = []
+        self._paste_overlay_items = []
+        self.setAcceptDrops(True)
         self._font_preview_overrides: dict[int, dict] = {}
         self._snap_enabled = False
         self._center_scale_enabled = False
@@ -208,6 +212,7 @@ class GraphicsView(
         self.model.stamp_overlay_changed.connect(
             self.overlay_layers.stamp_overlay.set_image
         )
+        self.model.paste_overlays_changed.connect(self.on_paste_overlays_changed)
         self.model.region_display_mode_changed.connect(
             self.on_region_display_mode_changed
         )
