@@ -14,10 +14,13 @@ from __future__ import annotations
 import math
 import os
 
+from editor.paste_overlay_state import (
+    png_base64_to_rgba_overlay,
+    rgba_overlay_to_png_base64,
+)
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (
     QBrush,
-    QColor,
     QCursor,
     QImage,
     QPainter,
@@ -32,10 +35,6 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent,
 )
 
-from editor.paste_overlay_state import (
-    png_base64_to_rgba_overlay,
-    rgba_overlay_to_png_base64,
-)
 from .graphics_items import (
     _editor_pen,
     _fluent_accent,
@@ -641,9 +640,8 @@ class GraphicsViewPasteOverlayMixin:
 
         scene_pos = self.mapToScene(event.position().toPoint())
         try:
-            from PIL import Image
-
             import numpy as np
+            from PIL import Image
 
             image_path = paths[0]
             rgba = None
