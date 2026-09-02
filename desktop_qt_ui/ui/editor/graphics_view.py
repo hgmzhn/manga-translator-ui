@@ -113,6 +113,7 @@ class GraphicsView(
 
         self._setup_view()
         self._connect_model_signals()
+        self.blank_canvas_pressed.connect(self.clear_paste_overlay_selection)
 
     def set_controller(self, controller) -> None:
         self.controller = controller

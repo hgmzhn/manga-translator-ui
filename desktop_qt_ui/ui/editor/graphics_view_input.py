@@ -171,6 +171,10 @@ class GraphicsViewInputMixin:
 
         self.setFocus()
 
+        # 点按命中目标不是贴片（文本框/空白等）时，隐藏贴片选中手柄
+        if hasattr(self, "clear_paste_overlay_selection_for_press"):
+            self.clear_paste_overlay_selection_for_press(event)
+
         if (
             self._active_tool == "draw_textbox"
             and event.button() == Qt.MouseButton.LeftButton
