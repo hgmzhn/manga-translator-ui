@@ -1435,6 +1435,88 @@ class EditorController(QObject):
         self.history_service.redo()
         self._update_undo_redo_buttons()
 
+    # --- 贴片（paste overlay）操作方法 ---
+    def _normalize_paste_overlays(self, overlays) -> list:
+        """贴片列表规范化（统一补默认值/id），保证 undo/redo 快照 id 稳定。"""
+        from editor.paste_overlay_state import serialize_paste_overlays
+
+        return serialize_paste_overlays(overlays or [])
+
+    def add_paste_overlay(self, overlay: dict) -> bool:
+        """新增一个贴片（支持撤销）。overlay 可为未规范化字典。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = self._normalize_paste_overlays(before + [overlay])
+        if after == before:
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Add Paste Overlay"
+            )
+        )
+        return True
+
+    def update_paste_overlay(self, overlay_id: str, patch: dict) -> bool:
+        """按 id 更新一个贴片（patch 按字段合并，支持撤销）。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = copy.deepcopy(before)
+        for item in after:
+            if item.get("id") == overlay_id:
+                item.update(copy.deepcopy(patch))
+                break
+        else:
+            return False
+        after = self._normalize_paste_overlays(after)
+        if after == before:
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Update Paste Overlay"
+            )
+        )
+        return True
+
+    def remove_paste_overlay(self, overlay_id: str) -> bool:
+        """按 id 删除一个贴片（支持撤销）。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = [item for item in before if item.get("id") != overlay_id]
+        if len(after) == len(before):
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Remove Paste Overlay"
+            )
+        )
+        return True
+
+    def replace_paste_overlays(self, overlays: list) -> bool:
+        """整表替换贴片列表（用于拖放导入、z 序调整等，支持撤销）。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = self._normalize_paste_overlays(overlays)
+        if after == before:
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Replace Paste Overlays"
+            )
+        )
+        return True
+
     # --- 右键菜单相关方法 ---
     def ocr_regions(self, region_indices: list):
         """对指定区域进行OCR识别，使用与UI按钮相同的逻辑"""

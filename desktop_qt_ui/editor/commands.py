@@ -450,3 +450,29 @@ class MultiRegionUpdateCommand(QUndoCommand):
 
     def undo(self):
         self._apply(0)
+
+
+class PasteOverlaysReplaceCommand(QUndoCommand):
+    """整表替换贴片列表的 undo/redo（保存 before/after 快照）。
+
+    通知统一由 :meth:`EditorModel.set_paste_overlays` 广播（经
+    ``paste_overlays_changed`` 信号），本命令只做文档状态转换，不直接触碰视图。
+    """
+
+    def __init__(
+        self,
+        model: "EditorModel",
+        before: list[dict],
+        after: list[dict],
+        description: str = "Edit Paste Overlay",
+    ):
+        super().__init__(description)
+        self._model = model
+        self._before = copy.deepcopy(before)
+        self._after = copy.deepcopy(after)
+
+    def redo(self):
+        self._model.set_paste_overlays(self._after)
+
+    def undo(self):
+        self._model.set_paste_overlays(self._before)
