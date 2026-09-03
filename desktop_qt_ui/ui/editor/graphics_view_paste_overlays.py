@@ -260,30 +260,45 @@ class PasteOverlayItem(QGraphicsPixmapItem):
 
     def _apply_geometry(self) -> None:
         overlay = self.overlay
-        # 始终从解码原图缩放；原图为空时退回当前 pixmap
-        pixmap = (
+        # 解码原图仅作为重采样来源，最终尺寸以 overlay 的 width/height 为准
+        source = (
             self._source_pixmap
             if not self._source_pixmap.isNull()
             else self.pixmap()
         )
-        width = pixmap.width()
-        height = pixmap.height()
-        if width <= 0 or height <= 0 or pixmap.isNull():
+        if source.isNull() or source.width() <= 0 or source.height() <= 0:
             self.setVisible(False)
             return
 
-        target_width = max(1, int(round(float(overlay.get("width", width)))))
-        target_height = max(1, int(round(float(overlay.get("height", height)))))
-        if self.pixmap().width() != target_width or self.pixmap().height() != target_height:
-            pixmap = pixmap.scaled(
+        target_width = max(
+            1, int(round(float(overlay.get("width", source.width()))))
+        )
+        target_height = max(
+            1, int(round(float(overlay.get("height", source.height()))))
+        )
+        current = self.pixmap()
+        if (
+            current.isNull()
+            or current.width() != target_width
+            or current.height() != target_height
+        ):
+            current = source.scaled(
                 target_width,
                 target_height,
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
             self.prepareGeometryChange()
-            self.setPixmap(pixmap)
-            width, height = target_width, target_height
+            self.setPixmap(current)
+
+        # 变换锚点必须用“当前显示尺寸”（缩放后 current 已是目标尺寸）；
+        # 之前误用解码原图尺寸，导致缩放过的贴片拖动/旋转时中心偏移
+        display = self.pixmap()
+        width = display.width()
+        height = display.height()
+        if width <= 0 or height <= 0:
+            self.setVisible(False)
+            return
 
         center_x = float(overlay.get("center_x", 0.0))
         center_y = float(overlay.get("center_y", 0.0))
@@ -458,16 +473,6 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         )
         self._drag_start_dist = max(1.0, math.hypot(delta.x(), delta.y()))
         self._drag_start_angle = math.degrees(math.atan2(delta.y(), delta.x()))
-        view = self._paste_view
-        if view is not None:
-            view.logger.info(
-                "[paste-drag] press mode=%s start_scene=(%.1f, %.1f) start_center=(%.1f, %.1f)",
-                self._drag_mode,
-                event.scenePos().x(),
-                event.scenePos().y(),
-                self._drag_start_center[0],
-                self._drag_start_center[1],
-            )
         event.accept()
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -483,25 +488,6 @@ class PasteOverlayItem(QGraphicsPixmapItem):
             delta = event.scenePos() - self._drag_start_scene
             overlay["center_x"] = self._drag_start_center[0] + delta.x()
             overlay["center_y"] = self._drag_start_center[1] + delta.y()
-            self._apply_geometry()
-            # 临时调试：比较 overlay.center 与变换后实际绘制中心的差异
-            view = self._paste_view
-            if view is not None:
-                pixmap = self.pixmap()
-                drawn_center = self.mapToScene(
-                    QPointF(pixmap.width() / 2.0, pixmap.height() / 2.0)
-                )
-                view.logger.info(
-                    "[paste-drag] move delta=(%.1f, %.1f) overlay_center=(%.1f, %.1f) drawn_center=(%.1f, %.1f)",
-                    delta.x(),
-                    delta.y(),
-                    float(overlay.get("center_x", 0.0)),
-                    float(overlay.get("center_y", 0.0)),
-                    drawn_center.x(),
-                    drawn_center.y(),
-                )
-            event.accept()
-            return
         elif self._drag_mode == "rotate":
             delta = event.scenePos() - center
             current_angle = math.degrees(math.atan2(delta.y(), delta.x()))
@@ -545,7 +531,6 @@ class PasteOverlayItem(QGraphicsPixmapItem):
             }
         # 提交后模型整表重建贴片项（当前 item 将被移除），提交后不要再触碰 self
         if view is not None and getattr(view, "controller", None) is not None:
-            view.logger.info("[paste-drag] release mode=%s patch=%s", mode, patch)
             view.controller.update_paste_overlay(overlay_id, patch)
             view.select_paste_overlay(overlay_id)
         event.accept()
