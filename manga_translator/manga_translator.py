@@ -1419,6 +1419,7 @@ class MangaTranslator:
             base_holder = 'upscaled'
         if base is None:
             return
+        was_pil = hasattr(base, 'resize') and hasattr(base, 'mode')
         try:
             base_arr = np.asarray(base)
         except Exception:
@@ -1458,6 +1459,12 @@ class MangaTranslator:
         result[..., :3] = np.clip(composed, 0, 255).astype(np.uint8)
         if base_holder == 'inpainted':
             ctx.img_inpainted = result
+        elif was_pil:
+            # 底图是 PIL（无文本框回退使用 ctx.upscaled）时写回 PIL，
+            # 避免下游 resize/if ctx.result 等 PIL 语义被 numpy 破坏
+            from PIL import Image as _PillowImage
+
+            ctx.upscaled = _PillowImage.fromarray(result[..., :3])
         else:
             ctx.upscaled = result
         logger.info(
