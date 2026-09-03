@@ -216,7 +216,10 @@ class ExportService:
                             (int(canvas_size[0]), int(canvas_size[1])),
                         )
                 except Exception as compose_error:
-                    self.logger.warning(f"贴片预合成失败，跳过贴片层: {compose_error}")
+                    # 贴片预合成失败应终止导出（外层会转成失败的 BackendExportResult），
+                    # 不能静默跳过贴片层却返回“成功”
+                    self.logger.error(f"贴片预合成失败，导出终止: {compose_error}")
+                    raise
             payload = self._build_load_text_payload(
                 job.regions,
                 job.export_base,

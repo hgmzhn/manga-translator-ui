@@ -592,6 +592,19 @@ class GraphicsViewPasteOverlayMixin:
             new_items.append(item)
         # 已不存在的贴片项清理出场景
         self._remove_paste_items(existing.values())
+
+        # 重新按列表顺序入场景：Qt 同 z 的叠放顺序按插入顺序决定，
+        # 复用 item 不会改变原顺序，这里统一重建插入序，保证画布与
+        # 导出合成（compose_paste_overlays 按 z 升序、同 z 保序）一致
+        for item in new_items:
+            try:
+                if item.scene():
+                    item.scene().removeItem(item)
+            except (RuntimeError, AttributeError):
+                pass
+        for item in new_items:
+            self.scene.addItem(item)
+
         self._paste_overlay_items = new_items
         self.scene.update()
 
