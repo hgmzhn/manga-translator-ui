@@ -26,6 +26,7 @@ import base64
 import copy
 import logging
 import math
+import struct
 import uuid
 from typing import Any, Iterable, Mapping
 
@@ -65,7 +66,14 @@ def _to_bool(value: Any, name: str) -> bool:
         if value in (0, 1):
             return bool(value)
         raise ValueError(f"{name} 必须为布尔值，收到: {value!r}")
-    return bool(value) if isinstance(value, str) else False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "on"):
+            return True
+        if normalized in ("false", "0", "no", "off", ""):
+            return False
+        raise ValueError(f"{name} 布尔字符串无法解析: {value!r}")
+    raise ValueError(f"{name} 必须为布尔值，收到: {type(value).__name__}")
 
 
 def _clamp_opacity(value: float) -> float:
@@ -191,6 +199,27 @@ def png_base64_to_rgba_overlay(image_b64: str) -> np.ndarray | None:
     return array
 
 
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _png_base64_dimensions(image_b64: str) -> tuple[int, int] | None:
+    """解析 PNG base64 的 IHDR 宽高（不解码像素），非 PNG/解析失败返回 None。
+
+    用于在 ``cv2.imdecode`` 之前拦截超大像素的“解压炸弹”，避免先分配巨图。
+    """
+    try:
+        data = base64.b64decode(image_b64)
+    except Exception:
+        return None
+    if len(data) < 33 or not data.startswith(_PNG_SIGNATURE):
+        return None
+    try:
+        width, height = struct.unpack(">II", data[16:24])
+    except (struct.error, IndexError):
+        return None
+    return int(width), int(height)
+
+
 def compose_paste_overlays(
     overlays: Iterable[Mapping[str, Any]],
     canvas_size: tuple[int, int],
@@ -208,9 +237,10 @@ def compose_paste_overlays(
     if width <= 0 or height <= 0:
         return None
 
-    # 画布全程使用预乘 alpha 累积：仿射前把 RGB 预乘 alpha，插值就不会把
-    # 透明边缘的颜色“渗深/渗黑”；合成用 pre-mul source-over，最后反预乘输出。
-    canvas = np.zeros((height, width, 4), dtype=np.float32)
+    # 画布本体保存 straight-alpha uint8（整页内存 = 4 字节/像素）；
+    # 预乘 alpha 只出现在每张贴片的包围盒局部 float 计算里，
+    # 大页面多贴片不会再同时持有整页 float32 副本。
+    canvas = np.zeros((height, width, 4), dtype=np.uint8)
 
     def _blend_premultiplied(base: np.ndarray, patch: np.ndarray) -> np.ndarray:
         """pre-mul source-over：RGB 已预乘，alpha 通道为 0..255 原始值。"""
@@ -240,6 +270,10 @@ def compose_paste_overlays(
             continue
         if len(image_b64) > max_image_chars:
             logger.warning("跳过超大贴片图片数据（>%s 字符 base64）", max_image_chars)
+            continue
+        png_size = _png_base64_dimensions(image_b64)
+        if png_size is not None and max(png_size) > max_source_side:
+            logger.warning("跳过超大贴片 PNG (%dx%d)", png_size[0], png_size[1])
             continue
         source = png_base64_to_rgba_overlay(image_b64)
         if source is None or not np.any(source[..., 3]):
@@ -331,22 +365,25 @@ def compose_paste_overlays(
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_TRANSPARENT,
         )
-        canvas[min_y:max_y, min_x:max_x] = _blend_premultiplied(
-            canvas[min_y:max_y, min_x:max_x], patch
-        )
+        roi = canvas[min_y:max_y, min_x:max_x]
+        roi_float = roi.astype(np.float32)
+        roi_alpha = roi_float[..., 3:4]
+        premul_base = np.empty_like(roi_float)
+        premul_base[..., 3:4] = roi_alpha
+        premul_base[..., :3] = roi_float[..., :3] * (roi_alpha / 255.0)
+        blended = _blend_premultiplied(premul_base, patch)
+        out_alpha = blended[..., 3:4]
+        out_coverage = out_alpha / 255.0
+        safe = np.maximum(out_coverage, 1e-6)
+        straight = np.empty_like(roi_float)
+        straight[..., :3] = np.clip(blended[..., :3] / safe, 0, 255)
+        straight[..., 3:4] = np.clip(out_alpha, 0, 255)
+        roi[...] = straight.astype(np.uint8)
         drawn = True
 
     if not drawn:
         return None
-
-    # 反预乘：直通 alpha 输出，供后端再按 straight alpha 与底图合成
-    alpha_raw = canvas[..., 3:4]
-    coverage = alpha_raw / 255.0
-    safe = np.maximum(coverage, 1e-6)
-    output = np.empty((height, width, 4), dtype=np.uint8)
-    output[..., :3] = np.clip(canvas[..., :3] / safe, 0, 255)
-    output[..., 3:4] = np.clip(alpha_raw, 0, 255)
-    if not np.any(output[..., 3]):
+    if not np.any(canvas[..., 3]):
         return None
-    output.setflags(write=False)
-    return output
+    canvas.setflags(write=False)
+    return canvas

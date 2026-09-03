@@ -76,6 +76,28 @@ def test_invalid_image_payload_raises():
     raise AssertionError("expected ValueError for invalid base64 image")
 
 
+def test_boolean_strings_parsed_explicitly():
+    assert normalize_paste_overlay(_valid_overlay(visible="false"))["visible"] is False
+    assert normalize_paste_overlay(_valid_overlay(visible="true"))["visible"] is True
+    try:
+        normalize_paste_overlay(_valid_overlay(visible="sometimes"))
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for unparsable boolean string")
+
+
+def test_compose_skips_decompression_bomb_png_before_decode():
+    import base64 as _base64
+    import struct as _struct
+
+    # 生成小 PNG，再把 IHDR 宽高改写成超大值，验证合成在 imdecode 前就跳过
+    tiny = rgba_overlay_to_png_base64(_solid_rgba(2, 2, (255, 0, 0)))
+    raw = bytearray(_base64.b64decode(tiny))
+    raw[16:24] = _struct.pack(">II", 200_000, 200_000)
+    overlay = _valid_overlay(image=_base64.b64encode(bytes(raw)).decode("ascii"))
+    assert compose_paste_overlays([overlay], (80, 60)) is None
+
+
 def test_serialize_assigns_unique_ids():
     overlays = serialize_paste_overlays(
         [
