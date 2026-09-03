@@ -438,10 +438,9 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         if event.button() != Qt.MouseButton.LeftButton or not self._drag_enabled():
             super().mousePressEvent(event)
             return
-        view = self._paste_view
-        if view is not None:
-            view.select_paste_overlay(self.overlay_id())
-
+        # 注意：这里不立即补“选中框”。选中框的创建会触发 prepareGeometryChange，
+        # 若在鼠标按下的事件分发中改几何，可能出现按下瞬间整张贴片偏移一帧、
+        # 松手又恢复的闪烁。选中态统一放到 mouseRelease（提交后重建）再补。
         local_pos = self.mapFromScene(event.scenePos())
         self._drag_mode = self._hit_mode(local_pos)
         self._drag_start_scene = event.scenePos()
