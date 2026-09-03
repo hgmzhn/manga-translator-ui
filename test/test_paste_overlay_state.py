@@ -89,11 +89,14 @@ def test_boolean_strings_parsed_explicitly():
 def test_compose_skips_decompression_bomb_png_before_decode():
     import base64 as _base64
     import struct as _struct
+    import zlib as _zlib
 
-    # 生成小 PNG，再把 IHDR 宽高改写成超大值，验证合成在 imdecode 前就跳过
+    # 生成小 PNG，再把 IHDR 宽高改写成超大值（并重算 CRC 保持合法），
+    # 验证合成在 imdecode 之前就跳过
     tiny = rgba_overlay_to_png_base64(_solid_rgba(2, 2, (255, 0, 0)))
     raw = bytearray(_base64.b64decode(tiny))
     raw[16:24] = _struct.pack(">II", 200_000, 200_000)
+    raw[29:33] = _struct.pack(">I", _zlib.crc32(raw[12:29]) & 0xFFFFFFFF)
     overlay = _valid_overlay(image=_base64.b64encode(bytes(raw)).decode("ascii"))
     assert compose_paste_overlays([overlay], (80, 60)) is None
 

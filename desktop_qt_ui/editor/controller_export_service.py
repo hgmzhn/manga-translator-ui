@@ -15,7 +15,6 @@ from services import get_render_parameter_service
 from .document_state import ExportBase
 from .image_utils import image_like_to_pil, image_like_to_rgb_array
 from .inpaint_state import InpaintArtifact
-from .paste_overlay_state import compose_paste_overlays
 from .region_geometry_state import RegionGeometryState, normalize_region_geometry_data
 
 if TYPE_CHECKING:
@@ -58,7 +57,9 @@ class ExportJob:
     config: dict
     paint_overlay: Optional[np.ndarray] = None
     stamp_overlay: Optional[np.ndarray] = None
-    paste_overlay: Optional[np.ndarray] = None
+    # 可编辑贴片记录：整页预合成放到导出 worker（execute_export_job）内进行，
+    # 避免在 GUI 线程分配整页大缓冲
+    paste_overlays: tuple = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.automatic, bool):
@@ -80,7 +81,7 @@ class ExportJob:
         config.setdefault("upscale", {})["upscale_ratio"] = None
         config.setdefault("colorizer", {})["colorizer"] = "none"
         overlays = {}
-        for field_name in ("paint_overlay", "stamp_overlay", "paste_overlay"):
+        for field_name in ("paint_overlay", "stamp_overlay"):
             overlay = getattr(self, field_name)
             if overlay is None:
                 overlays[field_name] = None
@@ -95,6 +96,13 @@ class ExportJob:
             owned = np.array(array, copy=True)
             owned.setflags(write=False)
             overlays[field_name] = owned
+
+        paste_overlays = tuple(
+            copy.deepcopy(item)
+            for item in self.paste_overlays
+            if isinstance(item, dict)
+        )
+        object.__setattr__(self, "paste_overlays", paste_overlays)
 
         source_image = image_like_to_pil(self.export_base.source_image)
         if source_image is None:
@@ -245,27 +253,8 @@ class EditorControllerExportService:
                 return self._reject_export("导出失败：缺少活动文档")
             config = self._build_config_dict(self.config_service.get_config())
 
-            paste_overlays = _model_paste_overlays(self.model)
-            paste_overlay = None
-            if paste_overlays:
-                source_image = export_base.source_image
-                canvas_size = getattr(source_image, "size", None)
-                # numpy 的 .size 是元素总数整数，不是 (w, h)，必须走 .shape 回退
-                if not (
-                    isinstance(canvas_size, (tuple, list)) and len(canvas_size) >= 2
-                ):
-                    shape = getattr(source_image, "shape", None)
-                    canvas_size = (
-                        (shape[1], shape[0])
-                        if shape is not None and len(shape) >= 2
-                        else None
-                    )
-                if canvas_size:
-                    paste_overlay = compose_paste_overlays(
-                        paste_overlays,
-                        (int(canvas_size[0]), int(canvas_size[1])),
-                    )
-
+            # 贴片整页预合成移到导出 worker（ExportService.execute_export_job）内执行，
+            # GUI 线程只负责把规范化记录快照塞进 job，避免大图卡界面
             job = ExportJob(
                 automatic=bool(automatic),
                 source_path=source_path,
@@ -275,7 +264,7 @@ class EditorControllerExportService:
                 config=config,
                 paint_overlay=self.model.get_paint_overlay_image(),
                 stamp_overlay=self.model.get_stamp_overlay_image(),
-                paste_overlay=paste_overlay,
+                paste_overlays=tuple(_model_paste_overlays(self.model)),
             )
             future = self._submit_job(job)
             if future is None:

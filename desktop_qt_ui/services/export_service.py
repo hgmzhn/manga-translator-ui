@@ -193,6 +193,30 @@ class ExportService:
                 os.makedirs(output_dir, exist_ok=True)
 
             source_image = job.export_base.source_image
+            # 贴片整页预合成放到导出 worker 里做（GUI 线程不再分配整页缓冲）
+            paste_overlay = None
+            if job.paste_overlays:
+                try:
+                    from editor.paste_overlay_state import compose_paste_overlays
+
+                    canvas_size = getattr(source_image, "size", None)
+                    if not (
+                        isinstance(canvas_size, (tuple, list))
+                        and len(canvas_size) >= 2
+                    ):
+                        shape = getattr(source_image, "shape", None)
+                        canvas_size = (
+                            (shape[1], shape[0])
+                            if shape is not None and len(shape) >= 2
+                            else None
+                        )
+                    if canvas_size:
+                        paste_overlay = compose_paste_overlays(
+                            job.paste_overlays,
+                            (int(canvas_size[0]), int(canvas_size[1])),
+                        )
+                except Exception as compose_error:
+                    self.logger.warning(f"贴片预合成失败，跳过贴片层: {compose_error}")
             payload = self._build_load_text_payload(
                 job.regions,
                 job.export_base,
@@ -200,7 +224,7 @@ class ExportService:
                 base_size=source_image.size,
                 paint_overlay=job.paint_overlay,
                 stamp_overlay=job.stamp_overlay,
-                paste_overlay=job.paste_overlay,
+                paste_overlay=paste_overlay,
             )
             translator_params = self._prepare_translator_params(job.config)
             render_started = time.perf_counter()

@@ -258,7 +258,7 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         self.setPixmap(pixmap)
         self._apply_geometry()
 
-    def _apply_geometry(self) -> None:
+    def _apply_geometry(self, *, rasterize: bool = True) -> None:
         overlay = self.overlay
         # 解码原图仅作为重采样来源，最终尺寸以 overlay 的 width/height 为准
         source = (
@@ -276,24 +276,36 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         target_height = max(
             1, int(round(float(overlay.get("height", source.height()))))
         )
-        current = self.pixmap()
-        if (
-            current.isNull()
-            or current.width() != target_width
-            or current.height() != target_height
-        ):
-            current = source.scaled(
-                target_width,
-                target_height,
-                Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.prepareGeometryChange()
-            self.setPixmap(current)
-
-        # 变换锚点必须用“当前显示尺寸”（缩放后 current 已是目标尺寸）；
-        # 之前误用解码原图尺寸，导致缩放过的贴片拖动/旋转时中心偏移
+        # 拖动缩放期间（rasterize=False）不重采样 pixmap，把目标/当前比例折进
+        # item 变换；只有松手提交重建时才做一次最终栅格化，避免逐帧分配大 pixmap
         display = self.pixmap()
+        if rasterize:
+            if (
+                display.isNull()
+                or display.width() != target_width
+                or display.height() != target_height
+            ):
+                display = source.scaled(
+                    target_width,
+                    target_height,
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self.prepareGeometryChange()
+                self.setPixmap(display)
+        else:
+            if display.isNull() or display.width() <= 0 or display.height() <= 0:
+                display = source.scaled(
+                    target_width,
+                    target_height,
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self.prepareGeometryChange()
+                self.setPixmap(display)
+                rasterize = True
+
+        # 变换锚点必须用“当前显示尺寸”
         width = display.width()
         height = display.height()
         if width <= 0 or height <= 0:
@@ -306,10 +318,16 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         flip_h = -1.0 if overlay.get("flip_h") else 1.0
         flip_v = -1.0 if overlay.get("flip_v") else 1.0
 
+        scale_x = 1.0
+        scale_y = 1.0
+        if not rasterize:
+            scale_x = target_width / float(width)
+            scale_y = target_height / float(height)
+
         transform = QTransform()
         transform.translate(center_x, center_y)
         transform.rotate(rotation)
-        transform.scale(flip_h, flip_v)
+        transform.scale(flip_h * scale_x, flip_v * scale_y)
         transform.translate(-width / 2.0, -height / 2.0)
         self.setTransform(transform)
 
@@ -505,7 +523,8 @@ class PasteOverlayItem(QGraphicsPixmapItem):
                 factor *= max_side / longest
             overlay["width"] = max(2.0, self._drag_start_size[0] * factor)
             overlay["height"] = max(2.0, self._drag_start_size[1] * factor)
-        self._apply_geometry()
+        # 缩放拖拽中只改变换不重采样；移动/旋转仍即时按几何刷新
+        self._apply_geometry(rasterize=self._drag_mode != "resize")
         event.accept()
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -543,26 +562,47 @@ class GraphicsViewPasteOverlayMixin:
         items = getattr(self, "_paste_overlay_items", None)
         if items is None:
             return
-        for item in list(items):
-            try:
-                if item.scene():
-                    self.scene.removeItem(item)
-            except (RuntimeError, AttributeError):
-                pass
+        existing = {item.overlay_id(): item for item in items}
         items.clear()
 
         if self._image_item is None:
+            self._remove_paste_items(existing.values())
             self._selected_paste_overlay_id = None
             return
         overlays = self.model.get_paste_overlays() if self.model else []
         selected_id = getattr(self, "_selected_paste_overlay_id", None)
+        new_items = []
         for overlay in overlays:
-            item = PasteOverlayItem(overlay, self)
-            if item.overlay_id() == selected_id:
-                item.set_selected(True)
-            self.scene.addItem(item)
-            items.append(item)
+            overlay_id = str(overlay.get("id", ""))
+            old_item = existing.pop(overlay_id, None)
+            if (
+                old_item is not None
+                and old_item.overlay.get("image") == overlay.get("image")
+            ):
+                # 图片未变：复用 item，只更新几何/属性，不重建不解码
+                old_item.overlay = dict(overlay)
+                old_item._apply_geometry()
+                item = old_item
+            else:
+                if old_item is not None:
+                    self._remove_paste_items([old_item])
+                item = PasteOverlayItem(overlay, self)
+                self.scene.addItem(item)
+            item.set_selected(item.overlay_id() == selected_id)
+            new_items.append(item)
+        # 已不存在的贴片项清理出场景
+        self._remove_paste_items(existing.values())
+        self._paste_overlay_items = new_items
         self.scene.update()
+
+    @staticmethod
+    def _remove_paste_items(items) -> None:
+        for item in items:
+            try:
+                if item is not None and item.scene():
+                    item.scene().removeItem(item)
+            except (RuntimeError, AttributeError):
+                pass
 
     def _clear_paste_overlay_items(self) -> None:
         items = getattr(self, "_paste_overlay_items", None)
