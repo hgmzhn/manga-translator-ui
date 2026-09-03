@@ -293,16 +293,47 @@ def compose_paste_overlays(
             [[a00, a01, offset_x], [a10, a11, offset_y]], dtype=np.float64
         )
 
-        patch = np.zeros((height, width, 4), dtype=np.float32)
+        # 只对变换后的包围盒做 warp+blend：避免大页面上每张贴片都分配一张整页
+        # float32 画布（8192² 单张就 ~1GiB，多贴片直接 OOM）
+        src_corners = np.array(
+            [[0.0, 0.0], [source_w, 0.0], [source_w, source_h], [0.0, source_h]],
+            dtype=np.float64,
+        )
+        transformed_x = (
+            matrix[0, 0] * src_corners[:, 0]
+            + matrix[0, 1] * src_corners[:, 1]
+            + matrix[0, 2]
+        )
+        transformed_y = (
+            matrix[1, 0] * src_corners[:, 0]
+            + matrix[1, 1] * src_corners[:, 1]
+            + matrix[1, 2]
+        )
+        min_x = max(0, int(math.floor(transformed_x.min())) - 1)
+        max_x = min(width, int(math.ceil(transformed_x.max())) + 1)
+        min_y = max(0, int(math.floor(transformed_y.min())) - 1)
+        max_y = min(height, int(math.ceil(transformed_y.max())) + 1)
+        if max_x <= min_x or max_y <= min_y:
+            # 贴片完全落在画布外
+            continue
+
+        box_width = max_x - min_x
+        box_height = max_y - min_y
+        patch = np.zeros((box_height, box_width, 4), dtype=np.float32)
+        sub_matrix = matrix.copy()
+        sub_matrix[0, 2] -= min_x
+        sub_matrix[1, 2] -= min_y
         patch = cv2.warpAffine(
             premul_source,
-            matrix,
-            (width, height),
+            sub_matrix,
+            (box_width, box_height),
             dst=patch,
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_TRANSPARENT,
         )
-        canvas = _blend_premultiplied(canvas, patch)
+        canvas[min_y:max_y, min_x:max_x] = _blend_premultiplied(
+            canvas[min_y:max_y, min_x:max_x], patch
+        )
         drawn = True
 
     if not drawn:

@@ -259,3 +259,22 @@ def test_compose_premultiplies_before_affine_interpolation():
     assert len(partial[0]) > 0, "应存在半透明过渡像素"
     reds = composite[partial[0], partial[1], 0]
     assert np.all(reds > 200), f"半透明边缘反预乘后不应变暗: {reds}"
+
+
+def test_compose_large_canvas_small_overlay_uses_bounded_box():
+    # 大画布 + 小贴片：验证包围盒路径结果正确且不越界崩溃（内存按包围盒裁剪）
+    overlay = _overlay_with_image(1024, 1024, width=16, height=16)
+    composite = compose_paste_overlays([overlay], (2048, 2048))
+    assert composite is not None
+    assert composite.shape == (2048, 2048, 4)
+    assert composite[1024, 1024, 3] > 250
+    assert composite[1024, 1024, 0] > 200
+
+
+def test_compose_clamps_overlay_partially_outside_canvas():
+    # 贴片中心在画布外但部分可见：包围盒被裁剪到画布内，不崩溃且可见像素保留
+    overlay = _overlay_with_image(-4, -4, width=16, height=16)
+    composite = compose_paste_overlays([overlay], (40, 30))
+    assert composite is not None
+    assert composite[0, 0, 3] > 250
+    assert composite[0, 0, 0] > 200

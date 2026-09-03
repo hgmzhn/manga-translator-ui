@@ -1449,22 +1449,46 @@ class MangaTranslator:
 
         if not overlays:
             return
-        composed = base_arr[..., :3].astype(np.float32)
-        for overlay in overlays:
-            if overlay.shape[:2] != (h, w):
-                overlay = cv2.resize(overlay, (w, h), interpolation=cv2.INTER_NEAREST)
-            alpha = overlay[..., 3:4].astype(np.float32) / 255.0
-            composed = composed * (1.0 - alpha) + overlay[..., :3].astype(np.float32) * alpha
+        has_alpha = base_arr.shape[2] >= 4
         result = base_arr.copy()
-        result[..., :3] = np.clip(composed, 0, 255).astype(np.uint8)
+        if has_alpha:
+            # RGBA source-over：保留源图透明，并让贴片覆盖到透明区域
+            composed_rgb = base_arr[..., :3].astype(np.float32)
+            composed_alpha = base_arr[..., 3:4].astype(np.float32)
+            for overlay in overlays:
+                if overlay.shape[:2] != (h, w):
+                    overlay = cv2.resize(overlay, (w, h), interpolation=cv2.INTER_NEAREST)
+                overlay_alpha = overlay[..., 3:4].astype(np.float32) / 255.0
+                base_coverage = composed_alpha / 255.0
+                out_alpha = overlay_alpha + base_coverage * (1.0 - overlay_alpha)
+                safe = np.maximum(out_alpha, 1e-6)
+                composed_rgb = (
+                    overlay[..., :3].astype(np.float32) * overlay_alpha
+                    + composed_rgb * base_coverage * (1.0 - overlay_alpha)
+                ) / safe
+                composed_alpha = out_alpha * 255.0
+            result[..., :3] = np.clip(composed_rgb, 0, 255).astype(np.uint8)
+            result[..., 3:4] = np.clip(composed_alpha, 0, 255).astype(np.uint8)
+        else:
+            composed = base_arr[..., :3].astype(np.float32)
+            for overlay in overlays:
+                if overlay.shape[:2] != (h, w):
+                    overlay = cv2.resize(overlay, (w, h), interpolation=cv2.INTER_NEAREST)
+                alpha = overlay[..., 3:4].astype(np.float32) / 255.0
+                composed = composed * (1.0 - alpha) + overlay[..., :3].astype(np.float32) * alpha
+            result[..., :3] = np.clip(composed, 0, 255).astype(np.uint8)
         if base_holder == 'inpainted':
             ctx.img_inpainted = result
         elif was_pil:
-            # 底图是 PIL（无文本框回退使用 ctx.upscaled）时写回 PIL，
-            # 避免下游 resize/if ctx.result 等 PIL 语义被 numpy 破坏
+            # 底图是 PIL（无文本框回退使用 ctx.upscaled）时按原模式写回 PIL，
+            # 避免下游 resize/if ctx.result 等 PIL 语义被 numpy 破坏；
+            # RGBA 源图保留透明度输出
             from PIL import Image as _PillowImage
 
-            ctx.upscaled = _PillowImage.fromarray(result[..., :3])
+            if has_alpha:
+                ctx.upscaled = _PillowImage.fromarray(result)
+            else:
+                ctx.upscaled = _PillowImage.fromarray(result[..., :3])
         else:
             ctx.upscaled = result
         logger.info(
