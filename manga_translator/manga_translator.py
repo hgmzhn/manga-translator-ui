@@ -1401,17 +1401,53 @@ class MangaTranslator:
         return overlays or None
 
     def _compose_render_overlays_on_inpainted(self, ctx):
-        """把加载到的画笔/印章层按顺序 alpha 合成到 ctx.img_inpainted 上（渲染前调用）。"""
-        overlays = getattr(self, '_loaded_render_overlays', None)
-        if not overlays:
+        """把画笔/印章/贴片层按顺序 alpha 合成到底图上（渲染前调用）。
+
+        底图优先取 ctx.img_inpainted；无修复图时（如“只有贴片、没有文本框/蒙版”
+        的页面）回退到 ctx.upscaled。磁盘加载的可编辑贴片列表（paste_overlays）
+        在此物化后追加到叠加层末尾（位于画笔/印章之上，与编辑器一致）。
+        """
+        pending = getattr(self, '_pending_paste_overlays', None)
+        overlays = getattr(self, '_loaded_render_overlays', None) or []
+        if not overlays and not pending:
             return
+
         base = getattr(ctx, 'img_inpainted', None)
+        base_holder = 'inpainted'
+        if base is None:
+            base = getattr(ctx, 'upscaled', None)
+            base_holder = 'upscaled'
         if base is None:
             return
-        base_arr = np.asarray(base)
+        try:
+            base_arr = np.asarray(base)
+        except Exception:
+            return
         if base_arr.ndim != 3 or base_arr.shape[2] < 3:
             return
         h, w = base_arr.shape[:2]
+
+        if pending:
+            try:
+                # 物化磁盘持久化的可编辑贴片列表；解析/合成失败则跳过，不影响其它层
+                from editor.paste_overlay_state import (
+                    compose_paste_overlays,
+                    parse_page_paste_overlays,
+                )
+
+                parsed = parse_page_paste_overlays({'paste_overlays': pending})
+                composed = compose_paste_overlays(parsed, (w, h))
+                if composed is not None:
+                    overlays = list(overlays) + [composed]
+                self._pending_paste_overlays = None
+            except Exception as materialize_error:
+                logger.warning(
+                    f"Failed to materialize paste_overlays on disk load: {materialize_error}"
+                )
+                self._pending_paste_overlays = None
+
+        if not overlays:
+            return
         composed = base_arr[..., :3].astype(np.float32)
         for overlay in overlays:
             if overlay.shape[:2] != (h, w):
@@ -1420,12 +1456,18 @@ class MangaTranslator:
             composed = composed * (1.0 - alpha) + overlay[..., :3].astype(np.float32) * alpha
         result = base_arr.copy()
         result[..., :3] = np.clip(composed, 0, 255).astype(np.uint8)
-        ctx.img_inpainted = result
-        logger.info(f"Composited {len(overlays)} paint/stamp overlay layer(s) onto inpainted image")
+        if base_holder == 'inpainted':
+            ctx.img_inpainted = result
+        else:
+            ctx.upscaled = result
+        logger.info(
+            f"Composited {len(overlays)} paint/stamp/paste overlay layer(s) onto render base"
+        )
 
     def _load_text_and_regions_from_file(self, image_path: str, config: Config):
         """加载翻译数据，支持新的目录结构和向后兼容"""
         self._loaded_render_overlays = None
+        self._pending_paste_overlays = None
         if not image_path:
             return None, None, False, True, False, 0
 
@@ -1489,6 +1531,13 @@ class MangaTranslator:
                 image_data.get('skip_text_replacements', False),
                 default=False,
             )
+            # 磁盘加载：可编辑贴片列表在合成阶段物化（内存预载只会带已合成的单数 paste_overlay）
+            paste_overlays_value = image_data.get('paste_overlays')
+            if (
+                image_data.get('paste_overlay') is None
+                and isinstance(paste_overlays_value, list)
+            ):
+                self._pending_paste_overlays = paste_overlays_value
             self._loaded_render_overlays = self._extract_render_overlays(image_data)
         else:
             logger.warning(f"Invalid data format in JSON file {text_file_path}.")
@@ -3951,6 +4000,8 @@ class MangaTranslator:
                                         f"No text regions or usable mask found in JSON for {os.path.basename(image_name)}, "
                                         "returning original image"
                                     )
+                                    # 页面可能只有贴片/画笔层：先合成再返回，避免贴片被丢弃
+                                    self._compose_render_overlays_on_inpainted(ctx)
                                     await self._report_progress('finished', True)
                                     ctx.result = ctx.upscaled  # 返回上采样后的原图
                                     ctx = await self._revert_upscale(config, ctx)

@@ -235,3 +235,27 @@ def test_compose_source_over_blends_semi_transparent_overlay():
     assert 100 < composite[30, 30, 0] < 160
     assert composite[30, 30, 1] < 40
     assert 100 < composite[30, 30, 2] < 160
+
+
+def test_compose_premultiplies_before_affine_interpolation():
+    # 源为 2x1：左红不透明、右全透明；横向放大 16 倍会形成半透明过渡像素。
+    # 预乘后再插值可避免透明边缘渗黑（straight-alpha 插值会把 RGB 一起拉暗）。
+    source = np.zeros((1, 2, 4), dtype=np.uint8)
+    source[0, 0] = (255, 0, 0, 255)
+    overlay = _valid_overlay(
+        image=rgba_overlay_to_png_base64(source),
+        center_x=20.0,
+        center_y=0.5,
+        width=32.0,
+        height=1.0,
+        rotation=0.0,
+        flip_h=False,
+        flip_v=False,
+        opacity=1.0,
+    )
+    composite = compose_paste_overlays([overlay], (40, 2))
+    assert composite is not None
+    partial = np.where((composite[..., 3] > 0) & (composite[..., 3] < 255))
+    assert len(partial[0]) > 0, "应存在半透明过渡像素"
+    reds = composite[partial[0], partial[1], 0]
+    assert np.all(reds > 200), f"半透明边缘反预乘后不应变暗: {reds}"

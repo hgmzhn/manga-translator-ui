@@ -208,20 +208,16 @@ def compose_paste_overlays(
     if width <= 0 or height <= 0:
         return None
 
+    # 画布全程使用预乘 alpha 累积：仿射前把 RGB 预乘 alpha，插值就不会把
+    # 透明边缘的颜色“渗深/渗黑”；合成用 pre-mul source-over，最后反预乘输出。
     canvas = np.zeros((height, width, 4), dtype=np.float32)
 
-    def _blend_source_over(base: np.ndarray, patch: np.ndarray) -> np.ndarray:
-        """source-over：把贴片 patch 合成到底画布 base（均为 RGBA uint8）。"""
-        base = base.astype(np.float32, copy=False)
-        patch = patch.astype(np.float32, copy=False)
-        patch_alpha = patch[..., 3:4] / 255.0
-        base_alpha = base[..., 3:4] / 255.0
-        out_alpha = patch_alpha + base_alpha * (1.0 - patch_alpha)
-        safe = np.maximum(out_alpha, 1e-6)
-        rgb = (patch[..., :3] * patch_alpha + base[..., :3] * base_alpha * (1.0 - patch_alpha)) / safe
+    def _blend_premultiplied(base: np.ndarray, patch: np.ndarray) -> np.ndarray:
+        """pre-mul source-over：RGB 已预乘，alpha 通道为 0..255 原始值。"""
+        patch_coverage = patch[..., 3:4] / 255.0
         merged = np.empty_like(base)
-        merged[..., :3] = np.clip(rgb, 0, 255)
-        merged[..., 3:4] = np.clip(out_alpha * 255.0, 0, 255)
+        merged[..., :3] = patch[..., :3] + base[..., :3] * (1.0 - patch_coverage)
+        merged[..., 3:4] = patch[..., 3:4] + base[..., 3:4] * (1.0 - patch_coverage)
         return merged
 
     # 单张贴片图片体积极限：防御手工构造的超大 base64（见 CodeRabbit CWE-400）
@@ -273,6 +269,14 @@ def compose_paste_overlays(
             source = source.copy()
             source[..., 3] = (source[..., 3].astype(np.float32) * opacity).astype(np.uint8)
 
+        # 预乘：RGB × (alpha/255)，参与插值的 RGB 是颜色×覆盖度，透明处为 0
+        premul_source = np.empty((source_h, source_w, 4), dtype=np.float32)
+        premul_source[..., 3:4] = source[..., 3:4].astype(np.float32)
+        premul_source[..., :3] = (
+            source[..., :3].astype(np.float32)
+            * (premul_source[..., 3:4] / 255.0)
+        )
+
         # 仿射矩阵：p_scene = center + R * S * (p_source - source_center)
         # S 内置非等比缩放与水平/垂直翻转，无需先放大中间图
         scale_x = flip_h * (target_width / source_w)
@@ -289,22 +293,29 @@ def compose_paste_overlays(
             [[a00, a01, offset_x], [a10, a11, offset_y]], dtype=np.float64
         )
 
-        patch = np.zeros((height, width, 4), dtype=np.uint8)
+        patch = np.zeros((height, width, 4), dtype=np.float32)
         patch = cv2.warpAffine(
-            source,
+            premul_source,
             matrix,
             (width, height),
             dst=patch,
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_TRANSPARENT,
         )
-        canvas = _blend_source_over(canvas, patch)
+        canvas = _blend_premultiplied(canvas, patch)
         drawn = True
 
     if not drawn:
         return None
-    canvas = np.clip(canvas, 0, 255).astype(np.uint8)
-    if not np.any(canvas[..., 3]):
+
+    # 反预乘：直通 alpha 输出，供后端再按 straight alpha 与底图合成
+    alpha_raw = canvas[..., 3:4]
+    coverage = alpha_raw / 255.0
+    safe = np.maximum(coverage, 1e-6)
+    output = np.empty((height, width, 4), dtype=np.uint8)
+    output[..., :3] = np.clip(canvas[..., :3] / safe, 0, 255)
+    output[..., 3:4] = np.clip(alpha_raw, 0, 255)
+    if not np.any(output[..., 3]):
         return None
-    canvas.setflags(write=False)
-    return canvas
+    output.setflags(write=False)
+    return output
