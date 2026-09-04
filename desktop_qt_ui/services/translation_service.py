@@ -128,7 +128,7 @@ class TranslationService:
             translated_texts = await dispatch_translator(
                 chain,
                 queries,
-                translator_config=config,
+                config=config if config is not None else self.config_service.get_config(),
                 args=ctx
             )
 
