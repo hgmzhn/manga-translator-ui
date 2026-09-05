@@ -208,7 +208,7 @@ async def dispatch(
             q = Quadrilateral(l * scale_factor, '', 0)
             textlines.append(q)
 
-    final_mask = complete_mask(img_resized, mask_resized, textlines, dilation_offset=dilation_offset,kernel_size=kernel_size) if method == 'fit_text' else complete_mask_fill([txtln.aabb.xywh for txtln in textlines])
+    final_mask = complete_mask(img_resized, mask_resized, textlines, dilation_offset=dilation_offset,kernel_size=kernel_size) if method == 'fit_text' else complete_mask_fill([txtln.aabb.xywh for txtln in textlines], mask_resized.shape[:2])
     if final_mask is None:
         final_mask = np.zeros((raw_image.shape[0], raw_image.shape[1]), dtype = np.uint8)
     else:
