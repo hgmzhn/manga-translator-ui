@@ -928,30 +928,14 @@ class ConcurrentPipeline:
                                 
                                 if inpainted_snapshot is not None:
                                     try:
-                                        import cv2
-
-                                        from .generic import imwrite_unicode
-                                        from .path_manager import get_inpainted_path
-
-                                        inpainted_path = get_inpainted_path(
+                                        saved_inpainted_path = self.translator._save_inpainted_image(
                                             ctx.image_name,
-                                            create_dir=True,
+                                            inpainted_snapshot,
                                         )
-                                        written = imwrite_unicode(
-                                            inpainted_path,
-                                            cv2.cvtColor(
-                                                inpainted_snapshot,
-                                                cv2.COLOR_RGB2BGR,
-                                            ),
-                                            logger,
-                                        )
-                                        if not written:
+                                        if saved_inpainted_path is None:
                                             raise OSError(
-                                                f"Failed to write inpainted image: {inpainted_path}"
+                                                f"Failed to write inpainted image: {ctx.image_name}"
                                             )
-                                        logger.info(
-                                            f"[渲染] 修复后图片已保存: {inpainted_path}"
-                                        )
                                     finally:
                                         inpainted_snapshot = None
                                 

@@ -17,6 +17,7 @@ from .generic import (
     build_det_rearrange_plan,
     det_rearrange_patch_spans,
     det_rearrange_split_view,
+    open_pil_image,
 )
 from .inference import ModelWrapper
 from .log import get_logger
@@ -302,16 +303,13 @@ class MangaLensBubbleDetector(ModelWrapper):
                 )
             )
         return detections
-
     @staticmethod
     def _load_input_image(image: ImageInput) -> np.ndarray:
         if isinstance(image, np.ndarray):
             img = image
         else:
-            img = cv2.imread(str(image), cv2.IMREAD_COLOR)
-            if img is None:
-                raise FileNotFoundError(f"Failed to read image: {image}")
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            with open_pil_image(image, eager=True) as pil_image:
+                img = np.array(pil_image.convert("RGB"))
 
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
