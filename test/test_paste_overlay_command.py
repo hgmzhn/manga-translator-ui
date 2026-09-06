@@ -82,3 +82,33 @@ def test_replace_command_is_isolated_from_caller_mutation():
     target[0]["name"] = "mutated"
     stack.redo()
     assert model.get_paste_overlays()[0]["name"] == "a"
+
+
+def test_select_paste_overlay_clears_region_selection():
+    from unittest.mock import MagicMock
+
+    from ui.editor.graphics_view_paste_overlays import GraphicsViewPasteOverlayMixin
+
+    class DummyView(GraphicsViewPasteOverlayMixin):
+        def __init__(self, model):
+            self.model = model
+            self.scene = MagicMock()
+            self._paste_overlay_items = []
+            self._selected_paste_overlay_id = None
+
+    model = EditorModel()
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=np.full((5, 7, 3), 3, dtype=np.uint8),
+            regions=[{"translation": "test"}],
+        )
+    )
+    model.set_selection([0])
+    assert model.get_selection() == [0]
+
+    view = DummyView(model)
+    view.select_paste_overlay("ovl-1")
+    assert model.get_selection() == []
+    assert view._selected_paste_overlay_id == "ovl-1"
+

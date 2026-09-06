@@ -279,19 +279,19 @@ class EditorShortcutManager(ShortcutManager):
             # 如果焦点在文本控件上，让文本控件处理复制
             focused_widget.copy()
         else:
+            # 若画布上有选中的贴片，优先复制贴片
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            overlay_id = getattr(
+                graphics_view, "_selected_paste_overlay_id", None
+            )
+            if overlay_id:
+                self.controller.copy_paste_overlay(overlay_id)
+                return
             # 否则复制选中的区域
             selected_regions = self.editor_view.model.get_selection()
             if selected_regions:
                 # 复制最后选中的区域
                 self.controller.copy_region(selected_regions[-1])
-            else:
-                # 无选中区域时，复制选中的贴片
-                graphics_view = getattr(self.editor_view, "graphics_view", None)
-                overlay_id = getattr(
-                    graphics_view, "_selected_paste_overlay_id", None
-                )
-                if overlay_id:
-                    self.controller.copy_paste_overlay(overlay_id)
 
     def _handle_paste(self, focused_widget):
         """处理粘贴快捷键"""
@@ -361,18 +361,19 @@ class EditorShortcutManager(ShortcutManager):
     def _handle_delete(self, focused_widget):
         """处理删除快捷键"""
         if not self.is_text_widget(focused_widget):
-            # 只有在非文本控件上才处理删除区域
-            selected_regions = self.editor_view.model.get_selection()
-            if selected_regions:
-                self.controller.delete_regions(selected_regions)
-                return
-            # 无选中区域时，若画布上有选中的贴片则删除贴片
+            # 若画布上有选中的贴片，优先删除贴片
             graphics_view = getattr(self.editor_view, "graphics_view", None)
             if (
                 graphics_view is not None
                 and getattr(graphics_view, "_selected_paste_overlay_id", None)
             ):
                 graphics_view.delete_selected_paste_overlay()
+                return
+            # 否则处理删除选中的区域
+            selected_regions = self.editor_view.model.get_selection()
+            if selected_regions:
+                self.controller.delete_regions(selected_regions)
+                return
 
     def _handle_save(self, focused_widget):
         """处理保存快捷键 (Ctrl+S)。"""
@@ -500,47 +501,50 @@ class EditorShortcutManager(ShortcutManager):
                 # 无论有无选中都吞掉事件——这是"调字号/缩放贴片"语义，
                 # 决不能穿透成画布缩放，让用户以为在调字号实际在缩放。
                 elif modifiers & Qt.KeyboardModifier.ControlModifier:
-                    selected_regions = self.editor_view.model.get_selection()
                     angle_delta = event.angleDelta().y()
                     if angle_delta == 0:
                         angle_delta = event.pixelDelta().y()
-                    if selected_regions:
-                        for region_index in selected_regions:
-                            region_data = self.editor_view.model.get_region_by_index(
-                                region_index
-                            )
-                            if region_data:
-                                old_size = region_data.get("font_size", 20)
-                                delta = max(1, int(old_size * 0.05))
-                                new_size = max(
-                                    1,
-                                    old_size
-                                    + (delta if angle_delta > 0 else -delta),
+                    if angle_delta == 0:
+                        return True
+
+                    graphics_view = getattr(
+                        self.editor_view, "graphics_view", None
+                    )
+                    overlay_id = getattr(
+                        graphics_view, "_selected_paste_overlay_id", None
+                    )
+                    if overlay_id:
+                        step = 1.05 if angle_delta > 0 else 1.0 / 1.05
+                        for overlay in self.editor_view.model.get_paste_overlays():
+                            if overlay.get("id") == overlay_id:
+                                width = float(overlay.get("width", 1.0))
+                                height = float(overlay.get("height", 1.0))
+                                self.controller.update_paste_overlay(
+                                    overlay_id,
+                                    {
+                                        "width": round(width * step, 1),
+                                        "height": round(height * step, 1),
+                                    },
                                 )
-                                self.controller.update_font_size(
-                                    region_index, new_size
-                                )
+                                break
                     else:
-                        graphics_view = getattr(
-                            self.editor_view, "graphics_view", None
-                        )
-                        overlay_id = getattr(
-                            graphics_view, "_selected_paste_overlay_id", None
-                        )
-                        if overlay_id:
-                            step = 1.05 if angle_delta > 0 else 1.0 / 1.05
-                            for overlay in self.editor_view.model.get_paste_overlays():
-                                if overlay.get("id") == overlay_id:
-                                    width = float(overlay.get("width", 1.0))
-                                    height = float(overlay.get("height", 1.0))
-                                    self.controller.update_paste_overlay(
-                                        overlay_id,
-                                        {
-                                            "width": round(width * step, 1),
-                                            "height": round(height * step, 1),
-                                        },
+                        selected_regions = self.editor_view.model.get_selection()
+                        if selected_regions:
+                            for region_index in selected_regions:
+                                region_data = self.editor_view.model.get_region_by_index(
+                                    region_index
+                                )
+                                if region_data:
+                                    old_size = region_data.get("font_size", 20)
+                                    delta = max(1, int(old_size * 0.05))
+                                    new_size = max(
+                                        1,
+                                        old_size
+                                        + (delta if angle_delta > 0 else -delta),
                                     )
-                                    break
+                                    self.controller.update_font_size(
+                                        region_index, new_size
+                                    )
                     return True  # 阻止事件继续传递
 
         # 其他事件继续传递

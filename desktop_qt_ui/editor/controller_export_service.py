@@ -21,16 +21,6 @@ if TYPE_CHECKING:
     from .editor_controller import EditorController
 
 
-def _model_paste_overlays(model) -> list:
-    """读取模型贴片列表；测试里的 stub model 可能没有该方法，回退空列表。"""
-    getter = getattr(model, "get_paste_overlays", None)
-    if callable(getter):
-        try:
-            return list(getter() or [])
-        except Exception:
-            return []
-    return []
-
 
 def _close_images(*images: object) -> None:
     closed: set[int] = set()
@@ -220,7 +210,7 @@ class EditorControllerExportService:
                 config,
                 paint_overlay=self.model.get_paint_overlay_image(),
                 stamp_overlay=self.model.get_stamp_overlay_image(),
-                paste_overlays=_model_paste_overlays(self.model),
+                paste_overlays=self.model.get_paste_overlays() or [],
             )
             if inpainted_image is not None:
                 self._export_service.save_inpainted_image(
@@ -264,7 +254,7 @@ class EditorControllerExportService:
                 config=config,
                 paint_overlay=self.model.get_paint_overlay_image(),
                 stamp_overlay=self.model.get_stamp_overlay_image(),
-                paste_overlays=tuple(_model_paste_overlays(self.model)),
+                paste_overlays=tuple(self.model.get_paste_overlays() or ()),
             )
             future = self._submit_job(job)
             if future is None:

@@ -14,10 +14,6 @@ from __future__ import annotations
 import math
 import os
 
-from editor.paste_overlay_state import (
-    png_base64_to_rgba_overlay,
-    rgba_overlay_to_png_base64,
-)
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (
     QBrush,
@@ -33,6 +29,11 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPixmapItem,
     QGraphicsSceneMouseEvent,
+)
+
+from editor.paste_overlay_state import (
+    png_base64_to_rgba_overlay,
+    rgba_overlay_to_png_base64,
 )
 
 from .graphics_items import (
@@ -471,6 +472,9 @@ class PasteOverlayItem(QGraphicsPixmapItem):
         if event.button() != Qt.MouseButton.LeftButton or not self._drag_enabled():
             super().mousePressEvent(event)
             return
+        view = self._paste_view
+        if view is not None and getattr(view, "model", None) is not None:
+            view.model.set_selection([])
         # 注意：这里不立即补“选中框”。选中框的创建会触发 prepareGeometryChange，
         # 若在鼠标按下的事件分发中改几何，可能出现按下瞬间整张贴片偏移一帧、
         # 松手又恢复的闪烁。选中态统一放到 mouseRelease（提交后重建）再补。
@@ -633,6 +637,8 @@ class GraphicsViewPasteOverlayMixin:
     def select_paste_overlay(self, overlay_id: str) -> None:
         """选中唯一贴片（画布级状态，不进入 region 选择体系）。"""
         self._selected_paste_overlay_id = overlay_id
+        if hasattr(self, "model") and self.model:
+            self.model.set_selection([])
         for item in self._paste_overlay_items:
             item.set_selected(item.overlay_id() == overlay_id)
         self.scene.update()

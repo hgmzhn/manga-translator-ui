@@ -1431,7 +1431,7 @@ class MangaTranslator:
         if pending:
             try:
                 # 物化磁盘持久化的可编辑贴片列表；解析/合成失败则跳过，不影响其它层
-                from editor.paste_overlay_state import (
+                from desktop_qt_ui.editor.paste_overlay_state import (
                     compose_paste_overlays,
                     parse_page_paste_overlays,
                 )
