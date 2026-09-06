@@ -303,3 +303,14 @@ def test_compose_clamps_overlay_partially_outside_canvas():
     assert composite is not None
     assert composite[0, 0, 3] > 250
     assert composite[0, 0, 0] > 200
+
+
+def test_paste_overlay_supported_suffixes_aligns_with_global():
+    from desktop_qt_ui.ui.editor.graphics_view_paste_overlays import _IMAGE_SUFFIXES
+    from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
+
+    assert set(SUPPORTED_IMAGE_EXTENSIONS).issubset(_IMAGE_SUFFIXES)
+    assert ".jfif" in _IMAGE_SUFFIXES
+    assert ".png" in _IMAGE_SUFFIXES
+    assert ".webp" in _IMAGE_SUFFIXES
+    assert ".bmp" in _IMAGE_SUFFIXES

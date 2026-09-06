@@ -1,6 +1,6 @@
 ---
 title: Paste Overlays
-description: Drop PNG/JPG assets onto the canvas as independent overlays with move, resize, rotate, copy/paste, persistence and export support
+description: Drop image assets (PNG/JPG/WebP/etc.) onto the canvas as independent overlays with move, resize, rotate, copy/paste, persistence and export support
 pageId: desktop.editor.paste-overlays
 lang: en-US
 outline: [2, 4]
@@ -9,11 +9,11 @@ lastUpdated: true
 
 # Paste Overlays
 
-Besides writing translations into text regions, typesetting often needs to place **cut-out image assets** on the page: hand-written characters, SFX, stamps, stickers, or background patches borrowed from another page. Text regions are a poor fit for that, so previously people composited such assets outside the editor and pasted the finished page back. The editor's *paste overlay* object covers this use case: drop a PNG/JPG straight onto the canvas and edit its position, size, rotation, opacity and stacking independently, with the result persisted per page and baked into exports.
+Besides writing translations into text regions, typesetting often needs to place **cut-out image assets** on the page: hand-written characters, SFX, stamps, stickers, or background patches borrowed from another page. Text regions are a poor fit for that, so previously people composited such assets outside the editor and pasted the finished page back. The editor's *paste overlay* object covers this use case: drop an image asset (PNG/JPG/WebP/etc.) straight onto the canvas and edit its position, size, rotation, opacity and stacking independently, with the result persisted per page and baked into exports.
 
 ## What it does
 
-- Dropping **PNG/JPG/WebP** creates a page-level overlay centered at the drop point, selected immediately; oversized assets (edge > 2048 px) are scaled down automatically.
+- Dropping supported image assets (**PNG/JPG/WebP/BMP/TIFF/AVIF**, etc.) creates a page-level overlay centered at the drop point, selected immediately; oversized assets (edge > 2048 px) are scaled down automatically.
 - Once selected, editing follows the same habits as text regions: **move / corner uniform resize / top rotation / hover cursors**; `Ctrl+Wheel` scales uniformly, `Ctrl+C` / `Ctrl+V` copy & paste, `Delete` removes, `Ctrl+Z` undoes.
 - Each change (move/resize/rotate/add/remove) is an undoable command.
 - Overlays are persisted with the page (see Storage below) and restored when reopening; **export** composites them into the final image at the same position/size/orientation as shown on the canvas, below rendered text.
@@ -24,7 +24,7 @@ Besides writing translations into text regions, typesetting often needs to place
 ### Adding an overlay
 
 1. Open the editor and load a manga page.
-2. Drag a PNG/JPG from Explorer onto the canvas and release — it lands where you drop it.
+2. Drag an image from Explorer onto the canvas and release — it lands where you drop it.
 3. Alternatively copy an existing overlay by selecting it and pressing `Ctrl+C`, then press `Ctrl+V` to paste a copy at the mouse position.
 
 Overlays and text regions do not interfere: clicking an overlay selects the overlay, clicking a text region selects the region; clicking empty canvas or a text region dismisses the overlay handles.

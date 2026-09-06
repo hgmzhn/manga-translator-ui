@@ -31,6 +31,8 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent,
 )
 
+from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
+
 from editor.paste_overlay_state import (
     png_base64_to_rgba_overlay,
     rgba_overlay_to_png_base64,
@@ -45,7 +47,7 @@ from .graphics_items import (
 
 _PASTE_BASE_Z = 50
 _PASTE_MAX_DIMENSION = 2048
-_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+_IMAGE_SUFFIXES = set(SUPPORTED_IMAGE_EXTENSIONS)
 _ROTATE_OFFSET_PX = 40.0
 
 
