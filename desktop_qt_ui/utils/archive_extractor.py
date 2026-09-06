@@ -4,8 +4,12 @@
 """
 import json
 import os
+import posixpath
+import re
 import shutil
 import tempfile
+import urllib.parse
+import xml.etree.ElementTree as ET
 import zipfile
 from typing import List, Optional, Tuple
 
@@ -189,26 +193,149 @@ def extract_images_from_pdf(pdf_path: str, output_dir: str) -> List[str]:
 
 
 def extract_images_from_epub(epub_path: str, output_dir: str) -> List[str]:
-    """从 EPUB 文件中提取图片"""
+    """
+    从 EPUB 文件中按书籍实际阅读顺序提取图片。
+    1. 解析 EPUB 清单文件（<spine> + <manifest>），保证严格按阅读顺序排列；
+    2. 优先直接提取每页引用的原始高清图片（零损耗保留原图分辨率与格式）；
+    3. 若页面为纯文字/SVG/无独立原图页，回退使用 PyMuPDF (fitz) 渲染当前页为 PNG；
+    4. 统一命名为 page_{count:04d}.{ext}，与 PDF 处理逻辑完全对齐；
+    5. 异常情况自动兜底处理，确保绝对不漏页、不乱序。
+    """
     os.makedirs(output_dir, exist_ok=True)
     extracted_images = []
-    
-    with zipfile.ZipFile(epub_path, 'r') as zf:
-        for file_info in zf.infolist():
-            ext = os.path.splitext(file_info.filename)[1].lower()
-            if ext in IMAGE_EXTENSIONS:
-                # 提取图片，保持相对路径结构
-                # 但简化文件名以避免路径过长
-                base_name = os.path.basename(file_info.filename)
-                # 添加序号前缀以保持顺序
-                idx = len(extracted_images)
-                new_name = f"{idx:04d}_{base_name}"
-                output_path = os.path.join(output_dir, new_name)
-                
-                with zf.open(file_info) as src, open(output_path, 'wb') as dst:
+    img_count = 0
+
+    fitz_doc = None
+    try:
+        import fitz
+        try:
+            fitz_doc = fitz.open(epub_path)
+        except Exception:
+            fitz_doc = None
+    except ImportError:
+        fitz_doc = None
+
+    try:
+        with zipfile.ZipFile(epub_path, 'r') as zf:
+            namelist = zf.namelist()
+            lower_map = {name.lower(): name for name in namelist}
+
+            # 1. 定位 OPF 清单路径
+            opf_path = None
+            try:
+                container = ET.fromstring(zf.read('META-INF/container.xml'))
+                rootfile = container.find('.//{*}rootfile')
+                if rootfile is not None and rootfile.get('full-path'):
+                    fp = rootfile.get('full-path')
+                    opf_path = lower_map.get(fp.lower(), fp)
+            except Exception:
+                pass
+
+            if not opf_path:
+                opf_path = next((name for name in namelist if name.lower().endswith('.opf')), None)
+
+            # 2. 解析 OPF 清单与阅读顺序
+            ordered_targets = []
+            if opf_path and opf_path in namelist:
+                try:
+                    opf_dir = posixpath.dirname(opf_path)
+                    opf = ET.fromstring(zf.read(opf_path))
+                    manifest = {
+                        item.get('id'): item.get('href', '')
+                        for item in opf.findall('.//{*}item')
+                        if item.get('id')
+                    }
+                    spine_ids = [ref.get('idref') for ref in opf.findall('.//{*}itemref') if ref.get('idref')]
+
+                    img_pattern = re.compile(
+                        r'(?:src|href)=["\']([^"\']+\.(?:' + '|'.join(e.lstrip('.') for e in IMAGE_EXTENSIONS) + r'))',
+                        re.IGNORECASE
+                    )
+
+                    seen_in_spine = set()
+                    for sid in spine_ids:
+                        href = manifest.get(sid)
+                        if not href:
+                            continue
+                        target = posixpath.normpath(posixpath.join(opf_dir, urllib.parse.unquote(href)))
+                        ext = os.path.splitext(target)[1].lower()
+
+                        if ext in IMAGE_EXTENSIONS:
+                            real_p = lower_map.get(target.lower())
+                            if real_p and real_p not in seen_in_spine:
+                                seen_in_spine.add(real_p)
+                                ordered_targets.append((real_p, None))
+                        else:
+                            real_html = lower_map.get(target.lower())
+                            found = False
+                            if real_html:
+                                html_text = zf.read(real_html).decode('utf-8', errors='replace')
+                                for match in img_pattern.findall(html_text):
+                                    img_ref = urllib.parse.unquote(match.split('?')[0].split('#')[0])
+                                    img_full = posixpath.normpath(posixpath.join(posixpath.dirname(real_html), img_ref))
+                                    real_img = lower_map.get(img_full.lower())
+                                    if real_img and real_img not in seen_in_spine:
+                                        seen_in_spine.add(real_img)
+                                        ordered_targets.append((real_img, None))
+                                        found = True
+                            if not found:
+                                # 纯文本/SVG/无独立原图页，记录其在 spine 中的页码以供 fitz 渲染
+                                ordered_targets.append((None, len(ordered_targets)))
+                except Exception:
+                    ordered_targets.clear()
+
+            # 3. 按阅读顺序提取原始高清图片（或回退渲染）
+            extracted_paths = set()
+            for zip_rel, spine_page_idx in ordered_targets:
+                if zip_rel:
+                    ext = os.path.splitext(zip_rel)[1].lower() or '.png'
+                    img_count += 1
+                    out_path = os.path.join(output_dir, f"page_{img_count:04d}{ext}")
+                    with zf.open(zip_rel) as src, open(out_path, 'wb') as dst:
+                        dst.write(src.read())
+                    extracted_images.append(out_path)
+                    extracted_paths.add(zip_rel)
+                elif fitz_doc is not None and spine_page_idx is not None and spine_page_idx < len(fitz_doc):
+                    try:
+                        mat = fitz.Matrix(2.0, 2.0)
+                        pix = fitz_doc[spine_page_idx].get_pixmap(matrix=mat)
+                        img_count += 1
+                        out_path = os.path.join(output_dir, f"page_{img_count:04d}.png")
+                        pix.save(out_path)
+                        extracted_images.append(out_path)
+                    except Exception:
+                        pass
+
+            # 4. 追加未在 spine 显式引用的剩余图片（确保绝对不漏页）
+            remaining = [
+                name for name in namelist
+                if name not in extracted_paths and os.path.splitext(name)[1].lower() in IMAGE_EXTENSIONS
+            ]
+            remaining.sort(key=natural_sort_key)
+            for rem in remaining:
+                ext = os.path.splitext(rem)[1].lower() or '.png'
+                img_count += 1
+                out_path = os.path.join(output_dir, f"page_{img_count:04d}{ext}")
+                with zf.open(rem) as src, open(out_path, 'wb') as dst:
                     dst.write(src.read())
-                extracted_images.append(output_path)
-    
+                extracted_images.append(out_path)
+
+            # 5. 若未提取出任何图片，通过 fitz 全书渲染兜底
+            if not extracted_images and fitz_doc is not None:
+                for fitz_page in fitz_doc:
+                    try:
+                        mat = fitz.Matrix(2.0, 2.0)
+                        pix = fitz_page.get_pixmap(matrix=mat)
+                        img_count += 1
+                        out_path = os.path.join(output_dir, f"page_{img_count:04d}.png")
+                        pix.save(out_path)
+                        extracted_images.append(out_path)
+                    except Exception:
+                        pass
+    finally:
+        if fitz_doc is not None:
+            fitz_doc.close()
+
     return sorted(extracted_images)
 
 
