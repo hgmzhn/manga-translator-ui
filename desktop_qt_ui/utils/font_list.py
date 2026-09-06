@@ -124,12 +124,19 @@ def list_font_files() -> list[tuple[str, str]]:
     catalog_changed = False
     if QGuiApplication.instance() is not None:
         fonts_dir = fonts_directory()
+        current_paths = set()
         for _stem, filename in _FONT_FILE_LIST_CACHE:
             path = os.path.normcase(os.path.abspath(os.path.join(fonts_dir, filename)))
+            current_paths.add(path)
             if path in _REGISTERED_FONT_FAMILIES:
                 continue
             _REGISTERED_FONT_FAMILIES[path] = register_font_file(path)
             _remember_original_font_names(path)
+            catalog_changed = True
+        removed_paths = set(_REGISTERED_FONT_FAMILIES.keys()) - current_paths
+        if removed_paths:
+            for path in removed_paths:
+                _REGISTERED_FONT_FAMILIES.pop(path, None)
             catalog_changed = True
         if catalog_changed:
             _font_family_name_records.cache_clear()
@@ -480,6 +487,7 @@ def list_font_family_entries(
     locale_code: str,
     include_system: bool | None = None,
 ) -> list[tuple[str, str, tuple[str, ...]]]:
+    list_font_files()
     if include_system is None:
         include_system = _SYSTEM_FONTS_ENABLED
     return list(_list_font_family_entries_cached(locale_code, bool(include_system)))
@@ -627,6 +635,7 @@ def list_font_style_entries(
     locale_code: str,
     include_system: bool | None = None,
 ) -> list[tuple[str, str, tuple[str, ...]]]:
+    list_font_files()
     if include_system is None:
         include_system = _SYSTEM_FONTS_ENABLED
     return list(_list_font_style_entries_cached(locale_code, bool(include_system)))
@@ -1236,7 +1245,9 @@ class FontComboBox(TopLevelComboBox):
         if 0 <= row < self.count():
             self._onItemClicked(row)
 
-    def refresh(self, current_family: str | None = None) -> None:
+    def refresh(self, current_family: str | None = None, force: bool = False) -> None:
+        if force:
+            _clear_font_catalog_caches()
         family = (
             self.currentFamily()
             if current_family is None
