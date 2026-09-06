@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from .editor_controller import EditorController
 
 
-
 def _close_images(*images: object) -> None:
     closed: set[int] = set()
     for image in images:

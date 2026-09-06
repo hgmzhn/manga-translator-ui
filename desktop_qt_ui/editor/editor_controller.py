@@ -1518,14 +1518,19 @@ class EditorController(QObject):
         return True
 
     def copy_paste_overlay(self, overlay_id: str) -> bool:
-        """复制贴片到贴片剪贴板（与 region 剪贴板相互独立）。"""
+        """复制贴片到贴片剪贴板。"""
         if self.model.get_source_image_path() is None:
             return False
         for overlay in self.model.get_paste_overlays():
             if overlay.get("id") == overlay_id:
                 self._paste_overlay_clipboard = copy.deepcopy(overlay)
+                self._last_clipboard_kind = "paste_overlay"
                 return True
         return False
+
+    def last_clipboard_kind(self) -> str | None:
+        """返回最近一次复制的对象类型 ('paste_overlay' | 'region' | None)。"""
+        return getattr(self, "_last_clipboard_kind", None)
 
     def paste_overlay_clipboard_available(self) -> bool:
         return bool(getattr(self, "_paste_overlay_clipboard", None))
@@ -1596,6 +1601,7 @@ class EditorController(QObject):
 
         # 将区域数据保存到历史服务的剪贴板
         self.history_service.copy_to_clipboard(copy.deepcopy(region_data))
+        self._last_clipboard_kind = "region"
 
     def paste_region_style(self, region_index: int):
         """将复制的样式粘贴到指定区域"""

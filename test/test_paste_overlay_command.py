@@ -112,3 +112,58 @@ def test_select_paste_overlay_clears_region_selection():
     assert model.get_selection() == []
     assert view._selected_paste_overlay_id == "ovl-1"
 
+
+def test_clipboard_tracks_last_copied_kind(monkeypatch):
+    from editor.editor_controller import EditorController
+    from services.history_service import EditorStateManager
+
+    history = EditorStateManager()
+    monkeypatch.setattr(
+        "editor.editor_controller.get_history_service", lambda: history
+    )
+
+    model = EditorModel()
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=np.full((5, 7, 3), 3, dtype=np.uint8),
+            regions=[{"translation": "text"}],
+            paste_overlays=[_overlay("a", "ovl-a")],
+        )
+    )
+    controller = EditorController(model)
+
+    assert controller.last_clipboard_kind() is None
+    assert controller.copy_paste_overlay("ovl-a") is True
+    assert controller.last_clipboard_kind() == "paste_overlay"
+    assert controller.paste_overlay_clipboard_available() is True
+
+    # 复制文本区域后，最近类型切换为 region
+    controller.copy_region(0)
+    assert controller.last_clipboard_kind() == "region"
+    assert controller.history_service.has_clipboard_data() is True
+
+
+def test_rebuild_resets_dangling_selected_overlay_id():
+    from unittest.mock import MagicMock
+
+    from PyQt6.QtWidgets import QApplication
+
+    _ = QApplication.instance() or QApplication([])
+    from ui.editor.graphics_view_paste_overlays import GraphicsViewPasteOverlayMixin
+
+    class DummyView(GraphicsViewPasteOverlayMixin):
+        def __init__(self, model):
+            self.model = model
+            self.scene = MagicMock()
+            self._image_item = MagicMock()
+            self._paste_overlay_items = []
+            self._selected_paste_overlay_id = "old-page-id"
+
+    model = _model_with_page()
+    model.set_paste_overlays([_overlay("a", "new-page-id")])
+    view = DummyView(model)
+
+    view._rebuild_paste_overlay_items()
+    assert view._selected_paste_overlay_id is None
+

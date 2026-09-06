@@ -307,19 +307,39 @@ class EditorShortcutManager(ShortcutManager):
             elif selected_regions:
                 # 多选区域：沿用既有逻辑（粘贴新区域到鼠标位置）
                 self._paste_new_region_at_cursor()
-            elif self.controller.paste_overlay_clipboard_available():
-                # 无选中区域且有贴片剪贴板：粘贴贴片到鼠标位置
-                # 贴片几何是场景坐标（源图像素），不能走 _cursor_image_position 的图像局部坐标
-                mouse_scene_pos = self._cursor_scene_position()
-                if self.controller.paste_paste_overlay(mouse_scene_pos):
-                    graphics_view = getattr(self.editor_view, "graphics_view", None)
-                    if graphics_view is not None:
-                        overlays = self.editor_view.model.get_paste_overlays()
-                        if overlays:
-                            graphics_view.select_paste_overlay(overlays[-1]["id"])
             else:
-                # 无贴片剪贴板：沿用既有逻辑（粘贴新区域到鼠标位置）
-                self._paste_new_region_at_cursor()
+                last_kind = (
+                    self.controller.last_clipboard_kind()
+                    if hasattr(self.controller, "last_clipboard_kind")
+                    else None
+                )
+                has_overlay = self.controller.paste_overlay_clipboard_available()
+                has_region = bool(
+                    getattr(self.controller, "history_service", None)
+                    and self.controller.history_service.has_clipboard_data()
+                )
+
+                if last_kind == "paste_overlay" and has_overlay:
+                    self._paste_paste_overlay_at_cursor()
+                elif last_kind == "region" and has_region:
+                    self._paste_new_region_at_cursor()
+                elif has_overlay:
+                    self._paste_paste_overlay_at_cursor()
+                else:
+                    self._paste_new_region_at_cursor()
+
+    def _paste_paste_overlay_at_cursor(self) -> None:
+        """无选中区域且有贴片剪贴板：粘贴贴片到鼠标位置。
+
+        贴片几何是场景坐标（源图像素），不能走 _cursor_image_position 的图像局部坐标。
+        """
+        mouse_scene_pos = self._cursor_scene_position()
+        if self.controller.paste_paste_overlay(mouse_scene_pos):
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            if graphics_view is not None:
+                overlays = self.editor_view.model.get_paste_overlays()
+                if overlays:
+                    graphics_view.select_paste_overlay(overlays[-1]["id"])
 
     def _cursor_image_position(self):
         """把当前鼠标位置换算成图像（场景）坐标；无画布时返回 None。"""

@@ -575,6 +575,10 @@ class GraphicsViewPasteOverlayMixin:
             return
         overlays = self.model.get_paste_overlays() if self.model else []
         selected_id = getattr(self, "_selected_paste_overlay_id", None)
+        valid_ids = {str(item.get("id", "")) for item in overlays}
+        if selected_id not in valid_ids:
+            self._selected_paste_overlay_id = None
+            selected_id = None
         new_items = []
         for overlay in overlays:
             overlay_id = str(overlay.get("id", ""))

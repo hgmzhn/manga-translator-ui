@@ -25,7 +25,7 @@ Besides writing translations into text regions, typesetting often needs to place
 
 1. Open the editor and load a manga page.
 2. Drag a PNG/JPG from Explorer onto the canvas and release — it lands where you drop it.
-3. Alternatively copy an existing overlay (property panel / context menu) and press `Ctrl+V` to paste a copy at the mouse position.
+3. Alternatively copy an existing overlay by selecting it and pressing `Ctrl+C`, then press `Ctrl+V` to paste a copy at the mouse position.
 
 Overlays and text regions do not interfere: clicking an overlay selects the overlay, clicking a text region selects the region; clicking empty canvas or a text region dismisses the overlay handles.
 
