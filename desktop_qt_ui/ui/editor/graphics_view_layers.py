@@ -41,6 +41,7 @@ class GraphicsViewLayersMixin:
                 except (RuntimeError, AttributeError):
                     pass
             self._region_items.clear()
+            self._clear_paste_overlay_items()
 
             if self._image_item is not None:
                 if self._image_item.scene() is not None:

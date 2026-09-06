@@ -279,6 +279,14 @@ class EditorShortcutManager(ShortcutManager):
             # 如果焦点在文本控件上，让文本控件处理复制
             focused_widget.copy()
         else:
+            # 若画布上有选中的贴片，优先复制贴片
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            overlay_id = getattr(
+                graphics_view, "_selected_paste_overlay_id", None
+            )
+            if overlay_id:
+                self.controller.copy_paste_overlay(overlay_id)
+                return
             # 否则复制选中的区域
             selected_regions = self.editor_view.model.get_selection()
             if selected_regions:
@@ -296,41 +304,99 @@ class EditorShortcutManager(ShortcutManager):
             if selected_regions and len(selected_regions) == 1:
                 # 有单个选中区域时，粘贴样式
                 self.controller.paste_region_style(selected_regions[0])
+            elif selected_regions:
+                # 多选区域：沿用既有逻辑（粘贴新区域到鼠标位置）
+                self._paste_new_region_at_cursor()
             else:
-                # 无选中区域时，粘贴新区域到鼠标位置
-                from PyQt6.QtGui import QCursor
+                last_kind = (
+                    self.controller.last_clipboard_kind()
+                    if hasattr(self.controller, "last_clipboard_kind")
+                    else None
+                )
+                has_overlay = self.controller.paste_overlay_clipboard_available()
+                has_region = bool(
+                    getattr(self.controller, "history_service", None)
+                    and self.controller.history_service.has_clipboard_data()
+                )
 
-                if (
-                    self.editor_view.graphics_view
-                    and self.editor_view.graphics_view._image_item
-                ):
-                    mouse_pos_scene = self.editor_view.graphics_view.mapToScene(
-                        self.editor_view.graphics_view.mapFromGlobal(QCursor.pos())
-                    )
-                    mouse_pos_image = (
-                        self.editor_view.graphics_view._image_item.mapFromScene(
-                            mouse_pos_scene
-                        )
-                    )
-                    self.controller.paste_region(mouse_pos_image)
+                if last_kind == "paste_overlay" and has_overlay:
+                    self._paste_paste_overlay_at_cursor()
+                elif last_kind == "region" and has_region:
+                    self._paste_new_region_at_cursor()
+                elif has_overlay:
+                    self._paste_paste_overlay_at_cursor()
                 else:
-                    self.controller.paste_region()
+                    self._paste_new_region_at_cursor()
+
+    def _paste_paste_overlay_at_cursor(self) -> None:
+        """无选中区域且有贴片剪贴板：粘贴贴片到鼠标位置。
+
+        贴片几何是场景坐标（源图像素），不能走 _cursor_image_position 的图像局部坐标。
+        """
+        mouse_scene_pos = self._cursor_scene_position()
+        if self.controller.paste_paste_overlay(mouse_scene_pos):
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            if graphics_view is not None:
+                overlays = self.editor_view.model.get_paste_overlays()
+                if overlays:
+                    graphics_view.select_paste_overlay(overlays[-1]["id"])
+
+    def _cursor_image_position(self):
+        """把当前鼠标位置换算成图像（场景）坐标；无画布时返回 None。"""
+        from PyQt6.QtGui import QCursor
+
+        graphics_view = getattr(self.editor_view, "graphics_view", None)
+        if not graphics_view or not graphics_view._image_item:
+            return None
+        mouse_pos_scene = graphics_view.mapToScene(
+            graphics_view.mapFromGlobal(QCursor.pos())
+        )
+        return graphics_view._image_item.mapFromScene(mouse_pos_scene)
+
+    def _cursor_scene_position(self):
+        """把当前鼠标位置换算成场景坐标（贴片坐标系）；无画布时返回 None。"""
+        from PyQt6.QtGui import QCursor
+
+        graphics_view = getattr(self.editor_view, "graphics_view", None)
+        if not graphics_view or not graphics_view._image_item:
+            return None
+        return graphics_view.mapToScene(graphics_view.mapFromGlobal(QCursor.pos()))
+
+    def _paste_new_region_at_cursor(self):
+        """无选中区域时粘贴新区域到鼠标位置（贴片分支外的原行为）。"""
+        mouse_pos_image = self._cursor_image_position()
+        if mouse_pos_image is not None:
+            self.controller.paste_region(mouse_pos_image)
+        else:
+            self.controller.paste_region()
 
     def _handle_select_all(self, focused_widget):
         """处理全选快捷键"""
         if self.is_text_widget(focused_widget):
             focused_widget.selectAll()
         else:
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            if graphics_view is not None:
+                graphics_view.clear_paste_overlay_selection()
             regions = self.editor_view.model.get_regions()
             self.editor_view.model.set_selection(list(range(len(regions))))
 
     def _handle_delete(self, focused_widget):
         """处理删除快捷键"""
         if not self.is_text_widget(focused_widget):
-            # 只有在非文本控件上才处理删除区域
+            # 若画布上有选中的贴片，优先删除贴片
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            if (
+                graphics_view is not None
+                and getattr(graphics_view, "_selected_paste_overlay_id", None)
+            ):
+                graphics_view.delete_selected_paste_overlay()
+                return
+            # 否则处理删除选中的区域
             selected_regions = self.editor_view.model.get_selection()
             if selected_regions:
                 self.controller.delete_regions(selected_regions)
+                return
 
     def _handle_save(self, focused_widget):
         """处理保存快捷键 (Ctrl+S)。"""
@@ -453,26 +519,55 @@ class EditorShortcutManager(ShortcutManager):
                     self.editor_view.model.set_brush_size(new_size)
                     return True  # 阻止事件继续传递
 
-                # Ctrl + 滚轮（含 Ctrl+Shift 等组合）：调整选中文本框的字体大小。
-                # 无论有无选中都吞掉事件——这是"调字号"语义，
+                # Ctrl + 滚轮（含 Ctrl+Shift 等组合）：调整选中文本框的字体大小；
+                # 无文本框选中但有选中贴片时，等比缩放贴片。
+                # 无论有无选中都吞掉事件——这是"调字号/缩放贴片"语义，
                 # 决不能穿透成画布缩放，让用户以为在调字号实际在缩放。
                 elif modifiers & Qt.KeyboardModifier.ControlModifier:
-                    selected_regions = self.editor_view.model.get_selection()
-                    if selected_regions:
-                        angle_delta = event.angleDelta().y()
-                        if angle_delta == 0:
-                            angle_delta = event.pixelDelta().y()
-                        for region_index in selected_regions:
-                            region_data = self.editor_view.model.get_region_by_index(
-                                region_index
-                            )
-                            if region_data:
-                                old_size = region_data.get("font_size", 20)
-                                delta = max(1, int(old_size * 0.05))
-                                new_size = max(
-                                    1, old_size + (delta if angle_delta > 0 else -delta)
+                    angle_delta = event.angleDelta().y()
+                    if angle_delta == 0:
+                        angle_delta = event.pixelDelta().y()
+                    if angle_delta == 0:
+                        return True
+
+                    graphics_view = getattr(
+                        self.editor_view, "graphics_view", None
+                    )
+                    overlay_id = getattr(
+                        graphics_view, "_selected_paste_overlay_id", None
+                    )
+                    if overlay_id:
+                        step = 1.05 if angle_delta > 0 else 1.0 / 1.05
+                        for overlay in self.editor_view.model.get_paste_overlays():
+                            if overlay.get("id") == overlay_id:
+                                width = float(overlay.get("width", 1.0))
+                                height = float(overlay.get("height", 1.0))
+                                self.controller.update_paste_overlay(
+                                    overlay_id,
+                                    {
+                                        "width": round(width * step, 1),
+                                        "height": round(height * step, 1),
+                                    },
                                 )
-                                self.controller.update_font_size(region_index, new_size)
+                                break
+                    else:
+                        selected_regions = self.editor_view.model.get_selection()
+                        if selected_regions:
+                            for region_index in selected_regions:
+                                region_data = self.editor_view.model.get_region_by_index(
+                                    region_index
+                                )
+                                if region_data:
+                                    old_size = region_data.get("font_size", 20)
+                                    delta = max(1, int(old_size * 0.05))
+                                    new_size = max(
+                                        1,
+                                        old_size
+                                        + (delta if angle_delta > 0 else -delta),
+                                    )
+                                    self.controller.update_font_size(
+                                        region_index, new_size
+                                    )
                     return True  # 阻止事件继续传递
 
         # 其他事件继续传递

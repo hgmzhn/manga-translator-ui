@@ -127,6 +127,10 @@ class EditorStateManager(QObject):
         """从内部剪贴板粘贴数据。"""
         return self.clipboard.paste_from_clipboard()
 
+    def has_clipboard_data(self) -> bool:
+        """检查剪贴板是否有数据。"""
+        return self.clipboard.has_data()
+
     def clear(self):
         """清除历史记录。"""
         while self._macro_depth > 0:

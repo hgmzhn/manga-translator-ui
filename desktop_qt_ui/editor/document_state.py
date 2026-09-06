@@ -102,6 +102,7 @@ class DocumentSnapshot:
     paint_overlay_path: Optional[str] = None
     paint_overlay_image: Any = None
     stamp_overlay_image: Any = None
+    paste_overlays: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +311,7 @@ class EditorDocument:
     inpaint_display_image: Any
     inpaint: InpaintState = field(default_factory=InpaintState)
     _source_rgb: Optional[np.ndarray] = None
+    paste_overlays: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_snapshot(
@@ -337,6 +339,7 @@ class EditorDocument:
             ),
             mask_revision=0,
             inpaint_display_image=snapshot.image,
+            paste_overlays=copy.deepcopy(snapshot.paste_overlays),
         )
         stored = snapshot.inpaint_sidecar
         current_mask = masks.effective()

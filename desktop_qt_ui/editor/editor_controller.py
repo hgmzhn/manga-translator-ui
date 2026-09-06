@@ -1435,6 +1435,128 @@ class EditorController(QObject):
         self.history_service.redo()
         self._update_undo_redo_buttons()
 
+    # --- 贴片（paste overlay）操作方法 ---
+    def _normalize_paste_overlays(self, overlays) -> list:
+        """贴片列表规范化（统一补默认值/id），保证 undo/redo 快照 id 稳定。"""
+        from editor.paste_overlay_state import serialize_paste_overlays
+
+        return serialize_paste_overlays(overlays or [])
+
+    def add_paste_overlay(self, overlay: dict) -> bool:
+        """新增一个贴片（支持撤销）。overlay 可为未规范化字典。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = self._normalize_paste_overlays(before + [overlay])
+        if after == before:
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Add Paste Overlay"
+            )
+        )
+        return True
+
+    def update_paste_overlay(self, overlay_id: str, patch: dict) -> bool:
+        """按 id 更新一个贴片（patch 按字段合并，支持撤销）。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = copy.deepcopy(before)
+        for item in after:
+            if item.get("id") == overlay_id:
+                item.update(copy.deepcopy(patch))
+                break
+        else:
+            return False
+        after = self._normalize_paste_overlays(after)
+        if after == before:
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Update Paste Overlay"
+            )
+        )
+        return True
+
+    def remove_paste_overlay(self, overlay_id: str) -> bool:
+        """按 id 删除一个贴片（支持撤销）。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = [item for item in before if item.get("id") != overlay_id]
+        if len(after) == len(before):
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Remove Paste Overlay"
+            )
+        )
+        return True
+
+    def replace_paste_overlays(self, overlays: list) -> bool:
+        """整表替换贴片列表（用于拖放导入、z 序调整等，支持撤销）。"""
+        from editor.commands import PasteOverlaysReplaceCommand
+
+        if self.model.get_source_image_path() is None:
+            return False
+        before = self.model.get_paste_overlays()
+        after = self._normalize_paste_overlays(overlays)
+        if after == before:
+            return False
+        self.execute_command(
+            PasteOverlaysReplaceCommand(
+                self.model, before, after, description="Replace Paste Overlays"
+            )
+        )
+        return True
+
+    def copy_paste_overlay(self, overlay_id: str) -> bool:
+        """复制贴片到贴片剪贴板。"""
+        if self.model.get_source_image_path() is None:
+            return False
+        for overlay in self.model.get_paste_overlays():
+            if overlay.get("id") == overlay_id:
+                self._paste_overlay_clipboard = copy.deepcopy(overlay)
+                self._last_clipboard_kind = "paste_overlay"
+                return True
+        return False
+
+    def last_clipboard_kind(self) -> str | None:
+        """返回最近一次复制的对象类型 ('paste_overlay' | 'region' | None)。"""
+        return getattr(self, "_last_clipboard_kind", None)
+
+    def paste_overlay_clipboard_available(self) -> bool:
+        return bool(getattr(self, "_paste_overlay_clipboard", None))
+
+    def paste_paste_overlay(self, center: tuple[float, float] | None = None) -> bool:
+        """粘贴贴片：无 center 时相对原位置偏移 (+20,+20)，有则落在 center。"""
+        clipboard = getattr(self, "_paste_overlay_clipboard", None)
+        if clipboard is None or self.model.get_source_image_path() is None:
+            return False
+        clone = copy.deepcopy(clipboard)
+        clone.pop("id", None)  # 重新生成 id，避免与源重复
+        if center is not None:
+            center_x = center.x() if hasattr(center, "x") else center[0]
+            center_y = center.y() if hasattr(center, "y") else center[1]
+            clone["center_x"], clone["center_y"] = float(center_x), float(center_y)
+        else:
+            clone["center_x"] = float(clone.get("center_x", 0.0)) + 20.0
+            clone["center_y"] = float(clone.get("center_y", 0.0)) + 20.0
+        return self.add_paste_overlay(clone)
+
+    def duplicate_paste_overlay(self, overlay_id: str) -> bool:
+        """原地复制一份贴片（偏移 +20, +20），便于快捷键/右键复制副本。"""
+        if not self.copy_paste_overlay(overlay_id):
+            return False
+        return self.paste_paste_overlay()
+
     # --- 右键菜单相关方法 ---
     def ocr_regions(self, region_indices: list):
         """对指定区域进行OCR识别，使用与UI按钮相同的逻辑"""
@@ -1479,6 +1601,7 @@ class EditorController(QObject):
 
         # 将区域数据保存到历史服务的剪贴板
         self.history_service.copy_to_clipboard(copy.deepcopy(region_data))
+        self._last_clipboard_kind = "region"
 
     def paste_region_style(self, region_index: int):
         """将复制的样式粘贴到指定区域"""

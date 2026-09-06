@@ -193,6 +193,33 @@ class ExportService:
                 os.makedirs(output_dir, exist_ok=True)
 
             source_image = job.export_base.source_image
+            # 贴片整页预合成放到导出 worker 里做（GUI 线程不再分配整页缓冲）
+            paste_overlay = None
+            if job.paste_overlays:
+                try:
+                    from editor.paste_overlay_state import compose_paste_overlays
+
+                    canvas_size = getattr(source_image, "size", None)
+                    if not (
+                        isinstance(canvas_size, (tuple, list))
+                        and len(canvas_size) >= 2
+                    ):
+                        shape = getattr(source_image, "shape", None)
+                        canvas_size = (
+                            (shape[1], shape[0])
+                            if shape is not None and len(shape) >= 2
+                            else None
+                        )
+                    if canvas_size:
+                        paste_overlay = compose_paste_overlays(
+                            job.paste_overlays,
+                            (int(canvas_size[0]), int(canvas_size[1])),
+                        )
+                except Exception as compose_error:
+                    # 贴片预合成失败应终止导出（外层会转成失败的 BackendExportResult），
+                    # 不能静默跳过贴片层却返回“成功”
+                    self.logger.error(f"贴片预合成失败，导出终止: {compose_error}")
+                    raise
             payload = self._build_load_text_payload(
                 job.regions,
                 job.export_base,
@@ -200,6 +227,7 @@ class ExportService:
                 base_size=source_image.size,
                 paint_overlay=job.paint_overlay,
                 stamp_overlay=job.stamp_overlay,
+                paste_overlay=paste_overlay,
             )
             translator_params = self._prepare_translator_params(job.config)
             render_started = time.perf_counter()
@@ -258,6 +286,7 @@ class ExportService:
         *,
         paint_overlay: Optional[np.ndarray] = None,
         stamp_overlay: Optional[np.ndarray] = None,
+        paste_overlays: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """Atomically persist the editor snapshot without render-only geometry changes."""
         json_path = find_json_path(image_path) or get_json_path(
@@ -276,6 +305,7 @@ class ExportService:
             preserve_existing_preprocess_flags=True,
             paint_overlay=paint_overlay,
             stamp_overlay=stamp_overlay,
+            paste_overlays=paste_overlays,
         )
         return json_path
 
@@ -285,6 +315,7 @@ class ExportService:
         json_path: str,
         mask: Optional[np.ndarray] = None,
         config: Optional[Dict[str, Any]] = None,
+        paste_overlays: Optional[List[Dict[str, Any]]] = None,
     ):
         """保存区域数据到JSON文件，确保格式与TextBlock兼容（用于导出）"""
         # 使用文件名作为键（向后兼容）
@@ -298,6 +329,7 @@ class ExportService:
             mask,
             config,
             skip_text_replacements=True,
+            paste_overlays=paste_overlays,
         )
 
     def _read_existing_image_data(
@@ -539,6 +571,7 @@ class ExportService:
         base_size,
         paint_overlay: Optional[np.ndarray] = None,
         stamp_overlay: Optional[np.ndarray] = None,
+        paste_overlay: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Build an in-memory payload whose base state is explicit and valid."""
         save_data = self._normalize_regions_for_backend(regions_data, config)
@@ -560,6 +593,8 @@ class ExportService:
             payload["paint_overlay"] = np.asarray(paint_overlay)
         if stamp_overlay is not None:
             payload["stamp_overlay"] = np.asarray(stamp_overlay)
+        if paste_overlay is not None:
+            payload["paste_overlay"] = np.asarray(paste_overlay)
         self.logger.info(
             f"已构建内存导出载荷: 区域数={len(payload['regions'])}, 底图状态={export_base.kind}"
         )
@@ -577,6 +612,7 @@ class ExportService:
         last_export_dir: Optional[str] = None,
         paint_overlay: Optional[np.ndarray] = None,
         stamp_overlay: Optional[np.ndarray] = None,
+        paste_overlays: Optional[List[Dict[str, Any]]] = None,
     ):
         """保存区域数据到JSON文件的内部实现"""
         save_data = self._normalize_regions_for_backend(regions_data, config)
@@ -664,6 +700,18 @@ class ExportService:
                 "utf-8"
             )
             self.logger.info(f"{overlay_key} 已保存（base64 PNG）")
+
+        # 贴片（图块叠加）列表：纯 JSON 字典，图片内容为 base64 PNG（RGBA）
+        if paste_overlays:
+            try:
+                from editor.paste_overlay_state import serialize_paste_overlays
+
+                formatted_data[image_key]["paste_overlays"] = serialize_paste_overlays(
+                    paste_overlays
+                )
+                self.logger.info(f"已写入贴片: {len(paste_overlays)} 个")
+            except Exception as serialize_error:
+                self.logger.error(f"序列化贴片失败，跳过写入: {serialize_error}")
 
         # 添加调试信息
         self.logger.info(f"保存区域数据到: {json_path}")

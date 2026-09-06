@@ -56,6 +56,9 @@ class _Model:
     def get_stamp_overlay_image(self):
         return None
 
+    def get_paste_overlays(self):
+        return []
+
     def get_display_layers(self):
         image = self.display_image
         if image is None:

@@ -35,6 +35,7 @@ class EditorModel(QObject):
     brush_color_changed = pyqtSignal(str)
     paint_overlay_changed = pyqtSignal(object)
     stamp_overlay_changed = pyqtSignal(object)
+    paste_overlays_changed = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -70,6 +71,7 @@ class EditorModel(QObject):
         self.refined_mask_changed.emit(self.get_refined_mask())
         self.paint_overlay_changed.emit(self.get_paint_overlay_image())
         self.stamp_overlay_changed.emit(self.get_stamp_overlay_image())
+        self.paste_overlays_changed.emit(self.get_paste_overlays())
         self.selection_changed.emit(self.get_selection())
 
     def apply_document_snapshot(self, snapshot: DocumentSnapshot) -> None:
@@ -305,3 +307,11 @@ class EditorModel(QObject):
 
     def get_stamp_overlay_image(self) -> Optional[Any]:
         return self.session.get_stamp_overlay_image()
+
+    def get_paste_overlays(self) -> List[Dict[str, Any]]:
+        return self.session.get_paste_overlays()
+
+    def set_paste_overlays(self, overlays: List[Dict[str, Any]]) -> None:
+        """规范化并整表替换贴片列表；变化时广播 paste_overlays_changed。"""
+        if self.session.set_paste_overlays(overlays):
+            self.paste_overlays_changed.emit(self.get_paste_overlays())

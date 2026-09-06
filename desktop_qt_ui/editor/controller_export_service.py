@@ -46,6 +46,9 @@ class ExportJob:
     config: dict
     paint_overlay: Optional[np.ndarray] = None
     stamp_overlay: Optional[np.ndarray] = None
+    # 可编辑贴片记录：整页预合成放到导出 worker（execute_export_job）内进行，
+    # 避免在 GUI 线程分配整页大缓冲
+    paste_overlays: tuple = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.automatic, bool):
@@ -82,6 +85,13 @@ class ExportJob:
             owned = np.array(array, copy=True)
             owned.setflags(write=False)
             overlays[field_name] = owned
+
+        paste_overlays = tuple(
+            copy.deepcopy(item)
+            for item in self.paste_overlays
+            if isinstance(item, dict)
+        )
+        object.__setattr__(self, "paste_overlays", paste_overlays)
 
         source_image = image_like_to_pil(self.export_base.source_image)
         if source_image is None:
@@ -199,6 +209,7 @@ class EditorControllerExportService:
                 config,
                 paint_overlay=self.model.get_paint_overlay_image(),
                 stamp_overlay=self.model.get_stamp_overlay_image(),
+                paste_overlays=self.model.get_paste_overlays() or [],
             )
             if inpainted_image is not None:
                 self._export_service.save_inpainted_image(
@@ -231,6 +242,8 @@ class EditorControllerExportService:
                 return self._reject_export("导出失败：缺少活动文档")
             config = self._build_config_dict(self.config_service.get_config())
 
+            # 贴片整页预合成移到导出 worker（ExportService.execute_export_job）内执行，
+            # GUI 线程只负责把规范化记录快照塞进 job，避免大图卡界面
             job = ExportJob(
                 automatic=bool(automatic),
                 source_path=source_path,
@@ -240,6 +253,7 @@ class EditorControllerExportService:
                 config=config,
                 paint_overlay=self.model.get_paint_overlay_image(),
                 stamp_overlay=self.model.get_stamp_overlay_image(),
+                paste_overlays=tuple(self.model.get_paste_overlays() or ()),
             )
             future = self._submit_job(job)
             if future is None:

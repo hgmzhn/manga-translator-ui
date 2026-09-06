@@ -9,7 +9,7 @@ import mimetypes
 import os
 import shutil
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -40,19 +40,24 @@ class FileService:
             '.json', '.yaml', '.yml', '.toml'
         }
 
-    def load_translation_json(self, image_path: str, image: Image.Image = None) -> Tuple[List[dict], Optional[np.ndarray], Optional[Tuple[int, int]], Dict[str, Optional[np.ndarray]]]:
+    def load_translation_json(self, image_path: str, image: Image.Image = None) -> Tuple[List[dict], Optional[np.ndarray], Optional[Tuple[int, int]], Dict[str, Any]]:
         """
         根据给定的图片路径，加载关联的 _translations.json 文件。
         优先从新目录结构加载，支持向后兼容。
         返回 regions, raw_mask, original_size, overlays。
-        overlays 为 {'paint': RGBA数组|None, 'stamp': RGBA数组|None}（base64 PNG 解码，未对齐尺寸）。
+        overlays 为 {'paint': RGBA数组|None, 'stamp': RGBA数组|None,
+                    'paste_overlays': [贴片字典...]}（base64 PNG 解码，未对齐尺寸）。
         """
         # 使用path_manager查找JSON文件（新位置优先）
         json_path = find_json_path(image_path)
         regions = []
         raw_mask = None
         original_size = None
-        overlays: Dict[str, Optional[np.ndarray]] = {'paint': None, 'stamp': None}
+        overlays: Dict[str, Any] = {
+            'paint': None,
+            'stamp': None,
+            'paste_overlays': [],
+        }
 
         if not json_path:
             self.logger.warning(f"JSON file not found for {os.path.basename(image_path)}")
@@ -121,11 +126,21 @@ class FileService:
 
             self.logger.debug(f"Loaded {len(regions)} regions from {os.path.basename(json_path)}")
 
+            # 贴片（图块叠加）列表：逐项规范化，脏数据跳过并告警
+            paste_raw = image_data.get('paste_overlays')
+            if isinstance(paste_raw, list) and paste_raw:
+                try:
+                    from editor.paste_overlay_state import parse_page_paste_overlays
+
+                    overlays['paste_overlays'] = parse_page_paste_overlays(image_data)
+                except Exception as e:
+                    self.logger.error(f"Failed to parse paste_overlays in {os.path.basename(json_path)}: {e}")
+
         except Exception as e:
             import traceback
             self.logger.error(f"Failed to load or parse JSON file {json_path}: {e}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return [], None, None, {'paint': None, 'stamp': None}
+            return [], None, None, {'paint': None, 'stamp': None, 'paste_overlays': []}
 
         return regions, raw_mask, original_size, overlays
         
