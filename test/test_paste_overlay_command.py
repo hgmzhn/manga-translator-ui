@@ -167,3 +167,68 @@ def test_rebuild_resets_dangling_selected_overlay_id():
     view._rebuild_paste_overlay_items()
     assert view._selected_paste_overlay_id is None
 
+
+def test_select_all_clears_paste_overlay_selection():
+    from unittest.mock import MagicMock
+
+    from PyQt6.QtWidgets import QApplication, QWidget
+
+    _ = QApplication.instance() or QApplication([])
+    from ui.editor.graphics_view_paste_overlays import GraphicsViewPasteOverlayMixin
+    from ui.editor.shortcut_manager import EditorShortcutManager
+
+    class DummyGraphicsView(GraphicsViewPasteOverlayMixin):
+        def __init__(self, model):
+            self.model = model
+            self.scene = MagicMock()
+            self.viewport = MagicMock()
+            self._paste_overlay_items = []
+            self._selected_paste_overlay_id = "ovl-1"
+
+    class DummyEditorView(QWidget):
+        def __init__(self, model, graphics_view):
+            super().__init__()
+            self.model = model
+            self.graphics_view = graphics_view
+            self.controller = MagicMock()
+            self.property_panel = MagicMock()
+            self.file_list = MagicMock()
+
+        def isVisible(self):
+            return True
+
+    model = EditorModel()
+    model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path="page.png",
+            image=np.full((5, 7, 3), 3, dtype=np.uint8),
+            regions=[{"translation": "r0"}, {"translation": "r1"}],
+            paste_overlays=[_overlay("a", "ovl-1")],
+        )
+    )
+
+    gv = DummyGraphicsView(model)
+    ev = DummyEditorView(model, gv)
+    mgr = EditorShortcutManager(ev)
+
+    assert gv._selected_paste_overlay_id == "ovl-1"
+    assert model.get_selection() == []
+
+    # Ctrl+A 全选
+    dummy_focused = MagicMock()
+    mgr._handle_select_all(dummy_focused)
+
+    # 贴片选中态已被清空，所有文本区域被选中
+    assert gv._selected_paste_overlay_id is None
+    assert model.get_selection() == [0, 1]
+
+    # 后续复制优先处理区域，而非贴片
+    mgr._handle_copy(dummy_focused)
+    ev.controller.copy_region.assert_called_once_with(1)
+    ev.controller.copy_paste_overlay.assert_not_called()
+
+    # 验证直接修改 model 选区也能互斥清空贴片选中态
+    gv._selected_paste_overlay_id = "ovl-1"
+    gv._on_model_selection_changed_for_paste_overlays([0])
+    assert gv._selected_paste_overlay_id is None
+

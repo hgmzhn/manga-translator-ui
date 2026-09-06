@@ -215,6 +215,9 @@ class GraphicsView(
             self.overlay_layers.stamp_overlay.set_image
         )
         self.model.paste_overlays_changed.connect(self.on_paste_overlays_changed)
+        self.model.selection_changed.connect(
+            self._on_model_selection_changed_for_paste_overlays
+        )
         self.model.region_display_mode_changed.connect(
             self.on_region_display_mode_changed
         )

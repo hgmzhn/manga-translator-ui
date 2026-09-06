@@ -375,6 +375,9 @@ class EditorShortcutManager(ShortcutManager):
         if self.is_text_widget(focused_widget):
             focused_widget.selectAll()
         else:
+            graphics_view = getattr(self.editor_view, "graphics_view", None)
+            if graphics_view is not None:
+                graphics_view.clear_paste_overlay_selection()
             regions = self.editor_view.model.get_regions()
             self.editor_view.model.set_selection(list(range(len(regions))))
 

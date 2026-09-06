@@ -655,6 +655,13 @@ class GraphicsViewPasteOverlayMixin:
             item.set_selected(False)
         self.scene.update()
 
+    def _on_model_selection_changed_for_paste_overlays(
+        self, selected_indices: list
+    ) -> None:
+        """模型中文本区域选中集非空时，自动清空贴片选中，保持交互互斥。"""
+        if selected_indices:
+            self.clear_paste_overlay_selection()
+
     def clear_paste_overlay_selection_for_press(self, event) -> None:
         """点按命中目标不是贴片（文本框/空白等）时，隐藏贴片手柄。"""
         if not getattr(self, "_selected_paste_overlay_id", None):
