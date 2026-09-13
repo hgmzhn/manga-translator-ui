@@ -73,7 +73,7 @@
 - [x] [完成] 固定桌面主页面和导航清单。 - evidence: `research/desktop-main-navigation.md`; source: 2026-08-06
 - [x] [完成] 固定所有二级页面、弹窗和状态清单。 - evidence: `research/phase0-secondary-pages-dialogs-statuses.md`（静态源码/i18n；运行态未决项已记录：2026-08-06）
 - [x] [完成] 固定编辑器菜单、工具、属性、快捷键和焦点冲突清单。 - evidence: `research/editor-inventory.md`; static source/i18n inventory: 2026-08-06
-- [x] [完成] 生成 UI 参数字段清单并报告与“约 110 项”基线的差异。`phase0-ui-parameter-fields.json`; validate: layout 110, visible 109, delta -1.
+- [x] [完成] 生成 UI 参数字段清单并报告与“约 110 项”基线的差异。`phase0-ui-parameter-fields.json`; validate: layout 112, visible 111, delta -1.
 - [x] [完成] 生成所有枚举/下拉选项的 value、English、简体中文和 i18n key 清单。 - evidence: `research/phase0-options-i18n-matrix.md`; static desktop source/i18n inventory: 2026-08-06
 - [x] [完成] 固定九个工作流、输入输出、跳过阶段和互斥参数清单。 - EVIDENCE: `research/workflow-matrix-source-evidence.md` 已完成九个工作流的静态源码/i18n 清单；运行验证列为后续任务。
 - [x] [完成] 固定 CLI 正式子命令、参数和实际 `--help` 清单。 - evidence: `research/cli-command-inventory.md`; help: PASS 2026-08-06
@@ -90,11 +90,11 @@
 - [x] [完成] 创建右上角 `LanguageSwitch.vue`，保持当前页面进行中英切换。 - route-prefix mapping + locale config; build: PASS; 2026-08-06
 - [x] [完成] 创建 `SettingTable.vue`、`OptionMatrix.vue`、`SourceEvidence.vue`。 - static Vue components; build: PASS; 2026-08-06
 - [x] [完成] 创建 `public/images/` 的模块目录和命名约定。 - structure: PASS (19 modules); naming: `public/images/README.md`; 2026-08-06
-- [x] [完成] 创建 `data/settings.generated.json`。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (109 records); 2026-08-06
-- [x] [完成] 创建 `data/i18n.generated.json`。 - `node scripts/build-i18n-catalog.mjs --check`: PASS (1353 keys); 2026-08-06
+- [x] [完成] 创建 `data/settings.generated.json`。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (111 records); 2026-08-06
+- [x] [完成] 创建 `data/i18n.generated.json`。 - `node scripts/build-i18n-catalog.mjs --check`: PASS (1521 keys); 2026-08-06
 - [x] [完成] 创建 `data/coverage.generated.json`。 - `node scripts/verify-wiki-coverage.mjs doc/wiki`: PASS (120 pages, S00-S16); 2026-08-06
 - [x] [完成] 创建 `data/related-projects.yml` 及 schema/字段校验。 - `uv run python doc/wiki/verify_related_projects.py`: PASS (0 projects); 2026-08-06
-- [x] [完成] 创建参数目录生成脚本。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (109 records); 2026-08-06
+- [x] [完成] 创建参数目录生成脚本。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (111 records); 2026-08-06
 - [x] [完成] 创建 i18n 目录生成脚本。 - `node scripts/build-i18n-catalog.mjs --check`: PASS; 2026-08-06
 - [x] [完成] 创建中英路由镜像检查脚本。 - `node scripts/verify-route-mirror.mjs doc/wiki`: PASS (120/120); 2026-08-06
 - [x] [完成] 创建源码依据和覆盖率检查脚本。 - `node scripts/verify-source-evidence.mjs doc/wiki` + `verify-wiki-coverage.mjs`: PASS; 2026-08-06
@@ -406,4 +406,3 @@
 - [x] [完成] Phase 4：安装、CLI、Web 和开发者 API 完成。 - evidence: 5.12-5.14 页面完成；route/source/build PASS; 2026-08-07
 - [ ] [未开工] Phase 5：双语、图示、自动校验和 GitHub Pages 发布完成。
 - [ ] [未开工] Manga Translator Wiki 全部完成。
-

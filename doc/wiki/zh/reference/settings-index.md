@@ -38,7 +38,7 @@ lastUpdated: true
 | `Typesetting` | Typesetting | 排版 | 30 | [排版与渲染](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 12 | [模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)、[超分与上色](../desktop/settings/upscale-and-colorization.md) |
 
-七个页签合计 109 个可见参数行。
+七个页签合计 111 个可见参数行。
 
 ## 参数索引 {#parameter-index}
 
@@ -150,7 +150,7 @@ lastUpdated: true
 
 ### 排版 {#tab-typesetting}
 
-本页签 29 个参数的说明见[排版与渲染](../desktop/settings/typesetting-and-rendering.md)。该页参数小节没有独立显式锚点，全部跳转到页面本身。
+本页签 30 个参数的说明见[排版与渲染](../desktop/settings/typesetting-and-rendering.md)。该页参数小节没有独立显式锚点，全部跳转到页面本身。
 
 | 存储值 | English 实际值 | 简体中文实际值 | 跳转 |
 | --- | --- | --- | --- |
@@ -243,6 +243,6 @@ lastUpdated: true
 | 动态控件 | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | 控件类型、文件编辑动作、跳过的字段 |
 | UI/i18n | `desktop_qt_ui/app_logic.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | label 映射与实际中英文显示值 |
 | 配置模型 | `desktop_qt_ui/core/config_models.py`、`manga_translator/config.py` | Qt/核心参数定义与默认 |
-| 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 109 条参数记录、1353 个 i18n 条目 |
+| 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 111 条参数记录、1521 个 i18n 条目 |
 | 调查资料 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`phase0-page-coverage-matrix.md` | 选项矩阵和覆盖矩阵 |
 | 设置专题页 | `doc/wiki/zh/desktop/settings/*.md` | 参数锚点与跳转目标逐项核对 |

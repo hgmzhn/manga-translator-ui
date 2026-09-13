@@ -38,7 +38,7 @@ The settings page groups parameters by the left-side tabs; tab titles come from 
 | `Typesetting` | Typesetting | 排版 | 30 | [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 12 | [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md), [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md) |
 
-The seven tabs total 109 visible parameter rows.
+The seven tabs total 111 visible parameter rows.
 
 ## Parameter index {#parameter-index}
 
@@ -150,7 +150,7 @@ The 10 parameters of this tab are explained in [Mask And Inpainting](../desktop/
 
 ### Typesetting {#tab-typesetting}
 
-The 29 parameters of this tab are explained in [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md). The parameter sections of that page have no dedicated explicit anchors, so all rows link to the page itself.
+The 30 parameters of this tab are explained in [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md). The parameter sections of that page have no dedicated explicit anchors, so all rows link to the page itself.
 
 | Stored value | English actual value | Simplified Chinese actual value | Jump to |
 | --- | --- | --- | --- |
@@ -243,6 +243,6 @@ The tabs, titles, and buttons on this page are verified against `desktop_qt_ui/l
 | Dynamic controls | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | Control types, file-edit actions, skipped fields |
 | UI/i18n | `desktop_qt_ui/app_logic.py`, `desktop_qt_ui/locales/en_US.json`, `zh_CN.json` | Label mapping and actual bilingual display values |
 | Config models | `desktop_qt_ui/core/config_models.py`, `manga_translator/config.py` | Qt/core parameter definitions and defaults |
-| Generated data | `doc/wiki/data/settings.generated.json`, `doc/wiki/data/i18n.generated.json` | 109 parameter records, 1353 i18n entries |
+| Generated data | `doc/wiki/data/settings.generated.json`, `doc/wiki/data/i18n.generated.json` | 111 parameter records, 1521 i18n entries |
 | Research | `doc/wiki/research/phase0-options-i18n-matrix.md`, `phase0-page-coverage-matrix.md` | Option and coverage matrices |
 | Settings topic pages | `doc/wiki/en/desktop/settings/*.md` | Parameter anchors and jump targets checked row by row |

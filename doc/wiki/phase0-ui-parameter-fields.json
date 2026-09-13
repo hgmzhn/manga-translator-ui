@@ -700,6 +700,6 @@
   ],
   "reproduction": {
     "command": "uv run --no-sync python doc/wiki/verify_phase0_ui_parameter_fields.py",
-      "expected_result": "PASS: layout=111, fixed-actions=3, visible=110, baseline-delta=-1, excluded=render.font_color"
+      "expected_result": "PASS: layout=112, fixed-actions=3, visible=111, baseline-delta=-1, excluded=render.font_color"
   }
 }
