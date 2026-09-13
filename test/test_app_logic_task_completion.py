@@ -98,6 +98,7 @@ def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(
     assert "01.png" not in message
     assert not state_manager.translating
     assert completed_signal.values == [([],)]
+    assert logic._auto_shutdown_pending is False
 
 
 def test_failed_translation_result_does_not_arm_auto_shutdown(monkeypatch):

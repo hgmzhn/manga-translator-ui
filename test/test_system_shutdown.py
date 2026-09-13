@@ -8,7 +8,9 @@ import desktop_qt_ui.app_logic as app_logic_module
 from desktop_qt_ui.app_logic import MainAppLogic
 from desktop_qt_ui.utils.system_shutdown import (
     DEFAULT_SHUTDOWN_DELAY_SECONDS,
+    build_system_shutdown_cancel_command,
     build_system_shutdown_command,
+    cancel_scheduled_system_shutdown,
     schedule_system_shutdown,
 )
 
@@ -61,6 +63,29 @@ def test_schedule_system_shutdown_uses_injected_runner():
 
 def test_schedule_system_shutdown_returns_false_for_unsupported_platform():
     assert not schedule_system_shutdown(60, platform_name="freebsd")
+
+
+@pytest.mark.parametrize(
+    ("platform_name", "expected"),
+    [
+        ("win32", ["shutdown", "/a"]),
+        ("linux", ["shutdown", "-c"]),
+        ("darwin", ["shutdown", "-c"]),
+    ],
+)
+def test_build_system_shutdown_cancel_command_is_platform_specific(platform_name, expected):
+    assert build_system_shutdown_cancel_command(platform_name=platform_name) == expected
+
+
+def test_cancel_scheduled_system_shutdown_uses_injected_runner():
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+
+    assert cancel_scheduled_system_shutdown(platform_name="win32", runner=runner)
+    assert calls[0][0] == ["shutdown", "/a"]
+    assert calls[0][1]["check"] is True
 
 
 def test_auto_shutdown_is_scheduled_only_when_enabled(monkeypatch):
@@ -121,3 +146,26 @@ def test_auto_shutdown_is_not_scheduled_when_disabled(monkeypatch):
 
     assert calls == []
     assert logic._auto_shutdown_pending is False
+
+
+def test_auto_shutdown_can_be_cancelled(monkeypatch):
+    calls = []
+    logs = []
+    logic = SimpleNamespace(
+        _auto_shutdown_pending=True,
+        _auto_shutdown_triggered=True,
+        _ui_log=lambda *args: logs.append(args),
+        _t=lambda key, **_kwargs: key,
+    )
+    monkeypatch.setattr(
+        app_logic_module,
+        "cancel_scheduled_system_shutdown",
+        lambda: calls.append(True) or True,
+    )
+
+    assert MainAppLogic._cancel_auto_shutdown(logic)
+
+    assert calls == [True]
+    assert logic._auto_shutdown_pending is False
+    assert logic._auto_shutdown_triggered is False
+    assert logs == [("log_auto_shutdown_cancelled",)]

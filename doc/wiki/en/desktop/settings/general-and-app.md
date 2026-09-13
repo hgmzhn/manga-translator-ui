@@ -52,9 +52,9 @@ Default: `false`.
 
 ### Shut Down Computer After Translation {#shutdown-after-translation}
 
-The “Shut Down Computer After Translation” toggle is on Settings → General and is off by default. When enabled, the desktop schedules the computer to shut down 60 seconds after a batch completes successfully and background cleanup is idle. The grace period allows result writes to finish and leaves time to cancel a pending shutdown. Manual stops, batch-level errors, and individual file failures do not trigger it. If system permissions or the shutdown command are unavailable, the app logs a warning and remains open.
+The “Shut Down Computer After Translation” toggle is on Settings → General and is off by default. When enabled, the desktop schedules the computer to shut down 60 seconds after a batch saves at least one new file successfully, has no failed files, and background cleanup is idle. A batch where every input is skipped does not trigger it. The grace period allows result writes to finish and leaves time to cancel a pending shutdown. Manual stops, batch-level errors, and individual file failures do not trigger it. If system permissions or the shutdown command are unavailable, the app logs a warning and remains open.
 
-Windows uses `shutdown /s /t 60`; Linux/macOS use the platform’s supported delayed-shutdown command. This setting only affects desktop translation batches; it does not change the lifecycle of the CLI or remote services.
+If a shutdown is already scheduled, turning this setting off, starting a new batch, or clicking Stop attempts to cancel it. Windows uses `shutdown /s /t 60` and cancels with `shutdown /a`; Linux/macOS use the platform’s supported delayed-shutdown and cancellation commands. This setting only affects desktop translation batches; it does not change the lifecycle of the CLI or remote services.
 
 Default: `false`.
 

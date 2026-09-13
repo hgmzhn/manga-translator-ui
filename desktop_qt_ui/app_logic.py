@@ -66,6 +66,7 @@ from utils.asyncio_cleanup import shutdown_event_loop
 from utils.font_list import fonts_directory
 from utils.system_shutdown import (
     DEFAULT_SHUTDOWN_DELAY_SECONDS,
+    cancel_scheduled_system_shutdown,
     schedule_system_shutdown,
 )
 
@@ -1089,6 +1090,8 @@ class MainAppLogic(QObject):
             self.config_service.update_config(config_updates)
             updated_config = self.config_service.get_config()
             self.state_manager.set_current_config(updated_config)
+            if not bool(updated_config.app.shutdown_after_translation):
+                self._cancel_auto_shutdown()
             self.logger.info(self._t("log_config_updated_successfully"))
             return True
         except Exception as e:
@@ -1108,6 +1111,9 @@ class MainAppLogic(QObject):
             self.config_service.set_config(config_obj)
             self.config_service.save_config_file()
             self.logger.debug(self._t("log_config_saved", config_key=full_key, value=value))
+
+            if full_key == "app.shutdown_after_translation" and not value:
+                self._cancel_auto_shutdown()
 
             # 当翻译器设置被更改时，直接更新翻译服务的内部状态
             if full_key == 'translator.translator':
@@ -1896,6 +1902,9 @@ class MainAppLogic(QObject):
         if self.state_manager.is_translating():
             self._ui_log("一个任务已经在运行中。", "WARNING")
             return
+        if self._auto_shutdown_triggered and not self._cancel_auto_shutdown():
+            self._ui_log("无法取消待执行的自动关机，任务未启动。", "WARNING")
+            return
         self._stop_requested = False
 
         self._scan_future = None if self._scan_future and self._scan_future.done() else self._scan_future
@@ -2055,7 +2064,7 @@ class MainAppLogic(QObject):
             traceback.print_exc()
         
         QTimer.singleShot(100, self._cleanup_after_task)
-        self._auto_shutdown_pending = failed_count == 0
+        self._auto_shutdown_pending = failed_count == 0 and self.saved_files_count > 0
         if self._auto_shutdown_pending:
             QTimer.singleShot(0, self._schedule_auto_shutdown_after_task)
 
@@ -2103,6 +2112,21 @@ class MainAppLogic(QObject):
         else:
             self._auto_shutdown_triggered = False
             self._ui_log(self._t("log_auto_shutdown_failed"), "WARNING")
+
+    def _cancel_auto_shutdown(self) -> bool:
+        """Cancel the OS shutdown scheduled by this application, if any."""
+        if not self._auto_shutdown_triggered:
+            self._auto_shutdown_pending = False
+            return True
+
+        if cancel_scheduled_system_shutdown():
+            self._auto_shutdown_pending = False
+            self._auto_shutdown_triggered = False
+            self._ui_log(self._t("log_auto_shutdown_cancelled"))
+            return True
+
+        self._ui_log(self._t("log_auto_shutdown_cancel_failed"), "WARNING")
+        return False
 
     def resolve_completed_source(self, output_path: str) -> Optional[str]:
         return self.completed_output_sources.get(self._path_key(output_path))
@@ -2174,7 +2198,15 @@ class MainAppLogic(QObject):
 
     def stop_task(self) -> bool:
         """停止翻译任务"""
+        had_scheduled_shutdown = getattr(self, "_auto_shutdown_triggered", False)
+        if had_scheduled_shutdown and not self._cancel_auto_shutdown():
+            return False
         self._auto_shutdown_pending = False
+        if had_scheduled_shutdown and self.current_worker is None and not any(
+            future is not None and not future.done()
+            for future in (self._scan_future, self._translate_future, self._cleanup_future)
+        ):
+            return True
         if self.current_worker and hasattr(self.current_worker, 'stop'):
             self._stop_requested = True
             self.state_manager.set_status_message("正在停止...")

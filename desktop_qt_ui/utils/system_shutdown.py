@@ -72,3 +72,44 @@ def schedule_system_shutdown(
         logger.warning("Unable to schedule automatic shutdown: %s", exc)
         return False
     return True
+
+
+def build_system_shutdown_cancel_command(*, platform_name: str | None = None) -> list[str]:
+    """Build the native command used to cancel a delayed local power-off."""
+    platform_name = platform_name or sys.platform
+
+    if platform_name == "win32":
+        return ["shutdown", "/a"]
+
+    if platform_name == "darwin" or platform_name.startswith("linux"):
+        return ["shutdown", "-c"]
+
+    raise RuntimeError(f"Automatic shutdown is not supported on {platform_name!r}.")
+
+
+def cancel_scheduled_system_shutdown(
+    *,
+    platform_name: str | None = None,
+    runner: Callable[..., object] | None = None,
+) -> bool:
+    """Cancel a delayed local power-off and report whether it was accepted."""
+    try:
+        command = build_system_shutdown_cancel_command(platform_name=platform_name)
+    except RuntimeError as exc:
+        logger.warning("Unable to cancel automatic shutdown: %s", exc)
+        return False
+    run = runner or subprocess.run
+    try:
+        run(
+            command,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+        logger.warning("Unable to cancel automatic shutdown: %s", exc)
+        return False
+    return True

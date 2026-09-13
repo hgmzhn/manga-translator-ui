@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1519,
-    "exact": 1519,
+    "keys": 1521,
+    "exact": 1521,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -7354,6 +7354,18 @@
       "key": "less than",
       "en_US": "less than",
       "zh_CN": "小于",
+      "status": "exact"
+    },
+    {
+      "key": "log_auto_shutdown_cancel_failed",
+      "en_US": "Unable to cancel the pending automatic shutdown.",
+      "zh_CN": "无法取消待执行的自动关机。",
+      "status": "exact"
+    },
+    {
+      "key": "log_auto_shutdown_cancelled",
+      "en_US": "Automatic shutdown cancelled.",
+      "zh_CN": "已取消自动关机。",
       "status": "exact"
     },
     {
