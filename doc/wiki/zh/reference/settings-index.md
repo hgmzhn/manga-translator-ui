@@ -35,7 +35,7 @@ lastUpdated: true
 | `Detection` | Detection | 检测 | 13 | [检测](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [翻译设置](../desktop/settings/translation.md) |
 | `Inpainting` | Inpainting | 修复 | 10 | [蒙版与图像修复](../desktop/settings/mask-and-inpainting.md) |
-| `Typesetting` | Typesetting | 排版 | 28 | [排版与渲染](../desktop/settings/typesetting-and-rendering.md) |
+| `Typesetting` | Typesetting | 排版 | 30 | [排版与渲染](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 12 | [模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)、[超分与上色](../desktop/settings/upscale-and-colorization.md) |
 
 七个页签合计 109 个可见参数行。

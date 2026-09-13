@@ -1087,11 +1087,16 @@ class MainAppLogic(QObject):
     
     def update_config(self, config_updates: Dict[str, Any]) -> bool:
         try:
+            app_updates = config_updates.get("app", {})
+            shutdown_disabled = (
+                isinstance(app_updates, dict)
+                and app_updates.get("shutdown_after_translation") is False
+            )
+            if shutdown_disabled and not self._cancel_auto_shutdown():
+                return False
             self.config_service.update_config(config_updates)
             updated_config = self.config_service.get_config()
             self.state_manager.set_current_config(updated_config)
-            if not bool(updated_config.app.shutdown_after_translation):
-                self._cancel_auto_shutdown()
             self.logger.info(self._t("log_config_updated_successfully"))
             return True
         except Exception as e:
@@ -1102,6 +1107,12 @@ class MainAppLogic(QObject):
         self.logger.debug(f"update_single_config: '{full_key}' = '{value}'")
         try:
             config_obj = self.config_service.get_config()
+            if (
+                full_key == "app.shutdown_after_translation"
+                and not value
+                and not self._cancel_auto_shutdown()
+            ):
+                return False
             keys = full_key.split('.')
             parent_obj = config_obj
             for key in keys[:-1]:
@@ -1111,9 +1122,6 @@ class MainAppLogic(QObject):
             self.config_service.set_config(config_obj)
             self.config_service.save_config_file()
             self.logger.debug(self._t("log_config_saved", config_key=full_key, value=value))
-
-            if full_key == "app.shutdown_after_translation" and not value:
-                self._cancel_auto_shutdown()
 
             # 当翻译器设置被更改时，直接更新翻译服务的内部状态
             if full_key == 'translator.translator':
@@ -1132,6 +1140,8 @@ class MainAppLogic(QObject):
 
         except Exception as e:
             self.logger.error(f"Error saving single config change for {full_key}: {e}")
+            return False
+        return True
     # endregion
 
     # region UI数据提供

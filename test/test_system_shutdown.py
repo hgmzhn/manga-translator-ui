@@ -169,3 +169,50 @@ def test_auto_shutdown_can_be_cancelled(monkeypatch):
     assert logic._auto_shutdown_pending is False
     assert logic._auto_shutdown_triggered is False
     assert logs == [("log_auto_shutdown_cancelled",)]
+
+
+def test_disabling_shutdown_keeps_config_when_cancellation_fails():
+    calls = []
+    config = SimpleNamespace(
+        app=SimpleNamespace(shutdown_after_translation=True)
+    )
+    logic = SimpleNamespace(
+        logger=SimpleNamespace(
+            debug=lambda *_args: None,
+            error=lambda *_args: None,
+        ),
+        config_service=SimpleNamespace(
+            get_config=lambda: config,
+            set_config=lambda *_args: calls.append("set"),
+            save_config_file=lambda: calls.append("save"),
+        ),
+        _cancel_auto_shutdown=lambda: False,
+    )
+
+    assert not MainAppLogic.update_single_config(
+        logic,
+        "app.shutdown_after_translation",
+        False,
+    )
+    assert config.app.shutdown_after_translation is True
+    assert calls == []
+
+
+def test_update_config_does_not_submit_disable_when_cancellation_fails():
+    calls = []
+    logic = SimpleNamespace(
+        config_service=SimpleNamespace(
+            update_config=lambda _updates: calls.append("update"),
+        ),
+        _cancel_auto_shutdown=lambda: False,
+        logger=SimpleNamespace(
+            info=lambda *_args: None,
+            error=lambda *_args: None,
+        ),
+    )
+
+    assert not MainAppLogic.update_config(
+        logic,
+        {"app": {"shutdown_after_translation": False}},
+    )
+    assert calls == []

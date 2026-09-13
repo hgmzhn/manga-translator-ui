@@ -35,7 +35,7 @@ The settings page groups parameters by the left-side tabs; tab titles come from 
 | `Detection` | Detection | 检测 | 13 | [Detection](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [Translation settings](../desktop/settings/translation.md) |
 | `Inpainting` | Inpainting | 修复 | 10 | [Mask And Inpainting](../desktop/settings/mask-and-inpainting.md) |
-| `Typesetting` | Typesetting | 排版 | 28 | [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md) |
+| `Typesetting` | Typesetting | 排版 | 30 | [Typesetting and Rendering](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 12 | [Mode-Specific Workflows and Template Alignment](../desktop/settings/mode-specific.md), [Upscale and Colorization](../desktop/settings/upscale-and-colorization.md) |
 
 The seven tabs total 109 visible parameter rows.
