@@ -112,6 +112,10 @@ class HorizontalRunPlan:
     top_rel: float
     ink_width: int
     ink_height: int
+    spacing_left_rel: float
+    spacing_top_rel: float
+    spacing_width: int
+    spacing_height: int
     main_rect: Rect | None = None
     ruby: RubyPlan | None = None
     emphasis: EmphasisPlan | None = None
@@ -127,8 +131,8 @@ class HorizontalLinePlan:
     paint_bounds: Bounds
     line_kerning: float | None = None
     next_kerning: float | None = None
-    # Bounds used to place the next line.  Paint-only effects such as glow
-    # belong to ``paint_bounds`` but must not become extra line spacing.
+    # Bounds used to place the next line. Paint-only effects and the global
+    # stroke belong to ``paint_bounds`` but must not become extra line spacing.
     spacing_bounds: Bounds | None = None
 
 

@@ -474,19 +474,23 @@ def _line_ink_geometry(
             "top_rel": 0.0,
             "width": 0,
             "height": 0,
+            "no_stroke_left_rel": 0.0,
+            "no_stroke_top_rel": 0.0,
+            "no_stroke_width": 0,
+            "no_stroke_height": 0,
             "has_ink": False,
         }
 
     rect = path.boundingRect()
-    left = math.floor(rect.left())
-    top = math.floor(rect.top())
-    right = math.ceil(rect.right())
-    bottom = math.ceil(rect.bottom())
+    base_left = math.floor(rect.left())
+    base_top = math.floor(rect.top())
+    base_right = math.ceil(rect.right())
+    base_bottom = math.ceil(rect.bottom())
     pad = _stroke_pad_px(font_size, stroke_ratio)
-    left -= pad
-    top -= pad
-    right += pad
-    bottom += pad
+    left = base_left - pad
+    top = base_top - pad
+    right = base_right + pad
+    bottom = base_bottom + pad
     origin_x = -logical_width if reversed_direction else 0.0
     return {
         "path": path,
@@ -498,6 +502,10 @@ def _line_ink_geometry(
         "top_rel": float(top) - ascent,
         "width": max(0, int(right - left)),
         "height": max(0, int(bottom - top)),
+        "no_stroke_left_rel": float(base_left) - origin_x,
+        "no_stroke_top_rel": float(base_top) - ascent,
+        "no_stroke_width": max(0, int(base_right - base_left)),
+        "no_stroke_height": max(0, int(base_bottom - base_top)),
         "has_ink": right > left and bottom > top,
         "frame_left": int(left),
         "frame_top": int(top),
@@ -614,8 +622,10 @@ def _build_horizontal_run_plan(
             span.style.transform.scale_y,
         )
     left_rel = float(geometry["left_rel"])
+    spacing_left_rel = float(geometry["no_stroke_left_rel"])
     if reversed_direction:
         left_rel -= float(geometry["logical_width"])
+        spacing_left_rel -= float(geometry["logical_width"])
     run = HorizontalRunPlan(
         span=span,
         font_size=font_size,
@@ -628,6 +638,10 @@ def _build_horizontal_run_plan(
         top_rel=float(geometry["top_rel"]),
         ink_width=int(geometry["width"]),
         ink_height=int(geometry["height"]),
+        spacing_left_rel=spacing_left_rel,
+        spacing_top_rel=float(geometry["no_stroke_top_rel"]),
+        spacing_width=int(geometry["no_stroke_width"]),
+        spacing_height=int(geometry["no_stroke_height"]),
     )
     if geometry_sink is not None:
         geometry_sink[id(run)] = geometry
@@ -747,10 +761,18 @@ def _rich_horizontal_main_rect(
     if not run.has_ink:
         return Rect(0.0, 0.0, 0.0, 0.0)
     span = run.span
-    left = run.left_rel
-    top = run.top_rel
-    height = run.ink_height
-    width = run.ink_width
+    # Global stroke padding affects the final paint frame without changing
+    # the line gap in horizontal layout.
+    if include_paint_effects:
+        left = run.left_rel
+        top = run.top_rel
+        height = run.ink_height
+        width = run.ink_width
+    else:
+        left = run.spacing_left_rel
+        top = run.spacing_top_rel
+        height = run.spacing_height
+        width = run.spacing_width
     out_h, out_w, dx, dy = _style_layer_effects_geometry(
         height,
         width,

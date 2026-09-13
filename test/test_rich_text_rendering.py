@@ -2100,6 +2100,25 @@ class RichTextRenderingTest(unittest.TestCase):
             glow_geometry["paint_height"], plain_geometry["paint_height"]
         )
 
+    def test_global_stroke_does_not_change_horizontal_line_spacing(self):
+        plain_single = text_render.measure_rich_text_metrics(
+            48, "A", True, 1.0, stroke_width=0.0
+        )
+        stroked_single = text_render.measure_rich_text_metrics(
+            48, "A", True, 1.0, stroke_width=0.6
+        )
+        plain_multi = text_render.measure_rich_text_metrics(
+            48, "A[BR]A", True, 1.0, stroke_width=0.0
+        )
+        stroked_multi = text_render.measure_rich_text_metrics(
+            48, "A[BR]A", True, 1.0, stroke_width=0.6
+        )
+
+        self.assertEqual(plain_multi["n_lines"], 2)
+        single_line_growth = stroked_single["height"] - plain_single["height"]
+        multi_line_growth = stroked_multi["height"] - plain_multi["height"]
+        self.assertEqual(multi_line_growth, single_line_growth)
+
     def test_local_stroke_width_scales_with_font_size(self):
         from manga_translator.rendering.text_render._compose import _style_stroke_ratio
 

@@ -73,7 +73,7 @@ Adjust the stroke width in Property panel → Style Settings with the number inp
 
 #### Line Spacing {#line-spacing}
 
-Adjust the line-spacing multiplier in Property panel → Style Settings with the number input (0.1–5, step 0.1); `1.0` means the default line spacing. The white frame is recomputed after a change.
+Adjust the line-spacing multiplier in Property panel → Style Settings with the number input (0.1–5, step 0.1); `1.0` means the default line spacing. For horizontal text, the inter-line layout gap uses the glyph envelope without the global stroke, so increasing the stroke does not add extra line spacing; the stroke still contributes to the final text envelope. The white frame is recomputed after a change.
 
 #### Letter Spacing {#letter-spacing}
 
