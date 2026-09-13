@@ -439,6 +439,21 @@ class MainWindow(FluentWindow):
         # 保存到文件
         config_service.save_config_file()
 
+    @pyqtSlot(str, object)
+    def _on_main_view_setting_changed(self, full_key: str, value):
+        """Persist a setting change and restore the control when it is rejected."""
+        if self.app_logic.update_single_config(full_key, value):
+            return
+
+        # Some changes can be rejected after the user has already toggled the
+        # control (for example, when cancelling a scheduled shutdown fails).
+        # Re-sync the view from the authoritative config so the UI cannot claim
+        # that a rejected change was applied.
+        self.logger.warning(
+            "Rejected setting change for %s; restoring UI state", full_key
+        )
+        self.main_view.set_parameters(self.config_service.get_config().model_dump())
+
     def _connect_signals(self):
         # --- MainAppLogic Connections ---
         self.app_logic.config_loaded.connect(self.main_view.set_parameters)
@@ -483,7 +498,7 @@ class MainWindow(FluentWindow):
         )
 
         # --- View to Logic Connections ---
-        self.main_view.setting_changed.connect(self.app_logic.update_single_config)
+        self.main_view.setting_changed.connect(self._on_main_view_setting_changed)
         self.main_view.env_var_changed.connect(self.app_logic.save_env_var)
         self.main_view.editor_view_requested.connect(self.switch_to_editor_view)
         self.main_view.theme_change_requested.connect(self._change_theme)

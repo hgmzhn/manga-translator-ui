@@ -6,6 +6,7 @@ import pytest
 
 import desktop_qt_ui.app_logic as app_logic_module
 from desktop_qt_ui.app_logic import MainAppLogic
+from desktop_qt_ui.ui.main_window import MainWindow
 from desktop_qt_ui.utils.system_shutdown import (
     DEFAULT_SHUTDOWN_DELAY_SECONDS,
     build_system_shutdown_cancel_command,
@@ -216,3 +217,29 @@ def test_update_config_does_not_submit_disable_when_cancellation_fails():
         {"app": {"shutdown_after_translation": False}},
     )
     assert calls == []
+
+
+def test_main_window_restores_setting_control_when_update_is_rejected():
+    restored_configs = []
+    config_dump = {"app": {"shutdown_after_translation": True}}
+    logic = SimpleNamespace(
+        update_single_config=lambda *_args: False,
+    )
+    window = SimpleNamespace(
+        app_logic=logic,
+        config_service=SimpleNamespace(
+            get_config=lambda: SimpleNamespace(model_dump=lambda: config_dump),
+        ),
+        main_view=SimpleNamespace(
+            set_parameters=lambda config: restored_configs.append(config),
+        ),
+        logger=SimpleNamespace(warning=lambda *_args: None),
+    )
+
+    MainWindow._on_main_view_setting_changed(
+        window,
+        "app.shutdown_after_translation",
+        False,
+    )
+
+    assert restored_configs == [config_dump]
