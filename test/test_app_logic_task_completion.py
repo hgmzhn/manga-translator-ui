@@ -75,6 +75,7 @@ def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(
         error_dialog_requested=_Signal(),
         task_completed=completed_signal,
         _cleanup_after_task=lambda: None,
+        _schedule_auto_shutdown_after_task=lambda: None,
     )
     monkeypatch.setattr(app_logic_module.QTimer, "singleShot", lambda *_args: None)
     results = [
@@ -99,6 +100,37 @@ def test_all_existing_outputs_use_dedicated_overwrite_disabled_message(
     assert completed_signal.values == [([],)]
 
 
+def test_failed_translation_result_does_not_arm_auto_shutdown(monkeypatch):
+    failures = []
+    logic = SimpleNamespace(
+        current_task_id=7,
+        current_worker=object(),
+        saved_files_count=0,
+        completed_output_sources={},
+        _task_failures=failures,
+        _path_key=MainAppLogic._path_key,
+        _record_task_failure_from_result=lambda result: failures.append(result),
+        _record_task_failure=lambda *_args: None,
+        _build_task_failure_dialog_message=lambda: "failure",
+        _ui_log=lambda *_args: None,
+        _t=lambda key, **kwargs: key.format(**kwargs),
+        state_manager=_StateManager(),
+        warning_dialog_requested=_Signal(),
+        error_dialog_requested=_Signal(),
+        task_completed=_Signal(),
+        _cleanup_after_task=lambda: None,
+        _auto_shutdown_pending=False,
+    )
+    monkeypatch.setattr(app_logic_module.QTimer, "singleShot", lambda *_args: None)
+
+    MainAppLogic.on_task_finished(
+        logic,
+        [{"success": False, "original_path": "failed.png"}],
+        7,
+    )
+
+    assert logic._auto_shutdown_pending is False
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
-

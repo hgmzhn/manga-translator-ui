@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1515,
-    "exact": 1515,
+    "keys": 1519,
+    "exact": 1519,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -5053,6 +5053,12 @@
       "status": "exact"
     },
     {
+      "key": "desc_app_shutdown_after_translation",
+      "en_US": "When enabled, a successful translation batch schedules the computer to shut down after 60 seconds. Manual stops and batch-level errors do not trigger shutdown. Disabled by default.",
+      "zh_CN": "启用后，成功完成翻译批次会安排电脑在 60 秒后关机。手动停止或整批任务出错时不会触发；默认关闭。",
+      "status": "exact"
+    },
+    {
       "key": "desc_app_theme",
       "en_US": "UI theme. Supports Light, Dark, Gray, Ocean, Forest, Sunset, Rose, and Follow System.",
       "zh_CN": "界面主题。支持浅色、深色、灰色、海洋、森林、落日、玫瑰和跟随系统。",
@@ -7051,6 +7057,12 @@
       "status": "exact"
     },
     {
+      "key": "label_shutdown_after_translation",
+      "en_US": "Shut Down Computer After Translation",
+      "zh_CN": "翻译完成后自动关机",
+      "status": "exact"
+    },
+    {
       "key": "label_uppercase",
       "en_US": "Uppercase",
       "zh_CN": "大写",
@@ -7342,6 +7354,18 @@
       "key": "less than",
       "en_US": "less than",
       "zh_CN": "小于",
+      "status": "exact"
+    },
+    {
+      "key": "log_auto_shutdown_failed",
+      "en_US": "Unable to schedule automatic shutdown. Check system permissions and the shutdown command.",
+      "zh_CN": "无法安排自动关机，请检查系统权限和关机命令是否可用。",
+      "status": "exact"
+    },
+    {
+      "key": "log_auto_shutdown_scheduled",
+      "en_US": "Automatic shutdown scheduled: the computer will shut down in {seconds} seconds.",
+      "zh_CN": "已安排自动关机：电脑将在 {seconds} 秒后关机。",
       "status": "exact"
     },
     {

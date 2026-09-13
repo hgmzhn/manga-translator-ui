@@ -22,7 +22,7 @@ lastUpdated: true
 3. 点击“跳转”列进入对应设置页的参数小节；没有独立显式锚点的参数行跳转到页面本身。
 4. 默认值、依赖、消费者和运行机理一律以跳转后的设置页正文为准，这里不展开。
 
-本页聚焦设置页的可见参数行。`settings_tab_layout.json` 有 110 个条目，其中 109 个渲染为可见参数；剩余的 `render.font_color` 因发行默认值为 `null` 且没有对应控件分支而不渲染。界面语言、主题、系统代理、更新检查和自动检查更新开关属于“关于应用”页面，不是设置页参数行。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
+本页聚焦设置页的可见参数行。`settings_tab_layout.json` 有 112 个条目，其中 111 个渲染为可见参数；剩余的 `render.font_color` 因发行默认值为 `null` 且没有对应控件分支而不渲染。界面语言、主题、系统代理、更新检查和自动检查更新开关属于“关于应用”页面，不是设置页参数行。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
 
 ## 设置页与页签 {#settings-tabs}
 
@@ -30,7 +30,7 @@ lastUpdated: true
 
 | 布局标题 / UI 调用 key | English 实际值 | 简体中文实际值 | 可见参数数 | 对应页面 |
 | --- | --- | --- | ---: | --- |
-| `General` | General | 通用 | 17 | [通用与应用设置](../desktop/settings/general-and-app.md)、[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md) |
+| `General` | General | 通用 | 18 | [通用与应用设置](../desktop/settings/general-and-app.md)、[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md) |
 | `OCR` | OCR | 文字识别 | 17 | [OCR、过滤与文本行合并](../desktop/settings/ocr-filter-and-merge.md) |
 | `Detection` | Detection | 检测 | 13 | [检测](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [翻译设置](../desktop/settings/translation.md) |
@@ -38,7 +38,7 @@ lastUpdated: true
 | `Typesetting` | Typesetting | 排版 | 28 | [排版与渲染](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 12 | [模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)、[超分与上色](../desktop/settings/upscale-and-colorization.md) |
 
-七个页签合计 108 个可见参数行。
+七个页签合计 109 个可见参数行。
 
 ## 参数索引 {#parameter-index}
 
@@ -46,7 +46,7 @@ lastUpdated: true
 
 ### 通用 {#tab-general}
 
-通用页签的 17 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
+通用页签的 18 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
 
 | 存储值 | English 实际值 | 简体中文实际值 | 跳转 |
 | --- | --- | --- | --- |
@@ -67,6 +67,7 @@ lastUpdated: true
 | `cli.export_editable_psd` | Export Editable PSD | 导出可编辑PSD | [#cli-export-editable-psd](../desktop/settings/cli-batch-and-output.md#cli-export-editable-psd) |
 | `cli.psd_script_only` | Generate PSD Script Only | 仅生成PSD脚本 | [#cli-psd-script-only](../desktop/settings/cli-batch-and-output.md#cli-psd-script-only) |
 | `app.unload_models_after_translation` | Unload Models After Translation | 翻译完成后卸载模型 | [#unload-models](../desktop/settings/general-and-app.md#unload-models) |
+| `app.shutdown_after_translation` | Shut Down Computer After Translation | 翻译完成后自动关机 | [#shutdown-after-translation](../desktop/settings/general-and-app.md#shutdown-after-translation) |
 
 ### 文字识别 {#tab-ocr}
 
@@ -237,7 +238,7 @@ lastUpdated: true
 ### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
-| 设置布局 | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | 七个页签、110 个条目、109 个可见参数、`Advanced` 分隔线 |
+| 设置布局 | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | 七个页签、112 个条目、111 个可见参数、`Advanced` 分隔线 |
 | 页面外壳 | `desktop_qt_ui/ui/main_page/pages/settings_page.py` | 页签标题 key、导入/导出、说明面板 |
 | 动态控件 | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | 控件类型、文件编辑动作、跳过的字段 |
 | UI/i18n | `desktop_qt_ui/app_logic.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | label 映射与实际中英文显示值 |

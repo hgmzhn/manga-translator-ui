@@ -9,7 +9,7 @@ lastUpdated: true
 
 # General and Application Settings
 
-This guide covers the settings page’s “General” group and the application state it carries. It documents general processing switches, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
+This guide covers the settings page’s “General” group and the application state it carries. It documents general processing switches, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, automatic shutdown after translation, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
 
 ## Change it in the desktop app {#ui-operations}
 
@@ -47,6 +47,14 @@ flowchart LR
     Q -->|yes| U["Unload models and release memory/VRAM"]
     U --> L["Next task reloads models"]
 ```
+
+Default: `false`.
+
+### Shut Down Computer After Translation {#shutdown-after-translation}
+
+The “Shut Down Computer After Translation” toggle is on Settings → General and is off by default. When enabled, the desktop schedules the computer to shut down 60 seconds after a batch completes successfully and background cleanup is idle. The grace period allows result writes to finish and leaves time to cancel a pending shutdown. Manual stops, batch-level errors, and individual file failures do not trigger it. If system permissions or the shutdown command are unavailable, the app logs a warning and remains open.
+
+Windows uses `shutdown /s /t 60`; Linux/macOS use the platform’s supported delayed-shutdown command. This setting only affects desktop translation batches; it does not change the lifecycle of the CLI or remote services.
 
 Default: `false`.
 

@@ -211,6 +211,7 @@ class AppSection(BaseModel):
     unload_models_after_translation: bool = (
         False  # 翻译完成后卸载模型（释放内存更彻底，但下次使用需要重新加载）
     )
+    shutdown_after_translation: bool = False  # 翻译任务完成后自动安排关机
     saved_colors: Optional[List[str]] = None  # 保存的常用颜色列表
     saved_style_presets: Optional[Dict[str, Dict[str, Any]]] = (
         None  # 编辑器保存的样式组合

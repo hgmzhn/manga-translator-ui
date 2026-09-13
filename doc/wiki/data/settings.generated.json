@@ -10,11 +10,11 @@
     "release_config": "config/config-example.json"
   },
   "baseline_comparison": {
-    "requested_baseline": 111,
-    "layout_parameter_entries": 111,
-    "visible_parameter_fields": 110,
+    "requested_baseline": 112,
+    "layout_parameter_entries": 112,
+    "visible_parameter_fields": 111,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111)."
+    "difference_explanation": "The layout has 112 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 111 visible settings rows (one below 112)."
   },
   "records": [
     {
@@ -420,6 +420,28 @@
       "defaults": {
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.unload_models_after_translation"
+      },
+      "lifecycle_stages": [
+        "application"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "app.shutdown_after_translation",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_shutdown_after_translation",
+        "english": "Shut Down Computer After Translation",
+        "simplified_chinese": "翻译完成后自动关机"
+      },
+      "wiki_page": "desktop/settings/general-and-app.md",
+      "control": "toggle",
+      "defaults": {
+        "release_json_value": false,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.shutdown_after_translation"
       },
       "lifecycle_stages": [
         "application"
