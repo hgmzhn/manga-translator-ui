@@ -24,6 +24,7 @@ SPECIAL_CONTROLS = {
     "use_custom_api_params": "toggle + edit-custom-api-params action",
 }
 COMBO_KEYS = {
+    "app.after_translation_action",
     "cli.format",
     "translator.translator",
     "translator.target_lang",

@@ -430,18 +430,18 @@
       "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
     },
     {
-      "key": "app.shutdown_after_translation",
+      "key": "app.after_translation_action",
       "ui": {
         "tab": "General",
-        "i18n_key": "label_shutdown_after_translation",
-        "english": "Shut Down Computer After Translation",
-        "simplified_chinese": "翻译完成后自动关机"
+        "i18n_key": "label_after_translation_action",
+        "english": "After translation",
+        "simplified_chinese": "任务完成后"
       },
       "wiki_page": "desktop/settings/general-and-app.md",
-      "control": "toggle",
+      "control": "combo",
       "defaults": {
-        "release_json_value": false,
-        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.shutdown_after_translation"
+        "release_json_value": "none",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.after_translation_action"
       },
       "lifecycle_stages": [
         "application"

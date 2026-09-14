@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1521,
-    "exact": 1521,
+    "keys": 1526,
+    "exact": 1526,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -5029,6 +5029,36 @@
       "status": "exact"
     },
     {
+      "key": "completion_action_close",
+      "en_US": "Close application",
+      "zh_CN": "关闭软件",
+      "status": "exact"
+    },
+    {
+      "key": "completion_action_hibernate",
+      "en_US": "Hibernate",
+      "zh_CN": "休眠",
+      "status": "exact"
+    },
+    {
+      "key": "completion_action_none",
+      "en_US": "Do nothing",
+      "zh_CN": "不执行操作",
+      "status": "exact"
+    },
+    {
+      "key": "completion_action_shutdown",
+      "en_US": "Shut down",
+      "zh_CN": "关机",
+      "status": "exact"
+    },
+    {
+      "key": "completion_action_sleep",
+      "en_US": "Sleep",
+      "zh_CN": "睡眠",
+      "status": "exact"
+    },
+    {
       "key": "confirm_clear_results",
       "en_US": "Are you sure you want to clear all translation results?",
       "zh_CN": "确定要清空所有翻译结果吗？",
@@ -5047,15 +5077,15 @@
       "status": "exact"
     },
     {
-      "key": "desc_app_auto_check_updates",
-      "en_US": "Automatically check for new releases shortly after startup.",
-      "zh_CN": "启动后自动检查是否有新版本。",
+      "key": "desc_app_after_translation_action",
+      "en_US": "After a successful batch and cleanup, perform the selected action in 60 seconds. Changing this setting, starting another batch, or clicking Stop cancels the countdown. Sleep and hibernation require OS support.",
+      "zh_CN": "成功完成批次并清理临时文件后，等待 60 秒执行所选动作。修改选项、开始新任务或点击停止可取消倒计时。睡眠和休眠需要系统支持。",
       "status": "exact"
     },
     {
-      "key": "desc_app_shutdown_after_translation",
-      "en_US": "When enabled, a successful translation batch schedules the computer to shut down after 60 seconds. Manual stops and batch-level errors do not trigger shutdown. Disabled by default.",
-      "zh_CN": "启用后，成功完成翻译批次会安排电脑在 60 秒后关机。手动停止或整批任务出错时不会触发；默认关闭。",
+      "key": "desc_app_auto_check_updates",
+      "en_US": "Automatically check for new releases shortly after startup.",
+      "zh_CN": "启动后自动检查是否有新版本。",
       "status": "exact"
     },
     {
@@ -5354,8 +5384,8 @@
     },
     {
       "key": "desc_inpainter_solid_fill_pure_bubbles",
-      "en_US": "Match each text region to a model-detected bubble, shrink the model mask proportionally, then subtract the dilated raw text mask. If the remaining background is nearly solid, fill it directly and skip inpainting. Model misses are left for the inpainting model.",
-      "zh_CN": "使用气泡模型匹配文本所在气泡，先将模型蒙版按比例内缩，再扣除膨胀后的原始文字蒙版；剩余背景接近纯色时直接填色并跳过修复模型。模型未命中时交给修复模型处理。",
+      "en_US": "Use the bubble model to match text regions and detect near-solid backgrounds; direct filling is limited to the intersection of the refined repair mask and bubble mask, and filled areas skip the inpainting model. Bubble misses or empty intersections remain for the inpainting model.",
+      "zh_CN": "使用气泡模型匹配文本所在气泡并判断背景是否接近纯色；实际填色仅限于优化修复蒙版与气泡蒙版的交集，填色后跳过对应区域的修复模型。模型未命中或交集为空时交给修复模型处理。",
       "status": "exact"
     },
     {
@@ -5930,8 +5960,8 @@
     },
     {
       "key": "friendly_error_colorizer_unsupported",
-      "en_US": "Error: The current model does not support colorization\n\nSolutions:\n   1. Switch colorizers: Under Colorization Model, select Manga Colorization v2 or another available colorizer\n      - Location: Settings → Mode-Specific → Colorization → Colorization Model\n   2. Turn off colorization: Under Colorization Model, select None (none, no colorization)\n      - Location: Settings → Mode-Specific → Colorization → Colorization Model\n   3. To continue using OpenAI/Gemini for colorization, select a model that supports image output/image editing under API Management → Colorization\n\n",
-      "zh_CN": "错误原因：当前模型不支持上色\n\n解决方案：\n   1. 切换上色器：在「上色模型」选择 Manga Colorization v2 或其它可用上色器\n      - 位置：设置 → 模式相关 → 上色 → 上色模型\n   2. 关闭上色：在「上色模型」选择「无」（none，不上色）\n      - 位置：设置 → 模式相关 → 上色 → 上色模型\n   3. 继续使用 OpenAI/Gemini 上色时，在 API 管理 → 上色 中换一个支持图片输出/图片编辑的模型\n\n",
+      "en_US": "Error: The current model does not support colorization\n\nSolutions:\n   1. When using local colorization, do not select OpenAI Colorizer or Gemini Colorizer\n      - Location: Settings → Mode-Specific → Colorization Model\n   2. When using online AI colorization, check the corresponding API configuration\n      - Location: API Management → Colorization\n      - Confirm that the API address, API channel, and model support image generation/editing",
+      "zh_CN": "错误原因：当前模型不支持上色\n\n解决方案：\n   1. 使用本地上色时，不要选择「OpenAI Colorizer」或「Gemini Colorizer」\n      - 位置：设置 → 模式相关 → 上色模型\n      - 这两个选项需要在线 API 支持图片输出/图片编辑\n   2. 使用在线 AI 上色时，检查对应的 API 配置\n      - 位置：API 管理 → 上色\n      - 确认 API 地址、API 通道和模型支持图片生成/编辑\n\n",
       "status": "exact"
     },
     {
@@ -5996,14 +6026,20 @@
     },
     {
       "key": "friendly_error_multimodal_unsupported",
-      "en_US": "Error: The model does not support multimodal input\n\nDetails:\n   The High Quality Translator (OpenAI High Quality Translation or Gemini High Quality Translation) is currently selected.\n   These translators need to send images to the AI for analysis, but the current model does not support image input.\n\nSolutions (choose one):\n   1. Switch to a standard translator (recommended)\n      - Location: Settings → Translation → Translator\n      - Change OpenAI High Quality Translation to OpenAI\n      - Change Gemini High Quality Translation to Google Gemini\n      - Description: Standard translators do not need to send images; they only translate text\n\n   2. Switch to a model that supports multimodal input\n      - OpenAI: gpt-5.2, gpt-5.2-mini\n      - Gemini: gemini-3-pro, gemini-3-flash\n      - Grok: grok-4.2\n      - Note: DeepSeek models do not support multimodal input\n\n",
-      "zh_CN": "错误原因：模型不支持多模态输入\n\n详细说明：\n   当前使用的是「高质量翻译器」（OpenAI高质量翻译 或 Gemini高质量翻译），\n   这些翻译器需要发送图片给AI进行分析，但当前模型不支持图片输入。\n\n解决方案（选择其一）：\n   1. 切换到普通翻译器（推荐）\n      - 位置：设置 → 翻译 → 翻译器\n      - 将「OpenAI高质量翻译」改为「OpenAI」\n      - 将「Gemini高质量翻译」改为「Google Gemini」\n      - 说明：普通翻译器不需要发送图片，只翻译文本\n\n   2. 更换为支持多模态的模型\n      - OpenAI: gpt-5.2、gpt-5.2-mini\n      - Gemini: gemini-3-pro、gemini-3-flash\n      - Grok: grok-4.2\n      - 注意：DeepSeek模型不支持多模态\n\n",
+      "en_US": "Error: The model does not support multimodal input\n\nDetails:\n   The High Quality Translator needs to send images to an online API for analysis, but the selected model does not support image input.\n\nSolutions (choose one):\n   1. Do not select OpenAI High Quality Translation or Gemini High Quality Translation when the model does not support image input\n      - Location: Settings → Translation → Translator\n   2. When using High Quality Translation, check whether the online API supports image input\n      - Location: API Management → Translation",
+      "zh_CN": "错误原因：模型不支持多模态输入\n\n详细说明：\n   当前「高质量翻译器」需要发送图片给在线 API 分析，但所用模型不支持图片输入。\n\n解决方案（选择其一）：\n   1. 不要选择需要图片输入的「OpenAI高质量翻译」或「Gemini高质量翻译」\n      - 位置：设置 → 翻译 → 翻译器\n   2. 使用高质量翻译时，检查在线 API 是否支持图片输入\n      - 位置：API 管理 → 翻译\n\n",
       "status": "exact"
     },
     {
       "key": "friendly_error_network",
       "en_US": "Error: Network connection or Host resolution failed\n\nDetails:\n   Could not connect to the API server, possibly because of a network error, timeout, or Host / DNS resolution failure.\n\nSolutions:\n   1. Check the network connection\n      - Make sure the computer can access the internet\n\n   2. Try enabling the system proxy\n      - Location: About App → App Preferences → Use System Proxy\n\n   3. Check that the API address is correct\n      - Location: API Management → Corresponding Feature Page → API Address\n      - Default: https://api.openai.com/v1\n\n",
       "zh_CN": "错误原因：网络连接或 Host 解析失败\n\n详细说明：\n   无法连接到API服务器，可能是网络异常、超时，或 Host / DNS 解析失败。\n\n解决方案：\n   1. 检查网络连接\n      - 确认电脑可以正常访问互联网\n\n   2. 尝试开启系统代理\n      - 位置：关于应用 → 应用偏好 → 使用系统代理\n\n   3. 检查API地址是否正确\n      - 位置：API 管理 → 对应功能页 → API 地址\n      - 默认值：https://api.openai.com/v1\n\n",
+      "status": "exact"
+    },
+    {
+      "key": "friendly_error_ocr_unavailable",
+      "en_US": "Error: The current OCR model or API candidates are unavailable\n\nDetails:\n   The current OCR model may not exist, may not support image recognition, or no OCR API candidate is available.\n\nSolutions (choose one):\n   1. When using local OCR, do not select OpenAI OCR or Gemini OCR\n      - Location: Settings → OCR → OCR Model\n   2. When using online OCR, check the corresponding API configuration\n      - Location: API Management → OCR\n      - Check the API key, API address, model, and API channel, then use Test Current Page",
+      "zh_CN": "错误原因：当前 OCR 模型或 API 候选不可用\n\n详细说明：\n   当前 OCR 模型不存在、不支持图片识别，或 OCR API 候选不可用。\n\n解决方案（选择其一）：\n   1. 使用本地 OCR 时，不要选择「OpenAI OCR」或「Gemini OCR」\n      - 位置：设置 → OCR → OCR模型\n   2. 使用在线 OCR 时，检查对应的 API 配置\n      - 位置：API 管理 → 文字识别\n      - 检查 API 密钥、API 地址、模型和 API 通道，并使用「测试当前页」\n\n",
       "status": "exact"
     },
     {
@@ -6014,8 +6050,8 @@
     },
     {
       "key": "friendly_error_renderer_unsupported",
-      "en_US": "Error: The current model does not support rendering\n\nSolutions:\n   1. Switch Renderer to Default (default, the local default renderer)\n      - Location: Settings → Typesetting → Renderer\n   2. To continue using AI rendering, select a model that supports image output/image editing under API Management → Rendering\n\n",
-      "zh_CN": "错误原因：当前模型不支持渲染\n\n解决方案：\n   1. 将「渲染器」切换为「Default」（default，本地默认渲染器）\n      - 位置：设置 → 排版 → 渲染器\n   2. 继续使用 AI 渲染时，在 API 管理 → 渲染 中换一个支持图片输出/图片编辑的模型\n\n",
+      "en_US": "Error: The current model does not support rendering\n\nSolutions:\n   1. When using local rendering, do not select OpenAI Renderer or Gemini Renderer\n      - Location: Settings → Typesetting → Renderer\n      - These two options require an online API that supports image output/editing\n   2. When using online AI rendering, check the corresponding API configuration\n      - Location: API Management → Rendering\n      - Confirm that the API address, API channel, and model support image generation/editing",
+      "zh_CN": "错误原因：当前模型不支持渲染\n\n解决方案：\n   1. 使用本地渲染时，不要选择「OpenAI Renderer」或「Gemini Renderer」\n      - 位置：设置 → 排版 → 渲染器\n      - 这两个选项需要在线 API 支持图片输出/图片编辑\n   2. 使用在线 AI 渲染时，检查对应的 API 配置\n      - 位置：API 管理 → 渲染\n      - 确认 API 地址、API 通道和模型支持图片生成/编辑\n\n",
       "status": "exact"
     },
     {
@@ -6358,6 +6394,12 @@
       "key": "label_YOUDAO_SECRET_KEY",
       "en_US": "Youdao Translation App Secret",
       "zh_CN": "有道翻译应用秘钥",
+      "status": "exact"
+    },
+    {
+      "key": "label_after_translation_action",
+      "en_US": "After translation",
+      "zh_CN": "任务完成后",
       "status": "exact"
     },
     {
@@ -7057,12 +7099,6 @@
       "status": "exact"
     },
     {
-      "key": "label_shutdown_after_translation",
-      "en_US": "Shut Down Computer After Translation",
-      "zh_CN": "翻译完成后自动关机",
-      "status": "exact"
-    },
-    {
       "key": "label_uppercase",
       "en_US": "Uppercase",
       "zh_CN": "大写",
@@ -7357,27 +7393,21 @@
       "status": "exact"
     },
     {
-      "key": "log_auto_shutdown_cancel_failed",
-      "en_US": "Unable to cancel the pending automatic shutdown.",
-      "zh_CN": "无法取消待执行的自动关机。",
+      "key": "log_completion_action_cancelled",
+      "en_US": "Completion action cancelled.",
+      "zh_CN": "已取消任务完成后的动作。",
       "status": "exact"
     },
     {
-      "key": "log_auto_shutdown_cancelled",
-      "en_US": "Automatic shutdown cancelled.",
-      "zh_CN": "已取消自动关机。",
+      "key": "log_completion_action_failed",
+      "en_US": "Completion action unavailable or failed.",
+      "zh_CN": "任务完成后的动作不可用或执行失败。",
       "status": "exact"
     },
     {
-      "key": "log_auto_shutdown_failed",
-      "en_US": "Unable to schedule automatic shutdown. Check system permissions and the shutdown command.",
-      "zh_CN": "无法安排自动关机，请检查系统权限和关机命令是否可用。",
-      "status": "exact"
-    },
-    {
-      "key": "log_auto_shutdown_scheduled",
-      "en_US": "Automatic shutdown scheduled: the computer will shut down in {seconds} seconds.",
-      "zh_CN": "已安排自动关机：电脑将在 {seconds} 秒后关机。",
+      "key": "log_completion_action_scheduled",
+      "en_US": "In {seconds} seconds: {action}. Change the completion action or click Stop to cancel.",
+      "zh_CN": "将在 {seconds} 秒后执行：{action}。修改完成后动作或点击停止可取消。",
       "status": "exact"
     },
     {

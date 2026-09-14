@@ -25,7 +25,7 @@
         "cli.export_editable_psd",
         "cli.psd_script_only",
         "app.unload_models_after_translation",
-        "app.shutdown_after_translation"
+        "app.after_translation_action"
       ]
     },
     {

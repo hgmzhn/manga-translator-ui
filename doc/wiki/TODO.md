@@ -91,7 +91,7 @@
 - [x] [完成] 创建 `SettingTable.vue`、`OptionMatrix.vue`、`SourceEvidence.vue`。 - static Vue components; build: PASS; 2026-08-06
 - [x] [完成] 创建 `public/images/` 的模块目录和命名约定。 - structure: PASS (19 modules); naming: `public/images/README.md`; 2026-08-06
 - [x] [完成] 创建 `data/settings.generated.json`。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (111 records); 2026-08-06
-- [x] [完成] 创建 `data/i18n.generated.json`。 - `node scripts/build-i18n-catalog.mjs --check`: PASS (1521 keys); 2026-08-06
+- [x] [完成] 创建 `data/i18n.generated.json`。 - 初始验证：2026-08-06；当前生成目录包含 1526 个条目。
 - [x] [完成] 创建 `data/coverage.generated.json`。 - `node scripts/verify-wiki-coverage.mjs doc/wiki`: PASS (120 pages, S00-S16); 2026-08-06
 - [x] [完成] 创建 `data/related-projects.yml` 及 schema/字段校验。 - `uv run python doc/wiki/verify_related_projects.py`: PASS (0 projects); 2026-08-06
 - [x] [完成] 创建参数目录生成脚本。 - `uv run --no-sync python doc/wiki/scripts/build-settings-catalog.py --check`: PASS (111 records); 2026-08-06

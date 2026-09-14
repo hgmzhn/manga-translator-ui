@@ -9,7 +9,7 @@ lastUpdated: true
 
 # General and Application Settings
 
-This guide covers the settings page’s “General” group and the application state it carries. It documents general processing switches, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, automatic shutdown after translation, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
+This guide covers the settings page’s “General” group and the application state it carries. It documents general processing switches, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, completion actions after translation, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
 
 ## Change it in the desktop app {#ui-operations}
 
@@ -50,13 +50,13 @@ flowchart LR
 
 Default: `false`.
 
-### Shut Down Computer After Translation {#shutdown-after-translation}
+### After translation {#shutdown-after-translation}
 
-The “Shut Down Computer After Translation” toggle is on Settings → General and is off by default. When enabled, the desktop schedules the computer to shut down 60 seconds after a batch saves at least one new file successfully, has no failed files, and background cleanup is idle. A batch where every input is skipped does not trigger it. The grace period allows result writes to finish and leaves time to cancel a pending shutdown. Manual stops, batch-level errors, and individual file failures do not trigger it. If system permissions or the shutdown command are unavailable, the app logs a warning and remains open.
+The “After translation” dropdown under Settings → General offers Do nothing (default), Close application, Sleep, Hibernate, and Shut down. It starts a 60-second countdown after a batch saves at least one new file, has no failures, and temporary-file cleanup finishes. Manual stops, failed batches, and all-skipped batches do not trigger an action. If cleanup cannot be submitted, no completion action is scheduled.
 
-If a shutdown is already scheduled, turning this setting off, starting a new batch, or clicking Stop attempts to cancel it. Windows uses `shutdown /s /t 60` and cancels with `shutdown /a`; Linux/macOS use the platform’s supported delayed-shutdown and cancellation commands. This setting only affects desktop translation batches; it does not change the lifecycle of the CLI or remote services.
+The application owns the countdown: changing this option, starting another batch, or clicking Stop cancels it before any system command is issued. Close application uses the normal window-close flow. Windows uses the typed .NET power API for sleep/hibernation; Linux uses systemctl. macOS supports sleep and shutdown; explicit hibernation is unavailable and logs a warning. System power actions require OS support and permissions, and failures are logged. No system power settings are changed. This option only affects desktop translation batches.
 
-Default: `false`.
+Default: `none` (`app.after_translation_action`).
 
 ### Enable Filter List {#filter-text-enabled}
 

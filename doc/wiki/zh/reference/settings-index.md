@@ -67,7 +67,7 @@ lastUpdated: true
 | `cli.export_editable_psd` | Export Editable PSD | 导出可编辑PSD | [#cli-export-editable-psd](../desktop/settings/cli-batch-and-output.md#cli-export-editable-psd) |
 | `cli.psd_script_only` | Generate PSD Script Only | 仅生成PSD脚本 | [#cli-psd-script-only](../desktop/settings/cli-batch-and-output.md#cli-psd-script-only) |
 | `app.unload_models_after_translation` | Unload Models After Translation | 翻译完成后卸载模型 | [#unload-models](../desktop/settings/general-and-app.md#unload-models) |
-| `app.shutdown_after_translation` | Shut Down Computer After Translation | 翻译完成后自动关机 | [#shutdown-after-translation](../desktop/settings/general-and-app.md#shutdown-after-translation) |
+| `app.after_translation_action` | After translation | 任务完成后 | [#shutdown-after-translation](../desktop/settings/general-and-app.md#shutdown-after-translation) |
 
 ### 文字识别 {#tab-ocr}
 
@@ -243,6 +243,6 @@ lastUpdated: true
 | 动态控件 | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | 控件类型、文件编辑动作、跳过的字段 |
 | UI/i18n | `desktop_qt_ui/app_logic.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | label 映射与实际中英文显示值 |
 | 配置模型 | `desktop_qt_ui/core/config_models.py`、`manga_translator/config.py` | Qt/核心参数定义与默认 |
-| 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 111 条参数记录、1521 个 i18n 条目 |
+| 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 111 条参数记录、1526 个 i18n 条目 |
 | 调查资料 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`phase0-page-coverage-matrix.md` | 选项矩阵和覆盖矩阵 |
 | 设置专题页 | `doc/wiki/zh/desktop/settings/*.md` | 参数锚点与跳转目标逐项核对 |

@@ -130,10 +130,10 @@
       "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.unload_models_after_translation"
     },
     {
-      "key": "app.shutdown_after_translation",
+      "key": "app.after_translation_action",
       "page": "General",
-      "control": "toggle",
-      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.shutdown_after_translation"
+      "control": "combo",
+      "default_source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.after_translation_action"
     },
     {
       "key": "ocr.ocr",
@@ -700,6 +700,6 @@
   ],
   "reproduction": {
     "command": "uv run --no-sync python doc/wiki/verify_phase0_ui_parameter_fields.py",
-      "expected_result": "PASS: layout=112, fixed-actions=3, visible=111, baseline-delta=-1, excluded=render.font_color"
+    "expected_result": "PASS: layout=112, fixed-actions=3, visible=111, baseline-delta=-1, excluded=render.font_color"
   }
 }

@@ -66,8 +66,7 @@ from utils.asyncio_cleanup import shutdown_event_loop
 from utils.font_list import fonts_directory
 from utils.system_shutdown import (
     DEFAULT_SHUTDOWN_DELAY_SECONDS,
-    cancel_scheduled_system_shutdown,
-    schedule_system_shutdown,
+    execute_completion_action,
 )
 
 
@@ -130,6 +129,7 @@ class MainAppLogic(QObject):
     warning_dialog_requested = pyqtSignal(str)
     render_setting_changed = pyqtSignal()
     file_sources_changed = pyqtSignal()
+    close_application_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -1088,11 +1088,11 @@ class MainAppLogic(QObject):
     def update_config(self, config_updates: Dict[str, Any]) -> bool:
         try:
             app_updates = config_updates.get("app", {})
-            shutdown_disabled = (
+            completion_action_changed = (
                 isinstance(app_updates, dict)
-                and app_updates.get("shutdown_after_translation") is False
+                and "after_translation_action" in app_updates
             )
-            if shutdown_disabled and not self._cancel_auto_shutdown():
+            if completion_action_changed and not self._cancel_auto_shutdown():
                 return False
             self.config_service.update_config(config_updates)
             updated_config = self.config_service.get_config()
@@ -1108,8 +1108,7 @@ class MainAppLogic(QObject):
         try:
             config_obj = self.config_service.get_config()
             if (
-                full_key == "app.shutdown_after_translation"
-                and not value
+                full_key == "app.after_translation_action"
                 and not self._cancel_auto_shutdown()
             ):
                 return False
@@ -1148,6 +1147,10 @@ class MainAppLogic(QObject):
     def get_display_mapping(self, key: str) -> Optional[Dict[str, str]]:
         # 每次都动态生成翻译映射，确保语言切换时能正确更新
         display_name_maps = {
+            "after_translation_action": {
+                action: self._t(f"completion_action_{action}")
+                for action in ("none", "close", "sleep", "hibernate", "shutdown")
+            },
             "alignment": {
                 "auto": self._t("alignment_auto"),
                 "left": self._t("alignment_left"),
@@ -1350,7 +1353,7 @@ class MainAppLogic(QObject):
                     "last_output_path": self._t("label_last_output_path"),
                     "save_to_source_dir": self._t("label_save_to_source_dir"),
                     "psd_script_only": self._t("label_psd_script_only"),
-                    "shutdown_after_translation": self._t("label_shutdown_after_translation"),
+                    "after_translation_action": self._t("label_after_translation_action"),
                     "line_spacing": self._t("label_line_spacing"),
                     "letter_spacing": self._t("label_letter_spacing"),
                     "font_size": self._t("label_font_size"),
@@ -2079,7 +2082,7 @@ class MainAppLogic(QObject):
             QTimer.singleShot(0, self._schedule_auto_shutdown_after_task)
 
     def _schedule_auto_shutdown_after_task(self):
-        """Schedule the opt-in system shutdown once task cleanup is idle."""
+        """Start the selected completion action's countdown once cleanup is idle."""
         if (
             not self._auto_shutdown_pending
             or self._shutdown_started
@@ -2090,13 +2093,13 @@ class MainAppLogic(QObject):
 
         try:
             config = self.config_service.get_config()
-            enabled = bool(config.app.shutdown_after_translation)
+            action = config.app.after_translation_action
         except Exception as exc:
             self._auto_shutdown_pending = False
-            self._ui_log(f"读取自动关机设置失败: {exc}", "WARNING")
+            self._ui_log(f"读取任务完成后动作设置失败: {exc}", "WARNING")
             return
 
-        if not enabled:
+        if action == "none":
             self._auto_shutdown_pending = False
             return
 
@@ -2106,37 +2109,57 @@ class MainAppLogic(QObject):
 
         if self._cleanup_future is None and self.archive_to_temp_map:
             self._cleanup_after_task()
+        if self.archive_to_temp_map:
+            self._auto_shutdown_pending = False
+            self._ui_log(self._t("log_completion_action_failed"), "WARNING")
+            return
         if self._cleanup_future is not None and not self._cleanup_future.done():
             QTimer.singleShot(100, self._schedule_auto_shutdown_after_task)
             return
 
         self._auto_shutdown_pending = False
         self._auto_shutdown_triggered = True
-        if schedule_system_shutdown(DEFAULT_SHUTDOWN_DELAY_SECONDS):
-            self._ui_log(
-                self._t(
-                    "log_auto_shutdown_scheduled",
-                    seconds=DEFAULT_SHUTDOWN_DELAY_SECONDS,
-                )
-            )
-        else:
-            self._auto_shutdown_triggered = False
-            self._ui_log(self._t("log_auto_shutdown_failed"), "WARNING")
+        generation = getattr(self, "_completion_action_generation", 0)
+        QTimer.singleShot(DEFAULT_SHUTDOWN_DELAY_SECONDS * 1000,
+                          lambda: self._execute_completion_action(action, generation))
+        self._ui_log(self._t("log_completion_action_scheduled",
+                            action=self._t(f"completion_action_{action}"),
+                            seconds=DEFAULT_SHUTDOWN_DELAY_SECONDS))
+
+    def _execute_completion_action(self, action: str, generation: int):
+        """Execute only the current countdown after rechecking task activity."""
+        if (generation != getattr(self, "_completion_action_generation", 0)
+                or not self._auto_shutdown_triggered or self._shutdown_started
+                or self._stop_requested):
+            return
+        self._auto_shutdown_triggered = False
+        if self.config_service.get_config().app.after_translation_action != action:
+            return
+        if (self.state_manager.is_translating() or self.archive_to_temp_map
+                or any(f is not None and not f.done()
+                       for f in (self._translate_future, self._cleanup_future))):
+            return
+        if action == "close":
+            self.close_application_requested.emit()
+            return
+
+        def run_action():
+            if not execute_completion_action(action):
+                self._ui_log(self._t("log_completion_action_failed"), "WARNING")
+
+        try:
+            self._task_executor.submit(run_action)
+        except RuntimeError:
+            self._ui_log(self._t("log_completion_action_failed"), "WARNING")
 
     def _cancel_auto_shutdown(self) -> bool:
-        """Cancel the OS shutdown scheduled by this application, if any."""
-        if not self._auto_shutdown_triggered:
-            self._auto_shutdown_pending = False
-            return True
-
-        if cancel_scheduled_system_shutdown():
-            self._auto_shutdown_pending = False
-            self._auto_shutdown_triggered = False
-            self._ui_log(self._t("log_auto_shutdown_cancelled"))
-            return True
-
-        self._ui_log(self._t("log_auto_shutdown_cancel_failed"), "WARNING")
-        return False
+        """Invalidate the app-owned countdown before submitting any OS action."""
+        self._completion_action_generation = getattr(self, "_completion_action_generation", 0) + 1
+        self._auto_shutdown_pending = False
+        if self._auto_shutdown_triggered:
+            self._ui_log(self._t("log_completion_action_cancelled"))
+        self._auto_shutdown_triggered = False
+        return True
 
     def resolve_completed_source(self, output_path: str) -> Optional[str]:
         return self.completed_output_sources.get(self._path_key(output_path))
@@ -2157,12 +2180,12 @@ class MainAppLogic(QObject):
                 return self._cleanup_future
             self._cleanup_future = None
             archive_paths = list(self.archive_to_temp_map)
-            self.archive_to_temp_map.clear()
             if archive_paths and not self._shutdown_started:
                 try:
                     self._cleanup_future = self._task_executor.submit(
                         self._cleanup_archive_paths, archive_paths
                     )
+                    self.archive_to_temp_map.clear()
                 except RuntimeError:
                     pass
             return self._cleanup_future

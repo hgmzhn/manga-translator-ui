@@ -1,115 +1,46 @@
-"""Cross-platform helpers for scheduling a safe delayed system shutdown."""
-
-from __future__ import annotations
+"""Native completion actions; the GUI owns the cancellable countdown."""
 
 import logging
-import math
 import subprocess
 import sys
-from collections.abc import Callable
-
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_SHUTDOWN_DELAY_SECONDS = 60
+logger = logging.getLogger(__name__)
 
 
-def build_system_shutdown_command(
-    delay_seconds: int = DEFAULT_SHUTDOWN_DELAY_SECONDS,
-    *,
-    platform_name: str | None = None,
-) -> list[str]:
-    """Build the native command used to schedule a local power-off."""
-    delay_seconds = max(1, int(delay_seconds))
+def build_completion_command(action: str, platform_name: str | None = None) -> list[str]:
+    """Build an immediate native power command without changing system settings."""
     platform_name = platform_name or sys.platform
-
+    if action not in {"shutdown", "sleep", "hibernate"}:
+        raise ValueError(f"Not a system power action: {action}")
     if platform_name == "win32":
-        return [
-            "shutdown",
-            "/s",
-            "/t",
-            str(delay_seconds),
-            "/d",
-            "p:0:0",
-            "/c",
-            "Manga Translator translation completed",
-        ]
+        if action == "shutdown":
+            return ["shutdown", "/s", "/t", "0"]
+        state = "Hibernate" if action == "hibernate" else "Suspend"
+        return ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "if (-not [System.Windows.Forms.Application]::SetSuspendState("
+                f"[System.Windows.Forms.PowerState]::{state}, $false, $false)) "
+                "{ exit 1 }"]
+    if platform_name.startswith("linux"):
+        return ["systemctl", {"shutdown": "poweroff", "sleep": "suspend",
+                              "hibernate": "hibernate"}[action]]
+    if platform_name == "darwin":
+        if action == "sleep":
+            return ["pmset", "sleepnow"]
+        if action == "shutdown":
+            return ["osascript", "-e", 'tell application "System Events" to shut down']
+    raise ValueError(f"{action} is not supported on {platform_name}")
 
-    if platform_name == "darwin" or platform_name.startswith("linux"):
-        delay_minutes = max(1, math.ceil(delay_seconds / 60))
-        return ["shutdown", "-h", f"+{delay_minutes}"]
 
-    raise RuntimeError(f"Automatic shutdown is not supported on {platform_name!r}.")
-
-
-def schedule_system_shutdown(
-    delay_seconds: int = DEFAULT_SHUTDOWN_DELAY_SECONDS,
-    *,
-    platform_name: str | None = None,
-    runner: Callable[..., object] | None = None,
-) -> bool:
-    """Schedule a delayed local power-off and report whether it was accepted."""
+def execute_completion_action(action: str, *, platform_name=None, runner=None) -> bool:
+    """Request a native action, reporting denied or unsupported operations."""
     try:
-        command = build_system_shutdown_command(
-            delay_seconds,
-            platform_name=platform_name,
-        )
-    except RuntimeError as exc:
-        logger.warning("Unable to schedule automatic shutdown: %s", exc)
+        command = build_completion_command(action, platform_name)
+        (runner or subprocess.run)(command, check=True, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                   text=True)
+        return True
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Completion action failed: %s", exc)
         return False
-    run = runner or subprocess.run
-    try:
-        run(
-            command,
-            check=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
-        logger.warning("Unable to schedule automatic shutdown: %s", exc)
-        return False
-    return True
-
-
-def build_system_shutdown_cancel_command(*, platform_name: str | None = None) -> list[str]:
-    """Build the native command used to cancel a delayed local power-off."""
-    platform_name = platform_name or sys.platform
-
-    if platform_name == "win32":
-        return ["shutdown", "/a"]
-
-    if platform_name == "darwin" or platform_name.startswith("linux"):
-        return ["shutdown", "-c"]
-
-    raise RuntimeError(f"Automatic shutdown is not supported on {platform_name!r}.")
-
-
-def cancel_scheduled_system_shutdown(
-    *,
-    platform_name: str | None = None,
-    runner: Callable[..., object] | None = None,
-) -> bool:
-    """Cancel a delayed local power-off and report whether it was accepted."""
-    try:
-        command = build_system_shutdown_cancel_command(platform_name=platform_name)
-    except RuntimeError as exc:
-        logger.warning("Unable to cancel automatic shutdown: %s", exc)
-        return False
-    run = runner or subprocess.run
-    try:
-        run(
-            command,
-            check=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
-        logger.warning("Unable to cancel automatic shutdown: %s", exc)
-        return False
-    return True

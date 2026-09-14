@@ -452,10 +452,12 @@ class MainWindow(FluentWindow):
         self.logger.warning(
             "Rejected setting change for %s; restoring UI state", full_key
         )
+        self.main_view._settings_rendered_signature = None
         self.main_view.set_parameters(self.config_service.get_config().model_dump())
 
     def _connect_signals(self):
         # --- MainAppLogic Connections ---
+        self.app_logic.close_application_requested.connect(self.close)
         self.app_logic.config_loaded.connect(self.main_view.set_parameters)
         self.app_logic.file_sources_changed.connect(self._request_main_file_snapshot)
         self.app_logic.file_removed.connect(self._on_file_removed_update_editor)
