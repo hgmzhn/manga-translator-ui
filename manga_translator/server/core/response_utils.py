@@ -160,6 +160,9 @@ async def apply_user_env_vars(user_env_vars_str: str, config: Config, admin_sett
     config.translator.user_api_key = None
     config.translator.user_api_base = None
     config.translator.user_api_model = None
+    config.translator.aliyun_access_key_id = None
+    config.translator.aliyun_access_key_secret = None
+    config.translator.aliyun_api_base = None
     clear_runtime_api_overrides(config)
     return None
 
@@ -178,6 +181,9 @@ def _apply_env_vars_to_config(
     - OPENAI_API_KEY, GEMINI_API_KEY -> user_api_key
     - OPENAI_API_BASE, GEMINI_API_BASE -> user_api_base
     - OPENAI_MODEL, GEMINI_MODEL -> user_api_model
+    - ALIYUN_ACCESS_KEY_ID -> aliyun_access_key_id
+    - ALIYUN_ACCESS_KEY_SECRET -> aliyun_access_key_secret
+    - ALIYUN_API_BASE -> aliyun_api_base
     
     注意：预设可能使用 OPENAI_* 变量来配置第三方 API（如 Gemini 通过 OpenAI 兼容接口）
     所以我们统一将这些变量映射到 user_api_* 字段，翻译器会根据自己的类型使用这些值
@@ -212,12 +218,20 @@ def _apply_env_vars_to_config(
             "api_base": ["GEMINI_API_BASE"],
             "model": ["GEMINI_MODEL"],
         },
+        "aliyun": {
+            "access_key_id": ["ALIYUN_ACCESS_KEY_ID"],
+            "access_key_secret": ["ALIYUN_ACCESS_KEY_SECRET"],
+            "api_base": ["ALIYUN_API_BASE"],
+        },
     }
     priority = provider_priority.get(translator_name)
 
     config.translator.user_api_key = None
     config.translator.user_api_base = None
     config.translator.user_api_model = None
+    config.translator.aliyun_access_key_id = None
+    config.translator.aliyun_access_key_secret = None
+    config.translator.aliyun_api_base = None
 
     if not priority:
         logger.info(
@@ -234,6 +248,34 @@ def _apply_env_vars_to_config(
             setattr(config.translator, target_attr, value)
             logger.info(f"[EnvVars->Config] Set {target_attr} from {var}")
             return
+
+    if translator_name == "aliyun":
+        _pick_first("access_key_id", "aliyun_access_key_id")
+        _pick_first("access_key_secret", "aliyun_access_key_secret")
+        _pick_first("api_base", "aliyun_api_base")
+        if not (
+            config.translator.aliyun_access_key_id
+            and config.translator.aliyun_access_key_secret
+        ):
+            if allow_server_api_keys:
+                logger.info(
+                    "[EnvVars->Config] Aliyun credentials are incomplete; "
+                    "falling back to server default credentials."
+                )
+                return
+            raise HTTPException(
+                403,
+                detail=(
+                    "Selected translator 'aliyun' requires both "
+                    "ALIYUN_ACCESS_KEY_ID and ALIYUN_ACCESS_KEY_SECRET."
+                ),
+            )
+        logger.info(
+            "[EnvVars->Config] Final Aliyun config: access_key_id=SET, "
+            f"access_key_secret={'SET' if config.translator.aliyun_access_key_secret else 'NOT SET'}, "
+            f"api_base={config.translator.aliyun_api_base}"
+        )
+        return
 
     _pick_first("api_key", "user_api_key", mask_value=True)
     _pick_first("api_base", "user_api_base")

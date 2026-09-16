@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manga Translator Web UI</title>
-    <link rel="stylesheet" href="/static/style.css?v=12">
+    <link rel="stylesheet" href="/static/style.css?v=13">
     <style>
         .user-login-container {
             display: none;
@@ -98,9 +98,11 @@
                         <div class="button-group">
                             <button id="add-files-btn" class="secondary-btn">添加文件</button>
                             <button id="add-folder-btn" class="secondary-btn">添加文件夹</button>
+                            <button id="add-html-btn" class="secondary-btn">导入 HTML</button>
                             <button id="clear-list-btn" class="secondary-btn">清空</button>
                             <input type="file" id="file-input" multiple accept="image/*,.pdf,.json,.txt" style="display: none;">
                             <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;">
+                            <input type="file" id="html-input" accept=".html,.htm,text/html" style="display: none;">
                         </div>
                     </div>
                     <div class="file-list-container">
@@ -325,6 +327,6 @@
     </script>
     <script src="/static/js/history-gallery.js"></script>
     <script src="/static/js/shared/api-key-schema.js?v=1"></script>
-    <script src="/static/script.js?v=12"></script>
+    <script src="/static/script.js?v=13"></script>
 </body>
 </html>

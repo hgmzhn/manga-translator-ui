@@ -114,6 +114,7 @@ class MainView(QObject):
     _on_preset_changed = main_view_env.on_preset_changed
     update_output_path_display = main_view_env.update_output_path_display
     _trigger_add_files = main_view_env.trigger_add_files
+    _trigger_import_html = main_view_env.trigger_import_html
 
     _enable_stop_button = main_view_runtime.enable_stop_button
     set_stopping_state = main_view_runtime.set_stopping_state
@@ -395,6 +396,8 @@ class MainView(QObject):
             self.add_files_button.setText(self._t("Add Files"))
         if hasattr(self, "add_folder_button"):
             self.add_folder_button.setText(self._t("Add Folder"))
+        if hasattr(self, "import_html_button"):
+            self.import_html_button.setText(self._t("Import HTML"))
         if hasattr(self, "clear_list_button"):
             self.clear_list_button.setText(self._t("Clear List"))
 

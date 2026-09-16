@@ -68,6 +68,8 @@ const els = {
     folderInput: document.getElementById('folder-input'),
     addFilesBtn: document.getElementById('add-files-btn'),
     addFolderBtn: document.getElementById('add-folder-btn'),
+    addHtmlBtn: document.getElementById('add-html-btn'),
+    htmlInput: document.getElementById('html-input'),
     clearListBtn: document.getElementById('clear-list-btn'),
     fileList: document.getElementById('file-list'),
     fileCount: document.getElementById('file-count'),
@@ -594,6 +596,10 @@ function setupEventListeners() {
     // File Management
     els.addFilesBtn.addEventListener('click', () => els.fileInput.click());
     els.addFolderBtn.addEventListener('click', () => els.folderInput.click());
+    if (els.addHtmlBtn && els.htmlInput) {
+        els.addHtmlBtn.addEventListener('click', () => els.htmlInput.click());
+        els.htmlInput.addEventListener('change', handleHtmlSelect);
+    }
     els.fileInput.addEventListener('change', handleFileSelect);
     els.folderInput.addEventListener('change', handleFolderSelect);
     els.clearListBtn.addEventListener('click', clearFileList);
@@ -655,6 +661,78 @@ function setupEventListeners() {
     }
     if (clearResultsBtn) {
         clearResultsBtn.addEventListener('click', clearResults);
+    }
+}
+
+async function handleHtmlSelect(event) {
+    const htmlFile = event.target.files?.[0];
+    event.target.value = '';
+    if (!htmlFile) return;
+
+    const formData = new FormData();
+    formData.append('html', htmlFile);
+    formData.append('include_all_images', 'false');
+    formData.append('max_images', String(userSettings.max_images_per_batch ?? 0));
+
+    const headers = {};
+    const sessionToken = localStorage.getItem('session_token');
+    if (sessionToken) headers['X-Session-Token'] = sessionToken;
+
+    log(`正在从 HTML 下载图片: ${htmlFile.name}...`, 'info');
+    if (els.addHtmlBtn) els.addHtmlBtn.disabled = true;
+    try {
+        const response = await fetch('/source/html/download', {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        if (!response.ok) {
+            let detail = `HTTP ${response.status}`;
+            try {
+                const error = await response.json();
+                detail = error.detail || detail;
+            } catch (_) {
+                // Keep the HTTP status when the server did not return JSON.
+            }
+            throw new Error(detail);
+        }
+        if (typeof JSZip === 'undefined') {
+            throw new Error('ZIP 解压库未加载');
+        }
+
+        const archive = await JSZip.loadAsync(await response.blob());
+        const importedFiles = [];
+        for (const filename of Object.keys(archive.files)) {
+            const entry = archive.files[filename];
+            if (entry.dir) continue;
+            const bytes = await entry.async('uint8array');
+            const extension = filename.toLowerCase().split('.').pop();
+            const mimeTypes = {
+                avif: 'image/avif', bmp: 'image/bmp', gif: 'image/gif',
+                jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                tif: 'image/tiff', tiff: 'image/tiff', webp: 'image/webp'
+            };
+            importedFiles.push(new File([bytes], filename, {
+                type: mimeTypes[extension] || 'image/jpeg'
+            }));
+        }
+
+        if (!checkUploadLimits(importedFiles, fileList.length)) return;
+        importedFiles.forEach(file => {
+            fileList.push(file);
+            addFileToUI(file);
+        });
+        updateFileCount();
+
+        const failedCount = Number(response.headers.get('X-Failed-Count') || 0);
+        const downloadedCount = Number(response.headers.get('X-Downloaded-Count') || importedFiles.length);
+        const message = `HTML 导入完成：已下载 ${downloadedCount} 张图片` +
+            (failedCount ? `，${failedCount} 张下载失败` : '');
+        log(message, failedCount ? 'warning' : 'info');
+    } catch (error) {
+        log(`HTML 图片下载失败: ${error.message}`, 'error');
+    } finally {
+        if (els.addHtmlBtn) els.addHtmlBtn.disabled = false;
     }
 }
 

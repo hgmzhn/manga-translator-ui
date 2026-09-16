@@ -368,7 +368,12 @@ def _display_env_label(self, key: str, index: int | None = None, *, include_inde
 
 def _is_secret_env_key(key: str) -> bool:
     normalized_key = str(key or "").upper()
-    return "API_KEY" in normalized_key or "AUTH_KEY" in normalized_key or "TOKEN" in normalized_key
+    return (
+        "API_KEY" in normalized_key
+        or "AUTH_KEY" in normalized_key
+        or "TOKEN" in normalized_key
+        or "ACCESS_KEY_SECRET" in normalized_key
+    )
 
 
 def _make_secret_visibility_icon(hidden: bool):
@@ -677,8 +682,12 @@ def _build_slot_status_endpoint(self, api_key_env: str, slot_index: int) -> APIE
     if not env_key:
         return None
     translator_key = _get_current_translator_key(self)
-    test_target, api_key, api_base, model = _resolve_api_context(self, env_key, translator_key)
-    if not _is_test_item_configured(test_target, api_key, api_base):
+    test_target, api_key, api_base, model, api_secret = _resolve_api_context(
+        self,
+        env_key,
+        translator_key,
+    )
+    if not _is_test_item_configured(test_target, api_key, api_base, api_secret):
         return None
     return _build_test_status_endpoint(self, env_key, test_target, api_key, api_base, model)
 
@@ -991,6 +1000,7 @@ def _detect_test_target(env_key: str, translator_key: str) -> str:
         "GROQ": "groq",
         "GEMINI": "gemini",
         "SAKURA": "sakura",
+        "ALIYUN": "aliyun",
     }
     target = provider_targets.get(provider)
     if target:
@@ -1010,6 +1020,8 @@ def _get_api_address_example(api_type: str) -> str:
         return "https://api.groq.com/openai/v1"
     if "sakura" in normalized:
         return "http://127.0.0.1:8080/v1"
+    if "aliyun" in normalized:
+        return "https://mt.cn-hangzhou.aliyuncs.com"
     return "https://api.openai.com/v1"
 
 
@@ -1141,7 +1153,15 @@ def _split_env_key(env_key: str) -> tuple[str, str, str]:
             normalized_key = normalized_key[len(prefix):]
             break
 
-    for provider in ("CUSTOM_OPENAI", "OPENAI", "GEMINI", "DEEPSEEK", "GROQ", "SAKURA"):
+    for provider in (
+        "CUSTOM_OPENAI",
+        "OPENAI",
+        "GEMINI",
+        "DEEPSEEK",
+        "GROQ",
+        "SAKURA",
+        "ALIYUN",
+    ):
         provider_prefix = f"{provider}_"
         if normalized_key.startswith(provider_prefix):
             field = normalized_key[len(provider_prefix):]
@@ -1191,13 +1211,27 @@ def _read_env_candidates(self, *env_keys: str | None) -> str | None:
     return None
 
 
-def _resolve_api_context(self, env_key: str, translator_key: str) -> tuple[str, str | None, str | None, str | None]:
+def _resolve_api_context(
+    self,
+    env_key: str,
+    translator_key: str,
+) -> tuple[str, str | None, str | None, str | None, str | None]:
     test_target = _detect_test_target(env_key, translator_key)
     scope, provider, field = _split_env_key(env_key)
     base_field, slot_index = _split_slot_field(field)
 
     api_key = None
-    if base_field in ("API_KEY", "AUTH_KEY", "TOKEN"):
+    api_secret = None
+    if provider == "ALIYUN":
+        api_key = _read_env_candidates(
+            self,
+            _build_related_env_key(scope, provider, "ACCESS_KEY_ID"),
+        )
+        api_secret = _read_env_candidates(
+            self,
+            _build_related_env_key(scope, provider, "ACCESS_KEY_SECRET"),
+        )
+    elif base_field in ("API_KEY", "AUTH_KEY", "TOKEN"):
         api_key = _read_env_candidates(
             self,
             env_key,
@@ -1243,7 +1277,7 @@ def _resolve_api_context(self, env_key: str, translator_key: str) -> tuple[str, 
         _build_related_slot_env_key(scope, provider, "MODEL", slot_index),
         _build_related_slot_env_key("", provider, "MODEL", slot_index) if scope else None,
     )
-    return test_target, api_key, api_base, model
+    return test_target, api_key, api_base, model, api_secret
 
 
 def _test_target_status_identity(test_target: str) -> tuple[str, str] | None:
@@ -1253,6 +1287,7 @@ def _test_target_status_identity(test_target: str) -> tuple[str, str] | None:
         "openai_hq": ("translator", "openai"),
         "gemini": ("translator", "gemini"),
         "gemini_hq": ("translator", "gemini"),
+        "aliyun": ("translator", "aliyun"),
         "openai_ocr": ("ocr", "openai"),
         "gemini_ocr": ("ocr", "gemini"),
         "openai_colorizer": ("colorizer", "openai"),
@@ -1303,10 +1338,19 @@ def _build_test_status_endpoint(
     )
 
 
-def _is_test_item_configured(test_target: str, api_key: str | None, api_base: str | None) -> bool:
+def _is_test_item_configured(
+    test_target: str,
+    api_key: str | None,
+    api_base: str | None,
+    api_secret: str | None = None,
+) -> bool:
     if str(api_key or "").strip():
+        if (test_target or "").strip().lower() == "aliyun":
+            return bool(str(api_secret or "").strip())
         return True
     normalized = (test_target or "").strip().lower()
+    if normalized == "aliyun":
+        return False
     if "sakura" in normalized:
         return bool(str(api_base or "").strip())
     return "openai" in normalized and bool(resolve_openai_compatible_api_key("", api_base or ""))
@@ -1354,13 +1398,23 @@ def _collect_api_test_items(self, section_key: str) -> list[dict]:
     for key in list(self.env_widgets.keys()):
         scope, provider, field = _split_env_key(key)
         base_field, slot_index = _split_slot_field(field)
-        if base_field not in ("API_KEY", "AUTH_KEY", "TOKEN"):
+        if base_field not in (
+            "API_KEY",
+            "AUTH_KEY",
+            "TOKEN",
+            "ACCESS_KEY_ID",
+            "ACCESS_KEY_SECRET",
+        ):
             continue
         if scope != expected_scope:
             continue
 
-        test_target, api_key, api_base, model = _resolve_api_context(self, key, translator_key)
-        if not _is_test_item_configured(test_target, api_key, api_base):
+        test_target, api_key, api_base, model, api_secret = _resolve_api_context(
+            self,
+            key,
+            translator_key,
+        )
+        if not _is_test_item_configured(test_target, api_key, api_base, api_secret):
             continue
         status_endpoint = _build_test_status_endpoint(self, key, test_target, api_key, api_base, model)
         if status_endpoint is None:
@@ -1377,6 +1431,7 @@ def _collect_api_test_items(self, section_key: str) -> list[dict]:
                 "api_key": api_key,
                 "api_base": api_base,
                 "model": model,
+                "api_secret": api_secret,
                 "endpoint": status_endpoint,
             }
         )
@@ -1515,6 +1570,7 @@ def _run_api_batch_test(self, items: list[dict]):
                         item.get("api_key"),
                         item.get("api_base"),
                         item.get("model"),
+                        item.get("api_secret"),
                     )
                 except Exception as exc:
                     success, message = False, str(exc)
@@ -1599,7 +1655,11 @@ def on_test_api_clicked(self, key: str):
         return
 
     translator_key = _get_current_translator_key(self)
-    test_target, api_key, api_base, model = _resolve_api_context(self, key, translator_key)
+    test_target, api_key, api_base, model, api_secret = _resolve_api_context(
+        self,
+        key,
+        translator_key,
+    )
     status_endpoint = _build_test_status_endpoint(self, key, test_target, api_key, api_base, model)
 
     progress = create_progress_dialog(
@@ -1642,7 +1702,13 @@ def on_test_api_clicked(self, key: str):
     _start_managed_api_task(
         self,
         "api_test",
-        self.controller.test_api_connection_async(test_target, api_key, api_base, model),
+        self.controller.test_api_connection_async(
+            test_target,
+            api_key,
+            api_base,
+            model,
+            api_secret,
+        ),
         progress,
         on_test_finished,
     )
@@ -1660,7 +1726,11 @@ def on_get_models_clicked(self, key: str):
         return
 
     translator_key = _get_current_translator_key(self)
-    model_api_type, api_key, api_base, _ = _resolve_api_context(self, key, translator_key)
+    model_api_type, api_key, api_base, _, _ = _resolve_api_context(
+        self,
+        key,
+        translator_key,
+    )
 
     progress = create_progress_dialog(
         self._dialog_parent(),
@@ -1871,3 +1941,17 @@ def trigger_add_files(self):
         self.controller.add_files(file_paths)
         new_dir = os.path.dirname(file_paths[0])
         self.controller.set_last_open_dir(new_dir)
+
+
+def trigger_import_html(self):
+    """选择本地 HTML 章节，并交给后台下载图片。"""
+    last_dir = self.controller.get_last_open_dir()
+    html_path, _ = QFileDialog.getOpenFileName(
+        self._dialog_parent(),
+        self._t("Import HTML"),
+        last_dir,
+        "HTML Files (*.html *.htm)",
+    )
+    if html_path:
+        self.controller.set_last_open_dir(os.path.dirname(html_path))
+        self.controller.import_html_images(html_path)

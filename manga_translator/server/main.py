@@ -72,6 +72,7 @@ from manga_translator.server.routes import (
     quota_router,
     resources_router,
     sessions_router,
+    source_router,
     translation_router,
     users_router,
     web_router,
@@ -305,6 +306,7 @@ app.include_router(audit_router)
 app.include_router(auth_router)
 app.include_router(groups_router)
 app.include_router(resources_router)
+app.include_router(source_router)
 app.include_router(history_router)
 app.include_router(quota_router)
 app.include_router(config_management_router)

@@ -61,6 +61,10 @@ from services import (
     get_state_manager,
     get_translation_service,
 )
+from services.html_image_download_service import (
+    HtmlImageDownloadResult,
+    download_html_images,
+)
 from services.state_manager import AppStateKey
 from utils.asyncio_cleanup import shutdown_event_loop
 from utils.font_list import fonts_directory
@@ -125,6 +129,9 @@ class MainAppLogic(QObject):
     warning_dialog_requested = pyqtSignal(str)
     render_setting_changed = pyqtSignal()
     file_sources_changed = pyqtSignal()
+    html_import_state_changed = pyqtSignal(bool)
+    html_import_succeeded = pyqtSignal(object)
+    html_import_failed = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -142,8 +149,13 @@ class MainAppLogic(QObject):
             max_workers=1,
             thread_name_prefix="translation-task",
         )
+        self._html_download_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="html-image-download",
+        )
         self._scan_future: Optional[concurrent.futures.Future] = None
         self._translate_future: Optional[concurrent.futures.Future] = None
+        self._html_download_future: Optional[concurrent.futures.Future] = None
         self._cleanup_future: Optional[concurrent.futures.Future] = None
         self._scan_request_id = 0
         self.current_worker = None  # 当前运行的worker
@@ -155,6 +167,14 @@ class MainAppLogic(QObject):
         self._last_progress_log_at = 0.0
         self._task_failures: List[Dict[str, str]] = []
         self._task_failure_keys: set[str] = set()
+        self.html_import_succeeded.connect(
+            self._on_html_download_success,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
+        self.html_import_failed.connect(
+            self._on_html_download_failed,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
 
         self.source_files: List[str] = [] # Holds both files and folders
         self._source_folders: Dict[str, str] = {}
@@ -865,7 +885,14 @@ class MainAppLogic(QObject):
 
             return await asyncio.get_running_loop().run_in_executor(None, sync_test)
 
-    async def test_api_connection_async(self, translator_key: str, api_key: str, api_base: str = None, model: str = None) -> tuple[bool, str]:
+    async def test_api_connection_async(
+        self,
+        translator_key: str,
+        api_key: str,
+        api_base: str = None,
+        model: str = None,
+        api_secret: str = None,
+    ) -> tuple[bool, str]:
         """异步测试API连接（如果指定了模型，会测试该模型是否可用）"""
         try:
             normalized_key = self._normalize_api_test_target(translator_key)
@@ -884,6 +911,10 @@ class MainAppLogic(QObject):
                 return await self._test_openai_text_api(api_key, api_base, model)
             if "gemini" in normalized_key:
                 return await self._test_gemini_text_api(api_key, api_base, model)
+            if normalized_key == "aliyun":
+                from manga_translator.translators.aliyun import test_aliyun_connection
+
+                return await test_aliyun_connection(api_key, api_secret, api_base)
             if "sakura" in normalized_key:
                 # Sakura使用OpenAI兼容API
                 from openai import AsyncOpenAI
@@ -1184,6 +1215,7 @@ class MainAppLogic(QObject):
                     "openai_hq": self._t("translator_openai_hq"),
                     "gemini": "Google Gemini",
                     "gemini_hq": self._t("translator_gemini_hq"),
+                    "aliyun": self._t("translator_aliyun"),
                     "sakura": "Sakura",
                     "none": self._t("translator_none"),
                     "original": self._t("translator_original"),
@@ -1358,6 +1390,9 @@ class MainAppLogic(QObject):
                     "RENDER_GEMINI_API_BASE": self._t("label_RENDER_GEMINI_API_BASE"),
                     "SAKURA_API_BASE": self._t("label_SAKURA_API_BASE"),
                     "SAKURA_DICT_PATH": self._t("label_SAKURA_DICT_PATH"),
+                    "ALIYUN_ACCESS_KEY_ID": self._t("label_ALIYUN_ACCESS_KEY_ID"),
+                    "ALIYUN_ACCESS_KEY_SECRET": self._t("label_ALIYUN_ACCESS_KEY_SECRET"),
+                    "ALIYUN_API_BASE": self._t("label_ALIYUN_API_BASE"),
                     "CUSTOM_OPENAI_API_BASE": self._t("label_CUSTOM_OPENAI_API_BASE"),
                     "CUSTOM_OPENAI_MODEL": self._t("label_CUSTOM_OPENAI_MODEL"),
                     "CUSTOM_OPENAI_API_KEY": self._t("label_CUSTOM_OPENAI_API_KEY"),
@@ -1459,6 +1494,15 @@ class MainAppLogic(QObject):
                 for key in cli_exclude:
                     if key in config_dict['cli']:
                         del config_dict['cli'][key]
+
+            # 3. 永不导出 API 凭证（包括阿里云成对的 AccessKey 字段）
+            if "translator" in config_dict:
+                for key in (
+                    "user_api_key",
+                    "aliyun_access_key_id",
+                    "aliyun_access_key_secret",
+                ):
+                    config_dict["translator"].pop(key, None)
             
             # 保存到文件
             with open(file_path, 'w', encoding='utf-8') as f:
@@ -1622,6 +1666,55 @@ class MainAppLogic(QObject):
                 self.logger.info(f"Added {len(new_paths)} files/folders to the list.")
                 self.files_added.emit(new_paths)
             self.file_sources_changed.emit()
+
+    @pyqtSlot(str)
+    def import_html_images(self, html_path: str):
+        """在后台下载 HTML 章节图片，并加入桌面翻译文件列表。"""
+        if self.state_manager.is_translating():
+            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
+            return
+        if self._html_download_future and not self._html_download_future.done():
+            self._ui_log("正在下载 HTML 图片，请等待当前任务完成。", "WARNING")
+            return
+
+        self.html_import_state_changed.emit(True)
+        self._ui_log(f"开始从 HTML 下载图片: {os.path.basename(html_path)}")
+        self._html_download_future = self._html_download_executor.submit(
+            download_html_images,
+            html_path,
+        )
+        self._html_download_future.add_done_callback(self._on_html_download_done)
+
+    def _on_html_download_done(self, future: concurrent.futures.Future):
+        try:
+            result = future.result()
+        except Exception as exc:
+            self.html_import_failed.emit(str(exc))
+        else:
+            self.html_import_succeeded.emit(result)
+        finally:
+            self._html_download_future = None
+
+    @pyqtSlot(object)
+    def _on_html_download_success(self, result: HtmlImageDownloadResult):
+        self.add_files(list(result.image_paths))
+        self._ui_log(
+            f"HTML 图片下载完成: {len(result.image_paths)}/{result.extracted_count}，"
+            f"已加入 {result.output_dir}"
+        )
+        if result.failures:
+            self._ui_log(
+                f"有 {len(result.failures)} 张图片下载失败: "
+                + "；".join(result.failures[:3]),
+                "WARNING",
+            )
+        self.html_import_state_changed.emit(False)
+
+    @pyqtSlot(str)
+    def _on_html_download_failed(self, message: str):
+        self._ui_log(f"HTML 图片下载失败: {message}", "ERROR")
+        self.error_dialog_requested.emit(f"HTML 图片下载失败\n\n{message}")
+        self.html_import_state_changed.emit(False)
 
     def get_last_open_dir(self) -> str:
         path = self.config_service.get_config().app.last_open_dir
@@ -2226,6 +2319,7 @@ class MainAppLogic(QObject):
                         self._ui_log(f"停止worker时出错: {e}", "WARNING")
             self.current_worker = None
             self.state_manager.set_translating(False)
+            self._html_download_executor.shutdown(wait=True, cancel_futures=True)
             self._task_executor.shutdown(wait=True, cancel_futures=True)
 
             # 关闭缩略图加载线程池

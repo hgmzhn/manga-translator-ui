@@ -348,6 +348,9 @@ services:
 
 | Variable | Description |
 |--------|------|
+| `ALIYUN_ACCESS_KEY_ID` | Aliyun AccessKey ID, used by the `aliyun` translator |
+| `ALIYUN_ACCESS_KEY_SECRET` | Aliyun AccessKey Secret, used by the `aliyun` translator |
+| `ALIYUN_API_BASE` | Aliyun Machine Translation endpoint (optional, default `https://mt.cn-hangzhou.aliyuncs.com`) |
 | `BAIDU_APP_ID` | Baidu Translate App ID |
 | `BAIDU_SECRET_KEY` | Baidu Translate secret |
 | `YOUDAO_APP_KEY` | Youdao app key |

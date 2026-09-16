@@ -44,12 +44,14 @@ def create_translation_page(self) -> QWidget:
     file_buttons_layout.setSpacing(8)
     self.add_files_button = PushButton(self._t("Add Files"))
     self.add_folder_button = PushButton(self._t("Add Folder"))
+    self.import_html_button = PushButton(self._t("Import HTML"))
     self.clear_list_button = PushButton(self._t("Clear List"))
     self.add_files_button.setIcon(FIF.ADD)
     self.add_folder_button.setIcon(FIF.FOLDER_ADD)
     self.clear_list_button.setIcon(FIF.DELETE)
     file_buttons_layout.addWidget(self.add_files_button)
     file_buttons_layout.addWidget(self.add_folder_button)
+    file_buttons_layout.addWidget(self.import_html_button)
     file_buttons_layout.addWidget(self.clear_list_button)
     file_buttons_layout.addStretch()
     input_layout.addWidget(file_button_widget)
@@ -115,7 +117,14 @@ def create_translation_page(self) -> QWidget:
 
     self.add_files_button.clicked.connect(self._trigger_add_files)
     self.add_folder_button.clicked.connect(self.controller.add_folder)
+    self.import_html_button.clicked.connect(self._trigger_import_html)
     self.clear_list_button.clicked.connect(self.controller.clear_file_list)
+    self.controller.html_import_state_changed.connect(
+        self.import_html_button.setDisabled,
+    )
+    self.controller.html_import_state_changed.connect(
+        self.start_button.setDisabled,
+    )
     self.file_list.file_remove_requested.connect(self.controller.remove_file)
     self.browse_button.clicked.connect(self.controller.select_output_folder)
     self.open_button.clicked.connect(self.controller.open_output_folder)

@@ -1,27 +1,20 @@
-# 自定义翻译提示词模板
-# Custom translation prompt template
-#
-# 使用方法：
-#   1. 复制此文件并重命名（例如 my_manga_prompt.yaml）
-#   2. 编辑下面的 system_prompt 和 glossary 部分
-#   3. 在翻译设置中选择此文件
-#
-# 提示词中可以使用 {{{target_lang}}} 占位符，会被替换为目标语言名称
-
-# 自定义系统提示词（留空则仅使用内置的基础提示词，此处内容会叠加在基础提示词之前）
-system_prompt: ""
-
-# 术语表（确保角色名、地名等翻译一致）
+system_prompt: ''
 glossary:
   Person:
-    - original: ""
-      aliases:
-        - original: ""
-          translations:
-            - text: ""
-              condition: ""
-      description: ""
-      overwrite: false
+  - original: ''
+    aliases:
+    - original: ''
+      translations:
+      - text: ''
+        condition: ''
+    description: ''
+    overwrite: false
+  - original: 佩丽多
+    aliases:
+    - original: 佩丽多
+      translations:
+      - text: 佩丽多
+    overwrite: false
   Location: []
   Org: []
   Item: []

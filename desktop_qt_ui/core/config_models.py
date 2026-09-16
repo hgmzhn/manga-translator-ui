@@ -12,6 +12,14 @@ VALID_LAYOUT_MODES = {"smart_scaling", "strict", "balloon_fill"}
 class TranslatorSettings(BaseModel):
     translator: str = "openai_hq"
     target_lang: str = "CHS"
+    # 可选的项目级 OpenAI 兼容接口配置。填写后优先于 .env。
+    user_api_key: Optional[str] = None
+    user_api_base: Optional[str] = None
+    user_api_model: Optional[str] = None
+    # 阿里云 TranslateGeneral。AccessKey Secret 建议放在项目 .env 中。
+    aliyun_access_key_id: Optional[str] = None
+    aliyun_access_key_secret: Optional[str] = None
+    aliyun_api_base: Optional[str] = None
     keep_lang: str = "none"
     enable_streaming: bool = True
     no_text_lang_skip: bool = False
@@ -192,7 +200,7 @@ class AppSection(BaseModel):
     folder_dialog_sort: str = "name_ascending"
     theme: str = "light"  # 主题选项由 theme_registry.py 统一定义
     theme_user_preference: str = "light"
-    ui_language: str = "auto"  # UI语言：auto(自动检测), zh_CN, en_US, ja_JP, ko_KR 等
+    ui_language: str = "zh_CN"  # UI语言：auto(自动检测), zh_CN, en_US, ja_JP, ko_KR 等
     auto_check_updates: bool = True  # 启动时是否自动检查新版本
     use_system_proxy: bool = False  # 网络请求是否使用操作系统代理配置
     current_preset: str = "默认"  # 当前使用的预设名称

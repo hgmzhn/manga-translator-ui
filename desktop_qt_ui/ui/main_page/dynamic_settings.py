@@ -52,6 +52,11 @@ API_GROUP_SPECS = {
 
 SIMPLE_API_GROUP_SPECS = {
     "translator_sakura": ("SAKURA_API_BASE", "SAKURA_DICT_PATH"),
+    "translator_aliyun": (
+        "ALIYUN_ACCESS_KEY_ID",
+        "ALIYUN_ACCESS_KEY_SECRET",
+        "ALIYUN_API_BASE",
+    ),
 }
 
 def _normalize_selected_value(value) -> str:
@@ -79,6 +84,8 @@ def _selected_api_group_keys(config) -> dict[str, list[str]]:
         result["translation"].append("translator_gemini")
     elif translator_value == "sakura":
         result["translation"].append("translator_sakura")
+    elif translator_value == "aliyun":
+        result["translation"].append("translator_aliyun")
 
     selected_ocr_values = [ocr_value]
     if bool(getattr(config.ocr, "use_hybrid_ocr", False)):
@@ -1288,11 +1295,11 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
                 widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, int))
             elif key == 'ocr_vl_custom_prompt':
                 widget.setMinimumWidth(320)
-                widget.setPlaceholderText("OCR: Extract all Arabic text.")
+                widget.setPlaceholderText(self._t("OCR: Extract all Arabic text."))
                 widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
             elif key == 'ai_ocr_custom_prompt':
                 widget.setMinimumWidth(320)
-                widget.setPlaceholderText("Read the text and return only the recognized text.")
+                widget.setPlaceholderText(self._t("Read the text and return only the recognized text."))
                 widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
 
         elif (isinstance(value, str) or value is None) and (options or display_map):
@@ -1326,9 +1333,9 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             if full_key in {"ocr.ocr_vl_custom_prompt", "ocr.ai_ocr_custom_prompt"}:
                 widget.setMinimumWidth(320)
                 if full_key == "ocr.ocr_vl_custom_prompt":
-                    widget.setPlaceholderText("OCR: Extract all Arabic text.")
+                    widget.setPlaceholderText(self._t("OCR: Extract all Arabic text."))
                 else:
-                    widget.setPlaceholderText("Read the text and return only the recognized text.")
+                    widget.setPlaceholderText(self._t("Read the text and return only the recognized text."))
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
         if widget is not None:
             row = _ClickableRow(self, full_key, label_text, widget)

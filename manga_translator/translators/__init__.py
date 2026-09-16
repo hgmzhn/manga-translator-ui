@@ -7,6 +7,7 @@ from ..utils import Context
 from .common import *
 from .gemini import GeminiTranslator
 from .gemini_hq import GeminiHighQualityTranslator
+from .aliyun import AliyunTranslator
 from .none import NoneTranslator
 from .openai import OpenAITranslator
 from .openai_hq import OpenAIHighQualityTranslator
@@ -24,6 +25,7 @@ TRANSLATORS = {
     Translator.none: NoneTranslator,
     Translator.original: OriginalTranslator,
     Translator.sakura: SakuraTranslator,
+    Translator.aliyun: AliyunTranslator,
     **GPT_TRANSLATORS,
 }
 translator_cache = {}

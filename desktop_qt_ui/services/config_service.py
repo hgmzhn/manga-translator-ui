@@ -93,6 +93,14 @@ RUNTIME_API_REQUIREMENTS = {
         "display_name": "Gemini HQ",
         "accepted_env_vars": ["GEMINI_API_KEY"],
     },
+    "aliyun": {
+        "display_name": "Aliyun Translate",
+        "accepted_env_vars": [
+            "ALIYUN_ACCESS_KEY_ID",
+            "ALIYUN_ACCESS_KEY_SECRET",
+        ],
+        "require_all_env_vars": True,
+    },
     "openai_ocr": {
         "display_name": "OpenAI OCR",
         "accepted_env_vars": ["OCR_OPENAI_API_KEY", "OPENAI_API_KEY"],
@@ -359,10 +367,23 @@ class ConfigService(QObject):
             if not requirement:
                 continue
 
+            if feature_name == "aliyun":
+                config_id = getattr(config.translator, "aliyun_access_key_id", None)
+                config_secret = getattr(config.translator, "aliyun_access_key_secret", None)
+                if str(config_id or "").strip() and str(config_secret or "").strip():
+                    continue
+
             accepted_env_vars = list(requirement.get("accepted_env_vars", []))
-            if any(
-                self._has_env_value(merged_env_vars, key) for key in accepted_env_vars
-            ):
+            if requirement.get("require_all_env_vars"):
+                credentials_ready = all(
+                    self._has_env_value(merged_env_vars, key)
+                    for key in accepted_env_vars
+                )
+            else:
+                credentials_ready = any(
+                    self._has_env_value(merged_env_vars, key) for key in accepted_env_vars
+                )
+            if credentials_ready:
                 continue
 
             accepted_base_env_vars = list(requirement.get("accepted_base_env_vars", []))
@@ -497,7 +518,7 @@ class ConfigService(QObject):
                     "favorite_folders": None,
                     "folder_dialog_sort": "name_ascending",
                     "theme": "light",
-                    "ui_language": "auto",
+                    "ui_language": "zh_CN",
                     "current_preset": "默认",
                     "editor_snap_enabled": False,
                     "editor_center_scale_enabled": False,

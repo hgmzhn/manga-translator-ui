@@ -11,6 +11,7 @@ This document explains how to register, choose, and configure the most commonly 
 - [SiliconFlow API Setup](#siliconflow-api-setup)
 - [DeepSeek API Setup](#deepseek-api-setup)
 - [Google Gemini API Setup](#google-gemini-api-setup)
+- [Aliyun Machine Translation Setup](#aliyun-machine-translation-setup)
 - [API OCR Setup (OpenAI OCR / Gemini OCR)](#api-ocr-setup-openai-ocr--gemini-ocr)
 - [API Colorization Setup (OpenAI Colorizer / Gemini Colorizer)](#api-colorization-setup-openai-colorizer--gemini-colorizer)
 - [API Rendering Setup (OpenAI Renderer / Gemini Renderer)](#api-rendering-setup-openai-renderer--gemini-renderer)
@@ -135,6 +136,18 @@ If your provider offers an OpenAI-compatible interface, you can usually configur
 - Google Cloud or Vertex-related API keys can also be entered directly in the Gemini fields
 - You do not need to change the Gemini base URL. Leave it empty for the default official host, or keep `https://generativelanguage.googleapis.com`
 
+## Aliyun Machine Translation Setup
+
+The Aliyun translator uses Aliyun Machine Translation `TranslateGeneral`. It sends OCR text only, does not require a model name, and is not an OpenAI-compatible endpoint.
+
+Select `Aliyun Translate` on `Translation Interface`, then fill these rows under `API Management` -> `Translation`:
+
+- `ALIYUN_ACCESS_KEY_ID`: Aliyun AccessKey ID
+- `ALIYUN_ACCESS_KEY_SECRET`: Aliyun AccessKey Secret
+- `ALIYUN_API_BASE`: optional; defaults to `https://mt.cn-hangzhou.aliyuncs.com`
+
+The app automatically performs the RPC `HMAC-SHA1` signing flow and generates the nonce and UTC timestamp. Each request supports up to 5000 source characters. Free quota and billing rules depend on the current Aliyun console; keep the AccessKey Secret in the project `.env` or API Management and do not commit it to Git.
+
 ### Current translation-tab field names
 
 On `API Management` -> `Translation`, the most commonly used rows are:
@@ -150,6 +163,9 @@ On `API Management` -> `Translation`, the most commonly used rows are:
 - `DeepSeek API Base`
 - `Groq API Key`
 - `Groq Model`
+- `Aliyun AccessKey ID`
+- `Aliyun AccessKey Secret`
+- `Aliyun Translate API Base`
 - `Sakura API Base`
 - `Custom OpenAI API Key`
 - `Custom OpenAI Model`

@@ -63,5 +63,16 @@
       "SAKURA_API_BASE",
       "SAKURA_DICT_PATH"
     ]
+  },
+  "aliyun": {
+    "name": "aliyun",
+    "display_name": "阿里云机器翻译",
+    "required_env_vars": [
+      "ALIYUN_ACCESS_KEY_ID",
+      "ALIYUN_ACCESS_KEY_SECRET"
+    ],
+    "optional_env_vars": [
+      "ALIYUN_API_BASE"
+    ]
   }
 }

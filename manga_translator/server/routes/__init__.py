@@ -17,6 +17,7 @@ from manga_translator.server.routes.quota import init_quota_routes
 from manga_translator.server.routes.quota import router as quota_router
 from manga_translator.server.routes.resources import init_resource_routes
 from manga_translator.server.routes.resources import router as resources_router
+from manga_translator.server.routes.source import router as source_router
 from manga_translator.server.routes.translation import router as translation_router
 from manga_translator.server.routes.users import router as users_router
 from manga_translator.server.routes.web import router as web_router
@@ -40,6 +41,7 @@ __all__ = [
     'init_auth_services',
     'groups_router',
     'resources_router',
+    'source_router',
     'init_resource_routes',
     'history_router',
     'init_history_routes',

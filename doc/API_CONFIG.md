@@ -11,6 +11,7 @@
 - [硅基流动 API 配置](#硅基流动-api-配置)
 - [DeepSeek API 配置](#deepseek-api-配置)
 - [Google Gemini API 配置](#google-gemini-api-配置)
+- [阿里云机器翻译配置](#阿里云机器翻译配置)
 - [API OCR 配置（OpenAI OCR / Gemini OCR）](#api-ocr-配置openai-ocr--gemini-ocr)
 - [API 上色配置（OpenAI Colorizer / Gemini Colorizer）](#api-上色配置openai-colorizer--gemini-colorizer)
 - [API 渲染配置（OpenAI Renderer / Gemini Renderer）](#api-渲染配置openai-renderer--gemini-renderer)
@@ -199,6 +200,20 @@ Google Gemini 是 Google 最新的多模态 AI 模型，性能强劲。
 
 ---
 
+## 阿里云机器翻译配置
+
+阿里云翻译器使用阿里云机器翻译通用版 `TranslateGeneral`，只发送 OCR 得到的文字，不需要模型名称，也不是 OpenAI 兼容接口。
+
+在“设置”→“翻译”中选择“阿里云机器翻译”，然后在“API 管理”→“翻译”填写：
+
+- `ALIYUN_ACCESS_KEY_ID`：阿里云 AccessKey ID
+- `ALIYUN_ACCESS_KEY_SECRET`：阿里云 AccessKey Secret
+- `ALIYUN_API_BASE`：可留空，默认 `https://mt.cn-hangzhou.aliyuncs.com`
+
+程序会自动完成 RPC `HMAC-SHA1` 签名、随机 nonce 和 UTC 时间戳。单次请求最多 5000 个字符。免费额度及计费规则以阿里云控制台当前显示为准；AccessKey Secret 建议只放在项目 `.env` 或 API 管理页，不要提交到 Git。
+
+---
+
 ## API OCR 配置（OpenAI OCR / Gemini OCR）
 
 这些 OCR 主要用于 **Qt 桌面端** 的 OCR 模型选择；服务端 **Web 管理端** 的 API Key 配置页也同步提供对应 OCR 分组，供服务端运行时读取。
@@ -375,4 +390,3 @@ Google Gemini 是 Google 最新的多模态 AI 模型，性能强劲。
 ---
 
 返回 [主页](../README.md) | 返回 [使用教程](USAGE.md)
-

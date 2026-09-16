@@ -109,6 +109,7 @@ def on_translation_state_changed(self, is_translating: bool):
     for name in (
         "add_files_button",
         "add_folder_button",
+        "import_html_button",
         "clear_list_button",
         "env_page",
     ):

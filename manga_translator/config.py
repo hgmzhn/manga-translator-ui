@@ -129,6 +129,7 @@ class Translator(str, Enum):
     openai_hq = "openai_hq"
     gemini = "gemini"
     gemini_hq = "gemini_hq"
+    aliyun = "aliyun"
     sakura = "sakura"
     none = "none"
     original = "original"
@@ -295,6 +296,15 @@ class TranslatorConfig(BaseModel):
     """User-provided API base URL (overrides environment variable)"""
     user_api_model: Optional[str] = None
     """User-provided model name (overrides environment variable)"""
+
+    # 阿里云机器翻译通用版（TranslateGeneral）配置。
+    # AccessKey Secret 属于敏感信息，优先建议放在项目 .env 中。
+    aliyun_access_key_id: Optional[str] = None
+    """User-provided Aliyun AccessKey ID (overrides ALIYUN_ACCESS_KEY_ID)"""
+    aliyun_access_key_secret: Optional[str] = None
+    """User-provided Aliyun AccessKey Secret (overrides ALIYUN_ACCESS_KEY_SECRET)"""
+    aliyun_api_base: Optional[str] = None
+    """User-provided Aliyun MT endpoint (overrides ALIYUN_API_BASE)"""
     
     # API请求频率限制配置
     max_requests_per_minute: int = 0

@@ -42,6 +42,18 @@
             ],
         },
         {
+            id: 'translation-aliyun',
+            category: 'translation',
+            name: 'Aliyun Translate',
+            i18nKey: 'translator_aliyun',
+            note: '使用阿里云机器翻译通用版 TranslateGeneral；需要 AccessKey ID 和 AccessKey Secret。免费额度以阿里云控制台当前规则为准。',
+            keys: [
+                { key: 'ALIYUN_ACCESS_KEY_ID', i18n: 'label_ALIYUN_ACCESS_KEY_ID', type: 'text', placeholder: 'LTAI...' },
+                { key: 'ALIYUN_ACCESS_KEY_SECRET', i18n: 'label_ALIYUN_ACCESS_KEY_SECRET', type: 'password', placeholder: 'AccessKey Secret' },
+                { key: 'ALIYUN_API_BASE', i18n: 'label_ALIYUN_API_BASE', type: 'text', placeholder: 'https://mt.cn-hangzhou.aliyuncs.com' },
+            ],
+        },
+        {
             id: 'ocr-openai',
             category: 'ocr',
             name: 'OpenAI OCR',

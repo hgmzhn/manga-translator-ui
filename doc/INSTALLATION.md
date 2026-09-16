@@ -341,6 +341,9 @@ services:
 **国内翻译服务**：
 | 变量名 | 说明 |
 |--------|------|
+| `ALIYUN_ACCESS_KEY_ID` | 阿里云 AccessKey ID（用于 `aliyun` 翻译器） |
+| `ALIYUN_ACCESS_KEY_SECRET` | 阿里云 AccessKey Secret（用于 `aliyun` 翻译器） |
+| `ALIYUN_API_BASE` | 阿里云机器翻译地址（可选，默认 `https://mt.cn-hangzhou.aliyuncs.com`） |
 | `BAIDU_APP_ID` | 百度翻译 APP ID |
 | `BAIDU_SECRET_KEY` | 百度翻译密钥 |
 | `YOUDAO_APP_KEY` | 有道翻译应用 ID |
