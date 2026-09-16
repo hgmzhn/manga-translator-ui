@@ -184,6 +184,12 @@ class MainWindow(FluentWindow):
                 self._t("Batch Management"),
             ),
             (
+                "chat",
+                self.main_view.chat_page,
+                FIF.MESSAGE,
+                self._t("Chat"),
+            ),
+            (
                 "about",
                 self.main_view.about_page,
                 FIF.INFO,
@@ -914,6 +920,7 @@ class MainWindow(FluentWindow):
         nav_labels = {
             "translation": self._t("Translation Interface"),
             "settings": self._t("Settings"),
+            "chat": self._t("Chat"),
             "about": self._t("About Application"),
             "env": self._t("API Management"),
             "prompts": self._t("Prompt Management"),
@@ -958,6 +965,7 @@ class MainWindow(FluentWindow):
         # 先等待 API 测试/取模型等后台线程结束（带超时），
         # 避免 QThread: Destroyed while thread is still running。
         if hasattr(self, "main_view") and self.main_view:
+            self.main_view.chat_page.shutdown()
             self.main_view.shutdown_background_threads(3000)
             if hasattr(self.main_view, "batch_edit_panel"):
                 self.main_view.batch_edit_panel.shutdown()

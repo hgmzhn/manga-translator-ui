@@ -25,6 +25,7 @@ from ui.main_page.pages.about_page import (
     show_update_dialog,
 )
 from ui.main_page.pages.batch_edit_page import create_batch_edit_page
+from ui.main_page.pages.chat_page import create_chat_page
 from ui.main_page.pages.env_page import create_env_page
 from ui.main_page.pages.prompt_page import create_prompt_page
 from ui.main_page.pages.replacements_page import create_replacements_page
@@ -64,6 +65,7 @@ class MainView(QObject):
 
     _create_translation_page = create_translation_page
     _create_settings_page = create_settings_page
+    _create_chat_page = create_chat_page
     _create_about_page = create_about_page
     _refresh_about_page_texts = refresh_about_page_texts
     _set_about_update_status = set_about_update_status
@@ -129,9 +131,10 @@ class MainView(QObject):
         if callable(getattr(self, "_navigation_switcher", None)):
             self._navigation_switcher(page_key)
 
-    def __init__(self, controller, parent=None):
+    def __init__(self, controller, parent=None, *, chat_service=None):
         super().__init__(parent)
         self.controller = controller
+        self.chat_service = chat_service
         self.config_service = get_config_service()
         self.i18n = get_i18n_manager()
         self.app_version = get_app_version()
@@ -155,9 +158,11 @@ class MainView(QObject):
         self.replacements_page = self._create_replacements_page()
         self.rich_text_rules_page = self._create_rich_text_rules_page()
         self.batch_edit_page = self._create_batch_edit_page()
+        self.chat_page = self._create_chat_page()
         self.page_widgets = {
             "translation": self.translation_interface,
             "settings": self.settings_page,
+            "chat": self.chat_page,
             "about": self.about_page,
             "env": self.env_page,
             "prompts": self.prompt_page,
@@ -382,6 +387,8 @@ class MainView(QObject):
         """刷新所有UI文本（用于语言切换）。"""
         if hasattr(self, "about_page"):
             self._refresh_about_page_texts()
+        if hasattr(self, "chat_page"):
+            self.chat_page.refresh_ui_texts()
         self.refresh_tab_titles()
 
 
