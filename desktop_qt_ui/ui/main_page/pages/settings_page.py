@@ -1,9 +1,14 @@
 import json
 import logging
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSignalBlocker, Qt
 from PyQt6.QtWidgets import (
+    QDialog,
     QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QMessageBox,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +25,272 @@ from qfluentwidgets import (
 )
 
 from utils.resource_helper import resource_path
+from ui.widgets.wheel_filter import NoWheelComboBox
+
+
+_MANAGE_PARAMETER_PROFILES_ITEM = "__manage_parameter_profiles__"
+
+
+def _show_parameter_profile_error(self, fallback_key: str) -> None:
+    detail = ""
+    getter = getattr(self.controller, "get_parameter_profile_error", None)
+    if callable(getter):
+        detail = str(getter() or "").strip()
+    QMessageBox.warning(
+        self._dialog_parent(),
+        self._t("Error"),
+        detail or self._t(fallback_key),
+    )
+
+
+def refresh_parameter_profiles(self, *_args) -> None:
+    """Refresh the named parameter-profile selector without firing a load."""
+    combo = getattr(self, "parameter_profile_combo", None)
+    if combo is None:
+        return
+
+    try:
+        profiles = list(self.controller.get_parameter_profiles())
+        current_name = self.controller.get_current_parameter_profile()
+    except Exception as exc:
+        logging.getLogger(__name__).warning("刷新参数配置列表失败: %s", exc)
+        return
+
+    blocker = QSignalBlocker(combo)
+    try:
+        combo.clear()
+        for profile_name in profiles:
+            combo.addItem(profile_name, profile_name)
+        combo.addItem(
+            self._t("Manage Parameter Profiles"),
+            _MANAGE_PARAMETER_PROFILES_ITEM,
+        )
+        current_index = combo.findData(current_name)
+        if current_index < 0 and profiles:
+            current_index = combo.findData("default")
+        if current_index >= 0:
+            combo.setCurrentIndex(current_index)
+    finally:
+        del blocker
+
+
+def on_parameter_profile_selected(self, index: int) -> None:
+    if getattr(self, "_refreshing_parameter_profiles", False):
+        return
+    combo = getattr(self, "parameter_profile_combo", None)
+    if combo is None or index < 0:
+        return
+
+    profile_name = combo.itemData(index)
+    if profile_name == _MANAGE_PARAMETER_PROFILES_ITEM:
+        self.refresh_parameter_profiles()
+        self._open_parameter_profile_manager()
+        return
+    if not profile_name:
+        return
+    if profile_name == self.controller.get_current_parameter_profile():
+        return
+
+    if not self.controller.load_parameter_profile(str(profile_name)):
+        _show_parameter_profile_error(self, "Failed to load parameter profile")
+    self.refresh_parameter_profiles()
+
+
+def create_parameter_profile_from_current(self, parent=None) -> bool:
+    # QPushButton.clicked emits a boolean when this function is connected
+    # directly; keep that signal payload from being mistaken for a QWidget.
+    if isinstance(parent, bool):
+        parent = None
+    parent = parent or self._dialog_parent()
+    name, accepted = QInputDialog.getText(
+        parent,
+        self._t("Create Parameter Profile"),
+        self._t("Enter parameter profile name:"),
+    )
+    if not accepted:
+        return False
+
+    name = str(name or "").strip()
+    if not name:
+        QMessageBox.warning(
+            parent,
+            self._t("Warning"),
+            self._t("Parameter profile name cannot be empty"),
+        )
+        return False
+
+    overwrite = False
+    if name in self.controller.get_parameter_profiles():
+        reply = QMessageBox.question(
+            parent,
+            self._t("Confirm"),
+            self._t(
+                "Parameter profile '{name}' already exists. Overwrite?",
+                name=name,
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return False
+        overwrite = True
+
+    if not self.controller.create_parameter_profile(name, overwrite=overwrite):
+        _show_parameter_profile_error(self, "Failed to create parameter profile")
+        return False
+
+    self.refresh_parameter_profiles()
+    return True
+
+
+class _ParameterProfileManagerDialog(QDialog):
+    """Small manager for creating, renaming, and deleting parameter profiles."""
+
+    def __init__(self, view, parent=None):
+        super().__init__(parent)
+        self.view = view
+        self.setWindowTitle(self.view._t("Parameter Profile Management"))
+        self.setMinimumSize(480, 360)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+
+        hint = QLabel(self.view._t("Parameter Profile Management Hint"))
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self.profile_list = QListWidget(self)
+        layout.addWidget(self.profile_list, 1)
+
+        action_layout = QHBoxLayout()
+        self.create_button = PushButton(self.view._t("Create from Current"), self)
+        self.rename_button = PushButton(self.view._t("Rename Parameter Profile"), self)
+        self.delete_button = PushButton(self.view._t("Delete Parameter Profile"), self)
+        action_layout.addWidget(self.create_button)
+        action_layout.addWidget(self.rename_button)
+        action_layout.addWidget(self.delete_button)
+        layout.addLayout(action_layout)
+
+        self.close_button = PushButton(self.view._t("Close"), self)
+        self.close_button.clicked.connect(self.accept)
+        layout.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.create_button.clicked.connect(self._create_profile)
+        self.rename_button.clicked.connect(self._rename_profile)
+        self.delete_button.clicked.connect(self._delete_profile)
+        self.refresh()
+
+    def refresh(self):
+        profiles = list(self.view.controller.get_parameter_profiles())
+        current_name = self.view.controller.get_current_parameter_profile()
+        self.profile_list.clear()
+        self.profile_list.addItems(profiles)
+        current_items = self.profile_list.findItems(
+            current_name, Qt.MatchFlag.MatchExactly
+        )
+        if current_items:
+            self.profile_list.setCurrentRow(self.profile_list.row(current_items[0]))
+
+    def _selected_name(self) -> str:
+        item = self.profile_list.currentItem()
+        return item.text().strip() if item else ""
+
+    def _create_profile(self):
+        if create_parameter_profile_from_current(self.view, self):
+            self.refresh()
+
+    def _rename_profile(self):
+        old_name = self._selected_name()
+        if not old_name:
+            QMessageBox.warning(
+                self,
+                self.view._t("Warning"),
+                self.view._t("Please select a parameter profile to rename"),
+            )
+            return
+        if old_name == "default":
+            QMessageBox.warning(
+                self,
+                self.view._t("Warning"),
+                self.view._t("Default parameter profile cannot be renamed"),
+            )
+            return
+
+        new_name, accepted = QInputDialog.getText(
+            self,
+            self.view._t("Rename Parameter Profile"),
+            self.view._t("Enter parameter profile name:"),
+            text=old_name,
+        )
+        if not accepted:
+            return
+        new_name = str(new_name or "").strip()
+        if not new_name:
+            QMessageBox.warning(
+                self,
+                self.view._t("Warning"),
+                self.view._t("Parameter profile name cannot be empty"),
+            )
+            return
+        if new_name in self.view.controller.get_parameter_profiles():
+            QMessageBox.warning(
+                self,
+                self.view._t("Warning"),
+                self.view._t(
+                    "Parameter profile '{name}' already exists.", name=new_name
+                ),
+            )
+            return
+        if not self.view.controller.rename_parameter_profile(old_name, new_name):
+            _show_parameter_profile_error(
+                self.view, "Failed to rename parameter profile"
+            )
+            return
+        self.view.refresh_parameter_profiles()
+        self.refresh()
+
+    def _delete_profile(self):
+        profile_name = self._selected_name()
+        if not profile_name:
+            QMessageBox.warning(
+                self,
+                self.view._t("Warning"),
+                self.view._t("Please select a parameter profile to delete"),
+            )
+            return
+        if profile_name == "default":
+            QMessageBox.warning(
+                self,
+                self.view._t("Warning"),
+                self.view._t("Default parameter profile cannot be deleted"),
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            self.view._t("Confirm"),
+            self.view._t(
+                "Are you sure you want to delete parameter profile '{name}'?",
+                name=profile_name,
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        if not self.view.controller.delete_parameter_profile(profile_name):
+            _show_parameter_profile_error(
+                self.view, "Failed to delete parameter profile"
+            )
+            return
+        self.view.refresh_parameter_profiles()
+        self.refresh()
+
+
+def open_parameter_profile_manager(self) -> None:
+    dialog = _ParameterProfileManagerDialog(self, self._dialog_parent())
+    dialog.exec()
 
 
 def _resolve_settings_tab_layout_file() -> str:
@@ -104,6 +375,39 @@ def create_settings_page(self) -> QWidget:
 
     self.export_config_button.clicked.connect(self.controller.export_config)
     self.import_config_button.clicked.connect(self.controller.import_config)
+
+    profile_bar = QWidget(page)
+    profile_layout = QHBoxLayout(profile_bar)
+    profile_layout.setContentsMargins(0, 0, 0, 0)
+    profile_layout.setSpacing(8)
+    self.parameter_profile_label = StrongBodyLabel(
+        self._t("Parameter Profile:")
+    )
+    self.parameter_profile_combo = NoWheelComboBox(profile_bar)
+    self.parameter_profile_combo.setMinimumWidth(220)
+    self.parameter_profile_create_button = PushButton(
+        self._t("Create from Current"), profile_bar
+    )
+    self.parameter_profile_manage_button = PushButton(
+        self._t("Manage Parameter Profiles"), profile_bar
+    )
+    profile_layout.addWidget(self.parameter_profile_label)
+    profile_layout.addWidget(self.parameter_profile_combo)
+    profile_layout.addWidget(self.parameter_profile_create_button)
+    profile_layout.addWidget(self.parameter_profile_manage_button)
+    profile_layout.addStretch(1)
+    page_layout.addWidget(profile_bar)
+
+    self.parameter_profile_combo.currentIndexChanged.connect(
+        self._on_parameter_profile_selected
+    )
+    self.parameter_profile_create_button.clicked.connect(
+        self._create_parameter_profile_from_current
+    )
+    self.parameter_profile_manage_button.clicked.connect(
+        self._open_parameter_profile_manager
+    )
+    self.refresh_parameter_profiles()
 
     settings_body = QWidget(page)
     settings_body_layout = QHBoxLayout(settings_body)

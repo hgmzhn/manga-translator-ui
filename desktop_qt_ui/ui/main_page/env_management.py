@@ -984,6 +984,10 @@ def _detect_test_target(env_key: str, translator_key: str) -> str:
     scoped_targets = {
         ("OCR_", "OPENAI"): "openai_ocr",
         ("OCR_", "GEMINI"): "gemini_ocr",
+        ("OCR_", "QWEN"): "qwen_vl",
+        ("OCR_", "DOUBAO"): "doubao_vl",
+        ("OCR_", "GLM"): "glm_vl",
+        ("OCR_", "KIMI"): "kimi_vl",
         ("COLOR_", "OPENAI"): "openai_colorizer",
         ("COLOR_", "GEMINI"): "gemini_colorizer",
         ("RENDER_", "OPENAI"): "openai_renderer",
@@ -999,6 +1003,10 @@ def _detect_test_target(env_key: str, translator_key: str) -> str:
         "DEEPSEEK": "deepseek",
         "GROQ": "groq",
         "GEMINI": "gemini",
+        "QWEN": "qwen_vl",
+        "DOUBAO": "doubao_vl",
+        "GLM": "glm_vl",
+        "KIMI": "kimi_vl",
         "SAKURA": "sakura",
         "ALIYUN": "aliyun",
     }
@@ -1012,6 +1020,14 @@ def _detect_test_target(env_key: str, translator_key: str) -> str:
 
 def _get_api_address_example(api_type: str) -> str:
     normalized = (api_type or "").lower()
+    if "qwen_vl" in normalized:
+        return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    if "doubao_vl" in normalized:
+        return "https://ark.cn-beijing.volces.com/api/v3"
+    if "glm_vl" in normalized:
+        return "https://open.bigmodel.cn/api/paas/v4"
+    if "kimi_vl" in normalized:
+        return "https://api.moonshot.cn/v1"
     if "gemini" in normalized:
         return "https://generativelanguage.googleapis.com"
     if "deepseek" in normalized:
@@ -1290,6 +1306,10 @@ def _test_target_status_identity(test_target: str) -> tuple[str, str] | None:
         "aliyun": ("translator", "aliyun"),
         "openai_ocr": ("ocr", "openai"),
         "gemini_ocr": ("ocr", "gemini"),
+        "qwen_vl": ("ocr", "qwen"),
+        "doubao_vl": ("ocr", "doubao"),
+        "glm_vl": ("ocr", "glm"),
+        "kimi_vl": ("ocr", "kimi"),
         "openai_colorizer": ("colorizer", "openai"),
         "gemini_colorizer": ("colorizer", "gemini"),
         "openai_renderer": ("renderer", "openai"),
@@ -1944,7 +1964,7 @@ def trigger_add_files(self):
 
 
 def trigger_import_html(self):
-    """选择本地 HTML 章节，并交给后台下载图片。"""
+    """选择本地 HTML 章节，登记为翻译开始时下载的来源。"""
     last_dir = self.controller.get_last_open_dir()
     html_path, _ = QFileDialog.getOpenFileName(
         self._dialog_parent(),
@@ -1955,3 +1975,12 @@ def trigger_import_html(self):
     if html_path:
         self.controller.set_last_open_dir(os.path.dirname(html_path))
         self.controller.import_html_images(html_path)
+
+
+def trigger_import_url(self):
+    """登记网页地址，图片在点击开始翻译后才下载。"""
+    page_url = self.url_input.text().strip()
+    if page_url:
+        self.controller.import_url_images(page_url)
+    else:
+        self.controller.import_url_images("")

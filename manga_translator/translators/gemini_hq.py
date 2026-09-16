@@ -59,6 +59,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
     支持多图片批量处理，提供文本框顺序、原文和原图给AI进行更精准的翻译
     """
     _LANGUAGE_CODE_MAP = VALID_LANGUAGES
+    _THINKING_PROVIDER = "gemini"
     API_KEY_ENV = "GEMINI_API_KEY"
     API_BASE_ENV = "GEMINI_API_BASE"
     MODEL_ENV = "GEMINI_MODEL"

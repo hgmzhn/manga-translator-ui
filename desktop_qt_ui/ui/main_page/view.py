@@ -2,10 +2,11 @@ from PyQt6.QtCore import QObject, Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, ProgressBar
+from qfluentwidgets import BodyLabel, CaptionLabel, CardWidget, ProgressBar, ScrollArea
 
 from services import get_config_service, get_i18n_manager
 from services.update_service import UpdateChecker, UpdateInfo, launch_update_maintenance
@@ -29,6 +30,7 @@ from ui.main_page.pages.env_page import create_env_page
 from ui.main_page.pages.prompt_page import create_prompt_page
 from ui.main_page.pages.replacements_page import create_replacements_page
 from ui.main_page.pages.rich_text_rules_page import create_rich_text_rules_page
+from ui.main_page.pages import settings_page as settings_page_module
 from ui.main_page.pages.settings_page import create_settings_page
 from ui.main_page.pages.translation_page import create_translation_page
 from utils.app_version import get_app_version
@@ -64,6 +66,10 @@ class MainView(QObject):
 
     _create_translation_page = create_translation_page
     _create_settings_page = create_settings_page
+    _on_parameter_profile_selected = settings_page_module.on_parameter_profile_selected
+    _create_parameter_profile_from_current = settings_page_module.create_parameter_profile_from_current
+    _open_parameter_profile_manager = settings_page_module.open_parameter_profile_manager
+    refresh_parameter_profiles = settings_page_module.refresh_parameter_profiles
     _create_about_page = create_about_page
     _refresh_about_page_texts = refresh_about_page_texts
     _set_about_update_status = set_about_update_status
@@ -88,6 +94,7 @@ class MainView(QObject):
     _create_rich_text_rules_page = create_rich_text_rules_page
     _create_batch_edit_page = create_batch_edit_page
     update_progress = main_view_runtime.update_progress
+    show_translation_stats = main_view_runtime.show_translation_stats
     reset_progress = main_view_runtime.reset_progress
 
     _create_env_widgets = main_view_env.create_env_widgets
@@ -115,8 +122,11 @@ class MainView(QObject):
     update_output_path_display = main_view_env.update_output_path_display
     _trigger_add_files = main_view_env.trigger_add_files
     _trigger_import_html = main_view_env.trigger_import_html
+    _trigger_import_url = main_view_env.trigger_import_url
 
     _enable_stop_button = main_view_runtime.enable_stop_button
+    on_task_queue_changed = main_view_runtime.on_task_queue_changed
+    on_html_sources_changed = main_view_runtime.on_html_sources_changed
     set_stopping_state = main_view_runtime.set_stopping_state
     _sync_workflow_mode_from_config = main_view_runtime.sync_workflow_mode_from_config
     _on_workflow_mode_changed = main_view_runtime.on_workflow_mode_changed
@@ -171,6 +181,7 @@ class MainView(QObject):
 
         # Connect signals for button state management
         self.controller.state_manager.is_translating_changed.connect(self.on_translation_state_changed, type=Qt.ConnectionType.QueuedConnection)
+        self.controller.task_queue_changed.connect(self.on_task_queue_changed, type=Qt.ConnectionType.QueuedConnection)
         self.controller.state_manager.current_config_changed.connect(self.update_start_button_text)
         QTimer.singleShot(100, self.update_start_button_text) # Set initial text
         QTimer.singleShot(100, self._sync_workflow_mode_from_config) # Sync workflow mode dropdown
@@ -182,7 +193,25 @@ class MainView(QObject):
         layout = QVBoxLayout(interface)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-        layout.addWidget(translation_page, 1)
+
+        # The translation page's content is taller than the available viewport
+        # on smaller windows.  Let the page keep its natural height and scroll
+        # it instead of allowing QVBoxLayout to compress card children below
+        # their control heights (which makes the task card render as slivers).
+        translation_page.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Minimum,
+        )
+        self.translation_page_scroll = ScrollArea()
+        self.translation_page_scroll.setObjectName("translation_page_scroll")
+        self.translation_page_scroll.setWidgetResizable(True)
+        self.translation_page_scroll.setFrameShape(ScrollArea.Shape.NoFrame)
+        self.translation_page_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.translation_page_scroll.setWidget(translation_page)
+        self.translation_page_scroll.enableTransparentBackground()
+        layout.addWidget(self.translation_page_scroll, 1)
 
         progress_card = CardWidget()
         progress_layout = QVBoxLayout(progress_card)
@@ -209,6 +238,18 @@ class MainView(QObject):
         self.progress_bar.setValue(0)
         self.progress_bar.setFixedHeight(6)
         progress_layout.addWidget(self.progress_bar)
+
+        self.progress_stats_widget = QWidget()
+        progress_stats_layout = QHBoxLayout(self.progress_stats_widget)
+        progress_stats_layout.setContentsMargins(0, 0, 0, 0)
+        progress_stats_layout.setSpacing(16)
+        self.progress_elapsed_label = CaptionLabel("")
+        self.progress_average_label = CaptionLabel("")
+        progress_stats_layout.addWidget(self.progress_elapsed_label)
+        progress_stats_layout.addWidget(self.progress_average_label)
+        progress_stats_layout.addStretch()
+        self.progress_stats_widget.setVisible(False)
+        progress_layout.addWidget(self.progress_stats_widget)
         layout.addWidget(progress_card, 0)
         return interface
     
@@ -303,6 +344,7 @@ class MainView(QObject):
     @pyqtSlot(dict)
     def set_parameters(self, config: dict):
         main_view_dynamic.set_parameters(self, config)
+        self.refresh_parameter_profiles()
 
     def _show_setting_description(self, key: str, name: str, description: str):
         """更新右侧描述面板"""
@@ -392,12 +434,18 @@ class MainView(QObject):
             self.translation_input_card.setTitle("")
         if hasattr(self, "translation_task_card"):
             self.translation_task_card.setTitle(self._t("Translation Task"))
+        if hasattr(self, "stop_button"):
+            self.stop_button.setText(self._t("Stop Translation"))
+        if hasattr(self, "task_queue_status_label"):
+            self.task_queue_status_label.setText(self._t("Queue is empty"))
         if hasattr(self, "add_files_button"):
             self.add_files_button.setText(self._t("Add Files"))
         if hasattr(self, "add_folder_button"):
             self.add_folder_button.setText(self._t("Add Folder"))
         if hasattr(self, "import_html_button"):
             self.import_html_button.setText(self._t("Import HTML"))
+        if hasattr(self, "import_url_button"):
+            self.import_url_button.setText(self._t("Import URL"))
         if hasattr(self, "clear_list_button"):
             self.clear_list_button.setText(self._t("Clear List"))
 
@@ -405,6 +453,8 @@ class MainView(QObject):
             self.output_folder_label.setText(self._t("Output Directory:"))
         if hasattr(self, "output_folder_input"):
             self.output_folder_input.setPlaceholderText(self._t("Select or drag output folder..."))
+        if hasattr(self, "url_input"):
+            self.url_input.setPlaceholderText(self._t("Enter webpage URL..."))
         if hasattr(self, "browse_button"):
             self.browse_button.setText(self._t("Browse..."))
         if hasattr(self, "open_button"):
@@ -451,6 +501,17 @@ class MainView(QObject):
             self.settings_page_title.setText(self._t("Settings Page Title"))
         if hasattr(self, "settings_page_subtitle"):
             self.settings_page_subtitle.setText(self._t("Settings Page Subtitle"))
+        if hasattr(self, "parameter_profile_label"):
+            self.parameter_profile_label.setText(self._t("Parameter Profile:"))
+        if hasattr(self, "parameter_profile_create_button"):
+            self.parameter_profile_create_button.setText(
+                self._t("Create from Current")
+            )
+        if hasattr(self, "parameter_profile_manage_button"):
+            self.parameter_profile_manage_button.setText(
+                self._t("Manage Parameter Profiles")
+            )
+        self.refresh_parameter_profiles()
         if hasattr(self, "settings_desc_header_label"):
             self.settings_desc_header_label.setText(self._t("Settings Desc Header"))
         if hasattr(self, "settings_desc_name"):

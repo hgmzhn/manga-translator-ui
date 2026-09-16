@@ -3,7 +3,16 @@ import os
 import re
 
 from manga_translator.utils.system_proxy import set_system_proxy_enabled
-from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, QUrl, pyqtSlot
+from PyQt6.QtCore import (
+    QEvent,
+    QLibraryInfo,
+    QLocale,
+    Qt,
+    QTimer,
+    QTranslator,
+    QUrl,
+    pyqtSlot,
+)
 from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import FluentIcon as FIF
@@ -71,6 +80,7 @@ class MainWindow(FluentWindow):
 
         self._setup_logic_and_models()
         self._setup_ui()
+        self._setup_interrupt_shortcut()
         self._load_theme()
         self._connect_signals()
 
@@ -295,6 +305,58 @@ class MainWindow(FluentWindow):
             self.theme_actions[theme_key] = action
             setattr(self, f"{theme_key}_theme_action", action)
 
+    def _setup_interrupt_shortcut(self):
+        """注册只在翻译任务运行期间生效的 Ctrl+C 中断快捷键。"""
+        self._interrupt_shortcut_enabled = False
+        self._interrupt_shortcut_app = QApplication.instance()
+        if self._interrupt_shortcut_app is not None:
+            # QShortcut 会让 QLineEdit/QTextEdit 先处理 Ctrl+C，无法可靠地
+            # 中断正在运行的任务。应用级事件过滤器在控件处理前拦截它，且
+            # 只在任务运行期间启用，因此空闲时不会影响复制。
+            self._interrupt_shortcut_app.installEventFilter(self)
+        self.state_manager.is_translating_changed.connect(
+            self._set_interrupt_shortcut_enabled
+        )
+        self._set_interrupt_shortcut_enabled(self.state_manager.is_translating())
+
+    def _set_interrupt_shortcut_enabled(self, is_translating: bool):
+        """同步 Ctrl+C 快捷键状态，空闲时保留正常的复制行为。"""
+        self._interrupt_shortcut_enabled = bool(is_translating)
+
+    @staticmethod
+    def _is_interrupt_shortcut_event(event) -> bool:
+        """判断是否为不带其它修饰键的 Ctrl+C。"""
+        modifiers = event.modifiers()
+        extra_modifiers = (
+            Qt.KeyboardModifier.ShiftModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )
+        return (
+            event.key() == Qt.Key.Key_C
+            and bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+            and not bool(modifiers & extra_modifiers)
+        )
+
+    def eventFilter(self, watched, event):
+        """在文本控件处理 Ctrl+C 前将其转换为任务中断。"""
+        if (
+            self._interrupt_shortcut_enabled
+            and event.type()
+            in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress)
+            and self._is_interrupt_shortcut_event(event)
+        ):
+            event.accept()
+            if event.type() == QEvent.Type.KeyPress:
+                self._interrupt_translation()
+            return True
+        return super().eventFilter(watched, event)
+
+    def _interrupt_translation(self):
+        """通过现有停止链路中断当前翻译任务。"""
+        if self.state_manager.is_translating():
+            self.app_logic.stop_task()
+
     def _load_theme(self):
         """根据配置初始化 qfluentwidgets 主题。"""
         from services import get_config_service
@@ -442,6 +504,10 @@ class MainWindow(FluentWindow):
     def _connect_signals(self):
         # --- MainAppLogic Connections ---
         self.app_logic.config_loaded.connect(self.main_view.set_parameters)
+        self.app_logic.parameter_profiles_changed.connect(
+            self.main_view.refresh_parameter_profiles,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
         self.app_logic.file_sources_changed.connect(self._request_main_file_snapshot)
         self.app_logic.file_removed.connect(self._on_file_removed_update_editor)
         self.app_logic.files_cleared.connect(self._on_files_cleared_update_editor)
@@ -496,7 +562,7 @@ class MainWindow(FluentWindow):
             self.on_file_selected_from_main_list
         )
         self.main_view.file_list.files_dropped.connect(
-            self.app_logic.add_files
+            self.app_logic.add_dropped_files
         )  # 拖放文件支持
         # self.main_view.enter_editor_button.clicked.connect(self.enter_editor_mode) # Example for a dedicated button
 

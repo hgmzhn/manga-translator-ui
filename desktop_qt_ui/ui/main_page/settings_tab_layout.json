@@ -22,6 +22,9 @@
         "cli.batch_concurrent",
         "use_custom_api_params",
         "cli.save_to_source_dir",
+        "cli.generate_long_image",
+        "cli.generate_html",
+        "cli.html_view_mode",
         "cli.export_editable_psd",
         "cli.psd_script_only",
         "app.unload_models_after_translation"
@@ -85,6 +88,7 @@
       "marked": false,
       "items": [
         "translator.translator",
+        "translator.thinking_level",
         "translator.target_lang",
         "translator.keep_lang",
         "translator.enable_streaming",

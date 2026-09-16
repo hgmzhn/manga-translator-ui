@@ -59,6 +59,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
     支持多图片批量处理，提供文本框顺序、原文和原图给AI进行更精准的翻译
     """
     _LANGUAGE_CODE_MAP = VALID_LANGUAGES
+    _THINKING_PROVIDER = "openai"
     
     # 类变量: 跨实例共享的RPM限制时间戳
     _GLOBAL_LAST_REQUEST_TS = {}  # {model_name: timestamp}

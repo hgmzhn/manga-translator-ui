@@ -101,6 +101,8 @@ class GraphicsView(
         self._region_drag_candidate = False
         self._region_drag_active = False
         self._hand_scroll_active = False
+        self._space_pan_pressed = False
+        self._space_pan_mouse_down = False
 
         self._is_drawing_textbox = False
         self._textbox_start_pos = None

@@ -1384,6 +1384,16 @@ class CommonTranslator(InfererModule):
 
     # Will sleep for the rest of the minute if the request count is over this number.
     _MAX_REQUESTS_PER_MINUTE = -1
+    # Backend-specific subclasses opt into the unified thinking-level setting.
+    # Aliyun TranslateGeneral and offline translators intentionally leave this unset.
+    _THINKING_PROVIDER = None
+    _THINKING_LEVELS = frozenset({"auto", "off", "low", "medium", "high"})
+    _GEMINI_THINKING_BUDGETS = {
+        "off": 0,
+        "low": 1024,
+        "medium": 4096,
+        "high": 8192,
+    }
 
     def __init__(self):
         super().__init__()
@@ -1399,6 +1409,8 @@ class CommonTranslator(InfererModule):
         self._max_total_attempts = -1  # 全局最大尝试次数
         self._cancel_check_callback = None  # 取消检查回调
         self._custom_api_params_config = None
+        self._translator_config = None
+        self._thinking_level = "auto"
         self._enable_streaming = True
         self._stream_inline_last_len = 0
         self._stream_inline_buffer = ""
@@ -1449,14 +1461,34 @@ class CommonTranslator(InfererModule):
     def _resolve_translator_custom_api_params(self, model_name: str | None) -> dict[str, Any]:
         from ..custom_api_params import resolve_custom_api_params
 
-        if self._custom_api_params_config is None:
-            return {}
-        return resolve_custom_api_params(
-            self._custom_api_params_config,
-            self.logger,
-            model_name=model_name,
-            section="translator",
-        )
+        resolved = {}
+        if self._custom_api_params_config is not None:
+            resolved = resolve_custom_api_params(
+                self._custom_api_params_config,
+                self.logger,
+                model_name=model_name,
+                section="translator",
+            )
+
+        provider = getattr(self, "_THINKING_PROVIDER", None)
+        level = getattr(self, "_thinking_level", "auto")
+        if provider not in {"openai", "gemini"} or level == "auto":
+            return resolved
+
+        if level == "off":
+            # Remove a manually configured override so the UI's explicit off
+            # choice is not defeated by a model preset.
+            resolved.pop("reasoning_effort", None)
+            resolved.pop("thinking_budget", None)
+            if provider == "gemini":
+                resolved["thinking_budget"] = 0
+        elif provider == "openai":
+            # OpenAI-compatible reasoning models use the standard effort name.
+            resolved["reasoning_effort"] = level
+        else:
+            # Gemini's SDK exposes thinkingBudget as thinking_budget.
+            resolved["thinking_budget"] = self._GEMINI_THINKING_BUDGETS[level]
+        return resolved
     
     def set_cancel_check_callback(self, callback):
         """设置取消检查回调"""
@@ -2263,6 +2295,17 @@ class CommonTranslator(InfererModule):
 
     def parse_args(self, config):
         translator_config = self._resolve_translator_config(config)
+        self._translator_config = translator_config
+        thinking_level = str(
+            self._get_config_value(translator_config, "thinking_level", "auto") or "auto"
+        ).strip().lower()
+        if thinking_level not in self._THINKING_LEVELS:
+            self.logger.warning(
+                "Invalid translator thinking_level '%s'; falling back to auto.",
+                thinking_level,
+            )
+            thinking_level = "auto"
+        self._thinking_level = thinking_level
         self._enable_streaming = self._get_config_value(
             translator_config,
             'enable_streaming',

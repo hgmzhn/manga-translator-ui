@@ -33,8 +33,203 @@ glossary:
       translations:
       - text: 艾瑞拉
     overwrite: false
-  Location: []
-  Org: []
+  - original: GAYEON
+    aliases:
+    - original: GAYEON
+      translations:
+      - text: 佳妍
+    overwrite: false
+  - original: NALKKAMAGWI
+    aliases:
+    - original: NALKKAMAGWI
+      translations:
+      - text: 纳尔卡马귀
+    overwrite: false
+  - original: GEUM TAEYANG
+    aliases:
+    - original: GEUM TAEYANG
+      translations:
+      - text: 金泰阳
+    - original: TAEYANG
+      translations:
+      - text: 泰阳
+    overwrite: false
+  - original: 이검후
+    aliases:
+    - original: 이검후
+      translations:
+      - text: 李剑后
+    overwrite: false
+  - original: 요안
+    aliases:
+    - original: 요안
+      translations:
+      - text: 约安
+    overwrite: false
+  - original: ERO404
+    aliases:
+    - original: ERO404
+      translations:
+      - text: ERO404
+    overwrite: false
+  - original: 오곡전도사
+    aliases:
+    - original: 오곡전도사
+      translations:
+      - text: 五谷传道士
+    overwrite: false
+  - original: 세이나
+    aliases:
+    - original: 세이나
+      translations:
+      - text: 塞娜
+    overwrite: false
+  - original: 성민
+    aliases:
+    - original: 성민
+      translations:
+      - text: 成民
+    overwrite: false
+  - original: 이하영
+    aliases:
+    - original: 이하영
+      translations:
+      - text: 李河英
+    overwrite: false
+  - original: 희연
+    aliases:
+    - original: 희연
+      translations:
+      - text: 熙妍
+    overwrite: false
+  - original: 정성민
+    aliases:
+    - original: 정성민
+      translations:
+      - text: 郑成民
+    overwrite: false
+  - original: LEE HEEYEON
+    aliases:
+    - original: LEE HEEYEON
+      translations:
+      - text: 李熙妍
+    overwrite: false
+  - original: 지나가는금태양
+    aliases:
+    - original: 지나가는금태양
+      translations:
+      - text: 路过的金泰阳
+    overwrite: false
+  - original: 공심이
+    aliases:
+    - original: 공심이
+      translations:
+      - text: 孔心怡
+    overwrite: false
+  - original: 도야
+    aliases:
+    - original: 도야
+      translations:
+      - text: 道也
+    overwrite: false
+  - original: 응뿌뚱
+    aliases:
+    - original: 응뿌뚱
+      translations:
+      - text: 恩噗咚
+    overwrite: false
+  - original: 은바리
+    aliases:
+    - original: 은바리
+      translations:
+      - text: 恩巴里
+    overwrite: false
+  - original: 리홍
+    aliases:
+    - original: 리홍
+      translations:
+      - text: 李红
+    overwrite: false
+  - original: マリー
+    aliases:
+    - original: マリー
+      translations:
+      - text: 玛丽
+    overwrite: false
+  - original: サクラコ
+    aliases:
+    - original: サクラコ
+      translations:
+      - text: 樱子
+    overwrite: false
+  Location:
+  - original: 챠스민중고서점
+    aliases:
+    - original: 챠스민중고서점
+      translations:
+      - text: 恰斯敏二手书店
+    overwrite: false
+  - original: トリニティ学園
+    aliases:
+    - original: トリニティ学園
+      translations:
+      - text: 三一学园
+    overwrite: false
+  Org:
+  - original: 스튜디오0103
+    aliases:
+    - original: 스튜디오0103
+      translations:
+      - text: 工作室0103
+    overwrite: false
+  - original: ebinavy
+    aliases:
+    - original: ebinavy
+      translations:
+      - text: ebinavy
+    overwrite: false
+  - original: シスターフッド
+    aliases:
+    - original: シスターフッド
+      translations:
+      - text: 姊妹会
+    overwrite: false
+  - original: BTOON
+    aliases:
+    - original: BTOON
+      translations:
+      - text: BTOON
+    overwrite: false
+  - original: 뉴엑스툰
+    aliases:
+    - original: 뉴엑스툰
+      translations:
+      - text: 新X Toon
+    overwrite: false
+  - original: 8TOON
+    aliases:
+    - original: 8TOON
+      translations:
+      - text: 8TOON
+    overwrite: false
   Item: []
-  Skill: []
+  Skill:
+  - original: 좋찌르기
+    aliases:
+    - original: 좋찌르기
+      translations:
+      - text: 爽刺
+    overwrite: false
+  - original: 뇌리셋찌르기
+    aliases:
+    - original: 뇌리셋찌르기
+      translations:
+      - text: 脑内重置刺击
+    overwrite: false
+  - original: 주화입마
+    aliases:
+    - original: 주화입마
+      translations:
+      - text: 走火入魔
+    overwrite: false
   Creature: []

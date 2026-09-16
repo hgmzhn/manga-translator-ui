@@ -31,6 +31,7 @@ class OpenAITranslator(CommonTranslator):
     支持批量文本翻译，不包含图片处理
     """
     _LANGUAGE_CODE_MAP = VALID_LANGUAGES
+    _THINKING_PROVIDER = "openai"
     
     # 类变量: 跨实例共享的RPM限制时间戳
     _GLOBAL_LAST_REQUEST_TS = {}  # {model_name: timestamp}

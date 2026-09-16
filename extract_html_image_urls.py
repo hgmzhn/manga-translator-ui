@@ -2,8 +2,9 @@
 """Extract image URLs from a locally saved HTML file.
 
 The script reads HTML as text only. It does not execute JavaScript and it does
-not make network requests. It understands ordinary image attributes and the
-Base64-encoded ``slides_p_path`` array used by some manga readers.
+not make network requests. It understands ordinary image attributes, the
+Base64-encoded ``slides_p_path`` array, and the ``page_arr`` filename order
+used by some manga readers.
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ import base64
 import re
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from pathlib import PurePosixPath
+from urllib.parse import unquote, urljoin, urlparse
 
 
 IMAGE_EXTENSIONS = {
@@ -74,6 +76,32 @@ def _slides_page_urls(html: str) -> list[str]:
     return decoded_urls
 
 
+def _page_array_names(html: str) -> list[str]:
+    """Read the page filename order embedded by 18comic readers."""
+    match = re.search(
+        r"(?:var|let|const)\s+page_arr\s*=\s*\[(.*?)\]",
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        return []
+    return [value.strip() for value in re.findall(r"['\"]([^'\"]+)['\"]", match.group(1))]
+
+
+def _page_array_urls(html: str, parser: ImageAttributeParser) -> list[str]:
+    names = _page_array_names(html)
+    if not names:
+        return []
+
+    candidates = parser.image_values
+    by_name: dict[str, str] = {}
+    for value in candidates:
+        filename = unquote(PurePosixPath(urlparse(value).path).name)
+        by_name.setdefault(filename, value)
+
+    return [by_name[name] for name in names if name in by_name]
+
+
 def _normalise_urls(values: list[str], base_url: str) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -95,18 +123,26 @@ def extract_image_urls(html_path: Path, include_all_images: bool = False) -> lis
     )
 
 
-def extract_image_urls_from_html(html: str, include_all_images: bool = False) -> list[str]:
+def extract_image_urls_from_html(
+    html: str,
+    include_all_images: bool = False,
+    base_url: str = "",
+) -> list[str]:
     """Extract image URLs from HTML content already loaded in memory."""
     parser = ImageAttributeParser()
     parser.feed(html)
 
-    chapter_urls = _slides_page_urls(html)
+    chapter_urls = _slides_page_urls(html) or _page_array_urls(html, parser)
     values = chapter_urls or parser.image_values
     if include_all_images:
         values = chapter_urls + parser.image_values
 
-    base_url = parser.canonical_url
-    return _normalise_urls(values, base_url)
+    effective_base_url = (
+        urljoin(base_url, parser.canonical_url)
+        if parser.canonical_url and base_url
+        else parser.canonical_url or base_url
+    )
+    return _normalise_urls(values, effective_base_url)
 
 
 def extract_canonical_url_from_html(html: str) -> str:

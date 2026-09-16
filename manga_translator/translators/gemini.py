@@ -36,6 +36,7 @@ class GeminiTranslator(CommonTranslator):
     支持批量文本翻译，不包含图片处理
     """
     _LANGUAGE_CODE_MAP = VALID_LANGUAGES
+    _THINKING_PROVIDER = "gemini"
     API_KEY_ENV = "GEMINI_API_KEY"
     API_BASE_ENV = "GEMINI_API_BASE"
     MODEL_ENV = "GEMINI_MODEL"

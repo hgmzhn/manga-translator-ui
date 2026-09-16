@@ -46,6 +46,30 @@ def _get_gemini_ocr_class():
     from .model_api_ocr import ModelGeminiOCR
     return ModelGeminiOCR
 
+
+def _get_qwen_vl_class():
+    """延迟导入 ModelQwenVLOCR，只有在真正使用 qwen_vl 时才导入"""
+    from .model_api_ocr import ModelQwenVLOCR
+    return ModelQwenVLOCR
+
+
+def _get_doubao_vl_class():
+    """延迟导入 ModelDoubaoVLOCR，只有在真正使用 doubao_vl 时才导入"""
+    from .model_api_ocr import ModelDoubaoVLOCR
+    return ModelDoubaoVLOCR
+
+
+def _get_glm_vl_class():
+    """延迟导入 ModelGLMVLOCR，只有在真正使用 glm_vl 时才导入"""
+    from .model_api_ocr import ModelGLMVLOCR
+    return ModelGLMVLOCR
+
+
+def _get_kimi_vl_class():
+    """延迟导入 ModelKimiVLOCR，只有在真正使用 kimi_vl 时才导入"""
+    from .model_api_ocr import ModelKimiVLOCR
+    return ModelKimiVLOCR
+
 OCRS = {
     Ocr.ocr32px: Model32pxOCR,
     Ocr.ocr48px: Model48pxOCR,
@@ -57,6 +81,10 @@ OCRS = {
     Ocr.paddleocr_thai: ModelPaddleOCRThai,
     Ocr.paddleocr_vl: _get_paddleocr_vl_class,  # 延迟导入 PaddleOCR-VL
     Ocr.hayai_ocr_v2: _get_hayai_ocr_class,  # 延迟导入 Hayai OCR
+    Ocr.qwen_vl: _get_qwen_vl_class,
+    Ocr.doubao_vl: _get_doubao_vl_class,
+    Ocr.glm_vl: _get_glm_vl_class,
+    Ocr.kimi_vl: _get_kimi_vl_class,
     Ocr.openai_ocr: _get_openai_ocr_class,
     Ocr.gemini_ocr: _get_gemini_ocr_class,
 }

@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
     HeaderCardWidget,
     LineEdit,
@@ -56,6 +57,21 @@ def create_translation_page(self) -> QWidget:
     file_buttons_layout.addStretch()
     input_layout.addWidget(file_button_widget)
 
+    url_input_widget = QWidget()
+    url_input_layout = QHBoxLayout(url_input_widget)
+    url_input_layout.setContentsMargins(0, 0, 0, 0)
+    url_input_layout.setSpacing(8)
+    self.url_input = LineEdit()
+    self.url_input.setPlaceholderText(self._t("Enter webpage URL..."))
+    self.import_url_button = PushButton(self._t("Import URL"))
+    self.import_url_button.setIcon(FIF.LINK)
+    url_input_layout.addWidget(self.url_input, 1)
+    url_input_layout.addWidget(self.import_url_button)
+    input_layout.addWidget(url_input_widget)
+    self.html_source_status_label = CaptionLabel(self._t("No pending HTML sources"))
+    self.html_source_status_label.setWordWrap(True)
+    input_layout.addWidget(self.html_source_status_label)
+
     # MainView 是纯逻辑 QObject，不能当控件父级；file_list 随 addWidget 进布局后自动认领父级
     self.file_list = FileListView(
         None,
@@ -110,14 +126,28 @@ def create_translation_page(self) -> QWidget:
     self.workflow_mode_combo.currentIndexChanged.connect(self._on_workflow_mode_changed)
     task_layout.addWidget(self.workflow_mode_combo)
 
+    action_widget = QWidget()
+    action_layout = QHBoxLayout(action_widget)
+    action_layout.setContentsMargins(0, 0, 0, 0)
+    action_layout.setSpacing(8)
     self.start_button = PrimaryPushButton(self._t("Start Translation"))
     self.start_button.setFixedHeight(44)
-    task_layout.addWidget(self.start_button)
+    self.stop_button = PushButton(self._t("Stop Translation"))
+    self.stop_button.setFixedHeight(44)
+    self.stop_button.setEnabled(False)
+    action_layout.addWidget(self.start_button, 1)
+    action_layout.addWidget(self.stop_button)
+    task_layout.addWidget(action_widget)
+    self.task_queue_status_label = CaptionLabel(self._t("Queue is empty"))
+    self.task_queue_status_label.setWordWrap(True)
+    task_layout.addWidget(self.task_queue_status_label)
     page_layout.addWidget(self.translation_task_card)
 
     self.add_files_button.clicked.connect(self._trigger_add_files)
     self.add_folder_button.clicked.connect(self.controller.add_folder)
     self.import_html_button.clicked.connect(self._trigger_import_html)
+    self.import_url_button.clicked.connect(self._trigger_import_url)
+    self.url_input.returnPressed.connect(self._trigger_import_url)
     self.clear_list_button.clicked.connect(self.controller.clear_file_list)
     self.controller.html_import_state_changed.connect(
         self.import_html_button.setDisabled,
@@ -125,9 +155,20 @@ def create_translation_page(self) -> QWidget:
     self.controller.html_import_state_changed.connect(
         self.start_button.setDisabled,
     )
+    self.controller.html_import_state_changed.connect(
+        self.import_url_button.setDisabled,
+    )
+    self.controller.html_import_state_changed.connect(
+        self.url_input.setDisabled,
+    )
+    self.controller.html_sources_changed.connect(self.on_html_sources_changed)
     self.file_list.file_remove_requested.connect(self.controller.remove_file)
+    self.output_folder_input.editingFinished.connect(
+        lambda: self.controller.update_output_folder(self.output_folder_input.text())
+    )
     self.browse_button.clicked.connect(self.controller.select_output_folder)
     self.open_button.clicked.connect(self.controller.open_output_folder)
     self.start_button.clicked.connect(self.controller.start_backend_task)
+    self.stop_button.clicked.connect(self.controller.stop_task)
 
     return page

@@ -369,6 +369,10 @@ class MangaTranslator:
         
         self.parse_init_params(params)
         self.result_sub_folder = ''
+        # Optional per-request root for intermediate/debug files.  The desktop
+        # UI leaves this unset and keeps the historical project result folder;
+        # the browser bridge sets it to the user's selected output directory.
+        self._runtime_result_root = None
 
         # The flag below controls whether to allow TF32 on matmul. This flag defaults to False
         # in PyTorch 1.12 and later.
@@ -492,6 +496,13 @@ class MangaTranslator:
         if self._current_image_context:
             return self._current_image_context['subfolder']
         return ''
+
+    def _get_runtime_result_root(self) -> str:
+        """Return the root used for intermediate/debug files for this run."""
+        runtime_root = getattr(self, '_runtime_result_root', None)
+        if runtime_root:
+            return os.path.abspath(os.path.expanduser(str(runtime_root)))
+        return os.path.join(BASE_PATH, 'result')
     
     def _save_current_image_context(self, image_md5: str):
         """保存当前图片上下文，用于批量处理中保持一致性"""
@@ -565,12 +576,36 @@ class MangaTranslator:
         input_folders = save_info.get('input_folders', set())
         output_format = save_info.get('format')
         save_to_source_dir = save_info.get('save_to_source_dir', False)
-        
+        long_image_work_dir = save_info.get('long_image_work_dir')
+
         file_path = image_path
         parent_dir = os.path.normpath(os.path.dirname(file_path))
         
+        # 生成翻译长图时，单页结果统一写入输出目录下的工作子目录。
+        # 该模式优先于“输出到原图目录”，确保最终长图可以稳定地落在
+        # 用户选择的输出目录根目录中。
+        if long_image_work_dir:
+            final_output_dir = long_image_work_dir
+
+            # 保留输入文件夹的相对层级，避免不同目录下的同名图片互相覆盖。
+            for folder in input_folders:
+                folder = os.path.normpath(folder)
+                if os.path.isdir(folder) and parent_dir.startswith(folder):
+                    relative_path = os.path.relpath(parent_dir, folder)
+                    if relative_path == '.':
+                        final_output_dir = os.path.join(
+                            long_image_work_dir, os.path.basename(folder)
+                        )
+                    else:
+                        final_output_dir = os.path.join(
+                            long_image_work_dir,
+                            os.path.basename(folder),
+                            relative_path,
+                        )
+                    final_output_dir = os.path.normpath(final_output_dir)
+                    break
         # 检查是否启用了"输出到原图目录"模式
-        if save_to_source_dir:
+        elif save_to_source_dir:
             # 输出到原图所在目录的 manga_translator_work/result 子目录
             final_output_dir = os.path.join(parent_dir, 'manga_translator_work', 'result')
         else:
@@ -2585,15 +2620,16 @@ class MangaTranslator:
         
         # 为OCR创建子文件夹（只在verbose模式下）
         if self.verbose:
+            result_root = self._get_runtime_result_root()
             image_subfolder = self._get_image_subfolder()
             if image_subfolder:
                 if self.result_sub_folder:
-                    ocr_result_dir = os.path.join(BASE_PATH, 'result', self.result_sub_folder, image_subfolder, 'ocrs')
+                    ocr_result_dir = os.path.join(result_root, self.result_sub_folder, image_subfolder, 'ocrs')
                 else:
-                    ocr_result_dir = os.path.join(BASE_PATH, 'result', image_subfolder, 'ocrs')
+                    ocr_result_dir = os.path.join(result_root, image_subfolder, 'ocrs')
                 os.makedirs(ocr_result_dir, exist_ok=True)
             else:
-                ocr_result_dir = os.path.join(BASE_PATH, 'result', self.result_sub_folder, 'ocrs')
+                ocr_result_dir = os.path.join(result_root, self.result_sub_folder, 'ocrs')
                 os.makedirs(ocr_result_dir, exist_ok=True)
         else:
             # 非verbose模式下使用临时目录或不创建OCR结果目录
@@ -3508,14 +3544,16 @@ class MangaTranslator:
         Returns path to result folder where intermediate images are saved when using verbose flag
         or web mode input/result images are cached.
         """
+        result_root = self._get_runtime_result_root()
+
         # 只有在verbose模式下才使用图片级子文件夹
         if self.verbose:
             image_subfolder = self._get_image_subfolder()
             if image_subfolder:
                 if self.result_sub_folder:
-                    result_path = os.path.join(BASE_PATH, 'result', self.result_sub_folder, image_subfolder, path)
+                    result_path = os.path.join(result_root, self.result_sub_folder, image_subfolder, path)
                 else:
-                    result_path = os.path.join(BASE_PATH, 'result', image_subfolder, path)
+                    result_path = os.path.join(result_root, image_subfolder, path)
                 # 确保目录存在
                 os.makedirs(os.path.dirname(result_path), exist_ok=True)
                 return result_path
@@ -3526,10 +3564,9 @@ class MangaTranslator:
             # When no subfolder is specified (like in desktop-ui mode),
             # the 'path' parameter is expected to be an absolute path to the output file.
             # Therefore, we don't join it with BASE_PATH.
-            base_dir = os.path.join(BASE_PATH, 'result')
-            result_path = os.path.join(base_dir, path)
+            result_path = os.path.join(result_root, path)
         else:
-            result_path = os.path.join(BASE_PATH, 'result', self.result_sub_folder, path)
+            result_path = os.path.join(result_root, self.result_sub_folder, path)
         
         # 确保目录存在
         dir_to_create = os.path.dirname(result_path)

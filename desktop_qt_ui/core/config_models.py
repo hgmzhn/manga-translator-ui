@@ -12,6 +12,8 @@ VALID_LAYOUT_MODES = {"smart_scaling", "strict", "balloon_fill"}
 class TranslatorSettings(BaseModel):
     translator: str = "openai_hq"
     target_lang: str = "CHS"
+    # 统一的模型思考强度。具体可用值由翻译后端决定，auto 表示不覆盖后端默认值。
+    thinking_level: str = "auto"
     # 可选的项目级 OpenAI 兼容接口配置。填写后优先于 .env。
     user_api_key: Optional[str] = None
     user_api_base: Optional[str] = None
@@ -168,6 +170,9 @@ class CliSettings(BaseModel):
     save_to_source_dir: bool = (
         False  # 输出到原图目录的 manga_translator_work/result 子目录
     )
+    generate_long_image: bool = False  # 将本次任务的结果从上到下拼接为额外长图
+    generate_html: bool = False  # 将本次任务的图片写入一个离线 HTML 查看器
+    html_view_mode: str = "scroll"  # HTML 默认查看方式：scroll 或 paged
     export_editable_psd: bool = False  # 导出可编辑的PSD文件（需要Photoshop）
     psd_script_only: bool = False  # 仅生成JSX脚本而不执行Photoshop
     replace_translation: bool = (
@@ -204,6 +209,7 @@ class AppSection(BaseModel):
     auto_check_updates: bool = True  # 启动时是否自动检查新版本
     use_system_proxy: bool = False  # 网络请求是否使用操作系统代理配置
     current_preset: str = "默认"  # 当前使用的预设名称
+    current_parameter_profile: str = "default"  # 当前使用的参数配置名称
     editor_ocr: str = "mocr"  # 编辑器属性面板使用的 OCR 模型，与主页 OCR 设置分离
     editor_translator: str = "openai"  # 编辑器属性面板使用的翻译器，与主页翻译设置分离
     editor_snap_enabled: bool = False  # 编辑器文本框移动/旋转时是否启用吸附

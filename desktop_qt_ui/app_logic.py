@@ -11,7 +11,7 @@ import logging
 import os
 import textwrap
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from manga_translator.config import (
@@ -47,6 +47,7 @@ from PyQt6.QtCore import (
     QRunnable,
     Qt,
     QTimer,
+    QUrl,
     pyqtSignal,
     pyqtSlot,
 )
@@ -64,7 +65,14 @@ from services import (
 from services.html_image_download_service import (
     HtmlImageDownloadResult,
     download_html_images,
+    download_html_images_from_url,
 )
+from services.config_profile_service import (
+    ConfigProfileError,
+    ConfigProfileService,
+)
+from services.html_image_export_service import write_task_html
+from services.long_image_service import build_long_image
 from services.state_manager import AppStateKey
 from utils.asyncio_cleanup import shutdown_event_loop
 from utils.font_list import fonts_directory
@@ -80,8 +88,30 @@ class AppConfig:
     max_recent_files: int = 10
 
 
+@dataclass
+class DeferredHtmlSource:
+    """An HTML/URL source registered for download when its task starts."""
+
+    source: str
+    source_type: str
+    label: str
+
+
+@dataclass
+class TranslationTaskRequest:
+    """A submitted translation task detached from the editable file list."""
+
+    source_files: List[str]
+    excluded_subfolders: set
+    excluded_files: set
+    task_config: dict
+    html_sources: List[DeferredHtmlSource] = field(default_factory=list)
+
+
 ARCHIVE_EXTRACT_IMAGE_DIRNAME = 'original_images'
 ARCHIVE_EXTRACT_META_FILENAME = '.extract_meta.json'
+HTML_FILE_EXTENSIONS = frozenset({".html", ".htm"})
+LONG_IMAGE_WORK_DIRNAME = "translated_pages"
 _OPENAI_BROWSER_HEADERS = OPENAI_CURL_HEADERS
 _GEMINI_BROWSER_HEADERS = GEMINI_CURL_HEADERS
 
@@ -129,14 +159,19 @@ class MainAppLogic(QObject):
     warning_dialog_requested = pyqtSignal(str)
     render_setting_changed = pyqtSignal()
     file_sources_changed = pyqtSignal()
+    html_sources_changed = pyqtSignal(int)
     html_import_state_changed = pyqtSignal(bool)
-    html_import_succeeded = pyqtSignal(object)
     html_import_failed = pyqtSignal(str)
+    parameter_profiles_changed = pyqtSignal(object)
+    task_queue_changed = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()
         self.logger = get_logger(__name__)
         self.config_service = get_config_service()
+        self.config_profile_service = ConfigProfileService(self.config_service.root_dir)
+        self._last_parameter_profile_error = ""
+        self._ensure_active_parameter_profile()
         self.translation_service = get_translation_service()
         self.file_service = get_file_service()
         self.state_manager = get_state_manager()
@@ -149,30 +184,30 @@ class MainAppLogic(QObject):
             max_workers=1,
             thread_name_prefix="translation-task",
         )
-        self._html_download_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="html-image-download",
-        )
         self._scan_future: Optional[concurrent.futures.Future] = None
         self._translate_future: Optional[concurrent.futures.Future] = None
-        self._html_download_future: Optional[concurrent.futures.Future] = None
+        self._html_import_active = False
+        self._html_active_path: Optional[str] = None
+        self._html_import_queue: list[str] = []
+        self._pending_html_sources: list[DeferredHtmlSource] = []
         self._cleanup_future: Optional[concurrent.futures.Future] = None
+        self._task_queue: list[TranslationTaskRequest] = []
+        self._active_task_request: Optional[TranslationTaskRequest] = None
         self._scan_request_id = 0
         self.current_worker = None  # 当前运行的worker
         self._shutdown_started = False
         self._stop_requested = False
         self.current_task_id = 0  # 任务ID，用于区分不同的翻译任务
         self.saved_files_count = 0
+        self._translation_started_at: Optional[float] = None
+        self._translation_total_images = 0
+        self._translation_output_folder: Optional[str] = None
         self.completed_output_sources: Dict[str, str] = {}
         self._last_progress_log_at = 0.0
         self._task_failures: List[Dict[str, str]] = []
         self._task_failure_keys: set[str] = set()
-        self.html_import_succeeded.connect(
-            self._on_html_download_success,
-            type=Qt.ConnectionType.QueuedConnection,
-        )
         self.html_import_failed.connect(
-            self._on_html_download_failed,
+            self._on_html_source_failed,
             type=Qt.ConnectionType.QueuedConnection,
         )
 
@@ -356,12 +391,48 @@ class MainAppLogic(QObject):
             return
         self.logger.info(message)
 
+    @staticmethod
+    def _normalize_output_folder(folder: Any) -> str:
+        """Normalize a folder typed into the output field or dropped from Finder."""
+        value = str(folder or "").strip().strip('"')
+        if not value:
+            return ""
+        if value.startswith("file://"):
+            url = QUrl(value)
+            if url.isLocalFile():
+                value = url.toLocalFile()
+        return os.path.normpath(os.path.abspath(os.path.expanduser(value)))
+
+    @pyqtSlot(str)
+    def update_output_folder(self, folder: str) -> bool:
+        """Commit the output folder to the live config and refresh every consumer."""
+        normalized_folder = self._normalize_output_folder(folder)
+        current_folder = self._normalize_output_folder(
+            self.config_service.get_config().app.last_output_path
+        )
+
+        if not normalized_folder or not os.path.isdir(normalized_folder):
+            self._ui_log(f"输出目录不合法: {folder}", "WARNING")
+            # 恢复输入框到最后一个有效目录，避免界面文字与实际任务目录不一致。
+            self.output_path_updated.emit(current_folder)
+            return False
+
+        if normalized_folder != current_folder:
+            config = self.config_service.get_config()
+            config.app.last_output_path = normalized_folder
+            self.config_service.set_config(config)
+            self.config_service.save_config_file()
+            self.state_manager.set_current_config(config)
+            self._save_active_parameter_profile(config)
+
+        self.output_path_updated.emit(normalized_folder)
+        return True
+
     @pyqtSlot()
     def select_output_folder(self):
         folder = QFileDialog.getExistingDirectory(None, self._t("Select Output Directory"))
         if folder:
-            self.update_single_config('app.last_output_path', folder)
-            self.output_path_updated.emit(folder)
+            self.update_output_folder(folder)
 
     @pyqtSlot()
     def open_output_folder(self):
@@ -534,7 +605,16 @@ class MainAppLogic(QObject):
     def _is_openai_compatible_target(normalized_key: str) -> bool:
         return any(
             token in normalized_key
-            for token in ("openai", "custom_openai", "deepseek", "groq")
+            for token in (
+                "openai",
+                "custom_openai",
+                "deepseek",
+                "groq",
+                "qwen_vl",
+                "doubao_vl",
+                "glm_vl",
+                "kimi_vl",
+            )
         )
 
     @staticmethod
@@ -576,6 +656,10 @@ class MainAppLogic(QObject):
         defaults = {
             "openai_ocr": "gpt-4o",
             "gemini_ocr": "gemini-1.5-flash",
+            "qwen_vl": "qwen3-vl-plus",
+            "doubao_vl": "doubao-1.5-vision-pro-32k",
+            "glm_vl": "glm-4v-flash",
+            "kimi_vl": "kimi-k3",
             "openai_colorizer": "gpt-image-1",
             "gemini_colorizer": "gemini-2.0-flash-preview-image-generation",
             "openai_renderer": "gpt-image-1",
@@ -899,7 +983,15 @@ class MainAppLogic(QObject):
             if self._is_openai_compatible_target(normalized_key) or "gemini" in normalized_key:
                 validate_api_key_for_http_header(api_key)
 
-            if normalized_key == "openai_ocr":
+            if normalized_key in {"openai_ocr", "qwen_vl", "doubao_vl", "glm_vl", "kimi_vl"}:
+                if not api_base:
+                    default_bases = {
+                        "qwen_vl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "doubao_vl": "https://ark.cn-beijing.volces.com/api/v3",
+                        "glm_vl": "https://open.bigmodel.cn/api/paas/v4",
+                        "kimi_vl": "https://api.moonshot.cn/v1",
+                    }
+                    api_base = default_bases.get(normalized_key)
                 return await self._test_openai_ocr_api(api_key, api_base, model)
             if normalized_key in {"openai_colorizer", "openai_renderer"}:
                 return await self._test_openai_image_api(api_key, api_base, model, normalized_key)
@@ -968,13 +1060,23 @@ class MainAppLogic(QObject):
                 validate_api_key_for_http_header(api_key)
 
             if self._is_openai_compatible_target(normalized_key):
-                resolved_api_key = resolve_openai_compatible_api_key(api_key, api_base or "https://api.openai.com/v1")
+                default_bases = {
+                    "qwen_vl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "doubao_vl": "https://ark.cn-beijing.volces.com/api/v3",
+                    "glm_vl": "https://open.bigmodel.cn/api/paas/v4",
+                    "kimi_vl": "https://api.moonshot.cn/v1",
+                }
+                resolved_base = api_base or default_bases.get(
+                    normalized_key,
+                    "https://api.openai.com/v1",
+                )
+                resolved_api_key = resolve_openai_compatible_api_key(api_key, resolved_base)
                 # 尝试使用 curl_cffi 客户端绕过 TLS 指纹检测
                 try:
                     from manga_translator.translators.common import AsyncOpenAICurlCffi
                     client = AsyncOpenAICurlCffi(
                         api_key=resolved_api_key,
-                        base_url=api_base or "https://api.openai.com/v1",
+                        base_url=resolved_base,
                         impersonate="chrome",
                         timeout=60.0
                     )
@@ -982,7 +1084,7 @@ class MainAppLogic(QObject):
                     from openai import AsyncOpenAI
                     client = AsyncOpenAI(
                         api_key=resolved_api_key,
-                        base_url=api_base or "https://api.openai.com/v1",
+                        base_url=resolved_base,
                         timeout=60.0,
                         **openai_http_client_kwargs(api_base or "https://api.openai.com/v1"),
                     )
@@ -1079,6 +1181,163 @@ class MainAppLogic(QObject):
     # endregion
 
     # region 配置管理
+    def _ensure_active_parameter_profile(self) -> None:
+        """Ensure the first profile exists and the active name is valid."""
+        try:
+            current_config = self.config_service.get_config()
+            self.config_profile_service.ensure_default_profile(
+                current_config.model_dump()
+            )
+            active_name = str(
+                getattr(current_config.app, "current_parameter_profile", "default")
+                or "default"
+            ).strip()
+            if active_name not in self.config_profile_service.list_profiles():
+                current_config.app.current_parameter_profile = "default"
+                self.config_service.set_config(current_config)
+                self.config_service.save_config_file()
+        except Exception as exc:
+            self.logger.warning("初始化参数配置失败: %s", exc)
+
+    def _set_parameter_profile_error(self, error: Exception | str) -> None:
+        self._last_parameter_profile_error = str(error)
+
+    def get_parameter_profile_error(self) -> str:
+        return str(getattr(self, "_last_parameter_profile_error", "") or "")
+
+    def get_parameter_profiles(self) -> List[str]:
+        return self.config_profile_service.list_profiles()
+
+    def get_current_parameter_profile(self) -> str:
+        config = self.config_service.get_config()
+        return str(
+            getattr(config.app, "current_parameter_profile", "default")
+            or "default"
+        ).strip() or "default"
+
+    def _emit_parameter_profiles_changed(self) -> None:
+        self.parameter_profiles_changed.emit(
+            {
+                "profiles": self.get_parameter_profiles(),
+                "current": self.get_current_parameter_profile(),
+            }
+        )
+
+    def _save_active_parameter_profile(self, config=None) -> bool:
+        """Persist the current parameter values into the active named profile."""
+        try:
+            config = config or self.config_service.get_config()
+            profile_name = str(
+                getattr(config.app, "current_parameter_profile", "default")
+                or "default"
+            ).strip() or "default"
+            self.config_profile_service.save_profile(
+                profile_name, config.model_dump()
+            )
+            return True
+        except Exception as exc:
+            # A setting edit should still be usable if a profile file becomes
+            # temporarily unwritable; the normal config file remains saved.
+            self.logger.warning("自动保存参数配置失败: %s", exc)
+            return False
+
+    def create_parameter_profile(self, name: str, *, overwrite: bool = False) -> bool:
+        """Create a profile from the current settings and activate it."""
+        try:
+            current_config = self.config_service.get_config()
+            normalized_name = self.config_profile_service.normalize_profile_name(name)
+            self.config_profile_service.create_profile(
+                normalized_name,
+                current_config.model_dump(),
+                overwrite=overwrite,
+            )
+            current_config.app.current_parameter_profile = normalized_name
+            self.config_service.set_config(current_config)
+            self.config_service.save_config_file()
+            self._last_parameter_profile_error = ""
+            self._emit_parameter_profiles_changed()
+            return True
+        except (ConfigProfileError, OSError, ValueError) as exc:
+            self._set_parameter_profile_error(exc)
+            self.logger.warning("创建参数配置失败: %s", exc)
+            return False
+
+    def save_current_parameter_profile(self) -> bool:
+        try:
+            success = self._save_active_parameter_profile()
+            if success:
+                self._last_parameter_profile_error = ""
+            return success
+        except Exception as exc:
+            self._set_parameter_profile_error(exc)
+            return False
+
+    def load_parameter_profile(self, name: str) -> bool:
+        """Load a named profile while preserving app paths and credentials."""
+        try:
+            normalized_name = self.config_profile_service.normalize_profile_name(name)
+            profile_settings = self.config_profile_service.load_profile(normalized_name)
+            current_config = self.config_service.get_config()
+            merged_dict = self.config_profile_service.merge_profile(
+                current_config.model_dump(), profile_settings
+            )
+            merged_dict.setdefault("app", {})[
+                "current_parameter_profile"
+            ] = normalized_name
+
+            from core.config_models import AppSettings
+
+            new_config = AppSettings.model_validate(merged_dict)
+            self.config_service.set_config(new_config)
+            self.config_service.save_config_file()
+            self.state_manager.set_current_config(new_config)
+
+            self.translation_service.set_translator(new_config.translator.translator)
+            self.translation_service.set_target_language(new_config.translator.target_lang)
+            self.config_loaded.emit(new_config.model_dump())
+            self._last_parameter_profile_error = ""
+            self._emit_parameter_profiles_changed()
+            return True
+        except (ConfigProfileError, OSError, ValueError) as exc:
+            self._set_parameter_profile_error(exc)
+            self.logger.warning("加载参数配置失败: %s", exc)
+            return False
+
+    def delete_parameter_profile(self, name: str) -> bool:
+        try:
+            normalized_name = self.config_profile_service.normalize_profile_name(name)
+            if normalized_name == self.get_current_parameter_profile():
+                if not self.load_parameter_profile("default"):
+                    return False
+            self.config_profile_service.delete_profile(normalized_name)
+            self._last_parameter_profile_error = ""
+            self._emit_parameter_profiles_changed()
+            return True
+        except (ConfigProfileError, OSError, ValueError) as exc:
+            self._set_parameter_profile_error(exc)
+            self.logger.warning("删除参数配置失败: %s", exc)
+            return False
+
+    def rename_parameter_profile(self, old_name: str, new_name: str) -> bool:
+        try:
+            old_normalized = self.config_profile_service.normalize_profile_name(old_name)
+            new_normalized = self.config_profile_service.normalize_profile_name(new_name)
+            renamed_name = self.config_profile_service.rename_profile(
+                old_normalized, new_normalized
+            )
+            if old_normalized == self.get_current_parameter_profile():
+                current_config = self.config_service.get_config()
+                current_config.app.current_parameter_profile = renamed_name
+                self.config_service.set_config(current_config)
+                self.config_service.save_config_file()
+            self._last_parameter_profile_error = ""
+            self._emit_parameter_profiles_changed()
+            return True
+        except (ConfigProfileError, OSError, ValueError) as exc:
+            self._set_parameter_profile_error(exc)
+            self.logger.warning("重命名参数配置失败: %s", exc)
+            return False
+
     def load_config_file(self, config_path: str) -> bool:
         try:
             success = self.config_service.load_config_file(config_path)
@@ -1132,6 +1391,8 @@ class MainAppLogic(QObject):
             
             self.config_service.set_config(config_obj)
             self.config_service.save_config_file()
+            if full_key != "app.current_parameter_profile":
+                self._save_active_parameter_profile(config_obj)
             self.logger.debug(self._t("log_config_saved", config_key=full_key, value=value))
 
             # 当翻译器设置被更改时，直接更新翻译服务的内部状态
@@ -1181,6 +1442,12 @@ class MainAppLogic(QObject):
                 "gemini_renderer": "Gemini Renderer",
                 "none": self._t("translator_none"),
             },
+            "ocr": {
+                "qwen_vl": self._t("ocr_model_qwen_vl"),
+                "doubao_vl": self._t("ocr_model_doubao_vl"),
+                "glm_vl": self._t("ocr_model_glm_vl"),
+                "kimi_vl": self._t("ocr_model_kimi_vl"),
+            },
             "colorizer": {
                 "none": self._t("translator_none"),
                 "mc2": "Manga Colorization v2",
@@ -1220,6 +1487,17 @@ class MainAppLogic(QObject):
                     "none": self._t("translator_none"),
                     "original": self._t("translator_original"),
                 },
+                "thinking_level": {
+                    "auto": self._t("thinking_level_auto"),
+                    "off": self._t("thinking_level_off"),
+                    "low": self._t("thinking_level_low"),
+                    "medium": self._t("thinking_level_medium"),
+                    "high": self._t("thinking_level_high"),
+                },
+                "html_view_mode": {
+                    "scroll": self._t("html_view_mode_scroll"),
+                    "paged": self._t("html_view_mode_paged"),
+                },
                 "target_lang": self.translation_service.get_target_languages(),
                 "keep_lang": {
                     "none": self._t("lang_filter_disabled"),
@@ -1252,6 +1530,7 @@ class MainAppLogic(QObject):
                     "kernel_size": self._t("label_kernel_size"),
                     "mask_dilation_offset": self._t("label_mask_dilation_offset"),
                     "translator": self._t("label_translator"),
+                    "thinking_level": self._t("label_thinking_level"),
                     "target_lang": self._t("label_target_lang"),
                     "keep_lang": self._t("label_keep_lang"),
                     "enable_streaming": self._t("label_enable_streaming"),
@@ -1359,6 +1638,9 @@ class MainAppLogic(QObject):
                     "export_editable_psd": self._t("label_export_editable_psd"),
                     "last_output_path": self._t("label_last_output_path"),
                     "save_to_source_dir": self._t("label_save_to_source_dir"),
+                    "generate_long_image": self._t("label_generate_long_image"),
+                    "generate_html": self._t("label_generate_html"),
+                    "html_view_mode": self._t("label_html_view_mode"),
                     "psd_script_only": self._t("label_psd_script_only"),
                     "line_spacing": self._t("label_line_spacing"),
                     "letter_spacing": self._t("label_letter_spacing"),
@@ -1376,6 +1658,18 @@ class MainAppLogic(QObject):
                     "OCR_GEMINI_API_KEY": self._t("label_OCR_GEMINI_API_KEY"),
                     "OCR_GEMINI_MODEL": self._t("label_OCR_GEMINI_MODEL"),
                     "OCR_GEMINI_API_BASE": self._t("label_OCR_GEMINI_API_BASE"),
+                    "OCR_QWEN_API_KEY": self._t("label_OCR_QWEN_API_KEY"),
+                    "OCR_QWEN_MODEL": self._t("label_OCR_QWEN_MODEL"),
+                    "OCR_QWEN_API_BASE": self._t("label_OCR_QWEN_API_BASE"),
+                    "OCR_DOUBAO_API_KEY": self._t("label_OCR_DOUBAO_API_KEY"),
+                    "OCR_DOUBAO_MODEL": self._t("label_OCR_DOUBAO_MODEL"),
+                    "OCR_DOUBAO_API_BASE": self._t("label_OCR_DOUBAO_API_BASE"),
+                    "OCR_GLM_API_KEY": self._t("label_OCR_GLM_API_KEY"),
+                    "OCR_GLM_MODEL": self._t("label_OCR_GLM_MODEL"),
+                    "OCR_GLM_API_BASE": self._t("label_OCR_GLM_API_BASE"),
+                    "OCR_KIMI_API_KEY": self._t("label_OCR_KIMI_API_KEY"),
+                    "OCR_KIMI_MODEL": self._t("label_OCR_KIMI_MODEL"),
+                    "OCR_KIMI_API_BASE": self._t("label_OCR_KIMI_API_BASE"),
                     "COLOR_OPENAI_API_KEY": self._t("label_COLOR_OPENAI_API_KEY"),
                     "COLOR_OPENAI_MODEL": self._t("label_COLOR_OPENAI_MODEL"),
                     "COLOR_OPENAI_API_BASE": self._t("label_COLOR_OPENAI_API_BASE"),
@@ -1428,6 +1722,8 @@ class MainAppLogic(QObject):
                 "4x-denoise3x",
             ],
             "translator": [member.value for member in Translator],
+            "thinking_level": ["auto", "off", "low", "medium", "high"],
+            "html_view_mode": ["scroll", "paged"],
             "keep_lang": ["none"] + list(self.translation_service.get_keep_languages().keys()),
             "detector": [member.value for member in Detector],
             "colorizer": [member.value for member in Colorizer],
@@ -1572,6 +1868,7 @@ class MainAppLogic(QObject):
             new_config = AppSettings.model_validate(current_dict)
             self.config_service.set_config(new_config)
             self.config_service.save_config_file()
+            self._save_active_parameter_profile(new_config)
             
             # 通知UI更新 - 与首次加载/重新加载保持一致，直接发原始 dump,
             # 避免 None → '不使用' 这类有损转换让下游 UI 的 None 判定失效
@@ -1598,9 +1895,6 @@ class MainAppLogic(QObject):
         """
         Adds files/folders to the list for processing.
         """
-        if self.state_manager.is_translating():
-            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
-            return
         original_sources = list(self.source_files)
         original_keys = {self._path_key(path) for path in original_sources}
         source_by_key = {self._path_key(path): path for path in original_sources}
@@ -1667,54 +1961,131 @@ class MainAppLogic(QObject):
                 self.files_added.emit(new_paths)
             self.file_sources_changed.emit()
 
-    @pyqtSlot(str)
-    def import_html_images(self, html_path: str):
-        """在后台下载 HTML 章节图片，并加入桌面翻译文件列表。"""
-        if self.state_manager.is_translating():
-            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
-            return
-        if self._html_download_future and not self._html_download_future.done():
-            self._ui_log("正在下载 HTML 图片，请等待当前任务完成。", "WARNING")
-            return
-
-        self.html_import_state_changed.emit(True)
-        self._ui_log(f"开始从 HTML 下载图片: {os.path.basename(html_path)}")
-        self._html_download_future = self._html_download_executor.submit(
-            download_html_images,
-            html_path,
+    @staticmethod
+    def _is_html_file_path(file_path: str) -> bool:
+        """Return whether a dropped path is an existing HTML file."""
+        return (
+            os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1].lower() in HTML_FILE_EXTENSIONS
         )
-        self._html_download_future.add_done_callback(self._on_html_download_done)
 
-    def _on_html_download_done(self, future: concurrent.futures.Future):
-        try:
-            result = future.result()
-        except Exception as exc:
-            self.html_import_failed.emit(str(exc))
-        else:
-            self.html_import_succeeded.emit(result)
-        finally:
-            self._html_download_future = None
+    @pyqtSlot(list)
+    def add_dropped_files(self, file_paths: List[str]):
+        """Route dropped HTML files through HTML import and keep other paths unchanged."""
+        regular_paths: list[str] = []
+        html_paths: list[str] = []
+        for raw_path in file_paths or []:
+            path = str(raw_path or "")
+            if not path:
+                continue
+            if self._is_html_file_path(path):
+                html_paths.append(path)
+            else:
+                regular_paths.append(path)
 
-    @pyqtSlot(object)
-    def _on_html_download_success(self, result: HtmlImageDownloadResult):
-        self.add_files(list(result.image_paths))
-        self._ui_log(
-            f"HTML 图片下载完成: {len(result.image_paths)}/{result.extracted_count}，"
-            f"已加入 {result.output_dir}"
-        )
-        if result.failures:
-            self._ui_log(
-                f"有 {len(result.failures)} 张图片下载失败: "
-                + "；".join(result.failures[:3]),
-                "WARNING",
+        if regular_paths:
+            self.add_files(regular_paths)
+        if html_paths:
+            self._queue_dropped_html_imports(html_paths)
+
+    def _queue_dropped_html_imports(self, html_paths: list[str]) -> None:
+        """Register dropped HTML files without downloading them yet."""
+        for path in html_paths:
+            self.import_html_images(path)
+
+    def _emit_html_sources_changed(self) -> None:
+        signal = getattr(self, "html_sources_changed", None)
+        if signal is not None:
+            signal.emit(len(getattr(self, "_pending_html_sources", [])))
+
+    def _register_pending_html_source(
+        self,
+        source: str,
+        source_type: str,
+        source_label: str,
+    ) -> bool:
+        """Remember an HTML/URL input; the network/filesystem work starts on submit."""
+        pending_sources = getattr(self, "_pending_html_sources", None)
+        if pending_sources is None:
+            pending_sources = []
+            self._pending_html_sources = pending_sources
+
+        normalized_source = str(source or "").strip()
+        if source_type == "html":
+            normalized_source = os.path.normpath(
+                os.path.abspath(os.path.expanduser(normalized_source))
             )
-        self.html_import_state_changed.emit(False)
+        source_key = (
+            self._path_key(normalized_source)
+            if source_type == "html"
+            else normalized_source.casefold()
+        )
+        if any(
+            item.source_type == source_type
+            and (
+                self._path_key(item.source) if source_type == "html" else item.source.casefold()
+            )
+            == source_key
+            for item in pending_sources
+        ):
+            self._ui_log(f"{source_label} 已在待处理列表中。", "WARNING")
+            return False
+
+        pending_sources.append(
+            DeferredHtmlSource(
+                source=normalized_source,
+                source_type=source_type,
+                label=source_label,
+            )
+        )
+        emit_html_sources_changed = getattr(self, "_emit_html_sources_changed", None)
+        if emit_html_sources_changed is not None:
+            emit_html_sources_changed()
+        self._ui_log(f"{source_label} 已登记，点击开始翻译时下载图片。")
+        return True
 
     @pyqtSlot(str)
-    def _on_html_download_failed(self, message: str):
-        self._ui_log(f"HTML 图片下载失败: {message}", "ERROR")
-        self.error_dialog_requested.emit(f"HTML 图片下载失败\n\n{message}")
-        self.html_import_state_changed.emit(False)
+    def import_html_images(self, html_path: str) -> bool:
+        """Register a local HTML chapter for download when translation starts."""
+        normalized_path = os.path.normpath(
+            os.path.abspath(os.path.expanduser(str(html_path or "").strip()))
+        )
+        if not os.path.isfile(normalized_path):
+            message = f"HTML 文件不存在: {normalized_path}"
+            self._ui_log(message, "WARNING")
+            self.html_import_failed.emit(message)
+            return False
+        if os.path.splitext(normalized_path)[1].lower() not in HTML_FILE_EXTENSIONS:
+            message = f"不支持的 HTML 文件: {normalized_path}"
+            self._ui_log(message, "WARNING")
+            self.html_import_failed.emit(message)
+            return False
+        return self._register_pending_html_source(
+            normalized_path,
+            "html",
+            f"HTML 文件 {os.path.basename(normalized_path)}",
+        )
+
+    @pyqtSlot(str)
+    def import_url_images(self, page_url: str) -> bool:
+        """Register a webpage for download when translation starts."""
+        normalized_url = str(page_url or "").strip()
+        if not normalized_url:
+            message = "请输入有效的网址。"
+            self._ui_log(message, "WARNING")
+            self.html_import_failed.emit(message)
+            return False
+        return self._register_pending_html_source(
+            normalized_url,
+            "url",
+            f"网址 {normalized_url}",
+        )
+
+    @pyqtSlot(str)
+    def _on_html_source_failed(self, message: str):
+        """Report invalid HTML/URL input without starting any download."""
+        self._ui_log(f"HTML 来源登记失败: {message}", "ERROR")
+        self.error_dialog_requested.emit(f"HTML 来源登记失败\n\n{message}")
 
     def get_last_open_dir(self) -> str:
         path = self.config_service.get_config().app.last_open_dir
@@ -1746,9 +2117,6 @@ class MainAppLogic(QObject):
         self.add_folder()
 
     def remove_file(self, file_path: str):
-        if self.state_manager.is_translating():
-            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
-            return
         try:
             norm_file_path = os.path.normpath(file_path)
             target_key = self._path_key(norm_file_path)
@@ -1824,35 +2192,177 @@ class MainAppLogic(QObject):
         except Exception as e:
             self._ui_log(f"移除路径时发生异常: {e}", "ERROR")
 
-    def clear_file_list(self):
-        if self.state_manager.is_translating():
-            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
-            return
-        if not (self.source_files or self.excluded_subfolders or self.excluded_files):
-            return
-        # TODO: Add confirmation dialog
+    def _clear_file_list_state(self, *, log_message: Optional[str] = None) -> bool:
+        """Clear only the editable input list; submitted task snapshots are untouched."""
+        pending_html_sources = getattr(self, "_pending_html_sources", [])
+        if not (
+            self.source_files
+            or self.excluded_subfolders
+            or self.excluded_files
+            or pending_html_sources
+        ):
+            return False
         self.source_files.clear()
         self._source_folders.clear()
-        self.file_to_folder_map.clear()  # 清空文件夹映射
-        self.excluded_subfolders.clear()  # 清空排除列表
+        self.file_to_folder_map.clear()
+        self.excluded_subfolders.clear()
         self.excluded_files.clear()
+        pending_html_sources.clear()
         self.files_cleared.emit()
         self.file_sources_changed.emit()
-        self.logger.info("File list cleared by user.")
+        emit_html_sources_changed = getattr(self, "_emit_html_sources_changed", None)
+        if emit_html_sources_changed is not None:
+            emit_html_sources_changed()
+        if log_message:
+            self.logger.info(log_message)
+        return True
+
+    def clear_file_list(self):
+        """Clear the editable list without affecting already submitted tasks."""
+        self._clear_file_list_state(log_message="File list cleared by user.")
     # endregion
 
     # region 核心任务逻辑
-    def start_file_scanning(self, task_config: dict):
-        """启动后台文件扫描任务"""
+    def _emit_task_queue_changed(self) -> None:
+        signal = getattr(self, "task_queue_changed", None)
+        if signal is not None:
+            signal.emit(len(getattr(self, "_task_queue", [])))
+
+    def _has_active_translation_work(self) -> bool:
+        return bool(
+            self.current_worker is not None
+            or any(
+                future is not None and not future.done()
+                for future in (self._scan_future, self._translate_future)
+            )
+        )
+
+    def _start_next_queued_task(self) -> None:
+        """Start the next FIFO task once the previous worker has fully returned."""
+        if self._shutdown_started or self._stop_requested:
+            return
+        if self._has_active_translation_work():
+            QTimer.singleShot(100, self._start_next_queued_task)
+            return
+
+        self._scan_future = None
+        self._translate_future = None
+        if not self._task_queue:
+            self._active_task_request = None
+            self.state_manager.set_translating(False)
+            self._emit_task_queue_changed()
+            return
+
+        request = self._task_queue.pop(0)
+        self._active_task_request = request
+        self._emit_task_queue_changed()
+        self.start_file_scanning(request.task_config, request=request)
+
+    def _finish_active_task(self, status_message: str, *, reset_progress: bool = False) -> None:
+        """Release the current task and continue the queue without losing FIFO order."""
+        self._active_task_request = None
+        self.current_worker = None
+        self._translation_started_at = None
+        self._translation_total_images = 0
+        self._translation_output_folder = None
+        self._cleanup_after_task()
+
+        task_queue = getattr(self, "_task_queue", [])
+        if task_queue and not getattr(self, "_shutdown_started", False) and not getattr(
+            self, "_stop_requested", False
+        ):
+            self.state_manager.set_translating(True)
+            self.state_manager.set_status_message(
+                f"{status_message}，队列剩余 {len(task_queue)} 个任务"
+            )
+            QTimer.singleShot(100, self._start_next_queued_task)
+        else:
+            self.state_manager.set_translating(False)
+            self.state_manager.set_status_message(status_message)
+            self._emit_task_queue_changed()
+            if reset_progress and hasattr(self, 'main_view') and self.main_view:
+                self.main_view.reset_progress()
+
+    def _enqueue_current_file_list(self, task_config: dict) -> bool:
+        """Snapshot the editable list, enqueue it, then clear the list for the next task."""
+        pending_html_sources = getattr(self, "_pending_html_sources", [])
+        if not self.source_files and not pending_html_sources:
+            return False
+
+        request = TranslationTaskRequest(
+            source_files=list(self.source_files),
+            excluded_subfolders=set(self.excluded_subfolders),
+            excluded_files=set(self.excluded_files),
+            task_config=task_config,
+            html_sources=list(pending_html_sources),
+        )
+        self._task_queue.append(request)
+        self._clear_file_list_state(log_message="Submitted task and cleared the file list.")
+        self._emit_task_queue_changed()
+        self.state_manager.set_translating(True)
+        return True
+
+    def _download_deferred_html_sources(
+        self,
+        html_sources: List[DeferredHtmlSource],
+        output_dir: str,
+        worker: "FileScannerRunnable",
+    ) -> list[str]:
+        """Download registered HTML/URL sources immediately before scanning a task."""
+        downloaded_paths: list[str] = []
+        for html_source in html_sources:
+            if not worker._is_running:
+                break
+
+            downloader = (
+                download_html_images
+                if html_source.source_type == "html"
+                else download_html_images_from_url
+            )
+            worker._emit_progress(f"正在下载图片: {html_source.label}")
+            try:
+                result: HtmlImageDownloadResult = downloader(
+                    html_source.source,
+                    output_dir=output_dir,
+                )
+            except Exception as exc:
+                worker._emit_progress(f"下载失败，跳过 {html_source.label}: {exc}")
+                continue
+
+            downloaded_paths.extend(result.image_paths)
+            worker._emit_progress(
+                f"HTML 图片下载完成: {len(result.image_paths)}/{result.extracted_count}"
+            )
+            if result.failures:
+                worker._emit_progress(
+                    f"有 {len(result.failures)} 张图片下载失败: "
+                    + "；".join(result.failures[:3])
+                )
+
+        return downloaded_paths
+
+    def start_file_scanning(
+        self,
+        task_config: dict,
+        request: Optional[TranslationTaskRequest] = None,
+    ):
+        """启动后台文件扫描任务；扫描输入来自已提交任务的不可变快照。"""
+        request = request or TranslationTaskRequest(
+            source_files=list(self.source_files),
+            excluded_subfolders=set(self.excluded_subfolders),
+            excluded_files=set(self.excluded_files),
+            task_config=task_config,
+            html_sources=list(getattr(self, "_pending_html_sources", [])),
+        )
         self.state_manager.set_translating(True)
         self.state_manager.set_status_message("正在准备文件...")
 
         self._scan_request_id += 1
         request_id = self._scan_request_id
         scanner_worker = FileScannerRunnable(
-            source_files=list(self.source_files),
-            excluded_subfolders=self.excluded_subfolders,
-            excluded_files=self.excluded_files,
+            source_files=list(request.source_files),
+            excluded_subfolders=request.excluded_subfolders,
+            excluded_files=request.excluded_files,
             file_service=self.file_service,
             output_base_dir=task_config.get("app", {}).get("last_output_path", ""),
             overwrite_extract=bool(task_config.get("cli", {}).get("overwrite", True)),
@@ -1869,6 +2379,19 @@ class MainAppLogic(QObject):
             if not self.config_service.flush_pending_writes():
                 scanner_worker._emit_error("配置或 API Key 保存失败，任务未启动")
                 return
+            if request.html_sources:
+                scanner_worker._emit_progress(
+                    f"开始下载 {len(request.html_sources)} 个 HTML/网址来源的图片..."
+                )
+                downloaded_paths = self._download_deferred_html_sources(
+                    request.html_sources,
+                    scanner_worker.output_base_dir,
+                    scanner_worker,
+                )
+                scanner_worker.source_files = [
+                    *request.source_files,
+                    *downloaded_paths,
+                ]
             scanner_worker.run()
 
         try:
@@ -1908,14 +2431,13 @@ class MainAppLogic(QObject):
         # 检查文件列表是否为空
         if not resolved_files:
             self._ui_log("没有找到有效的图片文件，任务中止", "WARNING")
-            self.state_manager.set_translating(False)
-            self.state_manager.set_status_message("就绪")
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 None,
                 self._t("File List Empty"),
                 self._t("Please add image files to translate!")
             )
+            self._finish_active_task("任务未找到有效图片", reset_progress=True)
             return
 
         # 启动真正的翻译任务
@@ -1927,16 +2449,28 @@ class MainAppLogic(QObject):
 
         self._scan_future = None
         self._ui_log(f"扫描文件时出错: {error_msg}", "ERROR")
-        self.current_worker = None
-        self.state_manager.set_translating(False)
-        self.state_manager.set_status_message("扫描失败")
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.critical(None, "扫描失败", f"扫描文件时出错:\n{error_msg}")
+        self._finish_active_task("扫描失败", reset_progress=True)
 
     def _start_translation_worker(self, files_to_process, task_config):
         """启动翻译工作线程（内部方法，由扫描完成后调用）"""
         self.saved_files_count = 0
+        self._translation_started_at = time.perf_counter()
+        self._translation_total_images = len(files_to_process or [])
+        self._translation_output_folder = str(
+            task_config.get("app", {}).get("last_output_path", "") or ""
+        )
         self.completed_output_sources.clear()
+        self._generate_long_image_for_task = bool(
+            task_config.get("cli", {}).get("generate_long_image", False)
+        )
+        self._generate_html_for_task = bool(
+            task_config.get("cli", {}).get("generate_html", False)
+        )
+        self._html_view_mode_for_task = str(
+            task_config.get("cli", {}).get("html_view_mode", "scroll") or "scroll"
+        )
         self._last_progress_log_at = 0.0
         self._reset_task_failures()
         
@@ -1963,6 +2497,8 @@ class MainAppLogic(QObject):
             self._translate_future = self._task_executor.submit(translation_worker.run)
         except RuntimeError as exc:
             self.current_worker = None
+            self._translation_started_at = None
+            self._translation_total_images = 0
             self.state_manager.set_translating(False)
             self.state_manager.set_status_message("任务启动失败")
             self._ui_log(f"翻译任务启动失败: {exc}", "ERROR")
@@ -1974,11 +2510,13 @@ class MainAppLogic(QObject):
 
     def start_backend_task(self):
         """
-        Resolves input paths and uses a 'Worker-to-Thread' model to start the translation task.
+        Snapshot the current inputs and add a translation task to the FIFO queue.
         """
-        # 检查是否有任务在运行
-        if self.state_manager.is_translating():
-            self._ui_log("一个任务已经在运行中。", "WARNING")
+        if self._shutdown_started:
+            self._ui_log("应用正在关闭，无法提交新任务。", "WARNING")
+            return
+        if self._stop_requested:
+            self._ui_log("当前任务正在停止，请稍后再提交。", "WARNING")
             return
         self._stop_requested = False
 
@@ -1989,16 +2527,16 @@ class MainAppLogic(QObject):
         self._cleanup_future = (
             None if self._cleanup_future and self._cleanup_future.done() else self._cleanup_future
         )
-        if any(
-            future is not None and not future.done()
-            for future in (self._scan_future, self._translate_future, self._cleanup_future)
-        ):
-            self._ui_log("上一个任务仍在后台收尾，请稍后再试。", "WARNING")
-            return
 
         # 任务启动前排空 UI 中尚未提交的 .env 写入。
         if hasattr(self, 'main_view') and self.main_view and hasattr(self.main_view, '_flush_all_pending_env_vars'):
             self.main_view._flush_all_pending_env_vars(wait=False)
+
+        # 兜底提交输出目录输入框，确保用户刚输入路径后直接点击开始也使用新目录。
+        if hasattr(self, "main_view") and self.main_view:
+            output_input = getattr(self.main_view, "output_folder_input", None)
+            if output_input is not None and not self.update_output_folder(output_input.text()):
+                return
 
         # 检查输出目录是否合法 (提前检查)
         config = self.config_service.get_config()
@@ -2013,8 +2551,9 @@ class MainAppLogic(QObject):
             )
             return
             
-        # 检查源文件列表是否为空 (初步检查，具体以扫描结果为准)
-        if not self.source_files:
+        # HTML/网址来源只在提交翻译时下载，因此它们也算作有效的待提交输入。
+        pending_html_sources = getattr(self, "_pending_html_sources", [])
+        if not self.source_files and not pending_html_sources:
             self._ui_log("文件列表为空", "WARNING")
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
@@ -2039,8 +2578,20 @@ class MainAppLogic(QObject):
             )
             return
 
-        # 启动后台文件扫描
-        self.start_file_scanning(config.model_dump())
+        # 入队前先复制本次输入与配置；提交完成后清空可编辑列表，用户可以
+        # 立即添加下一批图片。当前任务和队列任务都只使用各自的快照。
+        task_config = config.model_dump()
+        if not self._enqueue_current_file_list(task_config):
+            return
+
+        if self._has_active_translation_work() or self._active_task_request is not None:
+            self.state_manager.set_status_message(
+                f"任务已加入队列，前方还有 {len(self._task_queue)} 个任务"
+            )
+            self._ui_log(f"翻译任务已排队，当前等待 {len(self._task_queue)} 个任务")
+            return
+
+        self._start_next_queued_task()
 
     def on_task_finished(self, results, task_id):
         """处理后端已经保存完成的任务结果。"""
@@ -2048,8 +2599,19 @@ class MainAppLogic(QObject):
         if task_id != self.current_task_id:
             return
 
+        elapsed_seconds = 0.0
+        translation_started_at = getattr(self, "_translation_started_at", None)
+        if translation_started_at is not None:
+            elapsed_seconds = max(
+                0.0,
+                time.perf_counter() - translation_started_at,
+            )
+        image_count = len(results or []) or getattr(self, "_translation_total_images", 0)
+        self._translation_started_at = None
+        self._translation_total_images = 0
         self.current_worker = None
         saved_files = []
+        task_image_paths = []
         skipped_results = [result for result in (results or []) if result.get('skipped')]
         skipped_count = len(skipped_results)
         if results:
@@ -2058,6 +2620,9 @@ class MainAppLogic(QObject):
                 if result.get('skipped'):
                     reason = result.get('skip_message') or '后端已跳过该文件'
                     self._ui_log(f"⏭️ {os.path.basename(result.get('original_path') or '')}: {reason}")
+                    skipped_output_path = result.get('output_path')
+                    if skipped_output_path:
+                        task_image_paths.append(os.path.normpath(skipped_output_path))
                     continue
                 if not result.get('success'):
                     self._record_task_failure_from_result(result)
@@ -2067,6 +2632,7 @@ class MainAppLogic(QObject):
                 if output_path:
                     normalized_output = os.path.normpath(output_path)
                     saved_files.append(normalized_output)
+                    task_image_paths.append(normalized_output)
                     original_path = result.get('original_path')
                     if original_path:
                         self.completed_output_sources[self._path_key(normalized_output)] = os.path.normpath(
@@ -2080,6 +2646,40 @@ class MainAppLogic(QObject):
                 )
 
         self.saved_files_count = len(saved_files)
+        output_root = getattr(self, "_translation_output_folder", None)
+        if not output_root:
+            config_service = getattr(self, "config_service", None)
+            if config_service is not None:
+                config = config_service.get_config()
+                output_root = getattr(getattr(config, "app", None), "last_output_path", "")
+
+        if getattr(self, "_generate_long_image_for_task", False) and saved_files:
+            try:
+                long_image = build_long_image(saved_files, output_dir=output_root)
+                self._ui_log(
+                    f"已生成翻译长图：{long_image.output_path} "
+                    f"（{len(long_image.source_paths)} 张结果，{long_image.width}x{long_image.height}）"
+                )
+            except Exception as exc:
+                # 长图是额外产物，不能让它的失败掩盖已经成功保存的翻译结果。
+                self._ui_log(f"生成翻译长图失败，不影响已保存结果：{exc}", "WARNING")
+
+        if getattr(self, "_generate_html_for_task", False) and task_image_paths:
+            try:
+                html_result = write_task_html(
+                    task_image_paths,
+                    output_root,
+                    task_id=task_id,
+                    view_mode=getattr(self, "_html_view_mode_for_task", "scroll"),
+                )
+                self._ui_log(
+                    f"已生成任务 HTML：{html_result.output_path} "
+                    f"（{html_result.image_count} 张图片，"
+                    f"{html_result.view_mode} 模式）"
+                )
+            except Exception as exc:
+                # HTML 是额外产物，不能让它的失败掩盖已经成功保存的翻译结果。
+                self._ui_log(f"生成任务 HTML 失败，不影响已保存结果：{exc}", "WARNING")
 
         failed_count = len(self._task_failures)
         all_skipped = skipped_count > 0 and self.saved_files_count == 0 and failed_count == 0
@@ -2100,27 +2700,22 @@ class MainAppLogic(QObject):
             self._ui_log(f"翻译任务完成。总共成功处理 {self.saved_files_count} 个文件。")
         
         try:
-            self.state_manager.set_translating(False)
             if all_skipped:
-                self.state_manager.set_status_message(
-                    self._t(
-                        "all_existing_outputs_skipped_status",
-                        count=skipped_count,
-                    )
+                final_status = self._t(
+                    "all_existing_outputs_skipped_status",
+                    count=skipped_count,
                 )
                 self.warning_dialog_requested.emit(all_skipped_message)
             elif failed_count > 0:
-                self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件，失败 {failed_count} 个文件。")
+                final_status = f"任务完成，成功处理 {self.saved_files_count} 个文件，失败 {failed_count} 个文件。"
             elif skipped_count > 0:
-                self.state_manager.set_status_message(
-                    f"任务完成，成功处理 {self.saved_files_count} 个文件，已跳过 {skipped_count} 个文件。"
-                )
+                final_status = f"任务完成，成功处理 {self.saved_files_count} 个文件，已跳过 {skipped_count} 个文件。"
             else:
-                self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件。")
+                final_status = f"任务完成，成功处理 {self.saved_files_count} 个文件。"
             
             # 重置主视图的进度条
             if hasattr(self, 'main_view') and self.main_view:
-                self.main_view.reset_progress()
+                self.main_view.show_translation_stats(elapsed_seconds, image_count)
             
             # 播放系统提示音
             try:
@@ -2137,8 +2732,17 @@ class MainAppLogic(QObject):
             self._ui_log(f"完成任务状态更新或信号发射时发生致命错误: {e}", "ERROR")
             import traceback
             traceback.print_exc()
-        
-        QTimer.singleShot(100, self._cleanup_after_task)
+
+            final_status = f"任务完成，但状态更新失败：{e}"
+
+        finish_active_task = getattr(self, "_finish_active_task", None)
+        if finish_active_task is not None:
+            finish_active_task(final_status)
+        else:
+            # Keep lightweight unit-test doubles and older integrations compatible.
+            self.state_manager.set_translating(False)
+            self.state_manager.set_status_message(final_status)
+            QTimer.singleShot(100, self._cleanup_after_task)
 
     def resolve_completed_source(self, output_path: str) -> Optional[str]:
         return self.completed_output_sources.get(self._path_key(output_path))
@@ -2177,19 +2781,10 @@ class MainAppLogic(QObject):
         # 检查任务ID是否匹配，防止已停止的任务更新状态
         if task_id != self.current_task_id:
             return
-        
-        self.state_manager.set_translating(False)
-        self.state_manager.set_status_message("任务失败")
-        
-        # 重置主视图的进度条
-        if hasattr(self, 'main_view') and self.main_view:
-            self.main_view.reset_progress()
-        
+
         # 弹出错误提示框
         self.error_dialog_requested.emit(error_message)
-        
-        # 清理worker引用
-        self.current_worker = None
+        self._finish_active_task("任务失败", reset_progress=True)
 
     def on_task_progress(self, current, total, message, task_id):
         if task_id != self.current_task_id or self._shutdown_started:
@@ -2208,6 +2803,13 @@ class MainAppLogic(QObject):
 
     def stop_task(self) -> bool:
         """停止翻译任务"""
+        task_queue = getattr(self, "_task_queue", [])
+        if task_queue:
+            dropped_count = len(task_queue)
+            task_queue.clear()
+            self._emit_task_queue_changed()
+            self._ui_log(f"已清空队列中的 {dropped_count} 个待处理任务")
+
         if self.current_worker and hasattr(self.current_worker, 'stop'):
             self._stop_requested = True
             self.state_manager.set_status_message("正在停止...")
@@ -2245,11 +2847,17 @@ class MainAppLogic(QObject):
     def _finish_stop_task(self):
         """后台任务真正结束后恢复 UI。"""
         self._stop_requested = False
+        self._active_task_request = None
+        self._translation_started_at = None
+        self._translation_total_images = 0
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message("任务已停止")
         if hasattr(self, 'main_view') and self.main_view:
             self.main_view.reset_progress()
         self.current_worker = None
+        emit_queue_changed = getattr(self, "_emit_task_queue_changed", None)
+        if emit_queue_changed is not None:
+            emit_queue_changed()
 
     def _cleanup_stopped_task_when_idle(self):
         if self._shutdown_started:
@@ -2318,8 +2926,19 @@ class MainAppLogic(QObject):
                     except Exception as e:
                         self._ui_log(f"停止worker时出错: {e}", "WARNING")
             self.current_worker = None
+            getattr(self, "_task_queue", []).clear()
+            self._active_task_request = None
+            emit_queue_changed = getattr(self, "_emit_task_queue_changed", None)
+            if emit_queue_changed is not None:
+                emit_queue_changed()
             self.state_manager.set_translating(False)
-            self._html_download_executor.shutdown(wait=True, cancel_futures=True)
+            getattr(self, "_html_import_queue", []).clear()
+            getattr(self, "_pending_html_sources", []).clear()
+            emit_html_sources_changed = getattr(self, "_emit_html_sources_changed", None)
+            if emit_html_sources_changed is not None:
+                emit_html_sources_changed()
+            self._html_import_active = False
+            self._html_active_path = None
             self._task_executor.shutdown(wait=True, cancel_futures=True)
 
             # 关闭缩略图加载线程池
@@ -2517,12 +3136,31 @@ class TranslationWorker(QObject):
         output_folder = save_info.get('output_folder')
         output_format = save_info.get('format')
         save_to_source_dir = save_info.get('save_to_source_dir', False)
+        long_image_work_dir = save_info.get('long_image_work_dir')
         
         file_path = image_path
         parent_dir = os.path.normpath(os.path.dirname(file_path))
         
+        # 长图模式下，单页结果统一写入输出目录的工作子目录。
+        if long_image_work_dir:
+            final_output_dir = long_image_work_dir
+            source_folder = self.file_to_folder_map.get(image_path)
+            if source_folder and os.path.isdir(source_folder):
+                relative_path = os.path.relpath(parent_dir, source_folder)
+                if relative_path == '.':
+                    final_output_dir = os.path.join(
+                        long_image_work_dir,
+                        os.path.basename(source_folder),
+                    )
+                else:
+                    final_output_dir = os.path.join(
+                        long_image_work_dir,
+                        os.path.basename(source_folder),
+                        relative_path,
+                    )
+                final_output_dir = os.path.normpath(final_output_dir)
         # 检查是否启用了"输出到原图目录"模式
-        if save_to_source_dir:
+        elif save_to_source_dir:
             # 输出到原图所在目录的 manga_translator_work/result 子目录
             final_output_dir = os.path.join(parent_dir, 'manga_translator_work', 'result')
         else:
@@ -3034,6 +3672,14 @@ class TranslationWorker(QObject):
                 'input_folders': input_folders,
                 'save_to_source_dir': self.config_dict.get('cli', {}).get('save_to_source_dir', False)
             }
+
+            if self.config_dict.get('cli', {}).get('generate_long_image', False):
+                # 单页翻译结果作为长图生成的过程素材，集中放在输出目录的
+                # 子目录中；长图本身由任务完成回调写回输出目录根目录。
+                save_info['long_image_work_dir'] = os.path.join(
+                    self.output_folder,
+                    LONG_IMAGE_WORK_DIRNAME,
+                )
 
             
             # 确定翻译流程模式

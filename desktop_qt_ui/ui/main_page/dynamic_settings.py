@@ -44,6 +44,10 @@ API_GROUP_SPECS = {
     "translator_gemini": ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_BASE"),
     "ocr_openai": ("OCR_OPENAI_API_KEY", "OCR_OPENAI_MODEL", "OCR_OPENAI_API_BASE"),
     "ocr_gemini": ("OCR_GEMINI_API_KEY", "OCR_GEMINI_MODEL", "OCR_GEMINI_API_BASE"),
+    "ocr_qwen": ("OCR_QWEN_API_KEY", "OCR_QWEN_MODEL", "OCR_QWEN_API_BASE"),
+    "ocr_doubao": ("OCR_DOUBAO_API_KEY", "OCR_DOUBAO_MODEL", "OCR_DOUBAO_API_BASE"),
+    "ocr_glm": ("OCR_GLM_API_KEY", "OCR_GLM_MODEL", "OCR_GLM_API_BASE"),
+    "ocr_kimi": ("OCR_KIMI_API_KEY", "OCR_KIMI_MODEL", "OCR_KIMI_API_BASE"),
     "color_openai": ("COLOR_OPENAI_API_KEY", "COLOR_OPENAI_MODEL", "COLOR_OPENAI_API_BASE"),
     "color_gemini": ("COLOR_GEMINI_API_KEY", "COLOR_GEMINI_MODEL", "COLOR_GEMINI_API_BASE"),
     "render_openai": ("RENDER_OPENAI_API_KEY", "RENDER_OPENAI_MODEL", "RENDER_OPENAI_API_BASE"),
@@ -57,6 +61,91 @@ SIMPLE_API_GROUP_SPECS = {
         "ALIYUN_ACCESS_KEY_SECRET",
         "ALIYUN_API_BASE",
     ),
+}
+
+_VLM_OCR_MODELS = frozenset({
+    "paddleocr_vl",
+    "qwen_vl",
+    "doubao_vl",
+    "glm_vl",
+    "kimi_vl",
+})
+_AI_OCR_MODELS = frozenset({"openai_ocr", "gemini_ocr"})
+
+
+def _ocr_model_dependencies(models):
+    """Match an OCR backend selected as primary or active hybrid fallback."""
+    return [{
+        "any": [
+            {"key": "ocr.ocr", "in": models},
+            {
+                "all": [
+                    {"key": "ocr.use_hybrid_ocr", "truthy": True},
+                    {"key": "ocr.secondary_ocr", "in": models},
+                ],
+            },
+        ],
+    }]
+
+
+# Declarative parent -> child relationships for the settings page.  Values are
+# stored as canonical config values, so the same rules work for every locale.
+SETTING_DEPENDENCY_RULES = {
+    "translator.thinking_level": [
+        {"key": "translator.translator", "in": {"openai", "openai_hq", "gemini", "gemini_hq"}},
+    ],
+    "cli.html_view_mode": [
+        {"key": "cli.generate_html", "truthy": True},
+    ],
+    "translator.enable_streaming": [
+        {"key": "translator.translator", "in": {"openai", "openai_hq", "gemini", "gemini_hq"}},
+    ],
+    "translator.high_quality_prompt_path": [
+        {"key": "translator.translator", "in": {"openai_hq", "gemini_hq"}},
+    ],
+    "translator.extract_glossary": [
+        {"key": "translator.translator", "in": {"openai_hq", "gemini_hq"}},
+        {"key": "translator.high_quality_prompt_path", "truthy": True},
+    ],
+    "ocr.secondary_ocr": [
+        {"key": "ocr.use_hybrid_ocr", "truthy": True},
+    ],
+    "ocr.ocr_vl_language_hint": _ocr_model_dependencies(_VLM_OCR_MODELS),
+    "ocr.ocr_vl_custom_prompt": _ocr_model_dependencies(_VLM_OCR_MODELS),
+    "ocr.ai_ocr_prompt_path": _ocr_model_dependencies(_AI_OCR_MODELS),
+    "ocr.ai_ocr_concurrency": _ocr_model_dependencies(_AI_OCR_MODELS),
+    "ocr.ai_ocr_custom_prompt": _ocr_model_dependencies(_AI_OCR_MODELS),
+    "detector.yolo_obb_conf": [
+        {"key": "detector.use_yolo_obb", "truthy": True},
+    ],
+    "detector.yolo_obb_overlap_threshold": [
+        {"key": "detector.use_yolo_obb", "truthy": True},
+    ],
+    "detector.sfx_filter_include_bubble_text": [
+        {"key": "detector.use_yolo_obb", "truthy": True},
+        {"key": "detector.use_sfx_filter", "truthy": True},
+    ],
+    "render.strict_smart_scaling": [
+        {"key": "render.layout_mode", "in": {"smart_scaling"}},
+    ],
+    "render.balloon_fill_mask_layout": [
+        {"key": "render.layout_mode", "in": {"balloon_fill"}},
+    ],
+    "render.check_br_and_retry": [
+        {"key": "render.disable_auto_wrap", "truthy": True},
+    ],
+    "render.ai_renderer_prompt_path": [
+        {"key": "render.renderer", "in": {"openai_renderer", "gemini_renderer"}},
+    ],
+    "render.ai_renderer_concurrency": [
+        {"key": "render.renderer", "in": {"openai_renderer", "gemini_renderer"}},
+    ],
+    "colorizer.ai_colorizer_prompt_path": [
+        {"key": "colorizer.colorizer", "in": {"openai_colorizer", "gemini_colorizer"}},
+    ],
+    "colorizer.ai_colorizer_history_pages": [
+        {"key": "colorizer.colorizer", "in": {"openai_colorizer", "gemini_colorizer"}},
+    ],
 }
 
 def _normalize_selected_value(value) -> str:
@@ -90,10 +179,18 @@ def _selected_api_group_keys(config) -> dict[str, list[str]]:
     selected_ocr_values = [ocr_value]
     if bool(getattr(config.ocr, "use_hybrid_ocr", False)):
         selected_ocr_values.append(secondary_ocr_value)
-    if "openai_ocr" in selected_ocr_values:
-        result["ocr"].append("ocr_openai")
-    if "gemini_ocr" in selected_ocr_values:
-        result["ocr"].append("ocr_gemini")
+    ocr_api_groups = {
+        "openai_ocr": "ocr_openai",
+        "gemini_ocr": "ocr_gemini",
+        "qwen_vl": "ocr_qwen",
+        "doubao_vl": "ocr_doubao",
+        "glm_vl": "ocr_glm",
+        "kimi_vl": "ocr_kimi",
+    }
+    for selected_value in selected_ocr_values:
+        group_key = ocr_api_groups.get(selected_value)
+        if group_key and group_key not in result["ocr"]:
+            result["ocr"].append(group_key)
 
     if colorizer_value == "openai_colorizer":
         result["color"].append("color_openai")
@@ -207,6 +304,7 @@ _SKIPPED_SETTING_KEYS = frozenset({
     "app.favorite_folders",
     "app.folder_dialog_sort",
     "app.current_preset",
+    "app.current_parameter_profile",
 })
 
 _OPTIONAL_INPUT_KEYS = frozenset({
@@ -527,6 +625,7 @@ def _create_fixed_prompt_editor_row(self, parent_layout, full_key: str):
         edit_button.clicked.connect(self._open_ai_renderer_prompt_editor)
 
     row = _ClickableRow(self, full_key, label_text, [edit_button])
+    self._settings_rows[full_key] = row
     _append_settings_row(parent_layout, row)
     return True
 
@@ -678,6 +777,7 @@ def set_parameters(self, config: dict):
         and getattr(self, "_settings_rendered_structure_signature", None) == structure_signature
         and _sync_setting_widget_values(self, config)
     ):
+        _refresh_setting_dependencies(self, config)
         self._settings_pending_signature = config_signature
         self._settings_rendered_signature = config_signature
         _refresh_env_api_groups(self)
@@ -689,6 +789,7 @@ def set_parameters(self, config: dict):
     self._settings_pending_signature = config_signature
     self._settings_pending_structure_signature = structure_signature
     self._settings_value_bindings = {}
+    self._settings_rows = {}
 
     # 构建代号：每次重建自增，链中每步校验，过期构建链自行终止，
     # 避免二次 config_loaded 并发开出第二条构建链导致控件重复。
@@ -724,6 +825,93 @@ def _resolve_config_value(config: dict, full_key: str):
             return False, None
         current = current[part]
     return True, current
+
+
+def _dependency_matches(config: dict, dependency: dict) -> bool:
+    if "all" in dependency:
+        return all(_dependency_matches(config, item) for item in dependency["all"])
+    if "any" in dependency:
+        return any(_dependency_matches(config, item) for item in dependency["any"])
+
+    exists, value = _resolve_config_value(config, dependency.get("key", ""))
+    if not exists:
+        return False
+
+    if "truthy" in dependency:
+        if isinstance(value, str):
+            is_truthy = value.strip().lower() not in {"", "0", "false", "none", "null", "off", "no"}
+        else:
+            is_truthy = bool(value)
+        return is_truthy is bool(dependency["truthy"])
+
+    value = _normalize_selected_value(value)
+    if "in" in dependency:
+        expected_values = {
+            _normalize_selected_value(item) for item in dependency["in"]
+        }
+        return value in expected_values
+    if "equals" in dependency:
+        expected = dependency["equals"]
+        if isinstance(expected, bool):
+            return bool(value) is expected
+        return value == _normalize_selected_value(expected)
+    return True
+
+
+def _setting_dependencies_satisfied(config: dict, full_key: str) -> bool:
+    return all(
+        _dependency_matches(config, dependency)
+        for dependency in SETTING_DEPENDENCY_RULES.get(full_key, ())
+    )
+
+
+def _set_setting_row_dependency_state(row: QWidget, enabled: bool) -> None:
+    enabled = bool(enabled)
+    if getattr(row, "_dependency_enabled", None) == enabled:
+        return
+
+    row._dependency_enabled = enabled
+    row.setEnabled(enabled)
+    row.setProperty("dependencyDisabled", not enabled)
+    # Re-polish so Fluent styles immediately reflect the disabled state after
+    # a parent combo or switch changes.
+    style = row.style()
+    style.unpolish(row)
+    style.polish(row)
+    row.update()
+
+
+def _refresh_setting_dependencies(self, config: dict | None = None, overrides: dict | None = None):
+    """Enable or disable child setting rows from their current parent values."""
+    rows = getattr(self, "_settings_rows", {})
+    if not rows:
+        return
+
+    if config is None:
+        config = self.config_service.get_config().model_dump()
+    else:
+        config = dict(config)
+
+    # The view emits setting_changed before the controller slot persists the
+    # value.  Apply the just-selected value locally so the dependency state is
+    # updated in the same event loop turn.
+    for full_key, value in (overrides or {}).items():
+        parts = str(full_key or "").split(".")
+        target = config
+        for part in parts[:-1]:
+            child = target.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                target[part] = child
+            target = child
+        if parts and parts[-1]:
+            target[parts[-1]] = value
+
+    for full_key, row in list(rows.items()):
+        _set_setting_row_dependency_state(
+            row,
+            _setting_dependencies_satisfied(config, full_key),
+        )
 
 
 def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False):
@@ -930,6 +1118,7 @@ def _finalize_settings_ui(self, build_seq: int | None = None):
     self._refresh_api_feature_selectors()
 
     self._refresh_prompt_manager()
+    _refresh_setting_dependencies(self, self.config_service.get_config().model_dump())
     self._settings_rendered_signature = getattr(self, "_settings_pending_signature", None)
     self._settings_rendered_structure_signature = getattr(
         self,
@@ -972,6 +1161,8 @@ def _on_setting_changed(self, value, full_key, display_map=None):
         "render.renderer",
     }:
         QTimer.singleShot(100, lambda: _refresh_env_api_groups(self))
+
+    _refresh_setting_dependencies(self, overrides={full_key: final_value})
 
 def _on_upscale_ratio_changed(self, text, full_key):
     """处理 upscale_ratio 动态下拉框的变化"""
@@ -1313,8 +1504,9 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
                 widget.setMinimumWidth(180)
             
             if display_map:
-                widget.addItems(list(display_map.values()))
-                current_display_name = display_map.get(value) if value is not None else None
+                display_options = [display_map.get(option, option) for option in options]
+                widget.addItems(display_options)
+                current_display_name = display_map.get(value, value) if value is not None else None
                 if current_display_name:
                     widget.setCurrentText(current_display_name)
                 widget.currentTextChanged.connect(lambda text, k=full_key, dm=display_map: self._on_setting_changed(text, k, dm))
@@ -1341,6 +1533,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             row = _ClickableRow(self, full_key, label_text, widget)
             value_widget = widget[0] if isinstance(widget, (list, tuple)) else widget
             self._settings_value_bindings[full_key] = (value_widget, dict(display_map or {}))
+            self._settings_rows[full_key] = row
             _append_settings_row(parent_layout, row)
             added_rows += 1
 

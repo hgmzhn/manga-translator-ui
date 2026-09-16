@@ -26,6 +26,8 @@ class GraphicsViewInputMixin:
     # 视图缩放上下限：防止滚轮缩放跑飞（极小 lod 还会造成 item 描边溢出 boundingRect 残影）
     MIN_VIEW_SCALE = 0.05
     MAX_VIEW_SCALE = 50.0
+    NORMAL_WHEEL_ZOOM_STEP = 1.15
+    FINE_WHEEL_ZOOM_STEP = 0.15
 
     def _region_item_at_view_pos(self, view_pos):
         item_at_pos = self.itemAt(view_pos)
@@ -56,14 +58,31 @@ class GraphicsViewInputMixin:
         self._update_cursor()
         self._emit_view_state_changed()
 
+    def _apply_zoom_step(self, step: float):
+        """按固定的绝对缩放步长调整视图。"""
+        current = abs(float(self.transform().m11()))
+        if current <= 0.0:
+            current = 1.0
+        target = min(
+            max(current + float(step), self.MIN_VIEW_SCALE),
+            self.MAX_VIEW_SCALE,
+        )
+        self._apply_zoom(target / current)
+
     def wheelEvent(self, event):
         delta_y = int(event.angleDelta().y())
         if delta_y == 0:
             # 横向滚轮/触摸板：不是缩放手势，交回默认处理
             super().wheelEvent(event)
             return
-        zoom_in_factor = 1.15
-        self._apply_zoom(zoom_in_factor if delta_y > 0 else 1.0 / zoom_in_factor)
+        # macOS 的 Command 键对应 Qt 的 MetaModifier；两种滚动都使用
+        # 固定绝对步长，不再随当前缩放值按比例变化。
+        step = (
+            self.FINE_WHEEL_ZOOM_STEP
+            if event.modifiers() & Qt.KeyboardModifier.MetaModifier
+            else self.NORMAL_WHEEL_ZOOM_STEP
+        )
+        self._apply_zoom_step(step if delta_y > 0 else -step)
 
     # ------------------------- 统一交互终结 -------------------------
 
@@ -106,13 +125,14 @@ class GraphicsViewInputMixin:
         self._region_drag_active = False
         self._potential_drag = False
         self._drag_start_pos = None
+        self._space_pan_mouse_down = False
 
         self._end_hand_scroll()
 
     # ------------------------- 中键平移（对称合成左键） -------------------------
 
     def _begin_hand_scroll(self, event):
-        """中键按下：切 ScrollHandDrag 并合成左键 press 喂给 QGraphicsView。"""
+        """临时画布平移：切 ScrollHandDrag 并合成左键 press。"""
         if self._hand_scroll_active:
             return
         self._hand_scroll_active = True
@@ -126,6 +146,17 @@ class GraphicsViewInputMixin:
             event.modifiers(),
         )
         super().mousePressEvent(press)
+        self._set_hand_scroll_cursor(dragging=True)
+
+    def _set_hand_scroll_cursor(self, dragging: bool):
+        cursor_shape = (
+            Qt.CursorShape.ClosedHandCursor
+            if dragging
+            else Qt.CursorShape.OpenHandCursor
+        )
+        cursor = QCursor(cursor_shape)
+        self.setCursor(cursor)
+        self.viewport().setCursor(cursor)
 
     def _end_hand_scroll(self, event=None):
         """与 _begin_hand_scroll 对称：合成左键 release 喂给 QGraphicsView，
@@ -152,16 +183,37 @@ class GraphicsViewInputMixin:
         )
         super().mouseReleaseEvent(release)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self._update_cursor()
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            if not event.isAutoRepeat():
+                self._space_pan_pressed = True
+                if not self._hand_scroll_active:
+                    self._set_hand_scroll_cursor(dragging=False)
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Escape and self._has_active_interaction():
             self._cancel_active_interaction(commit=False)
             event.accept()
             return
         super().keyPressEvent(event)
 
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            if not event.isAutoRepeat():
+                if self._hand_scroll_active and self._space_pan_mouse_down:
+                    self._end_hand_scroll()
+                self._space_pan_pressed = False
+                self._update_cursor()
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
     def focusOutEvent(self, event):
         # 模态框/窗口失活/焦点转移都会吞掉后续 release：统一丢弃进行中交互
+        self._space_pan_pressed = False
+        self._space_pan_mouse_down = False
         self._cancel_active_interaction(commit=False)
         super().focusOutEvent(event)
 
@@ -174,6 +226,15 @@ class GraphicsViewInputMixin:
         # 点按命中目标不是贴片（文本框/空白等）时，隐藏贴片选中手柄
         if hasattr(self, "clear_paste_overlay_selection_for_press"):
             self.clear_paste_overlay_selection_for_press(event)
+
+        if (
+            self._space_pan_pressed
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._space_pan_mouse_down = True
+            self._begin_hand_scroll(event)
+            event.accept()
+            return
 
         if (
             self._active_tool == "draw_textbox"
@@ -281,6 +342,16 @@ class GraphicsViewInputMixin:
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._space_pan_mouse_down
+        ):
+            self._space_pan_mouse_down = False
+            if self._hand_scroll_active:
+                self._end_hand_scroll(event)
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.MiddleButton and self._hand_scroll_active:
             self._end_hand_scroll(event)
             event.accept()
@@ -928,6 +999,13 @@ class GraphicsViewInputMixin:
             self._update_cursor()
 
     def _update_cursor(self):
+        if self._hand_scroll_active:
+            self._set_hand_scroll_cursor(dragging=True)
+            return
+        if self._space_pan_pressed:
+            self._set_hand_scroll_cursor(dragging=False)
+            return
+
         if self._active_tool in [
             "pen",
             "eraser",

@@ -24,7 +24,7 @@ class _Signal:
 
 
 def _logic():
-    return SimpleNamespace(
+    logic = SimpleNamespace(
         state_manager=SimpleNamespace(is_translating=lambda: False),
         source_files=[],
         _source_folders={},
@@ -40,9 +40,13 @@ def _logic():
         _path_key=MainAppLogic._path_key,
         _path_is_within=MainAppLogic._path_is_within,
     )
+    logic._clear_file_list_state = MethodType(
+        MainAppLogic._clear_file_list_state, logic
+    )
+    return logic
 
 
-def test_file_list_edits_remain_blocked_while_translation_runs(monkeypatch):
+def test_file_list_edits_remain_available_while_translation_runs(monkeypatch):
     logic = _logic()
     logic.state_manager.is_translating = lambda: True
     monkeypatch.setattr(app_logic_module.os.path, "isdir", lambda _path: False)
@@ -50,17 +54,109 @@ def test_file_list_edits_remain_blocked_while_translation_runs(monkeypatch):
     first = r"C:\batch\page1.png"
     second = r"C:\batch\page2.png"
     MainAppLogic.add_files(logic, [first, second])
-    assert logic.source_files == []
+    assert logic.source_files == [first, second]
 
     MainAppLogic.remove_file(logic, first)
-    assert logic.source_files == []
-
-    logic.source_files = [second]
-    MainAppLogic.clear_file_list(logic)
     assert logic.source_files == [second]
 
+    MainAppLogic.clear_file_list(logic)
+    assert logic.source_files == []
 
-def test_translation_state_keeps_main_file_controls_enabled(monkeypatch):
+
+def test_dropped_html_files_are_registered_without_downloading(tmp_path):
+    html_path = tmp_path / "chapter.HTML"
+    html_path.write_text("<html></html>", encoding="utf-8")
+    image_path = tmp_path / "page.png"
+    image_path.write_bytes(b"not decoded by this routing test")
+    added = []
+    logic = SimpleNamespace(
+        _pending_html_sources=[],
+        _path_key=MainAppLogic._path_key,
+        _is_html_file_path=MainAppLogic._is_html_file_path,
+        add_files=lambda paths: added.append(paths),
+        html_sources_changed=_Signal(),
+        _ui_log=lambda *_args: None,
+    )
+    logic._register_pending_html_source = MethodType(
+        MainAppLogic._register_pending_html_source, logic
+    )
+    logic._emit_html_sources_changed = MethodType(
+        MainAppLogic._emit_html_sources_changed, logic
+    )
+    logic.import_html_images = MethodType(MainAppLogic.import_html_images, logic)
+    logic._queue_dropped_html_imports = MethodType(
+        MainAppLogic._queue_dropped_html_imports, logic
+    )
+
+    MainAppLogic.add_dropped_files(logic, [str(image_path), str(html_path)])
+
+    assert added == [[str(image_path)]]
+    assert [item.source for item in logic._pending_html_sources] == [str(html_path)]
+    assert logic.html_sources_changed.values[-1] == (1,)
+
+
+def test_multiple_dropped_html_files_are_registered_in_order(tmp_path):
+    first_html = tmp_path / "chapter-1.html"
+    second_html = tmp_path / "chapter-2.htm"
+    first_html.write_text("<html></html>", encoding="utf-8")
+    second_html.write_text("<html></html>", encoding="utf-8")
+    logic = SimpleNamespace(
+        _pending_html_sources=[],
+        _path_key=MainAppLogic._path_key,
+        _is_html_file_path=MainAppLogic._is_html_file_path,
+        html_sources_changed=_Signal(),
+        _ui_log=lambda *_args: None,
+    )
+    logic._register_pending_html_source = MethodType(
+        MainAppLogic._register_pending_html_source, logic
+    )
+    logic._emit_html_sources_changed = MethodType(
+        MainAppLogic._emit_html_sources_changed, logic
+    )
+    logic.import_html_images = MethodType(MainAppLogic.import_html_images, logic)
+    logic._queue_dropped_html_imports = MethodType(
+        MainAppLogic._queue_dropped_html_imports, logic
+    )
+
+    MainAppLogic.add_dropped_files(logic, [str(first_html), str(first_html), str(second_html)])
+
+    assert [item.source for item in logic._pending_html_sources] == [
+        str(first_html),
+        str(second_html),
+    ]
+
+
+def test_url_import_registers_source_without_downloading(monkeypatch):
+    failed = _Signal()
+    called = []
+    monkeypatch.setattr(
+        app_logic_module,
+        "download_html_images_from_url",
+        lambda *args, **kwargs: called.append((args, kwargs)),
+    )
+    logic = SimpleNamespace(
+        _pending_html_sources=[],
+        _path_key=MainAppLogic._path_key,
+        _ui_log=lambda *_args: None,
+        html_import_failed=failed,
+        html_sources_changed=_Signal(),
+    )
+    logic._register_pending_html_source = MethodType(
+        MainAppLogic._register_pending_html_source, logic
+    )
+
+    assert MainAppLogic.import_url_images(logic, "  reader.example/chapter  ")
+    assert [item.source for item in logic._pending_html_sources] == [
+        "reader.example/chapter"
+    ]
+    assert logic._pending_html_sources[0].source_type == "url"
+    assert called == []
+
+    assert not MainAppLogic.import_url_images(logic, "   ")
+    assert failed.values == [("请输入有效的网址。",)]
+
+
+def test_translation_state_keeps_main_file_controls_enabled_for_queueing(monkeypatch):
     class Widget:
         def __init__(self):
             self.enabled = True
@@ -89,12 +185,12 @@ def test_translation_state_keeps_main_file_controls_enabled(monkeypatch):
 
     main_view_runtime.on_translation_state_changed(view, True)
 
-    assert not view.add_files_button.enabled
-    assert not view.add_folder_button.enabled
-    assert not view.clear_list_button.enabled
+    assert view.add_files_button.enabled
+    assert view.add_folder_button.enabled
+    assert view.clear_list_button.enabled
     assert view.file_list.enabled
     assert not view.env_page.enabled
-    assert not view.start_button.enabled
+    assert view.start_button.enabled
 
 
 def test_batch_single_files_do_not_run_pairwise_containment(monkeypatch):
@@ -116,12 +212,12 @@ def test_batch_single_files_do_not_run_pairwise_containment(monkeypatch):
     assert containment_calls == 0
 
 
-def test_parent_source_collapses_children_and_readding_excluded_descendant(monkeypatch):
+def test_parent_source_collapses_children_and_readding_excluded_descendant(monkeypatch, tmp_path):
     logic = _logic()
-    parent = os.path.normpath(r"C:\book")
-    child = os.path.normpath(r"C:\book\page1.png")
-    excluded_folder = os.path.normpath(r"C:\book\chapter")
-    descendant = os.path.normpath(r"C:\book\chapter\page2.png")
+    parent = os.path.normpath(str(tmp_path / "book"))
+    child = os.path.normpath(str(tmp_path / "book" / "page1.png"))
+    excluded_folder = os.path.normpath(str(tmp_path / "book" / "chapter"))
+    descendant = os.path.normpath(str(tmp_path / "book" / "chapter" / "page2.png"))
     directory_keys = {
         MainAppLogic._path_key(parent),
         MainAppLogic._path_key(excluded_folder),

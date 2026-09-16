@@ -19,6 +19,12 @@ from extract_html_image_urls import (
     extract_canonical_url_from_html,
     extract_image_urls_from_html,
 )
+from manga_translator.webp_scramble import (
+    extract_scramble_context,
+    is_scrambled_chapter_url,
+    page_key_from_url,
+    restore_scrambled_webp,
+)
 from manga_translator.server.core.middleware import require_auth
 from manga_translator.server.core.models import Session
 
@@ -158,6 +164,7 @@ async def download_html_images(
     first_http_url = next((url for url in urls if url.startswith(("http://", "https://"))), "")
     referer = canonical_url if canonical_url.startswith(("http://", "https://")) else first_http_url
     archive_stem = _safe_stem(html.filename)
+    scramble_context = extract_scramble_context(html_text)
 
     connector = aiohttp.TCPConnector(limit=8, ttl_dns_cache=300)
     headers = {
@@ -175,6 +182,17 @@ async def download_html_images(
         if image_data is None:
             failures.append(f"第 {index} 张: {extension_or_error}")
             continue
+        source_url = urls[index - 1]
+        if scramble_context and is_scrambled_chapter_url(source_url, scramble_context):
+            try:
+                image_data = restore_scrambled_webp(
+                    image_data,
+                    aid=scramble_context.aid,
+                    page_key=page_key_from_url(source_url),
+                )
+            except (OSError, ValueError) as exc:
+                failures.append(f"第 {index} 张: 图片还原失败: {exc}")
+                continue
         downloaded.append((f"{archive_stem}_{index:03d}{extension_or_error}", image_data))
 
     if not downloaded:

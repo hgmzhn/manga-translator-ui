@@ -121,6 +121,10 @@ class Ocr(str, Enum):
     paddleocr_thai = "paddleocr_thai"
     paddleocr_vl = "paddleocr_vl"  # PaddleOCR-VL for Manga (VLM-based OCR)
     hayai_ocr_v2 = "hayai_ocr_v2"  # Hayai OCR v2 crop-level VLM
+    qwen_vl = "qwen_vl"  # Qwen multimodal OCR through DashScope
+    doubao_vl = "doubao_vl"  # Doubao multimodal OCR through Ark
+    glm_vl = "glm_vl"  # GLM multimodal OCR through BigModel
+    kimi_vl = "kimi_vl"  # Kimi multimodal OCR through Moonshot
     openai_ocr = "openai_ocr"
     gemini_ocr = "gemini_ocr"
 
@@ -269,6 +273,8 @@ class TranslatorConfig(BaseModel):
     """Language translator to use"""
     target_lang: str = 'ENG' #todo: validate VALID_LANGUAGES #todo: convert to enum
     """Destination language"""
+    thinking_level: str = 'auto'
+    """Unified reasoning level: auto, off, low, medium, or high."""
     keep_lang: str = 'none'
     """After text merging, keep only regions detected as this source language for later processing. Filtered regions remain unchanged. Use 'none' to disable."""
     enable_streaming: bool = True

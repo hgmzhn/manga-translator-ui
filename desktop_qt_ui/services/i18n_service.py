@@ -168,8 +168,14 @@ class I18nManager:
                 
                 # 翻译相关
                 "Start Translation": "开始翻译",
+                "Queue Translation": "加入任务队列",
                 "Stop Translation": "停止翻译",
                 "Stopping...": "停止中...",
+                "Queue is empty": "队列空闲",
+                "Processing current task": "正在处理当前任务",
+                "Queued tasks: {count}": "队列中还有 {count} 个任务",
+                "Pending HTML sources: {count}": "已登记 {count} 个网页来源，开始翻译时下载图片",
+                "No pending HTML sources": "暂无待下载的 HTML/网址来源",
                 "Translation Settings": "翻译设置",
                 "Translator": "翻译引擎",
                 "Target Language": "目标语言",
@@ -178,6 +184,8 @@ class I18nManager:
                 "Translation Complete": "翻译完成",
                 "Translation Failed": "翻译失败",
                 "Task Completed": "任务完成",
+                "Translation elapsed time: {duration}": "本次耗时：{duration} 秒",
+                "Average translation speed: {average}": "单张均速：{average} 秒/张",
                 "Translation completed, {count} files saved.\n\nOpen results in editor?": "翻译完成，已保存 {count} 个文件。\n\n是否在编辑器中打开结果？",
                 
                 # 文件操作
@@ -277,7 +285,13 @@ class I18nManager:
                 
                 # 翻译相关
                 "Start Translation": "Start Translation",
+                "Queue Translation": "Queue Translation",
                 "Stop Translation": "Stop Translation",
+                "Queue is empty": "Queue is empty",
+                "Processing current task": "Processing current task",
+                "Queued tasks: {count}": "Queued tasks: {count}",
+                "Pending HTML sources: {count}": "Pending HTML/URL sources: {count}; images download when translation starts",
+                "No pending HTML sources": "No pending HTML/URL sources",
                 "Translation Settings": "Translation Settings",
                 "Translator": "Translator",
                 "Target Language": "Target Language",
@@ -285,6 +299,9 @@ class I18nManager:
                 "Translation Progress": "Translation Progress",
                 "Translation Complete": "Translation Complete",
                 "Translation Failed": "Translation Failed",
+                "Task Completed": "Task Completed",
+                "Translation elapsed time: {duration}": "Elapsed: {duration} s",
+                "Average translation speed: {average}": "Average per image: {average} s/image",
                 
                 # 其他保持英文原样
                 "Add Files": "Add Files",

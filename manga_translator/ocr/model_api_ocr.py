@@ -535,6 +535,107 @@ class ModelOpenAIOCR(BaseAPIOCR):
         return self._extract_openai_text(response.choices[0].message.content)
 
 
+class ModelDomesticVLOCR(ModelOpenAIOCR):
+    """OpenAI-compatible domestic VLM OCR with shared manga OCR prompts."""
+
+    _OCR_VL_LANGUAGE_NAMES = {
+        "auto": "visible",
+        "multilingual": "multilingual",
+        "arabic": "Arabic",
+        "simplified chinese": "Simplified Chinese",
+        "traditional chinese": "Traditional Chinese",
+        "chinese": "Chinese",
+        "english": "English",
+        "japanese": "Japanese",
+        "korean": "Korean",
+        "spanish": "Spanish",
+        "french": "French",
+        "german": "German",
+        "russian": "Russian",
+        "portuguese": "Portuguese",
+        "italian": "Italian",
+        "thai": "Thai",
+        "vietnamese": "Vietnamese",
+        "indonesian": "Indonesian",
+        "turkish": "Turkish",
+        "polish": "Polish",
+        "ukrainian": "Ukrainian",
+    }
+
+    def _build_ocr_prompt(self, config: OcrConfig) -> str:
+        custom_prompt = (getattr(config, "ocr_vl_custom_prompt", None) or "").strip()
+        if custom_prompt:
+            return custom_prompt
+
+        raw_hint = (getattr(config, "ocr_vl_language_hint", "auto") or "auto").strip()
+        language = self._OCR_VL_LANGUAGE_NAMES.get(raw_hint.lower(), raw_hint)
+        if language == "visible":
+            return (
+                "OCR: Extract all visible text from the image. Return only the recognized "
+                "text, preserve line breaks, and do not translate or explain."
+            )
+        return (
+            f"OCR: Extract all {language} text from the image. Return only the recognized "
+            "text, preserve line breaks, and do not translate or explain."
+        )
+
+
+class ModelQwenVLOCR(ModelDomesticVLOCR):
+    API_KEY_ENV = "OCR_QWEN_API_KEY"
+    API_BASE_ENV = "OCR_QWEN_API_BASE"
+    MODEL_ENV = "OCR_QWEN_MODEL"
+    FALLBACK_API_KEY_ENV = "DASHSCOPE_API_KEY"
+    FALLBACK_API_BASE_ENV = "DASHSCOPE_API_BASE"
+    FALLBACK_MODEL_ENV = "DASHSCOPE_MODEL"
+    DEFAULT_API_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    DEFAULT_MODEL = "qwen3-vl-plus"
+    BROWSER_HEADERS = OPENAI_BROWSER_HEADERS
+    PROVIDER_NAME = "Qwen VLM OCR"
+    RUNTIME_PROVIDER = "qwen"
+
+
+class ModelDoubaoVLOCR(ModelDomesticVLOCR):
+    API_KEY_ENV = "OCR_DOUBAO_API_KEY"
+    API_BASE_ENV = "OCR_DOUBAO_API_BASE"
+    MODEL_ENV = "OCR_DOUBAO_MODEL"
+    FALLBACK_API_KEY_ENV = "ARK_API_KEY"
+    FALLBACK_API_BASE_ENV = "ARK_API_BASE"
+    FALLBACK_MODEL_ENV = "ARK_MODEL"
+    DEFAULT_API_BASE = "https://ark.cn-beijing.volces.com/api/v3"
+    DEFAULT_MODEL = "doubao-1.5-vision-pro-32k"
+    BROWSER_HEADERS = OPENAI_BROWSER_HEADERS
+    PROVIDER_NAME = "Doubao VLM OCR"
+    RUNTIME_PROVIDER = "doubao"
+
+
+class ModelGLMVLOCR(ModelDomesticVLOCR):
+    API_KEY_ENV = "OCR_GLM_API_KEY"
+    API_BASE_ENV = "OCR_GLM_API_BASE"
+    MODEL_ENV = "OCR_GLM_MODEL"
+    FALLBACK_API_KEY_ENV = "ZHIPUAI_API_KEY"
+    FALLBACK_API_BASE_ENV = "ZHIPUAI_API_BASE"
+    FALLBACK_MODEL_ENV = "ZHIPUAI_MODEL"
+    DEFAULT_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
+    DEFAULT_MODEL = "glm-4v-flash"
+    BROWSER_HEADERS = OPENAI_BROWSER_HEADERS
+    PROVIDER_NAME = "GLM VLM OCR"
+    RUNTIME_PROVIDER = "glm"
+
+
+class ModelKimiVLOCR(ModelDomesticVLOCR):
+    API_KEY_ENV = "OCR_KIMI_API_KEY"
+    API_BASE_ENV = "OCR_KIMI_API_BASE"
+    MODEL_ENV = "OCR_KIMI_MODEL"
+    FALLBACK_API_KEY_ENV = "MOONSHOT_API_KEY"
+    FALLBACK_API_BASE_ENV = "MOONSHOT_API_BASE"
+    FALLBACK_MODEL_ENV = "MOONSHOT_MODEL"
+    DEFAULT_API_BASE = "https://api.moonshot.cn/v1"
+    DEFAULT_MODEL = "kimi-k3"
+    BROWSER_HEADERS = OPENAI_BROWSER_HEADERS
+    PROVIDER_NAME = "Kimi VLM OCR"
+    RUNTIME_PROVIDER = "kimi"
+
+
 class ModelGeminiOCR(BaseAPIOCR):
     API_KEY_ENV = "OCR_GEMINI_API_KEY"
     API_BASE_ENV = "OCR_GEMINI_API_BASE"
