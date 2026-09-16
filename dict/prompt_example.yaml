@@ -15,6 +15,24 @@ glossary:
       translations:
       - text: 佩丽多
     overwrite: false
+  - original: SESIL
+    aliases:
+    - original: SESIL
+      translations:
+      - text: 塞西尔
+    overwrite: false
+  - original: KANGSEOL
+    aliases:
+    - original: KANGSEOL
+      translations:
+      - text: 姜雪
+    overwrite: false
+  - original: ARIELA
+    aliases:
+    - original: ARIELA
+      translations:
+      - text: 艾瑞拉
+    overwrite: false
   Location: []
   Org: []
   Item: []

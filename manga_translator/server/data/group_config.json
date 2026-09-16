@@ -116,7 +116,7 @@
         },
         "permissions": {
           "show_env_editor": true,
-          "allow_server_keys": false,
+          "allow_server_keys": true,
           "require_user_keys": false,
           "save_user_keys_to_server": false,
           "can_upload_fonts": true,
