@@ -764,7 +764,7 @@ class MangaLensBubbleDetector(ModelWrapper):
 
 _default_detector: Optional[MangaLensBubbleDetector] = None
 _mangalens_result_cache: Dict[Tuple[Any, ...], BubbleDetectionResult] = {}
-_MANGALENS_RESULT_CACHE_MAX = 8
+_MANGALENS_RESULT_CACHE_MAX = 20
 
 
 def get_mangalens_detector(model_path: Optional[Union[str, Path]] = None) -> MangaLensBubbleDetector:
