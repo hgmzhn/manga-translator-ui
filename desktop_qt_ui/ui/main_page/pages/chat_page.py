@@ -1,14 +1,24 @@
 """Basic chat UI using the application's background asyncio service."""
 from __future__ import annotations
 
+import json
 import weakref
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QTextCursor
-from PyQt6.QtWidgets import QFormLayout, QHBoxLayout, QLineEdit, QSplitter, QVBoxLayout, QWidget
+from PyQt6.QtGui import QPixmap, QTextCursor
+from PyQt6.QtWidgets import (
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSplitter,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
@@ -38,6 +48,61 @@ class _PendingImage:
     image: ChatImage
     size: tuple[int, int]
 
+
+@dataclass(frozen=True)
+class _CurrentImageContext:
+    image: ChatImage | None = None
+    size: tuple[int, int] = ()
+    region_prompt: str = ""
+    region_count: int | None = None
+
+
+class _LiveImagePreview(QLabel):
+    """Small, non-editable preview redrawn only by queued UI updates."""
+
+    def __init__(self, placeholder: str, parent=None):
+        super().__init__(parent)
+        self._placeholder = placeholder
+        self._pixmap = QPixmap()
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMinimumSize(180, 110)
+        self.setFixedHeight(150)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setText(placeholder)
+
+    def set_placeholder(self, text: str):
+        self._placeholder = text
+        if self._pixmap.isNull():
+            self.setText(text)
+    @property
+    def source_size(self):
+        return self._pixmap.width(), self._pixmap.height()
+
+
+    def set_png(self, data: bytes | None):
+        pixmap = QPixmap()
+        if data:
+            pixmap.loadFromData(data, "PNG")
+        self._pixmap = pixmap
+        self._render()
+
+    def _render(self):
+        if self._pixmap.isNull():
+            self.setPixmap(QPixmap())
+            self.setText(self._placeholder)
+            return
+        self.setText("")
+        self.setPixmap(self._pixmap.scaled(
+            self.contentsRect().size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._render()
+
+
 class ChatPage(QWidget):
     """Own one conversation; only queued Qt slots update widgets."""
 
@@ -45,8 +110,14 @@ class ChatPage(QWidget):
     text_received = pyqtSignal(int, str)
     request_body_received = pyqtSignal(str)
     thinking_received = pyqtSignal(int, str)
+    # Hosts may call the method on the GUI thread or emit this signal from a
+    # worker; the signal is delivered to the page through the Qt event queue.
+    current_image_context_pushed = pyqtSignal(object, object)
+    _current_image_context_received = pyqtSignal(int, object, object)
 
-    def __init__(self, t_func: Callable, service=None, parent=None, *, config_service=None):
+
+    def __init__(self, t_func: Callable, service=None, parent=None, *, config_service=None,
+                 show_request_body=True):
         super().__init__(parent)
         self._t = t_func
         self.chat_service = service
@@ -61,6 +132,10 @@ class ChatPage(QWidget):
         self._messages = []
         self._assistant_message = None
         self._pending_images = {}
+        self._current_image_context = _CurrentImageContext()
+        self._current_image_context_generation = 0
+        self._current_context_title_text = "Current editor image"
+        self._current_context_empty_text = "No current rendered image"
         self._status_key = "Chat ready" if service is not None else "Chat configuration required"
         self._status_args = {}
         self._thinking_status_key = "Chat thinking idle"
@@ -104,26 +179,50 @@ class ChatPage(QWidget):
         self.config_status_label.setWordWrap(True)
         self.config_status_label.hide()
         layout.addWidget(self.config_status_label)
+        self.current_context_surface = QWidget(self)
+        context_layout = QHBoxLayout(self.current_context_surface)
+        context_layout.setContentsMargins(0, 0, 0, 0)
+        context_layout.setSpacing(10)
+        self.current_image_preview = _LiveImagePreview(
+            self._current_context_empty_text, self.current_context_surface
+        )
+        context_layout.addWidget(self.current_image_preview, 1)
+        context_info = QVBoxLayout()
+        self.current_context_title = BodyLabel(self.current_context_surface)
+        self.current_context_title.setText(self._current_context_title_text)
+        self.current_context_metadata = BodyLabel(self.current_context_surface)
+        self.current_context_metadata.setTextFormat(Qt.TextFormat.PlainText)
+        self.current_context_metadata.setWordWrap(True)
+        self.current_context_metadata.setText(self._current_context_empty_text)
+        context_info.addWidget(self.current_context_title)
+        context_info.addWidget(self.current_context_metadata)
+        context_info.addStretch()
+        context_layout.addLayout(context_info, 1)
 
         card = CardWidget(self)
         card_layout = QVBoxLayout(card)
         self.messages = PlainTextEdit(card)
         self.messages.setReadOnly(True)
-        self.request_body = PlainTextEdit(card)
-        self.request_body.setReadOnly(True)
-        self.request_body.setLineWrapMode(PlainTextEdit.LineWrapMode.NoWrap)
-        debug_panel = QWidget(card)
-        debug_layout = QVBoxLayout(debug_panel)
-        debug_layout.setContentsMargins(0, 0, 0, 0)
-        self.request_title = BodyLabel(debug_panel)
-        debug_layout.addWidget(self.request_title)
-        debug_layout.addWidget(self.request_body, 1)
-        splitter = QSplitter(Qt.Orientation.Horizontal, card)
-        splitter.addWidget(self.messages)
-        splitter.addWidget(debug_panel)
-        splitter.setChildrenCollapsible(False)
-        splitter.setSizes([500, 400])
-        card_layout.addWidget(splitter, 1)
+        self.request_body = None
+        self.request_title = None
+        if show_request_body:
+            self.request_body = PlainTextEdit(card)
+            self.request_body.setReadOnly(True)
+            self.request_body.setLineWrapMode(PlainTextEdit.LineWrapMode.NoWrap)
+            debug_panel = QWidget(card)
+            debug_layout = QVBoxLayout(debug_panel)
+            debug_layout.setContentsMargins(0, 0, 0, 0)
+            self.request_title = BodyLabel(debug_panel)
+            debug_layout.addWidget(self.request_title)
+            debug_layout.addWidget(self.request_body, 1)
+            splitter = QSplitter(Qt.Orientation.Horizontal, card)
+            splitter.addWidget(self.messages)
+            splitter.addWidget(debug_panel)
+            splitter.setChildrenCollapsible(False)
+            splitter.setSizes([500, 400])
+            card_layout.addWidget(splitter, 1)
+        else:
+            card_layout.addWidget(self.messages, 1)
         self.thinking_panel = CollapsibleFrame(parent=card)
         self.thinking_description = BodyLabel(self.thinking_panel)
         self.thinking_description.setTextFormat(Qt.TextFormat.PlainText)
@@ -136,6 +235,7 @@ class ChatPage(QWidget):
         self.thinking_panel.add_widget(self.thinking_text)
         self.thinking_panel.header_button.setChecked(False)
         card_layout.addWidget(self.thinking_panel)
+        self.thinking_panel.hide()
         self.input = ImagePasteTextEdit(card)
         self.input.setMaximumHeight(120)
         card_layout.addWidget(self.input)
@@ -155,6 +255,7 @@ class ChatPage(QWidget):
         self.status_label.setWordWrap(True)
         card_layout.addWidget(self.status_label)
         layout.addWidget(card, 1)
+        layout.addWidget(self.current_context_surface)
         self.send_button.clicked.connect(self.send_message)
         self.stop_button.clicked.connect(self.stop_generation)
         self.clear_button.clicked.connect(self.clear_conversation)
@@ -164,6 +265,12 @@ class ChatPage(QWidget):
         self.text_received.connect(self._on_text_received, Qt.ConnectionType.QueuedConnection)
         self.request_body_received.connect(self._on_request_body_received, Qt.ConnectionType.QueuedConnection)
         self.thinking_received.connect(self._on_thinking_received, Qt.ConnectionType.QueuedConnection)
+        self.current_image_context_pushed.connect(
+            self.set_current_image_context, Qt.ConnectionType.QueuedConnection
+        )
+        self._current_image_context_received.connect(
+            self._on_current_image_context_received, Qt.ConnectionType.QueuedConnection
+        )
         if self.config_service is not None:
             self._load_connection_settings()
             for control in self._connection_inputs.values():
@@ -208,6 +315,90 @@ class ChatPage(QWidget):
         self.config_status_label.setText(self._t(key))
         self.config_status_label.show()
 
+    @staticmethod
+    def _region_count(regions):
+        if isinstance(regions, (list, tuple)):
+            return len(regions)
+        if isinstance(regions, dict):
+            values = regions.get("regions")
+            if isinstance(values, (list, tuple)):
+                return len(values)
+        return None
+
+    @staticmethod
+    def _region_prompt(regions):
+        if regions is None:
+            return ""
+        if isinstance(regions, str):
+            return regions
+        try:
+            return json.dumps(regions, ensure_ascii=False, separators=(",", ":"), default=str)
+        except Exception:
+            return str(regions)
+
+    @pyqtSlot(object, object)
+    def set_current_image_context(self, png, regions=None):
+        """Push the editor's latest rendered PNG and region metadata.
+
+        Call this from the GUI thread after the editor has produced a PNG, or
+        emit ``current_image_context_pushed`` from a worker. The PNG is kept
+        as a ``ChatImage`` and is attached to the next model turn; region
+        metadata is serialized into the final context block of that turn.
+        Widget work is queued and generation-checked, so an older update
+        cannot repaint a newer preview.
+        """
+        if png is not None:
+            if not isinstance(png, (bytes, bytearray, memoryview)):
+                raise TypeError("current rendered image must be PNG bytes or None")
+            png = bytes(png)
+            if not png:
+                raise ValueError("current rendered image must not be empty")
+            image = ChatImage(data=png, media_type="image/png")
+        else:
+            image = None
+        context = _CurrentImageContext(
+            image=image,
+            region_prompt=self._region_prompt(regions),
+            region_count=self._region_count(regions),
+        )
+        self._current_image_context_generation += 1
+        generation = self._current_image_context_generation
+        self._current_image_context = context
+        self._current_image_context_received.emit(generation, png, context)
+
+    @pyqtSlot(int, object, object)
+    def _on_current_image_context_received(self, generation, png, context):
+        if self._closing or generation != self._current_image_context_generation:
+            return
+        self.current_image_preview.set_png(png)
+        if context.image is None:
+            self.current_context_metadata.setText(self._current_context_empty_text)
+            return
+        width, height = self.current_image_preview.source_size
+        size = self._t("Chat image size", width=width, height=height)
+        count = (
+            str(context.region_count)
+            if context.region_count is not None
+            else "metadata available"
+        )
+        self.current_context_metadata.setText(
+            self._t("Chat image summary", count=1, sizes=size)
+            + "\nRegions: " + count
+        )
+
+    def _model_text_with_current_context(self, text):
+        context = self._current_image_context
+        if context.image is None and not context.region_prompt:
+            return text
+        parts = [text] if text else []
+        parts.extend(("", "Current editor context:"))
+        if context.image is not None:
+            parts.append("The current rendered PNG is attached after the user attachments.")
+        if context.region_prompt:
+            parts.append("Current region metadata: " + context.region_prompt)
+        return "\n".join(parts)
+
+
     @pyqtSlot(bytes, int, int)
     def _add_pasted_image(self, data, width, height):
         image = _PendingImage(ChatImage(data=data, media_type="image/png"), (width, height))
@@ -223,7 +414,11 @@ class ChatPage(QWidget):
         text = self.input.toPlainText().strip()
         image_sizes = tuple(item.size for item in self._pending_images.values())
         images = tuple(item.image for item in self._pending_images.values())
-        if (not text and not images) or self._active_task is not None or self._closing:
+        current_image = self._current_image_context.image
+        if current_image is not None:
+            images = images + (current_image,)
+        model_text = self._model_text_with_current_context(text)
+        if (not text and not self._pending_images and current_image is None) or self._active_task is not None or self._closing:
             return
         if self.chat_service is None:
             base_url = self.base_input.text().strip()
@@ -278,7 +473,7 @@ class ChatPage(QWidget):
 
             if backend is not None:
                 backend.set_thinking_observer(show_thinking)
-            async with aclosing(service.stream(text, images=images)) as stream:
+            async with aclosing(service.stream(model_text, images=images)) as stream:
                 async for delta in stream:
                     page = page_ref()
                     if page is None:
@@ -440,16 +635,25 @@ class ChatPage(QWidget):
 
     @pyqtSlot(str)
     def _on_request_body_received(self, body):
-        if not self._closing:
+        if not self._closing and self.request_body is not None:
             # Keep the last actual request visible across stop/clear for debugging.
             self.request_body.setPlainText(body)
 
+    def append_edit_history(self, text: str):
+        """Append one explicit editor change to the visible conversation."""
+        if self._closing or not isinstance(text, str) or not text.strip():
+            return
+        self._append("edit", text.strip())
+
     def _append(self, role, text, image_sizes=()):
+        if role not in {"user", "assistant", "error", "edit"}:
+            raise ValueError(f"unsupported visible chat role: {role!r}")
         message = _DisplayedMessage(role, [text] if text else [], image_sizes)
         prefix = "\n\n" if self._messages else ""
         self._messages.append(message)
         self._insert_text(f"{prefix}{self._role_label(role)}:\n{self._message_text(message)}")
         return message
+
 
     def _message_text(self, message):
         text = "".join(message.chunks)
@@ -477,7 +681,15 @@ class ChatPage(QWidget):
         self._insert_text("\n" + self._t("Chat response incomplete"))
 
     def _role_label(self, role):
-        return self._t({"user": "Chat user", "assistant": "Chat assistant", "error": "Chat error"}[role])
+        labels = {
+            "user": "Chat user",
+            "assistant": "Chat assistant",
+            "error": "Chat error",
+            "edit": "Chat edit history",
+        }
+        key = labels[role]
+        translated = self._t(key)
+        return "Edit" if role == "edit" and translated == key else translated
 
     def _show_error(self, error):
         self._mark_incomplete()
@@ -502,10 +714,19 @@ class ChatPage(QWidget):
 
     def refresh_ui_texts(self):
         self.title_label.setText(self._t("Chat"))
-        self.request_title.setText(self._t("Chat request body"))
-        self.request_body.setPlaceholderText(self._t("Chat request body placeholder"))
+        if self.request_body is not None:
+            self.request_title.setText(self._t("Chat request body"))
+            self.request_body.setPlaceholderText(self._t("Chat request body placeholder"))
         storage_key = "Chat connection saved locally" if self.config_service is not None else "Chat connection memory only"
         self.description_label.setText(self._t("Chat description") + " " + self._t(storage_key))
+        translated_title = self._t("Chat current image")
+        self._current_context_title_text = (
+            "Current editor image" if translated_title == "Chat current image" else translated_title
+        )
+        self.current_context_title.setText(self._current_context_title_text)
+        self.current_image_preview.set_placeholder(self._current_context_empty_text)
+        if self._current_image_context.image is None:
+            self.current_context_metadata.setText(self._current_context_empty_text)
         if self._config_error_key is not None:
             self.config_status_label.setText(self._t(self._config_error_key))
         self.base_label.setText(self._t("Chat API base URL"))

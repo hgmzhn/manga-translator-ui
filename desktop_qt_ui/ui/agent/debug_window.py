@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import FluentWindow
 
 from ui.agent.request_debug_page import RequestDebugPage
+from ui.agent.render_preview_page import RenderPreviewPage
 from ui.main_page.pages.chat_page import ChatPage
 
 
 class AgentDebugWindow(FluentWindow):
     """Compose existing chat with independently registered debug pages."""
+
+    shutdown_finished = pyqtSignal()
 
     def __init__(self, config_service, i18n):
         super().__init__()
@@ -20,15 +23,21 @@ class AgentDebugWindow(FluentWindow):
         self.setMinimumSize(850, 650)
         self.navigationInterface.setExpandWidth(220)
         self.navigationInterface.setReturnButtonVisible(False)
-        self.chat_page = ChatPage(i18n.translate, config_service=config_service)
+        self._closing = False
+        self._can_close = False
+        self.chat_page = ChatPage(i18n.translate, config_service=config_service, show_request_body=False)
         self.request_page = RequestDebugPage(i18n.translate)
+        self.render_page = RenderPreviewPage(i18n.translate)
         self.register_page("chat", self.chat_page, FIF.MESSAGE, i18n.translate("Chat"))
         self.register_page(
             "request", self.request_page, FIF.CODE, i18n.translate("Chat request body")
         )
+        self.register_page("render", self.render_page, FIF.PHOTO, i18n.translate("Agent render preview"))
         self.chat_page.request_body_received.connect(
             self.request_page.set_request_body, Qt.ConnectionType.QueuedConnection
         )
+        self.render_page.image_ready.connect(self.chat_page.set_current_image_context)
+        self.shutdown_finished.connect(self._finish_close, Qt.ConnectionType.QueuedConnection)
         self.switchTo(self.chat_page)
 
     def register_page(self, key, page, icon, title):
@@ -38,7 +47,22 @@ class AgentDebugWindow(FluentWindow):
 
     def shutdown(self):
         self.chat_page.shutdown()
+        return self.render_page.shutdown()
+
+    def load_file(self, path):
+        self.switchTo(self.render_page)
+        self.render_page.load_file(path)
+
+    def _finish_close(self):
+        self._can_close = True
+        self.close()
 
     def closeEvent(self, event):
-        self.shutdown()
-        super().closeEvent(event)
+        if self._can_close:
+            super().closeEvent(event)
+            return
+        event.ignore()
+        if not self._closing:
+            self._closing = True
+            future = self.shutdown()
+            future.add_done_callback(lambda _: self.shutdown_finished.emit())

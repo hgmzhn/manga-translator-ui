@@ -1,4 +1,4 @@
-"""Launch with: .venv/Scripts/python.exe desktop_qt_ui/agent_debug.py"""
+"""Launch with: uv run python desktop_qt_ui/agent_debug.py [--image PATH]"""
 
 from __future__ import annotations
 
@@ -13,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Standalone Agent debugger")
+    parser.add_argument("--image", help="Load an image and its project sidecars into render preview")
+    args, qt_args = parser.parse_known_args()
     sys.path[:0] = [str(ROOT / "desktop_qt_ui"), str(ROOT)]
     os.environ.setdefault("MANGA_TRANSLATOR_ENV_PATH", str(ROOT / ".env"))
     # Windows requires torch before Qt so Qt's DLL paths cannot shadow c10.
@@ -32,7 +37,7 @@ def main() -> int:
     from ui.agent.debug_window import AgentDebugWindow
     from ui.theme import apply_application_theme
 
-    app = QApplication(sys.argv)
+    app = QApplication([sys.argv[0], *qt_args])
     # The reused ChatPage resolves its async runner through ServiceManager.
     # Install only debug dependencies; do not initialize translation/editor services.
     container = ServiceContainer(str(ROOT))
@@ -55,10 +60,15 @@ def main() -> int:
         window = AgentDebugWindow(config, i18n)
         app.aboutToQuit.connect(window.shutdown)
         window.show()
+        if args.image:
+            window.load_file(args.image)
         return app.exec()
     finally:
         if window is not None:
-            window.shutdown()
+            # Keep the asyncio service alive until its native render worker exits.
+            cleanup = window.shutdown()
+            if cleanup is not None:
+                cleanup.result()
         if config is not None:
             config.shutdown()
         ServiceManager.shutdown()
