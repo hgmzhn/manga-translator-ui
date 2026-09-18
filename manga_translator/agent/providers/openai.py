@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+import traceback
+from contextlib import aclosing
 from typing import TYPE_CHECKING, AsyncIterator, Callable, cast
 
 from ..application.service import ChatTurnResult
-from ..domain.chat import ChatImage
+from ..domain.chat import ChatCanvas, ChatImage
 from ...utils.openai_compat import resolve_openai_compatible_api_key
+from .request_debug import ContextTrace
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
+    from ..domain.tool_models import ToolContext
+
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIResponsesBackend:
@@ -28,6 +38,7 @@ class OpenAIResponsesBackend:
         base_url: str = "https://api.openai.com/v1",
         timeout: float = 60.0,
         on_request_body: Callable[[str], None] | None = None,
+        on_debug_event: Callable[[dict], None] | None = None,
         reasoning_effort: str | None = None,
         on_thinking: Callable[[str], None] | None = None,
     ) -> None:
@@ -52,6 +63,7 @@ class OpenAIResponsesBackend:
         self._base_url = base_url.strip()
         self._timeout = timeout
         self._on_request_body = on_request_body
+        self._on_debug_event = on_debug_event
         self._reasoning_effort = (
             reasoning_effort.strip() if reasoning_effort is not None else None
         )
@@ -69,19 +81,52 @@ class OpenAIResponsesBackend:
         *,
         images: tuple[ChatImage, ...],
         message_history: list[ModelMessage],
-    ) -> AsyncIterator[str | ChatTurnResult]:
+        tool_context: ToolContext | None = None,
+    ) -> AsyncIterator[str | ChatCanvas | ChatTurnResult]:
+        trace = ContextTrace(self._on_debug_event, secret=self._api_key)
+        trace.add("turn_start", {
+            "model": self._model, "task_id": tool_context.task_id if tool_context is not None else "chat",
+            "text": text, "images": images, "message_history": message_history,
+        })
+        try:
+            async with aclosing(self._stream(
+                text, images=images, message_history=message_history, tool_context=tool_context, trace=trace,
+            )) as stream:
+                async for event in stream:
+                    yield event
+        except (asyncio.CancelledError, GeneratorExit):
+            trace.finish_response("interrupted")
+            trace.add("cancelled", {"message": "The turn was cancelled or its stream was closed."})
+            raise
+        except Exception as error:
+            trace.finish_response("interrupted")
+            trace.add("error", {
+                "exception_type": type(error).__name__, "message": str(error),
+                "traceback": "".join(traceback.format_exception(error)),
+                "response_body": getattr(error, "body", None),
+            })
+            raise
+
+    async def _stream(
+        self, text: str, *, images: tuple[ChatImage, ...], message_history: list[ModelMessage],
+        tool_context: ToolContext | None, trace: ContextTrace,
+    ) -> AsyncIterator[str | ChatCanvas | ChatTurnResult]:
         thinking_observer = self._on_thinking
         from openai import AsyncOpenAI, DefaultAsyncHttpxClient
         from openai.types.shared import ReasoningEffort
-        from pydantic_ai import Agent, AgentRunResultEvent, BinaryContent
+        from pydantic_ai import AgentRunResultEvent, BinaryContent
         from pydantic_ai.messages import (
+            FunctionToolCallEvent,
+            FunctionToolResultEvent,
             PartDeltaEvent,
             PartEndEvent,
             PartStartEvent,
+            RetryPromptPart,
             TextPart,
             TextPartDelta,
             ThinkingPart,
             ThinkingPartDelta,
+            ToolReturnPart,
         )
         from pydantic_ai.models.openai import (
             OpenAIResponsesModel,
@@ -91,6 +136,11 @@ class OpenAIResponsesBackend:
         from pydantic_ai.usage import UsageLimits
 
         from ...utils.system_proxy import openai_http_client_kwargs
+        from ..agents.chat import canvas_from_tool_result, create_agent, empty_context
+
+        context = tool_context if tool_context is not None else empty_context()
+        logger.info("Agent turn started: model=%s task=%s history=%d images=%d",
+                    self._model, context.task_id, len(message_history), len(images))
 
         prompt: str | list[str | BinaryContent] = text
         if images:
@@ -101,15 +151,22 @@ class OpenAIResponsesBackend:
             )
 
         client_options = openai_http_client_kwargs(self._base_url)
-        if self._on_request_body is not None:
+        if self._on_request_body is not None or trace.enabled:
             observer = self._on_request_body
+            request_index = 0
 
             async def capture_request(request):
+                nonlocal request_index
+                request_index += 1
+                logger.info("Model request sent: model=%s task=%s", self._model, context.task_id)
                 # Capture the SDK's serialized JSON, never headers or credentials.
                 if request.content:
                     from .request_debug import format_request_body
 
-                    observer(format_request_body(request.content))
+                    if trace.enabled:
+                        trace.add("request", {"request_index": request_index, "body": json.loads(request.content)})
+                    if observer is not None:
+                        observer(format_request_body(request.content))
 
             http_client = client_options.get("http_client")
             if http_client is None:
@@ -134,22 +191,28 @@ class OpenAIResponsesBackend:
                 settings["openai_reasoning_effort"] = cast(
                     ReasoningEffort, self._reasoning_effort
                 )
-            agent = Agent(model, output_type=str, retries=0, model_settings=settings)
+            agent = create_agent(model, model_settings=settings)
             agent.instrument = False
             has_text = False
-            thinking_parts: dict[int, str] = {}
-            thinking_states: dict[int, ThinkingPart] = {}
+            thinking_parts: dict[tuple[int, int], str] = {}
+            thinking_states: dict[tuple[int, int], ThinkingPart] = {}
+            response_index = -1
             thinking_snapshot = ""
             result = None
             async with agent.run_stream_events(
                 prompt,
                 message_history=message_history,
-                usage_limits=UsageLimits(request_limit=1),
+                deps=context,
+                usage_limits=UsageLimits(request_limit=30, tool_calls_limit=100),
             ) as events:
                 async for event in events:
                     delta = ""
                     thinking_part = None
                     if isinstance(event, PartStartEvent):
+                        if event.index == 0:
+                            response_index += 1
+                            logger.info("Model response started: task=%s step=%d",
+                                        context.task_id, response_index + 1)
                         if isinstance(event.part, TextPart):
                             delta = event.part.content
                         elif isinstance(event.part, ThinkingPart):
@@ -158,16 +221,66 @@ class OpenAIResponsesBackend:
                         if isinstance(event.delta, TextPartDelta):
                             delta = event.delta.content_delta
                         elif thinking_observer is not None and isinstance(event.delta, ThinkingPartDelta):
-                            previous = thinking_states.get(event.index, ThinkingPart(content=""))
+                            previous = thinking_states.get((response_index, event.index), ThinkingPart(content=""))
                             thinking_part = event.delta.apply(previous)
                     elif isinstance(event, PartEndEvent):
                         if isinstance(event.part, ThinkingPart):
                             thinking_part = event.part
                     elif isinstance(event, AgentRunResultEvent):
                         result = event.result
+                        trace.finish_response()
+                    elif isinstance(event, FunctionToolCallEvent):
+                        trace.finish_response()
+                        trace.add("tool_call", {
+                            "tool_name": event.part.tool_name, "tool_call_id": event.part.tool_call_id,
+                            "arguments": event.part.args, "args_valid": event.args_valid,
+                        })
+                        logger.info("Tool call: task=%s tool=%s call_id=%s args_valid=%s",
+                                    context.task_id, event.part.tool_name,
+                                    event.part.tool_call_id, event.args_valid)
+                    elif isinstance(event, FunctionToolResultEvent):
+                        part = event.part
+                        feedback = part.content
+                        if isinstance(part, RetryPromptPart) and isinstance(feedback, str):
+                            try:
+                                report = json.loads(feedback)
+                            except ValueError:
+                                pass
+                            else:
+                                if isinstance(report, dict) and report.get("status") == "validation_error":
+                                    feedback = report
+                        trace.add("validation_error" if isinstance(part, RetryPromptPart) else "tool_result", {
+                            "tool_name": part.tool_name, "tool_call_id": part.tool_call_id,
+                            "result": feedback, "content": event.content,
+                            "metadata": getattr(part, "metadata", None),
+                            **({"model_feedback": part.model_response()} if isinstance(part, RetryPromptPart) else {}),
+                        })
+                        if isinstance(part, RetryPromptPart):
+                            errors = feedback.get("errors", []) if isinstance(feedback, dict) else feedback
+                            details = errors if isinstance(errors, str) else "; ".join(
+                                ".".join(map(str, item.get("path", item["loc"]))) + ": " + item.get("reason", item["msg"])
+                                for item in errors
+                            )
+                            logger.warning("Tool arguments rejected: tool=%s call_id=%s details=%s",
+                                           part.tool_name, part.tool_call_id, details)
+                        data = part.content if isinstance(part.content, dict) else {}
+                        error = data.get("error") or data.get("render_error") or {}
+                        logger.info(
+                            "Tool result: task=%s tool=%s call_id=%s status=%s render_status=%s error=%s",
+                            context.task_id, part.tool_name, part.tool_call_id,
+                            data.get("status", "returned" if isinstance(part, ToolReturnPart) else "retry"),
+                            data.get("render_status", "-"),
+                            error.get("code", "-") if isinstance(error, dict) else "-",
+                        )
+                        canvas = canvas_from_tool_result(event, context)
+                        if canvas is not None:
+                            yield canvas
 
+                    if isinstance(event, (PartStartEvent, PartDeltaEvent, PartEndEvent)):
+                        trace.response_event(response_index, event)
                     if thinking_observer is not None and thinking_part is not None:
-                        thinking_states[event.index] = thinking_part
+                        key = (response_index, event.index)
+                        thinking_states[key] = thinking_part
                         # Responses raw reasoning is public text stored separately from summaries.
                         # Never display signatures, encrypted content, or unrelated metadata.
                         raw_content = (thinking_part.provider_details or {}).get("raw_content")
@@ -176,8 +289,8 @@ class OpenAIResponsesBackend:
                             if isinstance(raw_content, list) and raw_content
                             else thinking_part.content
                         )
-                        if thinking_parts.get(event.index, "") != thinking_content:
-                            thinking_parts[event.index] = thinking_content
+                        if thinking_parts.get(key, "") != thinking_content:
+                            thinking_parts[key] = thinking_content
                             snapshot = "\n\n".join(
                                 content for _, content in sorted(thinking_parts.items())
                                 if content
@@ -198,4 +311,6 @@ class OpenAIResponsesBackend:
                 )
             if not has_text:
                 raise ValueError("chat backend returned no assistant text")
+        logger.info("Agent turn completed: task=%s model_responses=%d", context.task_id, response_index + 1)
+        trace.add("turn_complete", {"messages": result.all_messages(), "usage": result.usage})
         yield ChatTurnResult(messages=result.all_messages())

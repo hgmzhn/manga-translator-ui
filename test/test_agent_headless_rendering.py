@@ -273,6 +273,37 @@ def test_committed_edits_schedule_an_exact_snapshot(page):
     asyncio.run(run())
 
 
+def test_edit_tool_returns_actual_render_and_updated_region_data(page):
+    from types import SimpleNamespace
+    from pydantic_ai import BinaryContent
+    from manga_translator.agent.domain.tool_models import AccessGrant, SetRegionStyle, ToolContext
+    from manga_translator.agent.tools.builtin.page import apply_edits, read_page
+    from manga_translator.agent.workspace import Workspace
+
+    async def run():
+        workspace = Workspace()
+        workspace.register_page(page)
+        renderer = adapter.BackendRenderer()
+        deps = ToolContext(workspace, AccessGrant({"page"}, set(), set(), set()), "tool-render", renderer=renderer)
+        ctx = SimpleNamespace(deps=deps)
+        try:
+            await read_page(ctx, {"id": 1})
+            result = await apply_edits(ctx, {"id": 1}, [
+                SetRegionStyle(region_id="r0", style={"font_size": 35, "font_color": "#ff3300"})
+            ], "edit")
+            assert result.return_value["render_status"] == "rendered"
+            region = result.return_value["page"]["regions"][0]
+            assert region["font_size"] == 35 and region["font_color"] == "#ff3300"
+            assert isinstance(result.content[-1], BinaryContent)
+            current = workspace.page(deps, "page")
+            expected = observe(current, force_full=True)
+            assert np.array_equal(pixels({"image": result.content[-1].data}), pixels(expected))
+            assert deps.observed_revisions["page"] == current["revision"]
+        finally:
+            await renderer.close()
+    asyncio.run(run())
+
+
 def main():
     return pytest.main([str(Path(__file__).resolve()), *sys.argv[1:]])
 

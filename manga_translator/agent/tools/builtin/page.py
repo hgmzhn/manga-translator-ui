@@ -11,6 +11,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.messages import ToolReturn
 
 from ...domain.tool_models import Edit, PageRef, ToolContext, ToolError
+from .editing import edit_feedback
 from .shared import (
     CommandId,
     Crop,
@@ -22,7 +23,6 @@ from .shared import (
     _observe,
     _public_page,
     _remember,
-    _transactions,
 )
 
 
@@ -64,8 +64,12 @@ async def apply_edits(
     page: PageRef,
     edits: Annotated[list[Edit], Field(min_length=1, max_length=100)],
     command_id: CommandId,
-) -> dict:
-    """原子提交已读取区域的修改；宿主自动检测读取后的冲突、锁定和越权。"""
+) -> ToolReturn | dict:
+    """原子编辑已读取的区域，自动返回完整区域属性及其下方的新图。
+
+    检查冲突、锁定和权限；成功提交后清理历史图片和区域快照，保留文字、思考和工具记录。
+    render_status=failed 只表示新图失败，已提交的修改仍生效。
+    """
     page_id = ctx.deps.workspace.resolve_page(ctx.deps, page)
 
     def capture():
@@ -80,7 +84,7 @@ async def apply_edits(
         "op": "apply_edits", "page_id": page_id,
         "edits": [edit.model_dump(mode="json", exclude_unset=True) for edit in edits],
     }, capture)
-    return _transactions(ctx, ctx.deps.workspace.apply_edits(
+    return await edit_feedback(ctx, ctx.deps.workspace.apply_edits(
         ctx.deps, page_id, expected["versions"], expected["policy"], edits, command_id
     ))
 
@@ -90,8 +94,11 @@ async def revert_edits(
     ctx: RunContext[ToolContext],
     transaction_id: str,
     command_id: CommandId,
-) -> dict:
-    """补偿本任务事务；相关区域后续已变化时拒绝，不撤销其他任务成果。"""
+) -> ToolReturn | dict:
+    """补偿本任务事务，自动返回完整属性和新图；保留文字与思考，移除历史图片。
+
+    相关区域后续已变化时拒绝，不撤销其他任务成果。
+    """
     def capture():
         transaction = ctx.deps.transaction_results.get(transaction_id)
         if transaction is None:
@@ -101,7 +108,7 @@ async def revert_edits(
     expected = _command(ctx, command_id, {
         "op": "revert_edits", "transaction_id": transaction_id,
     }, capture)
-    return _transactions(ctx, ctx.deps.workspace.revert_edits(
+    return await edit_feedback(ctx, ctx.deps.workspace.revert_edits(
         ctx.deps, transaction_id, expected, command_id
     ))
 
@@ -157,5 +164,3 @@ async def compare_revisions(
             "differences": diffs,
         }
     )
-
-

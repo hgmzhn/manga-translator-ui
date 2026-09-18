@@ -51,11 +51,13 @@ _REGION_FIELDS = {
     "text",
     "texts",
     "translation",
+    "translation_raw",
     "translation_rich",
     "lines",
     "center",
     "angle",
     "locked",
+    "is_locked",
     "font_size",
     "font_family",
     "bold",
@@ -71,10 +73,17 @@ _REGION_FIELDS = {
     "fg_colors",
     "bg_colors",
     "opacity",
-    "render_box_rect_local",
     "text_offset",
-    "dst_points",
+    "language",
+    "source_lang",
     "target_lang",
+    "prob",
+    "layout_mode",
+    "adjust_bg_color",
+    "shadow_radius",
+    "shadow_strength",
+    "shadow_color",
+    "shadow_offset",
     "ocr_status",
 }
 
@@ -276,4 +285,3 @@ async def _observe(
         ctx.deps.observed_revisions[page_id] = revision
     _remember(ctx, snapshot, None if view == "rendered" and crop is None else [])
     return payload
-

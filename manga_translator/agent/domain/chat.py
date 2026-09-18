@@ -19,3 +19,13 @@ class ChatImage:
             raise ValueError("image data must not be empty")
         if self.media_type not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
             raise ValueError(f"unsupported image media type: {self.media_type!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class ChatCanvas:
+    """An actual edit-tool render, separate from visible assistant text."""
+
+    context_id: str
+    image: ChatImage
+    page: dict
+    canvas: dict

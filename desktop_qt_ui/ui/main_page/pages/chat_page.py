@@ -29,7 +29,7 @@ from qfluentwidgets import (
     TitleLabel,
 )
 
-from manga_translator.agent.domain.chat import ChatImage
+from manga_translator.agent.domain.chat import ChatCanvas, ChatImage
 from ui.agent.image_input import ImageAttachmentStrip, ImagePasteTextEdit
 from ui.widgets.collapsible_frame import CollapsibleFrame
 from ui.widgets.wheel_filter import NoWheelComboBox as ComboBox
@@ -109,7 +109,10 @@ class ChatPage(QWidget):
     task_finished = pyqtSignal(int, object)
     text_received = pyqtSignal(int, str)
     request_body_received = pyqtSignal(str)
+    debug_event_received = pyqtSignal(object)
     thinking_received = pyqtSignal(int, str)
+    canvas_received = pyqtSignal(object)
+    canvas_updated = pyqtSignal(object)
     # Hosts may call the method on the GUI thread or emit this signal from a
     # worker; the signal is delivered to the page through the Qt event queue.
     current_image_context_pushed = pyqtSignal(object, object)
@@ -117,11 +120,13 @@ class ChatPage(QWidget):
 
 
     def __init__(self, t_func: Callable, service=None, parent=None, *, config_service=None,
-                 show_request_body=True):
+                 show_request_body=True, debug_context=False):
         super().__init__(parent)
         self._t = t_func
         self.chat_service = service
         self._backend = None
+        self._tool_context = None
+        self._debug_context = debug_context
         self.config_service = config_service
         self._config_error_key = None
         self._injected_service = service is not None
@@ -265,6 +270,7 @@ class ChatPage(QWidget):
         self.text_received.connect(self._on_text_received, Qt.ConnectionType.QueuedConnection)
         self.request_body_received.connect(self._on_request_body_received, Qt.ConnectionType.QueuedConnection)
         self.thinking_received.connect(self._on_thinking_received, Qt.ConnectionType.QueuedConnection)
+        self.canvas_received.connect(self._on_canvas_received, Qt.ConnectionType.QueuedConnection)
         self.current_image_context_pushed.connect(
             self.set_current_image_context, Qt.ConnectionType.QueuedConnection
         )
@@ -398,6 +404,26 @@ class ChatPage(QWidget):
             parts.append("Current region metadata: " + context.region_prompt)
         return "\n".join(parts)
 
+    @pyqtSlot(object)
+    def set_tool_context(self, context):
+        """Bind the host-owned workspace; the Agent owns all tool execution."""
+        if self._tool_context is context:
+            return
+        self.stop_generation()
+        if self._tool_context is not None:
+            self._tool_context.cancelled.set()
+        self._tool_context = context
+
+    @pyqtSlot(object)
+    def _on_canvas_received(self, canvas):
+        if (self._closing or self._tool_context is None
+                or canvas.context_id != self._tool_context.task_id
+                or self._tool_context.cancelled.is_set()):
+            return
+        # A committed edit remains visible even if its following text was stopped.
+        self.set_current_image_context(canvas.image.data, canvas.page.get("regions", []))
+        self.canvas_updated.emit(canvas)
+
 
     @pyqtSlot(bytes, int, int)
     def _add_pasted_image(self, data, width, height):
@@ -441,10 +467,19 @@ class ChatPage(QWidget):
                         except RuntimeError:
                             pass
 
+                def show_debug_event(event):
+                    page = page_ref()
+                    if page is not None:
+                        try:
+                            page.debug_event_received.emit(event)
+                        except RuntimeError:
+                            pass
+
                 backend = OpenAIResponsesBackend(
                     api_key=api_key, model=model, base_url=base_url,
                     reasoning_effort=self.reasoning_input.currentData() or None,
-                    on_request_body=show_request_body,
+                    on_request_body=show_request_body if self.request_body is not None else None,
+                    on_debug_event=show_debug_event if self._debug_context else None,
                 )
                 self.chat_service = ChatService(backend)
                 self._backend = backend
@@ -460,6 +495,8 @@ class ChatPage(QWidget):
         service = self.chat_service
 
         backend = self._backend
+        tool_context = self._tool_context
+        session_id = tool_context.task_id if tool_context is not None else "default"
         page_ref = weakref.ref(self)
 
         async def send(generation):
@@ -473,13 +510,17 @@ class ChatPage(QWidget):
 
             if backend is not None:
                 backend.set_thinking_observer(show_thinking)
-            async with aclosing(service.stream(model_text, images=images)) as stream:
+            async with aclosing(service.stream(model_text, images=images, session_id=session_id,
+                                               tool_context=tool_context)) as stream:
                 async for delta in stream:
                     page = page_ref()
                     if page is None:
                         return
                     try:
-                        page.text_received.emit(generation, delta)
+                        if isinstance(delta, ChatCanvas):
+                            page.canvas_received.emit(delta)
+                        else:
+                            page.text_received.emit(generation, delta)
                     except RuntimeError:
                         return
                     finally:
@@ -627,9 +668,11 @@ class ChatPage(QWidget):
             self._update_controls()
             return
 
+        session_id = self._tool_context.task_id if self._tool_context is not None else "default"
+
         async def clear(generation):
             # Clear on the same event loop as streaming; never mutate history from Qt.
-            service.clear()
+            service.clear(session_id)
 
         self._submit(clear, "clear")
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic_ai.toolsets import FunctionToolset
+from pydantic_ai.tools import Tool
 
+from ..context.images import prune_images_after_edit
 from ..domain.tool_models import ToolContext
 from ..plugins.loader import PluginManager
 
@@ -60,6 +62,14 @@ _MANAGER_TOOLS = (
 _AUXILIARY_TOOLS = (measure_layout, fit_text, check_text_changes, check_font_coverage)
 
 
+class WorkspaceToolset(FunctionToolset[ToolContext]):
+    async def for_run_step(self, ctx):
+        # Runs after the previous tool batch is assembled, including image parts.
+        # No edit marker means the host's initial context is left unchanged.
+        prune_images_after_edit(ctx.messages)
+        return self
+
+
 def create_toolset(
     role: Literal["page", "manager"] = "page",
     *,
@@ -72,7 +82,11 @@ def create_toolset(
     functions = list(_PAGE_TOOLS if role == "page" else _MANAGER_TOOLS)
     if include_auxiliary:
         functions.extend(_AUXILIARY_TOOLS)
-    toolset = FunctionToolset(tools=list(functions), id=f"workspace-{role}")
+    toolset = WorkspaceToolset(
+        tools=[Tool(function, sequential=True) if function in (apply_edits, revert_edits)
+               else function for function in functions],
+        id=f"workspace-{role}",
+    )
     if plugin_manager is None:
         from ..plugins import get_default_manager
 

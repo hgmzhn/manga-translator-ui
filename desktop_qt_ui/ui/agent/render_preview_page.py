@@ -1,4 +1,4 @@
-"""Read-only Agent render preview with automatic project sidecar discovery."""
+"""Load an Agent page and display the exact canvases returned by its backend."""
 
 from __future__ import annotations
 
@@ -64,6 +64,7 @@ class _ImagePreview(QScrollArea):
 class RenderPreviewPage(QWidget):
     finished = pyqtSignal(int, object)
     image_ready = pyqtSignal(object, object)
+    workspace_ready = pyqtSignal(object)
 
     def __init__(self, t_func, parent=None):
         super().__init__(parent)
@@ -73,6 +74,7 @@ class RenderPreviewPage(QWidget):
         self._active = None
         self._closing = False
         self._close_future = None
+        self._context_id = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 14)
         layout.addWidget(TitleLabel(self._t("Agent render preview"), self))
@@ -158,6 +160,8 @@ class RenderPreviewPage(QWidget):
         self._generation += 1
         self.path_input.setText(str(path))
         self.preview.set_png(None)
+        self._context_id = None
+        self.workspace_ready.emit(None)
         self.image_ready.emit(None, None)
         self.status.setText(self._t("Agent render loading"))
         try:
@@ -177,6 +181,8 @@ class RenderPreviewPage(QWidget):
         try:
             result = future.result()
             payload = result["payload"]
+            self._context_id = result["context"].task_id
+            self.workspace_ready.emit(result["context"])
             self.preview.set_png(payload["image"])
             self.image_ready.emit(payload["image"], result["regions"])
             self.status.setText(self._t(
@@ -192,6 +198,18 @@ class RenderPreviewPage(QWidget):
                 detail = str(error)
             self.status.setText(self._t("Agent render failed") + ": " + detail)
 
+    @pyqtSlot(object)
+    def show_canvas(self, canvas):
+        if self._closing or canvas.context_id != self._context_id:
+            return
+        self.preview.set_png(canvas.image.data)
+        details = canvas.canvas
+        self.status.setText(self._t(
+            "Agent render ready", width=details.get("width", 0), height=details.get("height", 0),
+            regions=len(canvas.page.get("regions", [])), elapsed=round(details.get("worker_ms", 0)),
+            render=round(details.get("render_ms", 0)),
+        ))
+
     def cancel(self):
         self._generation += 1
         if self._active is not None:
@@ -204,6 +222,8 @@ class RenderPreviewPage(QWidget):
     def shutdown(self):
         if not self._closing:
             self._closing = True
+            self._context_id = None
+            self.workspace_ready.emit(None)
             self.cancel()
             self._warmup.cancel()
             self._close_future = self._submit(self._session.close(), notify=False)

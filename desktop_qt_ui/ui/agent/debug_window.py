@@ -25,18 +25,21 @@ class AgentDebugWindow(FluentWindow):
         self.navigationInterface.setReturnButtonVisible(False)
         self._closing = False
         self._can_close = False
-        self.chat_page = ChatPage(i18n.translate, config_service=config_service, show_request_body=False)
+        self.chat_page = ChatPage(i18n.translate, config_service=config_service,
+                                  show_request_body=False, debug_context=True)
         self.request_page = RequestDebugPage(i18n.translate)
         self.render_page = RenderPreviewPage(i18n.translate)
         self.register_page("chat", self.chat_page, FIF.MESSAGE, i18n.translate("Chat"))
         self.register_page(
-            "request", self.request_page, FIF.CODE, i18n.translate("Chat request body")
+            "request", self.request_page, FIF.CODE, i18n.translate("Agent context debug")
         )
         self.register_page("render", self.render_page, FIF.PHOTO, i18n.translate("Agent render preview"))
-        self.chat_page.request_body_received.connect(
-            self.request_page.set_request_body, Qt.ConnectionType.QueuedConnection
+        self.chat_page.debug_event_received.connect(
+            self.request_page.add_event, Qt.ConnectionType.QueuedConnection
         )
         self.render_page.image_ready.connect(self.chat_page.set_current_image_context)
+        self.render_page.workspace_ready.connect(self.chat_page.set_tool_context)
+        self.chat_page.canvas_updated.connect(self.render_page.show_canvas)
         self.shutdown_finished.connect(self._finish_close, Qt.ConnectionType.QueuedConnection)
         self.switchTo(self.chat_page)
 

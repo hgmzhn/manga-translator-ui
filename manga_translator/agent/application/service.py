@@ -8,10 +8,11 @@ from dataclasses import dataclass, field
 
 from typing import TYPE_CHECKING, Protocol
 
-from ..domain.chat import ChatImage
+from ..domain.chat import ChatCanvas, ChatImage
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
+    from ..domain.tool_models import ToolContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +31,8 @@ class ChatBackend(Protocol):
         *,
         images: tuple[ChatImage, ...],
         message_history: list[ModelMessage],
-    ) -> AsyncIterator[str | ChatTurnResult]:
+        tool_context: ToolContext | None = None,
+    ) -> AsyncIterator[str | ChatCanvas | ChatTurnResult]:
         """Propagate errors and cancellation without yielding a final result."""
 
 
@@ -81,7 +83,8 @@ class ChatService:
         *,
         images: tuple[ChatImage, ...] = (),
         session_id: str = "default",
-    ) -> AsyncIterator[str]:
+        tool_context: ToolContext | None = None,
+    ) -> AsyncIterator[str | ChatCanvas]:
         """Yield deltas and commit only after normal exhaustion.
 
         Consumers stopping early must close the iterator, for example with
@@ -102,9 +105,8 @@ class ChatService:
                 raise asyncio.CancelledError("session was cleared")
             result: ChatTurnResult | None = None
             has_text = False
-            response = self._backend.stream(
-                text, images=images, message_history=state.history
-            )
+            options = {"tool_context": tool_context} if tool_context is not None else {}
+            response = self._backend.stream(text, images=images, message_history=state.history, **options)
             try:
                 async for event in response:
                     task = asyncio.current_task()
@@ -114,6 +116,8 @@ class ChatService:
                         raise RuntimeError("backend returned an event after its final result")
                     if isinstance(event, ChatTurnResult):
                         result = event
+                    elif isinstance(event, ChatCanvas):
+                        yield event
                     elif isinstance(event, str):
                         if event:
                             has_text = has_text or bool(event.strip())
