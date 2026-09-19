@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,3 +30,13 @@ class ChatCanvas:
     image: ChatImage
     page: dict
     canvas: dict
+
+
+@dataclass(frozen=True, slots=True)
+class ChatActivity:
+    """Display-only execution events; never inserted into the model's history."""
+
+    kind: Literal["response_start", "tool_call", "tool_result"]
+    tool_call_id: str = ""
+    tool_name: str = ""
+    data: dict = field(default_factory=dict)

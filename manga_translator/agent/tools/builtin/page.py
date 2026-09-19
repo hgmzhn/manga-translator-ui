@@ -67,7 +67,7 @@ async def apply_edits(
 ) -> ToolReturn | dict:
     """原子编辑已读取的区域，自动返回完整区域属性及其下方的新图。
 
-    检查冲突、锁定和权限；成功提交后清理历史图片和区域快照，保留文字、思考和工具记录。
+    检查冲突、锁定和权限；成功提交后清理过时图片和区域快照，保留原图、文字、思考和工具记录。
     render_status=failed 只表示新图失败，已提交的修改仍生效。
     """
     page_id = ctx.deps.workspace.resolve_page(ctx.deps, page)
@@ -95,7 +95,7 @@ async def revert_edits(
     transaction_id: str,
     command_id: CommandId,
 ) -> ToolReturn | dict:
-    """补偿本任务事务，自动返回完整属性和新图；保留文字与思考，移除历史图片。
+    """补偿本任务事务，自动返回完整属性和新图；保留原图、文字与思考，移除过时图片。
 
     相关区域后续已变化时拒绝，不撤销其他任务成果。
     """

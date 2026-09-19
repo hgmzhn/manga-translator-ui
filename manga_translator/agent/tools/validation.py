@@ -137,12 +137,14 @@ def build_validation_feedback(args, error, schema, validator):
 
 
 class EditValidationFeedback(AbstractCapability):
-    def __init__(self, validator):
-        self.validator = validator
+    def __init__(self, tools):
+        self.validators = {tool.name: tool.function_schema.validator for tool in tools}
 
     async def on_tool_validate_error(self, ctx, *, call, tool_def, args, error):
-        if call.tool_name != "apply_edits" or not isinstance(error, ValidationError):
+        if call.tool_name not in self.validators or not isinstance(error, ValidationError):
             raise error
-        report = build_validation_feedback(args, error, tool_def.parameters_json_schema, self.validator)
+        report = build_validation_feedback(args, error, tool_def.parameters_json_schema,
+                                           self.validators[call.tool_name])
+        report["tool"] = call.tool_name
         report["action"] = load_prompt("validation")
         raise ModelRetry(json.dumps(report, ensure_ascii=False, default=str)) from error

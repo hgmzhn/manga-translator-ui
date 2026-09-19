@@ -7,7 +7,7 @@ from pydantic_ai import BinaryContent
 from pydantic_ai.messages import ToolReturn
 
 from ...context.images import EDIT_IMAGE_METADATA
-from ...domain.tool_models import GeometryPatch, RegionStylePatch, ToolError
+from ...domain.tool_models import RegionEdit, ToolError
 from ...prompts import load_prompt
 from .shared import _observe, _public_page, _remember, _transactions, public_payload
 
@@ -22,8 +22,7 @@ async def edit_feedback(ctx, result):
     snapshot = ctx.deps.workspace.page(ctx.deps, page_id, revision)
     metadata = public_payload(ctx.deps, result)
     metadata["editable_fields"] = {
-        "set_region_style": list(RegionStylePatch.model_fields),
-        "set_geometry": list(GeometryPatch.model_fields),
+        "edit_regions": [name for name in RegionEdit.model_fields if name != "region_id"],
     }
     try:
         metadata["page"] = public_payload(ctx.deps, _public_page(snapshot))

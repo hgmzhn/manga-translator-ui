@@ -1,6 +1,11 @@
+---
+name: rich-text
+description: 编辑漫画区域的局部文字样式与 richtext.v1 文档，包括注音和纵中横；只改区域基础样式时无需加载。
+---
+
 # 富文本编辑协议：richtext.v1
 
-apply_edits 已支持富文本。要修改一段文字的加粗、斜体、颜色或其他样式，在 edits 中使用
+读取本 skill 后提供 edit_rich_text 工具。要修改一段文字的加粗、斜体、颜色或其他样式，在其 edits 中使用
 `op="replace_rich_text"`，提供 `region_id` 和完整 `document`。该操作会替换这个区域的整份富文本文档，
 因此必须保留未修改的正文、段落、节点和样式。优先基于当前 `translation_rich` 编辑；没有该字段时，
 根据当前 `translation` 创建文档，保留原有换行。只改样式时不得改正文。
@@ -17,11 +22,11 @@ apply_edits 已支持富文本。要修改一段文字的加粗、斜体、颜�
 ## 局部样式示例
 
 以下演示只把“重要”两个字加粗并改为红色，其余正文保持不变。
-实际调用时使用宿主提供的 page 和 region_id，并使用新的 command_id。
+实际调用 edit_rich_text 时，page_id 取宿主提供的公开整数 id，使用实际 region_id 和新的 command_id。
 
 ```json
 {
-  "page": {"id": 1},
+  "page_id": 1,
   "command_id": "rich-style-001",
   "edits": [
     {

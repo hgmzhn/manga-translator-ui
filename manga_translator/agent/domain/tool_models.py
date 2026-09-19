@@ -7,7 +7,9 @@ from pathlib import PurePosixPath
 from threading import Event
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .chat import ChatImage
 
 
 class ToolError(Exception):
@@ -105,6 +107,7 @@ class ToolContext:
     read_policies: dict[str, dict] = field(default_factory=dict)
     command_payloads: dict[str, dict] = field(default_factory=dict)
     transaction_results: dict[str, dict] = field(default_factory=dict)
+    original_image: ChatImage | None = None
 
 
 Color = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
@@ -222,6 +225,24 @@ class GeometryPatch(ToolModel):
     angle: float | None = None
 
 
+class RegionEdit(RegionStylePatch):
+    """Flat model-facing patch; converted to typed operations before committing."""
+
+    region_id: str = Field(min_length=1)
+    center: Point | None = None
+    angle: float | None = None
+    translation: str | None = None
+
+    @model_validator(mode="after")
+    def nonempty_patch(self):
+        changed = self.model_fields_set - {"region_id"}
+        if not changed:
+            raise ValueError("至少提供一个要修改的字段")
+        if any(getattr(self, name) is None for name in changed):
+            raise ValueError("修改字段不能为 null；不修改的字段请省略")
+        return self
+
+
 class SetRegionStyle(ToolModel):
     op: Literal["set_region_style"] = "set_region_style"
     region_id: str
@@ -257,6 +278,9 @@ Edit = Annotated[
     SetRegionStyle | ReplaceRichText | SetGeometry | SetTranslation | SetSpanStyle,
     Field(discriminator="op"),
 ]
+
+
+RichEdit = Annotated[ReplaceRichText | SetSpanStyle, Field(discriminator="op")]
 
 
 class TerminologyRule(ToolModel):

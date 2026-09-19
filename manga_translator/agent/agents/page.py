@@ -34,6 +34,7 @@ async def run(ctx: ToolContext, requirements: str, model: Model) -> PageResult:
 
     from ..domain.tool_models import ToolContext, ToolError
     from ..tools import create_toolset
+    from ..tools.validation import EditValidationFeedback
 
     if not isinstance(model, Model):
         raise ToolError("invalid_model", "宿主必须提供已配置的 PydanticAI Model 实例")
@@ -75,12 +76,16 @@ async def run(ctx: ToolContext, requirements: str, model: Model) -> PageResult:
         },
         ensure_ascii=False,
     )
+    toolset = create_toolset("page")
     agent = Agent(
         model=model,
         deps_type=ToolContext,
         output_type=PageResult,
-        instructions=load_prompt("page") + "\n\n" + load_prompt("rich_text"),
-        toolsets=[create_toolset("page")],
+        instructions=load_prompt("page") + "\n\n" + load_prompt("skills"),
+        toolsets=[toolset],
+        capabilities=[EditValidationFeedback([
+            toolset.tools[name] for name in ("edit_regions", "edit_rich_text")
+        ])],
         name="manga_page",
     )
     # No shared history or provider conversation identifiers: this run owns all

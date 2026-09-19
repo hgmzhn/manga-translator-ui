@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import json
 import weakref
+from html import escape
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Callable
 
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QPixmap, QTextCursor
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
@@ -29,7 +30,8 @@ from qfluentwidgets import (
     TitleLabel,
 )
 
-from manga_translator.agent.domain.chat import ChatCanvas, ChatImage
+from manga_translator.agent.domain.chat import ChatActivity, ChatCanvas, ChatImage
+from ui.agent.conversation_view import ConversationView, ToolRecord
 from ui.agent.image_input import ImageAttachmentStrip, ImagePasteTextEdit
 from ui.widgets.collapsible_frame import CollapsibleFrame
 from ui.widgets.wheel_filter import NoWheelComboBox as ComboBox
@@ -41,6 +43,8 @@ class _DisplayedMessage:
     chunks: list[str] = field(default_factory=list)
     image_sizes: tuple[tuple[int, int], ...] = ()
     incomplete: bool = False
+    rendered_text: str | None = None
+    rendered_html: str = ""
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,7 @@ class ChatPage(QWidget):
 
     task_finished = pyqtSignal(int, object)
     text_received = pyqtSignal(int, str)
+    activity_received = pyqtSignal(int, object)
     request_body_received = pyqtSignal(str)
     debug_event_received = pyqtSignal(object)
     thinking_received = pyqtSignal(int, str)
@@ -135,7 +140,14 @@ class ChatPage(QWidget):
         self._generation = 0
         self._closing = False
         self._messages = []
+        self._tool_records = {}
+        self._turn_start = 0
+        self._turn_open = False
         self._assistant_message = None
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.setInterval(40)
+        self._render_timer.timeout.connect(self._render_transcript)
         self._pending_images = {}
         self._current_image_context = _CurrentImageContext()
         self._current_image_context_generation = 0
@@ -206,8 +218,8 @@ class ChatPage(QWidget):
 
         card = CardWidget(self)
         card_layout = QVBoxLayout(card)
-        self.messages = PlainTextEdit(card)
-        self.messages.setReadOnly(True)
+        self.messages = ConversationView(card)
+        self.messages.anchorClicked.connect(self._on_transcript_link)
         self.request_body = None
         self.request_title = None
         if show_request_body:
@@ -268,6 +280,7 @@ class ChatPage(QWidget):
         self.attachment_strip.attachment_removed.connect(self._remove_pending_image)
         self.task_finished.connect(self._on_task_finished, Qt.ConnectionType.QueuedConnection)
         self.text_received.connect(self._on_text_received, Qt.ConnectionType.QueuedConnection)
+        self.activity_received.connect(self._on_activity_received, Qt.ConnectionType.QueuedConnection)
         self.request_body_received.connect(self._on_request_body_received, Qt.ConnectionType.QueuedConnection)
         self.thinking_received.connect(self._on_thinking_received, Qt.ConnectionType.QueuedConnection)
         self.canvas_received.connect(self._on_canvas_received, Qt.ConnectionType.QueuedConnection)
@@ -336,7 +349,20 @@ class ChatPage(QWidget):
         if regions is None:
             return ""
         if isinstance(regions, str):
-            return regions
+            try:
+                regions = json.loads(regions)
+            except ValueError:
+                return regions
+
+        def model_metadata(value):
+            # Keep source quadrilaterals in the editor; omit them only from model context.
+            if isinstance(value, dict):
+                return {key: model_metadata(item) for key, item in value.items() if key != "lines"}
+            if isinstance(value, (list, tuple)):
+                return [model_metadata(item) for item in value]
+            return value
+
+        regions = model_metadata(regions)
         try:
             return json.dumps(regions, ensure_ascii=False, separators=(",", ":"), default=str)
         except Exception:
@@ -390,6 +416,8 @@ class ChatPage(QWidget):
         self.current_context_metadata.setText(
             self._t("Chat image summary", count=1, sizes=size)
             + "\nRegions: " + count
+            + ("\n" + self._t("Chat original image reference")
+               if self._tool_context is not None and self._tool_context.original_image is not None else "")
         )
 
     def _model_text_with_current_context(self, text):
@@ -490,8 +518,11 @@ class ChatPage(QWidget):
             self.input.clear()
             self.attachment_strip.clear()
             self._pending_images.clear()
+            self._turn_start = len(self._messages)
+            self._turn_open = True
             self._append("user", text, image_sizes)
-            self._assistant_message = self._append("assistant", "")
+            self._assistant_message = None
+            self._tool_records = {}
         service = self.chat_service
 
         backend = self._backend
@@ -519,6 +550,8 @@ class ChatPage(QWidget):
                     try:
                         if isinstance(delta, ChatCanvas):
                             page.canvas_received.emit(delta)
+                        elif isinstance(delta, ChatActivity):
+                            page.activity_received.emit(generation, delta)
                         else:
                             page.text_received.emit(generation, delta)
                     except RuntimeError:
@@ -573,12 +606,35 @@ class ChatPage(QWidget):
             self._closing
             or generation != self._generation
             or self._operation != "send"
-            or self._assistant_message is None
             or not delta
         ):
             return
+        if self._assistant_message is None:
+            self._assistant_message = self._append("assistant", "")
         self._assistant_message.chunks.append(delta)
-        self._insert_text(delta)
+        self._schedule_transcript()
+
+    @pyqtSlot(int, object)
+    def _on_activity_received(self, generation, activity):
+        if self._closing or generation != self._generation or self._operation != "send":
+            return
+        if activity.kind == "response_start":
+            self._assistant_message = None
+            return
+        record = self._tool_records.get(activity.tool_call_id)
+        if record is None or activity.kind == "tool_call":
+            record = ToolRecord(activity.tool_call_id, activity.tool_name)
+            self._tool_records[activity.tool_call_id] = record
+            self._messages.append(record)
+        if activity.kind == "tool_call":
+            record.arguments = activity.data.get("arguments")
+            if activity.data.get("args_valid") is False:
+                record.status = "invalid"
+        elif activity.kind == "tool_result":
+            record.finish(activity.data.get("result"),
+                          validation_error=activity.data.get("validation_error", False))
+        self._assistant_message = None
+        self._schedule_transcript()
 
     @pyqtSlot(int, str)
     def _on_thinking_received(self, generation, snapshot):
@@ -617,6 +673,7 @@ class ChatPage(QWidget):
                 return
             future.result()
             if operation == "send":
+                self._turn_open = False
                 self._assistant_message = None
                 self._set_thinking_status(
                     "Chat thinking complete" if self._thinking_snapshot else "Chat thinking unavailable"
@@ -630,6 +687,7 @@ class ChatPage(QWidget):
                 self._set_thinking_status("Chat thinking failed")
             self._show_error(exc)
         finally:
+            self._render_transcript()
             self._update_controls()
 
     def stop_generation(self):
@@ -655,7 +713,11 @@ class ChatPage(QWidget):
             self._active_task.cancel()
             self._active_task = None
         self._messages.clear()
+        self._tool_records.clear()
+        self._turn_open = False
+        self._turn_start = 0
         self._assistant_message = None
+        self._render_timer.stop()
         self.messages.clear()
         self._reset_thinking()
         self.input.clear()
@@ -692,9 +754,8 @@ class ChatPage(QWidget):
         if role not in {"user", "assistant", "error", "edit"}:
             raise ValueError(f"unsupported visible chat role: {role!r}")
         message = _DisplayedMessage(role, [text] if text else [], image_sizes)
-        prefix = "\n\n" if self._messages else ""
         self._messages.append(message)
-        self._insert_text(f"{prefix}{self._role_label(role)}:\n{self._message_text(message)}")
+        self._schedule_transcript()
         return message
 
 
@@ -709,19 +770,57 @@ class ChatPage(QWidget):
         summary = self._t("Chat image summary", count=len(message.image_sizes), sizes=sizes)
         return f"{text}\n{summary}" if text else summary
 
-    def _insert_text(self, text):
-        cursor = self.messages.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertText(text)
-        self.messages.setTextCursor(cursor)
-        self.messages.ensureCursorVisible()
+    def _schedule_transcript(self):
+        if not self._render_timer.isActive():
+            self._render_timer.start()
+
+    def _render_transcript(self):
+        self._render_timer.stop()
+        entries = []
+        for index, message in enumerate(self._messages):
+            if isinstance(message, ToolRecord):
+                entries.append(message.html(index, self._t))
+                continue
+            text = self._message_text(message)
+            if message.rendered_text != text:
+                message.rendered_html = (self.messages.markdown(text) if message.role == "assistant"
+                                         else f'<p>{escape(text).replace(chr(10), "<br>")}</p>')
+                message.rendered_text = text
+            body = message.rendered_html
+            if message.incomplete:
+                body += f'<p><i>{escape(self._t("Chat response incomplete"))}</i></p>'
+            entries.append(f'<p><b>{escape(self._role_label(message.role))}</b></p>{body}')
+        self.messages.show_entries(entries)
+
+    def _on_transcript_link(self, url):
+        if url.scheme() != "tool":
+            return
+        try:
+            index = int(url.path())
+            if index < 0:
+                return
+            message = self._messages[index]
+        except (ValueError, IndexError):
+            return
+        if isinstance(message, ToolRecord):
+            message.expanded = not message.expanded
+            self._render_transcript()
 
     def _mark_incomplete(self):
-        if self._assistant_message is None:
+        if not self._turn_open:
             return
-        self._assistant_message.incomplete = True
+        self._turn_open = False
+        last_response = next((message for message in reversed(self._messages[self._turn_start:])
+                              if isinstance(message, _DisplayedMessage) and message.role == "assistant"), None)
+        if last_response is not None:
+            last_response.incomplete = True
+        else:
+            self._append("error", self._t("Chat response incomplete"))
         self._assistant_message = None
-        self._insert_text("\n" + self._t("Chat response incomplete"))
+        for record in self._tool_records.values():
+            if record.status == "running":
+                record.status = "interrupted"
+        self._schedule_transcript()
 
     def _role_label(self, role):
         labels = {
@@ -791,11 +890,7 @@ class ChatPage(QWidget):
         self.stop_button.setText(self._t("Chat stop"))
         self.clear_button.setText(self._t("Chat clear"))
         self.status_label.setText(self._t(self._status_key, **self._status_args))
-        self.messages.setPlainText("\n\n".join(
-            f"{self._role_label(message.role)}:\n{self._message_text(message)}"
-            + ("\n" + self._t("Chat response incomplete") if message.incomplete else "")
-            for message in self._messages
-        ))
+        self._render_transcript()
         self._update_controls()
 
     def shutdown(self):

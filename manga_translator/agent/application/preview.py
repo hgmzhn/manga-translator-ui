@@ -6,6 +6,7 @@ from time import perf_counter
 from types import SimpleNamespace
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from ..domain.chat import ChatImage
 from ..domain.tool_models import AccessGrant, ToolContext, ToolError
 from ..integrations.project import load_project_page
 from ..integrations.rendering import BackendRenderer
@@ -51,6 +52,7 @@ class RenderPreviewSession:
         if self.renderer is None:
             self.renderer = BackendRenderer()
         payload = await self.renderer.observe(snapshot, max_dimension=4096)
+        original = await self.renderer.observe(snapshot, view="original", max_dimension=4096)
         if self._closed or generation != self._generation:
             raise asyncio.CancelledError
         workspace = Workspace()
@@ -59,6 +61,7 @@ class RenderPreviewSession:
         context = ToolContext(
             workspace, AccessGrant({page_id}, {page_id}, {page_id}, set()),
             uuid4().hex, renderer=self.renderer,
+            original_image=ChatImage(original["image"], original.get("mime_type", "image/png")),
         )
         # Loading supplies the complete initial snapshot and makes the page editable.
         _remember(SimpleNamespace(deps=context), workspace.page(context, page_id))

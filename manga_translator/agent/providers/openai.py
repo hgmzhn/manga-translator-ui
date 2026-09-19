@@ -10,7 +10,7 @@ from contextlib import aclosing
 from typing import TYPE_CHECKING, AsyncIterator, Callable, cast
 
 from ..application.service import ChatTurnResult
-from ..domain.chat import ChatCanvas, ChatImage
+from ..domain.chat import ChatActivity, ChatCanvas, ChatImage
 from ...utils.openai_compat import resolve_openai_compatible_api_key
 from .request_debug import ContextTrace
 
@@ -82,7 +82,7 @@ class OpenAIResponsesBackend:
         images: tuple[ChatImage, ...],
         message_history: list[ModelMessage],
         tool_context: ToolContext | None = None,
-    ) -> AsyncIterator[str | ChatCanvas | ChatTurnResult]:
+    ) -> AsyncIterator[str | ChatActivity | ChatCanvas | ChatTurnResult]:
         trace = ContextTrace(self._on_debug_event, secret=self._api_key)
         trace.add("turn_start", {
             "model": self._model, "task_id": tool_context.task_id if tool_context is not None else "chat",
@@ -110,7 +110,7 @@ class OpenAIResponsesBackend:
     async def _stream(
         self, text: str, *, images: tuple[ChatImage, ...], message_history: list[ModelMessage],
         tool_context: ToolContext | None, trace: ContextTrace,
-    ) -> AsyncIterator[str | ChatCanvas | ChatTurnResult]:
+    ) -> AsyncIterator[str | ChatActivity | ChatCanvas | ChatTurnResult]:
         thinking_observer = self._on_thinking
         from openai import AsyncOpenAI, DefaultAsyncHttpxClient
         from openai.types.shared import ReasoningEffort
@@ -137,14 +137,19 @@ class OpenAIResponsesBackend:
 
         from ...utils.system_proxy import openai_http_client_kwargs
         from ..agents.chat import canvas_from_tool_result, create_agent, empty_context
+        from ..context.images import original_image_content
 
         context = tool_context if tool_context is not None else empty_context()
         logger.info("Agent turn started: model=%s task=%s history=%d images=%d",
                     self._model, context.task_id, len(message_history), len(images))
 
         prompt: str | list[str | BinaryContent] = text
-        if images:
+        original = original_image_content(context.original_image, context.task_id, message_history)
+        if images or original:
             prompt = [text] if text else []
+            prompt.extend(original)
+            if original and images:
+                prompt.append("以下为本轮用户附件及当前渲染图，顺序见当前编辑上下文：")
             prompt.extend(
                 BinaryContent(data=image.data, media_type=image.media_type)
                 for image in images
@@ -213,6 +218,7 @@ class OpenAIResponsesBackend:
                             response_index += 1
                             logger.info("Model response started: task=%s step=%d",
                                         context.task_id, response_index + 1)
+                            yield ChatActivity("response_start")
                         if isinstance(event.part, TextPart):
                             delta = event.part.content
                         elif isinstance(event.part, ThinkingPart):
@@ -238,6 +244,10 @@ class OpenAIResponsesBackend:
                         logger.info("Tool call: task=%s tool=%s call_id=%s args_valid=%s",
                                     context.task_id, event.part.tool_name,
                                     event.part.tool_call_id, event.args_valid)
+                        yield ChatActivity(
+                            "tool_call", event.part.tool_call_id, event.part.tool_name,
+                            trace.snapshot({"arguments": event.part.args, "args_valid": event.args_valid}),
+                        )
                     elif isinstance(event, FunctionToolResultEvent):
                         part = event.part
                         feedback = part.content
@@ -271,6 +281,10 @@ class OpenAIResponsesBackend:
                             data.get("status", "returned" if isinstance(part, ToolReturnPart) else "retry"),
                             data.get("render_status", "-"),
                             error.get("code", "-") if isinstance(error, dict) else "-",
+                        )
+                        yield ChatActivity(
+                            "tool_result", part.tool_call_id, part.tool_name,
+                            trace.snapshot({"result": feedback, "validation_error": isinstance(part, RetryPromptPart)}),
                         )
                         canvas = canvas_from_tool_result(event, context)
                         if canvas is not None:

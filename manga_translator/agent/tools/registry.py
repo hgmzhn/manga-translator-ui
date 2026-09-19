@@ -28,23 +28,24 @@ from .builtin.manager import (
     view_page_overview,
 )
 from .builtin.page import (
-    apply_edits,
     compare_revisions,
     observe_canvas,
     read_page,
     revert_edits,
 )
+from .builtin.skills import read_skill
 from .builtin.text import find_reference_pages, find_text, replace_text
+from .edit_tools import create_edit_tools
 
 
 _PAGE_TOOLS = (
+    read_skill,
     read_page,
     observe_canvas,
     find_reference_pages,
     find_text,
     replace_text,
     list_fonts,
-    apply_edits,
     compare_revisions,
     revert_edits,
 )
@@ -83,10 +84,13 @@ def create_toolset(
     if include_auxiliary:
         functions.extend(_AUXILIARY_TOOLS)
     toolset = WorkspaceToolset(
-        tools=[Tool(function, sequential=True) if function in (apply_edits, revert_edits)
+        tools=[Tool(function, sequential=True) if function is revert_edits
                else function for function in functions],
         id=f"workspace-{role}",
     )
+    if role == "page":
+        for tool in create_edit_tools():
+            toolset.add_tool(tool)
     if plugin_manager is None:
         from ..plugins import get_default_manager
 

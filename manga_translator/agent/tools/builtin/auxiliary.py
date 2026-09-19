@@ -71,6 +71,11 @@ async def fit_text(
     )
     ctx.deps.workspace.page(ctx.deps, page_id, snapshot["revision"])
     _remember(ctx, snapshot, [region_id])
+    # The renderer keeps its internal operation format; expose the ordinary edit tool's shape.
+    result = {**result, "edit_tool": "edit_regions", "proposed_edits": [
+        {"region_id": edit["region_id"], **edit["style"]}
+        for edit in result.get("proposed_edits", [])
+    ]}
     return result
 
 
@@ -124,5 +129,4 @@ async def check_text_changes(
         raise ToolError("output_too_large", "差异过大，请缩小页面正文后分步复核")
     _remember(ctx, new)
     return result
-
 

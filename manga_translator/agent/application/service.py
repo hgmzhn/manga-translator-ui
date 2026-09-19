@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 from typing import TYPE_CHECKING, Protocol
 
-from ..domain.chat import ChatCanvas, ChatImage
+from ..domain.chat import ChatActivity, ChatCanvas, ChatImage
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
@@ -32,7 +32,7 @@ class ChatBackend(Protocol):
         images: tuple[ChatImage, ...],
         message_history: list[ModelMessage],
         tool_context: ToolContext | None = None,
-    ) -> AsyncIterator[str | ChatCanvas | ChatTurnResult]:
+    ) -> AsyncIterator[str | ChatActivity | ChatCanvas | ChatTurnResult]:
         """Propagate errors and cancellation without yielding a final result."""
 
 
@@ -84,7 +84,7 @@ class ChatService:
         images: tuple[ChatImage, ...] = (),
         session_id: str = "default",
         tool_context: ToolContext | None = None,
-    ) -> AsyncIterator[str | ChatCanvas]:
+    ) -> AsyncIterator[str | ChatActivity | ChatCanvas]:
         """Yield deltas and commit only after normal exhaustion.
 
         Consumers stopping early must close the iterator, for example with
@@ -116,7 +116,7 @@ class ChatService:
                         raise RuntimeError("backend returned an event after its final result")
                     if isinstance(event, ChatTurnResult):
                         result = event
-                    elif isinstance(event, ChatCanvas):
+                    elif isinstance(event, (ChatActivity, ChatCanvas)):
                         yield event
                     elif isinstance(event, str):
                         if event:

@@ -54,8 +54,7 @@ class ContextTrace:
         if not self.enabled:
             return
         self._sequence += 1
-        payload = _snapshot(data, self._secret)
-        _summarize_images(payload)
+        payload = self.snapshot(data)
         record = {
             "id": record_id or f"{self.turn_id}:{self._sequence}",
             "turn_id": self.turn_id,
@@ -67,6 +66,12 @@ class ContextTrace:
             self._observer(record)
         except Exception:
             logging.getLogger(__name__).exception("Context debug observer failed")
+
+    def snapshot(self, data):
+        """Detach display data and redact secrets even when full tracing is disabled."""
+        payload = _snapshot(data, self._secret)
+        _summarize_images(payload)
+        return payload
 
     def response_event(self, response_index, event):
         if not self.enabled:

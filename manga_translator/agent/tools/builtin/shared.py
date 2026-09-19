@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import BinaryContent, RunContext
 from pydantic_ai.messages import ToolReturn
 
+from ...context.images import ORIGINAL_IMAGE_METADATA
 from ...domain.tool_models import PageRef, ToolContext, ToolError
 
 
@@ -53,7 +54,6 @@ _REGION_FIELDS = {
     "translation",
     "translation_raw",
     "translation_rich",
-    "lines",
     "center",
     "angle",
     "locked",
@@ -259,7 +259,9 @@ def _image_return(ctx, payload, **extra):
         return_value=metadata,
         content=[
             json.dumps(metadata, ensure_ascii=False),
-            BinaryContent(data=image, media_type=payload.get("mime_type", "image/png")),
+            BinaryContent(data=image, media_type=payload.get("mime_type", "image/png"),
+                          vendor_metadata={ORIGINAL_IMAGE_METADATA: True}
+                          if payload.get("view") == "original" else None),
         ],
     )
 
