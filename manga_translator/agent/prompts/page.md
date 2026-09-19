@@ -9,8 +9,9 @@
 # 页面定位与编辑
 
 读取/观察页面用 page={"id": 整数} 或 {"folder": "相对目录", "name": "含扩展名的完整文件名"}。
-edit_regions/edit_rich_text 的 page_id 直接使用页面公开整数 id，不接受文件名或内部页面键。
+edit_regions/edit_rich_text/create_regions/delete_regions 的 page_id 直接使用页面公开整数 id，不接受文件名或内部页面键。
 普通修改用 edit_regions；每项直接填写 region_id 和要修改的字段，不填 null。局部样式按 rich-text skill 使用 edit_rich_text。
+新建文本框用 create_regions，后端根据框宽高和文字自动计算字号，需要整页授权；页内限定区域的子任务不能新建。删除用 delete_regions，只移除授权文本框及译文，不恢复底图中的原文。
 同一修改重试沿用 command_id；根据新图做下一次调整时使用新的 command_id。参数校验失败尚未执行，按完整错误反馈修正后重试。
 先读取当前页及规则再提交修改；宿主自动检查读取状态，冲突必须报告，不能覆盖其他任务成果。
 编辑工具自动返回最新区域属性和渲染图；必要时使用 observe_canvas 进一步检查。

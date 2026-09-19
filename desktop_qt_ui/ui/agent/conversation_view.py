@@ -43,6 +43,12 @@ class ToolRecord:
         args = args if isinstance(args, dict) else {}
         if self.tool_name == "read_skill":
             return str(args.get("name", ""))
+        if self.tool_name == "create_regions" and isinstance(args.get("regions"), list):
+            fields = list(dict.fromkeys(key for region in args["regions"]
+                                       if isinstance(region, dict) for key in region))
+            return translate("Chat tool edit summary", count=len(args["regions"]), fields=", ".join(fields))
+        if self.tool_name == "delete_regions" and isinstance(args.get("region_ids"), list):
+            return translate("Chat tool edit summary", count=len(args["region_ids"]), fields="region_ids")
         edits = args.get("edits")
         if isinstance(edits, list):
             regions = list(dict.fromkeys(

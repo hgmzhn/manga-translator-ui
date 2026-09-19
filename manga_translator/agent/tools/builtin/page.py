@@ -123,19 +123,25 @@ async def compare_revisions(
     before_snapshot, after_snapshot = _comparison(ctx, transaction_id)
     page_id = after_snapshot["page_id"]
     before, after = before_snapshot["revision"], after_snapshot["revision"]
-    old = _public_page(before_snapshot, region_ids)
-    new = _public_page(after_snapshot, region_ids)
+    old_ids = {r["region_id"] for r in before_snapshot["regions"]}
+    new_ids = {r["region_id"] for r in after_snapshot["regions"]}
+    selected = old_ids | new_ids if region_ids is None else set(region_ids)
+    if not selected <= old_ids | new_ids:
+        raise ToolError("not_found", "事务前后均不包含指定区域")
+    old = _public_page(before_snapshot, list(selected & old_ids))
+    new = _public_page(after_snapshot, list(selected & new_ids))
     old_regions = {r["region_id"]: r for r in old["regions"]}
+    new_regions = {r["region_id"]: r for r in new["regions"]}
     diffs = []
-    for region in new["regions"]:
-        prior = old_regions.get(region["region_id"], {})
+    for rid in dict.fromkeys([*old_regions, *new_regions]):
+        prior, region = old_regions.get(rid, {}), new_regions.get(rid, {})
         changes = {
             key: {"before": prior.get(key), "after": region.get(key)}
             for key in prior.keys() | region.keys()
             if prior.get(key) != region.get(key)
         }
         if changes:
-            diffs.append({"region_id": region["region_id"], "changes": changes})
+            diffs.append({"region_id": rid, "changes": changes})
     images = []
     for revision in (before, after):
         payload = await _observe(ctx, page_id, revision, max_dimension=1200)

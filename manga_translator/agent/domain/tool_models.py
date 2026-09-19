@@ -243,6 +243,28 @@ class RegionEdit(RegionStylePatch):
         return self
 
 
+class NewRegion(ToolModel):
+    center: Point = Field(description="文本框中心，页面像素坐标 [x, y]")
+    width: Positive = Field(le=16000, description="文本框宽度，像素")
+    height: Positive = Field(le=16000, description="文本框高度，像素")
+    translation: str = Field(max_length=100_000)
+    direction: Literal["auto", "h", "v", "hr", "vr"] = "auto"
+    angle: float = Field(default=0, description="旋转角度，单位为度")
+
+
+class CreateRegion(NewRegion):
+    """Internal operation: the host fits the font before committing."""
+
+    op: Literal["create_region"] = "create_region"
+    region_id: str = Field(min_length=1)
+    font_size: Annotated[int, Field(strict=True, ge=1, le=8192)]
+
+
+class DeleteRegion(ToolModel):
+    op: Literal["delete_region"] = "delete_region"
+    region_id: str = Field(min_length=1)
+
+
 class SetRegionStyle(ToolModel):
     op: Literal["set_region_style"] = "set_region_style"
     region_id: str
@@ -275,7 +297,8 @@ class SetSpanStyle(ToolModel):
 
 
 Edit = Annotated[
-    SetRegionStyle | ReplaceRichText | SetGeometry | SetTranslation | SetSpanStyle,
+    SetRegionStyle | ReplaceRichText | SetGeometry | SetTranslation | SetSpanStyle
+    | CreateRegion | DeleteRegion,
     Field(discriminator="op"),
 ]
 

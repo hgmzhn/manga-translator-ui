@@ -7,6 +7,8 @@ from copy import deepcopy
 from pydantic import TypeAdapter, ValidationError
 
 from ..domain.tool_models import (
+    CreateRegion,
+    DeleteRegion,
     Edit,
     ReplaceRichText,
     SetGeometry,
@@ -18,6 +20,7 @@ from ..domain.tool_models import (
 )
 from . import text
 from .common import _patch
+from .regions import create_region
 
 _EDIT = TypeAdapter(Edit)
 
@@ -29,6 +32,11 @@ class WorkspaceCommands:
         permissions = []
         for edit in edits:
             rid = edit.region_id
+            if isinstance(edit, (CreateRegion, DeleteRegion)):
+                permissions.extend((cap, pid, rid) for cap in (
+                    "layout_pages", "geometry_pages", "translation_pages"
+                ))
+                continue
             capability = (
                 "translation_pages"
                 if isinstance(edit, SetTranslation)
@@ -51,7 +59,9 @@ class WorkspaceCommands:
     def _mutate(self, ctx, page, region, edit):
         if region.get("locked") or region.get("is_locked"):
             raise ToolError("region_locked", f"Region {region['region_id']} is locked")
-        if isinstance(edit, SetRegionStyle):
+        if isinstance(edit, DeleteRegion):
+            page["regions"].remove(region)
+        elif isinstance(edit, SetRegionStyle):
             patch = _patch(edit.style)
             if not patch or any(v is None for v in patch.values()):
                 raise ToolError(
@@ -107,6 +117,8 @@ class WorkspaceCommands:
         policy_version: int,
         edits: list[Edit],
         command_id: str,
+        *,
+        expected_revision: int | None = None,
     ) -> dict:
         with self._lock:
             try:
@@ -124,6 +136,8 @@ class WorkspaceCommands:
                     edit.model_dump(mode="json", exclude_unset=True) for edit in parsed
                 ],
             }
+            if expected_revision is not None:
+                payload["expected_revision"] = expected_revision
             self._active(ctx)
             replay = self._replay(ctx, command_id, payload)
             if replay is not None:
@@ -132,8 +146,21 @@ class WorkspaceCommands:
             if page is None:
                 raise ToolError("page_not_found", "Page is not registered")
             permissions = self._permissions(ctx, page, parsed)
-            touched = {edit.region_id for edit in parsed}
-            if set(expected_versions) != touched:
+            touched = list(dict.fromkeys(edit.region_id for edit in parsed))
+            created = {edit.region_id for edit in parsed if isinstance(edit, CreateRegion)}
+            structural = [edit.region_id for edit in parsed
+                          if isinstance(edit, (CreateRegion, DeleteRegion))]
+            if any(sum(edit.region_id == rid for edit in parsed) != 1 for rid in structural):
+                raise ToolError("invalid_edit", "新建或删除的区域不能在同一事务中重复操作")
+            if created:
+                grant = ctx.grant
+                while grant is not None:
+                    if page_id in grant.region_ids:
+                        raise ToolError("permission_denied", "新建文本框需要整页编辑授权")
+                    grant = grant.parent
+                if expected_revision != page["revision"]:
+                    raise ToolError("revision_conflict", "新建文本框的页面基准已变化，请重新读取")
+            if set(expected_versions) != set(touched):
                 raise ToolError(
                     "invalid_precondition",
                     "Expected versions must exactly cover edited regions",
@@ -144,6 +171,10 @@ class WorkspaceCommands:
                     "Page policy version differs from command precondition",
                 )
             for rid in touched:
+                if rid in created:
+                    if expected_versions[rid] != 0 or (page_id, rid) in self._region_versions:
+                        raise ToolError("version_conflict", "新区域 ID 已使用或新建基准无效")
+                    continue
                 if self._region(page, rid)["version"] != expected_versions[rid]:
                     raise ToolError(
                         "version_conflict",
@@ -154,8 +185,12 @@ class WorkspaceCommands:
                         },
                     )
             candidate = deepcopy(page)
-            before = {rid: deepcopy(self._region(page, rid)) for rid in touched}
+            before = {rid: None if rid in created else deepcopy(self._region(page, rid))
+                      for rid in touched}
             for edit in parsed:
+                if isinstance(edit, CreateRegion):
+                    candidate["regions"].append(create_region(candidate, edit))
+                    continue
                 self._mutate(
                     ctx, candidate, self._region(candidate, edit.region_id), edit
                 )
@@ -199,17 +234,36 @@ class WorkspaceCommands:
             candidate = deepcopy(page)
             before = {}
             for rid, version in expected_versions.items():
-                region = self._region(candidate, rid)
-                if region["version"] != version:
+                region = next((r for r in candidate["regions"] if r["region_id"] == rid), None)
+                if self._region_versions.get((page["page_id"], rid)) != version:
                     raise ToolError(
                         "version_conflict",
                         "Later region edits prevent compensating revert",
                     )
-                if region.get("locked") or region.get("is_locked"):
+                if region is not None and (region.get("locked") or region.get("is_locked")):
                     raise ToolError("region_locked", "Locked region cannot be reverted")
                 before[rid] = deepcopy(region)
-                region.clear()
-                region.update(deepcopy(transaction["before"][rid]))
+                prior = transaction["before"][rid]
+                if prior is None:
+                    candidate["regions"].remove(region)
+                elif region is not None:
+                    region.clear()
+                    region.update(deepcopy(prior))
+            # Restore deleted regions in their original relative order, preserving
+            # unrelated regions and edits made since this transaction.
+            order = transaction["before_order"]
+            for position, rid in enumerate(order):
+                if rid not in before or before[rid] is not None:
+                    continue
+                prior = transaction["before"][rid]
+                successors = set(order[position + 1:])
+                index = next((i for i, r in enumerate(candidate["regions"])
+                              if r["region_id"] in successors), None)
+                if index is None:
+                    predecessors = set(order[:position])
+                    index = max((i + 1 for i, r in enumerate(candidate["regions"])
+                                 if r["region_id"] in predecessors), default=0)
+                candidate["regions"].insert(index, deepcopy(prior))
             return self._commit(
                 ctx,
                 page,
@@ -219,4 +273,3 @@ class WorkspaceCommands:
                 payload,
                 command_id,
             )
-

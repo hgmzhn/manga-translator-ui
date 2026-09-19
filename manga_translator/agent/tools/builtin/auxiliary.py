@@ -101,13 +101,14 @@ async def check_text_changes(
     from ...workspace.text import text_of
 
     previous = {r["region_id"]: text_of(r, "translation") for r in old["regions"]}
+    current = {r["region_id"]: text_of(r, "translation") for r in new["regions"]}
     changes = []
-    for region in new["regions"]:
-        a, b = previous.get(region["region_id"], ""), text_of(region, "translation")
+    for rid in dict.fromkeys([*previous, *current]):
+        a, b = previous.get(rid, ""), current.get(rid, "")
         if a != b:
             changes.append(
                 {
-                    "region_id": region["region_id"],
+                    "region_id": rid,
                     "before": a,
                     "after": b,
                     "numbers_before": re.findall(r"\d+(?:[.,]\d+)*", a),
@@ -129,4 +130,3 @@ async def check_text_changes(
         raise ToolError("output_too_large", "差异过大，请缩小页面正文后分步复核")
     _remember(ctx, new)
     return result
-

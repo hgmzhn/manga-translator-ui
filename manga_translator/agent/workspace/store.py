@@ -56,6 +56,8 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
         self._history: dict[tuple[str, int], dict] = {}
         self._commands: dict[tuple[str, str], dict] = {}
         self._transactions: dict[str, dict] = {}
+        # Keep tombstone versions so delete/restore cannot revive stale edits.
+        self._region_versions: dict[tuple[str, str], int] = {}
         self._policies: dict[str, dict] = {}
         self._policy_history: dict[tuple[str, int], dict] = {}
         self._searches: OrderedDict[str, dict] = OrderedDict()
@@ -129,6 +131,8 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
                 if region.get("translation_rich") is not None:
                     text.store_document(region, doc)
             self._pages[pid] = page
+            self._region_versions.update({(pid, r["region_id"]): r["version"]
+                                          for r in page["regions"]})
             self._history[pid, page["revision"]] = deepcopy(page)
             return pid
 
@@ -342,16 +346,19 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
     def _commit(self, ctx, page, candidate, before, permissions, payload, command_id):
         if len(self._history) >= self.max_history:
             raise ToolError("resource_limit", "Workspace history capacity reached")
+        if len(candidate["regions"]) > 5000:
+            raise ToolError("resource_limit", "Page exceeds the region limit")
         for capability, pid, rid in permissions:
             self._authorize(ctx, capability, pid, rid)
         versions = {}
+        pid = page["page_id"]
+        regions = {region["region_id"]: region for region in candidate["regions"]}
         for rid in before:
-            region = self._region(candidate, rid)
-            region["version"] = before[rid]["version"] + 1
-            versions[rid] = region["version"]
+            versions[rid] = self._region_versions.get((pid, rid), 0) + 1
+            if rid in regions:
+                regions[rid]["version"] = versions[rid]
         candidate["revision"] = page["revision"] + 1
         transaction_id = uuid4().hex
-        pid = page["page_id"]
         result = {
             "status": "accepted",
             "page_id": pid,
@@ -362,17 +369,25 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
             "render_status": "not_rendered",
             "render_ticket": {"page_id": pid, "revision": candidate["revision"]},
         }
+        created = [rid for rid, prior in before.items() if prior is None]
+        deleted = [rid for rid in before if rid not in regions]
+        if created or deleted:
+            result.update(created_region_ids=created, deleted_region_ids=deleted)
+            sources = [bool(r.get("texts") or r.get("text")) for r in candidate["regions"]]
+            candidate["ocr_status"] = ("available" if sources and all(sources)
+                                       else "partial" if any(sources) else "missing")
         self._transactions[transaction_id] = {
             "task_id": ctx.task_id,
             "page_id": pid,
             "before": before,
+            "before_order": [region["region_id"] for region in page["regions"]],
             "versions": versions,
             "permissions": permissions,
             "policy_version": page["policy_version"],
         }
+        self._region_versions.update({(pid, rid): version for rid, version in versions.items()})
         self._pages[pid] = candidate
         self._history[pid, candidate["revision"]] = deepcopy(candidate)
         if command_id is not None:
             self._record(ctx, command_id, payload, permissions, result)
         return result
-

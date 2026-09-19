@@ -84,7 +84,7 @@ async def run(ctx: ToolContext, requirements: str, model: Model) -> PageResult:
         instructions=load_prompt("page") + "\n\n" + load_prompt("skills"),
         toolsets=[toolset],
         capabilities=[EditValidationFeedback([
-            toolset.tools[name] for name in ("edit_regions", "edit_rich_text")
+            toolset.tools[name] for name in ("edit_regions", "create_regions", "delete_regions", "edit_rich_text")
         ])],
         name="manga_page",
     )

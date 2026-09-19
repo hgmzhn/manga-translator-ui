@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from pydantic_ai.tools import Tool
 
-from .builtin.edits import edit_regions, edit_rich_text
+from .builtin.edits import create_regions, delete_regions, edit_regions, edit_rich_text
 
 
 def compact_edit_schema(schema):
@@ -54,5 +54,7 @@ async def prepare_edit(ctx, definition):
 def create_edit_tools():
     return [
         Tool(edit_regions, sequential=True, prepare=prepare_edit, max_retries=2),
+        Tool(create_regions, sequential=True, prepare=prepare_edit, max_retries=2),
+        Tool(delete_regions, sequential=True, prepare=prepare_edit, max_retries=2),
         Tool(edit_rich_text, sequential=True, prepare=prepare_edit, max_retries=2, defer_loading=True),
     ]

@@ -135,7 +135,9 @@ def _remember(ctx, snapshot, region_ids=None):
     pid = snapshot["page_id"]
     selected = None if region_ids is None else set(region_ids)
     prior = ctx.deps.read_snapshots.get(pid, {})
-    regions = {r["region_id"]: r for r in prior.get("regions", [])}
+    available = {r["region_id"] for r in snapshot["regions"]}
+    regions = {r["region_id"]: r for r in prior.get("regions", [])
+               if r["region_id"] in available}
     regions.update({
         r["region_id"]: {"region_id": r["region_id"], "version": r["version"]}
         for r in snapshot["regions"]
