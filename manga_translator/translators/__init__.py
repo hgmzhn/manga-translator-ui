@@ -136,6 +136,7 @@ LANGDETECT_MAP = {
     'uk': 'UKR',
     'vi': 'VIN',
     'ar': 'ARA',
+    'fa': 'PER',
     'hr': 'HRV',
     'th': 'THA',
     'id': 'IND',

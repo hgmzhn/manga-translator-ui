@@ -92,6 +92,7 @@ class TranslationService:
             'UKR': self._t('lang_UKR'),
             'VIN': self._t('lang_VIN'),
             'ARA': self._t('lang_ARA'),
+            'PER': self._t('lang_PER'),
             'SRP': self._t('lang_SRP'),
             'HRV': self._t('lang_HRV'),
             'THA': self._t('lang_THA'),

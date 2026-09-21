@@ -165,6 +165,7 @@ The Settings page, API-management translation tab, and editor property panel reu
 | `UKR` | Ukrainian | 乌克兰语 | Same as above |
 | `VIN` | Vietnamese | 越南语 | Same as above |
 | `ARA` | Arabic | 阿拉伯语 | Same as above |
+| `PER` | Persian | 波斯语 | Same as above |
 | `SRP` | Serbian | 塞尔维亚语 | Same as above |
 | `HRV` | Croatian | 克罗地亚语 | Same as above |
 | `THA` | Thai | 泰语 | Same as above |
