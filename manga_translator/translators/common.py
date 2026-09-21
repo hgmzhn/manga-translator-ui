@@ -124,6 +124,7 @@ _BR_EDGE_WHITESPACE_RE = re.compile(
     r"[^\S\r\n]*(\[BR\]|【BR】|<br\s*/?>)[^\S\r\n]*",
     re.IGNORECASE,
 )
+_RTL_LINE_BREAK_RE = re.compile(r"(\[BR\]|【BR】|<br\s*/?>)", re.IGNORECASE)
 
 
 class InvalidServerResponse(Exception):
@@ -2748,7 +2749,20 @@ class CommonTranslator(InfererModule):
         if to_lang in RTL_LANGUAGES:
             import arabic_reshaper
             import bidi.algorithm
-            translations = [bidi.algorithm.get_display(arabic_reshaper.reshape(t)) for t in translations]
+
+            def shape_rtl_text(text):
+                # Keep legacy line-break markers out of bidi processing. For
+                # example, ``<br/>`` can otherwise become ``</rb>`` and no
+                # longer match the renderer's line-break protocol.
+                parts = _RTL_LINE_BREAK_RE.split(text)
+                return ''.join(
+                    part
+                    if index % 2
+                    else bidi.algorithm.get_display(arabic_reshaper.reshape(part))
+                    for index, part in enumerate(parts)
+                )
+
+            translations = [shape_rtl_text(t) for t in translations]
 
         if use_mtpe:
             translations = await self.mtpe_adapter.dispatch(queries, translations)

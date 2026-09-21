@@ -96,6 +96,9 @@ def _translation_plain_text(value: Any) -> str:
     return plain_text_of(value)
 
 
+_LEGACY_LINE_BREAK_RE = re.compile(r"(?:\[BR\]|【BR】|<br\s*/?>)", re.IGNORECASE)
+
+
 def _reverse_ltr_blocks(text: str) -> str:
     """右到左（'r' 结尾方向）渲染时，把连续的 LTR（非 RTL 可见字符）块整体反转，
     使逐字符右到左绘制后仍以正常顺序显示。
@@ -106,27 +109,43 @@ def _reverse_ltr_blocks(text: str) -> str:
     if not text:
         return text
 
-    text_list = list(text)
-    l2r_idx = -1
+    def reverse_segment(segment: str) -> str:
+        text_list = list(segment)
+        l2r_idx = -1
 
-    def reverse_sublist(l, i1, i2):
-        delta = i2 - i1
-        for j1 in range(i1, i2 - delta // 2):
-            j2 = i2 - (j1 - i1) - 1
-            l[j1], l[j2] = l[j2], l[j1]
+        def reverse_sublist(l, i1, i2):
+            delta = i2 - i1
+            for j1 in range(i1, i2 - delta // 2):
+                j2 = i2 - (j1 - i1) - 1
+                l[j1], l[j2] = l[j2], l[j1]
 
-    for i, c in enumerate(text):
-        if not is_right_to_left_char(c) and is_valuable_char(c):
-            if l2r_idx < 0:
-                l2r_idx = i
-        elif l2r_idx >= 0 and i - l2r_idx > 1:
-            # Reverse left-to-right characters for correct rendering
-            reverse_sublist(text_list, l2r_idx, i)
-            l2r_idx = -1
-    if l2r_idx >= 0 and i - l2r_idx > 1:
-        reverse_sublist(text_list, l2r_idx, len(text_list))
+        for i, c in enumerate(segment):
+            if not is_right_to_left_char(c) and is_valuable_char(c):
+                if l2r_idx < 0:
+                    l2r_idx = i
+            elif l2r_idx >= 0 and i - l2r_idx > 1:
+                # Reverse left-to-right characters for correct rendering
+                reverse_sublist(text_list, l2r_idx, i)
+                l2r_idx = -1
+        if l2r_idx >= 0 and len(segment) - l2r_idx > 1:
+            reverse_sublist(text_list, l2r_idx, len(text_list))
 
-    return ''.join(text_list)
+        return ''.join(text_list)
+
+    # Keep legacy line-break markers intact. Reversing the ``BR`` letters in
+    # ``[BR]`` would turn it into ``[RB]`` and prevent the renderer from
+    # converting it to an actual line break.
+    parts = _LEGACY_LINE_BREAK_RE.split(text)
+    markers = _LEGACY_LINE_BREAK_RE.findall(text)
+    if not markers:
+        return reverse_segment(text)
+
+    result = []
+    for index, part in enumerate(parts):
+        result.append(reverse_segment(part))
+        if index < len(markers):
+            result.append(markers[index])
+    return ''.join(result)
 
 
 class TextBlock(object):
