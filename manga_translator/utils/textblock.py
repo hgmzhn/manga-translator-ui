@@ -49,6 +49,7 @@ LANGUAGE_ORIENTATION_PRESETS = {
     'UKR': 'h',
     'VIN': 'h',
     'ARA': 'hr', # horizontal reversed (right to left)
+    'PER': 'hr', # horizontal reversed (right to left)
     'FIL': 'h'
 }
 

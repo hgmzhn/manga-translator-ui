@@ -36,7 +36,7 @@ See [Translator Selection and Target Languages](../translator/selection-and-lang
 
 #### Target Language {#translator-target-lang}
 
-Choose the target language in the “Target Language” combo box. Options: Simplified Chinese, Traditional Chinese, Czech, Dutch, English, French, German, Hungarian, Italian, Japanese, Korean, Polish, Portuguese (Brazil), Romanian, Russian, Spanish, Turkish, Ukrainian, Vietnamese, Arabic, Serbian, Croatian, Thai, Indonesian, and Filipino (Tagalog). Default: `CHS`.
+Choose the target language in the “Target Language” combo box. Options: Simplified Chinese, Traditional Chinese, Czech, Dutch, English, French, German, Hungarian, Italian, Japanese, Korean, Polish, Portuguese (Brazil), Romanian, Russian, Spanish, Turkish, Ukrainian, Vietnamese, Arabic, Persian, Serbian, Croatian, Thai, Indonesian, and Filipino (Tagalog). Default: `CHS`.
 
 See [Translator Selection and Target Languages](../translator/selection-and-languages.md) for details.
 

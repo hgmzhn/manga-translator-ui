@@ -56,6 +56,7 @@ VALID_LANGUAGES = {
     'UKR': 'Ukrainian',
     'VIN': 'Vietnamese',
     'ARA': 'Arabic',
+    'PER': 'Persian',
     'CNR': 'Montenegrin',
     'SRP': 'Serbian',
     'HRV': 'Croatian',
@@ -94,6 +95,7 @@ ISO_639_1_TO_VALID_LANGUAGES = {
     'tr': 'TRK',
     'uk': 'UKR',
     'ar': 'ARA',
+    'fa': 'PER',
     'cnr': 'CNR',
     'sr': 'SRP',
     'hr': 'HRV',
@@ -101,6 +103,10 @@ ISO_639_1_TO_VALID_LANGUAGES = {
     'id': 'IND',
     'tl': 'FIL'
 }
+
+# Languages written with Arabic-derived scripts need shaping and bidi ordering
+# before they are passed to the raster renderer.
+RTL_LANGUAGES = frozenset(('ARA', 'PER'))
 
 ISO_639_1_TO_KEEP_LANGUAGES = {
     **ISO_639_1_TO_VALID_LANGUAGES,
@@ -2739,7 +2745,7 @@ class CommonTranslator(InfererModule):
 
         translations = [self._clean_translation_output(q, r, to_lang) for q, r in zip(queries, translations)]
 
-        if to_lang == 'ARA':
+        if to_lang in RTL_LANGUAGES:
             import arabic_reshaper
             import bidi.algorithm
             translations = [bidi.algorithm.get_display(arabic_reshaper.reshape(t)) for t in translations]
@@ -2811,7 +2817,7 @@ class CommonTranslator(InfererModule):
         # ' ! ! . . ' -> ' !!.. '
         trans = re.sub(r'([.,;!?])\s+(?=[.,;!?]|$)', r'\1', trans)
 
-        if to_lang != 'ARA':
+        if to_lang not in RTL_LANGUAGES:
             # 'text .' -> 'text.'
             trans = re.sub(r'(?<=[.,;!?\w])\s+([.,;!?])', r'\1', trans)
             # ' ... text' -> ' ...text'

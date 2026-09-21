@@ -124,6 +124,7 @@
 | 同上 | `UKR` | Ukrainian | 乌克兰语 | `lang_UKR` |
 | 同上 | `VIN` | Vietnamese | 越南语 | `lang_VIN` |
 | 同上 | `ARA` | Arabic | 阿拉伯语 | `lang_ARA` |
+| 同上 | `PER` | Persian | 波斯语 | `lang_PER` |
 | 同上 | `SRP` | Serbian | 塞尔维亚语 | `lang_SRP` |
 | 同上 | `HRV` | Croatian | 克罗地亚语 | `lang_HRV` |
 | 同上 | `THA` | Thai | 泰语 | `lang_THA` |

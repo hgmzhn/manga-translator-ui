@@ -165,6 +165,7 @@ lastUpdated: true
 | `UKR` | Ukrainian | 乌克兰语 | 同上 |
 | `VIN` | Vietnamese | 越南语 | 同上 |
 | `ARA` | Arabic | 阿拉伯语 | 同上 |
+| `PER` | Persian | 波斯语 | 同上 |
 | `SRP` | Serbian | 塞尔维亚语 | 同上 |
 | `HRV` | Croatian | 克罗地亚语 | 同上 |
 | `THA` | Thai | 泰语 | 同上 |

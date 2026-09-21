@@ -51,7 +51,7 @@ Default: `openai_hq`.
 
 ### Target Language
 
-The “Target Language” combo box is in Settings → Translation and chooses the target of a single translation request. It currently offers 25 languages: Simplified Chinese, Traditional Chinese, Czech, Dutch, English, French, German, Hungarian, Italian, Japanese, Korean, Polish, Portuguese (Brazil), Romanian, Russian, Spanish, Turkish, Ukrainian, Vietnamese, Arabic, Serbian, Croatian, Thai, Indonesian, and Filipino (Tagalog). Display text comes from the interface language files and is reverse-mapped to a three-letter code when saved.
+The “Target Language” combo box is in Settings → Translation and chooses the target of a single translation request. It currently offers 26 languages: Simplified Chinese, Traditional Chinese, Czech, Dutch, English, French, German, Hungarian, Italian, Japanese, Korean, Polish, Portuguese (Brazil), Romanian, Russian, Spanish, Turkish, Ukrainian, Vietnamese, Arabic, Persian, Serbian, Croatian, Thai, Indonesian, and Filipino (Tagalog). Display text comes from the interface language files and is reverse-mapped to a three-letter code when saved.
 
 Default: `CHS`.
 
