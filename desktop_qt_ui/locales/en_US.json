@@ -113,6 +113,8 @@
   "Add Rule": "Add Rule",
   "Toggle All": "Select All",
   "Select All": "Select All",
+  "Deselect All": "Deselect All",
+  "{count} selected": "{count} selected",
   "Enable": "Enable",
   "Disable": "Disable",
   "Cancel Regex": "Cancel Regex",

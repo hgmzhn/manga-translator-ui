@@ -108,6 +108,8 @@
   "Add Rule": "Añadir Regla",
   "Toggle All": "Seleccionar Todo",
   "Select All": "Seleccionar Todo",
+  "Deselect All": "Deseleccionar Todo",
+  "{count} selected": "{count} seleccionados",
   "Enable": "Activar",
   "Disable": "Desactivar",
   "Cancel Regex": "Cancelar Regex",

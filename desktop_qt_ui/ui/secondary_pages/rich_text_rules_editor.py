@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 import yaml
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -34,6 +34,7 @@ from qfluentwidgets import (
     SpinBox,
     SubtitleLabel,
     TableWidget,
+    ToolButton,
 )
 from qfluentwidgets import (
     FluentIcon as FIF,
@@ -49,7 +50,11 @@ from editor.rich_text_editing import (
 )
 from services import get_config_service, get_i18n_manager
 from ui.secondary_pages.fluent_dialog import DialogCode, FluentSecondaryDialog
-from ui.secondary_pages.replacements_editor import YamlHighlighter, _fixed_width_font
+from ui.secondary_pages.base_rule_editor import (
+    BaseYamlRuleEditorPanel,
+    YamlHighlighter,
+    _fixed_width_font,
+)
 from ui.secondary_pages.themed_message_box import themed_question, themed_warning
 from ui.widgets.color_picker import ColorPickerWidget
 from ui.widgets.wheel_filter import TopLevelComboBox as ComboBox
@@ -536,182 +541,62 @@ class RichTextStyleDialog(FluentSecondaryDialog):
         return copy.deepcopy(self._result_style)
 
 
-class RichTextRulesEditorPanel(CardWidget):
-    data_changed = pyqtSignal()
-    _AUTOSAVE_DELAY_MS = 600
-    COL_ENABLED, COL_PATTERN, COL_STYLE, COL_REGEX, COL_COMMENT = range(5)
-    _YES, _NO = "✓", "✗"
+class RichTextRulesEditorPanel(BaseYamlRuleEditorPanel):
+    """富文本规则可视化编辑面板"""
 
-    def __init__(self, t_func: Callable = None, parent=None):
-        super().__init__(parent)
-        self._t = t_func or (lambda value, **kwargs: value)
-        self._file_path = _rules_path()
-        self._modified = False
-        self._raw_mode = False
-        self._current_group = "common"
-        self._timer = QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._save)
-        self._setup_ui()
-        self._load()
+    COL_STYLE = 2
 
-    def _setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
-        toolbar = SimpleCardWidget(self)
-        bar = QHBoxLayout(toolbar)
-        bar.setContentsMargins(10, 8, 10, 8)
-        self.add_button = PushButton(self._t("Add Rule"), icon=FIF.ADD)
-        self.delete_button = PushButton(self._t("Delete"), icon=FIF.DELETE)
-        self.up_button = PushButton("↑", icon=FIF.UP)
-        self.down_button = PushButton("↓", icon=FIF.DOWN)
-        self.toggle_enabled_button = PushButton(self._t("Enable"), icon=FIF.ACCEPT)
-        self.toggle_regex_button = PushButton(self._t("Regex"), icon=FIF.CODE)
-        self.restore_button = PushButton(self._t("Restore Default"), icon=FIF.SYNC)
-        for button in (
-            self.add_button,
-            self.delete_button,
-            self.up_button,
-            self.down_button,
-            self.toggle_enabled_button,
-            self.toggle_regex_button,
-        ):
-            bar.addWidget(button)
-        bar.addStretch()
-        bar.addWidget(self.restore_button)
-        root.addWidget(toolbar)
+    def _get_file_path(self) -> str:
+        return _rules_path()
 
-        filter_card = SimpleCardWidget(self)
-        filter_layout = QHBoxLayout(filter_card)
-        filter_layout.setContentsMargins(10, 8, 10, 8)
-        self.filter_label = CaptionLabel(self._t("Filter:"))
-        filter_layout.addWidget(self.filter_label)
-        self.search = FluentLineEdit()
-        self.search.setPlaceholderText(
-            self._t("Type to filter by pattern / style / comment...")
-        )
-        self.search.setClearButtonEnabled(True)
-        filter_layout.addWidget(self.search, 1)
-        root.addWidget(filter_card)
-        self.filter_card = filter_card
+    def _get_header_labels(self) -> list[str]:
+        return [
+            self._t("Enabled"),
+            self._t("Pattern"),
+            self._t("Rich Text Style"),
+            self._t("Regex"),
+            self._t("Comment"),
+        ]
 
-        self.mode_segment = SegmentedWidget(self)
-        self.mode_stack = PopUpAniStackedWidget(self)
-        self.mode_pages: Dict[str, QWidget] = {}
-        table_page = SimpleCardWidget(self.mode_stack)
-        table_layout = QVBoxLayout(table_page)
-        table_layout.setContentsMargins(10, 10, 10, 10)
-        self.group_segment = SegmentedWidget(table_page)
-        self.group_stack = PopUpAniStackedWidget(table_page)
-        self.tables: Dict[str, TableWidget] = {}
-        for key, label in (
-            ("common", "Common (Always)"),
-            ("horizontal", "Horizontal"),
-            ("vertical", "Vertical"),
-        ):
-            table = self._create_table()
-            self.tables[key] = table
-            self.group_stack.addWidget(table)
-            self.group_segment.addItem(
-                key,
-                self._t(label),
-                onClick=lambda checked=False, value=key: self._set_group(value),
-            )
-        table_layout.addWidget(self.group_segment)
-        table_layout.addWidget(self.group_stack, 1)
-        self.mode_stack.addWidget(table_page)
-        self.mode_pages["table"] = table_page
+    def _get_filter_placeholder(self) -> str:
+        return self._t("Type to filter by pattern / style / comment...")
 
-        raw_page = SimpleCardWidget(self.mode_stack)
-        raw_layout = QVBoxLayout(raw_page)
-        raw_layout.setContentsMargins(10, 10, 10, 10)
-        self.raw_hint = CaptionLabel(
-            self._t("Edit raw YAML content directly. Changes are saved automatically.")
+    def _get_restore_confirm_message(self) -> str:
+        return self._t(
+            "Restore rich text rules to the built-in defaults? Current custom rules will be overwritten."
         )
-        self.raw_editor = PlainTextEdit()
-        self.raw_editor.setFont(_fixed_width_font(10))
-        self.raw_editor.setLineWrapMode(PlainTextEdit.LineWrapMode.NoWrap)
-        self.highlighter = YamlHighlighter(self.raw_editor.document())
-        raw_layout.addWidget(self.raw_hint)
-        raw_layout.addWidget(self.raw_editor, 1)
-        self.mode_stack.addWidget(raw_page)
-        self.mode_pages["raw"] = raw_page
-        self.mode_segment.addItem(
-            "table",
-            self._t("Table View"),
-            onClick=lambda checked=False: self._set_mode(False),
-        )
-        self.mode_segment.addItem(
-            "raw",
-            self._t("Raw Edit"),
-            onClick=lambda checked=False: self._set_mode(True),
-        )
-        root.addWidget(self.mode_segment)
-        root.addWidget(self.mode_stack, 1)
-        self.status = CaptionLabel("")
-        root.addWidget(self.status)
 
-        self.add_button.clicked.connect(self._add_rule)
-        self.delete_button.clicked.connect(self._delete_rule)
-        self.up_button.clicked.connect(lambda: self._move_rule(-1))
-        self.down_button.clicked.connect(lambda: self._move_rule(1))
-        self.toggle_enabled_button.clicked.connect(
-            lambda: self._toggle_column(self.COL_ENABLED)
+    def _do_restore_default(self) -> None:
+        from manga_translator.rendering.rich_text_rules import (
+            reset_rich_text_rules_to_default,
         )
-        self.toggle_regex_button.clicked.connect(
-            lambda: self._toggle_column(self.COL_REGEX)
+
+        reset_rich_text_rules_to_default(self._file_path)
+
+    def _invalidate_cache(self) -> None:
+        from manga_translator.rendering.rich_text_rules import (
+            invalidate_rich_text_rules_cache,
+            load_rich_text_rules,
         )
-        self.restore_button.clicked.connect(self._restore)
-        self.search.textChanged.connect(self._filter)
-        self.raw_editor.textChanged.connect(self._changed)
-        self._set_group("common")
-        self._set_mode(False)
+
+        invalidate_rich_text_rules_cache(self._file_path)
+        load_rich_text_rules(self._file_path)
+
+    def _create_rule_template(self) -> dict:
+        return {
+            "enabled": True,
+            "pattern": "",
+            "regex": False,
+            "style": {},
+            "comment": "",
+        }
 
     def _create_table(self) -> TableWidget:
-        table = TableWidget()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(
-            [
-                self._t("Enabled"),
-                self._t("Pattern"),
-                self._t("Rich Text Style"),
-                self._t("Regex"),
-                self._t("Comment"),
-            ]
-        )
-        table.setSelectionBehavior(TableWidget.SelectionBehavior.SelectRows)
-        table.setSelectionMode(TableWidget.SelectionMode.ExtendedSelection)
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(self.COL_ENABLED, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self.COL_PATTERN, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(
+        table = super()._create_table()
+        table.horizontalHeader().setSectionResizeMode(
             self.COL_STYLE, QHeaderView.ResizeMode.ResizeToContents
         )
-        header.setSectionResizeMode(self.COL_REGEX, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self.COL_COMMENT, QHeaderView.ResizeMode.Stretch)
-        table.setColumnWidth(self.COL_ENABLED, 55)
-        table.setColumnWidth(self.COL_REGEX, 55)
-        table.cellChanged.connect(self._changed)
-        table.cellDoubleClicked.connect(self._double_click)
         return table
-
-    def _set_group(self, group: str):
-        self._current_group = group
-        self.group_stack.setCurrentWidget(self.tables[group])
-        self.group_segment.setCurrentItem(group)
-
-    def _set_mode(self, raw: bool):
-        if raw and not self._raw_mode:
-            self._sync_raw_from_tables()
-        elif not raw and self._raw_mode:
-            if not self._sync_tables_from_raw(show_error=True):
-                self.mode_segment.setCurrentItem("raw")
-                return
-        self._raw_mode = raw
-        self.mode_stack.setCurrentWidget(self.mode_pages["raw" if raw else "table"])
-        self.mode_segment.setCurrentItem("raw" if raw else "table")
-        self.filter_card.setVisible(not raw)
 
     def _style_button(self, table: TableWidget, row: int, style: dict) -> PushButton:
         button = PushButton(_style_summary(style, self._t("Edit Style")))
@@ -730,9 +615,7 @@ class RichTextRulesEditorPanel(CardWidget):
             "styleHaystack", json.dumps(style, ensure_ascii=False).lower()
         )
 
-    def _insert(self, table: TableWidget, rule: dict, row: int | None = None):
-        row = table.rowCount() if row is None else row
-        table.insertRow(row)
+    def _populate_row(self, table: TableWidget, row: int, rule: dict) -> None:
         for column, value in (
             (self.COL_ENABLED, self._YES if rule.get("enabled", True) else self._NO),
             (self.COL_PATTERN, str(rule.get("pattern", ""))),
@@ -744,6 +627,7 @@ class RichTextRulesEditorPanel(CardWidget):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             table.setItem(row, column, item)
+
         editor_style = copy.deepcopy(rule.get("style") or {})
         ruby = rule.get("ruby") or ""
         if isinstance(ruby, str) and ruby:
@@ -752,270 +636,54 @@ class RichTextRulesEditorPanel(CardWidget):
             editor_style["tcy"] = True
         self._style_button(table, row, editor_style)
 
-    def _row_data(self, table: TableWidget, row: int) -> dict:
+    def _extract_row_data(self, table: TableWidget, row: int) -> Optional[dict]:
         button = table.cellWidget(row, self.COL_STYLE)
-        editor_style = copy.deepcopy(button.property("richStyle") or {})
+        editor_style = copy.deepcopy(button.property("richStyle") or {}) if button else {}
         ruby = str(editor_style.pop("ruby", "") or "")
         tcy = bool(editor_style.pop("tcy", False))
+        pattern_item = table.item(row, self.COL_PATTERN)
+        enabled_item = table.item(row, self.COL_ENABLED)
+        regex_item = table.item(row, self.COL_REGEX)
+        comment_item = table.item(row, self.COL_COMMENT)
+
+        pattern = pattern_item.text() if pattern_item else ""
         return {
-            "enabled": table.item(row, self.COL_ENABLED).text() == self._YES,
-            "pattern": table.item(row, self.COL_PATTERN).text(),
-            "regex": table.item(row, self.COL_REGEX).text() == self._YES,
+            "enabled": (enabled_item.text() == self._YES) if enabled_item else True,
+            "pattern": pattern,
+            "regex": (regex_item.text() == self._YES) if regex_item else False,
             "style": editor_style,
             "ruby": ruby,
             "tcy": tcy,
-            "comment": table.item(row, self.COL_COMMENT).text(),
+            "comment": comment_item.text() if comment_item else "",
         }
 
-    def _table_data(self) -> dict:
-        return {
-            key: [self._row_data(table, row) for row in range(table.rowCount())]
-            for key, table in self.tables.items()
-        }
+    def _get_row_filter_haystack(self, table: TableWidget, row: int) -> str:
+        pattern = table.item(row, self.COL_PATTERN)
+        comment = table.item(row, self.COL_COMMENT)
+        button = table.cellWidget(row, self.COL_STYLE)
+        style_haystack = str(button.property("styleHaystack") or "") if button else ""
+        return " ".join([
+            pattern.text() if pattern else "",
+            comment.text() if comment else "",
+            style_haystack,
+        ]).lower()
 
-    def _load(self):
-        try:
-            raw = open(self._file_path, "r", encoding="utf-8").read()
-            data = yaml.safe_load(raw) or {}
-        except Exception as exc:
-            self.status.setText(f"{self._t('Load error')}: {exc}")
-            return
-        self._populate(data)
-        self.raw_editor.blockSignals(True)
-        self.raw_editor.setPlainText(raw)
-        self.raw_editor.blockSignals(False)
-        self._modified = False
-        self._timer.stop()
-        self.status.setText(self._t("All changes saved"))
+    def _on_table_double_click(self, table: TableWidget, row: int, column: int) -> None:
+        if column == self.COL_STYLE:
+            button = table.cellWidget(row, column)
+            if isinstance(button, PushButton):
+                self._edit_style(button)
 
-    def _populate(self, data: dict):
-        for key, table in self.tables.items():
-            table.blockSignals(True)
-            table.setRowCount(0)
-            for rule in (
-                data.get(key, []) if isinstance(data.get(key, []), list) else []
-            ):
-                if isinstance(rule, dict):
-                    self._insert(table, rule)
-            table.blockSignals(False)
-
-    def _sync_raw_from_tables(self):
-        self.raw_editor.blockSignals(True)
-        self.raw_editor.setPlainText(
-            yaml.safe_dump(
-                self._table_data(), allow_unicode=True, sort_keys=False, width=120
-            )
-        )
-        self.raw_editor.blockSignals(False)
-
-    def _sync_tables_from_raw(self, show_error=False) -> bool:
-        try:
-            data = yaml.safe_load(self.raw_editor.toPlainText()) or {}
-            if not isinstance(data, dict):
-                raise ValueError(self._t("YAML root must be a mapping"))
-            for group in ("common", "horizontal", "vertical"):
-                if group in data and not isinstance(data[group], list):
-                    raise ValueError(
-                        self._t("Rule group '{group}' must be a list", group=group)
-                    )
-        except Exception as exc:
-            if show_error:
-                themed_warning(self, self._t("YAML Error"), str(exc))
-            return False
-        self._populate(data)
-        return True
-
-    def _changed(self, *args):
-        self._modified = True
-        self.status.setText(self._t("Saving..."))
-        self._timer.start(self._AUTOSAVE_DELAY_MS)
-
-    def _save(self):
-        raw = (
-            self.raw_editor.toPlainText()
-            if self._raw_mode
-            else yaml.safe_dump(
-                self._table_data(), allow_unicode=True, sort_keys=False, width=120
-            )
-        )
-        try:
-            data = yaml.safe_load(raw) or {}
-            if not isinstance(data, dict):
-                raise ValueError(self._t("YAML root must be a mapping"))
-            with open(self._file_path, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(raw.rstrip() + "\n")
-            from manga_translator.rendering.rich_text_rules import (
-                invalidate_rich_text_rules_cache,
-                load_rich_text_rules,
-            )
-
-            invalidate_rich_text_rules_cache(self._file_path)
-            load_rich_text_rules(self._file_path)
-        except Exception as exc:
-            self.status.setText(f"{self._t('Save error')}: {exc}")
-            return
-        if not self._raw_mode:
-            self._sync_raw_from_tables()
-        self._modified = False
-        self.status.setText(self._t("All changes saved"))
-        self.data_changed.emit()
-
-    def _add_rule(self):
-        if self._raw_mode:
-            return
-        table = self.tables[self._current_group]
-        table.blockSignals(True)
-        self._insert(
-            table,
-            {
-                "enabled": True,
-                "pattern": "",
-                "regex": False,
-                "style": {},
-                "comment": "",
-            },
-        )
-        table.blockSignals(False)
-        row = table.rowCount() - 1
-        table.selectRow(row)
-        table.editItem(table.item(row, self.COL_PATTERN))
-        self._changed()
-
-    def _delete_rule(self):
-        if self._raw_mode:
-            return
-        table = self.tables[self._current_group]
-        rows = sorted({index.row() for index in table.selectedIndexes()}, reverse=True)
-        for row in rows:
-            table.removeRow(row)
-        if rows:
-            self._changed()
-
-    def _move_rule(self, delta: int):
-        if self._raw_mode:
-            return
-        table = self.tables[self._current_group]
-        row = table.currentRow()
-        target = row + delta
-        if row < 0 or target < 0 or target >= table.rowCount():
-            return
-        first, second = self._row_data(table, row), self._row_data(table, target)
-        table.blockSignals(True)
-        table.removeRow(max(row, target))
-        table.removeRow(min(row, target))
-        low = min(row, target)
-        ordered = (first, second) if row < target else (second, first)
-        self._insert(table, ordered[1], low)
-        self._insert(table, ordered[0], low + 1)
-        table.blockSignals(False)
-        table.selectRow(target)
-        self._changed()
-
-    def _toggle_column(self, column: int):
-        table = self.tables[self._current_group]
-        rows = sorted({index.row() for index in table.selectedIndexes()})
-        if not rows and table.currentRow() >= 0:
-            rows = [table.currentRow()]
-        if not rows:
-            return
-        enable = any(table.item(row, column).text() != self._YES for row in rows)
-        table.blockSignals(True)
-        for row in rows:
-            table.item(row, column).setText(self._YES if enable else self._NO)
-        table.blockSignals(False)
-        self._changed()
-
-    def _double_click(self, row: int, column: int):
-        if column in (self.COL_ENABLED, self.COL_REGEX):
-            table = self.tables[self._current_group]
-            item = table.item(row, column)
-            item.setText(self._NO if item.text() == self._YES else self._YES)
-            self._changed()
-        elif column == self.COL_STYLE:
-            self._edit_style(self.tables[self._current_group].cellWidget(row, column))
-
-    def _edit_style(self, button: PushButton):
+    def _edit_style(self, button: PushButton) -> None:
         dialog = RichTextStyleDialog(button.property("richStyle") or {}, self._t, self)
         if dialog.exec() == DialogCode.Accepted:
             style = dialog.style()
             self._set_button_style(button, style)
             button.setText(_style_summary(style, self._t("Edit Style")))
-            self._changed()
+            self._mark_modified()
 
-    def _filter(self, text: str):
-        # 样式(含 ruby/tcy)的搜索文本在设置样式时已缓存到按钮属性，
-        # 每次按键只做字符串拼接与包含判断。
-        query = text.strip().lower()
+    def _refresh_ui_texts_extra(self) -> None:
         for table in self.tables.values():
-            for row in range(table.rowCount()):
-                haystack = " ".join(
-                    (
-                        table.item(row, self.COL_PATTERN).text(),
-                        table.item(row, self.COL_COMMENT).text(),
-                        str(
-                            table.cellWidget(row, self.COL_STYLE).property(
-                                "styleHaystack"
-                            )
-                            or ""
-                        ),
-                    )
-                ).lower()
-                table.setRowHidden(row, bool(query and query not in haystack))
-
-    def _restore(self):
-        reply = themed_question(
-            self,
-            self._t("Restore Default"),
-            self._t(
-                "Restore rich text rules to the built-in defaults? Current custom rules will be overwritten."
-            ),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        from manga_translator.rendering.rich_text_rules import (
-            reset_rich_text_rules_to_default,
-        )
-
-        reset_rich_text_rules_to_default(self._file_path)
-        self._load()
-
-    def refresh(self):
-        if not self._modified:
-            self._load()
-
-    def refresh_ui_texts(self):
-        self.add_button.setText(self._t("Add Rule"))
-        self.delete_button.setText(self._t("Delete"))
-        self.toggle_enabled_button.setText(self._t("Enable"))
-        self.toggle_regex_button.setText(self._t("Regex"))
-        self.restore_button.setText(self._t("Restore Default"))
-        self.filter_label.setText(self._t("Filter:"))
-        self.search.setPlaceholderText(
-            self._t("Type to filter by pattern / style / comment...")
-        )
-        self.raw_hint.setText(
-            self._t("Edit raw YAML content directly. Changes are saved automatically.")
-        )
-        self.mode_segment.setItemText("table", self._t("Table View"))
-        self.mode_segment.setItemText("raw", self._t("Raw Edit"))
-        for key, label in (
-            ("common", "Common (Always)"),
-            ("horizontal", "Horizontal"),
-            ("vertical", "Vertical"),
-        ):
-            self.group_segment.setItemText(key, self._t(label))
-        for table in self.tables.values():
-            table.setHorizontalHeaderLabels(
-                [
-                    self._t("Enabled"),
-                    self._t("Pattern"),
-                    self._t("Rich Text Style"),
-                    self._t("Regex"),
-                    self._t("Comment"),
-                ]
-            )
             for row in range(table.rowCount()):
                 button = table.cellWidget(row, self.COL_STYLE)
                 if button is not None:
@@ -1025,10 +693,8 @@ class RichTextRulesEditorPanel(CardWidget):
                             self._t("Edit Style"),
                         )
                     )
-        if not self._modified:
-            self.status.setText(self._t("All changes saved"))
 
-    def apply_theme(self):
+    def _apply_theme_extra(self) -> None:
         for picker in self.findChildren(ColorPickerWidget):
             picker.refresh_theme()
-        self.update()
+
