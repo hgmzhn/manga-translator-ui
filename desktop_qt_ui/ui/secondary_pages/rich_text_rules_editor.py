@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 import yaml
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal

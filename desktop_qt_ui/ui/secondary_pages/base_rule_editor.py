@@ -51,6 +51,34 @@ class YamlHighlighter(QSyntaxHighlighter):
             fmt = QTextCharFormat()
             fmt.setFontItalic(True)
             self.setFormat(0, len(text), fmt)
+            return
+
+        colon_idx = text.find(":")
+        if colon_idx > 0 and not text.lstrip().startswith("-"):
+            fmt = QTextCharFormat()
+            fmt.setFontWeight(QFont.Weight.Bold)
+            self.setFormat(0, colon_idx, fmt)
+
+
+class _UniqueKeyYamlLoader(yaml.SafeLoader):
+    """自定义 SafeLoader，检测并拒绝直接声明的重复映射键，同时保留 YAML 合并覆盖（<<: *anchor）的合法语义。"""
+
+    def construct_mapping(self, node, deep=False):
+        if isinstance(node, yaml.MappingNode):
+            seen_keys = set()
+            for key_node, _ in node.value:
+                if key_node.tag == "tag:yaml.org,2002:merge":
+                    continue
+                key = self.construct_object(key_node, deep=deep)
+                if key in seen_keys:
+                    raise yaml.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        f"found duplicate key '{key}'",
+                        key_node.start_mark,
+                    )
+                seen_keys.add(key)
+        return super().construct_mapping(node, deep=deep)
 
 
 class BaseYamlRuleEditorPanel(CardWidget):
@@ -67,6 +95,16 @@ class BaseYamlRuleEditorPanel(CardWidget):
         ("horizontal", "Horizontal"),
         ("vertical", "Vertical"),
     )
+
+    @classmethod
+    def _safe_load_yaml(cls, raw_text: str) -> dict:
+        """统一 YAML 解析：确保根节点为 dict，空内容返回空字典，拒绝重复键与非 dict 根节点"""
+        raw = yaml.load(raw_text, Loader=_UniqueKeyYamlLoader)
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise ValueError("YAML root must be a dict")
+        return raw
 
     def __init__(self, t_func: Optional[Callable] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -401,9 +439,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
     def _enter_table_mode(self) -> None:
         raw_text = self.raw_editor.toPlainText()
         try:
-            data = yaml.safe_load(raw_text) or {}
-            if not isinstance(data, dict):
-                raise ValueError("YAML root must be a dict")
+            data = self._safe_load_yaml(raw_text)
             for group_key, _ in self.GROUPS:
                 if group_key in data and not isinstance(data[group_key], list):
                     raise ValueError(self._t(f"Rule group '{group_key}' must be a list"))
@@ -442,7 +478,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
         try:
             with open(self._file_path, "r", encoding="utf-8") as f:
                 raw_content = f.read()
-                data = yaml.safe_load(raw_content) or {}
+            data = self._safe_load_yaml(raw_content)
         except Exception as exc:
             self.status.setText(f"{self._t('Load error')}: {exc}")
             return
@@ -479,7 +515,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
             rules = []
             for row in range(table.rowCount()):
                 item = self._extract_row_data(table, row)
-                if item is not None and item.get("pattern"):
+                if item is not None:
                     rules.append(item)
             data[group_key] = rules
         return data
@@ -511,9 +547,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
 
     def _save_raw_content(self, raw_text: str, show_errors: bool = False) -> bool:
         try:
-            data = yaml.safe_load(raw_text) or {}
-            if not isinstance(data, dict):
-                raise ValueError("YAML root must be a dict")
+            self._safe_load_yaml(raw_text)
         except Exception as exc:
             msg = self._t("YAML syntax error, changes not saved.")
             if show_errors:
