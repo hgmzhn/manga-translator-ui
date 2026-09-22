@@ -34,6 +34,7 @@ from qfluentwidgets import (
     SpinBox,
     SubtitleLabel,
     TableWidget,
+    ToolButton,
 )
 from qfluentwidgets import (
     FluentIcon as FIF,
@@ -564,8 +565,10 @@ class RichTextRulesEditorPanel(CardWidget):
         bar.setContentsMargins(10, 8, 10, 8)
         self.add_button = PushButton(self._t("Add Rule"), icon=FIF.ADD)
         self.delete_button = PushButton(self._t("Delete"), icon=FIF.DELETE)
-        self.up_button = PushButton("↑", icon=FIF.UP)
-        self.down_button = PushButton("↓", icon=FIF.DOWN)
+        self.up_button = ToolButton(FIF.UP, self)
+        self.up_button.setToolTip(self._t("Move Up"))
+        self.down_button = ToolButton(FIF.DOWN, self)
+        self.down_button.setToolTip(self._t("Move Down"))
         self.toggle_enabled_button = PushButton(self._t("Enable"), icon=FIF.ACCEPT)
         self.toggle_regex_button = PushButton(self._t("Regex"), icon=FIF.CODE)
         self.restore_button = PushButton(self._t("Restore Default"), icon=FIF.SYNC)
@@ -988,6 +991,8 @@ class RichTextRulesEditorPanel(CardWidget):
     def refresh_ui_texts(self):
         self.add_button.setText(self._t("Add Rule"))
         self.delete_button.setText(self._t("Delete"))
+        self.up_button.setToolTip(self._t("Move Up"))
+        self.down_button.setToolTip(self._t("Move Down"))
         self.toggle_enabled_button.setText(self._t("Enable"))
         self.toggle_regex_button.setText(self._t("Regex"))
         self.restore_button.setText(self._t("Restore Default"))

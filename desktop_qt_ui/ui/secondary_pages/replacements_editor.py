@@ -29,6 +29,7 @@ from qfluentwidgets import (
     SegmentedWidget,
     SimpleCardWidget,
     TableWidget as QTableWidget,
+    ToolButton,
 )
 from ui.secondary_pages.themed_message_box import themed_question, themed_warning
 
@@ -113,12 +114,10 @@ class ReplacementsEditorPanel(CardWidget):
         self._add_button.setIcon(FIF.ADD)
         self._delete_button = QPushButton(self._t("Delete"))
         self._delete_button.setIcon(FIF.DELETE)
-        self._move_up_button = QPushButton("↑")
-        self._move_up_button.setIcon(FIF.UP)
-        self._move_up_button.setFixedWidth(32)
-        self._move_down_button = QPushButton("↓")
-        self._move_down_button.setIcon(FIF.DOWN)
-        self._move_down_button.setFixedWidth(32)
+        self._move_up_button = ToolButton(FIF.UP, self)
+        self._move_up_button.setToolTip(self._t("Move Up"))
+        self._move_down_button = ToolButton(FIF.DOWN, self)
+        self._move_down_button.setToolTip(self._t("Move Down"))
 
         self._select_all_button = QPushButton(self._t("Select All"))
         self._select_all_button.setIcon(FIF.CHECKBOX)
@@ -870,6 +869,8 @@ class ReplacementsEditorPanel(CardWidget):
         """刷新UI文本（语言切换）"""
         self._add_button.setText(self._t("Add Rule"))
         self._delete_button.setText(self._t("Delete"))
+        self._move_up_button.setToolTip(self._t("Move Up"))
+        self._move_down_button.setToolTip(self._t("Move Down"))
         self._restore_default_button.setText(self._t("Restore Default"))
         self._select_all_button.setText(self._t("Select All"))
         self._on_selection_changed()  # 刷新启用/正则按钮文字
