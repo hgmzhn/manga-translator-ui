@@ -108,6 +108,8 @@
   "Add Rule": "ルール追加",
   "Toggle All": "全選択",
   "Select All": "全選択",
+  "Deselect All": "選択解除",
+  "{count} selected": "{count} 件選択中",
   "Enable": "有効化",
   "Disable": "無効化",
   "Cancel Regex": "正規表現解除",

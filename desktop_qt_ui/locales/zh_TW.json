@@ -108,6 +108,8 @@
   "Add Rule": "新增規則",
   "Toggle All": "全選",
   "Select All": "全選",
+  "Deselect All": "取消全選",
+  "{count} selected": "已選取 {count} 項",
   "Enable": "啟用",
   "Disable": "停用",
   "Cancel Regex": "取消正則",

@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
-    FluentIcon as FIF,
     PushButton as QPushButton,
     TableWidget as QTableWidget,
 )
@@ -84,23 +83,12 @@ class ReplacementsEditorPanel(BaseYamlRuleEditorPanel):
             "comment": "",
         }
 
-    def _init_extra_toolbar_buttons_before_toggles(self, bar: QHBoxLayout) -> None:
-        self._select_all_button = QPushButton(self._t("Select All"))
-        self._select_all_button.setIcon(FIF.CHECKBOX)
-        self._select_all_button.clicked.connect(self._on_select_all)
-        bar.addWidget(self._select_all_button)
-
     def _init_extra_filter_widgets(self, filter_layout: QHBoxLayout) -> None:
         self._preset_slot = QWidget(filter_layout.parentWidget())
         self._preset_slot_layout = QHBoxLayout(self._preset_slot)
         self._preset_slot_layout.setContentsMargins(0, 0, 0, 0)
         self._preset_slot_layout.setSpacing(6)
         filter_layout.addWidget(self._preset_slot)
-
-    def _set_table_controls_enabled(self, enabled: bool) -> None:
-        super()._set_table_controls_enabled(enabled)
-        if hasattr(self, "_select_all_button"):
-            self._select_all_button.setEnabled(enabled)
 
     def _populate_row(self, table: QTableWidget, row: int, rule: dict) -> None:
         pattern = str(rule.get("pattern", ""))
@@ -164,26 +152,6 @@ class ReplacementsEditorPanel(BaseYamlRuleEditorPanel):
             item = table.item(row, col)
             if item:
                 item.setForeground(QTableWidgetItem().foreground())
-
-    def _on_select_all(self) -> None:
-        """选中表格中所有可见行"""
-        if self._is_raw_mode():
-            return
-        table = self._current_table()
-        table.blockSignals(True)
-        table.clearSelection()
-        for r in range(table.rowCount()):
-            if not table.isRowHidden(r):
-                for c in range(table.columnCount()):
-                    item = table.item(r, c)
-                    if item:
-                        item.setSelected(True)
-        table.blockSignals(False)
-        self._on_selection_changed()
-
-    def _refresh_ui_texts_extra(self) -> None:
-        if hasattr(self, "_select_all_button"):
-            self._select_all_button.setText(self._t("Select All"))
 
     # ─── 预设按钮扩展接口 ───
 

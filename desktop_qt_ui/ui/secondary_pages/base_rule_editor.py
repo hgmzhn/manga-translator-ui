@@ -7,7 +7,7 @@ import sys
 from typing import Any, Callable, Dict, List, Optional
 
 import yaml
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QItemSelectionModel, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QFontDatabase, QSyntaxHighlighter, QTextCharFormat
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -168,10 +168,13 @@ class BaseYamlRuleEditorPanel(CardWidget):
         self.down_button = ToolButton(FIF.DOWN, self)
         self.down_button.setToolTip(self._t("Move Down"))
 
+        self.select_all_button = PushButton(self._t("Select All"), icon=FIF.CHECKBOX)
+
         toolbar_layout.addWidget(self.add_button)
         toolbar_layout.addWidget(self.delete_button)
         toolbar_layout.addWidget(self.up_button)
         toolbar_layout.addWidget(self.down_button)
+        toolbar_layout.addWidget(self.select_all_button)
 
         self._init_extra_toolbar_buttons_before_toggles(toolbar_layout)
 
@@ -281,6 +284,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
         self.delete_button.clicked.connect(self._on_delete_rule)
         self.up_button.clicked.connect(lambda: self._on_move_rule(-1))
         self.down_button.clicked.connect(lambda: self._on_move_rule(1))
+        self.select_all_button.clicked.connect(self._on_select_all)
         self.toggle_enabled_button.clicked.connect(self._on_toggle_enabled)
         self.toggle_regex_button.clicked.connect(self._on_toggle_regex)
         self.restore_button.clicked.connect(self._on_restore_default)
@@ -293,6 +297,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
         self._delete_button = self.delete_button
         self._move_up_button = self.up_button
         self._move_down_button = self.down_button
+        self._select_all_button = self.select_all_button
         self._toggle_enabled_button = self.toggle_enabled_button
         self._toggle_regex_button = self.toggle_regex_button
         self._restore_default_button = self.restore_button
@@ -342,9 +347,8 @@ class BaseYamlRuleEditorPanel(CardWidget):
         self._current_group = group_key
         self.group_stack.setCurrentWidget(self.tables[group_key])
         self.group_segment.setCurrentItem(group_key)
-        self._update_status()
-        self._on_selection_changed()
         self._apply_filter(self._current_table(), self.search.text())
+        self._on_selection_changed()
 
     def _show_mode_page(self, mode_key: str) -> None:
         page = self._mode_pages.get(mode_key)
@@ -360,6 +364,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
             self.delete_button,
             self.up_button,
             self.down_button,
+            self.select_all_button,
             self.toggle_enabled_button,
             self.toggle_regex_button,
         ):
@@ -545,10 +550,20 @@ class BaseYamlRuleEditorPanel(CardWidget):
     def _on_selection_changed(self) -> None:
         rows = self._get_selected_rows()
         table = self._current_table()
+        visible_rows = [r for r in range(table.rowCount()) if not table.isRowHidden(r)]
+
+        if visible_rows and set(visible_rows).issubset(set(rows)):
+            self.select_all_button.setText(self._t("Deselect All"))
+            self.select_all_button.setIcon(FIF.CLEAR_SELECTION)
+        else:
+            self.select_all_button.setText(self._t("Select All"))
+            self.select_all_button.setIcon(FIF.CHECKBOX)
+
         if not rows:
             self.toggle_enabled_button.setText(self._t("Enable"))
             self.toggle_regex_button.setText(self._t("Regex"))
             self._on_selection_changed_extra([])
+            self._update_status()
             return
 
         enabled_count = sum(
@@ -571,6 +586,39 @@ class BaseYamlRuleEditorPanel(CardWidget):
             self.toggle_regex_button.setText(self._t("Regex"))
 
         self._on_selection_changed_extra(rows)
+        self._update_status()
+
+    def _on_select_all(self) -> None:
+        """切换全部选中 / 取消全选（只作用于当前可见行）"""
+        if self._is_raw_mode():
+            return
+        table = self._current_table()
+        visible_rows = [r for r in range(table.rowCount()) if not table.isRowHidden(r)]
+        if not visible_rows:
+            return
+
+        selected_rows = self._get_selected_rows()
+        if set(visible_rows).issubset(set(selected_rows)):
+            table.clearSelection()
+        else:
+            table.blockSignals(True)
+            table.clearSelection()
+            sm = table.selectionModel()
+            if sm is not None:
+                for r in visible_rows:
+                    sm.select(
+                        table.model().index(r, 0),
+                        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+                    )
+            else:
+                for r in visible_rows:
+                    for c in range(table.columnCount()):
+                        item = table.item(r, c)
+                        if item:
+                            item.setSelected(True)
+            table.blockSignals(False)
+
+        self._on_selection_changed()
 
     def _on_add_rule(self) -> None:
         if self._raw_mode:
@@ -692,6 +740,7 @@ class BaseYamlRuleEditorPanel(CardWidget):
         if self._raw_mode:
             return
         self._apply_filter(self._current_table(), text)
+        self._on_selection_changed()
 
     def _apply_filter(self, table: TableWidget, query: str) -> None:
         q = (query or "").strip().lower()
@@ -732,10 +781,15 @@ class BaseYamlRuleEditorPanel(CardWidget):
             1 for r in range(total)
             if table.item(r, self.COL_ENABLED) and table.item(r, self.COL_ENABLED).text() == self._YES
         )
+        selected_count = len(self._get_selected_rows())
+        selected_info = ""
+        if selected_count > 0:
+            selected_fmt = self._t("{count} selected")
+            selected_info = f" ({selected_fmt.replace('{count}', str(selected_count))})"
         modified_mark = " ●" if self._modified else ""
         mode = self._t("Raw Edit") if self._raw_mode else self._t("Table View")
         self.status.setText(
-            f"{group_key}: {enabled}/{total} {self._t('enabled')}{modified_mark}  [{mode}]"
+            f"{group_key}: {enabled}/{total} {self._t('enabled')}{selected_info}{modified_mark}  [{mode}]"
         )
 
     # ─── 公共接口 ───

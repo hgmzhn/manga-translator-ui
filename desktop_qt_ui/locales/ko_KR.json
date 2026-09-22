@@ -108,6 +108,8 @@
   "Add Rule": "규칙 추가",
   "Toggle All": "모두 선택",
   "Select All": "모두 선택",
+  "Deselect All": "선택 해제",
+  "{count} selected": "{count}개 선택됨",
   "Enable": "활성화",
   "Disable": "비활성화",
   "Cancel Regex": "정규식 해제",
