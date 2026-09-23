@@ -125,7 +125,7 @@
   "Regex": "正規表現",
   "Comment": "コメント",
   "enabled": "有効",
-  "Type to filter by pattern / style / comment...": "パターン / スタイル / コメントで絞り込むには入力してください…",
+  "Type to filter by pattern / style / comment...": "パターン / スタイル / コメントで絞り込み...",
   "Edit raw YAML content directly. Save to apply changes.": "YAML を直接編集します。保存で反映されます。",
   "Edit raw YAML content directly. Changes are saved automatically.": "YAML を直接編集します。変更は自動保存されます。",
   "All changes saved": "すべての変更を保存しました",
