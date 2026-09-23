@@ -10,11 +10,11 @@
     "release_config": "config/config-example.json"
   },
   "baseline_comparison": {
-    "requested_baseline": 111,
-    "layout_parameter_entries": 111,
-    "visible_parameter_fields": 110,
+    "requested_baseline": 112,
+    "layout_parameter_entries": 112,
+    "visible_parameter_fields": 111,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111)."
+    "difference_explanation": "The layout has 112 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 111 visible settings rows (one below 112)."
   },
   "records": [
     {
@@ -420,6 +420,28 @@
       "defaults": {
         "release_json_value": false,
         "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.unload_models_after_translation"
+      },
+      "lifecycle_stages": [
+        "application"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
+      "key": "app.after_translation_action",
+      "ui": {
+        "tab": "General",
+        "i18n_key": "label_after_translation_action",
+        "english": "After translation",
+        "simplified_chinese": "任务完成后"
+      },
+      "wiki_page": "desktop/settings/general-and-app.md",
+      "control": "combo",
+      "defaults": {
+        "release_json_value": "none",
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#AppSection.after_translation_action"
       },
       "lifecycle_stages": [
         "application"
@@ -2523,7 +2545,7 @@
     }
   ],
   "validation": {
-    "record_count": 110,
+    "record_count": 111,
     "ui_labels": "Every record resolves an actual UI label key in both desktop locales.",
     "consumer_trace": "Not generated from Phase 0; intentionally left pending for Phase 3 evidence."
   }

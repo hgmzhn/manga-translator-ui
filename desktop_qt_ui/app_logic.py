@@ -64,6 +64,10 @@ from services import (
 from services.state_manager import AppStateKey
 from utils.asyncio_cleanup import shutdown_event_loop
 from utils.font_list import fonts_directory
+from utils.system_shutdown import (
+    DEFAULT_SHUTDOWN_DELAY_SECONDS,
+    execute_completion_action,
+)
 
 
 @dataclass
@@ -125,6 +129,7 @@ class MainAppLogic(QObject):
     warning_dialog_requested = pyqtSignal(str)
     render_setting_changed = pyqtSignal()
     file_sources_changed = pyqtSignal()
+    close_application_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -155,6 +160,8 @@ class MainAppLogic(QObject):
         self._last_progress_log_at = 0.0
         self._task_failures: List[Dict[str, str]] = []
         self._task_failure_keys: set[str] = set()
+        self._auto_shutdown_pending = False
+        self._auto_shutdown_triggered = False
 
         self.source_files: List[str] = [] # Holds both files and folders
         self._source_folders: Dict[str, str] = {}
@@ -1080,6 +1087,13 @@ class MainAppLogic(QObject):
     
     def update_config(self, config_updates: Dict[str, Any]) -> bool:
         try:
+            app_updates = config_updates.get("app", {})
+            completion_action_changed = (
+                isinstance(app_updates, dict)
+                and "after_translation_action" in app_updates
+            )
+            if completion_action_changed and not self._cancel_auto_shutdown():
+                return False
             self.config_service.update_config(config_updates)
             updated_config = self.config_service.get_config()
             self.state_manager.set_current_config(updated_config)
@@ -1093,6 +1107,11 @@ class MainAppLogic(QObject):
         self.logger.debug(f"update_single_config: '{full_key}' = '{value}'")
         try:
             config_obj = self.config_service.get_config()
+            if (
+                full_key == "app.after_translation_action"
+                and not self._cancel_auto_shutdown()
+            ):
+                return False
             keys = full_key.split('.')
             parent_obj = config_obj
             for key in keys[:-1]:
@@ -1120,12 +1139,18 @@ class MainAppLogic(QObject):
 
         except Exception as e:
             self.logger.error(f"Error saving single config change for {full_key}: {e}")
+            return False
+        return True
     # endregion
 
     # region UI数据提供
     def get_display_mapping(self, key: str) -> Optional[Dict[str, str]]:
         # 每次都动态生成翻译映射，确保语言切换时能正确更新
         display_name_maps = {
+            "after_translation_action": {
+                action: self._t(f"completion_action_{action}")
+                for action in ("none", "close", "sleep", "hibernate", "shutdown")
+            },
             "alignment": {
                 "auto": self._t("alignment_auto"),
                 "left": self._t("alignment_left"),
@@ -1328,6 +1353,7 @@ class MainAppLogic(QObject):
                     "last_output_path": self._t("label_last_output_path"),
                     "save_to_source_dir": self._t("label_save_to_source_dir"),
                     "psd_script_only": self._t("label_psd_script_only"),
+                    "after_translation_action": self._t("label_after_translation_action"),
                     "line_spacing": self._t("label_line_spacing"),
                     "letter_spacing": self._t("label_letter_spacing"),
                     "font_size": self._t("label_font_size"),
@@ -1845,6 +1871,8 @@ class MainAppLogic(QObject):
         self.saved_files_count = 0
         self.completed_output_sources.clear()
         self._last_progress_log_at = 0.0
+        self._auto_shutdown_pending = False
+        self._auto_shutdown_triggered = False
         self._reset_task_failures()
         
         # 生成新的任务ID
@@ -1886,6 +1914,9 @@ class MainAppLogic(QObject):
         # 检查是否有任务在运行
         if self.state_manager.is_translating():
             self._ui_log("一个任务已经在运行中。", "WARNING")
+            return
+        if self._auto_shutdown_triggered and not self._cancel_auto_shutdown():
+            self._ui_log("无法取消待执行的自动关机，任务未启动。", "WARNING")
             return
         self._stop_requested = False
 
@@ -2046,6 +2077,89 @@ class MainAppLogic(QObject):
             traceback.print_exc()
         
         QTimer.singleShot(100, self._cleanup_after_task)
+        self._auto_shutdown_pending = failed_count == 0 and self.saved_files_count > 0
+        if self._auto_shutdown_pending:
+            QTimer.singleShot(0, self._schedule_auto_shutdown_after_task)
+
+    def _schedule_auto_shutdown_after_task(self):
+        """Start the selected completion action's countdown once cleanup is idle."""
+        if (
+            not self._auto_shutdown_pending
+            or self._shutdown_started
+            or self._stop_requested
+            or self._auto_shutdown_triggered
+        ):
+            return
+
+        try:
+            config = self.config_service.get_config()
+            action = config.app.after_translation_action
+        except Exception as exc:
+            self._auto_shutdown_pending = False
+            self._ui_log(f"读取任务完成后动作设置失败: {exc}", "WARNING")
+            return
+
+        if action == "none":
+            self._auto_shutdown_pending = False
+            return
+
+        if self._translate_future is not None and not self._translate_future.done():
+            QTimer.singleShot(100, self._schedule_auto_shutdown_after_task)
+            return
+
+        if self._cleanup_future is None and self.archive_to_temp_map:
+            self._cleanup_after_task()
+        if self.archive_to_temp_map:
+            self._auto_shutdown_pending = False
+            self._ui_log(self._t("log_completion_action_failed"), "WARNING")
+            return
+        if self._cleanup_future is not None and not self._cleanup_future.done():
+            QTimer.singleShot(100, self._schedule_auto_shutdown_after_task)
+            return
+
+        self._auto_shutdown_pending = False
+        self._auto_shutdown_triggered = True
+        generation = getattr(self, "_completion_action_generation", 0)
+        QTimer.singleShot(DEFAULT_SHUTDOWN_DELAY_SECONDS * 1000,
+                          lambda: self._execute_completion_action(action, generation))
+        self._ui_log(self._t("log_completion_action_scheduled",
+                            action=self._t(f"completion_action_{action}"),
+                            seconds=DEFAULT_SHUTDOWN_DELAY_SECONDS))
+
+    def _execute_completion_action(self, action: str, generation: int):
+        """Execute only the current countdown after rechecking task activity."""
+        if (generation != getattr(self, "_completion_action_generation", 0)
+                or not self._auto_shutdown_triggered or self._shutdown_started
+                or self._stop_requested):
+            return
+        self._auto_shutdown_triggered = False
+        if self.config_service.get_config().app.after_translation_action != action:
+            return
+        if (self.state_manager.is_translating() or self.archive_to_temp_map
+                or any(f is not None and not f.done()
+                       for f in (self._translate_future, self._cleanup_future))):
+            return
+        if action == "close":
+            self.close_application_requested.emit()
+            return
+
+        def run_action():
+            if not execute_completion_action(action):
+                self._ui_log(self._t("log_completion_action_failed"), "WARNING")
+
+        try:
+            self._task_executor.submit(run_action)
+        except RuntimeError:
+            self._ui_log(self._t("log_completion_action_failed"), "WARNING")
+
+    def _cancel_auto_shutdown(self) -> bool:
+        """Invalidate the app-owned countdown before submitting any OS action."""
+        self._completion_action_generation = getattr(self, "_completion_action_generation", 0) + 1
+        self._auto_shutdown_pending = False
+        if self._auto_shutdown_triggered:
+            self._ui_log(self._t("log_completion_action_cancelled"))
+        self._auto_shutdown_triggered = False
+        return True
 
     def resolve_completed_source(self, output_path: str) -> Optional[str]:
         return self.completed_output_sources.get(self._path_key(output_path))
@@ -2066,12 +2180,12 @@ class MainAppLogic(QObject):
                 return self._cleanup_future
             self._cleanup_future = None
             archive_paths = list(self.archive_to_temp_map)
-            self.archive_to_temp_map.clear()
             if archive_paths and not self._shutdown_started:
                 try:
                     self._cleanup_future = self._task_executor.submit(
                         self._cleanup_archive_paths, archive_paths
                     )
+                    self.archive_to_temp_map.clear()
                 except RuntimeError:
                     pass
             return self._cleanup_future
@@ -2084,6 +2198,8 @@ class MainAppLogic(QObject):
         # 检查任务ID是否匹配，防止已停止的任务更新状态
         if task_id != self.current_task_id:
             return
+
+        self._auto_shutdown_pending = False
         
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message("任务失败")
@@ -2115,6 +2231,15 @@ class MainAppLogic(QObject):
 
     def stop_task(self) -> bool:
         """停止翻译任务"""
+        had_scheduled_shutdown = getattr(self, "_auto_shutdown_triggered", False)
+        if had_scheduled_shutdown and not self._cancel_auto_shutdown():
+            return False
+        self._auto_shutdown_pending = False
+        if had_scheduled_shutdown and self.current_worker is None and not any(
+            future is not None and not future.done()
+            for future in (self._scan_future, self._translate_future, self._cleanup_future)
+        ):
+            return True
         if self.current_worker and hasattr(self.current_worker, 'stop'):
             self._stop_requested = True
             self.state_manager.set_status_message("正在停止...")
@@ -2213,6 +2338,7 @@ class MainAppLogic(QObject):
             return
 
         self._shutdown_started = True
+        self._auto_shutdown_pending = False
 
         try:
             self._scan_request_id += 1
