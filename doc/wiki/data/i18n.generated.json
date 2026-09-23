@@ -4521,13 +4521,13 @@
     {
       "key": "Type to filter by pattern / replace / comment...",
       "en_US": "Type to filter by pattern / replace / comment...",
-      "zh_CN": "输入匹配 / 替换 / 备注以过滤...",
+      "zh_CN": "按匹配 / 替换 / 备注筛选...",
       "status": "exact"
     },
     {
       "key": "Type to filter by pattern / style / comment...",
       "en_US": "Type to filter by pattern / style / comment...",
-      "zh_CN": "按匹配内容、样式或备注筛选...",
+      "zh_CN": "按匹配 / 样式 / 备注筛选...",
       "status": "exact"
     },
     {
