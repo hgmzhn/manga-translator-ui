@@ -7,28 +7,22 @@ from pydantic_ai import BinaryContent
 from pydantic_ai.messages import ToolReturn
 
 from ...context.images import EDIT_IMAGE_METADATA
-from ...domain.tool_models import RegionEdit, ToolError
+from ...domain.tool_models import ToolError
 from ...prompts import load_prompt
-from .shared import _observe, _public_page, _remember, _transactions, public_payload
+from .shared import _observe, _remember, _transactions, public_payload
 
 
 logger = logging.getLogger(__name__)
 
 
 async def edit_feedback(ctx, result):
-    """Append full public page facts and the exact committed render, in that order."""
+    """Return the commit receipt and render without a full region snapshot."""
     result = _transactions(ctx, result)
     page_id, revision = result["page_id"], result["revision"]
     snapshot = ctx.deps.workspace.page(ctx.deps, page_id, revision)
     metadata = public_payload(ctx.deps, result)
-    metadata["editable_fields"] = {
-        "edit_regions": [name for name in RegionEdit.model_fields if name != "region_id"],
-    }
-    try:
-        metadata["page"] = public_payload(ctx.deps, _public_page(snapshot))
-        _remember(ctx, snapshot)
-    except ToolError as error:
-        metadata["page_error"] = error.as_dict()
+    # Keep concurrency baselines inside the host; details remain available via read_page.
+    _remember(ctx, snapshot)
     image = None
     previous_observation = ctx.deps.observed_revisions.get(page_id)
     try:
@@ -58,10 +52,10 @@ async def edit_feedback(ctx, result):
             error = ToolError("render_failed", "渲染失败", {"error_type": type(error).__name__})
         metadata["render_status"] = "failed"
         metadata["render_error"] = public_payload(ctx.deps, error.as_dict())
-    # Region JSON lives only in the structured result, never duplicated as text.
+    # No region snapshot or repeated edit schema is added to model history.
     content = [load_prompt("editing")]
     if image is not None:
-        content.extend(["## 最新渲染图", image])
+        content.extend(["## 本次修改的渲染图", image])
     return ToolReturn(
         return_value=metadata,
         content=content,

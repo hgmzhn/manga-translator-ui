@@ -9,8 +9,6 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .chat import ChatImage
-
 
 class ToolError(Exception):
     def __init__(self, code: str, message: str, details: Any = None):
@@ -107,7 +105,6 @@ class ToolContext:
     read_policies: dict[str, dict] = field(default_factory=dict)
     command_payloads: dict[str, dict] = field(default_factory=dict)
     transaction_results: dict[str, dict] = field(default_factory=dict)
-    original_image: ChatImage | None = None
 
 
 Color = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]

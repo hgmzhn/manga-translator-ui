@@ -1,7 +1,6 @@
 """Basic chat UI using the application's background asyncio service."""
 from __future__ import annotations
 
-import json
 import weakref
 from html import escape
 from contextlib import aclosing
@@ -57,7 +56,6 @@ class _PendingImage:
 class _CurrentImageContext:
     image: ChatImage | None = None
     size: tuple[int, int] = ()
-    region_prompt: str = ""
     region_count: int | None = None
 
 
@@ -339,34 +337,12 @@ class ChatPage(QWidget):
         if isinstance(regions, (list, tuple)):
             return len(regions)
         if isinstance(regions, dict):
+            if type(regions.get("region_count")) is int:
+                return regions["region_count"]
             values = regions.get("regions")
             if isinstance(values, (list, tuple)):
                 return len(values)
         return None
-
-    @staticmethod
-    def _region_prompt(regions):
-        if regions is None:
-            return ""
-        if isinstance(regions, str):
-            try:
-                regions = json.loads(regions)
-            except ValueError:
-                return regions
-
-        def model_metadata(value):
-            # Keep source quadrilaterals in the editor; omit them only from model context.
-            if isinstance(value, dict):
-                return {key: model_metadata(item) for key, item in value.items() if key != "lines"}
-            if isinstance(value, (list, tuple)):
-                return [model_metadata(item) for item in value]
-            return value
-
-        regions = model_metadata(regions)
-        try:
-            return json.dumps(regions, ensure_ascii=False, separators=(",", ":"), default=str)
-        except Exception:
-            return str(regions)
 
     @pyqtSlot(object, object)
     def set_current_image_context(self, png, regions=None):
@@ -374,8 +350,8 @@ class ChatPage(QWidget):
 
         Call this from the GUI thread after the editor has produced a PNG, or
         emit ``current_image_context_pushed`` from a worker. The PNG is kept
-        as a ``ChatImage`` and is attached to the next model turn; region
-        metadata is serialized into the final context block of that turn.
+        as a ChatImage for local display only; neither the preview nor
+        region metadata is automatically attached to model turns.
         Widget work is queued and generation-checked, so an older update
         cannot repaint a newer preview.
         """
@@ -390,7 +366,6 @@ class ChatPage(QWidget):
             image = None
         context = _CurrentImageContext(
             image=image,
-            region_prompt=self._region_prompt(regions),
             region_count=self._region_count(regions),
         )
         self._current_image_context_generation += 1
@@ -416,21 +391,7 @@ class ChatPage(QWidget):
         self.current_context_metadata.setText(
             self._t("Chat image summary", count=1, sizes=size)
             + "\nRegions: " + count
-            + ("\n" + self._t("Chat original image reference")
-               if self._tool_context is not None and self._tool_context.original_image is not None else "")
         )
-
-    def _model_text_with_current_context(self, text):
-        context = self._current_image_context
-        if context.image is None and not context.region_prompt:
-            return text
-        parts = [text] if text else []
-        parts.extend(("", "Current editor context:"))
-        if context.image is not None:
-            parts.append("The current rendered PNG is attached after the user attachments.")
-        if context.region_prompt:
-            parts.append("Current region metadata: " + context.region_prompt)
-        return "\n".join(parts)
 
     @pyqtSlot(object)
     def set_tool_context(self, context):
@@ -449,7 +410,7 @@ class ChatPage(QWidget):
                 or self._tool_context.cancelled.is_set()):
             return
         # A committed edit remains visible even if its following text was stopped.
-        self.set_current_image_context(canvas.image.data, canvas.page.get("regions", []))
+        self.set_current_image_context(canvas.image.data, canvas.page)
         self.canvas_updated.emit(canvas)
 
 
@@ -468,11 +429,7 @@ class ChatPage(QWidget):
         text = self.input.toPlainText().strip()
         image_sizes = tuple(item.size for item in self._pending_images.values())
         images = tuple(item.image for item in self._pending_images.values())
-        current_image = self._current_image_context.image
-        if current_image is not None:
-            images = images + (current_image,)
-        model_text = self._model_text_with_current_context(text)
-        if (not text and not self._pending_images and current_image is None) or self._active_task is not None or self._closing:
+        if (not text and not images) or self._active_task is not None or self._closing:
             return
         if self.chat_service is None:
             base_url = self.base_input.text().strip()
@@ -541,7 +498,7 @@ class ChatPage(QWidget):
 
             if backend is not None:
                 backend.set_thinking_observer(show_thinking)
-            async with aclosing(service.stream(model_text, images=images, session_id=session_id,
+            async with aclosing(service.stream(text, images=images, session_id=session_id,
                                                tool_context=tool_context)) as stream:
                 async for delta in stream:
                     page = page_ref()

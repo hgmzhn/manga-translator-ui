@@ -137,19 +137,16 @@ class OpenAIResponsesBackend:
 
         from ...utils.system_proxy import openai_http_client_kwargs
         from ..agents.chat import canvas_from_tool_result, create_agent, empty_context
-        from ..context.images import original_image_content
 
         context = tool_context if tool_context is not None else empty_context()
         logger.info("Agent turn started: model=%s task=%s history=%d images=%d",
                     self._model, context.task_id, len(message_history), len(images))
 
+        # Only explicit user input belongs here. Page facts and renders arrive
+        # through reads requested by the Agent and automatic edit-tool feedback.
         prompt: str | list[str | BinaryContent] = text
-        original = original_image_content(context.original_image, context.task_id, message_history)
-        if images or original:
+        if images:
             prompt = [text] if text else []
-            prompt.extend(original)
-            if original and images:
-                prompt.append("以下为本轮用户附件及当前渲染图，顺序见当前编辑上下文：")
             prompt.extend(
                 BinaryContent(data=image.data, media_type=image.media_type)
                 for image in images

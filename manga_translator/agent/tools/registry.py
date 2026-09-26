@@ -7,7 +7,6 @@ from typing import Literal
 from pydantic_ai.toolsets import FunctionToolset
 from pydantic_ai.tools import Tool
 
-from ..context.images import prune_images_after_edit
 from ..domain.tool_models import ToolContext
 from ..plugins.loader import PluginManager
 
@@ -64,11 +63,7 @@ _AUXILIARY_TOOLS = (measure_layout, fit_text, check_text_changes, check_font_cov
 
 
 class WorkspaceToolset(FunctionToolset[ToolContext]):
-    async def for_run_step(self, ctx):
-        # Runs after the previous tool batch is assembled, including image parts.
-        # No edit marker means the host's initial context is left unchanged.
-        prune_images_after_edit(ctx.messages)
-        return self
+    """Native toolset with append-only history, including images and snapshots."""
 
 
 def create_toolset(

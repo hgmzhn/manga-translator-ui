@@ -29,7 +29,7 @@ async def create_regions(
     regions: Annotated[list[NewRegion], Field(min_length=1, max_length=100)],
     command_id: CommandId,
 ) -> ToolReturn | dict:
-    """批量创建文本框，按框宽高与文字自动计算字号，返回新区域 ID、当前属性和新图。
+    """批量创建文本框，按框宽高与文字自动计算字号，返回新区域 ID、执行状态和新图。
 
     center/width/height 使用页面像素；direction=auto 按框形状选择横竖排。
     需要整页排版、几何和译文权限；同一创建重试沿用 command_id。
@@ -92,7 +92,7 @@ async def delete_regions(
     region_ids: Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1, max_length=100)],
     command_id: CommandId,
 ) -> ToolReturn | dict:
-    """批量删除文本框及其译文，保留当前底图，返回当前属性和新图。
+    """批量删除文本框及其译文，保留当前底图，返回执行状态和新图。
 
     region_ids 使用页面已有区域 ID；检查锁定及排版、几何、译文权限。
     同一删除重试沿用 command_id，事务可通过 revert_edits 回退。
@@ -107,7 +107,7 @@ async def edit_regions(
     edits: Annotated[list[RegionEdit], Field(min_length=1, max_length=100)],
     command_id: CommandId,
 ) -> ToolReturn | dict:
-    """批量修改区域字号、样式、位置或译文，返回当前属性和新图。
+    """批量修改区域字号、样式、位置或译文，返回执行状态和新图。
 
     page_id 使用页面公开整数 id；每项直接填写 region_id 和要改的字段，省略未改字段。
     center 使用页面像素，angle 使用角度；竖排 alignment=left 表示列顶对齐。
@@ -134,7 +134,7 @@ async def edit_rich_text(
     edits: Annotated[list[RichEdit], Field(min_length=1, max_length=100)],
     command_id: CommandId,
 ) -> ToolReturn | dict:
-    """替换区域富文本文档或修改有效 occurrence_id 的局部样式，返回当前属性和新图。
+    """替换区域富文本文档或修改有效 occurrence_id 的局部样式，返回执行状态和新图。
 
     遵循 rich-text skill；保留未改正文和样式。同一修改重试沿用 command_id。
     """

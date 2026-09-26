@@ -65,9 +65,9 @@ async def apply_edits(
     edits: Annotated[list[Edit], Field(min_length=1, max_length=100)],
     command_id: CommandId,
 ) -> ToolReturn | dict:
-    """原子编辑已读取的区域，自动返回完整区域属性及其下方的新图。
+    """原子编辑已读取的区域，自动返回执行状态和新图，不附加完整区域属性。
 
-    检查冲突、锁定和权限；成功提交后清理过时图片和区域快照，保留原图、文字、思考和工具记录。
+    检查冲突、锁定和权限；成功提交后追加新图，保留完整历史供对比。
     render_status=failed 只表示新图失败，已提交的修改仍生效。
     """
     page_id = ctx.deps.workspace.resolve_page(ctx.deps, page)
@@ -95,7 +95,7 @@ async def revert_edits(
     transaction_id: str,
     command_id: CommandId,
 ) -> ToolReturn | dict:
-    """补偿本任务事务，自动返回完整属性和新图；保留原图、文字与思考，移除过时图片。
+    """补偿本任务事务，自动返回执行状态和新图；保留历史图片、文字与思考供对比。
 
     相关区域后续已变化时拒绝，不撤销其他任务成果。
     """

@@ -24,7 +24,7 @@ class ChatImage:
 
 @dataclass(frozen=True, slots=True)
 class ChatCanvas:
-    """An actual edit-tool render, separate from visible assistant text."""
+    """Local preview event; page holds public identity and region_count only."""
 
     context_id: str
     image: ChatImage

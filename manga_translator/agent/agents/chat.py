@@ -13,6 +13,7 @@ from ..prompts import load_prompt
 from ..tools.registry import WorkspaceToolset
 from ..tools.edit_tools import create_edit_tools
 from ..tools.builtin.skills import read_skill
+from ..tools.builtin.page import read_page, observe_canvas
 from ..tools.validation import EditValidationFeedback
 from ..workspace import Workspace
 
@@ -25,7 +26,8 @@ def empty_context() -> ToolContext:
 def create_agent(model, *, model_settings=None):
     edit_tools = create_edit_tools()
     toolset = WorkspaceToolset(
-        tools=[*edit_tools, Tool(read_skill, max_retries=2)], id="chat-editing"
+        tools=[*edit_tools, read_page, observe_canvas, Tool(read_skill, max_retries=2)],
+        id="chat-editing",
     )
     return Agent(
         model, deps_type=ToolContext, output_type=str, retries=0,
@@ -55,7 +57,10 @@ def canvas_from_tool_result(event, context: ToolContext) -> ChatCanvas | None:
             return ChatCanvas(
                 context_id=context.task_id,
                 image=ChatImage(item.data, item.media_type),
-                page=deepcopy(data.get("page", {})),
+                # Local UI counts come from the exact workspace revision, not
+                # a full region payload in the model-facing tool response.
+                page={**context.workspace.public_identity(transaction["page_id"]),
+                      "region_count": len(current["regions"])},
                 canvas=deepcopy(data.get("canvas", {})),
             )
     return None

@@ -206,7 +206,7 @@ class RenderPreviewPage(QWidget):
         details = canvas.canvas
         self.status.setText(self._t(
             "Agent render ready", width=details.get("width", 0), height=details.get("height", 0),
-            regions=len(canvas.page.get("regions", [])), elapsed=round(details.get("worker_ms", 0)),
+            regions=canvas.page.get("region_count", 0), elapsed=round(details.get("worker_ms", 0)),
             render=round(details.get("render_ms", 0)),
         ))
 
