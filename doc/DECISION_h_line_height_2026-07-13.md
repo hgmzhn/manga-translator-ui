@@ -8,11 +8,14 @@
 - Qt `QTextLayout` 基线只负责 shaping 和最终绘制坐标。
 - 字号适配、渲染框、正文中心和相邻行推进不消费字体设计行框。
 - 每个 span 从实际 glyph run 构造 `QPainterPath`，按 path 的像素边界生成主文字框。
-- 局部/全局描边、斜体、旋转、镜像和 transform offset 直接进入主文字框。
-- ruby 放在对应主墨迹上方，emphasis 放在主墨迹下方，两者进入整行 paint 包络。
-- 相邻行基线距离由 `上一行 paint_bottom - 下一行 paint_top + 可见行间隙` 决定；
+- 斜体、旋转、镜像和 transform offset 进入字形布局框；局部/全局描边、外描边和
+  发光只扩展 paint 包络，不参与行间推进。
+- ruby 放在对应无描边字形上方，emphasis 放在无描边字形下方，两者进入行距和
+  paint 包络；ruby 自身的描边与特效也只扩展 paint 包络。
+- 相邻行基线距离由 `上一行 spacing_bottom - 下一行 spacing_top + 行间隙` 决定；
   因此纯 CJK 自动紧排，而下伸字母、重音、ruby 和着重号会按实际需要拉开。
-- `line_spacing` 现在缩放 `0.1em` 的可见墨迹间隙；默认 1.0 即 `0.1em`。
+- `line_spacing` 缩放无描边字形之间 `0.1em` 的间隙；默认 1.0 即 `0.1em`。
+  固定字号时，加粗描边不会改变基线距离，但会占用行间空隙。
 - 显式空行采用一个 `font_size` 高的结构槽位；它不是字体指标 fallback。
 
 ## 为什么不使用固定行高

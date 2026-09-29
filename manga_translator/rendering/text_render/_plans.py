@@ -52,6 +52,8 @@ class RubyPlan:
     paint_start: float
     paint_end: float
     cross_center: float = 0.0
+    # Horizontal line spacing uses the annotation ink without stroke/effects.
+    spacing_height: int = 0
 
 
 @dataclass
@@ -127,7 +129,7 @@ class HorizontalLinePlan:
     paint_bounds: Bounds
     line_kerning: float | None = None
     next_kerning: float | None = None
-    # Bounds used to place the next line.  Paint-only effects such as glow
+    # Bounds used to place the next line.  Stroke and paint effects such as glow
     # belong to ``paint_bounds`` but must not become extra line spacing.
     spacing_bounds: Bounds | None = None
 
