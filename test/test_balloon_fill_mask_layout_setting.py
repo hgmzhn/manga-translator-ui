@@ -1,6 +1,5 @@
 import _bootstrap  # noqa: I001
 import json
-from types import SimpleNamespace
 
 import numpy as np
 
@@ -57,20 +56,10 @@ def test_balloon_fill_mask_layout_translations_do_not_fall_back_to_chinese():
         assert catalogs[locale][DESCRIPTION_KEY] != chinese_description, locale
 
 
-def test_balloon_fill_mask_layout_preserves_translator_line_breaks(monkeypatch):
+def test_balloon_fill_mask_layout_preserves_translator_line_breaks():
     image = np.zeros((400, 400, 3), dtype=np.uint8)
     bubble_mask = np.zeros((400, 400), dtype=np.uint8)
     bubble_mask[90:271, 90:331] = 1
-    monkeypatch.setattr(
-        rendering,
-        "get_cached_bubbles_with_mangalens",
-        lambda *args, **kwargs: SimpleNamespace(detections=[]),
-    )
-    monkeypatch.setattr(
-        rendering,
-        "build_bubble_mask_from_mangalens_result",
-        lambda *args, **kwargs: bubble_mask.copy(),
-    )
 
     translation = "第一行文字[BR]第二行更长的文字[BR]第三行"
     region = TextBlock(
@@ -94,6 +83,7 @@ def test_balloon_fill_mask_layout_preserves_translator_line_breaks(monkeypatch):
         config,
         original_img=image.copy(),
         skip_text_replacements=True,
+        bubble_mask=bubble_mask,
     )[0]
 
     assert region.translation == translation
@@ -111,20 +101,10 @@ def test_balloon_fill_mask_layout_preserves_translator_line_breaks(monkeypatch):
     )
 
 
-def test_balloon_fill_mask_layout_uses_mask_range_for_text_without_breaks(monkeypatch):
+def test_balloon_fill_mask_layout_uses_mask_range_for_text_without_breaks():
     image = np.zeros((400, 400, 3), dtype=np.uint8)
     bubble_mask = np.zeros((400, 400), dtype=np.uint8)
     bubble_mask[90:271, 90:331] = 1
-    monkeypatch.setattr(
-        rendering,
-        "get_cached_bubbles_with_mangalens",
-        lambda *args, **kwargs: SimpleNamespace(detections=[]),
-    )
-    monkeypatch.setattr(
-        rendering,
-        "build_bubble_mask_from_mangalens_result",
-        lambda *args, **kwargs: bubble_mask.copy(),
-    )
 
     source_text = "这是一段没有显式断行并且需要根据气泡范围重新安排断点的测试文字"
 
@@ -149,6 +129,7 @@ def test_balloon_fill_mask_layout_uses_mask_range_for_text_without_breaks(monkey
             config,
             original_img=image.copy(),
             skip_text_replacements=True,
+            bubble_mask=bubble_mask,
         )
         return region.translation
 
@@ -162,16 +143,6 @@ def test_balloon_fill_mask_layout_runs_mask_sized_no_br_pass_once(monkeypatch):
     image = np.zeros((400, 400, 3), dtype=np.uint8)
     bubble_mask = np.zeros((400, 400), dtype=np.uint8)
     bubble_mask[90:271, 90:331] = 1
-    monkeypatch.setattr(
-        rendering,
-        "get_cached_bubbles_with_mangalens",
-        lambda *args, **kwargs: SimpleNamespace(detections=[]),
-    )
-    monkeypatch.setattr(
-        rendering,
-        "build_bubble_mask_from_mangalens_result",
-        lambda *args, **kwargs: bubble_mask.copy(),
-    )
 
     calls = []
     real_solver = rendering._solve_unified_no_br_layout
@@ -203,6 +174,7 @@ def test_balloon_fill_mask_layout_runs_mask_sized_no_br_pass_once(monkeypatch):
         config,
         original_img=image.copy(),
         skip_text_replacements=True,
+        bubble_mask=bubble_mask,
     )
 
     assert len(calls) == 1

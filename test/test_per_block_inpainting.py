@@ -163,17 +163,26 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
     monkeypatch.setattr(
         translator_module,
         "detect_bubbles_with_mangalens",
-        lambda *args, **kwargs: object(),
+        lambda *args, **kwargs: SimpleNamespace(detections=[]),
     )
+
     def fake_build_bubble_mask(result, shape, erode_ratio=0.0):
-        captured["bubble_erode_ratio"] = erode_ratio
+        captured["build_erode_ratio"] = erode_ratio
         return model_bubble_mask.copy()
+
+    real_erode_bubble_mask = translator_module.erode_bubble_mask
+
+    def tracking_erode_bubble_mask(mask, erode_ratio=0.0):
+        captured["bubble_erode_ratio"] = erode_ratio
+        captured["erode_input"] = mask
+        return real_erode_bubble_mask(mask, erode_ratio=erode_ratio)
 
     monkeypatch.setattr(
         translator_module,
         "build_bubble_mask_from_mangalens_result",
         fake_build_bubble_mask,
     )
+    monkeypatch.setattr(translator_module, "erode_bubble_mask", tracking_erode_bubble_mask)
 
     asyncio.run(
         _translator_for_inpainting()._run_inpainting(
@@ -196,8 +205,15 @@ def test_raw_mask_is_reserved_for_solid_fill(monkeypatch):
         cv2.BORDER_REFLECT,
     )
 
+    # 上下文保留完整气泡蒙版；纯色填充单独使用内缩一像素后的范围。
+    expected_bubble_mask = np.zeros_like(model_bubble_mask)
+    expected_bubble_mask[2:5, 2:8] = 255
+
     np.testing.assert_array_equal(captured["solid_fill_mask"], expected_raw)
-    np.testing.assert_array_equal(captured["bubble_mask"], model_bubble_mask)
+    np.testing.assert_array_equal(ctx.bubble_mask, model_bubble_mask)
+    np.testing.assert_array_equal(captured["bubble_mask"], expected_bubble_mask)
+    assert captured["erode_input"] is ctx.bubble_mask
+    assert captured["build_erode_ratio"] == 0.0
     assert captured["bubble_erode_ratio"] == 0.02
     assert captured["overlap_threshold"] == 0.1
     np.testing.assert_array_equal(captured["inpaint_mask"], expected_refined)

@@ -4,9 +4,9 @@
 - 非法 translation_rich 不炸构造函数：丢样式、保区域（F04a）
 - 合法富文本正常入库
 - translation setter 等值赋值不清 translation_rich（F02）
-- 'r' 方向 BR→rich 转换保留字符串路径的 LTR 块反转（F30）
+- 旧 'hr' 方向 BR→rich 转换与字符串路径均保留 Unicode 逻辑顺序（F30）
 
-运行：PYTHONIOENCODING=utf-8 PYTHONPATH=. python tests/test_textblock_rich_safety.py
+运行：uv run --no-sync pytest test/test_textblock_rich_safety.py
 """
 
 import unittest
@@ -183,7 +183,7 @@ class TranslationSetterRichInvalidationTest(unittest.TestCase):
 
 
 class RtlLegacyBreakConversionTest(unittest.TestCase):
-    """F30：'r' 方向 BR→rich 转换与字符串渲染路径的 LTR 反转行为一致。"""
+    """F30：旧 'hr' 方向 BR→rich 转换与字符串渲染路径均保留逻辑顺序。"""
 
     @staticmethod
     def _paragraph_texts(document):
@@ -192,7 +192,7 @@ class RtlLegacyBreakConversionTest(unittest.TestCase):
             for block in document["blocks"]
         ]
 
-    def test_hr_conversion_matches_string_path_reversal(self):
+    def test_hr_conversion_matches_string_path_logical_order(self):
         source_lines = ["abc123", "مرحبا abc", "123", "ab"]
         region = _make_block(
             translation="[BR]".join(source_lines),
@@ -211,9 +211,9 @@ class RtlLegacyBreakConversionTest(unittest.TestCase):
             expected.append(single.get_translation_for_rendering())
         self.assertEqual(rich_lines, expected)
 
-        # 显式断言 LTR 拉丁块确实被反转（非恒等对照）
-        self.assertEqual(rich_lines[0], "cba123")
-        self.assertEqual(rich_lines[1], "مرحبا cba")
+        # 双向排版交给渲染器，旧方向别名只规范化为横排，不预先反转字符。
+        self.assertEqual(rich_lines, source_lines)
+        self.assertEqual(region.direction, "h")
 
     def test_h_direction_conversion_keeps_order(self):
         region = _make_block(translation="abc123[BR]def", direction="h")
