@@ -27,6 +27,7 @@ from ._fonts import (
     _sanitized_font_bytes,
     _state,
     _style_font_scope,
+    font_registry_revision,
     load_font_file,
     qt_family_is_ambiguous,
     register_font_file,
@@ -34,6 +35,7 @@ from ._fonts import (
     set_bold,
     set_font,
     strip_qt_foundry_brackets,
+    unregister_font_file,
 )
 from ._layout import (
     CJK_Compatibility_Forms_translate,

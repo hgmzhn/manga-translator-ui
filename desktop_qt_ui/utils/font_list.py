@@ -1,25 +1,29 @@
 """Qt 字体数据库共享 helper。
 
-与 BallonsTranslator 一致：系统字体和应用字体都按 family 展示；项目
-``fonts/`` 中的文件仅负责注册进 Qt，不再把文件路径作为编辑器字体值。
+系统字体和应用字体按具体 family/style 展示，同一物理字体的多个入口合并。
+项目 ``fonts/`` 中的文件注册进 Qt，编辑器保存明确的家族和样式。
 
 注册统一走 ``text_render.register_font_file``：家族名以 ``[`` 开头的字体
 （如 "[工具箱]xxx-简繁"）会被 Qt 的 "Family [Foundry]" 语法解析成空家族名，
 QFont 匹配固定落到同一字体；注册层会自动改写为去掉方括号的内存副本。
 """
 
+import hashlib
 import logging
 import os
 import unicodedata
 import weakref
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import lru_cache
 
 from manga_translator.rendering.text_render import (
+    font_registry_revision,
     qt_family_is_ambiguous,
     register_font_file,
     strip_qt_foundry_brackets,
+    unregister_font_file,
 )
 from PyQt6.QtCore import (
     QAbstractListModel,
@@ -42,7 +46,6 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import (
     QFont,
     QFontDatabase,
-    QFontInfo,
     QGuiApplication,
     QRawFont,
     QRegion,
@@ -78,16 +81,23 @@ _FONT_SEARCH_PLACEHOLDERS = {
 _SYSTEM_FONTS_ENABLED = True
 _FONT_COMBO_INSTANCES: weakref.WeakSet = weakref.WeakSet()
 _FONT_DIRECTORY_SIGNATURE: tuple | None = None
+_FONT_FILE_SIGNATURES: dict[str, tuple] = {}
+_FONT_REGISTRY_REVISION = -1
+_FONT_DATABASE_APP = None
 _FONT_FILE_LIST_CACHE: tuple[tuple[str, str], ...] = ()
 _FONT_FAMILY_CACHE: dict[bool, tuple[str, ...]] = {}
 
 
 def _clear_font_catalog_caches() -> None:
     _FONT_FAMILY_CACHE.clear()
+    _font_name_records.cache_clear()
+    _font_family_name_records.cache_clear()
+    _font_candidate_key.cache_clear()
+    _resolved_font_identity.cache_clear()
     localized_font_family.cache_clear()
-    _list_font_family_entries_cached.cache_clear()
     _font_styles.cache_clear()
     _list_font_style_entries_cached.cache_clear()
+    _resolve_catalog_value.cache_clear()
     _cached_qfont_for_value.cache_clear()
 
 
@@ -97,51 +107,64 @@ def fonts_directory() -> str:
 
 
 def list_font_files() -> list[tuple[str, str]]:
-    """Enumerate project font files, registering newly discovered faces once."""
+    """Refresh file registrations, including deletion and in-place replacement."""
     global _FONT_DIRECTORY_SIGNATURE, _FONT_FILE_LIST_CACHE
+    global _FONT_REGISTRY_REVISION, _FONT_DATABASE_APP
+    fonts_dir = fonts_directory()
+    signatures = {}
+    font_files = []
     try:
-        fonts_dir = fonts_directory()
-        try:
-            stat = os.stat(fonts_dir)
-            signature = (stat.st_mtime_ns, stat.st_ctime_ns)
-        except OSError:
-            signature = None
-        if signature != _FONT_DIRECTORY_SIGNATURE:
-            font_files: list[tuple[str, str]] = []
-            if signature is not None:
-                for entry in os.scandir(fonts_dir):
-                    if entry.is_file() and entry.name.lower().endswith(
-                        FONT_FILE_EXTENSIONS
-                    ):
-                        font_files.append((os.path.splitext(entry.name)[0], entry.name))
-            font_files.sort(key=lambda item: (item[0].casefold(), item[1].casefold()))
-            _FONT_FILE_LIST_CACHE = tuple(font_files)
-            _FONT_DIRECTORY_SIGNATURE = signature
+        with os.scandir(fonts_dir) as entries:
+            for entry in entries:
+                if not entry.name.lower().endswith(FONT_FILE_EXTENSIONS):
+                    continue
+                try:
+                    if not entry.is_file():
+                        continue
+                    stat = entry.stat()
+                except FileNotFoundError:
+                    continue  # A file may disappear while the directory is scanned.
+                path = os.path.normcase(os.path.abspath(entry.path))
+                signatures[path] = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+                font_files.append((os.path.splitext(entry.name)[0], entry.name))
+    except FileNotFoundError:
+        pass
     except OSError as exc:
-        logger.warning(f"扫描字体目录失败: {exc}")
-        _FONT_FILE_LIST_CACHE = ()
+        logger.warning("扫描字体目录失败: %s", exc)
+        return list(_FONT_FILE_LIST_CACHE)
+    signature = tuple(sorted(signatures.items()))
+    files_changed = signature != _FONT_DIRECTORY_SIGNATURE
+    if files_changed:
+        _FONT_FILE_LIST_CACHE = tuple(
+            sorted(font_files, key=lambda item: (item[0].casefold(), item[1]))
+        )
+        _FONT_DIRECTORY_SIGNATURE = signature
 
-    catalog_changed = False
-    if QGuiApplication.instance() is not None:
-        fonts_dir = fonts_directory()
-        current_paths = set()
+    app = QGuiApplication.instance()
+    if app is not None:
+        if _FONT_DATABASE_APP is not app:
+            app.fontDatabaseChanged.connect(_clear_font_catalog_caches)
+            _FONT_DATABASE_APP = app
+        for path in set(_REGISTERED_FONT_FAMILIES) - signatures.keys():
+            if unregister_font_file(path):
+                _REGISTERED_FONT_FAMILIES.pop(path, None)
+                _FONT_FILE_SIGNATURES.pop(path, None)
         for _stem, filename in _FONT_FILE_LIST_CACHE:
             path = os.path.normcase(os.path.abspath(os.path.join(fonts_dir, filename)))
-            current_paths.add(path)
-            if path in _REGISTERED_FONT_FAMILIES:
+            if (
+                _FONT_FILE_SIGNATURES.get(path) == signatures[path]
+                and _REGISTERED_FONT_FAMILIES.get(path)
+            ):
                 continue
             _REGISTERED_FONT_FAMILIES[path] = register_font_file(path)
-            _remember_original_font_names(path)
-            catalog_changed = True
-        removed_paths = set(_REGISTERED_FONT_FAMILIES.keys()) - current_paths
-        if removed_paths:
-            for path in removed_paths:
-                _REGISTERED_FONT_FAMILIES.pop(path, None)
-            catalog_changed = True
-        if catalog_changed:
-            _font_family_name_records.cache_clear()
-            _resolved_font_identity.cache_clear()
+            _FONT_FILE_SIGNATURES[path] = signatures[path]
+        revision = font_registry_revision()
+        if files_changed or revision != _FONT_REGISTRY_REVISION:
+            _ORIGINAL_FONT_DISPLAY_NAMES.clear()
+            for path in _REGISTERED_FONT_FAMILIES:
+                _remember_original_font_names(path)
             _clear_font_catalog_caches()
+            _FONT_REGISTRY_REVISION = revision
     return list(_FONT_FILE_LIST_CACHE)
 
 
@@ -171,16 +194,6 @@ def list_font_families(include_system: bool | None = None) -> list[str]:
     result = tuple(sorted(families, key=str.casefold))
     _FONT_FAMILY_CACHE[include_system] = result
     return list(result)
-
-
-def font_family_for_file(filename: str) -> str:
-    """Return the first Qt family registered from a project font file."""
-    if not filename or QGuiApplication.instance() is None:
-        return ""
-    list_font_files()
-    path = os.path.normcase(os.path.abspath(os.path.join(fonts_directory(), filename)))
-    families = _REGISTERED_FONT_FAMILIES.get(path) or []
-    return families[0] if families else ""
 
 
 def _search_key(text: str) -> str:
@@ -219,19 +232,19 @@ def _original_font_display_name(name: str) -> str:
 
 
 @lru_cache(maxsize=None)
-def _font_family_name_records(family: str) -> tuple[tuple[int, str, str], ...]:
+def _font_name_records(family: str, style: str = "") -> tuple[tuple[int, str, str], ...]:
     """Return ``(name id, language tag, value)`` records from Qt's font face."""
     records: list[tuple[int, str, str]] = []
     try:
         from fontTools.ttLib import TTFont, newTable
         from fontTools.ttLib.tables._n_a_m_e import _MAC_LANGUAGES, _WINDOWS_LANGUAGES
 
-        data = bytes(QRawFont.fromFont(QFont(family)).fontTable("name"))
+        data = bytes(_raw_font_for_selection(family, style).fontTable("name"))
         if data:
             table = newTable("name")
             table.decompile(data, TTFont())
             for record in table.names:
-                if record.nameID not in (1, 16, 21):
+                if record.nameID not in (1, 2, 4, 6, 16, 17, 21, 22):
                     continue
                 try:
                     value = record.toUnicode().strip()
@@ -258,46 +271,83 @@ def _font_family_name_records(family: str) -> tuple[tuple[int, str, str], ...]:
 
 
 @lru_cache(maxsize=None)
-def _resolved_font_identity(family: str, style: str = "") -> tuple:
-    """Return KDE-style attributes for the font Qt actually resolves.
+def _font_family_name_records(
+    family: str, style: str = ""
+) -> tuple[tuple[int, str, str], ...]:
+    return tuple(
+        record for record in _font_name_records(family, style)
+        if record[0] in (1, 16, 21)
+    )
 
-    Candidate grouping already establishes that names may refer to the same
-    family. These lightweight attributes distinguish its concrete faces without
-    reading and hashing physical font tables.
-    """
+
+def _raw_font_for_selection(family: str, style: str = "") -> QRawFont:
+    font = QFontDatabase.font(family, style, 12) if style else QFont(family, 12)
+    return QRawFont.fromFont(font)
+
+
+# Compare inexpensive metadata before reading large outline/layout tables. Equal
+# names or equal weight/style attributes alone never establish face identity.
+_FONT_METADATA_TABLES = ("name", "head", "OS/2", "maxp")
+_FONT_RENDER_TABLES = (
+    "cmap", "hhea", "hmtx", "loca", "glyf", "CFF ", "CFF2", "post",
+    "vhea", "vmtx", "VORG", "cvt ", "fpgm", "prep", "gasp",
+    "GSUB", "GPOS", "GDEF", "BASE", "JSTF", "MATH", "kern",
+    "COLR", "CPAL", "CBDT", "CBLC", "EBDT", "EBLC", "EBSC", "sbix", "SVG ",
+    "fvar", "gvar", "avar", "cvar", "HVAR", "VVAR", "MVAR", "STAT",
+    "morx", "mort", "kerx", "ankr", "trak", "bsln", "just", "lcar", "opbd", "prop", "feat",
+    "Silf", "Glat", "Gloc", "Feat", "Sill",
+)
+
+
+def _font_tables_digest(raw: QRawFont, tags: tuple[str, ...]) -> bytes:
+    digest = hashlib.sha256()
+    for tag in tags:
+        data = bytes(raw.fontTable(tag))
+        digest.update(tag.encode("ascii"))
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    return digest.digest()
+
+
+@lru_cache(maxsize=None)
+def _font_candidate_key(family: str, style: str = "") -> tuple:
     try:
-        resolved_style = style
-        if not resolved_style:
-            styles = [
-                str(value) for value in QFontDatabase.styles(family) if str(value)
-            ]
-            resolved_style = styles[0] if styles else ""
-        font = (
-            QFontDatabase.font(family, resolved_style, 12)
-            if resolved_style
-            else QFont(family, 12)
-        )
-        info = QFontInfo(font)
-        qt_style = info.style()
-        return (
-            int(info.weight()),
-            int(getattr(qt_style, "value", qt_style)),
-            int(font.stretch()),
-            _search_key(info.styleName() or resolved_style),
-        )
+        raw = _raw_font_for_selection(family, style)
+        if not raw.isValid() or not raw.fontTable("name") or not raw.fontTable("head"):
+            return ()
+        # QRawFont does not expose resolved variation coordinates. Never merge
+        # variable-font instances on the strength of their shared SFNT tables.
+        if raw.fontTable("fvar"):
+            return ()
+        # A failed Qt match may silently return the default font. Such entries
+        # must not be deduplicated with that unrelated fallback family.
+        names = {
+            name.casefold()
+            for _id, _lang, name in _font_family_name_records(family, style)
+        }
+        if family.casefold() not in names:
+            return ()
+        # QRawFont.weight() can report the requested 400 even when a legacy
+        # family selects a physical Heavy face. The file's OS/2 is in the digest.
+        return (_font_tables_digest(raw, _FONT_METADATA_TABLES), raw.style().value)
     except Exception as exc:
-        logger.debug("解析字体样式身份失败 %s (%s): %s", family, style, exc)
+        logger.debug("读取字体身份失败 %s (%s): %s", family, style, exc)
         return ()
 
 
-def _font_face_signature(family: str):
-    """Compatibility wrapper for callers that used the old private helper."""
-    return _resolved_font_identity(family)
-
-
-def _font_style_signature(family: str, style: str):
-    """Compatibility wrapper for callers that used the old private helper."""
-    return _resolved_font_identity(family, style)
+@lru_cache(maxsize=None)
+def _resolved_font_identity(family: str, style: str = "") -> tuple:
+    candidate = _font_candidate_key(family, style)
+    if not candidate:
+        return ()
+    try:
+        raw = _raw_font_for_selection(family, style)
+        if not any(raw.fontTable(tag) for tag in ("glyf", "CFF ", "CFF2")):
+            return ()
+        return (*candidate, _font_tables_digest(raw, _FONT_RENDER_TABLES))
+    except Exception as exc:
+        logger.debug("比较字体内容失败 %s (%s): %s", family, style, exc)
+        return ()
 
 
 def _language_score(language: str, locale_code: str) -> int:
@@ -328,9 +378,11 @@ def _language_score(language: str, locale_code: str) -> int:
 
 
 @lru_cache(maxsize=None)
-def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str, ...]]:
+def localized_font_family(
+    family: str, locale_code: str, style: str = ""
+) -> tuple[str, tuple[str, ...]]:
     """Return the localized display family and all searchable aliases."""
-    records = _font_family_name_records(family)
+    records = _font_family_name_records(family, style)
     if not records:
         return family, (family,)
 
@@ -340,10 +392,12 @@ def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str
         for name_id, _language, value in records
         if _search_key(value) == family_key
     }
+    if not matching_name_ids:
+        return family, (family,)
     candidates = [
         record
         for record in records
-        if not matching_name_ids or record[0] in matching_name_ids
+        if record[0] in matching_name_ids
     ]
     name_id_score = {16: 3, 21: 2, 1: 1}
     best = max(
@@ -367,135 +421,8 @@ def localized_font_family(family: str, locale_code: str) -> tuple[str, tuple[str
 
 
 @lru_cache(maxsize=None)
-def _list_font_family_entries_cached(
-    locale_code: str,
-    include_system: bool,
-) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
-    entries = []
-    for family in list_font_families(include_system=include_system):
-        display, aliases = localized_font_family(family, locale_code)
-        entries.append((family, display, aliases))
-
-    # Qt may expose one physical face through legacy, typographic, or localized
-    # family names. The resolved face identity is language-independent; complete name
-    # records are only a fallback for environments where Qt cannot provide one.
-    parents = list(range(len(entries)))
-
-    def find(index: int) -> int:
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
-
-    def union(left: int, right: int) -> None:
-        left, right = find(left), find(right)
-        if left != right:
-            parents[right] = left
-
-    candidate_parents = list(range(len(entries)))
-
-    def candidate_find(index: int) -> int:
-        while candidate_parents[index] != index:
-            candidate_parents[index] = candidate_parents[candidate_parents[index]]
-            index = candidate_parents[index]
-        return index
-
-    def candidate_union(left: int, right: int) -> None:
-        left, right = candidate_find(left), candidate_find(right)
-        if left != right:
-            candidate_parents[right] = left
-
-    first_by_name: dict[str, int] = {}
-    for index, (family, _display, _aliases) in enumerate(entries):
-        complete_names = tuple(
-            dict.fromkeys(
-                (
-                    family,
-                    *(
-                        value
-                        for _name_id, _language, value in _font_family_name_records(
-                            family
-                        )
-                    ),
-                )
-            )
-        )
-        for name in complete_names:
-            key = _search_key(name)
-            previous = first_by_name.setdefault(key, index)
-            candidate_union(index, previous)
-
-    candidate_groups: dict[int, list[int]] = {}
-    for index in range(len(entries)):
-        candidate_groups.setdefault(candidate_find(index), []).append(index)
-    for indexes in candidate_groups.values():
-        if len(indexes) == 1:
-            continue
-        identities = {}
-        for index in indexes:
-            identity = _font_face_signature(entries[index][0])
-            if identity:
-                previous = identities.setdefault(identity, index)
-                union(index, previous)
-        if not identities:
-            for index in indexes[1:]:
-                union(indexes[0], index)
-
-    grouped: dict[int, list[tuple[str, str, tuple[str, ...]]]] = {}
-    for index, entry in enumerate(entries):
-        grouped.setdefault(find(index), []).append(entry)
-
-    merged = []
-    for group in grouped.values():
-        canonical = min(
-            group,
-            key=lambda entry: (
-                not entry[0].isascii(),
-                len(_search_key(entry[0])),
-                _search_key(entry[0]),
-            ),
-        )[0]
-        display, _aliases = localized_font_family(canonical, locale_code)
-        aliases = tuple(
-            dict.fromkeys(
-                alias
-                for family, _display, family_aliases in group
-                for alias in (family, *family_aliases)
-            )
-        )
-        merged.append((display, canonical, aliases))
-
-    display_counts = Counter(
-        _search_key(display) for display, _family, _aliases in merged
-    )
-    result = [
-        (
-            f"{display} ({family})"
-            if display_counts[_search_key(display)] > 1 and display != family
-            else display,
-            family,
-            aliases,
-        )
-        for display, family, aliases in merged
-    ]
-    return tuple(
-        sorted(result, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1])))
-    )
-
-
-def list_font_family_entries(
-    locale_code: str,
-    include_system: bool | None = None,
-) -> list[tuple[str, str, tuple[str, ...]]]:
-    list_font_files()
-    if include_system is None:
-        include_system = _SYSTEM_FONTS_ENABLED
-    return list(_list_font_family_entries_cached(locale_code, bool(include_system)))
-
-
-@lru_cache(maxsize=None)
 def _font_styles(family: str) -> list[str]:
-    """Return Qt styles for a family, with a stable default first."""
+    """Return all Qt styles in stable display order, without inferring a default."""
     try:
         styles = [str(style) for style in QFontDatabase.styles(family) if str(style)]
     except Exception:
@@ -511,14 +438,9 @@ def _font_styles(family: str) -> list[str]:
     )
 
 
-def font_value(family: str, style: str = "", default_style: str = "") -> str:
-    """Serialize a selectable Qt family/style pair for persisted font fields.
-
-    Existing settings store only a family, so the default style intentionally keeps
-    that representation. Non-default styles use an unambiguous suffix parsed by
-    the renderer before the value is passed to Qt.
-    """
-    if not style or style == default_style:
+def font_value(family: str, style: str = "") -> str:
+    """Serialize a Qt selection, preserving every explicit style including Regular."""
+    if not style:
         return family
     return f"{family}{FONT_STYLE_SEPARATOR}{style}"
 
@@ -531,114 +453,134 @@ def split_font_value(value: str) -> tuple[str, str]:
     return str(value or ""), ""
 
 
+@dataclass(frozen=True)
+class _FontCatalogEntry:
+    display: str
+    value: str
+    search_aliases: tuple[str, ...]
+    selection_aliases: tuple[str, ...]
+    candidate_key: tuple
+
+
+def _canonical_font_rank(entry: _FontCatalogEntry) -> tuple:
+    family, style = split_font_value(entry.value)
+    records = _font_family_name_records(family, style)
+    priority = min(
+        (
+            {16: 0, 21: 1, 1: 2}[name_id]
+            for name_id, _language, name in records
+            if name.casefold() == family.casefold()
+        ),
+        default=3,
+    )
+    return (
+        priority, not family.isascii(), len(family),
+        family.casefold(), style.casefold(), entry.value,
+    )
+
+
 @lru_cache(maxsize=None)
 def _list_font_style_entries_cached(
     locale_code: str,
     include_system: bool,
-) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
-    """Return selectable family/style entries for the font controls.
+) -> tuple[_FontCatalogEntry, ...]:
+    """Merge equivalent physical faces only after enumerating every style.
 
-    A font collection commonly contains several styles under one family. Showing
-    them independently makes an explicit Light or Bold choice survive rendering,
-    while legacy family-only values still select the default style.
+    Search names are deliberately separate from the verified Qt selectors used
+    to restore saved values. Neither translated names nor a shared weight imply
+    that a saved selector can be redirected to another entry.
     """
-    entries = []
-    for display, family, aliases in list_font_family_entries(
-        locale_code, include_system
-    ):
+    candidates: dict[tuple, list[_FontCatalogEntry]] = {}
+    for family in list_font_families(include_system=include_system):
         styles = _font_styles(family)
-        default_style = styles[0]
         for style in styles:
-            value = font_value(family, style, default_style)
-            style_display = f"{display} - {style}" if len(styles) > 1 else display
-            style_aliases = tuple(
-                dict.fromkeys(
-                    (
-                        value,
-                        *(
-                            f"{alias}{FONT_STYLE_SEPARATOR}{style}"
-                            for alias in aliases
-                            if style
-                        ),
-                        *(f"{alias} {style}" for alias in aliases if style),
-                        *(aliases if style == default_style else ()),
-                    )
+            display, family_aliases = localized_font_family(family, locale_code, style)
+            value = font_value(family, style)
+            search_aliases = tuple(dict.fromkeys(
+                (
+                    value, *family_aliases,
+                    *(name for _id, _language, name in _font_name_records(family, style)),
+                    *(f"{alias} {style}" for alias in family_aliases if style),
                 )
+            ))
+            candidate = _font_candidate_key(family, style)
+            entry = _FontCatalogEntry(
+                f"{display} - {style}" if style and len(styles) > 1 else display,
+                value, search_aliases, (value,), candidate,
             )
-            entries.append((style_display, value, style_aliases, family, style))
-
-    # Qt can expose a style both as ``Family - Light`` and as a compatibility
-    # family named ``Family Light``. First form small candidates from family/style
-    # tokens, then compare exact faces only inside those candidates.
-    known_styles = {
-        _search_key(style)
-        for _display, _value, _aliases, _family, style in entries
-        if style
-    } | {"regular", "normal"}
-
-    def style_hint(family: str, style: str) -> tuple[str, str]:
-        family_key = _search_key(family)
-        style_key = _search_key(style or "regular")
-        for suffix in sorted(known_styles, key=len, reverse=True):
-            marker = f" {suffix}"
-            if family_key.endswith(marker):
-                family_key = family_key[: -len(marker)]
-                if style_key in {"regular", "normal"}:
-                    style_key = suffix
-                break
-        return family_key, style_key
-
-    candidates: dict[tuple[str, str], list[int]] = {}
-    for index, entry in enumerate(entries):
-        candidates.setdefault(style_hint(entry[3], entry[4]), []).append(index)
-
-    grouped: dict[
-        tuple[str, tuple | int], list[tuple[str, str, tuple[str, ...], str, str]]
-    ] = {}
-    for indexes in candidates.values():
-        if len(indexes) == 1:
-            entry = entries[indexes[0]]
-            grouped[("entry", indexes[0])] = [entry]
-            continue
-        for index in indexes:
-            entry = entries[index]
-            identity = _font_style_signature(entry[3], entry[4])
-            key: tuple[str, tuple | int] = (
-                ("face", identity) if identity else ("entry", index)
-            )
-            grouped.setdefault(key, []).append(entry)
+            key = ("candidate", candidate) if candidate else ("entry", value)
+            candidates.setdefault(key, []).append(entry)
 
     merged = []
-    for group in grouped.values():
-        canonical = min(
-            group,
-            key=lambda entry: (
-                len(_search_key(entry[3])),
-                _search_key(entry[3]),
-                _search_key(entry[4]),
-            ),
-        )
-        aliases = tuple(
-            dict.fromkeys(
-                alias
-                for _display, _value, entry_aliases, _family, _style in group
-                for alias in entry_aliases
+    for entries in candidates.values():
+        groups: dict[tuple, list[_FontCatalogEntry]] = {}
+        for entry in entries:
+            identity = (
+                _resolved_font_identity(*split_font_value(entry.value))
+                if len(entries) > 1 else ()
             )
+            key = ("face", identity) if identity else ("entry", entry.value)
+            groups.setdefault(key, []).append(entry)
+        for group in groups.values():
+            canonical = min(group, key=_canonical_font_rank)
+            merged.append(_FontCatalogEntry(
+                canonical.display, canonical.value,
+                tuple(sorted({alias for item in group for alias in item.search_aliases})),
+                tuple(sorted({alias for item in group for alias in item.selection_aliases})),
+                canonical.candidate_key,
+            ))
+
+    counts = Counter(_search_key(entry.display) for entry in merged)
+    return tuple(sorted((
+        _FontCatalogEntry(
+            f"{entry.display} ({entry.value})"
+            if counts[_search_key(entry.display)] > 1 else entry.display,
+            entry.value, entry.search_aliases, entry.selection_aliases, entry.candidate_key,
         )
-        merged.append((canonical[0], canonical[1], aliases))
-    return tuple(
-        sorted(merged, key=lambda entry: (_search_key(entry[0]), _search_key(entry[1])))
+        for entry in merged
+    ), key=lambda entry: (_search_key(entry.display), entry.value)))
+
+
+def _selection_key(value: str) -> str:
+    # Qt names are case insensitive; search-only NFKC folding must not collapse
+    # distinct persisted font names (e.g. full-width and ASCII characters).
+    return str(value or "").casefold()
+
+
+@lru_cache(maxsize=4096)
+def _resolve_catalog_value(value: str, locale_code: str, include_system: bool) -> str:
+    entries = _list_font_style_entries_cached(locale_code, include_system)
+    key = _selection_key(value)
+    exact = {
+        entry.value for entry in entries
+        if any(_selection_key(alias) == key for alias in entry.selection_aliases)
+    }
+    if exact:
+        return next(iter(exact)) if len(exact) == 1 else value
+
+    # Resolve legacy bare-family values through Qt's actual default, never the
+    # first enumerated/sorted style. Unavailable or invalid selectors stay intact.
+    family, style = split_font_value(value)
+    families = {_selection_key(name): name for name in list_font_families(include_system)}
+    family = families.get(_selection_key(family)) or families.get(
+        _selection_key(strip_qt_foundry_brackets(family))
     )
-
-
-def list_font_style_entries(
-    locale_code: str,
-    include_system: bool | None = None,
-) -> list[tuple[str, str, tuple[str, ...]]]:
-    list_font_files()
-    if include_system is None:
-        include_system = _SYSTEM_FONTS_ENABLED
-    return list(_list_font_style_entries_cached(locale_code, bool(include_system)))
+    if not family or (style and style not in _font_styles(family)):
+        return value
+    candidate = _font_candidate_key(family, style)
+    if not candidate:
+        return value
+    matches = [entry for entry in entries if entry.candidate_key == candidate]
+    if not matches:
+        return value
+    identity = _resolved_font_identity(family, style)
+    if not identity:
+        return value
+    values = {
+        entry.value for entry in matches
+        if _resolved_font_identity(*split_font_value(entry.value)) == identity
+    }
+    return next(iter(values)) if len(values) == 1 else value
 
 
 @lru_cache(maxsize=4096)
@@ -662,18 +604,15 @@ def populate_font_combo(
     """
     combo.clear()
     combo._font_search_terms = {}
-    combo._font_alias_to_family = {}
-    for display, value, aliases in list_font_style_entries(
-        locale_code,
-        include_system=getattr(combo, "_include_system_fonts", _SYSTEM_FONTS_ENABLED),
-    ):
+    list_font_files()
+    include_system = getattr(combo, "_include_system_fonts", _SYSTEM_FONTS_ENABLED)
+    for entry in _list_font_style_entries_cached(locale_code, include_system):
+        display, value, aliases = entry.display, entry.value, entry.search_aliases
         combo.addItem(display, userData=value)
         combo._font_search_terms[value] = _search_key(" ".join((display, *aliases)))
-        for alias in aliases:
-            combo._font_alias_to_family.setdefault(_search_key(alias), value)
     if not current:
         return
-    current = combo._font_alias_to_family.get(_search_key(current), current)
+    current = _resolve_catalog_value(current, locale_code, include_system)
     for index in range(combo.count()):
         item_data = combo.itemData(index)
         if item_data == current:
@@ -1199,7 +1138,6 @@ class FontComboBox(TopLevelComboBox):
         self._cached_locale_code: str | None = None
         self._include_system_fonts = _SYSTEM_FONTS_ENABLED
         self._font_search_terms: dict[str, str] = {}
-        self._font_alias_to_family: dict[str, str] = {}
         super().__init__(parent)
         _FONT_COMBO_INSTANCES.add(self)
         self.currentIndexChanged.connect(self._emit_current_font_changed)
@@ -1297,7 +1235,7 @@ class FontComboBox(TopLevelComboBox):
         if not value:
             self.setCurrentIndex(-1)
             return
-        value = self._font_alias_to_family.get(_search_key(value), value)
+        value = _resolve_catalog_value(value, self._locale_code(), self._include_system_fonts)
         index = self.findData(value)
         if index < 0:
             family_name, style = split_font_value(value)

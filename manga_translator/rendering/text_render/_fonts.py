@@ -37,7 +37,12 @@ _qt_runtime_lock = threading.Lock()
 _qt_runtime_app = None
 _font_descriptor_cache = {}
 _font_families_cache = {}
+_font_registration_ids = {}
+_font_file_signatures = {}
+_font_original_names = {}
 _font_family_aliases = {}
+_font_registry_revision = 0
+_project_font_paths = set()
 _hyphenator_cache = {}
 
 
@@ -49,6 +54,7 @@ class LayoutFontDescriptor:
 
 @dataclass
 class FontState:
+    registry_revision: int = field(default_factory=lambda: _font_registry_revision)
     font_family: str = ''
     font_style: str = ''
     bold: bool = False
@@ -130,6 +136,39 @@ def _font_registration_key(path: str) -> str:
     return _normalize_font_path(os.path.normcase(os.path.abspath(path)))
 
 
+def font_registry_revision() -> int:
+    return _font_registry_revision
+
+
+def _font_registry_changed() -> None:
+    global _font_registry_revision
+    _font_registry_revision += 1
+    _font_descriptor_cache.clear()
+    _font_family_aliases.clear()
+    for path, names in sorted(_font_original_names.items()):
+        for name in names:
+            for variant in (name, strip_qt_foundry_brackets(name)):
+                if variant:
+                    _font_family_aliases.setdefault(variant.casefold(), path)
+
+
+def unregister_font_file(path: str) -> bool:
+    """Remove a registered file and invalidate selectors/physical-font caches."""
+    key = _font_registration_key(path)
+    font_id = _font_registration_ids.get(key)
+    if font_id is None and key not in _font_families_cache:
+        return True
+    if font_id is not None and not QFontDatabase.removeApplicationFont(font_id):
+        logger.warning('Could not unregister font: %s', path)
+        return False
+    _font_registration_ids.pop(key, None)
+    _font_file_signatures.pop(key, None)
+    _font_families_cache.pop(key, None)
+    _font_original_names.pop(key, None)
+    _font_registry_changed()
+    return True
+
+
 def _sanitized_font_bytes(path: str):
     """返回 ``(名字表去掉方括号后的字体数据, 原始家族名列表)``。
 
@@ -188,14 +227,24 @@ def register_font_file(path: str) -> list:
     内存副本，绕开 Qt 的 foundry 语法；返回列表已过滤空名和带方括号的名字。
     """
     key = _font_registration_key(path)
-    cached = _font_families_cache.get(key)
-    if cached is not None:
-        return cached
     if QGuiApplication.instance() is None:
         return []
+    try:
+        stat = os.stat(path)
+        signature = (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    except OSError:
+        if key in _font_registration_ids:
+            unregister_font_file(path)
+        return []
+    cached = _font_families_cache.get(key)
+    if cached is not None and _font_file_signatures.get(key) == signature:
+        return cached
+    if key in _font_registration_ids and not unregister_font_file(path):
+        return cached or []
 
     families = []
     font_id = -1
+    original_names = []
     try:
         font_id = QFontDatabase.addApplicationFont(path)
         families = list(QFontDatabase.applicationFontFamilies(font_id)) if font_id >= 0 else []
@@ -207,11 +256,6 @@ def register_font_file(path: str) -> list:
                 families = list(QFontDatabase.applicationFontFamilies(font_id)) if font_id >= 0 else []
                 # 旧配置/富文本样式里可能仍存着原始名字（含中文变体），
                 # 记下「原名/去括号名 -> 文件」映射供 set_font 兜底。
-                if font_id >= 0:
-                    for name in original_names:
-                        for variant in (name, strip_qt_foundry_brackets(name)):
-                            if variant:
-                                _font_family_aliases.setdefault(variant.casefold(), path)
                 logger.info(
                     'Registered bracketed font with sanitized families: %s -> %s',
                     os.path.basename(path), families,
@@ -225,20 +269,31 @@ def register_font_file(path: str) -> list:
         logger.exception('Failed to register font: %s', path)
 
     families = [name for name in families if name and not qt_family_is_ambiguous(name)]
-    _font_families_cache[key] = families
+    if font_id >= 0:
+        _font_registration_ids[key] = font_id
+        _font_file_signatures[key] = signature
+        _font_families_cache[key] = families
+        _font_original_names[key] = tuple(original_names)
+        _font_registry_changed()
     return families
 
 
 def _register_project_fonts() -> None:
     """Register custom project fonts in Qt; rendering still addresses them by family."""
     font_dir = os.path.join(BASE_PATH, 'fonts')
-    if not os.path.isdir(font_dir):
-        return
-    for root, _, filenames in os.walk(font_dir):
-        for filename in filenames:
+    current_paths = set()
+    for root, directories, filenames in os.walk(font_dir):
+        directories.sort()
+        for filename in sorted(filenames):
             if not filename.lower().endswith(('.ttf', '.otf', '.ttc', '.pfb')):
                 continue
-            register_font_file(os.path.join(root, filename))
+            path = _font_registration_key(os.path.join(root, filename))
+            current_paths.add(path)
+            register_font_file(path)
+    for path in _project_font_paths - current_paths:
+        unregister_font_file(path)
+    _project_font_paths.clear()
+    _project_font_paths.update(current_paths)
 
 
 def _system_font_dirs() -> list:
@@ -288,6 +343,11 @@ def _state() -> FontState:
         state = FontState()
         _thread_state.value = state
         set_font(DEFAULT_FONT_FAMILY)
+    if state.registry_revision != _font_registry_revision:
+        for cache in (state.raw_fonts, state.qfonts, state.glyph_specs, state.glyphs,
+                      state.measures, state.vertical):
+            cache.clear()
+        state.registry_revision = _font_registry_revision
     return _thread_state.value
 
 
@@ -317,11 +377,10 @@ def _raw_font(path: str, pixel_size: float) -> QRawFont:
 def _font_descriptor(path: str) -> LayoutFontDescriptor:
     _ensure_qt_runtime()
     path = _normalize_font_path(path)
+    registered_families = register_font_file(path)
     descriptor = _font_descriptor_cache.get(path)
     if descriptor:
         return descriptor
-
-    registered_families = register_font_file(path)
 
     family = ''
     style = ''
