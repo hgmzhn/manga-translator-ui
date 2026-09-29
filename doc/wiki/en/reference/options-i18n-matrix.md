@@ -323,8 +323,6 @@ The rich-text “Force Advance” combo, plus the batch-management direction/ali
 | `full` | Full Advance | 全角推进 | Same as above |
 | `h` | h | h | Batch condition / set-field Direction |
 | `v` | v | v | Same as above |
-| `hr` | hr | hr | Same as above |
-| `vr` | vr | vr | Same as above |
 | `auto` | auto | auto | Same as above |
 | `left` | left | left | Batch condition / set-field Alignment |
 | `center` | center | center | Same as above |

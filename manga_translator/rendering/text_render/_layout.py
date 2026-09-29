@@ -65,6 +65,9 @@ from ._vertical_types import (
 )
 
 _HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({"！": "!", "？": "?"})
+# Keep join controls in horizontal strings for QTextLayout shaping. In the
+# per-character vertical path they have neither ink nor a character slot.
+_ZERO_WIDTH_JOIN_CONTROLS = frozenset(("\u200c", "\u200d"))
 # 普通自动旋转字符已移到 rich_text_rules.yaml。四个弯引号与四个日文
 # 角引号保留渲染引擎特殊路径：自动旋转 90°，再做顶右/底左定位。
 _VERTICAL_ROTATE_OPEN_SPECIALS = {"“", "‘", "「", "『"}
@@ -1357,6 +1360,8 @@ def _build_rich_vertical_layout(
             span_shear = _style_italic_shear(span.style)
             with _style_font_scope(span.style):
                 for char in span.text:
+                    if char in _ZERO_WIDTH_JOIN_CONTROLS:
+                        continue
                     if char == "＿":
                         items.append(
                             VerticalPlaceholderPlan(
@@ -1668,6 +1673,21 @@ def _vertical_base(
     scale_x: float = 1.0,
     scale_y: float = 1.0,
 ) -> VerticalGlyphBase:
+    if cdpt in _ZERO_WIDTH_JOIN_CONTROLS:
+        # Do not send invisible controls through the missing-glyph fallback,
+        # which would paint a question mark and reserve a full character slot.
+        return VerticalGlyphBase(
+            translated=cdpt,
+            rot_degree=0,
+            bitmap=None,
+            advance_y=0,
+            ink_x=0.0,
+            ink_w=0.0,
+            y=0,
+            advance_x=0,
+            glyph_left=0.0,
+            frame_width=0,
+        )
     state = _state()
     key = (
         state.font_family,

@@ -39,7 +39,7 @@ Each condition row `[Field ▾] [Operator ▾] [Value] [×]` gets its value edit
 | Field kind | Value editor | Notes |
 | --- | --- | --- |
 | Text | Single-line input | Placeholder text is “Value” |
-| Enum | Combo box | Shows raw storage values, not translated; e.g. direction `h`/`v`/`hr`/`vr`/`auto` |
+| Enum | Combo box | Shows raw storage values, not translated; e.g. direction `h`/`v`/`auto` |
 | Number | Number input | Integer range -100000…100000; decimals keep 3 places with step 0.05 |
 | Number range | Low + “to” + high | Two number inputs |
 | Color | Color picker | “Close to color” adds “Tolerance”, range 0…442, default 30 |
@@ -54,7 +54,7 @@ Field-value notes:
 
 - `translation` matches the region body: it prefers the visible text of the rich-text document (newlines as `\n`) and falls back to the `translation` field when parsing fails. Matching does not run on `[BR]`-based `translation`, so the four characters of `[BR]` never pollute character indices.
 - `text`, `prob`, `has_rich_text`, `line_count`, and `region_index` are read-only and never appear in the “set region properties” action.
-- `direction` values are alias-normalized: `horizontal` → `h`, `vertical` → `v`, and `h`/`v`/`hr`/`vr`/`auto` are accepted.
+- `direction` offers `h`/`v`/`auto`. Reading, comparison, and writing normalize historical aliases: `horizontal`/`hr` → `h` and `vertical`/`vr` → `v`. Right-to-left reading order is determined by the target language.
 - Empty `fg_colors`/`bg_colors` fall back to `font_color`/`bg_color`, keeping compatibility with historical editor-saved shapes.
 
 ## Operators and matching rules {#operators-and-rules}

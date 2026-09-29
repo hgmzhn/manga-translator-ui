@@ -323,8 +323,6 @@ API 通道轮换策略下拉，以及自定义 API 参数的类型和布尔值�
 | `full` | Full Advance | 全角推进 | 同上 |
 | `h` | h | h | 批量条件 / 批量设属性 Direction |
 | `v` | v | v | 同上 |
-| `hr` | hr | hr | 同上 |
-| `vr` | vr | vr | 同上 |
 | `auto` | auto | auto | 同上 |
 | `left` | left | left | 批量条件 / 批量设属性 Alignment |
 | `center` | center | center | 同上 |

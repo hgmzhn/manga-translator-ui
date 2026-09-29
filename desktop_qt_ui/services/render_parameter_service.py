@@ -22,9 +22,19 @@ class Direction(Enum):
     """文本方向枚举"""
     HORIZONTAL = "h"
     VERTICAL = "v"
-    HORIZONTAL_REVERSED = "hr"
-    VERTICAL_REVERSED = "vr"
     AUTO = "auto"
+
+
+def _normalize_direction(value: Any) -> str:
+    """统一排版方向；历史反转值只作为别名，阅读顺序由语言决定。"""
+    direction = str(getattr(value, "value", value) or "auto").strip().lower()
+    return {
+        "horizontal": "h",
+        "vertical": "v",
+        "hr": "h",
+        "vr": "v",
+    }.get(direction, direction if direction in {"h", "v", "auto"} else "auto")
+
 
 @dataclass
 class RenderParameters:
@@ -68,6 +78,7 @@ class RenderParameters:
     disable_font_border: bool = False  # 是否禁用字体边框
     
     def __post_init__(self):
+        self.direction = _normalize_direction(self.direction)
         if self.shadow_offset is None:
             self.shadow_offset = [0.0, 0.0]
         if self.layout_mode not in VALID_LAYOUT_MODES:
@@ -166,7 +177,7 @@ class RenderParameterService:
             parameters=RenderParameters(
                 font_size=18,
                 alignment="right",
-                direction="vertical",
+                direction="v",
                 line_spacing=1.0,
                 letter_spacing=0.9,
                 fg_color=(0, 0, 0),
@@ -203,10 +214,10 @@ class RenderParameterService:
             # 判断文本方向
             aspect_ratio = width / height if height > 0 else 1.0
             if aspect_ratio > 2.0:
-                direction = "horizontal"  # 明显的横向
+                direction = "h"  # 明显的横向
                 alignment = "center"
             elif aspect_ratio < 0.5:
-                direction = "vertical"  # 明显的纵向
+                direction = "v"  # 明显的纵向
                 alignment = "right"
             else:
                 direction = "auto"  # 自动判断
@@ -244,6 +255,7 @@ class RenderParameterService:
         so aliases cannot silently diverge again.
         """
         resolved = copy.deepcopy(params)
+        resolved.direction = _normalize_direction(resolved.direction)
         if not region_data:
             return resolved
 
@@ -259,6 +271,8 @@ class RenderParameterService:
                 continue
             if field_name == 'stroke_width':
                 value = max(float(value), 0.0)
+            elif field_name == 'direction':
+                value = _normalize_direction(value)
             elif field_name in {'fg_color', 'bg_color'} and isinstance(value, list):
                 value = tuple(value)
             setattr(resolved, field_name, value)
@@ -288,6 +302,7 @@ class RenderParameterService:
     def set_region_parameters(self, region_index: int, parameters: RenderParameters):
         """设置指定区域的渲染参数"""
         self.region_parameters[region_index] = copy.deepcopy(parameters)
+        self.region_parameters[region_index].direction = _normalize_direction(parameters.direction)
         self.logger.debug(f"设置区域 {region_index} 的渲染参数")
     
     def update_region_parameter(self, region_index: int, param_name: str, value: Any):
@@ -296,6 +311,8 @@ class RenderParameterService:
             self.region_parameters[region_index] = self.get_default_parameters()
 
         if hasattr(self.region_parameters[region_index], param_name):
+            if param_name == 'direction':
+                value = _normalize_direction(value)
             setattr(self.region_parameters[region_index], param_name, value)
             self.logger.debug(f"更新区域 {region_index} 参数 {param_name} = {value}")
         else:
@@ -353,8 +370,8 @@ class RenderParameterService:
             
             # 布局参数
             'alignment': params.alignment,
-            'direction': {'h': 'horizontal', 'v': 'vertical', 'hr': 'horizontal', 'vr': 'vertical'}.get(params.direction, params.direction if params.direction in ['horizontal', 'vertical', 'auto'] else 'auto'),
-            'vertical': params.direction in ['v', 'vr', 'vertical'], # Added vertical flag
+            'direction': {'h': 'horizontal', 'v': 'vertical'}.get(params.direction, 'auto'),
+            'vertical': params.direction == 'v',
             'line_spacing': params.line_spacing,
             'letter_spacing': params.letter_spacing,
             
@@ -483,8 +500,6 @@ class RenderParameterService:
         direction_map = {
             "h": "水平",
             "v": "垂直", 
-            "hr": "水平从右到左",
-            "vr": "垂直从右到左",
             "auto": "自动"
         }
         

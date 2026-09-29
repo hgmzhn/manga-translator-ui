@@ -39,7 +39,7 @@ lastUpdated: true
 | 字段类型 | 值编辑器 | 说明 |
 | --- | --- | --- |
 | 文本 | 单行输入框 | 占位文案为“值” |
-| 枚举 | 下拉框 | 直接显示存储值，不翻译；例如排版方向 `h`/`v`/`hr`/`vr`/`auto` |
+| 枚举 | 下拉框 | 直接显示存储值，不翻译；例如排版方向 `h`/`v`/`auto` |
 | 数字 | 数值输入框 | 整数范围 -100000…100000；小数保留 3 位、步进 0.05 |
 | 数字区间 | 低值 + “到” + 高值 | 两个数值输入框 |
 | 颜色 | 颜色选择器 | 使用“接近颜色”时附带“容差”，范围 0…442、默认 30 |
@@ -54,7 +54,7 @@ lastUpdated: true
 
 - `translation` 匹配的是区域正文：优先取富文本文档的可见文字（换行为 `\n`），解析失败时回退到 `translation` 字段。匹配不跑在带 `[BR]` 的 `translation` 上，避免 `[BR]` 四个字符污染字符下标。
 - `text`、`prob`、`has_rich_text`、`line_count`、`region_index` 是只读字段，不会出现在“改 region 属性”动作里。
-- `direction` 取值会做别名归一化：`horizontal` → `h`、`vertical` → `v`，并接受 `h`/`v`/`hr`/`vr`/`auto`。
+- `direction` 可选值为 `h`/`v`/`auto`。读取、比较和写入时兼容历史别名：`horizontal`/`hr` → `h`、`vertical`/`vr` → `v`；从右到左的阅读顺序由目标语言决定。
 - `fg_colors`/`bg_colors` 为空时会回退读取 `font_color`/`bg_color`，兼容编辑器保存的历史形态。
 
 ## 匹配运算符与规则 {#operators-and-rules}

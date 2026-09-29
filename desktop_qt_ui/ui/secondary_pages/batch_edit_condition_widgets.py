@@ -36,6 +36,7 @@ from services.batch_edit_engine import (
     OPS_BY_KIND,
     VALUELESS_OPS,
     FieldSpec,
+    region_field_value,
 )
 from services.batch_edit_schemes import (
     ACTION_REPLACE_TEXT,
@@ -98,10 +99,11 @@ class _TextValueEditor(_ValueEditor):
 
 
 class _EnumValueEditor(_ValueEditor):
-    def __init__(self, choices: tuple[str, ...], parent=None):
+    def __init__(self, spec: FieldSpec, parent=None):
         super().__init__(parent)
+        self._field_key = spec.key
         self._combo = ComboBox(self)
-        for choice in choices:
+        for choice in spec.choices:
             self._combo.addItem(choice, userData=choice)
         self._combo.currentIndexChanged.connect(self.changed)
         _row(self).addWidget(self._combo, 1)
@@ -110,6 +112,8 @@ class _EnumValueEditor(_ValueEditor):
         return self._combo.currentData()
 
     def set_value(self, value: Any) -> None:
+        # 先吸收历史方向别名，避免 vr/vertical 因不在下拉选项中回退成 h。
+        value = region_field_value({self._field_key: value}, self._field_key)
         index = self._combo.findData(str(value or ""))
         self._combo.setCurrentIndex(index if index >= 0 else 0)
 
@@ -272,7 +276,7 @@ def build_value_editor(
         editor = _RangeValueEditor(spec.integer, t_func, parent) if op == "between" \
             else _NumberValueEditor(spec.integer, parent)
     elif spec.kind == KIND_ENUM:
-        editor = _EnumValueEditor(spec.choices, parent)
+        editor = _EnumValueEditor(spec, parent)
     elif spec.kind == KIND_COLOR:
         editor = _ColorValueEditor(t_func, config_service, op == "color_near", parent)
     elif spec.kind == KIND_BOOL:

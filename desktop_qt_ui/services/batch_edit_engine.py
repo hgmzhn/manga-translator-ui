@@ -89,7 +89,7 @@ FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("font_family", KIND_TEXT, "Font Family"),
     FieldSpec("target_lang", KIND_TEXT, "Target Language"),
     FieldSpec("source_lang", KIND_TEXT, "Source Language"),
-    FieldSpec("direction", KIND_ENUM, "Direction", ("h", "v", "hr", "vr", "auto")),
+    FieldSpec("direction", KIND_ENUM, "Direction", ("h", "v", "auto")),
     FieldSpec("alignment", KIND_ENUM, "Alignment", ("left", "center", "right", "auto")),
     FieldSpec("font_size", KIND_NUMBER, "Font Size", integer=True),
     FieldSpec("angle", KIND_NUMBER, "Angle"),
@@ -146,8 +146,8 @@ _DIRECTION_ALIASES = {
     "vertical": "v",
     "h": "h",
     "v": "v",
-    "hr": "hr",
-    "vr": "vr",
+    "hr": "h",  # 兼容历史数据；阅读顺序由语言决定。
+    "vr": "v",
     "auto": "auto",
 }
 
@@ -438,6 +438,8 @@ def _compile_pattern(action: dict) -> Optional[re.Pattern]:
 def _coerce_field_value(spec: Optional[FieldSpec], value: Any) -> Any:
     if spec is None:
         return value
+    if spec.key == "direction":
+        return _normalize_direction(value)
     if spec.kind == KIND_BOOL:
         return bool(value)
     if spec.kind == KIND_NUMBER:
@@ -455,7 +457,7 @@ _COLLAPSE_BREAKS_RE = re.compile(r"\n+")
 
 
 def _region_direction(region: dict) -> Any:
-    return region.get("direction", "h")
+    return _normalize_direction(region.get("direction", "h"))
 
 
 def _sync_translation(

@@ -2660,7 +2660,7 @@ def render(
             round(norm_h[0]),
             round(norm_v[0]),
             region.alignment,
-            region.direction == 'hl',
+            False,  # Qt shapes and orders horizontal text from logical Unicode.
             fg,
             bg,
             region.target_lang,

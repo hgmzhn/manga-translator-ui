@@ -124,7 +124,7 @@ def render_text_image_for_region(
             render_w,
             render_h,
             text_block.alignment,
-            text_block.direction == "hl",
+            False,  # Qt shapes and orders horizontal text from logical Unicode.
             fg_color,
             bg_color,
             text_block.target_lang,

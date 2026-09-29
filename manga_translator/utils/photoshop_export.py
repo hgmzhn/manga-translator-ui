@@ -905,6 +905,57 @@ def photoshop_export(output_file: str, ctx: Context, default_font: str = None, i
                 logger.warning(f"无法删除JSX脚本 {jsx_file}: {e}")
 
 
+def _normalize_photoshop_path(value) -> Optional[str]:
+    """接受带引号的可执行文件路径或安装目录，并确认目标是文件。"""
+    if not isinstance(value, str):
+        return None
+    path = value.strip()
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in ('"', "'"):
+        path = path[1:-1]
+    if not path:
+        return None
+    path = os.path.expanduser(os.path.expandvars(path))
+    if platform.system() == "Windows" and os.path.isdir(path):
+        path = os.path.join(path, "Photoshop.exe")
+    return path if os.path.isfile(path) else None
+
+
+def _find_photoshop_from_environment() -> Optional[str]:
+    """检查进程环境及 Windows 已保存的变量，兼容启动后修改系统变量。"""
+    value = os.getenv("PHOTOSHOP_PATH")
+    if value:
+        path = _normalize_photoshop_path(value)
+        if path:
+            logger.info(f"从环境变量找到 Photoshop: {path}")
+            return path
+        logger.warning(f"PHOTOSHOP_PATH 指向的文件不存在: {value!r}")
+
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    # os.environ 是进程启动时的快照，系统设置里刚保存的值可能尚未继承。
+    for hkey, subkey, source in [
+        (winreg.HKEY_CURRENT_USER, r"Environment", "用户环境变量"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment", "系统环境变量"),
+    ]:
+        try:
+            with winreg.OpenKey(hkey, subkey) as key:
+                value, _ = winreg.QueryValueEx(key, "PHOTOSHOP_PATH")
+            path = _normalize_photoshop_path(value)
+            if path:
+                logger.info(f"从{source}找到 Photoshop: {path}")
+                return path
+            logger.warning(f"{source} PHOTOSHOP_PATH 指向的文件不存在: {value!r}")
+        except OSError as e:
+            logger.debug(f"读取{source} PHOTOSHOP_PATH 失败: {e}")
+    return None
+
+
 def find_photoshop_from_registry() -> Optional[str]:
     """
     从 Windows 注册表查找 Photoshop 安装路径
@@ -921,6 +972,22 @@ def find_photoshop_from_registry() -> Optional[str]:
         logger.warning("无法导入 winreg 模块，跳过注册表查询")
         return None
     
+    # App Paths 的默认值直接指向可执行文件，不受安装盘符限制。
+    for hkey in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
+        for view in [winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY]:
+            try:
+                with winreg.OpenKey(
+                    hkey, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Photoshop.exe",
+                    0, winreg.KEY_READ | view,
+                ) as key:
+                    value, _ = winreg.QueryValueEx(key, "")
+                ps_exe = _normalize_photoshop_path(value)
+                if ps_exe:
+                    logger.info(f"从 App Paths 注册表找到 Photoshop: {ps_exe}")
+                    return ps_exe
+            except OSError:
+                continue
+
     # 可能的注册表路径
     registry_paths = [
         # Photoshop CC 及更新版本
@@ -957,12 +1024,10 @@ def find_photoshop_from_registry() -> Optional[str]:
                             for value_name in ["ApplicationPath", "InstallPath", "Path"]:
                                 try:
                                     install_path, _ = winreg.QueryValueEx(version_key, value_name)
-                                    if install_path:
-                                        # 构建可执行文件路径
-                                        ps_exe = os.path.join(install_path, "Photoshop.exe")
-                                        if os.path.exists(ps_exe):
-                                            logger.info(f"从注册表找到 Photoshop: {ps_exe}")
-                                            return ps_exe
+                                    ps_exe = _normalize_photoshop_path(install_path)
+                                    if ps_exe:
+                                        logger.info(f"从注册表找到 Photoshop: {ps_exe}")
+                                        return ps_exe
                                 except FileNotFoundError:
                                     continue
                     except Exception as e:
@@ -982,7 +1047,7 @@ def find_photoshop_executable() -> Optional[str]:
     查找 Photoshop 可执行文件路径
     
     查找顺序：
-    1. 环境变量 PHOTOSHOP_PATH
+    1. 环境变量 PHOTOSHOP_PATH（含 Windows 当前保存的用户/系统变量）
     2. Windows 注册表（仅 Windows）
     3. 常见安装路径
     4. 遍历 Adobe 目录
@@ -992,9 +1057,8 @@ def find_photoshop_executable() -> Optional[str]:
     """
     
     # 1. 优先使用环境变量
-    ps_path = os.getenv("PHOTOSHOP_PATH")
-    if ps_path and os.path.exists(ps_path):
-        logger.info(f"从环境变量找到 Photoshop: {ps_path}")
+    ps_path = _find_photoshop_from_environment()
+    if ps_path:
         return ps_path
     
     system = platform.system()

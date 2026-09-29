@@ -10,12 +10,7 @@ import numpy as np
 import py3langid as langid
 from shapely.geometry import MultiPoint, Polygon
 
-from .generic import (
-    color_difference,
-    fg_bg_compare,
-    is_right_to_left_char,
-    is_valuable_char,
-)
+from .generic import color_difference, fg_bg_compare
 from .log import get_logger
 from .panel import get_panels_from_array
 
@@ -48,8 +43,8 @@ LANGUAGE_ORIENTATION_PRESETS = {
     'TRK': 'h',
     'UKR': 'h',
     'VIN': 'h',
-    'ARA': 'hr', # horizontal reversed (right to left)
-    'PER': 'hr', # horizontal reversed (right to left)
+    'ARA': 'h',
+    'PER': 'h',
     'FIL': 'h'
 }
 
@@ -66,8 +61,10 @@ def _normalize_direction_token(direction):
         'vertical': 'v',
         'h': 'h',
         'v': 'v',
-        'hr': 'hr',
-        'vr': 'vr',
+        # Legacy saved values encode reading order as well as orientation.
+        # Reading order now comes from the language, independently of h/v.
+        'hr': 'h',
+        'vr': 'v',
         'auto': 'auto',
     }.get(normalized, normalized)
 
@@ -94,58 +91,6 @@ def _translation_plain_text(value: Any) -> str:
     from ..rendering.rich_text import plain_text_of
 
     return plain_text_of(value)
-
-
-_LEGACY_LINE_BREAK_RE = re.compile(r"(?:\[BR\]|【BR】|<br\s*/?>)", re.IGNORECASE)
-
-
-def _reverse_ltr_blocks(text: str) -> str:
-    """右到左（'r' 结尾方向）渲染时，把连续的 LTR（非 RTL 可见字符）块整体反转，
-    使逐字符右到左绘制后仍以正常顺序显示。
-
-    get_translation_for_rendering 的字符串路径与 BR→富文本转换
-    （ensure_translation_rich_from_legacy_breaks）共用，保证两条渲染路径行为一致。
-    """
-    if not text:
-        return text
-
-    def reverse_segment(segment: str) -> str:
-        text_list = list(segment)
-        l2r_idx = -1
-
-        def reverse_sublist(l, i1, i2):
-            delta = i2 - i1
-            for j1 in range(i1, i2 - delta // 2):
-                j2 = i2 - (j1 - i1) - 1
-                l[j1], l[j2] = l[j2], l[j1]
-
-        for i, c in enumerate(segment):
-            if not is_right_to_left_char(c) and is_valuable_char(c):
-                if l2r_idx < 0:
-                    l2r_idx = i
-            elif l2r_idx >= 0 and i - l2r_idx > 1:
-                # Reverse left-to-right characters for correct rendering
-                reverse_sublist(text_list, l2r_idx, i)
-                l2r_idx = -1
-        if l2r_idx >= 0 and len(segment) - l2r_idx > 1:
-            reverse_sublist(text_list, l2r_idx, len(text_list))
-
-        return ''.join(text_list)
-
-    # Keep legacy line-break markers intact. Reversing the ``BR`` letters in
-    # ``[BR]`` would turn it into ``[RB]`` and prevent the renderer from
-    # converting it to an actual line break.
-    parts = _LEGACY_LINE_BREAK_RE.split(text)
-    markers = _LEGACY_LINE_BREAK_RE.findall(text)
-    if not markers:
-        return reverse_segment(text)
-
-    result = []
-    for index, part in enumerate(parts):
-        result.append(reverse_segment(part))
-        if index < len(markers):
-            result.append(markers[index])
-    return ''.join(result)
 
 
 class TextBlock(object):
@@ -418,13 +363,6 @@ class TextBlock(object):
         if not has_legacy_line_breaks(self.translation):
             return False
         document = legacy_line_breaks_to_document(self.translation)
-        if self.direction.endswith('r'):
-            # 右到左（hr/vr）渲染：富文本渲染器按逻辑序排 span，不再经过
-            # get_translation_for_rendering 字符串路径的 LTR 块反转，
-            # 这里在 BR→rich 转换时对每个段落文本补做同一反转，保持行为一致。
-            for paragraph in document.blocks:
-                for run in paragraph.inlines:
-                    run.text = _reverse_ltr_blocks(run.text)
         self.translation_rich = document.to_dict()
         return True
 
@@ -595,14 +533,7 @@ class TextBlock(object):
     def get_translation_for_rendering(self):
         if self.translation_rich is not None:
             return self.translation_rich
-        text = self.translation
-        if not isinstance(text, str):
-            return text
-        if self.direction.endswith('r'):
-            # The render direction is right to left so left-to-right
-            # text/number chunks need to be reversed to look normal.
-            text = _reverse_ltr_blocks(text)
-        return text
+        return self.translation
 
     @property
     def is_bulleted_list(self):
@@ -658,61 +589,40 @@ class TextBlock(object):
 
     @property
     def direction(self):
-        """Render direction determined through used language or aspect ratio."""
+        """Resolve auto or a legacy input alias to horizontal (h) or vertical (v)."""
         normalized_direction = _normalize_direction_token(self._direction)
-        if normalized_direction in ('h', 'v', 'hr', 'vr'):
+        if normalized_direction in ('h', 'v'):
             return normalized_direction
 
-        if normalized_direction != 'auto':
-            # Preserve legacy fallback behaviour for unknown custom values.
-            self._direction = normalized_direction
+        preset = LANGUAGE_ORIENTATION_PRESETS.get(self.target_lang)
+        if preset in ('h', 'v'):
+            return preset
 
-        if normalized_direction not in ('h', 'v', 'hr', 'vr'):
-            d = LANGUAGE_ORIENTATION_PRESETS.get(self.target_lang)
-            if d in ('h', 'v', 'hr', 'vr'):
-                return d
+        # 根据 region 中面积最大的文本框的宽高比判断自动排版方向。
+        if len(self.lines) > 0:
+            max_area = 0
+            largest_box_aspect_ratio = 1
+            for line in self.lines:
+                area = Polygon(line).area
+                if area > max_area:
+                    max_area = area
+                    x_coords = line[:, 0]
+                    y_coords = line[:, 1]
+                    width = np.max(x_coords) - np.min(x_coords)
+                    height = np.max(y_coords) - np.min(y_coords)
+                    largest_box_aspect_ratio = width / height if height > 0 else 1
+            return 'v' if largest_box_aspect_ratio < 1 else 'h'
 
-            # 根据region中面积最大的文本框的宽高比来判断排版方向
-            if len(self.lines) > 0:
-                # 计算每个检测框的面积和宽高比
-                max_area = 0
-                largest_box_aspect_ratio = 1
-                
-                for line in self.lines:
-                    # 计算检测框的面积
-                    line_polygon = Polygon(line)
-                    area = line_polygon.area
-                    
-                    if area > max_area:
-                        max_area = area
-                        # 计算该检测框的宽高比
-                        # 获取检测框的边界框
-                        x_coords = line[:, 0]
-                        y_coords = line[:, 1]
-                        width = np.max(x_coords) - np.min(x_coords)
-                        height = np.max(y_coords) - np.min(y_coords)
-                        largest_box_aspect_ratio = width / height if height > 0 else 1
-                
-                # 根据面积最大的检测框的宽高比判断方向
-                if largest_box_aspect_ratio < 1:
-                    return 'v'
-                else:
-                    return 'h'
-            else:
-                # 如果没有lines，则使用整体的宽高比作为fallback
-                if self.aspect_ratio < 1:
-                    return 'v'
-                else:
-                    return 'h'
-        return normalized_direction
+        # 没有检测框时，使用区域整体的宽高比。
+        return 'v' if self.aspect_ratio < 1 else 'h'
 
     @property
     def vertical(self):
-        return self.direction.startswith('v')
+        return self.direction == 'v'
 
     @property
     def horizontal(self):
-        return self.direction.startswith('h')
+        return self.direction == 'h'
 
     @property
     def alignment(self):
@@ -723,35 +633,8 @@ class TextBlock(object):
             return 'center'
 
         if self.direction == 'h':
-            return 'center'
-        elif self.direction == 'hr':
-            return 'right'
-        else:
-            return 'left'
-
-        # x1, y1, x2, y2 = self.xyxy
-        # polygons = self.unrotated_polygons
-        # polygons = polygons.reshape(-1, 4, 2)
-        # print(self.polygon_aspect_ratio, self.xyxy)
-        # print(polygons[:, :, 0] - x1)
-        # print()
-        # if self.polygon_aspect_ratio < 1:
-        #     left_std = abs(np.std(polygons[:, :2, 1] - y1))
-        #     right_std = abs(np.std(polygons[:, 2:, 1] - y2))
-        #     center_std = abs(np.std(((polygons[:, :, 1] + polygons[:, :, 1]) - (y2 - y1)) / 2))
-        #     print(center_std)
-        #     print('a', left_std, right_std, center_std)
-        # else:
-        #     left_std = abs(np.std(polygons[:, ::2, 0] - x1))
-        #     right_std = abs(np.std(polygons[:, 2:, 0] - x2))
-        #     center_std = abs(np.std(((polygons[:, :, 0] + polygons[:, :, 0]) - (x2 - x1)) / 2))
-        # min_std = min(left_std, right_std, center_std)
-        # if left_std == min_std:
-        #     return 'left'
-        # elif right_std == min_std:
-        #     return 'right'
-        # else:
-        #     return 'center'
+            return 'right' if self.target_lang in ('ARA', 'PER') else 'center'
+        return 'left'
 
     @property
     def stroke_width(self):
