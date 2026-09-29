@@ -77,7 +77,7 @@ class BoundedQueueHandler(logging.handlers.QueueHandler):
             level=logging.WARNING,
             pathname=__file__,
             lineno=0,
-            msg="日志队列曾满，已丢弃 %d 条 DEBUG/INFO 日志",
+            msg="Log queue was full; dropped %d DEBUG/INFO records",
             args=(count,),
             exc_info=None,
         )
@@ -238,7 +238,7 @@ class LogService:
             from manga_translator.utils.log import init_logging
             init_logging()
         except Exception as e:
-            logging.warning(f"无法初始化manga_translator日志: {e}")
+            logging.warning(f"Failed to initialize manga_translator logging: {e}")
 
         # Library logging initialization may lower the root level. The queue must
         # continue accepting DEBUG records so the file handler can decide.

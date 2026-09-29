@@ -81,7 +81,7 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
     error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
     
     # 记录到日志（会写入 result/log_*.txt）
-    logging.critical(f"未捕获的异常导致程序崩溃:\n{error_msg}")
+    logging.critical(f"Unhandled exception caused the application to crash:\n{error_msg}")
     
     # 同时输出到控制台（确保能看到）
     print(f"\n{'='*60}", file=sys.stderr)
@@ -103,7 +103,7 @@ def _set_windows_app_user_model_id():
             'manga.translator.ui.1.0'
         )
     except Exception:
-        logging.exception("设置 Windows AppUserModelID 失败")
+        logging.exception("Failed to set Windows AppUserModelID")
 
 def _apply_windows_window_class_icon(window, icon_path: str):
     """在首次显示前设置窗口类图标，供任务栏初始化时读取。"""
@@ -151,9 +151,9 @@ def _apply_windows_window_class_icon(window, icon_path: str):
             window._native_class_icon_handles = (big_icon, small_icon)
             return True
 
-        logging.warning(f"Windows窗口类图标加载失败: {icon_path}")
+        logging.warning(f"Failed to load Windows window class icon: {icon_path}")
     except Exception:
-        logging.exception("设置Windows窗口类图标失败")
+        logging.exception("Failed to set Windows window class icon")
     return False
 
 
@@ -167,16 +167,16 @@ def _apply_macos_native_app_icon(icon_path: str):
 
         image = NSImage.alloc().initWithContentsOfFile_(icon_path)
         if not image:
-            logging.warning(f"macOS 原生应用图标加载失败: {icon_path}")
+            logging.warning(f"Failed to load macOS native application icon: {icon_path}")
             return False
 
         NSApplication.sharedApplication().setApplicationIconImage_(image)
-        logging.info(f"macOS 原生应用图标已设置: {icon_path}")
+        logging.info(f"macOS native application icon set: {icon_path}")
         return True
     except ImportError:
-        logging.info("未安装 PyObjC/AppKit，跳过 macOS 原生 Dock 图标设置")
+        logging.info("PyObjC/AppKit is not installed; skipping macOS native Dock icon setup")
     except Exception:
-        logging.exception("设置 macOS 原生应用图标失败")
+        logging.exception("Failed to set macOS native application icon")
     return False
 
 
@@ -214,14 +214,14 @@ def main():
     configure_queue_logging((console_handler, file_handler), queue_size=10_000)
     atexit.register(shutdown_queue_logging)
     
-    logging.info(f"UI日志文件: {log_file_path}")
+    logging.info(f"UI log file: {log_file_path}")
     
     # --- 确保配置文件存在 ---
     try:
         from manga_translator.runtime_files import ensure_runtime_files
         ensure_runtime_files(logging.getLogger("manga_translator"))
     except Exception as e:
-        logging.warning(f"创建配置文件失败: {e}")
+        logging.warning(f"Failed to create configuration file: {e}")
     
     # --- 崩溃捕获 (faulthandler) ---
     # 启用 faulthandler 以捕获 C++ 级别的崩溃 (Segmentation Fault 等)
@@ -284,9 +284,9 @@ def main():
     app_icon, icon_source = load_icon_from_resources([icon_relative_path])
     if app_icon and not app_icon.isNull():
         app.setWindowIcon(app_icon)
-        logging.info(f"UI 图标已设置: {icon_source}")
+        logging.info(f"UI icon set: {icon_source}")
     else:
-        logging.warning(f"UI 图标加载失败: {icon_relative_path}")
+        logging.warning(f"Failed to load UI icon: {icon_relative_path}")
 
     if sys.platform == 'darwin':
         native_macos_icon_path = next(
@@ -296,7 +296,7 @@ def main():
         if native_macos_icon_path:
             _apply_macos_native_app_icon(native_macos_icon_path)
         else:
-            logging.warning("macOS 原生应用图标未找到：doc/images/icon.icns")
+            logging.warning("macOS native application icon not found: doc/images/icon.icns")
 
 
     # 2. 初始化所有服务
@@ -395,9 +395,9 @@ def main():
                                     False,
                                 )
                 except Exception as exc:
-                    logging.debug(f"Windows 前台激活失败: {exc}")
+                    logging.debug(f"Failed to bring Windows application to foreground: {exc}")
         except Exception as exc:
-            logging.debug(f"激活主窗口失败: {exc}")
+            logging.debug(f"Failed to activate main window: {exc}")
 
     # 只调度一次：250ms 后的第二轮完整激活序列对已显示窗口毫无必要，
     # 且是启动阶段窗口闪烁的来源
@@ -411,15 +411,15 @@ def main():
         from services import get_config_service
         config_service = get_config_service()
         if config_service is not None and not config_service.shutdown():
-            logging.error("配置服务关闭前未能保存全部待处理写入")
+            logging.error("Configuration service could not save all pending writes before shutdown")
     except Exception as e:
-        logging.error(f"关闭配置服务时出错: {e}", exc_info=True)
+        logging.error(f"Error shutting down configuration service: {e}", exc_info=True)
 
     try:
         from services import shutdown_services
         shutdown_services()
     except Exception as e:
-        logging.error(f"关闭服务时出错: {e}", exc_info=True)
+        logging.error(f"Error shutting down services: {e}", exc_info=True)
 
     try:
         faulthandler.disable()

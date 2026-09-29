@@ -130,7 +130,7 @@ class LightweightInpainter:
             # 使用快速修复算法
             result = cv2.inpaint(image, mask_binary, 3, cv2.INPAINT_TELEA)
         except Exception as e:
-            self.logger.warning(f"高级填充失败，回退到简单模糊: {e}")
+            self.logger.warning(f"Advanced fill failed; falling back to simple blur: {e}")
             result = self._inpaint_simple_blur(image, mask)
         
         return result
@@ -152,7 +152,7 @@ class LightweightInpainter:
             cache_key = self._generate_cache_key(image, mask, algorithm, config)
             if cache_key in self.preview_cache:
                 cached_result = self.preview_cache[cache_key]
-                self.logger.debug(f"使用缓存结果: {algorithm.value}")
+                self.logger.debug(f"Using cached result: {algorithm.value}")
                 return PreviewResult(
                     cached_result.image.copy(), 
                     algorithm, 
@@ -175,7 +175,7 @@ class LightweightInpainter:
         if config.cache_enabled:
             self._update_cache(cache_key, result)
         
-        self.logger.debug(f"预览完成: {algorithm.value}, 耗时: {process_time:.3f}s")
+        self.logger.debug(f"Preview completed: {algorithm.value}, elapsed: {process_time:.3f}s")
         return result
     
     def _process_preview(self, image: np.ndarray, mask: np.ndarray,
@@ -209,7 +209,7 @@ class LightweightInpainter:
             return result
             
         except Exception as e:
-            self.logger.error(f"预览处理失败: {e}")
+            self.logger.error(f"Preview processing failed: {e}")
             # 回退到最简单的处理
             return self._inpaint_none(image, mask)
     
@@ -230,7 +230,7 @@ class LightweightInpainter:
             cache_key = self._generate_cache_key(image, mask, algorithm, config)
             if cache_key in self.preview_cache:
                 cached_result = self.preview_cache[cache_key]
-                self.logger.debug(f"使用缓存结果: {algorithm.value}")
+                self.logger.debug(f"Using cached result: {algorithm.value}")
                 return PreviewResult(
                     cached_result.image.copy(), 
                     algorithm, 

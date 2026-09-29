@@ -67,7 +67,7 @@ class InternalMangaOcr:
         elif isinstance(img_or_path, Image.Image):
             img = img_or_path
         else:
-            raise ValueError(f"img_or_path 必须是路径或 PIL.Image，得到: {type(img_or_path)}")
+            raise ValueError(f"img_or_path must be a path or PIL.Image; got: {type(img_or_path)}")
         
         # 转换为灰度再转回 RGB（manga_ocr 的预处理方式）
         img = img.convert("L").convert("RGB")

@@ -242,7 +242,7 @@ class GeminiTranslator(CommonTranslator):
                     stream_timeout=300
                 )
                 self._use_curl_cffi = True
-                self.logger.info(f"Gemini客户端初始化完成（强制 curl_cffi，自定义API Base）。Base URL: {self.base_url}")
+                self.logger.info(f"Gemini client initialized (forced curl_cffi with custom API base). Base URL: {self.base_url}")
             else:
                 self.client = AsyncGeminiCurlCffi(
                     api_key=self.api_key,
@@ -252,9 +252,9 @@ class GeminiTranslator(CommonTranslator):
                     stream_timeout=300
                 )
                 self._use_curl_cffi = True
-                self.logger.info("Gemini客户端初始化完成（强制 curl_cffi 模式）")
+                self.logger.info("Gemini client initialized (forced curl_cffi mode)")
 
-            self.logger.info("安全设置策略：默认发送 OFF，如遇错误自动回退")
+            self.logger.info("Safety settings policy: send OFF by default and fall back automatically on errors")
 
     async def _abort_inflight_request(self):
         """取消时尝试关闭当前客户端连接，尽快中断阻塞请求。"""
@@ -268,7 +268,7 @@ class GeminiTranslator(CommonTranslator):
                 if asyncio.iscoroutine(close_result):
                     await close_result
         except Exception as e:
-            self.logger.debug(f"中断Gemini请求时关闭客户端失败（可忽略）: {e}")
+            self.logger.debug(f"Failed to close the client while interrupting a Gemini request (safe to ignore): {e}")
         finally:
             self.client = None
     
@@ -291,7 +291,7 @@ class GeminiTranslator(CommonTranslator):
             self._setup_client()
         
         if not self.client:
-            raise RuntimeError("Gemini客户端初始化失败：请检查 GEMINI_API_KEY / GEMINI_API_BASE / GEMINI_MODEL 配置")
+            raise RuntimeError("Gemini client initialization failed: check GEMINI_API_KEY / GEMINI_API_BASE / GEMINI_MODEL settings")
         
         # 初始化重试信息
         retry_attempt = 0
@@ -321,7 +321,7 @@ class GeminiTranslator(CommonTranslator):
             if not self._increment_global_attempt():
                 self.logger.error("Reached global attempt limit. Stopping translation.")
                 last_error_msg = str(last_exception) if last_exception else "Unknown error"
-                raise Exception(f"达到最大尝试次数 ({self._max_total_attempts})，最后一次错误: {last_error_msg}")
+                raise Exception(f"Maximum attempts reached ({self._max_total_attempts}). Last error: {last_error_msg}")
 
             local_attempt += 1
             attempt += 1
@@ -341,7 +341,7 @@ class GeminiTranslator(CommonTranslator):
                 self._setup_client(system_instruction=None)
             
             if not self.client:
-                raise RuntimeError("Gemini客户端初始化失败：请检查 GEMINI_API_KEY / GEMINI_API_BASE / GEMINI_MODEL 配置")
+                raise RuntimeError("Gemini client initialization failed: check GEMINI_API_KEY / GEMINI_API_BASE / GEMINI_MODEL settings")
             
             # 构建用户提示词
             # 如果加载了 HQ Prompt，_build_user_prompt (即 _build_user_prompt_for_texts) 会生成 JSON 格式的输入，与 System Prompt 匹配
@@ -395,7 +395,7 @@ class GeminiTranslator(CommonTranslator):
                     custom_api_params = self._resolve_translator_custom_api_params(self.model_name)
                     apply_gemini_sdk_generation_params(generation_config, custom_api_params)
                     if custom_api_params:
-                        self.logger.debug(f"使用翻译模型预设参数: {custom_api_params}")
+                        self.logger.debug(f"Using translation model preset parameters: {custom_api_params}")
                     if use_streaming:
                         try:
                             self._reset_stream_json_preview()
@@ -424,7 +424,7 @@ class GeminiTranslator(CommonTranslator):
                             streamed_text = None
                             streamed_finish_reason = None
                             streamed_diagnostics = None
-                            self.logger.warning(f"流式请求不可用，已回退普通请求: {stream_error}")
+                            self.logger.warning(f"Streaming request unavailable; fell back to a non-streaming request: {stream_error}")
                             # 使用标准 SDK（同步调用包装为异步）
                             if getattr(self, '_use_curl_cffi', False):
                                 response = await self._await_with_cancel_polling(
@@ -449,7 +449,7 @@ class GeminiTranslator(CommonTranslator):
                                     on_cancel=self._abort_inflight_request,
                                 )
                     else:
-                        self.logger.info("已禁用流式传输，使用普通请求。")
+                        self.logger.info("Streaming is disabled; using a non-streaming request.")
                         if getattr(self, '_use_curl_cffi', False):
                             response = await self._await_with_cancel_polling(
                                 self.client.models.generate_content(
@@ -501,9 +501,9 @@ class GeminiTranslator(CommonTranslator):
                 finish_reason_str = diagnostics.get('finish_reason_str') or ""
                 if finish_reason and "STOP" not in finish_reason_str.upper():  # 不是成功
                     log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
-                    self.logger.warning(f"Gemini API失败 ({log_attempt}): {diagnostics_text}")
+                    self.logger.warning(f"Gemini API failed ({log_attempt}): {diagnostics_text}")
                     if gemini_diagnostics_indicate_safety(diagnostics) and not should_retry_without_safety:
-                        self.logger.warning("检测到Gemini安全策略拦截，下次重试将移除安全设置参数。")
+                        self.logger.warning("Gemini safety policy block detected; safety settings will be removed on the next retry.")
                         should_retry_without_safety = True
                     if not is_infinite and attempt >= max_retries:
                         break
@@ -522,9 +522,9 @@ class GeminiTranslator(CommonTranslator):
 
                 if not result_text:
                     log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
-                    self.logger.warning(f"Gemini返回空内容 ({diagnostics_text}) ({log_attempt})。正在重试...")
+                    self.logger.warning(f"Gemini returned empty content ({diagnostics_text}) ({log_attempt}). Retrying...")
                     if gemini_diagnostics_indicate_safety(diagnostics) and not should_retry_without_safety:
-                        self.logger.warning("空响应伴随Gemini安全策略信息，下次重试将移除安全设置参数。")
+                        self.logger.warning("Empty response includes Gemini safety policy information; safety settings will be removed on the next retry.")
                         should_retry_without_safety = True
                     raise Exception(f"Gemini returned empty content ({diagnostics_text})")
                 
@@ -555,7 +555,7 @@ class GeminiTranslator(CommonTranslator):
                     self.logger.warning(f"Got translations: {translations}")
                     
                     # 记录错误以便在达到最大尝试次数时显示
-                    last_exception = Exception(f"翻译数量不匹配: 期望 {len(texts)} 条，实际得到 {len(translations)} 条")
+                    last_exception = Exception(f"Translation count mismatch: expected {len(texts)}, got {len(translations)}")
                     
                     if not is_infinite and attempt >= max_retries:
                         raise Exception(f"Translation count mismatch after {max_retries} attempts: expected {len(texts)}, got {len(translations)}")
@@ -572,7 +572,7 @@ class GeminiTranslator(CommonTranslator):
                     self.logger.warning(f"[{log_attempt}] {retry_reason}. Retrying...")
                     
                     # 记录错误以便在达到最大尝试次数时显示
-                    last_exception = Exception(f"翻译质量检查失败: {error_msg}")
+                    last_exception = Exception(f"Quality check failed: {error_msg}")
 
                     if not is_infinite and attempt >= max_retries:
                         raise Exception(f"Quality check failed after {max_retries} attempts: {error_msg}")
@@ -591,12 +591,12 @@ class GeminiTranslator(CommonTranslator):
                     self.logger.warning(f"[{log_attempt}] {retry_reason}, retrying...")
                     
                     # 记录错误以便在达到最大尝试次数时显示
-                    last_exception = Exception("AI断句检查失败: 翻译结果缺少必要的[BR]标记")
+                    last_exception = Exception("AI line break validation failed: BR markers missing in translations")
                     
                     # 如果达到最大重试次数，抛出友好的异常
                     if not is_infinite and attempt >= max_retries:
                         from .common import BRMarkersValidationException
-                        self.logger.error("Gemini翻译在多次重试后仍然失败：AI断句检查失败。")
+                        self.logger.error("Gemini translation still failed after multiple retries: AI line break validation failed.")
                         raise BRMarkersValidationException(
                             missing_count=0,  # 具体数字在_validate_br_markers中已记录
                             total_count=len(texts),
@@ -620,21 +620,21 @@ class GeminiTranslator(CommonTranslator):
                 
                 # 如果是安全设置错误且还没有尝试回退，则标记回退
                 if is_safety_error and not should_retry_without_safety:
-                    self.logger.warning(f"检测到安全设置相关错误，将在下次重试时移除安全设置参数: {error_message}")
+                    self.logger.warning(f"Safety settings error detected; safety settings will be removed on the next retry: {error_message}")
                     should_retry_without_safety = True
                     # 不增加attempt计数，直接重试
                     await self._sleep_with_cancel_polling(1)
                     continue
                 
                 log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
-                self.logger.warning(f"Gemini翻译出错 ({log_attempt}): {e}")
+                self.logger.warning(f"Gemini translation failed ({log_attempt}): {e}")
 
                 if gemini_error_message_indicates_safety(error_message):
-                    self.logger.warning("检测到Gemini安全策略拦截。正在重试...")
+                    self.logger.warning("Gemini safety policy block detected. Retrying...")
                 
                 # 检查是否达到最大重试次数
                 if not is_infinite and attempt >= max_retries:
-                    self.logger.error("Gemini翻译在多次重试后仍然失败。即将终止程序。")
+                    self.logger.error("Gemini translation still failed after multiple retries. Terminating.")
                     raise e
                 
                 await self._sleep_with_cancel_polling(1)
@@ -654,7 +654,7 @@ class GeminiTranslator(CommonTranslator):
         # 重置全局尝试计数器
         self._reset_global_attempt_count()
 
-        self.logger.info(f"使用Gemini纯文本翻译模式处理{len(queries)}个文本，最大尝试次数: {self._max_total_attempts}")
+        self.logger.info(f"Using Gemini text-only translation for {len(queries)} texts; maximum attempts: {self._max_total_attempts}")
         custom_prompt_json = getattr(ctx, 'custom_prompt_json', None) if ctx else None
         line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None) if ctx else None
 

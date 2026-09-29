@@ -169,7 +169,7 @@ class LamaMPEInpainter(OfflineInpainter):
                     "Install with: pip install onnxruntime-gpu (or onnxruntime)"
                 )
                 onnx_path = self._get_file_path('lamampe.onnx')
-                self.logger.info(f'使用ONNX模型（CPU优化）: {onnx_path}')
+                self.logger.info(f"Using ONNX model (CPU-optimized): {onnx_path}")
                 
                 # 🔧 内存优化配置
                 sess_options = create_session_options(
@@ -186,10 +186,10 @@ class LamaMPEInpainter(OfflineInpainter):
                     logger=self.logger,
                 )
                 self.backend = 'onnx'
-                self.logger.info(f'ONNX Runtime版本: {ort.__version__}（内存优化模式）')
+                self.logger.info(f"ONNX Runtime version: {ort.__version__} (memory optimization mode)")
                 return
             except Exception as e:
-                self.logger.warning(f'ONNX加载失败，回退到PyTorch: {e}')
+                self.logger.warning(f"Failed to load ONNX; falling back to PyTorch: {e}")
         
         # ✅ GPU模式或ONNX失败时使用PyTorch
         self.model = load_lama_mpe(self._get_file_path('inpainting_lama_mpe.ckpt'), device='cpu')
@@ -214,10 +214,10 @@ class LamaMPEInpainter(OfflineInpainter):
                 # 调用包含MPE的ONNX推理
                 return await self._infer_onnx(image, mask, inpainting_size, verbose)
             except Exception as e:
-                self.logger.warning(f'ONNX推理失败（{str(e)[:100]}），本次降级到PyTorch')
+                self.logger.warning(f"ONNX inference failed ({str(e)[:100]}); falling back to PyTorch for this run")
                 # 降级：加载PyTorch模型（.ckpt 应该已经在初始化时下载）
                 if not hasattr(self, 'model'):
-                    self.logger.info('正在加载PyTorch模型...')
+                    self.logger.info("Loading PyTorch model...")
                     self.model = load_lama_mpe(self._get_file_path('inpainting_lama_mpe.ckpt'), device='cpu')
                     self.model.eval()
                     if self.device.startswith('cuda') or self.device == 'mps':
@@ -514,7 +514,7 @@ class LamaLargeInpainter(LamaMPEInpainter):
                 
                 # 检查 ONNX 文件是否存在
                 if not os.path.isfile(onnx_path):
-                    self.logger.info('ONNX 模型不存在，需要下载')
+                    self.logger.info("ONNX model does not exist; download required")
                     # 标记为未下载，触发下载
                     self._downloaded = False
                     await self._download()
@@ -522,20 +522,20 @@ class LamaLargeInpainter(LamaMPEInpainter):
                 
                 # ⚠️ 检查备用的 PyTorch 模型是否存在（用于 ONNX 失败时降级）
                 if not os.path.isfile(ckpt_path):
-                    self.logger.warning(f'备用 PyTorch 模型不存在: {ckpt_path}')
-                    self.logger.info('正在下载备用 PyTorch 模型...')
+                    self.logger.warning(f"Fallback PyTorch model does not exist: {ckpt_path}")
+                    self.logger.info("Downloading fallback PyTorch model...")
                     try:
                         # 临时标记为未下载，触发下载
                         old_downloaded = self._downloaded
                         self._downloaded = False
                         await self._download()
                         self._downloaded = old_downloaded
-                        self.logger.info('备用 PyTorch 模型下载完成')
+                        self.logger.info("Fallback PyTorch model downloaded")
                     except Exception as download_error:
-                        self.logger.warning(f'备用模型下载失败: {download_error}')
-                        self.logger.warning('如果 ONNX 推理失败，将无法降级到 PyTorch')
+                        self.logger.warning(f"Failed to download fallback model: {download_error}")
+                        self.logger.warning("PyTorch fallback will be unavailable if ONNX inference fails")
                 
-                self.logger.info(f'使用ONNX模型（CPU优化）: {onnx_path}')
+                self.logger.info(f"Using ONNX model (CPU-optimized): {onnx_path}")
                 
                 # 🔧 ONNX Runtime 配置
                 sess_options = create_session_options(
@@ -554,21 +554,21 @@ class LamaLargeInpainter(LamaMPEInpainter):
                     logger=self.logger,
                 )
                 self.backend = 'onnx'
-                self.logger.info(f'ONNX Runtime版本: {ort.__version__}')
+                self.logger.info(f"ONNX Runtime version: {ort.__version__}")
                 return
             except Exception as e:
-                self.logger.warning(f'ONNX加载失败，回退到PyTorch: {e}')
+                self.logger.warning(f"Failed to load ONNX; falling back to PyTorch: {e}")
         
         # ✅ 强制使用PyTorch或GPU模式
         if force_torch:
-            self.logger.info('已启用"强制使用PyTorch"选项，跳过ONNX')
+            self.logger.info("'Force PyTorch' is enabled; skipping ONNX")
         
         # ✅ GPU模式或ONNX失败时使用PyTorch
         ckpt_path = self._get_file_path('lama_large_512px.ckpt')
         
         # 检查 .ckpt 文件是否存在
         if not os.path.isfile(ckpt_path):
-            self.logger.info('PyTorch 模型 (.ckpt) 不存在，需要下载')
+            self.logger.info("PyTorch model (.ckpt) does not exist; download required")
             # 标记为未下载，触发下载
             self._downloaded = False
             await self._download()
@@ -697,15 +697,15 @@ class LamaLargeInpainter(LamaMPEInpainter):
             try:
                 return await self._infer_onnx(image, mask, inpainting_size, verbose)
             except Exception as e:
-                self.logger.warning(f'ONNX推理失败（{str(e)[:100]}），本次降级到PyTorch')
+                self.logger.warning(f"ONNX inference failed ({str(e)[:100]}); falling back to PyTorch for this run")
                 # 降级：需要加载PyTorch模型
                 if not hasattr(self, 'model'):
-                    self.logger.info('正在加载PyTorch模型...')
+                    self.logger.info("Loading PyTorch model...")
                     ckpt_path = self._get_file_path('lama_large_512px.ckpt')
                     if not os.path.isfile(ckpt_path):
-                        self.logger.error(f'PyTorch 模型文件不存在: {ckpt_path}')
-                        self.logger.error('ONNX 推理失败且 PyTorch 模型缺失，无法进行修复')
-                        raise FileNotFoundError(f'模型文件缺失: {ckpt_path}')
+                        self.logger.error(f"PyTorch model file does not exist: {ckpt_path}")
+                        self.logger.error("ONNX inference failed and PyTorch model is missing; cannot inpaint")
+                        raise FileNotFoundError(f'Model file not found: {ckpt_path}')
                     self.model = load_lama_mpe(ckpt_path, device='cpu', use_mpe=False, large_arch=True)
                     self.model.eval()
                     if self.device.startswith('cuda') or self.device == 'mps':

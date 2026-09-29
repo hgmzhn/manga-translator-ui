@@ -132,7 +132,7 @@ class StateManager(QObject):
             try:
                 signal.emit(value)
             except Exception as e:
-                self.logger.error(f"发射信号失败 {key.value}: {e}")
+                self.logger.error(f"Failed to emit signal {key.value}: {e}")
 
     def update_state(self, updates: Dict[AppStateKey, Any]) -> None:
         """批量更新状态"""

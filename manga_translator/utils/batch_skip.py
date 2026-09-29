@@ -76,7 +76,7 @@ def _skip_decision(
         if not os.path.exists(required_path):
             return SkipDecision(
                 reason="missing_required_original_text",
-                message=f"原文文件不存在: {os.path.basename(required_path)}",
+                message=f"Original text file does not exist: {os.path.basename(required_path)}",
                 output_path=None,
             )
         return None
@@ -86,7 +86,7 @@ def _skip_decision(
         if os.path.exists(output_path):
             return SkipDecision(
                 reason="existing_original_text",
-                message=f"原文文件已存在: {os.path.basename(output_path)}",
+                message=f"Original text file already exists: {os.path.basename(output_path)}",
                 output_path=output_path,
             )
         return None
@@ -96,7 +96,7 @@ def _skip_decision(
         if os.path.exists(output_path):
             return SkipDecision(
                 reason="existing_translated_text",
-                message=f"翻译文件已存在: {os.path.basename(output_path)}",
+                message=f"Translation file already exists: {os.path.basename(output_path)}",
                 output_path=output_path,
             )
         return None
@@ -122,7 +122,7 @@ def _skip_decision(
     )
     return SkipDecision(
         reason="existing_output",
-        message=f"输出文件已存在: {os.path.basename(output_path)}",
+        message=f"Output file already exists: {os.path.basename(output_path)}",
         output_path=output_path,
         context_eligible=context_eligible,
     )

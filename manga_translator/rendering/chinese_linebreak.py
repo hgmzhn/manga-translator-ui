@@ -96,7 +96,7 @@ def _log_enabled_notice_once() -> None:
     global _enabled_notice_logged
     if _enabled_notice_logged:
         return
-    logger.info("[中文语义断句] 检测到语义断句打开，将会进行语义断句")
+    logger.info("[Chinese Semantic Line Breaking] Semantic line breaking is enabled and will be applied")
     _enabled_notice_logged = True
 
 
@@ -113,7 +113,7 @@ async def _ensure_chinese_linebreak_models_downloaded(force: bool = False) -> bo
         try:
             await download_chinese_linebreak_models(force=force)
             if not chinese_linebreak_models_available():
-                logger.warning("中文语义断句 HanLP 模型未准备完整，渲染时会回退普通换行")
+                logger.warning("The HanLP model for Chinese semantic line breaking is incomplete; rendering will fall back to standard line wrapping")
         except Exception as exc:
             logger.warning(f"HanLP Chinese linebreak model download failed; falling back to normal line breaking: {exc}")
         finally:
@@ -147,7 +147,7 @@ def _get_models() -> Optional[tuple[Any, Any]]:
         return _tokenizer, _parser
     if not chinese_linebreak_models_available():
         if not _missing_models_logged:
-            logger.warning(f"[中文语义断句] HanLP 模型未找到，回退普通换行: {MODEL_DIR}")
+            logger.warning(f"[Chinese Semantic Line Breaking] HanLP model not found; falling back to standard line wrapping: {MODEL_DIR}")
             _missing_models_logged = True
         return None
 
@@ -186,7 +186,7 @@ def _get_models() -> Optional[tuple[Any, Any]]:
             _tokenizer = None
             _parser = None
             _load_failed = True
-            logger.warning(f"[中文语义断句] HanLP 模型加载失败，回退普通换行: {exc}")
+            logger.warning(f"[Chinese Semantic Line Breaking] Failed to load the HanLP model; falling back to standard line wrapping: {exc}")
             return None
     return _tokenizer, _parser
 
@@ -370,18 +370,18 @@ def _semantic_units(text: str) -> Optional[Tuple[SemanticUnit, ...]]:
     try:
         units = tuple(_units_from_tree(parser(tokens)))
     except Exception as exc:
-        _log_inference_fallback(text, "成分句法推理失败，使用粗分词结果继续断句", exc)
+        _log_inference_fallback(text, "Constituency parsing failed; continuing line breaking with coarse tokenization results", exc)
         units = tuple(SemanticUnit(token) for token in tokens)
 
     spaced = _inject_space_units(units, text)
     if spaced is None:
-        _log_inference_fallback(text, "空白回填结果与原文不一致，回退普通换行")
+        _log_inference_fallback(text, "Whitespace restoration does not match the original text; falling back to standard line wrapping")
         return None
 
     units = tuple(_wrap_brackets(_attach_suffix_tokens(list(spaced))))
     units = _structure_punctuation_boundaries(units)
     if "".join(unit.text for unit in units) != text:
-        _log_inference_fallback(text, "语义树重组结果与原文不一致，回退普通换行")
+        _log_inference_fallback(text, "Semantic tree reconstruction does not match the original text; falling back to standard line wrapping")
         return None
 
     if len(_unit_cache) >= _MAX_UNIT_CACHE_SIZE:
@@ -396,11 +396,11 @@ def _tokenize_for_parse(tokenizer: Any, text: str) -> Optional[list[str]]:
     try:
         raw_tokens = _normalize_tokens(tokenizer(text))
     except Exception as exc:
-        _log_inference_fallback(text, "粗分词推理失败，回退普通换行", exc)
+        _log_inference_fallback(text, "Coarse tokenization failed; falling back to standard line wrapping", exc)
         return None
     tokens = [token for token in ("".join(raw.split()) for raw in raw_tokens) if token]
     if not tokens or "".join(tokens) != "".join(text.split()):
-        _log_inference_fallback(text, "粗分词结果与原文不一致，回退普通换行")
+        _log_inference_fallback(text, "Coarse tokenization does not match the original text; falling back to standard line wrapping")
         return None
     return tokens
 
@@ -671,7 +671,7 @@ def _log_inference_fallback(text: str, reason: str, exc: Optional[Exception] = N
         _inference_fallback_log_cache.clear()
     _inference_fallback_log_cache.add(key)
 
-    message = f"[中文语义断句] {reason}: {_compact_log_text(text)}"
+    message = f"[Chinese Semantic Line Breaking] {reason}: {_compact_log_text(text)}"
     if exc is not None:
         message += f" ({type(exc).__name__}: {exc})"
     logger.warning(message)

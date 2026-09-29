@@ -78,7 +78,7 @@ def load_imported_yolo_textlines(
             raw_lines = f.readlines()
     except Exception as exc:
         if logger is not None:
-            logger.warning(f"读取 YOLO 标注失败: {label_path} ({exc})")
+            logger.warning(f"Failed to read YOLO annotations: {label_path} ({exc})")
         return []
 
     image_h, image_w = image.shape[:2]
@@ -96,7 +96,7 @@ def load_imported_yolo_textlines(
         except ValueError:
             skipped_count += 1
             if logger is not None:
-                logger.warning(f"YOLO 标注格式无效，已跳过: {label_path}:{line_no}")
+                logger.warning(f"Invalid YOLO annotation format; skipped: {label_path}:{line_no}")
             continue
 
         parsed = _parse_yolo_line(values, image_w=image_w, image_h=image_h)
@@ -120,7 +120,7 @@ def load_imported_yolo_textlines(
 
     if logger is not None:
         logger.info(
-            f"导入 YOLO 标注: file={label_path}, boxes={len(textlines)}, skipped={skipped_count}"
+            f"Imported YOLO annotations: file={label_path}, boxes={len(textlines)}, skipped={skipped_count}"
         )
 
     return textlines

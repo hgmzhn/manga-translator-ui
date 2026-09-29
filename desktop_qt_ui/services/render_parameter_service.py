@@ -227,11 +227,11 @@ class RenderParameterService:
             params.alignment = alignment
             params.direction = direction
 
-            self.logger.debug(f"计算默认参数: 尺寸={width}x{height}, 字体={font_size}, 方向={direction}")
+            self.logger.debug(f"Calculating default parameters: size={width}x{height}, font={font_size}, direction={direction}")
             return self._apply_region_overrides(params, region_data)
             
         except Exception as e:
-            self.logger.error(f"计算默认参数失败: {e}")
+            self.logger.error(f"Failed to calculate default parameters: {e}")
             return self._apply_region_overrides(params, region_data)
 
     @staticmethod
@@ -303,7 +303,7 @@ class RenderParameterService:
         """设置指定区域的渲染参数"""
         self.region_parameters[region_index] = copy.deepcopy(parameters)
         self.region_parameters[region_index].direction = _normalize_direction(parameters.direction)
-        self.logger.debug(f"设置区域 {region_index} 的渲染参数")
+        self.logger.debug(f"Setting rendering parameters for region {region_index}")
     
     def update_region_parameter(self, region_index: int, param_name: str, value: Any):
         """更新指定区域的单个参数"""
@@ -314,19 +314,19 @@ class RenderParameterService:
             if param_name == 'direction':
                 value = _normalize_direction(value)
             setattr(self.region_parameters[region_index], param_name, value)
-            self.logger.debug(f"更新区域 {region_index} 参数 {param_name} = {value}")
+            self.logger.debug(f"Updating region {region_index} parameter {param_name} = {value}")
         else:
-            self.logger.warning(f"未知参数: {param_name}")
+            self.logger.warning(f"Unknown parameter: {param_name}")
     
     def apply_preset(self, region_index: int, preset_name: str) -> bool:
         """应用预设参数到指定区域"""
         if preset_name not in self.presets:
-            self.logger.warning(f"未找到预设: {preset_name}")
+            self.logger.warning(f"Preset not found: {preset_name}")
             return False
         
         preset_params = copy.deepcopy(self.presets[preset_name].parameters)
         self.set_region_parameters(region_index, preset_params)
-        self.logger.info(f"应用预设 '{preset_name}' 到区域 {region_index}")
+        self.logger.info(f"Applying preset '{preset_name}' to region {region_index}")
         return True
     
     def create_custom_preset(self, name: str, description: str, parameters: RenderParameters):
@@ -336,7 +336,7 @@ class RenderParameterService:
             description=description,
             parameters=copy.deepcopy(parameters)
         )
-        self.logger.info(f"创建自定义预设: {name}")
+        self.logger.info(f"Creating custom preset: {name}")
     
     def get_preset_list(self) -> List[Dict[str, str]]:
         """获取预设列表"""
@@ -458,14 +458,14 @@ class RenderParameterService:
 
                 params = RenderParameters(**base_dict)
                 self.set_region_parameters(region_index, params)
-                self.logger.debug(f"从JSON导入区域 {region_index} 的参数")
+                self.logger.debug(f"Importing parameters for region {region_index} from JSON")
                 return True
             else:
-                self.logger.warning("JSON中没有有效的渲染参数")
+                self.logger.warning("No valid rendering parameters in JSON")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"导入参数失败: {e}")
+            self.logger.error(f"Failed to import parameters: {e}")
             return False
     
     def batch_update_parameters(self, updates: Dict[int, Dict[str, Any]]):
@@ -479,7 +479,7 @@ class RenderParameterService:
         if from_region in self.region_parameters:
             source_params = copy.deepcopy(self.region_parameters[from_region])
             self.set_region_parameters(to_region, source_params)
-            self.logger.info(f"复制参数从区域 {from_region} 到区域 {to_region}")
+            self.logger.info(f"Copying parameters from region {from_region} to region {to_region}")
             return True
         return False
     
@@ -487,7 +487,7 @@ class RenderParameterService:
         """重置区域参数为默认值"""
         if region_index in self.region_parameters:
             del self.region_parameters[region_index]
-            self.logger.info(f"重置区域 {region_index} 的参数")
+            self.logger.info(f"Resetting parameters for region {region_index}")
 
     def clear_cache(self):
         """清空所有区域的自定义参数缓存"""

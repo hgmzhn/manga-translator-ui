@@ -273,4 +273,4 @@ def setup_log_handler():
     _log_handler_initialized = True
     
     # 添加一条测试日志确认系统工作
-    add_log("日志系统初始化完成", "INFO")
+    add_log("Logging system initialized", "INFO")

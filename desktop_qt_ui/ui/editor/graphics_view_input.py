@@ -1308,4 +1308,4 @@ class GraphicsViewInputMixin:
                 self.scene.update()
 
         except Exception as e:
-            self.logger.error("创建文本区域失败: %s", e, exc_info=True)
+            self.logger.error("Failed to create text region: %s", e, exc_info=True)

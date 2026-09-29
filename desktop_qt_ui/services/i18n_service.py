@@ -96,7 +96,7 @@ class I18nManager:
                 return system_locale
                 
         except Exception as e:
-            self.logger.warning(f"检测系统语言失败: {e}")
+            self.logger.warning(f"Failed to detect system language: {e}")
         
         return self.fallback_locale
     
@@ -113,7 +113,7 @@ class I18nManager:
             if os.path.exists(translation_file):
                 with open(translation_file, 'r', encoding='utf-8') as f:
                     self.translations[locale_code] = json.load(f)
-                self.logger.debug(f"加载翻译文件: {translation_file}")
+                self.logger.debug(f"Loading translation file: {translation_file}")
             else:
                 # 如果翻译文件不存在，创建空的翻译字典
                 self.translations[locale_code] = {}
@@ -123,7 +123,7 @@ class I18nManager:
                     self._create_base_translation_file(locale_code)
                     
         except Exception as e:
-            self.logger.error(f"加载翻译文件失败 {locale_code}: {e}")
+            self.logger.error(f"Failed to load translation file for {locale_code}: {e}")
             self.translations[locale_code] = {}
     
     def _create_base_translation_file(self, locale_code: str):
@@ -136,10 +136,10 @@ class I18nManager:
                 json.dump(base_translations, f, ensure_ascii=False, indent=2)
             
             self.translations[locale_code] = base_translations
-            self.logger.info(f"创建基础翻译文件: {translation_file}")
+            self.logger.info(f"Creating base translation file: {translation_file}")
             
         except Exception as e:
-            self.logger.error(f"创建基础翻译文件失败: {e}")
+            self.logger.error(f"Failed to create base translation file: {e}")
     
     def _get_base_translations(self, locale_code: str) -> Dict[str, str]:
         """获取基础翻译内容"""
@@ -305,7 +305,7 @@ class I18nManager:
     def set_locale(self, locale_code: str) -> bool:
         """设置当前语言"""
         if locale_code not in self.available_locales:
-            self.logger.warning(f"不支持的语言: {locale_code}")
+            self.logger.warning(f"Unsupported language: {locale_code}")
             return False
         
         old_locale = self.current_locale
@@ -314,7 +314,7 @@ class I18nManager:
         # 每次切换语言都重载翻译，确保运行中更新的词条能立即生效
         self._load_locale_translation(locale_code)
         
-        self.logger.info(f"切换语言: {old_locale} -> {locale_code}")
+        self.logger.info(f"Switching language: {old_locale} -> {locale_code}")
         return True
     
     def get_current_locale(self) -> str:
@@ -355,7 +355,7 @@ class I18nManager:
             try:
                 translation = translation.format(**kwargs)
             except Exception as e:
-                self.logger.warning(f"翻译格式化失败 {key}: {e}")
+                self.logger.warning(f"Failed to format translation {key}: {e}")
         
         return translation
     
@@ -396,7 +396,7 @@ class I18nManager:
                 return self._save_locale_translation(locale_code)
                 
         except Exception as e:
-            self.logger.error(f"保存翻译失败: {e}")
+            self.logger.error(f"Failed to save translations: {e}")
             return False
     
     def _save_locale_translation(self, locale_code: str) -> bool:
@@ -408,11 +408,11 @@ class I18nManager:
             with open(translation_file, 'w', encoding='utf-8') as f:
                 json.dump(translations, f, ensure_ascii=False, indent=2)
             
-            self.logger.debug(f"保存翻译文件: {translation_file}")
+            self.logger.debug(f"Saving translation file: {translation_file}")
             return True
             
         except Exception as e:
-            self.logger.error(f"保存翻译文件失败 {locale_code}: {e}")
+            self.logger.error(f"Failed to save translation file for {locale_code}: {e}")
             return False
     
     def export_missing_keys(self, locale_code: str, output_file: str) -> bool:
@@ -435,14 +435,14 @@ class I18nManager:
                 with open(output_file, 'w', encoding='utf-8') as f:
                     json.dump(missing_translations, f, ensure_ascii=False, indent=2)
                 
-                self.logger.info(f"导出 {len(missing_keys)} 个缺失翻译到: {output_file}")
+                self.logger.info(f"Exporting {len(missing_keys)} missing translations to: {output_file}")
                 return True
             else:
-                self.logger.info(f"语言 {locale_code} 没有缺失的翻译")
+                self.logger.info(f"No missing translations for language {locale_code}")
                 return True
                 
         except Exception as e:
-            self.logger.error(f"导出缺失翻译失败: {e}")
+            self.logger.error(f"Failed to export missing translations: {e}")
             return False
     
     def get_text_direction(self, locale_code: str = None) -> str:

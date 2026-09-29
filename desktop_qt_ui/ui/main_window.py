@@ -380,7 +380,7 @@ class MainWindow(FluentWindow):
         current_system_theme = self._detect_windows_theme()
         if current_system_theme != self.last_system_theme:
             self.logger.info(
-                f"系统主题变化: {self.last_system_theme} -> {current_system_theme}"
+                f"System theme changed: {self.last_system_theme} -> {current_system_theme}"
             )
 
             if current_system_theme == "dark":
@@ -389,7 +389,7 @@ class MainWindow(FluentWindow):
                     # 保存用户偏好（浅色或灰色）
                     config.app.theme_user_preference = self.current_applied_theme
                     self.config_service.save_config_file()
-                    self.logger.info(f"保存用户偏好: {self.current_applied_theme}")
+                    self.logger.info(f"Saving user preference: {self.current_applied_theme}")
                 # 切换到深色主题
                 self._apply_theme("dark")
             else:
@@ -397,7 +397,7 @@ class MainWindow(FluentWindow):
                 # 恢复用户偏好
                 user_pref = config.app.theme_user_preference
                 self._apply_theme(user_pref)
-                self.logger.info(f"恢复用户偏好: {user_pref}")
+                self.logger.info(f"Restoring user preference: {user_pref}")
 
             self.last_system_theme = current_system_theme
 
@@ -637,7 +637,7 @@ class MainWindow(FluentWindow):
 
             # 刷新UI文本
             self._refresh_ui_texts()
-            self.logger.info(f"语言已切换到: {locale_code}")
+            self.logger.info(f"Language switched to: {locale_code}")
 
     def _apply_qt_translator(self, locale_code: str):
         """加载 Qt 内建控件翻译（如 QColorDialog），使其跟随应用语言。"""
@@ -748,7 +748,7 @@ class MainWindow(FluentWindow):
             if reply == QMessageBox.StandardButton.Yes:
                 self.enter_editor_mode(files_to_load=saved_files)
         except Exception as e:
-            self.logger.error(f"on_task_completed 发生异常: {e}", exc_info=True)
+            self.logger.error(f"Error in on_task_completed: {e}", exc_info=True)
             import traceback
 
             traceback.print_exc()
@@ -777,7 +777,7 @@ class MainWindow(FluentWindow):
             )
             return not any(incompatible_modes)
         except Exception as e:
-            self.logger.warning(f"判断是否显示编辑器提示框失败，回退为显示提示框: {e}")
+            self.logger.warning(f"Failed to determine whether to show editor prompt; showing it by default: {e}")
             return True
 
     @pyqtSlot(str)
@@ -905,7 +905,7 @@ class MainWindow(FluentWindow):
 
             self.switchTo(self.editor_view)
         except Exception as e:
-            self.logger.error(f"enter_editor_mode 发生异常: {e}", exc_info=True)
+            self.logger.error(f"Error in enter_editor_mode: {e}", exc_info=True)
             import traceback
 
             traceback.print_exc()

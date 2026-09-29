@@ -64,7 +64,7 @@ def get_translation_output_format(template_path: Optional[str] = None) -> str:
     except FileNotFoundError:
         return DEFAULT_TRANSLATION_OUTPUT_FORMAT
     except Exception as e:
-        logger.warning(f"读取翻译模板输出格式失败，使用默认 JSON: {e}")
+        logger.warning(f"Failed to read translation template output format, using the default JSON format: {e}")
         return DEFAULT_TRANSLATION_OUTPUT_FORMAT
 
 
@@ -84,8 +84,8 @@ def ensure_translation_template_exists() -> str:
 
     try:
         _write_default_template(_DEFAULT_TEMPLATE_PATH)
-        logger.info(f"已创建翻译模板文件: {_DEFAULT_TEMPLATE_PATH}")
+        logger.info(f"Created translation template file: {_DEFAULT_TEMPLATE_PATH}")
     except Exception as e:
-        logger.error(f"创建翻译模板文件失败: {e}")
+        logger.error(f"Failed to create translation template file: {e}")
         
     return _DEFAULT_TEMPLATE_PATH

@@ -38,12 +38,12 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
                         # 删除模型引用
                         del model_instance
                     except Exception as e:
-                        logger.debug(f"卸载翻译器模型时出错: {e}")
+                        logger.debug(f"Error unloading translator model: {e}")
             
             cleanup_count += len(translator_cache)
             translator_cache.clear()
     except Exception as e:
-        logger.debug(f"清理翻译器缓存时出错: {e}")
+        logger.debug(f"Error clearing translator cache: {e}")
     
     # 清理OCR缓存
     try:
@@ -59,12 +59,12 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
                             model_instance.unload()
                         del model_instance
                     except Exception as e:
-                        logger.debug(f"卸载OCR模型时出错: {e}")
+                        logger.debug(f"Error unloading OCR model: {e}")
             
             cleanup_count += len(ocr_cache)
             ocr_cache.clear()
     except Exception as e:
-        logger.debug(f"清理OCR缓存时出错: {e}")
+        logger.debug(f"Error clearing OCR cache: {e}")
     
     # 清理检测器缓存
     try:
@@ -80,12 +80,12 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
                             model_instance.unload()
                         del model_instance
                     except Exception as e:
-                        logger.debug(f"卸载检测器模型时出错: {e}")
+                        logger.debug(f"Error unloading detector model: {e}")
             
             cleanup_count += len(detector_cache)
             detector_cache.clear()
     except Exception as e:
-        logger.debug(f"清理检测器缓存时出错: {e}")
+        logger.debug(f"Error clearing detector cache: {e}")
     
     # 清理修复器缓存
     try:
@@ -101,12 +101,12 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
                             model_instance.unload()
                         del model_instance
                     except Exception as e:
-                        logger.debug(f"卸载修复器模型时出错: {e}")
+                        logger.debug(f"Error unloading inpainter model: {e}")
             
             cleanup_count += len(inpainter_cache)
             inpainter_cache.clear()
     except Exception as e:
-        logger.debug(f"清理修复器缓存时出错: {e}")
+        logger.debug(f"Error clearing inpainter cache: {e}")
     
     # 清理超分缓存
     try:
@@ -122,12 +122,12 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
                             model_instance.unload()
                         del model_instance
                     except Exception as e:
-                        logger.debug(f"卸载超分模型时出错: {e}")
+                        logger.debug(f"Error unloading upscaler model: {e}")
             
             cleanup_count += len(upscaler_cache)
             upscaler_cache.clear()
     except Exception as e:
-        logger.debug(f"清理超分缓存时出错: {e}")
+        logger.debug(f"Error clearing upscaler cache: {e}")
     
     # 清理着色器缓存
     try:
@@ -143,12 +143,12 @@ def cleanup_all_model_caches(unload_models: bool = False) -> int:
                             model_instance.unload()
                         del model_instance
                     except Exception as e:
-                        logger.debug(f"卸载着色器模型时出错: {e}")
+                        logger.debug(f"Error unloading colorizer model: {e}")
             
             cleanup_count += len(colorizer_cache)
             colorizer_cache.clear()
     except Exception as e:
-        logger.debug(f"清理着色器缓存时出错: {e}")
+        logger.debug(f"Error clearing colorizer cache: {e}")
     
     return cleanup_count
 

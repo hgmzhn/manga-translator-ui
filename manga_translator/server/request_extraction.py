@@ -199,7 +199,7 @@ def _run_translate_sync(pil_image, config: Config, task_id: str = None, cancel_c
             cleanup_after_request()
             
         except Exception as e:
-            logger.warning(f"线程清理时出错: {e}")
+            logger.warning(f"Error during thread cleanup: {e}")
 
 
 def _run_translate_batch_sync(images_with_configs: list, batch_size: int, task_id: str = None, cancel_check_callback=None):
@@ -265,7 +265,7 @@ def _run_translate_batch_sync(images_with_configs: list, batch_size: int, task_i
             cleanup_after_request()
             
         except Exception as e:
-            logger.warning(f"线程清理时出错: {e}")
+            logger.warning(f"Error during thread cleanup: {e}")
 
 
 def prepare_translator_params(config: Config, workflow: str = "normal") -> dict:
@@ -348,10 +348,10 @@ async def get_ctx(req: Request, config: Config, image: str|bytes, workflow: str 
                     waiters_count = 0
                 
                 if waiters_count > 0:
-                    add_log(f"等待翻译槽位... (队列中有 {waiters_count} 个任务)", "INFO")
+                    add_log(f"Waiting for a translation slot... ({waiters_count} tasks queued)", "INFO")
                 
                 async with translation_semaphore:
-                    add_log("获得翻译槽位，开始翻译", "INFO")
+                    add_log("Translation slot acquired; starting translation", "INFO")
                     # 使用翻译线程池执行，复用全局翻译器
                     from manga_translator.server.core.task_manager import (
                         run_in_translator_thread,
@@ -485,7 +485,7 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                     waiters_count = 0
                 
                 if waiters_count > 0:
-                    add_log(f"等待翻译槽位... (队列中有 {waiters_count} 个任务)", "INFO")
+                    add_log(f"Waiting for a translation slot... ({waiters_count} tasks queued)", "INFO")
                     # 发送排队状态给前端
                     yield pack_message(1, json.dumps({
                         "stage": "queued", 
@@ -499,7 +499,7 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                     # 获得槽位后，更新状态为 running
                     print(f"[DEBUG] 获得 semaphore! task_id={task_id}, 更新状态为 running")
                     update_task_status(task_id, "running")
-                    add_log("✓ 获得翻译槽位，开始翻译", "INFO")
+                    add_log("✓ Translation slot acquired; starting translation", "INFO")
                     # 发送获得槽位的通知
                     yield pack_message(1, json.dumps({
                         "stage": "slot_acquired", 
@@ -519,35 +519,35 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
         try:
             yield pack_message(1, json.dumps({"stage": "task_id", "task_id": task_id}, ensure_ascii=False).encode('utf-8'))
             
-            add_log("开始翻译任务", "INFO")
+            add_log("Starting translation task", "INFO")
             yield pack_message(1, json.dumps({"stage": "start", "message": "开始处理..."}, ensure_ascii=False).encode('utf-8'))
             
-            add_log("加载图片", "INFO")
+            add_log("Loading image", "INFO")
             yield pack_message(1, json.dumps({"stage": "image_loading", "message": "加载图片中..."}, ensure_ascii=False).encode('utf-8'))
             pil_image = await to_pil_image(image)
             
-            add_log("准备翻译参数", "INFO")
+            add_log("Preparing translation parameters", "INFO")
             prepare_translator_params(config, workflow)
             
             if is_task_cancelled(task_id):
-                add_log("任务已被取消", "WARNING")
+                add_log("Task cancelled", "WARNING")
                 raise asyncio.CancelledError("任务已被管理员取消")
             
             async with with_user_env_vars(config):
-                add_log("使用全局翻译器（模型复用）", "INFO")
+                add_log("Using the global translator (reusing models)", "INFO")
                 yield pack_message(1, json.dumps({"stage": "translator_init", "message": "初始化翻译器..."}, ensure_ascii=False).encode('utf-8'))
                 
                 if is_task_cancelled(task_id):
                     raise asyncio.CancelledError("任务已被管理员取消")
                 
-                add_log("执行翻译", "INFO")
+                add_log("Running translation", "INFO")
                 yield pack_message(1, json.dumps({"stage": "translating", "message": "翻译中..."}, ensure_ascii=False).encode('utf-8'))
                 
                 if is_task_cancelled(task_id):
                     raise asyncio.CancelledError("任务已被管理员取消")
                 
                 try:
-                    add_log("调用翻译器", "INFO")
+                    add_log("Calling translator", "INFO")
                     # 使用翻译线程池执行，复用全局翻译器
                     from manga_translator.server.core.task_manager import (
                         run_in_translator_thread,
@@ -556,7 +556,7 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                         return is_task_cancelled(task_id)
 
                     ctx = await run_in_translator_thread(_run_translate_sync, pil_image, config, task_id, cancel_callback)
-                    add_log(f"翻译完成，有结果: {ctx.result is not None if hasattr(ctx, 'result') else False}", "INFO")
+                    add_log(f"Translation complete; result available: {ctx.result is not None if hasattr(ctx, 'result') else False}", "INFO")
                     
                     result = {
                         'success': ctx.success if hasattr(ctx, 'success') else (ctx.result is not None),
@@ -693,13 +693,13 @@ async def get_batch_ctx(req: Request, config: Config, images: list[str|bytes], b
     try:
         # 检查是否已取消
         if task_id and is_task_cancelled(task_id):
-            raise Exception("任务已被取消")
+            raise Exception("Task cancelled")
         
         # Convert images to PIL Image objects
         for img in images:
             # 每张图片转换前检查取消状态
             if task_id and is_task_cancelled(task_id):
-                raise Exception("任务已被取消")
+                raise Exception("Task cancelled")
             pil_img = await to_pil_image(img)
             pil_images.append(pil_img)
         
@@ -713,7 +713,7 @@ async def get_batch_ctx(req: Request, config: Config, images: list[str|bytes], b
         async with with_user_env_vars(config):
             # 翻译前再次检查取消状态
             if task_id and is_task_cancelled(task_id):
-                raise Exception("任务已被取消")
+                raise Exception("Task cancelled")
             
             # 等待获取翻译槽位（与流式端点保持一致）
             if translation_semaphore:
@@ -725,13 +725,13 @@ async def get_batch_ctx(req: Request, config: Config, images: list[str|bytes], b
                 
                 print(f"[DEBUG] get_batch_ctx 准备获取 semaphore, task_id={task_id}, waiters={waiters_count}")
                 if waiters_count > 0:
-                    add_log(f"批量翻译等待槽位... (队列中有 {waiters_count} 个任务)", "INFO")
+                    add_log(f"Batch translation waiting for a slot... ({waiters_count} tasks queued)", "INFO")
                 
                 async with translation_semaphore:
                     print(f"[DEBUG] get_batch_ctx 获得 semaphore! task_id={task_id}")
                     if task_id:
                         update_task_status(task_id, "running")
-                    add_log("批量翻译获得槽位，开始执行", "INFO")
+                    add_log("Batch translation slot acquired; starting execution", "INFO")
                     
                     # 使用翻译线程池执行，复用全局翻译器
                     from manga_translator.server.core.task_manager import (
@@ -753,7 +753,7 @@ async def get_batch_ctx(req: Request, config: Config, images: list[str|bytes], b
             
             # 翻译后检查取消状态
             if task_id and is_task_cancelled(task_id):
-                raise Exception("任务已被取消")
+                raise Exception("Task cancelled")
             
             # 为每个 context 添加工作流程结果
             for ctx in contexts:
@@ -798,7 +798,7 @@ async def get_batch_ctx(req: Request, config: Config, images: list[str|bytes], b
             # 不要调用translator.unload_models()，因为我们使用全局翻译器，模型应该被保留复用
             
         except Exception as cleanup_error:
-            logger.warning(f"批量翻译资源清理失败: {cleanup_error}")
+            logger.warning(f"Failed to clean up batch translation resources: {cleanup_error}")
 
 
 async def save_translation_to_history(ctx, username: str, task_id: str, workflow: str, original_filename: str = None, config = None) -> None:

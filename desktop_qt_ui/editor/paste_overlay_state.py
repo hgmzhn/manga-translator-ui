@@ -166,7 +166,7 @@ def parse_page_paste_overlays(
         try:
             overlays.append(normalize_paste_overlay(item))
         except Exception as error:
-            logger.warning("跳过无效贴片 #%s: %s", index, error)
+            logger.warning("Skipping invalid overlay #%s: %s", index, error)
     _assign_unique_ids(overlays)
     return overlays
 
@@ -269,18 +269,18 @@ def compose_paste_overlays(
         if not isinstance(image_b64, str) or not image_b64:
             continue
         if len(image_b64) > max_image_chars:
-            logger.warning("跳过超大贴片图片数据（>%s 字符 base64）", max_image_chars)
+            logger.warning("Skipping oversized overlay image data (>%s base64 characters)", max_image_chars)
             continue
         png_size = _png_base64_dimensions(image_b64)
         if png_size is not None and max(png_size) > max_source_side:
-            logger.warning("跳过超大贴片 PNG (%dx%d)", png_size[0], png_size[1])
+            logger.warning("Skipping oversized overlay PNG (%dx%d)", png_size[0], png_size[1])
             continue
         source = png_base64_to_rgba_overlay(image_b64)
         if source is None or not np.any(source[..., 3]):
             continue
         source_h, source_w = source.shape[:2]
         if source_w <= 0 or source_h <= 0 or max(source_w, source_h) > max_source_side:
-            logger.warning("跳过异常尺寸贴片 (%dx%d)", source_w, source_h)
+            logger.warning("Skipping overlay with invalid dimensions (%dx%d)", source_w, source_h)
             continue
 
         target_width = float(item.get("width", source_w))

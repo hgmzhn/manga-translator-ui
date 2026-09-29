@@ -20,7 +20,7 @@ try:
     from manga_translator.utils import Context, TextBlock
     TRANSLATOR_AVAILABLE = True
 except ImportError as e:
-    logging.warning(f"翻译器后端模块导入失败: {e}")
+    logging.warning(f"Failed to import translator backend module: {e}")
     TRANSLATOR_AVAILABLE = False
     # 定义fallback类型
     class Translator:
@@ -141,7 +141,7 @@ class TranslationService:
                 )
             return None
         except Exception as e:
-            self.logger.error(f"翻译失败: {e}")
+            self.logger.error(f"Translation failed: {e}")
             raise
 
     async def translate_text_batch(self, texts: List[str],
@@ -233,7 +233,7 @@ class TranslationService:
             return [None] * len(texts)
 
         except Exception as e:
-            self.logger.error(f"批量翻译失败: {e}", exc_info=True)
+            self.logger.error(f"Batch translation failed: {e}", exc_info=True)
             return [None] * len(texts)
 
     def set_translator(self, translator_name: str):

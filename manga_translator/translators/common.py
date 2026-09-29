@@ -212,7 +212,7 @@ class BRMarkersValidationException(Exception):
         self.total_count = total_count
         self.tolerance = tolerance
         super().__init__(
-            f"AI断句检查失败：{missing_count}/{total_count} 条翻译缺失[BR]标记（容忍度：{tolerance}）"
+            f"AI line break validation failed: BR markers missing in {missing_count}/{total_count} translations (tolerance: {tolerance})"
         )
 
 
@@ -305,7 +305,7 @@ class AsyncOpenAICurlCffi:
                 result = response.json()
             except Exception as e:
                 raise Exception(
-                    f"无法解析 API 的 JSON 响应: {e}. {_response_diagnostics(response)}"
+                    f"Failed to parse the API JSON response: {e}. {_response_diagnostics(response)}"
                 ) from e
 
             # 转换为类似 OpenAI SDK 的响应对象
@@ -396,16 +396,16 @@ class AsyncOpenAICurlCffi:
             if 'application/json' not in content_type and 'text/json' not in content_type:
                 # 可能返回了 HTML 页面，说明 API 不支持 /models 端点
                 raise Exception(
-                    "API 不支持获取模型列表（返回了非 JSON 响应）。"
-                    f"{_response_diagnostics(response)}。请手动输入模型名称。"
+                    "API does not support model listing (returned a non-JSON response). "
+                    f"{_response_diagnostics(response)}. Enter the model name manually."
                 )
 
             try:
                 result = response.json()
             except Exception as e:
                 raise Exception(
-                    f"无法解析 API 响应: {str(e)}. "
-                    f"{_response_diagnostics(response)}。请手动输入模型名称。"
+                    f"Failed to parse the API response: {str(e)}. "
+                    f"{_response_diagnostics(response)}. Enter the model name manually."
                 ) from e
 
             # 转换为类似 OpenAI SDK 的响应对象
@@ -722,7 +722,7 @@ class AsyncGeminiCurlCffi:
             content_type = response.headers.get('content-type', '')
             if 'application/json' not in content_type and 'text/json' not in content_type:
                 raise Exception(
-                    f"API 返回了非 JSON 响应 (Content-Type: {content_type}): "
+                    f"API returned a non-JSON response (Content-Type: {content_type}): "
                     f"{summarize_response_text(response.text)}"
                 )
 
@@ -730,7 +730,7 @@ class AsyncGeminiCurlCffi:
                 result = response.json()
             except Exception as e:
                 raise Exception(
-                    f"无法解析 API 响应: {str(e)}。响应内容: "
+                    f"Failed to parse the API response: {str(e)}. Response content: "
                     f"{summarize_response_text(response.text)}"
                 )
 
@@ -819,12 +819,12 @@ class AsyncGeminiCurlCffi:
             content_type = response.headers.get('content-type', '')
             if 'application/json' not in content_type and 'text/json' not in content_type:
                 # 可能返回了 HTML 页面，说明 API 不支持 /models 端点
-                raise Exception("API 不支持获取模型列表（返回了非 JSON 响应）。请手动输入模型名称。")
+                raise Exception("API does not support model listing (returned a non-JSON response). Enter the model name manually.")
 
             try:
                 result = response.json()
             except Exception as e:
-                raise Exception(f"无法解析 API 响应: {str(e)}。请手动输入模型名称。")
+                raise Exception(f"Failed to parse the API response: {str(e)}. Enter the model name manually.")
 
             # 返回模型列表
             return _GeminiModelsResponse(result)
@@ -960,10 +960,10 @@ def validate_openai_response(response, logger=None) -> bool:
     """
     # 检查响应对象是否有choices属性
     if not hasattr(response, 'choices'):
-        error_msg = f"API返回了无效的响应对象: {type(response).__name__}, 内容: {str(response)[:200]}"
+        error_msg = f"API returned an invalid response object: {type(response).__name__}, content: {str(response)[:200]}"
         if logger:
             logger.error(error_msg)
-        raise Exception(f"API返回了无效的响应对象，类型: {type(response).__name__}")
+        raise Exception(f"API returned an invalid response object, type: {type(response).__name__}")
     
     return True
 
@@ -983,18 +983,18 @@ def validate_gemini_response(response, logger=None) -> bool:
     """
     # 检查响应对象是否有candidates属性
     if not hasattr(response, 'candidates'):
-        error_msg = f"Gemini API返回了无效的响应对象: {type(response).__name__}, 内容: {str(response)[:200]}"
+        error_msg = f"Gemini API returned an invalid response object: {type(response).__name__}, content: {str(response)[:200]}"
         if logger:
             logger.error(error_msg)
-        raise Exception(f"Gemini API返回了无效的响应对象，类型: {type(response).__name__}")
+        raise Exception(f"Gemini API returned an invalid response object, type: {type(response).__name__}")
     
     # 检查是否有text属性（某些错误响应可能没有）
     if not hasattr(response, 'text'):
         diagnostics = extract_gemini_response_diagnostics(response)
-        error_msg = f"Gemini API响应缺少text属性: {format_gemini_response_diagnostics(diagnostics)}"
+        error_msg = f"Gemini API response is missing the text attribute: {format_gemini_response_diagnostics(diagnostics)}"
         if logger:
             logger.error(error_msg)
-        raise Exception("Gemini API响应缺少text属性")
+        raise Exception("Gemini API response is missing the text attribute")
     
     # text 可能存在但为 None（如安全拦截/空回），后续 .strip() 会崩溃
     if getattr(response, 'text', None) is None:
@@ -1496,16 +1496,16 @@ class CommonTranslator(InfererModule):
                 with contextlib.suppress(Exception):
                     done, _ = await asyncio.wait({task}, timeout=max(poll_interval, 0.2))
                     if not done:
-                        self.logger.debug("取消请求任务超时，直接退出等待")
+                        self.logger.debug("Timed out cancelling the request task; stopping the wait")
             if on_cancel:
                 try:
                     cleanup_result = on_cancel()
                     if asyncio.iscoroutine(cleanup_result):
                         await asyncio.wait_for(cleanup_result, timeout=max(poll_interval, 0.3))
                 except asyncio.TimeoutError:
-                    self.logger.debug("取消时清理请求超时，直接退出等待")
+                    self.logger.debug("Timed out cleaning up the request during cancellation; stopping the wait")
                 except Exception as cleanup_error:
-                    self.logger.debug(f"取消时清理请求失败（可忽略）: {cleanup_error}")
+                    self.logger.debug(f"Request cleanup failed during cancellation (safe to ignore): {cleanup_error}")
             raise
 
     async def _sleep_with_cancel_polling(self, seconds: float, poll_interval: float = 0.2):
@@ -1624,8 +1624,8 @@ class CommonTranslator(InfererModule):
                 except StopAsyncIteration:
                     break
                 except asyncio.TimeoutError as timeout_error:
-                    timeout_type = "首包" if not got_first_chunk else "流空闲"
-                    raise TimeoutError(f"流式{timeout_type}超时（{chunk_timeout:.0f}s）") from timeout_error
+                    timeout_type = "first chunk" if not got_first_chunk else "idle"
+                    raise TimeoutError(f"Streaming {timeout_type} timeout ({chunk_timeout:.0f}s)") from timeout_error
 
                 got_first_chunk = True
                 self._check_cancelled()
@@ -1793,7 +1793,7 @@ class CommonTranslator(InfererModule):
         if output_format_prompt:
             final_prompt += "\n\n---\n\n" + output_format_prompt
         else:
-            self.logger.info("未启用自动术语提取，但未加载到标准输出格式提示词。")
+            self.logger.info("Automatic term extraction is disabled, but no standard output format prompt was loaded.")
         return final_prompt
 
     def _build_system_prompt_with_glossary(
@@ -1810,9 +1810,9 @@ class CommonTranslator(InfererModule):
 
         if glossary_sections:
             final_prompt += "\n\n---\n\n" + "\n\n---\n\n".join(glossary_sections)
-            self.logger.info("已启用自动术语提取，使用带 new_terms 输出格式的系统提示词。")
+            self.logger.info("Automatic term extraction is enabled; using the system prompt with the new_terms output format.")
         else:
-            self.logger.info("已启用自动术语提取，但未加载到术语提取附加提示词。")
+            self.logger.info("Automatic term extraction is enabled, but no supplemental term extraction prompt was loaded.")
 
         return final_prompt
 
@@ -1939,7 +1939,7 @@ class CommonTranslator(InfererModule):
             for region_idx, text in enumerate(data['original_texts']):
                 # 跳过 None 值
                 if text is None:
-                    self.logger.warning(f"跳过 None 文本 (img_idx={img_idx}, region_idx={region_idx})")
+                    self.logger.warning(f"Skipping None text (img_idx={img_idx}, region_idx={region_idx})")
                     continue
                 
                 # 预处理文本：移除换行符
@@ -2016,7 +2016,7 @@ class CommonTranslator(InfererModule):
 
         # 如果分割级别过深（>=3），跳过BR检查以避免无限重试
         if split_level >= 3:
-            self.logger.info(f"[AI断句检查] 分割级别过深 (split_level={split_level})，跳过BR标记检查")
+            self.logger.info(f"[AI Line Break Check] Split level is too deep (split_level={split_level}); skipping the BR marker check")
             return True
 
         # 检查是否启用了AI断句
@@ -2072,7 +2072,7 @@ class CommonTranslator(InfererModule):
                 cleaned = re.sub(r'\s*(\[BR\]|【BR】|<br\s*/?>)\s*', '', translation, flags=re.IGNORECASE)
                 if cleaned != translation:
                     self.logger.info(
-                        f"[AI断句] 单区域翻译 #{idx+1} 自动清理多余断句标记: {translation[:50]!r} -> {cleaned[:50]!r}"
+                        f"[AI Line Breaking] Automatically removed extra line break markers from single-region translation #{idx+1}: {translation[:50]!r} -> {cleaned[:50]!r}"
                     )
                     translations[idx] = cleaned
 
@@ -2109,18 +2109,18 @@ class CommonTranslator(InfererModule):
             if missing_br_count > tolerance:
                 # 超过容忍度，验证失败
                 self.logger.warning(
-                    f"[AI断句检查] 缺失BR标记的翻译数 ({missing_br_count}/{needs_check_count}) 超过容忍度 ({tolerance})，需要重试"
+                    f"[AI Line Break Check] Translations missing BR markers ({missing_br_count}/{needs_check_count}) exceed the tolerance ({tolerance}); retry required"
                 )
                 return False
             elif missing_br_count > 0:
                 # 在容忍度内，警告但通过
                 self.logger.warning(
-                    f"[AI断句检查] ⚠ {missing_br_count}/{needs_check_count} 条翻译缺失BR标记，但在容忍度内 ({tolerance})，继续执行"
+                    f"[AI Line Break Check] ⚠ {missing_br_count}/{needs_check_count} translations are missing BR markers, but this is within the tolerance ({tolerance}); continuing"
                 )
                 return True
             else:
                 # 全部通过
-                self.logger.info(f"[AI断句检查] ✓ 所有多行区域的翻译都包含[BR]标记 (检查了 {needs_check_count}/{len(translations)} 条)")
+                self.logger.info(f"[AI Line Break Check] ✓ All translations for multiline regions contain [BR] markers (checked {needs_check_count}/{len(translations)} translations)")
                 return True
 
         return True  # 没有需要检查的翻译，直接通过
@@ -2926,7 +2926,7 @@ def sanitize_text_encoding(text: str) -> str:
     except Exception as e:
         import logging
         logger = logging.getLogger('manga_translator')
-        logger.warning(f"文本编码清理失败: {e}，返回原文本")
+        logger.warning(f"Text encoding cleanup failed: {e}; returning the original text")
         # 如果清理失败，至少移除明显的问题字符
         if isinstance(text, str):
             return text.replace('\ufffd', '').replace('\x00', '')

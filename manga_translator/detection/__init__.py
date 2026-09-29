@@ -106,20 +106,18 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
         )
         
         replaced_count = len(main_textlines) + len(yolo_textlines) - len(combined_textlines)
-        detector.logger.info(f"混合检测: 主检测器={len(main_textlines)}, YOLO OBB={len(yolo_textlines)}, "
-                           f"替换/移除={replaced_count}, "
-                           f"总计={len(combined_textlines)}")
+        detector.logger.info(f"Hybrid detection: primary detector={len(main_textlines)}, YOLO OBB={len(yolo_textlines)}, replaced/removed={replaced_count}, total={len(combined_textlines)}")
         
         # 生成调试图片（如果verbose=True）
         debug_img = None
         if verbose:
             debug_img = draw_detection_debug_image(image, main_textlines, yolo_textlines, yolo_obb_overlap_threshold)
-            detector.logger.info("已生成混合检测调试图片")
+            detector.logger.info("Hybrid detection debug image generated")
         
         return combined_textlines, mask, debug_img if debug_img is not None else raw_image
     
     except Exception as e:
-        detector.logger.error(f"YOLO OBB辅助检测失败: {e}")
+        detector.logger.error(f"YOLO OBB auxiliary detection failed: {e}")
         # 失败时返回主检测器结果
         return main_textlines, mask, raw_image
 

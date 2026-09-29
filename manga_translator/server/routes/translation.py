@@ -413,16 +413,16 @@ async def translate_batch_json(req: Request, data: BatchTranslateRequest):
                 try:
                     await save_translation_to_history(ctx, username, f"{task_id}_{i}", "normal", original_name, config)
                 except Exception as e:
-                    add_log(f"保存历史失败 (图片 {i+1}): {e}", "WARNING")
+                    add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
         
         return [to_translation(ctx) for ctx in results]
     except asyncio.CancelledError:
-        add_log("批量翻译(JSON)被强制取消", "WARNING")
+        add_log("Batch translation (JSON) forcibly cancelled", "WARNING")
         raise HTTPException(499, detail="任务已被强制取消")
     except Exception as e:
         error_msg = str(e)
-        if "已被取消" in error_msg or "cancelled" in error_msg.lower():
-            add_log("批量翻译(JSON)已取消", "WARNING")
+        if "cancelled" in error_msg.lower():
+            add_log("Batch translation (JSON) cancelled", "WARNING")
             raise HTTPException(499, detail="任务已被取消")
         raise
     finally:
@@ -445,7 +445,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     
     # 验证请求数据
     if not data.images or len(data.images) == 0:
-        add_log("批量翻译请求失败: 没有提供图片", "ERROR")
+        add_log("Batch translation request failed: no images provided", "ERROR")
         raise HTTPException(400, detail="没有提供图片")
     
     task_id = generate_task_id()
@@ -457,7 +457,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
         current_task = None
     
     try:
-        add_log(f"批量翻译请求: {len(data.images)} 张图片, batch_size={data.batch_size}", "INFO")
+        add_log(f"Batch translation request: {len(data.images)} images, batch_size={data.batch_size}", "INFO")
         
         # If config is dict, convert to Config object using parse_config for consistency
         if isinstance(data.config, dict):
@@ -483,7 +483,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
                 async def is_disconnected(self):
                     return False  # 永不断开
             req = OfflineRequest()
-            add_log(f"用户 {username} 启用离线翻译模式", "INFO")
+            add_log(f"User {username} enabled offline translation mode", "INFO")
         
         # 获取用户预设的 API Keys
         env_vars = await apply_user_env_vars("{}", config, admin_settings, username)
@@ -506,7 +506,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             
             # Process batch translation (pass task_id for cancel checking)
             results = await get_batch_ctx(req, config, data.images, data.batch_size, "normal", task_id)
-            add_log(f"批量翻译完成: 收到 {len(results)} 个结果", "INFO")
+            add_log(f"Batch translation complete: received {len(results)} results", "INFO")
         finally:
             # Track task end
             track_task_end(username)
@@ -514,14 +514,14 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             unregister_active_task(task_id)
             
     except asyncio.CancelledError:
-        add_log("批量翻译被强制取消", "WARNING")
+        add_log("Batch translation forcibly cancelled", "WARNING")
         raise HTTPException(499, detail="任务已被强制取消")
     except Exception as e:
         error_msg = str(e)
-        if "已被取消" in error_msg or "cancelled" in error_msg.lower():
-            add_log("批量翻译已取消", "WARNING")
+        if "cancelled" in error_msg.lower():
+            add_log("Batch translation cancelled", "WARNING")
             raise HTTPException(499, detail="任务已被取消")
-        add_log(f"批量翻译失败: {e}", "ERROR")
+        add_log(f"Batch translation failed: {e}", "ERROR")
         import traceback
         traceback.print_exc()
         raise HTTPException(500, detail=f"Batch translation failed: {error_msg}")
@@ -542,7 +542,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
                     'size': ctx.result.size
                 })
             except Exception as e:
-                add_log(f"复制图片 {i+1} 失败: {e}", "WARNING")
+                add_log(f"Failed to copy image {i+1}: {e}", "WARNING")
     
     # 获取配置中的输出格式
     output_format = None
@@ -584,7 +584,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             zip_file.writestr(output_name, img_byte_arr.getvalue())
             image_count += 1
     
-    add_log(f"ZIP文件创建完成: 包含 {image_count} 张图片", "INFO")
+    add_log(f"ZIP file created: contains {image_count} images", "INFO")
     
     # 保存历史记录（使用已复制的图片数据）
     from manga_translator.server.request_extraction import save_translation_to_history
@@ -604,7 +604,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
                 original_name, config
             )
         except Exception as e:
-            add_log(f"保存历史失败 (图片 {i+1}): {e}", "WARNING")
+            add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
     
     # 读取 ZIP 文件内容
     with open(tmp_file_name, 'rb') as f:

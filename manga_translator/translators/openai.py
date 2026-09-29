@@ -199,7 +199,7 @@ class OpenAITranslator(CommonTranslator):
                     # 否则同步关闭
                     loop.run_until_complete(self.client.close())
             except Exception as e:
-                self.logger.debug(f"关闭旧客户端时出错（可忽略）: {e}")
+                self.logger.debug(f"Error closing the previous client (safe to ignore): {e}")
             self.client = None
 
         if not self.client:
@@ -212,7 +212,7 @@ class OpenAITranslator(CommonTranslator):
                 timeout=600.0,
                 stream_timeout=300.0
             )
-            self.logger.debug("已创建新的OpenAI客户端连接（强制 curl_cffi 模式）")
+            self.logger.debug("Created a new OpenAI client connection (forced curl_cffi mode)")
     
     async def _cleanup(self):
         """清理资源"""
@@ -229,7 +229,7 @@ class OpenAITranslator(CommonTranslator):
         try:
             await self.client.close()
         except Exception as e:
-            self.logger.debug(f"中断请求时关闭客户端失败（可忽略）: {e}")
+            self.logger.debug(f"Failed to close the client while interrupting a request (safe to ignore): {e}")
         finally:
             self.client = None
     
@@ -286,7 +286,7 @@ class OpenAITranslator(CommonTranslator):
                 self.logger.error("Reached global attempt limit. Stopping translation.")
                 # 包含最后一次错误的真正原因
                 last_error_msg = str(last_exception) if last_exception else "Unknown error"
-                raise Exception(f"达到最大尝试次数 ({self._max_total_attempts})，最后一次错误: {last_error_msg}")
+                raise Exception(f"Maximum attempts reached ({self._max_total_attempts}). Last error: {last_error_msg}")
 
             local_attempt += 1
             attempt += 1
@@ -356,7 +356,7 @@ class OpenAITranslator(CommonTranslator):
                         custom_api_params,
                     )
                     if custom_api_params:
-                        self.logger.debug(f"使用翻译模型预设参数: {custom_api_params}")
+                        self.logger.debug(f"Using translation model preset parameters: {custom_api_params}")
                     if use_streaming:
                         try:
                             self._reset_stream_json_preview()
@@ -376,14 +376,14 @@ class OpenAITranslator(CommonTranslator):
                             self._finish_stream_inline()
                             streamed_text = None
                             streamed_finish_reason = None
-                            self.logger.warning(f"流式请求不可用，已回退普通请求: {stream_error}")
+                            self.logger.warning(f"Streaming request unavailable; fell back to a non-streaming request: {stream_error}")
                             response = await self._await_with_cancel_polling(
                                 self.client.chat.completions.create(**request_params),
                                 poll_interval=0.2,
                                 on_cancel=self._abort_inflight_request,
                             )
                     else:
-                        self.logger.info("已禁用流式传输，使用普通请求。")
+                        self.logger.info("Streaming is disabled; using a non-streaming request.")
                         response = await self._await_with_cancel_polling(
                             self.client.chat.completions.create(**request_params),
                             poll_interval=0.2,
@@ -468,13 +468,13 @@ class OpenAITranslator(CommonTranslator):
                         self.logger.warning(f"Got translations: {translations}")
                         
                         # 记录错误以便在达到最大尝试次数时显示
-                        last_exception = Exception(f"翻译数量不匹配: 期望 {len(texts)} 条，实际得到 {len(translations)} 条")
+                        last_exception = Exception(f"Translation count mismatch: expected {len(texts)}, got {len(translations)}")
 
                         if not is_infinite and attempt >= max_retries:
                             raise Exception(f"Translation count mismatch after {max_retries} attempts: expected {len(texts)}, got {len(translations)}")
 
                         # 重试前断开连接，重建客户端
-                        self.logger.info("重试前断开旧连接，重建客户端...")
+                        self.logger.info("Closing the previous connection and rebuilding the client before retrying...")
                         self._setup_client(force_recreate=True)
                         await self._sleep_with_cancel_polling(2)
                         continue
@@ -488,13 +488,13 @@ class OpenAITranslator(CommonTranslator):
                         self.logger.warning(f"[{log_attempt}] {retry_reason}. Retrying...")
                         
                         # 记录错误以便在达到最大尝试次数时显示
-                        last_exception = Exception(f"翻译质量检查失败: {error_msg}")
+                        last_exception = Exception(f"Quality check failed: {error_msg}")
 
                         if not is_infinite and attempt >= max_retries:
                             raise Exception(f"Quality check failed after {max_retries} attempts: {error_msg}")
 
                         # 重试前断开连接，重建客户端
-                        self.logger.info("重试前断开旧连接，重建客户端...")
+                        self.logger.info("Closing the previous connection and rebuilding the client before retrying...")
                         self._setup_client(force_recreate=True)
                         await self._sleep_with_cancel_polling(2)
                         continue
@@ -509,12 +509,12 @@ class OpenAITranslator(CommonTranslator):
                         self.logger.warning(f"[{log_attempt}] {retry_reason}, retrying...")
                         
                         # 记录错误以便在达到最大尝试次数时显示
-                        last_exception = Exception("AI断句检查失败: 翻译结果缺少必要的[BR]标记")
+                        last_exception = Exception("AI line break validation failed: BR markers missing in translations")
                         
                         # 如果达到最大重试次数，抛出友好的异常
                         if not is_infinite and attempt >= max_retries:
                             from .common import BRMarkersValidationException
-                            self.logger.error("OpenAI翻译在多次重试后仍然失败：AI断句检查失败。")
+                            self.logger.error("OpenAI translation still failed after multiple retries: AI line break validation failed.")
                             raise BRMarkersValidationException(
                                 missing_count=0,  # 具体数字在_validate_br_markers中已记录
                                 total_count=len(texts),
@@ -522,7 +522,7 @@ class OpenAITranslator(CommonTranslator):
                             )
                         
                         # 重试前断开连接，重建客户端
-                        self.logger.info("重试前断开旧连接，重建客户端...")
+                        self.logger.info("Closing the previous connection and rebuilding the client before retrying...")
                         self._setup_client(force_recreate=True)
                         await self._sleep_with_cancel_polling(2)
                         continue
@@ -536,31 +536,31 @@ class OpenAITranslator(CommonTranslator):
                 # finish_reason 已在上面获取，根据不同情况处理
                 if finish_reason == 'content_filter':
                     retry_reason = "Content filter triggered"
-                    self.logger.warning(f"OpenAI内容被安全策略拦截 ({log_attempt})。正在重试...")
+                    self.logger.warning(f"OpenAI content blocked by safety policy ({log_attempt}). Retrying...")
                     last_exception = Exception("OpenAI content filter triggered")
                 elif finish_reason == 'length':
                     retry_reason = "Response truncated due to length limit"
-                    self.logger.warning(f"OpenAI回复被截断（达到token限制） ({log_attempt})。正在重试...")
+                    self.logger.warning(f"OpenAI response truncated (token limit reached) ({log_attempt}). Retrying...")
                     last_exception = Exception("OpenAI response truncated due to length limit")
                 elif finish_reason == 'tool_calls':
                     retry_reason = "Tool calls instead of translation"
-                    self.logger.warning(f"OpenAI尝试调用工具而非返回翻译 ({log_attempt})。正在重试...")
+                    self.logger.warning(f"OpenAI attempted to call a tool instead of returning a translation ({log_attempt}). Retrying...")
                     last_exception = Exception("OpenAI attempted tool calls instead of translation")
                 elif not has_content:
                     retry_reason = f"Empty content (finish_reason: {finish_reason})"
-                    self.logger.warning(f"OpenAI返回空内容 (finish_reason: '{finish_reason}') ({log_attempt})。正在重试...")
+                    self.logger.warning(f"OpenAI returned empty content (finish_reason: '{finish_reason}') ({log_attempt}). Retrying...")
                     last_exception = Exception(f"OpenAI returned empty content (finish_reason: {finish_reason})")
                 else:
                     retry_reason = f"Unexpected finish_reason: {finish_reason}"
-                    self.logger.warning(f"OpenAI返回意外的结束原因 '{finish_reason}' ({log_attempt})。正在重试...")
+                    self.logger.warning(f"OpenAI returned unexpected finish reason '{finish_reason}' ({log_attempt}). Retrying...")
                     last_exception = Exception(f"OpenAI returned unexpected finish_reason: {finish_reason}")
 
                 if not is_infinite and attempt >= max_retries:
-                    self.logger.error("OpenAI翻译在多次重试后仍然失败。即将终止程序。")
+                    self.logger.error("OpenAI translation still failed after multiple retries. Terminating.")
                     raise last_exception
                 
                 # 重试前断开连接，重建客户端
-                self.logger.info("重试前断开旧连接，重建客户端...")
+                self.logger.info("Closing the previous connection and rebuilding the client before retrying...")
                 self._setup_client(force_recreate=True)
                 await self._sleep_with_cancel_polling(1)
 
@@ -569,14 +569,14 @@ class OpenAITranslator(CommonTranslator):
             except Exception as e:
                 log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
                 last_exception = e
-                self.logger.warning(f"OpenAI翻译出错 ({log_attempt}): {e}")
+                self.logger.warning(f"OpenAI translation failed ({log_attempt}): {e}")
                 
                 if not is_infinite and attempt >= max_retries:
-                    self.logger.error("OpenAI翻译在多次重试后仍然失败。即将终止程序。")
+                    self.logger.error("OpenAI translation still failed after multiple retries. Terminating.")
                     raise last_exception
                 
                 # 重试前断开连接，重建客户端
-                self.logger.info("重试前断开旧连接，重建客户端...")
+                self.logger.info("Closing the previous connection and rebuilding the client before retrying...")
                 self._setup_client(force_recreate=True)
                 await self._sleep_with_cancel_polling(1)
 
@@ -591,7 +591,7 @@ class OpenAITranslator(CommonTranslator):
         # 重置全局尝试计数器
         self._reset_global_attempt_count()
 
-        self.logger.info(f"使用OpenAI纯文本翻译模式处理{len(queries)}个文本，最大尝试次数: {self._max_total_attempts}")
+        self.logger.info(f"Using OpenAI text-only translation for {len(queries)} texts; maximum attempts: {self._max_total_attempts}")
         custom_prompt_json = getattr(ctx, 'custom_prompt_json', None) if ctx else None
         line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None) if ctx else None
 

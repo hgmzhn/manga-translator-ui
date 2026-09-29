@@ -132,7 +132,7 @@ async def startup_event():
     from manga_translator.server.routes.translation_auth import init_translation_auth
     
     # 添加启动日志
-    add_log("服务器正在启动...", "INFO")
+    add_log("Server is starting...", "INFO")
     logger.info("Server starting up...")
     _ensure_web_startup_files()
     from manga_translator.server.core.permission_integration import (
@@ -223,7 +223,7 @@ async def startup_event():
     cleanup_service.start()
     
     logger.info("Services initialized successfully")
-    add_log("服务器启动完成，所有服务已初始化", "INFO")
+    add_log("Server startup complete; all services initialized", "INFO")
 
 
 @app.on_event("shutdown")

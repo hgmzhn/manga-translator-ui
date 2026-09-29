@@ -208,7 +208,7 @@ def document_after_edit_ops(
     try:
         document = ensure_rich_text_document(document_value)
     except Exception as exc:
-        logger.warning("富文本文档解析失败: %s", exc)
+        logger.warning("Failed to parse rich text document: %s", exc)
         return None
 
     entries = _collapse_linebreak_entries(_rule_entries_from_document(document))
@@ -217,7 +217,7 @@ def document_after_edit_ops(
     try:
         entries = _apply_edit_ops(_copy_entries(entries), ops)
     except ValueError as exc:
-        logger.warning("编辑操作回放失败: %s", exc)
+        logger.warning("Failed to replay edit operations: %s", exc)
         return None
     if _text_of(entries) != post_text:
         return None
@@ -236,7 +236,7 @@ def sync_document_for_raw_edit(
     try:
         document = ensure_rich_text_document(document_value)
     except Exception as exc:
-        logger.warning("富文本文档解析失败: %s", exc)
+        logger.warning("Failed to parse rich text document: %s", exc)
         return None
 
     doc_entries = _collapse_linebreak_entries(_rule_entries_from_document(document))
@@ -246,7 +246,7 @@ def sync_document_for_raw_edit(
     try:
         entries = _apply_edit_ops(entries, ops)
     except ValueError as exc:
-        logger.warning("编辑操作回放失败: %s", exc)
+        logger.warning("Failed to replay edit operations: %s", exc)
         return None
     if _text_of(entries) != raw_post_text:
         return None
@@ -303,12 +303,12 @@ def _apply_editor_rules_stage(
             styled_match_policy="skip",
         )
     except Exception as exc:
-        logger.warning("编辑器自动富文本规则应用失败,保留同步结果: %s", exc)
+        logger.warning("Failed to apply automatic rich text rules in the editor; preserving the synchronized result: %s", exc)
         return document
     if ruled is None:
         return document
     if not _model_text_matches(ruled, new_translation):
-        logger.warning("自动富文本规则产物与译文不一致,保留同步结果")
+        logger.warning("Automatic rich text rule output does not match the translation; preserving the synchronized result")
         return document
     return ruled
 
@@ -342,7 +342,7 @@ def sync_region_rich_translation(
 
     document: Optional[RichTextDocument] = None
     if old_rich and not ops:
-        logger.info("译文整段替换,无编辑操作记录,富文本退回纯文本")
+        logger.info("The entire translation was replaced without edit operations; reverting rich text to plain text")
     elif old_rich:
         try:
             if raw_mode:
@@ -362,13 +362,13 @@ def sync_region_rich_translation(
                     info.get("post_text", ""),
                 )
         except Exception as exc:
-            logger.warning("富文本样式同步异常,退回纯文本: %s", exc)
+            logger.warning("Error synchronizing rich text styles; reverting to plain text: %s", exc)
             document = None
         else:
             if document is None:
-                logger.warning("富文本样式同步校验失败,退回纯文本")
+                logger.warning("Rich text style synchronization validation failed; reverting to plain text")
             elif not _model_text_matches(document, new_translation):
-                logger.warning("同步后富文本正文与译文不一致,退回纯文本")
+                logger.warning("Synchronized rich text content does not match the translation; reverting to plain text")
                 document = None
 
     if apply_rules:

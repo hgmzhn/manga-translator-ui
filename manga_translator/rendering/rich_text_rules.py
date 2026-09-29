@@ -98,12 +98,12 @@ def _compile_rule(rule: dict) -> Optional[dict]:
         style = TextStyle.from_dict(style_value).to_dict()
         compiled = re.compile(pattern if rule.get("regex", False) else re.escape(pattern))
     except (TypeError, ValueError, re.error) as exc:
-        logger.warning("富文本规则编译失败: pattern=%r error=%s", pattern, exc)
+        logger.warning("Failed to compile rich text rule: pattern=%r error=%s", pattern, exc)
         return None
     # ``ruby: null``（YAML 空值）等价于没有注音，而不是整条规则非法。
     ruby = rule.get("ruby") or ""
     if not isinstance(ruby, str):
-        logger.warning("富文本规则编译失败: pattern=%r ruby 必须是字符串", pattern)
+        logger.warning("Failed to compile rich text rule: pattern=%r; ruby must be a string", pattern)
         return None
     tcy = bool(rule.get("tcy", False))
     if not style and not ruby and not tcy:
@@ -547,7 +547,7 @@ def apply_rich_text_rules_to_region(region: Any, direction: Any = None) -> bool:
     try:
         document = apply_rich_text_rules(text, resolved_direction)
     except Exception as exc:
-        logger.warning("应用富文本规则失败，保留纯文本: %s", exc)
+        logger.warning("Failed to apply rich text rules; preserving plain text: %s", exc)
         return False
     if document is None:
         return False

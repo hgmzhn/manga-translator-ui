@@ -173,7 +173,7 @@ class FileService:
             return True
             
         except Exception as e:
-            self.logger.error(f"验证图片文件失败 {file_path}: {e}")
+            self.logger.error(f"Failed to validate image file {file_path}: {e}")
             return False
     
     def is_archive_file(self, file_path: str) -> bool:
@@ -191,7 +191,7 @@ class FileService:
             return ext.lower() in self.supported_config_extensions
             
         except Exception as e:
-            self.logger.error(f"验证配置文件失败 {file_path}: {e}")
+            self.logger.error(f"Failed to validate configuration file {file_path}: {e}")
             return False
     
     def _natural_sort_key(self, path: str):
@@ -251,7 +251,7 @@ class FileService:
                 image_files.extend(current_images)
                 archive_files.extend(current_archives)
         except Exception as e:
-            self.logger.error(f"获取文件夹支持文件失败 {folder_path}: {e}")
+            self.logger.error(f"Failed to list supported files in folder {folder_path}: {e}")
         return image_files, archive_files
 
     def get_image_files_from_folder(self, folder_path: str, recursive: bool = True) -> List[str]:
@@ -268,7 +268,7 @@ class FileService:
             if self.validate_image_file(file_path):
                 valid_files.append(file_path)
             else:
-                self.logger.warning(f"跳过无效文件: {file_path}")
+                self.logger.warning(f"Skipping invalid file: {file_path}")
                 
         return valid_files
     
@@ -303,7 +303,7 @@ class FileService:
                     errors.append(f"文件不存在: {os.path.basename(file_path)}")
                     
         except Exception as e:
-            self.logger.error(f"处理拖拽文件失败: {e}")
+            self.logger.error(f"Failed to process dropped files: {e}")
             errors.append(f"处理拖拽文件时出错: {str(e)}")
             
         return image_files, errors
@@ -362,12 +362,12 @@ class FileService:
                         file_info['height'] = img.height
                         file_info['format'] = img.format
                 except Exception as e:
-                    self.logger.warning(f"获取图片信息失败 {file_path}: {e}")
+                    self.logger.warning(f"Failed to get image information for {file_path}: {e}")
                     
             return file_info
             
         except Exception as e:
-            self.logger.error(f"获取文件信息失败 {file_path}: {e}")
+            self.logger.error(f"Failed to get file information for {file_path}: {e}")
             return {'error': str(e)}
     
     def _format_file_size(self, size_bytes: int) -> str:
@@ -398,12 +398,12 @@ class FileService:
             
             # 复制文件
             shutil.copy2(file_path, backup_path)
-            self.logger.info(f"创建备份: {backup_path}")
+            self.logger.info(f"Creating backup: {backup_path}")
             
             return backup_path
             
         except Exception as e:
-            self.logger.error(f"创建备份失败 {file_path}: {e}")
+            self.logger.error(f"Failed to create backup for {file_path}: {e}")
             raise
     
     def cleanup_temp_files(self, temp_dir: str, max_age_hours: int = 24) -> None:
@@ -422,12 +422,12 @@ class FileService:
                     try:
                         if current_time - os.path.getmtime(file_path) > max_age_seconds:
                             os.remove(file_path)
-                            self.logger.info(f"删除过期临时文件: {file_path}")
+                            self.logger.info(f"Deleting expired temporary file: {file_path}")
                     except Exception as e:
-                        self.logger.warning(f"删除临时文件失败 {file_path}: {e}")
+                        self.logger.warning(f"Failed to delete temporary file {file_path}: {e}")
                         
         except Exception as e:
-            self.logger.error(f"清理临时文件失败: {e}")
+            self.logger.error(f"Failed to clean up temporary files: {e}")
     
     def get_supported_image_extensions(self) -> Set[str]:
         """获取支持的图片文件扩展名"""

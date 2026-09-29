@@ -9,6 +9,7 @@ import concurrent.futures
 import io
 import logging
 import os
+import re
 import textwrap
 import time
 from dataclasses import dataclass
@@ -275,10 +276,11 @@ class MainAppLogic(QObject):
             for item in missing
         )
         log_summary = "; ".join(
-            f"{self._format_missing_api_requirement_label(item)} -> {' / '.join(item.get('accepted_env_vars', []))}"
+            f"{item.get('section', 'settings')}.{item.get('setting', '')}: "
+            f"{item.get('selected_value', '')} -> {' / '.join(item.get('accepted_env_vars', []))}"
             for item in missing
         )
-        self._ui_log(f"API 配置缺失，已阻止开始翻译: {log_summary}", "WARNING")
+        self._ui_log(f"API configuration is missing; translation was not started: {log_summary}", "WARNING")
         QMessageBox.warning(
             None,
             self._t("API Keys Required"),
@@ -296,12 +298,12 @@ class MainAppLogic(QObject):
     def _normalize_task_error_summary(self, error_message: str, limit: int = 160) -> str:
         raw = str(error_message or "").replace("\r\n", "\n").replace("\r", "\n")
         lines = [line.strip() for line in raw.split("\n") if line.strip()]
-        summary = lines[0] if lines else "未记录详细错误"
+        summary = lines[0] if lines else "No error details recorded"
         return textwrap.shorten(summary, width=limit, placeholder="...")
 
     def _record_task_failure(self, original_path: str, error_message: str):
         normalized_path = os.path.normpath(str(original_path or "Unknown"))
-        raw_error = str(error_message or "").strip() or "未记录详细错误"
+        raw_error = str(error_message or "").strip() or "No error details recorded"
         failure_key = f"{normalized_path}\n{raw_error}"
         if failure_key in self._task_failure_keys:
             return
@@ -457,14 +459,14 @@ class MainAppLogic(QObject):
                 
                 success = self.preset_service.save_preset(preset_name, empty_env_vars)
                 if success:
-                    self._ui_log(f"预设已创建: {preset_name} (空白预设)")
+                    self._ui_log(f"Preset created: {preset_name} (empty preset)")
             
             if not success:
-                self._ui_log(f"保存预设失败: {preset_name}", "ERROR")
+                self._ui_log(f"Failed to save preset: {preset_name}", "ERROR")
             return success
         except Exception as e:
-            self.logger.error(f"保存预设失败: {e}")
-            self._ui_log(f"保存预设失败: {e}", "ERROR")
+            self.logger.error(f"Failed to save preset: {e}")
+            self._ui_log(f"Failed to save preset: {e}", "ERROR")
             return False
     
     @pyqtSlot(str)
@@ -474,19 +476,19 @@ class MainAppLogic(QObject):
             # 加载预设文件
             preset_env_vars = self.preset_service.load_preset(preset_name)
             if preset_env_vars is None:
-                self._ui_log(f"加载预设失败: {preset_name}", "ERROR")
+                self._ui_log(f"Failed to load preset: {preset_name}", "ERROR")
                 return False
             
             # 完全替换.env文件，只保留预设中的字段
             success = self.config_service.replace_env_file(preset_env_vars)
             if not success:
-                self._ui_log(f"应用预设失败: {preset_name}", "ERROR")
+                self._ui_log(f"Failed to apply preset: {preset_name}", "ERROR")
             return success
         except Exception as e:
-            self.logger.error(f"加载预设失败: {e}")
+            self.logger.error(f"Failed to load preset: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
-            self._ui_log(f"加载预设失败: {e}", "ERROR")
+            self._ui_log(f"Failed to load preset: {e}", "ERROR")
             return False
     
     @pyqtSlot(str)
@@ -495,13 +497,13 @@ class MainAppLogic(QObject):
         try:
             success = self.preset_service.delete_preset(preset_name)
             if success:
-                self._ui_log(f"预设已删除: {preset_name}")
+                self._ui_log(f"Preset deleted: {preset_name}")
             else:
-                self._ui_log(f"删除预设失败: {preset_name}", "ERROR")
+                self._ui_log(f"Failed to delete preset: {preset_name}", "ERROR")
             return success
         except Exception as e:
-            self.logger.error(f"删除预设失败: {e}")
-            self._ui_log(f"删除预设失败: {e}", "ERROR")
+            self.logger.error(f"Failed to delete preset: {e}")
+            self._ui_log(f"Failed to delete preset: {e}", "ERROR")
             return False
     # endregion
     
@@ -1055,27 +1057,27 @@ class MainAppLogic(QObject):
                 config = self.config_service.get_config()
                 self.state_manager.set_current_config(config)
                 self.state_manager.set_state(AppStateKey.CONFIG_PATH, config_path)
-                self.logger.info(self._t("log_config_loaded_successfully", path=config_path))
+                self.logger.info('Config file loaded successfully: {path}'.format(path=config_path))
                 self.config_loaded.emit(config.model_dump())
                 if config.app.last_output_path:
                     self.output_path_updated.emit(config.app.last_output_path)
                 return True
             else:
-                self.logger.error(self._t("log_config_load_failed", path=config_path))
+                self.logger.error('Config file load failed: {path}'.format(path=config_path))
                 return False
         except Exception as e:
-            self.logger.error(self._t("log_config_load_exception", error=e))
+            self.logger.error('Config file load exception: {error}'.format(error=e))
             return False
     
     def save_config_file(self, config_path: str = None) -> bool:
         try:
             success = self.config_service.save_config_file(config_path)
             if success:
-                self.logger.info(self._t("log_config_saved_successfully"))
+                self.logger.info('Config file saved successfully')
                 return True
             return False
         except Exception as e:
-            self.logger.error(self._t("log_config_save_exception", error=e))
+            self.logger.error('Config file save exception: {error}'.format(error=e))
             return False
     
     def update_config(self, config_updates: Dict[str, Any]) -> bool:
@@ -1083,10 +1085,10 @@ class MainAppLogic(QObject):
             self.config_service.update_config(config_updates)
             updated_config = self.config_service.get_config()
             self.state_manager.set_current_config(updated_config)
-            self.logger.info(self._t("log_config_updated_successfully"))
+            self.logger.info('Config updated successfully')
             return True
         except Exception as e:
-            self.logger.error(self._t("log_config_update_exception", error=e))
+            self.logger.error('Config update exception: {error}'.format(error=e))
             return False
 
     def update_single_config(self, full_key: str, value: Any):
@@ -1101,11 +1103,11 @@ class MainAppLogic(QObject):
             
             self.config_service.set_config(config_obj)
             self.config_service.save_config_file()
-            self.logger.debug(self._t("log_config_saved", config_key=full_key, value=value))
+            self.logger.debug("Config saved: '{config_key}' = '{value}'".format(config_key=full_key, value=value))
 
             # 当翻译器设置被更改时，直接更新翻译服务的内部状态
             if full_key == 'translator.translator':
-                self.logger.debug(self._t("log_translator_switched", value=value))
+                self.logger.debug("Translator switched: '{value}'".format(value=value))
                 self.translation_service.set_translator(value)
             
             # 当目标语言被更改时，更新翻译服务的目标语言
@@ -1115,7 +1117,7 @@ class MainAppLogic(QObject):
 
             # 当渲染设置被更改时，通知编辑器刷新
             if full_key.startswith('render.'):
-                self.logger.debug(self._t("log_render_setting_changed", config_key=full_key))
+                self.logger.debug("Render setting changed: '{config_key}'".format(config_key=full_key))
                 self.render_setting_changed.emit()
 
         except Exception as e:
@@ -1464,7 +1466,7 @@ class MainAppLogic(QObject):
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(config_dict, f, indent=2, ensure_ascii=False)
             
-            self.logger.info(self._t("log_config_exported", path=file_path))
+            self.logger.info('Config exported to: {path}'.format(path=file_path))
             QMessageBox.information(
                 None,
                 self._t("Export Success"),
@@ -1472,7 +1474,7 @@ class MainAppLogic(QObject):
             )
             
         except Exception as e:
-            self.logger.error(self._t("log_config_export_failed", error=e))
+            self.logger.error('Config export failed: {error}'.format(error=e))
             QMessageBox.critical(
                 None,
                 self._t("Export Failed"),
@@ -1533,7 +1535,7 @@ class MainAppLogic(QObject):
             # 避免 None → '不使用' 这类有损转换让下游 UI 的 None 判定失效
             self.config_loaded.emit(new_config.model_dump())
             
-            self.logger.info(self._t("log_config_imported", path=file_path))
+            self.logger.info('Config imported from {path}'.format(path=file_path))
             QMessageBox.information(
                 None,
                 self._t("Import Success"),
@@ -1541,7 +1543,7 @@ class MainAppLogic(QObject):
             )
             
         except Exception as e:
-            self.logger.error(self._t("log_config_import_failed", error=e))
+            self.logger.error('Config import failed: {error}'.format(error=e))
             QMessageBox.critical(
                 None,
                 self._t("Import Failed"),
@@ -1555,7 +1557,7 @@ class MainAppLogic(QObject):
         Adds files/folders to the list for processing.
         """
         if self.state_manager.is_translating():
-            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
+            self._ui_log("Cannot modify the file list while a task is running.", "WARNING")
             return
         original_sources = list(self.source_files)
         original_keys = {self._path_key(path) for path in original_sources}
@@ -1654,7 +1656,7 @@ class MainAppLogic(QObject):
 
     def remove_file(self, file_path: str):
         if self.state_manager.is_translating():
-            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
+            self._ui_log("Cannot modify the file list while a task is running.", "WARNING")
             return
         try:
             norm_file_path = os.path.normpath(file_path)
@@ -1729,11 +1731,11 @@ class MainAppLogic(QObject):
             # 如果到这里还没有处理，说明路径不存在
             self.logger.warning(f"Path not found in list for removal: {file_path}")
         except Exception as e:
-            self._ui_log(f"移除路径时发生异常: {e}", "ERROR")
+            self._ui_log(f"Error removing path: {e}", "ERROR")
 
     def clear_file_list(self):
         if self.state_manager.is_translating():
-            self._ui_log("任务运行期间不能修改文件列表。", "WARNING")
+            self._ui_log("Cannot modify the file list while a task is running.", "WARNING")
             return
         if not (self.source_files or self.excluded_subfolders or self.excluded_files):
             return
@@ -1784,10 +1786,10 @@ class MainAppLogic(QObject):
             self.current_worker = None
             self.state_manager.set_translating(False)
             self.state_manager.set_status_message("任务启动失败")
-            self._ui_log(f"文件扫描任务启动失败: {exc}", "ERROR")
+            self._ui_log(f"Failed to start file scan: {exc}", "ERROR")
             return
 
-        self._ui_log("文件扫描任务已启动")
+        self._ui_log("File scan started")
 
     def on_scanning_finished(
         self,
@@ -1804,7 +1806,7 @@ class MainAppLogic(QObject):
             return
 
         self._scan_future = None
-        self._ui_log(f"文件扫描完成，共找到 {len(resolved_files)} 个文件")
+        self._ui_log(f"File scan completed: found {len(resolved_files)} files")
         self.current_worker = None
 
         self.file_to_folder_map = file_map
@@ -1814,7 +1816,7 @@ class MainAppLogic(QObject):
         
         # 检查文件列表是否为空
         if not resolved_files:
-            self._ui_log("没有找到有效的图片文件，任务中止", "WARNING")
+            self._ui_log("No valid image files found; task aborted", "WARNING")
             self.state_manager.set_translating(False)
             self.state_manager.set_status_message("就绪")
             from PyQt6.QtWidgets import QMessageBox
@@ -1833,7 +1835,7 @@ class MainAppLogic(QObject):
             return
 
         self._scan_future = None
-        self._ui_log(f"扫描文件时出错: {error_msg}", "ERROR")
+        self._ui_log(f"Error scanning files: {error_msg}", "ERROR")
         self.current_worker = None
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message("扫描失败")
@@ -1872,10 +1874,10 @@ class MainAppLogic(QObject):
             self.current_worker = None
             self.state_manager.set_translating(False)
             self.state_manager.set_status_message("任务启动失败")
-            self._ui_log(f"翻译任务启动失败: {exc}", "ERROR")
+            self._ui_log(f"Failed to start translation task: {exc}", "ERROR")
             return
 
-        self._ui_log(f"翻译任务已启动 (任务ID: {task_id})")
+        self._ui_log(f"Translation task started (task ID: {task_id})")
         self.state_manager.set_translating(True)
         self.state_manager.set_status_message("正在翻译...")
 
@@ -1885,7 +1887,7 @@ class MainAppLogic(QObject):
         """
         # 检查是否有任务在运行
         if self.state_manager.is_translating():
-            self._ui_log("一个任务已经在运行中。", "WARNING")
+            self._ui_log("A task is already running.", "WARNING")
             return
         self._stop_requested = False
 
@@ -1900,7 +1902,7 @@ class MainAppLogic(QObject):
             future is not None and not future.done()
             for future in (self._scan_future, self._translate_future, self._cleanup_future)
         ):
-            self._ui_log("上一个任务仍在后台收尾，请稍后再试。", "WARNING")
+            self._ui_log("The previous task is still finishing in the background. Please try again later.", "WARNING")
             return
 
         # 任务启动前排空 UI 中尚未提交的 .env 写入。
@@ -1911,7 +1913,7 @@ class MainAppLogic(QObject):
         config = self.config_service.get_config()
         output_path = config.app.last_output_path
         if not output_path or not os.path.isdir(output_path):
-            self._ui_log(f"输出目录不合法: {output_path}", "WARNING")
+            self._ui_log(f"Invalid output directory: {output_path}", "WARNING")
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 None,
@@ -1922,7 +1924,7 @@ class MainAppLogic(QObject):
             
         # 检查源文件列表是否为空 (初步检查，具体以扫描结果为准)
         if not self.source_files:
-            self._ui_log("文件列表为空", "WARNING")
+            self._ui_log("The file list is empty", "WARNING")
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 None,
@@ -1938,7 +1940,7 @@ class MainAppLogic(QObject):
         except Exception as e:
             from PyQt6.QtWidgets import QMessageBox
 
-            self._ui_log(f"API Keys 校验失败，已阻止开始翻译: {e}", "ERROR")
+            self._ui_log(f"API key validation failed; translation was not started: {e}", "ERROR")
             QMessageBox.warning(
                 None,
                 self._t("API Keys Required"),
@@ -1960,10 +1962,10 @@ class MainAppLogic(QObject):
         skipped_results = [result for result in (results or []) if result.get('skipped')]
         skipped_count = len(skipped_results)
         if results:
-            self._ui_log(f"翻译任务完成，收到 {len(results)} 个结果。")
+            self._ui_log(f"Translation task completed; received {len(results)} results.")
             for result in results:
                 if result.get('skipped'):
-                    reason = result.get('skip_message') or '后端已跳过该文件'
+                    reason = result.get('skip_message') or 'The backend skipped this file'
                     self._ui_log(f"⏭️ {os.path.basename(result.get('original_path') or '')}: {reason}")
                     continue
                 if not result.get('success'):
@@ -1983,7 +1985,7 @@ class MainAppLogic(QObject):
 
                 self._record_task_failure(
                     result.get('original_path'),
-                    "后端报告处理成功，但未返回已保存文件路径",
+                    "The backend reported success but did not return a saved file path",
                 )
 
         self.saved_files_count = len(saved_files)
@@ -1996,15 +1998,15 @@ class MainAppLogic(QObject):
         )
         if all_skipped:
             self._ui_log(
-                f"任务未处理新文件：{skipped_count} 个文件被后端跳过。",
+                f"No new files processed: the backend skipped {skipped_count} files.",
                 "WARNING",
             )
         elif failed_count > 0:
-            self._ui_log(f"翻译任务完成。成功处理 {self.saved_files_count} 个文件，失败 {failed_count} 个文件。", "WARNING")
+            self._ui_log(f"Translation task completed: {self.saved_files_count} files succeeded, {failed_count} files failed.", "WARNING")
         elif skipped_count > 0:
-            self._ui_log(f"翻译任务完成。成功处理 {self.saved_files_count} 个文件，已跳过 {skipped_count} 个文件。")
+            self._ui_log(f"Translation task completed: {self.saved_files_count} files succeeded, {skipped_count} files skipped.")
         else:
-            self._ui_log(f"翻译任务完成。总共成功处理 {self.saved_files_count} 个文件。")
+            self._ui_log(f"Translation task completed: {self.saved_files_count} files succeeded in total.")
         
         try:
             self.state_manager.set_translating(False)
@@ -2041,7 +2043,7 @@ class MainAppLogic(QObject):
             if failed_count > 0:
                 self.error_dialog_requested.emit(self._build_task_failure_dialog_message())
         except Exception as e:
-            self._ui_log(f"完成任务状态更新或信号发射时发生致命错误: {e}", "ERROR")
+            self._ui_log(f"Fatal error updating task completion state or emitting signals: {e}", "ERROR")
             import traceback
             traceback.print_exc()
         
@@ -2057,7 +2059,7 @@ class MainAppLogic(QObject):
             try:
                 cleanup_archive_temp(archive_path)
             except Exception as exc:
-                self._ui_log(f"清理压缩包临时文件失败: {exc}", "WARNING")
+                self._ui_log(f"Failed to clean up temporary archive files: {exc}", "WARNING")
 
     def _cleanup_after_task(self):
         """在后台清理临时文件；GUI 线程只交接引用。"""
@@ -2077,7 +2079,7 @@ class MainAppLogic(QObject):
             return self._cleanup_future
         except Exception as e:
             if "has been deleted" not in str(e):
-                self._ui_log(f"清理任务资源时出错: {e}", "WARNING")
+                self._ui_log(f"Error cleaning up task resources: {e}", "WARNING")
             return None
     
     def on_task_error(self, error_message, task_id):
@@ -2104,7 +2106,7 @@ class MainAppLogic(QObject):
         now = time.monotonic()
         if current <= 0 or (total > 0 and current >= total) or now - self._last_progress_log_at >= 1.0:
             self._last_progress_log_at = now
-            self._ui_log(f"[进度] {current}/{total}: {message}")
+            self._ui_log(f"[Progress] {current}/{total}")
         percentage = (current / total) * 100 if total > 0 else 0
         self.state_manager.set_translation_progress(percentage)
         self.state_manager.set_status_message(f"[{current}/{total}] {message}")
@@ -2129,22 +2131,22 @@ class MainAppLogic(QObject):
             try:
                 worker.stop()
             except Exception as exc:
-                self._ui_log(f"停止任务时出错: {exc}", "WARNING")
+                self._ui_log(f"Error stopping task: {exc}", "WARNING")
 
             QTimer.singleShot(0, self._cleanup_stopped_task_when_idle)
             return True
 
         if self._stop_requested:
-            self._ui_log("任务仍在停止中。", "WARNING")
+            self._ui_log("The task is still stopping.", "WARNING")
             return True
         if any(
             future is not None and not future.done()
             for future in (self._scan_future, self._translate_future, self._cleanup_future)
         ):
-            self._ui_log("后台任务尚未结束，不能恢复开始状态。", "WARNING")
+            self._ui_log("The background task has not finished; cannot return to the ready state.", "WARNING")
             return False
 
-        self._ui_log("请求停止任务，但没有正在运行的任务", "WARNING")
+        self._ui_log("Stop requested, but no task is running", "WARNING")
         self.state_manager.set_translating(False)
         return False
     
@@ -2201,10 +2203,10 @@ class MainAppLogic(QObject):
 
             self.state_manager.set_app_ready(True)
             self.state_manager.set_status_message("就绪")
-            self._ui_log("应用初始化完成")
+            self._ui_log("Application initialization completed")
             return True
         except Exception as e:
-            self._ui_log(f"应用初始化异常: {e}", "ERROR")
+            self._ui_log(f"Application initialization error: {e}", "ERROR")
             return False
     
     def shutdown(self):
@@ -2218,12 +2220,12 @@ class MainAppLogic(QObject):
             self._scan_request_id += 1
             self.current_task_id += 1
             if self.current_worker:
-                self._ui_log("应用关闭中，停止任务...")
+                self._ui_log("Application is closing; stopping tasks...")
                 if hasattr(self.current_worker, 'stop'):
                     try:
                         self.current_worker.stop()
                     except Exception as e:
-                        self._ui_log(f"停止worker时出错: {e}", "WARNING")
+                        self._ui_log(f"Error stopping worker: {e}", "WARNING")
             self.current_worker = None
             self.state_manager.set_translating(False)
             self._task_executor.shutdown(wait=True, cancel_futures=True)
@@ -2272,7 +2274,7 @@ class MainAppLogic(QObject):
                 if async_service is not None:
                     async_service.shutdown()
             except Exception as e:
-                self._ui_log(f"关闭异步服务时出错: {e}", "WARNING")
+                self._ui_log(f"Error shutting down async service: {e}", "WARNING")
             try:
                 # 模块级单例（若有代码直接使用过 services.async_service 的全局实例）
                 from services.async_service import shutdown_async_service
@@ -2283,7 +2285,7 @@ class MainAppLogic(QObject):
             if self.translation_service:
                 pass
         except Exception as e:
-            self._ui_log(f"应用关闭异常: {e}", "ERROR")
+            self._ui_log(f"Application shutdown error: {e}", "ERROR")
     # endregion
 
 class TranslationWorker(QObject):
@@ -2337,7 +2339,7 @@ class TranslationWorker(QObject):
         lines = [line.strip() for line in raw.split("\n") if line.strip()]
         summary = lines[0] if lines else ""
         if not summary:
-            return "未记录详细错误"
+            return "No error details recorded"
         return textwrap.shorten(summary, width=limit, placeholder="...")
 
     def _extract_context_error_message(self, ctx) -> str:
@@ -2359,13 +2361,13 @@ class TranslationWorker(QObject):
 
     def _build_batch_failure_log_message(self, failed_items: list[dict], total_failed: int) -> str:
         lines = [
-            f"\n⚠️ 批量翻译完成：失败 {total_failed} 张"
+            f"\n⚠️ Batch translation completed: {total_failed} images failed"
         ]
         for item in failed_items[:5]:
             lines.append(f"- {item['file_name']}: {item['summary']}")
         remaining = total_failed - min(len(failed_items), 5)
         if remaining > 0:
-            lines.append(f"- 另有 {remaining} 张失败，详细原因见上方单图日志")
+            lines.append(f"- {remaining} more images failed; see the per-image logs above for details")
         return "\n".join(lines)
 
     @staticmethod
@@ -2521,16 +2523,30 @@ class TranslationWorker(QObject):
 
         friendly_msg = ""
         
-        # 如果是"达到最大尝试次数"的错误，提取真正的错误原因
+        # Unwrap retry exhaustion messages before classifying the underlying error.
         real_error = error_message
-        if "达到最大尝试次数" in error_message and "最后一次错误:" in error_message:
-            # 提取真正的错误原因
-            try:
-                real_error = error_message.split("最后一次错误:")[1].strip()
-            except Exception:
-                pass
+        if "maximum attempts reached" in error_message.lower():
+            marker = "last error:"
+            marker_index = error_message.lower().find(marker)
+            if marker_index >= 0:
+                real_error = error_message[marker_index + len(marker):].strip()
 
         lower_error = real_error.lower()
+        local_model_missing = any(
+            marker in lower_error
+            for marker in (
+                "model file not found",
+                "model file does not exist",
+                "model file is missing",
+                "missing model file",
+            )
+        )
+        http_404 = bool(re.search(
+            r"\b(?:http(?:/\d(?:\.\d)?)?(?:\s+error)?|status(?:[\s_-]*code)?|error\s+code)"
+            r"[\s\"']*[:=]?[\s\"']*404\b"
+            r"|\b404\s+(?:not[\s_]found|client\s+error)\b",
+            lower_error,
+        ))
 
         def _is_image_output_unsupported_error(*section_markers: str) -> bool:
             if not any(marker in lower_error for marker in section_markers):
@@ -2573,8 +2589,6 @@ class TranslationWorker(QObject):
                 or "supported model names" in lower_error
                 or ("you passed" in lower_error and "model" in lower_error)
                 or ("unsupported" in lower_error and "model" in lower_error)
-                or "模型不存在" in real_error
-                or "模型名称不存在" in real_error
             )
 
         def _is_feature_model_unsupported_error(*feature_markers: str) -> bool:
@@ -2582,23 +2596,27 @@ class TranslationWorker(QObject):
                 marker in lower_error for marker in feature_markers
             )
 
-        renderer_markers = ("renderer", "render request", "渲染")
-        colorizer_markers = ("colorizer", "colorization", "colorize", "上色")
-        ocr_markers = ("ocr", "optical character recognition", "文字识别", "文字辨識")
+        renderer_markers = ("renderer", "render request")
+        colorizer_markers = ("colorizer", "colorization", "colorize")
+        ocr_markers = ("ocr", "optical character recognition")
         
+        # Local model paths must not be classified as API/model-name errors.
+        if local_model_missing:
+            friendly_msg = _translate("friendly_error_local_model_missing")
+
         # 检查是否是AI断句检查失败
-        if ("BR markers missing" in real_error or 
-            "AI断句检查" in error_message or 
+        elif ("br markers missing" in lower_error or
+            "ai line break validation failed" in lower_error or
             "BRMarkersValidationException" in error_traceback or
             "_validate_br_markers" in error_traceback):
             friendly_msg = _translate("friendly_error_br_markers")
         
         # 检查是否是翻译数量不匹配错误
-        elif "翻译数量不匹配" in real_error or "Translation count mismatch" in real_error:
+        elif "translation count mismatch" in lower_error:
             friendly_msg = _translate("friendly_error_translation_count")
         
         # 检查是否是翻译质量检查失败
-        elif "翻译质量检查失败" in real_error or "Quality check failed" in real_error:
+        elif "quality check failed" in lower_error:
             friendly_msg = _translate("friendly_error_translation_quality")
 
         # 检查是否是 OpenAI/Gemini 空响应错误（统一处理）
@@ -2607,7 +2625,7 @@ class TranslationWorker(QObject):
              ("strip" in real_error.lower() or "strip" in error_traceback.lower()))
             or ("returned empty content" in real_error.lower())
             or ("returned empty text" in real_error.lower())
-            or ("响应text为空" in real_error)
+            or ("response text is empty" in lower_error)
         ):
             friendly_msg = _translate("friendly_error_empty_ai_response")
 
@@ -2634,8 +2652,7 @@ class TranslationWorker(QObject):
 
         # 检查是否是模型或 API 端点不支持图片输入
         elif (
-            "不支持多模态" in real_error
-            or "不支持图片输入" in real_error
+            "does not support image input" in lower_error
             or "no endpoints found that support image input" in lower_error
             or ("support image input" in lower_error and "endpoint" in lower_error)
             or ("multimodal" in lower_error and "renderer" not in lower_error)
@@ -2651,8 +2668,11 @@ class TranslationWorker(QObject):
             friendly_msg = _translate("friendly_error_model_unsupported")
 
         # 检查是否是404错误（API地址或模型配置错误）
-        elif "API_404_ERROR" in real_error or "404" in real_error or "HTML错误页面" in real_error:
+        elif "api_404_error" in lower_error or (http_404 and "html error page" in lower_error):
             friendly_msg = _translate("friendly_error_api_404_html")
+
+        elif http_404:
+            friendly_msg = _translate("friendly_error_http_404")
 
         # 检查是否是API密钥错误
         elif (
@@ -2673,12 +2693,9 @@ class TranslationWorker(QObject):
             or "failed to connect" in real_error.lower()
             or "could not connect to server" in real_error.lower()
             or "connection timed out" in real_error.lower()
-            or "timed out after" in real_error.lower()
-            or "连接" in real_error
+            or "timed out" in lower_error
             or "timeout" in real_error.lower()
-            or "超时" in real_error
             or "network" in real_error.lower()
-            or "网络" in real_error
             or "curl: (7)" in real_error.lower()
             or "curl: (28)" in real_error.lower()
             or "host" in real_error.lower()
@@ -2690,8 +2707,6 @@ class TranslationWorker(QObject):
             or "name or service not known" in real_error.lower()
             or "no address associated with hostname" in real_error.lower()
             or "nodename nor servname provided" in real_error.lower()
-            or "主机" in real_error
-            or "解析" in real_error
         ):
             friendly_msg = _translate("friendly_error_network")
         
@@ -2703,11 +2718,6 @@ class TranslationWorker(QObject):
         elif "403" in real_error or "forbidden" in real_error.lower():
             friendly_msg = _translate("friendly_error_http_403")
 
-        
-        # 检查是否是404未找到错误
-        elif "404" in real_error or "not found" in real_error.lower():
-            friendly_msg = _translate("friendly_error_http_404")
-        
         # 检查是否是500服务器错误
         elif "500" in real_error or "internal server error" in real_error.lower():
             friendly_msg = _translate("friendly_error_http_500")
@@ -2799,7 +2809,7 @@ class TranslationWorker(QObject):
             )
             from manga_translator.manga_translator import MangaTranslator
 
-            self._log_info("--- 正在初始化翻译器...")
+            self._log_info("--- Initializing translator...")
             translator_params = self.config_dict.get('cli', {})
             translator_params.update(self.config_dict)
             
@@ -2812,7 +2822,7 @@ class TranslationWorker(QObject):
             if font_family:
                 translator_params['font_family'] = font_family
             translator = MangaTranslator(params=translator_params)
-            self._log_info("--- 翻译器初始化完成")
+            self._log_info("--- Translator initialization completed")
             
             # 注册进度钩子，接收后端的批次进度
             progress_signal = self.progress  # 捕获信号引用
@@ -2915,7 +2925,7 @@ class TranslationWorker(QObject):
                 ocr=OcrConfig(**self.config_dict.get('ocr', {})),
                 **remaining_config
             )
-            self._log_info("--- 配置对象创建完成")
+            self._log_info("--- Configuration object created")
 
             translator_type = config.translator.translator
             is_hq = translator_type in [Translator.openai_hq, Translator.gemini_hq]
@@ -2943,56 +2953,52 @@ class TranslationWorker(QObject):
 
             
             # 确定翻译流程模式
-            workflow_mode = self._t("Normal Translation")
+            workflow_mode = 'Normal Translation'
             workflow_tip = ""
             cli_config = self.config_dict.get('cli', {})
             if cli_config.get('upscale_only', False):
-                workflow_mode = self._t("Upscale Only")
-                workflow_tip = self._t("Tip: Only upscale images, no detection, OCR, translation or rendering")
+                workflow_mode = 'Upscale Only'
+                workflow_tip = 'Tip: Only upscale images, no detection, OCR, translation or rendering'
             elif cli_config.get('colorize_only', False):
-                workflow_mode = self._t("Colorize Only")
-                workflow_tip = self._t("Tip: Only colorize images, no detection, OCR, translation or rendering")
+                workflow_mode = 'Colorize Only'
+                workflow_tip = 'Tip: Only colorize images, no detection, OCR, translation or rendering'
             elif cli_config.get('generate_and_export', False):
-                workflow_mode = self._t("Export Translation")
+                workflow_mode = 'Export Translation'
                 tip_key = (
                     "Tip: Reads existing local JSON and exports translated text only; no detection, OCR, API translation, or JSON write-back"
                     if cli_config.get("export_from_local_json", False)
                     else "Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files"
                 )
-                workflow_tip = self._t(tip_key)
+                workflow_tip = tip_key
             elif cli_config.get('template', False):
-                workflow_mode = self._t("Export Original Text")
+                workflow_mode = 'Export Original Text'
                 tip_key = (
                     "Tip: Reads existing local JSON and exports original text only; no detection, OCR, API translation, or JSON write-back"
                     if cli_config.get("export_from_local_json", False)
                     else "Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode"
                 )
-                workflow_tip = self._t(tip_key)
+                workflow_tip = tip_key
             elif cli_config.get('load_text', False):
-                workflow_mode = self._t("Import Translation and Render")
-                workflow_tip = self._t("Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt)")
+                workflow_mode = 'Import Translation and Render'
+                workflow_tip = 'Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt)'
             elif cli_config.get('translate_json_only', False):
-                workflow_mode = self._t("Translate JSON Only")
-                workflow_tip = self._t("Tip: Requires existing JSON data. The app reads original text from JSON, translates it, writes results back to JSON, and deletes imagename_original.txt after success")
+                workflow_mode = 'Translate JSON Only'
+                workflow_tip = 'Tip: Requires existing JSON data. The app reads original text from JSON, translates it, writes results back to JSON, and deletes imagename_original.txt after success'
                  
                 # TXT导入JSON的预处理已经统一到翻译器入口（manga_translator.py），这里不再需要
 
             total_images = len(self.files)
             progress_context["detail"] = "处理中"
             progress_context["failed_count"] = 0
-            self._log_info(f"--- 开始批量处理 ({'高质量模式' if is_hq else '批量模式'})")
+            self._log_info(f"--- Starting batch processing ({'high-quality mode' if is_hq else 'batch mode'})")
             self._log_info(
-                self._t(
-                    "📊 Batch processing mode: {total} images in {batches} batches",
-                    total=total_images,
-                    batches=(total_images + batch_size - 1) // batch_size if batch_size > 0 else total_images,
-                )
+                '📊 Batch processing mode: {total} images in {batches} batches'.format(total=total_images, batches=(total_images + batch_size - 1) // batch_size if batch_size > 0 else total_images)
             )
-            self._log_info(self._t("🔧 Translation workflow: {mode}", mode=workflow_mode))
-            self._log_info(self._t("📁 Output directory: {dir}", dir=self.output_folder))
+            self._log_info('🔧 Translation workflow: {mode}'.format(mode=workflow_mode))
+            self._log_info('📁 Output directory: {dir}'.format(dir=self.output_folder))
             if workflow_tip:
                 self._log_info(workflow_tip)
-            self._log_info(self._t("🚀 Starting translation..."))
+            self._log_info('🚀 Starting translation...')
             emit_eta_progress(0, total_images, "处理中")
             if total_images > 0:
                 progress_context["processing_started_at"] = time.perf_counter()
@@ -3021,7 +3027,7 @@ class TranslationWorker(QObject):
                 image_name = self._get_context_value(ctx, 'image_name', 'Unknown') or 'Unknown'
                 file_name = os.path.basename(image_name)
                 if self._get_context_value(ctx, 'skipped'):
-                    skip_message = self._get_context_value(ctx, 'skip_message', '后端已跳过该文件')
+                    skip_message = self._get_context_value(ctx, 'skip_message', 'The backend skipped this file')
                     results.append({
                         'success': True,
                         'original_path': image_name,
@@ -3040,7 +3046,7 @@ class TranslationWorker(QObject):
                     results.append({'success': False, 'original_path': image_name, 'error': error_message})
                     failed_count += 1
                     failed_items.append({'file_name': file_name, 'summary': error_summary})
-                    self._log_warning(f"\n⚠️ 图片 {file_name} 翻译失败：{error_summary}")
+                    self._log_warning(f"\n⚠️ Translation failed for image {file_name}: {error_summary}")
                     self._log_error(error_message)
                 elif self._get_context_value(ctx, 'success') or self._get_context_value(ctx, 'result'):
                     result = {'success': True, 'original_path': image_name}
@@ -3050,7 +3056,7 @@ class TranslationWorker(QObject):
                     results.append(result)
                     success_count += 1
                 else:
-                    fallback_error = "翻译结果为空"
+                    fallback_error = "Translation result is empty"
                     results.append({'success': False, 'original_path': image_name, 'error': fallback_error})
                     failed_count += 1
                     failed_items.append({'file_name': file_name, 'summary': fallback_error})
@@ -3063,9 +3069,9 @@ class TranslationWorker(QObject):
                     )
                 )
             self._log_info(
-                f"批量处理完成：成功 {success_count}，跳过 {skipped_count}，失败 {failed_count}。"
+                f"Batch processing completed: {success_count} succeeded, {skipped_count} skipped, {failed_count} failed."
             )
-            self._log_info(self._t("💾 Files saved to: {dir}", dir=self.output_folder))
+            self._log_info('💾 Files saved to: {dir}'.format(dir=self.output_folder))
 
             self.finished.emit(results)
 
@@ -3109,7 +3115,7 @@ class TranslationWorker(QObject):
                 unload_models = self.config_dict.get('app', {}).get('unload_models_after_translation', False)
                 full_memory_cleanup(log_callback=self._log_info, unload_models=unload_models)
             except Exception as e:
-                self._log_warning(f"--- [CLEANUP] Warning: 内存清理时出错: {e}")
+                self._log_warning(f"--- [CLEANUP] Warning: Error cleaning up memory: {e}")
 
     @pyqtSlot()
     def process(self):
@@ -3117,7 +3123,7 @@ class TranslationWorker(QObject):
         try:
             import asyncio
             import sys
-            self._log_info("--- 开始处理任务...")
+            self._log_info("--- Starting task processing...")
 
             # 在Windows上的工作线程中，需要手动初始化Windows Socket
             if sys.platform == 'win32':
@@ -3219,7 +3225,7 @@ class FileScannerRunnable(QRunnable):
         try:
             if not self._is_running:
                 return
-            self._emit_progress("正在扫描文件...")
+            self._emit_progress("Scanning files...")
             resolved_files = []
             processed_archives = set()
              
@@ -3285,13 +3291,13 @@ class FileScannerRunnable(QRunnable):
                 processed_archives.add(norm_archive)
 
                 try:
-                    self._emit_progress(f"正在解压: {os.path.basename(archive_path)}")
+                    self._emit_progress(f"Extracting: {os.path.basename(archive_path)}")
                     archive_output_base_dir = _get_archive_output_base_dir(archive_path, scan_root)
                     if archive_output_base_dir:
                         if check_output_extract_conflict(archive_output_base_dir, archive_path):
                             if not overwrite_extract:
                                 self._emit_progress(
-                                    f"跳过解压(同名冲突且未开启覆盖): {os.path.basename(archive_path)}"
+                                    f"Skipping extraction (name conflict and overwrite disabled): {os.path.basename(archive_path)}"
                                 )
                                 return
                             clear_output_extract_root(archive_output_base_dir, archive_path)
@@ -3309,11 +3315,11 @@ class FileScannerRunnable(QRunnable):
                         for img_path in images:
                             resolved_files.append(img_path)
                             self.file_to_folder_map[img_path] = archive_path
-                        self._emit_progress(f"从 {os.path.basename(archive_path)} 提取了 {len(images)} 张图片")
+                        self._emit_progress(f"Extracted {len(images)} images from {os.path.basename(archive_path)}")
                     else:
-                        self._emit_progress(f"警告: {os.path.basename(archive_path)} 中没有找到图片")
+                        self._emit_progress(f"Warning: no images found in {os.path.basename(archive_path)}")
                 except Exception as e:
-                    self._emit_progress(f"解压 {os.path.basename(archive_path)} 失败: {e}")
+                    self._emit_progress(f"Failed to extract {os.path.basename(archive_path)}: {e}")
 
             # 处理顶层压缩包文件
             for archive_path in archive_files:
@@ -3341,7 +3347,7 @@ class FileScannerRunnable(QRunnable):
             for folder in folders:
                 if not self._is_running:
                     return
-                self._emit_progress(f"正在扫描文件夹: {os.path.basename(folder)}")
+                self._emit_progress(f"Scanning folder: {os.path.basename(folder)}")
                 folder_files, folder_archives = self.file_service.get_supported_files_from_folder(
                     folder, recursive=True
                 )
@@ -3452,7 +3458,7 @@ class TranslationRunnable(QRunnable):
             import sys
             if not self._is_running:
                 return
-            self.logger.info("--- 开始处理任务...")
+            self.logger.info("--- Starting task processing...")
 
             # Windows平台初始化
             if sys.platform == 'win32':
@@ -3512,7 +3518,7 @@ class TranslationRunnable(QRunnable):
             pass
         except Exception as e:
             import traceback
-            error_msg = f"翻译任务错误: {str(e)}\n{traceback.format_exc()}"
+            error_msg = f"Translation task error: {str(e)}\n{traceback.format_exc()}"
             self.logger.error(error_msg)
             self._emit_error(error_msg)
         finally:

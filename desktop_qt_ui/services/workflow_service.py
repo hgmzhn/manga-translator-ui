@@ -572,10 +572,10 @@ def create_template_selection_dialog(parent=None):
         return template_path if template_path else None
         
     except ImportError:
-        logger.warning("无法导入tkinter，无法显示文件选择对话框")
+        logger.warning("Cannot import tkinter; file selection dialog is unavailable")
         return None
     except Exception as e:
-        logger.error(f"创建模板选择对话框失败: {e}")
+        logger.error(f"Failed to create template selection dialog: {e}")
         return None
 
 
@@ -791,7 +791,7 @@ def _load_large_json_optimized(json_file_path: str):
             return dict(ijson.kvitems(f, ''))
     except ImportError:
         # 如果没有ijson，回退到标准方法但分块读取
-        logger.warning("ijson不可用，使用标准方法读取大文件")
+        logger.warning("ijson is unavailable; using standard loading for large files")
         with open(json_file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
@@ -828,7 +828,7 @@ def safe_update_large_json_from_text(
     
     # 获取文件大小信息
     json_size_mb = os.path.getsize(json_file_path) / (1024 * 1024)
-    logger.info(f"处理JSON文件: {os.path.basename(json_file_path)} ({json_size_mb:.2f} MB)")
+    logger.info(f"Processing JSON file: {os.path.basename(json_file_path)} ({json_size_mb:.2f} MB)")
     
     try:
         # 1. 解析模板和TXT文件
@@ -854,7 +854,7 @@ def safe_update_large_json_from_text(
         parsed_json = json.loads(text_content)
         if isinstance(parsed_json, dict):
             translations = parsed_json
-            logger.info(f"直接解析为JSON成功，找到 {len(translations)} 条翻译")
+            logger.info(f"Parsed JSON directly; found {len(translations)} translations")
         else:
             raise ValueError("Not a dict")
     except (json.JSONDecodeError, ValueError):
@@ -915,7 +915,7 @@ def safe_update_large_json_from_text(
         logger.warning(f"Could not parse any translations from '{os.path.basename(text_file_path)}'.")
         return "错误：未能从TXT文件中解析出任何翻译内容"
 
-    logger.info(f"解析出 {len(translations)} 条翻译")
+    logger.info(f"Parsed {len(translations)} translations")
 
     # 2.5. 创建标准化映射（用于模糊匹配）
     def normalize_text(text):
@@ -934,7 +934,7 @@ def safe_update_large_json_from_text(
         normalized = normalize_text(original_text)
         normalized_to_original[normalized] = original_text
         if len(normalized_to_original) <= 3:  # 只记录前3个
-            logger.debug(f"标准化映射: '{original_text}' -> '{normalized}'")
+            logger.debug(f"Normalized mapping: '{original_text}' -> '{normalized}'")
 
     # 3. 创建临时备份文件
     backup_path = None
@@ -952,7 +952,7 @@ def safe_update_large_json_from_text(
         
         # 对于大文件使用流式处理以减少内存占用
         if json_size_mb > 50:  # 大于50MB使用优化处理
-            logger.debug(f"使用流式处理加载大文件: {os.path.basename(json_file_path)}")
+            logger.debug(f"Loading large file with streaming parser: {os.path.basename(json_file_path)}")
             source_data = _load_large_json_optimized(json_file_path)
         else:
             logger.debug(f"Loading JSON file into memory: {os.path.basename(json_file_path)}")
@@ -960,7 +960,7 @@ def safe_update_large_json_from_text(
                 source_data = json.load(f)
         
         load_time = time.time() - start_time
-        logger.info(f"JSON加载完成，耗时 {load_time:.2f} 秒")
+        logger.info(f"JSON loaded in {load_time:.2f} seconds")
 
         # 5. 更新翻译内容
         logger.debug("Updating translations in memory.")
@@ -987,17 +987,17 @@ def safe_update_large_json_from_text(
                     # 不清会导致成图渲染旧译文；与 editor_controller 写入姿势一致）
                     region.pop('translation_rich', None)
                     updated_count += 1
-                    logger.debug(f"更新翻译: '{original_text[:30]}...' -> '{new_translation[:30]}...'")
+                    logger.debug(f"Updating translation: '{original_text[:30]}...' -> '{new_translation[:30]}...'")
             else:
                 # 如果精确匹配失败，尝试模糊匹配
                 normalized = normalize_text(original_text)
-                logger.debug(f"精确匹配失败，尝试模糊匹配: '{original_text}' -> '{normalized}'")
+                logger.debug(f"Exact match failed; trying fuzzy match: '{original_text}' -> '{normalized}'")
                 if normalized in normalized_to_original:
                     matched_original = normalized_to_original[normalized]
                     old_translation = region.get('translation', '')
                     new_translation = _strip_legacy_horizontal_tags(translations[matched_original])
 
-                    logger.debug(f"模糊匹配成功: '{original_text}' -> '{matched_original}', old='{old_translation}', new='{new_translation}'")
+                    logger.debug(f"Fuzzy match succeeded: '{original_text}' -> '{matched_original}', old='{old_translation}', new='{new_translation}'")
 
                     # 总是更新translation字段，即使原文和译文相同
                     if old_translation != new_translation:
@@ -1006,10 +1006,10 @@ def safe_update_large_json_from_text(
                         region.pop('translation_rich', None)
                         updated_count += 1
                 else:
-                    logger.debug(f"模糊匹配也失败: '{normalized}' not in normalized_to_original")
+                    logger.debug(f"Fuzzy match also failed: '{normalized}' not in normalized_to_original")
 
         update_time = time.time() - start_time
-        logger.info(f"更新完成，耗时 {update_time:.2f} 秒，更新了 {updated_count} 条")
+        logger.info(f"Update completed in {update_time:.2f} seconds; updated {updated_count} entries")
 
         # 导入翻译并渲染：无论导入内容是否与现有 translation 完全相同，
         # 只要这次走了导入流程，后续渲染都应重新执行文字缩放。
@@ -1038,7 +1038,7 @@ def safe_update_large_json_from_text(
                      cls=OptimizedJSONEncoder)
         
         write_time = time.time() - start_time
-        logger.info(f"临时文件写入完成，耗时 {write_time:.2f} 秒")
+        logger.info(f"Temporary file written in {write_time:.2f} seconds")
 
         # 7. 原子性替换原文件
         logger.debug(f"Atomically moving temporary file to final destination: {os.path.basename(json_file_path)}")
@@ -1059,7 +1059,7 @@ def safe_update_large_json_from_text(
             logger.debug("Verifying integrity of written JSON file.")
             with open(json_file_path, 'r', encoding='utf-8') as f:
                 json.load(f)
-            logger.info("文件完整性验证通过")
+            logger.info("File integrity verification passed")
         except Exception:
             # 如果验证失败，恢复备份
             logger.error("File integrity check failed! Restoring backup.")
@@ -1075,7 +1075,7 @@ def safe_update_large_json_from_text(
             for old_backup in backup_files[3:]:  # 保留最近3个备份
                 try:
                     os.remove(old_backup)
-                    logger.debug(f"删除旧备份: {os.path.basename(old_backup)}")
+                    logger.debug(f"Deleting old backup: {os.path.basename(old_backup)}")
                 except Exception:
                     pass
         except Exception:
@@ -1086,6 +1086,7 @@ def safe_update_large_json_from_text(
     except Exception as e:
         # 错误恢复
         error_msg = f"错误：更新过程中出现异常: {e}"
+        backup_recovery = "not attempted"
         
         # 清理临时文件
         if temp_path and os.path.exists(temp_path):
@@ -1101,10 +1102,12 @@ def safe_update_large_json_from_text(
                 logger.warning("Exception occurred, attempting to restore backup.")
                 shutil.copy2(backup_path, json_file_path)
                 error_msg += " (已恢复备份文件)"
+                backup_recovery = "restored"
             except Exception:
                 error_msg += " (备份恢复失败，请手动恢复)"
+                backup_recovery = "failed"
         
-        logger.error(error_msg)
+        logger.error("Error updating translations: %s (backup recovery: %s)", e, backup_recovery)
         return error_msg
 
     finally:
@@ -1198,5 +1201,5 @@ def batch_update_directory_translations(
     successful = len([r for r in results if r.startswith("✓")])
     total = len(json_files)
     summary = f"批量更新完成 (处理: {successful}/{total}):\n" + "\n".join(results)
-    logger.debug(f"Batch update summary:\n{summary}")
+    logger.debug("Batch update completed (processed: %s/%s); files: %s", successful, total, json_files)
     return summary

@@ -125,7 +125,7 @@ class EraseConfigService:
         """从配置文件加载设置"""
         try:
             if not os.path.exists(config_path):
-                self.logger.warning(f"配置文件不存在: {config_path}")
+                self.logger.warning(f"Configuration file does not exist: {config_path}")
                 return False
             
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -135,14 +135,14 @@ class EraseConfigService:
             inpainter_data = config_data.get("inpainter", {})
             if inpainter_data:
                 self.current_config = InpainterConfig.from_dict(inpainter_data)
-                self.logger.info(f"从配置文件加载擦除算法设置: {self.current_config.inpainter.value}")
+                self.logger.info(f"Loaded erase algorithm settings from configuration: {self.current_config.inpainter.value}")
                 return True
             else:
-                self.logger.warning("配置文件中未找到inpainter配置")
+                self.logger.warning("No inpainter settings found in configuration file")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"加载配置文件失败: {e}")
+            self.logger.error(f"Failed to load configuration file: {e}")
             return False
     
     def save_config_to_file(self, config_path: str) -> bool:
@@ -161,11 +161,11 @@ class EraseConfigService:
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
             
-            self.logger.info(f"配置已保存到: {config_path}")
+            self.logger.info(f"Configuration saved to: {config_path}")
             return True
             
         except Exception as e:
-            self.logger.error(f"保存配置文件失败: {e}")
+            self.logger.error(f"Failed to save configuration file: {e}")
             return False
     
     def get_algorithm_list(self) -> List[Dict[str, Any]]:
@@ -193,22 +193,22 @@ class EraseConfigService:
     def set_algorithm(self, algorithm: InpainterType):
         """设置当前算法"""
         self.current_config.inpainter = algorithm
-        self.logger.info(f"切换擦除算法: {algorithm.value}")
+        self.logger.info(f"Switching erase algorithm: {algorithm.value}")
     
     def set_inpainting_size(self, size: int):
         """设置修复尺寸"""
         if size < 512 or size > 4096:
             raise ValueError("修复尺寸必须在512-4096之间")
         self.current_config.inpainting_size = size
-        self.logger.info(f"设置修复尺寸: {size}")
+        self.logger.info(f"Setting inpainting size: {size}")
     
     def set_precision(self, precision: InpaintPrecision):
         """设置修复精度"""
         if not self.algorithm_info[self.current_config.inpainter].supports_precision:
-            self.logger.warning(f"当前算法不支持精度设置: {self.current_config.inpainter.value}")
+            self.logger.warning(f"Current algorithm does not support precision settings: {self.current_config.inpainter.value}")
             return
         self.current_config.inpainting_precision = precision
-        self.logger.info(f"设置修复精度: {precision.value}")
+        self.logger.info(f"Setting inpainting precision: {precision.value}")
     
     def get_current_config(self) -> InpainterConfig:
         """获取当前配置"""

@@ -39,7 +39,7 @@ class PresetService:
             try:
                 return self.config_service.get_all_preset_env_vars()
             except Exception as e:
-                self.logger.warning(f"获取预设 env 键失败，使用回退列表: {e}")
+                self.logger.warning(f"Failed to get preset environment keys; using fallback list: {e}")
 
         return [
             "OPENAI_API_KEY",
@@ -100,9 +100,9 @@ class PresetService:
             try:
                 with open(default_preset_path, 'w', encoding='utf-8') as f:
                     json.dump(default_env, f, indent=2, ensure_ascii=False)
-                self.logger.info("已创建默认预设")
+                self.logger.info("Default preset created")
             except Exception as e:
-                self.logger.error(f"创建默认预设失败: {e}")
+                self.logger.error(f"Failed to create default preset: {e}")
     
     def get_presets_list(self) -> List[str]:
         """获取所有预设名称列表"""
@@ -118,14 +118,14 @@ class PresetService:
             
             return sorted(presets)
         except Exception as e:
-            self.logger.error(f"获取预设列表失败: {e}")
+            self.logger.error(f"Failed to get preset list: {e}")
             return []
     
     def save_preset(self, preset_name: str, env_vars: Dict[str, str]) -> bool:
         """保存预设"""
         try:
             if not preset_name or not preset_name.strip():
-                self.logger.error("预设名称不能为空")
+                self.logger.error("Preset name cannot be empty")
                 return False
             
             # 清理预设名称，移除非法字符
@@ -140,7 +140,7 @@ class PresetService:
             # 不输出日志，避免刷屏
             return True
         except Exception as e:
-            self.logger.error(f"保存预设失败: {e}")
+            self.logger.error(f"Failed to save preset: {e}")
             return False
     
     def load_preset(self, preset_name: str) -> Optional[Dict[str, str]]:
@@ -149,7 +149,7 @@ class PresetService:
             preset_path = os.path.join(self.presets_dir, f"{preset_name}.json")
             
             if not os.path.exists(preset_path):
-                self.logger.error(f"预设不存在: {preset_name}")
+                self.logger.error(f"Preset does not exist: {preset_name}")
                 return None
             
             with open(preset_path, 'r', encoding='utf-8') as f:
@@ -157,27 +157,27 @@ class PresetService:
             
             return self._normalize_preset_env_vars(env_vars)
         except Exception as e:
-            self.logger.error(f"加载预设失败: {e}")
+            self.logger.error(f"Failed to load preset: {e}")
             return None
     
     def delete_preset(self, preset_name: str) -> bool:
         """删除预设"""
         if preset_name == DEFAULT_PRESET_NAME:
-            self.logger.warning("默认预设不可删除")
+            self.logger.warning("The default preset cannot be deleted")
             return False
 
         try:
             preset_path = os.path.join(self.presets_dir, f"{preset_name}.json")
             
             if not os.path.exists(preset_path):
-                self.logger.error(f"预设不存在: {preset_name}")
+                self.logger.error(f"Preset does not exist: {preset_name}")
                 return False
             
             os.remove(preset_path)
-            self.logger.info(f"预设已删除: {preset_name}")
+            self.logger.info(f"Preset deleted: {preset_name}")
             return True
         except Exception as e:
-            self.logger.error(f"删除预设失败: {e}")
+            self.logger.error(f"Failed to delete preset: {e}")
             return False
     
     def _sanitize_filename(self, filename: str) -> str:

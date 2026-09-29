@@ -780,4 +780,4 @@ class GraphicsViewPasteOverlayMixin:
                 if current:
                     self.select_paste_overlay(current[-1]["id"])
         except Exception as error:
-            self.logger.warning("导入贴片失败: %s", error)
+            self.logger.warning("Failed to import overlay: %s", error)

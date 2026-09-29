@@ -294,7 +294,7 @@ def on_api_task_future_finished(self, kind: str, future) -> None:
     try:
         on_finished(result, error)
     except Exception:
-        logger.exception("处理 API 后台任务结果失败: %s", kind)
+        logger.exception("Failed to handle background API task result: %s", kind)
 
 
 def shutdown_background_threads(self, timeout_ms: int = 3000) -> None:
@@ -1034,7 +1034,7 @@ def _wrap_error_text(message: str, width: int = 60) -> str:
 def _format_test_connection_error(self, api_type: str, message: str) -> str:
     raw_message = str(message or "").strip()
     analysis_message = raw_message
-    for prefix in ("连接失败:", "连接失败：", "api connection failed:", "connection failed:"):
+    for prefix in ("api connection failed:", "connection failed:"):
         if analysis_message.lower().startswith(prefix):
             analysis_message = analysis_message[len(prefix):].strip()
             break
@@ -1064,11 +1064,6 @@ def _format_test_connection_error(self, api_type: str, message: str) -> str:
         "nodename nor servname provided",
         "failed to resolve",
         "temporary failure in name resolution",
-        "远程主机",
-        "连接",
-        "超时",
-        "网络",
-        "主机",
     )
 
     service_keywords = (
@@ -1085,12 +1080,6 @@ def _format_test_connection_error(self, api_type: str, message: str) -> str:
         "channel",
         "unavailable",
         "not available",
-        "无可用渠道",
-        "渠道",
-        "服务不可用",
-        "服务异常",
-        "站点异常",
-        "模型不可用",
     )
 
     is_network_error = any(keyword in error_lower for keyword in network_keywords)
@@ -1414,6 +1403,7 @@ def validate_api_candidate_availability(self) -> bool:
         self._refresh_env_api_groups(force=True)
 
     blocked: list[str] = []
+    blocked_groups: list[tuple[str, str]] = []
     for section_key in ("translation", "ocr", "color", "render"):
         required_groups = _collect_required_api_candidate_groups(self, section_key)
         if not required_groups:
@@ -1430,14 +1420,18 @@ def validate_api_candidate_availability(self) -> bool:
             endpoints = tuple(grouped_endpoints.get(group_key, []))
             if not endpoints or not iter_api_candidates(endpoints, "failover"):
                 blocked.append(label)
+                blocked_groups.append(group_key)
 
     if not blocked:
         return True
 
     details = "\n".join(f"- {label}" for label in dict.fromkeys(blocked))
-    log_message = details.replace("\n", "; ")
+    log_message = "; ".join(
+        f"feature={feature}, provider={provider}"
+        for feature, provider in dict.fromkeys(blocked_groups)
+    )
     if hasattr(self.controller, "_ui_log"):
-        self.controller._ui_log(f"API 候选池无可用候选，已阻止开始翻译: {log_message}", "WARNING")
+        self.controller._ui_log(f"No available API candidates; translation was not started: {log_message}", "WARNING")
     QMessageBox.warning(
         self._dialog_parent(),
         self._t("API candidate availability failed"),

@@ -68,11 +68,11 @@ class DefaultDetector(OfflineDetector):
         """
         # 验证输入图片
         if image is None or image.size == 0:
-            self.logger.error("输入图片为空或无效")
+            self.logger.error("Input image is empty or invalid")
             return [], np.zeros((100, 100), dtype=np.uint8), None
         
         if len(image.shape) < 2:
-            self.logger.error(f"输入图片维度不正确: {image.shape}")
+            self.logger.error(f"Invalid input image dimensions: {image.shape}")
             return [], np.zeros((100, 100), dtype=np.uint8), None
         
         # TODO: Move det_rearrange_forward to common.py and refactor
@@ -108,14 +108,14 @@ class DefaultDetector(OfflineDetector):
                 self.logger.info(f'[DEBUG] mask shape: {mask.shape}, image shape: {image.shape}, text_threshold: {text_threshold}')
                 # 诊断mask和db的数值分布
                 mid_values_ratio_mask = np.sum((mask > 0.1) & (mask < 0.9)) / mask.size * 100
-                self.logger.info(f'[DEBUG] mask数值分布: min={mask.min():.3f}, max={mask.max():.3f}, mean={mask.mean():.3f}')
-                self.logger.info(f'[DEBUG] mask中间值(0.1-0.9)占比: {mid_values_ratio_mask:.2f}%')
+                self.logger.info(f"[DEBUG] mask value distribution: min={mask.min():.3f}, max={mask.max():.3f}, mean={mask.mean():.3f}")
+                self.logger.info(f"[DEBUG] mask mid-range values (0.1-0.9): {mid_values_ratio_mask:.2f}%")
                 
                 # 检查db的分布（用于对比）
                 db_slice = db[0, 0, :, :]
                 mid_values_ratio_db = np.sum((db_slice > 0.1) & (db_slice < 0.9)) / db_slice.size * 100
-                self.logger.info(f'[DEBUG] db数值分布: min={db_slice.min():.3f}, max={db_slice.max():.3f}, mean={db_slice.mean():.3f}')
-                self.logger.info(f'[DEBUG] db中间值(0.1-0.9)占比: {mid_values_ratio_db:.2f}%')
+                self.logger.info(f"[DEBUG] db value distribution: min={db_slice.min():.3f}, max={db_slice.max():.3f}, mean={db_slice.mean():.3f}")
+                self.logger.info(f"[DEBUG] db mid-range values (0.1-0.9): {mid_values_ratio_db:.2f}%")
                 
                 # resize mask和db到和原图相同的尺寸（用于调试图）
                 mask_resized_debug = cv2.resize(mask, (mask.shape[1] * 2, mask.shape[0] * 2), interpolation=cv2.INTER_LINEAR)

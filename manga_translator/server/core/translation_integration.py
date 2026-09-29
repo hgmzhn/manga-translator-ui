@@ -79,7 +79,7 @@ class TranslationIntegrationService:
                 permissions = self.permission_service.get_user_permissions(username)
                 allowed = permissions.allowed_translators if permissions else []
                 error_msg = f"您没有权限使用翻译器 '{translator}'。允许的翻译器: {allowed}"
-                logger.warning(f"Permission denied for user {username}: {error_msg}")
+                logger.warning(f"Permission denied for user {username}: translator '{translator}' is not allowed. Allowed translators: {allowed}")
                 return False, error_msg
             
             logger.debug(f"Permission check passed for user {username}, translator {translator}")
@@ -115,7 +115,6 @@ class TranslationIntegrationService:
             allowed, error_msg = self.quota_service.check_daily_quota(username, image_count)
             
             if not allowed:
-                logger.warning(f"Quota check failed for user {username}: {error_msg}")
                 return False, error_msg
             
             logger.debug(f"Quota check passed for user {username}, count {image_count}")
@@ -153,7 +152,7 @@ class TranslationIntegrationService:
                     session_token=session_token,
                     user_id=username,
                     event_type='translation_start',
-                    message=f'开始翻译，使用翻译器: {translator}',
+                    message=f'Starting translation with translator: {translator}',
                     level='info',
                     details={
                         'translator': translator,
@@ -197,7 +196,7 @@ class TranslationIntegrationService:
                     session_token=session_token,
                     user_id=username,
                     event_type='translation_progress',
-                    message=message or f'翻译进度: {progress:.1f}%',
+                    message=message or f'Translation progress: {progress:.1f}%',
                     level='info',
                     details={
                         'progress': progress,
@@ -260,7 +259,7 @@ class TranslationIntegrationService:
                     session_token=session_token,
                     user_id=username,
                     event_type='translation_complete',
-                    message=f'翻译完成，共 {image_count} 张图片',
+                    message=f'Translation complete: {image_count} images',
                     level='info',
                     details={
                         'image_count': image_count,

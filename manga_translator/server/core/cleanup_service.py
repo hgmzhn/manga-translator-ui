@@ -44,12 +44,12 @@ class CleanupService:
         
         settings = self.get_settings()
         if not settings.get('auto_cleanup', False):
-            logger.info("自动清理未启用")
+            logger.info("Automatic cleanup is not enabled")
             return
         
         self.running = True
         self.task = asyncio.create_task(self._cleanup_loop())
-        logger.info("自动清理服务已启动")
+        logger.info("Automatic cleanup service started")
     
     def stop(self):
         """停止自动清理任务"""
@@ -57,7 +57,7 @@ class CleanupService:
         if self.task:
             self.task.cancel()
             self.task = None
-        logger.info("自动清理服务已停止")
+        logger.info("Automatic cleanup service stopped")
     
     async def _cleanup_loop(self):
         """清理循环"""
@@ -66,7 +66,7 @@ class CleanupService:
                 settings = self.get_settings()
                 
                 if not settings.get('auto_cleanup', False):
-                    logger.info("自动清理已禁用，停止清理循环")
+                    logger.info("Automatic cleanup disabled; stopping the cleanup loop")
                     break
                 
                 # 执行清理
@@ -79,7 +79,7 @@ class CleanupService:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"自动清理出错: {e}")
+                logger.error(f"Automatic cleanup failed: {e}")
                 await asyncio.sleep(3600)  # 出错后等待1小时重试
     
     async def run_cleanup(self) -> dict:
@@ -112,7 +112,7 @@ class CleanupService:
             files_deleted += extra_deleted
         
         if files_deleted > 0:
-            logger.info(f"自动清理完成: 删除 {files_deleted} 个文件，释放 {total_freed / 1024 / 1024:.2f} MB")
+            logger.info(f"Automatic cleanup complete: deleted {files_deleted} files, freed {total_freed / 1024 / 1024:.2f} MB")
         
         return {
             "freed_bytes": total_freed,
@@ -135,7 +135,7 @@ class CleanupService:
                         freed += size
                         deleted += 1
                 except (OSError, IOError) as e:
-                    logger.warning(f"删除文件失败: {file_path}, 错误: {e}")
+                    logger.warning(f"Failed to delete file: {file_path}, error: {e}")
         
         # 清理空目录
         self._remove_empty_dirs(directory)
@@ -178,7 +178,7 @@ class CleanupService:
                 deleted += 1
                 current_size -= size
             except (OSError, IOError) as e:
-                logger.warning(f"删除文件失败: {file_path}, 错误: {e}")
+                logger.warning(f"Failed to delete file: {file_path}, error: {e}")
         
         return freed, deleted
     

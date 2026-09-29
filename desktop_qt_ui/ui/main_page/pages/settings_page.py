@@ -46,7 +46,7 @@ def _load_reclassify_settings_layout():
         return data.get("tabs", [])
     except Exception as exc:
         logging.getLogger(__name__).warning(
-            "加载 settings_tab_layout.json 失败 (%s): %s", _SETTINGS_TAB_LAYOUT_FILE, exc
+            "Failed to load settings_tab_layout.json (%s): %s", _SETTINGS_TAB_LAYOUT_FILE, exc
         )
         return []
 

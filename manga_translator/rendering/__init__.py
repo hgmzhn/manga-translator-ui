@@ -747,7 +747,7 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
         strict_smart_scaling = getattr(config.render, 'strict_smart_scaling', False) if config and hasattr(config, 'render') else False
         if layout_mode == 'smart_scaling' and strict_smart_scaling:
             if '\n' not in text_for_calc:
-                logger.debug(f"[OPTIMIZE_LINE_BREAKS] Skipping {combo_desc}: 严格智能缩放模式下无断句会扩大文本框")
+                logger.debug(f"[OPTIMIZE_LINE_BREAKS] Skipping {combo_desc}: removing line breaks would expand the text box in strict smart scaling mode")
                 continue
         
         try:
@@ -827,17 +827,17 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
     if optimized_br_count != original_br_count:
         br_change = optimized_br_count - original_br_count
         if br_change > 0:
-            change_desc = f"增加了 {br_change}"
+            change_desc = f"added {br_change}"
         elif br_change < 0:
-            change_desc = f"去掉了 {-br_change}"
+            change_desc = f"removed {-br_change}"
         else:
-            change_desc = "调整了位置"
-        logger.debug(f"[AI断句自动扩大文字] 优化完成：{change_desc} 个换行符，字体大小提升至 {best_font_size:.1f}px")
-        logger.debug(f"[AI断句自动扩大文字] 原文: {original_translation}")
-        logger.debug(f"[AI断句自动扩大文字] 优化后: {best_text}")
+            change_desc = "repositioned"
+        logger.debug(f"[AI Line Break Font Scaling] Optimization complete: {change_desc} line breaks; font size increased to {best_font_size:.1f}px")
+        logger.debug(f"[AI Line Break Font Scaling] Original text: {original_translation}")
+        logger.debug(f"[AI Line Break Font Scaling] Optimized text: {best_text}")
         return best_text, best_font_size
     else:
-        logger.debug(f"[AI断句自动扩大文字] 未进行优化：保持原断句方案最佳，字体大小 {best_font_size:.1f}px")
+        logger.debug(f"[AI Line Break Font Scaling] No optimization applied: the original line breaks are optimal; font size {best_font_size:.1f}px")
         # 即使数量相同，也返回标准化后的文本（全角变半角）
         return best_text, best_font_size
 
@@ -1063,9 +1063,9 @@ def _resolve_strict_layout_font_size(
     is_replace_mode = config.cli.replace_translation if (config and hasattr(config, 'cli')) else False
     force_single_line_no_wrap = is_replace_mode and should_force_no_wrap_single_region(region)
     if is_replace_mode and len(region.lines) == 1 and not force_single_line_no_wrap:
-        logger.debug("[STRICT MODE] 替换模式单行区域检测到方向改写，允许自动换行")
+        logger.debug("[STRICT MODE] Direction override detected for a single-line region in replacement mode; allowing automatic line wrapping")
     if force_single_line_no_wrap:
-        logger.debug("[STRICT MODE] 替换模式单行强制不换行 (OCR lines=1)，按候选字号渲染")
+        logger.debug("[STRICT MODE] Disabling line wrapping for a single-line region in replacement mode (OCR lines=1); rendering at the candidate font size")
         region.translation = re.sub(r'(\n|\[BR\]|【BR】|<br>)', '', region.translation, flags=re.IGNORECASE)
         return max(int(layout_candidate_font_size), min_shrink_font_size)
     if isinstance(box_fit_font_size, (int, float)) and box_fit_font_size > 0:
@@ -1302,7 +1302,7 @@ def resize_regions_to_font_size(
     ):
         config._chinese_linebreak_debug_records = []
     
-    logger.debug(f"[RESIZE] 开始处理 {len(text_regions)} 个区域")
+    logger.debug(f"[RESIZE] Processing {len(text_regions)} regions")
 
     # Prepare debug image for balloon_fill mode (only when requested)
     debug_img = None
@@ -1376,7 +1376,7 @@ def resize_regions_to_font_size(
     placed_regions: list[tuple[np.ndarray, Optional[np.ndarray]]] = []
     for region_idx, region in enumerate(text_regions):
         if region is None:
-            logger.info(f"[RESIZE] 区域 {region_idx}: None，跳过")
+            logger.info(f"[RESIZE] Region {region_idx}: None; skipping")
             dst_points_list.append(None)
             continue
         region_font_family = getattr(region, 'font_family', '') or ''
@@ -1399,7 +1399,7 @@ def resize_regions_to_font_size(
                 or (isinstance(render_value, str) and not render_value.strip())
                 or (is_rich_text_document(render_value) and not _rich_text_has_content(render_value))
             ):
-                logger.info(f"[RESIZE] 区域 {region_idx}: translation 为空，使用 min_rect")
+                logger.info(f"[RESIZE] Region {region_idx}: translation is empty; using min_rect")
                 dst_points_list.append(region.min_rect)
                 continue
 
@@ -1429,7 +1429,7 @@ def resize_regions_to_font_size(
             # 编辑器导出时用户设多少字号就渲染多少，不做任何缩放
             if skip_font_scaling:
                 fixed_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
-                logger.debug(f"[RESIZE] skip_font_scaling: 区域 {region_idx} 使用固定字体大小 {fixed_font_size}")
+                logger.debug(f"[RESIZE] skip_font_scaling: region {region_idx} uses fixed font size {fixed_font_size}")
 
                 # 直接用固定字体大小计算文本框
                 # 需要考虑 direction 强制覆盖（和 render() 中的判断逻辑一致）
@@ -2490,8 +2490,7 @@ async def dispatch(
                     isinstance(render_value, str) and not render_value.strip()
                 ):
                     logger.info(
-                        f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', "
-                        f"translation='{_translation_preview(render_value, 20)}'"
+                        f"[RENDER] Skipping empty text region: text='{region.text[:20] if region.text else ''}', translation='{_translation_preview(render_value, 20)}'"
                     )
                     continue
 

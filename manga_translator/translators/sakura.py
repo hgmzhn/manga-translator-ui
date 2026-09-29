@@ -24,7 +24,7 @@ class SakuraDict():
         self.dict_str = ""
         self.path = path
         if not os.path.exists(path):
-            self.logger.warning(f"字典文件不存在: {path}")
+            self.logger.warning(f"Dictionary file not found: {path}")
             return
         self.dict_str = self.get_dict_from_file(path)
 
@@ -77,7 +77,7 @@ class SakuraDict():
         gpt_dict_raw_text = "\n".join(gpt_dict_text_list)
         self.dict_str = gpt_dict_raw_text
         self.logger.info(
-            f"载入 Galtransl 字典: {dic_name} {normalDic_count}普通词条"
+            f"Loaded Galtransl dictionary: {dic_name}, {normalDic_count} standard entries"
         )
 
     def load_sakura_dict(self, dic_path: str):
@@ -121,7 +121,7 @@ class SakuraDict():
         gpt_dict_raw_text = "\n".join(gpt_dict_text_list)
         self.dict_str = gpt_dict_raw_text
         self.logger.info(
-            f"载入标准Sakura字典: {dic_name} {normalDic_count}普通词条"
+            f"Loaded standard Sakura dictionary: {dic_name}, {normalDic_count} standard entries"
         )
 
     def detect_type(self, dic_path: str):
@@ -130,7 +130,7 @@ class SakuraDict():
         """
         with open(dic_path, encoding="utf8") as f:
             dic_lines = f.readlines()
-        self.logger.debug(f"检测字典类型: {dic_path}")
+        self.logger.debug(f"Detecting dictionary type: {dic_path}")
         if len(dic_lines) == 0:
             return "unknown"
 
@@ -177,7 +177,7 @@ class SakuraDict():
                 self.dict_str = self.get_dict_from_file(self.path)
                 return self.dict_str
             except Exception as e:
-                self.logger.warning(f"载入字典失败: {e}")
+                self.logger.warning(f"Failed to load dictionary: {e}")
                 return ""
         return self.dict_str
 
@@ -191,7 +191,7 @@ class SakuraDict():
         elif dic_type == "sakura":
             self.load_sakura_dict(dic_path)
         else:
-            self.logger.warning(f"未知的字典类型: {dic_path}")
+            self.logger.warning(f"Unknown dictionary type: {dic_path}")
         return self.dict_str
 
 
@@ -299,7 +299,7 @@ class SakuraTranslator(CommonTranslator):
                         break
                 counts.append(count)
                 if count >= threshold:
-                    self.logger.warning(f"检测到重复模式: {pattern}，重复次数: {count}")
+                    self.logger.warning(f"Repeated pattern detected: {pattern}, repetitions: {count}")
                     repeated = True
                     if remove_all:
                         s = s[:i + pattern_length] + s[j:]
@@ -421,7 +421,7 @@ class SakuraTranslator(CommonTranslator):
         queries = [self._emoji_pattern.sub('', query) for query in queries]
         queries = [self._heart_pattern.sub('♥', query) for query in queries]
         queries = [f'「{query}」' for query in queries]
-        self.logger.debug(f'预处理后的查询文本：{queries}')
+        self.logger.debug(f'Preprocessed query text: {queries}')
         return queries
 
     async def _check_translation_quality(self, queries: List[str], response: str) -> List[str]:
@@ -432,7 +432,7 @@ class SakuraTranslator(CommonTranslator):
             styles = ["precise", "normal", "aggressive", ]
             for i in range(self._RETRY_ATTEMPTS):
                 self._set_gpt_style(styles[i])
-                self.logger.warning(f'{error_message} 尝试次数: {i + 1}。当前参数风格：{self._current_style}。')
+                self.logger.warning(f'{error_message} Attempts: {i + 1}. Current parameter style: {self._current_style}.')
                 response = await self._handle_translation_request(queries)
                 if not check_func(response):
                     return response
@@ -440,21 +440,21 @@ class SakuraTranslator(CommonTranslator):
 
         # 检查请求内容是否含有超过默认阈值的重复内容
         if self._detect_repeats(''.join(queries), self._REPEAT_DETECT_THRESHOLD):
-            self.logger.warning(f'请求内容本身含有超过默认阈值{self._REPEAT_DETECT_THRESHOLD}的重复内容。')
+            self.logger.warning(f'The request itself contains repeated content exceeding the default threshold of {self._REPEAT_DETECT_THRESHOLD}.')
 
         # 根据译文众数和默认阈值计算实际阈值
         actual_threshold = max(max(self._get_repeat_count(query) for query in queries), self._REPEAT_DETECT_THRESHOLD)
 
         if self._detect_repeats(response, actual_threshold):
-            response = await _retry_translation(queries, lambda r: self._detect_repeats(r, actual_threshold), f'检测到大量重复内容（当前阈值：{actual_threshold}），疑似模型退化，重新翻译。')
+            response = await _retry_translation(queries, lambda r: self._detect_repeats(r, actual_threshold), f'Excessive repetition detected (threshold: {actual_threshold}); possible model degradation. Retrying translation.')
             if response is None:
-                self.logger.warning(f'疑似模型退化，尝试{self._RETRY_ATTEMPTS}次仍未解决，进行单行翻译。')
+                self.logger.warning(f'Suspected model degradation persists after {self._RETRY_ATTEMPTS} attempts; switching to single-line translation.')
                 return await self._translate_single_lines(queries)
 
         if not self._check_align(queries, response):
-            response = await _retry_translation(queries, lambda r: not self._check_align(queries, r), '因为检测到原文与译文行数不匹配，重新翻译。')
+            response = await _retry_translation(queries, lambda r: not self._check_align(queries, r), 'Source and translation line counts do not match. Retrying translation.')
             if response is None:
-                self.logger.warning(f'原文与译文行数不匹配，尝试{self._RETRY_ATTEMPTS}次仍未解决，进行单行翻译。')
+                self.logger.warning(f'Original and translated line counts still differ after {self._RETRY_ATTEMPTS} attempts; switching to single-line translation.')
                 return await self._translate_single_lines(queries)
 
         return self._split_text(response)
@@ -480,7 +480,7 @@ class SakuraTranslator(CommonTranslator):
         translations = self._split_text(response)
         is_aligned = len(queries) == len(translations)
         if not is_aligned:
-            self.logger.warning(f"行数不匹配 - 原文行数: {len(queries)}，译文行数： {len(translations)}")
+            self.logger.warning(f"Line count mismatch - original: {len(queries)}, translated: {len(translations)}")
         return is_aligned
 
     async def _translate_single_lines(self, queries: List[str]) -> List[str]:
@@ -491,7 +491,7 @@ class SakuraTranslator(CommonTranslator):
         for query in queries:
             response = await self._handle_translation_request(query)
             if self._detect_repeats(response):
-                self.logger.warning(f"单行翻译结果存在重复内容: {response}，返回原文。")
+                self.logger.warning(f"Single-line translation contains repeated content: {response}; returning the original text.")
                 translations.append(query)
             else:
                 translations.append(response)
@@ -509,8 +509,8 @@ class SakuraTranslator(CommonTranslator):
 
     async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         self.logger.debug(f'Temperature: {self.temperature}, TopP: {self.top_p}')
-        self.logger.info(f'Sakura当前连接地址: {self.api_base}')
-        self.logger.debug(f'原文： {queries}')
+        self.logger.info(f'Sakura current endpoint: {self.api_base}')
+        self.logger.debug(f'Original text: {queries}')
         text_prompt = '\n'.join(queries)
         self.logger.debug('-- Sakura Prompt --\n' + self._format_prompt_log(text_prompt) + '\n\n')
 
@@ -542,20 +542,20 @@ class SakuraTranslator(CommonTranslator):
             except asyncio.TimeoutError:
                 timeout_attempt += 1
                 if timeout_attempt >= self._TIMEOUT_RETRY_ATTEMPTS:
-                    raise Exception('Sakura超时。')
-                self.logger.warning(f'Sakura因超时而进行重试。尝试次数： {timeout_attempt}')
+                    raise Exception('Sakura request timed out.')
+                self.logger.warning(f'Sakura retrying after a timeout. Attempts: {timeout_attempt}')
             except openai.RateLimitError:
                 ratelimit_attempt += 1
                 if ratelimit_attempt >= self._RATELIMIT_RETRY_ATTEMPTS:
                     raise
-                self.logger.warning(f'Sakura因被限速而进行重试。尝试次数： {ratelimit_attempt}')
+                self.logger.warning(f'Sakura retrying due to rate limiting. Attempt: {ratelimit_attempt}')
                 await asyncio.sleep(2)
             except (openai.APIError, openai.APIConnectionError) as e:
                 server_error_attempt += 1
                 if server_error_attempt >= self._RETRY_ATTEMPTS:
-                    self.logger.error(f'Sakura API请求失败。地址：{self.api_base}，错误信息： {e}')
-                    raise Exception(f'Sakura API请求失败（地址：{self.api_base}）：{e}') from e
-                self.logger.warning(f'Sakura因服务器错误而进行重试。地址：{self.api_base}，尝试次数： {server_error_attempt}，错误信息： {e}')
+                    self.logger.error(f'Sakura API request failed. URL: {self.api_base}, error: {e}')
+                    raise Exception(f'Sakura API request failed (URL: {self.api_base}): {e}') from e
+                self.logger.warning(f'Sakura retrying due to a server error. URL: {self.api_base}, attempt: {server_error_attempt}, error: {e}')
 
         return response
 

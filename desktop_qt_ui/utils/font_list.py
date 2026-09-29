@@ -130,7 +130,7 @@ def list_font_files() -> list[tuple[str, str]]:
     except FileNotFoundError:
         pass
     except OSError as exc:
-        logger.warning("扫描字体目录失败: %s", exc)
+        logger.warning("Failed to scan font directory: %s", exc)
         return list(_FONT_FILE_LIST_CACHE)
     signature = tuple(sorted(signatures.items()))
     files_changed = signature != _FONT_DIRECTORY_SIGNATURE
@@ -224,7 +224,7 @@ def _remember_original_font_names(path: str) -> None:
         finally:
             font.close()
     except Exception as exc:
-        logger.debug("读取字体原始名称失败 %s: %s", path, exc)
+        logger.debug("Failed to read original font name for %s: %s", path, exc)
 
 
 def _original_font_display_name(name: str) -> str:
@@ -266,7 +266,7 @@ def _font_name_records(family: str, style: str = "") -> tuple[tuple[int, str, st
                     language = ""
                 records.append((record.nameID, language, value))
     except Exception as exc:
-        logger.debug("读取字体本地化名称失败 %s: %s", family, exc)
+        logger.debug("Failed to read localized font name for %s: %s", family, exc)
     return tuple(dict.fromkeys(records))
 
 
@@ -331,7 +331,7 @@ def _font_candidate_key(family: str, style: str = "") -> tuple:
         # family selects a physical Heavy face. The file's OS/2 is in the digest.
         return (_font_tables_digest(raw, _FONT_METADATA_TABLES), raw.style().value)
     except Exception as exc:
-        logger.debug("读取字体身份失败 %s (%s): %s", family, style, exc)
+        logger.debug("Failed to read font identity for %s (%s): %s", family, style, exc)
         return ()
 
 
@@ -346,7 +346,7 @@ def _resolved_font_identity(family: str, style: str = "") -> tuple:
             return ()
         return (*candidate, _font_tables_digest(raw, _FONT_RENDER_TABLES))
     except Exception as exc:
-        logger.debug("比较字体内容失败 %s (%s): %s", family, style, exc)
+        logger.debug("Failed to compare font contents for %s (%s): %s", family, style, exc)
         return ()
 
 

@@ -81,7 +81,7 @@ async def update_announcement(
     """Update announcement."""
     admin_settings['announcement'] = announcement
     save_admin_settings(admin_settings)
-    logger.info(f"公告已更新 by user '{session.username}': enabled={announcement.get('enabled')}, type={announcement.get('type')}")
+    logger.info(f"Announcement updated by user '{session.username}': enabled={announcement.get('enabled')}, type={announcement.get('type')}")
     return {"success": True}
 
 
@@ -113,14 +113,14 @@ async def cancel_task(
                 task = active_tasks[task_id].get("task")
                 if task and not task.done():
                     task.cancel()
-                    add_log(f"管理员 {session.username} 强制取消任务: {task_id[:8]}", "WARNING")
+                    add_log(f"Administrator {session.username} forcibly cancelled task: {task_id[:8]}", "WARNING")
                     return {"success": True, "message": "任务已强制终止"}
                 else:
-                    add_log(f"管理员 {session.username} 请求强制取消任务，但任务已完成: {task_id[:8]}", "INFO")
+                    add_log(f"Administrator {session.username} requested forced task cancellation, but the task has already completed: {task_id[:8]}", "INFO")
                     return {"success": True, "message": "任务已完成，无需取消"}
             else:
                 # Cooperative cancel: set flag, wait for task to respond at checkpoint
-                add_log(f"管理员 {session.username} 请求取消任务: {task_id[:8]}", "WARNING")
+                add_log(f"Administrator {session.username} requested task cancellation: {task_id[:8]}", "WARNING")
                 return {"success": True, "message": "取消请求已发送（协作式取消）"}
         else:
             raise HTTPException(404, detail="任务不存在或已完成")
@@ -351,11 +351,11 @@ async def cleanup_storage(
                     elif os.path.isdir(item_path):
                         shutil.rmtree(item_path)
                 except Exception as e:
-                    logger.warning(f"清理失败: {item_path}, 错误: {e}")
+                    logger.warning(f"Cleanup failed: {item_path}, error: {e}")
             
             cleaned_dirs.append(dir_path)
     
-    logger.info(f"管理员 {session.username} 清理了 {target} 目录，释放 {freed_bytes} 字节")
+    logger.info(f"Administrator {session.username} cleaned the {target} directory, freeing {freed_bytes} bytes")
     
     return {
         "success": True,

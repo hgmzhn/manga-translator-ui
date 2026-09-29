@@ -293,9 +293,9 @@ def ensure_text_replacements_exists() -> str:
     
     try:
         reset_text_replacements_to_default(_DEFAULT_REPLACEMENTS_PATH)
-        logger.info(f"已创建文本替换规则文件: {_DEFAULT_REPLACEMENTS_PATH}")
+        logger.info(f"Created text replacement rules file: {_DEFAULT_REPLACEMENTS_PATH}")
     except Exception as e:
-        logger.error(f"创建文本替换规则文件失败: {e}")
+        logger.error(f"Failed to create text replacement rules file: {e}")
         
     return _DEFAULT_REPLACEMENTS_PATH
 
@@ -320,7 +320,7 @@ def _compile_rule(rule: dict) -> Optional[Tuple[re.Pattern, str]]:
         return (compiled, replace_str)
     except re.error as e:
         comment = rule.get('comment', '')
-        logger.warning(f"替换规则编译失败: pattern='{pattern_str}' comment='{comment}' error={e}")
+        logger.warning(f"Failed to compile replacement rule: pattern='{pattern_str}' comment='{comment}' error={e}")
         return None
 
 
@@ -339,11 +339,11 @@ def _load_and_parse(file_path: str) -> dict:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
     except Exception as e:
-        logger.error(f"加载替换配置失败: {file_path} error={e}")
+        logger.error(f"Failed to load replacement configuration: {file_path} error={e}")
         return result
 
     if not isinstance(data, dict):
-        logger.error(f"替换配置格式错误，应为字典: {file_path}")
+        logger.error(f"Invalid replacement configuration format; expected a dictionary: {file_path}")
         return result
 
     for group_name in ('common', 'horizontal', 'vertical'):

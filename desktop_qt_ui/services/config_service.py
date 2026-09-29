@@ -166,7 +166,7 @@ class ConfigService(QObject):
             self._env_values = read_dotenv_file(self.env_path)
             load_app_dotenv(self.env_path, override=True)
         except Exception as exc:
-            self.logger.error(f"加载 .env 失败: {exc}")
+            self.logger.error(f"Failed to load .env: {exc}")
             self._env_values = {}
 
         # Use get_default_config_path() for PyInstaller compatibility
@@ -186,14 +186,14 @@ class ConfigService(QObject):
             ensure_ai_renderer_prompt_file()
             ensure_ai_colorizer_prompt_file()
         except Exception as exc:
-            self.logger.error(f"创建本地配置模板文件失败: {exc}")
-        self.logger.debug(f"默认配置: {os.path.basename(self.default_config_path)}")
-        self.logger.debug(f"用户配置: {os.path.basename(self.user_config_path)}")
-        self.logger.debug(f"默认配置存在: {os.path.exists(self.default_config_path)}")
-        self.logger.debug(f"用户配置存在: {os.path.exists(self.user_config_path)}")
+            self.logger.error(f"Failed to create local configuration template: {exc}")
+        self.logger.debug(f"Default configuration: {os.path.basename(self.default_config_path)}")
+        self.logger.debug(f"User configuration: {os.path.basename(self.user_config_path)}")
+        self.logger.debug(f"Default configuration exists: {os.path.exists(self.default_config_path)}")
+        self.logger.debug(f"User configuration exists: {os.path.exists(self.user_config_path)}")
         if getattr(sys, "frozen", False):
             self.logger.debug(
-                f"打包环境，外部配置目录 = {os.path.dirname(self.user_config_path)}"
+                f"Packaged environment; external configuration directory = {os.path.dirname(self.user_config_path)}"
             )
 
         # 加载配置：优先级 用户配置 > 默认配置 > 代码默认值
@@ -209,10 +209,10 @@ class ConfigService(QObject):
             removed = remove_invalid_dotenv_lines(self.env_path)
         except Exception as exc:
             self._deferred_write_error = f"{self.env_path}: {exc}"
-            self.logger.error(f"清理 .env 解析错误行失败: {exc}")
+            self.logger.error(f"Failed to remove unparseable .env lines: {exc}")
             return
         if removed:
-            self.logger.warning(f"已删除 .env 中 {removed} 行无法解析的配置")
+            self.logger.warning(f"Removed {removed} unparseable configuration lines from .env")
 
     def take_deferred_write_error(self) -> Optional[str]:
         error = self._deferred_write_error
@@ -397,7 +397,7 @@ class ConfigService(QObject):
         """加载JSON配置文件并与默认设置合并，逐个键验证，错误的键使用默认值"""
         try:
             if not os.path.exists(config_path):
-                self.logger.error(f"配置文件不存在: {config_path}")
+                self.logger.error(f"Configuration file does not exist: {config_path}")
                 return False
 
             with open(config_path, "r", encoding="utf-8") as f:
@@ -440,12 +440,12 @@ class ConfigService(QObject):
                                     (current_path, value, str(validate_err))
                                 )
                                 self.logger.warning(
-                                    f"配置键 '{current_path}' 值无效: {value}，使用默认值: {old_value}"
+                                    f"Invalid value for configuration key '{current_path}': {value}; using default: {old_value}"
                                 )
                     except Exception as e:
                         error_keys.append((current_path, value, str(e)))
                         self.logger.warning(
-                            f"配置键 '{current_path}' 加载失败: {e}，保持默认值"
+                            f"Failed to load configuration key '{current_path}': {e}; keeping default value"
                         )
 
             safe_deep_update(new_config_dict, loaded_data)
@@ -454,31 +454,31 @@ class ConfigService(QObject):
             try:
                 self.current_config = AppSettings.model_validate(new_config_dict)
             except Exception as final_err:
-                self.logger.error(f"配置验证失败，使用默认配置: {final_err}")
+                self.logger.error(f"Configuration validation failed; using defaults: {final_err}")
                 self.current_config = AppSettings()
 
             # 报告错误的键
             if error_keys:
                 self.logger.warning(
-                    f"配置文件中有 {len(error_keys)} 个无效配置项已使用默认值替换:"
+                    f"Replaced {len(error_keys)} invalid configuration entries with default values:"
                 )
                 for key_path, bad_value, err in error_keys[:5]:  # 只显示前5个
                     self.logger.warning(f"  - {key_path}: {bad_value}")
                 if len(error_keys) > 5:
-                    self.logger.warning(f"  ... 还有 {len(error_keys) - 5} 个")
+                    self.logger.warning(f"  ... and {len(error_keys) - 5} more")
 
             self.config_path = config_path
-            self.logger.debug(f"加载配置: {os.path.basename(config_path)}")
+            self.logger.debug(f"Loading configuration: {os.path.basename(config_path)}")
             config_dict = self.current_config.model_dump()
             self.config_changed.emit(config_dict)
             return True
 
         except json.JSONDecodeError as e:
-            self.logger.error(f"配置文件JSON格式错误: {e}，使用默认配置")
+            self.logger.error(f"Invalid configuration JSON: {e}; using default configuration")
             self.current_config = AppSettings()
             return False
         except Exception as e:
-            self.logger.error(f"加载配置文件失败: {e}，使用默认配置")
+            self.logger.error(f"Failed to load configuration file: {e}; using default configuration")
             self.current_config = AppSettings()
             return False
 
@@ -669,7 +669,7 @@ class ConfigService(QObject):
                 elif had_env_write:
                     self._env_write_failed = False
             if error is not None:
-                message = f"后台保存配置失败: {error}"
+                message = f"Failed to save configuration in background: {error}"
                 self.logger.error(
                     message,
                     exc_info=(type(error), error, error.__traceback__),
@@ -681,7 +681,7 @@ class ConfigService(QObject):
 
     def _schedule_write(self) -> bool:
         if self._writer_shutdown_started or self._writer_closed:
-            self.logger.warning("配置写入器已关闭，忽略保存请求")
+            self.logger.warning("Configuration writer is closed; ignoring save request")
             return False
         self._write_timer.start(self.SAVE_DEBOUNCE_MS)
         return True
@@ -714,7 +714,7 @@ class ConfigService(QObject):
                 return False
             return self.flush_pending_writes() if config_path else True
         except Exception as e:
-            self.logger.error(f"保存配置文件失败: {e}")
+            self.logger.error(f"Failed to save configuration file: {e}")
             return False
 
     def reload_config(self):
@@ -722,7 +722,7 @@ class ConfigService(QObject):
         强制从 .env 和 JSON 文件完全重新加载配置。
         这能确保外部对文件的任何修改都能在程序中生效。
         """
-        self.logger.info("正在强制重新加载配置...")
+        self.logger.info("Forcing configuration reload...")
         self.flush_pending_writes()
         self._remove_invalid_env_lines()
 
@@ -730,7 +730,7 @@ class ConfigService(QObject):
         load_app_dotenv(self.env_path, override=True)
         with self._write_lock:
             self._env_values = read_dotenv_file(self.env_path)
-        self.logger.info(f".env 文件已从 {self.env_path} 重新加载，环境变量已更新。")
+        self.logger.info(f"Reloaded .env from {self.env_path}; environment variables updated.")
 
         # 2. 重新创建 AppSettings 对象 (用于UI设置)
         self.current_config = AppSettings()
@@ -741,7 +741,7 @@ class ConfigService(QObject):
         # 4. 通知所有监听者配置已更改
         config_dict = self.current_config.model_dump()
         self.config_changed.emit(config_dict)
-        self.logger.info("配置重载完成。")
+        self.logger.info("Configuration reload completed.")
 
     def reload_from_disk(self):
         """
@@ -749,10 +749,10 @@ class ConfigService(QObject):
         """
         self.flush_pending_writes()
         if self.config_path and os.path.exists(self.config_path):
-            self.logger.debug(f"从磁盘重载配置: {os.path.basename(self.config_path)}")
+            self.logger.debug(f"Reloading configuration from disk: {os.path.basename(self.config_path)}")
             self.load_config_file(self.config_path)
         else:
-            self.logger.warning("无法重载配置：config_path 未设置或文件不存在。")
+            self.logger.warning("Cannot reload configuration: config_path is unset or the file does not exist.")
 
     def get_config(self) -> AppSettings:
         """获取当前配置模型的深拷贝副本"""
@@ -774,7 +774,7 @@ class ConfigService(QObject):
             # 不输出日志，避免刷屏
             return True
         except Exception as e:
-            self.logger.error(f"保存当前预设失败: {e}")
+            self.logger.error(f"Failed to save current preset: {e}")
             return False
 
     def _convert_config_for_ui(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -786,7 +786,7 @@ class ConfigService(QObject):
     def set_config(self, config: AppSettings) -> None:
         """设置配置并通知监听者"""
         self.current_config = config.model_copy(deep=True)
-        self.logger.debug("配置已更新，正在通知监听者...")
+        self.logger.debug("Configuration updated; notifying listeners...")
         config_dict = self.current_config.model_dump()
         self.config_changed.emit(config_dict)
 
@@ -808,7 +808,7 @@ class ConfigService(QObject):
         deep_update(new_config_dict, updates)
 
         self.current_config = AppSettings.model_validate(new_config_dict)
-        self.logger.debug("配置已更新，正在通知监听者...")
+        self.logger.debug("Configuration updated; notifying listeners...")
         config_dict = self.current_config.model_dump()
         self.config_changed.emit(config_dict)
 
@@ -822,7 +822,7 @@ class ConfigService(QObject):
         try:
             return self.save_env_vars({key: value})
         except Exception as e:
-            self.logger.error(f"保存环境变量失败: {e}")
+            self.logger.error(f"Failed to save environment variable: {e}")
             return False
 
     def save_env_vars(self, env_vars: Dict[str, str]) -> bool:
@@ -847,7 +847,7 @@ class ConfigService(QObject):
             self._env_cache = None
             return self._schedule_write()
         except Exception as e:
-            self.logger.error(f"批量保存环境变量失败: {e}")
+            self.logger.error(f"Failed to save environment variables in batch: {e}")
             return False
 
     def delete_env_vars(self, keys: list[str] | tuple[str, ...] | set[str]) -> bool:
@@ -869,7 +869,7 @@ class ConfigService(QObject):
             self._env_cache = None
             return self._schedule_write()
         except Exception as e:
-            self.logger.error(f"删除环境变量失败: {e}")
+            self.logger.error(f"Failed to delete environment variable: {e}")
             return False
 
     def replace_env_file(self, env_vars: Dict[str, str]) -> bool:
@@ -892,7 +892,7 @@ class ConfigService(QObject):
             self._env_cache = None
             return self._schedule_write()
         except Exception as e:
-            self.logger.error(f"替换.env文件失败: {e}")
+            self.logger.error(f"Failed to replace .env file: {e}")
             return False
 
     def flush_pending_writes(self) -> bool:
@@ -984,21 +984,21 @@ class ConfigService(QObject):
         """
         # 1. 先加载默认配置（如果存在）
         if os.path.exists(self.default_config_path):
-            self.logger.info(f"加载默认配置: {self.default_config_path}")
+            self.logger.info(f"Loading default configuration: {self.default_config_path}")
             self.load_config_file(self.default_config_path)
         else:
-            self.logger.warning(f"默认配置不存在: {self.default_config_path}")
+            self.logger.warning(f"Default configuration does not exist: {self.default_config_path}")
 
         # 2. 再加载用户配置（如果存在），覆盖默认配置
         if os.path.exists(self.user_config_path):
-            self.logger.info(f"加载用户配置: {self.user_config_path}")
+            self.logger.info(f"Loading user configuration: {self.user_config_path}")
             self.load_config_file(self.user_config_path)
             self.config_path = self.user_config_path
         else:
-            self.logger.info(f"用户配置不存在: {self.user_config_path}")
+            self.logger.info(f"User configuration does not exist: {self.user_config_path}")
             # 如果用户配置不存在，从默认配置创建一份
             if os.path.exists(self.default_config_path):
-                self.logger.info("从默认配置创建用户配置")
+                self.logger.info("Creating user configuration from defaults")
                 try:
                     # 复制默认配置到用户配置位置
                     os.makedirs(os.path.dirname(self.user_config_path), exist_ok=True)
@@ -1006,10 +1006,10 @@ class ConfigService(QObject):
                         config_data = json.load(src)
                     with open(self.user_config_path, "w", encoding="utf-8") as dst:
                         json.dump(config_data, dst, indent=2, ensure_ascii=False)
-                    self.logger.info(f"用户配置已创建: {self.user_config_path}")
+                    self.logger.info(f"User configuration created: {self.user_config_path}")
                     self.config_path = self.user_config_path
                 except Exception as e:
-                    self.logger.error(f"创建用户配置失败: {e}")
+                    self.logger.error(f"Failed to create user configuration: {e}")
                     self.config_path = self.default_config_path
             else:
                 self.config_path = self.user_config_path
@@ -1025,11 +1025,11 @@ class ConfigService(QObject):
         - 保持用户修改的值不变
         """
         if not os.path.exists(self.default_config_path):
-            self.logger.warning("默认配置不存在，跳过同步")
+            self.logger.warning("Default configuration does not exist; skipping synchronization")
             return
 
         if not os.path.exists(self.user_config_path):
-            self.logger.info("用户配置不存在，跳过同步")
+            self.logger.info("User configuration does not exist; skipping synchronization")
             return
 
         try:
@@ -1046,13 +1046,13 @@ class ConfigService(QObject):
 
             # 如果有变化，保存回用户配置
             if synced_data != user_data:
-                self.logger.info("检测到配置结构变化，正在同步用户配置")
+                self.logger.info("Configuration structure changed; synchronizing user configuration")
                 with open(self.user_config_path, "w", encoding="utf-8") as f:
                     json.dump(synced_data, f, indent=2, ensure_ascii=False)
-                self.logger.info("用户配置同步完成")
+                self.logger.info("User configuration synchronized")
 
         except Exception as e:
-            self.logger.error(f"同步用户配置失败: {e}")
+            self.logger.error(f"Failed to synchronize user configuration: {e}")
 
     def _sync_dict(self, template: dict, user: dict) -> dict:
         """

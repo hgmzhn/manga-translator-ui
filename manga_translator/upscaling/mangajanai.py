@@ -74,7 +74,7 @@ def is_color_image(image, threshold: float = 0.05) -> bool:
     
     # 如果通道高度相关（>0.995），肯定是黑白图
     if min_corr > 0.995:
-        logger.debug(f"彩图检测 - 通道高度相关({min_corr:.4f})，判断: 黑白")
+        logger.debug(f"Color detection - highly correlated channels ({min_corr:.4f}), result: grayscale")
         return False
     
     # 方法2: 计算平均饱和度
@@ -97,7 +97,7 @@ def is_color_image(image, threshold: float = 0.05) -> bool:
     # 3. 通道相关性较低（<0.99）
     is_color = (mean_saturation > threshold) or (std_diff > 1.0) or (min_corr < 0.99)
     
-    logger.debug(f"彩图检测 - 饱和度: {mean_saturation:.4f}, 通道标准差差异: {std_diff:.2f}, 最小相关性: {min_corr:.4f}, 判断: {'彩色' if is_color else '黑白'}")
+    logger.debug(f"Color detection - saturation: {mean_saturation:.4f}, channel standard deviation difference: {std_diff:.2f}, minimum correlation: {min_corr:.4f}, result: {'color' if is_color else 'grayscale'}")
     
     return is_color
 
@@ -370,7 +370,7 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
                 model_file = "2x_IllustrationJaNai_V1_ESRGAN_120k.pth"
             else:
                 model_file = "4x_IllustrationJaNai_V1_ESRGAN_135k.pth"
-            logger.info(f"检测到彩色图片，使用 IllustrationJaNai 模型: {model_file}")
+            logger.info(f"Detected a color image, using IllustrationJaNai model: {model_file}")
             return model_file
         
         # 黑白图片使用 MangaJaNai 模型，根据分辨率选择
@@ -399,7 +399,7 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
             except Exception:
                 continue
         
-        logger.info(f"检测到黑白图片 (分辨率 {res}p)，使用 MangaJaNai 模型: {best_model}")
+        logger.info(f"Detected a grayscale image ({res}p resolution), using MangaJaNai model: {best_model}")
         return best_model
 
     async def _load(self, device: str):
@@ -445,7 +445,7 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
             logger.info(f"Loaded model via spandrel: {filename}, scale={self.scale}x")
         except ImportError:
             # spandrel 未安装，回退到手动加载
-            logger.warning("spandrel 库未安装，尝试手动加载模型")
+            logger.warning("spandrel is not installed, attempting to load the model manually")
             try:
                 in_nc, out_nc, nf, nb, plus, mscale = infer_params(sd)
                 self.model = RRDBNet(in_nc=in_nc, out_nc=out_nc, nf=nf, nb=nb, upscale=mscale, plus=plus)

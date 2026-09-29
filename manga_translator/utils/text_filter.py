@@ -101,10 +101,10 @@ def _migrate_legacy_filter_list() -> bool:
             "contains": contains_list,
             "exact": exact_list,
         })
-        logger.info(f"已将旧版过滤列表迁移为 JSON: {json_path}")
+        logger.info(f"Migrated legacy filter list to JSON: {json_path}")
         return True
     except Exception as exc:
-        logger.error(f"迁移旧版过滤列表失败: {exc}")
+        logger.error(f"Failed to migrate legacy filter list: {exc}")
         return False
 
 
@@ -125,9 +125,9 @@ def ensure_filter_list_exists() -> str:
 
     try:
         _write_filter_list_json(filter_path, _DEFAULT_FILTER_LIST_DATA)
-        logger.info(f"已创建过滤列表文件: {filter_path}")
+        logger.info(f"Created filter list file: {filter_path}")
     except Exception as exc:
-        logger.error(f"创建过滤列表文件失败: {exc}")
+        logger.error(f"Failed to create filter list file: {exc}")
 
     return filter_path
 
@@ -148,7 +148,7 @@ def load_filter_list_config() -> Dict[str, List[str]]:
             "exact": _sanitize_rule_list(data.get("exact", [])),
         }
     except Exception as exc:
-        logger.error(f"加载过滤列表配置失败: {exc}")
+        logger.error(f"Failed to load filter list configuration: {exc}")
         return {
             "contains": [],
             "exact": [],
@@ -188,11 +188,11 @@ def load_filter_list(force_reload: bool = False) -> Tuple[List[str], List[str]]:
         exact_list = _normalize_rule_list(config.get("exact", []))
 
         if contains_list or exact_list:
-            logger.info(f"已加载过滤规则: 包含过滤 {len(contains_list)} 条, 精确过滤 {len(exact_list)} 条")
+            logger.info(f"Loaded filter rules: {len(contains_list)} substring filters, {len(exact_list)} exact match filters")
 
         _filter_lists = (contains_list, exact_list)
     except Exception as exc:
-        logger.error(f"加载过滤列表失败: {exc}")
+        logger.error(f"Failed to load filter list: {exc}")
         _filter_lists = ([], [])
 
     return _filter_lists

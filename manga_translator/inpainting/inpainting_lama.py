@@ -54,7 +54,7 @@ class LamaInpainter(LamaMPEInpainter):
                     "Install with: pip install onnxruntime-gpu (or onnxruntime)"
                 )
                 onnx_path = self._get_file_path('lamampe.onnx')
-                self.logger.info(f'使用ONNX模型（CPU优化，default模型）: {onnx_path}')
+                self.logger.info(f"Using ONNX model (CPU-optimized, default model): {onnx_path}")
                 
                 # 🔧 内存优化配置
                 sess_options = create_session_options(
@@ -71,10 +71,10 @@ class LamaInpainter(LamaMPEInpainter):
                     logger=self.logger,
                 )
                 self.backend = 'onnx'
-                self.logger.info(f'ONNX Runtime版本: {ort.__version__}（内存优化模式）')
+                self.logger.info(f"ONNX Runtime version: {ort.__version__} (memory optimization mode)")
                 return
             except Exception as e:
-                self.logger.warning(f'ONNX加载失败，回退到PyTorch: {e}')
+                self.logger.warning(f"Failed to load ONNX; falling back to PyTorch: {e}")
         
         # ✅ GPU模式或ONNX失败时使用PyTorch
         model = get_generator()
@@ -101,10 +101,10 @@ class LamaInpainter(LamaMPEInpainter):
             try:
                 return await self._infer_onnx_default(image, mask, inpainting_size, verbose)
             except Exception as e:
-                self.logger.warning(f'ONNX推理失败（{str(e)[:100]}），本次降级到PyTorch')
+                self.logger.warning(f"ONNX inference failed ({str(e)[:100]}); falling back to PyTorch for this run")
                 # 降级：需要加载PyTorch模型
                 if not hasattr(self, 'model'):
-                    self.logger.info('正在加载PyTorch模型...')
+                    self.logger.info("Loading PyTorch model...")
                     model = get_generator()
                     sd = torch.load(self._get_file_path('inpainting_lama.ckpt'), map_location='cpu')
                     model.load_state_dict(sd['model'] if 'model' in sd else sd)

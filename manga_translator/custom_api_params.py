@@ -45,23 +45,23 @@ def ensure_custom_api_params_file(path: str | None = None, logger=None) -> str:
     config_path = get_custom_api_params_path(path)
     if not os.path.exists(config_path):
         _write_custom_api_params_file(config_path, _DEFAULT_CUSTOM_API_PARAMS_DATA)
-        _log(logger, "info", f"已创建自定义API参数配置文件: {config_path}")
+        _log(logger, "info", f"Created custom API parameter configuration: {config_path}")
         return config_path
 
     try:
         with open(config_path, "r", encoding="utf-8") as file:
             content = file.read()
     except Exception as exc:
-        _log(logger, "warning", f"读取自定义API参数配置失败: {exc}")
+        _log(logger, "warning", f"Failed to read custom API parameter configuration: {exc}")
         return config_path
 
     if _normalized_md5(content) == _LEGACY_DEFAULT_CUSTOM_API_PARAMS_MD5:
         try:
             os.remove(config_path)
             _write_custom_api_params_file(config_path, _DEFAULT_CUSTOM_API_PARAMS_DATA)
-            _log(logger, "info", f"已重建旧版默认自定义API参数配置: {config_path}")
+            _log(logger, "info", f"Rebuilt legacy default custom API parameter configuration: {config_path}")
         except Exception as exc:
-            _log(logger, "warning", f"重建旧版默认自定义API参数配置失败: {exc}")
+            _log(logger, "warning", f"Failed to rebuild legacy default custom API parameter configuration: {exc}")
         return config_path
 
     try:
@@ -73,9 +73,9 @@ def ensure_custom_api_params_file(path: str | None = None, logger=None) -> str:
     if was_legacy:
         try:
             _write_custom_api_params_file(config_path, migrated)
-            _log(logger, "info", f"已迁移旧版自定义API参数配置: {config_path}")
+            _log(logger, "info", f"Migrated legacy custom API parameter configuration: {config_path}")
         except Exception as exc:
-            _log(logger, "warning", f"迁移旧版自定义API参数配置失败: {exc}")
+            _log(logger, "warning", f"Failed to migrate legacy custom API parameter configuration: {exc}")
     return config_path
 
 
@@ -154,12 +154,12 @@ def load_custom_api_params_file(logger, path: str | None = None) -> dict[str, An
         with open(config_path, "r", encoding="utf-8") as file:
             params = json.load(file)
         if not isinstance(params, dict):
-            _log(logger, "error", f"自定义API参数配置必须是 JSON 对象: {config_path}")
+            _log(logger, "error", f"Custom API parameter configuration must be a JSON object: {config_path}")
             return _empty_presets()
         normalized, _ = migrate_legacy_custom_api_params_payload(params)
         return normalized
     except Exception as exc:
-        _log(logger, "error", f"加载自定义API参数配置失败: {exc}")
+        _log(logger, "error", f"Failed to load custom API parameter configuration: {exc}")
         return _empty_presets()
 
 
@@ -250,7 +250,7 @@ def resolve_custom_api_params(
         _log(
             logger,
             "info",
-            f"已启用自定义API参数[{section}]，模型={requested_model or '(empty)'}，预设={preset_name}",
+            f"Custom API parameters enabled [{section}]: model={requested_model or '(empty)'}, preset={preset_name}",
         )
     return resolved
 

@@ -423,16 +423,16 @@ class EditorLogic(QObject):
 
         # 获取文件项
         if not FileListModel.is_supported_image_file(resolved_path):
-            self.logger.warning(f"不支持的编辑器文件类型，已忽略: {resolved_path}")
+            self.logger.warning(f"Unsupported editor file type; ignored: {resolved_path}")
             return
 
         file_item = self.file_model.get_file_item(resolved_path)
         if not file_item:
-            self.logger.error(f"无法识别文件: {resolved_path}")
+            self.logger.error(f"Cannot identify file: {resolved_path}")
             return
 
         if file_item.file_type == FileType.UNTRANSLATED:
-            self.logger.warning(f"未翻译的图片: {resolved_path}")
+            self.logger.warning(f"Untranslated image: {resolved_path}")
 
         self.controller.document_service.load_image_and_regions(
             resolved_path,

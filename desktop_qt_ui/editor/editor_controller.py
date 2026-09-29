@@ -1596,7 +1596,7 @@ class EditorController(QObject):
         """复制指定区域的数据"""
         region_data = self.model.get_region_by_index(region_index)
         if not region_data:
-            self.logger.error(f"区域 {region_index} 不存在")
+            self.logger.error(f"Region {region_index} does not exist")
             return
 
         # 将区域数据保存到历史服务的剪贴板
@@ -1607,12 +1607,12 @@ class EditorController(QObject):
         """将复制的样式粘贴到指定区域"""
         clipboard_data = self.history_service.paste_from_clipboard()
         if not clipboard_data:
-            self.logger.warning("没有复制的区域数据")
+            self.logger.warning("No copied region data available")
             return
 
         region_data = self.model.get_region_by_index(region_index)
         if not region_data:
-            self.logger.error(f"区域 {region_index} 不存在")
+            self.logger.error(f"Region {region_index} does not exist")
             return
 
         # 复制样式相关属性，但保留位置和文本
@@ -1760,7 +1760,7 @@ class EditorController(QObject):
         """
         clipboard_data = self.history_service.paste_from_clipboard()
         if not clipboard_data:
-            self.logger.warning("没有复制的区域数据")
+            self.logger.warning("No copied region data available")
             return
 
         # 创建新区域
@@ -2048,7 +2048,7 @@ class EditorController(QObject):
                 if ocr_result and ocr_result.text:
                     pending_updates.append((region_ids[i], ocr_result.text))
             except Exception as e:
-                self.logger.error(f"OCR识别失败: {e}")
+                self.logger.error(f"OCR failed: {e}")
                 error_count += 1
 
         if pending_updates:
@@ -2163,7 +2163,7 @@ class EditorController(QObject):
 
             self._translation_finished.emit("warning", "未生成可应用的翻译结果")
         except Exception as e:
-            self.logger.error(f"翻译失败: {e}", exc_info=True)
+            self.logger.error(f"Translation failed: {e}", exc_info=True)
             self._translation_finished.emit("error", "翻译失败")
 
     @pyqtSlot(list)

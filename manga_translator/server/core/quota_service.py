@@ -194,6 +194,7 @@ class QuotaManagementService:
             # 检查剩余配额
             remaining = quota.daily_quota - quota.current_usage
             if remaining < image_count:
+                logger.warning(f"Daily quota exceeded for user {user_id}: remaining {remaining}, requested {image_count}")
                 return False, f"每日配额不足: 剩余 {remaining}, 需要 {image_count}"
             
             logger.info(f"Daily quota check passed for user {user_id}: {quota.current_usage}/{quota.daily_quota}")

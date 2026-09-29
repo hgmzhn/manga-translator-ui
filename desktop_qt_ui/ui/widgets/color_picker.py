@@ -1039,7 +1039,7 @@ class ColorPickerWidget(QWidget):
             else:
                 self._saved_colors = []
         except Exception as e:
-            logger.warning(f"加载保存的颜色失败 ({self._config_key}): {e}")
+            logger.warning(f"Failed to load saved colors ({self._config_key}): {e}")
             self._saved_colors = []
 
     def _persist_saved_colors(self):
@@ -1053,7 +1053,7 @@ class ColorPickerWidget(QWidget):
             })
             self._config_service.save_config_file()
         except Exception as e:
-            logger.error(f"保存颜色失败 ({self._config_key}): {e}")
+            logger.error(f"Failed to save colors ({self._config_key}): {e}")
 
 def _show_color_flyout_above_target(view: FlyoutViewBase, target: QWidget, parent=None) -> Flyout:
     """算好位置后只走一次 exec 显示弹层。

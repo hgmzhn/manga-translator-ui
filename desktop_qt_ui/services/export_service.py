@@ -95,7 +95,7 @@ class ExportService:
                 )
             except Exception as metadata_error:
                 self.logger.warning(
-                    f"读取原图元数据失败，将继续保存但不继承ICC: {source_image_path}, error={metadata_error}"
+                    f"Failed to read source image metadata; saving without inherited ICC profile: {source_image_path}, error={metadata_error}"
                 )
             fd, temporary = tempfile.mkstemp(
                 prefix=f".{os.path.basename(inpainted_path)}.",
@@ -112,7 +112,7 @@ class ExportService:
             )
             os.replace(temporary, inpainted_path)
             temporary = None
-            self.logger.info(f"已回写导出后的修复图: {inpainted_path}")
+            self.logger.info(f"Wrote back exported inpainted image: {inpainted_path}")
             return inpainted_path
         finally:
             if temporary:
@@ -137,7 +137,7 @@ class ExportService:
             os.remove(inpainted_path)
         except FileNotFoundError:
             return False
-        self.logger.info(f"已删除过期修复图片: {inpainted_path}")
+        self.logger.info(f"Deleted stale inpainted image: {inpainted_path}")
         return True
 
     def get_saved_export_directory(self, source_path: str) -> Optional[str]:
@@ -187,7 +187,7 @@ class ExportService:
         export_started = time.perf_counter()
 
         try:
-            self.logger.info(f"开始导出图片到: {job.output_path}")
+            self.logger.info(f"Exporting image to: {job.output_path}")
             output_dir = os.path.dirname(job.output_path)
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
@@ -218,7 +218,7 @@ class ExportService:
                 except Exception as compose_error:
                     # 贴片预合成失败应终止导出（外层会转成失败的 BackendExportResult），
                     # 不能静默跳过贴片层却返回“成功”
-                    self.logger.error(f"贴片预合成失败，导出终止: {compose_error}")
+                    self.logger.error(f"Overlay precomposition failed; export aborted: {compose_error}")
                     raise
             payload = self._build_load_text_payload(
                 job.regions,
@@ -245,7 +245,7 @@ class ExportService:
             generated = backend_result.generated_inpainted_image
             if job.export_base.kind == "backend_inpaint":
                 if generated is None:
-                    raise RuntimeError("后端修复未生成最终修复图")
+                    raise RuntimeError("Backend inpainting did not produce the final inpainted image")
                 self.save_inpainted_image(job.source_path, generated, job.config)
             elif generated is not None:
                 raise RuntimeError(
@@ -260,14 +260,11 @@ class ExportService:
                 source_image=source_image,
             )
             self.logger.info(
-                f"图片已成功导出到: {job.output_path} "
-                f"(总耗时 {time.perf_counter() - export_started:.2f}s, "
-                f"后端渲染 {render_elapsed:.2f}s, "
-                f"保存 {time.perf_counter() - save_started:.2f}s)"
+                f"Image exported successfully to: {job.output_path} (total {time.perf_counter() - export_started:.2f}s, backend rendering {render_elapsed:.2f}s, saving {time.perf_counter() - save_started:.2f}s)"
             )
             return BackendExportResult(generated)
         except Exception as error:
-            message = f"后端渲染导出失败: {error}"
+            message = f"Backend rendering export failed: {error}"
             self.logger.error(message, exc_info=True)
             return BackendExportResult(error=message)
         finally:
@@ -343,7 +340,7 @@ class ExportService:
             with open(json_path, "r", encoding="utf-8") as f:
                 existing_data = json.load(f)
         except Exception as e:
-            self.logger.debug(f"读取已有JSON失败，无法继承预处理标志: {json_path}: {e}")
+            self.logger.debug(f"Failed to read existing JSON; cannot inherit preprocessing flags: {json_path}: {e}")
             return {}
 
         if not isinstance(existing_data, dict):
@@ -387,20 +384,20 @@ class ExportService:
                 if existing_upscaler:
                     target_data["upscaler"] = existing_upscaler
                 self.logger.info(
-                    f"保留已有超分信息: ratio={existing_upscale_ratio}, upscaler={existing_upscaler}"
+                    f"Preserving existing upscaling information: ratio={existing_upscale_ratio}, upscaler={existing_upscaler}"
                 )
 
         if not target_data.get("colorizer"):
             existing_colorizer = existing_image_data.get("colorizer")
             if existing_colorizer and str(existing_colorizer).lower() != "none":
                 target_data["colorizer"] = existing_colorizer
-                self.logger.info(f"保留已有上色信息: colorizer={existing_colorizer}")
+                self.logger.info(f"Preserving existing colorization information: colorizer={existing_colorizer}")
 
         if not target_data.get("last_export_dir"):
             existing_export_dir = existing_image_data.get("last_export_dir")
             if isinstance(existing_export_dir, str) and existing_export_dir:
                 target_data["last_export_dir"] = existing_export_dir
-                self.logger.info(f"保留已有导出目录: {existing_export_dir}")
+                self.logger.info(f"Preserving existing export directory: {existing_export_dir}")
 
     def _normalize_regions_for_backend(
         self,
@@ -596,7 +593,7 @@ class ExportService:
         if paste_overlay is not None:
             payload["paste_overlay"] = np.asarray(paste_overlay)
         self.logger.info(
-            f"已构建内存导出载荷: 区域数={len(payload['regions'])}, 底图状态={export_base.kind}"
+            f"Built in-memory export payload: regions={len(payload['regions'])}, base image state={export_base.kind}"
         )
         return payload
 
@@ -631,14 +628,14 @@ class ExportService:
                 if upscaler:
                     formatted_data[image_key]["upscaler"] = upscaler
                 self.logger.info(
-                    f"在JSON中记录超分信息: ratio={upscale_ratio}, upscaler={upscaler}"
+                    f"Recording upscaling information in JSON: ratio={upscale_ratio}, upscaler={upscaler}"
                 )
 
             colorizer_config = config.get("colorizer", {})
             colorizer = colorizer_config.get("colorizer", "")
             if colorizer and colorizer != "none":
                 formatted_data[image_key]["colorizer"] = colorizer
-                self.logger.info(f"在JSON中记录上色信息: colorizer={colorizer}")
+                self.logger.info(f"Recording colorization information in JSON: colorizer={colorizer}")
 
         if preserve_existing_preprocess_flags:
             existing_image_data = self._read_existing_image_data(json_path, image_key)
@@ -653,7 +650,7 @@ class ExportService:
 
         # 如果有蒙版数据，则添加到JSON中
         if mask is not None:
-            self.logger.info("在导出JSON中加入预计算的蒙版（已编辑的refined mask）。")
+            self.logger.info("Including precomputed mask (edited refined mask) in exported JSON.")
             # 使用base64编码保存蒙版，避免JSON文件过大
             import base64
 
@@ -666,7 +663,7 @@ class ExportService:
                 True  # 标记为已精炼的蒙版，跳过后端的蒙版优化
             )
             self.logger.info(
-                "蒙版已保存（base64编码），标记为已精炼，后端将跳过蒙版优化"
+                "Mask saved as base64 and marked as refined; backend will skip mask refinement"
             )
         if skip_text_replacements:
             formatted_data[image_key]["skip_text_replacements"] = True
@@ -694,12 +691,12 @@ class ExportService:
             )
             ok, encoded = cv2.imencode(".png", bgra)
             if not ok:
-                self.logger.warning(f"编码 {overlay_key} 失败，跳过写入")
+                self.logger.warning(f"Failed to encode {overlay_key}; skipping write")
                 continue
             formatted_data[image_key][overlay_key] = base64.b64encode(encoded).decode(
                 "utf-8"
             )
-            self.logger.info(f"{overlay_key} 已保存（base64 PNG）")
+            self.logger.info(f"{overlay_key} saved as base64 PNG")
 
         # 贴片（图块叠加）列表：纯 JSON 字典，图片内容为 base64 PNG（RGBA）
         if paste_overlays:
@@ -709,13 +706,13 @@ class ExportService:
                 formatted_data[image_key]["paste_overlays"] = serialize_paste_overlays(
                     paste_overlays
                 )
-                self.logger.info(f"已写入贴片: {len(paste_overlays)} 个")
+                self.logger.info(f"Saved {len(paste_overlays)} overlays")
             except Exception as serialize_error:
-                self.logger.error(f"序列化贴片失败，跳过写入: {serialize_error}")
+                self.logger.error(f"Failed to serialize overlays; skipping write: {serialize_error}")
 
         # 添加调试信息
-        self.logger.info(f"保存区域数据到: {json_path}")
-        self.logger.info(f"区域数量: {len(save_data)}")
+        self.logger.info(f"Saving region data to: {json_path}")
+        self.logger.info(f"Region count: {len(save_data)}")
 
         output_dir = os.path.dirname(os.path.abspath(json_path))
         os.makedirs(output_dir, exist_ok=True)
@@ -775,14 +772,14 @@ class ExportService:
 
             # 确保文件已写入
             if not os.path.exists(temp_output_path):
-                raise Exception(f"临时文件未成功创建: {temp_output_path}")
+                raise Exception(f"Temporary file was not created: {temp_output_path}")
 
             # 原子性替换
             os.replace(temp_output_path, output_path)
-            self.logger.info(f"图片已保存: {output_path}")
+            self.logger.info(f"Image saved: {output_path}")
 
         except Exception as e:
-            self.logger.error(f"保存图片失败: {e}")
+            self.logger.error(f"Failed to save image: {e}")
             # 清理临时文件
             if os.path.exists(temp_output_path):
                 try:
@@ -799,19 +796,19 @@ class ExportService:
         font_family_value = render_config.get("font_family")
         if font_family_value:
             translator_params["font_family"] = font_family_value
-            self.logger.info(f"透传字体 family: {font_family_value}")
-        self.logger.info("字体按 family 透传；字体文件路径不写入任务参数")
+            self.logger.info(f"Passing font family through: {font_family_value}")
+        self.logger.info("Passing font family through; font file paths are not included in task parameters")
 
         output_format = str(config.get("cli", {}).get("format") or "").strip().lower()
         if output_format and output_format != "不指定":
             translator_params["format"] = output_format
-            self.logger.info(f"设置输出格式: {output_format}")
+            self.logger.info(f"Setting output format: {output_format}")
 
         # 提取并传递GPU配置
         cli_config = config.get("cli", {})
         if "use_gpu" in cli_config:
             translator_params["use_gpu"] = cli_config["use_gpu"]
-            self.logger.info(f"设置GPU配置: use_gpu={cli_config['use_gpu']}")
+            self.logger.info(f"Setting GPU configuration: use_gpu={cli_config['use_gpu']}")
 
         # 设置其他参数
         translator_params.update(config)
@@ -832,7 +829,7 @@ class ExportService:
         # 关键：设置翻译器为none，跳过翻译步骤，直接渲染
         translator_params["translator"] = "none"
         self.logger.info(
-            "设置翻译器为none，启用load_text模式，跳过翻译步骤，直接进行渲染"
+            "Setting translator to none and enabling load_text mode; skipping translation and rendering directly"
         )
 
         return translator_params
@@ -924,7 +921,7 @@ class ExportService:
                 f"Creating Config with upscale_ratio={upscale_cfg.upscale_ratio}, colorizer={colorizer_cfg.colorizer}, inpainting_size={inpainter_cfg.inpainting_size}"
             )
             self.logger.info(
-                f"PSD导出配置: export_editable_psd={cli_cfg.export_editable_psd}, font_family={render_cfg.font_family}, psd_script_only={cli_cfg.psd_script_only}"
+                f"PSD export configuration: export_editable_psd={cli_cfg.export_editable_psd}, font_family={render_cfg.font_family}, psd_script_only={cli_cfg.psd_script_only}"
             )
 
             cfg = Config(
@@ -1019,9 +1016,9 @@ class ExportService:
 
                         image_path_for_psd = psd_base_path
 
-                        self.logger.info(f"开始导出PSD: {psd_path}")
+                        self.logger.info(f"Exporting PSD: {psd_path}")
                         self.logger.info(
-                            f"使用图片路径查找inpainted: {image_path_for_psd}"
+                            f"Using image path to locate inpainted image: {image_path_for_psd}"
                         )
                         photoshop_export(
                             psd_path,
@@ -1034,7 +1031,7 @@ class ExportService:
                             script_only,
                         )
                         self.logger.info(
-                            f"✅ [PSD] 已导出可编辑PSD: {os.path.basename(psd_path)}"
+                            f"✅ [PSD] Exported editable PSD: {os.path.basename(psd_path)}"
                         )
 
                         if progress_callback:
@@ -1042,7 +1039,7 @@ class ExportService:
                                 f"已导出PSD: {os.path.basename(psd_path)}"
                             )
                     except Exception as psd_err:
-                        self.logger.error(f"导出PSD失败: {psd_err}")
+                        self.logger.error(f"Failed to export PSD: {psd_err}")
                         import traceback
 
                         self.logger.error(traceback.format_exc())
@@ -1052,11 +1049,11 @@ class ExportService:
                 return BackendRenderResult(result_image, generated_inpainted)
 
             except Exception as translate_error:
-                self.logger.error(f"translator.translate执行失败: {translate_error}")
-                self.logger.error(f"错误类型: {type(translate_error).__name__}")
+                self.logger.error(f"translator.translate failed: {translate_error}")
+                self.logger.error(f"Error type: {type(translate_error).__name__}")
                 import traceback
 
-                self.logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+                self.logger.error(f"Full traceback:\n{traceback.format_exc()}")
                 raise
             finally:
                 shutdown_event_loop(
@@ -1064,10 +1061,10 @@ class ExportService:
                 )
 
         except Exception as e:
-            self.logger.error(f"执行后端渲染时出错: {type(e).__name__}: {e}")
+            self.logger.error(f"Error during backend rendering: {type(e).__name__}: {e}")
             import traceback
 
-            self.logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            self.logger.error(f"Full traceback:\n{traceback.format_exc()}")
             raise
 
     def export_regions_json(
@@ -1079,8 +1076,8 @@ class ExportService:
         """导出区域数据为JSON文件"""
         try:
             self._save_regions_data(regions_data, output_path, None, config)
-            self.logger.info(f"区域数据已导出到: {output_path}")
+            self.logger.info(f"Region data exported to: {output_path}")
             return True
         except Exception as e:
-            self.logger.error(f"导出区域数据失败: {e}")
+            self.logger.error(f"Failed to export region data: {e}")
             return False

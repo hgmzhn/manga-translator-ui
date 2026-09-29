@@ -24,7 +24,7 @@ try:
     from manga_translator.utils import Quadrilateral
     OCR_AVAILABLE = True
 except ImportError as e:
-    logging.warning(f"OCR后端模块导入失败: {e}")
+    logging.warning(f"Failed to import OCR backend module: {e}")
     OCR_AVAILABLE = False
 
 @dataclass
@@ -70,7 +70,7 @@ class OcrService:
         self._yolo_cache_image_id = None
         self._yolo_cache = None
         
-        self.logger.info(f"OCR识别服务初始化完成，使用设备: {self.device}")
+        self.logger.info(f"OCR service initialized on device: {self.device}")
 
     @staticmethod
     def _resolve_ocr_config(config: Any) -> Any:
@@ -105,7 +105,7 @@ class OcrService:
             try:
                 ocr_config = OcrConfig(**ocr_config_dict)
             except Exception as parse_error:
-                self.logger.warning(f"解析OCR配置失败，使用默认配置: {parse_error}")
+                self.logger.warning(f"Failed to parse OCR configuration; using defaults: {parse_error}")
                 ocr_config = OcrConfig(
                     ocr=Ocr.ocr48px,
                     min_text_length=0,
@@ -122,7 +122,7 @@ class OcrService:
             return ocr_config
             
         except Exception as e:
-            self.logger.error(f"获取OCR配置失败，使用默认配置: {e}")
+            self.logger.error(f"Failed to get OCR configuration; using defaults: {e}")
             return OcrConfig(
                 ocr=Ocr.ocr48px,
                 min_text_length=0,
@@ -152,12 +152,12 @@ class OcrService:
 
         # 切换模型时自动卸载销毁旧模型，释放显存与内存
         if self.current_prepared_ocr and self.current_prepared_ocr != ocr_to_use:
-            self.logger.info(f"检测到编辑器 OCR 模型切换: {self.current_prepared_ocr} -> {ocr_to_use}，正在销毁卸载旧模型...")
+            self.logger.info(f"Editor OCR model changed: {self.current_prepared_ocr} -> {ocr_to_use}; unloading previous model...")
             try:
                 await unload_ocr(self.current_prepared_ocr)
-                self.logger.info(f"旧 OCR 模型 {self.current_prepared_ocr} 销毁成功")
+                self.logger.info(f"Previous OCR model {self.current_prepared_ocr} unloaded successfully")
             except Exception as e:
-                self.logger.warning(f"销毁旧 OCR 模型 {self.current_prepared_ocr} 失败: {e}")
+                self.logger.warning(f"Failed to unload previous OCR model {self.current_prepared_ocr}: {e}")
             self.model_prepared = False
 
         if self.model_prepared and self.current_prepared_ocr == ocr_to_use:
@@ -167,9 +167,9 @@ class OcrService:
             await prepare_ocr(ocr_to_use, self.device)
             self.model_prepared = True
             self.current_prepared_ocr = ocr_to_use
-            self.logger.info(f"OCR模型准备完成: {getattr(ocr_to_use, 'value', ocr_to_use)}")
+            self.logger.info(f"OCR model ready: {getattr(ocr_to_use, 'value', ocr_to_use)}")
         except Exception as e:
-            self.logger.error(f"OCR模型准备失败: {e}")
+            self.logger.error(f"Failed to prepare OCR model: {e}")
             raise
 
     async def unload_current_model(self):
@@ -177,9 +177,9 @@ class OcrService:
         if self.current_prepared_ocr and OCR_AVAILABLE:
             try:
                 await unload_ocr(self.current_prepared_ocr)
-                self.logger.info(f"当前 OCR 模型 {self.current_prepared_ocr} 已销毁卸载")
+                self.logger.info(f"Current OCR model {self.current_prepared_ocr} unloaded")
             except Exception as e:
-                self.logger.warning(f"销毁当前 OCR 模型 {self.current_prepared_ocr} 失败: {e}")
+                self.logger.warning(f"Failed to unload current OCR model {self.current_prepared_ocr}: {e}")
             finally:
                 self.current_prepared_ocr = None
                 self.model_prepared = False
@@ -210,7 +210,7 @@ class OcrService:
             return quadrilateral
             
         except Exception as e:
-            self.logger.error(f"区域转换失败: {e}")
+            self.logger.error(f"Failed to convert region: {e}")
             return None
     
     def _extract_region_image(self, image: np.ndarray, region: Dict[str, Any]) -> Optional[np.ndarray]:
@@ -240,7 +240,7 @@ class OcrService:
             return region_image
             
         except Exception as e:
-            self.logger.error(f"区域图像提取失败: {e}")
+            self.logger.error(f"Failed to extract region image: {e}")
             return None
 
     # ------------------------------------------------------------------
@@ -256,7 +256,7 @@ class OcrService:
             self._yolo_detector = YOLOOBBDetector()
             return self._yolo_detector
         except Exception:
-            self.logger.warning("YOLOOBBDetector 不可用")
+            self.logger.warning("YOLOOBBDetector is unavailable")
             return None
 
     async def _detect_yolo_lines_cropped(self, image: np.ndarray, pts: np.ndarray) -> list:
@@ -449,11 +449,11 @@ class OcrService:
                     processing_time=processing_time
                 )
             else:
-                self.logger.warning("OCR识别无结果")
+                self.logger.warning("OCR returned no results")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"OCR识别失败: {e}")
+            self.logger.error(f"OCR failed: {e}")
             return None
     
     async def recognize_multiple_regions(self, image: np.ndarray, regions: List[Dict[str, Any]], 
@@ -524,7 +524,7 @@ class OcrService:
             return ocr_results
             
         except Exception as e:
-            self.logger.error(f"批量OCR识别失败: {e}")
+            self.logger.error(f"Batch OCR failed: {e}")
             return [None] * len(regions)
     
     def get_available_models(self) -> List[str]:
@@ -544,7 +544,7 @@ class OcrService:
             if hasattr(Ocr, model_name):
                 self.default_config.ocr = Ocr[model_name]
                 self.model_prepared = False  # 重置模型准备状态
-                self.logger.info(f"通过name设置OCR模型: {model_name}")
+                self.logger.info(f"Setting OCR model by name: {model_name}")
                 return
             
             # 如果name查找失败，尝试通过value查找
@@ -552,13 +552,13 @@ class OcrService:
                 if ocr_model.value == model_name:
                     self.default_config.ocr = ocr_model
                     self.model_prepared = False  # 重置模型准备状态
-                    self.logger.info(f"通过value设置OCR模型: {model_name} -> {ocr_model.name}")
+                    self.logger.info(f"Setting OCR model by value: {model_name} -> {ocr_model.name}")
                     return
                     
             # 如果都没找到，记录警告
-            self.logger.warning(f"未找到OCR模型: {model_name}，保持当前设置")
+            self.logger.warning(f"OCR model not found: {model_name}; keeping current settings")
         except Exception as e:
-            self.logger.error(f"设置OCR模型时发生错误: {e}")
+            self.logger.error(f"Error setting OCR model: {e}")
     
     def get_current_model(self) -> str:
         """获取当前OCR模型名称"""
@@ -570,7 +570,7 @@ class OcrService:
         for key, value in kwargs.items():
             if hasattr(self.default_config, key):
                 setattr(self.default_config, key, value)
-                self.logger.info(f"OCR配置更新: {key} = {value}")
+                self.logger.info(f"OCR configuration updated: {key} = {value}")
     
     def get_config(self) -> Dict[str, Any]:
         """获取当前OCR配置"""

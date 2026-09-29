@@ -112,13 +112,13 @@ def apply_native_title_bar_theme(widget: QWidget, theme: str | None = None, logg
             fallback_result = _set_dwm_attr(DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, dark_mode)
             if logger is not None:
                 logger.debug(
-                    "DwmSetWindowAttribute 返回码: immersive_dark_mode=%s, before_20h1=%s",
+                    "DwmSetWindowAttribute return codes: immersive_dark_mode=%s, before_20h1=%s",
                     result,
                     fallback_result,
                 )
     except Exception as exc:
         if logger is not None:
-            logger.debug(f"应用原生标题栏主题失败: {exc}")
+            logger.debug(f"Failed to apply native title bar theme: {exc}")
 
 
 def apply_application_theme(theme: str, app: QApplication | None = None) -> None:

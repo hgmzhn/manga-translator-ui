@@ -361,7 +361,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         skipped_count = 0
         failed_count = 0
         print("\n📊 翻译完成，检查结果...\n")
-        logger.info(f"收到 {len(contexts)} 个翻译结果")
+        logger.info(f"Received {len(contexts)} translation results")
 
         for ctx in contexts:
             if not ctx:

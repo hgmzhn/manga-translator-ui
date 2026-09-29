@@ -81,17 +81,17 @@ class YOLOOBBDetector(OfflineDetector):
         if requested.startswith("cuda"):
             if torch.cuda.is_available():
                 return torch.device(device)
-            self.logger.warning("YOLO OBB: 请求 CUDA，但当前不可用，回退到 CPU")
+            self.logger.warning("YOLO OBB: CUDA requested but unavailable; falling back to CPU")
         elif requested.startswith("mps"):
             if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
                 return torch.device("mps")
-            self.logger.warning("YOLO OBB: 请求 MPS，但当前不可用，回退到 CPU")
+            self.logger.warning("YOLO OBB: MPS requested but unavailable; falling back to CPU")
         return torch.device("cpu")
 
     async def _load(self, device: str):
         model_path = self._get_file_path(self._MODEL_FILENAME)
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"YOLO OBB 模型不存在: {model_path}")
+            raise FileNotFoundError(f"YOLO OBB model file not found: {model_path}")
 
         self.torch_device = self._resolve_device(device)
         self.device = str(self.torch_device)
@@ -105,7 +105,7 @@ class YOLOOBBDetector(OfflineDetector):
         model.to(str(self.torch_device))
         self.model = model
 
-        self.logger.info(f"YOLO OBB: {self.torch_device.type.upper()} 模式加载成功")
+        self.logger.info(f"YOLO OBB: loaded successfully in {self.torch_device.type.upper()} mode")
 
     async def _unload(self):
         self.model = None
@@ -307,7 +307,7 @@ class YOLOOBBDetector(OfflineDetector):
         valid_cls_mask = np.isin(class_ids, valid_class_ids)
         if not np.all(valid_cls_mask):
             drop_count = int(np.size(valid_cls_mask) - np.sum(valid_cls_mask))
-            self.logger.info(f"YOLO OBB过滤无效类别: 移除 {drop_count} 个框")
+            self.logger.info(f"YOLO OBB filtered invalid classes: removed {drop_count} boxes")
             boxes_corners = boxes_corners[valid_cls_mask]
             scores = scores[valid_cls_mask]
             class_ids = class_ids[valid_cls_mask]
@@ -324,7 +324,7 @@ class YOLOOBBDetector(OfflineDetector):
         iou_threshold: float,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         if self.model is None:
-            raise RuntimeError("YOLO OBB 模型未加载")
+            raise RuntimeError("YOLO OBB model is not loaded")
 
         results = self.model.predict(
             source=image,
@@ -352,12 +352,12 @@ class YOLOOBBDetector(OfflineDetector):
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """使用与主检测器相同的切割逻辑进行检测"""
         if image is None or image.size == 0:
-            self.logger.error("YOLO OBB: 输入图片无效")
+            self.logger.error("YOLO OBB: invalid input image")
             return self._empty_results()
 
         h, w = image.shape[:2]
         if h == 0 or w == 0:
-            self.logger.error(f"YOLO OBB: 图片尺寸为0: {h}x{w}")
+            self.logger.error(f"YOLO OBB: image has zero dimensions: {h}x{w}")
             return self._empty_results()
 
         if rearrange_plan is None:
@@ -367,7 +367,7 @@ class YOLOOBBDetector(OfflineDetector):
                 min_effective_short_side=det_rearrange_min_effective_short_side,
             )
         if rearrange_plan is None:
-            self.logger.warning("YOLO OBB统一切割: 当前图像不满足切割条件")
+            self.logger.warning("YOLO OBB unified tiling: current image does not meet tiling criteria")
             return self._empty_results()
 
         transpose = rearrange_plan["transpose"]
@@ -380,8 +380,7 @@ class YOLOOBBDetector(OfflineDetector):
         pad_num = rearrange_plan["pad_num"]
 
         self.logger.info(
-            f"YOLO OBB统一切割: 原图={h}x{w}, patch_size={patch_size}, "
-            f"ph_num={ph_num}, pw_num={pw_num}, pad_num={pad_num}, transpose={transpose}"
+            f"YOLO OBB unified tiling: original={h}x{w}, patch_size={patch_size}, ph_num={ph_num}, pw_num={pw_num}, pad_num={pad_num}, transpose={transpose}"
         )
 
         patch_array = det_rearrange_patch_array(rearrange_plan)
@@ -393,11 +392,11 @@ class YOLOOBBDetector(OfflineDetector):
 
         for ii, patch in enumerate(patch_array):
             if np.all(patch == 0):
-                self.logger.debug(f"YOLO OBB patch {ii}: 跳过padding patch")
+                self.logger.debug(f"YOLO OBB patch {ii}: skipping padding patch")
                 continue
 
             if patch.size == 0 or patch.shape[0] == 0 or patch.shape[1] == 0:
-                self.logger.warning(f"YOLO OBB patch {ii}: 跳过无效patch, shape={patch.shape}")
+                self.logger.warning(f"YOLO OBB patch {ii}: skipping invalid patch, shape={patch.shape}")
                 continue
 
             try:
@@ -407,7 +406,7 @@ class YOLOOBBDetector(OfflineDetector):
                     iou_threshold=iou_threshold,
                 )
             except Exception as e:
-                self.logger.error(f"YOLO OBB patch {ii} 推理失败: {e}")
+                self.logger.error(f"YOLO OBB patch {ii} inference failed: {e}")
                 self.logger.error(f"Patch shape: {patch.shape}")
                 continue
 
@@ -419,7 +418,7 @@ class YOLOOBBDetector(OfflineDetector):
                 all_patch_info.append((ii, patch_shape))
 
             if verbose:
-                self.logger.debug(f"YOLO OBB patch {ii}: 检测到 {len(boxes)} 个框")
+                self.logger.debug(f"YOLO OBB patch {ii}: detected {len(boxes)} boxes")
                 try:
                     import logging
 
@@ -433,7 +432,7 @@ class YOLOOBBDetector(OfflineDetector):
                     )
                     imwrite_unicode(debug_path, patch[..., ::-1], logger)
                 except Exception as e:
-                    self.logger.error(f"保存YOLO调试图失败: {e}")
+                    self.logger.error(f"Failed to save YOLO debug image: {e}")
 
         if len(all_boxes) == 0:
             return self._empty_results()
@@ -530,7 +529,7 @@ class YOLOOBBDetector(OfflineDetector):
             )
             edge_merge_count = boxes_before_edge_merge - len(boxes_corners)
             if edge_merge_count > 0:
-                self.logger.info(f"YOLO OBB重排边缘other框合并: {edge_merge_count} 个重复框")
+                self.logger.info(f"YOLO OBB rearranged edge 'other' boxes merged: {edge_merge_count} duplicates")
 
         boxes_corners, scores, class_ids = self.deduplicate_boxes(
             boxes_corners,
@@ -540,7 +539,7 @@ class YOLOOBBDetector(OfflineDetector):
             iou_threshold=0.5,
         )
 
-        self.logger.info(f"YOLO OBB统一切割检测完成: 合并去重后 {len(boxes_corners)} 个框")
+        self.logger.info(f"YOLO OBB tiled detection completed: {len(boxes_corners)} boxes after merging and deduplication")
         return boxes_corners, scores, class_ids
 
     async def _infer(
@@ -563,27 +562,27 @@ class YOLOOBBDetector(OfflineDetector):
             debug_img: None
         """
         if image is None:
-            self.logger.error("YOLO OBB: 接收到的图片为None")
+            self.logger.error("YOLO OBB: received None as image")
             return [], None, None
 
         if not isinstance(image, np.ndarray):
-            self.logger.error(f"YOLO OBB: 接收到的不是numpy数组，类型: {type(image)}")
+            self.logger.error(f"YOLO OBB: input is not a numpy array; type: {type(image)}")
             return [], None, None
 
         if image.size == 0:
-            self.logger.error("YOLO OBB: 接收到的图片大小为0")
+            self.logger.error("YOLO OBB: received empty image")
             return [], None, None
 
         if len(image.shape) < 2:
-            self.logger.error(f"YOLO OBB: 图片维度不足: {image.shape}")
+            self.logger.error(f"YOLO OBB: insufficient image dimensions: {image.shape}")
             return [], None, None
 
         if image.shape[0] == 0 or image.shape[1] == 0:
-            self.logger.error(f"YOLO OBB: 图片尺寸为0: {image.shape}")
+            self.logger.error(f"YOLO OBB: image has zero dimensions: {image.shape}")
             return [], None, None
 
         self.logger.debug(
-            f"YOLO OBB输入图像: shape={image.shape}, dtype={image.dtype}, min={image.min()}, max={image.max()}"
+            f"YOLO OBB input image: shape={image.shape}, dtype={image.dtype}, min={image.min()}, max={image.max()}"
         )
 
         img_shape = image.shape[:2]
@@ -594,7 +593,7 @@ class YOLOOBBDetector(OfflineDetector):
         )
 
         if rearrange_plan is not None:
-            self.logger.info("YOLO OBB: 检测到长图，使用统一切割逻辑")
+            self.logger.info("YOLO OBB: detected a long image; using unified tiling")
             boxes_corners, scores, class_ids = self._rearrange_detect_unified(
                 image,
                 text_threshold,
@@ -612,9 +611,9 @@ class YOLOOBBDetector(OfflineDetector):
                     iou_threshold=box_threshold,
                 )
             except Exception as e:
-                self.logger.error(f"YOLO OBB推理失败: {e}")
-                self.logger.error(f"输入图像 shape: {image.shape}, dtype: {image.dtype}")
-                self.logger.error(f"当前 device: {self.device}")
+                self.logger.error(f"YOLO OBB inference failed: {e}")
+                self.logger.error(f"Input image shape: {image.shape}, dtype: {image.dtype}")
+                self.logger.error(f"Current device: {self.device}")
                 raise
 
             if len(boxes_corners) > 0:
@@ -633,5 +632,5 @@ class YOLOOBBDetector(OfflineDetector):
             quad.is_yolo_box = True
             textlines.append(quad)
 
-        self.logger.info(f"YOLO OBB检测到 {len(textlines)} 个文本框")
+        self.logger.info(f"YOLO OBB detected {len(textlines)} text boxes")
         return textlines, None, None

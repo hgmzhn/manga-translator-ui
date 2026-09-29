@@ -49,7 +49,7 @@ def init_semaphore():
     global translation_semaphore, translation_executor
     
     max_concurrent = server_config.get('max_concurrent_tasks', 3)
-    logger.info(f"[init_semaphore] 从 server_config 读取 max_concurrent_tasks = {max_concurrent}")
+    logger.info(f"[init_semaphore] Read max_concurrent_tasks = {max_concurrent} from server_config")
     
     # 关闭旧的线程池（如果存在）
     if translation_executor is not None:
@@ -64,7 +64,7 @@ def init_semaphore():
     # 创建信号量用于异步等待
     translation_semaphore = asyncio.Semaphore(max_concurrent)
     
-    logger.info(f"翻译线程池已初始化: 最大线程数 = {max_concurrent}")
+    logger.info(f"Translation thread pool initialized: maximum threads = {max_concurrent}")
 
 
 def get_semaphore() -> Optional[asyncio.Semaphore]:
@@ -190,13 +190,13 @@ def cancel_task(task_id: str, force: bool = False) -> dict:
                     cancelled = True
                 
                 if cancelled:
-                    add_log(f"管理员强制取消任务: {task_id[:8]}", "WARNING")
+                    add_log(f"Administrator forcibly cancelled task: {task_id[:8]}", "WARNING")
                     return {"success": True, "message": "任务已强制终止"}
                 else:
-                    add_log(f"管理员请求强制取消任务，但任务已完成: {task_id[:8]}", "INFO")
+                    add_log(f"Administrator requested forced task cancellation, but the task has already completed: {task_id[:8]}", "INFO")
                     return {"success": True, "message": "任务已完成，无需取消"}
             else:
-                add_log(f"管理员请求取消任务: {task_id[:8]}", "WARNING")
+                add_log(f"Administrator requested task cancellation: {task_id[:8]}", "WARNING")
                 return {"success": True, "message": "取消请求已发送（协作式取消）"}
         else:
             return {"success": False, "message": "任务不存在或已完成"}
@@ -221,7 +221,7 @@ def update_server_config(config: dict):
         
         if old_value != new_value:
             init_semaphore()
-            logger.info(f"并发数已更新: {old_value} -> {new_value}")
+            logger.info(f"Concurrency updated: {old_value} -> {new_value}")
     
     for key in ['use_gpu', 'verbose', 'models_ttl', 'retry_attempts', 'admin_password']:
         if key in config:
@@ -230,7 +230,7 @@ def update_server_config(config: dict):
     # 如果关键参数变化，重置全局翻译器
     if rebuild_translator and _global_translator is not None:
         with _translator_lock:
-            logger.info("服务器配置变化，重置全局翻译器...")
+            logger.info("Server configuration changed; resetting the global translator...")
             _global_translator = None
             _translator_params_hash = None
 
@@ -261,16 +261,16 @@ def shutdown_executor():
     global translation_executor, _global_translator
     
     if translation_executor is not None:
-        logger.info("正在关闭翻译线程池...")
+        logger.info("Shutting down the translation thread pool...")
         translation_executor.shutdown(wait=True)
         translation_executor = None
     
     if _global_translator is not None:
-        logger.info("正在卸载全局翻译器...")
+        logger.info("Unloading the global translator...")
         with _translator_lock:
             _global_translator = None
     
-    logger.info("资源清理完成")
+    logger.info("Resource cleanup complete")
 
 
 
@@ -322,13 +322,13 @@ def get_global_translator(params: dict = None):
         # 检查是否需要重建翻译器
         if _global_translator is None or _translator_params_hash != params_hash:
             if _global_translator is not None:
-                logger.info("翻译器参数变化，重建实例...")
+                logger.info("Translator parameters changed; rebuilding the instance...")
             else:
-                logger.info(f"创建全局翻译器实例 (GPU={params.get('use_gpu')}, models_ttl={params.get('models_ttl')}s)...")
+                logger.info(f"Creating global translator instance (GPU={params.get('use_gpu')}, models_ttl={params.get('models_ttl')}s)...")
             
             _global_translator = MangaTranslator(params=params)
             _translator_params_hash = params_hash
-            logger.info("全局翻译器实例已创建，模型将按需加载并缓存")
+            logger.info("Global translator instance created; models will be loaded on demand and cached")
         
         return _global_translator
 
@@ -341,12 +341,12 @@ def reset_global_translator():
     
     with _translator_lock:
         if _global_translator is not None:
-            logger.info("正在重置全局翻译器...")
+            logger.info("Resetting the global translator...")
             try:
                 if hasattr(_global_translator, 'unload_models'):
                     _global_translator.unload_models()
             except Exception as e:
-                logger.warning(f"卸载模型时出错: {e}")
+                logger.warning(f"Error unloading models: {e}")
             
             _global_translator = None
             _translator_params_hash = None
@@ -359,11 +359,11 @@ def reset_global_translator():
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                    logger.info("GPU 显存已清理")
+                    logger.info("GPU memory cleared")
             except Exception:
                 pass
             
-            logger.info("全局翻译器已重置")
+            logger.info("Global translator reset")
             return {"success": True, "message": "翻译器已重置，模型已卸载"}
         else:
             return {"success": True, "message": "翻译器未初始化，无需重置"}
@@ -415,7 +415,7 @@ def cleanup_after_request():
     
     with _translator_lock:
         if _global_translator is not None:
-            logger.debug("[MEMORY] 开始请求级内存清理...")
+            logger.debug("[MEMORY] Starting request-level memory cleanup...")
             
             try:
                 # 1. 清理批处理上下文
@@ -442,10 +442,10 @@ def cleanup_after_request():
                 if hasattr(_global_translator, '_cancel_check_callback'):
                     _global_translator._cancel_check_callback = None
                 
-                logger.debug("[MEMORY] 翻译器内部状态已清理")
+                logger.debug("[MEMORY] Translator internal state cleared")
                 
             except Exception as e:
-                logger.warning(f"[MEMORY] 清理翻译器状态时出错: {e}")
+                logger.warning(f"[MEMORY] Error clearing translator state: {e}")
     
     # 5. 强制垃圾回收
     gc.collect()
@@ -464,7 +464,7 @@ def cleanup_after_request():
     except Exception:
         pass
     
-    logger.debug("[MEMORY] 请求级内存清理完成")
+    logger.debug("[MEMORY] Request-level memory cleanup complete")
 
 
 def cleanup_context(ctx):

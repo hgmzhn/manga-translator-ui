@@ -60,7 +60,7 @@ class ServiceContainer:
             return True
             
         except Exception as e:
-            self.logger.error(f"服务初始化失败: {e}")
+            self.logger.error(f"Service initialization failed: {e}")
             return False
     
     def _init_essential_services(self):
@@ -85,7 +85,7 @@ class ServiceContainer:
                 verbose = config.cli.verbose
                 self.services['log'].set_console_log_level(verbose)
         except Exception as e:
-            self.logger.warning(f"设置日志级别失败: {e}")
+            self.logger.warning(f"Failed to set log level: {e}")
         
         self.services['state'].set_app_ready(True)
     
@@ -103,7 +103,7 @@ class ServiceContainer:
 
             
         except Exception as e:
-            self.logger.error(f"后台重量级服务初始化失败: {e}")
+            self.logger.error(f"Background initialization of heavyweight services failed: {e}")
 
     def _init_ui_services(self):
         """在UI主线程初始化UI相关服务"""
@@ -138,7 +138,7 @@ class ServiceContainer:
                 hook()
                 return
 
-        self.logger.debug(f"服务 {service_name} 没有可用的关闭钩子: {hook_names}")
+        self.logger.debug(f"Service {service_name} has no available shutdown hook: {hook_names}")
     
     def shutdown_services(self):
         """关闭所有服务"""
@@ -154,7 +154,7 @@ class ServiceContainer:
             try:
                 self._call_service_hook(service_name, *hook_names)
             except Exception as e:
-                self.logger.error(f"关闭服务 {service_name} 时出错: {e}", exc_info=True)
+                self.logger.error(f"Error shutting down service {service_name}: {e}", exc_info=True)
         
         self.services.clear()
         self.initialized = False
