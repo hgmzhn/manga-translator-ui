@@ -484,7 +484,7 @@ def cleanup_context(ctx):
     attrs_to_clear = [
         # 图片数据（最大的内存占用）
         'input', 'img_rgb', 'img_alpha', 'img_colorized', 'upscaled',
-        'img_inpainted', 'img_rendered', 'mask', 'mask_raw',
+        'img_inpainted', 'img_rendered', 'mask', 'mask_raw', 'bubble_mask',
         # 高质量翻译相关数据
         'high_quality_batch_data', 'annotated_image',
         # 其他可能的大对象

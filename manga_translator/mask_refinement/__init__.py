@@ -6,8 +6,7 @@ import numpy as np
 from ..utils import (
     Quadrilateral,
     TextBlock,
-    build_bubble_mask_from_mangalens_result,
-    get_cached_bubbles_with_mangalens,
+    erode_bubble_mask,
     imwrite_unicode,
 )
 from ..utils.log import get_logger
@@ -193,6 +192,7 @@ async def dispatch(
     use_model_bubble_repair_intersection: bool = False,
     limit_mask_dilation_to_bubble_mask: bool = False,
     debug_path_fn: Optional[Callable[[str], str]] = None,
+    bubble_mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     # Larger sized mask images will probably have crisper and thinner mask segments due to being able to fit the text pixels better
     # so we dont want to size them down as much to not lose information
@@ -217,20 +217,14 @@ async def dispatch(
 
     if use_model_bubble_repair_intersection or limit_mask_dilation_to_bubble_mask:
         try:
-            result = get_cached_bubbles_with_mangalens(raw_image, return_annotated=False, verbose=False)
-            if result is None:
-                logger.warning("Model bubble mask cache miss in mask refinement; skip bubble-constrained post-process")
-                detections = []
-                bubble_source = 'none'
-            else:
-                detections = result.detections
-                raw_result = getattr(result, 'raw_result', None)
-                bubble_source = 'mask' if getattr(raw_result, 'masks', None) is not None else 'box'
+            if bubble_mask is None:
+                logger.warning("No bubble mask in image context; skip bubble-constrained post-process")
+                return final_mask
+            source_bubble_mask = bubble_mask
 
             if use_model_bubble_repair_intersection:
-                bubble_mask = build_bubble_mask_from_mangalens_result(
-                    result,
-                    final_mask.shape[:2],
+                bubble_mask = erode_bubble_mask(
+                    source_bubble_mask,
                     erode_ratio=BUBBLE_MASK_ERODE_RATIO,
                     erode_per_component=False,
                 )
@@ -246,7 +240,7 @@ async def dispatch(
                     merged_mask = cv2.bitwise_or(final_mask, filtered_mask)
                     added_pixels = int(np.count_nonzero((filtered_mask > 0) & (final_mask == 0)))
                     logger.info(
-                        f"Bubble repair intersection: detections={len(detections)}, source={bubble_source}, "
+                        "Bubble repair intersection: "
                         f"bubble_components={total_components}, kept_components={kept_components}, "
                         f"refined_pixels={int(np.count_nonzero(final_mask))}, "
                         f"bubble_pixels={int(np.count_nonzero(filtered_mask))}, "
@@ -255,8 +249,8 @@ async def dispatch(
                     final_mask = merged_mask
 
             if limit_mask_dilation_to_bubble_mask:
-                bubble_mask = build_bubble_mask_from_mangalens_result(
-                    result, final_mask.shape[:2],
+                bubble_mask = erode_bubble_mask(
+                    source_bubble_mask,
                     erode_ratio=BUBBLE_MASK_DILATION_LIMIT_ERODE_RATIO)
                 if np.count_nonzero(bubble_mask) == 0:
                     logger.info(
@@ -281,7 +275,7 @@ async def dispatch(
                     clipped_mask[protected_restore_mask] = 255
                 removed_pixels = int(np.count_nonzero((final_mask > 0) & (clipped_mask == 0)))
                 logger.info(
-                    f"Bubble constrained dilation: detections={len(detections)}, source={bubble_source}, "
+                    "Bubble constrained dilation: "
                     f"refined_components={total_components}, intersected_components={intersected_components}, "
                     f"preserved_components={preserved_components}, removed_pixels={removed_pixels}, "
                     f"protected_pixels={protected_pixels}, "
@@ -304,6 +298,6 @@ async def dispatch(
                     except Exception as debug_exc:
                         logger.warning(f"Failed to save bubble constrained dilation debug image: {debug_exc}")
         except Exception as exc:
-            logger.warning(f"Model bubble mask cache read failed, keep refined mask unchanged: {exc}")
+            logger.warning(f"Bubble mask post-process failed, keep refined mask unchanged: {exc}")
 
     return final_mask

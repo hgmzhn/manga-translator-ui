@@ -48,7 +48,8 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
                    device: str = 'cpu', verbose: bool = False,
                    use_yolo_obb: bool = False, yolo_obb_conf: float = 0.4, yolo_obb_overlap_threshold: float = 0.1, min_box_area_ratio: float = 0.0009,
                    result_path_fn=None, det_rearrange_min_effective_short_side: float = 341.0,
-                   use_sfx_filter: bool = False, sfx_filter_include_bubble_text: bool = False):
+                   use_sfx_filter: bool = False, sfx_filter_include_bubble_text: bool = False,
+                   bubble_mask: Optional[np.ndarray] = None):
     """
     检测调度函数，支持混合检测模式
     
@@ -101,6 +102,7 @@ async def dispatch(detector_key: Detector, image: np.ndarray, detect_size: int, 
             use_sfx_filter=use_sfx_filter,
             sfx_filter_include_bubble_text=sfx_filter_include_bubble_text,
             image=image,
+            bubble_mask=bubble_mask,
         )
         
         replaced_count = len(main_textlines) + len(yolo_textlines) - len(combined_textlines)
@@ -284,6 +286,7 @@ def _get_sfx_filtered_main_indices(
     image: Optional[np.ndarray] = None,
     model_bubble_overlap_threshold: float = 0.1,
     sfx_filter_include_bubble_text: bool = False,
+    bubble_mask: Optional[np.ndarray] = None,
 ) -> set[int]:
     """
     找出缺少 YOLO 支持的主检测框：
@@ -296,8 +299,7 @@ def _get_sfx_filtered_main_indices(
     # 让整页所有主检测框都通过过滤。
     threshold = max(1e-6, min(1.0, float(overlap_threshold)))
     filtered_indices = set()
-    bubble_mask: Optional[np.ndarray] = None
-    bubble_mask_ready = False
+    bubble_mask_ready = bubble_mask is not None
 
     for main_idx, main_box in enumerate(main_boxes):
         main_aabb = _box_aabb(main_box)
@@ -343,6 +345,7 @@ def merge_detection_boxes(
     use_sfx_filter: bool = False,
     image: Optional[np.ndarray] = None,
     sfx_filter_include_bubble_text: bool = False,
+    bubble_mask: Optional[np.ndarray] = None,
 ) -> List[Quadrilateral]:
     """
     合并主检测器和YOLO检测器的框，智能替换逻辑：
@@ -383,6 +386,7 @@ def merge_detection_boxes(
             overlap_threshold,
             image=image,
             sfx_filter_include_bubble_text=sfx_filter_include_bubble_text,
+            bubble_mask=bubble_mask,
         )
         if use_sfx_filter
         else set()

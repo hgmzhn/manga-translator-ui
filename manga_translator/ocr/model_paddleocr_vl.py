@@ -485,7 +485,7 @@ class ModelPaddleOCRVL(OfflineOCR):
             textline.bg_r = textline.bg_g = textline.bg_b = 255
             self.logger.debug(f"48px 颜色预测失败: {e}")
 
-    async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False) -> List[Quadrilateral]:
+    async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False, bubble_mask: np.ndarray = None) -> List[Quadrilateral]:
         """
         推理主函数
 
@@ -523,7 +523,7 @@ class ModelPaddleOCRVL(OfflineOCR):
             # 过滤非气泡区域
             if ignore_bubble > 0 or use_model_bubble_filter:
                 filter_region = q.get_transformed_region(image, direction, text_height)
-                should_ignore = self._should_ignore_region(filter_region, ignore_bubble, image, q, config)
+                should_ignore = self._should_ignore_region(filter_region, ignore_bubble, image, q, config, bubble_mask=bubble_mask)
                 self._cleanup_ocr_memory(filter_region)
                 if should_ignore:
                     self.logger.info(f'[FILTERED] Region {idx} ignored - Non-bubble area detected (ignore_bubble={ignore_bubble}, model_filter={use_model_bubble_filter})')

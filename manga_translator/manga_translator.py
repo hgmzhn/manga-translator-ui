@@ -28,6 +28,7 @@ from .utils import (
     build_det_rearrange_plan,
     detect_bubbles_with_mangalens,
     dump_image,
+    erode_bubble_mask,
     imwrite_unicode,
     is_valuable_text,
     load_image,
@@ -324,6 +325,7 @@ class MangaTranslator:
 
     _CONTEXT_INTERMEDIATE_FIELDS = (
         'img_rgb',
+        'bubble_mask',
         'img_colorized',
         'upscaled',
         'img_inpainted',
@@ -1868,6 +1870,7 @@ class MangaTranslator:
         # ✅ 检查停止标志
         await asyncio.sleep(0)
         self._check_cancelled()
+        self._prime_bubble_detection_cache(config, ctx)
         
         current_time = time.time()
         self._model_usage_timestamps[("detection", config.detector.detector)] = current_time
@@ -1926,6 +1929,7 @@ class MangaTranslator:
                 config.detector.det_rearrange_min_effective_short_side,
                 use_sfx_filter=bool(getattr(config.detector, 'use_sfx_filter', False)),
                 sfx_filter_include_bubble_text=bool(getattr(config.detector, 'sfx_filter_include_bubble_text', False)),
+                bubble_mask=ctx.bubble_mask,
             )
         
             # 处理bbox调试图（如果检测器返回了）
@@ -2054,12 +2058,13 @@ class MangaTranslator:
                 )
             result = (forward_textlines, result[1], result[2])
 
-        self._prime_bubble_detection_cache(config, getattr(ctx, 'img_rgb', None))
         return result
 
     def _should_prime_bubble_cache(self, config: Config) -> bool:
         render_cfg = getattr(config, 'render', None)
         ocr_cfg = getattr(config, 'ocr', None)
+        detector_cfg = getattr(config, 'detector', None)
+        inpainter_cfg = getattr(config, 'inpainter', None)
         return any(
             (
                 getattr(render_cfg, 'layout_mode', None) == 'balloon_fill',
@@ -2067,20 +2072,33 @@ class MangaTranslator:
                 bool(getattr(ocr_cfg, 'use_model_bubble_filter', False)),
                 bool(getattr(ocr_cfg, 'use_model_bubble_repair_intersection', False)),
                 bool(getattr(ocr_cfg, 'limit_mask_dilation_to_bubble_mask', False)),
+                bool(getattr(inpainter_cfg, 'solid_fill_pure_bubbles', False)),
+                (
+                    bool(getattr(detector_cfg, 'use_yolo_obb', False))
+                    and bool(getattr(detector_cfg, 'use_sfx_filter', False))
+                    and not bool(getattr(detector_cfg, 'sfx_filter_include_bubble_text', False))
+                    and not self.load_text
+                ),
             )
         )
 
-    def _prime_bubble_detection_cache(self, config: Config, image: Optional[np.ndarray]) -> None:
+    def _prime_bubble_detection_cache(self, config: Config, ctx: Context) -> None:
+        # Keep the mask beside img_rgb in the existing per-image context.
+        if ctx.bubble_mask is not None:
+            return
+        image = getattr(ctx, 'img_rgb', None)
         if image is None or getattr(image, 'size', 0) == 0:
             return
         if not self._should_prime_bubble_cache(config):
             return
         try:
             result = detect_bubbles_with_mangalens(image, return_annotated=False, verbose=False)
+            ctx.bubble_mask = build_bubble_mask_from_mangalens_result(result, image.shape[:2])
             detected = len(result.detections) if result is not None else 0
-            logger.info(f"Bubble cache primed during detection stage: detections={detected}")
+            logger.info(f"Bubble mask prepared in image context: detections={detected}")
         except Exception as exc:
-            logger.warning(f"Bubble cache priming failed during detection stage: {exc}")
+            ctx.bubble_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+            logger.warning(f"Bubble mask preparation failed: {exc}")
 
     def _save_labeled_textline_debug_image(self, img_rgb: np.ndarray, textlines: List, filename: str = 'bboxes_unfiltered_labeled.png'):
         """
@@ -2619,6 +2637,7 @@ class MangaTranslator:
                 self.device,
                 self.verbose,
                 runtime_config=config,
+                bubble_mask=ctx.bubble_mask,
             )
 
             # --- BEGIN: HYBRID OCR LOGIC ---
@@ -2649,6 +2668,7 @@ class MangaTranslator:
                         self.device,
                         self.verbose,
                         runtime_config=config,
+                        bubble_mask=ctx.bubble_mask,
                     )
                     
                     # Merge the results back into the original list
@@ -3199,6 +3219,7 @@ class MangaTranslator:
             use_model_bubble_repair_intersection=bool(getattr(config.ocr, 'use_model_bubble_repair_intersection', False)),
             limit_mask_dilation_to_bubble_mask=bool(getattr(config.ocr, 'limit_mask_dilation_to_bubble_mask', False)),
             debug_path_fn=self._result_path if self.verbose else None,
+            bubble_mask=ctx.bubble_mask,
         )
 
     async def _run_inpainting(self, config: Config, ctx: Context):
@@ -3246,10 +3267,9 @@ class MangaTranslator:
                         mask_tight = cv2.dilate(
                             np.where(mask_tight >= 127, 255, 0).astype(np.uint8), None, iterations=2)
                         try:
-                            bubble_mask = build_bubble_mask_from_mangalens_result(
-                                detect_bubbles_with_mangalens(
-                                    ctx.img_rgb, return_annotated=False, verbose=False),
-                                ctx.img_rgb.shape[:2],
+                            self._prime_bubble_detection_cache(config, ctx)
+                            bubble_mask = erode_bubble_mask(
+                                ctx.bubble_mask,
                                 erode_ratio=MODEL_BUBBLE_SHRINK_RATIO,
                             )
                         except Exception as bubble_exc:
@@ -3359,6 +3379,7 @@ class MangaTranslator:
                 skip_font_scaling=skip_font_scaling,
                 skip_text_replacements=skip_text_replacements or bool(getattr(ctx, 'skip_text_replacements', False)),
                 render_alpha=render_alpha,
+                bubble_mask=ctx.bubble_mask,
             )
             
             # Handle debug image if returned
@@ -3397,6 +3418,7 @@ class MangaTranslator:
         if hasattr(ctx, 'img_rgb') and ctx.img_rgb is not None:
             del ctx.img_rgb
             ctx.img_rgb = None
+        ctx.bubble_mask = None
         if hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None:
             del ctx.img_inpainted
             ctx.img_inpainted = None
@@ -3843,6 +3865,7 @@ class MangaTranslator:
                             ctx.upscaled = ctx.input
                             
                             ctx.img_rgb, ctx.img_alpha = load_image(ctx.upscaled)
+                            ctx.bubble_mask = None
                             
                             # 验证加载的图片
                             if ctx.img_rgb is None or ctx.img_rgb.size == 0:
@@ -3858,7 +3881,7 @@ class MangaTranslator:
                                 # load_text 不跑 OCR；skip_font_scaling（编辑器授权布局）恒用
                                 # center_box 锚点，气泡蒙版不参与摆放，渲染侧也不消费气泡缓存。
                                 # 只有自动布局（balloon_fill/气泡内居中）或仍需蒙版精炼且开启
-                                # "膨胀限制在气泡内"时才预热。
+                                # 气泡范围优化时才预热。
                                 # 导入 YOLO 框且需要重新跑检测生成 mask 的场景，后续 _run_detection 会自行预热。
                                 mask_refinement_will_run = not (loaded_mask is not None and mask_is_refined)
                                 render_needs_bubble_cache = (
@@ -3869,11 +3892,14 @@ class MangaTranslator:
                                     )
                                 )
                                 needs_bubble_cache = render_needs_bubble_cache or (
-                                    bool(getattr(config.ocr, 'limit_mask_dilation_to_bubble_mask', False))
+                                    (
+                                        bool(getattr(config.ocr, 'limit_mask_dilation_to_bubble_mask', False))
+                                        or bool(getattr(config.ocr, 'use_model_bubble_repair_intersection', False))
+                                    )
                                     and mask_refinement_will_run
                                 )
                                 if needs_bubble_cache:
-                                    self._prime_bubble_detection_cache(config, ctx.img_rgb)
+                                    self._prime_bubble_detection_cache(config, ctx)
 
                             # 处理 mask
                             if editor_export_kind == 'source':
@@ -3886,21 +3912,14 @@ class MangaTranslator:
                             else:
                                 if import_yolo_labels:
                                     try:
-                                        detection_img_rgb = None
-                                        input_image = getattr(ctx, 'input', None)
-                                        if input_image is not None:
-                                            try:
-                                                detection_img_rgb, _ = load_image(input_image)
-                                            except Exception as original_load_err:
-                                                logger.warning(
-                                                    f"Load text mode: failed to load original image for mask detection, "
-                                                    f"falling back to current image ({original_load_err})"
-                                                )
-
                                         mask_ctx = Context()
-                                        mask_ctx.img_rgb = detection_img_rgb if detection_img_rgb is not None else ctx.img_rgb
+                                        # load_text uses the original image already; share its
+                                        # array so the bubble mask stays with the same context.
+                                        mask_ctx.img_rgb = ctx.img_rgb
+                                        mask_ctx.bubble_mask = ctx.bubble_mask
                                         mask_ctx.image_name = image_name
                                         _, generated_mask_raw, generated_mask = await self._run_detection(config, mask_ctx)
+                                        ctx.bubble_mask = mask_ctx.bubble_mask
                                         if generated_mask_raw is not None:
                                             ctx.mask_raw = generated_mask_raw
                                         if generated_mask is not None:
@@ -4594,6 +4613,7 @@ class MangaTranslator:
             logger.info("Pipeline: Detection → Fill Text → Textline Merge → Mask Refinement → Inpainting")
             
             ctx.img_rgb, ctx.img_alpha = load_image(ctx.upscaled)
+            ctx.bubble_mask = None
             
             # 验证加载的图片
             if ctx.img_rgb is None or ctx.img_rgb.size == 0:
@@ -4744,6 +4764,7 @@ class MangaTranslator:
             return ctx
 
         ctx.img_rgb, ctx.img_alpha = load_image(ctx.upscaled)
+        ctx.bubble_mask = None
         
         # 验证加载的图片
         if ctx.img_rgb is None or ctx.img_rgb.size == 0:

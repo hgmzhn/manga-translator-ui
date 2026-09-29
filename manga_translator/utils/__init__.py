@@ -9,7 +9,7 @@ from .mangalens_detector import (
     MangaLensBubbleDetector,
     build_bubble_mask_from_mangalens_result,
     detect_bubbles_with_mangalens,
-    get_cached_bubbles_with_mangalens,
+    erode_bubble_mask,
     get_mangalens_detector,
 )
 from .replace_translation import (

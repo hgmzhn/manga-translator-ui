@@ -103,6 +103,7 @@ async def dispatch(
     device: str = 'cpu',
     verbose: bool = False,
     runtime_config=None,
+    bubble_mask: Optional[np.ndarray] = None,
 ) -> List[Quadrilateral]:
     ocr = get_ocr(ocr_key)
     if isinstance(ocr, OfflineOCR):
@@ -116,8 +117,9 @@ async def dispatch(
             ocr_config,
             verbose,
             runtime_config=runtime_config,
+            bubble_mask=bubble_mask,
         )
-    return await ocr.recognize(image, regions, ocr_config, verbose)
+    return await ocr.recognize(image, regions, ocr_config, verbose, bubble_mask=bubble_mask)
 
 async def unload(ocr_key: Ocr):
     ocr = ocr_cache.pop(ocr_key, None)

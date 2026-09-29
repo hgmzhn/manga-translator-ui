@@ -13,40 +13,11 @@ from ..utils import (
     ModelWrapper,
     Quadrilateral,
     TextBlock,
-    build_bubble_mask_from_mangalens_result,
     calc_bbox_mask_overlap_ratio,
-    get_cached_bubbles_with_mangalens,
 )
 
 
 class CommonOCR(InfererModule):
-    def _get_model_bubble_mask(self, full_image: np.ndarray) -> np.ndarray:
-        """
-        Reads the precomputed bubble mask from cache.
-        """
-        cache_key = (id(full_image), full_image.shape[0], full_image.shape[1])
-        if getattr(self, '_model_bubble_cache_key', None) == cache_key:
-            return getattr(self, '_model_bubble_cache_mask', np.zeros(full_image.shape[:2], dtype=np.uint8))
-
-        try:
-            result = get_cached_bubbles_with_mangalens(full_image, return_annotated=False, verbose=False)
-            if result is None:
-                self.logger.warning("Model bubble filter cache miss, skip model gating for this image")
-                bubble_mask = np.zeros(full_image.shape[:2], dtype=np.uint8)
-            else:
-                bubble_mask = build_bubble_mask_from_mangalens_result(result, full_image.shape[:2])
-                detected = len(result.detections) if result is not None else 0
-                self.logger.info(
-                    f"Model bubble filter cache hit: detected {detected} bubbles, mask_pixels={int(np.count_nonzero(bubble_mask))}"
-                )
-        except Exception as e:
-            self.logger.warning(f"Model bubble filter cache read failed, fallback to heuristic filter: {e}")
-            bubble_mask = np.zeros(full_image.shape[:2], dtype=np.uint8)
-
-        self._model_bubble_cache_key = cache_key
-        self._model_bubble_cache_mask = bubble_mask
-        return bubble_mask
-
     def _generate_text_direction(self, bboxes: List[Union[Quadrilateral, TextBlock]]):
         if len(bboxes) > 0:
             if isinstance(bboxes[0], TextBlock):
@@ -78,7 +49,7 @@ class CommonOCR(InfererModule):
 
     def _should_ignore_region(self, region_img: np.ndarray, ignore_bubble: float, 
                               full_image: np.ndarray = None, textline: Quadrilateral = None,
-                              ocr_config: OcrConfig = None) -> bool:
+                              ocr_config: OcrConfig = None, bubble_mask: np.ndarray = None) -> bool:
         """
         通用的气泡过滤方法，判断文本区域是否应该被忽略
         
@@ -88,6 +59,7 @@ class CommonOCR(InfererModule):
             full_image: 完整图像（可选，用于高级方法）
             textline: 文本行对象（可选，用于获取坐标）
             ocr_config: OCR配置（可选，用于模型气泡过滤）
+            bubble_mask: 当前原图上下文中的气泡蒙版
             
         Returns:
             True: 应该忽略（非气泡区域）
@@ -101,12 +73,7 @@ class CommonOCR(InfererModule):
             bbox = textline.aabb
             text_bbox = (int(bbox.x), int(bbox.y), int(bbox.w), int(bbox.h))
 
-            bubble_mask = self._get_model_bubble_mask(full_image)
-            if np.count_nonzero(bubble_mask) == 0:
-                if not getattr(self, '_model_bubble_no_boxes_logged', False):
-                    self.logger.info("Model bubble filter: no bubble mask detected, skip model gating for this image")
-                    self._model_bubble_no_boxes_logged = True
-            else:
+            if bubble_mask is not None and np.count_nonzero(bubble_mask) > 0:
                 overlap_threshold = float(getattr(ocr_config, 'model_bubble_overlap_threshold', 0.1))
                 overlap_threshold = max(0.0, min(1.0, overlap_threshold))
                 overlap_ratio = calc_bbox_mask_overlap_ratio(text_bbox, bubble_mask)
@@ -126,22 +93,18 @@ class CommonOCR(InfererModule):
         # 否则使用简单方法
         return is_ignore(region_img, ignore_bubble)
 
-    async def recognize(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False) -> List[Quadrilateral]:
+    async def recognize(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False, bubble_mask: np.ndarray = None) -> List[Quadrilateral]:
         '''
         Performs the optical character recognition, using the `textlines` as areas of interests.
         Returns a `textlines` list with the `textline.text` property set to the detected text string.
         '''
-        # Reset per-image model bubble cache
-        self._model_bubble_cache_key = None
-        self._model_bubble_cache_mask = None
-        self._model_bubble_no_boxes_logged = False
         if bool(getattr(config, 'use_model_bubble_filter', False)):
             threshold = float(getattr(config, 'model_bubble_overlap_threshold', 0.1))
             self.logger.info(f"Model bubble filter enabled (overlap_threshold={threshold:.3f})")
-        return await self._recognize(image, textlines, config, verbose)
+        return await self._recognize(image, textlines, config, verbose, bubble_mask=bubble_mask)
 
     @abstractmethod
-    async def _recognize(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False) -> List[Quadrilateral]:
+    async def _recognize(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False, bubble_mask: np.ndarray = None) -> List[Quadrilateral]:
         pass
 
 
@@ -157,7 +120,7 @@ class OfflineOCR(CommonOCR, ModelWrapper):
         return result
 
     @abstractmethod
-    async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], args: OcrConfig, verbose: bool = False) -> List[Quadrilateral]:
+    async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], args: OcrConfig, verbose: bool = False, bubble_mask: np.ndarray = None) -> List[Quadrilateral]:
         pass
 
     def _cleanup_ocr_memory(self, *objects, force_gpu_cleanup: bool = False):

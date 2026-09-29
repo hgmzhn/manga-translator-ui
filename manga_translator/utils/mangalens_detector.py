@@ -5,7 +5,7 @@ import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -763,8 +763,6 @@ class MangaLensBubbleDetector(ModelWrapper):
 
 
 _default_detector: Optional[MangaLensBubbleDetector] = None
-_mangalens_result_cache: Dict[Tuple[Any, ...], BubbleDetectionResult] = {}
-_MANGALENS_RESULT_CACHE_MAX = 20
 
 
 def get_mangalens_detector(model_path: Optional[Union[str, Path]] = None) -> MangaLensBubbleDetector:
@@ -772,59 +770,6 @@ def get_mangalens_detector(model_path: Optional[Union[str, Path]] = None) -> Man
     if _default_detector is None:
         _default_detector = MangaLensBubbleDetector(model_path=model_path)
     return _default_detector
-
-
-def _normalize_cache_classes(classes: Any) -> Optional[Tuple[int, ...]]:
-    if classes is None:
-        return None
-    if isinstance(classes, np.ndarray):
-        classes = classes.tolist()
-    if isinstance(classes, (list, tuple, set)):
-        out = []
-        for c in classes:
-            try:
-                out.append(int(c))
-            except Exception:
-                continue
-        return tuple(sorted(out))
-    try:
-        return (int(classes),)
-    except Exception:
-        return None
-
-
-def _make_cache_image_key(image: ImageInput) -> Tuple[Any, ...]:
-    if isinstance(image, np.ndarray):
-        try:
-            ptr = int(image.__array_interface__['data'][0])
-        except Exception:
-            ptr = id(image)
-        return ("ndarray", ptr, tuple(image.shape), str(image.dtype), tuple(image.strides))
-    return ("path", str(image))
-
-
-def _make_mangalens_cache_key(
-    image: ImageInput,
-    model_path: Optional[Union[str, Path]],
-    kwargs: Dict[str, Any],
-) -> Tuple[Any, ...]:
-    return (
-        _make_cache_image_key(image),
-        str(model_path) if model_path is not None else None,
-        kwargs.get("imgsz", None),
-        kwargs.get("conf", None),
-        kwargs.get("iou", None),
-        kwargs.get("device", None),
-        _normalize_cache_classes(kwargs.get("classes", None)),
-    )
-
-
-def _put_cache(key: Tuple[Any, ...], value: BubbleDetectionResult):
-    _mangalens_result_cache[key] = value
-    # Keep cache bounded and simple.
-    while len(_mangalens_result_cache) > _MANGALENS_RESULT_CACHE_MAX:
-        oldest_key = next(iter(_mangalens_result_cache))
-        _mangalens_result_cache.pop(oldest_key, None)
 
 
 def build_bubble_mask_from_mangalens_result(
@@ -881,6 +826,16 @@ def build_bubble_mask_from_mangalens_result(
             if ix2 > ix1 and iy2 > iy1:
                 cv2.rectangle(mask, (ix1, iy1), (ix2, iy2), 255, -1)
 
+    return erode_bubble_mask(mask, erode_ratio, erode_per_component)
+
+
+def erode_bubble_mask(
+    mask: np.ndarray,
+    erode_ratio: float = 0.0,
+    erode_per_component: bool = True,
+) -> np.ndarray:
+    """Apply the existing erosion rules to the mask stored with the source image."""
+    h, w = mask.shape[:2]
     erode_ratio = max(float(erode_ratio), 0.0)
     if np.count_nonzero(mask) == 0 or erode_ratio == 0:
         return mask
@@ -912,24 +867,5 @@ def detect_bubbles_with_mangalens(
     model_path: Optional[Union[str, Path]] = None,
     **kwargs,
 ) -> BubbleDetectionResult:
-    use_cache = not bool(kwargs.get("return_annotated", False))
-    cache_key = _make_mangalens_cache_key(image, model_path, kwargs) if use_cache else None
-    if use_cache and cache_key is not None:
-        cached = _mangalens_result_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
     detector = get_mangalens_detector(model_path=model_path)
-    result = detector.detect(image, **kwargs)
-    if use_cache and cache_key is not None:
-        _put_cache(cache_key, result)
-    return result
-
-
-def get_cached_bubbles_with_mangalens(
-    image: ImageInput,
-    model_path: Optional[Union[str, Path]] = None,
-    **kwargs,
-) -> Optional[BubbleDetectionResult]:
-    cache_key = _make_mangalens_cache_key(image, model_path, kwargs)
-    return _mangalens_result_cache.get(cache_key)
+    return detector.detect(image, **kwargs)

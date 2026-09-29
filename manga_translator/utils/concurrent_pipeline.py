@@ -312,6 +312,7 @@ class ConcurrentPipeline:
 
                     # 统一转换为 numpy
                     ctx.img_rgb, ctx.img_alpha = load_image(ctx.upscaled)
+                    ctx.bubble_mask = None
                     
                     # 检查取消
                     self._check_cancelled_or_raise("检测+OCR", f"已处理 {idx}/{len(file_paths)} 张图片")

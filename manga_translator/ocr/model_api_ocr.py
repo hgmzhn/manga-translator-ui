@@ -181,10 +181,8 @@ class BaseAPIOCR(OfflineOCR):
         config: OcrConfig,
         verbose: bool = False,
         runtime_config=None,
+        bubble_mask: np.ndarray = None,
     ) -> List[Quadrilateral]:
-        self._model_bubble_cache_key = None
-        self._model_bubble_cache_mask = None
-        self._model_bubble_no_boxes_logged = False
         if bool(getattr(config, 'use_model_bubble_filter', False)):
             threshold = float(getattr(config, 'model_bubble_overlap_threshold', 0.1))
             self.logger.info(f"Model bubble filter enabled (overlap_threshold={threshold:.3f})")
@@ -194,6 +192,7 @@ class BaseAPIOCR(OfflineOCR):
             config,
             verbose,
             runtime_config=runtime_config,
+            bubble_mask=bubble_mask,
         )
 
     async def _load_color_model(self, device: str):
@@ -360,6 +359,7 @@ class BaseAPIOCR(OfflineOCR):
         config: OcrConfig,
         verbose: bool = False,
         runtime_config=None,
+        bubble_mask: np.ndarray = None,
     ) -> List[Quadrilateral]:
         text_height = 48
         ignore_bubble = config.ignore_bubble
@@ -380,7 +380,7 @@ class BaseAPIOCR(OfflineOCR):
             region_img = q.get_transformed_region(image, direction, text_height)
 
             if ignore_bubble > 0 or use_model_bubble_filter:
-                if self._should_ignore_region(region_img, ignore_bubble, image, q, config):
+                if self._should_ignore_region(region_img, ignore_bubble, image, q, config, bubble_mask=bubble_mask):
                     self.logger.info(
                         f"[FILTERED] Region {idx} ignored - Non-bubble area detected "
                         f"(ignore_bubble={ignore_bubble}, model_filter={use_model_bubble_filter})"

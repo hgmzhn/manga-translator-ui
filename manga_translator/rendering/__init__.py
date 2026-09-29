@@ -18,9 +18,7 @@ from ..config import Config, Renderer
 from ..utils import (
     TextBlock,
     build_region_reference_mask as _build_region_reference_mask,
-    build_bubble_mask_from_mangalens_result,
     fg_bg_compare,
-    get_cached_bubbles_with_mangalens,
     get_logger,
     rotate_polygons,
 )
@@ -1287,6 +1285,7 @@ def resize_regions_to_font_size(
     return_debug_img: bool = False,
     skip_font_scaling: bool = False,
     skip_text_replacements: bool = False,
+    bubble_mask: Optional[np.ndarray] = None,
 ):
     """
     Resize text regions based on layout mode.
@@ -1318,16 +1317,14 @@ def resize_regions_to_font_size(
     # 仅 verbose 调试图仍需要蒙版做可视化
     if mode == 'balloon_fill' and original_img is not None and (not skip_font_scaling or return_debug_img):
         try:
-            model_result = get_cached_bubbles_with_mangalens(original_img, return_annotated=False, verbose=False)
-            if model_result is None:
-                logger.warning("balloon_fill bubble cache miss, skip global bubble mask")
+            if bubble_mask is None:
+                logger.warning("balloon_fill image context has no bubble mask, skip global bubble mask")
                 balloon_fill_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
             else:
-                balloon_fill_mask = build_bubble_mask_from_mangalens_result(model_result, original_img.shape[:2])
+                balloon_fill_mask = bubble_mask
                 mask_pixels = int(np.count_nonzero(balloon_fill_mask))
-                detected = len(model_result.detections)
                 logger.debug(
-                    f"balloon_fill model mask prepared from cache: detections={detected}, mask_pixels={mask_pixels}"
+                    f"balloon_fill mask from image context: mask_pixels={mask_pixels}"
                 )
                 if mask_pixels == 0 and debug_img is not None:
                     logger.warning("balloon_fill global bubble mask is empty (mask_pixels=0), blue overlay will not be visible")
@@ -1349,11 +1346,11 @@ def resize_regions_to_font_size(
                         if contours:
                             cv2.drawContours(debug_img, contours, -1, (255, 0, 0), 2)
         except Exception as exc:
-            logger.warning(f"balloon_fill bubble cache read failed, skip global bubble mask: {exc}")
+            logger.warning(f"balloon_fill bubble mask preparation failed, skip global bubble mask: {exc}")
             balloon_fill_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
             balloon_fill_label_map = None
 
-    # Bubble mask for center_text_in_bubble: reuse balloon_fill_mask or try mangalens cache
+    # Bubble mask for center_text_in_bubble: reuse the mask passed from the image context.
     # （skip_font_scaling 时锚点固定为 center_box，气泡居中不生效，不做无谓的蒙版构建）
     center_check_mask = balloon_fill_mask
     center_check_label_map = balloon_fill_label_map
@@ -1364,9 +1361,8 @@ def resize_regions_to_font_size(
         and not skip_font_scaling
     ):
         try:
-            _cr = get_cached_bubbles_with_mangalens(original_img, return_annotated=False, verbose=False)
-            if _cr is not None:
-                center_check_mask = build_bubble_mask_from_mangalens_result(_cr, original_img.shape[:2])
+            if bubble_mask is not None:
+                center_check_mask = bubble_mask
                 if center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
                     _, center_check_label_map = cv2.connectedComponents(
                         np.where(center_check_mask > 0, 1, 0).astype(np.uint8), connectivity=8
@@ -2396,6 +2392,7 @@ async def dispatch(
     skip_font_scaling: bool = False,
     skip_text_replacements: bool = False,
     render_alpha: Optional[np.ndarray] = None,
+    bubble_mask: Optional[np.ndarray] = None,
     ):
 
     if config is None:
@@ -2435,6 +2432,7 @@ async def dispatch(
         return_debug_img,
         skip_font_scaling=skip_font_scaling,
         skip_text_replacements=skip_text_replacements,
+        bubble_mask=bubble_mask,
     )
     sync_translation_raw_from_layout(
         text_regions,
@@ -2466,6 +2464,7 @@ async def dispatch(
             False,
             skip_font_scaling=skip_font_scaling,
             skip_text_replacements=True,
+            bubble_mask=bubble_mask,
         )
         for index, points, region in zip(automatic_rich_indices, automatic_points, automatic_regions):
             dst_points_list[index] = points

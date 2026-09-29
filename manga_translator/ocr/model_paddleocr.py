@@ -295,7 +295,7 @@ class ModelPaddleOCR(OfflineOCR):
         return ['<blank>'] + chars
 
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral],
-                     config: OcrConfig, verbose: bool = False, q=None) -> List[Quadrilateral]:
+                     config: OcrConfig, verbose: bool = False, q=None, bubble_mask: np.ndarray = None) -> List[Quadrilateral]:
         """
         Perform OCR on detected text regions.
 
@@ -346,7 +346,7 @@ class ModelPaddleOCR(OfflineOCR):
                     ratio = w / float(h)
                     resized_w = int(math.ceil(48 * ratio))
                     region_48px = cv2.resize(region, (resized_w, 48))
-                    if self._should_ignore_region(region_48px, ignore_bubble, image, textline, config):
+                    if self._should_ignore_region(region_48px, ignore_bubble, image, textline, config, bubble_mask=bubble_mask):
                         self.logger.info(f'[FILTERED] Region {i} ignored - Non-bubble area detected (ignore_bubble={ignore_bubble}, model_filter={use_model_bubble_filter})')
                         continue
 
