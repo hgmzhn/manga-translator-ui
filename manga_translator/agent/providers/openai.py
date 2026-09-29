@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import traceback
+import weakref
 from contextlib import aclosing
 from typing import TYPE_CHECKING, AsyncIterator, Callable, cast
 
@@ -25,8 +26,9 @@ logger = logging.getLogger(__name__)
 class OpenAIResponsesBackend:
     """Stream Responses text; construction never imports the SDK or connects.
 
-    Each stream owns its client and closes it on success, failure, or
-    cancellation. Credentials and the model are supplied by the caller, not
+    Each manager/chat stream owns its client. Delegated pages share a separate
+    host-owned client until clear_runtime/aclose or workspace runtime.close.
+    Credentials and the model are supplied by the caller, not
     discovered from the application's translation settings or environment.
     """
 
@@ -41,6 +43,7 @@ class OpenAIResponsesBackend:
         on_debug_event: Callable[[dict], None] | None = None,
         reasoning_effort: str | None = None,
         on_thinking: Callable[[str], None] | None = None,
+        agent_role: str = "page",
     ) -> None:
         if not isinstance(api_key, str):
             raise TypeError("api_key must be a string")
@@ -68,6 +71,86 @@ class OpenAIResponsesBackend:
             reasoning_effort.strip() if reasoning_effort is not None else None
         )
         self._on_thinking = on_thinking
+        if agent_role not in {"page", "manager"}:
+            raise ValueError("agent_role must be page or manager")
+        self._agent_role = agent_role
+        self._page_runtimes = {}
+        self._closed = False
+
+    async def clear_runtime(self, tool_context: ToolContext | None = None) -> None:
+        """Join delegated work and close its transport; allow later new turns."""
+        selected = [
+            (key, context, runtime)
+            for key, (context, runtime) in self._page_runtimes.items()
+            if tool_context is None or (
+                context.workspace is tool_context.workspace and context.task_id == tool_context.task_id
+            )
+        ]
+        if selected:
+            await asyncio.gather(*(runtime.close() for _, _, runtime in selected))
+        for key, context, runtime in selected:
+            entry = self._page_runtimes.get(key)
+            if entry is not None and entry[1] is runtime:
+                self._page_runtimes.pop(key)
+            if context.runtime is runtime:
+                context.runtime = None
+            if tool_context is not None and tool_context.runtime is runtime:
+                tool_context.runtime = None
+
+    async def aclose(self) -> None:
+        """Permanently close this backend after the host cancels active streams."""
+        self._closed = True
+        await self.clear_runtime()
+
+    async def _ensure_page_runtime(self, context: ToolContext, settings: dict) -> None:
+        from ..application.page_runtime_host import create_page_runtime
+
+        if self._closed:
+            raise RuntimeError("Agent backend is closed")
+        if context.cancelled.is_set():
+            raise asyncio.CancelledError("Agent workspace was closed")
+        # Explicitly supplied host runtimes retain ownership of their models.
+        if context.runtime is not None and not getattr(context.runtime, "closed", False):
+            return
+        if context.runtime is not None:
+            await context.runtime.close()
+        if self._closed or context.cancelled.is_set():
+            raise asyncio.CancelledError("Agent workspace was closed")
+        key = (id(context.workspace), context.task_id)
+        previous = self._page_runtimes.get(key)
+        if previous is not None and not previous[1].closed:
+            context.runtime = previous[1]
+            return
+        backend_ref = weakref.ref(self)
+        context_ref = weakref.ref(context)
+
+        def retire(runtime):
+            # A preview reload may close the runtime without going through
+            # this backend. Drop its strong workspace reference in that path.
+            backend = backend_ref()
+            if backend is not None:
+                entry = backend._page_runtimes.get(key)
+                if entry is not None and entry[1] is runtime:
+                    backend._page_runtimes.pop(key)
+            parent = context_ref()
+            if parent is not None and parent.runtime is runtime:
+                parent.runtime = None
+
+        runtime = await create_page_runtime(
+            api_key=self._api_key, model=self._model, base_url=self._base_url,
+            timeout=self._timeout, model_settings=settings, on_debug_event=self._on_debug_event,
+            on_closed=retire,
+        )
+        if self._closed or context.cancelled.is_set():
+            await runtime.close()
+            raise asyncio.CancelledError("Agent workspace was closed")
+        context.runtime = runtime
+        self._page_runtimes[key] = (context, runtime)
+
+    def set_agent_role(self, role: str) -> None:
+        if role not in {"page", "manager"}:
+            raise ValueError("agent_role must be page or manager")
+        self._agent_role = role
 
     def set_thinking_observer(
         self, observer: Callable[[str], None] | None
@@ -83,9 +166,12 @@ class OpenAIResponsesBackend:
         message_history: list[ModelMessage],
         tool_context: ToolContext | None = None,
     ) -> AsyncIterator[str | ChatActivity | ChatCanvas | ChatTurnResult]:
+        if self._closed:
+            raise RuntimeError("Agent backend is closed")
         trace = ContextTrace(self._on_debug_event, secret=self._api_key)
         trace.add("turn_start", {
             "model": self._model, "task_id": tool_context.task_id if tool_context is not None else "chat",
+            "agent_role": self._agent_role,
             "text": text, "images": images, "message_history": message_history,
         })
         try:
@@ -128,17 +214,18 @@ class OpenAIResponsesBackend:
             ThinkingPartDelta,
             ToolReturnPart,
         )
-        from pydantic_ai.models.openai import (
-            OpenAIResponsesModel,
-            OpenAIResponsesModelSettings,
-        )
-        from pydantic_ai.providers.openai import OpenAIProvider
+        from pydantic_ai.models.openai import OpenAIResponsesModelSettings
         from pydantic_ai.usage import UsageLimits
 
         from ...utils.system_proxy import openai_http_client_kwargs
         from ..agents.chat import canvas_from_tool_result, create_agent, empty_context
+        from ..agents.manager import create_agent as create_manager_agent
+        from ..agents.manager import empty_context as empty_manager_context
+        from .responses import create_responses_model
 
-        context = tool_context if tool_context is not None else empty_context()
+        context = tool_context if tool_context is not None else (
+            empty_manager_context() if self._agent_role == "manager" else empty_context()
+        )
         logger.info("Agent turn started: model=%s task=%s history=%d images=%d",
                     self._model, context.task_id, len(message_history), len(images))
 
@@ -180,12 +267,10 @@ class OpenAIResponsesBackend:
             api_key=self._api_key,
             base_url=self._base_url,
             timeout=self._timeout,
-            max_retries=0,
+            max_retries=1,
             **client_options,
         ) as client:
-            model = OpenAIResponsesModel(
-                self._model, provider=OpenAIProvider(openai_client=client)
-            )
+            model = create_responses_model(self._model, client=client)
             settings = OpenAIResponsesModelSettings(
                 openai_store=False, openai_reasoning_summary="auto"
             )
@@ -193,7 +278,10 @@ class OpenAIResponsesBackend:
                 settings["openai_reasoning_effort"] = cast(
                     ReasoningEffort, self._reasoning_effort
                 )
-            agent = create_agent(model, model_settings=settings)
+            if self._agent_role == "manager":
+                await self._ensure_page_runtime(context, settings)
+            agent_factory = create_manager_agent if self._agent_role == "manager" else create_agent
+            agent = agent_factory(model, model_settings=settings, trace=trace)
             agent.instrument = False
             has_text = False
             thinking_parts: dict[tuple[int, int], str] = {}

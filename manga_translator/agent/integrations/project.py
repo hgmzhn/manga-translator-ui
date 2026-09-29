@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
+from ..context.text_replacements import normalize_translation
+
 MAX_ASSET_BYTES = 128 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_PROJECT_BYTES = 64 * 1024 * 1024
@@ -127,6 +129,9 @@ def load_project_page(
             seen.add(region_id)
             region.update(region_id=region_id, version=1)
             region.setdefault("translation_raw", region.get("translation", ""))
+            region["translation"] = normalize_translation(
+                region.get("translation_raw") or "", region.get("direction", "h")
+            )
             region["ocr_status"] = (
                 "available" if region.get("texts") or region.get("text") else "missing"
             )

@@ -40,6 +40,7 @@ class ImagePasteTextEdit(PlainTextEdit):
                 return
         finally:
             buffer.close()
+        # Compression belongs to the model request; previews retain the PNG.
         self.image_pasted.emit(bytes(data), image.width(), image.height())
 
 

@@ -10,8 +10,10 @@ import threading
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -21,6 +23,9 @@ if TYPE_CHECKING:
 
 _TERMINAL = frozenset({"completed", "conflict", "failed", "cancelled"})
 _STATUSES = ("queued", "running", "completed", "conflict", "failed", "cancelled")
+# HTTP hooks on the host-owned child client resolve the currently executing
+# child, never the manager turn that happened to create that client.
+current_page_trace: ContextVar[Any] = ContextVar("current_page_trace", default=None)
 
 
 class _CancellationEvent(threading.Event):
@@ -39,12 +44,16 @@ class _PageTask:
     task_id: str
     parent: ToolContext
     context: ToolContext
-    page_id: str
-    work_id: str
-    chapter_id: str
-    base_revision: int
-    policy_version: int
+    page_ids: list[str]
+    pages: list[dict[str, Any]]
+    work_ids: dict[str, str]
+    chapter_ids: dict[str, str | None]
+    base_revisions: dict[str, int]
+    policy_versions: dict[str, int]
+    editable_regions: dict[str, list[str] | Literal["all"]]
+    editable_region_numbers: dict[str, list[int] | Literal["all"]]
     requirements: str
+    trace: Any = None
     status: str = "queued"
     result: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
@@ -56,10 +65,12 @@ class _PageTask:
 
 
 class PageTaskRuntime:
-    """One asyncio-loop runtime; no credentials or model configuration discovery.
+    """Schedule one child Agent per assignment group on one asyncio loop.
 
     Supply exactly one configured native Model or model_factory(child_context).
     A factory may be async; any returned Model/client remains host-owned.
+    One revise_pages call creates one task spanning all supplied pages;
+    concurrency and pending limits count tasks, never individual pages.
     close() cancels and joins all executions, but does not close shared models,
     the renderer, or the workspace. Host cancellation is available through
     cancel_tasks(); a small monitor bridges inherited threading.Event signals
@@ -73,6 +84,9 @@ class PageTaskRuntime:
         model_factory: Callable[[ToolContext], Model | Awaitable[Model]] | None = None,
         max_concurrency: int = 4,
         max_pending: int = 128,
+        model_settings: dict | None = None,
+        on_debug_event: Callable[[dict], None] | None = None,
+        debug_secret: str = "",
     ) -> None:
         if (model is None) == (model_factory is None):
             raise ValueError("Supply exactly one model or model_factory")
@@ -90,6 +104,54 @@ class PageTaskRuntime:
         self._commands: dict[tuple[int, str, str], tuple[str, list[str]]] = {}
         self._monitor: asyncio.Task[None] | None = None
         self._closed = False
+        self._model_settings = dict(model_settings or {})
+        self._on_debug_event = on_debug_event
+        self._debug_secret = debug_secret
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _make_trace(self, record: _PageTask):
+        from ..providers.request_debug import ContextTrace
+
+        observer = self._on_debug_event
+
+        def publish(event):
+            observer({**event, "data": {
+                **record.trace.snapshot(self._scope(record)),
+                **event["data"], "agent_role": "page",
+                "task_id": record.task_id, "parent_task_id": record.parent.task_id,
+            }})
+
+        return ContextTrace(publish if observer is not None else None, secret=self._debug_secret)
+
+    def _emit_status(self, record: _PageTask) -> None:
+        from ..tools.builtin.shared import public_payload
+
+        record.trace.add("task_status", public_payload(record.context, self._item(record)))
+
+    @staticmethod
+    def _scope(record: _PageTask) -> dict:
+        scope = {
+            "pages": record.pages,
+            "assignments": [
+                {
+                    "page": page,
+                    "editable_regions": record.editable_region_numbers[page_id],
+                }
+                for page_id, page in zip(record.page_ids, record.pages)
+            ],
+        }
+        # A multi-page task has no single current/primary page. These aliases
+        # remain only for consumers displaying genuinely single-page tasks.
+        if len(record.page_ids) == 1:
+            page_id = record.page_ids[0]
+            scope.update(
+                page=record.pages[0],
+                editable_regions=record.editable_region_numbers[page_id],
+            )
+        return scope
 
     @staticmethod
     def _allowed(grant: Any, permission: str, page_id: str) -> bool:
@@ -100,10 +162,10 @@ class PageTaskRuntime:
         return True
 
     @staticmethod
-    def _regions_allowed(grant: Any, page_id: str, regions: set[str]) -> bool:
+    def _regions_allowed(grant: Any, page_id: str, regions: set[str] | Literal["all"]) -> bool:
         while grant is not None:
             allowed = grant.region_ids.get(page_id)
-            if allowed is not None and not regions <= allowed:
+            if allowed is not None and (regions == "all" or not regions <= allowed):
                 return False
             grant = grant.parent
         return True
@@ -113,14 +175,24 @@ class PageTaskRuntime:
         from ..domain.tool_models import ToolError
 
         grant = record.context.grant
-        regions = grant.region_ids[record.page_id]
-        if not cls._regions_allowed(grant, record.page_id, regions):
-            raise ToolError("permission_denied", "委派区域授权已撤销")
-        for permission in ("layout_pages", "translation_pages", "geometry_pages"):
-            if record.page_id in getattr(grant, permission) and not cls._allowed(
-                grant, permission, record.page_id
-            ):
-                raise ToolError("permission_denied", "委派页面修改权限已撤销")
+        for page_id in record.page_ids:
+            assignment = record.editable_regions[page_id]
+            regions = "all" if assignment == "all" else set(assignment)
+            if not cls._regions_allowed(grant, page_id, regions):
+                raise ToolError("permission_denied", "委派区域授权已撤销")
+            for permission in ("layout_pages", "translation_pages", "geometry_pages"):
+                if page_id in getattr(grant, permission) and not cls._allowed(
+                    grant, permission, page_id
+                ):
+                    raise ToolError("permission_denied", "委派页面修改权限已撤销")
+
+    @classmethod
+    def _check_initial_versions(cls, record: _PageTask) -> None:
+        for page_id in record.page_ids:
+            snapshot = record.context.workspace.page(record.context, page_id)
+            cls._check_versions(
+                snapshot, record.base_revisions[page_id], record.policy_versions[page_id]
+            )
 
     @staticmethod
     def _check_versions(snapshot: dict, revision: int, policy_version: int) -> None:
@@ -144,7 +216,7 @@ class PageTaskRuntime:
         ctx: ToolContext,
         page_ids: list[str],
         requirements: str,
-        editable_regions: dict[str, list[str]],
+        editable_regions: dict[str, list[str] | Literal["all"]],
         policy_versions: dict[str, int],
         base_revisions: dict[str, int],
         command_id: str,
@@ -161,8 +233,8 @@ class PageTaskRuntime:
             or not requirements.strip()
         ):
             raise ToolError("invalid_request", "要求和命令 ID 不能为空")
-        if not page_ids or len(page_ids) != len(set(page_ids)):
-            raise ToolError("invalid_scope", "页面列表不能为空且不能重复")
+        if not 1 <= len(page_ids) <= 16 or len(page_ids) != len(set(page_ids)):
+            raise ToolError("invalid_scope", "每个任务必须指定 1 至 16 个不重复页面")
         targets = set(page_ids)
         if any(
             set(mapping) != targets
@@ -183,7 +255,7 @@ class PageTaskRuntime:
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        command_key = (id(ctx.workspace), ctx.task_id, command_id)
+        command_key = (id(ctx.workspace), ctx.command_scope_id, command_id)
         previous = self._commands.get(command_key)
         if previous is not None:
             if previous[0] != fingerprint:
@@ -193,17 +265,19 @@ class PageTaskRuntime:
             records = self._owned(ctx, previous[1])
             for record in records:
                 self._check_permissions(record)
-                if not self._regions_allowed(
-                    ctx.grant, record.page_id, set(editable_regions[record.page_id])
-                ):
-                    raise ToolError("permission_denied", "可编辑区域授权已撤销")
+                for page_id in record.page_ids:
+                    if not self._regions_allowed(
+                        ctx.grant, page_id,
+                        "all" if editable_regions[page_id] == "all" else set(editable_regions[page_id])
+                    ):
+                        raise ToolError("permission_denied", "可编辑区域授权已撤销")
             return {
                 "task_ids": previous[1].copy(),
                 "status": "accepted",
                 "replayed": True,
             }
         active = sum(task.status not in _TERMINAL for task in self._tasks.values())
-        if active + len(page_ids) > self._max_pending:
+        if active + 1 > self._max_pending:
             raise ToolError(
                 "capacity_exceeded",
                 "页面任务队列已满",
@@ -211,15 +285,20 @@ class PageTaskRuntime:
             )
 
         # Admission has no awaits: all pages are checked before any is scheduled.
-        prepared: list[_PageTask] = []
+        snapshots = {}
+        pages = []
+        region_ids = {}
         for page_id in page_ids:
             snapshot = ctx.workspace.page(ctx, page_id)
             self._check_versions(
                 snapshot, base_revisions[page_id], policy_versions[page_id]
             )
-            regions = set(editable_regions[page_id])
+            assignment = editable_regions[page_id]
+            if assignment != "all" and not isinstance(assignment, list):
+                raise ToolError("invalid_scope", "可编辑范围必须是区域列表或 all")
+            regions = "all" if assignment == "all" else set(assignment)
             actual = {region["region_id"] for region in snapshot["regions"]}
-            if len(regions) != len(editable_regions[page_id]) or not regions <= actual:
+            if regions != "all" and (len(regions) != len(assignment) or not regions <= actual):
                 raise ToolError("invalid_scope", "可编辑区域不存在或重复")
             if not self._regions_allowed(ctx.grant, page_id, regions):
                 raise ToolError("permission_denied", "委派区域超出父任务授权")
@@ -232,57 +311,58 @@ class PageTaskRuntime:
                 )
             ):
                 raise ToolError("permission_denied", "父任务没有目标页修改权限")
-            work_id = snapshot["work_id"]
-            grant = AccessGrant(
-                layout_pages={page_id}
-                if regions and self._allowed(ctx.grant, "layout_pages", page_id)
-                else set(),
-                translation_pages={page_id}
-                if regions and self._allowed(ctx.grant, "translation_pages", page_id)
-                else set(),
-                geometry_pages={page_id}
-                if regions and self._allowed(ctx.grant, "geometry_pages", page_id)
-                else set(),
-                style_scopes=set(),
-                region_ids={page_id: regions},
-                parent=ctx.grant,
-            )
-            task_id = uuid.uuid4().hex
-            child = replace(
-                ctx,
-                task_id=task_id,
-                grant=grant,
-                cancelled=_CancellationEvent(ctx.cancelled),
-                observed_revisions={},
-                read_snapshots={},
-                read_policies={},
-                command_payloads={},
-                transaction_results={},
-                runtime=self,
-            )
-            prepared.append(
-                _PageTask(
-                    task_id=task_id,
-                    parent=ctx,
-                    context=child,
-                    page_id=page_id,
-                    work_id=work_id,
-                    chapter_id=snapshot["chapter_id"],
-                    base_revision=base_revisions[page_id],
-                    policy_version=policy_versions[page_id],
-                    requirements=requirements,
-                )
-            )
-        ids = [record.task_id for record in prepared]
+            snapshots[page_id] = snapshot
+            pages.append(dict(ctx.workspace.public_identity(page_id)))
+            if regions != "all":
+                region_ids[page_id] = regions
+
+        def granted_pages(permission: str) -> set[str]:
+            return {
+                page_id for page_id in page_ids
+                if (editable_regions[page_id] == "all" or region_ids[page_id])
+                and self._allowed(ctx.grant, permission, page_id)
+            }
+
+        grant = AccessGrant(
+            layout_pages=granted_pages("layout_pages"),
+            translation_pages=granted_pages("translation_pages"),
+            geometry_pages=granted_pages("geometry_pages"),
+            style_scopes=set(), region_ids=region_ids, parent=ctx.grant,
+        )
+        task_id = uuid.uuid4().hex
+        child = replace(
+            ctx, task_id=task_id, grant=grant,
+            task_page_ids=list(page_ids), command_generation="",
+            cancelled=_CancellationEvent(ctx.cancelled),
+            observed_revisions={}, read_snapshots={}, read_policies={},
+            command_payloads={}, resolved_edit_commands={}, transaction_results={}, runtime=self,
+        )
+        record = _PageTask(
+            task_id=task_id, parent=ctx, context=child,
+            page_ids=list(page_ids), pages=pages,
+            work_ids={pid: snapshots[pid]["work_id"] for pid in page_ids},
+            chapter_ids={pid: snapshots[pid]["chapter_id"] for pid in page_ids},
+            base_revisions=dict(base_revisions), policy_versions=dict(policy_versions),
+            editable_regions={
+                pid: "all" if editable_regions[pid] == "all" else sorted(region_ids[pid])
+                for pid in page_ids
+            },
+            editable_region_numbers={
+                pid: "all" if editable_regions[pid] == "all" else [
+                    number for number, region in enumerate(snapshots[pid]["regions"], 1)
+                    if region["region_id"] in region_ids[pid]
+                ]
+                for pid in page_ids
+            },
+            requirements=requirements,
+        )
+        ids = [task_id]
         self._commands[command_key] = (fingerprint, ids)
-        for record in prepared:
-            self._tasks[record.task_id] = record
-            record.future = asyncio.create_task(
-                self._execute(record), name=f"manga-page-{record.task_id}"
-            )
-            record.future.add_done_callback(
-                lambda future, item=record: self._settle(item, future)
-            )
+        self._tasks[task_id] = record
+        record.trace = self._make_trace(record)
+        self._emit_status(record)
+        record.future = asyncio.create_task(self._execute(record), name=f"manga-page-{task_id}")
+        record.future.add_done_callback(lambda future: self._settle(record, future))
         if self._monitor is None or self._monitor.done():
             self._monitor = asyncio.create_task(
                 self._watch_cancellation(), name="manga-page-cancellation"
@@ -293,44 +373,52 @@ class PageTaskRuntime:
         from ..agents.page import run
         from ..domain.tool_models import ToolError
 
+        trace_token = current_page_trace.set(record.trace)
         try:
             async with self._semaphore:
                 if record.context.cancelled.is_set():
                     raise asyncio.CancelledError
                 self._check_permissions(record)
-                snapshot = record.context.workspace.page(record.context, record.page_id)
-                self._check_versions(
-                    snapshot, record.base_revision, record.policy_version
-                )
+                self._check_initial_versions(record)
                 record.status = "running"
                 record.started_at = time.time()
+                self._emit_status(record)
                 model = self._model
                 if self._model_factory is not None:
                     model = self._model_factory(record.context)
                     if inspect.isawaitable(model):
                         model = await model
                 # A slow factory cannot silently move the initial version boundary.
-                snapshot = record.context.workspace.page(record.context, record.page_id)
-                self._check_versions(
-                    snapshot, record.base_revision, record.policy_version
+                self._check_permissions(record)
+                self._check_initial_versions(record)
+                result = await run(
+                    record.context, record.requirements, model,
+                    model_settings=self._model_settings,
+                    trace=record.trace,
                 )
-                result = await run(record.context, record.requirements, model)
                 if record.context.cancelled.is_set():
                     raise asyncio.CancelledError
-                current = record.context.workspace.page(record.context, record.page_id)
                 self._check_permissions(record)
-                observed = record.context.observed_revisions.get(record.page_id)
-                if observed is None:
-                    raise ToolError("unobserved_revision", "最终页面未经本页面任务观察")
-                self._check_versions(current, observed, record.policy_version)
-                identity = record.context.workspace.public_identity(record.page_id)
-                if result.id != identity["id"]:
-                    raise ToolError("invalid_result", "页面结果引用了其他页面")
-                record.result = {
-                    **result.model_dump(),
-                    "page_id": record.page_id,
-                    "revision": current["revision"],
-                }
+                outputs = {page.id: page for page in result.pages}
+                if (len(outputs) != len(result.pages)
+                        or set(outputs) != {page["id"] for page in record.pages}):
+                    raise ToolError("invalid_result", "任务结果必须完整且不重复地包含全部委派页面")
+                accepted = []
+                # Accept the task only after every page passes. Earlier draft
+                # writes remain in the workspace even when a later page fails.
+                for page_id, identity in zip(record.page_ids, record.pages):
+                    current = record.context.workspace.page(record.context, page_id)
+                    observed = record.context.observed_revisions.get(page_id)
+                    if observed is None:
+                        raise ToolError(
+                            "unobserved_revision", "最终页面未经本任务观察", {"page": identity}
+                        )
+                    self._check_versions(current, observed, record.policy_versions[page_id])
+                    accepted.append({
+                        **outputs[identity["id"]].model_dump(),
+                        "page_id": page_id, "revision": current["revision"],
+                    })
+                record.result = {"pages": accepted}
                 record.status = "completed"
         except asyncio.CancelledError:
             record.context.cancelled.set()
@@ -353,7 +441,10 @@ class PageTaskRuntime:
                 "message": error.message,
                 "details": error.details,
             }
-        except Exception:
+        except Exception as error:
+            record.trace.add("error", {
+                "exception_type": type(error).__name__, "message": str(error),
+            })
             # Provider exceptions can contain credentials, request bodies or host
             # paths. Only a stable safe error crosses the model tool boundary.
             record.status = "failed"
@@ -362,11 +453,13 @@ class PageTaskRuntime:
                 "message": "页面模型执行失败，未产生可接受结果",
             }
         finally:
+            record.trace.finish_response("interrupted" if record.status != "completed" else "complete")
             record.finished_at = time.time()
+            self._emit_status(record)
             record.done.set()
+            current_page_trace.reset(trace_token)
 
-    @staticmethod
-    def _settle(record: _PageTask, future: asyncio.Task[None]) -> None:
+    def _settle(self, record: _PageTask, future: asyncio.Task[None]) -> None:
         # Cancelling before the coroutine's first instruction skips its finally.
         if not record.done.is_set():
             if future.cancelled():
@@ -383,6 +476,7 @@ class PageTaskRuntime:
                     "message": "页面执行初始化失败",
                 }
             record.finished_at = time.time()
+            self._emit_status(record)
             record.done.set()
 
     async def _watch_cancellation(self) -> None:
@@ -474,24 +568,20 @@ class PageTaskRuntime:
             "next_cursor": f"{selection}:{end}" if end < len(records) else None,
         }
 
-    @staticmethod
-    def _item(record: _PageTask) -> dict:
-        return {
+    @classmethod
+    def _item(cls, record: _PageTask) -> dict:
+        return deepcopy({
+            **cls._scope(record),
             "task_id": record.task_id,
-            "page_id": record.page_id,
-            "work_id": record.work_id,
-            "chapter_id": record.chapter_id,
+            "parent_task_id": record.parent.task_id,
             "status": record.status,
-            "base_revision": record.base_revision,
-            "policy_version": record.policy_version,
-            "result": None
-            if record.result is None
-            else {**record.result, "issues": record.result["issues"].copy()},
-            "error": None if record.error is None else record.error.copy(),
+            "requirements": record.requirements,
+            "result": record.result,
+            "error": record.error,
             "created_at": record.created_at,
             "started_at": record.started_at,
             "finished_at": record.finished_at,
-        }
+        })
 
     async def cancel_tasks(
         self, ctx: ToolContext, task_ids: list[str] | None = None

@@ -58,7 +58,7 @@ class WorkspaceCommands:
 
     def _mutate(self, ctx, page, region, edit):
         if region.get("locked") or region.get("is_locked"):
-            raise ToolError("region_locked", f"Region {region['region_id']} is locked")
+            raise ToolError("region_locked", "目标文本框已锁定")
         if isinstance(edit, DeleteRegion):
             page["regions"].remove(region)
         elif isinstance(edit, SetRegionStyle):
@@ -68,6 +68,8 @@ class WorkspaceCommands:
                     "invalid_patch", "Region style patch must contain non-null values"
                 )
             region.update(patch)
+            if "direction" in patch:
+                text.refresh_translation(region)
         elif isinstance(edit, SetGeometry):
             patch = _patch(edit.geometry)
             if (
@@ -178,7 +180,7 @@ class WorkspaceCommands:
                 if self._region(page, rid)["version"] != expected_versions[rid]:
                     raise ToolError(
                         "version_conflict",
-                        f"Region {rid} changed",
+                        "目标文本框已变化，请重新读取后再编辑",
                         {
                             "region_id": rid,
                             "actual_version": self._region(page, rid)["version"],

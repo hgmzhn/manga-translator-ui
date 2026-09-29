@@ -37,6 +37,12 @@ def compact_edit_schema(schema):
             required = result.setdefault("required", [])
             if name not in required:
                 required.append(name)
+    properties = result.get("properties", {})
+    if "region_no" in properties and "region_id" in properties:
+        properties.pop("region_id")
+        required = result.setdefault("required", [])
+        if "region_no" not in required:
+            required.append("region_no")
     return result
 
 
@@ -53,8 +59,8 @@ async def prepare_edit(ctx, definition):
 
 def create_edit_tools():
     return [
-        Tool(edit_regions, sequential=True, prepare=prepare_edit, max_retries=2),
-        Tool(create_regions, sequential=True, prepare=prepare_edit, max_retries=2),
-        Tool(delete_regions, sequential=True, prepare=prepare_edit, max_retries=2),
-        Tool(edit_rich_text, sequential=True, prepare=prepare_edit, max_retries=2, defer_loading=True),
+        Tool(edit_regions, sequential=True, prepare=prepare_edit, max_retries=1),
+        Tool(create_regions, sequential=True, prepare=prepare_edit, max_retries=1),
+        Tool(delete_regions, sequential=True, prepare=prepare_edit, max_retries=1),
+        Tool(edit_rich_text, sequential=True, prepare=prepare_edit, max_retries=1, defer_loading=True),
     ]

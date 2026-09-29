@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QSplitter,
+    QStackedWidget,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -32,6 +33,7 @@ from qfluentwidgets import (
 from manga_translator.agent.domain.chat import ChatActivity, ChatCanvas, ChatImage
 from ui.agent.conversation_view import ConversationView, ToolRecord
 from ui.agent.image_input import ImageAttachmentStrip, ImagePasteTextEdit
+from ui.agent.workspace.detail import AgentDetailView
 from ui.widgets.collapsible_frame import CollapsibleFrame
 from ui.widgets.wheel_filter import NoWheelComboBox as ComboBox
 
@@ -116,6 +118,7 @@ class ChatPage(QWidget):
     thinking_received = pyqtSignal(int, str)
     canvas_received = pyqtSignal(object)
     canvas_updated = pyqtSignal(object)
+    conversation_cleared = pyqtSignal()
     # Hosts may call the method on the GUI thread or emit this signal from a
     # worker; the signal is delivered to the page through the Qt event queue.
     current_image_context_pushed = pyqtSignal(object, object)
@@ -130,12 +133,15 @@ class ChatPage(QWidget):
         self._backend = None
         self._tool_context = None
         self._debug_context = debug_context
+        self._selected_agent = "manager"
+        self._shutdown_future = None
         self.config_service = config_service
         self._config_error_key = None
         self._injected_service = service is not None
         self._active_task = None
         self._operation = None
         self._generation = 0
+        self._debug_epoch = 0
         self._closing = False
         self._messages = []
         self._tool_records = {}
@@ -159,8 +165,14 @@ class ChatPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 14)
         layout.setSpacing(12)
+        title_row = QHBoxLayout()
         self.title_label = TitleLabel(self)
-        layout.addWidget(self.title_label)
+        title_row.addWidget(self.title_label, 1)
+        self.config_toggle = PushButton(self)
+        self.config_toggle.setCheckable(True)
+        self.config_toggle.setVisible(self._debug_context and not self._injected_service)
+        title_row.addWidget(self.config_toggle)
+        layout.addLayout(title_row)
         self.description_label = BodyLabel(self)
         self.description_label.setWordWrap(True)
         layout.addWidget(self.description_label)
@@ -174,6 +186,14 @@ class ChatPage(QWidget):
         self.key_input = LineEdit(self.config_card)
         self.reasoning_label = BodyLabel(self.config_card)
         self.reasoning_input = ComboBox(self.config_card)
+        self.role_label = BodyLabel(self.config_card)
+        self.role_input = ComboBox(self.config_card)
+        self.role_input.addItem("Page Agent", userData="page")
+        self.role_input.addItem("Manager Agent", userData="manager")
+        if self._debug_context:
+            self.role_input.setCurrentIndex(1)
+        self.role_label.setVisible(self._debug_context)
+        self.role_input.setVisible(self._debug_context)
         for effort in ("", "low", "medium", "high"):
             self.reasoning_input.addItem(effort, userData=effort)
         self._connection_inputs = {
@@ -187,8 +207,10 @@ class ChatPage(QWidget):
         config_layout.addRow(self.model_label, self.model_input)
         config_layout.addRow(self.key_label, self.key_input)
         config_layout.addRow(self.reasoning_label, self.reasoning_input)
+        config_layout.addRow(self.role_label, self.role_input)
         self.config_card.setVisible(not self._injected_service)
         layout.addWidget(self.config_card)
+        self.config_toggle.toggled.connect(self.config_card.setVisible)
         self.config_status_label = BodyLabel(self)
         self.config_status_label.setTextFormat(Qt.TextFormat.PlainText)
         self.config_status_label.setWordWrap(True)
@@ -213,9 +235,16 @@ class ChatPage(QWidget):
         context_info.addWidget(self.current_context_metadata)
         context_info.addStretch()
         context_layout.addLayout(context_info, 1)
+        if self._debug_context:
+            self.current_image_preview.setMinimumSize(80, 72)
+            self.current_image_preview.setFixedSize(96, 72)
+            self.current_context_surface.hide()
 
         card = CardWidget(self)
+        self.chat_card = card
         card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(8)
         self.messages = ConversationView(card)
         self.messages.anchorClicked.connect(self._on_transcript_link)
         self.request_body = None
@@ -253,6 +282,9 @@ class ChatPage(QWidget):
         self.thinking_panel.hide()
         self.input = ImagePasteTextEdit(card)
         self.input.setMaximumHeight(120)
+        if self._debug_context:
+            self.input.setMinimumHeight(64)
+            self.input.setMaximumHeight(88)
         card_layout.addWidget(self.input)
         self.attachment_strip = ImageAttachmentStrip(card)
         card_layout.addWidget(self.attachment_strip)
@@ -269,7 +301,16 @@ class ChatPage(QWidget):
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         self.status_label.setWordWrap(True)
         card_layout.addWidget(self.status_label)
-        layout.addWidget(card, 1)
+        self.agent_detail = None
+        self.conversation_stack = None
+        if self._debug_context:
+            self.conversation_stack = QStackedWidget(self)
+            self.conversation_stack.addWidget(card)
+            self.agent_detail = AgentDetailView(self._t, self.conversation_stack)
+            self.conversation_stack.addWidget(self.agent_detail)
+            layout.addWidget(self.conversation_stack, 1)
+        else:
+            layout.addWidget(card, 1)
         layout.addWidget(self.current_context_surface)
         self.send_button.clicked.connect(self.send_message)
         self.stop_button.clicked.connect(self.stop_generation)
@@ -297,6 +338,10 @@ class ChatPage(QWidget):
                 self._on_config_write_failed, Qt.ConnectionType.QueuedConnection,
             )
         self.refresh_ui_texts()
+        if self._debug_context:
+            configured = bool(self.base_input.text().strip() and self.model_input.text().strip())
+            self.config_toggle.setChecked(not configured and not self._injected_service)
+            self.config_card.setVisible(self.config_toggle.isChecked())
 
     def _load_connection_settings(self):
         try:
@@ -307,6 +352,23 @@ class ChatPage(QWidget):
             self.reasoning_input.setCurrentIndex(max(0, self.reasoning_input.findData(effort)))
         except Exception:
             self._set_config_error("Chat settings load failed")
+
+    def show_agent(self, key: str, details=None):
+        """Navigate the debug view without changing the live conversation or scope."""
+        if self.conversation_stack is None:
+            return
+        self._selected_agent = key
+        child = key not in {"manager", "page"}
+        self.conversation_stack.setCurrentWidget(self.agent_detail if child else self.chat_card)
+        if child:
+            self.agent_detail.set_details(details or {"task_id": key})
+        self.config_toggle.setVisible(not child and not self._injected_service)
+        self.config_card.setVisible(not child and self.config_toggle.isChecked())
+        self.title_label.setVisible(not child)
+        self.description_label.setVisible(not child)
+        self.config_status_label.setVisible(not child and bool(self._config_error_key))
+        self.current_context_surface.setVisible(not child and self._current_image_context.image is not None)
+        self.title_label.setText(self._t("Agent child execution") if child else self._t("Chat"))
 
     @pyqtSlot()
     def _save_connection_settings(self):
@@ -378,6 +440,10 @@ class ChatPage(QWidget):
         if self._closing or generation != self._current_image_context_generation:
             return
         self.current_image_preview.set_png(png)
+        if self._debug_context:
+            self.current_context_surface.setVisible(
+                self._selected_agent in {"manager", "page"} and context.image is not None
+            )
         if context.image is None:
             self.current_context_metadata.setText(self._current_context_empty_text)
             return
@@ -398,10 +464,19 @@ class ChatPage(QWidget):
         """Bind the host-owned workspace; the Agent owns all tool execution."""
         if self._tool_context is context:
             return
-        self.stop_generation()
+        # Clearing captures the old service/context before replacement. Its
+        # completion blocks sending until old delegated work has been joined.
+        if self._debug_context:
+            self.clear_conversation()
+        else:
+            self.stop_generation()
         if self._tool_context is not None:
             self._tool_context.cancelled.set()
         self._tool_context = context
+
+    @property
+    def debug_epoch(self):
+        return self._debug_epoch
 
     @pyqtSlot(object)
     def _on_canvas_received(self, canvas):
@@ -410,7 +485,8 @@ class ChatPage(QWidget):
                 or self._tool_context.cancelled.is_set()):
             return
         # A committed edit remains visible even if its following text was stopped.
-        self.set_current_image_context(canvas.image.data, canvas.page)
+        if not self._debug_context:
+            self.set_current_image_context(canvas.image.data, canvas.page)
         self.canvas_updated.emit(canvas)
 
 
@@ -443,6 +519,7 @@ class ChatPage(QWidget):
                 from manga_translator.agent.providers.openai import OpenAIResponsesBackend
 
                 page_ref = weakref.ref(self)
+                debug_epoch = self._debug_epoch
 
                 def show_request_body(body):
                     page = page_ref()
@@ -456,7 +533,7 @@ class ChatPage(QWidget):
                     page = page_ref()
                     if page is not None:
                         try:
-                            page.debug_event_received.emit(event)
+                            page.debug_event_received.emit({**event, "_ui_epoch": debug_epoch})
                         except RuntimeError:
                             pass
 
@@ -465,6 +542,7 @@ class ChatPage(QWidget):
                     reasoning_effort=self.reasoning_input.currentData() or None,
                     on_request_body=show_request_body if self.request_body is not None else None,
                     on_debug_event=show_debug_event if self._debug_context else None,
+                    agent_role=self.role_input.currentData() or "page",
                 )
                 self.chat_service = ChatService(backend)
                 self._backend = backend
@@ -483,6 +561,8 @@ class ChatPage(QWidget):
         service = self.chat_service
 
         backend = self._backend
+        if backend is not None and hasattr(backend, "set_agent_role"):
+            backend.set_agent_role(self.role_input.currentData() or "page")
         tool_context = self._tool_context
         session_id = tool_context.task_id if tool_context is not None else "default"
         page_ref = weakref.ref(self)
@@ -666,6 +746,7 @@ class ChatPage(QWidget):
         if self._closing or self._operation == "clear":
             return
         self._generation += 1
+        self._debug_epoch += 1
         if self._active_task is not None:
             self._active_task.cancel()
             self._active_task = None
@@ -680,6 +761,7 @@ class ChatPage(QWidget):
         self.input.clear()
         self.attachment_strip.clear()
         self._pending_images.clear()
+        self.conversation_cleared.emit()
         service = self.chat_service
         if service is None:
             self._operation = None
@@ -687,11 +769,23 @@ class ChatPage(QWidget):
             self._update_controls()
             return
 
-        session_id = self._tool_context.task_id if self._tool_context is not None else "default"
+        context = self._tool_context
+        session_id = context.task_id if context is not None else "default"
+        owned_service = not self._injected_service
 
         async def clear(generation):
             # Clear on the same event loop as streaming; never mutate history from Qt.
-            service.clear(session_id)
+            clear_session = getattr(service, "clear_session", None)
+            if clear_session is not None:
+                await clear_session(session_id, tool_context=context)
+            else:
+                service.clear(session_id)
+                clear_runtime = getattr(service, "clear_runtime", None)
+                if clear_runtime is not None:
+                    await clear_runtime(context)
+            close_service = getattr(service, "aclose", None)
+            if owned_service and close_service is not None:
+                await close_service()
 
         self._submit(clear, "clear")
 
@@ -813,14 +907,20 @@ class ChatPage(QWidget):
 
     def refresh_ui_texts(self):
         self.title_label.setText(self._t("Chat"))
+        self.config_toggle.setText(self._t("Agent connection settings"))
         if self.request_body is not None:
             self.request_title.setText(self._t("Chat request body"))
             self.request_body.setPlaceholderText(self._t("Chat request body placeholder"))
         storage_key = "Chat connection saved locally" if self.config_service is not None else "Chat connection memory only"
         self.description_label.setText(self._t("Chat description") + " " + self._t(storage_key))
+        if self._debug_context:
+            self.config_card.setToolTip(self.description_label.text())
+            self.description_label.setText(self._t("Agent chat workspace hint"))
         translated_title = self._t("Chat current image")
         self._current_context_title_text = (
-            "Current editor image" if translated_title == "Chat current image" else translated_title
+            self._t("Agent selected page preview") if self._debug_context else (
+                "Current editor image" if translated_title == "Chat current image" else translated_title
+            )
         )
         self.current_context_title.setText(self._current_context_title_text)
         self.current_image_preview.set_placeholder(self._current_context_empty_text)
@@ -833,6 +933,9 @@ class ChatPage(QWidget):
         self.key_label.setText(self._t("Chat API key"))
         self.key_input.setPlaceholderText(self._t("Chat key placeholder"))
         self.reasoning_label.setText(self._t("Chat reasoning effort"))
+        self.role_label.setText(self._t("Chat agent role"))
+        self.role_input.setItemText(0, self._t("Chat page agent"))
+        self.role_input.setItemText(1, self._t("Chat manager agent"))
         self.reasoning_input.setToolTip(self._t("Chat reasoning effort hint"))
         for index, key in enumerate((
             "Chat reasoning default", "Chat reasoning low", "Chat reasoning medium", "Chat reasoning high",
@@ -851,6 +954,8 @@ class ChatPage(QWidget):
         self._update_controls()
 
     def shutdown(self):
+        if self._closing:
+            return self._shutdown_future
         self._closing = True
         self._generation += 1
         if self._active_task is not None:
@@ -862,6 +967,19 @@ class ChatPage(QWidget):
         self.attachment_strip.clear()
         self._pending_images.clear()
         self._update_controls()
+        close_service = getattr(self.chat_service, "aclose", None) if self.chat_service is not None else None
+        if close_service is not None and not self._injected_service:
+            from services import get_async_service
+
+            coroutine = close_service()
+            try:
+                self._shutdown_future = get_async_service().submit_task(coroutine)
+                if self._shutdown_future is None:
+                    raise RuntimeError("Background service is unavailable")
+            except Exception:
+                coroutine.close()
+                raise
+        return self._shutdown_future
 
     def closeEvent(self, event):
         self.shutdown()

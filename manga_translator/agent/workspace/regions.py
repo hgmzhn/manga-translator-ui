@@ -1,6 +1,7 @@
 """Build renderable text regions from model-facing rectangles."""
 
 from ..domain.tool_models import CreateRegion, ToolError
+from ..context.text_replacements import normalize_translation
 from . import text
 
 
@@ -18,7 +19,8 @@ def create_region(page: dict, edit: CreateRegion) -> dict:
         "center": [x, y], "angle": edit.angle,
         "lines": [[[left, top], [right, top], [right, bottom], [left, bottom]]],
         "render_box_rect_local": [-half_w, -half_h, half_w, half_h],
-        "translation": edit.translation, "translation_raw": edit.translation,
+        "translation": normalize_translation(edit.translation, edit.direction),
+        "translation_raw": edit.translation,
         "texts": [], "ocr_status": "missing",
         "font_size": edit.font_size, "font_color": "#000000", "stroke_color": "#ffffff",
         "alignment": "center",

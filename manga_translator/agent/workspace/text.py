@@ -6,6 +6,7 @@ import time
 
 import regex
 
+from ..context.text_replacements import normalize_breaks, normalize_translation
 from ..domain.tool_models import ToolError
 
 MAX_TEXT = 200_000
@@ -23,7 +24,10 @@ def document(region: dict) -> dict:
     try:
         if rich is not None:
             return ensure_rich_text_document(rich).to_dict()
-        return legacy_line_breaks_to_document(region.get("translation") or "").to_dict()
+        raw = region.get("translation_raw")
+        if raw is None:
+            raw = region.get("translation")
+        return legacy_line_breaks_to_document(raw or "").to_dict()
     except (ValueError, TypeError) as exc:
         raise ToolError("invalid_rich_text", str(exc)) from exc
 
@@ -215,9 +219,18 @@ def style_range(doc: dict, start: int, end: int, patch: dict) -> dict:
 
 
 def store_document(region: dict, doc: dict) -> None:
-    # Keep exact paragraph/newline count; the renderer already accepts real LF.
+    # Keep authored content/styles as the source. Rendering derives its text
+    # replacements and automatic styles without feeding them back into edits.
     region["translation_rich"] = doc
-    region["translation"] = visible(doc)
+    value = normalize_breaks(visible(doc))
+    region["translation_raw"] = value
+    region["translation"] = normalize_translation(value, region.get("direction", "h"))
+
+
+def refresh_translation(region: dict) -> None:
+    """Refresh the plain display text after a direction-only change."""
+    source = normalize_breaks(visible(document(region)))
+    region["translation"] = normalize_translation(source, region.get("direction", "h"))
 
 
 def content_signature(doc: dict) -> tuple:

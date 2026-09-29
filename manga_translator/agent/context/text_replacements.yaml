@@ -1,0 +1,123 @@
+# Legacy Agent rule snapshot, retained for reference only.
+# Runtime rules now come from config/text_replacements.yaml, as in the rule editor.
+vertical:
+  - pattern: ‥
+    replace: ︰
+  - pattern: ─
+    replace: │
+  - pattern: ━
+    replace: ┃
+  - pattern: ═
+    replace: ║
+  - pattern: —
+    replace: │
+  - pattern: –
+    replace: ︲
+  - pattern: ―
+    replace: '|'
+  - pattern: ⟨
+    replace: ︿
+  - pattern: ⟩
+    replace: ﹀
+  - pattern: ⟪
+    replace: ︿
+  - pattern: ⟫
+    replace: ﹀
+  - pattern: ﹑
+    replace: ﹅
+  - pattern: ⦅
+    replace: ︵
+  - pattern: ⦆
+    replace: ︶
+  - pattern: ❨
+    replace: ︵
+  - pattern: ❩
+    replace: ︶
+  - pattern: ❪
+    replace: ︷
+  - pattern: ❫
+    replace: ︸
+  - pattern: ❬
+    replace: ︿
+  - pattern: ❭
+    replace: ﹀
+  - pattern: ❮
+    replace: ︿
+  - pattern: ❯
+    replace: ﹀
+  - pattern: （
+    replace: ︵
+  - pattern: ）
+    replace: ︶
+  - pattern: ｛
+    replace: ︷
+  - pattern: ｝
+    replace: ︸
+  - pattern: (
+    replace: ︵
+  - pattern: )
+    replace: ︶
+  - pattern: '{'
+    replace: ︷
+  - pattern: '}'
+    replace: ︸
+  - pattern: 〔
+    replace: ︹
+  - pattern: 〕
+    replace: ︺
+  - pattern: 【
+    replace: ︻
+  - pattern: 】
+    replace: ︼
+  - pattern: 《
+    replace: ︽
+  - pattern: 》
+    replace: ︾
+  - pattern: 〈
+    replace: ︿
+  - pattern: 〉
+    replace: ﹀
+  - pattern: ﹇
+    replace: ［
+  - pattern: ﹈
+    replace: ］
+  - pattern: '['
+    replace: ［
+  - pattern: ']'
+    replace: ］
+  - pattern: ……
+    replace: ︙
+  - pattern: …
+    replace: ︙
+  - pattern: ⋯
+    replace: ︙
+  - pattern: ⋰
+    replace: ⋮
+  - pattern: ⋱
+    replace: ⋮
+  - pattern: 〜
+    replace: ︴
+  - pattern: 〰
+    replace: ︴
+  - pattern: ؟
+    replace: ︖
+  - pattern: ¿
+    replace: ︖
+  - pattern: ¡
+    replace: ︕
+  - pattern: 。
+    replace: ︒
+  - pattern: ；
+    replace: ︔
+  - pattern: ：
+    replace: ︓
+  - pattern: ，
+    replace: ︐
+  - pattern: ‚
+    replace: ︐
+  - pattern: „
+    replace: ︐
+  - pattern: −
+    replace: ︲
+  - pattern: ・
+    replace: ·

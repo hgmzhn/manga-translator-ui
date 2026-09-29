@@ -105,6 +105,13 @@ class ToolContext:
     read_policies: dict[str, dict] = field(default_factory=dict)
     command_payloads: dict[str, dict] = field(default_factory=dict)
     transaction_results: dict[str, dict] = field(default_factory=dict)
+    task_page_ids: list[str] = field(default_factory=list)
+    resolved_edit_commands: dict[str, dict] = field(default_factory=dict)
+    command_generation: str = ""
+
+    @property
+    def command_scope_id(self) -> str:
+        return f"{self.task_id}:{self.command_generation}" if self.command_generation else self.task_id
 
 
 Color = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
@@ -202,7 +209,7 @@ class RegionStylePatch(ToolModel):
     line_spacing: Positive | None = None
     letter_spacing: Positive | None = None
     alignment: Literal["auto", "left", "center", "right"] | None = None
-    direction: Literal["auto", "h", "v", "hr", "vr"] | None = None
+    direction: Literal["h", "v"] | None = None
     disable_font_border: bool | None = None
     opacity: Annotated[float, Field(ge=0, le=1)] | None = None
 
@@ -225,14 +232,17 @@ class GeometryPatch(ToolModel):
 class RegionEdit(RegionStylePatch):
     """Flat model-facing patch; converted to typed operations before committing."""
 
-    region_id: str = Field(min_length=1)
+    region_id: str | None = Field(default=None, min_length=1)
+    region_no: int | None = Field(default=None, ge=1)
     center: Point | None = None
     angle: float | None = None
     translation: str | None = None
 
     @model_validator(mode="after")
     def nonempty_patch(self):
-        changed = self.model_fields_set - {"region_id"}
+        if (self.region_id is None) == (self.region_no is None):
+            raise ValueError("region_id 和 region_no 必须二选一")
+        changed = self.model_fields_set - {"region_id", "region_no"}
         if not changed:
             raise ValueError("至少提供一个要修改的字段")
         if any(getattr(self, name) is None for name in changed):
@@ -245,7 +255,7 @@ class NewRegion(ToolModel):
     width: Positive = Field(le=16000, description="文本框宽度，像素")
     height: Positive = Field(le=16000, description="文本框高度，像素")
     translation: str = Field(max_length=100_000)
-    direction: Literal["auto", "h", "v", "hr", "vr"] = "auto"
+    direction: Literal["h", "v"] = "h"
     angle: float = Field(default=0, description="旋转角度，单位为度")
 
 
@@ -264,31 +274,36 @@ class DeleteRegion(ToolModel):
 
 class SetRegionStyle(ToolModel):
     op: Literal["set_region_style"] = "set_region_style"
-    region_id: str
+    region_id: str | None = None
+    region_no: int | None = Field(default=None, ge=1)
     style: RegionStylePatch
 
 
 class ReplaceRichText(ToolModel):
     op: Literal["replace_rich_text"] = "replace_rich_text"
-    region_id: str
+    region_id: str | None = None
+    region_no: int | None = Field(default=None, ge=1)
     document: RichDocument
 
 
 class SetGeometry(ToolModel):
     op: Literal["set_geometry"] = "set_geometry"
-    region_id: str
+    region_id: str | None = None
+    region_no: int | None = Field(default=None, ge=1)
     geometry: GeometryPatch
 
 
 class SetTranslation(ToolModel):
     op: Literal["set_translation"] = "set_translation"
-    region_id: str
+    region_id: str | None = None
+    region_no: int | None = Field(default=None, ge=1)
     text: str
 
 
 class SetSpanStyle(ToolModel):
     op: Literal["set_span_style"] = "set_span_style"
-    region_id: str
+    region_id: str | None = None
+    region_no: int | None = Field(default=None, ge=1)
     occurrence_id: str
     style: TextStylePatch
 

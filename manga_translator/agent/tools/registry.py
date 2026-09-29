@@ -10,25 +10,16 @@ from pydantic_ai.tools import Tool
 from ..domain.tool_models import ToolContext
 from ..plugins.loader import PluginManager
 
-from .builtin.auxiliary import (
-    check_font_coverage,
-    check_text_changes,
-    fit_text,
-    list_fonts,
-    measure_layout,
-)
+from .builtin.auxiliary import list_fonts, preview_font
 from .builtin.manager import (
     browse_workspace,
     get_task_results,
-    read_style_policy,
     review_page_results,
     revise_pages,
-    update_style_policy,
     view_page_overview,
 )
 from .builtin.page import (
     compare_revisions,
-    observe_canvas,
     read_page,
     revert_edits,
 )
@@ -40,26 +31,26 @@ from .edit_tools import create_edit_tools
 _PAGE_TOOLS = (
     read_skill,
     read_page,
-    observe_canvas,
     find_reference_pages,
     find_text,
     replace_text,
     list_fonts,
+    preview_font,
     compare_revisions,
     revert_edits,
 )
 _MANAGER_TOOLS = (
     browse_workspace,
     view_page_overview,
-    read_style_policy,
-    update_style_policy,
+    read_page,
+    list_fonts,
+    preview_font,
     revise_pages,
     get_task_results,
     review_page_results,
+    find_reference_pages,
     find_text,
-    replace_text,
 )
-_AUXILIARY_TOOLS = (measure_layout, fit_text, check_text_changes, check_font_coverage)
 
 
 class WorkspaceToolset(FunctionToolset[ToolContext]):
@@ -69,15 +60,12 @@ class WorkspaceToolset(FunctionToolset[ToolContext]):
 def create_toolset(
     role: Literal["page", "manager"] = "page",
     *,
-    include_auxiliary: bool = False,
     plugin_manager: PluginManager | None = None,
 ) -> FunctionToolset[ToolContext]:
     """Build native tools plus the current role-filtered plugin snapshot."""
     if role not in ("page", "manager"):
         raise ValueError("role must be page or manager")
     functions = list(_PAGE_TOOLS if role == "page" else _MANAGER_TOOLS)
-    if include_auxiliary:
-        functions.extend(_AUXILIARY_TOOLS)
     toolset = WorkspaceToolset(
         tools=[Tool(function, sequential=True) if function is revert_edits
                else function for function in functions],

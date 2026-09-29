@@ -43,19 +43,39 @@ class ToolRecord:
         args = args if isinstance(args, dict) else {}
         if self.tool_name == "read_skill":
             return str(args.get("name", ""))
+        if self.tool_name == "read_page":
+            pages = args.get("page") or []
+            if isinstance(pages, dict):
+                pages = [pages]
+            labels = []
+            for page in pages if isinstance(pages, list) else ():
+                if not isinstance(page, dict):
+                    continue
+                if page.get("id") is not None:
+                    labels.append(f"#{page['id']}")
+                elif page.get("name"):
+                    labels.append(f"{page.get('folder', '.')}/{page['name']}")
+            fields = args.get("fields") or ["translation", "image_rendered"]
+            if not isinstance(fields, (list, tuple)):
+                fields = [fields]
+            return " · ".join(filter(None, [", ".join(labels), ", ".join(map(str, fields))]))
         if self.tool_name == "create_regions" and isinstance(args.get("regions"), list):
             fields = list(dict.fromkeys(key for region in args["regions"]
                                        if isinstance(region, dict) for key in region))
             return translate("Chat tool edit summary", count=len(args["regions"]), fields=", ".join(fields))
-        if self.tool_name == "delete_regions" and isinstance(args.get("region_ids"), list):
-            return translate("Chat tool edit summary", count=len(args["region_ids"]), fields="region_ids")
+        if self.tool_name == "delete_regions":
+            regions = args.get("region_nos", args.get("region_ids"))
+            if isinstance(regions, list):
+                return translate("Chat tool edit summary", count=len(regions), fields="region_no")
         edits = args.get("edits")
         if isinstance(edits, list):
             regions = list(dict.fromkeys(
-                str(edit["region_id"]) for edit in edits if isinstance(edit, dict) and "region_id" in edit
+                str(edit.get("region_no", edit.get("region_id")))
+                for edit in edits if isinstance(edit, dict)
+                and ("region_no" in edit or "region_id" in edit)
             ))
             fields = list(dict.fromkeys(
-                key for edit in edits if isinstance(edit, dict) for key in edit if key not in {"region_id", "op"}
+                key for edit in edits if isinstance(edit, dict) for key in edit if key not in {"region_id", "region_no", "op"}
             ))
             return translate("Chat tool edit summary", count=len(regions), fields=", ".join(fields))
         return ""

@@ -26,6 +26,7 @@ from .shared import (
     _image_return,
     _observe,
     _remember,
+    _region_id,
     _service,
     _window,
 )
@@ -54,12 +55,12 @@ async def browse_workspace(
                 ctx.deps, [], wait=False, cursor=result["next_cursor"], limit=100
             )
             all_items.extend(result["items"])
-        page_ids = {p["page_id"] for p in pages}
+        page_ids = {ctx.deps.workspace.public_identity(p["page_id"])["id"] for p in pages}
         return _window(
             [
                 item
                 for item in all_items
-                if item["page_id"] in page_ids
+                if page_ids.intersection(page["id"] for page in item.get("pages", []))
                 and (status is None or item["status"] == status)
             ],
             cursor,
@@ -94,11 +95,12 @@ async def browse_workspace(
 async def _contact_sheet(ctx, page_ids, revisions, view):
     if not 1 <= len(page_ids) <= 16 or len(set(page_ids)) != len(page_ids):
         raise ToolError("invalid_input", "联系表需要 1..16 个不同页面")
-    tiles, records = [], []
+    tiles, records, observation_payloads = [], [], []
     for page_id in page_ids:
         payload = await _observe(
             ctx, page_id, revisions[page_id], view, max_dimension=640
         )
+        observation_payloads.append(payload)
         with Image.open(io.BytesIO(payload["image"])) as image:
             tile = Image.new("RGB", (640, 680), "white")
             image.thumbnail((640, 640))
@@ -116,18 +118,20 @@ async def _contact_sheet(ctx, page_ids, revisions, view):
     for index, tile in enumerate(tiles):
         sheet.paste(tile, ((index % columns) * 640, (index // columns) * 680))
     for page_id in page_ids:
-        ctx.deps.workspace.page(ctx.deps, page_id, revisions[page_id])
+        if ctx.deps.workspace.page(ctx.deps, page_id)["revision"] != revisions[page_id]:
+            raise ToolError("conflict", "联系表生成期间页面已变化")
     buffer = io.BytesIO()
     sheet.save(buffer, format="PNG")
-    return _image_return(
+    return await _image_return(
         ctx,
         {
             "image": buffer.getvalue(),
             "mime_type": "image/png",
             "pages": records,
             "view": view,
-            "notice": "联系表用于跨页概览；细微溢出请 observe_canvas 局部查看。",
-        }
+            "notice": "联系表用于跨页概览；细微溢出请用 read_page 的 image_rendered 配合 crop 查看。",
+        },
+        observations=observation_payloads,
     )
 
 
@@ -137,7 +141,10 @@ async def view_page_overview(
     pages: Pages,
     view: Literal["original", "rendered"] = "rendered",
 ) -> ToolReturn | dict:
-    """返回当前页面的真实图片联系表，标签为全局 ID、相对文件夹及完整文件名，最多 16 页。"""
+    """仅供概览的真实图片联系表，标注页面 ID 和文件路径；每次 1..16 页。
+
+    超过 16 页须分批调用，例如 20 页拆成 16+4；细节需 read_page 查看。
+    """
     workspace = ctx.deps.workspace
     page_ids = [workspace.resolve_page(ctx.deps, page) for page in pages]
     revisions = {pid: workspace.page(ctx.deps, pid)["revision"] for pid in page_ids}
@@ -182,28 +189,45 @@ async def revise_pages(
     requirements: Text,
     command_id: CommandId,
 ) -> dict:
-    """为已读取页面委派独立 Agent；每项显式指定页面与可编辑区域，返回子任务 ID。"""
-    page_ids, editable_regions = [], {}
+    """每次为 1..16 页创建一个子 Agent，处理该批 assignments 的全部页面。
+
+    超过 16 页须按任务分批，例如 20 页拆为 16+4。editable_regions 为编号列表、
+    []（只读）或显式 all（整页），仍受父级授权约束；同一任务不按页拆代理。
+    """
+    page_ids = []
     for assignment in assignments:
         pid = ctx.deps.workspace.resolve_page(ctx.deps, assignment.page)
-        if pid in editable_regions:
+        if pid in page_ids:
             raise ToolError("invalid_input", "委派页面不能重复")
         page_ids.append(pid)
-        editable_regions[pid] = assignment.editable_regions
 
     def capture():
         snapshots = {pid: _baseline(ctx, pid) for pid in page_ids}
+        editable_regions = {}
+        for pid, assignment in zip(page_ids, assignments):
+            if assignment.editable_regions == "all":
+                editable_regions[pid] = "all"
+                continue
+            regions = [
+                _region_id(snapshots[pid], region)
+                for region in assignment.editable_regions
+            ]
+            if len(regions) != len(set(regions)):
+                raise ToolError("invalid_scope", "可编辑区域不能重复")
+            editable_regions[pid] = regions
         return {
+            "editable_regions": editable_regions,
             "policy_versions": {pid: item["policy_version"] for pid, item in snapshots.items()},
             "base_revisions": {pid: item["revision"] for pid, item in snapshots.items()},
         }
 
     expected = _command(ctx, command_id, {
         "op": "revise_pages", "page_ids": page_ids,
-        "editable_regions": editable_regions, "requirements": requirements,
+        "assignments": [item.model_dump(mode="json") for item in assignments],
+        "requirements": requirements,
     }, capture)
     return await _service(ctx, "runtime").revise_pages(
-        ctx.deps, page_ids, requirements, editable_regions,
+        ctx.deps, page_ids, requirements, expected["editable_regions"],
         expected["policy_versions"], expected["base_revisions"], command_id,
     )
 
@@ -236,11 +260,30 @@ async def review_page_results(
             raise ToolError(
                 "not_ready", "只能复核已完成的子任务", {"task_id": item["task_id"]}
             )
-        candidate = item["result"]
-        current = ctx.deps.workspace.page(ctx.deps, candidate["page_id"])
-        if current["revision"] != candidate["revision"]:
-            raise ToolError("conflict", "候选页面在任务完成后已变化")
-        revisions[candidate["page_id"]] = candidate["revision"]
-    return await _contact_sheet(ctx, list(revisions), revisions, "rendered")
+        candidates = item["result"].get("pages") or [item["result"]]
+        for candidate in candidates:
+            current = ctx.deps.workspace.page(ctx.deps, candidate["page_id"])
+            if current["revision"] != candidate["revision"]:
+                raise ToolError("conflict", "候选页面在任务完成后已变化")
+            revisions[candidate["page_id"]] = candidate["revision"]
+    page_ids = list(revisions)
+    if len(page_ids) <= 16:
+        return await _contact_sheet(ctx, page_ids, revisions, "rendered")
+    # Multiple task groups may exceed one contact sheet's 16-page limit.
+    sheets = [
+        await _contact_sheet(ctx, page_ids[start:start + 16], revisions, "rendered")
+        for start in range(0, len(page_ids), 16)
+    ]
+    # A later render may await long enough for an earlier candidate to change.
+    for page_id, revision in revisions.items():
+        if ctx.deps.workspace.page(ctx.deps, page_id)["revision"] != revision:
+            raise ToolError("conflict", "候选页面在复核期间已变化")
+    return ToolReturn(
+        return_value={
+            "pages": [ctx.deps.workspace.public_identity(pid) for pid in page_ids],
+            "view": "rendered", "sheet_count": len(sheets),
+        },
+        content=[part for sheet in sheets for part in (sheet.content or [])],
+    )
 
 

@@ -48,14 +48,14 @@ async def find_reference_pages(
         if relation == "next" and page_number <= anchor_id:
             continue
         hits = []
-        for region in page["regions"]:
+        for region_no, region in enumerate(page["regions"], 1):
             for field in ("source", "translation"):
                 value = text_of(region, field) or ""
                 offset = value.find(query) if query else -1
                 if offset >= 0:
                     hits.append(
                         {
-                            "region_id": region["region_id"],
+                            "region_no": region_no,
                             "field": field,
                             "context": value[
                                 max(0, offset - 40) : offset + len(query) + 40
@@ -74,7 +74,10 @@ async def find_reference_pages(
     result = _window(items, cursor, limit)
     by_id = {page["page_id"]: page for page in pages}
     for item in result["items"]:
-        _remember(ctx, by_id[item["page_id"]], [hit["region_id"] for hit in item["hits"]])
+        snapshot = by_id[item["page_id"]]
+        _remember(ctx, snapshot, [
+            snapshot["regions"][hit["region_no"] - 1]["region_id"] for hit in item["hits"]
+        ])
     return result
 
 
@@ -93,10 +96,21 @@ async def find_text(
     result = workspace.find_text(
         ctx.deps, workspace.resolve_scope(ctx.deps, scope), query, field, mode, cursor, limit
     )
+    for match in result.get("matches", []):
+        internal_region_id = match.get("region_id")
+        snapshot = workspace.page(ctx.deps, match["page_id"], match["revision"])
+        for index, region in enumerate(snapshot["regions"], 1):
+            if region["region_id"] == internal_region_id:
+                match["region_no"] = index
+                match.pop("region_id", None)
+                break
     selected = {}
     for match in result["matches"]:
         key = (match["page_id"], match["revision"])
-        selected.setdefault(key, set()).add(match["region_id"])
+        snapshot = workspace.page(ctx.deps, *key)
+        region_no = match.get("region_no")
+        if region_no is not None:
+            selected.setdefault(key, set()).add(snapshot["regions"][region_no - 1]["region_id"])
     for key, region_ids in selected.items():
         _remember(ctx, workspace.page(ctx.deps, *key), region_ids)
     return result

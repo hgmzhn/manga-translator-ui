@@ -7,13 +7,15 @@ from pydantic_ai.messages import ToolReturnPart
 from pydantic_ai.tools import Tool
 
 from ..context.images import EDIT_IMAGE_METADATA
+from ..context.request_budget import ModelImageBudget
 from ..domain.chat import ChatCanvas, ChatImage
 from ..domain.tool_models import AccessGrant, ToolContext
 from ..prompts import load_prompt
 from ..tools.registry import WorkspaceToolset
 from ..tools.edit_tools import create_edit_tools
 from ..tools.builtin.skills import read_skill
-from ..tools.builtin.page import read_page, observe_canvas
+from ..tools.builtin.auxiliary import list_fonts, preview_font
+from ..tools.builtin.page import read_page
 from ..tools.validation import EditValidationFeedback
 from ..workspace import Workspace
 
@@ -23,17 +25,17 @@ def empty_context() -> ToolContext:
     return ToolContext(Workspace(), AccessGrant(set(), set(), set(), set()), "chat")
 
 
-def create_agent(model, *, model_settings=None):
+def create_agent(model, *, model_settings=None, trace=None):
     edit_tools = create_edit_tools()
     toolset = WorkspaceToolset(
-        tools=[*edit_tools, read_page, observe_canvas, Tool(read_skill, max_retries=2)],
+        tools=[*edit_tools, read_page, list_fonts, preview_font, Tool(read_skill, max_retries=1)],
         id="chat-editing",
     )
     return Agent(
-        model, deps_type=ToolContext, output_type=str, retries=0,
+        model, deps_type=ToolContext, output_type=str, retries=1,
         instructions=load_prompt("chat") + "\n\n" + load_prompt("skills"), toolsets=[toolset],
         model_settings=model_settings, name="manga_chat",
-        capabilities=[EditValidationFeedback(edit_tools)],
+        capabilities=[ModelImageBudget(trace=trace), EditValidationFeedback(edit_tools)],
     )
 
 

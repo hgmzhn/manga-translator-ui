@@ -16,7 +16,9 @@ from ...domain.tool_models import (
 from ...workspace.regions import create_region
 from .editing import edit_feedback
 from .page import apply_edits
-from .shared import CommandId, _baseline, _command, _guard, _service
+from .shared import (
+    CommandId, _baseline, _command, _guard, _region_id, _resolved_edit_command, _service,
+)
 
 
 PublicPageId = Annotated[int, Field(strict=True, gt=0)]
@@ -31,7 +33,7 @@ async def create_regions(
 ) -> ToolReturn | dict:
     """批量创建文本框，按框宽高与文字自动计算字号，返回新区域 ID、执行状态和新图。
 
-    center/width/height 使用页面像素；direction=auto 按框形状选择横竖排。
+    center/width/height 使用页面像素；direction 仅接受 h（横排）或 v（竖排）。
     需要整页排版、几何和译文权限；同一创建重试沿用 command_id。
     """
     workspace = ctx.deps.workspace
@@ -86,21 +88,33 @@ async def create_regions(
     return await edit_feedback(ctx, result)
 
 
+@_guard
 async def delete_regions(
     ctx: RunContext[ToolContext],
     page_id: PublicPageId,
-    region_ids: Annotated[list[Annotated[str, Field(min_length=1)]], Field(min_length=1, max_length=100)],
+    region_nos: Annotated[list[Annotated[int, Field(ge=1)]], Field(min_length=1, max_length=100)],
     command_id: CommandId,
 ) -> ToolReturn | dict:
     """批量删除文本框及其译文，保留当前底图，返回执行状态和新图。
 
-    region_ids 使用页面已有区域 ID；检查锁定及排版、几何、译文权限。
+    region_nos 使用页面当前读取结果中的短编号；检查锁定及排版、几何、译文权限。
     同一删除重试沿用 command_id，事务可通过 revert_edits 回退。
     """
-    return await apply_edits(ctx, PageById(id=page_id),
-                             [DeleteRegion(region_id=rid) for rid in region_ids], command_id)
+    pid = ctx.deps.workspace.resolve_page(ctx.deps, PageById(id=page_id))
+
+    def resolve():
+        snapshot = _baseline(ctx, pid)
+        return [DeleteRegion(region_id=_region_id(snapshot, no)) for no in region_nos]
+
+    resolved = _resolved_edit_command(ctx, command_id, {
+        "op": "delete_regions", "page_id": pid, "region_nos": list(region_nos),
+    }, resolve)
+    return await apply_edits(
+        ctx, PageById(id=page_id), resolved, command_id,
+    )
 
 
+@_guard
 async def edit_regions(
     ctx: RunContext[ToolContext],
     page_id: PublicPageId,
@@ -109,25 +123,40 @@ async def edit_regions(
 ) -> ToolReturn | dict:
     """批量修改区域字号、样式、位置或译文，返回执行状态和新图。
 
-    page_id 使用页面公开整数 id；每项直接填写 region_id 和要改的字段，省略未改字段。
+    page_id 使用页面公开整数 id；每项填写读取结果中的 region_no 和要改的字段，省略未改字段。
     center 使用页面像素，angle 使用角度；竖排 alignment=left 表示列顶对齐。
     同一修改重试沿用 command_id；富文本局部样式先 read_skill("rich-text")。
     """
-    operations = []
-    for edit in edits:
-        patch = edit.model_dump(exclude_unset=True)
-        style = {key: value for key, value in patch.items() if key in RegionStylePatch.model_fields}
-        geometry = {key: value for key, value in patch.items() if key in GeometryPatch.model_fields}
-        if style:
-            operations.append(SetRegionStyle(region_id=edit.region_id, style=RegionStylePatch(**style)))
-        if geometry:
-            operations.append(SetGeometry(region_id=edit.region_id, geometry=GeometryPatch(**geometry)))
-        if "translation" in patch:
-            operations.append(SetTranslation(region_id=edit.region_id, text=patch["translation"]))
+    page = ctx.deps.workspace.resolve_page(ctx.deps, PageById(id=page_id))
+
+    def resolve():
+        snapshot = _baseline(ctx, page)
+        operations = []
+        for edit in edits:
+            patch = edit.model_dump(exclude_unset=True)
+            if edit.region_no is not None:
+                patch["region_id"] = _region_id(snapshot, edit.region_no)
+            patch.pop("region_no", None)
+            rid = patch["region_id"]
+            style = {key: value for key, value in patch.items() if key in RegionStylePatch.model_fields}
+            geometry = {key: value for key, value in patch.items() if key in GeometryPatch.model_fields}
+            if style:
+                operations.append(SetRegionStyle(region_id=rid, style=RegionStylePatch(**style)))
+            if geometry:
+                operations.append(SetGeometry(region_id=rid, geometry=GeometryPatch(**geometry)))
+            if "translation" in patch:
+                operations.append(SetTranslation(region_id=rid, text=patch["translation"]))
+        return operations
+
+    operations = _resolved_edit_command(ctx, command_id, {
+        "op": "edit_regions", "page_id": page,
+        "edits": [edit.model_dump(mode="json", exclude_unset=True) for edit in edits],
+    }, resolve)
     # At most 300 internal operations, committed together under the core's 1000-operation limit.
     return await apply_edits(ctx, PageById(id=page_id), operations, command_id)
 
 
+@_guard
 async def edit_rich_text(
     ctx: RunContext[ToolContext],
     page_id: PublicPageId,
@@ -138,4 +167,24 @@ async def edit_rich_text(
 
     遵循 rich-text skill；保留未改正文和样式。同一修改重试沿用 command_id。
     """
-    return await apply_edits(ctx, PageById(id=page_id), edits, command_id)
+    pid = ctx.deps.workspace.resolve_page(ctx.deps, PageById(id=page_id))
+
+    def resolve():
+        snapshot = _baseline(ctx, pid)
+        resolved = []
+        for edit in edits:
+            if edit.region_no is None:
+                if not edit.region_id:
+                    raise ToolError("invalid_input", "请提供 region_no")
+                resolved.append(edit)
+                continue
+            resolved.append(edit.model_copy(update={
+                "region_id": _region_id(snapshot, edit.region_no), "region_no": None,
+            }))
+        return resolved
+
+    resolved = _resolved_edit_command(ctx, command_id, {
+        "op": "edit_rich_text", "page_id": pid,
+        "edits": [edit.model_dump(mode="json", exclude_unset=True) for edit in edits],
+    }, resolve)
+    return await apply_edits(ctx, PageById(id=page_id), resolved, command_id)

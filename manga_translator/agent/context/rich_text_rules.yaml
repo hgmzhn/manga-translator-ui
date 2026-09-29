@@ -1,0 +1,18 @@
+# Agent 专用自动富文本规则；与 config/rich_text_rules.yaml 独立。
+# 执行顺序：文字替换 -> common -> horizontal/vertical。
+# 只为渲染副本补齐未设置的样式，保留手工字段及 ruby/tcy 节点。
+common: []
+horizontal: []
+vertical:
+  - enabled: true
+    pattern: '["''ー⸺～﹏●•〖〗［］]'
+    regex: true
+    style:
+      transform:
+        rotation: -90
+    comment: "缺少专用竖排字形的符号旋转；有竖排替代字形的标点先由文字替换处理。"
+  - enabled: true
+    pattern: '[!?！？]{2,4}'
+    regex: true
+    tcy: true
+    comment: "竖排连续问号、感叹号每组 2–4 个使用纵中横。"

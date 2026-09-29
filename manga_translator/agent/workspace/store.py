@@ -257,7 +257,7 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
             ):
                 raise ToolError(
                     "permission_denied",
-                    f"Region {region_id} is outside the editable scope",
+                    "目标文本框不在授权编辑范围内",
                 )
             grant = grant.parent
 
@@ -313,7 +313,7 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
             raise ToolError(
                 "invalid_command_id", "Command ID must contain 1–200 characters"
             )
-        key = ctx.task_id, command_id
+        key = ctx.command_scope_id, command_id
         signature = _fingerprint(payload)
         existing = self._commands.get(key)
         if existing is not None:
@@ -330,7 +330,7 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
         return None
 
     def _record(self, ctx, command_id, payload, permissions, result):
-        self._commands[ctx.task_id, command_id] = {
+        self._commands[ctx.command_scope_id, command_id] = {
             "fingerprint": _fingerprint(payload),
             "permissions": permissions,
             "result": deepcopy(result),
@@ -341,7 +341,7 @@ class Workspace(WorkspaceCommands, WorkspaceSearch, WorkspacePolicies):
         for region in page["regions"]:
             if region["region_id"] == rid:
                 return region
-        raise ToolError("region_not_found", f"Unknown region {rid}")
+        raise ToolError("region_not_found", "目标文本框不存在，请重新读取当前区域编号")
 
     def _commit(self, ctx, page, candidate, before, permissions, payload, command_id):
         if len(self._history) >= self.max_history:

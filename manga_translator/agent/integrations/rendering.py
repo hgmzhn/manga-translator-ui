@@ -25,7 +25,42 @@ MAX_RENDER_CACHE_BYTES = 64 * 1024 * 1024
 _worker_app = None
 _render_cache = OrderedDict()
 _render_cache_bytes = 0
-RENDER_PROTOCOL = 2
+RENDER_PROTOCOL = 3
+
+
+def _render_rules(snapshot=None):
+    """Capture host replacements and the Agent's independent automatic styles."""
+    if snapshot is not None and "_agent_render_rules" in snapshot:
+        return snapshot["_agent_render_rules"]
+    from manga_translator.rendering.text_replacements import load_replacements
+    from ..context.rich_text_rules import load_agent_rich_text_rules
+
+    return {
+        "text_replacements": copy.deepcopy(load_replacements()),
+        "rich_text_rules": copy.deepcopy(load_agent_rich_text_rules()),
+    }
+
+
+def _with_render_rules(snapshot):
+    """Freeze both rule sets alongside a snapshot before queuing native work."""
+    return {**snapshot, "_agent_render_rules": _render_rules(snapshot)}
+
+
+def _render_document(region, direction, rules):
+    """Derive a render-only document from authored text, preserving its styles."""
+    from ..context.text_replacements import normalize_document
+    from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
+
+    source = region.get("translation_rich")
+    if source is None:
+        source = region.get("translation_raw")
+        if source is None:
+            source = region.get("translation", "")
+    document = normalize_document(source or "", direction, replacements=rules["text_replacements"])
+    styled = apply_rich_text_rules(
+        document, direction, rules=rules["rich_text_rules"], styled_match_policy="fill"
+    )
+    return styled if styled is not None else document
 
 
 def _error(code: str, message: str, details=None):
@@ -51,6 +86,7 @@ def _render_identity(snapshot: dict) -> str:
             "asset_fingerprints": snapshot.get("_asset_fingerprints", {}),
             "project_layers": snapshot.get("_project_layers", {}),
             "render_config": snapshot.get("_render_config", {}),
+            "render_rules": _render_rules(snapshot),
             "assets": {key: snapshot.get(key) for key in ("base_asset", "paint_asset")},
         }
     )
@@ -285,7 +321,6 @@ def _prepare(snapshot: dict, region_ids=None):
         calc_box_from_font,
     )
     from manga_translator.rendering.rich_text import (
-        ensure_rich_text_document,
         iter_render_spans,
         plain_text_of,
     )
@@ -293,7 +328,8 @@ def _prepare(snapshot: dict, region_ids=None):
     from manga_translator.utils import TextBlock
 
     config = Config()
-    # Only render configuration is host-injected; no model API renderer or rule execution.
+    rules = _render_rules(snapshot)
+    # Rendering and rule inputs are host-owned; no model API renderer is used.
     for name, value in snapshot.get("_render_config", {}).items():
         if name in (
             "disable_font_border",
@@ -346,14 +382,15 @@ def _prepare(snapshot: dict, region_ids=None):
         )
         _font(family)
         args["font_family"] = family
-        if args.get("translation_rich") is not None:
-            document = ensure_rich_text_document(args["translation_rich"])
-            for span in iter_render_spans(document):
-                if span.style.font_family:
-                    _font(span.style.font_family)
-            args["translation_rich"] = document
         args["center"], target = layout_box(args, lines)
         block = TextBlock(**args)
+        # Always start from canonical authored data. TextBlock and all automatic
+        # styles are a projection; neither is written back into the workspace.
+        document = _render_document(region, block.direction, rules)
+        for span in iter_render_spans(document):
+            if span.style.font_family:
+                _font(span.style.font_family)
+        block.set_translation_rich(document, sync_plain=True)
         value = block.get_translation_for_rendering()
         if len(plain_text_of(value)) > MAX_TEXT_LENGTH:
             raise _error("resource_limit", "Region text exceeds character limit")
@@ -578,6 +615,12 @@ def _fast_render(snapshot, region_ids=None):
 
     old_bounds = entry["bounds"]
     new_config, new_prepared = _prepare(snapshot, list(changed))
+    from manga_translator.rendering.rich_text import ensure_rich_text_document
+    from manga_translator.rendering.rich_text_sync import document_has_styling
+
+    if any(document_has_styling(ensure_rich_text_document(item[1].translation_rich))
+           for item in new_prepared):
+        return {"status": "fallback", "reason": "automatic_rich_text_requires_full_render"}
     new_bounds = {
         item[0]["region_id"]: _points_bounds(
             item[2], snapshot["width"], snapshot["height"]
@@ -714,21 +757,20 @@ def _fit(snapshot, region_id, min_size, max_size):
     }
 
 
-def _fonts(query, characters, sample_text, limit, cursor):
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QFontDatabase, QImage, QPainter
-    from manga_translator.rendering.text_render import _fonts as font_engine
-    from PIL import Image
+def _fonts(query, characters, limit, cursor, include_system=True):
+    from PyQt6.QtGui import QFontDatabase
+    from desktop_qt_ui.utils.font_list import list_font_families
 
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
         raise _error("invalid_limit", "Font limit must be between 1 and 100")
     if (
         len(query) > 256
         or len(characters) > 4096
-        or (sample_text is not None and len(sample_text) > 500)
     ):
-        raise _error("resource_limit", "Font query or sample exceeds character limits")
-    signature = hashlib.sha256((query + "\0" + characters).encode()).hexdigest()[:16]
+        raise _error("resource_limit", "Font query or character filter exceeds limits")
+    signature = hashlib.sha256(
+        (query + "\0" + characters + "\0" + str(bool(include_system))).encode()
+    ).hexdigest()[:16]
     offset = 0
     if cursor:
         try:
@@ -738,12 +780,8 @@ def _fonts(query, characters, sample_text, limit, cursor):
             raise _error("invalid_cursor", "Invalid font cursor") from exc
         if key != signature or offset < 0:
             raise _error("invalid_cursor", "Font cursor does not match query")
-    files_by_family = {}
-    for path, families in font_engine._font_families_cache.items():
-        for family in families:
-            files_by_family.setdefault(family, []).append(path)
     matches = []
-    for family in sorted(QFontDatabase.families(), key=str.casefold):
+    for family in list_font_families(include_system=include_system):
         if query.casefold() not in family.casefold():
             continue
         if characters and not _coverage(family, characters)["covered"]:
@@ -755,41 +793,64 @@ def _fonts(query, characters, sample_text, limit, cursor):
         {
             "family": family,
             "styles": list(QFontDatabase.styles(family)),
-            "files": files_by_family.get(family, []),
             "fixed_pitch": QFontDatabase.isFixedPitch(family),
         }
         for family in matches[offset : offset + limit]
     ]
-    result = {
+    return {
         "fonts": rows,
         "total": len(matches),
         "next_cursor": f"{signature}:{offset + limit}"
         if offset + limit < len(matches)
         else None,
     }
-    if sample_text and rows:
-        # One bounded specimen per listed family, in inventory order.
-        height = 90 * len(rows)
-        canvas = QImage(1200, height, QImage.Format.Format_RGBA8888)
-        canvas.fill(Qt.GlobalColor.white)
-        painter = QPainter(canvas)
-        try:
-            painter.setPen(Qt.GlobalColor.black)
-            for index, row in enumerate(rows):
-                font, _ = _font(row["family"], 24)
-                painter.setFont(font)
-                painter.drawText(12, index * 90 + 28, row["family"])
-                painter.drawText(12, index * 90 + 65, sample_text)
-        finally:
-            painter.end()
-        pointer = canvas.bits()
-        pointer.setsize(canvas.sizeInBytes())
-        image = Image.frombytes(
-            "RGBA", (canvas.width(), canvas.height()), bytes(pointer)
+
+
+def _font_sample(font_family, style, sample_text, include_system=True):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFontDatabase, QImage, QPainter
+    from desktop_qt_ui.utils.font_list import list_font_families
+    from PIL import Image
+
+    if not isinstance(font_family, str) or not font_family.strip() or len(font_family) > 256:
+        raise _error("invalid_font", "Font family is required")
+    if not isinstance(style, str) or not style.strip() or len(style) > 128:
+        raise _error("invalid_font", "Font style is required")
+    if not isinstance(sample_text, str) or not sample_text.strip() or len(sample_text) > 500:
+        raise _error("invalid_sample", "Sample text must contain 1 to 500 characters")
+    families = list_font_families(include_system=include_system)
+    if font_family not in families:
+        raise _error("font_not_found", "Font family is not available", {"font_family": font_family})
+    styles = list(QFontDatabase.styles(font_family))
+    if style not in styles:
+        raise _error(
+            "font_not_found", "Font style is not available",
+            {"font_family": font_family, "style": style},
         )
-        result["image"], size = _encode(image, MAX_DIMENSION)
-        result.update(mime_type="image/png", width=size[0], height=size[1])
-    return result
+    font, _ = _font_face(font_family, 42, style)
+    canvas = QImage(1600, 150, QImage.Format.Format_RGBA8888)
+    canvas.fill(Qt.GlobalColor.white)
+    painter = QPainter(canvas)
+    try:
+        painter.setPen(Qt.GlobalColor.black)
+        painter.setFont(font)
+        painter.drawText(20, 48, f"{font_family} - {style}")
+        painter.drawText(20, 112, sample_text)
+    finally:
+        painter.end()
+    pointer = canvas.bits()
+    pointer.setsize(canvas.sizeInBytes())
+    image = Image.frombytes("RGBA", (canvas.width(), canvas.height()), bytes(pointer))
+    data, size = _encode(image, MAX_DIMENSION)
+    return {
+        "font_family": font_family,
+        "style": style,
+        "sample_text": sample_text,
+        "image": data,
+        "mime_type": "image/png",
+        "width": size[0],
+        "height": size[1],
+    }
 
 
 def _observe_snapshot(snapshot, view, crop, dimension, *, region_ids=None, force_full=False):
@@ -863,6 +924,8 @@ def _execute(operation, args):
             value = _fit(*args)
         elif operation == "fonts":
             value = _fonts(*args)
+        elif operation == "font_sample":
+            value = _font_sample(*args)
         elif operation == "coverage":
             value = _coverage(*args)
         else:
@@ -892,13 +955,16 @@ class BackendRenderer:
     while native code is still using it.
     """
 
-    def __init__(self, *, font_files=(), max_pending: int = 4):
+    def __init__(self, *, font_files=(), max_pending: int = 4, include_system_fonts: bool = True):
         if (
             isinstance(max_pending, bool)
             or not isinstance(max_pending, int)
             or not 1 <= max_pending <= 32
         ):
             raise ValueError("max_pending must be between 1 and 32")
+        if not isinstance(include_system_fonts, bool):
+            raise TypeError("include_system_fonts must be a bool")
+        self._include_system_fonts = include_system_fonts
         self._pool = ProcessPoolExecutor(
             max_workers=1,
             mp_context=multiprocessing.get_context("spawn"),
@@ -915,7 +981,11 @@ class BackendRenderer:
         started = perf_counter()
         if self._closed:
             raise _error("renderer_closed", "Renderer is closed")
-        captured = copy.deepcopy(args)
+        captured = list(copy.deepcopy(args))
+        if operation in {"render", "fast_render", "measure", "fit"} or (
+            operation == "observe" and len(captured) > 1 and captured[1] == "rendered"
+        ):
+            captured[0] = _with_render_rules(captured[0])
         await self._slots.acquire()
         if self._closed:
             self._slots.release()
@@ -959,7 +1029,7 @@ class BackendRenderer:
 
     @staticmethod
     def _request_key(snapshot):
-        return _page_key(snapshot), snapshot["revision"], _fingerprint(snapshot)
+        return _page_key(snapshot), snapshot["revision"], _fingerprint(_with_render_rules(snapshot))
 
     def schedule(self, snapshot, *, cancelled=None):
         """Queue an immutable preview after a commit without blocking the tool.
@@ -971,6 +1041,7 @@ class BackendRenderer:
             return "unavailable"
         if cancelled is not None and cancelled.is_set():
             return "cancelled"
+        snapshot = _with_render_rules(snapshot)
         key = self._request_key(snapshot)
         if key in self._scheduled:
             return "queued"
@@ -1026,6 +1097,8 @@ class BackendRenderer:
     ) -> dict:
         if self._closed:
             raise _error("renderer_closed", "Renderer is closed")
+        if view == "rendered":
+            snapshot = _with_render_rules(snapshot)
         pending = self._scheduled.get(self._request_key(snapshot)) if view == "rendered" and not force_full else None
         # A cancelled task's speculative preview must not poison another task's read.
         if pending is not None and not (pending["cancelled"] is not None and pending["cancelled"].is_set()):
@@ -1039,11 +1112,25 @@ class BackendRenderer:
         self,
         query: str = "",
         characters: str = "",
-        sample_text=None,
         limit: int = 50,
         cursor=None,
     ) -> dict:
-        return await self._call("fonts", query, characters, sample_text, limit, cursor)
+        return await self._call(
+            "fonts", query, characters, limit, cursor,
+            self._include_system_fonts,
+        )
+
+    async def font_sample(self, font_family: str, style: str, sample_text: str) -> dict:
+        return await self._call(
+            "font_sample", font_family, style, sample_text,
+            self._include_system_fonts,
+        )
+
+    def set_system_fonts_enabled(self, enabled: bool) -> None:
+        """Apply the host font source policy to future font queries."""
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a bool")
+        self._include_system_fonts = enabled
 
     async def measure(self, snapshot: dict, region_ids=None) -> dict:
         return await self._call("measure", snapshot, region_ids)
