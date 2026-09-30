@@ -89,7 +89,7 @@ def test_backend_plan_owns_existing_output_skip_and_resume_order(tmp_path):
     skipped = plan.skipped_contexts[0]
     assert skipped.image_name == str(source_paths[1])
     assert skipped.skip_reason == "existing_output"
-    assert skipped.skip_message == f"输出文件已存在: {source_paths[1].name}"
+    assert skipped.skip_message == f"Output file already exists: {source_paths[1].name}"
     assert skipped.output_path == str(output_dir / source_paths[1].name)
     assert plan.resume_pages[0][0] == 1
     assert plan.resume_pages[0][2][0]["translation"] == "Previous line"

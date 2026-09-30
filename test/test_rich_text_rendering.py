@@ -1454,7 +1454,7 @@ class RichTextRenderingTest(unittest.TestCase):
         self.assertGreater(int(stroke[:, :, 3].sum()), int(fill[:, :, 3].sum()))
         self.assertTrue(np.any((stroke[:, :, 3] > 0) & (fill[:, :, 3] == 0)))
 
-    def test_dispatch_paints_all_regions_by_layer_before_fill(self):
+    def test_dispatch_paints_complete_regions_in_input_order(self):
         points = np.asarray(
             [[[40, 40], [180, 40], [180, 180], [40, 180]]], dtype=np.float32
         )
@@ -1472,8 +1472,8 @@ class RichTextRenderingTest(unittest.TestCase):
         ]
         calls = []
 
-        def fake_render(image, *args, **kwargs):
-            calls.append(kwargs["paint_part"])
+        def fake_render(image, region, *args, **kwargs):
+            calls.append((region.translation, kwargs.get("paint_part")))
             return image
 
         with (
@@ -1489,17 +1489,25 @@ class RichTextRenderingTest(unittest.TestCase):
             ),
             patch.object(rendering_module, "render", side_effect=fake_render),
         ):
-            result = asyncio.run(
-                rendering_module.dispatch(
-                    np.zeros((220, 220, 3), dtype=np.uint8),
-                    regions,
-                    Config(),
-                    skip_font_scaling=True,
-                )
-            )
+            for ordered_regions in (regions, regions[::-1]):
+                with self.subTest(order=[region.translation for region in ordered_regions]):
+                    calls.clear()
+                    result = asyncio.run(
+                        rendering_module.dispatch(
+                            np.zeros((220, 220, 3), dtype=np.uint8),
+                            ordered_regions,
+                            Config(),
+                            skip_font_scaling=True,
+                        )
+                    )
 
-        self.assertIsNotNone(result)
-        self.assertEqual(calls, ["effects"] * 2 + ["stroke"] * 2 + ["fill"] * 2)
+                    self.assertIsNotNone(result)
+                    # None renders effects, stroke and fill together for each region.
+                    # Reversing the input must also reverse the complete-region order.
+                    self.assertEqual(
+                        calls,
+                        [(region.translation, None) for region in ordered_regions],
+                    )
 
     def test_multiline_plain_and_ruby_documents_render_without_supersampling(self):
         # BR 产生的多行纯文本与带注音文档都应由普通 Qt 路径直接渲染。
