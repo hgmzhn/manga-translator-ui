@@ -2473,41 +2473,37 @@ async def dispatch(
             except Exception:
                 pass
 
-    # 先完成所有区域的特效/描边，再绘制所有正文；否则后绘制区域的
-    # 描边会覆盖先前区域的文字，尤其是相邻或重叠文本框。
-    for paint_part in ("effects", "stroke", "fill"):
-        for region_idx, (region, dst_points) in enumerate(
-            tqdm(
-                zip(text_regions, dst_points_list),
-                f'[render:{paint_part}]',
-                total=len(text_regions),
-            )
+    # 与编辑器一致：每个区域先合成完整的特效、描边和正文，再按区域顺序
+    # 叠到画布上，后面的区域覆盖前面的区域。不能跨区域分遍绘制，否则
+    # 下层正文会浮到上层描边之上，破坏文本框之间的覆盖顺序。
+    for region, dst_points in tqdm(
+        zip(text_regions, dst_points_list),
+        '[render]',
+        total=len(text_regions),
+    ):
+        region.dst_points = dst_points
+        render_value = _region_render_value(region)
+        if not render_value or (
+            isinstance(render_value, str) and not render_value.strip()
         ):
-            region.dst_points = dst_points
-            try:
-                render_value = _region_render_value(region)
-                if not render_value or (
-                    isinstance(render_value, str) and not render_value.strip()
-                ):
-                    logger.info(
-                        f"[RENDER] Skipping empty text region: text='{region.text[:20] if region.text else ''}', translation='{_translation_preview(render_value, 20)}'"
-                    )
-                    continue
+            logger.info(
+                f"[RENDER] Skipping empty text region: text='{region.text[:20] if region.text else ''}', "
+                f"translation='{_translation_preview(render_value, 20)}'"
+            )
+            continue
 
-                line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-                img = render(
-                    img,
-                    region,
-                    dst_points,
-                    not config.render.no_hyphenation,
-                    line_spacing_multiplier,
-                    config.render.disable_font_border,
-                    config,
-                    render_alpha=render_alpha,
-                    paint_part=paint_part,
-                )
-            except Exception:
-                raise
+        line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+        img = render(
+            img,
+            region,
+            dst_points,
+            not config.render.no_hyphenation,
+            line_spacing_multiplier,
+            config.render.disable_font_border,
+            config,
+            render_alpha=render_alpha,
+            paint_part=None,
+        )
     
     if return_debug_img and debug_img is not None:
         return img, debug_img
