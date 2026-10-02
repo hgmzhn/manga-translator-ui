@@ -6,7 +6,7 @@ import hashlib
 import os
 from typing import Any
 
-from manga_translator.runtime_paths import get_config_path
+from manga_translator.runtime_paths import get_application_dir, get_config_path
 
 
 def _normalized_md5(content: str) -> str:
@@ -42,6 +42,14 @@ def _upgrade_default_file(
 def _upgrade_runtime_defaults(logger: Any = None) -> None:
     """统一升级仍保持历史内置内容的运行时配置文件。"""
     migrations = (
+        (
+            "renderer_prompt",
+            os.path.join(get_application_dir(), "dict", "ai_renderer_prompt.yaml"),
+            {
+                # 旧默认：按原文定位，尚未明确要求准确使用提供的译文。
+                "bf94d744fe2c49462a0427c74f3ae60a",
+            },
+        ),
         (
             "translation_template",
             get_config_path("translation_template.json"),

@@ -75,7 +75,7 @@ Concurrency is grouped per provider: `openai_renderer` and `gemini_renderer` eac
 When a request is built, `_build_base_prompt()` calls `ensure_ai_renderer_prompt_file()` again and loads via `load_ai_renderer_prompt_file(None)`; if loading fails or returns empty, it falls back to the built-in `DEFAULT_AI_RENDERER_PROMPT`. `_compose_render_prompt()` appends the following to the base prompt:
 
 - a header line, “Translation list with original texts as reference:”;
-- one `- translation: ...` entry per region with non-empty translation, plus `original: ...` (the source text as reference) and `direction: vertical|horizontal`;
+- one `- translation: ...` entry per region with non-empty translation, plus `original: ...` when available (the source text as reference); no text direction is sent;
 - a fixed `Rules:` list (match each line to the corresponding bubble, render every translation including sound effects, keep the page layout and artwork intact, return only the rendered image).
 
 Translation values are first flattened with `rich_text.plain_text_of()` and line breaks are escaped to `\\n`. Before sending, the page image is padded to a white square with `prepare_square_ai_image()`; after the response, `restore_square_ai_image()` crops it back to the original size, and a LANCZOS resize is applied when the returned size differs.

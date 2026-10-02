@@ -15,10 +15,17 @@ LEGACY_AI_RENDERER_PROMPTS = (
 )
 
 DEFAULT_AI_RENDERER_PROMPT = (
-    "For each provided translation, locate the matching original text on the manga page, "
-    "erase the original text completely, and render the translation in its place. For any "
-    "remaining untranslated text (such as missed bubbles, sound effects, or furigana/rubi characters), "
-    "erase it, translate it, and render the translation. Preserve all artwork and page layout. "
+    "You will receive a manga page and a list of entries containing translation and original "
+    "(when available). Use each original text as a reference to locate its "
+    "matching text region on the page; use the surrounding visual context and reading order "
+    "to distinguish repeated texts. Erase the original text completely and render the provided "
+    "translation exactly in its place. Do not retranslate, "
+    "paraphrase, omit, or duplicate provided translations. The original field is only a "
+    "matching reference: do not render it or the field labels. Fit the lettering to the "
+    "region while preserving the artwork, bubble shapes, panel borders, and page layout. "
+    "For remaining source-language text with no provided translation, including missed bubbles "
+    "and sound effects, translate it into the same target language as the provided translations "
+    "and render it in place. Remove associated furigana/ruby when replacing source text. "
     "Return only the rendered image."
 )
 
@@ -62,6 +69,7 @@ def save_ai_renderer_prompt_file(path: Optional[str], prompt_text: str) -> str:
 
 
 def ensure_ai_renderer_prompt_file(path: Optional[str] = None) -> str:
+    """Create the default prompt or upgrade an exact legacy default, preserving custom prompts."""
     resolved_path = resolve_ai_renderer_prompt_path(path)
     if not os.path.exists(resolved_path):
         save_ai_renderer_prompt_file(resolved_path, DEFAULT_AI_RENDERER_PROMPT)

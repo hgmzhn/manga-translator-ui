@@ -160,17 +160,16 @@ class BaseAPIRenderer:
             if not translation:
                 continue
             original = self._format_prompt_value(getattr(region, "text", "") or "")
-            direction = "vertical" if region.vertical else "horizontal"
             lines.append(f"- translation: {translation}")
             if original:
                 lines.append(f"  original: {original}")
-            lines.append(f"  direction: {direction}")
         lines.extend(
             [
                 "",
                 "Rules:",
-                "- Match each translated line to the corresponding bubble on the image using the original text as reference.",
-                "- Render every provided translation, including sound effects and onomatopoeia.",
+                "- Use each original field to locate the matching text region; use visual context and reading order to distinguish repeated texts.",
+                "- Erase the matched original text and render its provided translation exactly once, including sound effects and onomatopoeia.",
+                "- Do not retranslate or paraphrase provided translations, and do not render original reference texts or field labels.",
                 "- Keep the page layout and artwork intact.",
                 "- Return only the fully rendered image.",
             ]
