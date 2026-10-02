@@ -75,7 +75,7 @@ flowchart LR
 请求构造时 `_build_base_prompt()` 再次调用 `ensure_ai_renderer_prompt_file()` 并 `load_ai_renderer_prompt_file(None)`；加载失败或为空时回退到内置 `DEFAULT_AI_RENDERER_PROMPT`。`_compose_render_prompt()` 把基础提示词与以下内容拼接：
 
 - 标题行“Translation list with original texts as reference:”；
-- 每个有非空译文的区域一条 `- translation: ...`，有原文时附 `original: ...`（原文本参考），不传排版方向；
+- 每个有非空译文的区域一条 `- translation: ...`，附 `original: ...`（原文本参考）和 `direction: vertical|horizontal`；
 - 固定的 `Rules:` 列表（逐条匹配气泡、渲染所有译文包括拟声词、保持页面布局与画作、只返回渲染图）。
 
 译文值先经 `rich_text.plain_text_of()` 展平为纯文本，再把换行转义为 `\\n`。页面图在发送前用 `prepare_square_ai_image()` 填充到白色正方形，返回后按 `restore_square_ai_image()` 裁回原尺寸；若模型返回尺寸不一致再 LANCZOS 缩放到原图尺寸。
