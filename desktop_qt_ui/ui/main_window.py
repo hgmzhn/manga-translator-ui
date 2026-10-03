@@ -76,14 +76,6 @@ class MainWindow(FluentWindow):
 
         self.app_logic.initialize()
 
-        # 检查是否需要启动系统主题监听
-        config = self.config_service.get_config()
-        if config.app.theme == "system":
-            self.last_system_theme = self._detect_windows_theme()
-            self.theme_check_timer = QTimer(self)
-            self.theme_check_timer.timeout.connect(self._check_system_theme_change)
-            self.theme_check_timer.start(5000)  # 每5秒检查一次
-
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
         if self.i18n:
@@ -103,7 +95,7 @@ class MainWindow(FluentWindow):
 
         initial_theme = config.app.theme
         if initial_theme == "system":
-            detected_theme = self._detect_windows_theme()
+            detected_theme = self._detect_system_theme()
             if detected_theme == "dark":
                 initial_theme = "dark"
             else:
@@ -311,7 +303,7 @@ class MainWindow(FluentWindow):
 
         # 处理系统主题逻辑：如果是 'system'，则解析为实际主题
         if theme == "system":
-            sys_theme = self._detect_windows_theme()
+            sys_theme = self._detect_system_theme()
             if sys_theme == "dark":
                 self._apply_theme("dark")
             else:
@@ -349,57 +341,32 @@ class MainWindow(FluentWindow):
 
         apply_native_title_bar_theme(self, theme, logger=self.logger)
 
-    def _detect_windows_theme(self) -> str:
-        """检测Windows系统主题（深色/浅色）
-        返回: 'dark' 或 'light'
-        """
-        try:
-            import winreg
-
-            key = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-            )
-            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-            winreg.CloseKey(key)
-            return "light" if value == 1 else "dark"
-        except Exception:
-            # 默认返回浅色（或记录日志）
-            # self.logger.warning(f"无法检测系统主题: {e}")
+    def _detect_system_theme(self) -> str | None:
+        """通过 Qt 检测系统主题；平台未提供外观信息时返回 None。"""
+        scheme = QApplication.styleHints().colorScheme()
+        if scheme == Qt.ColorScheme.Dark:
+            return "dark"
+        if scheme == Qt.ColorScheme.Light:
             return "light"
+        return None
 
-    def _check_system_theme_change(self):
-        """检查系统主题是否变化"""
+    def _on_system_theme_changed(self, scheme: Qt.ColorScheme):
+        """响应系统外观通知，仅更新跟随系统模式下的界面。"""
         config = self.config_service.get_config()
         if config.app.theme != "system":
-            # 如果用户切换到其他主题，停止监听
-            if hasattr(self, "theme_check_timer"):
-                self.theme_check_timer.stop()
             return
 
-        current_system_theme = self._detect_windows_theme()
-        if current_system_theme != self.last_system_theme:
-            self.logger.info(
-                f"System theme changed: {self.last_system_theme} -> {current_system_theme}"
-            )
+        if scheme == Qt.ColorScheme.Dark:
+            theme = "dark"
+        elif scheme == Qt.ColorScheme.Light:
+            theme = config.app.theme_user_preference
+        else:
+            # 无法识别外观时保留当前主题，不覆盖用户偏好。
+            return
 
-            if current_system_theme == "dark":
-                # 系统切换到深色
-                if self.current_applied_theme != "dark":
-                    # 保存用户偏好（浅色或灰色）
-                    config.app.theme_user_preference = self.current_applied_theme
-                    self.config_service.save_config_file()
-                    self.logger.info(f"Saving user preference: {self.current_applied_theme}")
-                # 切换到深色主题
-                self._apply_theme("dark")
-            else:
-                # 系统切换到浅色
-                # 恢复用户偏好
-                user_pref = config.app.theme_user_preference
-                self._apply_theme(user_pref)
-                self.logger.info(f"Restoring user preference: {user_pref}")
-
-            self.last_system_theme = current_system_theme
+        if theme != self.current_applied_theme:
+            self.logger.info(f"System color scheme changed: {scheme.name}; applying {theme}")
+            self._apply_theme(theme)
 
     def _change_theme(self, theme: str):
         """切换主题并保存到配置"""
@@ -408,29 +375,11 @@ class MainWindow(FluentWindow):
         config_service = get_config_service()
         config = config_service.get_config()
 
-        if theme == "system":
-            # 应用主题（逻辑主题）
-            self._apply_theme("system")
+        self._apply_theme(theme)
 
-            # 启动监听
-            self.last_system_theme = self._detect_windows_theme()
-            if not hasattr(self, "theme_check_timer"):
-                self.theme_check_timer = QTimer(self)
-                self.theme_check_timer.timeout.connect(self._check_system_theme_change)
-
-            if not self.theme_check_timer.isActive():
-                self.theme_check_timer.start(5000)
-        else:
-            # 停止监听
-            if hasattr(self, "theme_check_timer"):
-                self.theme_check_timer.stop()
-
-            # 应用主题
-            self._apply_theme(theme)
-
-            # 保存所有非 dark 主题，供“跟随系统”在浅色系统下恢复。
-            if theme != "dark":
-                config.app.theme_user_preference = theme
+        # 仅保存手动选择的非 dark 主题，供浅色系统下恢复。
+        if theme not in ("dark", "system"):
+            config.app.theme_user_preference = theme
 
         # 保存到配置
         config.app.theme = theme
@@ -511,6 +460,11 @@ class MainWindow(FluentWindow):
         self.redo_action.triggered.connect(self._handle_redo)
 
         # --- 主题切换连接 ---
+        # Qt 发出通知时仍使用旧调色板，排队到其更新完成后再应用自定义主题。
+        QApplication.styleHints().colorSchemeChanged.connect(
+            self._on_system_theme_changed,
+            type=Qt.ConnectionType.QueuedConnection,
+        )
         for theme_key, action in getattr(self, "theme_actions", {}).items():
             action.triggered.connect(
                 lambda checked=False, selected_theme=theme_key: self._change_theme(
