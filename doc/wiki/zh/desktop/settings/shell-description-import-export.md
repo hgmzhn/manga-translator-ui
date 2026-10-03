@@ -15,7 +15,7 @@ lastUpdated: true
 
 - 设置页外壳由标题区、七个分组页签、可滚动参数列表、右侧说明面板组成；页首另有“导出配置”和“导入配置”。
 - `settings_tab_layout.json` 当前定义 `General`、`OCR`、`Detection`、`Translation`、`Inpainting`、`Typesetting`、`Mode Specific` 七个页签。`Advanced`、`Replace Translation`、`Upscaling` 和 `Colorization` 是页签内分隔标题，不是独立页签。
-- 动态设置代码会跳过内部状态、已由工作流选择器代替的字段和废弃字段；布局清单的 110 个条目中，Phase 0 统计为 109 个可见参数，不能把清单条目数当成屏幕行数。
+- 动态设置代码会跳过内部状态、已由工作流选择器代替的字段和废弃字段；布局清单的 112 个条目中，Phase 0 统计为 111 个可见参数，不能把清单条目数当成屏幕行数。
 - 配置导出只处理设置模型的 JSON 快照，并主动排除 `app` 临时状态和 `cli.verbose`；它不是 API 凭据或整个运行目录的备份。
 - 配置导入把外部 JSON 深度合并到当前配置，保留当前 `app` 段，再由 `AppSettings` 校验；它不是导入 `.env`、提示词正文、翻译 JSON 或用户图片的功能。
 

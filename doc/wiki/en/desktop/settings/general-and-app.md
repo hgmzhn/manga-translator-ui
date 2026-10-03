@@ -9,7 +9,7 @@ lastUpdated: true
 
 # General and Application Settings
 
-This guide covers the settings page’s “General” group and the application state it carries. It documents general processing switches, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
+This guide covers the settings page’s “General” group and the application state it carries. It documents general processing switches, the custom API-parameter file switch, the filter list, global mask parameters, model unloading, completion actions after translation, and editor preferences; specialized detection, OCR, translation, inpainting, typesetting, upscaling, and colorization parameters belong to their respective pages.
 
 ## Change it in the desktop app {#ui-operations}
 
@@ -49,6 +49,14 @@ flowchart LR
 ```
 
 Default: `false`.
+
+### After translation {#shutdown-after-translation}
+
+The “After translation” dropdown under Settings → General offers Do nothing (default), Close application, Sleep, Hibernate, and Shut down. It starts a 60-second countdown after a batch saves at least one new file, has no failures, and temporary-file cleanup finishes. Manual stops, failed batches, and all-skipped batches do not trigger an action. If cleanup cannot be submitted, no completion action is scheduled.
+
+The application owns the countdown: changing this option, starting another batch, or clicking Stop cancels it before any system command is issued. Close application uses the normal window-close flow. Windows uses the typed .NET power API for sleep/hibernation; Linux uses systemctl. macOS supports sleep and shutdown; explicit hibernation is unavailable and logs a warning. System power actions require OS support and permissions, and failures are logged. No system power settings are changed. This option only affects desktop translation batches.
+
+Default: `none` (`app.after_translation_action`).
 
 ### Enable Filter List {#filter-text-enabled}
 

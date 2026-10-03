@@ -15,7 +15,7 @@ This guide describes how the desktop Settings page organizes groups, parameter r
 
 - The Settings shell consists of a header, seven group tabs, a scrollable parameter list, and a right-hand description panel; the header also provides “Export Config” and “Import Config”.
 - `settings_tab_layout.json` currently defines seven tabs: `General`, `OCR`, `Detection`, `Translation`, `Inpainting`, `Typesetting`, and `Mode Specific`. `Advanced`, `Replace Translation`, `Upscaling`, and `Colorization` are dividers inside tabs, not independent tabs.
-- The dynamic settings code skips internal state, workflow-controlled fields, and deprecated fields. The Phase 0 inventory has 110 layout entries and 109 visible parameters; the entry count must not be presented as the number of visible rows.
+- The dynamic settings code skips internal state, workflow-controlled fields, and deprecated fields. The Phase 0 inventory has 112 layout entries and 111 visible parameters; the entry count must not be presented as the number of visible rows.
 - Export handles a JSON snapshot of the settings model and explicitly removes the temporary `app` state and `cli.verbose`; it is not an API-credential or whole-work-directory backup.
 - Import deep-merges external JSON into the current settings, restores the current `app` section, and validates through `AppSettings`; it does not import `.env`, prompt contents, translation JSON, or user images.
 
