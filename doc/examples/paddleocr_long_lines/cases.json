@@ -1,0 +1,79 @@
+[
+  {
+    "image": "p35_1_ori_c3.jpg",
+    "texts": [
+      "The weather tonight is relentless, heavy rain pounds the windows,",
+      "and gusts of wind rattle the glass doors.",
+      "Thunder booms in the distance, giving the night a tense."
+    ],
+    "crop_boxes": [
+      [
+        342,
+        1179,
+        1887,
+        1243
+      ],
+      [
+        342,
+        1243,
+        1292,
+        1307
+      ],
+      [
+        342,
+        1307,
+        1661,
+        1374
+      ]
+    ]
+  },
+  {
+    "image": "p35_1_ori_c1.jpg",
+    "texts": [
+      "It’s a cold, rainy night in Tokibara,",
+      "a quiet town where nothing exciting ever happens..."
+    ],
+    "crop_boxes": [
+      [
+        342,
+        1179,
+        1151,
+        1243
+      ],
+      [
+        342,
+        1243,
+        1563,
+        1315
+      ]
+    ]
+  },
+  {
+    "image": "synthetic_long_dialogue.png",
+    "texts": [
+      "The evening train arrived quietly, and the station lights reflected on the empty street.",
+      "Please wait here.",
+      "I opened the notebook and found a message asking everyone to meet near the old bridge."
+    ],
+    "crop_boxes": [
+      [
+        0,
+        0,
+        1773,
+        55
+      ],
+      [
+        0,
+        55,
+        353,
+        110
+      ],
+      [
+        0,
+        110,
+        1733,
+        165
+      ]
+    ]
+  }
+]

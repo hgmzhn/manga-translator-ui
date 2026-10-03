@@ -387,8 +387,7 @@ class ModelPaddleOCR(OfflineOCR):
                     chunk_indices = valid_indices[chunk_start:chunk_end]
                     
                     # Preprocess and batch
-                    preprocessed = [self._preprocess(r) for r in chunk_regions]
-                    batch = np.concatenate(preprocessed, axis=0)
+                    batch = self._preprocess_batch(chunk_regions)
 
                     # Run inference
                     input_name = self.session.get_inputs()[0].name
@@ -446,7 +445,21 @@ class ModelPaddleOCR(OfflineOCR):
 
         return textlines
 
-    def _preprocess(self, img: np.ndarray) -> np.ndarray:
+    def _preprocess_batch(self, regions: List[np.ndarray]) -> np.ndarray:
+        """Preserve long lines for dynamic-width ONNX inputs; pad within each batch."""
+        input_width = self.session.get_inputs()[0].shape[-1]
+        if isinstance(input_width, int):
+            batch_width = input_width
+        else:
+            batch_width = max(
+                320,
+                max(math.ceil(48 * region.shape[1] / region.shape[0]) for region in regions),
+            )
+        return np.concatenate(
+            [self._preprocess(region, batch_width) for region in regions], axis=0
+        )
+
+    def _preprocess(self, img: np.ndarray, target_width=None) -> np.ndarray:
         """
         Preprocess image for PP-OCR recognition.
 
@@ -454,9 +467,10 @@ class ModelPaddleOCR(OfflineOCR):
         Output: Normalized tensor [1, 3, 48, W']
         """
         h, w = img.shape[:2]
-        imgC, imgH, imgW = 3, 48, 320
+        imgC, imgH = 3, 48
+        imgW = target_width if target_width is not None else max(320, math.ceil(imgH * w / h))
 
-        # Resize keeping aspect ratio
+        # Preserve aspect ratio unless the ONNX model requires a fixed width
         ratio = w / float(h)
         resized_w = int(math.ceil(imgH * ratio))
         if resized_w > imgW:
@@ -470,7 +484,7 @@ class ModelPaddleOCR(OfflineOCR):
         resized_img = resized_img / 255.0
         resized_img = (resized_img - 0.5) / 0.5
 
-        # Pad to fixed width
+        # Pad to the shared batch width
         padded = np.zeros((imgC, imgH, imgW), dtype=np.float32)
         padded[:, :, :resized_w] = resized_img
 
