@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPalette
@@ -733,7 +733,7 @@ class StyleRunCard(SimpleCardWidget):
         if key in {"B", "U", "ST", "D", "T", "M", "MV"}:
             return None
         if key == "I":
-            value = style.get("italic", 15.0)
+            value = style.get("italic", 0.0)
             control = _double_spin_box(
                 15.0 if isinstance(value, bool) else value, -85.0, 85.0, 1
             )
@@ -745,8 +745,8 @@ class StyleRunCard(SimpleCardWidget):
                 control,
                 lambda s, *_: (
                     15.0
-                    if isinstance(s.get("italic", 15.0), bool)
-                    else float(s.get("italic", 15.0))
+                    if isinstance(s.get("italic", 0.0), bool)
+                    else float(s.get("italic", 0.0))
                 ),
                 control.setValue,
             )
@@ -1103,12 +1103,38 @@ class StyledRunList(ScrollArea):
                 None,
             )
             if matching is None:
-                values[:] = [
-                    segment
-                    for segment in values
-                    if segment.end <= target[0] or segment.start >= target[1]
-                ]
-                values.append(StyledTextSegment(target[0], target[1], text, {}))
+                remaining = []
+                for segment in values:
+                    if segment.end <= target[0] or segment.start >= target[1]:
+                        remaining.append(segment)
+                        continue
+                    # Removing a neutral style can merge this run with its
+                    # neighbours. Restore the draft's boundaries for display
+                    # without losing the surrounding runs or their styles.
+                    if segment.start < target[0]:
+                        remaining.append(
+                            replace(
+                                segment,
+                                end=target[0],
+                                text=segment.text[: target[0] - segment.start],
+                            )
+                        )
+                    if segment.end > target[1]:
+                        remaining.append(
+                            replace(
+                                segment,
+                                start=target[1],
+                                text=segment.text[target[1] - segment.start :],
+                            )
+                        )
+                    if segment.start <= target[0] and segment.end >= target[1]:
+                        matching = replace(
+                            segment, start=target[0], end=target[1], text=text
+                        )
+                values[:] = remaining
+                values.append(
+                    matching or StyledTextSegment(target[0], target[1], text, {})
+                )
                 values.sort(key=lambda segment: segment.start)
             forced_by_range.setdefault(target, set()).update(keys)
             return target

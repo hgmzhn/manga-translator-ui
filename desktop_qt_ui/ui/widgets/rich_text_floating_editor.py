@@ -475,8 +475,19 @@ class RichTextFloatingEditor(SimpleCardWidget):
     ) -> None:
         if self._updating or not self._state.has_region or start >= end:
             return
-        self._state.discard_pending_style(key, start, end)
         document = apply_style_to_range(self._state.document, start, end, patch)
+        if (
+            key in {"I", "Rot", "K", "PK", "XY"}
+            and patch != clear_style_patch(key)
+            and not style_row_coverage(document, start, end, key)[0]
+        ):
+            # The protocol drops neutral zero values, but the numeric control
+            # must survive crossing zero. Keep its row as an inspector draft,
+            # just like a newly enabled zero-valued style, until the selection
+            # changes or the editor closes.
+            self._state.begin_pending_style_edit(key, start, end)
+        else:
+            self._state.discard_pending_style(key, start, end)
         # 结构签名不变时 run list 会自动就地复用卡片（持焦点的控件不覆盖），
         # 无需再显式标记 allow_reuse。
         self._commit_document(document)
