@@ -68,7 +68,7 @@ Enter a color in the “Font Color” field: leave it empty for automatic (uses 
 
 #### Font Size
 
-“Font Size”, “Font Size Offset”, “Minimum Font Size”, “Maximum Font Size”, and “Font Scale Ratio” together determine the font size. Leaving Font Size empty uses automatic measurement; the offset adjusts the automatic size; minimum/maximum bound the range (`0` means no upper limit); the scale ratio is an overall multiplier applied before layout. Defaults: Font Size empty (automatic), offset `0`, minimum `0`, maximum `0` (no limit), ratio `1.0`.
+“Font Size”, “Font Size Offset”, “Minimum Font Size”, “Maximum Font Size”, and “Font Scale Ratio” together determine the base font size. After automatic layout and overlap avoidance, they apply once in this order: fixed size → offset → scale ratio → minimum → maximum. Leaving Font Size empty keeps the automatic size; non-positive minimum/maximum values disable their limits. Bubble-layout error fallbacks use the same order, and automatic rich-text rules do not apply the offset or ratio again. Local rich-text font sizes and scales take precedence over the base-size limits. Manual editor previews and JSON imports with “Skip Font Scaling” enabled use the saved region size directly. Defaults: Font Size empty (automatic), offset `0`, minimum `0`, maximum `0` (no limit), ratio `1.0`.
 
 #### Spacing
 

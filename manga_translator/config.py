@@ -162,13 +162,13 @@ class RenderConfig(BaseModel):
     """Disable font border"""
     disable_auto_wrap: bool = False
     font_size_offset: int = 0
-    """Offset font size by a given amount, positive number increase font size and vice versa"""
+    """Adjust the base font size once after automatic layout, before the scale ratio."""
     font_size_minimum: int = -1
-    """Minimum output font size. Default is image_sides_sum/200"""
+    """Minimum base font size after layout. Non-positive values disable this limit."""
     max_font_size: int = 0
-    """Maximum output font size. 0 means no limit"""
+    """Maximum base font size after layout. 0 means no limit. Local rich-text sizes take precedence."""
     font_scale_ratio: float = 1.0
-    """Font size scale ratio. Applied before max_font_size limit"""
+    """Scale the base font size once after layout and offset, before min/max limits."""
     center_text_in_bubble: bool = False
     """Center the text block vertically in the bubble"""
     optimize_line_breaks: bool = False
@@ -200,7 +200,7 @@ class RenderConfig(BaseModel):
     letter_spacing: Optional[float] = None
     """Letter spacing multiplier. Default is 1.0. Actual glyph advance = font advance * multiplier."""
     font_size: Optional[int] = None
-    """Use fixed font size for rendering"""
+    """Override the automatic base font size before offset, ratio, and min/max limits."""
     rtl: bool = True
     """Right-to-left reading order for panel and text_region sorting,"""  
     layout_mode: str = 'smart_scaling'

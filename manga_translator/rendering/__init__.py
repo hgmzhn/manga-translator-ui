@@ -1054,8 +1054,8 @@ def _resolve_strict_layout_font_size(
 ) -> int:
     """strict 布局字号：最终文本按 OCR 框适配的字号作为布局上限。
 
-    box_fit_font_size <= 0（配置了固定字号、未做按框计算）时直接用候选字号，
-    最终仍由 _apply_final_font_constraints 收口。替换翻译模式下强制单行
+    box_fit_font_size <= 0（未取得按框计算结果）时直接用候选字号，
+    最终仍由外层统一应用字号配置。替换翻译模式下强制单行
     （OCR 单行且方向未改写）的区域豁免按框上限：清除断行标记后按候选字号
     渲染，允许超出 OCR 框。
     """
@@ -1277,6 +1277,55 @@ def _binary_search_font_for_bubble_mask(
     return best_font, best_dst_points
 
 
+def _finalize_region_font_sizes(
+    text_regions: List[TextBlock],
+    dst_points_list: list,
+    anchor_modes: List[Optional[str]],
+    config: Config,
+    *,
+    skip_font_scaling: bool = False,
+    debug_img: Optional[np.ndarray] = None,
+) -> None:
+    """Apply global size settings once, then measure with the final rich-text styles."""
+    for index, (region, anchor_mode) in enumerate(zip(text_regions, anchor_modes)):
+        if region is None or anchor_mode is None:
+            continue
+        if not skip_font_scaling:
+            region.font_size = _apply_final_font_constraints(region.font_size, config)
+
+        config._current_region = region
+        text_render.set_font(getattr(region, 'font_family', '') or text_render.DEFAULT_FONT_FAMILY)
+        try:
+            points = _calc_region_dst_points_for_font(
+                region=region,
+                font_size=region.font_size,
+                render_horizontally=_resolve_region_render_horizontal(region),
+                line_spacing_multiplier=_resolve_line_spacing_multiplier(region, config),
+                letter_spacing_multiplier=_resolve_letter_spacing_multiplier(region, config),
+                config=config,
+                anchor_mode=anchor_mode,
+            )
+        except Exception as exc:
+            logger.exception(f"Final font measurement failed for region {index}: {exc}")
+            points = None
+        if points is not None:
+            dst_points_list[index] = points
+
+        if debug_img is not None and dst_points_list[index] is not None:
+            polygon = np.asarray(dst_points_list[index]).reshape(-1, 2).astype(np.int32)
+            if polygon.shape[0] >= 4:
+                cv2.polylines(debug_img, [polygon], True, (0, 255, 0), 2)
+                cv2.putText(
+                    debug_img,
+                    f'B{index}:{region.font_size}',
+                    tuple(polygon[0]),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45,
+                    (0, 255, 0),
+                    1,
+                )
+
+
 def resize_regions_to_font_size(
     img: np.ndarray,
     text_regions: List['TextBlock'],
@@ -1287,11 +1336,45 @@ def resize_regions_to_font_size(
     skip_text_replacements: bool = False,
     bubble_mask: Optional[np.ndarray] = None,
 ):
+    """Finish automatic layout before applying global font-size settings."""
+    dst_points_list, anchor_modes, debug_img = _layout_regions_to_font_size(
+        img,
+        text_regions,
+        config,
+        original_img,
+        return_debug_img,
+        skip_font_scaling=skip_font_scaling,
+        skip_text_replacements=skip_text_replacements,
+        bubble_mask=bubble_mask,
+    )
+    _finalize_region_font_sizes(
+        text_regions,
+        dst_points_list,
+        anchor_modes,
+        config,
+        skip_font_scaling=skip_font_scaling,
+        debug_img=debug_img,
+    )
+    if return_debug_img and debug_img is not None:
+        return dst_points_list, debug_img
+    return dst_points_list
+
+
+def _layout_regions_to_font_size(
+    img: np.ndarray,
+    text_regions: List['TextBlock'],
+    config: Config,
+    original_img: np.ndarray = None,
+    return_debug_img: bool = False,
+    skip_font_scaling: bool = False,
+    skip_text_replacements: bool = False,
+    bubble_mask: Optional[np.ndarray] = None,
+):
     """
-    Resize text regions based on layout mode.
+    Calculate automatic layout without applying global font-size settings.
 
     Args:
-        return_debug_img: If True, returns (dst_points_list, debug_img) for balloon_fill mode
+        return_debug_img: If True, prepares a debug image for balloon_fill mode
         skip_font_scaling: If True, skip font scaling algorithm and use font_size from region directly (for load_text mode)
     """
     mode = config.render.layout_mode
@@ -1373,6 +1456,7 @@ def resize_regions_to_font_size(
             pass
 
     dst_points_list = []
+    anchor_modes: List[Optional[str]] = [None] * len(text_regions)
     placed_regions: list[tuple[np.ndarray, Optional[np.ndarray]]] = []
     for region_idx, region in enumerate(text_regions):
         if region is None:
@@ -1424,10 +1508,12 @@ def resize_regions_to_font_size(
                 apply_bubble_centering=apply_bubble_centering,
                 skip_font_scaling=True,
             )
+            anchor_modes[region_idx] = normal_anchor_mode
 
             # skip_font_scaling模式：使用region.font_size作为最终字体，完全跳过排版缩放
             # 编辑器导出时用户设多少字号就渲染多少，不做任何缩放
             if skip_font_scaling:
+                anchor_modes[region_idx] = skip_anchor_mode
                 fixed_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
                 logger.debug(f"[RESIZE] skip_font_scaling: region {region_idx} uses fixed font size {fixed_font_size}")
 
@@ -1479,7 +1565,8 @@ def resize_regions_to_font_size(
                     render_horizontally = _resolve_region_render_horizontal(region)
                     line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
                     letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
-                    final_font_size = _apply_final_font_constraints(target_font_size, config)
+                    final_font_size = target_font_size
+                    anchor_modes[region_idx] = skip_anchor_mode
 
                     dst_points = _calc_region_dst_points_for_font(
                         region=region,
@@ -1534,68 +1621,57 @@ def resize_regions_to_font_size(
 
 
             layout_candidate_font_size = int(max(target_font_size, layout_min_font_size))
-            configured_fixed_font_size = _resolve_configured_fixed_font_size(config)
             remove_linebreak_punctuation = bool(getattr(config.render, 'remove_linebreak_punctuation', False))
             if is_rich_text_document(_region_render_value(region)):
                 # 富文本文档不可重排：不做断句优化/自动断行（会破坏结构化段落
                 # 与样式边界），但字号自适应必须生效——不再直接使用估算字号。
                 # 解析一次向下传实例，字号二分内不重复解析 dict。
                 rich_render_value = ensure_rich_text_document(_region_render_value(region))
-                layout_font_size = layout_candidate_font_size
-                if configured_fixed_font_size <= 0:
-                    # 1) 未旋转外接框内能容纳的最大字号，与估算字号取 min（只收缩）
-                    box_fit_font_size = calc_font_from_box(
-                        width=float(line_box_width),
-                        height=float(line_box_height),
-                        text=rich_render_value,
-                        is_horizontal=render_horizontally,
-                        line_spacing=line_spacing_multiplier,
-                        config=config,
-                        target_lang=region.target_lang,
-                        letter_spacing=letter_spacing_multiplier,
-                        stroke_width=_resolve_region_stroke_width(region, config),
-                    )
-                    layout_font_size = max(
-                        min(layout_candidate_font_size, int(box_fit_font_size)),
-                        layout_min_font_size,
-                    )
+                # 1) 未旋转外接框内能容纳的最大字号，与估算字号取 min（只收缩）
+                box_fit_font_size = calc_font_from_box(
+                    width=float(line_box_width),
+                    height=float(line_box_height),
+                    text=rich_render_value,
+                    is_horizontal=render_horizontally,
+                    line_spacing=line_spacing_multiplier,
+                    config=config,
+                    target_lang=region.target_lang,
+                    letter_spacing=letter_spacing_multiplier,
+                    stroke_width=_resolve_region_stroke_width(region, config),
+                )
+                layout_font_size = max(
+                    min(layout_candidate_font_size, int(box_fit_font_size)),
+                    layout_min_font_size,
+                )
 
-                    # 2) balloon_fill：继续用气泡蒙版收缩（_calc_region_dst_points_for_font
-                    #    内部已支持富文本正文锚定）；区域不完全在蒙版内时保持框收缩结果
-                    if mode == 'balloon_fill' and original_img is not None:
-                        try:
-                            region_bubble_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
-                            if balloon_fill_mask is not None and np.count_nonzero(balloon_fill_mask) > 0:
-                                region_bubble_mask = _build_region_reference_mask(
-                                    region, balloon_fill_mask, balloon_fill_label_map
-                                )
-                            if (
-                                np.count_nonzero(region_bubble_mask) > 0
-                                and _region_lines_fully_inside_mask(region, region_bubble_mask)
-                            ):
-                                configured_min_font_size = _resolve_configured_min_font_size(config)
-                                bubble_min_font_size = max(
-                                    configured_min_font_size if configured_min_font_size > 0 else 1, 1
-                                )
-                                best_font_size, _ = _binary_search_font_for_bubble_mask(
-                                    region=region,
-                                    start_font_size=layout_font_size,
-                                    min_font_size=bubble_min_font_size,
-                                    render_horizontally=render_horizontally,
-                                    line_spacing_multiplier=line_spacing_multiplier,
-                                    letter_spacing_multiplier=letter_spacing_multiplier,
-                                    config=config,
-                                    bubble_mask=region_bubble_mask,
-                                    anchor_mode=normal_anchor_mode,
-                                )
-                                if best_font_size is not None:
-                                    layout_font_size = int(best_font_size)
-                        except Exception as exc:
-                            logger.warning(
-                                f"balloon_fill rich-text mask shrink failed for region {region_idx}: {exc}"
+                # 2) balloon_fill：继续用气泡蒙版收缩（_calc_region_dst_points_for_font
+                #    内部已支持富文本正文锚定）；区域不完全在蒙版内时保持框收缩结果
+                if mode == 'balloon_fill' and original_img is not None:
+                    try:
+                        if (
+                            region_bubble_mask is not None
+                            and np.count_nonzero(region_bubble_mask) > 0
+                            and lines_fully_enclosed
+                        ):
+                            best_font_size, _ = _binary_search_font_for_bubble_mask(
+                                region=region,
+                                start_font_size=layout_font_size,
+                                min_font_size=layout_min_font_size,
+                                render_horizontally=render_horizontally,
+                                line_spacing_multiplier=line_spacing_multiplier,
+                                letter_spacing_multiplier=letter_spacing_multiplier,
+                                config=config,
+                                bubble_mask=region_bubble_mask,
+                                anchor_mode=normal_anchor_mode,
                             )
+                            if best_font_size is not None:
+                                layout_font_size = int(best_font_size)
+                    except Exception as exc:
+                        logger.warning(
+                            f"balloon_fill rich-text mask shrink failed for region {region_idx}: {exc}"
+                        )
 
-                final_font_size = _apply_final_font_constraints(layout_font_size, config)
+                final_font_size = layout_font_size
                 dst_points = _calc_region_dst_points_for_font(
                     region=region,
                     font_size=final_font_size,
@@ -1648,9 +1724,6 @@ def resize_regions_to_font_size(
                         line_layout_max_font_size = int(
                             max(layout_candidate_font_size, layout_box_width, layout_box_height, layout_min_font_size)
                         )
-                        if configured_fixed_font_size > 0:
-                            line_layout_max_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
-                            layout_candidate_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
                         region.translation = _solve_unified_no_br_layout(
                             text=no_br_source_text,
                             render_horizontally=render_horizontally,
@@ -1671,9 +1744,6 @@ def resize_regions_to_font_size(
                     line_layout_max_font_size = int(
                         max(layout_candidate_font_size, layout_box_width, layout_box_height, layout_min_font_size)
                     )
-                    if configured_fixed_font_size > 0:
-                        line_layout_max_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
-                        layout_candidate_font_size = int(max(configured_fixed_font_size, layout_min_font_size))
 
                     region.translation = _solve_unified_no_br_layout(
                         text=region.translation,
@@ -1694,21 +1764,19 @@ def resize_regions_to_font_size(
             # 断句完成后不再按 BR 二次分支：统一用最终文本计算按框适配字号
             # （strict 的布局上限）与候选字号/候选尺寸（smart_scaling、
             # balloon_fill 的缩放输入）。
-            box_fit_font_size = 0
-            if configured_fixed_font_size <= 0:
-                layout_candidate_font_size, box_fit_font_size = _select_preserved_line_layout_font(
-                    base_font_size=layout_candidate_font_size,
-                    width=layout_box_width,
-                    height=layout_box_height,
-                    text=region.translation,
-                    is_horizontal=render_horizontally,
-                    line_spacing=line_spacing_multiplier,
-                    config=config,
-                    target_lang=region.target_lang,
-                    letter_spacing=letter_spacing_multiplier,
-                    stroke_width=_resolve_region_stroke_width(region, config),
-                )
-                layout_candidate_font_size = max(int(layout_candidate_font_size), layout_min_font_size)
+            layout_candidate_font_size, box_fit_font_size = _select_preserved_line_layout_font(
+                base_font_size=layout_candidate_font_size,
+                width=layout_box_width,
+                height=layout_box_height,
+                text=region.translation,
+                is_horizontal=render_horizontally,
+                line_spacing=line_spacing_multiplier,
+                config=config,
+                target_lang=region.target_lang,
+                letter_spacing=letter_spacing_multiplier,
+                stroke_width=_resolve_region_stroke_width(region, config),
+            )
+            layout_candidate_font_size = max(int(layout_candidate_font_size), layout_min_font_size)
             candidate_required_width, candidate_required_height, candidate_n, _ = calc_box_from_font(
                 layout_candidate_font_size,
                 region.translation,
@@ -1731,19 +1799,15 @@ def resize_regions_to_font_size(
                 if not semantic_linebreak_debug:
                     logger.debug(f"=== balloon_fill mode activated for region {region_idx} ===")
                     logger.debug(f"OCR box (xywh): {region.xywh}")
-                configured_min_font_size = _resolve_configured_min_font_size(config)
-                min_font_size = max(configured_min_font_size if configured_min_font_size > 0 else 1, 1)
+                min_font_size = layout_min_font_size
 
                 if original_img is None:
                     logger.warning("balloon_fill mode requires original_img, fallback to strict layout")
-                    fallback_font_size = _apply_final_font_constraints(
-                        _resolve_strict_layout_font_size(
-                            region=region,
-                            config=config,
-                            layout_candidate_font_size=layout_candidate_font_size,
-                            box_fit_font_size=box_fit_font_size,
-                        ),
-                        config,
+                    fallback_font_size = _resolve_strict_layout_font_size(
+                        region=region,
+                        config=config,
+                        layout_candidate_font_size=layout_candidate_font_size,
+                        box_fit_font_size=box_fit_font_size,
                     )
                     fallback_dst_points = _calc_region_dst_points_for_font(
                         region=region,
@@ -1761,11 +1825,9 @@ def resize_regions_to_font_size(
                     continue
 
                 try:
-                    used_strict_fallback = False
                     chosen_dst_points = None
                     chosen_font_size = int(max(target_font_size, layout_min_font_size))
                     overflow_candidate_dst_points = None
-                    preferred_font_size_for_debug = None
                     bubble_w = 0
                     bubble_h = 0
                     line_budget = 0.0
@@ -1774,7 +1836,6 @@ def resize_regions_to_font_size(
 
                     if not lines_fully_enclosed:
                         # 气泡蒙版无效或区域未被气泡完整包裹：降级 strict 布局。
-                        used_strict_fallback = True
                         chosen_font_size = _resolve_balloon_fill_fallback_font_size(
                             region=region,
                             config=config,
@@ -1798,6 +1859,7 @@ def resize_regions_to_font_size(
                                 region_bubble_mask
                             )
                             normal_anchor_mode = 'center'
+                            anchor_modes[region_idx] = normal_anchor_mode
 
 
                         if has_br:
@@ -1816,7 +1878,6 @@ def resize_regions_to_font_size(
                                 )
 
                         preferred_font_size = int(max(layout_candidate_font_size, layout_min_font_size))
-                        preferred_font_size_for_debug = preferred_font_size
 
                         # 调试用途：记录“超出范围候选框”（较大字号候选但不满足蒙版约束）
                         preferred_fits = False
@@ -2073,13 +2134,7 @@ def resize_regions_to_font_size(
                     if chosen_dst_points is None:
                         chosen_dst_points = region.min_rect
 
-                    final_font_size = _apply_final_font_constraints(chosen_font_size, config)
-                    if (
-                        _balloon_fill_mask_layout_enabled(config)
-                        and lines_fully_enclosed
-                        and _resolve_configured_fixed_font_size(config) <= 0
-                    ):
-                        final_font_size = min(final_font_size, int(chosen_font_size))
+                    final_font_size = chosen_font_size
                     final_dst_points = _calc_region_dst_points_for_font(
                         region=region,
                         font_size=final_font_size,
@@ -2096,7 +2151,7 @@ def resize_regions_to_font_size(
                         collision_font_size, collision_dst_points = _shrink_font_for_layout_collisions(
                             region=region,
                             start_font_size=final_font_size,
-                            min_font_size=max(_resolve_configured_min_font_size(config), 1),
+                            min_font_size=layout_min_font_size,
                             render_horizontally=render_horizontally,
                             line_spacing_multiplier=line_spacing_multiplier,
                             letter_spacing_multiplier=letter_spacing_multiplier,
@@ -2147,27 +2202,6 @@ def resize_regions_to_font_size(
                             if component_contours:
                                 cv2.drawContours(debug_img, component_contours, -1, (0, 255, 255), 1)
 
-                        render_poly = np.asarray(chosen_dst_points).reshape(-1, 2).astype(np.int32)
-                        if render_poly.shape[0] >= 4:
-                            cv2.polylines(debug_img, [render_poly], True, (0, 255, 0), 2)
-                            label = f'B{region_idx}:{region.font_size}'
-                            if used_strict_fallback:
-                                label += ':STF'
-                            elif lines_fully_enclosed:
-                                if preferred_font_size_for_debug is not None:
-                                    label += f':ENC({preferred_font_size_for_debug}->{chosen_font_size})'
-                                else:
-                                    label += f':ENC({chosen_font_size})'
-                            cv2.putText(
-                                debug_img,
-                                label,
-                                tuple(render_poly[0]),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.45,
-                                (0, 255, 0),
-                                1,
-                            )
-
                         if overflow_candidate_dst_points is not None:
                             overflow_poly = np.asarray(overflow_candidate_dst_points).reshape(-1, 2).astype(np.int32)
                             if overflow_poly.shape[0] >= 4:
@@ -2198,8 +2232,7 @@ def resize_regions_to_font_size(
                     layout_candidate_font_size=layout_candidate_font_size,
                     box_fit_font_size=box_fit_font_size,
                 )
-                # Apply final post-layout constraints: offset, scale ratio, and min/max clamps.
-                final_font_size = _apply_final_font_constraints(layout_font_size, config)
+                final_font_size = layout_font_size
                 dst_points = _calc_region_dst_points_for_font(
                     region=region,
                     font_size=final_font_size,
@@ -2335,8 +2368,7 @@ def resize_regions_to_font_size(
                     target_font_size = getattr(region, 'layout_base_font_size', target_font_size)
                     dst_points = region.min_rect
 
-                # Apply final post-layout constraints: offset, scale ratio, and min/max clamps.
-                final_font_size = _apply_final_font_constraints(target_font_size, config)
+                final_font_size = target_font_size
 
                 # 用辅助函数直接计算 dst_points（包含矩形构建和旋转）
                 line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
@@ -2378,9 +2410,7 @@ def resize_regions_to_font_size(
         cv2.putText(debug_img, 'Blue = Global Bubble Mask', (10, legend_y + 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
         cv2.putText(debug_img, 'Green = Render Box', (10, legend_y + 105), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         cv2.putText(debug_img, 'Orange = Overflow Candidate Box', (10, legend_y + 130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
-        return dst_points_list, debug_img
-    
-    return dst_points_list
+    return dst_points_list, anchor_modes, debug_img
 
 
 async def dispatch(
@@ -2424,7 +2454,7 @@ async def dispatch(
     text_render.set_font(getattr(config.render, 'font_family', None) or text_render.DEFAULT_FONT_FAMILY)
     text_regions = list(filter(lambda region: _region_render_value(region), text_regions))
 
-    result = resize_regions_to_font_size(
+    dst_points_list, anchor_modes, debug_img = _layout_regions_to_font_size(
         img,
         text_regions,
         config,
@@ -2440,38 +2470,19 @@ async def dispatch(
         skip_text_replacements=skip_text_replacements,
     )
 
-    # Handle return value (may be tuple if debug image is included)
-    if return_debug_img and isinstance(result, tuple):
-        dst_points_list, debug_img = result
-    else:
-        dst_points_list = result
-        debug_img = None
-
     # 自动富文本规则必须等普通字符串完成替换、断句和自动换行后再生成文档；
-    # 对命中的少量区域补做一次富文本测量，确保局部字号、倍率、描边等样式
-    # 反映到最终渲染框。第二次测量跳过替换，BR 结构也不会再次被改写。
-    automatic_rich_indices = [
-        index for index, region in enumerate(text_regions)
-        if getattr(region, '_rich_text_rules_applied', False)
-    ]
-    if automatic_rich_indices:
-        automatic_regions = [text_regions[index] for index in automatic_rich_indices]
-        automatic_points = resize_regions_to_font_size(
-            img,
-            automatic_regions,
-            config,
-            original_img,
-            False,
-            skip_font_scaling=skip_font_scaling,
-            skip_text_replacements=True,
-            bubble_mask=bubble_mask,
-        )
-        for index, points, region in zip(automatic_rich_indices, automatic_points, automatic_regions):
-            dst_points_list[index] = points
-            try:
-                delattr(region, '_rich_text_rules_applied')
-            except Exception:
-                pass
+    # 最后一次测量只更新几何：全局字号配置应用一次，局部富文本字号/倍率保持优先。
+    _finalize_region_font_sizes(
+        text_regions,
+        dst_points_list,
+        anchor_modes,
+        config,
+        skip_font_scaling=skip_font_scaling,
+        debug_img=debug_img,
+    )
+    for region in text_regions:
+        if hasattr(region, '_rich_text_rules_applied'):
+            delattr(region, '_rich_text_rules_applied')
 
     # 与编辑器一致：每个区域先合成完整的特效、描边和正文，再按区域顺序
     # 叠到画布上，后面的区域覆盖前面的区域。不能跨区域分遍绘制，否则
