@@ -16,7 +16,7 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFontMetricsF, QPainterPath, QTransform
 
-from ..rich_text import RenderSpan, RichTextDocument, normalize_rich_linebreaks
+from ..rich_text import RenderSpan, RichTextDocument, TextStyle, normalize_rich_linebreaks
 from ._compose import (
     _bitmap_ink_rect,
     _paste_bitmap,
@@ -50,6 +50,7 @@ from ._plans import (
     Rect,
     RubyGlyph,
     RubyPlan,
+    TcyGeometry,
     TcyPlan,
     plan_emphasis,
     plan_ruby_glyphs,
@@ -1129,6 +1130,41 @@ def _rich_horizontal_layout_geometry(
     }
 
 
+def _build_tcy_geometry(
+    ink_geometry: dict,
+    style: TextStyle,
+    font_size: int,
+    base_font_size: int,
+) -> TcyGeometry:
+    """纵中横的正文间距与绘制包络，均从同一次墨迹测量推导。"""
+    stroke_pad = int(ink_geometry["pad"])
+    body_width = int(ink_geometry["width"]) - 2 * stroke_pad
+    body_height = int(ink_geometry["height"]) - 2 * stroke_pad
+    spacing_height, _, _, _ = _style_layer_effects_geometry(
+        body_height, body_width, style, font_size, include_paint_effects=False
+    )
+
+    paint_height, paint_width, paint_dx, paint_dy = _style_layer_effects_geometry(
+        int(ink_geometry["height"]), int(ink_geometry["width"]), style, font_size
+    )
+    # 压缩比例按正文墨迹宽度决定，描边与特效随最终图层一起压缩。
+    max_width = float(base_font_size) * RICH_TEXT_POLICY.tcy_max_width
+    scale_x = max_width / body_width if body_width > max_width else 1.0
+    if scale_x < 1.0:
+        paint_width = max(1, math.ceil(paint_width * scale_x))
+        paint_dx = float(paint_dx) * scale_x
+
+    return TcyGeometry(
+        spacing_height=int(spacing_height),
+        paint_width=int(paint_width),
+        paint_height=int(paint_height),
+        paint_offset_x=float(paint_dx),
+        # 原始图层含描边留白；向上外扩以保持正文起点不随描边变化。
+        paint_offset_y=float(paint_dy) - stroke_pad,
+        scale_x=float(scale_x),
+    )
+
+
 def _build_tcy_plan(
     span: RenderSpan,
     base_font_size: int,
@@ -1141,7 +1177,7 @@ def _build_tcy_plan(
     stroke_ratio = _style_stroke_ratio(span.style, font_size, global_stroke_ratio, bg)
     text = _normalize_horizontal_block_content(span.text)
     with _style_font_scope(span.style):
-        geometry = _line_ink_geometry(
+        ink_geometry = _line_ink_geometry(
             text,
             font_size,
             stroke_ratio,
@@ -1152,38 +1188,32 @@ def _build_tcy_plan(
             span.style.transform.scale_x,
             span.style.transform.scale_y,
         )
-    if not geometry["has_ink"]:
+    if not ink_geometry["has_ink"]:
         return None
-    # 纵中横压缩（对齐参考实现）：正文墨迹宽超过 1.1 倍基准字号时整组水平
-    # 压缩到上限。压缩作用于最终图层（描边/特效随之变窄），判定只看纯墨迹
-    # 宽（去掉描边 pad），与参考实现按字形墨迹累计的口径一致。
-    ink_width = float(geometry["width"]) - 2.0 * float(geometry["pad"])
-    max_width = float(base_font_size) * RICH_TEXT_POLICY.tcy_max_width
-    scale_x = max_width / ink_width if ink_width > max_width else 1.0
-    height, width, layer_dx, layer_dy = _style_layer_effects_geometry(
-        int(geometry["height"]), int(geometry["width"]), span.style, font_size
+    geometry = _build_tcy_geometry(
+        ink_geometry, span.style, font_size, base_font_size
     )
-    if scale_x < 1.0:
-        width = max(1, math.ceil(width * scale_x))
-        layer_dx = float(layer_dx) * scale_x
     forced_advance = _forced_vertical_advance(font_size, span.style.vertical_advance)
-    advance_main = int(height)
-    if forced_advance is not None:
-        advance_main = _scale_advance(forced_advance, letter_spacing)
-        layer_dy += (float(advance_main) - float(height)) / 2.0
+    advance_main = (
+        geometry.spacing_height
+        if forced_advance is None
+        else _scale_advance(forced_advance, letter_spacing)
+    )
+    # 强制推进时按正文高度居中，描边与特效的外扩不参与槽位补偿。
+    slot_offset_y = (float(advance_main) - geometry.spacing_height) / 2.0
     return TcyPlan(
         source=span,
         text=text,
         font_size=font_size,
         stroke_ratio=stroke_ratio,
-        width=int(width),
-        height=int(height),
-        paint_offset_x=float(layer_dx),
-        paint_offset_y=float(layer_dy),
+        width=geometry.paint_width,
+        height=geometry.paint_height,
+        paint_offset_x=geometry.paint_offset_x,
+        paint_offset_y=geometry.paint_offset_y + slot_offset_y,
         advance_main=advance_main,
         pre_advance=round(span.style.pre_kerning * font_size),
         post_advance=round(span.style.kerning * font_size),
-        scale_x=float(scale_x),
+        scale_x=geometry.scale_x,
     )
 
 

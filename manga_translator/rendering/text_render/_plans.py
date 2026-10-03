@@ -84,7 +84,21 @@ class UnderlinePlan:
 
 
 @dataclass(frozen=True)
+class TcyGeometry:
+    """TCY paint frame and body height, before forced slot placement."""
+
+    spacing_height: int
+    paint_width: int
+    paint_height: int
+    paint_offset_x: float
+    paint_offset_y: float
+    scale_x: float
+
+
+@dataclass(frozen=True)
 class TcyPlan:
+    """TCY block: width/height include paint; advance_main is the layout slot."""
+
     source: RenderSpan
     text: str
     font_size: int
