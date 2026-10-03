@@ -37,9 +37,14 @@ def main():
         result = {'image': case['image']}
         for mode in ('before', 'after'):
             # Explicit width 320 reproduces the original resizing and padding.
-            batch = (np.concatenate([ocr._preprocess(crop, 320) for crop in crops])
-                     if mode == 'before' else ocr._preprocess_batch(crops))
-            predictions = session.run(None, {session.get_inputs()[0].name: batch})[0]
+            predictions = [None] * len(crops)
+            groups = [list(range(len(crops)))] if mode == 'before' else ocr._iter_region_batches(crops)
+            for indices in groups:
+                batch = (np.concatenate([ocr._preprocess(crops[i], 320) for i in indices])
+                         if mode == 'before' else ocr._preprocess_batch([crops[i] for i in indices]))
+                output = session.run(None, {session.get_inputs()[0].name: batch})[0]
+                for index, prediction in zip(indices, output):
+                    predictions[index] = prediction
             rows = []
             for expected, prediction in zip(case['texts'], predictions):
                 indices = prediction.argmax(1)

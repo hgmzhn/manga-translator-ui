@@ -19,7 +19,7 @@ def load_preprocessor(path):
     tree = ast.parse(path.read_text(encoding='utf-8'))
     original = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ModelPaddleOCR')
     methods = [n for n in original.body if isinstance(n, ast.FunctionDef)
-               and n.name in {'_preprocess', '_preprocess_batch'}]
+               and n.name in {'_preprocess', '_preprocess_batch', '_iter_region_batches'}]
     cls = ast.ClassDef(name='Preprocessor', bases=[], keywords=[], body=methods, decorator_list=[])
     module = ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[]))
     namespace = {'math': math, 'cv2': cv2, 'np': np, 'List': List}
@@ -68,6 +68,38 @@ class PaddleOCRWidthTests(unittest.TestCase):
         actual = self.batch([image], 320)
         self.assertEqual(actual.shape, (1, 3, 48, 320))
         np.testing.assert_array_equal(actual, 1)
+
+    def test_outlier_isolated_and_original_indices_preserved(self):
+        regions = [np.zeros((48, 100, 3), dtype=np.uint8) for _ in range(16)]
+        regions[7] = np.zeros((48, 9600, 3), dtype=np.uint8)
+        self.batch(regions[:1])
+        groups = list(self.ocr._iter_region_batches(regions))
+        self.assertEqual(groups, [[i for i in range(16) if i != 7], [7]])
+        sizes = [self.ocr._preprocess_batch([regions[i] for i in group]).nbytes
+                 for group in groups]
+        self.assertEqual(max(sizes), 9600 * 3 * 48 * 4)
+
+    def test_dynamic_batches_obey_width_budget_and_ratio(self):
+        widths = [900, 321, 2400, 100, 600, 1000, 320, 640, 1100, 3000] * 3
+        regions = [np.zeros((48, width, 3), dtype=np.uint8) for width in widths]
+        self.batch(regions[:1], None)
+        groups = list(self.ocr._iter_region_batches(regions))
+        self.assertEqual(sorted(i for group in groups for i in group), list(range(len(regions))))
+        for group in groups:
+            effective = [max(320, widths[i]) for i in group]
+            self.assertLessEqual(len(group), 16)
+            self.assertLessEqual(max(effective), 2 * min(effective))
+            self.assertTrue(len(group) == 1 or max(effective) * len(group) <= 16 * 320)
+
+    def test_fixed_width_grouping_keeps_order_and_chunk_size(self):
+        regions = [np.zeros((48, 100, 3), dtype=np.uint8) for _ in range(33)]
+        self.batch(regions[:1], 320)
+        self.assertEqual(list(self.ocr._iter_region_batches(regions)),
+                         [list(range(16)), list(range(16, 32)), [32]])
+
+    def test_empty_groups(self):
+        self.batch([np.zeros((48, 100, 3), dtype=np.uint8)])
+        self.assertEqual(list(self.ocr._iter_region_batches([])), [])
 
 
 if __name__ == '__main__':

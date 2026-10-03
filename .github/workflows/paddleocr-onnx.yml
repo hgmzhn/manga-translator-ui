@@ -1,0 +1,32 @@
+name: PaddleOCR ONNX regression
+
+on:
+  pull_request:
+    paths:
+      - 'manga_translator/ocr/model_paddleocr.py'
+      - 'test/*paddleocr*.py'
+      - 'test/_bootstrap.py'
+      - 'doc/examples/paddleocr_long_lines/**'
+      - '.github/workflows/paddleocr-onnx.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PADDLEOCR_TEST_MODEL_DIR: ${{ github.workspace }}/models/ocr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU inference dependencies
+        run: python -m pip install numpy opencv-python-headless onnxruntime Pillow
+      - name: Download and verify released models
+        run: python test/download_paddleocr_test_models.py --model-dir "$PADDLEOCR_TEST_MODEL_DIR"
+      - name: Check preprocessing and real ONNX inference
+        run: python -m unittest discover -s test -p 'test_paddleocr*.py' -v

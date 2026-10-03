@@ -381,10 +381,9 @@ class ModelPaddleOCR(OfflineOCR):
             
             try:
                 # 分批处理所有区域
-                for chunk_start in range(0, len(regions), max_chunk_size):
-                    chunk_end = min(chunk_start + max_chunk_size, len(regions))
-                    chunk_regions = regions[chunk_start:chunk_end]
-                    chunk_indices = valid_indices[chunk_start:chunk_end]
+                for region_indices in self._iter_region_batches(regions, max_chunk_size):
+                    chunk_regions = [regions[i] for i in region_indices]
+                    chunk_indices = [valid_indices[i] for i in region_indices]
                     
                     # Preprocess and batch
                     batch = self._preprocess_batch(chunk_regions)
@@ -445,6 +444,31 @@ class ModelPaddleOCR(OfflineOCR):
 
         return textlines
 
+    def _iter_region_batches(self, regions: List[np.ndarray], max_batch_size=16):
+        """Group similar widths while retaining indices into the original regions."""
+        input_width = self.session.get_inputs()[0].shape[-1]
+        if isinstance(input_width, int):
+            for start in range(0, len(regions), max_batch_size):
+                yield list(range(start, min(start + max_batch_size, len(regions))))
+            return
+
+        widths = [max(320, math.ceil(48 * r.shape[1] / r.shape[0])) for r in regions]
+        indices = sorted(range(len(regions)), key=widths.__getitem__)
+        batch = []
+        # Keep padded input near the former 16 x 320 budget. An oversized
+        # individual line is processed alone without compressing its text.
+        width_budget = max_batch_size * 320
+        for index in indices:
+            width = widths[index]
+            if batch and (len(batch) >= max_batch_size
+                          or width > 2 * widths[batch[0]]
+                          or width * (len(batch) + 1) > width_budget):
+                yield batch
+                batch = []
+            batch.append(index)
+        if batch:
+            yield batch
+
     def _preprocess_batch(self, regions: List[np.ndarray]) -> np.ndarray:
         """Preserve long lines for dynamic-width ONNX inputs; pad within each batch."""
         input_width = self.session.get_inputs()[0].shape[-1]
@@ -455,9 +479,10 @@ class ModelPaddleOCR(OfflineOCR):
                 320,
                 max(math.ceil(48 * region.shape[1] / region.shape[0]) for region in regions),
             )
-        return np.concatenate(
-            [self._preprocess(region, batch_width) for region in regions], axis=0
-        )
+        batch = np.zeros((len(regions), 3, 48, batch_width), dtype=np.float32)
+        for index, region in enumerate(regions):
+            batch[index] = self._preprocess(region, batch_width)[0]
+        return batch
 
     def _preprocess(self, img: np.ndarray, target_width=None) -> np.ndarray:
         """
