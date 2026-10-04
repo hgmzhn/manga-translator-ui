@@ -1520,5 +1520,6 @@
   "api_test_error_model_unavailable": "Connection succeeded, but model {model} is unavailable: {error}",
   "api_test_error_remote_image": "Failed to download the generated image: HTTP {status}",
   "api_test_error_sakura_base": "Please configure SAKURA_API_BASE first.",
-  "api_test_error_unsupported": "This translator does not support API testing."
+  "api_test_error_unsupported": "This translator does not support API testing.",
+  "Clear Selected": "Clear Selected"
 }

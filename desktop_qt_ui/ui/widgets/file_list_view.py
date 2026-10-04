@@ -11,10 +11,12 @@ from typing import Optional
 from PyQt6.QtCore import (
     QAbstractItemModel,
     QEvent,
+    QItemSelectionModel,
     QModelIndex,
     QObject,
     QPoint,
     QRect,
+    QSignalBlocker,
     QSize,
     Qt,
     QTimer,
@@ -36,7 +38,7 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
 )
-from qfluentwidgets import FluentIcon as FIF, StrongBodyLabel, TreeView, isDarkTheme
+from qfluentwidgets import FluentIcon as FIF, StrongBodyLabel, TreeView, isDarkTheme, themeColor
 
 from services.file_list_data_service import (
     KIND_ARCHIVE,
@@ -89,13 +91,13 @@ def _single_shot(msec: int, owner: QObject, slot) -> None:
     timer.start(msec)
 
 
-def _load_thumbnail_worker(file_path: str) -> tuple[str, QImage]:
+def _load_thumbnail_worker(file_path: str, maximum_size: int = 40) -> tuple[str, QImage]:
     """工作线程只返回 QImage；QPixmap 必须留在 GUI 线程创建。"""
     reader = QImageReader(file_path)
     reader.setAutoTransform(True)
     source_size = reader.size()
     if source_size.isValid():
-        source_size.scale(QSize(40, 40), Qt.AspectRatioMode.KeepAspectRatio)
+        source_size.scale(QSize(maximum_size, maximum_size), Qt.AspectRatioMode.KeepAspectRatio)
         reader.setScaledSize(source_size)
     image = reader.read()
     if not image.isNull():
@@ -106,7 +108,7 @@ def _load_thumbnail_worker(file_path: str) -> tuple[str, QImage]:
 
         with Image.open(file_path) as pil_image:
             pil_image = ImageOps.exif_transpose(pil_image)
-            pil_image.thumbnail((40, 40), Image.Resampling.LANCZOS)
+            pil_image.thumbnail((maximum_size, maximum_size), Image.Resampling.LANCZOS)
             rgba = pil_image.convert("RGBA")
             raw = rgba.tobytes("raw", "RGBA")
             image = QImage(
@@ -259,6 +261,21 @@ class FileCatalogModel(QAbstractItemModel):
     def image_paths(self) -> tuple[str, ...]:
         return tuple(item.path for item in self._image_items)
 
+    def visible_paths(self, expanded: set[str] | None = None) -> tuple[str, ...]:
+        """按树顺序返回可见路径，只访问已展开文件夹的子项。"""
+        expanded = expanded or set()
+        paths: list[str] = []
+
+        def visit(item: _CatalogItem) -> None:
+            paths.append(item.path)
+            if item.kind == KIND_FOLDER and canonical_path_key(item.path) in expanded:
+                for child in item.children:
+                    visit(child)
+
+        for root in self._roots:
+            visit(root)
+        return tuple(paths)
+
     def set_thumbnail(self, path: str, pixmap: QPixmap) -> None:
         item = self.item_for_path(path)
         if item is None:
@@ -273,6 +290,10 @@ class FileCatalogModel(QAbstractItemModel):
         if target is None:
             return ()
 
+        # 连同删除后变空的祖先一起移除，保留其余节点的索引和展开状态。
+        while target.parent is not None and target.parent.file_count == target.file_count:
+            target = target.parent
+
         removed: list[str] = []
 
         def collect(item: _CatalogItem) -> None:
@@ -281,27 +302,29 @@ class FileCatalogModel(QAbstractItemModel):
                 collect(child)
 
         collect(target)
-        self.beginResetModel()
         parent = target.parent
         siblings = parent.children if parent is not None else self._roots
-        siblings.remove(target)
-        while parent is not None:
-            parent.file_count = sum(child.file_count for child in parent.children)
-            grandparent = parent.parent
-            if parent.file_count == 0:
-                parent_siblings = grandparent.children if grandparent is not None else self._roots
-                parent_siblings.remove(parent)
-            parent = grandparent
+        parent_index = self.createIndex(parent.row, 0, parent) if parent is not None else QModelIndex()
+        self.beginRemoveRows(parent_index, target.row, target.row)
+        siblings.pop(target.row)
+        ancestor = parent
+        while ancestor is not None:
+            ancestor.file_count -= target.file_count
+            ancestor = ancestor.parent
         for removed_path in removed:
             self._thumbnails.pop(canonical_path_key(removed_path), None)
         self._reindex()
-        self.endResetModel()
+        self.endRemoveRows()
+        while parent is not None:
+            index = self.createIndex(parent.row, 0, parent)
+            self.dataChanged.emit(index, index, [int(Qt.ItemDataRole.DisplayRole), COUNT_ROLE])
+            parent = parent.parent
         return tuple(removed)
 
 
 class FileCatalogDelegate(QStyledItemDelegate):
     remove_requested = pyqtSignal(str)
-    ROW_HEIGHT = 66
+    ROW_HEIGHT = 56
     ICON_SIZE = 40
     CLOSE_SIZE = 28
 
@@ -334,8 +357,8 @@ class FileCatalogDelegate(QStyledItemDelegate):
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
         if selected or hovered:
-            color = option.palette.highlight().color() if selected else option.palette.midlight().color()
-            color.setAlpha(72 if selected else 55)
+            color = themeColor() if selected else QColor(127, 127, 127)
+            color.setAlpha(40 if selected else 14)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(color)
             painter.drawRoundedRect(rect, 8, 8)
@@ -344,6 +367,7 @@ class FileCatalogDelegate(QStyledItemDelegate):
         pixmap = index.data(THUMBNAIL_ROLE)
         icon_rect = QRect(rect.left() + 8, rect.center().y() - 20, self.ICON_SIZE, self.ICON_SIZE)
         if isinstance(pixmap, QPixmap) and not pixmap.isNull():
+            pixmap = pixmap.scaled(icon_rect.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             target = QRect(
                 icon_rect.center().x() - pixmap.width() // 2,
                 icon_rect.center().y() - pixmap.height() // 2,
@@ -377,7 +401,7 @@ class FileCatalogDelegate(QStyledItemDelegate):
         painter.setPen(QColor(255, 255, 255) if dark else QColor(31, 31, 31))
         node = index.data(NODE_ROLE)
         if kind == KIND_IMAGE and node is not None:
-            title_rect = QRect(text_rect.left(), rect.top() + 7, text_rect.width(), 24)
+            title_rect = QRect(text_rect.left(), rect.top(), text_rect.width(), 22)
             painter.drawText(
                 title_rect,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
@@ -388,7 +412,7 @@ class FileCatalogDelegate(QStyledItemDelegate):
                 status_color = QColor("#6BCB77" if dark else "#0F9D58")
             else:
                 status_color = QColor(255, 255, 255, 150) if dark else QColor(0, 0, 0, 130)
-            status_rect = QRect(text_rect.left(), rect.top() + 33, text_rect.width(), 20)
+            status_rect = QRect(text_rect.left(), rect.top() + 23, text_rect.width(), 18)
             dot_rect = QRect(status_rect.left(), status_rect.center().y() - 3, 6, 6)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(status_color)
@@ -409,10 +433,11 @@ class FileCatalogDelegate(QStyledItemDelegate):
         painter.save()
         if not self._remove_enabled:
             painter.setOpacity(0.35)
-        FIF.CLOSE.render(
-            painter,
-            QRect(close_rect.center().x() - 8, close_rect.center().y() - 8, 16, 16),
-        )
+        if hovered or selected:
+            FIF.CLOSE.render(
+                painter,
+                QRect(close_rect.center().x() - 8, close_rect.center().y() - 8, 16, 16),
+            )
         painter.restore()
         painter.restore()
 
@@ -441,7 +466,7 @@ class FileListView(TreeView):
     files_dropped = pyqtSignal(list)
     _THUMBNAIL_CACHE_SIZE = 200
     _UI_COALESCE_MS = 16
-    _thumbnail_cache: OrderedDict[tuple[str, int, int], QPixmap] = OrderedDict()
+    _thumbnail_cache: OrderedDict[tuple[str, int, int, int], QPixmap] = OrderedDict()
 
     def __init__(
         self,
@@ -449,8 +474,10 @@ class FileListView(TreeView):
         parent=None,
         *,
         data_service: Optional[FileListDataService] = None,
+        thumbnail_size: int = 40,
     ):
         super().__init__(parent)
+        self._emit_selection_on_click = True
         self.legacy_model = model
         self.catalog_model = model if isinstance(model, FileCatalogModel) else FileCatalogModel(self)
         self.setModel(self.catalog_model)
@@ -469,6 +496,7 @@ class FileListView(TreeView):
         self.setDragEnabled(False)
 
         self._data_service = data_service or _catalog_service()
+        self._thumbnail_size = thumbnail_size
         self._channel = f"file-list-view-{id(self)}"
         self._expected_catalog_generation = 0
         self._view_generation = 0
@@ -478,8 +506,12 @@ class FileListView(TreeView):
         self._excluded_files: set[str] = set()
         self._expanded_keys: set[str] = set()
         self._restore_selected_path: Optional[str] = None
+        self._restore_selected_paths: list[str] = []
+        self._restore_top_path: Optional[str] = None
+        self._restore_top_offset = 0
+        self._restore_scroll_value = 0
         self._thumbnail_update_scheduled = False
-        self._thumbnail_pending: set[tuple[int, tuple[str, int, int]]] = set()
+        self._thumbnail_pending: set[tuple[int, tuple[str, int, int, int]]] = set()
         self._thumbnail_bridge = _ThumbnailBridge(self)
 
         self.empty_hint_label = StrongBodyLabel(self._empty_state_text(), self.viewport())
@@ -561,28 +593,69 @@ class FileListView(TreeView):
 
         visit()
         current_path = self.currentIndex().data(PATH_ROLE)
-        if isinstance(current_path, str):
-            self._restore_selected_path = current_path
+        self._restore_selected_path = current_path if isinstance(current_path, str) else None
+        self._restore_selected_paths = [
+            index.data(PATH_ROLE) for index in self.selectionModel().selectedRows()
+            if isinstance(index.data(PATH_ROLE), str)
+        ]
+        self._capture_scroll_position()
+
+    def _capture_scroll_position(self) -> None:
+        top_index = self.indexAt(QPoint(self.viewport().width() // 2, 0))
+        top_path = top_index.data(PATH_ROLE)
+        self._restore_top_path = top_path if isinstance(top_path, str) else None
+        self._restore_top_offset = self.visualRect(top_index).top() if top_index.isValid() else 0
+        self._restore_scroll_value = self.verticalScrollBar().value()
+
+    def _restore_scroll_position(self) -> None:
+        # 先更新布局和滚动范围，避免重置模型后的旧范围把位置截成 0。
+        self.doItemsLayout()
+        scroll_bar = self.verticalScrollBar()
+        top_index = (
+            self.catalog_model.index_for_path(self._restore_top_path)
+            if self._restore_top_path else QModelIndex()
+        )
+        if top_index.isValid() and self.visualRect(top_index).isValid():
+            scroll_bar.setValue(
+                scroll_bar.value() + self.visualRect(top_index).top() - self._restore_top_offset
+            )
+        else:
+            # 顶部项目恰好被移除时，留在原来的滚动位置（末尾由 Qt 自动限位）。
+            scroll_bar.setValue(self._restore_scroll_value)
 
     def _restore_view_state(self) -> None:
         for key in self._expanded_keys:
             item = self.catalog_model._path_items.get(key)
             if item is not None:
                 self.expand(self.catalog_model.createIndex(item.row, 0, item))
+        with QSignalBlocker(self.selectionModel()):
+            for path in self._restore_selected_paths:
+                index = self.catalog_model.index_for_path(path)
+                if index.isValid():
+                    self.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
         if self._restore_selected_path:
-            self._select_path(self._restore_selected_path, emit_if_missing=False)
+            index = self.catalog_model.index_for_path(self._restore_selected_path)
+            if index.isValid():
+                # 恢复选择不应再次触发打开编辑器，也不应滚回远处的选中项。
+                with QSignalBlocker(self.selectionModel()):
+                    self.selectionModel().setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
+        self._restore_scroll_position()
 
-    def set_loading(self, text: Optional[str] = None) -> None:
-        self._capture_view_state()
+    def set_loading(self, text: Optional[str] = None, *, keep_items: bool = False) -> None:
+        if self._state != "loading" or self.catalog_model.rowCount():
+            self._capture_view_state()
         self._view_generation += 1
         self._thumbnail_pending.clear()
-        self.catalog_model.clear()
+        if not keep_items:
+            self.catalog_model.clear()
         self._state = "loading"
         self._set_empty_hint_color()
         self.empty_hint_label.setText(text or self._t("正在加载文件列表..."))
         self._sync_empty_state_overlay()
 
     def set_snapshot(self, snapshot: FileCatalogSnapshot) -> None:
+        if self.catalog_model.rowCount():
+            self._capture_view_state()
         self._view_generation += 1
         self._thumbnail_pending.clear()
         self.catalog_model.set_snapshot(snapshot)
@@ -693,12 +766,16 @@ class FileListView(TreeView):
         else:
             self._excluded_files.add(key)
 
-        removed = self.catalog_model.remove_path(file_path)
+        self._capture_scroll_position()
+        with QSignalBlocker(self.selectionModel()):
+            removed = self.catalog_model.remove_path(file_path)
+        self._restore_scroll_position()
         removed_keys = {canonical_path_key(path) for path in removed}
         for cache_key in tuple(self._thumbnail_cache):
             if cache_key[0] in removed_keys:
                 self._thumbnail_cache.pop(cache_key, None)
         self._sync_empty_state_overlay()
+        self._schedule_visible_thumbnail_loads()
 
     def clear(self, clear_cache: bool = False) -> None:
         self._data_service.cancel(self._channel)
@@ -711,6 +788,10 @@ class FileListView(TreeView):
         self._thumbnail_pending.clear()
         self._expanded_keys.clear()
         self._restore_selected_path = None
+        self._restore_selected_paths.clear()
+        self._restore_top_path = None
+        self._restore_top_offset = 0
+        self._restore_scroll_value = 0
         self.catalog_model.clear()
         if clear_cache:
             self._thumbnail_cache.clear()
@@ -748,6 +829,8 @@ class FileListView(TreeView):
         self.viewport().update()
 
     def _on_selection_changed(self, *_args) -> None:
+        if not self._emit_selection_on_click:
+            return
         index = self.currentIndex()
         if index.isValid() and index.data(KIND_ROLE) == KIND_IMAGE:
             path = index.data(PATH_ROLE)
@@ -780,7 +863,7 @@ class FileListView(TreeView):
         item = index.data(NODE_ROLE)
         if not isinstance(item, _CatalogItem) or _thumbnail_executor is None:
             return
-        cache_key = item.thumbnail_key
+        cache_key = (*item.thumbnail_key, self._thumbnail_size)
         cached = self._thumbnail_cache.get(cache_key)
         if cached is not None:
             self._thumbnail_cache.move_to_end(cache_key)
@@ -793,7 +876,7 @@ class FileListView(TreeView):
 
         bridge_ref = weakref.ref(self._thumbnail_bridge)
         generation = self._view_generation
-        future = _thumbnail_executor.submit(_load_thumbnail_worker, item.path)
+        future = _thumbnail_executor.submit(_load_thumbnail_worker, item.path, self._thumbnail_size)
 
         def done(completed: Future, token=generation, key=cache_key, path=item.path) -> None:
             try:

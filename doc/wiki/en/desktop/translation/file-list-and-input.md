@@ -17,6 +17,8 @@ An archive can appear in the input list without having been extracted. Extractio
 
 ## Use it on the Translation page
 
+The file area occupies most of the page. Folder rows and image thumbnails share one continuous scrolling area without divided panels. The output directory, workflow, and start button are grouped at the bottom.
+
 ### Adding files, folders, and drops
 
 The translation page input card has three buttons. The file dialog remembers the last open directory; after a successful selection, the directory containing the first file becomes the next starting directory.
@@ -26,23 +28,24 @@ The translation page input card has three buttons. The file dialog remembers the
 3. You can also drag files or folders into the file-list area. The Qt drop handler accepts local file URLs and sends their paths through the same input coordinator used by the buttons.
 4. The same path is not added twice. Adding a parent folder supersedes separately added paths below it; adding a path already covered by a listed parent does not create another source.
 
-“Clear List” removes all input sources and the exclusion records for items in the list. While a task is running, adding, removing, and clearing are rejected and a warning is logged.
+With nothing selected, “Clear List” removes all input sources and the exclusion records for items in the list. Selecting images or folders changes the button to “Clear Selected”, which removes only the selected items. Removal does not delete files from disk. While a task is running, adding, removing, and clearing are rejected and a warning is logged.
 
-### File tree, thumbnails, and single-item removal
+### Folder rows, thumbnails, and selection removal
 
-The list displays scan results as a one- or multi-level folder tree: folder nodes show their file count, while image nodes show a thumbnail, file name, and status dot. An image is “Translated” or “Untranslated” according to whether an associated translation JSON was found during the scan; archives show an archive icon rather than an image thumbnail.
+Folders retain compact tree rows with an expansion arrow, folder icon, name, and file count. Newly added folders start collapsed. Double-clicking a folder or clicking its arrow lays out its image thumbnails directly below it; subsequent folders follow in the same scrolling area. Images show a thumbnail, file name, and “Translated” or “Untranslated” status according to whether an associated translation JSON was found during the scan. Archives show an archive icon.
 
-- Selecting an image node emits a selection event that the main window can use to open or synchronize the editor.
+- Click an image to select it and double-click to open it in the editor. Checkboxes, Ctrl, and Shift support multiple selection. Opening a folder does not leave that folder selected for removal.
 - Visible image thumbnails load asynchronously and use a bounded cache. A thumbnail read failure leaves the file node in place instead of turning it into a list-scan failure.
-- Clicking the close icon at the right of a node removes only that item. Removing a folder removes its descendants; if an item is still covered by a retained parent folder, the removal is recorded as an excluded file/subfolder so the next scan does not add it again.
-- During a rescan, the model is cleared and shows a loading message. When the result arrives, the view attempts to restore expanded directories and the selected path.
+- Thumbnails have no close icon. Select items and use “Clear Selected” above the file area. Removing a folder removes its descendants; if an item is still covered by a retained parent folder, the removal is recorded as an excluded file/subfolder so the next scan does not add it again.
+- Removing an item preserves other expanded directories and the current browsing position. If the item at the top of the viewport is removed, the view stays nearby; positions at the end of the list are clamped to the remaining content.
+- The main page keeps the existing list visible during a rescan, then restores expanded directories, any surviving selection, and the browsing position. Initial loading shows a loading message.
 
 ### Empty, loading, ready, and error states
 
 | State | UI behavior | User action |
 | --- | --- | --- |
 | Empty | The list shows “Drag and drop files or folders here / or click the buttons above to add” and a dashed area | Click “Add Files” or “Add Folder”, or drop local paths |
-| Loading | The list model is temporarily cleared and shows “正在加载文件列表...” | Wait for the background scan; an older result cannot replace a newer request |
+| Loading | The existing list stays visible; an empty list shows “正在加载文件列表...” | Wait for the background scan; an older result cannot replace a newer request |
 | Ready | The folder tree, counts, thumbnails, and “Translated”/“Untranslated” status are visible | Select files, expand directories, or remove an item |
 | Error | The list model is cleared and the specific message is shown in an error color | Correct the path or permissions and add it again; do not copy private paths from the error into a public report |
 
@@ -68,7 +71,7 @@ flowchart TD
 
 Directories use natural sorting, so `file2` comes before `file10`; duplicate sources are removed using a normalized path key. Scanning skips directories named `manga_translator_work`, preventing a previous task’s project files from becoming new input.
 
-An image node retains its source image path and any discovered JSON path. The scanner checks `<image-dir>/manga_translator_work/json/<stem>_translations.json` first, then the legacy image-directory location. Therefore the status dot means only that an associated JSON was found at scan time; it does not mean that the current task translated successfully.
+An image node retains its source image path and any discovered JSON path. The scanner checks `<image-dir>/manga_translator_work/json/<stem>_translations.json` first, then the legacy image-directory location. The translation status means only that an associated JSON was found at scan time; it does not mean that the current task translated successfully.
 
 ### Archive handling when a task starts
 

@@ -392,7 +392,9 @@ class MainWindow(FluentWindow):
         # --- MainAppLogic Connections ---
         self.app_logic.config_loaded.connect(self.main_view.set_parameters)
         self.app_logic.file_sources_changed.connect(self._request_main_file_snapshot)
+        self.app_logic.file_removed.connect(self.main_view.file_list.remove_file)
         self.app_logic.file_removed.connect(self._on_file_removed_update_editor)
+        self.app_logic.files_cleared.connect(self.main_view.file_list.clear)
         self.app_logic.files_cleared.connect(self._on_files_cleared_update_editor)
         self.app_logic.output_path_updated.connect(
             self.main_view.update_output_path_display
@@ -475,7 +477,7 @@ class MainWindow(FluentWindow):
     @pyqtSlot()
     def _request_main_file_snapshot(self):
         self._main_catalog_loading = True
-        self.main_view.file_list.set_loading()
+        self.main_view.file_list.set_loading(keep_items=True)
         try:
             self._main_catalog_generation = (
                 self.file_list_data_service.request_snapshot(

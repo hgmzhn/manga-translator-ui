@@ -389,14 +389,18 @@ class MainView(QObject):
             self.translation_page_title.setText(self._t("Translation Interface"))
         if hasattr(self, "translation_input_card") and hasattr(self.translation_input_card, "setTitle"):
             self.translation_input_card.setTitle("")
-        if hasattr(self, "translation_task_card"):
-            self.translation_task_card.setTitle(self._t("Translation Task"))
+        if hasattr(self, "translation_task_title"):
+            self.translation_task_title.setText(self._t("Translation Task"))
         if hasattr(self, "add_files_button"):
             self.add_files_button.setText(self._t("Add Files"))
         if hasattr(self, "add_folder_button"):
             self.add_folder_button.setText(self._t("Add Folder"))
         if hasattr(self, "clear_list_button"):
-            self.clear_list_button.setText(self._t("Clear List"))
+            workspace = getattr(self, "file_workspace", None)
+            selected = bool(workspace and workspace.selected_paths())
+            self.clear_list_button.setText(
+                self._t("Clear Selected") if selected else self._t("Clear List")
+            )
 
         if hasattr(self, "output_folder_label"):
             self.output_folder_label.setText(self._t("Output Directory:"))
