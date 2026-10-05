@@ -224,7 +224,7 @@ def test_select_all_clears_paste_overlay_selection():
 
     # 后续复制优先处理区域，而非贴片
     mgr._handle_copy(dummy_focused)
-    ev.controller.copy_region.assert_called_once_with(1)
+    ev.controller.copy_regions.assert_called_once_with([0, 1])
     ev.controller.copy_paste_overlay.assert_not_called()
 
     # 验证直接修改 model 选区也能互斥清空贴片选中态

@@ -1594,18 +1594,28 @@ class EditorController(QObject):
 
     def copy_region(self, region_index: int):
         """复制指定区域的数据"""
-        region_data = self.model.get_region_by_index(region_index)
+        self.copy_regions([region_index])
+
+    def copy_regions(self, region_indices: list):
+        """复制多个区域的数据"""
+        regions = self.model.get_regions()
+        region_data = [
+            copy.deepcopy(regions[index])
+            for index in region_indices
+            if isinstance(index, int) and 0 <= index < len(regions)
+        ]
         if not region_data:
-            self.logger.error(f"Region {region_index} does not exist")
+            self.logger.error("No valid region to copy")
             return
 
-        # 将区域数据保存到历史服务的剪贴板
-        self.history_service.copy_to_clipboard(copy.deepcopy(region_data))
+        self.history_service.copy_to_clipboard(region_data)
         self._last_clipboard_kind = "region"
 
     def paste_region_style(self, region_index: int):
         """将复制的样式粘贴到指定区域"""
         clipboard_data = self.history_service.paste_from_clipboard()
+        if isinstance(clipboard_data, list):
+            clipboard_data = clipboard_data[0] if clipboard_data else None
         if not clipboard_data:
             self.logger.warning("No copied region data available")
             return
@@ -1752,74 +1762,77 @@ class EditorController(QObject):
         # 设置工具为绘制文本框
         self.model.set_active_tool("draw_textbox")
 
+    @staticmethod
+    def _region_center(region_data: dict):
+        if "center" in region_data:
+            return float(region_data["center"][0]), float(region_data["center"][1])
+        points = [point for line in region_data.get("lines") or [] for point in line]
+        if not points:
+            return 0.0, 0.0
+        return (
+            sum(point[0] for point in points) / len(points),
+            sum(point[1] for point in points) / len(points),
+        )
+
     def paste_region(self, mouse_pos=None):
-        """粘贴复制的区域到新位置
+        """粘贴复制的区域到新位置"""
+        self.paste_regions(mouse_pos)
+
+    def paste_regions(self, mouse_pos=None):
+        """粘贴剪贴板中的所有区域，并保持它们之间的相对位置
 
         参数:
-            mouse_pos: 鼠标位置 (scene coordinates),如果提供则在该位置粘贴
+            mouse_pos: 鼠标位置 (scene coordinates),如果提供则整组粘贴到该位置
         """
         clipboard_data = self.history_service.paste_from_clipboard()
         if not clipboard_data:
             self.logger.warning("No copied region data available")
             return
 
-        # 创建新区域
-        new_region_data = copy.deepcopy(clipboard_data)
+        if not isinstance(clipboard_data, list):
+            clipboard_data = [clipboard_data]
 
-        # 计算原区域的中心点
-        if "center" in new_region_data:
-            old_center_x, old_center_y = new_region_data["center"]
-        elif "lines" in new_region_data and new_region_data["lines"]:
-            # 从 lines 计算中心点
-            all_points = [point for line in new_region_data["lines"] for point in line]
-            if all_points:
-                old_center_x = sum(p[0] for p in all_points) / len(all_points)
-                old_center_y = sum(p[1] for p in all_points) / len(all_points)
-            else:
-                old_center_x, old_center_y = 0, 0
-        else:
-            old_center_x, old_center_y = 0, 0
+        centers = [self._region_center(item) for item in clipboard_data]
+        center_x = sum(item[0] for item in centers) / len(centers)
+        center_y = sum(item[1] for item in centers) / len(centers)
 
-        # 计算新的中心点
         if mouse_pos:
-            # 如果提供了鼠标位置,在该位置粘贴
             new_center_x, new_center_y = mouse_pos.x(), mouse_pos.y()
         else:
-            # 否则稍微偏移避免重叠
-            new_center_x = old_center_x + 20
-            new_center_y = old_center_y + 20
+            new_center_x = center_x + 20
+            new_center_y = center_y + 20
 
-        # 计算偏移量
-        offset_x = new_center_x - old_center_x
-        offset_y = new_center_y - old_center_y
+        offset_x = new_center_x - center_x
+        offset_y = new_center_y - center_y
 
-        # 应用偏移到所有坐标
-        if "center" in new_region_data:
-            new_region_data["center"] = [new_center_x, new_center_y]
-
-        if "lines" in new_region_data and new_region_data["lines"]:
-            for line in new_region_data["lines"]:
-                for point in line:
-                    point[0] += offset_x
-                    point[1] += offset_y
-
-        if "polygons" in new_region_data and new_region_data["polygons"]:
-            for polygon in new_region_data["polygons"]:
-                for point in polygon:
-                    point[0] += offset_x
-                    point[1] += offset_y
-
-        # 添加到模型 - 使用命令模式以支持撤销
         from editor.commands import AddRegionCommand
 
-        command = AddRegionCommand(
-            model=self.model, region_data=new_region_data, description="Paste Region"
-        )
-        self.execute_command(command)
+        moved_points = set()
+        commands = []
+        for region_data in clipboard_data:
+            if "center" in region_data:
+                region_data["center"] = [
+                    region_data["center"][0] + offset_x,
+                    region_data["center"][1] + offset_y,
+                ]
+            for key in ("lines", "polygons"):
+                for polygon in region_data.get(key) or []:
+                    for point in polygon:
+                        if id(point) in moved_points:
+                            continue
+                        moved_points.add(id(point))
+                        point[0] += offset_x
+                        point[1] += offset_y
+            commands.append(
+                AddRegionCommand(
+                    model=self.model, region_data=region_data, description="Paste Region"
+                )
+            )
 
-        # 选中新粘贴的区域
-        new_index = len(self.model.get_regions()) - 1
-        self.model.set_selection([new_index])
+        self._execute_command_batch(commands, f"Paste Regions ({len(commands)} ops)")
+
+        total = len(self.model.get_regions())
+        self.model.set_selection(list(range(total - len(commands), total)))
 
     @pyqtSlot(bool, bool)
     def _on_history_undo_redo_state_changed(self, can_undo: bool, can_redo: bool):
