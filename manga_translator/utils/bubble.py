@@ -20,24 +20,40 @@ def build_region_reference_mask(
     region,
     bubble_mask: np.ndarray,
     label_map: np.ndarray,
+    label_count: int | None = None,
 ) -> np.ndarray:
-    """Return complete bubble components intersecting a text region."""
+    """Return complete bubble components intersecting a text region.
+
+    ``label_count`` can reuse the count (including background) returned by
+    ``cv2.connectedComponents`` for this label map.
+    """
     h, w = bubble_mask.shape[:2]
-    region_mask = np.zeros((h, w), dtype=np.uint8)
     polygons = np.asarray(getattr(region, 'lines', []))
     if not polygons.size:
         polygons = np.asarray(region.min_rect)
     try:
         polygons = polygons.astype(np.int32).reshape(-1, 4, 2)
     except (TypeError, ValueError):
-        return region_mask
+        return np.zeros((h, w), dtype=np.uint8)
+    if not polygons.size:
+        return np.zeros((h, w), dtype=np.uint8)
     polygons[..., 0] = np.clip(polygons[..., 0], 0, max(w - 1, 0))
     polygons[..., 1] = np.clip(polygons[..., 1], 0, max(h - 1, 0))
-    cv2.fillPoly(region_mask, list(polygons), 255)
+    x, y, box_w, box_h = cv2.boundingRect(polygons.reshape(-1, 2))
+    region_mask = np.zeros((box_h, box_w), dtype=np.uint8)
+    cv2.fillPoly(region_mask, list(polygons - (x, y)), 255)
 
-    labels = np.unique(label_map[(region_mask > 0) & (bubble_mask > 0)])
+    local_labels = label_map[y:y + box_h, x:x + box_w]
+    local_bubbles = bubble_mask[y:y + box_h, x:x + box_w]
+    labels = np.unique(local_labels[(region_mask > 0) & (local_bubbles > 0)])
     labels = labels[labels > 0]
-    return np.where(np.isin(label_map, labels), 255, 0).astype(np.uint8)
+    if not labels.size:
+        return np.zeros((h, w), dtype=np.uint8)
+    if label_count is None:
+        label_count = int(label_map.max()) + 1
+    lookup = np.zeros(label_count, dtype=np.uint8)
+    lookup[labels] = 255
+    return lookup[label_map]
 
 
 def check_color(image):

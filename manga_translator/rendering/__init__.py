@@ -475,23 +475,36 @@ def calc_box_from_font(font_size: int, text: str, is_horizontal: bool,
 def find_largest_inscribed_rect(mask: np.ndarray) -> tuple:
     """Return the largest axis-aligned rectangle fully covered by ``mask``.
 
-    The previous implementation started from the largest inscribed circle and
-    greedily expanded four sides.  That finds a locally convenient rectangle,
-    not the maximum-area rectangle; narrow or irregular bubbles could therefore
-    produce a small near-square budget.  This uses the standard histogram/stack
-    maximal-rectangle algorithm and evaluates every foreground rectangle.
+    Crop to the foreground bounds and combine consecutive identical rows and
+    columns before running the histogram/stack algorithm. Group weights retain
+    the original pixel dimensions; neither the mask nor the result is scaled.
     """
     binary = np.asarray(mask) > 0
     if binary.ndim != 2 or not np.any(binary):
         return 0, 0, 0, 0
 
-    height, width = binary.shape
+    offset_x, offset_y, roi_width, roi_height = cv2.boundingRect(binary.astype(np.uint8))
+    roi = binary[offset_y:offset_y + roi_height, offset_x:offset_x + roi_width]
+    row_starts = np.r_[0, np.flatnonzero(np.any(roi[1:] != roi[:-1], axis=1)) + 1]
+    row_ends = np.r_[row_starts[1:], roi_height]
+    row_weights = row_ends - row_starts
+    selected_rows = roi[row_starts]
+    col_starts = np.r_[
+        0,
+        np.flatnonzero(np.any(selected_rows[:, 1:] != selected_rows[:, :-1], axis=0)) + 1,
+    ]
+    col_bounds = col_starts.tolist() + [roi_width]
+    compact = selected_rows[:, col_starts]
+    height, width = compact.shape
     heights = np.zeros(width, dtype=np.int32)
     best_area = 0
     best_rect = (0, 0, 0, 0)
 
     for y in range(height):
-        heights = np.where(binary[y], heights + 1, 0)
+        # A group's last row dominates its earlier rows. Identical columns can
+        # likewise be evaluated at their full width. Keep scan order and strict
+        # area updates so equal-area rectangles retain the original tie break.
+        heights = np.where(compact[y], heights + int(row_weights[y]), 0)
         stack: list[int] = []
         for x in range(width + 1):
             current_height = int(heights[x]) if x < width else 0
@@ -499,14 +512,14 @@ def find_largest_inscribed_rect(mask: np.ndarray) -> tuple:
                 bar_x = stack.pop()
                 rect_height = int(heights[bar_x])
                 left = stack[-1] + 1 if stack else 0
-                rect_width = x - left
+                rect_width = col_bounds[x] - col_bounds[left]
                 area = rect_width * rect_height
                 if area <= best_area:
                     continue
                 best_area = area
                 best_rect = (
-                    left,
-                    y - rect_height + 1,
+                    offset_x + col_bounds[left],
+                    offset_y + int(row_ends[y]) - rect_height,
                     rect_width,
                     rect_height,
                 )
@@ -864,12 +877,13 @@ def _polygon_fully_inside_mask(points: np.ndarray, bubble_mask: np.ndarray) -> b
     pts[:, 0] = np.clip(pts[:, 0], 0, max(w - 1, 0))
     pts[:, 1] = np.clip(pts[:, 1], 0, max(h - 1, 0))
 
-    poly_mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.fillPoly(poly_mask, [pts], 255)
+    x, y, box_w, box_h = cv2.boundingRect(pts)
+    poly_mask = np.zeros((box_h, box_w), dtype=np.uint8)
+    cv2.fillPoly(poly_mask, [pts - (x, y)], 255)
     poly_pixels = poly_mask > 0
     if not np.any(poly_pixels):
         return False
-    return bool(np.all(bubble_mask[poly_pixels] > 0))
+    return bool(np.all(bubble_mask[y:y + box_h, x:x + box_w][poly_pixels] > 0))
 
 
 def _region_lines_fully_inside_mask(region: TextBlock, bubble_mask: np.ndarray) -> bool:
@@ -1396,6 +1410,7 @@ def _layout_regions_to_font_size(
 
     balloon_fill_mask = None
     balloon_fill_label_map = None
+    balloon_fill_label_count = None
     # skip_font_scaling（编辑器授权布局）恒用 center_box 锚点，气泡蒙版不参与摆放；
     # 仅 verbose 调试图仍需要蒙版做可视化
     if mode == 'balloon_fill' and original_img is not None and (not skip_font_scaling or return_debug_img):
@@ -1412,7 +1427,7 @@ def _layout_regions_to_font_size(
                 if mask_pixels == 0 and debug_img is not None:
                     logger.warning("balloon_fill global bubble mask is empty (mask_pixels=0), blue overlay will not be visible")
                 if mask_pixels > 0:
-                    _, balloon_fill_label_map = cv2.connectedComponents(
+                    balloon_fill_label_count, balloon_fill_label_map = cv2.connectedComponents(
                         np.where(balloon_fill_mask > 0, 1, 0).astype(np.uint8),
                         connectivity=8,
                     )
@@ -1432,11 +1447,13 @@ def _layout_regions_to_font_size(
             logger.warning(f"balloon_fill bubble mask preparation failed, skip global bubble mask: {exc}")
             balloon_fill_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
             balloon_fill_label_map = None
+            balloon_fill_label_count = None
 
     # Bubble mask for center_text_in_bubble: reuse the mask passed from the image context.
     # （skip_font_scaling 时锚点固定为 center_box，气泡居中不生效，不做无谓的蒙版构建）
     center_check_mask = balloon_fill_mask
     center_check_label_map = balloon_fill_label_map
+    center_check_label_count = balloon_fill_label_count
     if (
         center_check_mask is None
         and config.render.center_text_in_bubble
@@ -1447,7 +1464,7 @@ def _layout_regions_to_font_size(
             if bubble_mask is not None:
                 center_check_mask = bubble_mask
                 if center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
-                    _, center_check_label_map = cv2.connectedComponents(
+                    center_check_label_count, center_check_label_map = cv2.connectedComponents(
                         np.where(center_check_mask > 0, 1, 0).astype(np.uint8), connectivity=8
                     )
                 else:
@@ -1498,7 +1515,9 @@ def _layout_regions_to_font_size(
             # 判断是否需要气泡内居中：开启设置 且 区域确实在检测到的气泡内
             apply_bubble_centering = config.render.center_text_in_bubble
             if apply_bubble_centering and center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
-                _rm = _build_region_reference_mask(region, center_check_mask, center_check_label_map)
+                _rm = _build_region_reference_mask(
+                    region, center_check_mask, center_check_label_map, center_check_label_count
+                )
                 apply_bubble_centering = np.count_nonzero(_rm) > 0
             normal_anchor_mode = _resolve_layout_anchor_mode(
                 apply_bubble_centering=apply_bubble_centering,
@@ -1608,7 +1627,7 @@ def _layout_regions_to_font_size(
                 try:
                     if balloon_fill_mask is not None and np.count_nonzero(balloon_fill_mask) > 0:
                         region_bubble_mask = _build_region_reference_mask(
-                            region, balloon_fill_mask, balloon_fill_label_map
+                            region, balloon_fill_mask, balloon_fill_label_map, balloon_fill_label_count
                         )
                     lines_fully_enclosed = (
                         np.count_nonzero(region_bubble_mask) > 0
@@ -1622,6 +1641,11 @@ def _layout_regions_to_font_size(
 
             layout_candidate_font_size = int(max(target_font_size, layout_min_font_size))
             remove_linebreak_punctuation = bool(getattr(config.render, 'remove_linebreak_punctuation', False))
+            region_layout_mode = mode
+            if mode == 'balloon_fill' and not lines_fully_enclosed:
+                # Text outside a complete bubble uses the same line-breaking
+                # and box-fit font rules as an explicitly selected strict mode.
+                region_layout_mode = 'strict'
             if is_rich_text_document(_region_render_value(region)):
                 # 富文本文档不可重排：不做断句优化/自动断行（会破坏结构化段落
                 # 与样式边界），但字号自适应必须生效——不再直接使用估算字号。
@@ -1694,7 +1718,7 @@ def _layout_regions_to_font_size(
             if has_br:
                 if remove_linebreak_punctuation:
                     region.translation = strip_linebreak_edge_punctuation(region.translation)
-                if config.render.optimize_line_breaks and (mode != 'strict' or config.render.disable_auto_wrap):
+                if config.render.optimize_line_breaks and (region_layout_mode != 'strict' or config.render.disable_auto_wrap):
                     optimized_text, _ = optimize_line_breaks_for_region(
                         region,
                         config,
@@ -1707,9 +1731,10 @@ def _layout_regions_to_font_size(
                         region.translation = strip_linebreak_edge_punctuation(region.translation)
             else:
                 mask_layout_active = (
-                    mode == 'balloon_fill'
+                    region_layout_mode == 'balloon_fill'
                     and _balloon_fill_mask_layout_enabled(config)
                 )
+                mask_layout_applied = False
                 if mask_layout_active and lines_fully_enclosed:
                     _mask_x, _mask_y, layout_width, layout_height = find_largest_inscribed_rect(
                         region_bubble_mask
@@ -1737,8 +1762,11 @@ def _layout_regions_to_font_size(
                             target_lang=region.target_lang,
                             max_font_size=line_layout_max_font_size,
                         )
+                        mask_layout_applied = True
 
-                elif not mask_layout_active:
+                # No usable bubble rectangle: keep automatic line breaking
+                # against the OCR box, including text outside detected bubbles.
+                if not mask_layout_applied:
                     layout_box_width = float(line_box_width)
                     layout_box_height = float(line_box_height)
                     line_layout_max_font_size = int(
@@ -1791,7 +1819,7 @@ def _layout_regions_to_font_size(
             )
 
             # --- Mode 5: balloon_fill (MUST BE FIRST to override other modes) ---
-            if mode == 'balloon_fill':
+            if region_layout_mode == 'balloon_fill':
                 semantic_linebreak_debug = (
                     bool(getattr(config.render, 'semantic_linebreak', False))
                     and _is_chinese_lang(getattr(region, 'target_lang', '') or '')
@@ -2224,7 +2252,7 @@ def _layout_regions_to_font_size(
                 continue
 
             # --- Mode: strict ---
-            if mode == 'strict':
+            if region_layout_mode == 'strict':
                 # 有 BR 与无 BR 同一规则：最终文本按 OCR 框适配的字号作布局上限。
                 layout_font_size = _resolve_strict_layout_font_size(
                     region=region,
