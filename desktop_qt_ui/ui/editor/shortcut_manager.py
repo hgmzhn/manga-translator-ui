@@ -290,8 +290,7 @@ class EditorShortcutManager(ShortcutManager):
             # 否则复制选中的区域
             selected_regions = self.editor_view.model.get_selection()
             if selected_regions:
-                # 复制最后选中的区域
-                self.controller.copy_region(selected_regions[-1])
+                self.controller.copy_regions(selected_regions)
 
     def _handle_paste(self, focused_widget):
         """处理粘贴快捷键"""

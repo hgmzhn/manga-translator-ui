@@ -348,7 +348,7 @@ class EditorView(QWidget):
         """处理属性面板的复制按钮"""
         selected_regions = self.model.get_selection()
         if selected_regions:
-            self.controller.copy_region(selected_regions[0])
+            self.controller.copy_regions(selected_regions)
 
     def _handle_paste_from_panel(self):
         """处理属性面板的粘贴按钮"""

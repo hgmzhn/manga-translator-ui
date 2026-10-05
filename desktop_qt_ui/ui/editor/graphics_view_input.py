@@ -1037,10 +1037,10 @@ class GraphicsViewInputMixin:
             )
             menu.addSeparator()
 
+            add_item(f"📋 {translate('Copy Region')}", self._copy_selected_region)
             if selection_count == 1:
-                add_item(f"📋 {translate('Copy Region')}", self._copy_selected_region)
                 add_item(f"🎨 {translate('Paste Style')}", self._paste_region_style)
-                menu.addSeparator()
+            menu.addSeparator()
 
             add_item(
                 f"🗑️ {translate('Delete Selected Regions', count=selection_count)}",
@@ -1066,8 +1066,8 @@ class GraphicsViewInputMixin:
 
     def _copy_selected_region(self):
         selected_regions = self.model.get_selection()
-        if len(selected_regions) == 1 and self.controller:
-            self.controller.copy_region(selected_regions[0])
+        if selected_regions and self.controller:
+            self.controller.copy_regions(selected_regions)
 
     def _paste_region_style(self):
         selected_regions = self.model.get_selection()
