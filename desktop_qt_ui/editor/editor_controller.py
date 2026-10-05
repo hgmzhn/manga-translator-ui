@@ -1807,6 +1807,7 @@ class EditorController(QObject):
 
         from editor.commands import AddRegionCommand
 
+        moved_points = set()
         commands = []
         for region_data in clipboard_data:
             if "center" in region_data:
@@ -1817,6 +1818,9 @@ class EditorController(QObject):
             for key in ("lines", "polygons"):
                 for polygon in region_data.get(key) or []:
                     for point in polygon:
+                        if id(point) in moved_points:
+                            continue
+                        moved_points.add(id(point))
                         point[0] += offset_x
                         point[1] += offset_y
             commands.append(
