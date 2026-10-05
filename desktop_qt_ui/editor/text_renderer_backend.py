@@ -186,7 +186,7 @@ def render_text_for_region(
     pure_zoom: float = 1.0,
     total_regions: int = 1,
 ):
-    final_image, pos, native_dst_points = render_text_image_for_region(
+    rendered = render_text_image_for_region(
         text_block,
         dst_points,
         transform,
@@ -194,4 +194,7 @@ def render_text_for_region(
         pure_zoom=pure_zoom,
         total_regions=total_regions,
     )
+    if rendered is None:
+        return None
+    final_image, pos, native_dst_points = rendered
     return (QPixmap.fromImage(final_image), pos, native_dst_points)

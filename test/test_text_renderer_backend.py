@@ -119,6 +119,17 @@ def test_editor_text_render_wrapper_returns_qpixmap():
     assert pixmap.height() > 0
 
 
+def test_editor_text_render_wrapper_returns_none_for_region_without_text():
+    result = render_text_for_region(
+        _region(translation="", texts=[""]),
+        _horizontal_dst_points(),
+        None,
+        _render_params(),
+    )
+
+    assert result is None
+
+
 def test_editor_text_layout_skips_empty_text_and_degenerate_target():
     empty_region = _region(translation="", texts=[""])
     assert (
@@ -165,6 +176,7 @@ def main() -> int:
     test_editor_text_layout_renders_vertical_region()
     test_editor_text_layout_applies_qt_transform_before_positioning()
     test_editor_text_render_wrapper_returns_qpixmap()
+    test_editor_text_render_wrapper_returns_none_for_region_without_text()
     test_editor_text_layout_skips_empty_text_and_degenerate_target()
     test_editor_text_layout_uses_region_color_and_can_disable_border()
     return 0
