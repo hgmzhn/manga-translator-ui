@@ -2,9 +2,10 @@ import argparse
 from enum import Enum
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, PrivateAttr, model_validator
+from pydantic import BaseModel, PrivateAttr, field_validator, model_validator
 
 from manga_translator.custom_api_params import migrate_legacy_custom_api_params_config
+from manga_translator.server_paths import redirect_shipped_prompt_path
 
 VALID_LAYOUT_MODES = {"smart_scaling", "strict", "balloon_fill"}
 
@@ -355,6 +356,11 @@ class TranslatorConfig(BaseModel):
     """Minimum ratio of target language in translation text for ratio check"""
     
     # 使用 PrivateAttr 确保每个实例有独立的缓存
+    @field_validator("high_quality_prompt_path")
+    @classmethod
+    def _keep_shipped_prompt_template_pristine(cls, value: Optional[str]) -> Optional[str]:
+        return redirect_shipped_prompt_path(value)
+
     _translator_gen: Any = PrivateAttr(default=None)
 
     @property
