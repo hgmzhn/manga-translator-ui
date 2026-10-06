@@ -581,7 +581,7 @@ class MangaTranslator:
         file_path = image_path
         parent_dir = os.path.normpath(os.path.dirname(file_path))
         
-        # 生成翻译长图时，单页结果统一写入输出目录下的工作子目录。
+        # 生成长图或任务 HTML 等额外产物时，单页结果统一写入输出目录下的工作子目录。
         # 该模式优先于“输出到原图目录”，确保最终长图可以稳定地落在
         # 用户选择的输出目录根目录中。
         if long_image_work_dir:
@@ -750,8 +750,10 @@ class MangaTranslator:
                 except Exception as psd_err:
                     logger.error(f"Error exporting PSD for {os.path.basename(ctx.image_name)}: {psd_err}")
             
-            # ✅ 保存后立即清理result以释放内存
-            ctx.result = None
+            # ✅ 保存后立即清理result以释放内存。批量桥接流需要在
+            # _notify_result 中读取刚保存的结果，因此允许本次请求暂留。
+            if not save_info.get('retain_result_for_stream', False):
+                ctx.result = None
             
             return bool(ctx.success)
         except Exception as e:
@@ -3745,7 +3747,11 @@ class MangaTranslator:
             from .utils.concurrent_pipeline import ConcurrentPipeline
 
             self._current_save_info = save_info
-            pipeline = ConcurrentPipeline(self, batch_size)
+            pipeline = ConcurrentPipeline(
+                self,
+                batch_size,
+                result_callback=getattr(self, '_stream_result_callback', None),
+            )
             file_paths = [input_path(item) for item in images_with_configs]
             configs = [item[1] for item in images_with_configs]
             contexts = await pipeline.process_batch(

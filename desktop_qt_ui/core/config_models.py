@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 
 from manga_translator.custom_api_params import migrate_legacy_custom_api_params_config
+from manga_translator.config import OCR_AI_VLM_MODELS
 from pydantic import BaseModel, Field, model_validator
 
 from theme_registry import VALID_THEME_PREFERENCES as REGISTERED_THEME_PREFERENCES
@@ -35,6 +36,7 @@ class TranslatorSettings(BaseModel):
 
 
 class OcrSettings(BaseModel):
+    ocr_mode: str = "local"
     ocr: str = "48px"
     use_hybrid_ocr: bool = True
     secondary_ocr: str = "mocr"
@@ -53,6 +55,26 @@ class OcrSettings(BaseModel):
     ocr_vl_custom_prompt: Optional[str] = None
     ai_ocr_concurrency: int = 1
     ai_ocr_custom_prompt: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_ocr_mode_for_legacy_config(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        raw_mode = normalized.get("ocr_mode")
+        selected_model = str(normalized.get("ocr", "48px") or "").strip()
+        mode_value = str(getattr(raw_mode, "value", raw_mode)).strip()
+        if (
+            not mode_value
+            or mode_value not in {"local", "ai_vlm"}
+            or (mode_value == "local" and selected_model in OCR_AI_VLM_MODELS)
+        ):
+            normalized["ocr_mode"] = (
+                "ai_vlm" if selected_model in OCR_AI_VLM_MODELS else "local"
+            )
+        return normalized
 
 
 class DetectorSettings(BaseModel):

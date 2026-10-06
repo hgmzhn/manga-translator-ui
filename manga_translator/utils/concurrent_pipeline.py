@@ -44,7 +44,13 @@ class ConcurrentPipeline:
     使用 queue.Queue 和 threading.Lock 进行线程间通信和同步。
     """
     
-    def __init__(self, translator_instance, batch_size: int = 3, max_workers: int = 4):
+    def __init__(
+        self,
+        translator_instance,
+        batch_size: int = 3,
+        max_workers: int = 4,
+        result_callback=None,
+    ):
         """
         初始化并发流水线
         
@@ -55,6 +61,10 @@ class ConcurrentPipeline:
         """
         self.translator = translator_instance
         self.batch_size = batch_size
+        # Optional bridge callback. It is invoked from the render worker after
+        # one image has been saved, allowing a caller to stream that image
+        # before the rest of the batch finishes.
+        self.result_callback = result_callback
         
         # ✅ 为每个步骤创建独立的线程池，实现真正的并行处理
         # 每个线程拥有独立的事件循环，互不阻塞
@@ -107,6 +117,16 @@ class ConcurrentPipeline:
     def _emit_status(self, message: str):
         """向主线程发送状态消息（线程安全）"""
         self._status_queue.put(message)
+
+    def _notify_result(self, ctx):
+        """Notify the optional consumer without breaking the pipeline."""
+        if not self.result_callback:
+            return
+        try:
+            self.result_callback(ctx)
+        except Exception as exc:
+            logger.error(f"[并发流水线] 结果流回调失败: {exc}")
+            logger.debug(traceback.format_exc())
     
     def _flush_status_to_logger(self):
         """将队列中的状态消息输出到 logger（在主线程调用）"""
@@ -863,6 +883,7 @@ class ConcurrentPipeline:
 
                         with self._results_lock:
                             self._results.append(ctx)
+                        self._notify_result(ctx)
                         self.translator._cleanup_context_memory(ctx, keep_result=True)
                         with self._lock:
                             if ctx.image_name in self.base_contexts:
@@ -879,6 +900,7 @@ class ConcurrentPipeline:
                         self._emit_status(f"[渲染] 跳过失败文件 {rendered_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
                         with self._results_lock:
                             self._results.append(ctx)
+                        self._notify_result(ctx)
                         self.translator._cleanup_context_memory(ctx, keep_result=True)
                         with self._lock:
                             if ctx.image_name in self.base_contexts:
@@ -960,6 +982,11 @@ class ConcurrentPipeline:
                     # 添加到结果列表
                     with self._results_lock:
                         self._results.append(ctx)
+                    self._notify_result(ctx)
+                    if getattr(self.translator, '_stream_result_callback', None):
+                        # The callback has copied the image bytes. Release the
+                        # retained result before the normal memory cleanup.
+                        ctx.result = None
 
                     # 清理内存 - 调用统一清理函数
                     logger.debug(f"[渲染] 清理内存: {ctx.image_name}")
@@ -994,6 +1021,7 @@ class ConcurrentPipeline:
                         self._emit_status(f"[渲染] 跳过失败文件 {rendered_count}/{self.total_images}: {os.path.basename(ctx.image_name)}")
                         with self._results_lock:
                             self._results.append(ctx)
+                        self._notify_result(ctx)
                         self.translator._cleanup_context_memory(ctx, keep_result=True)
                         with self._lock:
                             if ctx.image_name in self.base_contexts:

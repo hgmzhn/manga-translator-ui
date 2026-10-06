@@ -128,6 +128,28 @@ class Ocr(str, Enum):
     openai_ocr = "openai_ocr"
     gemini_ocr = "gemini_ocr"
 
+
+class OcrMode(str, Enum):
+    """Top-level OCR family selected by the desktop settings page."""
+
+    local = "local"
+    ai_vlm = "ai_vlm"
+
+
+OCR_LOCAL_MODELS = frozenset({
+    Ocr.ocr32px.value,
+    Ocr.ocr48px.value,
+    Ocr.ocr48px_ctc.value,
+    Ocr.mocr.value,
+    Ocr.paddleocr.value,
+    Ocr.paddleocr_korean.value,
+    Ocr.paddleocr_latin.value,
+    Ocr.paddleocr_thai.value,
+})
+OCR_AI_VLM_MODELS = frozenset({
+    member.value for member in Ocr if member.value not in OCR_LOCAL_MODELS
+})
+
 class Translator(str, Enum):
     openai = "openai"
     openai_hq = "openai_hq"
@@ -447,6 +469,8 @@ class CliConfig(BaseModel):
     """Translate existing JSON only: read original text from JSON, translate, and write back JSON"""
 
 class OcrConfig(BaseModel):
+    ocr_mode: OcrMode = OcrMode.local
+    """OCR family: traditional local OCR or AI/VLM OCR."""
     ocr: Ocr = Ocr.ocr48px
     """Optical character recognition (OCR) model to use"""
     use_hybrid_ocr: bool = False
@@ -482,6 +506,28 @@ class OcrConfig(BaseModel):
     """Maximum concurrent API requests for OpenAI OCR and Gemini OCR."""
     ai_ocr_custom_prompt: Optional[str] = None
     """Custom prompt for API OCR backends such as OpenAI OCR and Gemini OCR."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_ocr_mode_for_legacy_config(cls, data: Any):
+        """Infer the new mode field when loading configurations from older versions."""
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        raw_mode = normalized.get("ocr_mode")
+        raw_model = normalized.get("ocr", Ocr.ocr48px)
+        model_value = str(getattr(raw_model, "value", raw_model)).strip()
+        mode_value = str(getattr(raw_mode, "value", raw_mode)).strip()
+        if (
+            not mode_value
+            or mode_value not in {item.value for item in OcrMode}
+            or (mode_value == OcrMode.local.value and model_value in OCR_AI_VLM_MODELS)
+        ):
+            normalized["ocr_mode"] = (
+                OcrMode.ai_vlm if model_value in OCR_AI_VLM_MODELS else OcrMode.local
+            )
+        return normalized
 
 class Config(BaseModel):
     # General
