@@ -449,6 +449,8 @@ class CliConfig(BaseModel):
     """Batch size for processing"""
     batch_concurrent: bool = False
     """Enable concurrent pipeline (Detection, OCR, Inpainting, Translation in parallel)"""
+    max_workers: int = 1
+    """Worker threads per pipeline stage when concurrent mode is enabled (1-8). 1 keeps one thread per stage."""
     format: Optional[str] = None
     """Output format"""
     save_quality: int = 100

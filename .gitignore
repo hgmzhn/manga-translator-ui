@@ -237,3 +237,6 @@ CLAUDE.md
 # Local GitHub command presets
 .github/commands/
 packaging/maintenance_config.json
+
+# Local test run artifacts
+/test-output/

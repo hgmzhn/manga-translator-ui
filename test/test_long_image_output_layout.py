@@ -4,6 +4,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from desktop_qt_ui.app_logic import _resolve_task_artifact_work_dir
 from desktop_qt_ui.services.long_image_service import build_long_image
 from manga_translator.manga_translator import MangaTranslator
 
@@ -49,3 +50,36 @@ def test_long_image_work_directory_overrides_source_directory_output(tmp_path):
     )
 
     assert Path(output_path) == work_dir / "chapter" / "page.png"
+
+
+def test_html_export_reuses_the_long_image_work_directory(tmp_path):
+    source_dir = tmp_path / "chapter"
+    source_dir.mkdir()
+    source_path = source_dir / "page.png"
+    work_dir = tmp_path / "output" / "translated_pages"
+
+    translator = object.__new__(MangaTranslator)
+    output_path = translator._calculate_output_path(
+        str(source_path),
+        {
+            "output_folder": str(tmp_path / "output"),
+            "input_folders": {str(source_dir)},
+            "format": None,
+            "save_to_source_dir": False,
+            "long_image_work_dir": str(work_dir),
+        },
+    )
+
+    assert Path(output_path) == work_dir / "chapter" / "page.png"
+
+
+def test_html_setting_enables_the_shared_task_artifact_work_directory(tmp_path):
+    output_root = tmp_path / "output"
+
+    assert _resolve_task_artifact_work_dir(
+        str(output_root), {"generate_html": True}
+    ) == str(output_root / "translated_pages")
+    assert _resolve_task_artifact_work_dir(
+        str(output_root), {"generate_long_image": True}
+    ) == str(output_root / "translated_pages")
+    assert _resolve_task_artifact_work_dir(str(output_root), {}) is None

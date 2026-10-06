@@ -24,6 +24,7 @@
       "convert_to_simplified": false
     },
     "ocr": {
+      "ocr_mode": "local",
       "ocr": "48px",
       "use_hybrid_ocr": false,
       "secondary_ocr": "mocr",
@@ -131,12 +132,15 @@
       "save_quality": 100,
       "batch_size": 1,
       "batch_concurrent": true,
+      "max_workers": 1,
       "generate_and_export": false,
       "colorize_only": false,
       "upscale_only": false,
       "inpaint_only": false,
       "save_to_source_dir": false,
-      "generate_long_image": true,
+      "generate_long_image": false,
+      "generate_html": false,
+      "html_view_mode": "scroll",
       "export_editable_psd": false,
       "psd_script_only": false,
       "replace_translation": false

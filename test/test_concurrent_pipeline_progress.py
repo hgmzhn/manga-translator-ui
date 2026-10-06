@@ -37,6 +37,41 @@ def test_concurrent_pipeline_reports_render_progress():
 
 
 
+def test_concurrent_pipeline_emits_page_stage_progress_and_isolates_callback_errors():
+    translator = _ProgressTranslator()
+    events = []
+    pipeline = ConcurrentPipeline(
+        translator,
+        batch_size=1,
+        progress_callback=events.append,
+    )
+
+    pipeline._notify_progress("page-07.png", "recognize", "running", "ocr")
+    pipeline._notify_progress("page-07.png", "translate", "skipped", "no-text")
+
+    assert events == [
+        {
+            "image_name": "page-07.png",
+            "stage": "recognize",
+            "state": "running",
+            "detail": "ocr",
+        },
+        {
+            "image_name": "page-07.png",
+            "stage": "translate",
+            "state": "skipped",
+            "detail": "no-text",
+        },
+    ]
+
+    def failing_callback(_event):
+        raise RuntimeError("stream disconnected")
+
+    pipeline.progress_callback = failing_callback
+    pipeline._notify_progress("page-08.png", "inpaint", "error", "inpainting", "failed")
+
+
 if __name__ == "__main__":
     test_concurrent_pipeline_reports_render_progress()
+    test_concurrent_pipeline_emits_page_stage_progress_and_isolates_callback_errors()
     print("concurrent pipeline progress test passed")

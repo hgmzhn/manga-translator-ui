@@ -185,6 +185,7 @@ class CliSettings(BaseModel):
     save_quality: int = 100
     batch_size: int = 1
     batch_concurrent: bool = False
+    max_workers: int = 1  # 并发模式下每个阶段（检测+OCR/翻译/修复/渲染）的工作线程数
     generate_and_export: bool = False
     colorize_only: bool = False
     upscale_only: bool = False  # 仅超分模式

@@ -20,6 +20,7 @@
         "cli.attempts",
         "cli.batch_size",
         "cli.batch_concurrent",
+        "cli.max_workers",
         "use_custom_api_params",
         "cli.save_to_source_dir",
         "cli.generate_long_image",
@@ -35,6 +36,7 @@
       "title": "OCR",
       "marked": false,
       "items": [
+        "ocr.ocr_mode",
         "ocr.ocr",
         "ocr.use_hybrid_ocr",
         "ocr.secondary_ocr",

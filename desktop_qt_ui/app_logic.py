@@ -22,6 +22,7 @@ from manga_translator.config import (
     Inpainter,
     InpaintPrecision,
     Ocr,
+    OcrMode,
     Renderer,
     Translator,
     Upscaler,
@@ -114,6 +115,16 @@ HTML_FILE_EXTENSIONS = frozenset({".html", ".htm"})
 LONG_IMAGE_WORK_DIRNAME = "translated_pages"
 _OPENAI_BROWSER_HEADERS = OPENAI_CURL_HEADERS
 _GEMINI_BROWSER_HEADERS = GEMINI_CURL_HEADERS
+
+
+def _resolve_task_artifact_work_dir(output_folder: str, cli_options: dict) -> Optional[str]:
+    """Return the shared work directory used by optional task-level artifacts."""
+    if not (
+        cli_options.get("generate_long_image", False)
+        or cli_options.get("generate_html", False)
+    ):
+        return None
+    return os.path.join(output_folder, LONG_IMAGE_WORK_DIRNAME)
 
 
 def _resolve_archive_output_dir_from_extracted_image(image_path: str, output_folder: str) -> Optional[str]:
@@ -1086,7 +1097,7 @@ class MainAppLogic(QObject):
                         api_key=resolved_api_key,
                         base_url=resolved_base,
                         timeout=60.0,
-                        **openai_http_client_kwargs(api_base or "https://api.openai.com/v1"),
+                        **openai_http_client_kwargs(resolved_base),
                     )
                 
                 try:
@@ -1448,6 +1459,10 @@ class MainAppLogic(QObject):
                 "glm_vl": self._t("ocr_model_glm_vl"),
                 "kimi_vl": self._t("ocr_model_kimi_vl"),
             },
+            "ocr_mode": {
+                "local": self._t("ocr_mode_local"),
+                "ai_vlm": self._t("ocr_mode_ai_vlm"),
+            },
             "colorizer": {
                 "none": self._t("translator_none"),
                 "mc2": "Manga Colorization v2",
@@ -1541,6 +1556,7 @@ class MainAppLogic(QObject):
                     "convert_to_traditional": self._t("label_convert_to_traditional"),
                     "convert_to_simplified": self._t("label_convert_to_simplified"),
                     "use_custom_api_params": self._t("label_use_custom_api_params"),
+                    "ocr_mode": self._t("label_ocr_mode"),
                     "ocr": self._t("label_ocr"),
                     "use_hybrid_ocr": self._t("label_use_hybrid_ocr"),
                     "secondary_ocr": self._t("label_secondary_ocr"),
@@ -1634,6 +1650,7 @@ class MainAppLogic(QObject):
                     "save_quality": self._t("label_save_quality"),
                     "batch_size": self._t("label_batch_size"),
                     "batch_concurrent": self._t("label_batch_concurrent"),
+                    "max_workers": self._t("label_max_workers"),
                     "generate_and_export": self._t("label_generate_and_export"),
                     "export_editable_psd": self._t("label_export_editable_psd"),
                     "last_output_path": self._t("label_last_output_path"),
@@ -1724,11 +1741,13 @@ class MainAppLogic(QObject):
             "translator": [member.value for member in Translator],
             "thinking_level": ["auto", "off", "low", "medium", "high"],
             "html_view_mode": ["scroll", "paged"],
+            "target_lang": list(self.translation_service.get_target_languages().keys()),
             "keep_lang": ["none"] + list(self.translation_service.get_keep_languages().keys()),
             "detector": [member.value for member in Detector],
             "colorizer": [member.value for member in Colorizer],
             "inpainter": [member.value for member in Inpainter],
             "inpainting_precision": [member.value for member in InpaintPrecision],
+            "ocr_mode": [member.value for member in OcrMode],
             "ocr": [member.value for member in Ocr],
             "secondary_ocr": [member.value for member in Ocr],
             "ocr_vl_language_hint": [
@@ -3013,6 +3032,7 @@ class TranslationWorker(QObject):
         self.file_to_folder_map = file_to_folder_map or {}  # 文件到文件夹的映射
         self._is_running = True
         self._current_task = None  # 保存当前运行的异步任务
+        self._shared_backend_client = None
         self.i18n = get_i18n_manager()
         self.logger = get_logger(__name__)
         self.file_service = get_file_service()
@@ -3141,7 +3161,7 @@ class TranslationWorker(QObject):
         file_path = image_path
         parent_dir = os.path.normpath(os.path.dirname(file_path))
         
-        # 长图模式下，单页结果统一写入输出目录的工作子目录。
+        # 任务级额外产物模式下，单页结果统一写入输出目录的工作子目录。
         if long_image_work_dir:
             final_output_dir = long_image_work_dir
             source_folder = self.file_to_folder_map.get(image_path)
@@ -3203,6 +3223,12 @@ class TranslationWorker(QObject):
     def stop(self):
         self._log_info("--- Stop request received.")
         self._is_running = False
+        shared_backend_client = self._shared_backend_client
+        if shared_backend_client is not None:
+            try:
+                shared_backend_client.cancel()
+            except Exception as exc:
+                self._log_warning(f"--- Shared backend cancel warning: {exc}")
         # 取消当前运行的异步任务
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
@@ -3497,7 +3523,64 @@ class TranslationWorker(QObject):
 
         return friendly_msg
 
+    async def _do_processing_via_shared_backend(self):
+        """Submit the Qt task to the local backend instead of running core in Qt."""
+        from services.shared_backend_client import SharedBackendClient
+
+        cli_config = self.config_dict.get("cli", {}) or {}
+        output_format = cli_config.get("format")
+        if not output_format or output_format == "不指定":
+            output_format = None
+
+        input_folders = set()
+        for file_path in self.files:
+            folder = self.file_to_folder_map.get(file_path)
+            if folder:
+                input_folders.add(os.path.normpath(folder))
+
+        task_artifact_work_dir = _resolve_task_artifact_work_dir(
+            self.output_folder,
+            cli_config,
+        )
+        payload = {
+            "taskId": f"qt-{os.getpid()}-{time.time_ns()}",
+            "files": [str(path) for path in self.files],
+            "outputFolder": str(self.output_folder),
+            "format": output_format,
+            "overwrite": bool(cli_config.get("overwrite", True)),
+            "inputFolders": sorted(input_folders),
+            "saveToSourceDir": bool(cli_config.get("save_to_source_dir", False)),
+            "longImageWorkDir": task_artifact_work_dir or "",
+            "batchSize": cli_config.get("batch_size", 1),
+            "batchConcurrent": bool(cli_config.get("batch_concurrent", False)),
+            "maxWorkers": int(cli_config.get("max_workers", 1) or 1),
+        }
+
+        self._log_info("--- 使用统一本机后端提交翻译任务")
+        self._log_info(f"--- 任务已提交：{len(self.files)} 个文件")
+        client = SharedBackendClient(self.root_dir, logger=self.logger)
+        self._shared_backend_client = client
+        try:
+            await asyncio.to_thread(client.ensure_running)
+            await asyncio.to_thread(client.reload_config)
+
+            def on_progress(current, total, message):
+                if self._is_running:
+                    self.progress.emit(int(current), int(total), str(message or "处理中"))
+
+            results = await asyncio.to_thread(client.translate_files, payload, on_progress)
+            if self._is_running:
+                self.finished.emit(results)
+        finally:
+            self._shared_backend_client = None
+
     async def _do_processing(self):
+        # Set MANGA_TRANSLATOR_DIRECT_CORE=1 only for legacy diagnostics. The
+        # normal desktop path now uses the same local backend as the extension.
+        if os.environ.get("MANGA_TRANSLATOR_DIRECT_CORE", "0") != "1":
+            await self._do_processing_via_shared_backend()
+            return
+
         manga_logger = logging.getLogger('manga_translator')
         
         # 根据 verbose 配置设置日志级别
@@ -3673,13 +3756,14 @@ class TranslationWorker(QObject):
                 'save_to_source_dir': self.config_dict.get('cli', {}).get('save_to_source_dir', False)
             }
 
-            if self.config_dict.get('cli', {}).get('generate_long_image', False):
-                # 单页翻译结果作为长图生成的过程素材，集中放在输出目录的
-                # 子目录中；长图本身由任务完成回调写回输出目录根目录。
-                save_info['long_image_work_dir'] = os.path.join(
-                    self.output_folder,
-                    LONG_IMAGE_WORK_DIRNAME,
-                )
+            task_artifact_work_dir = _resolve_task_artifact_work_dir(
+                self.output_folder,
+                self.config_dict.get('cli', {}),
+            )
+            if task_artifact_work_dir:
+                # 单页翻译结果作为长图或 HTML 的过程素材，集中放在输出目录
+                # 的子目录中；最终产物由任务完成回调写回输出目录根目录。
+                save_info['long_image_work_dir'] = task_artifact_work_dir
 
             
             # 确定翻译流程模式

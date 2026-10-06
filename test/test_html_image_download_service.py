@@ -106,6 +106,163 @@ def test_relative_canonical_url_is_resolved_against_page_url():
     ) == ["https://reader.example/chapters/images/page.png"]
 
 
+def test_manhuabika_reader_url_is_scoped_to_the_supported_host():
+    assert service._manhuabika_reader_parts(
+        "https://manhuabika.com/comic/reader/6aa96114e1dbce1e11ce5ff4/1"
+    ) == ("6aa96114e1dbce1e11ce5ff4", 1)
+    assert service._manhuabika_reader_parts(
+        "https://other.example/comic/reader/6aa96114e1dbce1e11ce5ff4/1"
+    ) is None
+    assert service._manhuabika_reader_parts(
+        "https://manhuabika.com/comic/6aa96114e1dbce1e11ce5ff4"
+    ) is None
+
+
+def test_manhuabika_media_path_prefers_the_original_tobs_object():
+    assert service._manhuabika_media_url(
+        {
+            "fileServer": "https://storage-b.picacomic.com",
+            "path": "sub_storage_1/53/c5/page.jpg",
+        }
+    ) == "https://storage-b.picacomic.com/static/tobs/sub_storage_1/53/c5/page.jpg"
+
+
+def test_manhuabika_browser_manifest_is_scoped_and_sorted(tmp_path, monkeypatch):
+    manifest_path = tmp_path / "manhuabika-browser-manifest.json"
+    manifest_path.write_text(
+        """{
+          "schema": "manhuabika-browser-manifest/v1",
+          "page_url": "https://manhuabika.com/comic/reader/comic-1/1",
+          "pages": {
+            "002": "https://storage-b.picacomic.com/static/tobs/sub_storage_1/b/page.jpg",
+            "001": "https://storage-b.picacomic.com/static/tobs/sub_storage_1/a/page.jpg",
+            "003": "https://storage-b.picacomic.com/static/tobeimg/proxy.jpg",
+            "004": "https://other.example/static/tobs/page.jpg"
+          }
+        }""",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_download(urls, **kwargs):
+        captured["urls"] = urls
+        captured["kwargs"] = kwargs
+        return service.HtmlImageDownloadResult(
+            html_path=kwargs["source_value"],
+            output_dir=str(tmp_path),
+            image_paths=(),
+            extracted_count=len(urls),
+            failures=(),
+        )
+
+    monkeypatch.setattr(service, "_download_url_list", fake_download)
+
+    result = service.download_manhuabika_browser_manifest(manifest_path)
+
+    assert result.extracted_count == 2
+    assert captured["urls"] == [
+        "https://storage-b.picacomic.com/static/tobs/sub_storage_1/a/page.jpg",
+        "https://storage-b.picacomic.com/static/tobs/sub_storage_1/b/page.jpg",
+    ]
+    assert captured["kwargs"]["referer"].startswith("https://manhuabika.com/")
+    assert captured["kwargs"]["scramble_context"] is None
+
+
+def test_manhuabika_browser_manifest_rejects_wrong_reader_url(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        """{
+          "schema": "manhuabika-browser-manifest/v1",
+          "page_url": "https://other.example/comic/reader/comic-1/1",
+          "pages": {"001": "https://storage-b.picacomic.com/static/tobs/page.jpg"}
+        }""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(service.HtmlImageDownloadError, match="受支持的阅读器网址"):
+        service.download_manhuabika_browser_manifest(manifest_path)
+
+
+def test_manhuabika_page_api_paginates_and_returns_original_urls(monkeypatch):
+    calls = []
+
+    def fake_api_request(domain, path, query, nonce):
+        calls.append((domain, path, query, nonce))
+        return {
+            "code": 200,
+            "data": {
+                "pages": {
+                    "docs": [
+                        {
+                            "media": {
+                                "fileServer": "https://storage-b.picacomic.com",
+                                "path": (
+                                    "tobs/sub_storage_1/53/c5/"
+                                    "53c53695-e30b-4ba5-9c8c-7c4914188c35.jpg"
+                                ),
+                            }
+                        }
+                    ],
+                    "pages": 1,
+                }
+            },
+        }
+
+    monkeypatch.setattr(service, "_manhuabika_api_request", fake_api_request)
+
+    urls = service._fetch_manhuabika_page_urls(
+        "https://manhuabika.com/comic/reader/6aa96114e1dbce1e11ce5ff4/1",
+        comic_id="6aa96114e1dbce1e11ce5ff4",
+        order=1,
+        max_images=10,
+    )
+
+    assert urls == [
+        "https://storage-b.picacomic.com/static/tobs/sub_storage_1/53/c5/"
+        "53c53695-e30b-4ba5-9c8c-7c4914188c35.jpg"
+    ]
+    assert calls[0][0] == "picaapi.go2778.com"
+    assert calls[0][1] == "/comics/6aa96114e1dbce1e11ce5ff4/order/1/pages"
+    assert calls[0][2] == {"page": 1}
+    assert len(calls[0][3]) == 32
+
+
+def test_manhuabika_reader_route_does_not_fetch_static_html(monkeypatch, tmp_path):
+    image_urls = ["https://storage-b.picacomic.com/static/tobs/page.jpg"]
+    captured = {}
+
+    def fake_resolve(page_url, *, comic_id, order, max_images):
+        captured["resolve"] = (page_url, comic_id, order, max_images)
+        return image_urls
+
+    def fake_download(urls, **kwargs):
+        captured["download"] = (urls, kwargs)
+        return service.HtmlImageDownloadResult(
+            html_path=kwargs["source_value"],
+            output_dir=str(tmp_path),
+            image_paths=(str(tmp_path / "page.jpg"),),
+            extracted_count=len(urls),
+            failures=(),
+        )
+
+    monkeypatch.setattr(service, "_fetch_manhuabika_page_urls", fake_resolve)
+    monkeypatch.setattr(service, "_download_url_list", fake_download)
+    monkeypatch.setattr(
+        service,
+        "_fetch_html_from_url",
+        lambda _url: pytest.fail("manhuabika should not use static HTML fetching"),
+    )
+
+    result = service.download_html_images_from_url(
+        "https://manhuabika.com/comic/reader/6aa96114e1dbce1e11ce5ff4/1",
+        output_dir=tmp_path,
+    )
+
+    assert result.extracted_count == 1
+    assert captured["resolve"][1:] == ("6aa96114e1dbce1e11ce5ff4", 1, 200)
+    assert captured["download"][0] == image_urls
+
+
 def test_18comic_page_array_selects_chapter_images_in_order():
     html = """
     <script>var page_arr = [\"00002.webp\", \"00001.webp\"];</script>

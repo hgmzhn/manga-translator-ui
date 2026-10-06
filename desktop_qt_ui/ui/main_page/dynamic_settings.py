@@ -20,6 +20,7 @@ from qfluentwidgets import (
 from qfluentwidgets import LineEdit as FluentLineEdit
 from qfluentwidgets import PushButton as QPushButton
 
+from manga_translator.config import OCR_AI_VLM_MODELS, OCR_LOCAL_MODELS
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
@@ -63,14 +64,12 @@ SIMPLE_API_GROUP_SPECS = {
     ),
 }
 
-_VLM_OCR_MODELS = frozenset({
-    "paddleocr_vl",
-    "qwen_vl",
-    "doubao_vl",
-    "glm_vl",
-    "kimi_vl",
-})
+_VLM_OCR_MODELS = OCR_AI_VLM_MODELS
 _AI_OCR_MODELS = frozenset({"openai_ocr", "gemini_ocr"})
+_DEFAULT_OCR_MODEL_BY_MODE = {
+    "local": "48px",
+    "ai_vlm": "paddleocr_vl",
+}
 
 
 def _ocr_model_dependencies(models):
@@ -88,6 +87,13 @@ def _ocr_model_dependencies(models):
     }]
 
 
+def _ocr_vlm_visibility_dependencies(models):
+    return [
+        {"key": "ocr.ocr_mode", "equals": "ai_vlm"},
+        *_ocr_model_dependencies(models),
+    ]
+
+
 # Declarative parent -> child relationships for the settings page.  Values are
 # stored as canonical config values, so the same rules work for every locale.
 SETTING_DEPENDENCY_RULES = {
@@ -96,6 +102,9 @@ SETTING_DEPENDENCY_RULES = {
     ],
     "cli.html_view_mode": [
         {"key": "cli.generate_html", "truthy": True},
+    ],
+    "cli.max_workers": [
+        {"key": "cli.batch_concurrent", "truthy": True},
     ],
     "translator.enable_streaming": [
         {"key": "translator.translator", "in": {"openai", "openai_hq", "gemini", "gemini_hq"}},
@@ -148,9 +157,42 @@ SETTING_DEPENDENCY_RULES = {
     ],
 }
 
+# These rows are hidden when they do not belong to the selected OCR family.
+# Keeping visibility separate from enabled/disabled state avoids presenting
+# irrelevant VLM/API controls while a local OCR backend is selected.
+SETTING_VISIBILITY_RULES = {
+    "ocr.ocr_vl_language_hint": _ocr_vlm_visibility_dependencies(_VLM_OCR_MODELS),
+    "ocr.ocr_vl_custom_prompt": _ocr_vlm_visibility_dependencies(_VLM_OCR_MODELS),
+    "ocr.ai_ocr_prompt_path": _ocr_vlm_visibility_dependencies(_AI_OCR_MODELS),
+    "ocr.ai_ocr_concurrency": _ocr_vlm_visibility_dependencies(_AI_OCR_MODELS),
+    "ocr.ai_ocr_custom_prompt": _ocr_vlm_visibility_dependencies(_AI_OCR_MODELS),
+}
+
 def _normalize_selected_value(value) -> str:
     raw = getattr(value, "value", value)
     return str(raw or "").strip()
+
+
+def _ocr_mode_for_config(config: dict) -> str:
+    ocr_config = config.get("ocr", {}) if isinstance(config, dict) else {}
+    raw_mode = _normalize_selected_value(ocr_config.get("ocr_mode"))
+    if raw_mode in {"local", "ai_vlm"}:
+        return raw_mode
+
+    selected_model = _normalize_selected_value(ocr_config.get("ocr"))
+    return "ai_vlm" if selected_model in _VLM_OCR_MODELS or selected_model in _AI_OCR_MODELS else "local"
+
+
+def _filter_ocr_options_for_mode(options, mode: str):
+    allowed = OCR_AI_VLM_MODELS if mode == "ai_vlm" else OCR_LOCAL_MODELS
+    return [option for option in options if _normalize_selected_value(option) in allowed]
+
+
+def _setting_options(self, key: str, full_key: str, config: dict):
+    options = self.controller.get_options_for_key(key) or []
+    if full_key in {"ocr.ocr", "ocr.secondary_ocr"}:
+        return _filter_ocr_options_for_mode(options, _ocr_mode_for_config(config))
+    return options
 
 
 def _selected_api_group_keys(config) -> dict[str, list[str]]:
@@ -687,7 +729,7 @@ def _settings_structure_signature(self, config: dict) -> str | None:
     try:
         rows = []
         for full_key, key, value in _iter_rendered_setting_values(self, config):
-            options = self.controller.get_options_for_key(key) or []
+            options = _setting_options(self, key, full_key, config)
             display_map = self.controller.get_display_mapping(key) or {}
             kind = _setting_control_kind(full_key, key, value, options, display_map)
             if kind is not None:
@@ -865,6 +907,13 @@ def _setting_dependencies_satisfied(config: dict, full_key: str) -> bool:
     )
 
 
+def _setting_visibility_satisfied(config: dict, full_key: str) -> bool:
+    return all(
+        _dependency_matches(config, dependency)
+        for dependency in SETTING_VISIBILITY_RULES.get(full_key, ())
+    )
+
+
 def _set_setting_row_dependency_state(row: QWidget, enabled: bool) -> None:
     enabled = bool(enabled)
     if getattr(row, "_dependency_enabled", None) == enabled:
@@ -912,6 +961,7 @@ def _refresh_setting_dependencies(self, config: dict | None = None, overrides: d
             row,
             _setting_dependencies_satisfied(config, full_key),
         )
+        row.setVisible(_setting_visibility_satisfied(config, full_key))
 
 
 def _add_settings_divider(self, parent_layout, title: str, is_sub: bool = False):
@@ -1136,6 +1186,37 @@ def _create_dynamic_settings(self):
         print(f"Error creating dynamic settings: {e}")
 
 
+def _ensure_ocr_family_selection(self, mode: str):
+    """Keep primary and hybrid OCR selections inside the selected family."""
+    mode = mode if mode in {"local", "ai_vlm"} else "local"
+    config = self.config_service.get_config()
+    ocr_config = config.ocr
+    options = _filter_ocr_options_for_mode(
+        self.controller.get_options_for_key("ocr") or [],
+        mode,
+    )
+    if not options:
+        return
+
+    allowed = {_normalize_selected_value(option) for option in options}
+    preferred = _DEFAULT_OCR_MODEL_BY_MODE.get(mode)
+    if preferred not in allowed:
+        preferred = options[0]
+
+    updates = []
+    primary = _normalize_selected_value(getattr(ocr_config, "ocr", ""))
+    if primary not in allowed:
+        updates.append(("ocr.ocr", preferred))
+
+    if bool(getattr(ocr_config, "use_hybrid_ocr", False)):
+        secondary = _normalize_selected_value(getattr(ocr_config, "secondary_ocr", ""))
+        if secondary not in allowed:
+            updates.append(("ocr.secondary_ocr", preferred))
+
+    for full_key, value in updates:
+        self.setting_changed.emit(full_key, value)
+
+
 def _on_setting_changed(self, value, full_key, display_map=None):
     """A slot to handle when any setting widget is changed by the user."""
     final_value = value
@@ -1143,6 +1224,9 @@ def _on_setting_changed(self, value, full_key, display_map=None):
     if display_map:
         reverse_map = {v: k for k, v in display_map.items()}
         final_value = reverse_map.get(value, value) # Fallback to value itself if not in map
+
+    if full_key == "ocr.ocr_mode":
+        final_value = "ai_vlm" if str(final_value).strip() == "ai_vlm" else "local"
     
     # 特殊处理：当 upscaler 变化时，更新 upscale_ratio 动态下拉框
     if full_key == "upscale.upscaler":
@@ -1157,10 +1241,14 @@ def _on_setting_changed(self, value, full_key, display_map=None):
         "ocr.ocr",
         "ocr.secondary_ocr",
         "ocr.use_hybrid_ocr",
+        "ocr.ocr_mode",
         "colorizer.colorizer",
         "render.renderer",
     }:
         QTimer.singleShot(100, lambda: _refresh_env_api_groups(self))
+
+    if full_key == "ocr.ocr_mode":
+        QTimer.singleShot(0, lambda mode=final_value: _ensure_ocr_family_selection(self, mode))
 
     _refresh_setting_dependencies(self, overrides={full_key: final_value})
 
@@ -1327,7 +1415,12 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             label_text = self.controller.get_display_mapping('labels').get(key)
         widget = None
 
-        options = self.controller.get_options_for_key(key)
+        options = _setting_options(
+            self,
+            key,
+            full_key,
+            self.config_service.get_config().model_dump(),
+        )
         display_map = self.controller.get_display_mapping(key)
 
         if full_key == "filter_text_enabled":
@@ -1507,17 +1600,18 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
                 display_options = [display_map.get(option, option) for option in options]
                 widget.addItems(display_options)
                 current_display_name = display_map.get(value, value) if value is not None else None
-                if current_display_name:
+                if current_display_name in display_options:
                     widget.setCurrentText(current_display_name)
+                elif display_options:
+                    widget.setCurrentIndex(0)
                 widget.currentTextChanged.connect(lambda text, k=full_key, dm=display_map: self._on_setting_changed(text, k, dm))
             else:
                 widget.addItems(options)
-                if value is not None:
+                if value is not None and value in options:
                     widget.setCurrentText(value)
-                else:
-                    # 对于 None 值，设置第一个选项为默认值（通常是 "不使用"）
-                    if options:
-                        widget.setCurrentText(options[0])
+                elif options:
+                    # 对于空值或当前值不属于动态过滤列表的情况，回退到第一个选项。
+                    widget.setCurrentText(options[0])
                 widget.currentTextChanged.connect(lambda text, k=full_key: self._on_setting_changed(text, k, None))
 
         elif isinstance(value, str):

@@ -58,6 +58,7 @@ class MainView(QObject):
     _process_next_setting_chunk = main_view_dynamic._process_next_setting_chunk
     _finalize_settings_ui = main_view_dynamic._finalize_settings_ui
     _create_dynamic_settings = main_view_dynamic._create_dynamic_settings
+    _ensure_ocr_family_selection = main_view_dynamic._ensure_ocr_family_selection
     _on_setting_changed = main_view_dynamic._on_setting_changed
     _on_upscale_ratio_changed = main_view_dynamic._on_upscale_ratio_changed
     _on_numeric_input_changed = main_view_dynamic._on_numeric_input_changed

@@ -40,6 +40,7 @@ SERVER_HIDDEN_CONFIG_KEYS = {
     # 服务器端控制，用户端不应暴露
     "cli.batch_size",
     "cli.batch_concurrent",
+    "cli.max_workers",
     "cli.use_gpu",
     # upscale
     "upscale.realcugan_model",

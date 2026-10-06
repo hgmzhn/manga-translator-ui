@@ -102,7 +102,6 @@ def build_html_document(
         data_uri = _image_data_uri(path)
         pages.append(
             "        <figure class=\"page\" data-page-index=\"{index}\">\n"
-            "          <figcaption>第 {index} 页 · {name}</figcaption>\n"
             "          <img src=\"{data_uri}\" alt=\"{alt_text}\" draggable=\"false\">\n"
             "        </figure>".format(
                 index=index,
@@ -185,7 +184,7 @@ def build_html_document(
     .hint {{ color: var(--muted); white-space: nowrap; }}
     .viewer {{
       display: grid;
-      gap: 22px;
+      gap: 0;
       width: min(100%, 1120px);
       margin: 0 auto;
       padding: 28px clamp(12px, 3vw, 36px) 54px;
@@ -193,22 +192,20 @@ def build_html_document(
     .page {{
       position: relative;
       margin: 0;
-      padding: 14px;
-      border: 1px solid var(--panel-border);
-      border-radius: 12px;
-      background: var(--page-bg);
-      box-shadow: 0 14px 42px rgba(0, 0, 0, .25);
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
     }}
     .page figcaption {{
-      margin: 0 4px 10px;
-      color: var(--muted);
-      font-size: 12px;
+      display: none;
     }}
     .page img {{
       display: block;
       width: 100%;
       height: auto;
-      border-radius: 5px;
+      border-radius: 0;
       user-select: none;
     }}
     body.is-paged .viewer {{
@@ -222,7 +219,7 @@ def build_html_document(
       .toolbar {{ flex-wrap: wrap; }}
       .toolbar h1 {{ flex-basis: 100%; order: -1; margin-right: 0; }}
       .hint {{ flex: 1; font-size: 12px; }}
-      .page {{ padding: 8px; border-radius: 8px; }}
+      .page {{ padding: 0; border-radius: 0; }}
     }}
   </style>
 </head>

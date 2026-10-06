@@ -60,6 +60,7 @@ DEFAULT_ADMIN_SETTINGS = {
         'cli.ignore_errors',
         'cli.batch_size',
         'cli.batch_concurrent',
+        'cli.max_workers',
         'cli.use_gpu',
         'cli.verbose',
         'cli.psd_script_only',  # Web UI隐藏PSD脚本模式参数

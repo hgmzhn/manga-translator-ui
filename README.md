@@ -194,9 +194,14 @@ uv run --no-sync python -m manga_translator local -i ./manga_folder/ -o ./output
 # Web 服务器模式（带管理界面和 API）
 uv run --no-sync python -m manga_translator web --host 127.0.0.1 --port 8000 --use-gpu
 
+# Qt 与浏览器扩展共用的本机翻译后端
+uv run --no-sync python -m manga_translator shared --host 127.0.0.1 --port 5003
+
 # 查看所有参数
 uv run --no-sync python -m manga_translator --help
 ```
+
+`shared` 模式只监听本机回环地址，负责统一执行队列、任务进度和翻译核心：Qt 使用本地文件任务接口，浏览器扩展使用图片任务接口。正常情况下 Qt 和扩展会按需启动或复用同一个 5003 服务，不需要同时启动多个后端。
 
 📖 想了解命令行参数？[查看命令结构与参数](https://hgmzhn.github.io/manga-translator-ui/zh/cli/command-structure)
 

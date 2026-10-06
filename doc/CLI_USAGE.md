@@ -212,6 +212,7 @@ python -m manga_translator -i manga.jpg --config my_config.json
     "save_quality": 100,
     "batch_size": 3,
     "batch_concurrent": false,
+    "max_workers": 1,
     "generate_and_export": false,
     "colorize_only": false,
     "upscale_only": false,
@@ -1427,6 +1428,7 @@ python -m manga_translator shared --host 127.0.0.1 --port 5003 --models-ttl 300 
 - `attempts` - 翻译失败重试次数
 - `batch_size` - 批量处理大小
 - `batch_concurrent` - 批处理并发流水线
+- `max_workers` - 并发流水线每个阶段（检测+OCR / 翻译 / 修复 / 渲染）的工作线程数，默认 1（单线程）；调大可提高整批吞吐，但会增加显存/内存与 API 并发压力，取值 1-8
 
 ### 补充说明
 - `导出原文` 实际上是 `template=true` 且 `save_text=true` 的组合

@@ -41,6 +41,11 @@ class MainWindow(FluentWindow):
     """
 
     def __init__(self):
+        # FluentWindow construction may process Qt events before the rest of
+        # this object has been initialized. Keep the event-filter state safe
+        # for that early window.
+        self._interrupt_shortcut_enabled = False
+        self._interrupt_shortcut_app = None
         super().__init__()
 
         self.logger = get_logger(__name__)
@@ -341,7 +346,7 @@ class MainWindow(FluentWindow):
     def eventFilter(self, watched, event):
         """在文本控件处理 Ctrl+C 前将其转换为任务中断。"""
         if (
-            self._interrupt_shortcut_enabled
+            getattr(self, "_interrupt_shortcut_enabled", False)
             and event.type()
             in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress)
             and self._is_interrupt_shortcut_event(event)

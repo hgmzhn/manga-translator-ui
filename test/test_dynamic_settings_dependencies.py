@@ -2,7 +2,12 @@ import _bootstrap  # noqa: F401
 
 import pytest
 
-from ui.main_page.dynamic_settings import _setting_dependencies_satisfied
+from ui.main_page.dynamic_settings import (
+    _filter_ocr_options_for_mode,
+    _ocr_mode_for_config,
+    _setting_dependencies_satisfied,
+    _setting_visibility_satisfied,
+)
 
 
 def _ocr_config(primary: str, *, hybrid: bool = False, secondary: str = "48px") -> dict:
@@ -54,3 +59,30 @@ def test_hybrid_vlm_fallback_enables_vlm_settings_only_when_hybrid_is_on():
         _ocr_config("48px", hybrid=True, secondary="paddleocr_vl"),
         key,
     )
+
+
+def test_ocr_mode_infers_legacy_configs_and_filters_model_options():
+    local_config = _ocr_config("48px")
+    ai_vlm_config = _ocr_config("qwen_vl")
+
+    assert _ocr_mode_for_config(local_config) == "local"
+    assert _ocr_mode_for_config(ai_vlm_config) == "ai_vlm"
+
+    options = ["48px", "mocr", "paddleocr_vl", "qwen_vl", "openai_ocr"]
+    assert _filter_ocr_options_for_mode(options, "local") == ["48px", "mocr"]
+    assert _filter_ocr_options_for_mode(options, "ai_vlm") == [
+        "paddleocr_vl",
+        "qwen_vl",
+        "openai_ocr",
+    ]
+
+
+def test_local_ocr_hides_vlm_only_settings():
+    local_config = _ocr_config("48px")
+    ai_vlm_config = _ocr_config("qwen_vl")
+    ai_vlm_config["ocr"]["ocr_mode"] = "ai_vlm"
+
+    assert not _setting_visibility_satisfied(local_config, "ocr.ocr_vl_language_hint")
+    assert not _setting_visibility_satisfied(local_config, "ocr.ai_ocr_custom_prompt")
+    assert _setting_visibility_satisfied(ai_vlm_config, "ocr.ocr_vl_language_hint")
+    assert not _setting_visibility_satisfied(ai_vlm_config, "ocr.ai_ocr_custom_prompt")

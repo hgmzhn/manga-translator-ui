@@ -363,6 +363,11 @@ class MangaTranslator:
         self._preloaded_load_text_payloads = {}
         # batch_concurrent 四并发模式（默认关闭，可通过配置开启）
         self.batch_concurrent = params.get('batch_concurrent', False)
+        # 并发模式下每个阶段（检测+OCR / 翻译 / 修复 / 渲染）的工作线程数
+        try:
+            self.max_workers = max(1, min(int(params.get('max_workers', 1) or 1), 8))
+        except (TypeError, ValueError):
+            self.max_workers = 1
         
         # 添加模型加载状态标志
         self._models_loaded = False
@@ -3742,7 +3747,8 @@ class MangaTranslator:
             mode_desc = "高质量翻译" if is_hq_translator else "标准翻译"
             logger.info(
                 f'🚀 启用并发流水线模式 ({mode_desc}): '
-                f'{len(images_with_configs)} 张图片, 翻译批量大小: {batch_size}'
+                f'{len(images_with_configs)} 张图片, 翻译批量大小: {batch_size}, '
+                f'每阶段线程数: {self.max_workers}'
             )
             from .utils.concurrent_pipeline import ConcurrentPipeline
 
@@ -3750,7 +3756,9 @@ class MangaTranslator:
             pipeline = ConcurrentPipeline(
                 self,
                 batch_size,
+                max_workers=self.max_workers,
                 result_callback=getattr(self, '_stream_result_callback', None),
+                progress_callback=getattr(self, '_stream_progress_callback', None),
             )
             file_paths = [input_path(item) for item in images_with_configs]
             configs = [item[1] for item in images_with_configs]

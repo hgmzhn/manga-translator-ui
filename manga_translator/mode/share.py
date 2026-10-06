@@ -39,6 +39,18 @@ PROCESS_DIR_NAME = ".immersive-translate"
 CACHE_WRITE_LOCK = Lock()
 SHARED_BACKEND_PROTOCOL = "manga-translator-ui-shared-v2"
 BROWSER_MANGA_BATCH_WINDOW_SIZE = 10
+PAGE_PROGRESS_VERSION = 1
+PAGE_PROGRESS_TRACE_PATH = FilePath(tempfile.gettempdir()) / "immersive-translate" / "page-progress.jsonl"
+
+
+def _append_page_progress_trace(event: dict) -> None:
+    """Best-effort JSONL trace of page-progress events for pipeline utilization analysis."""
+    try:
+        PAGE_PROGRESS_TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with PAGE_PROGRESS_TRACE_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 def _read_desktop_config() -> dict:
@@ -529,7 +541,12 @@ class MangaShare:
         previous_runtime_result_root = getattr(self.manga, "_runtime_result_root", None)
         previous_verbose = getattr(self.manga, "verbose", False)
         previous_stream_callback = getattr(self.manga, "_stream_result_callback", None)
+        previous_progress_callback = getattr(self.manga, "_stream_progress_callback", None)
         previous_batch_concurrent = getattr(self.manga, "batch_concurrent", False)
+        task_id = str(payload.get("taskId") or "")[:160]
+        run_id = str(payload.get("runId") or "")[:160]
+        progress_sequence = 0
+        progress_sequence_lock = Lock()
         try:
             entries = payload.get("images")
             if not isinstance(entries, list) or not entries:
@@ -552,12 +569,6 @@ class MangaShare:
             temp_root.mkdir(parents=True, exist_ok=True)
             translated_root.mkdir(parents=True, exist_ok=True)
             tempfile.tempdir = str(temp_root)
-
-            try:
-                batch_size = int(payload.get("batchSize") or 3)
-            except (TypeError, ValueError):
-                batch_size = 3
-            batch_size = max(1, min(batch_size, BROWSER_MANGA_BATCH_WINDOW_SIZE))
 
             loop = asyncio.get_running_loop()
             stream_loop_thread = get_ident()
@@ -582,6 +593,46 @@ class MangaShare:
                 future = asyncio.run_coroutine_threadsafe(self.progress_queue.put(frame), loop)
                 future.result()
 
+            def emit_page_progress(page_index: int, stage: str, state: str, detail: str = "", error: str = ""):
+                nonlocal progress_sequence
+                with progress_sequence_lock:
+                    progress_sequence += 1
+                    event = {
+                        "type": "page-progress",
+                        "taskId": task_id,
+                        "runId": run_id,
+                        "pageIndex": int(page_index),
+                        "stage": str(stage),
+                        "state": str(state),
+                        "step": str(detail or ""),
+                        "sequence": progress_sequence,
+                        "ts": time.time(),
+                    }
+                    if error:
+                        event["error"] = str(error)[:600]
+                    _append_page_progress_trace(event)
+                    put_frame_from_worker(0, event)
+
+            def stream_progress(progress: dict):
+                image_name = str(progress.get("image_name") or "")
+                try:
+                    resolved_name = str(FilePath(image_name).resolve())
+                except OSError:
+                    resolved_name = image_name
+                meta = page_by_input_path.get(resolved_name)
+                if meta is None:
+                    candidates = page_by_basename.get(FilePath(image_name).name, [])
+                    meta = candidates[0] if candidates else None
+                if meta is None:
+                    return
+                emit_page_progress(
+                    meta["pageIndex"],
+                    progress.get("stage", ""),
+                    progress.get("state", ""),
+                    progress.get("detail", ""),
+                    progress.get("error", ""),
+                )
+
             def resolve_page(ctx):
                 image_name = str(getattr(ctx, "image_name", "") or "")
                 try:
@@ -603,6 +654,7 @@ class MangaShare:
                 emitted_pages.add(page_index)
                 error_message = getattr(ctx, "translation_error", None) or getattr(ctx, "error", None)
                 if error_message:
+                    emit_page_progress(page_index, "result", "error", "backend-result", str(error_message))
                     put_frame_from_worker(0, {
                         "type": "error",
                         "taskId": task_folder,
@@ -612,6 +664,7 @@ class MangaShare:
                     })
                     return
                 if getattr(ctx, "result", None) is None:
+                    emit_page_progress(page_index, "result", "error", "empty-result", "翻译后端没有返回结果图片")
                     put_frame_from_worker(0, {
                         "type": "error",
                         "taskId": task_folder,
@@ -623,6 +676,7 @@ class MangaShare:
 
                 try:
                     result_bytes = transform_to_image(ctx)
+                    emit_page_progress(page_index, "result", "running", "delivering")
                     result_path = FilePath(str(
                         getattr(ctx, "output_path", "") or translated_root / meta["filename"]
                     ))
@@ -644,6 +698,7 @@ class MangaShare:
                         "data": base64.b64encode(result_bytes).decode("ascii"),
                     })
                 except Exception as error:
+                    emit_page_progress(page_index, "result", "error", "stream-result", str(error))
                     put_frame_from_worker(0, {
                         "type": "error",
                         "taskId": task_folder,
@@ -654,6 +709,7 @@ class MangaShare:
                     })
 
             self.manga._stream_result_callback = stream_result
+            self.manga._stream_progress_callback = stream_progress
             for index, entry in enumerate(entries):
                 if not isinstance(entry, dict) or not entry.get("image"):
                     raise HTTPException(status_code=422, detail=f"第 {index + 1} 张图片数据无效")
@@ -689,6 +745,7 @@ class MangaShare:
                 page_by_input_path[str(input_path.resolve())] = meta
                 page_by_basename.setdefault(filename, []).append(meta)
                 images_with_configs.append((image, self.desktop_config))
+                emit_page_progress(page_index, "prepare", "done", "received")
 
             save_info = dict(self.save_info)
             save_info["output_folder"] = str(translated_root)
@@ -714,7 +771,6 @@ class MangaShare:
             self.manga.batch_concurrent = True
             contexts = await self.manga.translate_batch(
                 images_with_configs,
-                batch_size=batch_size,
                 save_info=save_info,
             )
 
@@ -764,6 +820,7 @@ class MangaShare:
         finally:
             self.manga.verbose = previous_verbose
             self.manga._stream_result_callback = previous_stream_callback
+            self.manga._stream_progress_callback = previous_progress_callback
             self.manga.batch_concurrent = previous_batch_concurrent
             self.manga._runtime_result_root = previous_runtime_result_root
             tempfile.tempdir = previous_tempdir
@@ -776,6 +833,7 @@ class MangaShare:
         previous_runtime_result_root = getattr(self.manga, "_runtime_result_root", None)
         previous_verbose = getattr(self.manga, "verbose", False)
         previous_batch_concurrent = getattr(self.manga, "batch_concurrent", False)
+        previous_max_workers = getattr(self.manga, "max_workers", 1)
         try:
             raw_files = payload.get("files")
             if not isinstance(raw_files, list) or not raw_files:
@@ -818,6 +876,12 @@ class MangaShare:
             self.manga.batch_concurrent = bool(
                 payload.get("batchConcurrent", previous_batch_concurrent)
             )
+            try:
+                requested_workers = int(payload.get("maxWorkers") or 0)
+            except (TypeError, ValueError):
+                requested_workers = 0
+            if requested_workers > 0:
+                self.manga.max_workers = max(1, min(requested_workers, 8))
 
             contexts = await self.manga.translate_batch(
                 [(str(path), self.desktop_config) for path in files],
@@ -883,6 +947,7 @@ class MangaShare:
         finally:
             self.manga.verbose = previous_verbose
             self.manga.batch_concurrent = previous_batch_concurrent
+            self.manga.max_workers = previous_max_workers
             self.manga._runtime_result_root = previous_runtime_result_root
             self._release_lock()
 
@@ -898,7 +963,7 @@ class MangaShare:
         self.progress_queue = asyncio.Queue()
         self._register_progress_hook()
 
-    async def apply_runtime_config(self, raw_config: dict) -> bool:
+    async def apply_runtime_config(self, raw_config: dict, *, persist: bool = True) -> bool:
         """Validate and apply a browser-selected Manga Translator config."""
         try:
             desktop_ui_path = str(PROJECT_ROOT / "desktop_qt_ui")
@@ -915,19 +980,25 @@ class MangaShare:
             ) from exc
 
         revision = _config_revision(raw_config)
+
+        # Extensions may apply private settings to the shared runtime without
+        # changing the desktop application's config.json. Existing clients
+        # retain the historical persistent behavior by default.
+        if persist and not self.nonce:
+            try:
+                disk_revision = _config_revision(_read_desktop_config())
+            except (OSError, ValueError):
+                disk_revision = None
+            if disk_revision != revision:
+                temporary_file = DESKTOP_CONFIG_PATH.with_suffix(".json.tmp")
+                temporary_file.write_text(
+                    json.dumps(raw_config, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                temporary_file.replace(DESKTOP_CONFIG_PATH)
+
         if revision == self.config_revision:
             return False
-
-        # Keep the local desktop app and the local bridge on the same file.
-        # AIGate applies the same document in memory so user credentials do not
-        # get persisted to the shared /home/waas disk.
-        if not self.nonce:
-            temporary_file = DESKTOP_CONFIG_PATH.with_suffix(".json.tmp")
-            temporary_file.write_text(
-                json.dumps(raw_config, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            temporary_file.replace(DESKTOP_CONFIG_PATH)
 
         self.config_document = raw_config
         self.config_revision = revision
@@ -1121,7 +1192,8 @@ class MangaShare:
                 "service": "manga-translator-ui",
                 "mode": "shared",
                 "protocol": SHARED_BACKEND_PROTOCOL,
-                "configApiVersion": 1,
+                "configApiVersion": 2,
+                "pageProgressVersion": PAGE_PROGRESS_VERSION,
                 "pid": os.getpid(),
                 "host": self.host,
                 "port": self.port,
@@ -1148,15 +1220,42 @@ class MangaShare:
             raw_config = payload.get("config") if isinstance(payload, dict) else None
             if not isinstance(raw_config, dict):
                 raise HTTPException(status_code=422, detail="配置必须是 JSON 对象")
+            persist = payload.get("persist", True) is not False
+
+            requested_revision = _config_revision(raw_config)
+            # The browser reapplies its session config before each batch. If
+            # the shared runtime already has that exact config, acknowledge it
+            # without queuing behind an active translation job.
+            if not persist and requested_revision == self.config_revision:
+                return {
+                    "success": True,
+                    "changed": False,
+                    "revision": self.config_revision,
+                    "persisted": False,
+                }
+
+            # Do not leave a config request waiting on the shared translation
+            # lock long enough for a reverse proxy to return a 504. The caller
+            # can poll /is_locked and retry once the current job has finished.
+            if self.lock.locked():
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "翻译后端正在处理其他任务，配置暂未应用",
+                        "activeJob": self._active_job,
+                        "activeSince": self._active_job_started_at,
+                        "queued": self._lock_waiters,
+                    },
+                )
 
             await self._acquire_lock("apply-config")
             try:
-                changed = await self.apply_runtime_config(raw_config)
+                changed = await self.apply_runtime_config(raw_config, persist=persist)
                 return {
                     "success": True,
                     "changed": changed,
                     "revision": self.config_revision,
-                    "persisted": not bool(self.nonce),
+                    "persisted": bool(persist and not self.nonce),
                 }
             finally:
                 self._release_lock()

@@ -24,6 +24,10 @@ def test_build_html_document_embeds_image_bytes_without_paths(tmp_path: Path):
     assert str(image_path) not in document
     assert "使用 ← / → 翻页" in document
     assert "ArrowLeft" in document
+    assert 'class="page"' in document
+    assert "gap: 0;" in document
+    assert "padding: 0;" in document
+    assert "第 1 页" not in document
 
 
 def test_write_task_html_keeps_order_and_skips_missing_files(tmp_path: Path):
