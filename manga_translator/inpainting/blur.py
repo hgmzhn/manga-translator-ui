@@ -25,6 +25,37 @@ class BlurInpainter(CommonInpainter):
         return self.apply_blur(image, mask, blur_radius=blur_radius)
 
     @staticmethod
+    def _merge_overlapping_boxes(boxes: list[tuple[int, int, int, int]]) -> list[tuple[int, int, int, int]]:
+        """合并所有重叠或相交的矩形窗口 [x1, y1, x2, y2]，保证各窗口互斥无交集"""
+        if not boxes:
+            return []
+
+        result = [list(b) for b in boxes]
+        merged_any = True
+        while merged_any:
+            merged_any = False
+            new_result = []
+            while result:
+                curr = result.pop(0)
+                merged = False
+                for i, other in enumerate(result):
+                    if not (curr[2] < other[0] or other[2] < curr[0] or curr[3] < other[1] or other[3] < curr[1]):
+                        result[i] = [
+                            min(curr[0], other[0]),
+                            min(curr[1], other[1]),
+                            max(curr[2], other[2]),
+                            max(curr[3], other[3]),
+                        ]
+                        merged = True
+                        merged_any = True
+                        break
+                if not merged:
+                    new_result.append(curr)
+            result = new_result
+
+        return [(b[0], b[1], b[2], b[3]) for b in result]
+
+    @staticmethod
     def apply_blur(image: np.ndarray, mask: np.ndarray, blur_radius: int = 0) -> np.ndarray:
         if mask is None or not np.any(mask > 0):
             return np.copy(image)
@@ -56,18 +87,24 @@ class BlurInpainter(CommonInpainter):
         if not contours:
             return np.copy(image)
 
-        inpainted_base = np.copy(image)
+        pad = max(10, ksize)
+        raw_boxes = []
         for cnt in contours:
             bx, by, bw, bh = cv2.boundingRect(cnt)
-            pad = max(10, ksize)
-            x1 = max(0, bx - pad)
-            y1 = max(0, by - pad)
-            x2 = min(w, bx + bw + pad)
-            y2 = min(h, by + bh + pad)
+            raw_boxes.append((
+                max(0, bx - pad),
+                max(0, by - pad),
+                min(w, bx + bw + pad),
+                min(h, by + bh + pad),
+            ))
 
-            roi_img = inpainted_base[y1:y2, x1:x2]
+        merged_rois = BlurInpainter._merge_overlapping_boxes(raw_boxes)
+
+        inpainted_base = np.copy(image)
+        for x1, y1, x2, y2 in merged_rois:
             roi_mask = mask_dilated[y1:y2, x1:x2]
             if np.any(roi_mask > 0):
+                roi_img = image[y1:y2, x1:x2]
                 roi_telea = cv2.inpaint(roi_img, roi_mask, 3, cv2.INPAINT_TELEA)
                 inpainted_base[y1:y2, x1:x2] = roi_telea
 
