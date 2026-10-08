@@ -28,6 +28,27 @@ from ui.widgets.widget_cleanup import clear_layout
 from utils.font_list import FontComboBox, set_system_fonts_enabled
 
 
+class IntRangeValidator(QIntValidator):
+    """QIntValidator with automatic clamping and default fallback on fixup."""
+
+    def __init__(self, bottom: int, top: int, parent: QWidget | None = None, default_val: int = 0):
+        super().__init__(bottom, top, parent)
+        self.default_val = default_val
+
+    def fixup(self, text: str) -> str:
+        if not text or not text.strip():
+            return str(self.default_val)
+        try:
+            val = int(text)
+            if val < self.bottom():
+                return str(self.bottom())
+            if val > self.top():
+                return str(self.top())
+            return str(val)
+        except ValueError:
+            return str(self.default_val)
+
+
 class QLineEdit(FluentLineEdit):
     """Fluent LineEdit with the PyQt constructor forms used by existing settings code."""
 
@@ -38,6 +59,14 @@ class QLineEdit(FluentLineEdit):
         super().__init__(parent)
         if text:
             self.setText(str(text))
+
+    def focusOutEvent(self, event):
+        val = self.validator()
+        if val is not None and not self.hasAcceptableInput():
+            fixed = val.fixup(self.text())
+            if fixed is not None and fixed != self.text():
+                self.setText(fixed)
+        super().focusOutEvent(event)
 
 
 API_GROUP_SPECS = {
@@ -1296,7 +1325,7 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         elif isinstance(value, (int, float)):
             widget = QLineEdit(str(value))
             if full_key == "inpainter.blur_radius":
-                widget.setValidator(QIntValidator(0, 200, widget))
+                widget.setValidator(IntRangeValidator(0, 200, widget, default_val=0))
                 widget.setPlaceholderText("0~200")
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int, w))
 
