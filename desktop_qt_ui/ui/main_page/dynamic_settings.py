@@ -66,6 +66,7 @@ class QLineEdit(FluentLineEdit):
             fixed = val.fixup(self.text())
             if fixed is not None and fixed != self.text():
                 self.setText(fixed)
+                self.setModified(True)
         super().focusOutEvent(event)
 
 
