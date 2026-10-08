@@ -1172,7 +1172,7 @@
   "desc_use_custom_api_params": "Match a parameter preset by the current model and fall back to General; each API module reads only common and its own section. Applies to translation, AI OCR, AI rendering, and AI colorization.",
   "desc_inpainter_inpainter": "Image inpainting algorithm. lama_large has best quality (recommended); lama_mpe is fast; flux2-klein uses FLUX.2 Klein 4B with higher quality but significantly higher VRAM and speed requirements; blur is frosted glass Gaussian blur; default uses AOT.",
   "desc_mask_dilation_offset": "Mask dilation offset (default 70). Controls text erasure area expansion, larger values erase wider areas.",
-  "desc_inpainter_blur_radius": "Frosted glass blur radius (pixels). Set to 0 to adaptively calculate based on image resolution; set > 0 to use a specific size (automatically converted to an odd kernel). Smaller values keep the background sharper, larger values make it hazier.",
+  "desc_inpainter_blur_radius": "Frosted glass blur radius (pixels). Set to 0 to auto-calculate (~20-40 px); set > 0 to specify manually (recommended 15-60, converted to odd kernel). Smaller values keep the background sharper, larger values make it hazier.",
   "desc_ocr_limit_mask_dilation_to_bubble_mask": "Limit mask dilation to within bubble area, preventing bubble borders from being accidentally erased.",
   "desc_ocr_use_model_bubble_repair_intersection": "Intersect model bubble area with repair mask for precise repair range control.",
   "desc_inpainter_inpainting_size": "Image size for inpainting. Larger is better quality but slower.",
