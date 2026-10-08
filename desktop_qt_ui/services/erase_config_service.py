@@ -16,8 +16,10 @@ class InpainterType(Enum):
     LAMA_LARGE = "lama_large"  # Lama Large算法 
     LAMA_MPE = "lama_mpe"  # Lama MPE算法
     STABLE_DIFFUSION = "sd"  # Stable Diffusion算法
+    FLUX2_KLEIN = "flux2-klein"  # FLUX.2 Klein算法
     NONE = "none"  # 不进行擦除，填充白色
     ORIGINAL = "original"  # 保持原图不变
+    BLUR = "blur"  # 毛玻璃模糊算法
 
 class InpaintPrecision(Enum):
     """修复精度枚举"""
@@ -31,13 +33,15 @@ class InpainterConfig:
     inpainter: InpainterType = InpainterType.LAMA_LARGE
     inpainting_size: int = 2048
     inpainting_precision: InpaintPrecision = InpaintPrecision.BF16
+    blur_radius: int = 0
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
         return {
             "inpainter": self.inpainter.value,
             "inpainting_size": self.inpainting_size,
-            "inpainting_precision": self.inpainting_precision.value
+            "inpainting_precision": self.inpainting_precision.value,
+            "blur_radius": self.blur_radius,
         }
     
     @classmethod
@@ -46,7 +50,8 @@ class InpainterConfig:
         return cls(
             inpainter=InpainterType(data.get("inpainter", "lama_large")),
             inpainting_size=data.get("inpainting_size", 2048),
-            inpainting_precision=InpaintPrecision(data.get("inpainting_precision", "bf16"))
+            inpainting_precision=InpaintPrecision(data.get("inpainting_precision", "bf16")),
+            blur_radius=int(data.get("blur_radius", 0) or 0),
         )
 
 @dataclass  
@@ -117,6 +122,22 @@ class EraseConfigService:
                 supports_gpu=False,
                 supports_precision=False,
                 preview_suitable=True
+            ),
+            InpainterType.FLUX2_KLEIN: AlgorithmInfo(
+                name="flux2-klein",
+                display_name="FLUX.2 Klein",
+                description="基于 FLUX.2 Klein 4B 的高精度生成修复，显存要求高",
+                supports_gpu=True,
+                supports_precision=True,
+                preview_suitable=False,
+            ),
+            InpainterType.BLUR: AlgorithmInfo(
+                name="blur",
+                display_name="毛玻璃模糊",
+                description="毛玻璃高斯模糊",
+                supports_gpu=False,
+                supports_precision=False,
+                preview_suitable=True,
             )
         }
         

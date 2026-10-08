@@ -70,6 +70,7 @@ class InpainterSettings(BaseModel):
     force_use_torch_inpainting: bool = False
     solid_fill_pure_bubbles: bool = False
     per_block_inpainting: bool = False
+    blur_radius: int = 0
 
 
 class RenderSettings(BaseModel):

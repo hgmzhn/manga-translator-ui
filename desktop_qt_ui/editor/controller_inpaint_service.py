@@ -78,6 +78,7 @@ class EditorControllerInpaintService:
             force_use_torch_inpainting=bool(inpainter.force_use_torch_inpainting),
             inpainting_size=int(inpainter.inpainting_size),
             device=device,
+            blur_radius=int(getattr(inpainter, "blur_radius", 0) or 0),
         )
 
     def build_inpaint_request(self, mask, delta: MaskDelta) -> Optional[InpaintRequest]:
@@ -261,6 +262,7 @@ class EditorControllerInpaintService:
         inpainter_config.force_use_torch_inpainting = (
             request.config.force_use_torch_inpainting
         )
+        inpainter_config.blur_radius = getattr(request.config, "blur_radius", 0) or 0
         try:
             inpainter_key = Inpainter(request.config.inpainter)
         except ValueError:

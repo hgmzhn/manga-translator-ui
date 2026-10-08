@@ -103,6 +103,7 @@ class Inpainter(str, Enum):
     sd = "sd"
     none = "none"
     original = "original"
+    blur = "blur"
 
 class Colorizer(str, Enum):
     none = "none"
@@ -378,6 +379,8 @@ class InpainterConfig(BaseModel):
     """Use model-detected bubble masks to find solid-color bubbles, but fill only their intersection with the refined repair mask."""
     per_block_inpainting: bool = False
     """Inpaint each isolated refined-mask component in a 2x crop instead of feeding the whole page to the model"""
+    blur_radius: int = 0
+    """Blur radius for frosted glass blur (0 for auto adaptive)."""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576

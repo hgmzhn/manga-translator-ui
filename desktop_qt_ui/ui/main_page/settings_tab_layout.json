@@ -112,6 +112,7 @@
           "kind": "divider",
           "title": "Advanced"
         },
+        "inpainter.blur_radius",
         "inpainter.inpainting_size",
         "inpainter.inpainting_precision",
         "kernel_size",
