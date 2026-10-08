@@ -10,6 +10,7 @@ from .inpainting_flux import Flux2KleinInpainter
 from .inpainting_lama_mpe import LamaLargeInpainter, LamaMPEInpainter
 from .none import NoneInpainter
 from .original import OriginalInpainter
+from .blur import BlurInpainter
 
 _SD_IMPORT_ERROR = None
 try:
@@ -38,6 +39,7 @@ INPAINTERS = {
     Inpainter.sd: StableDiffusionInpainter,
     Inpainter.none: NoneInpainter,
     Inpainter.original: OriginalInpainter,
+    Inpainter.blur: BlurInpainter,
 }
 inpainter_cache = {}
 INPAINT_SPLIT_RATIO = 3.0
