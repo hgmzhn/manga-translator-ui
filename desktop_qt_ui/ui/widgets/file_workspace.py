@@ -234,6 +234,7 @@ class _WorkspaceView(QListView):
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setMouseTracking(True)
         self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
         self.setDragEnabled(False)
         self.workspace_model.modelReset.connect(self._restore_state)
         self.workspace_model.rowsRemoved.connect(self._restore_state)
