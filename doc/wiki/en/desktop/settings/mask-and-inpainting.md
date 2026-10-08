@@ -13,7 +13,7 @@ This guide covers the Settings “Inpainting” group: how detected and OCR-asso
 
 ## Change it in the desktop app {#ui-operations}
 
-Open Settings and select “Inpainting.” The layout shows the inpainting model, mask dilation, two bubble-range switches, solid filling, and per-block inpainting; after the “Advanced” divider it shows size, precision, kernel size, and the PyTorch-force switch. Dynamic setting rows use switches, integer inputs, or combo boxes. A change immediately updates in-memory `AppSettings`; the configuration service batches the configuration-file write after 250 ms. Numeric fields have no Apply button: their values are read when the next mask-refinement or inpainting stage runs.
+Open Settings and select “Inpainting.” The layout shows the inpainting model, mask dilation, two bubble-range switches, solid filling, and per-block inpainting; after the “Advanced” divider it shows blur radius, size, precision, kernel size, and the PyTorch-force switch. Dynamic setting rows use switches, integer inputs, or combo boxes. A change immediately updates in-memory `AppSettings`; the configuration service batches the configuration-file write after 250 ms. Numeric fields have no Apply button: their values are read when the next mask-refinement or inpainting stage runs.
 
 The two bubble-related values are stored under the `ocr` configuration section, but deliberately appear on the Inpainting tab because they only affect the pre-inpainting mask. They neither recognize OCR text again nor filter it. The switches depend on MangaLens bubble results. If the cache cannot be read or detection fails, the code logs a warning and keeps the unmodified refined mask.
 
@@ -32,8 +32,16 @@ The “Inpainting Model” combo box is on the Settings → Inpainting tab and d
 - `sd`: optional inpainting approach.
 - `none`: runs no model and fills the masked area white.
 - `original`: returns the original image and keeps the source text.
+- `blur`: frosted glass Gaussian blur.
 
 Default: `lama_large`.
+
+### Blur Radius {#blur-radius}
+
+The “Blur Radius” integer input is located in the “Advanced” section on the Settings → Inpainting tab and takes effect when the inpainting model is set to `blur`:
+
+- `0`: default, adaptively calculates blur kernel based on image resolution (typically equivalent to 20–40 pixels).
+- Greater than `0`: specifies the exact pixel blur size (automatically converted to an odd kernel, recommended range 15–60). Smaller values keep the background sharper, while larger values make it hazier.
 
 ### Mask Dilation Offset and Kernel Size {#dilation-and-kernel}
 

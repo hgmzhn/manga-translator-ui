@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1515,
-    "exact": 1515,
+    "keys": 1517,
+    "exact": 1517,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -5317,6 +5317,12 @@
       "status": "exact"
     },
     {
+      "key": "desc_inpainter_blur_radius",
+      "en_US": "Frosted glass blur radius (pixels). Set to 0 to auto-calculate (~20-40 px); set > 0 to specify manually (recommended 15-60, converted to odd kernel). Smaller values keep the background sharper, larger values make it hazier.",
+      "zh_CN": "毛玻璃模糊半径大小（像素）。设为 0 表示根据图片分辨率自动计算（约 20~40 像素）；大于 0 时手动指定（建议 15~60，自动转换为奇数核）。数值越小背景越清晰，数值越大越朦胧。",
+      "status": "exact"
+    },
+    {
       "key": "desc_inpainter_force_use_torch_inpainting",
       "en_US": "Force PyTorch engine for inpainting (default CPU uses ONNX). Use when ONNX has issues.",
       "zh_CN": "强制使用 PyTorch 引擎修复 (默认 CPU 优先用 ONNX)。适用于 ONNX 出问题时。",
@@ -6424,6 +6430,12 @@
       "key": "label_batch_size",
       "en_US": "Batch Size",
       "zh_CN": "批量大小",
+      "status": "exact"
+    },
+    {
+      "key": "label_blur_radius",
+      "en_US": "Blur Radius",
+      "zh_CN": "模糊半径",
       "status": "exact"
     },
     {
