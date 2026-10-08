@@ -72,8 +72,13 @@ class EditorControllerInpaintService:
         config = get_config_service().get_config()
         inpainter = config.inpainter
         device = "cuda" if config.cli.use_gpu and torch.cuda.is_available() else "cpu"
+        inpainter_val = getattr(inpainter, "inpainter", "lama_large")
+        if hasattr(inpainter_val, "value"):
+            inpainter_str = str(inpainter_val.value)
+        else:
+            inpainter_str = str(inpainter_val)
         return InpaintConfigSnapshot(
-            inpainter=str(inpainter.inpainter),
+            inpainter=inpainter_str,
             inpainting_precision=str(inpainter.inpainting_precision),
             force_use_torch_inpainting=bool(inpainter.force_use_torch_inpainting),
             inpainting_size=int(inpainter.inpainting_size),
@@ -249,6 +254,14 @@ class EditorControllerInpaintService:
         self._start_inpaint_request(current_mask, delta)
 
     @staticmethod
+    def _is_blur_inpainter(inpainter: Any) -> bool:
+        if inpainter is None:
+            return False
+        val = inpainter.value if hasattr(inpainter, "value") else str(inpainter)
+        val = str(val).lower().strip()
+        return val == "blur" or val.endswith(".blur")
+
+    @staticmethod
     async def _dispatch_inpaint(
         request: InpaintRequest, image: np.ndarray, mask: np.ndarray
     ) -> Optional[np.ndarray]:
@@ -263,10 +276,20 @@ class EditorControllerInpaintService:
             request.config.force_use_torch_inpainting
         )
         inpainter_config.blur_radius = getattr(request.config, "blur_radius", 0) or 0
+        raw_inpainter = request.config.inpainter
+        if hasattr(raw_inpainter, "value"):
+            raw_value = str(raw_inpainter.value)
+        else:
+            raw_value = str(raw_inpainter)
+        if "." in raw_value:
+            raw_value = raw_value.split(".", 1)[1]
         try:
-            inpainter_key = Inpainter(request.config.inpainter)
+            inpainter_key = Inpainter(raw_value)
         except ValueError:
-            inpainter_key = Inpainter.lama_large
+            try:
+                inpainter_key = Inpainter[raw_value]
+            except KeyError:
+                inpainter_key = Inpainter.lama_large
         result = await inpaint_dispatch(
             inpainter_key=inpainter_key,
             image=image,
@@ -299,6 +322,7 @@ class EditorControllerInpaintService:
             or previous.image.shape != request.image.shape
             or previous.mask.shape != current_mask.shape
             or previous.key.document_id != request.key.document_id
+            or EditorControllerInpaintService._is_blur_inpainter(request.config.inpainter)
         ):
             return await EditorControllerInpaintService._full_inpaint(request)
 
