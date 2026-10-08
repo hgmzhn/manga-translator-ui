@@ -38,9 +38,9 @@ class BlurInpainter(CommonInpainter):
 
         h, w = image.shape[:2]
 
-        # 1. 计算模糊核尺寸：若指定 blur_radius > 0 则按指定值，否则根据图像短边自适应
+        # 1. 计算模糊核尺寸：若指定 blur_radius > 0 则按指定值（限制在 0~200），否则根据图像短边自适应
         if blur_radius and int(blur_radius) > 0:
-            ksize = max(3, int(blur_radius))
+            ksize = max(3, min(200, int(blur_radius)))
         else:
             ksize = max(21, int(min(h, w) * 0.025))
         if ksize % 2 == 0:

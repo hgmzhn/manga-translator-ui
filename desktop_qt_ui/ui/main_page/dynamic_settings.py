@@ -2,6 +2,7 @@ import json
 import os
 
 from PyQt6.QtCore import QSignalBlocker, Qt, QTimer, pyqtSlot
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -1015,14 +1016,40 @@ def _on_upscale_ratio_changed(self, text, full_key):
             except ValueError:
                 self.setting_changed.emit(full_key, None)
 
-def _on_numeric_input_changed(self, text, full_key, value_type):
+def _on_numeric_input_changed(self, text, full_key, value_type, widget=None):
     """统一处理数值类型输入框的变化（支持 int 和 float）"""
     if not text or not text.strip():
+        if full_key == "inpainter.blur_radius":
+            # 模糊半径空输入重置为默认值 0（自适应）
+            self.setting_changed.emit(full_key, 0)
+            target_widget = widget
+            if target_widget is None:
+                binding = getattr(self, "_settings_value_bindings", {}).get(full_key)
+                if binding:
+                    target_widget = binding[0]
+            if target_widget is not None:
+                target_widget.setText("0")
+            return
         # 空值 = 使用默认值 (None)
         self.setting_changed.emit(full_key, None)
     else:
         try:
             value = value_type(text)
+            if full_key == "inpainter.blur_radius":
+                if value < 0 or value > 200:
+                    current_val = getattr(
+                        getattr(self.config_service.get_config(), "inpainter", None),
+                        "blur_radius",
+                        0,
+                    )
+                    target_widget = widget
+                    if target_widget is None:
+                        binding = getattr(self, "_settings_value_bindings", {}).get(full_key)
+                        if binding:
+                            target_widget = binding[0]
+                    if target_widget is not None:
+                        target_widget.setText(str(current_val if current_val is not None else 0))
+                    return
             self.setting_changed.emit(full_key, value)
         except ValueError:
             # 无效输入 = 使用默认值
@@ -1268,7 +1295,10 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         
         elif isinstance(value, (int, float)):
             widget = QLineEdit(str(value))
-            widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int))
+            if full_key == "inpainter.blur_radius":
+                widget.setValidator(QIntValidator(0, 200, widget))
+                widget.setPlaceholderText("0~200")
+            widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int, w))
 
         elif value is None and key in _OPTIONAL_INPUT_KEYS:
             # 处理值为 None 的可选参数（数值/字符串）

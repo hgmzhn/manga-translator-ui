@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 
 from manga_translator.custom_api_params import migrate_legacy_custom_api_params_config
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from theme_registry import VALID_THEME_PREFERENCES as REGISTERED_THEME_PREFERENCES
 from theme_registry import VALID_THEMES as REGISTERED_THEMES
@@ -64,13 +64,15 @@ class DetectorSettings(BaseModel):
 
 
 class InpainterSettings(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     inpainter: str = "lama_mpe"
     inpainting_size: int = 2048
     inpainting_precision: str = "fp32"
     force_use_torch_inpainting: bool = False
     solid_fill_pure_bubbles: bool = False
     per_block_inpainting: bool = False
-    blur_radius: int = 0
+    blur_radius: int = Field(default=0, ge=0, le=200)
 
 
 class RenderSettings(BaseModel):

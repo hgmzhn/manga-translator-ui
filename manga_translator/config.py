@@ -2,7 +2,7 @@ import argparse
 from enum import Enum
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from manga_translator.custom_api_params import migrate_legacy_custom_api_params_config
 
@@ -367,6 +367,8 @@ class DetectorConfig(BaseModel):
     """Minimum detection box area ratio relative to total image pixels (default 0.0009 = 0.09%)"""
 
 class InpainterConfig(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     inpainter: Inpainter = Inpainter.lama_large
     """Inpainting model to use"""
     inpainting_size: int = 2048
@@ -379,8 +381,8 @@ class InpainterConfig(BaseModel):
     """Use model-detected bubble masks to find solid-color bubbles, but fill only their intersection with the refined repair mask."""
     per_block_inpainting: bool = False
     """Inpaint each isolated refined-mask component in a 2x crop instead of feeding the whole page to the model"""
-    blur_radius: int = 0
-    """Blur radius for frosted glass blur (0 for auto adaptive)."""
+    blur_radius: int = Field(default=0, ge=0, le=200)
+    """Blur radius for frosted glass blur (0 for auto adaptive, max 200)."""
 
 class ColorizerConfig(BaseModel):
     colorization_size: int = 576

@@ -51,7 +51,7 @@ class InpainterConfig:
             inpainter=InpainterType(data.get("inpainter", "lama_large")),
             inpainting_size=data.get("inpainting_size", 2048),
             inpainting_precision=InpaintPrecision(data.get("inpainting_precision", "bf16")),
-            blur_radius=int(data.get("blur_radius", 0) or 0),
+            blur_radius=max(0, min(200, int(data.get("blur_radius", 0) or 0))),
         )
 
 @dataclass  
