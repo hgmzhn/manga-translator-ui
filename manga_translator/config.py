@@ -270,6 +270,8 @@ class TranslatorConfig(BaseModel):
     """Destination language"""
     keep_lang: str = 'none'
     """After text merging, keep only regions detected as this source language for later processing. Filtered regions remain unchanged. Use 'none' to disable."""
+    translation_file_input: bool = False
+    """Send original text as a TXT attachment via OpenAI Responses or Gemini inlineData."""
     enable_streaming: bool = True
     """Enable unified streaming transport for supported AI translators."""
     no_text_lang_skip: bool = False
