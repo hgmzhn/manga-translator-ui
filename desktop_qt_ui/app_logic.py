@@ -1224,6 +1224,7 @@ class MainAppLogic(QObject):
                     "translator": self._t("label_translator"),
                     "target_lang": self._t("label_target_lang"),
                     "keep_lang": self._t("label_keep_lang"),
+                    "translation_file_input": self._t("label_translation_file_input"),
                     "enable_streaming": self._t("label_enable_streaming"),
                     "no_text_lang_skip": self._t("label_no_text_lang_skip"),
                     "high_quality_prompt_path": self._t("label_high_quality_prompt_path"),

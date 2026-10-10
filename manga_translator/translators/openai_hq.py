@@ -96,6 +96,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         # 调用父类的 parse_args 来设置通用参数（包括 attempts、post_check 等）
         super().parse_args(args)
         translator_args = self._resolve_translator_config(args)
+        self._translation_file_input = self._get_config_value(translator_args, 'translation_file_input', False)
         
         # 同步重试次数到“总尝试次数”（首次请求 + 重试）
         self._max_total_attempts = self._resolve_max_total_attempts()
@@ -276,9 +277,12 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 pass  # 忽略所有清理错误
 
 
-    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
-        """构建用户提示词（高质量版）- 使用统一方法，只包含当前待翻译文本"""
-        return self._build_user_prompt_for_hq(batch_data, ctx, "", retry_attempt=retry_attempt, retry_reason=retry_reason)
+    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> Any:
+        """构建 HQ 用户提示词：原文可放入 source.txt 附件。"""
+        return self._build_unified_user_prompt(
+            batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason,
+            is_image_mode=True, file_input=getattr(self, '_translation_file_input', False),
+        )
     
     def _get_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """获取完整的系统提示词（包含断句提示词、自定义提示词和基础系统提示词）"""
@@ -365,7 +369,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
             # 构建系统提示词和用户提示词（包含重试信息以避免缓存）
             system_prompt = self._get_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
             user_prompt = self._build_user_prompt(batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
-            user_content = [{"type": "text", "text": user_prompt}]
+            user_content = list(user_prompt) if isinstance(user_prompt, list) else [{"type": "text", "text": user_prompt}]
             
             # 降级检查：如果 send_images 为 True，则发送图片
             if send_images:
@@ -417,7 +421,9 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 streamed_text = None
                 streamed_finish_reason = None
                 response = None
-                use_streaming = self._is_streaming_enabled(ctx)
+                use_streaming = self._is_streaming_enabled(ctx) and not getattr(self, '_translation_file_input', False)
+                if getattr(self, '_translation_file_input', False):
+                    self.logger.info("Original text is sent as source.txt via Responses API (non-streaming).")
 
                 async def _send_openai_request():
                     nonlocal response, streamed_text, streamed_finish_reason
@@ -452,14 +458,14 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                             streamed_finish_reason = None
                             self.logger.warning(f"Streaming request unavailable; fell back to a non-streaming request: {stream_error}")
                             response = await self._await_with_cancel_polling(
-                                self.client.chat.completions.create(**request_params),
+                                self._create_translation_request(request_params),
                                 poll_interval=0.2,
                                 on_cancel=self._abort_inflight_request,
                             )
                     else:
                         self.logger.info("Streaming is disabled; using a non-streaming request.")
                         response = await self._await_with_cancel_polling(
-                            self.client.chat.completions.create(**request_params),
+                            self._create_translation_request(request_params),
                             poll_interval=0.2,
                             on_cancel=self._abort_inflight_request,
                         )
