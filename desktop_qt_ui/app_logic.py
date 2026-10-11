@@ -1128,6 +1128,10 @@ class MainAppLogic(QObject):
     def get_display_mapping(self, key: str) -> Optional[Dict[str, str]]:
         # 每次都动态生成翻译映射，确保语言切换时能正确更新
         display_name_maps = {
+            "detector": {
+                **{member.value: member.value for member in Detector},
+                "manga_det": "Manga Det v0.2 (PP-OCR)",
+            },
             "alignment": {
                 "auto": self._t("alignment_auto"),
                 "left": self._t("alignment_left"),
