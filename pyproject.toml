@@ -15,7 +15,7 @@ requires-python = ">=3.12,<3.13"
 
 dependencies = [
     "aiofiles==25.1.0",
-    "aiohttp==3.14.3",
+    "aiohttp==3.14.4",
     "aioshutil==1.5",
     "albumentations==2.0.8",
     "arabic-reshaper==3.0.0",
