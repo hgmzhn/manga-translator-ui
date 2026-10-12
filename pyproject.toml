@@ -93,7 +93,7 @@ dependencies = [
     # Server 模块依赖
     "bcrypt==4.2.1",
     "cryptography==50.0.0",
-    "APScheduler==3.10.4",
+    "APScheduler==3.11.3",
 ]
 
 [dependency-groups]
