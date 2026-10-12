@@ -105,6 +105,7 @@ def test_paste_moves_shared_line_and_polygon_points_once():
 
 
 def test_paste_region_style_copies_stroke_without_changing_text_or_geometry():
+    """描边随样式粘贴，保留目标内容和几何，并支持单步撤销重做。"""
     source = _region((100.0, 100.0), 80.0)
     source.update(
         font_family="Source Font",
@@ -180,6 +181,7 @@ def test_paste_region_style_copies_stroke_without_changing_text_or_geometry():
 
 
 def test_paste_region_style_restores_inherited_stroke_defaults():
+    """源继承的默认描边应覆盖目标显式设置及缓存的旧参数。"""
     source = _region((100.0, 100.0), 80.0)
     target = _region((300.0, 200.0), 280.0)
     target.update(
@@ -220,6 +222,7 @@ def test_paste_region_style_restores_inherited_stroke_defaults():
 
 
 def test_paste_region_style_accepts_saved_stroke_color_and_survives_save():
+    """保存格式的颜色、零宽度和 False 在粘贴及 JSON 重载后保持一致。"""
     from services.export_service import ExportService
     from services.file_service import FileService
 
@@ -258,6 +261,7 @@ def test_paste_region_style_accepts_saved_stroke_color_and_survives_save():
 
 
 def test_paste_region_style_preserves_target_rich_text_overrides():
+    """粘贴区域描边时保留目标富文本的 Ruby 和字符级描边。"""
     source = _region((100.0, 100.0), 80.0)
     source.update(bg_colors=[18, 52, 86], stroke_width=0.12, disable_font_border=False)
     source["translation_rich"] = {
@@ -315,6 +319,7 @@ def test_paste_region_style_preserves_target_rich_text_overrides():
 
 
 def test_paste_region_style_uses_stroke_snapshot_from_copy_time():
+    """使用复制瞬间的有效描边，源区域后续修改不影响剪贴板。"""
     source = _region((100.0, 100.0), 80.0)
     target = _region((300.0, 200.0), 280.0)
     model = _model_with_regions([source, target])
@@ -344,6 +349,7 @@ def test_paste_region_style_uses_stroke_snapshot_from_copy_time():
 
 
 def main() -> int:
+    """直接运行脚本时执行全部区域剪贴板回归检查。"""
     test_copy_and_paste_multiple_regions_keeps_relative_offsets()
     test_multi_region_paste_is_a_single_undo_step()
     test_paste_moves_shared_line_and_polygon_points_once()
