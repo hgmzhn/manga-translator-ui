@@ -100,7 +100,7 @@ dependencies = [
 cpu = [
     "torch==2.13.0",
     "torchvision==0.28.0",
-    "onnxruntime==1.28.0",
+    "onnxruntime==1.30.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
     "numpy>=2.0,<2.3",
@@ -132,7 +132,7 @@ gpu = [
 # AMD ROCm：Linux 使用 PyTorch 官方 ROCm 7.2 索引；Windows 安装器使用 Radeon ROCm 7.2.1。
 # Windows ROCm 依赖由 packaging/launch.py 按 ROCm SDK -> PyTorch 顺序安装。
 "rocm7.2.1" = [
-    "onnxruntime==1.28.0",
+    "onnxruntime==1.30.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
     "numpy>=2.0,<2.3",
@@ -145,7 +145,7 @@ metal = [
     "torch==2.13.0",
     "torchvision==0.28.0",
     # macOS 不支持 GPU 版 onnxruntime
-    "onnxruntime==1.28.0",
+    "onnxruntime==1.30.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
     "numpy>=2.0,<2.3",
