@@ -99,7 +99,7 @@ dependencies = [
 [dependency-groups]
 cpu = [
     "torch==2.13.0",
-    "torchvision==0.28.0",
+    "torchvision==0.29.1",
     "onnxruntime==1.28.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
@@ -107,7 +107,7 @@ cpu = [
 ]
 "cuda13.0" = [
     "torch==2.13.0",
-    "torchvision==0.28.0",
+    "torchvision==0.29.1",
     "onnxruntime-gpu==1.28.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
@@ -122,7 +122,7 @@ gpu = [
 # latest CUDA 12.x build and is required for the CUDA 12.6 PyTorch environment.
 "cuda12.6" = [
     "torch==2.13.0",
-    "torchvision==0.28.0",
+    "torchvision==0.29.1",
     "onnxruntime-gpu==1.26.0",
     "ctranslate2==4.8.1",
     "huggingface-hub==1.26.0",
@@ -137,13 +137,13 @@ gpu = [
     "huggingface-hub==1.26.0",
     "numpy>=2.0,<2.3",
     "torch==2.13.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "torchvision==0.28.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "torchvision==0.29.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "triton-rocm==3.7.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 metal = [
     # 使用默认 PyPI 源，自动安装 MPS 版本
     "torch==2.13.0",
-    "torchvision==0.28.0",
+    "torchvision==0.29.1",
     # macOS 不支持 GPU 版 onnxruntime
     "onnxruntime==1.28.0",
     "ctranslate2==4.8.1",
