@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "vitepress": "1.6.4",
-    "vue": "3.5.42"
+    "vue": "3.5.43"
   },
   "dependencies": {
     "@lucide/vue": "^1.30.0",
