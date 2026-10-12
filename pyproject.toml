@@ -58,7 +58,7 @@ dependencies = [
     "python-dotenv==1.2.2",
     "rich==14.1.0",
     "safetensors==0.8.0",
-    "spandrel==0.4.1",
+    "spandrel==0.4.2",
     "scipy==1.16.1",
     # YOLO OBB / MangaLens 气泡检测运行时依赖 ultralytics
     "ultralytics==8.4.14",
