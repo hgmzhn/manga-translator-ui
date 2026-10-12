@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "vitepress": "1.6.4",
-    "vue": "3.5.41"
+    "vue": "3.5.42"
   },
   "dependencies": {
     "@lucide/vue": "^1.30.0",
@@ -20,6 +20,8 @@
   },
   "overrides": {
     "vite": "6.4.3",
-    "esbuild": "0.25.0"
+    "esbuild": "0.25.0",
+    "@vue/server-renderer": "3.5.42",
+    "source-map-js": "^1.2.2"
   }
 }

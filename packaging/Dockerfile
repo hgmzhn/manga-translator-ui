@@ -6,7 +6,7 @@ ARG PYTHON_VERSION=3.12
 ARG BUILD_TYPE=cpu
 
 # ===== CPU 版本 =====
-FROM python:${PYTHON_VERSION}-slim AS base-cpu
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS base-cpu
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # ===== GPU 版本 =====
-FROM nvidia/cuda:${CUDA_VERSION}-cudnn8-runtime-ubuntu22.04 AS base-gpu
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04@sha256:f3a7fb39fa3ffbe54da713dd2e93063885e5be2f4586a705c39031b8284d379a AS base-gpu
 
 # 设置非交互式安装
 ENV DEBIAN_FRONTEND=noninteractive
