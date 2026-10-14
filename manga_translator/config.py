@@ -89,6 +89,7 @@ class InpaintPrecision(str, Enum):
 
 class Detector(str, Enum):
     default = "default"
+    manga_det = "manga_det"
     dbconvnext = "dbconvnext"
     ctd = "ctd"
     craft = "craft"
