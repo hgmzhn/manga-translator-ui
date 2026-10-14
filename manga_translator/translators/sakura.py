@@ -278,32 +278,44 @@ class SakuraTranslator(CommonTranslator):
     def get_dict_path(self):
         return getattr(self, 'dict_path', None) or SAKURA_DICT_PATH or DEFAULT_SAKURA_DICT_PATH
 
-    def detect_and_caculate_repeats(self, s: str, threshold: int = _REPEAT_DETECT_THRESHOLD, remove_all=True) -> Tuple[bool, str, int, str]:
+    def detect_and_caculate_repeats(self, s: str, threshold: int = _REPEAT_DETECT_THRESHOLD, remove_all=True) -> Tuple[bool, str, int, str, int]:
         """
         检测文本中是否存在重复模式,并计算重复次数。
-        返回值: (是否重复, 去除重复后的文本, 重复次数, 重复模式)
+        返回值: (是否重复, 去除重复后的文本, 重复次数, 重复模式, 实际阈值)
         """
+        if s is None:
+            s = ""
+        elif not isinstance(s, str):
+            s = str(s)
+
         repeated = False
         counts = []
+        count = 0
+        pattern = ""
         for pattern_length in range(1, len(s) // 2 + 1):
             i = 0
             while i < len(s) - pattern_length:
-                pattern = s[i:i + pattern_length]
-                count = 1
+                cur_pattern = s[i:i + pattern_length]
+                cur_count = 1
                 j = i + pattern_length
                 while j <= len(s) - pattern_length:
-                    if s[j:j + pattern_length] == pattern:
-                        count += 1
+                    if s[j:j + pattern_length] == cur_pattern:
+                        cur_count += 1
                         j += pattern_length
                     else:
                         break
-                counts.append(count)
-                if count >= threshold:
-                    self.logger.warning(f"Repeated pattern detected: {pattern}, repetitions: {count}")
+                counts.append(cur_count)
+                if cur_count >= threshold:
+                    self.logger.warning(f"Repeated pattern detected: {cur_pattern}, repetitions: {cur_count}")
                     repeated = True
+                    count = cur_count
+                    pattern = cur_pattern
                     if remove_all:
                         s = s[:i + pattern_length] + s[j:]
                     break
+                elif cur_count > count:
+                    count = cur_count
+                    pattern = cur_pattern
                 i += 1
             if repeated:
                 break
@@ -318,6 +330,7 @@ class SakuraTranslator(CommonTranslator):
         actual_threshold = max(threshold, mode_count)
 
         return repeated, s, count, pattern, actual_threshold
+
 
     @staticmethod
     def enlarge_small_kana(text, ignore=''):
@@ -443,7 +456,7 @@ class SakuraTranslator(CommonTranslator):
             self.logger.warning(f'The request itself contains repeated content exceeding the default threshold of {self._REPEAT_DETECT_THRESHOLD}.')
 
         # 根据译文众数和默认阈值计算实际阈值
-        actual_threshold = max(max(self._get_repeat_count(query) for query in queries), self._REPEAT_DETECT_THRESHOLD)
+        actual_threshold = max(max((self._get_repeat_count(query) for query in queries), default=0), self._REPEAT_DETECT_THRESHOLD)
 
         if self._detect_repeats(response, actual_threshold):
             response = await _retry_translation(queries, lambda r: self._detect_repeats(r, actual_threshold), f'Excessive repetition detected (threshold: {actual_threshold}); possible model degradation. Retrying translation.')
@@ -466,7 +479,7 @@ class SakuraTranslator(CommonTranslator):
         is_repeated, text, count, pattern, actual_threshold = self.detect_and_caculate_repeats(text, threshold, remove_all=False)
         return is_repeated
 
-    def _get_repeat_count(self, text: str, threshold: int = _REPEAT_DETECT_THRESHOLD) -> bool:
+    def _get_repeat_count(self, text: str, threshold: int = _REPEAT_DETECT_THRESHOLD) -> int:
         """
         计算文本中重复模式的次数。
         """
@@ -490,6 +503,7 @@ class SakuraTranslator(CommonTranslator):
         translations = []
         for query in queries:
             response = await self._handle_translation_request(query)
+            response = self._normalize_response_text(response)
             if self._detect_repeats(response):
                 self.logger.warning(f"Single-line translation contains repeated content: {response}; returning the original text.")
                 translations.append(query)
