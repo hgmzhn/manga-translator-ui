@@ -13,6 +13,7 @@ class TranslatorSettings(BaseModel):
     translator: str = "openai_hq"
     target_lang: str = "CHS"
     keep_lang: str = "none"
+    translation_file_input: bool = False
     enable_streaming: bool = True
     no_text_lang_skip: bool = False
     # 相对路径，后端会用 BASE_PATH 拼接（打包后=app.exe 同级，开发时=项目根目录）

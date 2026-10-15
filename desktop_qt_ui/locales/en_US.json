@@ -1,4 +1,6 @@
 {
+  "label_translation_file_input": "Send original text as a file (OpenAI / Gemini)",
+  "desc_translator_translation_file_input": "Send a UTF-8 TXT attachment via OpenAI Responses (non-streaming) or Gemini inlineData. Preserve HQ images and JSON saving. Requires TXT input support.",
   "Manga Translator": "Manga Translator UI",
   "&File": "&File",
   "&Add Files...": "&Add Files...",
