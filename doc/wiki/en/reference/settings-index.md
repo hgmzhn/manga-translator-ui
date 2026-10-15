@@ -132,7 +132,7 @@ The 11 parameters of this tab are explained in [Translation settings](../desktop
 
 ### Inpainting {#tab-inpainting}
 
-The 10 parameters of this tab are explained in [Mask And Inpainting](../desktop/settings/mask-and-inpainting.md). `inpainter.inpainter`, `inpainter.solid_fill_pure_bubbles`, and `inpainter.per_block_inpainting` have no dedicated explicit anchor on that page and link to the page itself.
+The 11 parameters of this tab are explained in [Mask And Inpainting](../desktop/settings/mask-and-inpainting.md). `inpainter.inpainter`, `inpainter.solid_fill_pure_bubbles`, and `inpainter.per_block_inpainting` have no dedicated explicit anchor on that page and link to the page itself.
 
 | Stored value | English actual value | Simplified Chinese actual value | Jump to |
 | --- | --- | --- | --- |
@@ -142,6 +142,7 @@ The 10 parameters of this tab are explained in [Mask And Inpainting](../desktop/
 | `ocr.use_model_bubble_repair_intersection` | Expand Bubble Repair Range | 扩大气泡修复范围 | [#bubble-range](../desktop/settings/mask-and-inpainting.md#bubble-range) |
 | `inpainter.solid_fill_pure_bubbles` | Solid Fill Pure Bubbles | 纯色气泡直接填色 | [Page](../desktop/settings/mask-and-inpainting.md) |
 | `inpainter.per_block_inpainting` | Per-Block Inpainting | 逐块修复 | [Page](../desktop/settings/mask-and-inpainting.md) |
+| `inpainter.blur_radius` | Blur Radius | 模糊半径 | [#blur-radius](../desktop/settings/mask-and-inpainting.md#blur-radius) |
 | `inpainter.inpainting_size` | Inpainting Size | 修复大小 | [#size-and-precision](../desktop/settings/mask-and-inpainting.md#size-and-precision) |
 | `inpainter.inpainting_precision` | Inpainting Precision | 修复精度 | [#size-and-precision](../desktop/settings/mask-and-inpainting.md#size-and-precision) |
 | `kernel_size` | Kernel Size | 卷积核大小 | [#dilation-and-kernel](../desktop/settings/mask-and-inpainting.md#dilation-and-kernel) |
