@@ -44,6 +44,15 @@ def apply_rotary_pos_emb2d(x, sin, cos, scale=1):
     return (x * cos) + (rotate_every_two(x) * sin)
 
 class XPOS(nn.Module):
+    _rotary_cache = {}
+    _rotary_cache_bytes = 0
+    _ROTARY_CACHE_BYTE_BUDGET = 64 * 1024 * 1024
+
+    @classmethod
+    def _reset_rotary_cache(cls):
+        cls._rotary_cache.clear()
+        cls._rotary_cache_bytes = 0
+
     def __init__(
         self, head_dim, scale_base=512
     ):
@@ -54,8 +63,7 @@ class XPOS(nn.Module):
             "scale", (torch.arange(0, head_dim, 2) + 0.4 * head_dim) / (1.4 * head_dim)
         )
 
-    def forward(self, x, offset=0, downscale=False):
-        length = x.shape[1]
+    def _compute_rotary(self, length, offset, downscale):
         min_pos = -(length + offset) // 2
         max_pos = length + offset + min_pos
         scale = self.scale ** torch.arange(min_pos, max_pos, 1).to(self.scale).div(self.scale_base)[:, None]
@@ -65,12 +73,26 @@ class XPOS(nn.Module):
             scale = scale[-length:]
             sin = sin[-length:]
             cos = cos[-length:]
-        
+
         if downscale:
             scale = 1 / scale
 
-        x = apply_rotary_pos_emb(x, sin, cos, scale)
-        return x
+        return sin, cos, scale
+
+    def forward(self, x, offset=0, downscale=False):
+        length = x.shape[1]
+        key = (self.head_dim, self.scale_base, self.scale.device, self.scale.dtype,
+               length, offset, downscale)
+        cached = XPOS._rotary_cache.get(key)
+        if cached is None:
+            cached = self._compute_rotary(length, offset, downscale)
+            nbytes = sum(t.numel() * t.element_size() for t in cached)
+            if XPOS._rotary_cache_bytes + nbytes > XPOS._ROTARY_CACHE_BYTE_BUDGET:
+                XPOS._reset_rotary_cache()
+            XPOS._rotary_cache[key] = cached
+            XPOS._rotary_cache_bytes += nbytes
+        sin, cos, scale = cached
+        return apply_rotary_pos_emb(x, sin, cos, scale)
 
 
 class XPOS2D(nn.Module):
