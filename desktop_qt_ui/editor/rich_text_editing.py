@@ -594,6 +594,7 @@ class StyledTextSegment:
     ruby_text: str = ""
     node_start: int | None = None
     node_end: int | None = None
+    ruby_inherit: bool = True
 
 
 def styled_segments_for_range(
@@ -640,6 +641,7 @@ def styled_segments_for_range(
                 ruby_text=current["ruby_text"],
                 node_start=current["node_start"],
                 node_end=current["node_end"],
+                ruby_inherit=current["ruby_inherit"],
             )
         )
         current = None
@@ -659,6 +661,12 @@ def styled_segments_for_range(
         node = entry.node if isinstance(entry.node, dict) else None
         node_type = node.get("type") if node is not None else None
         ruby_text = _runs_text(node.get("text", [])) if node_type == "ruby" else ""
+        ruby_inherit = True
+        if node_type == "ruby" and node is not None:
+            base_runs = node.get("base") or []
+            if base_runs:
+                first_style = base_runs[0].get("style") or {}
+                ruby_inherit = bool(first_style.get("rubyInherit", True))
         node_range = node_ranges.get(id(node)) if node is not None else None
         if not style and node_type not in {"ruby", "tcy"}:
             finish_current()
@@ -686,6 +694,7 @@ def styled_segments_for_range(
                 "ruby_text": ruby_text,
                 "node_start": node_range[0] if node_range else None,
                 "node_end": node_range[1] if node_range else None,
+                "ruby_inherit": ruby_inherit,
             }
         else:
             current["end"] = index + 1

@@ -1564,11 +1564,15 @@ def _build_rich_vertical_layout(
                     nominal_glyph_extent=ruby_size,
                 )
                 if glyphs:
+                    ruby_style = ruby_text_style_for(span)
+                    ruby_stroke_ratio = _style_stroke_ratio(
+                        ruby_style, ruby_size, global_stroke_ratio, bg
+                    )
                     ruby_plans.append(
                         RubyPlan(
                             source=span,
                             font_size=group_font_size,
-                            stroke_ratio=0.0,
+                            stroke_ratio=ruby_stroke_ratio,
                             glyphs=glyphs,
                             paint_start=min(
                                 glyph.main_center - ruby_size * glyph.main_scale / 2.0

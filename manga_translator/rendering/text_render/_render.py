@@ -71,89 +71,53 @@ def _paint_vertical_ruby(
     ruby_style.emphasis = False
     ruby_style.underline = False
     ruby_style.strikethrough = False
-    fill = _style_fill_color(ruby_style, fg)
-    # 竖排注音此前固定传 None 描边位图，导致 ruby 永远没有描边；
-    # 继承主体样式时需要同时继承主体描边颜色和描边宽度。
-    stroke = _style_stroke_color(ruby_style, bg)
     x = body_right + plan.cross_center
-    ruby_shear = _style_italic_shear(ruby_style)
-    blur_px = max(0.0, float(getattr(ruby_style, "blur", 0.0) or 0.0)) * max(
-        float(ruby_size), 1.0
-    )
-    glyph_layers = []
+    # 复用正文的图层管线，让注音同时继承填充/描边/外描边/发光/模糊/
+    # 旋转/镜像等全部富文本效果，而不是只手动画 fill+stroke。
     with _style_font_scope(ruby_style):
         for glyph in plan.glyphs:
-            base = _vertical_base(
-                ruby_size,
+            parts = _text_layer_parts(
                 glyph.char,
+                ruby_style,
+                ruby_size,
+                plan.stroke_ratio,
+                False,
+                fg,
+                bg,
                 letter_spacing,
-                ruby_shear,
-                scale_x=ruby_style.transform.scale_x,
-                scale_y=ruby_style.transform.scale_y,
+                None,
             )
-            if base.bitmap is None:
+            if parts is None:
                 continue
-            stroke_bitmap = (
-                _stroke_bitmap_from_alpha(base.bitmap, ruby_size, plan.stroke_ratio)
-                if plan.stroke_ratio > 0 and stroke is not None
-                else None
-            )
-            layer, off_x, off_y = _glyph_pair_rgba(
-                base.bitmap, stroke_bitmap, fill, stroke
-            )
-            if layer is None:
+            base_layer = next((part for part in parts if part is not None), None)
+            if base_layer is None:
                 continue
             if glyph.main_scale != 1.0:
-                scaled_h = max(1, round(layer.shape[0] * glyph.main_scale))
-                layer = cv2.resize(
-                    layer, (layer.shape[1], scaled_h), interpolation=cv2.INTER_LINEAR
-                )
-                off_y *= glyph.main_scale
+                scaled_parts = []
+                for part in parts:
+                    if part is None:
+                        scaled_parts.append(None)
+                        continue
+                    scaled_parts.append(
+                        cv2.resize(
+                            part,
+                            (
+                                part.shape[1],
+                                max(1, round(part.shape[0] * glyph.main_scale)),
+                            ),
+                            interpolation=cv2.INTER_LINEAR,
+                        )
+                    )
+                parts = tuple(scaled_parts)
+                base_layer = next((part for part in parts if part is not None), None)
+                if base_layer is None:
+                    continue
             cy = main_offset + glyph.main_center
-            glyph_layers.append(
-                (
-                    layer,
-                    round(x - layer.shape[1] / 2.0 + off_x),
-                    round(cy - layer.shape[0] / 2.0 + off_y),
-                )
-            )
-    if not glyph_layers:
-        return
-    if blur_px <= 0:
-        for layer, px, py in glyph_layers:
-            _paste_rgba(canvas, layer, px, py)
-        return
-
-    # Only blur a local bbox around the ruby ink; blurring a full block canvas
-    # per ruby plan is needlessly expensive and makes long pages scale badly.
-    min_x = min(px for _, px, _ in glyph_layers)
-    min_y = min(py for _, _, py in glyph_layers)
-    max_x = max(px + layer.shape[1] for layer, px, _ in glyph_layers)
-    max_y = max(py + layer.shape[0] for layer, _, py in glyph_layers)
-    margin = int(math.ceil(blur_px * 3.0)) + 2
-    origin_x = min_x - margin
-    origin_y = min_y - margin
-    width = max(1, max_x - min_x + margin * 2)
-    height = max(1, max_y - min_y + margin * 2)
-    target = np.zeros((height, width, 4), dtype=np.uint8)
-    for layer, px, py in glyph_layers:
-        _paste_rgba(target, layer, px - origin_x, py - origin_y)
-
-    blur_angle = getattr(ruby_style, "blur_angle", None)
-    if blur_angle is None:
-        target = _blur_rgba_layer(target, blur_px)
-    else:
-        if gradient_box is not None:
-            box = (
-                gradient_box[0] - origin_x,
-                gradient_box[1] - origin_y,
-                gradient_box[2],
-                gradient_box[3],
-            )
-        else:
-            box = (0.0, 0.0, float(width), float(height))
-        target = _gradient_blur_canvas(target, blur_px, box, float(blur_angle))
-    _paste_rgba(canvas, target, origin_x, origin_y)
+            px = round(x - base_layer.shape[1] / 2.0)
+            py = round(cy - base_layer.shape[0] / 2.0)
+            for part in parts:
+                if part is not None:
+                    _paste_rgba(canvas, part, px, py)
 
 
 def _finish_layer(

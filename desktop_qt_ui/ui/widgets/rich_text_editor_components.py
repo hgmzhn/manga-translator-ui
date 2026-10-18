@@ -976,7 +976,7 @@ class StyleRunCard(SimpleCardWidget):
             )
             control = RubyEditBar(
                 text,
-                inherit=bool(style.get("rubyInherit", True)),
+                inherit=bool(getattr(self.segment, "ruby_inherit", True)),
                 parent=self,
             )
             start, end = self._target_for_key(key)
@@ -1009,7 +1009,9 @@ class StyleRunCard(SimpleCardWidget):
             self._register_applier(
                 key,
                 control.inherit_check,
-                lambda s, *_: bool(s.get("rubyInherit", True)),
+                lambda s, t, seg, *_: bool(
+                    getattr(seg, "ruby_inherit", True)
+                ),
                 control.inherit_check.setChecked,
             )
             return control
