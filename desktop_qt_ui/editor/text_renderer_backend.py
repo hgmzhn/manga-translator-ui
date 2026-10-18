@@ -51,6 +51,20 @@ def _map_dst_points_to_screen(dst_points: np.ndarray, transform) -> np.ndarray:
 
 
 
+def _is_perspective_quad(points) -> bool:
+    """判断 4 点是否构成非平行四边形的透视四边形。"""
+    pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
+    v_top = pts[1] - pts[0]
+    v_left = pts[3] - pts[0]
+    v_bottom = pts[2] - pts[3]
+    v_right = pts[2] - pts[1]
+    tol = max(1.0, 0.01 * max(np.linalg.norm(v_top), np.linalg.norm(v_left)))
+    return bool(
+        np.linalg.norm(v_bottom - v_top) > tol
+        or np.linalg.norm(v_right - v_left) > tol
+    )
+
+
 def _native_rect_points(center, width: int, height: int, angle: float) -> np.ndarray:
     """按原生像素宽高生成实际渲染四角；只旋转，不缩放。"""
     cx, cy = float(center[0]), float(center[1])
@@ -168,12 +182,18 @@ def render_text_image_for_region(
         float(target_center[0]) - w / 2.0,
         float(target_center[1]) - h / 2.0,
     )
-    native_dst_points = _native_rect_points(
-        target_center,
-        w,
-        h,
-        getattr(text_block, "angle", 0.0),
-    )
+    dst_quad = np.asarray(dst_points_screen, dtype=np.float32).reshape(1, 4, 2)
+    if _is_perspective_quad(dst_quad):
+        # 透视框：保留四边形作为渲染框，pixmap 仍为矩形，由图形项在
+        # 局部坐标系中做透视变换显示。
+        native_dst_points = dst_quad
+    else:
+        native_dst_points = _native_rect_points(
+            target_center,
+            w,
+            h,
+            getattr(text_block, "angle", 0.0),
+        )
     final_image = _rgba_image_to_qimage(native_image)
     return (final_image, native_pos, native_dst_points)
 

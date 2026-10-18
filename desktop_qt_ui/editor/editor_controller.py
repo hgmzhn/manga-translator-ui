@@ -10,7 +10,7 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
 
 from editor.commands import _NO_MASK_CHANGE, MoveRegionCommand, UpdateRegionCommand
 from editor.geometry_commit_pipeline import build_rotate_region_data
-from editor.region_geometry_state import RegionGeometryState
+from editor.region_geometry_state import RegionGeometryState, is_quad_like
 from services import (
     get_async_service,
     get_config_service,
@@ -108,6 +108,10 @@ def _sync_white_frame_size_for_font_change(
     标记 has_custom_white_frame=True 让其优先于 render_box 主导渲染中心。
     """
     try:
+        # 透视白框由用户手工定义，字体变化时保持四边形不变，避免被矩形覆盖。
+        if is_quad_like(region_data.get("white_frame_quad_local")):
+            return
+
         from manga_translator.rendering import calc_box_from_font
 
         def _box_metrics(data: dict, params):

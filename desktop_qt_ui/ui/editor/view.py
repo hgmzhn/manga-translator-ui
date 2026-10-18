@@ -572,6 +572,14 @@ class EditorView(QWidget):
         """处理分布按钮点击。"""
         self.controller.distribute_regions(mode)
 
+    def _on_perspective_convert(self):
+        """将选中文本框转换为透视四边形（角点可自由拖动）。"""
+        self.graphics_view.convert_selected_to_perspective()
+
+    def _on_perspective_reset(self):
+        """将选中的透视文本框恢复为矩形（取四边形包围盒）。"""
+        self.graphics_view.reset_selected_to_rect()
+
     def _on_selection_changed_for_toolbar(self, selected_indices: list):
         """根据选区数量更新对齐/分布按钮的启用状态。"""
         count = len(selected_indices) if selected_indices else 0
@@ -923,6 +931,14 @@ class EditorView(QWidget):
             ),
             (self.toolbar.align_requested, self._on_align_requested),
             (self.toolbar.distribute_requested, self._on_distribute_requested),
+            (
+                self.toolbar.perspective_convert_requested,
+                self._on_perspective_convert,
+            ),
+            (
+                self.toolbar.perspective_reset_requested,
+                self._on_perspective_reset,
+            ),
         ):
             signal.connect(slot)
         for signal, key in (

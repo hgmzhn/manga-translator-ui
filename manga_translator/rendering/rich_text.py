@@ -135,6 +135,11 @@ class TextStyle:
     next_kerning: float | None = None
     transform: TextTransform = field(default_factory=TextTransform)
     strikethrough: bool = False
+    # 文字模糊：相对字号的 sigma（0 = 关闭）。例如 0.08 = 0.08 × font_size。
+    blur: float = 0.0
+    # 渐变模糊方向（度）：0=左→右，90=上→下，180=右→左，270=下→上。
+    # None 表示均匀模糊（整个文字同一强度）。
+    blur_angle: float | None = None
 
     def copy(self) -> "TextStyle":
         return copy.deepcopy(self)
@@ -158,6 +163,8 @@ class TextStyle:
                 "stroke",
                 "outerStroke",
                 "glow",
+                "blur",
+                "blurAngle",
                 "emphasis",
                 "noTcy",
                 "verticalAdvance",
@@ -170,6 +177,8 @@ class TextStyle:
             "style",
         )
         font_size = _safe_float(value.get("fontSize"), None)
+        blur = _safe_float(value.get("blur"), 0.0)
+        blur_angle = _safe_float(value.get("blurAngle"), None)
         return cls(
             bold=bool(value.get("bold", False)),
             italic=_parse_italic(value.get("italic", False)),
@@ -182,6 +191,8 @@ class TextStyle:
             stroke=StrokeStyle.from_dict(value.get("stroke")),
             outer_stroke=StrokeStyle.from_dict(value.get("outerStroke")),
             glow=GlowStyle.from_dict(value.get("glow")),
+            blur=max(0.0, float(blur or 0.0)),
+            blur_angle=blur_angle,
             emphasis=bool(value.get("emphasis", False)),
             no_tcy=bool(value.get("noTcy", False)),
             vertical_advance=_parse_vertical_advance(value.get("verticalAdvance")),
@@ -208,6 +219,8 @@ class TextStyle:
                 if self.outer_stroke
                 else None,
                 "glow": self.glow.to_dict() if self.glow else None,
+                "blur": self.blur or None,
+                "blurAngle": self.blur_angle,
                 "emphasis": self.emphasis or None,
                 "noTcy": self.no_tcy or None,
                 "verticalAdvance": self.vertical_advance,

@@ -15,7 +15,11 @@ from services import get_render_parameter_service
 from .document_state import ExportBase
 from .image_utils import image_like_to_pil, image_like_to_rgb_array
 from .inpaint_state import InpaintArtifact
-from .region_geometry_state import RegionGeometryState, normalize_region_geometry_data
+from .region_geometry_state import (
+    RegionGeometryState,
+    is_quad_like,
+    normalize_region_geometry_data,
+)
 
 if TYPE_CHECKING:
     from .editor_controller import EditorController
@@ -421,13 +425,50 @@ class EditorControllerExportService:
             return config.dict()
         return {}
 
+    @staticmethod
+    def _perspective_quad_world(region: dict):
+        """从 region_data 的局部透视四边形计算世界坐标四边形。"""
+        if not isinstance(region, dict):
+            return None
+        quad = region.get("white_frame_quad_local")
+        if not is_quad_like(quad):
+            return None
+        center = region.get("center")
+        if not (isinstance(center, (list, tuple, np.ndarray)) and len(center) >= 2):
+            try:
+                center = RegionGeometryState.from_region_data(region).center
+            except (TypeError, ValueError, IndexError):
+                return None
+        try:
+            cx, cy = float(center[0]), float(center[1])
+            angle = float(region.get("angle") or 0.0)
+            rad = math.radians(angle)
+            cos_a, sin_a = math.cos(rad), math.sin(rad)
+            return [
+                [
+                    cx + float(x) * cos_a - float(y) * sin_a,
+                    cy + float(x) * sin_a + float(y) * cos_a,
+                ]
+                for x, y in quad[:4]
+            ]
+        except (TypeError, ValueError):
+            return None
+
     def _build_enhanced_regions(self, regions: list[dict]) -> list[dict]:
         render_service = get_render_parameter_service()
         enhanced_regions = []
         for index, region in enumerate(regions):
             enhanced_region = region.copy()
 
-            self.apply_white_frame_center(enhanced_region)
+            quad_world = self._perspective_quad_world(enhanced_region)
+            if quad_world is not None:
+                enhanced_region["perspective_quad"] = quad_world
+                enhanced_region["center"] = [
+                    float(np.mean([p[0] for p in quad_world])),
+                    float(np.mean([p[1] for p in quad_world])),
+                ]
+            else:
+                self.apply_white_frame_center(enhanced_region)
             enhanced_region.update(
                 render_service.export_parameters_for_backend(index, enhanced_region)
             )

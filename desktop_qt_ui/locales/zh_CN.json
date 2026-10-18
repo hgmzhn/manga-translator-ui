@@ -79,6 +79,8 @@
   "Width": "宽度",
   "Height": "高度",
   "Blur": "模糊",
+  "Blur Amount": "模糊强度",
+  "Uniform": "均匀",
   "Italic": "斜体",
   "Font": "字体",
   "TCY": "纵中横",
@@ -575,7 +577,6 @@
   "Start Upscaling": "开始超分",
   "Generate Original Text Template": "仅生成原文模板",
   "Start JSON Translation": "开始仅翻译（JSON）",
-  "Open Directory": "打开目录",
   "Find": "查找",
   "Replace with": "替换为",
   "Replace All": "全部替换",
@@ -641,6 +642,8 @@
   "Arrange": "排列",
   "Enable Editor Snapping": "启用编辑器吸附",
   "Scale Text Boxes from Center": "中心点缩放",
+  "Convert Text Box to Perspective": "转换为透视框",
+  "Reset Text Box to Rectangle": "重置为矩形框",
   "Show Rich Text Editor Popup": "显示富文本编辑弹窗",
   "Pin Rich Text Editor Popup": "固定富文本编辑弹窗",
   "Auto Apply Rich Text Rules While Editing": "编辑时自动应用富文本规则",
@@ -1520,5 +1523,9 @@
   "api_test_error_invalid_key_characters": "API 密钥包含请求头不支持的字符（位置 {start}-{end}）。请重新粘贴密钥，并删除中文、全角符号或不可见字符。",
   "api_models_error_unsupported": "该翻译器不支持获取模型列表。",
   "api_models_error_failed": "获取模型列表失败：{error}",
-  "Clear Selected": "清除选中"
+  "Clear Selected": "清除选中",
+  "Pin Section": "固定栏目",
+  "Pin to Top": "固定到上方",
+  "Pin to Bottom": "固定到下方",
+  "Unpin Section": "取消固定"
 }

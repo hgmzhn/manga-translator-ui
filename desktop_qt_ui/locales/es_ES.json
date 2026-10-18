@@ -82,6 +82,8 @@
   "Width": "Ancho",
   "Height": "Alto",
   "Blur": "Desenfoque",
+  "Blur Amount": "Intensidad de desenfoque",
+  "Uniform": "Uniforme",
   "Rich Text Presets": "Preajustes de texto enriquecido",
   "No saved styles": "No hay estilos guardados",
   "Rename preset": "Renombrar preajuste",
@@ -570,7 +572,6 @@
   "Start Colorizing": "Iniciar colorización",
   "Start Upscaling": "Iniciar ampliación",
   "Generate Original Text Template": "Generar plantilla de texto original",
-  "Open Directory": "Abrir directorio",
   "Find": "Buscar",
   "Replace with": "Reemplazar con",
   "Replace All": "Reemplazar todo",
@@ -636,6 +637,8 @@
   "Arrange": "Organizar",
   "Enable Editor Snapping": "Activar el ajuste del editor",
   "Scale Text Boxes from Center": "Escalar cuadros de texto desde el centro",
+  "Convert Text Box to Perspective": "Convertir cuadro de texto a perspectiva",
+  "Reset Text Box to Rectangle": "Restablecer cuadro de texto a rectángulo",
   "Show Rich Text Editor Popup": "Mostrar ventana emergente del editor de texto enriquecido",
   "Pin Rich Text Editor Popup": "Fijar la ventana emergente del editor de texto enriquecido",
   "Auto Apply Rich Text Rules While Editing": "Aplicar automáticamente reglas de texto enriquecido al editar",
@@ -1510,5 +1513,9 @@
   "api_test_error_model_unavailable": "La conexión se ha realizado correctamente, pero el modelo {model} no está disponible: {error}",
   "api_test_error_remote_image": "Error al descargar la imagen generada: HTTP {status}",
   "api_test_error_sakura_base": "Configura primero SAKURA_API_BASE.",
-  "api_test_error_unsupported": "Este traductor no admite pruebas de API."
+  "api_test_error_unsupported": "Este traductor no admite pruebas de API.",
+  "Pin Section": "Fijar sección",
+  "Pin to Top": "Fijar arriba",
+  "Pin to Bottom": "Fijar abajo",
+  "Unpin Section": "Soltar sección"
 }

@@ -126,6 +126,17 @@ class TextBlock(object):
                  adjust_bg_color: bool = True,  # 是否自动调整描边颜色
                  **kwargs) -> None:
         self.lines = np.array(lines, dtype=np.float64)
+        # 编辑器透视白框：世界坐标四边形 [左上, 右上, 右下, 左下]；
+        # None 表示普通矩形/旋转矩形。由编辑器导出流程注入。
+        quad = kwargs.get('perspective_quad')
+        try:
+            self.perspective_quad = (
+                np.asarray(quad, dtype=np.float32).reshape(4, 2)
+                if quad is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            self.perspective_quad = None
         # self.lines.sort()
         self.language = language
         self.font_size = round(font_size)

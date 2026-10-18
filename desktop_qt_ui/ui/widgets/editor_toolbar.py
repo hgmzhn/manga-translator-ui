@@ -149,6 +149,8 @@ class EditorToolbar(CardWidget):
     distribute_requested = pyqtSignal(str)
     snap_enabled_changed = pyqtSignal(bool)
     center_scale_enabled_changed = pyqtSignal(bool)
+    perspective_convert_requested = pyqtSignal()
+    perspective_reset_requested = pyqtSignal()
     rich_text_popup_enabled_changed = pyqtSignal(bool)
     rich_text_popup_pinned_changed = pyqtSignal(bool)
     auto_save_on_switch_changed = pyqtSignal(bool)
@@ -355,6 +357,25 @@ class EditorToolbar(CardWidget):
             self._on_center_scale_action_triggered
         )
         menu.addAction(self.center_scale_action)
+
+        menu.addSeparator()
+        self.perspective_convert_action = Action(
+            themed_fluent_svg_icon("ic_fluent_box_24_regular.svg"),
+            self._t("Convert Text Box to Perspective"),
+        )
+        self.perspective_convert_action.triggered.connect(
+            self.perspective_convert_requested
+        )
+        menu.addAction(self.perspective_convert_action)
+
+        self.perspective_reset_action = Action(
+            themed_fluent_svg_icon("ic_fluent_ruler_24_regular.svg"),
+            self._t("Reset Text Box to Rectangle"),
+        )
+        self.perspective_reset_action.triggered.connect(
+            self.perspective_reset_requested
+        )
+        menu.addAction(self.perspective_reset_action)
 
         self.rich_text_popup_action = Action(
             themed_fluent_svg_icon("ic_fluent_text_edit_style_24_regular.svg"),

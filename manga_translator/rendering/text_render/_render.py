@@ -22,6 +22,7 @@ from ._compose import (
     _crop_rgba_fixed,
     _draw_rgba_bar,
     _draw_rgba_disc,
+    _gradient_blur_canvas,
     _glyph_pair_rgba,
     _paste_rgba,
     _rgba_for_paint_part,
@@ -98,6 +99,19 @@ def _paint_vertical_ruby(
                 round(x - layer.shape[1] / 2.0 + off_x),
                 round(cy - layer.shape[0] / 2.0 + off_y),
             )
+
+
+def _document_gradient_blur_style(document: RichTextDocument):
+    """取文档中第一个启用方向渐变模糊的样式；None 表示不做画布级渐变。"""
+    for block in document.blocks:
+        for span in block.spans:
+            style = span.style
+            if (
+                getattr(style, "blur", 0.0) > 0
+                and getattr(style, "blur_angle", None) is not None
+            ):
+                return style
+    return None
 
 
 def _finish_layer(base_layer, style, font_size: int, effect_part: str):
@@ -427,6 +441,15 @@ def _render_rich_text_horizontal(
             _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
             extra_cursor += 1
 
+    gradient_style = _document_gradient_blur_style(document)
+    if gradient_style is not None and paint_part in (None, "stroke", "fill"):
+        canvas = _gradient_blur_canvas(
+            canvas,
+            gradient_style.blur * max(float(font_size), 1.0),
+            (padding, padding, geometry["paint_width"], geometry["paint_height"]),
+            float(gradient_style.blur_angle),
+        )
+
     return _crop_rgba_fixed(
         canvas,
         padding,
@@ -614,6 +637,20 @@ def _render_rich_text_vertical(
         while extra_cursor < len(fill_extras):
             _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
             extra_cursor += 1
+
+    gradient_style = _document_gradient_blur_style(document)
+    if gradient_style is not None and paint_part in (None, "stroke", "fill"):
+        canvas = _gradient_blur_canvas(
+            canvas,
+            gradient_style.blur * max(float(font_size), 1.0),
+            (
+                content_left,
+                content_top,
+                content_right - content_left,
+                content_bottom - content_top,
+            ),
+            float(gradient_style.blur_angle),
+        )
 
     return _crop_rgba_fixed(
         canvas, content_left, content_right, content_top, content_bottom

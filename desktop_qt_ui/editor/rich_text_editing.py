@@ -144,6 +144,8 @@ def text_style_to_control_values(style: Any) -> dict:
         "stroke": copy.deepcopy(stroke) or None,
         "outerStroke": copy.deepcopy(outer_stroke) or None,
         "glow": copy.deepcopy(glow) or None,
+        "blur": style.get("blur"),
+        "blurAngle": style.get("blurAngle"),
         "kerning": style.get("kerning"),
         "preKerning": style.get("preKerning"),
         "lineKerning": style.get("lineKerning"),
@@ -172,6 +174,8 @@ def text_style_from_control_values(values: dict, enabled: set[str]) -> dict:
         "stroke",
         "outerStroke",
         "glow",
+        "blur",
+        "blurAngle",
         "kerning",
         "preKerning",
         "lineKerning",
@@ -812,6 +816,7 @@ _BOOLEAN_STYLE_ROWS = {
 }
 _DIRECT_STYLE_ROWS = {
     "C": "color",
+    "BL": "blur",
     "I": "italic",
     "S": "fontSize",
     "%": "scale",

@@ -79,6 +79,8 @@
   "Width": "Width",
   "Height": "Height",
   "Blur": "Blur",
+  "Blur Amount": "Blur Amount",
+  "Uniform": "Uniform",
   "Italic": "Italic",
   "Font": "Font",
   "TCY": "TCY",
@@ -575,7 +577,6 @@
   "Start Upscaling": "Start Upscaling",
   "Generate Original Text Template": "Generate Original Text Template",
   "Start JSON Translation": "Start JSON Translation",
-  "Open Directory": "Open Directory",
   "Find": "Find",
   "Replace with": "Replace with",
   "Replace All": "Replace All",
@@ -611,7 +612,6 @@
   "Symbol: Beamed sixteenth notes": "Beamed sixteenth notes",
   "Symbol: Black square": "Black square",
   "Symbol: Full-width space": "Full-width space",
-
   "Back": "Back",
   "Export Image": "Export Image",
   "Export current rendered image": "Export current rendered image",
@@ -642,6 +642,8 @@
   "Arrange": "Arrange",
   "Enable Editor Snapping": "Enable Editor Snapping",
   "Scale Text Boxes from Center": "Scale Text Boxes from Center",
+  "Convert Text Box to Perspective": "Convert Text Box to Perspective",
+  "Reset Text Box to Rectangle": "Reset Text Box to Rectangle",
   "Show Rich Text Editor Popup": "Show Rich Text Editor Popup",
   "Pin Rich Text Editor Popup": "Pin Rich Text Editor Popup",
   "Auto Apply Rich Text Rules While Editing": "Auto Apply Rich Text Rules While Editing",
@@ -1521,5 +1523,9 @@
   "api_test_error_remote_image": "Failed to download the generated image: HTTP {status}",
   "api_test_error_sakura_base": "Please configure SAKURA_API_BASE first.",
   "api_test_error_unsupported": "This translator does not support API testing.",
-  "Clear Selected": "Clear Selected"
+  "Clear Selected": "Clear Selected",
+  "Pin Section": "Pin Section",
+  "Pin to Top": "Pin to Top",
+  "Pin to Bottom": "Pin to Bottom",
+  "Unpin Section": "Unpin Section"
 }

@@ -81,6 +81,7 @@ STYLE_SPECS: dict[str, StyleSpec] = {
     "F": StyleSpec("Font", "Font Family", {}),
     "O": StyleSpec("Stroke", "Stroke", {"stroke": {"color": "#ffffff", "width": 0.07}}),
     "G": StyleSpec("Glow", "Glow", {"glow": {"color": "#00ffff", "blur": 0.10}}),
+    "BL": StyleSpec("Blur", "Blur", {"blur": 0.08}),
     "OS": StyleSpec(
         "Outer Stroke",
         "Outer Stroke",
@@ -493,6 +494,7 @@ def style_keys_for_segment(
         "F": "fontFamily" in style,
         "O": bool(style.get("stroke")),
         "G": bool(style.get("glow")),
+        "BL": bool(style.get("blur")),
         "OS": bool(style.get("outerStroke")),
         "D": bool(style.get("emphasis")),
         "FA": "verticalAdvance" in style,
@@ -828,6 +830,72 @@ class StyleRunCard(SimpleCardWidget):
                 lambda value, _control=control: _control.setCurrentFamily(value),
             )
             return control
+        if key == "BL":
+            amount = _double_spin_box(
+                float(style.get("blur", 0.08) or 0.0), 0.0, 1.0, step=0.01
+            )
+            amount.setSymbolVisible(False)
+            amount.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"blur": float(value)})
+            )
+            direction = ComboBox(self)
+            direction.addItem(_tr("Uniform"), userData=None)
+            for label, angle in (
+                ("→", 0.0),
+                ("↘", 45.0),
+                ("↓", 90.0),
+                ("↙", 135.0),
+                ("←", 180.0),
+                ("↖", 225.0),
+                ("↑", 270.0),
+                ("↗", 315.0),
+            ):
+                direction.addItem(label, userData=angle)
+            initial_angle = style.get("blurAngle")
+            direction.setCurrentIndex(
+                max(
+                    0,
+                    direction.findData(
+                        None if initial_angle is None else float(initial_angle)
+                    ),
+                )
+            )
+            direction.currentIndexChanged.connect(
+                lambda _index: self._emit_patch(
+                    key, {"blurAngle": direction.currentData()}
+                )
+            )
+            self._register_applier(
+                key,
+                amount,
+                lambda s, *_: float(s.get("blur", 0.08) or 0.0),
+                amount.setValue,
+            )
+            self._register_applier(
+                key,
+                direction,
+                lambda s, *_: s.get("blurAngle"),
+                lambda value, _combo=direction: _combo.setCurrentIndex(
+                    max(
+                        0,
+                        _combo.findData(
+                            None if value is None else float(value)
+                        ),
+                    )
+                ),
+            )
+            container = QWidget(self)
+            control_layout = QHBoxLayout(container)
+            control_layout.setContentsMargins(0, 0, 0, 0)
+            control_layout.setSpacing(4)
+            for control in (amount, direction):
+                control.setMinimumWidth(self._PAIR_CONTROL_MIN_WIDTH)
+                control.setMaximumWidth(self._PAIR_CONTROL_MAX_WIDTH)
+            set_hover_hint(amount, _tr("Blur Amount"))
+            set_hover_hint(direction, _tr("Direction"))
+            control_layout.addWidget(amount, 1)
+            control_layout.addWidget(direction, 1)
+            return container
         if key in _EFFECT_SPECS:
             source, color_title, color_default, number_key, number_default = (
                 _EFFECT_SPECS[key]

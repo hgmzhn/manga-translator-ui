@@ -317,7 +317,7 @@ def _style_layer_effects_geometry(
 
 
 def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
-    """局部外描边/发光按字号比例换算后的像素包络。"""
+    """局部外描边/发光/模糊按字号比例换算后的像素包络。"""
     outer_px = 0.0
     if style.outer_stroke and style.outer_stroke.width is not None:
         outer_px = max(0.0, float(style.outer_stroke.width)) * max(
@@ -326,7 +326,12 @@ def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
     glow_px = 0.0
     if style.glow:
         glow_px = max(0.0, float(style.glow.blur)) * max(float(font_size), 1.0)
-    return math.ceil(max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0))
+    blur_px = max(0.0, float(getattr(style, "blur", 0.0) or 0.0)) * max(
+        float(font_size), 1.0
+    )
+    return math.ceil(
+        max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0, blur_px * 3.0)
+    )
 
 
 def _colored_alpha_layer(alpha: np.ndarray, color) -> np.ndarray:
@@ -334,6 +339,97 @@ def _colored_alpha_layer(alpha: np.ndarray, color) -> np.ndarray:
     layer[:, :, :3] = np.asarray(_parse_rgb(color), dtype=np.uint8)
     layer[:, :, 3] = alpha
     return layer
+
+
+def _blur_rgba_layer(layer: np.ndarray, sigma: float) -> np.ndarray:
+    """对 RGBA 图层做预乘高斯模糊，避免透明边缘发黑。"""
+    if layer is None or layer.size == 0 or sigma <= 0:
+        return layer
+    alpha = layer[:, :, 3].astype(np.float32) / 255.0
+    rgb = layer[:, :, :3].astype(np.float32)
+    premultiplied = rgb * alpha[..., None]
+    blurred_pre = cv2.GaussianBlur(
+        premultiplied, (0, 0), sigmaX=float(sigma), sigmaY=float(sigma)
+    )
+    blurred_alpha = cv2.GaussianBlur(
+        alpha, (0, 0), sigmaX=float(sigma), sigmaY=float(sigma)
+    )
+    safe_alpha = np.maximum(blurred_alpha, 1e-6)
+    out = np.empty_like(layer)
+    out[:, :, :3] = np.clip(
+        blurred_pre / safe_alpha[..., None], 0, 255
+    ).astype(np.uint8)
+    out[:, :, 3] = np.clip(blurred_alpha * 255.0, 0, 255).astype(np.uint8)
+    return out
+
+
+def _gradient_blur_canvas(
+    layer: np.ndarray,
+    sigma_max: float,
+    box: tuple[float, float, float, float],
+    angle_deg: float,
+    levels: int = 5,
+) -> np.ndarray:
+    """沿 box 内的一条方向渐变模糊：一端清晰，另一端达到 sigma_max。
+
+    逐像素变 sigma 无法用单次卷积表达，这里用 K 层不同 sigma 的模糊按
+    smoothstep 权重混合；每层算完即累加，避免同时保留所有层。
+    """
+    if layer is None or layer.size == 0 or sigma_max <= 0:
+        return layer
+    height, width = layer.shape[:2]
+    box_x, box_y, box_w, box_h = (float(value) for value in box)
+    box_w = max(box_w, 1.0)
+    box_h = max(box_h, 1.0)
+
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    center_x = box_x + box_w / 2.0
+    center_y = box_y + box_h / 2.0
+    radians = math.radians(float(angle_deg))
+    cos_a = math.cos(radians)
+    sin_a = math.sin(radians)
+    half_extent = 0.5 * (abs(box_w * cos_a) + abs(box_h * sin_a))
+    if half_extent <= 1e-6:
+        return layer
+    t = 0.5 + ((xx - center_x) * cos_a + (yy - center_y) * sin_a) / (
+        2.0 * half_extent
+    )
+    t = np.clip(t, 0.0, 1.0)
+    t = t * t * (3.0 - 2.0 * t)
+
+    alpha = layer[:, :, 3].astype(np.float32) / 255.0
+    rgb = layer[:, :, :3].astype(np.float32)
+    premultiplied = rgb * alpha[..., None]
+
+    count = max(2, int(levels))
+    position = t * (count - 1)
+    lower = np.floor(position).astype(np.int32)
+    upper = np.minimum(lower + 1, count - 1)
+    fraction = position - lower
+
+    blended_pre = np.zeros_like(premultiplied)
+    blended_alpha = np.zeros_like(alpha)
+    for index in range(count):
+        if index == 0:
+            level_pre, level_alpha = premultiplied, alpha
+        else:
+            sigma = sigma_max * index / (count - 1)
+            level_pre = cv2.GaussianBlur(
+                premultiplied, (0, 0), sigmaX=sigma, sigmaY=sigma
+            )
+            level_alpha = cv2.GaussianBlur(alpha, (0, 0), sigmaX=sigma, sigmaY=sigma)
+        weight = (lower == index).astype(np.float32) * (1.0 - fraction)
+        weight += (upper == index).astype(np.float32) * fraction
+        blended_pre += level_pre * weight[..., None]
+        blended_alpha += level_alpha * weight
+
+    safe_alpha = np.maximum(blended_alpha, 1e-6)
+    out = np.empty_like(layer)
+    out[:, :, :3] = np.clip(
+        blended_pre / safe_alpha[..., None], 0, 255
+    ).astype(np.uint8)
+    out[:, :, 3] = np.clip(blended_alpha * 255.0, 0, 255).astype(np.uint8)
+    return out
 
 
 def _apply_style_paint_effects(
@@ -389,6 +485,13 @@ def _apply_style_paint_effects(
 
     if paint_part != "effects":
         _paste_rgba(canvas, layer, pad, pad)
+        blur_px = max(0.0, float(getattr(style, "blur", 0.0) or 0.0)) * max(
+            float(font_size), 1.0
+        )
+        # 渐变模糊在整块文字画布上统一处理（见 _gradient_blur_canvas），
+        # 这里跳过逐层模糊，避免二次模糊。
+        if blur_px > 0 and getattr(style, "blur_angle", None) is None:
+            canvas = _blur_rgba_layer(canvas, blur_px)
     return canvas
 
 
