@@ -5,6 +5,7 @@
 """
 
 import math
+from types import SimpleNamespace
 import re
 
 import cv2
@@ -71,22 +72,33 @@ def _paint_vertical_ruby(
     ruby_style.emphasis = False
     ruby_style.underline = False
     ruby_style.strikethrough = False
+    fill = _style_fill_color(ruby_style, fg)
+    stroke = _style_stroke_color(ruby_style, bg) if plan.stroke_ratio > 0 else None
     x = body_right + plan.cross_center
-    # 复用正文的图层管线，让注音同时继承填充/描边/外描边/发光/模糊/
-    # 旋转/镜像等全部富文本效果，而不是只手动画 fill+stroke。
+    ruby_shear = _style_italic_shear(ruby_style)
+    # 保留 _vertical_base 的竖排字形生成（「」等字符会自动旋转），再用
+    # _vertical_char_parts 复用正文的描边/特效/旋转图层管线。
     with _style_font_scope(ruby_style):
         for glyph in plan.glyphs:
-            parts = _text_layer_parts(
-                glyph.char,
-                ruby_style,
+            base = _vertical_base(
                 ruby_size,
-                plan.stroke_ratio,
-                False,
-                fg,
-                bg,
+                glyph.char,
                 letter_spacing,
-                None,
+                ruby_shear,
+                scale_x=ruby_style.transform.scale_x,
+                scale_y=ruby_style.transform.scale_y,
             )
+            if base.bitmap is None:
+                continue
+            char_plan = SimpleNamespace(
+                base=base,
+                font_size=ruby_size,
+                fill=fill,
+                stroke=stroke,
+                stroke_ratio=plan.stroke_ratio,
+                span=SimpleNamespace(style=ruby_style),
+            )
+            parts = _vertical_char_parts(char_plan)
             if parts is None:
                 continue
             base_layer = next((part for part in parts if part is not None), None)
