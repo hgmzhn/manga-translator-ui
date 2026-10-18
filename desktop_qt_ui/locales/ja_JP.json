@@ -195,7 +195,7 @@
   "Logs Directory": "ログ",
   "Configuration Directory": "設定",
   "Prompts Directory": "プロンプト",
-  "Open Directory": "ディレクトリを開く",
+  "Open Directory": "フォルダーを開く",
   "Web Resources": "ウェブリソース",
   "Web Resources Subtitle": "プロジェクトのソースコードとドキュメント。",
   "Support the Project": "プロジェクトを支援",
@@ -572,6 +572,7 @@
   "Start Colorizing": "着色を開始",
   "Start Upscaling": "アップスケールを開始",
   "Generate Original Text Template": "原文テンプレートを生成",
+  "Open Directory": "ディレクトリを開く",
   "Find": "検索",
   "Replace with": "置換",
   "Replace All": "すべて置換",
@@ -1513,9 +1514,5 @@
   "api_test_error_model_unavailable": "接続には成功しましたが、モデル {model} は利用できません：{error}",
   "api_test_error_remote_image": "生成された画像のダウンロードに失敗しました：HTTP {status}",
   "api_test_error_sakura_base": "先に SAKURA_API_BASE を設定してください。",
-  "api_test_error_unsupported": "この翻訳器は API テストをサポートしていません。",
-  "Pin Section": "セクションを固定",
-  "Pin to Top": "上に固定",
-  "Pin to Bottom": "下に固定",
-  "Unpin Section": "固定を解除"
+  "api_test_error_unsupported": "この翻訳器は API テストをサポートしていません。"
 }

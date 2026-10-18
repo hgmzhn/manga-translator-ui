@@ -577,6 +577,7 @@
   "Start Upscaling": "开始超分",
   "Generate Original Text Template": "仅生成原文模板",
   "Start JSON Translation": "开始仅翻译（JSON）",
+  "Open Directory": "打开目录",
   "Find": "查找",
   "Replace with": "替换为",
   "Replace All": "全部替换",
@@ -1523,9 +1524,5 @@
   "api_test_error_invalid_key_characters": "API 密钥包含请求头不支持的字符（位置 {start}-{end}）。请重新粘贴密钥，并删除中文、全角符号或不可见字符。",
   "api_models_error_unsupported": "该翻译器不支持获取模型列表。",
   "api_models_error_failed": "获取模型列表失败：{error}",
-  "Clear Selected": "清除选中",
-  "Pin Section": "固定栏目",
-  "Pin to Top": "固定到上方",
-  "Pin to Bottom": "固定到下方",
-  "Unpin Section": "取消固定"
+  "Clear Selected": "清除选中"
 }

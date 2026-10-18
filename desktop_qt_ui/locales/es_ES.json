@@ -572,6 +572,7 @@
   "Start Colorizing": "Iniciar colorización",
   "Start Upscaling": "Iniciar ampliación",
   "Generate Original Text Template": "Generar plantilla de texto original",
+  "Open Directory": "Abrir directorio",
   "Find": "Buscar",
   "Replace with": "Reemplazar con",
   "Replace All": "Reemplazar todo",
@@ -1513,9 +1514,5 @@
   "api_test_error_model_unavailable": "La conexión se ha realizado correctamente, pero el modelo {model} no está disponible: {error}",
   "api_test_error_remote_image": "Error al descargar la imagen generada: HTTP {status}",
   "api_test_error_sakura_base": "Configura primero SAKURA_API_BASE.",
-  "api_test_error_unsupported": "Este traductor no admite pruebas de API.",
-  "Pin Section": "Fijar sección",
-  "Pin to Top": "Fijar arriba",
-  "Pin to Bottom": "Fijar abajo",
-  "Unpin Section": "Soltar sección"
+  "api_test_error_unsupported": "Este traductor no admite pruebas de API."
 }
