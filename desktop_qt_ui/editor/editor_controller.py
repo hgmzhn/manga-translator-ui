@@ -120,12 +120,16 @@ def _sync_white_frame_size_for_font_change(
             quad_key = "render_box_quad_local"
             bbox_key = "render_box_rect_local"
         if quad_key is not None:
-            old_font = (
-                int(old_region_data.get("font_size") or 0)
-                if old_region_data
-                else 0
+            old_font = int(
+                (old_region_data or {}).get("font_size")
+                or getattr(old_render_params, "font_size", 0)
+                or 0
             )
-            new_font = int(region_data.get("font_size") or 0)
+            new_font = int(
+                region_data.get("font_size")
+                or getattr(render_params, "font_size", 0)
+                or 0
+            )
             if old_font > 0 and new_font > 0 and old_font != new_font:
                 scale = float(new_font) / float(old_font)
                 quad = region_data[quad_key]

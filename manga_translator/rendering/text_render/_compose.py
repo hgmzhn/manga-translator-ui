@@ -329,9 +329,13 @@ def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
     blur_px = max(0.0, float(getattr(style, "blur", 0.0) or 0.0)) * max(
         float(font_size), 1.0
     )
-    return math.ceil(
-        max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0, blur_px * 3.0)
-    )
+    if getattr(style, "blur_angle", None) is not None:
+        # Directional blur is applied to the effects layer as well; the glow /
+        # outer-stroke extent alone does not leave room for the blur tail.
+        pad = max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0) + blur_px * 3.0
+    else:
+        pad = max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0, blur_px * 3.0)
+    return math.ceil(pad)
 
 
 def _colored_alpha_layer(alpha: np.ndarray, color) -> np.ndarray:

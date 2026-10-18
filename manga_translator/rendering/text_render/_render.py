@@ -60,6 +60,7 @@ def _paint_vertical_ruby(
     body_right: float,
     main_offset: float,
     fg,
+    bg,
     letter_spacing: float,
     gradient_box=None,
 ):
@@ -71,13 +72,15 @@ def _paint_vertical_ruby(
     ruby_style.underline = False
     ruby_style.strikethrough = False
     fill = _style_fill_color(ruby_style, fg)
-    stroke = _style_stroke_color(ruby_style, None)
+    # 竖排注音此前固定传 None 描边位图，导致 ruby 永远没有描边；
+    # 继承主体样式时需要同时继承主体描边颜色和描边宽度。
+    stroke = _style_stroke_color(ruby_style, bg)
     x = body_right + plan.cross_center
     ruby_shear = _style_italic_shear(ruby_style)
     blur_px = max(0.0, float(getattr(ruby_style, "blur", 0.0) or 0.0)) * max(
         float(ruby_size), 1.0
     )
-    target = np.zeros_like(canvas) if blur_px > 0 else canvas
+    glyph_layers = []
     with _style_font_scope(ruby_style):
         for glyph in plan.glyphs:
             base = _vertical_base(
@@ -90,7 +93,14 @@ def _paint_vertical_ruby(
             )
             if base.bitmap is None:
                 continue
-            layer, off_x, off_y = _glyph_pair_rgba(base.bitmap, None, fill, stroke)
+            stroke_bitmap = (
+                _stroke_bitmap_from_alpha(base.bitmap, ruby_size, plan.stroke_ratio)
+                if plan.stroke_ratio > 0 and stroke is not None
+                else None
+            )
+            layer, off_x, off_y = _glyph_pair_rgba(
+                base.bitmap, stroke_bitmap, fill, stroke
+            )
             if layer is None:
                 continue
             if glyph.main_scale != 1.0:
@@ -100,26 +110,50 @@ def _paint_vertical_ruby(
                 )
                 off_y *= glyph.main_scale
             cy = main_offset + glyph.main_center
-            _paste_rgba(
-                target,
-                layer,
-                round(x - layer.shape[1] / 2.0 + off_x),
-                round(cy - layer.shape[0] / 2.0 + off_y),
+            glyph_layers.append(
+                (
+                    layer,
+                    round(x - layer.shape[1] / 2.0 + off_x),
+                    round(cy - layer.shape[0] / 2.0 + off_y),
+                )
             )
-    if blur_px > 0:
-        blur_angle = getattr(ruby_style, "blur_angle", None)
-        if blur_angle is None:
-            target = _blur_rgba_layer(target, blur_px)
-        else:
+    if not glyph_layers:
+        return
+    if blur_px <= 0:
+        for layer, px, py in glyph_layers:
+            _paste_rgba(canvas, layer, px, py)
+        return
+
+    # Only blur a local bbox around the ruby ink; blurring a full block canvas
+    # per ruby plan is needlessly expensive and makes long pages scale badly.
+    min_x = min(px for _, px, _ in glyph_layers)
+    min_y = min(py for _, _, py in glyph_layers)
+    max_x = max(px + layer.shape[1] for layer, px, _ in glyph_layers)
+    max_y = max(py + layer.shape[0] for layer, _, py in glyph_layers)
+    margin = int(math.ceil(blur_px * 3.0)) + 2
+    origin_x = min_x - margin
+    origin_y = min_y - margin
+    width = max(1, max_x - min_x + margin * 2)
+    height = max(1, max_y - min_y + margin * 2)
+    target = np.zeros((height, width, 4), dtype=np.uint8)
+    for layer, px, py in glyph_layers:
+        _paste_rgba(target, layer, px - origin_x, py - origin_y)
+
+    blur_angle = getattr(ruby_style, "blur_angle", None)
+    if blur_angle is None:
+        target = _blur_rgba_layer(target, blur_px)
+    else:
+        if gradient_box is not None:
             box = (
-                gradient_box
-                if gradient_box is not None
-                else (0.0, 0.0, float(canvas.shape[1]), float(canvas.shape[0]))
+                gradient_box[0] - origin_x,
+                gradient_box[1] - origin_y,
+                gradient_box[2],
+                gradient_box[3],
             )
-            target = _gradient_blur_canvas(
-                target, blur_px, box, float(blur_angle)
-            )
-        _paste_rgba(canvas, target, 0, 0)
+        else:
+            box = (0.0, 0.0, float(width), float(height))
+        target = _gradient_blur_canvas(target, blur_px, box, float(blur_angle))
+    _paste_rgba(canvas, target, origin_x, origin_y)
 
 
 def _finish_layer(
@@ -583,6 +617,10 @@ def _render_rich_text_vertical(
                     + item.source.style.transform.offset_y * item.font_size / 100.0
                     + item.paint_offset_y
                 )
+                # TCY applies its horizontal compression to the finished
+                # layer; convert the common gradient range to pre-compression
+                # coordinates so the gradient is not squeezed twice.
+                tcy_scale_x = max(float(item.scale_x), 1e-6)
                 parts = _text_layer_parts(
                     item.text,
                     item.source.style,
@@ -594,9 +632,9 @@ def _render_rich_text_vertical(
                     letter_spacing,
                     profile_stats,
                     gradient_box=(
-                        common_box[0] - x,
+                        (common_box[0] - x) / tcy_scale_x,
                         common_box[1] - y,
-                        common_box[2],
+                        common_box[2] / tcy_scale_x,
                         common_box[3],
                     ),
                 )
@@ -710,6 +748,7 @@ def _render_rich_text_vertical(
                 right,
                 origin_y,
                 fg,
+                bg,
                 letter_spacing,
                 common_box,
             )

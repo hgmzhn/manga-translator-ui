@@ -228,3 +228,30 @@ def test_perspective_quad_scales_with_font_size() -> None:
         [-20.0, 20.0],
     ]
     assert render_data["render_box_rect_local"] == [-20.0, -20.0, 20.0, 20.0]
+
+    # When region data has no font_size, fall back to the effective render
+    # params so Ctrl+wheel still scales the quad.
+    from types import SimpleNamespace
+
+    params_data = {
+        "white_frame_quad_local": [point[:] for point in quad],
+        "white_frame_rect_local": [-10.0, -10.0, 10.0, 10.0],
+        "has_custom_white_frame": True,
+    }
+    params_old = {
+        "white_frame_quad_local": [point[:] for point in quad],
+        "white_frame_rect_local": [-10.0, -10.0, 10.0, 10.0],
+        "has_custom_white_frame": True,
+    }
+    _sync_white_frame_size_for_font_change(
+        params_data,
+        params_old,
+        SimpleNamespace(font_size=40),
+        SimpleNamespace(font_size=20),
+    )
+    assert params_data["white_frame_quad_local"] == [
+        [-20.0, -20.0],
+        [20.0, -20.0],
+        [20.0, 20.0],
+        [-20.0, 20.0],
+    ]

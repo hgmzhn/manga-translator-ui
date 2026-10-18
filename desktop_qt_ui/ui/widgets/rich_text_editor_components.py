@@ -992,9 +992,12 @@ class StyleRunCard(SimpleCardWidget):
             control.text_changed.connect(
                 lambda value: self.ruby_changed.emit(start, end, value)
             )
+            # rubyInherit is read from the base run by the renderer, so the
+            # toggle must patch the whole ruby node, not only the current
+            # fragment (which may be a later base run without the flag).
             control.inherit_changed.connect(
-                lambda value: self._emit_patch(
-                    key, {"rubyInherit": bool(value)}
+                lambda value, a=start, b=end: self.patch_requested.emit(
+                    a, b, key, {"rubyInherit": bool(value)}
                 )
             )
             self._register_applier(
